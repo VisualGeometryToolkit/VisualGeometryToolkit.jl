@@ -1376,21 +1376,36 @@ function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, 
 end
 retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
 recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2], ch.point_chart))
-# A point chart's block of `retract_jacobian`: rows r+1:r+3, columns c+1:c+k.
-_point_jacobian!(J, ::AdditivePoints, r, c, t1, t2) = (for i in 1:3; J[r + i, c + i] = one(eltype(J)); end; J)
-_point_jacobian!(J, ::RayNormalPoints, r, c, t1, t2) = (J[(r + 1):(r + 3), c + 1] = t1; J[(r + 1):(r + 3), c + 2] = t2; J)
-function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
+# `retract_jacobian` is a static matrix (no heap): block diagonal over the nodes, rows
+# 3 (direction) [+ 3 (point)] per node, columns k = 2 [+ 2 or 3] per node. A node's block:
+# (t₁ t₂) in the direction rows' first two columns, the point chart's block below it.
+@inline function _point_jacobian!(J, ::AdditivePoints, r, c, t1, t2)
+    for i in 1:3
+        J[r + i, c + i] = one(eltype(J))
+    end
+    return J
+end
+@inline function _point_jacobian!(J, ::RayNormalPoints, r, c, t1, t2)
+    for i in 1:3
+        J[r + i, c + 1] = t1[i]
+        J[r + i, c + 2] = t2[i]
+    end
+    return J
+end
+@inline function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
     k = _control_coordinates(ch)
     central = ch.points === nothing
-    J = zeros(T, 3 * L * (central ? 1 : 2), k * L)
+    J = zero(MMatrix{3 * L * (central ? 1 : 2), k * L, T})
     for n in 1:L
         t1, t2 = direction_tangents(normalize(ch.directions[n]))
         r = 3 * (central ? n - 1 : 2n - 2)
-        J[(r + 1):(r + 3), k * (n - 1) + 1] = t1
-        J[(r + 1):(r + 3), k * (n - 1) + 2] = t2
+        for i in 1:3
+            J[r + i, k * (n - 1) + 1] = t1[i]
+            J[r + i, k * (n - 1) + 2] = t2[i]
+        end
         central || _point_jacobian!(J, ch.point_chart, r + 3, k * (n - 1) + 2, t1, t2)
     end
-    return J
+    return SMatrix(J)
 end
 # A point chart's coordinates of the offset Δ, written to out[j+1], out[j+2], ….
 _point_local_coordinates!(out, ::AdditivePoints, j, Δ, t1, t2) = (out[(j + 1):(j + 3)] = Δ; out)

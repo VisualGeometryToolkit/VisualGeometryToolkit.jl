@@ -76,7 +76,7 @@ _spline_patch(D::SMatrix{2, 2, SVector{3, Float64}, 4}, ℓ::SVector{4, Float64}
 function _in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplinePatch) where {R}
     E = SVector{4, Float64}(ntuple(n -> exp(_patch_scale(patch, n)), Val(4)))
     S = SMatrix{12, 12, Float64}(LinearAlgebra.Diagonal(SVector{12, Float64}(ntuple(i -> E[(i - 1) ÷ 3 + 1], Val(12)))))
-    Jd = (Jc * S) * SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch.charts[1]))
+    Jd = (Jc * S) * VgtkCore.retract_jacobian(patch.charts[1])::SMatrix{12, 8, Float64, 96}
     Js = hcat(ntuple(n -> Jc[:, SVector{3}(3n - 2, 3n - 1, 3n)] * _patch_control(patch, n), Val(4))...)
     return hcat(Jd, Js)
 end
@@ -86,7 +86,7 @@ end
 # its guess's control length; the guess's log-scale is 0).
 @inline _patch_direction(patch::_SplineDirections, n) = patch.directions[n]
 @inline _patch_control(patch::_SplineDirections, n) = patch.directions[n]
-_in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplineDirections) where {R} = Jc * SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(patch))
+_in_patch_chart(Jc::SMatrix{R, 12, Float64}, patch::_SplineDirections) where {R} = Jc * VgtkCore.retract_jacobian(patch)::SMatrix{12, 8, Float64, 96}
 const _AnyPatch = Union{_SplinePatch, _SplineDirections}
 # A patch variable's coordinates: 12 (directions and log-scales), 8 (directions alone).
 _patch_width(::Type{_SplinePatch}) = 12
@@ -303,7 +303,7 @@ NLLSsolver.computeresidual(r::_SplineAnchor{_SplinePatch}, patch) =
     vcat(_anchor_directions(r, patch), SVector{4, Float64}(ntuple(n -> r.dead[n] ? _patch_scale(patch, n) : 0.0, Val(4))))
 # the dead directions' rows of the sphere chart's derivative (12 × 8)
 _anchor_jacobian(r::_SplineAnchor, ch::_SplineDirections) =
-    (RJ = SMatrix{12, 8, Float64}(VgtkCore.retract_jacobian(ch)); SMatrix{12, 8, Float64}(ntuple(i -> r.dead[(((i - 1) % 12) ÷ 3) + 1] ? RJ[i] : 0.0, Val(96))))
+    (RJ = VgtkCore.retract_jacobian(ch)::SMatrix{12, 8, Float64, 96}; SMatrix{12, 8, Float64}(ntuple(i -> r.dead[(((i - 1) % 12) ÷ 3) + 1] ? RJ[i] : 0.0, Val(96))))
 function NLLSsolver.computeresjac(varflags, r::_SplineAnchor{_SplineDirections}, patch)
     varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the patch is free (varflags = $varflags)"))
     return NLLSsolver.computeresidual(r, patch), _anchor_jacobian(r, patch)

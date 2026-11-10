@@ -45,7 +45,7 @@ public reframed_calibration   # the pixel-frame change of a K (VisualGeometryToo
 public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens is radially symmetric about the principal point (a Holy trait; RadialCamera and Estimation's fit_camera read it)
 
 # Import general Julia packages directly (not through parent)
-using StaticArrays: StaticArrays, SVector, SMatrix, StaticVector, StaticMatrix
+using StaticArrays: StaticArrays, SVector, SMatrix, MMatrix, StaticVector, StaticMatrix
 using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd, dot, diag
 using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures.jl)
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)

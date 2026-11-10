@@ -114,3 +114,30 @@ end
         @test (@inferred NLLSsolver.update(r, u, 1)) isa typeof(r)
     end
 end
+
+@testitem "ControlPatchManifold: retract_jacobian is static and allocates nothing" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: ControlPatchManifold, AdditivePoints, RayNormalPoints, EuclideanManifold, ProductManifold,
+        direction_tangents, retract_jacobian, tangent_size
+
+    dirs = SMatrix{2, 2}(ntuple(i -> SVector(0.1i, 0.2, 1.0), 4))
+    pts = SMatrix{2, 2}(ntuple(i -> SVector(0.3, 0.1i, 2.0), 4))
+    patches = (ControlPatchManifold(dirs), ControlPatchManifold(dirs, pts), ControlPatchManifold(dirs, pts, RayNormalPoints()))
+    J(ch) = retract_jacobian(ch)
+    for ch in patches
+        T = J(ch)
+        @test T isa SMatrix{3 * 4 * (ch.points === nothing ? 1 : 2), tangent_size(ch), Float64}
+        @test (@allocated J(ch)) == 0
+    end
+    @test J(patches[1]) isa SMatrix{12, 8, Float64}
+    # the blocks: (t₁ t₂) per direction, the point chart's block per point
+    t1, t2 = direction_tangents(normalize(dirs[3]))
+    @test J(patches[1])[7:9, 5:6] == hcat(t1, t2) && iszero(J(patches[1])[1:3, 5:8])
+    @test J(patches[2])[16:18, 13:15] == SMatrix{3, 3, Float64}(I) && J(patches[2])[13:15, 11:12] == hcat(t1, t2)
+    @test J(patches[3])[16:18, 11:12] == hcat(t1, t2) && J(patches[3])[13:15, 9:10] == hcat(t1, t2)
+    # inside a product (a patch variable of the SplineLens refine)
+    P = ProductManifold(patches[1], EuclideanManifold(SVector(0.0, 0.0, 0.0, 0.0)))
+    @test J(P) isa SMatrix{16, 12, Float64}
+    @test (@allocated J(P)) == 0
+end

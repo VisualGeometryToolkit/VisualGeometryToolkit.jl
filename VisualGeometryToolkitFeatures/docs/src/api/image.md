@@ -9,22 +9,31 @@ and the camera RAW reader (`load_raw`).
 
 ## Camera RAW
 
-`load_raw(path; mode, gain, decoder)` reads a Bayer RAW file as exact linear
-values, `(raw − black[c]) / (white − black[c]) × gain`, in the sensor's
-orientation. The decode is an extension, chosen by a token:
+The stack's one RAW path: every consumer reads RAW files through this module,
+and VisualGeometryToolkitCore's `check_raw_decoding` flags any other decoding
+path. `load_raw(path; mode, gain)` reads a Bayer RAW file in the sensor's
+orientation (the EXIF flip is never applied). The decoder is
+[`LibRawDecoder`](@ref) (`using LibRaw_jll`: LibRaw 0.22 through `ccall`, no
+Python). Everything after the decode is Julia code here.
 
-| decoder | load | backend |
+| mode | image | use |
 |---|---|---|
-| [`LibRawDecoder`](@ref) (default) | `using LibRaw_jll` | LibRaw 0.22 through `ccall`, no Python |
-| [`RawpyDecoder`](@ref) | `using PythonCall` | rawpy and exifread (CondaPkg) |
+| `:green_cells` | each 2×2 Bayer cell's two greens, averaged; half resolution, one plane | geometry and radiometry |
+| `:bin2` | the same cells with their red and blue (R, the green-cell plane, B) | colour radiometry |
+| `:demosaic` | LibRaw's AHD demosaic, full resolution, linear | display figures only |
 
-Everything after the decode — the `:bin2` quads or the `:green` photosites, the
-per-quad saturation flags and each plane's true sample position — is the same
-Julia code for both. On 21 Sony ARW frames the two decoders return identical
-photosites, colour indices, black and white levels and visible area; their EXIF
-differs in precision only: LibRaw stores exposure, f-number and focal length as
-`Float32` (`0.01666666753590107` s for exifread's `1/60`) and keeps no
-sub-second time (`subsec = ""`).
+The cell modes are exact: `(raw − black[c]) / (white − black[c]) × gain`, with
+saturation flags and each plane's true sample position. Their pixel frame,
+[`BayerCellFrame`](@ref), maps onto the visible raw's `PixelFrame{:colmap}` by
+[`raw_frame_map`](@ref), `x ↦ 2x` exactly, for every Bayer phase and either
+parity of the visible origin. Its inverse is `inv`, and a calibration matrix
+moves with it through Core's `reframed_calibration(raw_frame_map(L), K)`. A
+green-cell value is the mean of two diagonal photosites, at `(±½, ∓½)` raw
+pixels from the cell centre for an RGGB or BGGR cell and `(±½, ±½)` for GRBG or
+GBRG; [`green_cell_sites`](@ref) gives them, so a renderer can model the
+footprint exactly. The demosaic interpolates. It has no frame map, so the
+geometric accessors refuse it. [`raw_provenance`](@ref) records the decoder,
+LibRaw's version, the mode and the frame map.
 
 The EXIF fields become VisualGeometryToolkitCore's typed values through
 [`exposure_settings`](@ref), [`lens_settings`](@ref), [`body_identity`](@ref),

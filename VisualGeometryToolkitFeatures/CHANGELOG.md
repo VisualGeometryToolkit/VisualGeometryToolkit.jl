@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **The one RAW path.** Every RAW → image step of the stack lives in this module (`load_raw`, `load_raw_mosaic`,
+  `LinearRaw`; the LibRaw_jll extension decodes), and VisualGeometryToolkitCore's `check_raw_decoding` flags any other
+  decoding path (rawpy, LibRaw C calls, dcraw, a demosaic or a CFA interpolation, a decoded RAW re-read as a PNG); the
+  quality item runs it on this package.
+- **New: `mode = :green_cells`**, THE image for geometry and radiometry: each 2×2 Bayer cell's two green photosites'
+  mean, half resolution, one plane: `:bin2`'s green plane, bit for bit, from the same kernel. A cell is saturated when
+  either green is.
+- **New: the exact frame map of the cell grid.** `BayerCellFrame` (the cell images' COLMAP frame) and
+  `raw_frame_map(L)`, a Core `SimilarityMap{2, …, BayerCellFrame, PixelFrame{:colmap}}`, `x ↦ 2x` onto the visible
+  raw for every Bayer phase and visible-origin parity (an odd margin changes only the colour phase). `inv` is its
+  inverse. A calibration matrix moves with it through Core's `reframed_calibration(raw_frame_map(L), K)`.
+- **New: `green_cell_sites(L, row, column)`**, a green-cell value's footprint: its two diagonal green photosites' raw
+  COLMAP centres, at `(±½, ∓½)` from the cell centre in an RGGB or BGGR cell and `(±½, ±½)` in GRBG or GBRG
+  (`LinearRaw.green_offsets`).
+- **New: `mode = :demosaic`, for display figures only**: LibRaw's AHD demosaic (`libraw_dcraw_process`, linear: gamma 1,
+  no auto-brightening, no maximum adjustment, 16 bits, raw colour, white balance 1) of the visible area, with an
+  optional `white_balance` and the gain applied in Julia. It carries no frame map: `raw_frame_map` and
+  `green_cell_sites` refuse it. Through `load_raw(path; mode = :demosaic)` only.
+- **The EXIF flip is never applied, in any mode** (the demosaic zeroes LibRaw's `flip` before it copies the image
+  out); a demosaic whose output is not the visible area's size is refused.
+- **New: provenance.** `LinearRaw` carries its `frame_map`; `raw_provenance(L)` (public) gives the decoder, LibRaw's
+  version, the mode, the gain and the frame map as plain data.
+- **Breaking: the raw-grid `:green` mode is removed** (the green photosites at full resolution, zeros at red and blue):
+  read `:green_cells`, or the mosaic itself. With it `LinearRaw.sampled` is removed (every pixel of every remaining
+  mode carries its sample).
+- **Breaking: `RawpyDecoder` and its PythonCall extension are removed**, with the package's `CondaPkg.toml` (rawpy,
+  exifread) and the PythonCall weak dependency: `LibRawDecoder` is the one decoder.
+
 - **The two-axis `matches!(ax_A, ax_B, cs)` and `matches(img_A, img_B, cs)` take weighted csponds**: a cspond is bare
   (opaque) or `Attributed(src => tgt, (; weight))`, its weight (Core's `weight_of`, in [0, 1]) the alpha of its markers.
 

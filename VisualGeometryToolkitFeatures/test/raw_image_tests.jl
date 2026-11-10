@@ -1,12 +1,13 @@
 # load_raw: the processing on synthetic mosaics (black/white, gain, the 2×2
 # binning, partial-saturation propagation, the true sample positions for the
-# four Bayer layouts, the green photosites), and the decoders where they can
-# run. CI has no RAW file: a real-file check runs when VGTK_RAW_TEST_FILE names
-# one, and is recorded as a skip otherwise.
+# four Bayer layouts, the green-cell image, its exact frame map and footprint),
+# the display demosaic on a synthetic Bayer buffer opened by LibRaw itself, and
+# the decoder where it can run. CI has no RAW file: a real-file check runs when
+# VGTK_RAW_TEST_FILE names one, and is recorded as a skip otherwise.
 
 @testsetup module RawFixtures
     using VisualGeometryToolkitFeatures: RawMosaic
-    export mosaic, LAYOUTS
+    export mosaic, scene_mosaic, LAYOUTS, ORIGINS
     # LibRaw colour indices: 0 R, 1 G, 2 B, 3 the second G
     const LAYOUTS = (
         RGGB = UInt8[0 1; 3 2], BGGR = UInt8[2 1; 3 0],
@@ -17,6 +18,12 @@
         meta = (; model = "synthetic")
         return RawMosaic(Matrix{UInt16}(raw), cell, black, white, origin, (H + origin[1], W + origin[2]), meta)
     end
+    # the visible-area origins of every parity
+    const ORIGINS = ((0, 0), (1, 0), (0, 1), (1, 1))
+    # A mosaic whose every photosite records the scene `f(x, y)` at its own centre, in
+    # the visible raw's COLMAP frame (photosite (row, column) at (column − ½, row − ½)).
+    scene_mosaic(f, cell, origin; H = 12, W = 16, kw...) =
+        mosaic(UInt16[f(j - 0.5, i - 0.5) for i in 1:H, j in 1:W], cell; origin, kw...)
 end
 
 @testitem "raw: photosite colours are the pattern tiled from the raw origin" setup = [RawFixtures] begin
@@ -48,7 +55,6 @@ end
     lin(v, c) = (v - black[c + 1]) / (white - black[c + 1])
     L = LinearRaw(m; mode = :bin2)
     @test size(L.image) == (2, 2, 3) && L.mode === :bin2 && L.gain == 1.0
-    @test all(L.sampled)
     # quad (1, 1): R = raw[1,1], G = mean of raw[1,2] (c 1) and raw[2,1] (c 3), B = raw[2,2]
     @test L.image[1, 1, 1] == lin(1000, 0)
     @test L.image[1, 1, 2] == (lin(2000, 1) + lin(3000, 3)) / 2
@@ -104,40 +110,170 @@ end
     @test_throws ArgumentError LinearRaw(bad; mode = :bin2)
 end
 
-@testitem "raw: the green photosites on the raw grid" setup = [RawFixtures] begin
-    using VisualGeometryToolkitFeatures: LinearRaw, photosite_colors
-    for cell in (LAYOUTS.RGGB, LAYOUTS.GRBG)
-        raw = UInt16[1000 + 37 * i + 11 * j for i in 1:4, j in 1:6]
-        raw[findfirst(c -> c == 1, [cell[mod1(i, 2), mod1(j, 2)] for i in 1:4, j in 1:6])] = 16383
-        m = mosaic(raw, cell)
-        L = LinearRaw(m; mode = :green, gain = 2)
-        colors = photosite_colors(m)
-        green = (colors .== 1) .| (colors .== 3)
-        @test size(L.image) == (4, 6, 1) && L.sampled == green
-        @test all(L.image[.!green, 1] .== 0)
-        @test all(L.image[i, j, 1] == (raw[i, j] - m.black[colors[i, j] + 1]) / (m.white - m.black[colors[i, j] + 1]) * 2
-                  for i in 1:4, j in 1:6 if green[i, j])
-        @test count(L.saturated) == 1 && all(L.saturated .<= green)
-        @test L.plane_offsets == [zeros(2)]
+@testitem "raw: the green-cell image is bin2's green plane" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw
+    for cell in LAYOUTS, origin in ORIGINS
+        raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
+        m = mosaic(raw, cell; origin)
+        B = LinearRaw(m; mode = :bin2, gain = 2)
+        G = LinearRaw(m; mode = :green_cells, gain = 2)
+        @test size(G.image) == (3, 4, 1) && G.mode === :green_cells && G.gain == 2.0
+        @test G.image[:, :, 1] == B.image[:, :, 2]                    # the same bits: one kernel
+        @test G.plane_offsets == [zeros(2)]
+        @test G.frame_map === B.frame_map && G.green_offsets == B.green_offsets
+    end
+    # a green cell is saturated by its greens alone: a red or blue at the white level is not its sample
+    raw = fill(UInt16(3000), 4, 4)
+    raw[1, 1] = 16383                      # quad (1, 1)'s red (RGGB)
+    raw[3, 4] = 16383                      # quad (2, 2)'s green
+    m = mosaic(raw, LAYOUTS.RGGB)
+    @test LinearRaw(m; mode = :green_cells).saturated == BitMatrix([0 0; 0 1])
+    @test LinearRaw(m; mode = :bin2).saturated == BitMatrix([1 0; 0 1])
+    # the raw-grid green photosites (zeros at red and blue) are retired; the demosaic needs the file
+    @test_throws ArgumentError LinearRaw(m; mode = Symbol("gre" * "en"))
+    err = try LinearRaw(m; mode = :demosaic) catch e; e end
+    @test err isa ArgumentError && occursin("load_raw", err.msg)
+end
+
+@testitem "raw: the cell frame map is exact for every Bayer phase and origin" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, BayerCellFrame, raw_frame_map
+    using VisualGeometryToolkitCore: SimilarityMap, PixelFrame, scale, translation
+    using StaticArrays: SVector
+    S = raw_frame_map(LinearRaw(mosaic(fill(UInt16(3000), 4, 4), LAYOUTS.RGGB); mode = :green_cells))
+    @test S isa SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame, PixelFrame{:colmap}}
+    @test scale(S) == 2 && translation(S) == SVector(0.0, 0.0)
+    @test inv(S)(S(SVector(3.25, 1.75))) == SVector(3.25, 1.75)
+    # a scene point at a known sub-pixel raw position, (x0, y0): an affine ramp through it in x
+    # (and one in y), integer-valued at every photosite centre. The green-cell values are the
+    # scene at S(p) for every cell centre p, and the ramp's zero, found in the green-cell image,
+    # maps back to x0 (y0) exactly — for every Bayer phase and visible-origin parity.
+    x0, y0 = 9.25, 6.75
+    black = (512.0, 500.0, 520.0, 500.0)              # the two greens share a black level: the mean stays affine
+    lin(v) = (v - 500.0) / (16383.0 - 500.0)
+    for cell in LAYOUTS, origin in ORIGINS
+        for (axis, f) in ((1, (x, y) -> 4000 + 64 * (x - x0)), (2, (x, y) -> 4000 + 64 * (y - y0)))
+            L = LinearRaw(scene_mosaic(f, cell, origin; black); mode = :green_cells)
+            Sm = raw_frame_map(L)
+            g = L.image[:, :, 1]
+            @test all(g[i, j] ≈ lin(f(Sm(SVector(j - 0.5, i - 0.5))...)) for i in axes(g, 1), j in axes(g, 2))
+            # the level of the scene at the point, between the two cells that straddle it
+            target = lin(4000.0)
+            v = axis == 1 ? g[1, :] : g[:, 1]
+            k = findfirst(t -> v[t] <= target <= v[t + 1], 1:(length(v) - 1))
+            p = k - 0.5 + (target - v[k]) / (v[k + 1] - v[k])   # half-res COLMAP coordinate of the zero
+            q = Sm(axis == 1 ? SVector(p, 0.5) : SVector(0.5, p))
+            @test q[axis] ≈ (axis == 1 ? x0 : y0) atol = 1e-12
+        end
     end
 end
 
-@testitem "raw: a decoder needs its package" begin
+@testitem "raw: K moves between the green-cell and raw frames through Core" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, raw_frame_map
+    using VisualGeometryToolkitCore: CameraCalibrationMat
+    using VisualGeometryToolkitCore.Cameras: reframed_calibration
+    using StaticArrays: SMatrix
+    S = raw_frame_map(LinearRaw(mosaic(fill(UInt16(3000), 4, 4), LAYOUTS.GBRG; origin = (1, 0)); mode = :green_cells))
+    Kh = CameraCalibrationMat(SMatrix{3, 3, Float64}(1234.567, 0, 0, 0, 1230.125, 0, 1520.3125, 1011.71875, 1))
+    Kr = reframed_calibration(S, Kh)
+    @test (Kr[1, 1], Kr[2, 2], Kr[1, 3], Kr[2, 3]) == (2 * Kh[1, 1], 2 * Kh[2, 2], 2 * Kh[1, 3], 2 * Kh[2, 3])
+    @test reframed_calibration(inv(S), Kr) == Kh          # exact both ways
+end
+
+@testitem "raw: the green-cell footprint is the cell's two green photosites" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, green_cell_sites, photosite_colors
+    using StaticArrays: SVector
+    # (Δx, Δy) of the two greens from the cell centre, in raw pixels, for the phase the visible area
+    # starts on: the greens are diagonal, so their mean is the cell centre in every phase
+    h = 0.5
+    anti = (SVector(h, -h), SVector(-h, h))               # R G / G B and B G / G R: the greens on the anti-diagonal
+    diag = (SVector(-h, -h), SVector(h, h))               # G R / B G and G B / R G: on the diagonal
+    expected = Dict(:RGGB => anti, :BGGR => anti, :GRBG => diag, :GBRG => diag)
+    phase = Dict(UInt8[0 1; 3 2] => :RGGB, UInt8[2 1; 3 0] => :BGGR, UInt8[1 0; 2 3] => :GRBG, UInt8[1 2; 0 3] => :GBRG,
+                 UInt8[2 3; 1 0] => :BGGR, UInt8[0 3; 1 2] => :RGGB, UInt8[3 2; 0 1] => :GBRG, UInt8[3 0; 2 1] => :GRBG)
+    for cell in LAYOUTS, origin in ORIGINS
+        raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
+        m = mosaic(raw, cell; origin)
+        colors = photosite_colors(m)
+        L = LinearRaw(m; mode = :green_cells)
+        @test Set(L.green_offsets) == Set(expected[phase[colors[1:2, 1:2]]])
+        for i in 1:3, j in 1:4
+            sites = green_cell_sites(L, i, j)
+            @test sum(sites) / 2 == SVector(2j - 1.0, 2i - 1.0)     # the cell centre, raw COLMAP
+            # each is a green photosite's centre, (column − ½, row − ½), and the value is their mean
+            rc = [(Int(s[2] + 0.5), Int(s[1] + 0.5)) for s in sites]
+            @test all(colors[r, c] in (0x01, 0x03) for (r, c) in rc)
+            @test L.image[i, j, 1] == sum((raw[r, c] - m.black[colors[r, c] + 1]) / (m.white - m.black[colors[r, c] + 1]) for (r, c) in rc) / 2
+        end
+    end
+end
+
+@testitem "raw: the decoder needs its package" begin
     using VisualGeometryToolkitFeatures
     VGF = VisualGeometryToolkitFeatures
     @test_throws ArgumentError load_raw_mosaic(joinpath(@__DIR__, "no-such-file.ARW"))
-    for (decoder, ext) in ((LibRawDecoder(), :VisualGeometryToolkitFeaturesLibRawExt), (RawpyDecoder(), :VisualGeometryToolkitFeaturesPythonExt))
-        if Base.get_extension(VGF, ext) === nothing
-            err = try
-                load_raw(@__FILE__; mode = :bin2, decoder)
-            catch e
-                e
-            end
-            @test err isa ArgumentError && occursin("using $(VGF._decoder_trigger(decoder))", err.msg)
-        else
-            @test_skip "$ext already loaded on this worker"
+    # LibRaw_jll is the one decoder (the rawpy extension is retired)
+    @test !isdefined(VGF, Symbol("Raw" * "pyDecoder"))
+    if Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) === nothing
+        for mode in (:bin2, :demosaic)
+            err = try load_raw(@__FILE__; mode) catch e; e end
+            @test err isa ArgumentError && occursin("using LibRaw_jll", err.msg)
         end
+    else
+        @test_skip "VisualGeometryToolkitFeaturesLibRawExt already loaded on this worker"
     end
+end
+
+@testitem "raw: the display demosaic keeps the sensor orientation (LibRaw_jll)" begin
+    using VisualGeometryToolkitFeatures
+    using VisualGeometryToolkitFeatures: LinearRaw, raw_frame_map, green_cell_sites, raw_provenance
+    using LibRaw_jll: LibRaw_jll, libraw
+    VGF = VisualGeometryToolkitFeatures
+    X = Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt)
+    # A synthetic Bayer buffer opened by LibRaw itself (libraw_open_bayer), RGGB, a dark top half
+    # and a bright bottom half, with the EXIF orientation set to portrait (flip 6: 90° CW) the way
+    # a camera held upright records it. The display image keeps the sensor's landscape grid.
+    H, W = 48, 64
+    data = UInt16[i <= H ÷ 2 ? 2000 : 30000 for i in 1:H, j in 1:W]
+    buf = collect(reinterpret(UInt8, vec(permutedims(data))))
+    lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
+    try
+        rc = @ccall libraw.libraw_open_bayer(lr::Ptr{Cvoid}, buf::Ptr{UInt8}, length(buf)::Cuint, W::Cushort, H::Cushort,
+            0::Cushort, 0::Cushort, 0::Cushort, 0::Cushort, 0::Cuchar, 0x94::Cuchar, 0::Cuint, 0::Cuint, 512::Cuint)::Cint
+        @test rc == 0
+        @test (@ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint) == 0
+        # the portrait flag, in the live sizes and in the unpacked copy LibRaw's processing restores them from
+        s = X._structures(lr)
+        for sizes_p in (s.sizes_p, X._fieldptr(X._rawdata_ptr(s.other_p), X.RawData, :sizes))
+            X._store_flip!(sizes_p, 6)
+        end
+        m = X._mosaic(lr, "synthetic.raw")
+        rgb, md = GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
+        L = VGF._demosaic_image(rgb, md, 1.0, nothing)
+        @test L isa LinearRaw && L.mode === :demosaic
+        @test size(L.image) == (H, W, 3)          # landscape: the flip is never applied
+        @test all(L.image[1:20, :, :] .< L.image[29:end, :, :][1:20, :, :])   # the dark half stays on top
+        # linear: the flat bright half reads its level, (raw − black) / (white − black) to LibRaw's 16 bits
+        @test isapprox(L.image[40, 30, 2], (30000 - m.black[2]) / (m.white - m.black[2]); rtol = 1e-3)
+        # display only: no frame map, no footprint
+        @test_throws ArgumentError raw_frame_map(L)
+        @test_throws ArgumentError green_cell_sites(L, 1, 1)
+        @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
+        @test startswith(raw_provenance(L).libraw_version, "0.22")
+        # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
+        Lw = VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5))
+        @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
+    finally
+        @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
+    end
+end
+
+@testitem "raw: provenance records the decoder, the mode, LibRaw and the frame map" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, RawMosaic, raw_provenance
+    m = RawMosaic(fill(UInt16(3000), 4, 4), LAYOUTS.RGGB, (512.0, 512.0, 512.0, 512.0), 16383.0, (0, 0), (4, 4),
+        (; model = "synthetic", decoder = "LibRaw_jll", libraw_version = "0.22.0-Release"))
+    p = raw_provenance(LinearRaw(m; mode = :green_cells, gain = 3))
+    @test p == (decoder = "LibRaw_jll", libraw_version = "0.22.0-Release", mode = "green_cells", gain = 3.0,
+                frame_map = (from = "BayerCellFrame", to = "PixelFrame{:colmap}", scale = 2.0, translation = [0.0, 0.0]))
 end
 
 @testitem "raw: LibRaw_jll decoder" begin
@@ -157,6 +293,10 @@ end
         @test startswith(m.metadata.libraw_version, "0.22")
         L = LinearRaw(m; mode = :bin2)
         @test size(L.image) == (size(m.raw) .÷ 2..., 3)
+        @test LinearRaw(m; mode = :green_cells).image[:, :, 1] == L.image[:, :, 2]
+        D = load_raw(path; mode = :demosaic)
+        @test size(D.image) == (size(m.raw)..., 3)     # the sensor's grid, the visible area, no flip
+        @test D.metadata == m.metadata
     else
         @test_skip "VGTK_RAW_TEST_FILE names no RAW file"
     end
@@ -183,22 +323,6 @@ end
     # a 4 × 4 pattern that varies has no per-channel form: refused, naming the file and the size
     err = try adjust(cblack(4, 4, collect(1:16)), 100, filters, "/data/b.dng"); nothing catch e; e end
     @test err isa ErrorException && occursin("/data/b.dng", err.msg) && occursin("4 × 4", err.msg)
-end
-
-@testitem "raw: rawpy decoder (PythonCall)" begin
-    using VisualGeometryToolkitFeatures
-    path = get(ENV, "VGTK_RAW_TEST_FILE", "")
-    if isfile(path)
-        # Loads Python: run only where a RAW file was supplied. Not in the same
-        # process as a LibRaw_jll decode when comparing the two: rawpy's calls can
-        # bind to an already-loaded LibRaw_jll library.
-        @eval using PythonCall
-        m = Base.invokelatest(load_raw_mosaic, path; decoder = RawpyDecoder())
-        @test all(<(m.white), m.black)
-        @test startswith(m.metadata.decoder, "rawpy")
-    else
-        @test_skip "VGTK_RAW_TEST_FILE names no RAW file"
-    end
 end
 
 @testitem "raw: EXIF as typed settings and identities" begin
@@ -247,7 +371,7 @@ end
     cs2 = @test_logs (:warn, r"overrides") extract_capture_settings(Dict(1 => md, 2 => md); lens = sigma)
     @test cs2.lens == sigma && is_constant(cs2)
     @test_logs extract_capture_settings(Dict(1 => md); lens = DeviceIdentity(; model = "DT 8mm F4 SAM", serial = "123"))   # agrees: no warning
-    # one body across decoders: rawpy's EXIF "SONY" and its serial agree with LibRaw's "Sony", which states none
+    # one body across files: one EXIF's "SONY" and its serial agree with LibRaw's "Sony", which states none
     cs3 = extract_capture_settings(Dict(1 => md, 2 => merge(md, (make = "SONY", body_serial = "5123"))))
     @test cs3.body == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
     @test_throws ArgumentError extract_capture_settings(Dict(1 => md, 2 => merge(md, (model = "ILCE-7M4",))))

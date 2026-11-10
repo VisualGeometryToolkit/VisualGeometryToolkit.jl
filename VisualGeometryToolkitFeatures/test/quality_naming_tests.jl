@@ -11,3 +11,15 @@
     isempty(found) || foreach(v -> println(stderr, v), found)
     @test isempty(found)
 end
+
+# The stack's one RAW path, checked by VisualGeometryToolkitCore's `check_raw_decoding`:
+# outside this package's raw module (src/raw_image.jl, its LibRaw_jll extension and
+# their tests), no decoding library, demosaic or CFA interpolation.
+@testitem "quality: one RAW path" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using VisualGeometryToolkitCore
+    found = VgtkCore.check_raw_decoding(pkgdir(VisualGeometryToolkitFeatures))
+    isempty(found) || foreach(v -> println(stderr, v), found)
+    @test isempty(found)
+end

@@ -11,10 +11,12 @@ Feature detection and descriptor matching.
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
 - **LoMa:** the learned DeDoDe descriptors and LoMa matchers, from the authors' ONNX
   exports ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
-- **Camera RAW:** [`load_raw`](@ref) reads a Bayer RAW file as exact linear values (2×2
-  quads or the green photosites, saturation flags, true sample positions).
+- **Camera RAW:** the stack's one RAW path. [`load_raw`](@ref) reads a Bayer RAW file as
+  exact linear values on the 2×2 Bayer cells (the green-cell image for geometry and
+  radiometry, or R G B), with saturation flags, true sample positions and the exact frame
+  map onto the raw ([`raw_frame_map`](@ref)); a display-only demosaic for figures.
 - **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences;
-  LibRaw_jll and PythonCall (rawpy) are the two RAW decoders.
+  LibRaw_jll is the RAW decoder.
 """
 module VisualGeometryToolkitFeatures
 
@@ -41,6 +43,8 @@ using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, 
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
+using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
+using LinearAlgebra: UniformScaling
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
@@ -77,7 +81,7 @@ include("detection_types.jl")
 include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
 include("mser.jl")           # detect_mser — VLFeat's MSER selection on ImageMorphology's MaxTree
 include("linear_image.jl")   # load_linear_image — a PNG as linear radiance (hoisted from RadiometricCamera)
-include("raw_image.jl")      # load_raw — a camera RAW mosaic as exact linear values (decoders in the LibRaw_jll / PythonCall extensions)
+include("raw_image.jl")      # load_raw — the one RAW path: a camera RAW mosaic as exact linear values (the decoder is the LibRaw_jll extension)
 include("batching.jl")       # batched_rows — the describe backends' chunking skeleton
 include("asift/pyramid.jl")
 include("asift/warp.jl")
@@ -143,8 +147,10 @@ export FeatureCovariance            # keypoint uncertainty: asift_detect(img; un
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
-export load_raw, load_raw_mosaic   # a camera RAW file as exact linear values (:bin2, :green), and its decoded mosaic
-export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder, RawpyDecoder
+export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
+export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
+export BayerCellFrame, raw_frame_map, green_cell_sites   # the cell grid's frame, its exact map onto the raw, a green cell's footprint
+public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)
 public exposure_settings, lens_settings, body_identity, lens_identity, capture_time   # a RAW's EXIF as Core's typed values

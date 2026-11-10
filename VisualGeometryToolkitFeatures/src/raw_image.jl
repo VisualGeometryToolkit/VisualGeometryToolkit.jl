@@ -2,23 +2,26 @@
 # Camera RAW input — a Bayer mosaic as exact linear values
 # =============================================================================
 #
-# Two layers, kept apart on purpose:
+# THE one RAW path of the stack: every consumer reads RAW files through this
+# module, and `VisualGeometryToolkitCore.check_raw_decoding` flags any other
+# decoding path. Two layers, kept apart on purpose:
 #
 #   decode   — a RAW file to its mosaic (`RawMosaic`): the visible photosites,
 #              their colour pattern, the per-channel black levels, the white
-#              level and the EXIF fields. A decoder is a weak-dependency
-#              extension, chosen by a token: `LibRawDecoder()` (LibRaw_jll,
-#              ccall, no Python) or `RawpyDecoder()` (PythonCall + rawpy).
-#              Both wrap LibRaw; the extension only decodes.
+#              level and the EXIF fields. The decoder is the weak-dependency
+#              extension on LibRaw_jll (`LibRawDecoder()`, ccall, no Python);
+#              it only decodes, and for the display demosaic only runs
+#              LibRaw's own interpolation.
 #   process  — every number after that, here, in Julia: the linear scaling,
-#              the 2×2 binning or the green photosites, the saturation flags,
-#              the true sample positions (`LinearRaw(mosaic; mode, gain)`).
+#              the 2×2 Bayer cells (`:bin2`, `:green_cells`), the saturation
+#              flags, the true sample positions and the exact frame map of the
+#              half-resolution grid (`LinearRaw(mosaic; mode, gain)`).
 #
-# Ported from RadiometricCamera's scripts/py/convert_raw.py (modes bin2 and
-# green, 2026-11-04). Its third mode, `fullres` (LibRaw's linear demosaic), is
-# not ported: a demosaic interpolates, and the radiometric chain reads the
-# binned or green-only samples. Each mode is one KernelAbstractions kernel
-# (on the CPU backend of the host mosaic).
+# The green-cell image is THE image for geometry and radiometry; `:bin2` adds
+# the cell's red and blue; `:demosaic` (LibRaw's interpolation, full
+# resolution) is for display figures only and carries no frame map. Both cell
+# modes are one KernelAbstractions kernel (on the CPU backend of the host
+# mosaic).
 # =============================================================================
 
 using KernelAbstractions: @kernel, @index, @Const
@@ -27,8 +30,8 @@ using KernelAbstractions: @kernel, @index, @Const
     RawDecoder
 
 A RAW decoder, the token [`load_raw`](@ref) and [`load_raw_mosaic`](@ref)
-dispatch on: [`LibRawDecoder`](@ref) or [`RawpyDecoder`](@ref). Each is
-implemented by a package extension and needs its trigger package loaded.
+dispatch on: [`LibRawDecoder`](@ref), implemented by a package extension that
+needs its trigger package loaded.
 """
 abstract type RawDecoder end
 
@@ -38,34 +41,21 @@ abstract type RawDecoder end
 Decode with LibRaw through LibRaw_jll (`using LibRaw_jll`): a `ccall` layer over
 LibRaw's C API, no Python. The extension checks LibRaw's version at load and the
 layout of every structure it reads against LibRaw's own accessors, and refuses
-(`ErrorException`) a library it was not written for.
+(`ErrorException`) a library it was not written for. The stack's one decoder.
 """
 struct LibRawDecoder <: RawDecoder end
 
-"""
-    RawpyDecoder()
-
-Decode with rawpy and exifread through PythonCall (`using PythonCall`; the
-Python packages are declared in the package's `CondaPkg.toml`). Python opens the
-file once and returns the arrays once; no per-pixel Python call.
-
-rawpy reports only LibRaw's per-channel black levels (`black_level_per_channel`),
-not the spatial black pattern behind them, so where [`LibRawDecoder`](@ref)
-refuses a file whose spatial pattern has no per-channel form, this decoder
-cannot see it and returns the per-channel levels (the pattern dropped). Use
-`LibRawDecoder()` where that matters (DNGs with a black-level pattern).
-"""
-struct RawpyDecoder <: RawDecoder end
-
 _decoder_trigger(::LibRawDecoder) = "LibRaw_jll"
-_decoder_trigger(::RawpyDecoder) = "PythonCall"
 
-# The decode hook: an extension adds the method for its decoder. Without the
-# extension loaded this fallback names the package to load.
-function _decode_raw(decoder::RawDecoder, path::AbstractString)
-    pkg = _decoder_trigger(decoder)
-    throw(ArgumentError("load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $pkg` (its package extension is not loaded)"))
-end
+# The decode hooks: an extension adds the methods for its decoder. Without the
+# extension loaded these fallbacks name the package to load.
+_missing_decoder(decoder::RawDecoder) = throw(ArgumentError(
+    "load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $(_decoder_trigger(decoder))` (its package extension is not loaded)"
+))
+_decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
+# The display demosaic: LibRaw's interpolated, linear, 16-bit camera-RGB image of
+# the visible area in the sensor's orientation, and the file's metadata.
+_decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
 
 """
     RawMosaic
@@ -75,12 +65,13 @@ reports it.
 
 - `raw::Matrix{UInt16}` — the visible photosites, `raw[row, column]`, in the
   sensor's orientation (no EXIF flip): pixel `(row, column)` is the raw's
-  COLMAP pixel centred at `(column − ½, row − ½)`.
+  COLMAP pixel centred at `(column − ½, row − ½)` — the visible raw's
+  `PixelFrame{:colmap}`, the frame every calibration of the raw is in.
 - `pattern::Matrix{UInt8}` — the smallest repeating colour pattern, square,
-  at most 4 × 4, from the full raw frame's origin (rawpy's `raw_pattern`), in
-  LibRaw's colour indices: `0` R, `1` G, `2` B, `3` the second G of an RGBG
-  pattern. Each photosite's index is [`photosite_colors`](@ref)`(mosaic)`,
-  the pattern tiled from that origin.
+  at most 4 × 4, from the full raw frame's origin (LibRaw's `COLOR` read
+  from there), in LibRaw's colour indices: `0` R, `1` G, `2` B, `3` the
+  second G of an RGBG pattern. Each photosite's index is
+  [`photosite_colors`](@ref)`(mosaic)`, the pattern tiled from that origin.
 - `black::NTuple{4, Float64}` — the black level per colour index (the common
   and per-channel parts summed, LibRaw's `adjust_bl`).
 - `white::Float64` — the white level (LibRaw's `maximum`): the code at which a
@@ -122,7 +113,7 @@ Each visible photosite's colour index (LibRaw's: `0` R, `1` G, `2` B, `3` the
 second G), the size of `mosaic.raw`: the `pattern` tiled from the full raw
 frame's origin, so visible photosite `(row, column)` reads
 `pattern[mod(top + row − 1, n) + 1, mod(left + column − 1, n) + 1]` with
-`(top, left) = visible_origin` — rawpy's `raw_colors_visible`.
+`(top, left) = visible_origin`.
 """
 photosite_colors(m::RawMosaic) = UInt8[_photosite_color(m, i, j) for i in axes(m.raw, 1), j in axes(m.raw, 2)]
 
@@ -142,54 +133,88 @@ indices read through `"RGBG"`, as convert_raw.py records it.
 cfa_string(mosaic::RawMosaic) = join(("RGBG"[Int(c) + 1] for c in permutedims(mosaic.pattern)))
 
 """
+    BayerCellFrame <: Frame{2}
+
+The COLMAP pixel frame of the half-resolution grid of 2×2 Bayer cells — the
+`:green_cells` and `:bin2` images of [`LinearRaw`](@ref): cell `(row, column)`
+centred at `(column − ½, row − ½)`. [`raw_frame_map`](@ref) maps it to the
+visible raw's `PixelFrame{:colmap}`.
+"""
+struct BayerCellFrame <: Frame{2} end
+
+# THE map of the cell grid onto the visible raw, x ↦ 2x, exactly. Cell (i, j)
+# holds photosites (2i − 1, 2j − 1) … (2i, 2j) of the visible area, whose
+# centres (2j − 1.5, 2i − 1.5) … (2j − 0.5, 2i − 0.5) average to (2j − 1, 2i − 1),
+# twice the cell centre (j − ½, i − ½). The cells start at the visible area's
+# first photosite whatever the parity of `visible_origin`: an odd margin changes
+# only the cell's colour phase (RGGB from the raw origin reads BGGR, GRBG or
+# GBRG from an odd one), which the colour lookup carries, not the geometry. In
+# the FULL raw frame (`raw_size`) the map would add `(left, top)`; nothing reads
+# that frame.
+const _CELL_FRAME_MAP = relabel(BayerCellFrame, PixelFrame{:colmap}, SimilarityMap(LinearMap(UniformScaling(2.0))))
+
+"""
     LinearRaw
 
-A RAW mosaic as linear values: `(raw − black[c]) / (white − black[c]) × gain`,
+A RAW image as linear values: `(raw − black[c]) / (white − black[c]) × gain`,
 camera raw colour, white balance 1, `1.0` = the white level (before the gain).
 Not clipped: a value above 1 (a gain above 1) or below 0 (noise under the black
 level) is kept.
 
 - `image::Array{Float64, 3}` — `image[row, column, plane]`.
-- `sampled::BitMatrix` — the pixels that carry a sample (every pixel in
-  `:bin2`; the green photosites in `:green`).
 - `saturated::BitMatrix` — the pixels whose value includes a photosite at the
-  white level (`raw ≥ white`): in `:bin2` a quad is saturated when ANY of its
-  four photosites is, so a quad whose two greens straddle the white level is
-  flagged rather than averaged into a plausible value.
+  white level (`raw ≥ white`): in `:bin2` a cell is saturated when ANY of its
+  four photosites is, so a cell whose two greens straddle the white level is
+  flagged rather than averaged into a plausible value; in `:green_cells` when
+  either green is.
 - `plane_offsets::Vector{SVector{2, Float64}}` — per plane, where its sample
   sits relative to the pixel centre, `(Δx, Δy)` in this image's pixels: the
   sample of pixel `(row, column)`, plane `k`, is at the COLMAP point
   `(column − ½, row − ½) + plane_offsets[k]`.
-- `mode`, `gain`, and the mosaic's `metadata`.
+- `green_offsets` — the cell's two green photosites, `(Δx, Δy)` from the cell
+  centre in RAW pixels ([`green_cell_sites`](@ref)); `nothing` for `:demosaic`.
+- `mode`, `gain`, the mosaic's `metadata` (the decoder and LibRaw's version
+  among it), and `frame_map` — [`raw_frame_map`](@ref)'s map of the image's
+  pixel frame onto the visible raw, `nothing` for `:demosaic`.
+  [`raw_provenance`](@ref) gives them as plain data for a result to record.
 """
-struct LinearRaw{M <: NamedTuple}
+struct LinearRaw{M <: NamedTuple, F, G}
     image::Array{Float64, 3}
-    sampled::BitMatrix
     saturated::BitMatrix
     plane_offsets::Vector{SVector{2, Float64}}
+    green_offsets::G
     mode::Symbol
     gain::Float64
+    frame_map::F
     metadata::M
 end
 
-const RAW_MODES = (:bin2, :green)
+const RAW_MODES = (:green_cells, :bin2, :demosaic)
 
 """
     LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1) -> LinearRaw
 
-The mosaic's linear values, `(raw − black[c]) / (white − black[c]) × gain`,
-arranged by `mode` (required: there is no neutral choice between them):
+The mosaic's linear values, `(raw − black[c]) / (white − black[c]) × gain`, on
+the half-resolution grid of 2×2 Bayer cells (`H ÷ 2 × W ÷ 2`; an odd last row
+or column is dropped), arranged by `mode` (required: there is no neutral
+choice between them):
 
-- `:bin2` — 2×2 Bayer quads, `H ÷ 2 × W ÷ 2 × 3` (an odd last row or column is
-  dropped): R, the mean of the two greens, B. A COLMAP coordinate of the raw
-  scales by exactly ½. The green sample sits at the quad centre (offset
-  `(0, 0)`: the two greens are diagonal); R and B sit at their photosites,
-  `(±¼, ±¼)` binned pixels from it (`plane_offsets`).
-- `:green` — the green photosites alone, `H × W × 1` on the raw's own grid,
-  `0` at the red and blue photosites (`sampled` says which), offset `(0, 0)`.
+- `:green_cells` — THE image for geometry and radiometry, one plane: each cell's
+  two green photosites' mean. The greens of a cell are always diagonal, so in
+  every Bayer phase their mean sits at the cell centre (offset `(0, 0)`),
+  and the cell grid maps onto the raw exactly by [`raw_frame_map`](@ref)
+  (`x ↦ 2x` in COLMAP coordinates). The footprint of a value is its two
+  photosites, at `(±½, ∓½)` raw pixels from the cell centre for an RGGB or
+  BGGR cell, `(±½, ±½)` for GRBG or GBRG ([`green_cell_sites`](@ref)).
+- `:bin2` — the same cells with their red and blue, `× 3` planes: R, the mean
+  of the two greens (the `:green_cells` image, bit for bit), B. R and B sit at
+  their photosites, `(±¼, ±¼)` cell pixels from the centre (`plane_offsets`).
 
-The values are those convert_raw.py writes, in the same Float64 arithmetic and
-order, before its clip to `[0, 1]` and 16-bit rounding.
+`:demosaic` (LibRaw's interpolation, for display figures) needs the file:
+[`load_raw`](@ref)`(path; mode = :demosaic)`.
+
+The values are those convert_raw.py writes (`--mode bin2`), in the same Float64
+arithmetic and order, before its clip to `[0, 1]` and 16-bit rounding.
 
 Saturation is `raw ≥ white` with no margin: on the Sony ARW sets this was
 written for, codes pile up exactly at the white level (16383) while the
@@ -198,104 +223,156 @@ histogram runs smoothly through the camera's declared linear limit (15360,
 wants that stricter limit thresholds `mosaic.raw` itself.
 """
 function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1)
-    mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$mode (the full-resolution demosaic is not provided)"))
+    mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$mode"))
+    mode === :demosaic && throw(ArgumentError(
+        "LinearRaw: the display demosaic is LibRaw's interpolation of the file: `load_raw(path; mode = :demosaic)`"
+    ))
+    return _cells(mosaic, _checked_gain(gain), mode)
+end
+
+function _checked_gain(gain::Real)
     isfinite(gain) && gain > 0 || throw(ArgumentError("LinearRaw: the gain must be positive and finite, got $gain"))
-    g = Float64(gain)
-    return mode === :bin2 ? _bin2(mosaic, g) : _green_sites(mosaic, g)
+    return Float64(gain)
 end
 
 # (raw − black[c]) / (white − black[c]): convert_raw.py's expression, in its
-# order (the gain is applied after the binning's mean, as there), with the
+# order (the gain is applied after the cell's mean, as there), with the
 # black level and the denominator `white − black[c]` taken from per-colour
 # (or per-site) constants computed once — the same two operations on the same
 # values, so the same bits.
 @inline _linear(x::UInt16, black::Float64, den::Float64) = (Float64(x) - black) / den
 
-# A quad's four photosites in column-major order, k = di + 2dj + 1.
+# A cell's four photosites in column-major order, k = di + 2dj + 1.
 const _QUAD_SITES = ((0, 0), (1, 0), (0, 1), (1, 1))
 
-# Each quad's R, G, B: the planes' photosites (quad-site indices k), their
-# linear values' mean times the gain, and whether ANY photosite is at the
-# white level. One work item per quad.
-@kernel function _bin2_kernel!(img, sat, @Const(raw), planes, black, den, gain::Float64, white::Float64)
+# Plane p of cell (i, j): the mean of its photosites' (cell-site indices `ks`)
+# linear values, times the gain. Unrolled over the planes (a tuple of tuples).
+@inline _store_planes!(img, i, j, v, ::Tuple{}, gain, p) = nothing
+@inline function _store_planes!(img, i, j, v, planes::Tuple, gain, p)
+    ks = first(planes)
+    @inbounds img[i, j, p] = (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain
+    return _store_planes!(img, i, j, v, Base.tail(planes), gain, p + 1)
+end
+
+# Each cell's planes and whether any photosite its planes read (`sites`) is at
+# the white level. One work item per cell; the cell modes differ only in the
+# planes they ask for.
+@kernel function _cells_kernel!(img, sat, @Const(raw), planes, sites, black, den, gain::Float64, white::Float64)
     i, j = @index(Global, NTuple)
     r0, c0 = 2i - 1, 2j - 1
     @inbounds begin
         x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
         v = ntuple(k -> _linear(x[k], black[k], den[k]), Val(4))
-        for p in 1:3
-            ks = planes[p]
-            img[i, j, p] = (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain
-        end
-        sat[i, j] = x[1] >= white || x[2] >= white || x[3] >= white || x[4] >= white
+        _store_planes!(img, i, j, v, planes, gain, 1)
+        sat[i, j] = any(k -> x[k] >= white, sites)
     end
 end
 
-function _bin2(m::RawMosaic, gain::Float64)
+function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     H, W = size(m.raw)
     H2, W2 = H ÷ 2, W ÷ 2
-    H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 quad"))
-    # the quad's colour layout, the same in every quad of a 2×2 Bayer pattern
+    H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))
+    # the cell's colour layout, the same in every cell of a 2×2 Bayer pattern
     # (a pattern that repeats with period 2 from the raw origin)
     n = size(m.pattern, 1)
     (iseven(n) && all(m.pattern[i, j] == m.pattern[mod1(i, 2), mod1(j, 2)] for i in 1:n, j in 1:n)) ||
-        throw(ArgumentError("LinearRaw: :bin2 needs a 2×2 Bayer pattern, got the colour pattern $(m.pattern)"))
+        throw(ArgumentError("LinearRaw: :$mode needs a 2×2 Bayer pattern, got the colour pattern $(m.pattern)"))
     cell = ntuple(k -> _photosite_color(m, 1 + _QUAD_SITES[k][1], 1 + _QUAD_SITES[k][2]), Val(4))
     plane(c) = c == 3 ? 2 : Int(c) + 1                         # 0 R, 1 G, 2 B, 3 G2 → planes R, G, B
     planes = ntuple(p -> Tuple(k for k in 1:4 if plane(cell[k]) == p), Val(3))
     map(length, planes) == (1, 2, 1) ||
-        throw(ArgumentError("LinearRaw: :bin2 needs one R, two G and one B per quad, got $([cell[1] cell[3]; cell[2] cell[4]])"))
+        throw(ArgumentError("LinearRaw: :$mode needs one R, two G and one B per cell, got $([cell[1] cell[3]; cell[2] cell[4]])"))
+    r, g, b = planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int}
     black = ntuple(k -> m.black[cell[k] + 1], Val(4))
     den = ntuple(k -> m.white - black[k], Val(4))
-    img = Array{Float64, 3}(undef, H2, W2, 3)
+    # photosite (di, dj) of a cell is at raw COLMAP (2j − 1.5 + dj, 2i − 1.5 + di):
+    # (dj − ½, di − ½) raw pixels from the cell centre, half that in cell pixels
+    site_offset(k) = SVector(_QUAD_SITES[k][2] - 0.5, _QUAD_SITES[k][1] - 0.5)
+    green_offsets = (site_offset(g[1]), site_offset(g[2]))
+    used, sites = mode === :bin2 ? ((r, g, b), (1, 2, 3, 4)) : ((g,), g)
+    P = length(used)
+    img = Array{Float64, 3}(undef, H2, W2, P)
     sat = Matrix{Bool}(undef, H2, W2)
-    planes_static = (planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int})
     backend = KA.get_backend(img)
-    _bin2_kernel!(backend)(img, sat, m.raw, planes_static, black, den, gain, m.white; ndrange = (H2, W2))
+    _cells_kernel!(backend)(img, sat, m.raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
     KA.synchronize(backend)
-    # photosite (di, dj) of a quad is at raw COLMAP (2j − 1.5 + dj, 2i − 1.5 + di),
-    # the binned point (j − ¾ + dj/2, i − ¾ + di/2): ((dj − ½)/2, (di − ½)/2) from the centre
-    offset(k) = SVector((_QUAD_SITES[k][2] - 0.5) / 2, (_QUAD_SITES[k][1] - 0.5) / 2)
-    offsets = [sum(offset, planes[p]) / length(planes[p]) for p in 1:3]
-    return LinearRaw(img, trues(H2, W2), BitMatrix(sat), offsets, :bin2, gain, m.metadata)
+    offsets = [sum(site_offset, ks) / (2 * length(ks)) for ks in used]
+    return LinearRaw(img, BitMatrix(sat), offsets, green_offsets, mode, gain, _CELL_FRAME_MAP, m.metadata)
 end
 
-# Each photosite's green value (0 at a red or a blue one), whether it is
-# green, and whether it is at the white level. One work item per photosite.
-@kernel function _green_kernel!(img, green, sat, @Const(raw), @Const(pattern), origin, black, den, gain::Float64, white::Float64)
-    i, j = @index(Global, NTuple)
-    @inbounds begin
-        n = size(pattern, 1)
-        c = pattern[mod(origin[1] + i - 1, n) + 1, mod(origin[2] + j - 1, n) + 1]
-        g = c == 0x01 || c == 0x03
-        x = raw[i, j]
-        green[i, j] = g
-        img[i, j, 1] = g ? _linear(x, black[c + 1], den[c + 1]) * gain : 0.0
-        sat[i, j] = g && x >= white
+# The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
+# balance 1) as Float64 in [0, 1], the white balance (per channel, if asked) and
+# the gain applied here. A pixel LibRaw clipped (65535 in any channel) is flagged.
+function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Float64,
+        white_balance::Union{Nothing, NTuple{3, Real}})
+    wb = white_balance === nothing ? (1.0, 1.0, 1.0) : Float64.(white_balance)
+    all(w -> isfinite(w) && w > 0, wb) || throw(ArgumentError("load_raw: the white balance must be positive and finite, got $white_balance"))
+    img = Array{Float64, 3}(undef, size(rgb))
+    for c in 1:3, j in axes(rgb, 2), i in axes(rgb, 1)
+        img[i, j, c] = (Float64(rgb[i, j, c]) / 65535) * wb[c] * gain
     end
+    sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
+    return LinearRaw(img, sat, fill(SVector(0.0, 0.0), 3), nothing, :demosaic, gain, nothing, metadata)
 end
 
-function _green_sites(m::RawMosaic, gain::Float64)
-    H, W = size(m.raw)
-    img = Array{Float64, 3}(undef, H, W, 1)
-    green = Matrix{Bool}(undef, H, W)
-    sat = Matrix{Bool}(undef, H, W)
-    den = map(b -> m.white - b, m.black)
-    backend = KA.get_backend(img)
-    _green_kernel!(backend)(img, green, sat, m.raw, m.pattern, m.visible_origin, m.black, den, gain, m.white; ndrange = (H, W))
-    KA.synchronize(backend)
-    return LinearRaw(img, BitMatrix(green), BitMatrix(sat), [SVector(0.0, 0.0)], :green, gain, m.metadata)
+# The display demosaic carries no geometry: the refusal every geometric accessor shares.
+_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(ArgumentError(
+    "$what: a :demosaic image interpolates and is for display figures only; geometry and radiometry read `mode = :green_cells`"
+)) : L
+
+"""
+    raw_frame_map(L::LinearRaw) -> SimilarityMap{2, …, BayerCellFrame, PixelFrame{:colmap}}
+
+THE map of the image's pixel frame onto the visible raw's `PixelFrame{:colmap}`
+(the frame of `RawMosaic.raw` and of every calibration of the raw): `x ↦ 2x`,
+exactly, for every Bayer phase and either parity of the visible origin (the
+cells start at the visible area's first photosite; an odd margin changes only
+the cell's colour phase). Its inverse is `inv(raw_frame_map(L))`, and a
+calibration matrix moves with it through Core,
+`reframed_calibration(raw_frame_map(L), K_cells)` (and back with the
+inverse). A `:demosaic` image is refused (`ArgumentError`): it is for display.
+"""
+raw_frame_map(L::LinearRaw) = _geometric(L, "raw_frame_map").frame_map
+
+"""
+    green_cell_sites(L::LinearRaw, row::Integer, column::Integer) -> NTuple{2, SVector{2, Float64}}
+
+The footprint of the green-cell value of pixel `(row, column)`: the centres of
+its two green photosites in the visible raw's COLMAP frame. They are diagonal,
+at `(±½, ∓½)` raw pixels from the cell centre `raw_frame_map(L)((column − ½, row − ½))`
+in an RGGB or BGGR cell and `(±½, ±½)` in a GRBG or GBRG one, and the value is
+the mean of the two — what a renderer models to predict it exactly. A
+`:demosaic` image is refused (`ArgumentError`).
+"""
+function green_cell_sites(L::LinearRaw, row::Integer, column::Integer)
+    c = raw_frame_map(L)(SVector(column - 0.5, row - 0.5))
+    return (c + L.green_offsets[1], c + L.green_offsets[2])
 end
 
-# LibRaw::adjust_bl as rawpy's data_helper.h copies it, the black levels per
+"""
+    raw_provenance(L::LinearRaw) -> NamedTuple
+
+How the image was made, as plain data a result records: `decoder`,
+`libraw_version` (from the mosaic's metadata; `nothing` where it states none),
+`mode`, `gain` and `frame_map` (`(; from, to, scale, translation)` of
+[`raw_frame_map`](@ref), `nothing` for `:demosaic`).
+"""
+function raw_provenance(L::LinearRaw)
+    S = L.frame_map
+    fm = S === nothing ? nothing :
+        (from = "BayerCellFrame", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
+    return (decoder = get(L.metadata, :decoder, nothing), libraw_version = get(L.metadata, :libraw_version, nothing),
+            mode = String(L.mode), gain = L.gain, frame_map = fm)
+end
+
+# LibRaw::adjust_bl (as LibRaw's data_helper.h writes it), the black levels per
 # colour index from LibRaw's raw `cblack` array (`cb[k + 1]` is `cblack[k]`:
 # four per-channel parts, then a spatial pattern of `cblack[4] × cblack[5]`
 # entries at `cblack[6+]`) and its common `black`, folding a 2×2 pattern into
 # the four channels. A spatial pattern that remains nonzero after the fold —
 # larger than 2×2, or one LibRaw's fold leaves — has no per-channel form: it is
-# refused, naming the file and the pattern's size, never dropped (rawpy's
-# black_level_per_channel drops it silently). The one rule every decoder that
-# can read `cblack` goes through.
+# refused, naming the file and the pattern's size, never dropped (a per-channel
+# reading drops it silently). The decoder's one rule for the black levels.
 function _per_channel_black(cb::AbstractVector{<:Integer}, black::Integer, filters::Integer, path::AbstractString)
     C = Vector{Int}(cb)                            # C[k + 1] is cblack[k]
     black = Int(black)
@@ -343,7 +420,7 @@ end
 Decode a camera RAW file (any format LibRaw reads: ARW, CR2, NEF, DNG, …) to
 its [`RawMosaic`](@ref). Only flat Bayer sensors (one colour per photosite) are
 supported. The decoder's package must be loaded: `using LibRaw_jll` for
-[`LibRawDecoder`](@ref), `using PythonCall` for [`RawpyDecoder`](@ref).
+[`LibRawDecoder`](@ref).
 """
 function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecoder())
     isfile(path) || throw(ArgumentError("load_raw_mosaic: no file at $path"))
@@ -351,21 +428,42 @@ function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecod
 end
 
 """
-    load_raw(path; mode::Symbol, gain::Real = 1, decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
+    load_raw(path; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
 
-A camera RAW file as exact linear values: [`load_raw_mosaic`](@ref), then
-[`LinearRaw`](@ref)`(mosaic; mode, gain)`. `mode` is `:bin2` (2×2 Bayer quads)
-or `:green` (the green photosites on the raw grid). The pixels stay in the
-sensor's orientation (no EXIF flip), in the raw's COLMAP frame (scaled by ½ in
-`:bin2`).
+A camera RAW file as linear values, in the sensor's orientation (the EXIF
+flip is never applied, in any mode). `mode`:
 
-Rounded to 16 bits (`round(UInt16, clamp(x, 0, 1) * 65535)`), `:bin2` equals
-the linear PNG of RadiometricCamera's convert_raw.py (`--mode bin2`), value for
-value; unlike that PNG, `saturated` flags the quads that contain a photosite at
-the white level.
+- `:green_cells` or `:bin2` — exact: [`load_raw_mosaic`](@ref), then
+  [`LinearRaw`](@ref)`(mosaic; mode, gain)`, on the half-resolution cell grid
+  that [`raw_frame_map`](@ref) maps onto the raw. `:green_cells` is THE image
+  for geometry and radiometry. Rounded to 16 bits
+  (`round(UInt16, clamp(x, 0, 1) * 65535)`), `:bin2` equals the linear PNG of
+  RadiometricCamera's convert_raw.py (`--mode bin2`), value for value; unlike
+  that PNG, `saturated` flags the cells that contain a photosite at the white
+  level.
+- `:demosaic` — FOR DISPLAY FIGURES ONLY. LibRaw's demosaic (AHD) of the
+  visible area at full resolution: it INTERPOLATES the two colours each
+  photosite did not record, so its values are not measurements and its
+  pixels carry no exact geometry. Evaluation code must not read it; it has no
+  frame map ([`raw_frame_map`](@ref) and [`green_cell_sites`](@ref) refuse it).
+  LibRaw's output is linear (gamma 1, no auto-brightening, no maximum
+  adjustment, 16 bits, the camera's raw colour, white balance 1); the
+  `white_balance` (an R G B multiplier triple, e.g. from
+  `metadata.daylight_wb`) and then the gain are applied here, in Julia.
+  `saturated` flags pixels LibRaw clipped.
+
+`white_balance` is accepted with `:demosaic` only: the exact modes are camera
+raw colour, white balance 1.
 """
-load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, decoder::RawDecoder = LibRawDecoder()) =
-    LinearRaw(load_raw_mosaic(path; decoder); mode, gain)
+function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
+    mode === :demosaic || white_balance === nothing ||
+        throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
+    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain)
+    g = _checked_gain(gain)
+    isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
+    rgb, metadata = _decode_demosaic(decoder, String(path))
+    return _demosaic_image(rgb, metadata, g, white_balance)
+end
 
 # -----------------------------------------------------------------------------
 # The EXIF fields as Core's typed values: settings and identities
@@ -384,7 +482,7 @@ _decode_metadata(decoder::RawDecoder, path::AbstractString) = _decode_raw(decode
 
 The EXIF fields of a camera RAW file, as [`RawMosaic`](@ref)'s `metadata`
 holds them, without keeping the photosites: [`LibRawDecoder`](@ref) reads the
-headers only (no unpack), [`RawpyDecoder`](@ref) decodes the file. The typed
+headers only (no unpack). The typed
 accessors ([`exposure_settings`](@ref), …) take it as they take a mosaic.
 """
 function load_raw_metadata(path::AbstractString; decoder::RawDecoder = LibRawDecoder())

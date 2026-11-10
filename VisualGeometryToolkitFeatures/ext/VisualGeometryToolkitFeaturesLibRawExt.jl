@@ -3,7 +3,10 @@
 # =============================================================================
 #
 # Decodes only: open, unpack, copy the visible photosites and the levels out,
-# close. All processing is in src/raw_image.jl.
+# close. All processing is in src/raw_image.jl. The one exception is the
+# display demosaic, which is LibRaw's own interpolation (`libraw_dcraw_process`,
+# set to linear output; `_demosaiced`): its 16-bit image is handed back, and
+# the white balance and gain are applied in Julia.
 #
 # What the C API's accessors give is read through them (libraw_get_raw_height/
 # width, libraw_get_iheight/iwidth, libraw_COLOR, libraw_get_color_maximum,
@@ -219,6 +222,14 @@ struct RawData
     color::ColorData
 end
 
+# libraw_processed_image_t up to its pixel data (`data[1]`, at the last field's offset).
+struct ProcessedImageHeader
+    type::Cint                             # enum LibRaw_image_formats
+    height::UInt16; width::UInt16; colors::UInt16; bits::UInt16
+    data_size::UInt32
+    data::UInt8
+end
+
 # One field of a mirrored structure at `p`, without loading the whole structure
 # (ColorData alone is ~180 kB).
 function _field(p::Ptr{Cvoid}, ::Type{T}, name::Symbol) where {T}
@@ -258,10 +269,20 @@ function _with_libraw(f, path::AbstractString, who::AbstractString)
     end
 end
 
-VisualGeometryToolkitFeatures._decode_raw(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw") do lr
+function _unpack(lr::Ptr{Cvoid}, path::AbstractString)
     rc = @ccall libraw.libraw_unpack(lr::Ptr{Cvoid})::Cint
     rc == 0 || error("load_raw: LibRaw cannot unpack $path: $(_strerror(rc))")
+    return nothing
+end
+
+VisualGeometryToolkitFeatures._decode_raw(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw") do lr
+    _unpack(lr, path)
     return _mosaic(lr, path)
+end
+
+VisualGeometryToolkitFeatures._decode_demosaic(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw") do lr
+    _unpack(lr, path)
+    return _demosaiced(lr, path)
 end
 
 # The file's metadata alone: the headers, no unpack.
@@ -329,9 +350,15 @@ function _metadata(idata_p::Ptr{Cvoid}, other_p::Ptr{Cvoid}, lens_p::Ptr{Cvoid},
     )
 end
 
+# The unpacked `rawdata` copy: after `other`, `thumbnail` and `thumbs_list`.
+_rawdata_ptr(other_p::Ptr{Cvoid}) = other_p + sizeof(ImgOther) + sizeof(Thumbnail) + sizeof(ThumbnailList)
+
+# The EXIF orientation of a sizes structure (`flip`: 0 none, 3 180°, 5 90° CCW, 6 90° CW).
+_store_flip!(sizes_p::Ptr{Cvoid}, flip::Integer) = unsafe_store!(Ptr{Int32}(_fieldptr(sizes_p, ImageSizes, :flip)), Int32(flip))
+
 function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     (; sizes_p, sizes, idata_p, other_p, color_p, lens_p) = _structures(lr)
-    rawdata_p = other_p + sizeof(ImgOther) + sizeof(Thumbnail) + sizeof(ThumbnailList)
+    rawdata_p = _rawdata_ptr(other_p)
     rsizes = _field(rawdata_p, RawData, :sizes)
     _check("rawdata.sizes", rsizes == sizes)
     filters = _field(idata_p, IParams, :filters)
@@ -347,7 +374,7 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     sizes.raw_pitch == 2 * sizes.raw_width ||
         error("load_raw: raw_pitch $(sizes.raw_pitch) is not 2 × raw_width $(sizes.raw_width)")
 
-    # -- the visible photosites (rawpy's raw_image_visible): row-major in C
+    # -- the visible photosites (LibRaw's raw_image from the margins): row-major in C
     RH, RW = Int(sizes.raw_height), Int(sizes.raw_width)
     top, left = Int(sizes.top_margin), Int(sizes.left_margin)
     H, W = Int(sizes.height), Int(sizes.width)
@@ -355,16 +382,16 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     full = unsafe_wrap(Matrix{UInt16}, raw_image, (RW, RH))     # full[c + 1, r + 1] is photosite (r, c)
     raw = permutedims(view(full, (left + 1):(left + W), (top + 1):(top + H)))   # one copy, out of LibRaw's buffer
 
-    # -- colours: rawpy's raw_pattern (COLOR relative to the visible area, from
-    #    the raw origin), reduced 4×4 → 2×2 when it repeats; each photosite's
-    #    index is the pattern tiled from the origin (photosite_colors)
+    # -- colours: LibRaw's COLOR relative to the visible area, read from the raw
+    #    origin, reduced 4×4 → 2×2 when it repeats; each photosite's index is
+    #    the pattern tiled from the origin (photosite_colors)
     n = 4
     pat = UInt8[(@ccall libraw.libraw_COLOR(lr::Ptr{Cvoid}, (y - top)::Cint, (x - left)::Cint)::Cint) for y in 0:(n - 1), x in 0:(n - 1)]
     q = pat[1:2, 1:2]
     pattern = (pat[1:2, 3:4] == q && pat[3:4, 3:4] == q && pat[3:4, 1:2] == q) ? q : pat
 
-    # -- black levels: rawpy's black_level_per_channel (LibRaw's adjust_bl on
-    #    rawdata.color), refusing a spatial pattern it would drop
+    # -- black levels: per channel (LibRaw's adjust_bl on rawdata.color),
+    #    refusing a spatial pattern that would be dropped
     cblack = Vector{Int}(undef, CBLACK_SIZE)
     cb_p = Ptr{UInt32}(_fieldptr(rcolor_p, ColorData, :cblack))
     for k in 1:CBLACK_SIZE
@@ -374,6 +401,50 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     white = Float64(_field(rcolor_p, ColorData, :maximum))
     metadata = _metadata(idata_p, other_p, lens_p, rcolor_p)
     return RawMosaic(raw, pattern, Float64.(black), white, (top, left), (RH, RW), metadata)
+end
+
+# The display demosaic of an open, unpacked handle: LibRaw's AHD interpolation
+# with linear output — 16 bits, gamma 1 (both coefficients), no auto-brightening,
+# no maximum adjustment, the camera's raw colour (output_color 0), user white
+# balance 1 — as `(rgb, metadata)`, `rgb[row, column, channel]` over the visible
+# area. The sensor orientation is kept: LibRaw's C API has no setter for
+# `params.user_flip`, and `dcraw_process` restores `sizes` (EXIF `flip`
+# included) from the unpacked copy, so `sizes.flip` is zeroed after the
+# processing and before the image is copied out (`dcraw_make_mem_image` rotates
+# by it). The mosaic's checks run first (`_mosaic`: the mirrored layout, a flat
+# 2×2 Bayer sensor), and the output must be the visible area's size (a
+# non-square pixel aspect or a Fuji rotation would resample it: refused).
+const _AHD = 3                   # LibRaw's user_qual for AHD
+function _demosaiced(lr::Ptr{Cvoid}, path::AbstractString)
+    m = _mosaic(lr, path)
+    @ccall libraw.libraw_set_output_bps(lr::Ptr{Cvoid}, 16::Cint)::Cvoid
+    @ccall libraw.libraw_set_gamma(lr::Ptr{Cvoid}, 0::Cint, 1.0f0::Cfloat)::Cvoid
+    @ccall libraw.libraw_set_gamma(lr::Ptr{Cvoid}, 1::Cint, 1.0f0::Cfloat)::Cvoid
+    @ccall libraw.libraw_set_no_auto_bright(lr::Ptr{Cvoid}, 1::Cint)::Cvoid
+    @ccall libraw.libraw_set_adjust_maximum_thr(lr::Ptr{Cvoid}, 0.0f0::Cfloat)::Cvoid
+    @ccall libraw.libraw_set_output_color(lr::Ptr{Cvoid}, 0::Cint)::Cvoid
+    @ccall libraw.libraw_set_demosaic(lr::Ptr{Cvoid}, _AHD::Cint)::Cvoid
+    for k in 0:3
+        @ccall libraw.libraw_set_user_mul(lr::Ptr{Cvoid}, k::Cint, 1.0f0::Cfloat)::Cvoid
+    end
+    rc = @ccall libraw.libraw_dcraw_process(lr::Ptr{Cvoid})::Cint
+    rc == 0 || error("load_raw: LibRaw cannot demosaic $path: $(_strerror(rc))")
+    _store_flip!(lr + sizeof(Ptr{Cvoid}), 0)                   # the live `sizes`: the sensor's orientation
+    err = Ref{Cint}(0)
+    img = @ccall libraw.libraw_dcraw_make_mem_image(lr::Ptr{Cvoid}, err::Ptr{Cint})::Ptr{ProcessedImageHeader}
+    img == C_NULL && error("load_raw: LibRaw cannot copy out the demosaic of $path: $(_strerror(err[]))")
+    try
+        h = unsafe_load(img)
+        (h.colors == 3 && h.bits == 16) || error("load_raw: LibRaw's demosaic of $path has $(h.colors) colours at $(h.bits) bits, not 3 at 16")
+        H, W = size(m.raw)
+        (Int(h.height), Int(h.width)) == (H, W) ||
+            error("load_raw: LibRaw's demosaic of $path is $(h.height)×$(h.width), not the visible area's $(H)×$(W) (a resampled or rotated output)")
+        Int(h.data_size) == 2 * 3 * H * W || error("load_raw: LibRaw's demosaic of $path holds $(h.data_size) bytes, not $(6H * W)")
+        data = unsafe_wrap(Array, Ptr{UInt16}(img + fieldoffset(ProcessedImageHeader, 7)), (3, W, H))   # row-major, interleaved RGB
+        return permutedims(data, (3, 2, 1)), m.metadata                                                  # one copy, out of LibRaw's buffer
+    finally
+        @ccall libraw.libraw_dcraw_clear_mem(img::Ptr{ProcessedImageHeader})::Cvoid
+    end
 end
 
 # LibRaw's local-time rendering of the timestamp it parsed from the EXIF

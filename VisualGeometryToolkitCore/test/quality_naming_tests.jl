@@ -54,6 +54,18 @@ end
     Cap = uppercasefirst(P)
     old = NC.RETIRED_NAMES[1]                    # any retired name
 
+    @testset "R9: a foreign format's token is accepted in a string literal and a data fixture, never as a name" begin
+        tok = first(first(NC.FOREIGN_FORMAT_TOKENS))      # a retired name a stored format spells (from the checker's list)
+        @test tok in NC.RETIRED_NAMES
+        @test quiet("src/a.jl" => "is_old(d) = d[\"type\"] == \"$(tok)\"\n")                      # the token a reader parses
+        @test quiet("test/fixtures/old.yaml" => "type : $(tok)\n", "test/fixtures/old.json" => "{\"type\": \"$(tok)\"}\n")
+        @test rules("src/a.jl" => "f(x::$(tok)) = x\n") == [:R9]                                     # as an identifier
+        @test rules("src/a.jl" => "f(x) = x   # a $(tok)\n") == [:R9]                                # in a comment
+        @test rules("src/a.jl" => "f(x) = (\"$(tok)\", $(tok))\n") == [:R9]                          # a string beside a name
+        @test rules("docs/a.md" => "the $(tok) record\n") == [:R9]                                     # in prose
+        @test rules("src/a.jl" => "f(x) = \"$(old)\"\n") == [:R9]                                    # any other retired name, in a string
+    end
+
     @testset "R3: update_ ends in !" begin
         @test rules("src/a.jl" => "update_prior(x) = x\n") == [:R3]
         @test rules("src/a.jl" => "update_model(x) = x\n") == [:R3, :R8]   # also a hook variant

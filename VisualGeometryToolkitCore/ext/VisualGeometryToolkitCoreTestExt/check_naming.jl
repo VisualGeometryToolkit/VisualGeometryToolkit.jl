@@ -431,7 +431,41 @@ const RETIRED_NAMES = String[
     # `sq_distances` / `square_distances!`; the norm helper is gone
     "residuals" * "!", "whitened_constraint" * "_residual", "whitened" * "_distance",
     "sq" * "_residuals", "square" * "_residuals!",
+    # VisualGeometryToolkitIO's old grid codec (plan 1b, Task 6): the SplineLens camera is a camera body, the
+    # non-central grid camera the generic_camera/v4 body
+    "_id_grid" * "_model",                   # a grid sensor's identity: `_id_camera`'s lens branch (`_id_lens(::SplineLens)`, its spline record)
+    "_GENERIC_BODY" * "_FIELDS", "_GENERIC" * "_OPTIONAL", "_GENERIC" * "_PRESENT",   # the old grid body's spec: `_NONCENTRAL_BODY_FIELDS`, `_NONCENTRAL_BODY_OPTIONAL`
+    "_RIG_GENERIC" * "_BODY",                # a rig's grid sensor body: `_NONCENTRAL_BODY` (a SplineLens sensor is a camera body)
+    "_generic" * "_check",                   # `_noncentral_check` and `_lattice_problem` (the lens record's too)
+    "_Generic" * "Model",                    # the old grid model union: `CameraModel{…, SplineLens}` or `NoncentralSplineModel`
+    "_generic" * "_extras", "_generic" * "_extras_from",   # the nominal pinhole and domain: K, and the bound's `lens_coverage`
+    "_load" * "_generic", "_typed" * "_generic",           # `load(BoundedCamera, path)` (`_load_noncentral`; a central file as a camera store)
+    "_load_schoeps" * "_model",              # `_load_schoeps_camera`
+    "_grid" * "_json", "_point_grid" * "_json", "_grid_from" * "_json",   # the held nodes' controls: `_controls_json`, `_controls_from_json`
+    "_present" * "_count",                   # `_runs_count`
+    "_refuse" * "_domain",                   # an old grid model's domain: the bound's lens coverage, any of its kinds (a camera store's form)
 ]
+
+# Tokens a FOREIGN or STORED format owns, spelled as that format stores them, which
+# are retired as names in the stack: each the exact string, the format that holds it.
+# A retired name that is such a token is accepted (1) inside a Julia string
+# literal — a reader or writer of that format names the token it parses — and (2)
+# anywhere in a data fixture file (`.yaml`, `.yml`, `.json`); never as an
+# identifier, nor in a comment or prose. (Built from fragments, as the lists above.)
+const FOREIGN_FORMAT_TOKENS = [
+    "Central" * "GenericModel" => "the `type` of Schöps et al.'s camera_calibration intrinsics0.yaml, and of the old vgio grid " *
+        "records (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body), read through their migrations",
+    "Noncentral" * "GenericModel" => "the same, for the non-central grid model",
+    "nominal" * "_intrinsics" => "an old vgio grid record's key (vgio/generic_camera v2/v3, a vgio/rig v6–v8 sensor's body): its nominal pinhole",
+]
+_is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
+# Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a
+# Julia file's) is a foreign format's token where one is accepted.
+function _foreign_token(f, r, re, line, strings)
+    any(t -> first(t) == r, FOREIGN_FORMAT_TOKENS) || return false
+    _is_data_fixture(f) && return true
+    return endswith(f, ".jl") && count(re, line) == count(re, strings)
+end
 
 # Rule 10: the width quantities are bound by their full names. One name per
 # quantity — `scale_multiple` (a width as a multiple of the estimated scale),
@@ -739,7 +773,8 @@ end
 _LexFrame(kind::Symbol; depth::Int = 0, interp::Bool = false, delim::String = "") =
     _LexFrame(kind, depth, interp, delim)
 
-function _julia_prose(src::AbstractString)
+# The comment and string text of `src` by line; with `comments = false`, its string literals' text alone.
+function _julia_prose(src::AbstractString; comments::Bool = true)
     cs = collect(src)
     n = length(cs)
     prose = Dict{Int, String}()
@@ -813,7 +848,7 @@ function _julia_prose(src::AbstractString)
                 i += 1
             end
         elseif top.kind === :line_comment
-            print(buf, c)
+            comments && print(buf, c)
             i += 1
         else                                                 # block comment
             if c == '#' && at(i + 1) == '='
@@ -824,7 +859,7 @@ function _julia_prose(src::AbstractString)
                 print(buf, ' ')
                 i += 2
             else
-                print(buf, c)
+                comments && print(buf, c)
                 i += 1
             end
         end
@@ -1642,6 +1677,7 @@ function check_naming(pkgdir::AbstractString)
                 end
             end
         end
+        literals = Ref{Union{Nothing, Dict{Int, String}}}(nothing)   # the string literals by line, lexed at the first hit
         for (k, text) in enumerate(eachline(IOBuffer(src)))
             endswith(f, ".jl") || _prose_rules!(out, f, k, text)
             for m in eachmatch(_WIDTH_FLAG, text)
@@ -1650,8 +1686,11 @@ function check_naming(pkgdir::AbstractString)
             # a changelog records what each release removed: it names the retired
             _is_changelog(f) && continue
             occursin(any_retired, text) || continue
+            endswith(f, ".jl") && literals[] === nothing && (literals[] = _julia_prose(src; comments = false))
+            strings = endswith(f, ".jl") ? get(literals[], k, "") : ""
             for (r, re) in retired
-                occursin(r, text) && occursin(re, text) && push!(out, NamingViolation(f, k, r, :R9))
+                occursin(r, text) && occursin(re, text) && !_foreign_token(f, r, re, text, strings) &&
+                    push!(out, NamingViolation(f, k, r, :R9))
             end
         end
     end

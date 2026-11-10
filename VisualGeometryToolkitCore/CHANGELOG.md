@@ -43,6 +43,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   spline (`ArgumentError`: the forward is a fit of the backward and would be stale). `ParameterManifold`'s chart is
   static, so it refuses a model with a heap parameter vector (`ArgumentError`) — a SplineLens camera's
   `minimal_manifold` is not served yet; its controls' chart is a `ControlPatchManifold`.
+- **New: `CameraModel(SplineLens, controls, size; calib_area, intrinsics, present, unit_controls)`**: the SplineLens
+  camera of a given pixel lattice, as Schöps et al.'s `intrinsics0.yaml` and the stored grid records state one — its
+  direction controls over a calibrated pixel area, K the given one (skew 0) or the lattice's gauge; each pixel
+  backprojects as the pixel grid does, whatever the K. The SplineLens gauge of a lattice whose window at the centre
+  holds an absent node is taken from the present nodes nearest the centre (an `ArgumentError` naming the cause when
+  no two adjacent nodes are present).
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

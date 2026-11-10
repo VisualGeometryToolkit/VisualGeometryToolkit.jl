@@ -901,6 +901,15 @@ end
 # `fy = 1/J[2,2]` with `J = ∂(d_xy/d_z)/∂u` there; skew 0. When ẑ is not imaged
 # inside `rect` (the solve does not converge there), the principal point is the
 # rectangle's centre and the focal lengths the local scale there.
+#
+# A lattice holding absent nodes (NaN controls) whose window at that point is not
+# fully present — every window of a heavily masked lattice may hold an absent node —
+# has no local scale there: the principal point is then the rectangle's centre and
+# the focal lengths the same paraxial Jacobian taken discretely, from the present
+# nodes nearest the centre (`_node_gauge_scale`). Any skew-0 K is an exact gauge of
+# the camera (a pixel's lattice coordinate does not depend on it), so the choice
+# fixes only the normalized plane. A lattice with no two adjacent present nodes
+# along an axis has no scale at all: an `ArgumentError` saying to supply K.
 function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
     o = GeometryBasics.origin(rect); w = GeometryBasics.widths(rect)
     c = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
@@ -909,10 +918,47 @@ function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
     pp = ok && all(isfinite, p) ? SVector{2, Float64}(p) : c
     _, J = _value_and_jacobian(u -> (d = pixel_direction(u); SVector(d[1] / d[3], d[2] / d[3])), pp)
     fx, fy = 1 / J[1, 1], 1 / J[2, 2]
+    if !(isfinite(fx) && isfinite(fy))   # no fully present window there: the present nodes' differences nearest the centre
+        pp = c
+        fx, fy = _node_gauge_scale(pixel_direction, rect, c)
+    end
     (isfinite(fx) && isfinite(fy) && fx > 0 && fy > 0) || throw(
         ArgumentError("SplineLens gauge: the grid's local scale at the pixel $pp is not a positive focal length ($fx, $fy)")
     )
     return LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0.0, 0.0, 0.0, fy, 0.0, pp[1], pp[2], 1.0)))
+end
+
+# The gauge's focal lengths of a lattice whose window at the centre `c` is not fully
+# present: along each axis, of the pairs of adjacent nodes both present (finite), the
+# one whose midpoint is nearest `c` (the first in row-major order on a tie) gives
+# `f = Δu / Δ(d/d_z)` — the pixel step between its nodes over the step of their
+# controls' paraxial coordinate.
+function _node_gauge_scale(pixel_direction::ChartSpline{3}, rect::Rect2, c::SVector{2, Float64})
+    G = pixel_direction.controls
+    gsz = gh, gw = size(G)
+    best = [Inf, Inf]
+    f = [NaN, NaN]
+    paraxial(v) = SVector(v[1] / v[3], v[2] / v[3])
+    for gy in 1:gh, gx in 1:gw, k in 1:2
+        gx2, gy2 = gx + (k == 1), gy + (k == 2)
+        (gx2 <= gw && gy2 <= gh) || continue
+        a, b = paraxial(G[gy, gx]), paraxial(G[gy2, gx2])
+        (all(isfinite, a) && all(isfinite, b) && b[k] != a[k]) || continue
+        pa, pb = _lattice_node(rect, gsz, gx, gy), _lattice_node(rect, gsz, gx2, gy2)
+        d = norm((pa + pb) / 2 - c)
+        if d < best[k]
+            best[k] = d
+            f[k] = (pb[k] - pa[k]) / (b[k] - a[k])
+        end
+    end
+    all(isfinite, f) || throw(
+        ArgumentError(
+            "SplineLens gauge: no 4 × 4 window at the calibrated area's centre is fully present and no two adjacent nodes " *
+                "along $(isfinite(f[1]) ? "y" : "x") are both present, so the lattice has no scale to gauge K by; supply K " *
+                "(a stored record's nominal pinhole, or a camera source)"
+        )
+    )
+    return f[1], f[2]
 end
 
 # The intrinsics of a SplineLens camera built from `source`: a camera keeps its
@@ -1015,6 +1061,45 @@ function CameraModel(
     rect, gsz = _spline_layout(size, grid_size, calib_area)
     C = map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), _init_directions(source, rect, gsz, init, sampling_margin))
     return _spline_camera(_spline_intrinsics(source, rect, C), rect, C)
+end
+
+"""
+    CameraModel(SplineLens, controls::AbstractMatrix{<:StaticVector{3}}, size; calib_area,
+                intrinsics = nothing, present = nothing, unit_controls = false)
+        -> CameraModel{<:LogicalIntrinsics, <:SplineLens}
+
+The [`SplineLens`](@ref) camera of a pixel lattice given by its direction
+controls, as the reference implementation (Schöps et al.'s `intrinsics0.yaml`)
+and the stored grid records state one: `controls` (`[gy, gx]`, NaN where a node
+is absent) laid over the calibrated pixel area `calib_area` (inclusive integer
+bounds `(min_x, min_y, max_x, max_y)` or a `Rect`, the rectangle `[min, max + 1)`;
+default the whole image) of an image of `size`, the nodes `present` held
+(`nothing`: every node). Its `K` is `intrinsics` (skew 0, positive focal
+lengths, else an `ArgumentError`) or, without one, the lattice's gauge. Its
+backward area is K⁻¹ of the calibrated rectangle, so each pixel's lattice
+coordinate is the reference's and the camera backprojects as the pixel grid
+does, whatever the K. The controls are kept as given (`unit_controls = true`
+normalizes each one unless it is unit to 1e-12, the reference reader's rule).
+"""
+function CameraModel(
+        ::Type{SplineLens}, controls::AbstractMatrix{<:StaticVector{3}}, size::Union{Tuple{Integer, Integer}, Size2};
+        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        intrinsics::Union{Nothing, LogicalIntrinsics} = nothing,
+        present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
+        unit_controls::Bool = false,
+    )
+    gh, gw = Base.size(controls)
+    rect, _ = _spline_layout(size, (gw, gh), calib_area)
+    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
+    if intrinsics !== nothing
+        M = SMatrix{3, 3, Float64}(_K(intrinsics))
+        iszero(M[1, 2]) || throw(ArgumentError("CameraModel(SplineLens, controls, …): a SplineLens camera has skew 0; the intrinsics have skew $(M[1, 2])"))
+        (M[1, 1] > 0 && M[2, 2] > 0) ||
+            throw(ArgumentError("CameraModel(SplineLens, controls, …): the focal lengths are positive; got fx = $(M[1, 1]), fy = $(M[2, 2])"))
+    end
+    K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect) : intrinsics
+    return _spline_camera(K, rect, C; present)
 end
 
 """

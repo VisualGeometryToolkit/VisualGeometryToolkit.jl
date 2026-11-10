@@ -124,3 +124,92 @@
         @test RadialCamera(PosedCamera(CameraModel(K; lens = Lens(Perspective(), FieldOfView(0.1) ∘ Radial((-0.1,)))), X)) isa RadialCamera
     end
 end
+
+@testitem "SplineLens gauge: a lattice whose centre window holds an absent node gauges by its present nodes" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, LogicalIntrinsics, px, calibration_matrix,
+        backproject
+    import VisualGeometryToolkitCore.Cameras as VgtkCore
+
+    # Any skew-0 K is an exact gauge of a SplineLens camera (a pixel's lattice
+    # coordinate does not depend on it). A lattice whose window at the calibrated
+    # area's centre holds an absent node has no local scale there, so the gauge
+    # takes the paraxial Jacobian discretely, from the present nodes nearest the
+    # centre; with no two adjacent present nodes it has none, and refuses.
+    W, H = 640, 480
+    src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    cam = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
+    C = cam.lens.backward.controls
+    gh, gw = size(C)
+    rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
+    nan_absent(P) = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, P)
+    gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect)
+    camera(K, P) = VgtkCore._spline_camera(K, rect, nan_absent(P); present = P)
+    pixels = [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]
+    same_rays(a, b) = all(pixels) do u
+        p, q = backproject(a, u), backproject(b, u)
+        all(isnan, p) ? all(isnan, q) : (all(isfinite, q) && maximum(abs.(p - q)) <= 1e-12)
+    end
+
+    @testset "a hole at the centre: the gauge is finite, skew 0, and backproject is any skew-0 K's" begin
+        P = trues(gh, gw)
+        P[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false
+        K = gauge(P)
+        Kc = K.K
+        @test all(isfinite, Kc) && iszero(Kc[1, 2]) && Kc[1, 1] > 0 && Kc[2, 2] > 0
+        @test Kc[1, 3] == W / 2 && Kc[2, 3] == H / 2                     # the calibrated area's centre
+        a, b = camera(K, P), camera(src.intrinsics, P)
+        @test count(u -> all(isfinite, backproject(a, u)), pixels) > length(pixels) ÷ 2
+        @test same_rays(a, b)
+    end
+
+    @testset "every window holds an absent node: the gauge is finite, backproject NaN for every K alike" begin
+        P = [!(gy % 3 == 0 && gx % 3 == 0) for gy in 1:gh, gx in 1:gw]   # 4 consecutive rows and columns meet a multiple of 3
+        K = gauge(P)
+        Kc = K.K
+        @test all(isfinite, Kc) && iszero(Kc[1, 2]) && Kc[1, 1] > 0 && Kc[2, 2] > 0
+        a, b = camera(K, P), camera(src.intrinsics, P)
+        @test all(u -> all(isnan, backproject(a, u)), pixels) && same_rays(a, b)
+    end
+
+    @testset "no two adjacent present nodes: refused, naming the cause and the remedy" begin
+        P = [iseven(gx + gy) for gy in 1:gh, gx in 1:gw]                 # a checkerboard
+        e = try
+            gauge(P); nothing
+        catch err
+            err
+        end
+        @test e isa ArgumentError && occursin("adjacent nodes", e.msg) && occursin("supply K", e.msg)
+    end
+end
+
+@testitem "CameraModel(SplineLens, controls, size): the camera of a given pixel lattice" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, LogicalIntrinsics, CameraCalibrationMat, px, backproject
+
+    # The reference's form of a grid camera (Schöps' intrinsics0.yaml, a stored
+    # grid record): direction controls over a calibrated pixel area. Its K is the
+    # given one or the gauge; either way each pixel backprojects as the lattice does.
+    src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    area = (8, 6, 631, 473)
+    cam = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = area)
+    C = cam.lens.backward.controls
+    given = CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = cam.intrinsics)
+    @test given.intrinsics.K == cam.intrinsics.K && given.lens.backward.area === cam.lens.backward.area && given.lens.backward.controls == C
+    gauged = CameraModel(SplineLens, C, (640, 480); calib_area = area)
+    @test iszero(gauged.intrinsics.K[1, 2]) && gauged.intrinsics.K != cam.intrinsics.K
+    pixels = [SVector(x, y) for y in 6.5:9.0:473.5 for x in 8.5:9.0:631.5]   # inside the calibrated area
+    @test all(u -> maximum(abs.(backproject(gauged, u) - backproject(cam, u))) <= 1.0e-12, pixels)
+    # a mask, and the reference reader's normalization
+    P = trues(size(C)); P[1, 1] = false
+    m = CameraModel(SplineLens, 2 .* C, (640, 480); calib_area = area, intrinsics = cam.intrinsics, present = P, unit_controls = true)
+    @test m.lens.present == P && all(v -> abs(sqrt(sum(abs2, v)) - 1) < 1.0e-12, m.lens.backward.controls[P])
+    # a skewed or flipped K has no SplineLens camera
+    skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(400.0, 0, 0, 0.5, 400.0, 0, 320.0, 240.0, 1)))
+    @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = skewed)
+    @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = (0, 0, 700, 479))   # outside the image
+end

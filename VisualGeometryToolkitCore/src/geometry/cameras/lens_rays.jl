@@ -71,36 +71,35 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
 @inline _newton_settled(δ2, scale2, ::Type{S}) where {S} = !(δ2 > _core_tol(S)^2 * max(scale2, one(S)))
 @inline _contraction_settled(δ2, scale2, ::Type{S}) where {S} = !(δ2 > (8 * eps(S))^2 * max(scale2, one(S)))
 
-# The structure-blind inverse of an in-plane map `f`: trust-region 2-D Newton
-# from `seed` (x_d by default) with a ForwardDiff Jacobian and COLMAP's step
-# clipping (relative and absolute radius 0.1, IterativeUndistortion), capped
-# per precision. For the maps with no cheaper structure — a chain —
-# and as the finisher where a structured solve does not certify.
-# Trip caps per precision: (fixed point, Newton) — 30 and 20 in Float64, the
+# The structure-blind inverse of an in-plane distortion `d` at `xd`: Core's one
+# static LM (`_spline_lm`, spline_lens.jl) on the residual d(x) − x_d from `seed`
+# (x_d by default), with the distortion's analytic Jacobian (`_distort_jacobian`,
+# its `transform_deriv`) — no Dual in the loop — and COLMAP's step clipping
+# (relative and absolute radius 0.1, IterativeUndistortion) as the LM's step
+# bound, capped per precision. For the maps with no cheaper structure — a chain —
+# and as the finisher where a structured solve does not certify. Unbounded (the
+# frame plane), its step stop at the precision's solve tolerance (`_inverse_lm_scale`:
+# the LM's 1e-10 in ulps of S, read in units that put it at `_core_tol(S)`), its
+# absolute stops at what S resolves of a residual of the image point's scale (floor
+# 0: the reference's eps(Float64) cost would take a seed 1e-8 off the root as its
+# root), and converged when the residual meets `_residual_ok`'s bound. Returns the root,
+# whether it converged, and det J there.
+# Trip caps per precision: (fixed point, LM) — 30 and 20 in Float64, the
 # fixed point's validated against OpenCV's own loop; 12 otherwise.
 @inline _trips(::Type{Float64}) = (30, 20)
 @inline _trips(::Type{<:AbstractFloat}) = (12, 12)
+@inline _inverse_lm_scale(::Type{S}) where {S} = S(1.0e-10 * (eps(S) / eps(Float64)) / _core_tol(S))
 
-@inline function _newton_solve(f::F, xd::SVector{2, S}, seed::SVector{2, S} = xd) where {F, S <: AbstractFloat}
-    rel2 = S(1) / S(100)
-    x = ifelse(isfinite(seed[1]) & isfinite(seed[2]), seed, xd)
-    dJ = zero(S)
-    for _ in 1:last(_trips(S))
-        fx = f(x)
-        J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
-        dJ = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
-        Δx = J \ SVector{2, S}(fx[1] - xd[1], fx[2] - xd[2])
-        radius2 = max((x[1] * x[1] + x[2] * x[2]) * rel2, rel2)
-        δ2 = Δx[1] * Δx[1] + Δx[2] * Δx[2]
-        scale = ifelse(δ2 > radius2, sqrt(radius2 / max(δ2, eps(S))), one(S))
-        x = SVector{2, S}(x[1] - scale * Δx[1], x[2] - scale * Δx[2])
-        _newton_settled(scale * scale * δ2, x[1] * x[1] + x[2] * x[2], S) && break
-    end
-    return x, _residual_ok(f(x), xd), dJ
+@inline function _inverse_lm(d, xd::SVector{2, S}, seed::SVector{2, S} = xd) where {S <: AbstractFloat}
+    x0 = ifelse(isfinite(seed[1]) & isfinite(seed[2]), seed, xd)
+    fj(x) = ((y, J) = _distort_and_jacobian(d, x); (SVector{2, S}(y[1] - xd[1], y[2] - xd[2]), SMatrix{2, 2, S}(J)))
+    tol2 = _core_tol(S)^2 + (8 * eps(S))^2 * (xd[1]^2 + xd[2]^2)
+    inf, s = S(Inf), _inverse_lm_scale(S)
+    fs = max(one(S), sqrt(xd[1]^2 + xd[2]^2))
+    x, ok, J = _spline_lm(fj, x0, SVector(-inf, -inf), SVector(inf, inf), SVector(s, s), last(_trips(S)), tol2, fs, S(1) / 10, zero(S))
+    return x, ok, _det(J)
 end
-# (`dJ` is det J at the last iterate's start, within the solve tolerance of the
-# root: the branch test of a Newton root reads it rather than differentiating
-# again.)
+@inline _det(J::SMatrix{2, 2}) = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
 
 # -----------------------------------------------------------------------------
 # Frames: ray ↔ frame point
@@ -339,9 +338,11 @@ end
     Pz = SMatrix{3, 3}(R[3, 3], 0, 0, 0, R[3, 3], 0, -R[1, 3], -R[2, 3], 1)
     return Pz * R
 end
-@inline function _distort(t::Tilt, x::StaticVector{2})
-    v = _tilt_matrix(t) * SVector(x[1], x[2], one(x[1]))
-    return Vec2(v[1] / v[3], v[2] / v[3])
+@inline _distort(t::Tilt, x::StaticVector{2}) = first(_tilt_point(_tilt_matrix(t), x))
+# (M·(x, 1) dehomogenized, and its third coordinate)
+@inline function _tilt_point(M, x::StaticVector{2})
+    v = M * SVector(x[1], x[2], one(x[1]))
+    return Vec2(v[1] / v[3], v[2] / v[3]), v[3]
 end
 
 # Devernay–Faugeras: F(r) = atan(a·r)/(r·ω), a = 2·tan(ω/2), evaluated as
@@ -402,6 +403,76 @@ end
 end
 
 # -----------------------------------------------------------------------------
+# Distortion in the frame: the analytic Jacobian
+# -----------------------------------------------------------------------------
+#
+# `_distort_and_jacobian(d, x)` is the plain map `_distort(d, x)` and its
+# Jacobian ∂d(x)/∂x from one evaluation, in closed form per term (a term's
+# `transform_deriv`), so the 2-D inverses iterate with no Dual (a Dual through an
+# iteration is JuliaLang/julia#64827's pattern); `_distort_jacobian` is its
+# second half.
+
+@inline _id2(x) = (o = one(x[1]); z = zero(o); SMatrix{2, 2}(o, z, z, o))
+@inline _distort_jacobian(d, x::StaticVector{2}) = last(_distort_and_jacobian(d, x))
+
+@inline _distort_and_jacobian(::Nothing, x::StaticVector{2}) = (Vec2(x[1], x[2]), _id2(x))
+# x ↦ F(u)·x, u = |x|²: F·I + 2F′(u)·x xᵀ.
+@inline _radial_jacobian(F, dF, x) = (c = 2 * dF; SMatrix{2, 2}(F + c * x[1] * x[1], c * x[1] * x[2], c * x[1] * x[2], F + c * x[2] * x[2]))
+@inline function _distort_and_jacobian(r::Radial{Even}, x::StaticVector{2})
+    u = x[1] * x[1] + x[2] * x[2]
+    F = radial_ratio(r, u)
+    return Vec2(F * x[1], F * x[2]), _radial_jacobian(F, _dratio(r, u), x)
+end
+@inline function _delta_jacobian(t::Tangential, x::StaticVector{2})
+    u, v = x[1], x[2]
+    return SMatrix{2, 2}(
+        2 * t.p1 * v + 6 * t.p2 * u, 2 * t.p2 * v + 2 * t.p1 * u,
+        2 * t.p1 * u + 2 * t.p2 * v, 2 * t.p2 * u + 6 * t.p1 * v
+    )
+end
+# Δ = s·P(s) per axis, s = |x|²: d(s·P)/ds is `_dpoly` of 1 + s·P (the Even basis).
+@inline function _delta_jacobian(t::ThinPrism, x::StaticVector{2})
+    s = x[1] * x[1] + x[2] * x[2]
+    a, b = 2 * _dpoly(Even, t.sx, s), 2 * _dpoly(Even, t.sy, s)
+    return SMatrix{2, 2}(a * x[1], b * x[1], a * x[2], b * x[2])
+end
+# y = v₁₂/v₃, v = M·(x, 1): ∂yᵢ/∂xⱼ = (Mᵢⱼ − yᵢ·M₃ⱼ)/v₃ — the matrix (four
+# trigonometric calls) built once for both.
+@inline function _distort_and_jacobian(t::Tilt, x::StaticVector{2})
+    M = _tilt_matrix(t)
+    y, v3 = _tilt_point(M, x)
+    return y, SMatrix{2, 2}(M[1, 1] - y[1] * M[3, 1], M[2, 1] - y[2] * M[3, 1], M[1, 2] - y[1] * M[3, 2], M[2, 2] - y[2] * M[3, 2]) / v3
+end
+# F = (a/ω)·g(q), q = a²u, g = atan(√q)/√q: dg/dq = (1/(1 + q) − g)/(2q), its
+# series −1/3 + 2q/5 where `_fov_factor` takes g's.
+@inline function _distort_and_jacobian(t::FieldOfView, x::StaticVector{2})
+    u = x[1] * x[1] + x[2] * x[2]
+    ω = t.omega
+    a = 2 * tan(ω / 2)
+    q = a * a * u
+    dg = q <= _series_radius2(q) ? -one(q) / 3 + 2 * q / 5 : (inv(1 + q) - atan(sqrt(q)) / sqrt(q)) / (2 * q)
+    return _distort(t, x), _radial_jacobian(_fov_factor(t, u), _fov_scale(ω) * a * a * dg, x)
+end
+@inline _delta_jacobian_sum(ds::Tuple, x) = _delta_jacobian_sum(_delta_jacobian(first(ds), x), Base.tail(ds), x)
+@inline _delta_jacobian_sum(acc, ::Tuple{}, x) = acc
+@inline _delta_jacobian_sum(acc, ds::Tuple, x) = _delta_jacobian_sum(acc + _delta_jacobian(first(ds), x), Base.tail(ds), x)
+@inline function _distort_and_jacobian(a::Union{Additive, Tangential, ThinPrism}, x::StaticVector{2})
+    h, ds = _head(a), _deltas(a)
+    y, J = _distort_and_jacobian(h, x)
+    return isempty(ds) ? (y, J) : (y + _delta_sum(ds, x), J + _delta_jacobian_sum(ds, x))
+end
+@inline _distort_and_jacobian(c::ComposedTransformation, x::StaticVector{2}) = _chain_and_jacobian(_stages(c), Vec2(x[1], x[2]), _id2(x))
+@inline _chain_and_jacobian(::Tuple{}, x, J) = (x, J)
+@inline function _chain_and_jacobian(ds::Tuple, x, J)
+    y, Js = _distort_and_jacobian(first(ds), x)
+    return _chain_and_jacobian(Base.tail(ds), y, Js * J)
+end
+
+# A term's Jacobian is its `transform_deriv` (CoordinateTransformations' chain
+# rule composes a `∘`'s).
+@inline transform_deriv(t::AbstractDistortionTerm, x::StaticVector{2}) = _distort_jacobian(t, x)
+
+# -----------------------------------------------------------------------------
 # Distortion in the frame: inverse
 # -----------------------------------------------------------------------------
 #
@@ -409,9 +480,9 @@ end
 #   nothing                   the identity
 #   a lone Radial             the 1-D root on the ray (x_d, 1) — a lift's own solve
 #   Additive, a lone delta    OpenCV's undistortPoints fixed point, finished by the
-#                             trust-region 2-D Newton
+#                             step-bounded LM (`_inverse_lm`)
 #   FieldOfView, Tilt         closed form
-#   anything else (a ∘)       the trust-region 2-D Newton (a Full-basis radial
+#   anything else (a ∘)       the step-bounded LM (a Full-basis radial
 #                             factor never gets here: the Lens constructor
 #                             refuses one anywhere in the distortion)
 # A 2-D root stands only where the pointwise branch test holds (`_branch_root`);
@@ -423,24 +494,21 @@ end
 
 # THE frame of every 2-D inverse: `solve(lp, x0) -> (x, ok)` on the PRIMAL lens
 # from the primal start `x0 = xd`; when the lens or the point carries Duals, one
-# Newton step on the dual map `fwd(lens, x)` (a 2-vector) puts the derivative on
-# the root. NaN unless the solve converged.
-@inline function _undistort_2d(solve::F, fwd::G, lens, xd::StaticVector{2}) where {F, G}
+# Newton step on the dual distortion at the root, with its primal analytic
+# Jacobian, puts the derivative on the root (the implicit function theorem).
+# NaN unless the solve converged.
+@inline function _undistort_2d(solve::F, lens, xd::StaticVector{2}) where {F}
     lp = _primal(lens)
     T = promote_type(eltype(xd), _coeff_type(lens))
     S = float(primal_float(T))
     x0 = SVector{2, S}(_primal(xd[1]), _primal(xd[2]))
     x, ok = solve(lp, x0)
     if _is_dual_type(T)
-        J = ForwardDiff.jacobian(z -> fwd(lp, z), x)
-        x = x - J \ (fwd(lens, x) - xd)
+        J = _distort_jacobian(lp.distortion, x)
+        x = x - J \ (SVector{2}(Tuple(_distort(lens.distortion, x))) - xd)
     end
     return _nan_unless(ok, Vec2(x[1], x[2]))
 end
-
-# The plain forward map of a lens's distortion, as an SVector{2}: what the 2-D
-# inverses differentiate and check their residual against.
-@inline _frame_fwd(l::Lens, z) = SVector{2}(Tuple(_distort(l.distortion, z)))
 
 # A lone radial factor: x = g·x_d with G(g) = g·F(t·g²) − 1 = 0 at t = |x_d|². g = 1
 # on the axis and no square root appears, so value and derivative are exact
@@ -507,21 +575,20 @@ end
 # An Additive (or a lone delta): x ← (x_d − ΣΔ(x))·D/N(|x|²) — OpenCV's fixed
 # point (identical to its loop at its fixed point), x ← x_d − ΣΔ(x) without a
 # radial head — to convergence; toward the edge of the monotone field it stops
-# contracting and the trust-region Newton finishes, from the last iterate after a
+# contracting and the step-bounded LM finishes, from the last iterate after a
 # radial head, afresh from x_d after a peel too strong to converge. A head that is
-# another map goes to Newton directly.
+# another map goes to the LM directly.
 @inline _undistort(a::Union{Additive, Tangential, ThinPrism}, l::Lens, xd::StaticVector{2}) =
-    _undistort_2d(_frame_fwd, l, xd) do lp, x0
+    _undistort_2d(l, xd) do lp, x0
         ap = lp.distortion
         h = _head(ap)
-        f = z -> _distort(ap, z)
         x, ok = h isa Union{Nothing, Radial} ? _fixed_point(ap, h, x0) : (x0, false)
         if ok      # the contraction's root: its determinant, unless the cheap radial test already fails
-            dJ = _radial_ok(ap, x) ? _det_jacobian(f, x) : zero(eltype(x))
+            dJ = _radial_ok(ap, x) ? _det(_distort_jacobian(ap, x)) : zero(eltype(x))
         else
-            x, ok, dJ = _newton_solve(f, x0, h isa Radial ? x : x0)
+            x, ok, dJ = _inverse_lm(ap, x0, h isa Radial ? x : x0)
         end
-        return _branch_root(f, ap, _frame_cap(lp.projection), x0, x, ok, dJ)
+        return _branch_root(ap, _frame_cap(lp.projection), x0, x, ok, dJ)
     end
 
 @inline function _fixed_point(a, h, xd::SVector{2, S}) where {S <: AbstractFloat}
@@ -558,10 +625,9 @@ end
 
 # --- everything else (a composition) -------------------------------------------
 @inline _undistort(::Union{AbstractDistortionTerm, ComposedTransformation}, l::Lens, xd::StaticVector{2}) =
-    _undistort_2d(_frame_fwd, l, xd) do lp, x0
-        f = z -> _distort(lp.distortion, z)
-        x, ok, dJ = _newton_solve(f, x0)
-        return _branch_root(f, lp.distortion, _frame_cap(lp.projection), x0, x, ok, dJ)
+    _undistort_2d(l, xd) do lp, x0
+        x, ok, dJ = _inverse_lm(lp.distortion, x0)
+        return _branch_root(lp.distortion, _frame_cap(lp.projection), x0, x, ok, dJ)
     end
 
 # --- the imaged branch of a 2-D inverse ---------------------------------------
@@ -577,8 +643,8 @@ end
 # determinant alone accepts). CONNECTION to the axis is not tested anywhere: a
 # pointwise test cannot prove it, and only one of the three ways a root is found
 # provides it. The continuation walks from the axis, so its root is on the
-# axis's component; the first solve (Newton or the fixed point from x_d) and the
-# reseeded Newton after an unfinished walk (`_radial_seed`) are accepted by the
+# axis's component; the first solve (the LM or the fixed point from x_d) and the
+# reseeded LM after an unfinished walk (`_radial_seed`) are accepted by the
 # pointwise test alone. A root of theirs in a far component of {det J > 0}
 # inside every radial disk (the deltas or the tilt folding there) would be taken;
 # none was found in a search over strong chains and delta-dominated lenses, and
@@ -600,19 +666,14 @@ end
 @inline _is_radial(_) = false
 @inline _any_radial(ds::Tuple) = any(_is_radial, ds)
 
-@inline function _det_jacobian(f::F, x::SVector{2}) where {F}
-    J = ForwardDiff.jacobian(z -> SVector{2}(Tuple(f(z))), x)
-    return J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
-end
-@inline _on_imaged_branch(f::F, d, x::SVector{2}) where {F} = _radial_ok(d, x) && _det_jacobian(f, x) > 0
+@inline _on_imaged_branch(d, x::SVector{2}) = _radial_ok(d, x) && _det(_distort_jacobian(d, x)) > 0
 
 # A converged root on the branch stands as solved: the result is the solver's
-# own, unchanged. `dJ` is det J at (or, from Newton, within the solve tolerance
-# of) the root. Otherwise (no convergence, or a root past a fold) the root is
-# continued from the axis.
-@inline function _branch_root(f::F, d, cap, xd::SVector{2}, x, ok, dJ) where {F}
+# own, unchanged. `dJ` is det J at the root. Otherwise (no convergence, or a
+# root past a fold) the root is continued from the axis.
+@inline function _branch_root(d, cap, xd::SVector{2}, x, ok, dJ)
     ok && dJ > 0 && _radial_ok(d, x) && return x, true
-    return _continued_inverse(f, d, cap, xd)
+    return _continued_inverse(d, cap, xd)
 end
 
 # Continuation along the image segment from the axis (every distortion fixes
@@ -627,7 +688,7 @@ end
 # root), the last one to the solve tolerance; the walk's trips are capped per
 # precision (`_walk_trips`). Where the walk cannot finish (the segment leaves
 # the branch's image, which need not be star-shaped about the origin, or the
-# budget runs out) the trust-region Newton runs once more from the radial
+# budget runs out) the step-bounded LM runs once more from the radial
 # factor's own on-branch root (`_radial_seed`), where there is one, its root
 # accepted only through the same pointwise test. Trips: 48 in Float64, 24
 # otherwise. Measured on 96 random strong OpenCV chains (three seeds, sensor
@@ -642,13 +703,13 @@ end
 _walk_trips(::Type{Float64}) = 48
 _walk_trips(::Type{<:AbstractFloat}) = 24
 
-@noinline function _continued_inverse(f::F, d, cap, xd::SVector{2, S}) where {F, S <: AbstractFloat}
+@noinline function _continued_inverse(d, cap, xd::SVector{2, S}) where {S <: AbstractFloat}
     hmax = one(S) / 4
     h = min(hmax, inv(max(one(S), sqrt(xd[1] * xd[1] + xd[2] * xd[2]))))
     hmin = h / 4
     x = zero(xd)
     t = zero(S)
-    Jx = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), x)
+    Jx = SMatrix{2, 2, S}(_distort_jacobian(d, x))
     budget = _walk_trips(S)
     while t < 1 && budget > 0 && h >= hmin
         tn = min(t + h, one(S))
@@ -659,9 +720,9 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
         settled = false
         for _ in 1:(last_target ? budget : min(3, budget))
             budget -= 1
-            fz = f(z)
-            Jz = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), z)
-            Jz[1, 1] * Jz[2, 2] - Jz[1, 2] * Jz[2, 1] > 0 || break           # a fold: shorten
+            fz, Jw = _distort_and_jacobian(d, z)
+            Jz = SMatrix{2, 2, S}(Jw)
+            _det(Jz) > 0 || break           # a fold: shorten
             Δz = Jz \ SVector{2, S}(fz[1] - y1, fz[2] - y2)
             z = SVector{2, S}(z[1] - Δz[1], z[2] - Δz[2])
             δ2, s2 = Δz[1] * Δz[1] + Δz[2] * Δz[2], z[1] * z[1] + z[2] * z[2]
@@ -669,7 +730,7 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
             # check: in Float32 a strongly expanding map (det J ~ 700) leaves a
             # settled iterate's residual above it, one more trip below
             settled = (isfinite(z[1]) & isfinite(z[2])) &&
-                (last_target ? _newton_settled(δ2, s2, S) && _residual_ok(f(z), xd) : !(δ2 > max(s2, one(S)) / 10000))
+                (last_target ? _newton_settled(δ2, s2, S) && _residual_ok(_distort(d, z), xd) : !(δ2 > max(s2, one(S)) / 10000))
             settled && break
         end
         if settled && _radial_ok(d, z)         # a root past a radial fold: a jumped branch, shorten
@@ -678,19 +739,10 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
             h /= 2
         end
     end
-    t == 1 && _residual_ok(f(x), xd) && _on_imaged_branch(f, d, x) && return x, true
+    t == 1 && _residual_ok(_distort(d, x), xd) && _on_imaged_branch(d, x) && return x, true
     seed, found = _radial_seed(d, cap, xd)
     found || return x, false                  # no seed but x_d itself, which the first solve had
-    xs, ok, dJ = _newton_solve(f, xd, seed)
-    for _ in 1:2          # in Float32 a settled iterate of a strongly expanding map can miss the residual check by a trip
-        (ok | !(isfinite(xs[1]) & isfinite(xs[2]))) && break
-        fx = f(xs)
-        J = ForwardDiff.jacobian(w -> SVector{2}(Tuple(f(w))), xs)
-        dJ = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
-        Δ = J \ SVector{2, S}(fx[1] - xd[1], fx[2] - xd[2])
-        xs = SVector{2, S}(xs[1] - Δ[1], xs[2] - Δ[2])
-        ok = _residual_ok(f(xs), xd)
-    end
+    xs, ok, dJ = _inverse_lm(d, xd, seed)
     return xs, ok && dJ > 0 && _radial_ok(d, xs)
 end
 

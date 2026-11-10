@@ -577,7 +577,9 @@ const _PROJECT_TOL = 1.0e-6
 # every trial point's Jacobian is the next iteration's when the step is accepted),
 # from `x₀`, the point bounded to the box `[lb, ub]` (a step is clipped at the
 # bound), for at most `maxiter` LM iterations; converged means a final cost below
-# `tol2`. `s` is the problem's unit per axis, as the reference's
+# `tol2`. Returns the point, whether it converged and the Jacobian at the point
+# (the callers that need only the first two destructure them; the lens inverse
+# reads its determinant). `s` is the problem's unit per axis, as the reference's
 # pixel: its pixel constants are read in it — the step tolerance `ϵx = 1e-10 / s`,
 # the DᵀD clamp `[1e-12, 1e16]·s²`. Device-safe — static arrays only, no
 # allocation, no Union return — so the batched kernels run it per ray.
@@ -590,7 +592,15 @@ const _PROJECT_TOL = 1.0e-6
 # Float32 can resolve it, and at Float64 with `fs` of order one (the SplineLens
 # residual, a difference of unit directions) every stop is the reference's
 # exactly. The ray–board root of a MappedSurface calls it with `fs` its chart's
-# diagonal (mapped_surface.jl `_board_root`).
+# diagonal (mapped_surface.jl `_board_root`). `bound` limits every step: `nothing`
+# (the reference's: no limit), or a relative radius `b`, a step longer than
+# `b·max(‖x‖, 1)` shortened to it along its direction — COLMAP's
+# IterativeUndistortion clipping (`b = 0.1`), which the parametric lens inverse
+# reads (lens_rays.jl `_inverse_lm`). `cost_floor` is the absolute stops' floor, the
+# reference's `eps(Float64)` by default: a cost below it ends the solve, a residual
+# of order one resolved to √eps. A root that must be resolved to rounding (the lens
+# inverse: a seed whose residual is 1e-9 is not its root) passes 0, leaving the
+# stops at what T resolves.
 #
 # It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
 # builds heap problems and cannot run inside a KernelAbstractions kernel, so
@@ -612,20 +622,20 @@ const _PROJECT_TOL = 1.0e-6
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 @inline function _spline_lm(
         fj::FJ, x₀::SVector{2, T}, lb::SVector{2, T}, ub::SVector{2, T},
-        s::SVector{2, T}, maxiter::Int, tol2::T, fs::T = one(T)
-    ) where {FJ, T <: AbstractFloat}
+        s::SVector{2, T}, maxiter::Int, tol2::T, fs::T = one(T), bound::B = nothing, cost_floor::T = T(eps(Float64))
+    ) where {FJ, T <: AbstractFloat, B <: Union{Nothing, T}}
     ϵ = eps(T)
     ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
-    # the absolute stops: the reference's eps(Float64), or what T resolves of a residual of scale fs
-    ϵF = max(T(eps(Float64)), (16 * ϵ * fs)^2)
-    ϵG = max(T(eps(Float64)), (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
+    # the absolute stops: the cost floor (the reference's eps(Float64)), or what T resolves of a residual of scale fs
+    ϵF = max(cost_floor, (16 * ϵ * fs)^2)
+    ϵG = max(cost_floor, (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
     λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
     f, Jx = fj(x)
     F = sum(abs2, f)
-    F < ϵF && return x, F < tol2
+    F < ϵF && return x, F < tol2, Jx
     g = Jx' * f
-    norm(g, Inf) < ϵG && return x, F < tol2
+    norm(g, Inf) < ϵG && return x, F < tol2, Jx
     JtJ = Jx' * Jx
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
@@ -644,6 +654,7 @@ const _PROJECT_TOL = 1.0e-6
         # a step clipped to zero by either bound is rejected, as a failed solve is
         clipped = false
         if info == 0
+            p = _bounded_step(bound, p, x)
             p = min.(x .- lb, p)
             clipped = all(iszero, p)
             if !clipped
@@ -663,7 +674,7 @@ const _PROJECT_TOL = 1.0e-6
             end
             if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
                 if accepted
-                    x, f, F = xk, fk, Fk
+                    x, f, F, Jx = xk, fk, Fk, Jk
                 end
                 break
             end
@@ -673,9 +684,9 @@ const _PROJECT_TOL = 1.0e-6
             f = fk
             Fold = F
             F = Fk
+            Jx = Jk
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
-            Jx = Jk
             g = Jx' * f
             norm(g, Inf) < ϵG && break
             JtJ = Jx' * Jx
@@ -690,7 +701,15 @@ const _PROJECT_TOL = 1.0e-6
         end
         λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
-    return x, F < tol2
+    return x, F < tol2, Jx
+end
+
+# The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.
+@inline _bounded_step(::Nothing, p, x) = p
+@inline function _bounded_step(b::T, p::SVector{2, T}, x::SVector{2, T}) where {T}
+    r2 = b * b * max(x[1] * x[1] + x[2] * x[2], one(T))
+    n2 = p[1] * p[1] + p[2] * p[2]
+    return ifelse(n2 > r2, p * sqrt(r2 / n2), p)
 end
 
 # The unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at N = 2, the reference
@@ -745,7 +764,8 @@ end
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
     fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
-    return _spline_lm(fj, x₀, lb, ub, s, maxiter, tol2)
+    x, ok = _spline_lm(fj, x₀, lb, ub, s, maxiter, tol2)
+    return x, ok
 end
 
 # THE direction of a spline of direction controls over `area` at `x`, and its

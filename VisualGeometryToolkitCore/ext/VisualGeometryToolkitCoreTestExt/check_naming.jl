@@ -270,6 +270,8 @@ const RETIRED_NAMES = String[
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop
     "_pixel" * "_lm_increment",              # the pixel LM's Cholesky step: `_spline_lm_increment` (plan 1b, the one LM `_spline_lm`)
     "_pixel" * "_lm",                        # the pixel LM of the old grid: `_spline_lm` on the area's scale-free box (plan 1b)
+    "_newton" * "_solve",                    # the lens inverse's trust-region Newton (a Dual Jacobian in its loop): `_inverse_lm`, `_spline_lm` with the distortion's analytic Jacobian and a step bound
+    "_det" * "_jacobian",                    # a ForwardDiff determinant of the distortion: `_det(_distort_jacobian(d, x))`
     # the SplineLens fold-in (plan 1b, Core 0.9): the central grid camera is a
     # CameraModel with a SplineLens, the non-central one a NoncentralSplineModel
     "Central" * "GenericModel",              # `CameraModel(K, SplineLens(…))`, from a source `CameraModel(SplineLens, source, size)`

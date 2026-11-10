@@ -68,14 +68,19 @@ _at(at, k) = isempty(at) ? String(k) : "$(at).$(k)"
 # finite as the Float64 it is read as (JSON.jl parses 1e400 as a BigFloat)
 _isreal(x) = x isa Real && !(x isa Bool) && isfinite(x) && isfinite(Float64(x))
 
+# A key of a parsed object (a `JSON.Object`, read by Symbol) or of a plain
+# `Dict{String}` (a record built in memory, `_plain`'s), by its Symbol.
+_haskey(x, k::Symbol) = haskey(x, k) || (x isa AbstractDict{String} && haskey(x, String(k)))
+_getkey(x, k::Symbol) = x isa AbstractDict{String} ? x[String(k)] : x[k]
+
 function _validate(s::_Obj, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object")
     for (k, sk) in s.required
-        haskey(x, k) || _refuse(file, _at(at, k), "missing (a required key)")
-        _validate(sk, x[k], file, _at(at, k))
+        _haskey(x, k) || _refuse(file, _at(at, k), "missing (a required key)")
+        _validate(sk, _getkey(x, k), file, _at(at, k))
     end
     for (k, sk) in s.optional
-        haskey(x, k) && _validate(sk, x[k], file, _at(at, k))
+        _haskey(x, k) && _validate(sk, _getkey(x, k), file, _at(at, k))
     end
     for k in keys(x)
         (any(p -> p.first === Symbol(k), s.required) || any(p -> p.first === Symbol(k), s.optional)) ||
@@ -155,6 +160,62 @@ const _MATRIX_LAYOUT = "rows"
 const _GRID_LAYOUT = "row_major"
 const _POINT_INDEX_BASE = 1
 
+# The runs of a spline lattice's present nodes (style.jl), `[[row, [[col_lo, col_hi], …]], …]`:
+# each row once, rows increasing, its runs nonempty, increasing and apart (a
+# gap of at least one node), every index a non-negative integer. The lattice's
+# bounds and the node count are the record's check (`_lattice_problem`).
+struct _RowRuns <: _Spec end
+function _validate(::_RowRuns, x, file, at)
+    x isa AbstractVector || _refuse(file, at, "expected an array of [row, [[col_lo, col_hi], …]] entries")
+    isint(v) = v isa Integer && !(v isa Bool) && v >= 0
+    last_row = -1
+    for (i, e) in enumerate(x)
+        a = "$(at)[$(i)]"
+        (e isa AbstractVector && length(e) == 2 && isint(e[1]) && e[2] isa AbstractVector && !isempty(e[2])) ||
+            _refuse(file, a, "expected [row, [[col_lo, col_hi], …]], a row index and its nonempty runs")
+        e[1] > last_row || _refuse(file, a, "rows are listed once, increasing; row $(e[1]) follows row $(last_row)")
+        last_row = e[1]
+        last_hi = -2
+        for (j, r) in enumerate(e[2])
+            (r isa AbstractVector && length(r) == 2 && isint(r[1]) && isint(r[2]) && r[1] <= r[2]) ||
+                _refuse(file, "$(a)[2][$(j)]", "expected a run [col_lo, col_hi] of non-negative integers, col_lo ≤ col_hi")
+            r[1] > last_hi + 1 ||
+                _refuse(file, "$(a)[2][$(j)]", "a row's runs are increasing and apart; [$(r[1]), $(r[2])] follows a run ending at $(last_hi)")
+            last_hi = r[2]
+        end
+    end
+    return nothing
+end
+
+# A spline lattice record's own check, the lens record's and the non-central
+# record's: its `area` a finite rectangle of positive widths, its `grid_size`
+# `[gw, gh]` at least 4 × 4, its runs (`present`, already through `_RowRuns`)
+# inside the lattice, and each of its control arrays `arrays` (key => what)
+# holding one entry per held node. `s` a parsed record (keys by Symbol or
+# String); the message, or `nothing`.
+function _lattice_problem(s, arrays)
+    g(k) = _getkey(s, k)
+    has(k) = _haskey(s, k)
+    a = g(:area)
+    (a[3] > 0 && a[4] > 0) || return "the spline's area [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+    gw, gh = g(:grid_size)
+    (gw >= 4 && gh >= 4) || return "a cubic lattice has at least 4 × 4 nodes; grid_size = [$(gw), $(gh)]"
+    if has(:present)
+        runs = g(:present)
+        isempty(runs) && return "`present` holds no node"
+        for e in runs
+            e[1] < gh || return "`present` names row $(e[1]) of a lattice of $(gh) rows"
+            last(e[2])[2] < gw || return "`present` names column $(last(e[2])[2]) of a lattice of $(gw) columns"
+        end
+    end
+    n = has(:present) ? _runs_count(g(:present)) : gw * gh
+    what = has(:present) ? "the $(n) nodes `present` holds" : "grid_size's $(gw) × $(gh) = $(n)"
+    for k in arrays
+        length(g(k)) == n || return "the spline's $(k) has $(length(g(k))) entries, expected $(what)"
+    end
+    return nothing
+end
+
 # The current schema of each kind. A kind's version moves when its records
 # change shape: the lens-bearing kinds (cameras, rigs with sensors) took v3 at
 # the lens families (2026-10), whose lens record replaced v2's named-parameter
@@ -209,8 +270,19 @@ const _POINT_INDEX_BASE = 1
 # v4, trajectory v4, target v5, target_poses v2, target_points2d v2,
 # target_points3d v2, target_detections v2. An earlier file reads through its
 # version step unchanged (its covariances are rows).
+#
+# generic_camera v4 and rig v9 (the spline lens, VisualGeometryToolkitCore 0.9):
+# the central grid camera is a `CameraModel` with a `SplineLens`, stored as any
+# camera (a camera body whose `lens` is the `{"spline": …}` record); the
+# generic_camera kind holds the non-central grid camera alone, its splines over
+# the K-normalized plane and its K the camera's. A central v2/v3 file reads as a
+# camera store of its one camera (`load(BoundedCamera, path)`), a non-central
+# one through its v3 → v4 step; neither is rewritten. A rig/v8 sensor's grid
+# body becomes the camera body or the non-central body; v9 also stores each
+# sensor's lens coverage (its camera body's `lens_coverage`, a camera store's
+# form), which v8 refused to write.
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 5, "rig" => 8, "transforms" => 4, "trajectory" => 4, "generic_camera" => 3,
+    "cameras" => 5, "rig" => 9, "transforms" => 4, "trajectory" => 4, "generic_camera" => 4,
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
@@ -275,7 +347,7 @@ const _XYZ = _Vec(_Real(), 3)
 # VGIo), and the producer re-exports.
 const _RETIRED_KINDS = Dict(
     "vgio/observations/v2" => "vgio/target_points2d/v2", "vgio/point_observations/v1" => "vgio/target_points3d/v2",
-    "vgio/targets/v2" => "vgio/rig/v8", "vgio/rig/v3" => "vgio/rig/v8",
+    "vgio/targets/v2" => "vgio/rig/v9", "vgio/rig/v3" => "vgio/rig/v9",
     "vgio/session/v3" => "the calibration pipeline's own session kind (a pipeline's checkpoint is the pipeline's, not VGIo's)",
 )
 
@@ -284,12 +356,15 @@ const _RETIRED_KINDS = Dict(
 # for each.
 const _MIGRATIONS_TO_CURRENT = Dict(
     "vgio/target/v1" => "target", "vgio/rig/v4" => "rig", "vgio/target/v2" => "target", "vgio/rig/v5" => "rig",
-    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig", "vgio/target/v4" => "target", "vgio/rig/v7" => "rig",
+    "vgio/target/v3" => "target", "vgio/rig/v6" => "rig", "vgio/target/v4" => "target", "vgio/rig/v7" => "rig", "vgio/rig/v8" => "rig",
     "vgio/target_detections/v1" => "file", "vgio/target_points2d/v1" => "file", "vgio/target_points3d/v1" => "file",
     "vgio/target_poses/v1" => "file", "vgio/trajectory/v3" => "file", "vgio/transforms/v3" => "file",
     "vgio/cameras/v1" => "file", "vgio/cameras/v2" => "file", "vgio/cameras/v3" => "file",
-    "vgio/generic_camera/v2" => "file",
 )
+# (A vgio/generic_camera/v2 or v3 file is read through its migration and never
+# rewritten — the published grids stay as they are on disk, owner 2026-11-09: a
+# central one loads as a camera with a spline lens, `load(BoundedCamera, path)`, a
+# non-central one as the vgio/generic_camera/v4 record.)
 
 function _refuse_schema(path, kind::AbstractString, s)
     if s isa AbstractString && haskey(_RETIRED_KINDS, s)

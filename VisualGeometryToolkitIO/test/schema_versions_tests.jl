@@ -7,7 +7,7 @@
 @testsetup module OldVersions
     import VisualGeometryToolkitIO as VgtkIO
     using JSON: JSON
-    using VisualGeometryToolkitCore: AbstractTarget, Rig, BoundedCamera, NoncentralGenericModel
+    using VisualGeometryToolkitCore: AbstractTarget, Rig, BoundedCamera
     export old_fixture, old_versions, json_tree, write_tree
 
     old_fixture(name) = joinpath(@__DIR__, "fixtures", "old", name)
@@ -25,7 +25,7 @@
         for v in ("v1", "v2", "v3", "v4")
             push!(out, old_fixture("cameras_$(v).json") => Dict{Symbol, BoundedCamera})
         end
-        push!(out, old_fixture("generic_camera_v2.json") => NoncentralGenericModel)   # every node: v3's all-present model
+        # (generic_camera v2/v3: read through their steps, never rewritten — spline_lens_record_tests.jl)
         for name in ("target_planar.json", "target_points.json")
             t = json_tree(units_fixture(name))
             v2 = copy(t)
@@ -218,7 +218,7 @@ end
             t = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", file), String); dicttype = Dict{String, Any});
             t["schema"] = schema; write(p, JSON.json(t)); e = try load(T, p); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
         @test occursin("free strings", refusal(Vector{EuclideanMap}, "vgio/transforms/v2", "transforms.json"))   # its frames' names are not the grammar's
-        @test occursin("rig/v8", refusal(Rig, "vgio/rig/v3", "rig.json"))                                # a retired kind
+        @test occursin("rig/v9", refusal(Rig, "vgio/rig/v3", "rig.json"))                                # a retired kind
         @test occursin("re-export", refusal(Rig, "vgio/rig/v2", "rig.json"))                                # no migration
     end
 end

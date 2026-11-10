@@ -1,5 +1,5 @@
 {
-    "schema": "vgio/rig/v8",
+    "schema": "vgio/rig/v9",
     "pixel_frame": "colmap",
     "length_unit": "mm",
     "rotation_encoding": "quaternion_wxyz_hamilton",

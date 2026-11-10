@@ -140,6 +140,7 @@ or a lens OpenCV does not compute is refused.
 """
 opencv_parameters(camera::CameraModel) = opencv_parameters(PixelFrame{:opencv}, camera)
 function opencv_parameters(to_frame::Type{<:PixelFrame}, camera::CameraModel)
+    _refuse_spline_export(VgtkCore.lens(camera))
     camera.intrinsics isa LogicalIntrinsics ||
         throw(ArgumentError("opencv_parameters: a camera with a calibration matrix (LogicalIntrinsics); got $(typeof(camera.intrinsics))"))
     K = SMatrix{3, 3, Float64}(camera.intrinsics.K)

@@ -80,12 +80,25 @@
         @test_throws ArgumentError VgtkIO.load(BoundedCamera, p)
     end
 
-    @testset "a rig refuses to drop a sensor's lens coverage (the rig record has none yet)" begin
+    @testset "a rig stores each sensor's lens coverage (rig/v9)" begin
         pose(x) = EuclideanMap(one(RotMatrix{3, Float64}), SVector(x, 0.0, 0.0) .* mm)
-        covered = BoundedCamera(PosedCamera(m, pose(0.0)), Size2(W, H); lens_coverage = Circle(Point2(2131.1, 1407.9), 1680.1))
+        circle = Circle(Point2(2131.1, 1407.9), 1680.1)
+        covered = BoundedCamera(PosedCamera(m, pose(0.0)), Size2(W, H); lens_coverage = circle)
         other = BoundedCamera(PosedCamera(m, pose(100.0)), Size2(W, H))
-        @test_throws ArgumentError VgtkIO.save(joinpath(dir, "rig.json"), StereoRig(covered, other; ids = (:left, :right)))
-        VgtkIO.save(joinpath(dir, "rig_whole.json"), StereoRig(with_lens_coverage(covered, nothing), other; ids = (:left, :right)))
-        @test isfile(joinpath(dir, "rig_whole.json"))
+        rig = StereoRig(covered, other; ids = (:left, :right))
+        p = joinpath(dir, "rig.json")
+        VgtkIO.save(p, rig)
+        j = JSON.parsefile(p)
+        @test j["schema"] == "vgio/rig/v9"
+        @test [haskey(s["camera"], "lens_coverage") for s in j["sensors"]] == [true, false]   # the whole sensor writes nothing
+        back = VgtkIO.load(VgtkCore.Rig, p)
+        @test lens_coverage(back[1]) == circle && lens_coverage(back[2]) == whole
+        # the coverage is part of the camera's identity; the whole sensor's identity is the one it always had
+        bare = StereoRig(with_lens_coverage(covered, nothing), other; ids = (:left, :right))
+        @test VgtkIO.content_id(back) == VgtkIO.content_id(rig) == VgtkIO.content_id(p) != VgtkIO.content_id(bare)
+        @test !haskey(only(x for x in VgtkIO._identity_tree(bare)["sensors"] if x["id"] == "left")["camera"], "lens_coverage")
+        # a v8 rig holds no coverage: one that does was not written by v8
+        write(p, replace(read(p, String), "vgio/rig/v9" => "vgio/rig/v8"))
+        @test_throws ArgumentError VgtkIO.load(VgtkCore.Rig, p)
     end
 end

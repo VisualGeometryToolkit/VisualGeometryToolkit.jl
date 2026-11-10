@@ -10,8 +10,35 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   absent, the whole sensor is covered. A v4 store reads through its migration (its schema line alone; one that
   already holds a `lens_coverage` was not written by v4 and is refused), with the whole sensor covered; `save` writes
   v5. `JSON.lower`/`lift` pairs for `Circle` and `Rect2` join the `Ellipse` one.
-- A rig sensor whose lens coverage is not the whole sensor is REFUSED by `save(path, rig)` rather than silently
-  dropped: the rig record does not hold a coverage yet.
+- **Breaking: the spline lens (VisualGeometryToolkitCore 0.9 folds the central grid camera into `CameraModel` as a
+  `SplineLens`).** A SplineLens camera is stored as any camera, in `vgio/cameras/v5`: its camera body's `lens` is
+  `{"spline": {"area", "grid_size", "present"?, "controls", "forward"?}}` — the backward spline over the K-normalized
+  plane, the held nodes as runs per lattice row and their controls row by row, the forward spline exactly when it has
+  been fitted — and K is the body's own (a gauge, skew 0). It reads back bit for bit, and moves between pixel frames
+  by its K alone.
+- **Breaking: `vgio/generic_camera/v4`** holds the non-central grid camera alone, a
+  `BoundedCamera{<:NoncentralSplineModel}`: `type` "NoncentralSplineModel", the extent, K and
+  `{"spline": {"area", "grid_size", "present"?, "directions", "points"}}` (points in `length_unit`), with an optional
+  `pitch` and `lens_coverage`; `save(path, camera)`, `load(BoundedCamera, path)`. A record naming the central type is
+  refused, pointing at the read below.
+- **Old grid files are read, never rewritten** (owner, 2026-11-09): a central `vgio/generic_camera/v2` or `v3` file
+  reads as the camera store of its one camera, `:camera` — `load(BoundedCamera, path)` — K its `nominal_intrinsics`
+  (skew 0) else the lattice's gauge, its `domain` the camera's lens coverage; a non-central one reads through its
+  v3 → v4 step. `vgio_migrate` refuses both. Every pixel backprojects as the old models did (the old reader's values,
+  `test/fixtures/spline_lens_golden_io.jl`).
+- **Breaking: `vgio/rig/v9`**: a sensor's camera body carries its `lens_coverage` (a camera store's form, in the rig's
+  pixel frame), which `save` used to refuse; a v8 sensor's old grid body becomes its SplineLens camera's body or the
+  non-central body. A rig of a v5–v8 version holding a grid sensor reports the identity its version minted (its old
+  identity tree) as its `old_ids`. Every rig sensor is a `BoundedCamera`, a grid camera's included; a grid sensor
+  is no longer bound to the COLMAP pixel frame.
+- Schöps' `intrinsics0.yaml` reads through `load(BoundedCamera, path; file_unit)`: a central model as a SplineLens
+  camera, a non-central one as a `NoncentralSplineModel`, K the lattice's gauge.
+- `load(CameraModel, path)` refuses a camera whose lens coverage is not its whole sensor, rather than drop it.
+- The exporters to OpenCV and COLMAP (`opencv_parameters`, `colmap_camera`/`colmap_cameras`,
+  `save_opencv_calibration`) refuse a SplineLens camera with one message: it has no OpenCV/COLMAP form.
+- Removed: `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)`, `save(path, m)` of a grid model
+  (VisualGeometryToolkitCore 0.9 retired both types); the identity tree's `grid_model` form of a grid sensor (a
+  SplineLens sensor is identified by its lens record, a non-central one by its `noncentral_spline` record).
 
 ## 0.8.0 (2026-11-09)
 

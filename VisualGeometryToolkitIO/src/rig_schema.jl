@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/rig/v8 and vgio/target/v5 — VGC's `Rig` in every storage (sensors,
+# vgio/rig/v9 and vgio/target/v5 — VGC's `Rig` in every storage (sensors,
 # targets, both) and VGC's target model, serialized
 # =============================================================================
 #
@@ -744,11 +744,11 @@ function load(::Type{AbstractTarget}, path::AbstractString; resolve = nothing)
 end
 
 # -----------------------------------------------------------------------------
-# vgio/rig/v8 ↔ Rig, every storage
+# vgio/rig/v9 ↔ Rig, every storage
 # -----------------------------------------------------------------------------
 #
-# {"schema": "vgio/rig/v8", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
-#  "sensors": [{"id": "cam1", "camera": {camera body | generic body},
+# {"schema": "vgio/rig/v9", "pixel_frame": "colmap", <pose declarations>, "frame": "body:camera_rig",
+#  "sensors": [{"id": "cam1", "camera": {camera body | non-central body},
 #               "extrinsics": {rotation, translation}}],               extrinsics: `frame` → view:<id>
 #  "targets": [{"id": "<uid>", "target": {target body},
 #               "pose": {rotation, translation[, covariance]}}]}       pose: target:<id> → `frame`
@@ -763,19 +763,19 @@ end
 
 # A sensor bounded by its physical `Sensor` carries the pixel pitch in its
 # camera body (`_PITCH`, camera_schema.jl), in the rig's `length_unit`. Additive
-# in rig/v5, which is unreleased: no version moves.
-const _RIG_CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH])
-# A generic body's `present` is optional: every node when it is absent
-# (generic_camera_schema.jl), so every rig/v6 file written before reads as it
-# did; the writer emits it for a model that does not hold every node.
-const _RIG_GENERIC_BODY = _Checked(
-    _Obj(_GENERIC_BODY_FIELDS, Pair{Symbol, _Spec}[:point_grid => _GRID, :pitch => _PITCH, _GENERIC_OPTIONAL..., _GENERIC_PRESENT...]),
-    _generic_check,
+# in rig/v5, which is unreleased: no version moves. A sensor whose lens covers
+# less than its sensor carries its `lens_coverage` in its body too, a camera
+# store's form in the rig's pixel frame (rig/v9). A camera with a `SplineLens`
+# is a camera body (its lens the spline record); a non-central grid camera
+# embeds the generic_camera/v4 body, told apart by its `type`.
+const _RIG_CAMERA_BODY = _Checked(
+    _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]),
+    x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a rig sensor"),
 )
 
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
-    :camera => _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _RIG_GENERIC_BODY]),
+    :camera => _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _NONCENTRAL_BODY]),
     :extrinsics => _POSE,
 )
 const _MEMBER_RECORD = _Obj(Pair{Symbol, _Spec}[:id => _NonEmpty(), :target => _TARGET_BODY, :pose => _UPOSE], Pair{Symbol, _Spec}[])
@@ -793,37 +793,24 @@ const _RIG_SPEC = _Checked(
         (haskey(x, :targets) && isempty(ts)) && return "`targets` is omitted, not empty"
         (isempty(ss) && isempty(ts)) && return "a rig has sensors, targets, or both"
         haskey(x, :sensors) == haskey(x, :pixel_frame) || return "`pixel_frame` is declared iff the rig has sensors"
-        msg = _unique_check(vcat([s[:id] for s in ss], [t[:id] for t in ts]), "member ids")
-        msg === nothing || return msg
-        # A generic model is defined in the canonical pixel frame; a rig
-        # declaring another could not hold one.
-        (isempty(ss) || x[:pixel_frame] == pixel_frame_name(CANONICAL_PIXEL_FRAME) ||
-            !any(s -> haskey((s::AbstractDict)[:camera]::AbstractDict, :type), ss)) ||
-            return "a generic-model sensor is in the $(pixel_frame_name(CANONICAL_PIXEL_FRAME)) pixel frame; this rig declares $(x[:pixel_frame])"
-        return nothing
+        return _unique_check(vcat([s[:id] for s in ss], [t[:id] for t in ts]), "member ids")
     end,
 )
 
 function _sensor_json(s::VgioStyle, rig, i, id)
     c = sensor_rig(rig).members[i]
-    m = model(c)
-    body = if m isa CameraModel
-        c isa BoundedCamera || throw(
-            ArgumentError("rig sensor $i ($(id)) carries no pixel extent — wrap it in BoundedCamera(camera, extent) before saving")
-        )
-        _camera_body(s, m, extent(c))
-    else
-        JSON.lower(s, m)      # generic grid model: carries its own extent
-    end
-    # the rig record holds no lens coverage yet: a sensor that carries one is refused, not dropped
-    (c isa BoundedCamera && lens_coverage(c) != Rect2{Float64}(0, 0, extent(c).width, extent(c).height)) && throw(
-        ArgumentError(
-            "rig sensor $i ($(id)) carries a lens coverage ($(lens_coverage(c))), which a vgio/rig record does not store " *
-                "yet; save the camera in a camera store (vgio/cameras), or the rig with `with_lens_coverage(camera, nothing)`"
-        )
+    return (id = String(id), camera = _sensor_body(s, c, i, id), extrinsics = JSON.lower(s, extrinsics(sensor_rig(rig), i)))   # <rig frame> → view:<id>
+end
+# A sensor's camera body: a camera's (a CameraModel's, of any lens) or a non-central
+# grid camera's, its extent, its sensor's pitch and its lens coverage — the record's
+# and, on the identity's style, the identity tree's.
+function _sensor_body(s::VgioStyle, c, i, id)
+    c isa BoundedCamera || throw(
+        ArgumentError("rig sensor $i ($(id)) carries no pixel extent — wrap it in BoundedCamera(camera, extent) before saving")
     )
-    body = _with_pitch(body, _sensor_of(c), s.length_unit)
-    return (id = String(id), camera = body, extrinsics = JSON.lower(s, extrinsics(sensor_rig(rig), i)))   # <rig frame> → view:<id>
+    m, ext = model(c), extent(c)
+    body = m isa CameraModel ? _camera_body(s, m, ext) : _noncentral_body(s, m, ext)
+    return merge(_with_pitch(body, sensor(c), s.length_unit), _lens_coverage_json(s, lens_coverage(c), ext))
 end
 
 # a rig member's physical sensor, if it is bounded by one
@@ -860,8 +847,10 @@ end
 """
     save(path, rig::Rig; length_unit = mm, provenance = (;))
 
-Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v8`
-file in `length_unit`: each sensor (a `BoundedCamera`) with its extrinsics
+Write a physical VGC `Rig` — sensors, targets, or both — as a `vgio/rig/v9`
+file in `length_unit`: each sensor (a `BoundedCamera` of a `CameraModel` — a
+`SplineLens` one included — or of a `NoncentralSplineModel`, with its lens
+coverage) with its extrinsics
 `frame → view:<id>`, each target (sorted by id) with its body and its pose
 `target:<id> → frame` (a `covariance` iff `Uncertain`). A rig of plain
 translations or points is an `ArgumentError` (attach the unit, `t .* m`). A
@@ -873,13 +862,14 @@ save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedT
 """
     load(Rig, path; resolve = nothing) -> Rig
 
-Read a `vgio/rig/v8` file back into a fully labeled VGC `Rig` of the storage
+Read a `vgio/rig/v9` file back into a fully labeled VGC `Rig` of the storage
 it holds, its lengths in metres: sensors (each a `BoundedCamera` labeled `frame → ViewFrame{id}`),
 targets (each a `PosedTarget`, minted `TargetFrame{id} → frame` on access), or both.
 `resolve(design)` supplies a referenced planar design's nominal points (see
 [`target_from_json`](@ref)). Type-unstable by nature (frame types are minted
-from file data) — load once, dispatch after. A `vgio/rig/v4`, `v5` or `v6` file is
-read through its version steps (`migrate_record`).
+from file data) — load once, dispatch after. A `vgio/rig/v4`–`v8` file is
+read through its version steps (`migrate_record`): a v8 sensor's old grid body
+as its spline camera.
 """
 load(::Type{Rig}, path::AbstractString; resolve = nothing) = _rig_from_record(_read_store(path, "rig", _RIG_SPEC); resolve)
 
@@ -901,12 +891,9 @@ function _load_sensors(d, ::Type{F}, u::Units) where {F}
     st = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     return map(d.sensors::Vector{Any}) do s
         Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, JSON.lift(st, EuclideanMap{3}, s.extrinsics::_Record))
-        if haskey(s.camera, :type)
-            gm = JSON.lift(st, _GenericModel, s.camera::_Record)
-            BoundedCamera(PosedCamera(gm, Xl), _bound_from_body(s.camera, Size2(gm.width, gm.height), u))
-        else
-            BoundedCamera(PosedCamera(JSON.lift(st, CameraModel, s.camera::_Record), Xl), _bound_from_body(s.camera, _extent_from_body(s.camera), u))
-        end
+        b = s.camera::_Record
+        mdl, ext = haskey(b, :type) ? _noncentral_from_body(st, b) : (JSON.lift(st, CameraModel, b), _extent_from_body(b))
+        BoundedCamera(PosedCamera(mdl, Xl), _bound_from_body(b, ext, u); lens_coverage = _lens_coverage_from_json(st, get(b, :lens_coverage, nothing)))
     end
 end
 
@@ -962,13 +949,14 @@ The identity tree, fixed (a test pins it for a rig of every target kind):
     pose       {"rotation": [w, x, y, z] (Hamilton, w ≥ 0), "translation": [m, m, m],
                 "covariance": 6×6 rows over [δω; δt], rad and m       (iff Uncertain)}
     camera     {"intrinsics": [fx, fy, cx, cy, skew] (px, the canonical pixel frame),
-                "extent": [width, height] (px), "lens": VGC's lens_record of the lens, its stages in sequence
-                under "chain" in application order (the inner stage first)}
-             | {"grid_model": "central" | "noncentral", "extent": [width, height],
-                "calibrated_area": [min_x, min_y, max_x, max_y], "grid": [width, height],
-                "directions": row-major [[x, y, z], …], "points": row-major [[m, m, m], …] (non-central),
-                "nominal_intrinsics": [fx, fy, cx, cy, skew] (px)               (iff the model has one),
-                "domain": {"ellipse": [cx, cy, a, b, θ]} (px, a ≥ b, rad)       (iff not the whole plane)}
+                "extent": [width, height] (px),
+                "lens": VGC's lens_record of the lens, its stages in sequence under "chain" in application
+                        order (the inner stage first); a SplineLens's spline record
+                        {"spline": {"area", "grid_size", "present"?, "controls", "forward"?}}
+                | "noncentral_spline": a non-central grid camera's spline record {"area", "grid_size", "present"?,
+                        "directions", "points": [[m, m, m], …]},
+                "pitch": [m, m]                                                   (iff bounded by its sensor),
+                "lens_coverage": {"circle" | "ellipse" | "rect": […]} (px)       (iff not the whole sensor)}
     target     {"kind": "points", "points": [[m, …], …], "point_covariances": per point d×d rows, m² (iff Uncertain)}
              | {"kind": "planar", "reference": <id> | "nominal": [[m, m], …], "calibration": <calibration>,
                 "board": {"size": [width, height] (m), "origin": [m, m]}  (iff the target has a board),
@@ -1051,43 +1039,22 @@ end
 # a board's size is [width, height]
 _id_board!(d::_Id) = (haskey(d, "board") && _id_size!(d["board"]); d)
 
-function _id_camera(c)
-    mdl = model(c)
+_id_camera(c) = throw(ArgumentError("content_id: a rig sensor carries its pixel extent — wrap it in BoundedCamera(camera, extent)"))
+function _id_camera(c::BoundedCamera)   # a rig sensor (the writer requires its extent)
+    mdl, e = model(c), extent(c)
+    d = _Id("intrinsics" => Any[_k_values(mdl.intrinsics.K)...], "extent" => Any[Int(e.width), Int(e.height)], _id_pitch(c)...)
     if mdl isa CameraModel
-        e = extent(c)
-        return _Id(
-            "intrinsics" => Any[_k_values(mdl.intrinsics.K)...],
-            "extent" => Any[Int(e.width), Int(e.height)], "lens" => _id_lens(mdl.lens),
-            _id_pitch(c)...,
-        )
+        d["lens"] = _id_lens(mdl.lens)          # a SplineLens's: its spline record (camera_schema.jl)
+    else
+        d["noncentral_spline"] = _lower(_noncentral_body(_ID_STYLE, mdl, e).spline)   # its points the persisted metres
     end
-    return merge(_id_grid_model(mdl), _Id(_id_pitch(c)...))
+    cov = _lens_coverage_json(_ID_STYLE, lens_coverage(c), e)
+    isempty(cov) || (d["lens_coverage"] = _lower(cov.lens_coverage))
+    return d
 end
 # the pitch iff the camera is bounded by its sensor: the writer's own `_with_pitch`,
 # its leaves the persisted metre values
 _id_pitch(c) = (s = _sensor_of(c); s === nothing ? () : ("pitch" => _lower(_with_pitch((;), s, _PERSISTED).pitch),))
-# A generic model: the writer's body (the points its persisted metres) under
-# the identity's own names — fixed: a writer key renamed does not re-id a rig;
-# the held nodes row by row, and their runs, the nominal pinhole and the domain
-# iff the model has them (a model holding every node has the identity it had
-# before the presence mask). The grids, the largest arrays of the tree, are the
-# body's own node vectors (built fresh by the lower, Float64 rows that
-# `canonical_json` writes as it writes `Any` ones), not copied again.
-function _id_grid_model(gm::_GenericModel)
-    r = JSON.lower(_ID_STYLE, gm)
-    d = _Id(
-        "extent" => Any[Int(r.width), Int(r.height)],
-        "calibrated_area" => Any[Int(r.calibration_min_x), Int(r.calibration_min_y), Int(r.calibration_max_x), Int(r.calibration_max_y)],
-        "grid" => Any[r.grid_width, r.grid_height], "grid_model" => gm isa CentralGenericModel ? "central" : "noncentral",
-        "directions" => r.direction_grid,
-    )
-    haskey(r, :point_grid) && (d["points"] = r.point_grid)
-    for k in (:present, :nominal_intrinsics, :domain)
-        haskey(r, k) && (d[String(k)] = _lower(r[k]))
-    end
-    return d
-end
-
 _lower(x::NamedTuple) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in pairs(x))
 _lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in x)
 _lower(x::AbstractVector) = Any[_lower(v) for v in x]

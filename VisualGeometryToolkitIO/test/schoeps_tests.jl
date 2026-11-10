@@ -36,19 +36,23 @@
 end
 
 @testitem "schoeps: central intrinsics0.yaml" setup = [VGIoFixtures, SchoepsReference] begin
-    using VisualGeometryToolkitCore: backproject, CentralGenericModel, NoncentralGenericModel
+    using VisualGeometryToolkitCore: backproject, model, valid_domain
     using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
     path = joinpath(FIXTURES, "central_intrinsics0.yaml")
-    cam = load(CentralGenericModel, path)
-    @test cam isa CentralGenericModel{Float64}
-    @test (cam.width, cam.height) == (64, 48)
-    @test (cam.calib_min_x, cam.calib_min_y, cam.calib_max_x, cam.calib_max_y) == (4, 3, 59, 44)
-    @test size(cam.grid) == (4, 5)                       # [gy, gx]
+    bc = load(BoundedCamera, path)
+    cam = model(bc)
+    @test cam isa CameraModel && cam.lens isa SplineLens            # a camera with a spline lens
+    @test extent(bc) == Size2(64, 48)
+    @test iszero(cam.intrinsics.K[1, 2])                             # the gauge: skew 0
+    va = valid_domain(cam)                                            # the calibrated area [min, max + 1)
+    @test all(isapprox.((va.origin..., va.widths...), (4, 3, 56, 42); atol = 1.0e-9))
+    C = cam.lens.backward.controls
+    @test size(C) == (4, 5)                                           # [gy, gx]
     @test SCHOEPS_PIXEL_FRAME === PixelFrame{:colmap}     # the corner convention, read as stored
 
     cp = schoeps_raw_grid(path, "grid", 5, 4)
     for gy in 1:4, gx in 1:5                             # the layout: entry y·gw + x lands at [gy, gx]
-        @test collect(cam.grid[gy, gx]) ≈ cp[gx, gy] ./ norm(cp[gx, gy]) atol = 1.0e-14
+        @test collect(C[gy, gx]) ≈ cp[gx, gy] ./ norm(cp[gx, gy]) atol = 1.0e-14
     end
     # The model at pixels across the calibrated area against the reference's surface.
     worst = 0.0
@@ -60,29 +64,31 @@ end
     end
     @test worst < 1.0e-12
 
-    # The typed load is an assertion of intent, and the YAML states no lengths.
-    @test_throws ArgumentError load(NoncentralGenericModel, path; file_unit = m)
-    @test_throws ArgumentError load(CentralGenericModel, path; file_unit = m)
-    # A vgio round trip of the YAML-read model is exact.
+    # A central model states no lengths.
+    @test_throws ArgumentError load(BoundedCamera, path; file_unit = m)
+    # A vgio round trip of the YAML-read camera (a camera store) is exact.
     mktempdir() do dir
         out = joinpath(dir, "cam.json")
-        save(out, cam)
-        @test load(CentralGenericModel, out).grid == cam.grid
-        @test_throws ArgumentError load(CentralGenericModel, out; file_unit = m)
+        save(out, Dict(:cam => bc))
+        @test model(load(BoundedCamera, out)).lens.backward.controls == C
+        @test_throws ArgumentError load(BoundedCamera, out; file_unit = m)
     end
 end
 
 @testitem "schoeps: noncentral intrinsics0.yaml" setup = [VGIoFixtures, SchoepsReference] begin
-    using VisualGeometryToolkitCore: backproject, NoncentralGenericModel
+    using VisualGeometryToolkitCore: backproject, model
     path = joinpath(FIXTURES, "noncentral_intrinsics0.yaml")
-    @test_throws ArgumentError load(NoncentralGenericModel, path)              # the unit is the caller's to state
-    @test_throws ArgumentError load(NoncentralGenericModel, path; file_unit = px)
-    cam_m = load(NoncentralGenericModel, path; file_unit = m)
-    cam_mm = load(NoncentralGenericModel, path; file_unit = mm)
+    @test_throws ArgumentError load(BoundedCamera, path)                       # the unit is the caller's to state
+    @test_throws ArgumentError load(BoundedCamera, path; file_unit = px)
+    @test_throws ArgumentError load(CameraModel, path)
+    bc = load(BoundedCamera, path; file_unit = m)
+    cam_m = model(bc)
+    cam_mm = model(load(BoundedCamera, path; file_unit = mm))
+    @test cam_m isa NoncentralSplineModel && extent(bc) == Size2(64, 48)
     P = schoeps_raw_grid(path, "point_grid", 5, 4)
     D = schoeps_raw_grid(path, "direction_grid", 5, 4)
-    @test collect(cam_m.points[2, 3]) == P[3, 2]                               # metres as stored
-    @test collect(cam_mm.points[2, 3]) ≈ P[3, 2] ./ 1000 rtol = 1.0e-15        # millimetres read into metres
+    @test collect(cam_m.points.controls[2, 3]) == P[3, 2]                      # metres as stored
+    @test collect(cam_mm.points.controls[2, 3]) ≈ P[3, 2] ./ 1000 rtol = 1.0e-15   # millimetres read into metres
     worst_o = 0.0; worst_d = 0.0
     for px in range(4.0, 59.9; length = 7), py in range(3.0, 44.9; length = 5)
         gx, gy = schoeps_grid_coordinate(px, py; gw = 5, gh = 4, cminx = 4, cminy = 3, cmaxx = 59, cmaxy = 44)
@@ -135,14 +141,14 @@ end
 end
 
 @testitem "content dispatch: a UTF-8 byte-order mark is not content" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: NoncentralGenericModel
+    using VisualGeometryToolkitCore: model
     # a vgio file an editor saved with a BOM is read as the vgio file it is, not sent to the Schöps YAML parser
     src = joinpath(@__DIR__, "fixtures", "units", "generic_camera.json")
     mktempdir() do dir
         p = joinpath(dir, "bom.json")
         write(p, vcat(UInt8[0xef, 0xbb, 0xbf], read(src)))
         @test VisualGeometryToolkitIO._file_form(p) === :json
-        a, b = load(NoncentralGenericModel, p), load(NoncentralGenericModel, src)
-        @test a.directions == b.directions && a.points == b.points
+        a, b = model(load(BoundedCamera, p)), model(load(BoundedCamera, src))
+        @test a.directions.controls == b.directions.controls && a.points.controls == b.points.controls
     end
 end

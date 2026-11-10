@@ -55,7 +55,7 @@ end
         path = joinpath(dir, "rig.json")
         save(path, rig; provenance = (name = "test-rig",))
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v8" && d.pixel_frame == "colmap" && d.length_unit == "mm"
+        @test d.schema == "vgio/rig/v9" && d.pixel_frame == "colmap" && d.length_unit == "mm"
         @test d.frame == "view:left" && d.provenance.name == "test-rig"
         @test !haskey(d, :targets)                                       # omitted, not empty
         # the extrinsics' frames are where they sit — never restated beside them
@@ -83,47 +83,33 @@ end
     end
 end
 
-@testitem "generic camera round trip (vgio/generic_camera/v3)" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, PosedCamera, ViewFrame, NoncentralGenericModel, Vec3, relabel, ids, model
+@testitem "grid cameras in a rig: a SplineLens sensor and a non-central one, in any pixel frame" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: Rig, PosedCamera, ViewFrame, relabel, ids, model
     using Rotations: RotXYZ
 
-    gh, gw = 4, 5
-    dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:gh, gx in 1:gw]
-    pts = [Vec3{Float64}(0.1gx, -0.1gy, 0.05) for gy in 1:gh, gx in 1:gw]
-    gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
-    gn = NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, pts)
+    src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02))
+    gc = CameraModel(SplineLens, src, (64, 48); grid_size = (5, 4))
+    d = gc.lens.backward
+    gn = NoncentralSplineModel(gc.intrinsics, d, ChartSpline(d.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5]))
+    Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
     mktempdir() do dir
-        pc = joinpath(dir, "central.json"); save(pc, gc)
-        dc = parse_json(read(pc, String))
-        @test dc.pixel_frame == "colmap" && dc.grid_layout == "row_major" && !haskey(dc, :length_unit)
-        back = load(CentralGenericModel, pc)
-        @test back.grid == gc.grid && back.calib_max_x == 63 && back.width == 64
-        pn = joinpath(dir, "noncentral.json"); save(pn, gn)
-        @test parse_json(read(pn, String)).length_unit == "mm"     # the point grid's unit, declared
-        backn = load(NoncentralGenericModel, pn)
-        @test backn.directions == gn.directions && backn.points == gn.points
-        # typed load is an assertion of intent
-        @test_throws ArgumentError load(NoncentralGenericModel, pc)
-        @test_throws ArgumentError load(CentralGenericModel, pn)
-        # a rig with a GENERIC sensor round-trips (no BoundedCamera needed:
-        # the record carries its own extent)
-        Xl = relabel(
-            ViewFrame{:g}, ViewFrame{:g},
-            EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm])
-        )
-        rigg = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
-        pr = joinpath(dir, "rig_generic.json"); save(pr, rigg)
-        backr = load(Rig, pr)
-        @test model(backr[1]) isa CentralGenericModel
-        @test model(backr[1]).grid == gc.grid
-        @test ids(backr) == (:g,)
-        @test extent(backr[1]) == Size2(64, 48)
-        # a generic sensor lives in the COLMAP pixel frame; a rig declaring
-        # another could not hold one
-        raw = copy(parse_json(read(pr, String)))
-        raw[:pixel_frame] = "opencv"
-        bad = joinpath(dir, "rig_generic_opencv.json"); write(bad, JSON.json(raw))
-        @test_throws ArgumentError load(Rig, bad)
+        for g in (gc, gn)
+            rigg = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(g, Xl), Size2(64, 48)),))
+            pr = joinpath(dir, "rig_grid.json"); save(pr, rigg)
+            backr = load(Rig, pr)
+            @test typeof(model(backr[1])) == typeof(g) && ids(backr) == (:g,) && extent(backr[1]) == Size2(64, 48)
+            @test VisualGeometryToolkitIO.same_value(model(backr[1]), g)
+            # a grid sensor's K moves with the rig's declared pixel frame, as any camera's
+            raw = JSON.parse(read(pr, String))
+            raw["pixel_frame"] = "opencv"
+            k = raw["sensors"][1]["camera"]["K"]
+            k["cx"] -= 0.5; k["cy"] -= 0.5
+            po = joinpath(dir, "rig_grid_opencv.json"); write(po, JSON.json(raw))
+            o = model(load(Rig, po)[1])
+            @test o.intrinsics.K ≈ g.intrinsics.K atol = 1.0e-12
+            # a bare PosedCamera sensor (no extent) is refused: a grid camera carries none either
+            @test_throws ArgumentError save(joinpath(dir, "bare.json"), Rig{ViewFrame{:g}}((PosedCamera(g, Xl),)))
+        end
     end
 end
 
@@ -151,7 +137,7 @@ end
         path = joinpath(dir, "targets.json")
         save(path, tr)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/rig/v8" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
+        @test d.schema == "vgio/rig/v9" && !haskey(d, :pixel_frame) && !haskey(d, :sensors)   # pixel_frame iff sensors
         @test [t.id for t in d.targets] == ["a1f2", "b76e", "c9"]      # ids sorted
         @test d.targets[1].target.type == "planar" && haskey(d.targets[1].target, :nominal)
         # a referenced design is written by its reference alone: its points are its owner's
@@ -311,8 +297,8 @@ end
         for (schema, T, successor) in (
                 ("vgio/observations/v2", TargetPoints2D, "target_points2d/v2"),
                 ("vgio/point_observations/v1", TargetPoints3D, "target_points3d/v2"),
-                ("vgio/targets/v2", Rig, "rig/v8"),
-                ("vgio/rig/v3", Rig, "rig/v8"),
+                ("vgio/targets/v2", Rig, "rig/v9"),
+                ("vgio/rig/v3", Rig, "rig/v9"),
                 ("vgio/session/v3", Rig, "calibration pipeline's own session kind"),
             )
             p = joinpath(dir, "old.json")

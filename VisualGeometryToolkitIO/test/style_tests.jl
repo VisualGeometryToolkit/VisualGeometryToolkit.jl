@@ -75,12 +75,3 @@ end
         @test content_id(back) == content_id(p)
     end
 end
-
-@testitem "VgioStyle: a generic model's unstorable domain names its caller" setup = [VGIoFixtures] begin
-    import VisualGeometryToolkitIO as VgtkIO
-    struct _Disc end
-    e(s) = try VgtkIO._refuse_domain(s, _Disc()); nothing catch err; err end
-    w, i = e(VgtkIO.VgioStyle(; length_unit = mm)), e(VgtkIO._ID_STYLE)
-    @test w isa ArgumentError && startswith(w.msg, "save: a generic model's domain is stored as an Ellipse")
-    @test i isa ArgumentError && startswith(i.msg, "content_id: a generic model's domain is an Ellipse")
-end

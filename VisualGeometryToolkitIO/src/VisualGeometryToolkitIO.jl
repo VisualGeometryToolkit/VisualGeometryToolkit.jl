@@ -115,7 +115,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
     TargetDetections, Csponds, withattrs, sources, targets,
-    CentralGenericModel, NoncentralGenericModel, nominal_intrinsics, present_nodes, LogicalIntrinsics, Ellipse, WholePlane, Circle, Rect2, lens_coverage,
+    SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, lens_coverage,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
     Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
@@ -136,9 +136,12 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # asked for. `save` needs no type argument; the value already carries it.
 #
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v5     the camera store
-#   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed)
+#   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed); the
+#                                                grid cameras of Schöps et al. too (a SplineLens camera, a
+#                                                NoncentralSplineModel: vgio/generic_camera, old grid files, intrinsics0.yaml)
+#   load(BoundedCamera, path)                    vgio/generic_camera/v4  a non-central grid camera (BoundedCamera{<:NoncentralSplineModel})
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v4  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v8         sensors, targets, or both
+#   load(Rig, path; resolve = nothing)           vgio/rig/v9         sensors, targets, or both
 #   load(AbstractTarget, path; resolve = nothing) vgio/target/v5     one target (+ its calibration record)
 #   load(PlanarTarget, path)                     a planar vgio/target/v5, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
 #   load(Trajectory, path)                       vgio/trajectory/v4  a body's pose over time
@@ -148,7 +151,6 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v2
 #   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
-#   load(CentralGenericModel | NoncentralGenericModel, path)   the Schöps grid models (vgio JSON, or Schöps' intrinsics0.yaml)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -185,7 +187,7 @@ include("colmap_database.jl")
 include("frame_names.jl")     # the frame grammar: frame types ↔ names (every pose-carrying kind)
 include("transform_schema.jl")
 include("camera_schema.jl")
-include("generic_camera_schema.jl")  # the Schöps grid models (must precede rig_schema: sensors embed it)
+include("generic_camera_schema.jl")  # the non-central grid camera, vgio/generic_camera/v4 (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities

@@ -21,7 +21,7 @@ using Rotations: QuatRotation, RotMatrix
 using VisualGeometryToolkitCore: mm, m, px, CameraModel, CameraCalibrationMat, Pinhole,
     Lens, LiftLens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Additive, Chain,
     KannalaBrandt, Scaramuzza, Division, EuclideanMap,
-    AbstractLensModel, Size2, extent, DoubleSphere, CentralGenericModel, PixelFrame,
+    AbstractLensModel, Size2, extent, DoubleSphere, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, PixelFrame,
     lens_record, lens_from_record, parameters, parameter_vector
 import VisualGeometryToolkitCore
 using FlexUnits: DimensionError, ConversionError, quantity, ustrip, Quantity, Dimensions, FixRat32
@@ -33,7 +33,7 @@ export SVector, SMatrix, norm, QuatRotation, RotMatrix
 export mm, m, px, CameraModel, CameraCalibrationMat, Pinhole,
     Lens, LiftLens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Additive, Chain,
     KannalaBrandt, Scaramuzza, Division, EuclideanMap,
-    AbstractLensModel, Size2, extent, DoubleSphere, CentralGenericModel, PixelFrame,
+    AbstractLensModel, Size2, extent, DoubleSphere, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, PixelFrame,
     lens_record, lens_from_record, parameters, parameter_vector
 export VisualGeometryToolkitCore, DimensionError, ConversionError
 export q0, _mkpose, qpose, mm_lengths, exact_mm, Quantity, Dimensions, FixRat32

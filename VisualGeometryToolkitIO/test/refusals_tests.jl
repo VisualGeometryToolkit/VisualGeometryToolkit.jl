@@ -73,6 +73,7 @@
                 )
             )
         )
-        @test_throws ArgumentError load(CentralGenericModel, path)
+        e = try load(BoundedCamera, path); nothing catch e; e end
+        @test e isa ArgumentError && occursin("Fisheye9000", e.msg)
     end
 end

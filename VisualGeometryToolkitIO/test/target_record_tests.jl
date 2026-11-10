@@ -337,7 +337,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json")
         save(p, rig)
-        @test parse_json(read(p, String)).schema == "vgio/rig/v8"
+        @test parse_json(read(p, String)).schema == "vgio/rig/v9"
         back = load(Rig, p)
         @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t
@@ -418,24 +418,44 @@ end
     e = only(x for x in t["targets"] if x["id"] == "e_chain")
     @test e["target"]["kind"] == "planar" && e["target"]["calibration"]["kind"] == "calibration_chain" &&
         haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["thin_plate_spline", "height_field"]   # application order, as v5
-    # a generic sensor with a nominal pinhole and a domain: both enter under the identity's own names
-    using VisualGeometryToolkitCore: PosedCamera, ViewFrame, relabel, CentralGenericModel, NoncentralGenericModel, KannalaBrandt,
-        EuclideanMap, Vec3, CameraModel, Ellipse, Point2
+    # grid sensors — a SplineLens camera with an image circle, a non-central grid camera — enter under the identity's own names
+    using VisualGeometryToolkitCore: PosedCamera, ViewFrame, relabel, KannalaBrandt, EuclideanMap, CameraModel, Ellipse, Point2,
+        SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, Size2
     using Rotations: RotXYZ
     src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
     circle = Ellipse(Point2(32.25, 23.875), 33.2, 33.2, 0.0)   # the image circle, supplied (a lens model's fold is not one)
-    gc = CentralGenericModel(src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate, domain = circle)
-    P = [Vec3{Float64}(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]
-    nc = NoncentralGenericModel(64, 48, 0, 0, 63, 47, gc.grid, P; unit_controls = false, gc.nominal, gc.domain)
+    gc = CameraModel(SplineLens, src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate)
+    gd = gc.lens.backward
+    nc = NoncentralSplineModel(gc.intrinsics, gd, ChartSpline(gd.area, [SVector(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]))
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
-    grig = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
-    @test content_id(grig) == "9cfb569ce7b14e9e31416b3e70e13af89819a36e5c64f4a8899720579c577d51"
-    @test content_id(Rig{ViewFrame{:g}}((PosedCamera(nc, Xl),))) == "d12b5bc15944e04fa210c0c2bbb3ffb27e3434cbd36feefec405de85a2455881"
+    grig = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), Size2(64, 48); lens_coverage = circle),))
+    nrig = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(nc, Xl), Size2(64, 48); lens_coverage = circle),))
+    @test content_id(grig) == "ce2186d905e16b001fd7cd378e37b26fbab24d2901e825c28db088d6a5eeea6a"
+    @test content_id(nrig) == "9acbebe8c01572b2fb57d0c4976ca33fc3d158a37b55998d875a0a6cab5d2409"
     cam = only(VgtkIO._identity_tree(grig)["sensors"])["camera"]
-    K, ell = VisualGeometryToolkitCore.nominal_intrinsics(gc).K, gc.domain
-    @test cam["nominal_intrinsics"] == [K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
-    @test cam["domain"] == Dict("ellipse" => [ell.center[1], ell.center[2], ell.a, ell.b, ell.θ])
-    @test sort!(collect(keys(cam))) == ["calibrated_area", "directions", "domain", "extent", "grid", "grid_model", "nominal_intrinsics"]
+    K = gc.intrinsics.K
+    @test cam["intrinsics"] == [K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
+    @test cam["lens_coverage"] == Dict("ellipse" => [circle.center[1], circle.center[2], circle.a, circle.b, circle.θ])
+    @test sort!(collect(keys(cam))) == ["extent", "intrinsics", "lens", "lens_coverage"]
+    @test sort!(collect(keys(only(VgtkIO._identity_tree(nrig)["sensors"])["camera"]))) == ["extent", "intrinsics", "lens_coverage", "noncentral_spline"]
+    # the same camera in a rig/v8 file (its old grid body, with the source's pinhole and the circle as its domain):
+    # the identity v8 minted for it, pinned before the spline lens (9cfb569c…), is the old identity its migration reports
+    mktempdir() do dir
+        p = joinpath(dir, "grig.json"); save(p, grig)
+        t = JSON.parse(read(p, String))
+        Kv = Any[K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
+        t["schema"] = "vgio/rig/v8"
+        t["sensors"][1]["camera"] = Dict(
+            "type" => "CentralGenericModel", "width" => 64, "height" => 48,
+            "calibration_min_x" => 0, "calibration_min_y" => 0, "calibration_max_x" => 63, "calibration_max_y" => 47,
+            "grid_width" => 8, "grid_height" => 7, "grid_layout" => "row_major",
+            "direction_grid" => [collect(gd.controls[gy, gx]) for gy in 1:7 for gx in 1:8],
+            "nominal_intrinsics" => Kv, "domain" => Dict("ellipse" => Any[circle.center[1], circle.center[2], circle.a, circle.b, circle.θ]),
+        )
+        v8 = joinpath(dir, "grig_v8.json"); write(v8, JSON.json(t, 4))
+        r = VgtkIO.vgio_migrate(v8)
+        @test r.old_ids == ["9cfb569ce7b14e9e31416b3e70e13af89819a36e5c64f4a8899720579c577d51"] && r.new_id == content_id(grig)
+    end
 end
 
 @testitem "target/v3: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin

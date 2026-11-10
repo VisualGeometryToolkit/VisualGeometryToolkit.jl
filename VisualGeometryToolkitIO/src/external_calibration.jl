@@ -181,6 +181,7 @@ function save_opencv_calibration(
         )
     )
     lens = VgtkCore.lens(camera)
+    _refuse_spline_export(lens)
     c = opencv_coefficients(lens)
     K = SMatrix{3, 3, Float64}(camera.intrinsics.K)
     # OpenCV's camera matrix in this shape is fx, fy, cx, cy — no skew — so a

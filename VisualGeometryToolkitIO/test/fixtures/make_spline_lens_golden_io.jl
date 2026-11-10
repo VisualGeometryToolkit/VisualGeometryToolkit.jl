@@ -5,7 +5,11 @@
 # Run it ONCE at the old code, in the IO test env (Core + IO):
 #   include(".../VisualGeometryToolkitIO/test/fixtures/make_spline_lens_golden_io.jl")
 using StaticArrays
-using VisualGeometryToolkitCore: CentralGenericModel, NoncentralGenericModel, backproject, present_nodes
+import VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: backproject, present_nodes
+# the old grid types, retired since the SplineLens fold-in: reached by the stored type name (check_naming's FOREIGN_FORMAT_TOKENS)
+const OldCentral = getfield(VisualGeometryToolkitCore, Symbol("CentralGenericModel"))
+const OldNoncentral = getfield(VisualGeometryToolkitCore, Symbol("NoncentralGenericModel"))
 using VisualGeometryToolkitIO: load
 
 include(joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "golden_literals.jl"))   # lit, col
@@ -21,11 +25,11 @@ function lattice(m)
 end
 
 fixtures = joinpath(@__DIR__)
-noncentral_rec(path) = (m = load(NoncentralGenericModel, path); P = lattice(m); R = [backproject(m, p) for p in P];
+noncentral_rec(path) = (m = load(OldNoncentral, path); P = lattice(m); R = [backproject(m, p) for p in P];
     (; size = [m.width, m.height], calib = [m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y], pixels = col(P),     # 2 × 297
        origins = col(r.origin for r in R), directions = col(r.direction for r in R)))                                          # 3 × 297, NaN outside
 # The masked fixture: every 4 × 4 window holds an absent node, so its backproject is NaN everywhere; the node values are what a migration compares.
-central_rec(path) = (m = load(CentralGenericModel, path); P = lattice(m);
+central_rec(path) = (m = load(OldCentral, path); P = lattice(m);
     (; size = [m.width, m.height], calib = [m.calib_min_x, m.calib_min_y, m.calib_max_x, m.calib_max_y], pixels = col(P),
        backproject = col(backproject(m, p) for p in P),
        present = collect(present_nodes(m)), grid = reshape(col(vec(m.grid)), 3, size(m.grid)...)))   # [gy, gx] mask; 3 × gh × gw node controls, NaN absent

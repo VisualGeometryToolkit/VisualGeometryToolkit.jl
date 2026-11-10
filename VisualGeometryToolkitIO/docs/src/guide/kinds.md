@@ -19,9 +19,9 @@ argument, because the value already carries it.
 
 | Kind | VGC value | Read | Write |
 |---|---|---|---|
-| `vgio/cameras/v5` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` | `save(path, store)` |
+| `vgio/cameras/v5` (the camera store) | `Dict{Symbol, …}` of name → `BoundedCamera` of a `CameraModel` (unposed, like a COLMAP "camera"; a `SplineLens` one included, its lens the `{"spline": …}` record in the K-normalized plane), or an `Attributed` one with its `(; calibration)` block | `load(Dict{Symbol, BoundedCamera}, path)`; one camera: `load(BoundedCamera, path; name)` or `load(CameraModel, path; name)` (refused for a camera whose lens coverage is not its whole sensor) | `save(path, store)` |
 | `vgio/transforms/v4` | `Vector` of labeled `EuclideanMap{3, …, S, D}`, or `Uncertain` ones (mm) | `load(Vector{EuclideanMap}, path)` | `save(path, poses)` |
-| `vgio/rig/v8` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
+| `vgio/rig/v9` | `Rig{F, M}` holding sensors (a tuple of `BoundedCamera`s, each with its lens coverage; a `SplineLens` camera or a `NoncentralSplineModel` too), targets (a `Dict` of `PosedTarget`s), or both | `load(Rig, path; resolve)` | `save(path, rig)` |
 | `vgio/target/v5` | one `AbstractTarget` (`PointTarget`, `PlanarTarget` of any `TargetCalibration`, `Uncertain` or not, stated by its points, its reference or its layout), or an `Attributed` one with its `(; calibration_record)` | `load(AbstractTarget, path; resolve)`; a planar one: `load(PlanarTarget, path)` | `save(path, target)` |
 | `vgio/trajectory/v4` | `Trajectory{S, D}`: labeled poses per frame index, with images, times and recovered flags | `load(Trajectory, path)` | `save(path, tr)`; exporters `save_tum_trajectory`, `save_euroc_trajectory` |
 | `vgio/target_poses/v2` | `TargetPoses{F}`: per frame, `TargetFrame{id} → F` poses; `pose(tp, t, id)` | `load(TargetPoses, path)` | `save(path, tp)`; exporter `save_bop_scene` |
@@ -34,7 +34,7 @@ argument, because the value already carries it.
 | `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
 | `vgio/blur/v1` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and the `unit` it states: `"px^2"` on a sensor, `length_unit` squared (`"mm^2"`) on a print; the unit is recorded, the blur's frame tag is not | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
 | `vgio/calibration/v1` (`calibration.json`, the manifest) | the record files of one calibration result bound by SHA-256: each with its record schema, `role` (`"authority"` or `"derived"`) and `derived_from`; `kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec`, `metrics`, `provenance`; a load refuses a changed file by name and measurements naming targets the listed target and rig files do not hold | `load_manifest(dir)` | `save_manifest(dir, files; kind, model, metrics, provenance)` |
-| `vgio/generic_camera/v3` (Schöps grid models: the nodes the model holds, `present` as runs per lattice row, and only their controls) | `CentralGenericModel`, `NoncentralGenericModel` | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path)` | `save(path, m)` |
+| `vgio/generic_camera/v4` (the non-central grid camera of Schöps et al.: its K, and its direction and point splines over the K-normalized plane, the held nodes `present` as runs per lattice row) | `BoundedCamera{<:NoncentralSplineModel}` | `load(BoundedCamera, path)`; an old central `vgio/generic_camera/v2`/`v3` file reads as the camera store of its one camera with a `SplineLens`, a non-central one through its v3 → v4 step; neither is rewritten | `save(path, camera)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
 
 A `target_detections` file holds, per frame, one record per detected target:
@@ -80,7 +80,7 @@ covers the pitch. A camera bounded by a bare pixel extent has no `pitch` key.
 | COLMAP model directory (`.bin` or `.txt`) | `ColmapModel`, an adapter; `camera_model` and `rigid_transform(image, contract)` convert its records | `load(ColmapModel, dir; contract)`; supply `contract = UnknownScale()` for an SfM model with no metric scale | `save(dir, m; format)` |
 | OpenCV or MATLAB calibration export | `ExternalCalibration`, an adapter holding VGC values | `load_opencv_calibration([file_frame,] path; file_unit)`, `load_matlab_calibration([file_frame,] path; file_unit)`; `migrate_opencv` and `migrate_matlab` convert one to native files | `save_opencv_calibration([to_frame,] path, cal; to_unit, images)` |
 | Kalibr camchain (`camchain.yaml`) | `BoundedCamera` | `load_kalibr_camchain([file_frame,] path; camera = "cam0")` | — |
-| Schöps et al.'s camera_calibration `intrinsics0.yaml` | `CentralGenericModel`, `NoncentralGenericModel` (VGC's own types; the file's corner pixel convention is `SCHOEPS_PIXEL_FRAME`, COLMAP's) | `load(CentralGenericModel, path)`, `load(NoncentralGenericModel, path; file_unit)`: the form is told from the content; the point grid's unit is the caller's | read-only (`save` writes `vgio/generic_camera/v3`) |
+| Schöps et al.'s camera_calibration `intrinsics0.yaml` | `BoundedCamera` of a `SplineLens` camera (central) or of a `NoncentralSplineModel` (the file's corner pixel convention is `SCHOEPS_PIXEL_FRAME`, COLMAP's; K the lattice's gauge) | `load(BoundedCamera, path; file_unit)`: the form is told from the content; a non-central point grid's unit is the caller's | read-only (`save` writes a `vgio/cameras` store or `vgio/generic_camera/v4`) |
 | Schöps et al.'s pattern YAML (`create_calibration_pattern.py`) | `PlanarTarget(SchoepsPattern(…); canvas)`, the page its canvas | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`): the form is told from the content | read-only (`save` writes `vgio/target/v5`, the layout as a record) |
 | Kalibr's target YAML of an `aprilgrid` | `PlanarTarget(AprilGrid(…))`, the gap `tagSize · tagSpacing` (Kalibr's `tagSpacing` is a ratio) | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`) | read-only (`save` writes `vgio/target/v5`) |
 | Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetPoints2D{SCHOEPS_PIXEL_FRAME}`: per image, `(target, feature id + 1, xy, 1.0)` | `load(TargetPoints2D, path; target)`: the target the ids index is the caller's | read-only |
@@ -216,8 +216,8 @@ never shadows the target's `calibration`.
 
 ## Reading an earlier version
 
-Every earlier version a published file holds is read: `vgio/cameras/v1`–`v3`,
-`vgio/target/v1`–`v4`, `vgio/rig/v4`–`v7`, `vgio/generic_camera/v2`, `vgio/transforms/v3`,
+Every earlier version a published file holds is read: `vgio/cameras/v1`–`v4`,
+`vgio/target/v1`–`v4`, `vgio/rig/v4`–`v8`, `vgio/generic_camera/v2`–`v3` (read, never rewritten), `vgio/transforms/v3`,
 `vgio/trajectory/v3`, and v1 of `target_poses`, `target_points2d`, `target_points3d` and
 `target_detections`.
 
@@ -319,7 +319,7 @@ is not one); the methods are on `VgioStyle` only.
 | `EuclideanMap{3}`, plain or `Uncertain` | `EuclideanMap{3}` | `{"rotation": [w, x, y, z], "translation": [x, y, z], "covariance": …}` |
 | `Trajectory` | `Trajectory` | the `vgio/trajectory` body without its schema and pose declarations: `{"from", "to", ["time_origin"], "frames": […]}` |
 | `CameraModel` | `CameraModel` | `{"K": {"fx", "fy", "cx", "cy", "skew"}, "lens": {…}}`, `cx, cy` in `pixel_frame` |
-| `CentralGenericModel`, `NoncentralGenericModel` | `Union{CentralGenericModel, NoncentralGenericModel}` | the `vgio/generic_camera` body |
+| `CameraModel` with a `SplineLens` | `CameraModel` | the camera body, its `lens` `{"spline": {"area", "grid_size", "present"?, "controls", "forward"?}}` |
 | `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
 | `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |

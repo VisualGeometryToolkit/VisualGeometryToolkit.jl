@@ -58,7 +58,7 @@ end
         rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
         rp = joinpath(dir, "rig.json")
         save(rp, rig(lt))
-        @test parse_json(read(rp, String)).schema == "vgio/rig/v8"
+        @test parse_json(read(rp, String)).schema == "vgio/rig/v9"
         back = load(Rig, rp)
         @test layout(back[:grid].target) == april_grid() && back[:grid].target == lt
         @test content_id(rig(lt)) == content_id(rig(nt)) == content_id(rp)
@@ -109,7 +109,7 @@ end
     mktempdir() do dir
         for (name, old, new, T) in (("target_planar.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
                                     ("target_points.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
-                                    ("rig_targets.json", "vgio/rig/v6", "vgio/rig/v8", Rig), ("rig.json", "vgio/rig/v6", "vgio/rig/v8", Rig))
+                                    ("rig_targets.json", "vgio/rig/v6", "vgio/rig/v9", Rig), ("rig.json", "vgio/rig/v6", "vgio/rig/v9", Rig))
             src = joinpath(dir, name)
             write(src, replace(read(units(name), String), "\"schema\": \"$(new)\"" => "\"schema\": \"$(old)\""))
             @test occursin(old, read(src, String))

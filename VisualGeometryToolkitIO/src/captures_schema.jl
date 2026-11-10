@@ -47,7 +47,7 @@
 #                                "parameters": [h11, h12, h13, h21, h22, h23, h31, h32, h33],
 #                                "covariance": …8×8 (optional)}]}]}
 #      each `target` names a board inside one of the `targets` — a `content_id` of
-#      EITHER a rig (rig/v8) of boards OR a single unposed target (target/v5); at
+#      EITHER a rig (rig/v9) of boards OR a single unposed target (target/v5); at
 #      least one. Each homography is VGC's `HomographyMap` as the parametric record
 #      (style.jl): its nine canonical entries (unit Frobenius norm, h33 ≥ 0), an
 #      `Uncertain` one's covariance in the HomographyManifold8 chart. It maps the
@@ -82,7 +82,7 @@
 #      per target the indices (unique), its points, and per point a covariance iff
 #      Uncertain and a weight iff the set has a `weights` column; required stamps as
 #      target_points2d (pixels) or target_points3d (3D points). Each `targets` id is
-#      the `content_id` of a rig (rig/v8) of targets OR of a single unposed target
+#      the `content_id` of a rig (rig/v9) of targets OR of a single unposed target
 #      (target/v5); a single target's detections are named by its design `reference`
 #      (or by its content id when it has none).
 #
@@ -378,7 +378,7 @@ Write a VGC `TargetHomographies` as a `vgio/target_homographies/v1` file whose
 declared pixel frame is `F`, the value's own type — no pixel is converted and
 none can be written under another frame's label — and whose `targets` are the
 value's `th.targets`: the [`content_id`](@ref)s of the definitions its target
-ids resolve in, each the identity of a rig of boards (`vgio/rig/v8`) or of a
+ids resolve in, each the identity of a rig of boards (`vgio/rig/v9`) or of a
 single unposed target (`vgio/target/v5`). Per frame index (sorted) it writes
 the image and sensor (both required), the time, and every target's
 homography (ids sorted) as the homography record:
@@ -763,7 +763,7 @@ and its `weights` column where it has one (the only column the kind holds).
 Pixels declare the value's pixel frame `F` and are written as they are; every
 frame must name its image and sensor, and the value its targets identities:
 the [`content_id`](@ref)s of the definitions its ids resolve in, each a rig of
-targets (`vgio/rig/v8`) or a single unposed target (`vgio/target/v5`, its
+targets (`vgio/rig/v9`) or a single unposed target (`vgio/target/v5`, its
 detections named by its design `reference`, or by its content id when it has
 none). 3D points declare `frame = frame_name(F)` and are written in `length_unit`
 (covariances in its square); every frame must name its sensor, and plain

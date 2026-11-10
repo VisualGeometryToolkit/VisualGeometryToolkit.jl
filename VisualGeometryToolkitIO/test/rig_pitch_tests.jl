@@ -73,23 +73,22 @@
     end
 end
 
-@testitem "rig/v5: a generic grid sensor keeps its pitch" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, PosedCamera, BoundedCamera, ViewFrame, Vec3, Sensor, sensor, relabel, model, μm
+@testitem "rig/v5: a grid sensor keeps its pitch" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: Rig, PosedCamera, BoundedCamera, ViewFrame, Sensor, sensor, relabel, model, μm
     using VisualGeometryToolkitIO: content_id
     using Rotations: RotXYZ
 
-    dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:4, gx in 1:5]
-    gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
+    gc = CameraModel(SplineLens, CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02)), (64, 48); grid_size = (5, 4))
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
     s = Sensor(Size2(width = 64px, height = 48px), 3.45μm)
     pitched = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), s),))
-    bare = Rig{ViewFrame{:g}}((PosedCamera(gc, Xl),))
+    bare = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), Size2(64, 48)),))
     mktempdir() do dir
         p = joinpath(dir, "rig.json"); save(p, pitched)
         d = parse_json(read(p, String))
         @test d.sensors[1].camera.pitch == [0.00345, 0.00345]
         back = load(Rig, p)
-        @test model(back[1]) isa CentralGenericModel
+        @test model(back[1]).lens isa SplineLens
         @test ustrip(μm, sensor(back[1]).pitch.width) ≈ 3.45
         @test content_id(back) == content_id(pitched) == content_id(p)
         @test content_id(pitched) != content_id(bare)

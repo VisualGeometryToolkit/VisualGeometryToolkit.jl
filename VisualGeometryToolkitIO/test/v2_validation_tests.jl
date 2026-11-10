@@ -11,7 +11,7 @@
 @testitem "v2 validation: every required key, refused by name" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: validate
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
-        CameraFrame, CentralGenericModel, NoncentralGenericModel, Vec3, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
+        CameraFrame, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
     using Rotations: RotXYZ, RotationVec
     import VisualGeometryToolkitCore
     const VgtkIO = VisualGeometryToolkitIO
@@ -65,9 +65,9 @@
         bc = opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4])
         pose(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
         pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:4]
-        dirs = [Vec3{Float64}(0.01 * gx, 0.02 * gy, 1.0) for gy in 1:4, gx in 1:5]
-        gc = CentralGenericModel(64, 48, 0, 0, 63, 47, dirs)
-        gn = NoncentralGenericModel(64, 48, 0, 0, 63, 47, dirs, [Vec3{Float64}(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])
+        gc = CameraModel(SplineLens, CameraModel(K; lens = bc, image_origin = :colmap), (64, 48); grid_size = (5, 4))
+        gd = gc.lens.backward
+        gn = BoundedCamera(NoncentralSplineModel(gc.intrinsics, gd, ChartSpline(gd.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])), Size2(64, 48))
         ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
         targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b), pose(100.0mm))))
 
@@ -77,8 +77,7 @@
         VgtkIO.save_units_sidecar(files["units"], MM_PX)
         save(at!("transforms", "transforms.json"), [relabel(TargetFrame{:a}, BodyFrame{:b}, pose(3.0mm))])
         save(at!("cameras", "cameras.json"), Dict(:c => Attributed(BoundedCamera(CameraModel(K; lens = bc, image_origin = :colmap), Size2(4240, 2832)), (; calibration = (; tool = "t")))))
-        save(at!("generic_camera", "central.json"), gc)
-        save(at!("generic_noncentral", "noncentral.json"), gn)
+        save(at!("generic_camera", "noncentral.json"), gn)
         save(
             at!("rig", "rig.json"),
             Rig{ViewFrame{:a}}(
@@ -88,7 +87,7 @@
                 )
             )
         )
-        save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((PosedCamera(gn, relabel(ViewFrame{:g}, ViewFrame{:g}, ident)),)))
+        save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(VisualGeometryToolkitCore.model(gn), relabel(ViewFrame{:g}, ViewFrame{:g}, ident)), Size2(64, 48)),)))
         save(at!("rig_targets", "targets.json"), targets)
         save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration_record = (; tool = "t"))))
         save(
@@ -116,7 +115,7 @@
         save_correspondences(at!("correspondences", "correspondences.json"), obs, files["rig_targets"])
         specs = Dict(
             "units" => VgtkIO._UNITS_SPEC, "transforms" => VgtkIO._TRANSFORMS_SPEC, "cameras" => VgtkIO._CAMERAS_SPEC,
-            "generic_camera" => VgtkIO._GENERIC_CAMERA_SPEC, "generic_noncentral" => VgtkIO._GENERIC_CAMERA_SPEC,
+            "generic_camera" => VgtkIO._GENERIC_CAMERA_SPEC,
             "rig" => VgtkIO._RIG_SPEC, "rig_generic" => VgtkIO._RIG_SPEC, "rig_targets" => VgtkIO._RIG_SPEC, "target" => VgtkIO._TARGET_SPEC,
             "trajectory" => VgtkIO._TRAJECTORY_SPEC, "target_points2d" => VgtkIO._TARGET_POINTS2D_SPEC,
             "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_homographies" => VgtkIO._TARGET_HOMOGRAPHIES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
@@ -126,7 +125,7 @@
             units = name == "units"
             file = units ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
             doc = tomutable(parse_json(read(file, String)))
-            @test validate(path) == get(Dict("generic_noncentral" => "generic_camera", "rig_generic" => "rig", "rig_targets" => "rig"), name, name)
+            @test validate(path) == get(Dict("rig_generic" => "rig", "rig_targets" => "rig"), name, name)
             paths = required_paths(specs[name], doc)
             @test length(paths) >= 2
             for p in paths
@@ -167,19 +166,20 @@
             elseif startswith(name, "rig")
                 @test occursin("re-export", something(relabeled(v1), ""))
                 @test occursin("re-export", something(relabeled("vgio/rig/v2"), ""))
-                @test occursin("rig/v8", something(relabeled("vgio/rig/v3"), ""))
+                @test occursin("rig/v9", something(relabeled("vgio/rig/v3"), ""))
                 @test not_theirs(relabeled("vgio/rig/v4")) && not_theirs(relabeled("vgio/rig/v5"))
-                @test relabeled("vgio/rig/v6") === nothing                                    # no layout: a v6 record as well
-                @test (name == "rig_targets") == (relabeled("vgio/rig/v4") !== nothing)     # a target's `calibration` was v4's `warp`
+                # no layout: a v6 record as well — but a non-central grid sensor's body, which v6–v8 held in the old grid form
+                @test (relabeled("vgio/rig/v6") === nothing) == (name != "rig_generic")
+                @test (name in ("rig_targets", "rig_generic")) == (relabeled("vgio/rig/v4") !== nothing)   # a target's `calibration` was v4's `warp`; a grid sensor v4's grid body
             elseif name == "cameras"
                 @test doc[:schema] == "vgio/cameras/v5"
                 @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
                 @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
                 @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))
             elseif startswith(name, "generic")
-                @test doc[:schema] == "vgio/generic_camera/v3"
+                @test doc[:schema] == "vgio/generic_camera/v4"
                 @test occursin("no migration reads", something(relabeled(v1), ""))
-                @test relabeled("vgio/generic_camera/v2") === nothing                         # every node held: a v2 record as well
+                @test not_theirs(relabeled("vgio/generic_camera/v3"))                         # v3 held the old grid body
             elseif endswith(doc[:schema], "/v3")
                 @test occursin("no migration reads", something(relabeled(v1), ""))
                 @test occursin("no migration reads", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
@@ -197,13 +197,11 @@
         @test occursin("point_index_base", something(refusal(merge(ob, Dict(:point_index_base => 0)), dir, "tok4"), ""))
         @test occursin("targets", something(refusal(merge(ob, Dict(:targets => Any[])), dir, "tok5"), ""))
         ge = tomutable(parse_json(read(files["generic_camera"], String)))
-        @test occursin("grid_layout", something(refusal(merge(ge, Dict(:grid_layout => "column_major")), dir, "tok7"), ""))
-        @test occursin("pixel_frame", something(refusal(merge(ge, Dict(:pixel_frame => "opencv")), dir, "tok8"), ""))
-        # a non-central model's point grid is declared in a unit, and a central one has neither
-        gn_doc = tomutable(parse_json(read(files["generic_noncentral"], String)))
-        @test refusal(without(gn_doc, [:length_unit]), dir, "gn_unit") !== nothing
-        @test refusal(without(gn_doc, [:point_grid]), dir, "gn_grid") !== nothing
-        @test refusal(merge(ge, Dict(:length_unit => "mm")), dir, "gc_unit") !== nothing
+        @test occursin("load(BoundedCamera, path)", something(refusal(merge(ge, Dict(:type => "CentralGenericModel")), dir, "tok7"), ""))
+        @test occursin("pixel_frame", something(refusal(merge(ge, Dict(:pixel_frame => "lower_left")), dir, "tok8"), ""))
+        # the non-central camera's points are declared in a unit
+        @test refusal(without(ge, [:length_unit]), dir, "gn_unit") !== nothing
+        @test refusal(without(ge, [:spline, :points]), dir, "gn_grid") !== nothing
 
         # a frame name is the grammar's: a free-form one is refused
         @test occursin("frame name", something(refusal(with(tr, [:transforms, 1, :from], "printed_board_a"), dir, "free_from"), ""))

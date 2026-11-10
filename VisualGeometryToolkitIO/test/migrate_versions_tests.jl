@@ -14,7 +14,7 @@
     # keys put back — `"calibration": {` was `"warp": {` (rigid only),
     # `"reference"` was `"design"`, the target file's `"calibration_record"`
     # was `"calibration"`.
-    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v8\"" => "\"schema\": \"vgio/rig/v4\"",
+    as_v4_rig(text) = replace(text, "\"schema\": \"vgio/rig/v9\"" => "\"schema\": \"vgio/rig/v4\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":")
     as_v1_target(text) = replace(replace(text, "\"schema\": \"vgio/target/v5\"" => "\"schema\": \"vgio/target/v1\"",
         "\"calibration\": {" => "\"warp\": {", "\"reference\":" => "\"design\":"), "\"calibration_record\":" => "\"calibration\":")
@@ -187,7 +187,7 @@ end
         @test load(Rig, rig).members == load(Rig, units_fixture("rig_targets.json")).members
         @test content_id(rig) == only(obs_new.targets) != v4_id
         r = vgio_migrate(rig)
-        @test r.to == "vgio/rig/v8" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
+        @test r.to == "vgio/rig/v9" && r.old_id == v4_id && r.old_ids == [v4_id] && r.new_id == content_id(r.out) == only(obs_new.targets)   # an mm file: one v4 id
         @test read(r.out, String) == read(units_fixture("rig_targets.json"), String)
         rs = vgio_migrate(sensors; out = sensors)
         @test read(sensors, String) == read(units_fixture("rig.json"), String)
@@ -240,7 +240,7 @@ end
         v4 = joinpath(dir, "rig_v4.json")
         write(v4, JSON.json(d, 2))
         r = VgtkIO.vgio_migrate(v4; out = joinpath(dir, "rig_migrated.json"))
-        @test r.to == "vgio/rig/v8" && read(r.out) == read(v6)
+        @test r.to == "vgio/rig/v9" && read(r.out) == read(v6)
         @test length(r.old_ids) == 1 && r.new_id == VgtkIO.content_id(rig)   # an mm file: v4's two identities agree
         back = load(Rig, r.out)
         for (i, n) in enumerate((:opencv, :aria))
@@ -327,7 +327,7 @@ end
         @test e isa ArgumentError && occursin("rigid warp only", e.msg)
         # the rigid fixture still migrates
         cp(joinpath(@__DIR__, "fixtures", "v4", "rig_metres.json"), src; force = true)
-        @test vgio_migrate(src).to == "vgio/rig/v8"
+        @test vgio_migrate(src).to == "vgio/rig/v9"
     end
 end
 
@@ -393,7 +393,8 @@ end
     import VisualGeometryToolkitIO as VgtkIO
     @test VgtkIO._old_rig_ids("vgio/rig/v6", Dict{String, Any}(), nothing, "id") == ["id"]   # v6 → v7 moves no number
     @test VgtkIO._old_rig_ids("vgio/rig/v7", Dict{String, Any}(), nothing, "id") == ["id"]   # v7 → v8 (the covariance storage) neither
-    for s in ("vgio/rig/v3", "vgio/rig/v8", "vgio/rig/v9")
+    @test VgtkIO._old_rig_ids("vgio/rig/v8", Dict{String, Any}(), nothing, "id") == ["id"]   # v8 → v9 neither, but for a grid sensor
+    for s in ("vgio/rig/v3", "vgio/rig/v9", "vgio/rig/v10")
         e = try VgtkIO._old_rig_ids(s, Dict{String, Any}(), nothing, "id"); nothing catch e; e end
         @test e isa ArgumentError && occursin(s, e.msg)
     end
@@ -631,7 +632,7 @@ end
         r = VgtkIO.vgio_migrate(v5; out = joinpath(dir, "rig_migrated.json"))
         @test VgtkIO.same_value(VgtkIO.load(Rig, v5), VgtkIO.load(Rig, r.out))           # read through its migration, as its migrated file
         @test VgtkIO.content_id(v5) == r.new_id
-        @test r.to == "vgio/rig/v8"
+        @test r.to == "vgio/rig/v9"
         # the value changed kind (affine → its factors), so the identity moves: v5's is reported as the old one
         @test r.new_id == VgtkIO.content_id(r.out) && r.old_id != r.new_id && r.old_ids == [r.old_id]
         back = VgtkIO.load(Rig, r.out)

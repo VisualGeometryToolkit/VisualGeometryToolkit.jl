@@ -258,9 +258,10 @@ least `to`, the schema written (and whatever the owner reports: a rig's
 
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
-VisualGeometryToolkitIO's own: `vgio/cameras/v1` → v2 → v3 → v4,
-`vgio/target/v1` → v2 → v3 → v4, `vgio/rig/v4` → v5 → v6 → v7 and
-`vgio/generic_camera/v2` → v3.
+VisualGeometryToolkitIO's own: `vgio/cameras/v1` → … → v5,
+`vgio/target/v1` → … → v5, `vgio/rig/v4` → … → v9 and
+`vgio/generic_camera/v2` → v3 → v4 (the steps only: an old grid file is read,
+never rewritten).
 """
 function migrate_schema end
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
@@ -315,7 +316,8 @@ end
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v4, target v1–v3, rig v4–v6, generic_camera v2, and any a schema owner adds),
+schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, and any a schema owner adds;
+not an old grid file, vgio/generic_camera v2 or v3, which is read and never rewritten),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -507,7 +509,7 @@ function same_value end
 same_value(a::Quantity, b::Quantity; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && dimension(a) == dimension(b) &&
     (dimension(a) in (dimension(m), dimension(m * m)) ? _same_metres(Float64(ustrip(a)), Float64(ustrip(b)), length_ulps) : ustrip(a) === ustrip(b))
-same_value(a::AbstractFloat, b::AbstractFloat; length_ulps::Integer = 2) = a === b
+same_value(a::AbstractFloat, b::AbstractFloat; length_ulps::Integer = 2) = a === b   # (NaN === NaN: an absent node's slot)
 same_value(a::Union{Number, AbstractString, Symbol, Type, Nothing, Missing}, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) && isequal(a, b)
 same_value(a::AbstractDict, b::AbstractDict; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && Set(keys(a)) == Set(keys(b)) && all(k -> same_value(a[k], b[k]; length_ulps), keys(a))
@@ -529,11 +531,12 @@ end
 # accessors (the AbstractArray method above would compare its pairs only).
 same_value(a::Csponds, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
     same_value(sources(a), sources(b); length_ulps) && same_value(targets(a), targets(b); length_ulps) && same_value(a.attrs, b.attrs; length_ulps)
-# A non-central model's points are plain metres (its directions are not lengths).
-same_value(a::NoncentralGenericModel, b::NoncentralGenericModel; length_ulps::Integer = 2) =
+# A non-central model's point controls are plain metres (its directions are not lengths).
+same_value(a::NoncentralSplineModel, b::NoncentralSplineModel; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && all(f -> f === :points ?
-        size(a.points) == size(b.points) &&
-        all(map((p, q) -> all(map((x, y) -> _same_metres(x, y, length_ulps), Float64.(p), Float64.(q))), getfield(a, f), getfield(b, f))) :
+        a.points.area === b.points.area && size(a.points.controls) == size(b.points.controls) &&
+        all(map((p, q) -> all(map((x, y) -> isnan(x) && isnan(y) || _same_metres(x, y, length_ulps), Float64.(p), Float64.(q))),
+            a.points.controls, b.points.controls)) :
         same_value(getfield(a, f), getfield(b, f); length_ulps), fieldnames(typeof(a)))
 # Any other value: field by field.
 function same_value(a, b; length_ulps::Integer = 2)
@@ -964,6 +967,8 @@ migrate_schema(::Val{Symbol("vgio/rig/v6")}, t::AbstractDict) = _rig_v6_to_v7(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_v4(t)
+migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
 
 # The covariance storage (2026-11): a covariance is written in the storage its
 # value holds (VisualGeometryToolkitCore's CovMat: an SMatrix, SDiagonal or
@@ -1000,6 +1005,129 @@ function _generic_camera_v2_to_v3(old)
     return t
 end
 
+# THE OLD GRID BODIES (generic_camera v2/v3, a rig/v6–v8 sensor's), read once into
+# the cameras of VisualGeometryToolkitCore 0.9 (the spline lens): a pixel lattice
+# over the calibrated area [min, max + 1) of `grid_width × grid_height` direction
+# controls (the held nodes `present`, row by row), with an optional nominal pinhole
+# and image domain:
+#
+#   {"type": <the old central or non-central type>, "width", "height",
+#    "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
+#    "grid_width", "grid_height", "grid_layout": "row_major", "present"?,
+#    "direction_grid", "point_grid"? (non-central, in the file's length unit),
+#    <the nominal pinhole>?: [fx, fy, cx, cy, skew], "domain"?: {"ellipse": [cx, cy, a, b, θ]}, "pitch"? (a rig's)}
+#
+# The camera is Core's `CameraModel(SplineLens, controls, size)` of the pixel
+# lattice: K the nominal pinhole (skew 0), else the lattice's gauge; the backward area K⁻¹ of the calibrated area, so every pixel
+# backprojects as the old model did. The domain becomes the camera's lens
+# coverage (the camera store's form); the controls and the held nodes are the
+# record's own numbers, the points copied as the file holds them (no unit
+# round trip). An old body is read, never written (owner, 2026-11-09).
+# (The old type names and the nominal pinhole's key are retired as names; as the
+# tokens these records store they are check_naming's FOREIGN_FORMAT_TOKENS.)
+const _OLD_CENTRAL_TYPE = "CentralGenericModel"
+const _OLD_NOMINAL_KEY = "nominal_intrinsics"
+const _OLD_NONCENTRAL_TYPE = "NoncentralGenericModel"
+const _OLD_GRID_KEYS = ("type", "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
+    "grid_width", "grid_height", "grid_layout", "direction_grid")
+function _old_grid_camera(b::AbstractDict)
+    for k in _OLD_GRID_KEYS
+        haskey(b, k) || _not_written_by("an old grid body (generic_camera v2/v3, a rig/v6–v8 sensor)", "has no $(repr(k)), which every one held")
+    end
+    b["type"] in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE) ||
+        _not_written_by("an old grid body", "is of type $(repr(b["type"])), not $(_OLD_CENTRAL_TYPE) or $(_OLD_NONCENTRAL_TYPE)")
+    b["grid_layout"] == _GRID_LAYOUT || _not_written_by("an old grid body", "has the grid_layout $(repr(b["grid_layout"])), not $(repr(_GRID_LAYOUT))")
+    gw, gh = Int(b["grid_width"]::Integer), Int(b["grid_height"]::Integer)
+    if haskey(b, "present")
+        _validate(_RowRuns(), b["present"], "an old grid body", "present")
+    end
+    msg = _lattice_problem(
+        Dict{String, Any}("area" => Any[1, 1, 1, 1], "grid_size" => Any[gw, gh], "direction_grid" => b["direction_grid"],
+            (haskey(b, "present") ? ("present" => b["present"],) : ())...,
+            (haskey(b, "point_grid") ? ("point_grid" => b["point_grid"],) : ())...),
+        haskey(b, "point_grid") ? (:direction_grid, :point_grid) : (:direction_grid,),
+    )
+    msg === nothing || throw(ArgumentError("an old grid body: $(msg)"))
+    (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
+        throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
+    P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh) : trues(gh, gw)
+    bounds = (Int(b["calibration_min_x"]), Int(b["calibration_min_y"]), Int(b["calibration_max_x"]), Int(b["calibration_max_y"]))
+    nominal = haskey(b, _OLD_NOMINAL_KEY) ? LogicalIntrinsics(_k_from_values(b[_OLD_NOMINAL_KEY])) : nothing
+    return CameraModel(SplineLens, _controls_from_json(b["direction_grid"], P, Val(3)), (Int(b["width"]), Int(b["height"]));
+                       calib_area = bounds, intrinsics = nominal, present = all(P) ? nothing : P)
+end
+# An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
+_old_grid_extras(b::AbstractDict) = merge(
+    haskey(b, "domain") ? Dict{String, Any}("lens_coverage" => Dict{String, Any}("ellipse" => b["domain"]["ellipse"])) : Dict{String, Any}(),
+    haskey(b, "pitch") ? Dict{String, Any}("pitch" => b["pitch"]) : Dict{String, Any}(),
+)
+# A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's).
+function _central_grid_body(b::AbstractDict)
+    cam = _old_grid_camera(b)
+    body = Dict{String, Any}(
+        "width" => b["width"], "height" => b["height"], "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
+        "lens" => _lens_json(cam.lens),
+    )
+    return merge(body, _old_grid_extras(b))
+end
+# A non-central body as the non-central record's body, its points the old body's own numbers.
+function _noncentral_grid_body(b::AbstractDict)
+    cam = _old_grid_camera(b)
+    d = cam.lens.backward
+    m = NoncentralSplineModel(cam.intrinsics, d, ChartSpline(d.area, zero(d.controls)); present = cam.lens.present)
+    body = _lower(_noncentral_body(VgioStyle(), m, Size2(Int(b["width"]), Int(b["height"])); points = b["point_grid"]))
+    return merge(body, _old_grid_extras(b))
+end
+
+# vgio/generic_camera/v3 → v4 (the spline lens, 2026-11): the kind holds the
+# non-central grid camera alone, its splines over the K-normalized plane. A
+# central v3 record has no v4 form — it is a camera with a spline lens, read as
+# the camera store of its one camera (`load(BoundedCamera, path)`).
+function _generic_camera_v3_to_v4(old)
+    get(old, "type", nothing) == _OLD_CENTRAL_TYPE && throw(
+        ArgumentError(
+            "a central grid camera is a camera with a spline lens, not a vgio/generic_camera/v4 record: " *
+                "load(BoundedCamera, path) reads its file as the camera store of its one camera"
+        )
+    )
+    head = Dict{String, Any}(k => old[k] for k in ("pixel_frame", "length_unit", "provenance") if haskey(old, k))
+    return merge(head, _noncentral_grid_body(old), Dict{String, Any}("schema" => "vgio/generic_camera/v4"))
+end
+
+# A parsed file that is a central vgio/generic_camera/v2 or v3 record.
+_is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in ("vgio/generic_camera/v2", "vgio/generic_camera/v3") &&
+    get(d, :type, nothing) == _OLD_CENTRAL_TYPE
+# …as the vgio/cameras record of its one camera, `camera` (`d` parsed, so the reader meets what a store file holds).
+function _central_grid_store(d, path)
+    t = _lower(d)
+    t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
+    store = try
+        Dict{String, Any}(
+            "schema" => _schema("cameras"), "pixel_frame" => t["pixel_frame"],
+            "cameras" => Any[merge(Dict{String, Any}("name" => "camera"), _central_grid_body(t))],
+            (haskey(t, "provenance") ? ("provenance" => t["provenance"],) : ())...,
+        )
+    catch e
+        e isa Union{ArgumentError, KeyError, MethodError, TypeError} || rethrow()
+        throw(ArgumentError("$(path): a $(t["schema"]) central grid camera, read as a camera with a spline lens: $(sprint(showerror, e))"))
+    end
+    return _parse_vgio_text(JSON.json(store), path)
+end
+
+# vgio/rig/v8 → v9 (the spline lens, 2026-11): a sensor's old grid body becomes
+# the camera body of its SplineLens camera (central) or the non-central body; v9
+# also holds a sensor's lens coverage, which a v8 file could not (its writer
+# refused one), so a v8 sensor holds none but an old domain.
+function _rig_v8_to_v9(old)
+    t = _map_rig_sensors(old) do c
+        haskey(c, "lens_coverage") && _not_written_by("a vgio/rig/v8 sensor", "holds no \"lens_coverage\" (a sensor's lens coverage is rig v9)")
+        haskey(c, "type") || return c
+        return c["type"] == _OLD_CENTRAL_TYPE ? _central_grid_body(c) : _noncentral_grid_body(c)
+    end
+    t["schema"] = "vgio/rig/v9"
+    return t
+end
+
 _migrate_cameras(src, dst) = (_migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store"); (; to = _schema("cameras")))
 migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
@@ -1009,8 +1137,6 @@ _migrate_target(src, dst) = (_migrate_file(AbstractTarget, src, dst, "the target
 migrate_schema(::Val{Symbol("vgio/target/v1")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v2")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v3")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
-migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, src::AbstractString, dst::AbstractString) =
-    (_migrate_file(Union{CentralGenericModel, NoncentralGenericModel}, src, dst, "the generic camera record"); (; to = _schema("generic_camera")))
 # A rig: its identity is the current value's, and the identities its old
 # version named it by, where they differ, are reported, so the measurement
 # files naming it are re-pointed (`vgio_migrate_tree`).
@@ -1018,6 +1144,7 @@ migrate_schema(::Val{Symbol("vgio/rig/v4")}, src::AbstractString, dst::AbstractS
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v5", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v6")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v6", src, dst)
 migrate_schema(::Val{Symbol("vgio/rig/v7")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v7", src, dst)
+migrate_schema(::Val{Symbol("vgio/rig/v8")}, src::AbstractString, dst::AbstractString) = _migrate_rig("vgio/rig/v8", src, dst)
 migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 # the measurement and pose kinds of the covariance-storage step: rewritten through their value
 for (s, T, kind, what) in (
@@ -1049,10 +1176,8 @@ end
 function _old_rig_ids(s, old, value, new_id)
     if s == "vgio/rig/v4"
         return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old)])
-    elseif s == "vgio/rig/v5"
-        return [_v5_id(old, value, new_id)]
-    elseif s == "vgio/rig/v6" || s == "vgio/rig/v7"
-        return [new_id]   # a v6 or v7 rig's identity is the current one (the v7 and v8 steps move no number)
+    elseif s in ("vgio/rig/v5", "vgio/rig/v6", "vgio/rig/v7", "vgio/rig/v8")
+        return [_v5_id(old, value, new_id)]   # a v6–v8 rig's identity is the current one but for a grid sensor's
     else
         throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
     end
@@ -1065,7 +1190,7 @@ _old_id_map(::Rig) = Pair{String, String}[]
 function _old_id_map(p::AbstractString)
     old = _raw_tree(p)
     s = get(old, "schema", nothing)
-    s in ("vgio/rig/v4", "vgio/rig/v5") || return Pair{String, String}[]
+    s in ("vgio/rig/v4", "vgio/rig/v5", "vgio/rig/v6", "vgio/rig/v7", "vgio/rig/v8") || return Pair{String, String}[]
     value = load(Rig, p)
     new_id = content_id(value)
     return [o => new_id for o in _old_rig_ids(s, old, value, new_id) if o != new_id]
@@ -1076,17 +1201,48 @@ end
 # held it — its record with `kind` for `type`, every length leaf the persisted
 # metre value of the file's number (the current tree's rule), its covariance
 # in metres (v5 built its tree from the value read back, which is exactly that).
+#
+# The same for every v5–v8 rig holding a grid sensor (an old grid body, which the
+# v9 step turns into a spline camera): v5–v8's tree held its camera in the old
+# grid form (`_v8_grid_identity`).
 _has_affine(r::AbstractDict) = get(r, "type", nothing) == "affine" || any(_has_affine, get(r, "members", ()))
 function _v5_id(old::AbstractDict, value, new_id)
     olds = Dict(x["id"] => x["target"] for x in get(old, "targets", ()))
     affine = [id for (id, t) in olds if _has_affine(get(t, "calibration", Dict{String, Any}()))]
-    isempty(affine) && return new_id
+    grids = Dict(x["id"] => x["camera"] for x in get(old, "sensors", ()) if haskey(x["camera"], "type"))
+    (isempty(affine) && isempty(grids)) && return new_id
     u = parse_unit(old["length_unit"]::String)
     tree = _identity_tree(value)
-    for x in tree["targets"]
+    for x in get(tree, "targets", ())
         x["id"] in affine && (x["target"]["calibration"] = _v5_identity_calibration(olds[x["id"]]["calibration"], u))
     end
+    for x in get(tree, "sensors", ())
+        haskey(grids, x["id"]) || continue
+        pitch = get(x["camera"], "pitch", nothing)
+        x["camera"] = _v8_grid_identity(grids[x["id"]], u)
+        pitch === nothing || (x["camera"]["pitch"] = pitch)
+    end
     return sha256_hex(canonical_json(tree))
+end
+# A grid sensor's camera as the identity tree of rig v5–v8 held it, from its old
+# body (v8's `content_id` docstring: frozen here, as v8 minted it): the extent,
+# calibrated area, grid, central or non-central, the held nodes' directions as
+# stored and points as their persisted metre values, and the held-node runs, the
+# nominal pinhole and the domain iff the body has them. (Its pitch is the
+# current tree's, unchanged.)
+function _v8_grid_identity(b::AbstractDict, u::Units)
+    d = _Id(
+        "extent" => Any[Int(b["width"]), Int(b["height"])],
+        "calibrated_area" => Any[Int(b[k]) for k in ("calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y")],
+        "grid" => Any[b["grid_width"], b["grid_height"]], "grid_model" => b["type"] == _OLD_CENTRAL_TYPE ? "central" : "noncentral",
+        "directions" => Any[Float64[Float64(c) for c in v] for v in b["direction_grid"]],
+    )
+    haskey(b, "point_grid") &&
+        (d["points"] = Any[Float64[_leaf_power(_read_power(c, u, 1), _PERSISTED, 1) for c in v] for v in b["point_grid"]])
+    haskey(b, "present") && (d["present"] = _lower(b["present"]))
+    haskey(b, _OLD_NOMINAL_KEY) && (d[_OLD_NOMINAL_KEY] = Any[Float64(x) for x in b[_OLD_NOMINAL_KEY]])
+    haskey(b, "domain") && (d["domain"] = Dict{String, Any}("ellipse" => Any[Float64(x) for x in b["domain"]["ellipse"]]))
+    return d
 end
 # which of a v2 calibration record's parameters are lengths (its frozen layout)
 _v2_length_mask(r) = (t = r["type"]; t == "affine" ? Bool[0, 0, 0, 0, 1, 1] : t == "calibration_chain" ?
@@ -1159,10 +1315,16 @@ function _v4_mm_pose!(p, o, u, s)
     end
     return nothing
 end
+# A grid sensor's camera is v4's grid body, which the current writer no longer
+# writes (the spline camera's body replaced it): v4's writer emitted the body as
+# the file holds it, but for the numbers its reader changed — the points in
+# millimetres, the directions renormalized.
 function _v4_mm_sensor!(x, o, u, s)
     _v4_mm_pose!(x["extrinsics"], o["extrinsics"], u, s)
-    haskey(o["camera"], "point_grid") && (x["camera"]["point_grid"] = _v4_mm_points(o["camera"]["point_grid"], u))
-    haskey(o["camera"], "direction_grid") && (x["camera"]["direction_grid"] = Any[collect(_v4_direction(d)) for d in o["camera"]["direction_grid"]])
+    haskey(o["camera"], "type") || return nothing
+    c = x["camera"] = Dict{String, Any}(o["camera"])
+    haskey(c, "point_grid") && (c["point_grid"] = _v4_mm_points(c["point_grid"], u))
+    c["direction_grid"] = Any[collect(_v4_direction(d)) for d in c["direction_grid"]]
     return nothing
 end
 # A direction control as VisualGeometryToolkitCore 0.1 held it: kept when unit

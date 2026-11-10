@@ -147,6 +147,14 @@ _k_from_record(k) = CameraCalibrationMat(
         Float64(k.fx::Real), 0, 0, Float64(k.skew::Real), Float64(k.fy::Real), 0, Float64(k.cx::Real), Float64(k.cy::Real), 1,
     )
 )
+# …and the K a record states in `frame`, moved into the canonical frame (the
+# conversion `CameraModel(K; image_origin)` makes, for a model whose K is not a
+# CameraModel's: a non-central grid camera's).
+function _k_from_record(k, frame::Type{<:PixelFrame})
+    K = _k_from_record(k)
+    c = EuclideanMap(frame, CANONICAL_PIXEL_FRAME)(SVector{2, Float64}(K[1, 3], K[2, 3]))
+    return CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, K[1, 2], K[2, 2], 0, c[1], c[2], 1))
+end
 # the five numbers as an array, as stored (a generic model's nominal pinhole,
 # the identity's intrinsics: no frame conversion, so a `-0.0` stays), and back
 _k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K, K[1, 3], K[2, 3]))
@@ -173,4 +181,66 @@ function _ellipse_record_problem(e, what)
     (e[3] > 0 && e[4] > 0) || return "$(what)'s semi-axes are positive; got a = $(e[3]), b = $(e[4])"
     e[3] >= e[4] || return "$(what) is stored major semi-axis first (a ≥ b, θ the angle of a); got a = $(e[3]) < b = $(e[4])"
     return nothing
+end
+
+# -----------------------------------------------------------------------------
+# A spline lattice's held nodes: the presence runs, and the controls over them
+# -----------------------------------------------------------------------------
+#
+# A spline lattice (a SplineLens's backward spline, a non-central model's two)
+# holds the nodes its region reaches. A record lists them as runs per lattice
+# row — `[[row, [[col_lo, col_hi], …]], …]`, 0-based and inclusive, every row
+# that holds one, rows increasing, its runs increasing and apart (any shape:
+# convex, cut by the frame, with holes) — and its controls as the held nodes'
+# values, row by row. A record without runs holds every node. The ONE codec of
+# the lens record (camera_schema.jl) and the non-central record
+# (generic_camera_schema.jl), and of the old grid bodies their migrations read.
+
+# The present nodes of a `[gy, gx]` mask as runs per row, 0-based and inclusive.
+function _present_runs(P::AbstractMatrix{Bool})
+    rows = Any[]
+    for gy in 1:size(P, 1)
+        runs = Any[]
+        gx = 1
+        while gx <= size(P, 2)
+            if P[gy, gx]
+                lo = gx
+                while gx < size(P, 2) && P[gy, gx + 1]
+                    gx += 1
+                end
+                push!(runs, [lo - 1, gx - 1])
+            end
+            gx += 1
+        end
+        isempty(runs) || push!(rows, Any[gy - 1, runs])
+    end
+    return rows
+end
+# The runs back to a `[gy, gx]` mask of a `gh × gw` lattice.
+function _present_from_runs(runs, gw::Int, gh::Int)
+    P = falses(gh, gw)
+    for e in runs, r in e[2]::Vector{Any}
+        P[(e[1]::Integer) + 1, ((r[1]::Integer) + 1):((r[2]::Integer) + 1)] .= true
+    end
+    return P
+end
+# The number of nodes runs hold.
+_runs_count(runs) = sum(r[2] - r[1] + 1 for e in runs for r in e[2]; init = 0)
+# A spline's presence mask (`nothing`: every node) as a `Bool` matrix of its grid's size.
+_held_mask(::Nothing, sz) = trues(sz)
+_held_mask(P::AbstractMatrix{Bool}, _) = P
+
+# The held nodes' controls (`[gy, gx]` row-major over the mask `P`), each coordinate
+# through `f` (a length through its unit; any other number as it is).
+_controls_json(C::AbstractMatrix{<:StaticVector}, P::AbstractMatrix{Bool}, f = identity) =
+    [Float64[f(Float64(x)) for x in C[gy, gx]] for gy in 1:size(C, 1) for gx in 1:size(C, 2) if P[gy, gx]]
+# …and back: `K`-vectors in the held nodes' slots, each coordinate through `f`, NaN in
+# the absent ones (no value: no evaluation reads one). The controls as stored — no
+# re-normalization, which would change the spline.
+function _controls_from_json(a, P::AbstractMatrix{Bool}, ::Val{K}, f = x -> Float64(x)) where {K}
+    C = fill(SVector{K, Float64}(ntuple(_ -> NaN, Val(K))), size(P))
+    for (I, v) in zip(findall(permutedims(P)), a)   # the held nodes in row-major order
+        C[I[2], I[1]] = SVector{K, Float64}(ntuple(k -> Float64(f(v[k]::Real)), Val(K)))
+    end
+    return C
 end

@@ -1,335 +1,142 @@
 # =============================================================================
-# vgio/generic_camera/v3 — the Schöps et al. grid models, serialized
+# vgio/generic_camera/v4 — the non-central grid camera of Schöps et al.
 # =============================================================================
 #
-# One model per file, field names mirroring the reference implementation's
-# YAML tags (puzzlepaint/camera_calibration) so the two formats translate
-# one-to-one:
+# One `BoundedCamera{<:NoncentralSplineModel}` per file: the non-central grid
+# camera (Schöps, Larsson, Pollefeys, Sattler, CVPR 2020), its two splines — the
+# directions and the line points of its observation lines — laid over one
+# rectangle of the K-normalized plane x = K⁻¹u:
 #
-# {"schema": "vgio/generic_camera/v3",
-#  "pixel_frame": "colmap",                        VGC's grid models ARE in it
-#  "length_unit": "mm",                            non-central only (point_grid)
-#  "type": "CentralGenericModel" | "NoncentralGenericModel",
+# {"schema": "vgio/generic_camera/v4", "pixel_frame": "colmap", "length_unit": "mm",
+#  "type": "NoncentralSplineModel",
 #  "width": …, "height": …,
-#  "calibration_min_x": …, "calibration_min_y": …,
-#  "calibration_max_x": …, "calibration_max_y": …,
-#  "grid_width": …, "grid_height": …, "grid_layout": "row_major",
-#  "present": [[row, [[col_lo, col_hi], …]], …],   (optional) the present nodes: runs per lattice row, 0-based, inclusive; absent = every node
-#  "direction_grid": [[x, y, z], …],               the present nodes, row-major
-#  "point_grid":     [[x, y, z], …],               non-central only, the same nodes
-#  "nominal_intrinsics": [fx, fy, cx, cy, skew],   (optional) the pinhole the model reports with, px
-#  "domain": {"ellipse": [cx, cy, a, b, θ]},       (optional) the source's imaged region, px; absent = the whole plane
-#  "provenance": {…}}                               (optional)
+#  "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},   the gauge pinhole, in the file's pixel frame
+#  "spline": {"area": [x, y, w, h], "grid_size": [gw, gh],
+#             "present": [[row, [[col_lo, col_hi], …]], …],  (optional) the held nodes; absent = every node
+#             "directions": [[x, y, z], …],                  the held nodes, row by row
+#             "points": [[x, y, z], …]},                     the same nodes, in length_unit
+#  "pitch": [w, h],                                          (optional) the sensor's pixel pitch, in length_unit
+#  "lens_coverage": {"ellipse": [cx, cy, a, b, θ]},          (optional; or circle, rect) where light reaches the sensor
+#  "provenance": {…}}                                        (optional)
 #
-# The pixel frame is COLMAP's because VGC's generic models are defined in it —
-# the reference's convention (origin at the top-left corner of the top-left
-# pixel) is exactly that frame — so the declaration can only be "colmap", and a
-# reader refuses any other rather than shifting a grid it cannot shift. The
-# grids are the model's parameters (~10,000 nodes, ~200 KB of JSON at the
-# paper's grid size, less the nodes a model does not hold), still
-# configuration-adjacent and diffable. A rig whose sensor carries a generic
-# model embeds this BODY (no schema or declarations — the rig declares them)
-# where a parametric sensor embeds a camera body; it carries its own
-# width/height, so a bare `PosedCamera` sensor suffices.
+# The CENTRAL grid camera is not this kind: it is a `CameraModel` with a
+# `SplineLens`, stored as any camera (a vgio/cameras record whose lens is the
+# `{"spline": …}` record, camera_schema.jl). A central `vgio/generic_camera/v2`
+# or `v3` file reads as the camera store of its one camera — `load(BoundedCamera,
+# path)` — and a non-central one through its v3 → v4 step (migrate.jl); neither
+# is rewritten (owner, 2026-11-09). A v4 record naming the central type is
+# refused, pointing at that read.
 #
-# THE PRESENT NODES (v3, 2026-11). A model holds the nodes of its lattice that
-# its imaged region reaches (Core's `present_nodes`); the others are absent and
-# have no value. `present` lists the held nodes as runs per lattice row — every
-# row that holds one, rows increasing, its runs `[col_lo, col_hi]` increasing
-# and apart (any shape: convex, cut by the frame, with holes) — and the grids
-# hold exactly those nodes, row by row. A model reads back with NaN in its
-# absent slots, which no evaluation reads. A body carries `present` only for a
-# model that does not hold every node, and a body without it holds every node:
-# the standalone file's and a rig sensor's alike, so rig/v6's bodies still read
-# as they are and a `vgio/generic_camera/v2` file is a v3 record as it stands
-# (its version step changes only the schema).
-#
-# The point grid is a plain model's numbers: VGC's grid models hold
-# `Vec3{T}`, so the points are plain METRES in memory — the unit VGC strips a
-# physical camera's extrinsics in to apply its model — and the file's
-# `length_unit` (mm unless the writer is given another) on disk, through
-# `read_length` / `write_length`.
-#
-# A model built from a source camera (Core's `init = :quasi_interpolate`)
-# carries that camera's pinhole, `nominal_intrinsics`, and its imaged region,
-# `domain` — an `Ellipse` (an image circle) or the whole plane. Neither is
-# derivable from the grid, so both are stored when present (the same five
-# numbers as a camera's `intrinsics`, focal lengths positive; the ellipse's
-# centre, semi-axes — positive, the major first — and angle), and read back bit
-# for bit; a domain of any other region type is refused by the writer. Schöps' YAML carries neither: its models read with
-# none and the whole plane.
+# The spline record is the lens record's (`_spline_json`): the held nodes (Core's
+# presence mask) as runs per lattice row and the controls over them; the absent
+# nodes read back as NaN, which no evaluation reads. The point controls are plain
+# METRES in memory — the unit VGC strips a physical camera's extrinsics in — and
+# the file's `length_unit` on disk (`read_length` / `write_length`). A rig sensor
+# that is a non-central grid camera embeds this BODY (no schema or declarations:
+# the rig declares them).
 
-# The runs of present nodes per lattice row, `[[row, [[lo, hi], …]], …]`:
-# each row once, rows increasing, its runs nonempty, increasing and apart (a
-# gap of at least one node), every index a non-negative integer. The lattice's
-# bounds and the node count are the body's check (`_generic_check`).
-struct _RowRuns <: _Spec end
-function _validate(::_RowRuns, x, file, at)
-    x isa AbstractVector || _refuse(file, at, "expected an array of [row, [[col_lo, col_hi], …]] entries")
-    isint(v) = v isa Integer && !(v isa Bool) && v >= 0
-    last_row = -1
-    for (i, e) in enumerate(x)
-        a = "$(at)[$(i)]"
-        (e isa AbstractVector && length(e) == 2 && isint(e[1]) && e[2] isa AbstractVector && !isempty(e[2])) ||
-            _refuse(file, a, "expected [row, [[col_lo, col_hi], …]], a row index and its nonempty runs")
-        e[1] > last_row || _refuse(file, a, "rows are listed once, increasing; row $(e[1]) follows row $(last_row)")
-        last_row = e[1]
-        last_hi = -2
-        for (j, r) in enumerate(e[2])
-            (r isa AbstractVector && length(r) == 2 && isint(r[1]) && isint(r[2]) && r[1] <= r[2]) ||
-                _refuse(file, "$(a)[2][$(j)]", "expected a run [col_lo, col_hi] of non-negative integers, col_lo ≤ col_hi")
-            r[1] > last_hi + 1 ||
-                _refuse(file, "$(a)[2][$(j)]", "a row's runs are increasing and apart; [$(r[1]), $(r[2])] follows a run ending at $(last_hi)")
-            last_hi = r[2]
-        end
-    end
-    return nothing
-end
-
+const _NONCENTRAL_TYPE = "NoncentralSplineModel"
 const _GRID = _Vec(_XYZ)
-const _GENERIC_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
-const _GENERIC_BODY_FIELDS = Pair{Symbol, _Spec}[
-    :type => _Named(in(_GENERIC_TYPES), "a generic model type ($(join(_GENERIC_TYPES, ", ")))"),
-    :width => _PosInt(), :height => _PosInt(),
-    :calibration_min_x => _Int(), :calibration_min_y => _Int(),
-    :calibration_max_x => _Int(), :calibration_max_y => _Int(),
-    :grid_width => _PosInt(), :grid_height => _PosInt(),
-    :grid_layout => _Tok(_GRID_LAYOUT),
-    :direction_grid => _GRID,
+const _NONCENTRAL_SPLINE = _Obj(
+    Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4), :grid_size => _Vec(_PosInt(), 2), :directions => _GRID, :points => _GRID],
+    Pair{Symbol, _Spec}[:present => _RowRuns()],
+)
+const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
+    :type => _Named(
+        ==(_NONCENTRAL_TYPE),
+        "\"$(_NONCENTRAL_TYPE)\" — a central grid camera is a camera with a spline lens, a vgio/cameras record; a central " *
+            "vgio/generic_camera/v2 or v3 file reads through its migration, load(BoundedCamera, path)",
+    ),
+    :width => _PosInt(), :height => _PosInt(), :K => _K, :spline => _NONCENTRAL_SPLINE,
 ]
+const _NONCENTRAL_BODY_OPTIONAL = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]
 
-# The number of nodes a body's runs hold (every node of the lattice without them).
-_present_count(x) = haskey(x, :present) ?
-    sum(r[2] - r[1] + 1 for e in x[:present] for r in e[2]; init = 0) : x[:grid_width] * x[:grid_height]
-
-# The body's own check, shared by the standalone file and a rig sensor: a
-# point grid exactly when the model is non-central, runs inside the lattice,
-# and grids of the held nodes' count.
-function _generic_check(x)
-    noncentral = x[:type] == "NoncentralGenericModel"
-    noncentral == haskey(x, :point_grid) ||
-        return noncentral ? "a NoncentralGenericModel needs its point_grid" : "a CentralGenericModel has no point_grid"
-    if haskey(x, :present)
-        isempty(x[:present]) && return "`present` holds no node"
-        for e in x[:present]
-            e[1] < x[:grid_height] || return "`present` names row $(e[1]) of a lattice of grid_height = $(x[:grid_height]) rows"
-            last(e[2])[2] < x[:grid_width] ||
-                return "`present` names column $(last(e[2])[2]) of a lattice of grid_width = $(x[:grid_width]) columns"
-        end
-    end
-    n = _present_count(x)
-    what = haskey(x, :present) ? "the $(n) nodes `present` holds" : "grid_width × grid_height = $(n)"
-    length(x[:direction_grid]) == n ||
-        return "direction_grid has $(length(x[:direction_grid])) entries, expected $(what)"
-    (noncentral && length(x[:point_grid]) != n) &&
-        return "point_grid has $(length(x[:point_grid])) entries, expected $(what)"
-    # the domain ellipse as Core's `Ellipse` holds it — semi-axes positive, the
-    # major first — so it reads back as the numbers the file holds; the nominal
-    # pinhole's focal lengths positive (K maps the image the right way up, K⁻¹
-    # is finite)
-    if haskey(x, :domain)
-        p = _ellipse_record_problem(x[:domain][:ellipse], "the domain ellipse")
-        p === nothing || return p
-    end
-    if haskey(x, :nominal_intrinsics)
-        v = x[:nominal_intrinsics]
-        (v[1] > 0 && v[2] > 0) || return "nominal_intrinsics' focal lengths fx, fy are positive; got fx = $(v[1]), fy = $(v[2])"
-    end
-    return nothing
+# The body's own check, the standalone file's and a rig sensor's: its lattice
+# (`_lattice_problem`: two control arrays of the held nodes' count), a gauge K
+# (skew 0, positive focal lengths) and its lens coverage.
+function _noncentral_check(x)
+    p = _lattice_problem(x[:spline], (:directions, :points))
+    p === nothing || return p
+    k = x[:K]
+    iszero(k[:skew]) || return "a grid camera's K is a gauge of skew 0; got skew = $(k[:skew])"
+    (k[:fx] > 0 && k[:fy] > 0) || return "K's focal lengths fx, fy are positive; got fx = $(k[:fx]), fy = $(k[:fy])"
+    return _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera")
 end
-
-const _GENERIC_DOMAIN = _Obj(:ellipse => _Vec(_Real(), 5))
-const _GENERIC_OPTIONAL = Pair{Symbol, _Spec}[:nominal_intrinsics => _Vec(_Real(), 5), :domain => _GENERIC_DOMAIN]
-const _GENERIC_PRESENT = Pair{Symbol, _Spec}[:present => _RowRuns()]
+const _NONCENTRAL_BODY = _Checked(_Obj(_NONCENTRAL_BODY_FIELDS, _NONCENTRAL_BODY_OPTIONAL), _noncentral_check)
 const _GENERIC_CAMERA_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
-            :schema => _schema_tok("generic_camera"),
-            :pixel_frame => _Tok(pixel_frame_name(CANONICAL_PIXEL_FRAME)),
-            _GENERIC_BODY_FIELDS...,
+            :schema => _schema_tok("generic_camera"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,
+            _NONCENTRAL_BODY_FIELDS...,
         ],
-        Pair{Symbol, _Spec}[:length_unit => _LENGTH_UNIT, :point_grid => _GRID, _GENERIC_OPTIONAL..., _GENERIC_PRESENT..., _PROVENANCE...],
+        Pair{Symbol, _Spec}[_NONCENTRAL_BODY_OPTIONAL..., _PROVENANCE...],
     ),
-    x -> something(
-        _generic_check(x),
-        (x[:type] == "NoncentralGenericModel") == haskey(x, :length_unit) ? nothing :
-            "a non-central model declares the length_unit of its point_grid, and only it does",
-        Some(nothing),
-    ),
+    _noncentral_check,
 )
 
-# The present nodes of a `[gy, gx]` mask as runs per row, 0-based and inclusive.
-function _present_runs(P::AbstractMatrix{Bool})
-    rows = Any[]
-    for gy in 1:size(P, 1)
-        runs = Any[]
-        gx = 1
-        while gx <= size(P, 2)
-            if P[gy, gx]
-                lo = gx
-                while gx < size(P, 2) && P[gy, gx + 1]
-                    gx += 1
-                end
-                push!(runs, [lo - 1, gx - 1])
-            end
-            gx += 1
-        end
-        isempty(runs) || push!(rows, Any[gy - 1, runs])
-    end
-    return rows
-end
-# The runs back to a `[gy, gx]` mask of a `gh × gw` lattice.
-function _present_from_runs(runs, gw::Int, gh::Int)
-    P = falses(gh, gw)
-    for e in runs, r in e[2]::Vector{Any}
-        P[(e[1]::Integer) + 1, ((r[1]::Integer) + 1):((r[2]::Integer) + 1)] .= true
-    end
-    return P
-end
-
-# The held nodes of a grid, row by row: a direction grid as stored, a point
-# grid (plain metres) in the file's length unit.
-_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}) =
-    [[Float64(g[gy, gx][k]) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
-_point_grid_json(g::Matrix{<:Vec3}, P::AbstractMatrix{Bool}, unit::_LeafUnit) =
-    [Float64[_leaf_power(Float64(g[gy, gx][k]), unit, 1) for k in 1:3] for gy in 1:size(g, 1) for gx in 1:size(g, 2) if P[gy, gx]]
-
-# A grid back from its held nodes' row-major entries: a direction grid as
-# stored, a point grid read in the file's length unit into plain metres; NaN in
-# the absent slots (no value: no evaluation reads one).
-function _grid_from_json(a, P::AbstractMatrix{Bool}; unit::Units = mm, is_points::Bool = false)
-    g = fill(Vec3{Float64}(NaN, NaN, NaN), size(P))
-    for (I, v) in zip(findall(permutedims(P)), a)    # the held nodes in row-major order
-        xyz = Float64[is_points ? _read_power(c::Real, unit, 1) : Float64(c::Real) for c in v::Vector{Any}]
-        g[I[2], I[1]] = Vec3{Float64}(xyz...)
-    end
-    return g
-end
-
-# The optional nominal pinhole (a K's five numbers, style.jl) and domain (an
-# ellipse's minimal form) of a model, empty when it has none — the record's and
-# the identity tree's (`_id_grid_model`) alike.
-function _generic_extras(s::VgioStyle, m)
-    n = nominal_intrinsics(m)
-    nom = n === nothing ? (;) : (nominal_intrinsics = _k_values(n.K),)
-    d = m.domain
-    dom = d isa WholePlane ? (;) : d isa Ellipse ? (domain = (ellipse = JSON.lower(s, d),),) : _refuse_domain(s, d)
-    return merge(nom, dom)
-end
-# the caller's context: the identity tree's style (`_PERSISTED`) is content_id's, any other a writer's
-_refuse_domain(s::VgioStyle, d) = throw(
-    ArgumentError(
-        s.length_unit isa _Persisted ?
-            "content_id: a generic model's domain is an Ellipse or the whole plane; got a $(nameof(typeof(d)))" :
-            "save: a generic model's domain is stored as an Ellipse or the whole plane; got a $(nameof(typeof(d)))"
-    )
-)
-_generic_extras_from(s::VgioStyle, d) = (
-    nominal = haskey(d, :nominal_intrinsics) ? LogicalIntrinsics(_k_from_values(d.nominal_intrinsics::Vector{Any})) : nothing,
-    domain = haskey(d, :domain) ? JSON.lift(s, Ellipse, d.domain.ellipse::Vector{Any}) : WholePlane(),
-)
-
-const _GenericModel = Union{CentralGenericModel, NoncentralGenericModel}
-
-# A model's body on IO's style, the standalone file's and a rig sensor's:
-# `present` for a model that does not hold every node, a non-central point grid
-# (plain metres) in the style's length form (the file's unit; the identity
-# tree's persisted metres).
-function JSON.lower(s::VgioStyle, m::_GenericModel)
-    P = present_nodes(m)
-    dirs = m isa CentralGenericModel ? m.grid : m.directions
-    return merge(
-        (
-            type = String(nameof(typeof(m))),
-            width = m.width, height = m.height,
-            calibration_min_x = m.calib_min_x, calibration_min_y = m.calib_min_y,
-            calibration_max_x = m.calib_max_x, calibration_max_y = m.calib_max_y,
-            grid_width = size(dirs, 2), grid_height = size(dirs, 1), grid_layout = _GRID_LAYOUT,
-        ),
-        all(P) ? (;) : (present = _present_runs(P),),
-        (direction_grid = _grid_json(dirs, P),),
-        m isa NoncentralGenericModel ? (point_grid = _point_grid_json(m.points, P, s.length_unit),) : (;),
-        _generic_extras(s, m),
+# A non-central camera's body on IO's style, the standalone file's and a rig
+# sensor's: its extent, K (in the style's pixel frame) and spline record, the
+# point controls (plain metres) in the style's length form (the file's unit; the
+# identity tree's persisted metres) — or `points`, a migration's own numbers as
+# its file holds them.
+function _noncentral_body(s::VgioStyle, m::NoncentralSplineModel, ext::Size2; points = nothing)
+    P = _held_mask(m.present, size(m.directions.controls))
+    sp = _spline_json(m.directions, P)
+    pts = points === nothing ? _controls_json(m.points.controls, P, x -> _leaf_power(x, s.length_unit, 1)) : points
+    return (
+        type = _NONCENTRAL_TYPE, width = Int(ext.width), height = Int(ext.height), K = _k_record(m.intrinsics.K, _pixel_frame(s)),
+        spline = merge((area = sp.area, grid_size = sp.grid_size), haskey(sp, :present) ? (present = sp.present,) : (;),
+                       (directions = sp.controls, points = pts)),
     )
 end
 
-# A validated body back to the model; the style's length unit is the one the
-# enclosing file declares (read only for a non-central point grid).
-function JSON.lift(s::VgioStyle, ::Type{_GenericModel}, d::_Record)
-    unit = s.length_unit
-    gw, gh = Int(d.grid_width::Integer), Int(d.grid_height::Integer)
-    P = haskey(d, :present) ? _present_from_runs(d.present::Vector{Any}, gw, gh) : trues(gh, gw)
-    dirs = _grid_from_json(d.direction_grid::Vector{Any}, P)
-    args = (
-        Int(d.width::Integer), Int(d.height::Integer),
-        Int(d.calibration_min_x::Integer), Int(d.calibration_min_y::Integer),
-        Int(d.calibration_max_x::Integer), Int(d.calibration_max_y::Integer),
-    )
-    # the controls as stored (a model's controls may be off the sphere — a quasi-interpolated start, a tangent-plane optimizer's
-    # result — and a re-normalization would change its spline; a unit grid reads back unit either way)
-    x = _generic_extras_from(s, d)
-    d.type == "CentralGenericModel" && return CentralGenericModel(args..., dirs; unit_controls = false, x..., present = P)
-    return NoncentralGenericModel(args..., dirs, _grid_from_json(d.point_grid::Vector{Any}, P; unit, is_points = true);
-                                  unit_controls = false, x..., present = P)
+# …and back: the model and its extent, from a validated body whose K is in the
+# style's pixel frame and whose points are in its length unit.
+function _noncentral_from_body(s::VgioStyle, b::_Record)
+    sp = b.spline
+    gw, gh = Int(sp.grid_size[1]::Integer), Int(sp.grid_size[2]::Integer)
+    P = haskey(sp, :present) ? _present_from_runs(sp.present::Vector{Any}, gw, gh) : trues(gh, gw)
+    area = JSON.lift(s, Rect2, sp.area::Vector{Any})
+    D = ChartSpline(area, _controls_from_json(sp.directions::Vector{Any}, P, Val(3)))
+    X = ChartSpline(area, _controls_from_json(sp.points::Vector{Any}, P, Val(3), x -> _read_power(x, s.length_unit, 1)))
+    m = NoncentralSplineModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), D, X; present = haskey(sp, :present) ? P : nothing)
+    return m, _extent_from_body(b)
 end
 
 """
-    save(path, m::CentralGenericModel; provenance = (;))
-    save(path, m::NoncentralGenericModel; length_unit = mm, provenance = (;))
+    save(path, camera::BoundedCamera{<:NoncentralSplineModel}; length_unit = mm, provenance = (;))
 
-Write a generic grid camera model as a `vgio/generic_camera/v3` file (field
-names mirror the reference implementation's YAML tags; the nodes the model
-holds, `present` as runs per lattice row and the grids row-major over them, in
-the COLMAP pixel frame; a non-central point grid — plain metres in memory —
-in `length_unit`).
+Write a non-central grid camera (Schöps et al.) as a `vgio/generic_camera/v4`
+file: its extent, gauge `K` and the two splines over the held nodes (`present`
+as runs per lattice row, the controls row by row), the line points — plain
+metres in memory — in `length_unit`; a physical sensor's pitch and the camera's
+lens coverage when it has them. A central grid camera is a `CameraModel` with a
+`SplineLens`: save it in a camera store (`save(path, Dict(:name => camera))`).
 """
 function save(
-        path::AbstractString, m::Union{CentralGenericModel, NoncentralGenericModel};
+        path::AbstractString, camera::BoundedCamera{<:NoncentralSplineModel};
         length_unit::Units = mm, provenance::NamedTuple = (;)
     )
-    head = (schema = _schema("generic_camera"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME))
-    unit = m isa NoncentralGenericModel ? (length_unit = unit_string(length_unit),) : (;)
     s = VgioStyle(; length_unit)
-    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(merge(head, unit, JSON.lower(s, m)), provenance); style = s)
+    head = (schema = _schema("generic_camera"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME), length_unit = unit_string(length_unit))
+    ext = extent(camera)
+    body = merge(
+        head, _with_pitch(_noncentral_body(s, model(camera), ext), sensor(camera), length_unit),
+        _lens_coverage_json(s, lens_coverage(camera), ext),
+    )
+    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
-"""
-    load(CentralGenericModel, path) -> CentralGenericModel
-    load(NoncentralGenericModel, path; file_unit = nothing) -> NoncentralGenericModel
+# A vgio/generic_camera file that is not a central v2/v3 one: the non-central record
+# (`load(BoundedCamera, path)` reads it; a v2/v3 file through its version steps).
+_is_noncentral_grid(path::AbstractString) =
+    (v = _split_schema(_peek_schema(path)); v !== nothing && v.kind == "generic_camera" && !_is_central_grid(_read_vgio_json(path)))
 
-Read a `vgio/generic_camera/v3` file (a non-central point grid into plain
-metres; the absent nodes NaN, which no evaluation reads) or a
-`vgio/generic_camera/v2` one (every node present), or the reference
-implementation's own `intrinsics0.yaml` (Schöps et al.'s camera_calibration; the form is decided by the file's content, see
-schoeps.jl). The typed load is an assertion of intent: loading a central record as
-non-central (or vice versa) errors.
-
-The YAML is in [`SCHOEPS_PIXEL_FRAME`](@ref), which is the COLMAP frame the
-models are defined in: its numbers are read as stored. A non-central YAML does
-not record the length unit of its `point_grid`, so the caller states it,
-`file_unit` (a length unit, e.g. `m`); a vgio file declares its own, and a
-`file_unit` beside it, or beside a central model (which has no lengths), is
-refused.
-"""
-function load(
-        ::Type{T}, path::AbstractString; file_unit::Union{Nothing, Units} = nothing
-    ) where {T <: Union{CentralGenericModel, NoncentralGenericModel}}
-    if _file_form(path) !== :json
-        (T === CentralGenericModel && file_unit !== nothing) &&
-            throw(ArgumentError("$(path): a CentralGenericModel has no lengths; `file_unit` does not apply"))
-        return _load_schoeps_model(T, path, file_unit)
-    end
-    file_unit === nothing ||
-        throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
-    return _typed_generic(T, _load_generic(path), path)
-end
-
-function _load_generic(path::AbstractString)
+function _load_noncentral(path::AbstractString)
     d = _read_store(path, "generic_camera", _GENERIC_CAMERA_SPEC)
-    return JSON.lift(VgioStyle(; length_unit = haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm), _GenericModel, d::_Record)
+    u = parse_unit(d.length_unit::String)
+    s = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
+    m, ext = _noncentral_from_body(s, d)
+    return BoundedCamera(m, _bound_from_body(d, ext, u); lens_coverage = _lens_coverage_from_json(s, get(d, :lens_coverage, nothing)))
 end
-
-_typed_generic(::Type{T}, m, path) where {T} = m isa T ? m : throw(
-    ArgumentError("$(path) holds a $(nameof(typeof(m))), not a $(nameof(T))")
-)

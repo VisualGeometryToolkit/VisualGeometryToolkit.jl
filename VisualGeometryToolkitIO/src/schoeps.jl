@@ -5,15 +5,16 @@
 # puzzlepaint/camera_calibration (Schöps, Larsson, Pollefeys, Sattler, CVPR
 # 2020) writes two files a calibration run is read back from:
 #
-#   intrinsics0.yaml   one generic camera model — `CentralGenericModel` (a
-#                      direction grid) or `NoncentralGenericModel` (a point and
-#                      a direction grid) — with the calibrated area;
+#   intrinsics0.yaml   one grid camera — central (a direction grid) or
+#                      non-central (a point and a direction grid) — with the
+#                      calibrated area;
 #   dataset.bin        the feature detections, `calib_data` version 0: per
 #                      image, (x, y, feature id) of every detected feature.
 #
 # They are read through the typed `load` of the VGC type they hold, the same
-# verb as the vgio JSON form of that type: `load(CentralGenericModel, path)`,
-# `load(NoncentralGenericModel, path; file_unit)`, `load(TargetPoints2D, path;
+# verb as the vgio JSON form of that type: `load(BoundedCamera, path; file_unit)`
+# (a central model as a camera with a `SplineLens`, a non-central one as a
+# `NoncentralSplineModel`), `load(TargetPoints2D, path;
 # target)`. Which form a file is, is decided by its CONTENT, never its name:
 # a vgio file is a JSON object (its first non-blank byte is `{`), a
 # `dataset.bin` starts with the magic `calib_data`, and anything else is read
@@ -104,33 +105,48 @@ function _schoeps_grid(yml::AbstractString, tag::AbstractString, gw::Int, gh::In
     length(nums) == 3 * gw * gh || throw(
         ArgumentError("$(path): `$(tag)` has $(length(nums)) numbers, expected 3 × grid_width × grid_height = $(3gw * gh)")
     )
-    g = Matrix{Vec3{Float64}}(undef, gh, gw)
+    g = Matrix{SVector{3, Float64}}(undef, gh, gw)
     for gy in 1:gh, gx in 1:gw
         k = 3 * ((gy - 1) * gw + (gx - 1))
-        g[gy, gx] = Vec3{Float64}(scale(nums[k + 1]), scale(nums[k + 2]), scale(nums[k + 3]))
+        g[gy, gx] = SVector{3, Float64}(scale(nums[k + 1]), scale(nums[k + 2]), scale(nums[k + 3]))
     end
     return g
 end
 
-function _load_schoeps_model(::Type{T}, path::AbstractString, file_unit) where {T}
+# The YAML's model as a bounded camera: a central model (its `type` the
+# reference's central model, its `grid`) as the SplineLens camera of its lattice,
+# a non-central one (its `direction_grid` and `point_grid`) as a
+# `NoncentralSplineModel` on that camera's lattice and K (Core's
+# `CameraModel(SplineLens, controls, size)`: the lattice's gauge, the YAML carrying
+# no pinhole). Every node is present; the directions are normalized unless unit to
+# 1e-12, as the reference's reader does.
+const _SCHOEPS_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
+function _load_schoeps_camera(path::AbstractString, file_unit)
     yml = _yaml_text(path)
     type = _schoeps_field(yml, "type", path)
-    type == string(nameof(T)) || throw(ArgumentError("$(path) holds a Schöps $(type), not a $(nameof(T))"))
-    hdr = map(k -> _schoeps_int(yml, k, path), (
+    type in _SCHOEPS_TYPES || throw(ArgumentError("$(path) holds a Schöps $(type), not a grid camera ($(join(_SCHOEPS_TYPES, ", ")))"))
+    central = type == _SCHOEPS_TYPES[1]
+    w, h, bounds... = map(k -> _schoeps_int(yml, k, path), (
         "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
     ))
     gw, gh = _schoeps_int(yml, "grid_width", path), _schoeps_int(yml, "grid_height", path)
-    T === CentralGenericModel && return CentralGenericModel(hdr..., _schoeps_grid(yml, "grid", gw, gh, path))
-    file_unit === nothing && throw(
-        ArgumentError(
-            "$(path): a Schöps NoncentralGenericModel does not record the length unit of its point_grid " *
-                "(the calibration pattern's); state it: `file_unit = m`"
+    if central
+        file_unit === nothing || throw(ArgumentError("$(path): a central grid camera has no lengths; `file_unit` does not apply"))
+    else
+        file_unit === nothing && throw(
+            ArgumentError(
+                "$(path): a Schöps non-central model does not record the length unit of its point_grid " *
+                    "(the calibration pattern's); state it: `file_unit = m`"
+            )
         )
-    )
-    dimension(file_unit) == dimension(m) || throw(ArgumentError("$(path): `file_unit` must be a length unit, got $(file_unit)"))
-    dirs = _schoeps_grid(yml, "direction_grid", gw, gh, path)
+        dimension(file_unit) == dimension(m) || throw(ArgumentError("$(path): `file_unit` must be a length unit, got $(file_unit)"))
+    end
+    dirs = _schoeps_grid(yml, central ? "grid" : "direction_grid", gw, gh, path)
+    cam = CameraModel(SplineLens, dirs, (w, h); calib_area = Tuple(bounds), unit_controls = true)
+    central && return BoundedCamera(cam, Size2(w, h))
     pts = _schoeps_grid(yml, "point_grid", gw, gh, path; scale = x -> _read_power(x, file_unit, 1))   # plain metres
-    return NoncentralGenericModel(hdr..., dirs, pts)
+    d = cam.lens.backward
+    return BoundedCamera(NoncentralSplineModel(cam.intrinsics, d, ChartSpline(d.area, pts)), Size2(w, h))
 end
 
 # -----------------------------------------------------------------------------

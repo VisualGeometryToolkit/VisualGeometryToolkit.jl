@@ -12,7 +12,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D,
-        NoncentralGenericModel, CentralGenericModel, has_units, geom, pose, translation
+        has_units, geom, pose, translation, model
     using Statistics: cov
 
     fixtures = joinpath(@__DIR__, "fixtures", "units")
@@ -21,12 +21,15 @@
         "rig_pitch.json" => Rig,
         "target_points.json" => AbstractTarget, "target_planar.json" => AbstractTarget,
         "trajectory.json" => Trajectory, "target_poses.json" => TargetPoses,
-        "target_points3d.json" => TargetPoints3D, "generic_camera.json" => NoncentralGenericModel,
-        "generic_camera_masked.json" => CentralGenericModel,
+        "target_points3d.json" => TargetPoints3D, "generic_camera_v4.json" => BoundedCamera,
+        "spline_camera_masked.json" => Dict{Symbol, BoundedCamera},
         "target_points2d.json" => TargetPoints2D,
     )
-    # every fixture is covered: the table above and correspondences.json (an export, below)
-    @test sort(readdir(fixtures)) == sort([collect(keys(kinds)); "correspondences.json"])
+    # the old grid files, kept as the migration inputs the two above were made from
+    # (fixtures/make_spline_fixtures.jl): read, never rewritten (spline_lens_record_tests.jl)
+    inputs = ["generic_camera.json", "generic_camera_masked.json"]
+    # every fixture is covered: the table above, the inputs and correspondences.json (an export, below)
+    @test sort(readdir(fixtures)) == sort([collect(keys(kinds)); inputs; "correspondences.json"])
     mktempdir() do dir
         for (name, T) in kinds
             src = joinpath(fixtures, name)
@@ -58,8 +61,8 @@
     @test ustrip(m, geom(VgtkCore.points(rig[:a1f2].target)[3])[1]) === -0.0139
     @test cov(VgtkCore.points(rig[:markers].target)[1])[3, 3] === 1.23e-8
     @test signbit(ustrip(m, geom(VgtkCore.points(rig[:markers].target)[2])[2]))    # -0.0 keeps its sign
-    gn = load(NoncentralGenericModel, joinpath(fixtures, "generic_camera.json"))
-    @test gn.points[2, 3][2] === -0.0005                    # plain metres
+    gn = model(load(BoundedCamera, joinpath(fixtures, "generic_camera.json")))
+    @test gn.points.controls[2, 3][2] === -0.0005           # plain metres
 end
 
 @testitem "units: a writer refuses plain numbers where a length is meant" setup = [VGIoFixtures] begin
@@ -246,10 +249,10 @@ end
 end
 
 @testitem "units: a loaded non-central grid model refuses a plain camera, naming the fix" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: PosedCamera, NoncentralGenericModel, has_units, project, with_unit
+    using VisualGeometryToolkitCore: PosedCamera, has_units, project, with_unit, model
     # The grid comes back in metres; the pre-0.2 habit `EuclideanMap(R, t_mm)`
     # would compare it with scene points in mm (offsets 1000× too small).
-    gn = load(NoncentralGenericModel, joinpath(@__DIR__, "fixtures", "units", "generic_camera.json"))
+    gn = model(load(BoundedCamera, joinpath(@__DIR__, "fixtures", "units", "generic_camera.json")))
     R = one(RotMatrix{3, Float64})
     t_mm = SVector(10.0, -5.0, 20.0)
     err = try PosedCamera(gn, EuclideanMap(R, t_mm)); nothing catch e; e end
@@ -258,8 +261,10 @@ end
     # the fix: the extrinsics in mm, stated
     cam = PosedCamera(gn, with_unit(EuclideanMap(R, t_mm), mm))
     @test has_units(cam)
-    X = SVector(0.0, 0.0, 1000.0) .* mm
-    @test project(cam, X) == project(ustrip(m, cam), ustrip.(m, X))
+    r = VisualGeometryToolkitCore.backproject(gn, SVector(32.0, 24.0))     # a point the grid images, 1 m along a pixel's line
+    X = (1000 .* (r.origin + r.direction) - t_mm) .* mm
+    u = project(cam, X)
+    @test all(isfinite, u) && u == project(ustrip(m, cam), ustrip.(m, X))
 end
 
 @testitem "units: a rig built in code, its file and the rig loaded from it have one identity" setup = [VGIoFixtures] begin

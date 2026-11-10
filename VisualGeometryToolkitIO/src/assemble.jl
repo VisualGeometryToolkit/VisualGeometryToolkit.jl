@@ -155,6 +155,7 @@ Serialize a VGC camera as the COLMAP model computing its lens's function
 nonzero skew, are refused rather than approximated.
 """
 function colmap_camera(cm::CameraModel, camera_id::Integer, width::Integer, height::Integer)
+    _refuse_spline_export(cm.lens)
     model = colmap_model(cm.lens)
     model === nothing && throw(
         ArgumentError("no COLMAP camera model computes the lens $(typeof(cm.lens)) — it is not exported")

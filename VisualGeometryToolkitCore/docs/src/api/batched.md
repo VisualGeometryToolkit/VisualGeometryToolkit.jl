@@ -196,6 +196,18 @@ Private = false
 Pages = ["numerics/quadrature.jl"]
 ```
 
+## One-dimensional minimization
+
+[`VisualGeometryToolkitCore.grid_golden_minimum`](@ref) scans an evenly spaced
+grid and refines its least value by golden-section steps: the stack's one 1-D
+minimizer (public, not exported).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/minimize.jl"]
+```
+
 ## Kernel building blocks
 
 An in-register LU solve for fixed-size systems and a KernelAbstractions

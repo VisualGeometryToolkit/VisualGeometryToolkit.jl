@@ -116,10 +116,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   so no ForwardDiff dual reaches the solve; and `_solved_projection`, THE solve it differentiates (from the area's
   centre: the LM returns a start within √eps unmoved, which would make x*(c) a step function). The direction
   differential also returns `‖S‖`; `_imaged_z` (the gauge's solve of ẑ) is `_solved_projection` too.
-- **Internal: one grid-and-golden minimizer** (`Cameras._grid_golden_minimum(f, xs; iters, periodic)`): the least
-  value of `f` on an evenly spaced grid, refined by golden-section steps between its neighbours (a linear grid's end
-  not refined, and reported). `_azimuth_minimum` (the view-angle limit, the inscribed radius) reads it, unchanged
-  bit for bit, and so does Estimation's GCV weight search.
+- **New (public, not exported): `grid_golden_minimum(f, xs; iters, periodic = false, refine_ends = true)`**, the
+  stack's one 1-D minimizer (numerics/minimize.jl): the least value of `f` on an evenly spaced grid, refined by
+  golden-section steps between its neighbours; on a linear grid a least value at an end is refined on its one
+  neighbouring interval (or, `refine_ends = false`, returned as it is), and `at_end` says the result lies at the end.
+  `_azimuth_minimum` (the view-angle limit, the inscribed radius) reads it, unchanged bit for bit, and so does
+  Estimation's `gcv_select`.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

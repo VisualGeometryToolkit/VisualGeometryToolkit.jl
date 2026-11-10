@@ -109,6 +109,7 @@ export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified
 public is_positive_definite       # the 2×2 positive-definiteness test (Sylvester), reached qualified
+public grid_golden_minimum      # the one 1-D minimizer: a grid scan, then golden-section steps (numerics/minimize.jl)
 export is_peak
 export boundary, region, scale, shape_factor
 export bbox
@@ -927,6 +928,7 @@ include("numerics/quadrature.jl") # Gauss–Hermite (probabilists') and Hammersl
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
 include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator
+include("numerics/minimize.jl")   # the one grid-and-golden 1-D minimizer
 include("geometry/primitives/surfaces.jl")   # Quad, HeightSurface: the surface a ray meets (needs the thin-plate evaluator)
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)

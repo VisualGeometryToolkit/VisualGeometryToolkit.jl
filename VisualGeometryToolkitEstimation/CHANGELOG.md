@@ -5,6 +5,8 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`fit_camera`'s warning of a source's non-radial terms reads Core's `RadialSymmetry` trait** (a lens type
+  declared `RadiallySymmetric()` is not measured for decentering); `_decentering` still measures the magnitude.
 - **Breaking: `fit_camera(SplineLens, source, region; tolerance, grid_size = nothing, forward = true)`** fits ONE
   camera: a `CameraModel` with a `SplineLens`, its K the source's own (skew 0). Its backward spline is the P-spline
   of Core's full-image lattice (`spline_lattice`) on the source's rays at x = K⁻¹u — at `grid_size` when given, else

@@ -259,9 +259,9 @@ fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: Abst
 # reduction of the image integral to θ.
 function _radial_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol) where {L}
     src = lens(source)
-    # the type-level symmetry test (Core's) says whether anything is non-radial;
+    # Core's `RadialSymmetry` trait says whether anything is non-radial;
     # `_decentering` measures how much (a symmetric ∘ composition is not measured)
-    dec = VgtkCore.Cameras._radially_symmetric(src) ? 0.0 : _decentering(src)
+    dec = VgtkCore.Cameras.RadialSymmetry(src) isa VgtkCore.Cameras.RadiallySymmetric ? 0.0 : _decentering(src)
     dec > 1.0e-8 &&
         @warn "fit_camera: the source $(nameof(typeof(src))) carries non-radial terms (decentering, norm $(round(dec; sigdigits = 3))) — no radially symmetric target can represent them; fitting the radial part only"
     srcr = radial_part(src)
@@ -358,7 +358,7 @@ end
 
 # The size of what VGC's `radial_part` strips from a lens (its tangential,
 # thin-prism and other non-radial terms): the magnitude of what Core's
-# type-level `_radially_symmetric` flags, read only for a lens it flags (for a
+# `RadialSymmetry` trait flags, read only for a lens it calls asymmetric (for a
 # symmetric `∘` composition `radial_part` is the bare projection, so this
 # would count its radial coefficients).
 _decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))

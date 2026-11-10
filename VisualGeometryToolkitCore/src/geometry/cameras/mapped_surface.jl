@@ -64,7 +64,9 @@ _member_eltype(::Type{T}, c) where {T} = convert_eltype(T, c)
 # the solver data (a thin-plate kind's system, its bending factor) kept.
 _member_numbers(f, c::CoordinateTransformations.LinearMap{<:StaticMatrix{<:Any, <:Any, Bool}}) = c
 _member_numbers(f, S::SimilarityMap{N}) where {N} = _similarity(f(S.s), map(f, SMatrix{N, N}(S.R)), map(f, S.t))
-_member_numbers(f, E::EuclideanMap{N}) where {N} = EuclideanMap(RotMatrix{N}(map(f, SMatrix{N, N}(rotation(E)))), map(f, translation(E)))
+# (the values or a conversion of an already checked rotation: rebuilt unchecked, as the similarity is;
+# checked, the rebuild allocated 416 bytes per Dual-ray hit at d77d3556)
+_member_numbers(f, E::EuclideanMap{N}) where {N} = EuclideanMap(RotMatrix{N}(map(f, SMatrix{N, N}(rotation(E)))), map(f, translation(E)); check = false)
 _member_numbers(f, c::HeightField{K}) where {K} = (h = map(f, c.h); HeightField{K, eltype(h)}(c.system, h, map(f, c.w), map(f, c.a), c.bending, c.physical))
 _member_numbers(f, c::ThinPlateSpline{K}) where {K} = (fx = map(f, c.fx);
     ThinPlateSpline{K, eltype(fx)}(c.system, fx, map(f, c.fy), map(f, c.wx), map(f, c.ax), map(f, c.wy), map(f, c.ay), c.bending, c.physical))

@@ -78,7 +78,7 @@ end
 function _load_kitti_depths(root::AbstractString, scene::AbstractString,
                             source_name::AbstractString, target_name::AbstractString)
     seq_dir = joinpath(root, "sequences", String(last(split(scene, '_'))))
-    cam = CameraModel(CameraCalibrationMat(_parse_kitti_calib(seq_dir)); image_origin = :opencv)
+    cam = CameraModel(CameraCalibrationMat(_parse_kitti_calib(seq_dir)); pixel_frame = :opencv)
     velo_to_cam = _parse_kitti_tr(seq_dir)
     extent = _kitti_cam0_extent(seq_dir)
     scan(name) = _load_kitti_velodyne(joinpath(seq_dir, "velodyne", replace(name, ".png" => ".bin")))

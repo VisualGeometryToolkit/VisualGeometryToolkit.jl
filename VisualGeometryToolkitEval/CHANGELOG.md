@@ -1,5 +1,10 @@
 # VisualGeometryToolkitEval changelog
 
+## Unreleased
+
+- The dataset readers (KITTI, ScanNet-1500, the stereo datasets) build their cameras with Core's renamed keyword
+  `CameraModel(K; pixel_frame = :opencv)` (formerly `image_origin`).
+
 ## 0.6.1 (2026-11-09)
 
 - On VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation 0.8 (compat `"0.8"`).

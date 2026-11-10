@@ -89,7 +89,7 @@
 
             # returns straight ahead (velodyne x forward = camera z) at 10 m and 12 m
             # land on the principal point; one behind the scanner is culled
-            cam = VgtkCore.CameraModel(VgtkCore.CameraCalibrationMat(K); image_origin = :opencv)
+            cam = VgtkCore.CameraModel(VgtkCore.CameraCalibrationMat(K); pixel_frame = :opencv)
             velo_to_cam = VgtkCore.EuclideanMap(SMatrix{3,3,Float64,9}(0, 0, 1, -1, 0, 0, 0, -1, 0),
                                                           zero(SVector{3,Float64}))
             depth = _D._kitti_velo_to_depth([VgtkCore.Point3{Float64}(12.0, 0.0, 0.0),

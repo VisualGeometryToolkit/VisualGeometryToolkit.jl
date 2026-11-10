@@ -31,7 +31,7 @@ function scannet1500_pairs(root::AbstractString)
         scene_dir = joinpath(root, "scans_test", scene)
         cm = get!(models, scene) do
             K = readdlm(joinpath(scene_dir, "intrinsic", "intrinsic_color.txt"), Float64)::Matrix{Float64}
-            CameraModel(CameraCalibrationMat(SMatrix{3,3,Float64,9}(K[1:3, 1:3])); image_origin = :opencv)
+            CameraModel(CameraCalibrationMat(SMatrix{3,3,Float64,9}(K[1:3, 1:3])); pixel_frame = :opencv)
         end
         R, t = _row_major_pose(view(rel_pose, i, :))
         rig = StereoRig(BoundedCamera(PosedCamera(cm, identity_pose), _SCANNET_COLOR_SIZE),

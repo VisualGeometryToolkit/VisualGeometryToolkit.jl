@@ -654,7 +654,7 @@ const _PROJECT_TOL = 1.0e-6
         # a step clipped to zero by either bound is rejected, as a failed solve is
         clipped = false
         if info == 0
-            p = _bounded_step(bound, p, x)
+            p = _bounded_increment(bound, p, x)
             p = min.(x .- lb, p)
             clipped = all(iszero, p)
             if !clipped
@@ -705,8 +705,8 @@ const _PROJECT_TOL = 1.0e-6
 end
 
 # The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.
-@inline _bounded_step(::Nothing, p, x) = p
-@inline function _bounded_step(b::T, p::SVector{2, T}, x::SVector{2, T}) where {T}
+@inline _bounded_increment(::Nothing, p, x) = p
+@inline function _bounded_increment(b::T, p::SVector{2, T}, x::SVector{2, T}) where {T}
     r2 = b * b * max(x[1] * x[1] + x[2] * x[2], one(T))
     n2 = p[1] * p[1] + p[2] * p[2]
     return ifelse(n2 > r2, p * sqrt(r2 / n2), p)

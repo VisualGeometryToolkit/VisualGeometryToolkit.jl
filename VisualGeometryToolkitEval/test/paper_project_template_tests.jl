@@ -44,9 +44,11 @@
         Pkg.instantiate()
         include(joinpath($(repr(root)), "scripts", "example_stage.jl"))
         include(joinpath($(repr(root)), "test", "runtests.jl"))
+        empty!(ARGS); push!(ARGS, "--results-branch")             # the stages are done: the results branch alone
+        include(joinpath($(repr(root)), "scripts", "example_stage.jl"))
         """
     env = copy(ENV)
-    for k in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "JULIA_PROJECT")
+    for k in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "VGTK_RESULTS_WORKTREES", "JULIA_PROJECT")
         delete!(env, k)
     end
     env["JULIA_PKG_OFFLINE"] = "true"
@@ -66,6 +68,13 @@
     run_dir = joinpath(root, "data", "exp_pro", "example", only(runs))
     @test isfile(joinpath(run_dir, "_provenance.toml")) && isfile(joinpath(run_dir, "_config.toml"))
     @test isempty(paper_project_violations(root))
+    # --results-branch: the run's paper assets on a results branch in a worktree beside the project
+    branch = only(split(read(`git -C $root branch --list '--format=%(refname:short)' 'results/*'`, String)))
+    worktree = joinpath(dirname(root), "DemoPaper-results", replace(branch, "/" => "-"))
+    @test isfile(joinpath(worktree, "RUN.toml")) && isfile(joinpath(worktree, "COMPARISON.md"))
+    @test isfile(joinpath(worktree, "paper", "figures", "example_numbers.tex"))
+    @test occursin("NEW", read(joinpath(worktree, "COMPARISON.md"), String))     # the setup commit has no assets
+    @test strip(read(`git -C $root symbolic-ref --short HEAD`, String)) != branch
 
     # One injected breach of each check, each detected under its check.
     function breach(f)

@@ -222,6 +222,19 @@ struct _NumberMacro
     value::String
     provenance::_Provenance
     label::String
+    better::Union{Nothing, Symbol}
+end
+
+# The direction in which a number improves: `:lower` (an error, a time),
+# `:higher` (a rate, a score) or `:none` (a count, a setting); `nothing` states
+# none. The results comparison (results_branches.jl) reads it from the
+# provenance comment.
+const _DIRECTIONS = (:lower, :higher, :none)
+
+function _check_better(better)
+    better === nothing || better in _DIRECTIONS ||
+        throw(ArgumentError("better = $(repr(better)): a number improves to :lower, :higher or :none"))
+    return better
 end
 
 """
@@ -245,11 +258,12 @@ PaperNumbers(; driver::AbstractString, config::AbstractString, run_key::Abstract
 
 Base.length(nums::PaperNumbers) = length(nums.macros)
 
-function _add!(nums::PaperNumbers, name::AbstractString, body::AbstractString, label::AbstractString, provenance::NamedTuple)
+function _add!(nums::PaperNumbers, name::AbstractString, body::AbstractString, label::AbstractString, provenance::NamedTuple,
+        better::Union{Nothing, Symbol})
     _check_macro_name(name)
     haskey(nums.macros, name) && throw(ArgumentError("\\$name is already one of this driver's numbers"))
     _check_label(label)
-    nums.macros[name] = _NumberMacro(body, _provenance(merge(nums.provenance, provenance)), label)
+    nums.macros[name] = _NumberMacro(body, _provenance(merge(nums.provenance, provenance)), label, _check_better(better))
     return nums
 end
 
@@ -261,7 +275,7 @@ _body(value::Bool; format...) = throw(ArgumentError("$value is a Bool, not a num
 _body(value::Tuple{Real, Real}; format...) = tex_number(value...; format...)
 
 """
-    add_number!(nums, name, value; label = "", provenance = (;), format...) -> nums
+    add_number!(nums, name, value; label = "", provenance = (;), better = nothing, format...) -> nums
 
 Add the number macro `\\<name>` to `nums`. A `value` that is a number is
 typeset by [`tex_number`](@ref) with the `format` keywords (`digits`,
@@ -270,7 +284,12 @@ string is its body as typeset (a label, `"---"` for a missing cell, `10^{-6}`)
 and takes no format. `label` names what reads the number when it is not the
 prose: a figure's `fig:…` (its caption, its axis), a table's `tab:…`. It goes
 into the macro's provenance comment. `provenance` overrides fields of the
-driver's ([`PaperNumbers`](@ref)) for this number.
+driver's ([`PaperNumbers`](@ref)) for this number. `better` is the direction
+in which the number improves, `:lower` (an error, a time), `:higher` (a rate, a
+score) or `:none` (a count, a setting); it goes into the provenance comment
+(`; better=lower`), from which a results comparison
+([`results_branch`](@ref)) calls a change IMPROVED or DEGRADED. Without it a
+change is reported CHANGED, with no verdict.
 
 `name` is letters only, never beginning with `end` ([`number_macro_name`](@ref)
 builds one); a name `nums` already holds, a body of more than one value (an
@@ -279,12 +298,12 @@ trailing backslash), a `;` in the label or provenance (the comment's
 separator), a `Bool` and a NaN are each an `ArgumentError`.
 """
 function add_number!(nums::PaperNumbers, name::AbstractString, value::Union{Real, Tuple{Real, Real}, AbstractString};
-        label::AbstractString = "", provenance::NamedTuple = (;), format...)
-    return _add!(nums, name, _body(value; format...), label, provenance)
+        label::AbstractString = "", provenance::NamedTuple = (;), better::Union{Nothing, Symbol} = nothing, format...)
+    return _add!(nums, name, _body(value; format...), label, provenance, better)
 end
 
 """
-    add_table_row!(nums, row, cells; label = "", provenance = (;), format...) -> String
+    add_table_row!(nums, row, cells; label = "", provenance = (;), better = nothing, format...) -> String
 
 Add a table row's numbers to `nums`, one macro per cell: `cells` is an
 ordered collection (a vector, a tuple, an `OrderedDict`) of `column => value`
@@ -292,8 +311,10 @@ pairs in the table's column order; a `Dict` or a `Set` has no column order and
 is an `ArgumentError`. The
 cell's macro is `\\<row><Column>` (`row` and each `column` letters only, the
 column capitalised). Each value is typeset as by [`add_number!`](@ref), the
-`format` keywords shared by the row; a cell of another format is given as its
-[`tex_number`](@ref) string. Returns the row as the table's tex reads it,
+`format` keywords shared by the row; `better` is one direction for every cell,
+or a collection of `column => direction` pairs for the cells that state one (a
+column the row lacks is an `ArgumentError`); a cell of another format is given
+as its [`tex_number`](@ref) string. Returns the row as the table's tex reads it,
 `"\\<row><A> & \\<row><B> & …"`, without the row break.
 
 One macro per cell, not one per row: the prose cites a table's number by the
@@ -302,29 +323,33 @@ macro the table prints, and the gatherer's checks
 [`uncited_macros`](@ref)) see each number.
 """
 function add_table_row!(nums::PaperNumbers, row::AbstractString, cells;
-        label::AbstractString = "", provenance::NamedTuple = (;), format...)
+        label::AbstractString = "", provenance::NamedTuple = (;), better = nothing, format...)
     _check_macro_name(row)
     cells isa Union{Dict, IdDict, WeakKeyDict, Set} &&             # unordered; an OrderedDict keeps its order
         throw(ArgumentError("table row $(repr(row)): a $(nameof(typeof(cells))) has no column order; give the cells as an ordered vector or tuple of column => value pairs"))
     isempty(cells) && throw(ArgumentError("table row $(repr(row)) has no cells"))
     _check_label(label)
     _provenance(merge(nums.provenance, provenance))
+    directions = better isa Union{Nothing, Symbol} ? nothing : Dict(string(c) => _check_better(b) for (c, b) in better)
     staged = map(collect(cells)) do (col, value)       # every cell checked before any is added
         column = string(col)
         occursin(r"^[A-Za-z]+$", column) || throw(ArgumentError("a table column is letters only: $(repr(column))"))
         name = _check_macro_name(row * uppercasefirst(column))
         haskey(nums.macros, name) && throw(ArgumentError("\\$name is already one of this driver's numbers"))
-        name => _body(value; format...)
+        (name, _body(value; format...), directions === nothing ? _check_better(better) : get(directions, column, nothing))
     end
     allunique(first.(staged)) || throw(ArgumentError("table row $(repr(row)) repeats a column"))
-    foreach(((name, body),) -> _add!(nums, name, body, label, provenance), staged)
+    directions === nothing || issubset(keys(directions), Set(string(c) for (c, _) in cells)) ||
+        throw(ArgumentError("table row $(repr(row)): better names a column the row does not have"))
+    foreach(((name, body, b),) -> _add!(nums, name, body, label, provenance, b), staged)
     return join(("\\" * first(c) for c in staged), " & ")
 end
 
 # The provenance comment of a macro, the line before its \newcommand.
 _provenance_comment(name::AbstractString, m::_NumberMacro) =
     "% provenance \\" * name * ": driver=" * m.provenance.driver * "; config=" * m.provenance.config *
-    "; run=" * m.provenance.run_key * "; commit=" * m.provenance.commit * (isempty(m.label) ? "" : "; label=" * m.label)
+    "; run=" * m.provenance.run_key * "; commit=" * m.provenance.commit * (isempty(m.label) ? "" : "; label=" * m.label) *
+    (m.better === nothing ? "" : "; better=" * String(m.better))
 
 # A provenance comment line, `% provenance \<name>: …`, capturing the name.
 const _PROVENANCE_LINE = r"^%\s*provenance\s+\\([A-Za-z]+):"
@@ -349,7 +374,7 @@ _without_provenance(text::AbstractString) = [l for l in eachsplit(text, '\n') if
 Write `nums` as a number-macro fragment at `path` (a file beside the driver's
 results, never in the paper): a header naming the driver, then per macro,
 sorted by name, its provenance comment (`% provenance \\<name>: driver=…;
-config=…; run=…; commit=…[; label=…]`) and its `\\newcommand{\\<name>}{<body>}`.
+config=…; run=…; commit=…[; label=…][; better=…]`) and its `\\newcommand{\\<name>}{<body>}`.
 The same numbers write the same bytes; the file is written whole (a temporary
 file renamed into place). [`gather_numbers`](@ref) gathers the
 fragments, comments included, into the paper's numbers file;

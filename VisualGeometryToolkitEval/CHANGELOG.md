@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **New: results branches, a full reproduction under review** (`Reproduce`, src/reproduce/results_branches.jl).
+  `results_branch(dir, assets; run_keys, tiers, machine, gpus, slurm_jobs, wall_times, …)` puts a reproduction's
+  paper-facing assets (number macros, tables, figures) on a branch `results/<UTC yyyymmdd_HHMMSS>-<short commit>`
+  of the paper's repository, created in a worktree of its own under a scratch root (`VGTK_RESULTS_WORKTREES`, else
+  `<repository>-results` beside it), without touching the user's checkout; the branch carries `RUN.toml` (the code
+  commit, each data tier's TIER.toml/MANIFEST sha256 or artifact git-tree-sha1, the run keys, the machine, GPUs,
+  Slurm jobs, wall times) and `COMPARISON.md` (every macro against the base branch: its delta and IMPROVED,
+  DEGRADED or UNCHANGED, CHANGED without a direction; every asset's verify verdict; changed PNGs side by side).
+  `accept_results(dir, branch; replace_submitted)` deploys the assets into the base through `deploy_assets` as one
+  merge commit and tags it `accepted/<stamp>`; `remove_results_worktree(dir, branch; delete_branch = false)` removes
+  the worktree. `add_number!` and `add_table_row!` take `better = :lower | :higher | :none`, recorded in the
+  provenance comment (`; better=…`). The paper-project template's driver takes `--results-branch`.
+
 - **New: the one writer of a paper's number macros** (`Reproduce`, src/reproduce/number_macros.jl, Base only).
   `PaperNumbers(; driver, config, run_key, commit)` collects a driver's numbers; `add_number!(nums, name, value;
   label, provenance, format...)` adds a number of the prose or a value a figure reads (`label = "fig:…"`);

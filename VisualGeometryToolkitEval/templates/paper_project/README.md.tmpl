@@ -14,6 +14,19 @@ julia --project=. scripts/example_stage.jl            # run what is pending
 julia --project=. test/runtests.jl                    # the conventions + the project's tests
 ```
 
+A full reproduction is reviewed before it reaches the paper: with `--results-branch` the
+driver puts its paper assets on a branch `results/<UTC stamp>-<commit>` of this repository,
+in a worktree of its own (under `VGTK_RESULTS_WORKTREES`, else `<repository>-results` beside
+it), with `RUN.toml` (the commit, the run keys, the data, the machine) and `COMPARISON.md`
+(every number against the paper's branch, IMPROVED or DEGRADED by the direction its
+`add_number!(…; better)` states). Then, in Julia (`using VisualGeometryToolkitEval.Reproduce`):
+
+```
+accept_results(".", "results/<stamp>-<commit>"; replace_submitted = true)   # one merge commit, tag accepted/<stamp>
+remove_results_worktree(".", "results/<stamp>-<commit>")                    # after acceptance, or as the rejection
+remove_results_worktree(".", "results/<stamp>-<commit>"; delete_branch = true)
+```
+
 | Path | Holds |
 |---|---|
 | `configs/` | the configs of record (TOML): every value a result depends on |

@@ -17,7 +17,11 @@
 #   figure    the samples and the line as a pgfplots panel + its caption snippet
 #   macros    the numbers the prose quotes, as \newcommand lines (Reproduce: write_numbers)
 #
-#   julia --project=. scripts/example_stage.jl [--plan] [--stage=NAME] [--force]
+#   julia --project=. scripts/example_stage.jl [--plan] [--stage=NAME] [--force] [--results-branch]
+#
+# --results-branch: once the stages are done, this run's paper assets become a branch
+# results/<UTC stamp>-<commit> of the paper's repository for review, in a worktree of its own,
+# with RUN.toml and COMPARISON.md (Reproduce results_branch; README.md).
 # =============================================================================
 using DrWatson
 @quickactivate "{{NAME}}"
@@ -84,8 +88,10 @@ function macros()
     haskey(prov, "gitcommit") || error("$OUTDIR records no commit: run the stages inside the project's git checkout")
     nums = PaperNumbers(; driver = relpath(@__FILE__, projectdir()), config = relpath(CFG_PATH, projectdir()),
                         run_key = KEY, commit = prov["gitcommit"])
-    add_number!(nums, "ExampleSlope", f["slope"]; digits = CFG["render"]["digits"])
-    add_number!(nums, "ExampleN", f["n"])
+    # `better`: the direction in which a number improves (:lower, :higher, :none), for a results
+    # branch's comparison; a fitted slope and a sample count improve in neither
+    add_number!(nums, "ExampleSlope", f["slope"]; digits = CFG["render"]["digits"], better = :none)
+    add_number!(nums, "ExampleN", f["n"]; better = :none)
     write_numbers(MACROS, nums)
     return nothing
 end
@@ -98,3 +104,9 @@ const STAGES = [
 ]
 
 run_stages("example_stage", STAGES)
+
+# A full reproduction for review: the paper's assets of this run on a results branch, never on the
+# paper's own branch; accept_results brings them in, remove_results_worktree removes the worktree.
+if "--results-branch" in ARGS && !("--plan" in ARGS)
+    results_branch(projectdir(), [f => relpath(f, projectdir()) for f in (FIGURE, CAPTION, MACROS)]; run_keys = [KEY])
+end

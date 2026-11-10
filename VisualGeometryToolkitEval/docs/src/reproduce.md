@@ -149,6 +149,45 @@ The fragment holds, sorted by name, each macro after its provenance comment:
 - **Deterministic**: the same numbers write the same bytes, whatever the
   order they were added in; the fragment is written whole (a temporary file
   renamed into place).
+- **Direction** (`better`): `:lower` (an error, a time), `:higher` (a rate,
+  a score) or `:none` (a count, a setting), recorded in the provenance comment
+  (`; better=lower`). A results branch's comparison calls a change of the
+  number IMPROVED or DEGRADED by it; a number without one is CHANGED, with no
+  verdict. [`add_table_row!`](@ref) takes one direction for the row or
+  `column => direction` pairs.
+
+## Results branches: a full reproduction under review
+
+A full reproduction with updated code becomes a branch of the paper's
+repository, examined before anything reaches the paper:
+
+```julia
+using VisualGeometryToolkitEval.Reproduce
+
+run = results_branch(projectdir(), [render => "paper/src/fig/teaser.png", numbers => "paper/src/latex/numbers.tex"];
+                     run_keys, tiers = ["rc_baselines" => tier_dir], slurm_jobs, gpus, wall_times)
+# run.branch == "results/20261111_021530-3de1a4f": the UTC stamp and the evaluated commit
+accept_results(projectdir(), run.branch; replace_submitted = true)   # one merge commit, tag accepted/20261111_021530
+remove_results_worktree(projectdir(), run.branch)                    # after acceptance, or as the rejection
+```
+
+- [`results_branch`](@ref) creates the branch from the base (the checked-out
+  branch) in a worktree of its own under the scratch root
+  (`VGTK_RESULTS_WORKTREES`, else `<repository>-results` beside the
+  repository); the user's checkout is not touched. Its one commit holds the
+  renders at the paper's paths (macros, tables, figures: nothing large),
+  `RUN.toml` (the code commit, each data tier's hash, the run keys under which
+  the heavy results stay in the results root, the machine, GPUs, Slurm jobs and
+  wall times) and `COMPARISON.md`: every macro's base and new value, its delta
+  and its verdict, every asset's verify verdict, each changed PNG beside the
+  base's copy.
+- [`accept_results`](@ref) is never automatic. It deploys the branch's assets
+  into the base through [`deploy_assets`](@ref) (a changed asset needs
+  `replace_submitted`), as one merge commit made in a worktree of its own, then
+  moves the base to it (a checkout of the base fast-forwards) and tags it
+  `accepted/<stamp>`. The manifest and the comparison stay on the branch.
+- [`remove_results_worktree`](@ref) removes the worktree and keeps the branch,
+  or deletes it with `delete_branch = true`.
 
 A driver defines top-level constants meant for a process of its own;
 [`run_isolated`](@ref) includes it in a module of its own, so one regeneration
@@ -156,4 +195,6 @@ script can run every driver in one warm session.
 
 `src/reproduce/reproduce_index.jl`, `src/reproduce/number_macros.jl` and
 `src/reproduce/paper_assets.jl` depend on Base only, so an environment that
-cannot load this package can include them by path, in that order.
+cannot load this package can include them by path, in that order
+(`src/reproduce/results_branches.jl` is not among them: it runs git and reads
+TOML).

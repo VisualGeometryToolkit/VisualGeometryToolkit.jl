@@ -104,22 +104,13 @@ end
 # Float32 stays Float32, Float64 stays Float64, integers and fixed-point widen.
 _score_eltype(As...) = float(promote_type(map(eltype, As)...))
 
-# A `T` copy of `A` on `dev`. On the CPU that is one copy: allocating and then
-# `copyto!(d, T.(A))` made two.
-_ka_upload(::KA.CPU, ::Type{T}, A::AbstractMatrix) where {T} = Matrix{T}(A)
-function _ka_upload(dev, ::Type{T}, A::AbstractMatrix) where {T}
-    d = KA.allocate(dev, T, size(A)...)
-    copyto!(d, T.(A))
-    return d
-end
-
-_to_host(A::Array) = A
-_to_host(A) = Array(A)
+# A `T` copy of `A` on `dev` (`ka_upload`), `A` on `dev` (`on_device`): Core's
+# (base/device.jl), the family's one upload.
 
 # A precomputed score matrix as the kernels read it: used as is when it already
 # lives on `dev` in a float type, otherwise copied there in its own float type.
 _on_backend(dev, A::AbstractMatrix) =
-    eltype(A) <: AbstractFloat && KA.get_backend(A) == dev ? A : _ka_upload(dev, float(eltype(A)), A)
+    eltype(A) <: AbstractFloat ? on_device(dev, A) : ka_upload(float(eltype(A)), dev, A)
 
 # The scores of gallery rows r1:r2 against every feature, into `blk`. Generic
 # array code: the GEMM is BLAS on `Array` and the vendor BLAS on device arrays,
@@ -159,9 +150,9 @@ function pairwise_matrix(
         device::KA.Backend = KA.CPU()
     )
     T = _score_eltype(desc1, desc2)
-    d1 = _ka_upload(device, T, desc1); d2 = _ka_upload(device, T, desc2)
+    d1 = ka_upload(T, device, desc1); d2 = ka_upload(T, device, desc2)
     S = KA.allocate(device, T, size(d1, 1), size(d2, 1))
-    return _to_host(_score_rows!(S, metric, d1, d2, _norms(metric, d1, d2), 1, size(d1, 1)))
+    return on_device(KA.CPU(), _score_rows!(S, metric, d1, d2, _norms(metric, d1, d2), 1, size(d1, 1)))
 end
 
 # =============================================================================
@@ -225,12 +216,6 @@ function _chunk_blocks(offsets::Vector{Int}, sizes::Vector{Int}, r1::Int, r2::In
     return b1, b2, coff, csz, cbase
 end
 
-function _upload_i32(dev, v::Vector{Int32})
-    d = KA.allocate(dev, Int32, length(v))
-    copyto!(d, v)
-    return d
-end
-
 """
     _nn_select(strategy, metric, dev, offsets, sizes; gal, feat, S, chunk_bytes)
         -> (top_idx, top_sc, rev_idx)
@@ -284,7 +269,7 @@ function _nn_select(
         topk!(view(top_idx, r1:r2, :), view(top_sc, r1:r2, :), blk, mx, init; ndrange = r2 - r1 + 1)
         if rev !== nothing
             b1, b2, hoff, hsz, hbase = _chunk_blocks(offsets, sizes, r1, r2)
-            coff = _upload_i32(dev, hoff); csz = _upload_i32(dev, hsz); cbase = _upload_i32(dev, hbase)
+            coff = ka_upload(Int32, dev, hoff); csz = ka_upload(Int32, dev, hsz); cbase = ka_upload(Int32, dev, hbase)
             _ka_top1_cols_blocked!(dev, (256, 1))(
                 view(rev.idx, :, b1:b2), view(rev.sc, :, b1:b2), blk, coff, csz, cbase, mx;
                 ndrange = (N, b2 - b1 + 1)
@@ -371,7 +356,7 @@ function _match(
         T = _score_eltype(desc1, desc2)
         _nn_select(
             strategy, metric, dev, [0], [N1];
-            gal = _ka_upload(dev, T, desc1), feat = _ka_upload(dev, T, desc2)
+            gal = ka_upload(T, dev, desc1), feat = ka_upload(T, dev, desc2)
         )
     else
         size(dm) == (N1, N2) ||

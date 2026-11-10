@@ -74,21 +74,31 @@ end
 # `(g − 3)·(x − lo)/span` rounds differently, which once made two evaluations of
 # the same point disagree in the last ulp). In the coordinate's own float type (a
 # Float32 device evaluation stays Float32; an integer reads as a float).
-@inline _lattice_coord(x, lo, span, gdim) = (T = float(typeof(x)); 1 + (T(gdim - 3) / T(span)) * (x - T(lo)))
+@inline _lattice_coord(x, lo, span, gdim) = (T = float(typeof(x)); _lattice_coord(x, lo, _lattice_scale(T, span, gdim)))
+# The map at its slope `s = (gdim − 3)/span`, computed in `T` by `_lattice_scale`: the
+# same operations, so a batch that forms `s` once per launch has every point's
+# coordinate bit for bit.
+@inline _lattice_coord(x, lo, s) = (T = float(typeof(x)); 1 + s * (x - T(lo)))
+@inline _lattice_scale(::Type{T}, span, gdim) where {T} = T(gdim - 3) / T(span)
 
 # The lattice coordinates `(gx, gy)` of the point `p` on a lattice of `gsz = (rows, cols)`
 # controls laid over the closed rectangle `area` (`size − 3` cells per axis): the ONE
 # area → lattice map of every spline on a rectangle (`spline_window`, a ChartSpline's
-# Jacobian, a SplineLens's backprojection).
+# Jacobian, a SplineLens's backprojection). `_lattice_coords_at` takes the slopes
+# `s = _lattice_scales(T, area, gsz)` of the point's float type `T` instead, formed
+# once for a batch.
 @inline function _lattice_coords(area::GeometryBasics.HyperRectangle{2}, (gh, gw), p)
     o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
     return _lattice_coord(p[1], o[1], w[1], gw), _lattice_coord(p[2], o[2], w[2], gh)
 end
-
-# The slope of that map per axis, `(∂gx/∂p₁, ∂gy/∂p₂) = ((cols − 3)/w₁, (rows − 3)/w₂)`.
-@inline function _lattice_slope(area::GeometryBasics.HyperRectangle{2}, (gh, gw))
+@inline function _lattice_coords_at(area::GeometryBasics.HyperRectangle{2}, s, p)
+    o = GeometryBasics.origin(area)
+    return _lattice_coord(p[1], o[1], s[1]), _lattice_coord(p[2], o[2], s[2])
+end
+# The slopes are the map's derivative, `(∂gx/∂p₁, ∂gy/∂p₂) = ((cols − 3)/w₁, (rows − 3)/w₂)`.
+@inline function _lattice_scales(::Type{T}, area::GeometryBasics.HyperRectangle{2}, (gh, gw)) where {T}
     w = GeometryBasics.widths(area)
-    return (gw - 3) / w[1], (gh - 3) / w[2]
+    return _lattice_scale(T, w[1], gw), _lattice_scale(T, w[2], gh)
 end
 
 # The window a point reads when the spline is continued past its rectangle: the
@@ -221,7 +231,7 @@ end
         Sx += wy[r] * drow
         Sy += dwy[r] * row
     end
-    sx, sy = _lattice_slope(area, gsz)
+    sx, sy = _lattice_scales(Float64, area, gsz)
     return S, Sx * T(sx), Sy * T(sy)
 end
 
@@ -243,7 +253,7 @@ function spline_weights(cs::ChartSpline, x::StaticVector{2, <:Real}, window::Uni
     window === nothing || (3 <= window[1] <= gw - 1 && 3 <= window[2] <= gh - 1) ||
         throw(ArgumentError("spline_weights: window $window outside the $gh × $gw grid's windows (3:$(gw - 1), 3:$(gh - 1))"))
     gx, ix, iy, wx, wy, dwx, dwy = _window_weights(gsz, cs.area, float.(x), window)
-    sx, sy = _lattice_slope(cs.area, gsz)
+    sx, sy = _lattice_scales(Float64, cs.area, gsz)
     T = typeof(gx)
     w = SMatrix{4, 4, T, 16}(ntuple(k -> wy[(k - 1) % 4 + 1] * wx[(k - 1) ÷ 4 + 1], Val(16)))
     w1 = SMatrix{4, 4, T, 16}(ntuple(k -> wy[(k - 1) % 4 + 1] * dwx[(k - 1) ÷ 4 + 1] * T(sx), Val(16)))

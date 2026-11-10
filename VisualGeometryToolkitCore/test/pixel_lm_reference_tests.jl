@@ -24,7 +24,8 @@ ref = [Tuple(parse.(Float64, split(l))) for l in lines[2:end]]
 dmax = 0.0; ndiff = 0; flags_equal = true
 for (q, (rx, ry, rF)) in zip(ps, ref)
     for tol2 in (1.0e-2, 1.0e-6, 1.0e-12)
-        x, ok = VgtkCore.Cameras._spline_lm(pixel_res(q.coef...), pixel_jac(q.coef...), SVector(Float64(q.x0), Float64(q.y0)),
+        res, jac = pixel_res(q.coef...), pixel_jac(q.coef...)    # the kernel's `fj`: both at one point
+        x, ok = VgtkCore.Cameras._spline_lm(p -> (res(p, nothing), jac(p, nothing)), SVector(Float64(q.x0), Float64(q.y0)),
                                             SVector(q.minx, q.miny), SVector(q.maxx + 0.999, q.maxy + 0.999), SVector(1.0, 1.0), q.maxit, tol2)
         global dmax = max(dmax, abs(x[1] - rx), abs(x[2] - ry))
         tol2 == 1.0e-2 && (x[1] != rx || x[2] != ry) && (global ndiff += 1)

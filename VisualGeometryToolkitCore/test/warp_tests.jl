@@ -167,7 +167,9 @@
             )
 
             img_g = Gray{N0f8}.(rand(100, 120))
-            u = undistort(cam, img_g)
+            # on the host: the colorant store is not GPU-compilable (a dynamic subtype
+            # test in the N0f8 conversion), so the default device must not be a GPU here
+            u = undistort(cam, img_g; device = VgtkCore.KernelAbstractions.CPU())
             @test eltype(u) === Gray{N0f8}
             @test size(u) == size(img_g)
 
@@ -212,7 +214,7 @@
         )
         img = rand(20, 40)
         rect = VgtkCore.Rect(-5.0, -3.0, 50.0, 26.0)
-        ci = undistort(m, img, rect; scale = 2)
+        ci = undistort(m, img, rect; scale = 2, device = VgtkCore.KernelAbstractions.CPU())
         @test ci isa FramedImage
         @test ci.rect === rect
         @test size(ci) == (13, 25)                       # ceil.(widths ./ scale), row-major

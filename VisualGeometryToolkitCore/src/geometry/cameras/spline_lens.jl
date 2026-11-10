@@ -372,17 +372,19 @@ never read.
 A camera of this lens has skew 0, and its `K` is a gauge: the principal point
 is the pixel imaging ẑ (`CameraModel(SplineLens, source, size)`).
 """
-struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractLensModel
+struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}, C} <: AbstractLensModel
     backward::B
     forward::F
     present::P
+    chart::C   # the forward's chart (`_forward_chart`), derived from `backward` here, never given; `nothing` without a forward
     function SplineLens{B, F, P}(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
         _check_present(present, size(backward.controls))
-        return new{B, F, P}(backward, forward, present)
+        chart = _forward_chart(backward, forward)
+        return SplineLens{B, F, P, typeof(chart)}(backward, forward, present, chart, Val(:unchecked))
     end
     # A value already validated (its device form): no check, as `ChartSpline`'s.
-    SplineLens{B, F, P}(backward::B, forward::F, present::P, ::Val{:unchecked}) where {B, F, P} =
-        new{B, F, P}(backward, forward, present)
+    SplineLens{B, F, P, C}(backward::B, forward::F, present::P, chart::C, ::Val{:unchecked}) where {B, F, P, C} =
+        new{B, F, P, C}(backward, forward, present, chart)
 end
 SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = nothing, present = nothing) =
     _spline_lens(backward, forward, _present_mask(present, size(backward.controls)))
@@ -413,29 +415,47 @@ const _EDGE_ULPS = 4
 @inline function _in_backward(l::SplineLens, x)
     cs = l.backward
     gsz = gh, gw = size(cs.controls)
-    all(isfinite, x) || return false
     gx, gy = _lattice_coords(cs.area, gsz, x)
-    o = GeometryBasics.origin(cs.area)
-    sx, sy = _lattice_slope(cs.area, gsz)
-    ε = max(eps(float(typeof(_primal(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
-    τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
-    τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
-    (1 - τx <= gx < gw - 2 && 1 - τy <= gy < gh - 2) || return false
     ix, iy, _, _ = _continued_window(gx, gy, gw, gh)
+    return _in_backward(l, x, gx, gy, ix, iy)
+end
+# The same test given the point's lattice coordinates `(gx, gy)` and its continued
+# window `(ix, iy)`, which `backproject` has already formed for the evaluation. The
+# slack is formed only for a point below the first cell (τ ≥ 0, so a coordinate ≥ 1
+# meets the lower bound whatever τ is).
+@inline function _in_backward(l::SplineLens, x, gx, gy, ix, iy)
+    cs = l.backward
+    gsz = gh, gw = size(cs.controls)
+    all(isfinite, x) || return false
+    (gx < gw - 2 && gy < gh - 2) || return false
+    if !(gx >= 1 && gy >= 1)
+        o = GeometryBasics.origin(cs.area)
+        sx, sy = _lattice_scales(Float64, cs.area, gsz)
+        ε = max(eps(float(typeof(_primal(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
+        τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
+        τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
+        (1 - τx <= gx && 1 - τy <= gy) || return false
+    end
     return _window_present(l.present, ix, iy)
 end
 
-# The ray of the normalized point `x` from the backward spline's value `d` there:
-# `d` normalized where the lens images `x`, NaN elsewhere. The scalar and the
-# batched backprojection (whose `d` is `ChartSpline`'s batched kernel) both end here.
-@inline function _backward_ray(l::SplineLens, x, d)
+# The ray of the normalized point `x`: the backward spline's value there (`backward(x)`:
+# its lattice coordinates and continued window formed once, for the value and for
+# `_in_backward`), normalized where the lens images `x`, NaN elsewhere. The scalar and
+# the batched backprojection both run it, the batch with the lattice slopes `s` of its
+# points' float type formed once (`_lattice_scales`). (The spline is evaluated,
+# continued, outside the box too: a non-finite point gives NaN weights, never an error.)
+@inline backproject(l::SplineLens, x::StaticVector{2}) =
+    _backproject_lens(l, x, _lattice_scales(float(eltype(x)), l.backward.area, size(l.backward.controls)))
+@inline function _backproject_lens(l::SplineLens, x::StaticVector{2}, s)
+    cs = l.backward
+    gh, gw = size(cs.controls)
+    gx, gy = _lattice_coords_at(cs.area, s, x)
+    ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
+    d = _eval_window(cs.controls, ix, iy, wx, wy)
     T = eltype(d)
-    return _in_backward(l, x) ? SVector{3, T}(SVector{3}(d) / norm(d)) : SVector{3, T}(NaN, NaN, NaN)
+    return _in_backward(l, x, gx, gy, ix, iy) ? SVector{3, T}(SVector{3}(d) / norm(d)) : SVector{3, T}(NaN, NaN, NaN)
 end
-
-# (The spline is evaluated, continued, outside the box too: a non-finite point
-# gives NaN weights, never an error.)
-@inline backproject(l::SplineLens, x::StaticVector{2}) = _backward_ray(l, x, l.backward(x))
 
 # A backward lens: its direction Jacobian differentiates `backproject` (camera_models.jl).
 LensDirection(::Type{<:SplineLens}) = BackwardLens()
@@ -455,12 +475,12 @@ function _rescale_lens(l::SplineLens, sx, sy)
 end
 
 # The device form (`Adapt.adapt(backend, lens)`): the splines' controls and the
-# presence mask move, nothing is re-validated.
+# presence mask move, the (isbits) chart travels as it is, nothing is re-validated.
 Adapt.adapt_structure(to, l::SplineLens) =
-    _device_spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present))
+    _device_spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present), l.chart)
 # The lens of its device parts' own types (a function barrier, as `_spline_lens`), unchecked.
-_device_spline_lens(backward::B, forward::F, present::P) where {B, F, P} =
-    SplineLens{B, F, P}(backward, forward, present, Val(:unchecked))
+_device_spline_lens(backward::B, forward::F, present::P, chart::C) where {B, F, P, C} =
+    SplineLens{B, F, P, C}(backward, forward, present, chart, Val(:unchecked))
 Adapt.adapt_structure(to, m::CameraModel{<:AbstractIntrinsics, <:SplineLens}) = CameraModel(m.intrinsics, Adapt.adapt(to, m.lens))
 
 # The controls convert as they are (no re-normalization); the areas and the mask stay.
@@ -478,10 +498,12 @@ convert_eltype(::Type{T}, l::SplineLens) where {T <: AbstractFloat} =
 const _PROJECT_MAXITER = 100
 const _PROJECT_TOL = 1.0e-6
 
-# THE two-unknown LM of the spline models: `res(p, _)` and its Jacobian
-# `jac(p, _)` from `x₀`, the point bounded to the box `[lb, ub]` (a step is
-# clipped at the bound), for at most `maxiter` LM iterations; converged means a
-# final cost below `tol2`. `s` is the problem's unit per axis, as the reference's
+# THE two-unknown LM of the spline models: `fj(p) -> (r, ∂r/∂p)`, the residual and
+# its Jacobian from ONE evaluation at `p` (a spline's basis weights once per point:
+# every trial point's Jacobian is the next iteration's when the step is accepted),
+# from `x₀`, the point bounded to the box `[lb, ub]` (a step is clipped at the
+# bound), for at most `maxiter` LM iterations; converged means a final cost below
+# `tol2`. `s` is the problem's unit per axis, as the reference's
 # pixel: its pixel constants are read in it — the step tolerance `ϵx = 1e-10 / s`,
 # the DᵀD clamp `[1e-12, 1e16]·s²`. Device-safe — static arrays only, no
 # allocation, no Union return — so the batched kernels run it per ray.
@@ -505,17 +527,16 @@ const _PROJECT_TOL = 1.0e-6
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 @inline function _spline_lm(
-        res::R, jac::J, x₀::SVector{2, Float64}, lb::SVector{2, Float64}, ub::SVector{2, Float64},
+        fj::FJ, x₀::SVector{2, Float64}, lb::SVector{2, Float64}, ub::SVector{2, Float64},
         s::SVector{2, Float64}, maxiter::Int, tol2::Float64
-    ) where {R, J}
+    ) where {FJ}
     ϵ = eps(Float64)
     ϵx = 1.0e-10 ./ s
     λ = 1.0e-6
     x = min.(max.(x₀, lb), ub)
-    f = res(x, nothing)
+    f, Jx = fj(x)
     F = sum(abs2, f)
     F < ϵ && return x, F < tol2
-    Jx = jac(x, nothing)
     g = Jx' * f
     norm(g, Inf) < ϵ && return x, F < tol2
     JtJ = Jx' * Jx
@@ -530,6 +551,7 @@ const _PROJECT_TOL = 1.0e-6
         ρ = 0.0
         xk = x
         fk = f
+        Jk = Jx
         Fk = F
         p, info = _spline_lm_increment(JtJ, λ, DtD, g)
         # a step clipped to zero by either bound is rejected, as a failed solve is
@@ -544,7 +566,7 @@ const _PROJECT_TOL = 1.0e-6
         end
         if info == 0 && !clipped
             xk = x .- p
-            fk = res(xk, nothing)
+            fk, Jk = fj(xk)
             Fk = sum(abs2, fk)
             if Fk < F
                 ac = F - Fk
@@ -566,7 +588,7 @@ const _PROJECT_TOL = 1.0e-6
             F = Fk
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
-            Jx = jac(x, nothing)
+            Jx = Jk
             g = Jx' * f
             norm(g, Inf) < ϵ && break
             JtJ = Jx' * Jx
@@ -624,41 +646,42 @@ end
 
 # THE central projection solve on a spline of direction controls `controls`
 # (`[gy, gx]`) over the rectangle `area`: LM (`_spline_lm`) on the direction
-# residual d̂(x) − t̂, d̂ the backward map (`_spline_direction`) and its analytic
-# Jacobian (`_spline_direction_and_jacobian`), from `x₀`, bounded to `[lb, ub]`
-# (inside the area: every window stays in the grid). Device-safe — no allocation,
-# no Union return. Returns the point and whether the solve converged.
+# residual d̂(x) − t̂, d̂ the backward map, and its analytic Jacobian, both from one
+# evaluation of the basis weights per point (`_spline_direction_differential`), from
+# `x₀`, bounded to `[lb, ub]` (inside the area: every window stays in the grid).
+# Device-safe — no allocation, no Union return. Returns the point and whether the
+# solve converged.
 @inline function _spline_project(controls, area::Rect2, t::StaticVector{3}, x₀::SVector{2, Float64}, lb, ub, s, maxiter::Int, tol2::Float64)
     # scaled before the norm, so a tiny or huge ray does not under/overflow
     tmax = max(abs(t[1]), abs(t[2]), abs(t[3]))
     # a zero or non-finite ray, or start, has no projection
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
-    res(p, _) = _spline_direction(controls, area, p) - tn
-    jac(p, _) = last(_spline_direction_and_jacobian(controls, area, p))
-    return _spline_lm(res, jac, x₀, lb, ub, s, maxiter, tol2)
+    fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
+    return _spline_lm(fj, x₀, lb, ub, s, maxiter, tol2)
 end
 
-# The backward map of a spline of direction controls over `area`: the direction of the
-# point `p`, the LM's residual. The window is the continued one, as its Jacobian's
-# (`_spline_value_and_partials`): inside the area (where the LM keeps its point) it is
-# the point's own cell, and on the lower edge's rounding slack the two still agree.
-@inline function _spline_direction(controls, area, p)
-    gsz = gh, gw = size(controls)
-    return normalize(SVector{3, Float64}(_eval_window(controls, _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)...)))
-end
-
-# THE direction of that spline at `x` and its Jacobian `∂d/∂x` (3 × 2), analytic:
-# the value and partials of `_spline_value_and_partials` (one evaluation of the basis
-# weights) through the normalize differential `(I − d dᵀ)/‖S‖`. In the precision of
-# `x` and the controls, as `backproject`. Device-safe (isbits, no allocation): the
-# LM's Jacobian, the lens's `backproject_with_jacobian`, the non-central residual's.
-@inline function _spline_direction_and_jacobian(controls::AbstractMatrix, area, x::StaticVector{2})
+# THE direction of a spline of direction controls over `area` at `x`, and its
+# Jacobian: `(d, n⁻¹S, ∂d/∂x)` from the value and partials of
+# `_spline_value_and_partials` (one evaluation of the basis weights, the continued
+# window: inside the area it is the point's own cell, and on the lower edge's rounding
+# slack the value and partials still agree) through the normalize differential
+# `(I − d dᵀ)/‖S‖`. The direction in two roundings: `d = S/‖S‖`, `backproject`'s, and
+# `‖S‖⁻¹S`, `normalize`'s, the LM's residual. In the precision of `x` and the
+# controls. Device-safe (isbits, no allocation).
+@inline function _spline_direction_differential(controls::AbstractMatrix, area, x::StaticVector{2})
     S, Sx, Sy = _spline_value_and_partials(controls, area, x)
     n = norm(S)
     d = S / n
     m = inv(n)
-    return d, hcat((Sx - d * dot(d, Sx)) * m, (Sy - d * dot(d, Sy)) * m)
+    return d, m * S, hcat((Sx - d * dot(d, Sx)) * m, (Sy - d * dot(d, Sy)) * m)
+end
+
+# The direction `d = S/‖S‖` and its Jacobian `∂d/∂x` (3 × 2): the lens's
+# `backproject_with_jacobian`, the non-central residual's.
+@inline function _spline_direction_and_jacobian(controls::AbstractMatrix, area, x::StaticVector{2})
+    d, _, J = _spline_direction_differential(controls, area, x)
+    return d, J
 end
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
@@ -671,12 +694,14 @@ end
 end
 
 # The lens axis: the ray of the principal point, `normalize(backward(0, 0))`.
-# Computed, not stored; the forward spline's equidistant chart is about it.
-_lens_axis(l::SplineLens) = (d = l.backward(SVector(0.0, 0.0)); SVector{3, Float64}(d / norm(d)))
+# The forward spline's equidistant chart is about it.
+_lens_axis(backward::ChartSpline{3}) = (d = backward(SVector(0.0, 0.0)); SVector{3, Float64}(d / norm(d)))
 
 # The forward spline's chart, the equidistant chart about the lens axis (`nothing`
-# without a forward): computed once per call or launch, never stored.
-_forward_chart(l::SplineLens) = l.forward === nothing ? nothing : equidistant_chart(_lens_axis(l))
+# without a forward): computed once, when the lens is built (its `chart` field), as a
+# per-ray recomputation would cost a backward evaluation and two cross products a ray.
+_forward_chart(::ChartSpline{3}, ::Nothing) = nothing
+_forward_chart(backward::ChartSpline{3}, ::ChartSpline{2}) = equidistant_chart(_lens_axis(backward))
 
 # THE projection of a SplineLens: the normalized point of the ray `X` and
 # whether the lens images it. With a forward spline, its value at the ray's
@@ -685,11 +710,10 @@ _forward_chart(l::SplineLens) = l.forward === nothing ? nothing : equidistant_ch
 # (`_in_backward`: the box, a present window). Without one, the LM from `x₀`
 # (the scale-free `_spline_lm_box`), converged and onto a present window. The
 # scalar `project` and the batched kernel both run it; NaN when not imaged.
-# `chart` is the lens's `_forward_chart`.
-@inline function _project_lens(l::SplineLens, chart, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
+@inline function _project_lens(l::SplineLens, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
     nan = SVector(NaN, NaN)
     if l.forward !== nothing
-        c = chart(X)
+        c = l.chart(X)
         _in_fitted_chart(l.forward, c) || return nan, false
         y = l.forward(c)
         x = SVector{2, Float64}(y[1], y[2])
@@ -701,6 +725,22 @@ _forward_chart(l::SplineLens) = l.forward === nothing ? nothing : equidistant_ch
     return ok && _in_backward(l, x) ? (x, true) : (nan, false)
 end
 
+# The cold start of a projection solve of the ray (or camera-frame point) `X` through
+# the lens `l`: its pinhole point `(X₁/X₃, X₂/X₃)` — the gauge's first-order inverse
+# (`K` images ẑ at the principal point, at the local scale) — where the lens images it
+# (`_in_backward`: in the area, its window present), else the backward area's centre
+# (a ray at or behind the image plane, a point off the area or on an absent window, a
+# non-finite ray). Only the start: the solve's answer is the same to its tolerance
+# (measured 2.7e-12 px from the centre start over the golden cameras, the imaged mask
+# identical; tested).
+@inline function _cold_start(l::SplineLens, X::StaticVector{3})
+    o = GeometryBasics.origin(l.backward.area); w = GeometryBasics.widths(l.backward.area)
+    c = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
+    X[3] > 0 || return c
+    p = SVector{2, Float64}(X[1] / X[3], X[2] / X[3])
+    return _in_backward(l, p) ? p : c
+end
+
 """
     project(lens::SplineLens, X::StaticVector{3}) -> SVector{2}
 
@@ -710,19 +750,17 @@ value at the ray's point of the equidistant chart about the lens axis (the ray
 of the principal point), NaN outside the forward's fitted chart (more than one
 knot cell past its area) or where the backward spline does not image the
 point. Without one, Levenberg–Marquardt on the backward spline's direction
-mismatch from the area's centre (100 iterations, converged below a 1e-6
-residual), NaN unless it converges onto a point whose window is present.
+mismatch (100 iterations, converged below a 1e-6 residual) from the ray's
+pinhole point `(X₁/X₃, X₂/X₃)` where the lens images that point, else from the
+backward area's centre; NaN unless it converges onto a point whose window is present.
 """
-@inline function project(l::SplineLens, X::StaticVector{3})
-    o = GeometryBasics.origin(l.backward.area); w = GeometryBasics.widths(l.backward.area)
-    x₀ = SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2)
-    return first(_project_lens(l, _forward_chart(l), X, x₀, _PROJECT_MAXITER, _PROJECT_TOL^2))
-end
+@inline project(l::SplineLens, X::StaticVector{3}) =
+    first(_project_lens(l, X, _cold_start(l, X), _PROJECT_MAXITER, _PROJECT_TOL^2))
 
-@kernel function _spline_project_kernel!(px_out, ok_out, lens, chart, intrinsics, @Const(rays), @Const(p₀s), iters::Int, tol2::Float64)
+@kernel function _spline_project_kernel!(px_out, ok_out, lens, intrinsics, @Const(rays), @Const(p₀s), iters::Int, tol2::Float64)
     i = @index(Global)
     @inbounds begin
-        x, ok = _project_lens(lens, chart, rays[i], SVector{2, Float64}(_normalized_point(intrinsics, p₀s[i])), iters, tol2)
+        x, ok = _project_lens(lens, rays[i], SVector{2, Float64}(_normalized_point(intrinsics, p₀s[i])), iters, tol2)
         u = _pixel_affine(intrinsics)(x)
         px_out[i] = SVector{2, Float64}(u[1], u[2])
         ok_out[i] = ok
@@ -731,43 +769,65 @@ end
 
 """
     project(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rays::AbstractVector{<:StaticVector{3}},
-            p₀s::AbstractVector; iters = 10, tol = 1.0e-6) -> (; px, ok)
+            p₀s::AbstractVector; iters = 10, tol = 1.0e-6, device = default_device()) -> (; px, ok)
 
-Batched projection on any KernelAbstractions backend, the rays' own (every
-output is allocated beside them; a device copy of the lens uploads
-automatically): the scalar [`project`](@ref)'s solve per ray, warm-started at
+Batched projection on the KernelAbstractions backend `device`
+([`default_device`](@ref)`()` by default: an accelerator when one is functional,
+else `KA.CPU()`): the scalar [`project`](@ref)'s solve per ray, warm-started at
 the pixel `p₀s[i]` and given at most `iters` iterations (a lens with a forward
-spline reads no seed). Returns the pixels and the mask of the imaged ones
-(converged below `tol` onto a present window); a pixel not imaged is NaN.
+spline reads no seed). The rays and seeds are uploaded once (a device copy of the
+lens too), and both outputs come back in the rays' array kind (an `Array` gives
+`Array`s, a device array stays on its device with no copy). Returns the pixels and
+the mask of the imaged ones (converged below `tol` onto a present window); a pixel
+not imaged is NaN.
 """
 function project(
         cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rays::AbstractVector{<:StaticVector{3}}, p₀s::AbstractVector;
-        iters::Int = 10, tol::Real = _PROJECT_TOL
+        iters::Int = 10, tol::Real = _PROJECT_TOL, device::KA.Backend = default_device()
     )
     length(p₀s) == length(rays) || throw(ArgumentError("project: length(p₀s) != length(rays)"))
     N = length(rays)
-    backend = KA.get_backend(rays)
-    px = KA.allocate(backend, SVector{2, Float64}, N)
-    ok = KA.allocate(backend, Bool, N)
-    N == 0 && return (; px, ok)
-    _spline_project_kernel!(backend, 64)(px, ok, Adapt.adapt(backend, cam.lens), _forward_chart(cam.lens), cam.intrinsics, rays, p₀s, iters, Float64(tol)^2; ndrange = N)
-    KA.synchronize(backend)
-    return (; px, ok)
+    px = KA.allocate(device, SVector{2, Float64}, N)
+    ok = KA.allocate(device, Bool, N)
+    if N > 0
+        _spline_project_kernel!(device, 64)(
+            px, ok, Adapt.adapt(device, cam.lens), cam.intrinsics, on_device(device, rays), on_device(device, p₀s),
+            iters, Float64(tol)^2; ndrange = N
+        )
+        KA.synchronize(device)
+    end
+    return (; px = in_kind_of(rays, px), ok = in_kind_of(rays, ok))
+end
+
+@kernel function _spline_backproject_kernel!(rays, lens, intrinsics, s, @Const(pixels))
+    i = @index(Global)
+    @inbounds rays[i] = _backproject_lens(lens, _normalized_point(intrinsics, pixels[i]), s)
 end
 
 """
-    backproject(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixels::AbstractVector{<:StaticVector{2}}) -> rays
+    backproject(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixels::AbstractVector{<:StaticVector{2}};
+                device = default_device()) -> rays
 
-Batched backprojection on the pixels' own backend: `K⁻¹`, the backward
-spline's batched kernel (a [`ChartSpline`](@ref) on a vector of points), and the
-scalar [`backproject`](@ref)'s normalization and NaN rule — bit for bit the
-scalar value on the CPU.
+Batched backprojection on the KernelAbstractions backend `device`
+([`default_device`](@ref)`()` by default): the scalar [`backproject`](@ref) of the
+lens at `K⁻¹u` per pixel, one kernel (the pixels uploaded once, the lens's device
+copy too, the lattice slopes formed once), the rays back in the pixels' array kind
+— bit for bit the scalar value on the CPU.
 """
-function backproject(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixels::AbstractVector{<:StaticVector{2, <:Real}})
-    l = Adapt.adapt(KA.get_backend(pixels), cam.lens)
+function backproject(
+        cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pixels::AbstractVector{<:StaticVector{2, <:Real}};
+        device::KA.Backend = default_device()
+    )
+    l = Adapt.adapt(device, cam.lens)
     intr = cam.intrinsics
-    xs = map(u -> _normalized_point(intr, u), pixels)
-    return map((x, d) -> _backward_ray(l, x, d), xs, l.backward(xs))
+    Tx = eltype(_normalized_point(intr, zero(eltype(pixels))))
+    rays = KA.allocate(device, SVector{3, promote_type(Tx, eltype(eltype(l.backward.controls)))}, length(pixels))
+    if !isempty(pixels)
+        s = _lattice_scales(Tx, l.backward.area, size(l.backward.controls))
+        _spline_backproject_kernel!(device, 64)(rays, l, intr, s, on_device(device, pixels); ndrange = length(pixels))
+        KA.synchronize(device)
+    end
+    return in_kind_of(pixels, rays)
 end
 
 # ------------------------------------------------------------------------------

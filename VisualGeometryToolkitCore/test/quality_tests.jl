@@ -90,8 +90,9 @@
         # `score_model!` — and two come from the new local-optimization contract
         # (`_loss_at`/`_width_s2` on `lo_width(lo) === missing`, the default of
         # an optimizer without a width mode, which has no method there). Lower
-        # it as those go.
-        jet_bound = 13,
+        # it as those go. LOWERED to 12 on 2026-11-10 (plan 1b Task 4b): the
+        # package analysed alone has 12 (the spline-lens fold-in retired one).
+        jet_bound = 12,
     )
 end
 

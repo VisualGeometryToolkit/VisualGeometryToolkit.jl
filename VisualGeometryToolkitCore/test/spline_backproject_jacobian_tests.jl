@@ -57,15 +57,17 @@ end
     using ForwardDiff: ForwardDiff
     using GeometryBasics: origin, widths
     using VisualGeometryToolkitCore: SplineLens, CameraModel, KannalaBrandt, px, spline_value
-    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction, _noncentral_residual,
-        _noncentral_residual_jacobian, _in_backward, _lattice_coords
+    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction_differential, _noncentral_residual,
+        _noncentral_residual_and_jacobian, _in_backward, _lattice_coords
 
-    # The analytic Jacobians of the two LMs' residuals (`_spline_direction`'s — the
+    # The analytic Jacobians of the two LMs' residuals (the central one's — the
     # normalized spline value, differentiated as `spline_value`, since the residual
     # itself is Float64 by design — and `_noncentral_residual`'s, itself) against ForwardDiff, at
     # 1e-10 relative: at random points of the area, and at points on the lower
     # edge's rounding slack (lattice coordinate in [1 − τ, 1), which `_in_backward`
-    # images), where the residuals and the Jacobians must read the same window.
+    # images), where the residuals and the Jacobians must read the same window. The
+    # residual each LM reads from its one evaluation per point is its definition's,
+    # bit for bit: `normalize` of the spline value, and `_noncentral_residual`.
     src = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
     cam = CameraModel(SplineLens, src, (640, 480); grid_size = (20, 16))
     b = cam.lens.backward
@@ -88,11 +90,15 @@ end
     worst_d, worst_r = 0.0, 0.0
     for x in vcat(interior, slack)
         d, J = _spline_direction_and_jacobian(dctrl, area, x)
-        @test d ≈ _spline_direction(dctrl, area, x) rtol = 1.0e-15
+        d2, u, J2 = _spline_direction_differential(dctrl, area, x)
+        @test d2 == d
+        @test J2 ≈ J rtol = 1.0e-14      # its last digits are the compilation context's (StaticArrays' `muladd`s fuse as LLVM decides)
+        @test u == normalize(spline_value(dctrl, area, x))
         @test d ≈ normalize(spline_value(dctrl, area, x)) rtol = 1.0e-15
         worst_d = max(worst_d, rel(J, ForwardDiff.jacobian(p -> normalize(spline_value(dctrl, area, p)), x)))
         for X in Xs
-            Jr = _noncentral_residual_jacobian(dctrl, pctrl, area, x, X)
+            r, Jr = _noncentral_residual_and_jacobian(dctrl, pctrl, area, x, X)
+            @test r == _noncentral_residual(dctrl, pctrl, area, x, X)
             worst_r = max(worst_r, rel(Jr, ForwardDiff.jacobian(p -> _noncentral_residual(dctrl, pctrl, area, p, X), x)))
         end
     end

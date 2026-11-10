@@ -851,6 +851,11 @@ lens over the sensor rectangle, not per pixel.
 # Arguments
 - `model::CameraModel`: Camera model (any lens family)
 - `img`: Input distorted image (any AbstractMatrix — Gray, RGB, etc.)
+- `device`: the KernelAbstractions backend the warp runs on, by default
+  [`default_device`](@ref)`()` (an accelerator when one is functional, else
+  `KA.CPU()`). `img` is uploaded to it once, and the result comes back in
+  `img`'s array kind: an `Array` gives an `Array`, a device array stays on its
+  device with no copy. The in-place [`undistort!`](@ref) runs on `dst`'s backend.
 
 # Returns
 Undistorted image of the same size and element type.
@@ -862,14 +867,19 @@ model = CameraModel(; focal=2458.0, pp=(2099.0, 1494.0),
 img_clean = undistort(model, img)
 ```
 """
-undistort(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel}, img::AbstractMatrix) =
-    undistort!(similar(img), model, img)
+function undistort(
+        model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel}, img::AbstractMatrix;
+        device::KA.Backend = default_device()
+    )
+    src = on_device(device, img)
+    return in_kind_of(img, undistort!(similar(src), model, src))
+end
 # "No camera" is the identity: BlobBoards' pipeline (_undistort_adapt) supplies
 # `nothing` when a stage has no calibration. Consumed downstream; keep.
-undistort(::Nothing, img::AbstractMatrix) = img
+undistort(::Nothing, img::AbstractMatrix; device::KA.Backend = default_device()) = img
 
 # No-op for distortion-free lenses and missing camera
-undistort(::CameraModel{<:AbstractIntrinsics, Pinhole}, img::AbstractMatrix) = img
+undistort(::CameraModel{<:AbstractIntrinsics, Pinhole}, img::AbstractMatrix; device::KA.Backend = default_device()) = img
 """
     undistort!(dst, [T = Float64], model, src; fillvalue = zero(eltype(dst))) -> dst
 
@@ -929,7 +939,7 @@ function undistort!(
 end
 
 """
-    undistort(model, img, rect; scale = 1, fillvalue = zero(eltype(img))) -> FramedImage
+    undistort(model, img, rect; scale = 1, fillvalue = zero(eltype(img)), device = default_device()) -> FramedImage
 
 Allocating rect form of [`undistort!`](@ref): the canvas is sized
 `ceil.(widths(rect) ./ scale)`, `rect` is resampled into it, and the result
@@ -939,24 +949,25 @@ window of the camera's pixel frame the canvas covers, so
 `ext`/`scale` pair never travels beside the pixels by hand. The in-place
 [`undistort!`](@ref) forms are unchanged (the caller owns `dst` and its
 placement); the rect-free same-size forms return bare matrices (their
-placement is trivially the frame).
+placement is trivially the frame). `device` as in [`undistort`](@ref): the warp
+runs there, the canvas comes back in `img`'s array kind.
 """
 function undistort(
         model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel},
         img::AbstractMatrix,
         rect::GeometryBasics.HyperRectangle{2}; scale::Real = 1,
-        fillvalue = zero(eltype(img))
+        fillvalue = zero(eltype(img)), device::KA.Backend = default_device()
     )
     wd = GeometryBasics.widths(rect)
-    # The destination FOLLOWS the source's backend (similar, not zeros):
-    # CuArrays in, CuArray FramedImage out — the fused KA warp runs on the
-    # device (rectify's convention, applied here too).
+    # The destination is allocated beside the source on `device` (similar, not
+    # zeros), the fused KA warp runs there, and the canvas returns in `img`'s kind.
     #
     # NOT pre-filled: the warp writes EVERY destination pixel, so a canvas
     # painted here is discarded. Out-of-source taps come from the kernel's
     # `fillvalue`, which is why that had to be a keyword rather than a `fill!`.
-    dst = similar(img, ceil(Int, wd[2] / scale), ceil(Int, wd[1] / scale))
-    return FramedImage(undistort!(dst, model, img, rect; fillvalue), rect)
+    src = on_device(device, img)
+    dst = similar(src, ceil(Int, wd[2] / scale), ceil(Int, wd[1] / scale))
+    return FramedImage(in_kind_of(img, undistort!(dst, model, src, rect; fillvalue))::AbstractMatrix, rect)
 end
 
 """

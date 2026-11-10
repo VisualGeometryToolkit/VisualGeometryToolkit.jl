@@ -156,7 +156,7 @@ function detect_foerstner(
     ) where {T <: AbstractFloat}
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
-    g = _ka_upload(device, T, Float32.(gray.(gray_f32(img))))
+    g = ka_upload(T, device, Float32.(gray.(gray_f32(img))))
     doubled = KA.allocate(device, T, 2 .* size(g)...)
     _launch!(_upsample_doubled!, device, doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
     found = _foerstner_windows(
@@ -209,7 +209,7 @@ function _foerstner_windows(
     # 184–207: the squared gradient and its integration
     derivative_taps, across_taps = _derivative_taps(derivative, σd)
     integration_taps, integration_radius = _integration_taps(integration, σi)
-    up(taps) = _ka_upload(device, T, taps)
+    up(taps) = ka_upload(T, device, taps)
     dr = KA.allocate(device, T, rows, cols, 2)
     tmp = similar(dr)
     _launch!(_correlate_rows!, device, tmp, reshape(doubled, rows, cols, 1), up([derivative_taps across_taps]); ndrange = size(tmp))
@@ -252,7 +252,7 @@ function _foerstner_windows(
     ρ = ceil(Int, sqrt(12 * σi^2 + 1) / 2) + 1
     estimates = zeros(Float64, 14, length(centres))
     if !isempty(centres)
-        centre_list = _ka_upload(device, Int32, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
+        centre_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
         out = KA.allocate(device, T, 14, length(centres))
         _launch!(_window_estimates!, device, out, gamma, centre_list, Int32(ρ); ndrange = length(centres))
         estimates .= Array(out)

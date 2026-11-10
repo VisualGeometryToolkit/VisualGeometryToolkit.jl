@@ -143,7 +143,8 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, project, backproject,
         calibration_matrix, with_present, Rect2, convert_eltype, equidistant_chart, LogicalIntrinsics, CameraCalibrationMat
-    using VisualGeometryToolkitCore.Cameras: _lens_axis, _lattice_spacing, _spline_camera
+    using VisualGeometryToolkitCore.Cameras: _lens_axis, _lattice_spacing, _spline_camera, _project_lens, _pixel_affine
+    import KernelAbstractions as KA
 
     # =============================================================================
     # project through a SplineLens against the golden outputs of the old grid
@@ -208,8 +209,8 @@ end
     end
 
     @testset "with a forward: the old fitted forward map on the lens axis" begin
-        @test norm(_lens_axis(cam.lens) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
-        @test norm(_lens_axis(cam_fwd.lens) - S.chart_rotation[3, :]) <= 1.0e-12
+        @test norm(_lens_axis(cam.lens.backward) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
+        @test norm(_lens_axis(cam_fwd.lens.backward) - S.chart_rotation[3, :]) <= 1.0e-12
         @test masked_fwd.lens.forward === forward
         worst, same_nan = deviation(cam_fwd, rays64, S.project)
         @test same_nan
@@ -223,46 +224,58 @@ end
         θ = norm(c)
         R = SMatrix{3, 3}(S.chart_rotation)
         X_out = R' * SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))
-        @test norm(equidistant_chart(_lens_axis(cam_fwd.lens))(X_out) - c) <= 1.0e-9
+        @test norm(equidistant_chart(_lens_axis(cam_fwd.lens.backward))(X_out) - c) <= 1.0e-9
         @test all(isnan, project(cam_fwd, X_out))
     end
 
     @testset "batched: the golden batched outputs; the scalar solve exactly" begin
         for (c, ref) in ((cam, G.central), (masked, G.masked))
-            b = project(c, rays_in, lattice)
+            b = project(c, rays_in, lattice; device = KA.CPU())
             @test b.ok == ref.batch_project_ok
             @test any(b.ok)
             @test maximum(i -> norm(b.px[i] - SVector(ref.batch_project_px[1, i], ref.batch_project_px[2, i])), findall(b.ok)) <= 1.0e-9
             @test all(i -> all(isnan, b.px[i]), findall(!, b.ok))
         end
-        # the same seed and budget as the scalar form: the same solve, bit for bit
+        # the same seed and budget: the same solve, bit for bit (the area's centre, the
+        # principal point (500, 500) here, which K⁻¹ maps to the normalized centre exactly)
         centre = fill(SVector(500.0, 500.0), length(rays64))
         for c in (cam, masked, cam_fwd, masked_fwd)
-            b = project(c, rays64, centre; iters = 100)
-            @test all(i -> isequal(b.px[i], SVector{2, Float64}(project(c, rays64[i]))), eachindex(rays64))
-            @test b.ok == [all(isfinite, project(c, X)) for X in rays64]
+            b = project(c, rays64, centre; iters = 100, device = KA.CPU())
+            o, w = c.lens.backward.area.origin, c.lens.backward.area.widths
+            x₀ = SVector(o[1] + w[1] / 2, o[2] + w[2] / 2)
+            from_centre = [SVector{2, Float64}(_pixel_affine(c.intrinsics)(first(_project_lens(c.lens, X, x₀, 100, 1.0e-12)))) for X in rays64]
+            @test all(i -> isequal(b.px[i], from_centre[i]), eachindex(rays64))
+            @test b.ok == [all(isfinite, p) for p in from_centre]
+            # the scalar form's own start (the ray's pinhole point where the lens images it)
+            # gives the same projection to the solve's tolerance, the same imaged mask
+            sc = [project(c, X) for X in rays64]
+            @test [all(isfinite, p) for p in sc] == b.ok
+            @test maximum(i -> norm(sc[i] - b.px[i]), findall(b.ok); init = 0.0) <= 1.0e-9
+            # a forward reads no seed: the same evaluation (to the last digits of the chart's
+            # rotation, StaticArrays' `muladd`s fused as LLVM decides per compilation context)
+            c.lens.forward === nothing || @test maximum(i -> norm(b.px[i] - sc[i]), findall(b.ok); init = 0.0) <= 1.0e-12
         end
         @test project(cam, SVector{3, Float64}[], SVector{2, Float64}[]).px == SVector{2, Float64}[]
         @test_throws ArgumentError project(cam, rays_in, lattice[1:3])
     end
 
-    @testset "batched backproject: ChartSpline's kernel after K⁻¹; the Float32 device form" begin
+    @testset "batched backproject: the scalar one per pixel; the Float32 device form" begin
         pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2)]
         for c in (cam, masked)
-            r = backproject(c, pixels)
+            r = backproject(c, pixels; device = KA.CPU())
             @test all(i -> isequal(r[i], SVector{3, Float64}(backproject(c, pixels[i]))), eachindex(pixels))
         end
         c32 = convert_eltype(Float32, cam)
         @test eltype(c32.lens.backward.controls) == SVector{3, Float32}
         d = adapt(Array, c32)
         pixels32 = [SVector{2, Float32}(u) for u in pixels]
-        r32 = backproject(d, pixels32)
+        r32 = backproject(d, pixels32; device = KA.CPU())
         @test eltype(r32) == SVector{3, Float32}
         # The Float32 camera images every pixel the Float64 one does, the area's own
         # edge (u = 0 or v = 0) included: batched and scalar, Float32 and Float64 pixels.
         for (name, rays) in (
                 ("batched, Float32 pixels", r32),
-                ("batched, Float64 pixels", backproject(d, pixels)),
+                ("batched, Float64 pixels", backproject(d, pixels; device = KA.CPU())),
                 ("scalar, Float32 pixels", [backproject(c32, u) for u in pixels32]),
                 ("scalar, Float64 pixels", [backproject(c32, u) for u in pixels]),
             )
@@ -282,6 +295,24 @@ end
         m32 = convert_eltype(Float32, masked_fwd)
         @test m32.lens.present == masked.lens.present
         @test eltype(m32.lens.forward.controls) == SVector{2, Float32}
+    end
+
+    @testset "the cold start: the pinhole point gives the centre start's projection, over the whole frame" begin
+        # `project`'s LM starts at the ray's pinhole point where the lens images it (an
+        # exact speed-up: only the start moves). Against the solve from the area's centre,
+        # over every 4th pixel of the 1000² frame's rays (K⁻¹ũ, the undistortion's): the
+        # same imaged mask, the same pixel to the solve's tolerance (measured 2.7e-12 px).
+        Ki = inv(SMatrix{3, 3, Float64}(K))
+        rays = [Ki * SVector(c - 0.5, r - 0.5, 1.0) for r in 1:4:1000 for c in 1:4:1000]
+        for c in (cam, masked)
+            o, w = c.lens.backward.area.origin, c.lens.backward.area.widths
+            x₀ = SVector(o[1] + w[1] / 2, o[2] + w[2] / 2)
+            cold = [first(_project_lens(c.lens, X, x₀, 100, 1.0e-12)) for X in rays]
+            warm = [project(c.lens, X) for X in rays]
+            @test isnan.(first.(cold)) == isnan.(first.(warm))
+            @test count(p -> all(isfinite, p), warm) > length(rays) ÷ 2
+            @test maximum(i -> norm(K[1:2, 1:2] * (warm[i] - cold[i])), findall(p -> all(isfinite, p), warm)) <= 1.0e-9
+        end
     end
 
     @testset "inference, with and without a forward and a mask" begin
@@ -393,9 +424,10 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Division, px, project, model,
         calibration_matrix, undistort, image_warp, image_warp!, distortion_map, Rect2, LogicalIntrinsics, CameraCalibrationMat,
-        _bilinear_sample
-    using VisualGeometryToolkitCore.Cameras: _spline_camera
+        _bilinear_sample, _DEVICE_RESOLVER, _DEFAULT_DEVICE, reset_default_device!, default_device, backproject
+    using VisualGeometryToolkitCore.Cameras: _spline_camera, _rectified_view
     using CoordinateTransformations: AffineMap
+    import KernelAbstractions as KA
 
     # =============================================================================
     # A SplineLens camera undistorts and rectifies through the generic CameraModel
@@ -452,7 +484,7 @@ end
     @testset "exact: every pixel through project, to 1e-12; the golden to the old remap's approximation" begin
         @test K == SMatrix{3, 3, Float64}(U.Kr)                     # the old grid's target pinhole is the camera's K
         for c in (cam, cam_fwd)
-            und = undistort(c, checker, rect)
+            und = undistort(c, checker, rect; device = KA.CPU())
             @test und isa FramedImage && und.rect == rect
             @test size(und.data) == size(U.central)
             bm = warp_of(c, rect, 32, 32)
@@ -464,7 +496,7 @@ end
         # map differs from by at most 2.17e-6 px, 2.45e-6 in intensity on this checker
         # (measured; the coarse map rebuilt from scalar `project` gives the golden to 1e-12).
         # The bound is twice the measured intensity difference.
-        @test maximum(abs.(undistort(cam, checker, rect).data .- U.central)) <= 5.0e-6
+        @test maximum(abs.(undistort(cam, checker, rect; device = KA.CPU()).data .- U.central)) <= 5.0e-6
     end
 
     @testset "the KernelAbstractions CPU kernel == the host loop, with and without a forward spline" begin
@@ -472,7 +504,7 @@ end
             bm = warp_of(c, rect, 32, 32)
             k = kernel(bm, checker, 32, 32)
             @test k == host_loop(bm, checker, 32, 32)
-            @test k == undistort(c, checker, rect).data
+            @test k == undistort(c, checker, rect; device = KA.CPU()).data
             @test count(isfinite, k) == length(k)
         end
         # the lens's project allocates nothing, with and without a forward spline
@@ -496,9 +528,64 @@ end
             CuArray = getproperty(cuda, :CuArray)
             dimg = Base.invokelatest(CuArray, checker)
             for c in (cam, cam_fwd)
-                host = undistort(c, checker, rect).data
+                host = undistort(c, checker, rect; device = KA.CPU()).data
                 dev = Base.invokelatest(undistort, c, dimg, rect)
                 @test maximum(abs.(Base.invokelatest(Array, dev.data) .- host)) <= 1.0e-4 * max(1.0, maximum(abs, host))
+            end
+        end
+    end
+
+    # Every allocating warp entry point takes `device = default_device()`: the input is
+    # uploaded once, the result comes back in the caller's array kind, `device` wins.
+    pixels = [SVector(x, y) for y in 0.0:37.0:999.0 for x in 0.0:37.0:999.0]
+    rays = [backproject(cam, u) for u in pixels]
+    seeds = [u + SVector(1.5, -1.0) for u in pixels]
+    calls(dev) = (
+        undistort(cam, checker, rect; device = dev).data, undistort(cam, checker[1:40, 1:50]; device = dev),
+        backproject(cam, pixels; device = dev), project(cam, rays, seeds; device = dev).px, project(cam, rays, seeds; device = dev).ok,
+    )
+    @testset "device: KA.CPU() is the default on a CPU-only host, bit for bit" begin
+        old_resolver, old_device = _DEVICE_RESOLVER[], _DEFAULT_DEVICE[]
+        try
+            _DEVICE_RESOLVER[] = () -> KA.CPU()           # a host with no accelerator
+            reset_default_device!()
+            @test default_device() === KA.CPU()
+            @test all(isequal.(calls(default_device()), calls(KA.CPU())))
+            @test all(r -> r isa Array, calls(KA.CPU()))
+        finally
+            _DEVICE_RESOLVER[] = old_resolver; _DEFAULT_DEVICE[] = old_device
+        end
+    end
+
+    @testset "device: the default resolves to the GPU, Array in, Array out, within 1e-4 (availability-gated)" begin
+        cuda = try
+            mod = Base.require(Main, :CUDA)
+            (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+        catch
+            nothing
+        end
+        if cuda === nothing
+            @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+        else
+            old_device = _DEFAULT_DEVICE[]
+            try
+                reset_default_device!()         # resolve again now that CUDA's extension registered its resolver
+                gpu = Base.invokelatest(default_device)
+                @test gpu isa Base.invokelatest(getproperty, cuda, :CUDABackend)
+                g, h = Base.invokelatest(calls, gpu), calls(KA.CPU())
+                @test all(r -> r isa Array, g)                                 # the caller's array kind
+                for (a, b) in zip(g[1:2], h[1:2])
+                    @test maximum(abs.(a .- b)) <= 1.0e-4
+                end
+                @test maximum(i -> norm(g[3][i] - h[3][i]), findall(r -> all(isfinite, r), h[3])) <= 1.0e-4
+                @test isnan.(first.(g[3])) == isnan.(first.(h[3]))
+                @test g[5] == h[5]
+                @test maximum(i -> norm(g[4][i] - h[4][i]), findall(h[5])) <= 1.0e-4
+                # a device array in stays on the device, with no copy back
+                dimg = Base.invokelatest(getproperty(cuda, :CuArray), checker)
+                @test !(Base.invokelatest(undistort, cam, dimg, rect).data isa Array)
+            finally
+                _DEFAULT_DEVICE[] = old_device
             end
         end
     end
@@ -516,6 +603,27 @@ end
         geo = rectify(rig_par)
         @test rectify(rig_spl).K ≈ geo.K                             # a SplineLens camera has its K: the shared K derives
         imgt = [exp(-((x - 70)^2 + (y - 55)^2) / 400) + 0.2 * sin(x / 9) * cos(y / 7) for y in 1:Hs, x in 1:Ws]
+        # a view over a window of the rectified frame at a nonzero origin: each canvas pixel
+        # is the exact per-pixel reference (the window's pixel centre, Qᵢᵀ K_r⁻¹, the view's
+        # own `project`, the bilinear sample), for a parametric and a SplineLens camera
+        Kr_inv = inv(SMatrix{3, 3, Float64}(geo.K))
+        win = Rect2(30.0, 20.0, 60.0, 40.0)
+        Wo, Ho = 30, 20
+        for (i, mi) in ((1, mdiv), (2, g2))
+            Ki = SMatrix{3, 3, Float64}(calibration_matrix(mi))
+            Qt = SMatrix{3, 3, Float64}(geo.R[i])'
+            v = _rectified_view(mi, imgt, Ki, geo.R[i], Kr_inv, win, Wo, Ho, Float64, KA.CPU())
+            @test v.rect == win
+            ref = [
+                (
+                    q = SVector(win.origin[1] + (k - 0.5) * win.widths[1] / Wo, win.origin[2] + (r - 0.5) * win.widths[2] / Ho, 1.0);
+                    p = project(mi, Qt * (Kr_inv * q));
+                    _bilinear_sample(imgt, p[2] + 0.5, p[1] + 0.5, 0.0, Hs, Ws)
+                ) for r in 1:Ho, k in 1:Wo
+            ]
+            @test count(>(0), ref) > length(ref) ÷ 2
+            @test maximum(abs.(v.data .- ref)) <= 1.0e-12
+        end
         rp = rectify(rig_par, (imgt, imgt))
         rg = rectify(rig_spl, (imgt, imgt); K = geo.K)
         @test rg.K ≈ geo.K

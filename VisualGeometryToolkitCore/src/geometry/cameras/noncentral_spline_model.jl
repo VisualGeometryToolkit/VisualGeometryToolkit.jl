@@ -241,18 +241,24 @@ transform_deriv(b::Backprojection{<:Union{CameraModel, NoncentralSplineModel}}, 
 # of the line direction `d̂(p)` (the reference's tangent-plane point-to-line
 # residual), both splines read through ONE window of the lattice of `(rows, cols) =
 # size(dctrl)` over `area` (the continued window, as its Jacobian's). Generic in `p`'s
-# element type (ForwardDiff's duals).
+# element type (ForwardDiff's duals): the residual's definition, which the analytic
+# Jacobian is tested against.
 @inline function _noncentral_residual(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
     gsz = gh, gw = size(dctrl)
     ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)   # its Jacobian's window
     d = _eval_window(dctrl, ix, iy, wx, wy)
     o = _eval_window(pctrl, ix, iy, wx, wy)
-    t1, t2 = direction_tangents(SVector{3}(d) / norm(d))
-    pto = SVector{3}(o) - X
+    return _tangent_residual(SVector{3}(d) / norm(d), SVector{3}(o), X)
+end
+# The residual from the line's unit direction `d` and point `o` at `p`.
+@inline function _tangent_residual(d, o, X)
+    t1, t2 = direction_tangents(d)
+    pto = o - X
     return SVector(dot(t1, pto), dot(t2, pto))
 end
 
-# The Jacobian `∂r/∂p` (2 × 2) of that residual, analytic: the direction spline's
+# That residual and its Jacobian `∂r/∂p` (2 × 2), from ONE evaluation of each spline at
+# `p` (the LM's `fj`), the Jacobian analytic: the direction spline's
 # `_spline_direction_and_jacobian` and the point spline's `_spline_value_and_partials`
 # at `p` (one evaluation of the basis weights each), chained through the tangent
 # basis. With `t₁ = (d × a)/‖d × a‖`, `t₂ = d × t₁` (`a` = `_tangent_axis(d)`,
@@ -261,7 +267,7 @@ end
 # orthogonal to `t₁`. No automatic differentiation inside the LM: a ForwardDiff
 # Jacobian there is the pattern Julia 1.12 and 1.13 miscompile at -O2
 # (test/fixtures/repro_o2_miscompile.jl).
-@inline function _noncentral_residual_jacobian(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
+@inline function _noncentral_residual_and_jacobian(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
     d, Jd = _spline_direction_and_jacobian(dctrl, area, p)
     o, ox, oy = _spline_value_and_partials(pctrl, area, p)
     a = _tangent_axis(d)
@@ -276,7 +282,7 @@ end
     Jo = hcat(ox, oy)
     r1 = transpose(Jd) * g1 + transpose(Jo) * t1          # ∇ₚ(t₁·w)
     r2 = transpose(Jd) * g2 + transpose(Jo) * t2          # ∇ₚ(t₂·w)
-    return SMatrix{2, 2}(r1[1], r2[1], r1[2], r2[2])
+    return _tangent_residual(d, o, X), SMatrix{2, 2}(r1[1], r2[1], r1[2], r2[2])
 end
 
 # THE non-central projection: `_spline_lm` on the tangent-plane residual with its
@@ -287,10 +293,9 @@ function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float
     nan = SVector(NaN, NaN)
     (all(isfinite, Xv) && all(isfinite, x₀)) || return nan
     a = m.directions.area
-    res(p, _) = _noncentral_residual(m.directions.controls, m.points.controls, a, p, Xv)
-    jac(p, _) = _noncentral_residual_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
+    fj(p) = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
     lb, ub, s = _spline_lm_box(a)
-    x, ok = _spline_lm(res, jac, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    x, ok = _spline_lm(fj, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
     (ok && _in_backward(_direction_lens(m), x)) || return nan
     u = _pixel_affine(m.intrinsics)(x)
     return SVector{2, Float64}(u[1], u[2])
@@ -303,14 +308,12 @@ end
 Project the camera-frame point `X` — plain metres, the point spline's unit — to
 a pixel: Levenberg–Marquardt in the normalized plane on the reference's
 tangent-plane point-to-line residual, so a converged pixel's observation line
-goes through `X`. The two-argument form starts at the area's centre, the
+goes through `X`. The two-argument form starts at the point's pinhole point
+`(X₁/X₃, X₂/X₃)` where the model images that point, else at the area's centre; the
 three-argument form at the seed pixel `p₀` (a good seed matters for a
 non-central model; positional, per-call data). NaN when the solve does not
 converge onto a point the model images (inside the area, its window present).
 """
-function project(m::NoncentralSplineModel, X)
-    o = GeometryBasics.origin(m.directions.area); w = GeometryBasics.widths(m.directions.area)
-    return _noncentral_project(m, X, SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2))
-end
+project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_direction_lens(m), SVector{3}(X[1], X[2], X[3])))
 project(m::NoncentralSplineModel, X, p₀) =
     _noncentral_project(m, X, SVector{2, Float64}(_normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

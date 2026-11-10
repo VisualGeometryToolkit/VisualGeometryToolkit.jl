@@ -272,6 +272,14 @@ const RETIRED_NAMES = String[
     "in_present" * "_domain",                # where a spline camera images: `all(isfinite, backproject(cam, u))`
     "spline" * "_support",                   # a point's window: `spline_weights(cam.lens.backward, x)[1:2]` (its `ix, iy`)
     "window" * "_controls", "window" * "_indices",   # a window's controls: `directions(cam)[iy - 3 + r, ix - 3 + c]`, r, c ∈ 1:4
+    # the spline LM reads its residual and Jacobian from one evaluation per point (plan 1b, Task 4b)
+    "_spline" * "_direction",                # the central residual's direction: `_spline_direction_differential(controls, area, x)[2]`
+    "_noncentral_residual" * "_jacobian",    # `_noncentral_residual_and_jacobian` (the residual and its Jacobian, the LM's `fj`)
+    "_backward" * "_ray",                    # the scalar lens backprojection `backproject(lens, x)` (`_backproject_lens` at given lattice slopes)
+    "_lattice" * "_slope",                   # `_lattice_scales(T, area, gsz)`, the map's slopes in the point's float type
+    "_to" * "_host",                         # VisualGeometryToolkitFeatures: `on_device(KA.CPU(), A)` (Core's one upload, base/device.jl)
+    "_upload" * "_i32",                      # VisualGeometryToolkitFeatures: `ka_upload(Int32, dev, v)` (Core's one upload, base/device.jl)
+    "_ka" * "_upload",                       # VisualGeometryToolkitFeatures' upload, hoisted public: `VisualGeometryToolkitCore.ka_upload`
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens

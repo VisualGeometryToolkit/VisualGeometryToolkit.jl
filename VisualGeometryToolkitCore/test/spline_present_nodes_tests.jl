@@ -59,7 +59,7 @@
         @test project(mm, X_in) == project(m, X_in)
         # the batched forms agree with the scalar ones
         pts = [out[1:5]; [SVector(640.0, 480.0), SVector(600.0, 420.0)]]
-        rays = backproject(mm, pts)
+        rays = backproject(mm, pts; device = VisualGeometryToolkitCore.KernelAbstractions.CPU())
         @test all(i -> isequal(rays[i], backproject(mm, pts[i])), eachindex(pts))
         Xs = [backproject(m, p) for p in pts]
         b = project(mm, Xs, pts; iters = 100)
@@ -107,11 +107,11 @@
         else
             CuArray = getproperty(cuda, :CuArray)
             mm = masked(disc)
-            host = backproject(mm, pixels[1:2000])
+            host = backproject(mm, pixels[1:2000]; device = VisualGeometryToolkitCore.KernelAbstractions.CPU())
             dev = Base.invokelatest(Array, Base.invokelatest(backproject, mm, Base.invokelatest(CuArray, pixels[1:2000])))
             @test isequal(dev, host)
             Xs = [normalize(SVector(p[1] - 640.0, p[2] - 480.0, 250.0)) for p in pixels[1:2000]]
-            hb = project(mm, Xs, pixels[1:2000]; iters = 50)
+            hb = project(mm, Xs, pixels[1:2000]; iters = 50, device = VisualGeometryToolkitCore.KernelAbstractions.CPU())
             db = Base.invokelatest(project, mm, Base.invokelatest(CuArray, Xs), Base.invokelatest(CuArray, pixels[1:2000]); iters = 50)
             @test Base.invokelatest(Array, db.ok) == hb.ok
             # the camera's device copy holds the mask

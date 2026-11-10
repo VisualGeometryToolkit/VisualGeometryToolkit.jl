@@ -829,8 +829,7 @@ function AsiftPlan(
     # resolution the upsample just bought. (VLFeat reaches the same number the
     # other way: it keeps σ in input units and divides Δσ by step=2^o.)
     seps = sift_sep_sigmas(seed_sigma, upsample ? 2 * input_blur : input_blur, S)
-    _upload(v) = (d = KA.allocate(dev, Float32, length(v)); copyto!(d, v); d)
-    pyr_taps = [_upload(gaussian_taps(s)) for s in seps]
+    pyr_taps = [ka_upload(Float32, dev, gaussian_taps(s)) for s in seps]
     pyr_r = Int32[Int32(length(gaussian_taps(s)) - 1) for s in seps]
     maximum(pyr_r) <= 13 || throw(
         ArgumentError(
@@ -876,10 +875,9 @@ function AsiftPlan(
         wph[10, w] = max(1.0f0, tf)
         wph[11, w] = (g.t == 1.0 && g.θ == 0.0) ? 1.0f0 : 0.0f0
     end
-    wp = KA.allocate(dev, Float32, 11, nw); copyto!(wp, wph)
+    wp = ka_upload(Float32, dev, wph)
 
     MARGIN = 64
-    _iupload(v) = (d = KA.allocate(dev, Int32, length(v)); copyto!(d, v); d)
     _content_h(g) = g.t > 1 ? max(floor(Int, g.H_rot / Float32(g.t)), 1) : g.H_rot
     # o ≥ 0: content shrinks by 2^o. o = −1: it doubles (both the bound and the
     # cap), since `1 << o` / `lim >> o` are not meaningful for a negative o.
@@ -889,16 +887,16 @@ function AsiftPlan(
     orange = o_first:(o_first + no - 1)
     awh = [[_bound(g.W_rot, W, o) for g in geo] for o in orange]
     ahh = [[_bound(_content_h(g), H, o) for g in geo] for o in orange]
-    awd = [_iupload(v) for v in awh]
-    ahd = [_iupload(v) for v in ahh]
+    awd = [ka_upload(Int32, dev, v) for v in awh]
+    ahd = [ka_upload(Int32, dev, v) for v in ahh]
     chunks = [(w0 + 1):min(w0 + nwc, nw) for w0 in 0:nwc:(nw - 1)]
     lists = [
         [_tile_lists(dims[o]..., view(awh[o], r), view(ahh[o], r)) for o in 1:no]
             for r in chunks
     ]
-    tiles = [[_iupload(t[1]) for t in c] for c in lists]
-    masked = [[_iupload(t[2]) for t in c] for c in lists]
-    seedtiles = [_iupload(_dilate_tiles(c[1][1], dims[1]...)) for c in lists]
+    tiles = [[ka_upload(Int32, dev, t[1]) for t in c] for c in lists]
+    masked = [[ka_upload(Int32, dev, t[2]) for t in c] for c in lists]
+    seedtiles = [ka_upload(Int32, dev, _dilate_tiles(c[1][1], dims[1]...)) for c in lists]
 
     pool = _pool_buffers(dev, Int(capacity))
     count = KA.allocate(dev, Int32, 1)
@@ -1273,9 +1271,7 @@ function _ensure_cov!(plan::AsiftPlan)
             taps, plan.nb_scales, plan.o_first < 0, plan.nb_octaves, plan.geo, plan.W, plan.H
         )
         for t in tabs
-            d = KA.allocate(plan.dev, Float32, size(t)...)
-            copyto!(d, t)
-            push!(plan.ctab, d)
+            push!(plan.ctab, ka_upload(Float32, plan.dev, t))
         end
     end
     cap = _capacity(plan)

@@ -71,6 +71,50 @@ first resolution.
 reset_default_device!() = (_DEFAULT_DEVICE[] = nothing; nothing)
 
 # =============================================================================
+# Moving arrays to a device and back — ONE upload for the package family
+# =============================================================================
+#
+# A user-facing call that takes `device` (undistort, rectify, a spline camera's
+# batched project/backproject; Features' matchers and detectors) uploads its
+# input once, runs on `device`, and hands the result back in the CALLER's array
+# kind: an `Array` in gives an `Array` out, a device array in stays on its device
+# with no copy. `ka_upload` is hoisted from VisualGeometryToolkitFeatures'
+# matching_ka.jl (2026-11-10), where it and six hand-rolled `allocate` +
+# `copyto!` uploads (the ASIFT driver's, the stacked matcher's) now call it.
+
+"""
+    ka_upload(T, device, A) -> array
+
+A copy of `A` with element type `T` on `device`: one `Array{T}` on the host
+(`Array{T}(A)`, which also downloads a device array), else a `KA.allocate`d
+array filled by one `copyto!` (the eltype converted on the host first only when
+it differs).
+"""
+ka_upload(::Type{T}, ::KA.CPU, A::AbstractArray) where {T} = Array{T}(A)
+function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
+    d = KA.allocate(dev, T, size(A)...)
+    copyto!(d, eltype(A) === T ? A : T.(A))
+    return d
+end
+
+"""
+    on_device(device, A) -> array
+
+`A` itself when it already lives on `device`, else one [`ka_upload`](@ref) of
+it in its own element type.
+"""
+on_device(dev, A::AbstractArray) = get_backend(A) == dev ? A : ka_upload(eltype(A), dev, A)
+
+"""
+    in_kind_of(like, A) -> array
+
+The result `A` of a call run on some device, handed back in the array kind of
+the caller's `like`: `A` itself when it lives on `like`'s backend, else one copy
+to it (an `Array` for an `Array` input).
+"""
+in_kind_of(like::AbstractArray, A::AbstractArray) = on_device(get_backend(like), A)
+
+# =============================================================================
 # One row driver for every per-correspondence KernelAbstractions fill
 # =============================================================================
 #

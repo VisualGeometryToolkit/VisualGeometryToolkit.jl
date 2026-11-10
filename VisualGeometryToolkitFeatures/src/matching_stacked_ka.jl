@@ -52,8 +52,7 @@ function StackedDescriptorIndex(backend::KA.Backend, galleries::AbstractDict)
     for (i, d) in enumerate(descs)
         copyto!(view(all_desc, (offsets[i] + 1):(offsets[i] + sizes[i]), :), d)
     end
-    d_all = KA.allocate(backend, T, size(all_desc)...)
-    copyto!(d_all, all_desc)
+    d_all = ka_upload(T, backend, all_desc)
     # The block kernels take each chunk's block offsets/sizes, uploaded per
     # chunk by `_nn_select`; whole-stack device copies here were never read.
     return StackedDescriptorIndex(d_all, ks, offsets, sizes)
@@ -97,7 +96,7 @@ function nn_match_stacked(
     metric = CosineSimilarity()
     top_idx, top_sc, rev_idx = _nn_select(
         strategy, metric, backend, idx.offsets, idx.sizes;
-        gal = idx.d_all, feat = _ka_upload(backend, T, fd), chunk_bytes
+        gal = idx.d_all, feat = ka_upload(T, backend, fd), chunk_bytes
     )
     N_feat = size(fd, 1)
     match_dict = Dict{K, Vector{NNMatch}}()

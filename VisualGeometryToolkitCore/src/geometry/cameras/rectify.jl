@@ -17,8 +17,8 @@
 
 """
     rectify(rig::StereoRig; K = nothing) -> (; rig, R, K)
-    rectify([T = Float64], rig::StereoRig, images::Tuple; K = nothing, out_size = nothing, scale = 1)
-        -> (; rig, R, K, images::NTuple{2, FramedImage})
+    rectify([T = Float64], rig::StereoRig, images::Tuple; K = nothing, out_size = nothing, scale = 1,
+            device = default_device()) -> (; rig, R, K, images::NTuple{2, FramedImage})
 
 Epipolar rectification of a stereo rig.
 
@@ -41,10 +41,12 @@ input sizes; `scale` downsamples like the rect form of
 [`undistort`](@ref)). After rectification, corresponding points share a
 row and `disparity = fx·B/z`.
 
-KernelAbstractions end to end: the destination is allocated with `similar`,
-so it lives on the SOURCE images' backend — supply `CuArray`s and the fused
-warp (one bilinear kernel; the isbits chain evaluated per output pixel on
-the device, no remap grid) runs on the GPU. `rectify(Float32, rig, images)`
+KernelAbstractions end to end, on `device` ([`default_device`](@ref)`()` by
+default: an accelerator when one is functional, else `KA.CPU()`): each image is
+uploaded there once, the fused warp (one bilinear kernel; the isbits chain
+evaluated per output pixel on the device, no remap grid) runs there, and each
+canvas comes back in its image's array kind (an `Array` gives an `Array`, a
+device array stays on its device with no copy). `rectify(Float32, rig, images)`
 keeps the warp math single-precision for GPU throughput (the type leads, as in
 Base's `zeros(Float32, n)`).
 
@@ -119,23 +121,24 @@ function _rectify_math(
     )
 end
 
-# One rectified view through a camera model: the fused warp.
-# The destination FOLLOWS the source's backend (similar, not zeros): supply
-# CuArrays and the homography∘lens∘K math runs per output pixel ON
-# the device — one KA bilinear kernel, every output pixel through the lens's
-# `project`. `precision` (the leading type of `rectify`) keeps the per-pixel math
+# One rectified view through a camera model: the fused warp, on `device` — the
+# image uploaded there once, the destination beside it, the homography∘lens∘K math
+# per output pixel ON the device (one KA bilinear kernel, every output pixel
+# through the lens's `project`), the canvas back in the image's array kind.
+# `precision` (the leading type of `rectify`) keeps the per-pixel math
 # single-precision for GPU throughput.
 function _rectified_view(
         mi::CameraModel, img::AbstractMatrix, Ki::SMatrix{3, 3, Float64, 9},
-        Qi, Kr_inv::SMatrix{3, 3, Float64, 9}, window, Wout::Int, Hout::Int, precision
+        Qi, Kr_inv::SMatrix{3, 3, Float64, 9}, window::GeometryBasics.HyperRectangle{2}, Wout::Int, Hout::Int, precision, device
     )
     # the canvas [0, Wout] × [0, Hout] onto the window of the rectified frame, its origin included
     o = GeometryBasics.origin(window); wd = GeometryBasics.widths(window)
     place = AffineMap(SMatrix{2, 2, Float64}(wd[1] / Wout, 0, 0, wd[2] / Hout), SVector(Float64(o[1]), Float64(o[2])))
     math = _rectify_math(mi, Ki, Qi, Kr_inv) ∘ place
     bm = image_warp(precision, math, Rect(0, 0, Wout, Hout))
-    dst = fill!(similar(img, Hout, Wout), zero(eltype(img)))
-    return FramedImage(image_warp!(dst, bm, img), window)
+    src = on_device(device, img)
+    dst = similar(src, Hout, Wout)      # every pixel is written by the warp (out-of-source taps take its zero fill)
+    return FramedImage(in_kind_of(img, image_warp!(dst, bm, src)), window)
 end
 
 rectify(rig::StereoRig, images::Tuple{AbstractMatrix, AbstractMatrix}; kwargs...) =
@@ -144,7 +147,7 @@ rectify(rig::StereoRig, images::Tuple{AbstractMatrix, AbstractMatrix}; kwargs...
 function rectify(
         precision::Type{<:AbstractFloat}, rig::StereoRig,
         images::Tuple{AbstractMatrix, AbstractMatrix};
-        K = nothing, out_size = nothing, scale::Real = 1
+        K = nothing, out_size = nothing, scale::Real = 1, device::KA.Backend = default_device()
     )
     geo = rectify(rig; K)
     Wr, Hr = out_size === nothing ?
@@ -157,7 +160,7 @@ function rectify(
         sensor = i == 1 ? source(rig) : destination(rig)
         mi = model(sensor)
         Ki = mi isa CameraModel ? SMatrix{3, 3, Float64, 9}(calibration_matrix(sensor)) : nothing
-        _rectified_view(mi, images[i], Ki, geo.R[i], Kr_inv, window, Wout, Hout, precision)
+        _rectified_view(mi, images[i], Ki, geo.R[i], Kr_inv, window, Wout, Hout, precision, device)
     end
     return (; geo.rig, geo.R, geo.K, images = cis)
 end

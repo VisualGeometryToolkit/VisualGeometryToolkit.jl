@@ -1,0 +1,39 @@
+# LO timing baselines (the gate: VisualGeometryToolkitCore test/lo_timing/gate.jl): min µs per call over 7 reps
+# on one pinned core, and bytes allocated per call. Re-record with
+# LO_TIMING_GATE=record IN THE COMMIT that changes the speed on purpose.
+[host]
+cpu = "13th Gen Intel(R) Core(TM) i9-13900K"
+julia = "1.13.3"
+core = 19
+
+[arms."backproject"]
+us_per_call = 12.4
+bytes_per_call = 0.0
+
+[arms."backproject-batch"]
+us_per_call = 394.4
+bytes_per_call = 241080.0
+
+[arms."backproject-jacobian"]
+us_per_call = 15.1
+bytes_per_call = 0.0
+
+[arms."noncentral-project"]
+us_per_call = 336.4
+bytes_per_call = 0.0
+
+[arms."project-batch"]
+us_per_call = 5000.7
+bytes_per_call = 171200.0
+
+[arms."project-forward"]
+us_per_call = 25.7
+bytes_per_call = 0.0
+
+[arms."project-lm"]
+us_per_call = 199.9
+bytes_per_call = 0.0
+
+[arms."undistort-128"]
+us_per_call = 7877.3
+bytes_per_call = 145552.0

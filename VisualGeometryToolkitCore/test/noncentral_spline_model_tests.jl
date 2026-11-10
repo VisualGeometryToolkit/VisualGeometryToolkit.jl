@@ -86,6 +86,14 @@
         @test worst <= 1.0e-9
         @test all(isnan, project(nc, SVector(NaN, 0.0, 1.0)))
         @test all(isnan, project(nc, SVector(0.0, 0.0, 1.0), SVector(NaN, 0.0)))
+        # the two-argument form's start (the point's pinhole point where the model images
+        # it) gives the area-centre start's pixel to the solve's tolerance, the same mask
+        cx = origin(b.area) + widths(b.area) / 2
+        Xs = [(r = backproject(nc, SVector(x, y)); SVector{3}(r.origin) + 1500.0 * SVector{3}(r.direction)) for y in 0.0:37.0:999.0 for x in 0.0:37.0:999.0]
+        warm = [project(nc, X) for X in Xs]
+        cold = [VisualGeometryToolkitCore.Cameras._noncentral_project(nc, X, SVector{2, Float64}(cx[1], cx[2])) for X in Xs]
+        @test isnan.(first.(warm)) == isnan.(first.(cold))
+        @test maximum(i -> norm(warm[i] - cold[i]), findall(p -> all(isfinite, p), warm)) <= 1.0e-9
     end
 
     @testset "a perturbed point grid: the projected pixel's line goes through X" begin

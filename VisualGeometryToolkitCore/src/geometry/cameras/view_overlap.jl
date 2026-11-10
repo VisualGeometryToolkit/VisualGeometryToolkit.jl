@@ -158,6 +158,8 @@ struct _Footprint{M, G}
     far::Float64
 end
 
+# A SplineLens camera's principal point and pixel affine are its gauge K's (the pinhole at
+# the pixel imaging ẑ), so the footprint is about its optical axis as for a parametric lens.
 function _footprint(camera::BoundedCamera, n::Int)
     R = _orientation(camera.camera)
     m = model(camera)

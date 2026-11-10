@@ -242,7 +242,8 @@ end
 
 # The principal point of a camera's pixel frame, in Float64 — the one read the
 # valid domain, the datasheet image circle, `angle_of_view` and the rectification panels make
-# (`principal_point`, so a projective camera has one too).
+# (`principal_point`, so a projective camera has one too). For a SplineLens camera
+# it is the gauge's: the pixel imaging ẑ, which is what gives those reads a meaning.
 _principal_point(camera::CameraModel) = (c = principal_point(camera.intrinsics); Point2{Float64}(c[1], c[2]))
 
 # ============================================================================
@@ -418,6 +419,21 @@ LensDirection(::Type{<:AbstractLensModel}) = ForwardLens()
 LensDirection(::Type{<:LiftLens}) = BackwardLens()
 LensDirection(l::AbstractLensModel) = LensDirection(typeof(l))
 
+# The role of a camera's intrinsics in its parameters (a holy trait): FREE
+# intrinsics are physics, fitted with the lens (`f, aspect, skew, cx, cy`, then
+# the lens's coefficients); GAUGE intrinsics are a fixed choice of the
+# normalized plane the lens is written in (`SplineLens`: the pinhole at the
+# pixel imaging ẑ, skew 0), never a parameter — moving K would only re-express
+# the same rays. The ONE switch of the camera's parameter protocol
+# (lens_chart.jl: `_parameter_parts`), so a parameter vector, its names, bounds
+# and rebuild, the parameter manifold and its Jacobian, and a refinement's
+# default free set all read the lens's coefficients only for a gauge camera.
+abstract type IntrinsicsRole end
+struct FreeIntrinsics <: IntrinsicsRole end
+struct GaugeIntrinsics <: IntrinsicsRole end
+IntrinsicsRole(::Type{<:AbstractLensModel}) = FreeIntrinsics()
+IntrinsicsRole(l::AbstractLensModel) = IntrinsicsRole(typeof(l))
+
 # The bearing of `q` under `m`'s `backproject` and its 3 × 2 Jacobian, by ForwardDiff
 # through that `backproject` (element-type generic: the duals ride through it), the
 # point floated first. The ONE automatic-differentiation route of a back-projection:
@@ -467,7 +483,8 @@ end
 The lens-stripped pinhole twin (downstream packages hand-rolled
 `CameraModel(x.intrinsics, Pinhole())` in three places) and the composed
 camera-space → pixel map as a value. `intrinsics`/`lens`
-accessors live in cameras.jl.
+accessors live in cameras.jl. For a [`SplineLens`](@ref) camera the twin is the
+gauge pinhole at the optical-axis pixel (the pixel imaging ẑ).
 """
 pinhole(model::CameraModel) = CameraModel(model.intrinsics, Pinhole())
 imaging_transform(model::CameraModel) =
@@ -819,6 +836,8 @@ distorted ones: `pixel → K⁻¹ → lens → K → pixel`.  Spelled as a plain
 composition (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`) so `image_warp`'s
 `fuse` merges the calibration affines into the COLMAP/Julia index bridges —
 the fused per-pixel path is one affine, the lens polynomial, one affine.
+For a [`SplineLens`](@ref) camera K is the gauge pinhole at the optical-axis
+pixel, so the undistorted frame is that pinhole's.
 """
 function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel})
     K = _K(model.intrinsics)
@@ -846,7 +865,9 @@ composed distortion's [`Tilt`](@ref) the pixel samples a finite source pixel who
 the imaged branch there. Where the lens overlaps itself over the sensor, no
 undistortion is one-to-one, and a map built from `backproject` may jump
 between preimages (see [`backproject`](@ref)): injectivity is checked on the
-lens over the sensor rectangle, not per pixel.
+lens over the sensor rectangle, not per pixel. A [`SplineLens`](@ref)
+camera undistorts onto its gauge pinhole (its K: the pinhole at the pixel
+imaging ẑ), in every form here and in [`undistort!`](@ref).
 
 # Arguments
 - `model::CameraModel`: Camera model (any lens family)
@@ -1045,7 +1066,8 @@ end
 # closed 400-sample grid (`rect_edges`, corners included — `valid_rect` takes
 # per-edge extrema over them) and the setup: the frame size, the principal point
 # and the undistortion of a boundary pixel (`_boundary_undistort` at this
-# model's clip radius).
+# model's clip radius). A SplineLens camera's principal point is its gauge's (the
+# pixel imaging ẑ), so the walk is about the optical axis there too.
 _frame_edges(W::Float64, H::Float64) = rect_edges(Rect(0.0, 0.0, W, H), EdgeGrid{Closed}(400))
 function _frame_walk(model::CameraModel, sz, margin::Real)
     K = _K(model.intrinsics)
@@ -1173,6 +1195,7 @@ Boundary radii at or beyond `margin·r_∞` clip to the horizon exactly as in
 `undistorted_rect`: when the whole horizon circle lies inside the frame the
 valid region is unbounded and the clip is the honest cap. Throws when the
 inscribed window is empty (boundary folded past the principal point).
+A [`SplineLens`](@ref) camera's rect is on its gauge pinhole (the pixel imaging ẑ).
 """
 function valid_rect(
         model::CameraModel{<:_PixelMatrixIntrinsics, <:AbstractLensModel}, sz; margin::Real = HORIZON_MARGIN

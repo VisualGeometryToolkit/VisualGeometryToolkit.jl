@@ -73,7 +73,8 @@ end
 # the lens genuinely drops out — rows 1–2 of this matrix about the principal
 # point are the board's radial camera whatever the lens, because a radially
 # symmetric distortion about that point cannot move an image point off its own
-# ray from it.
+# ray from it (a lens that is not radially symmetric is refused there). A
+# SplineLens camera's K here is its gauge pinhole at the optical-axis pixel.
 #
 # The plane `(origin, u, v)` in world coordinates (default: the z = 0 board
 # plane, `origin = 0`, `u = e₁`, `v = e₂`): H = K·[R·u  R·v  R·origin + t].

@@ -96,7 +96,8 @@ is not a length. A [`BoundedCamera`](@ref) bounded by its physical
 The image circle is never predicted from the lens model: where the model's
 formula is valid is [`valid_domain`](@ref), a different region. A measured
 circle (an `Ellipse` segmented from images) serves wherever this one does.
-Where the camera images is [`imaged_region`](@ref)`(camera)`.
+A [`SplineLens`](@ref) camera's circle is centred on its gauge principal point,
+the pixel imaging ẑ. Where the camera images is [`imaged_region`](@ref)`(camera)`.
 
 ```julia
 cam = BoundedCamera(CameraModel(K; lens = KannalaBrandt(-0.135)), sensor("Sony", "IMX250"))

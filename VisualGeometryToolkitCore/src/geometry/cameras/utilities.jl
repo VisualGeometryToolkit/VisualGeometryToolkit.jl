@@ -101,6 +101,9 @@ lens that is not radially symmetric the [`valid_domain`](@ref) is inscribed, so
 a point between it and the true limit counts as the lens's limit: the answer can
 then overstate the angle slightly.
 
+A [`SplineLens`](@ref) camera reads about its gauge principal point, the
+pixel imaging ẑ, so the angles are about the optical axis.
+
 Clipping by the model: a point outside the lens model's [`valid_domain`](@ref)
 (or one the lens does not image) counts as the lens's own limit, so when the
 valid domain clips the covered area in that dimension the answer is

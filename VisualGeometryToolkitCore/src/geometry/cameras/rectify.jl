@@ -26,7 +26,8 @@ Geometry form: computes the rectifying rotations `R = (Q₁, Q₂)`
 (`RotMatrix3`s, original view-i orientation → the common rectified
 orientation, `Q₂ = Q₁·R_relᵀ`), the shared pinhole calibration `K`
 (`SMatrix{3,3}`; default: mean focal of the two views, mean principal
-point, zero skew), and the RECTIFIED rig — a [`StereoRig`](@ref) of two
+point, zero skew; a [`SplineLens`](@ref) camera contributes its gauge K, the
+pinhole at the pixel imaging ẑ), and the RECTIFIED rig — a [`StereoRig`](@ref) of two
 pinhole cameras with the same ids whose relative transform is the pure
 baseline translation. Rectified frames are NEW frames; the returned rig's
 `ViewFrame{id}`s label those, not the input views.

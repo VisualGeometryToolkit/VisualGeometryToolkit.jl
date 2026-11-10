@@ -247,11 +247,30 @@ model claims (see [`RadialCamera`](@ref)). That invariance is why a camera with
 ANY radially symmetric lens is admissible here, while
 `HomographyMat(::PosedPinholeCamera)` stays Pinhole-only: the plane map of a
 distorted camera is not a homography, but its radial camera is exact.
+
+A lens that is NOT radially symmetric is an `ArgumentError`: a decentering
+piece of the distortion (`Tangential`, `ThinPrism`, `Tilt`, alone or inside an
+`Additive` or a `∘` composition) or a [`SplineLens`](@ref) moves points off
+their rays from the centre, so the radial camera would not be exact.
 """
 function RadialCamera(cam::PosedCamera{<:CameraModel})
+    l = lens(cam)
+    _radially_symmetric(l) || throw(
+        ArgumentError("RadialCamera: the camera's $(nameof(typeof(l))) is not radially symmetric about its principal point, so its radial camera is not exact")
+    )
     K = calibration_matrix(cam)
     return RadialCamera(_induced_plane_homography(cam), Point2{Float64}(K[1, 3], K[2, 3]))
 end
+
+# Whether a lens is radially symmetric about the principal point — a function of its
+# type: a `Lens` is unless a stage of its distortion (`_stages`) holds a decentering
+# piece; a `SplineLens` is not (a calibrated grid has no symmetry).
+_radially_symmetric(::AbstractLensModel) = true
+_radially_symmetric(l::Lens) = all(_symmetric_stage, _stages(l.distortion))
+_radially_symmetric(::SplineLens) = false
+_symmetric_stage(a::Additive) = all(_symmetric_stage, a.terms)
+_symmetric_stage(::Union{Tangential, ThinPrism, Tilt}) = false
+_symmetric_stage(_) = true
 
 HomographyMat(P::RadialCamera{T}) where {T} = HomographyMat{T}(
     Tuple(

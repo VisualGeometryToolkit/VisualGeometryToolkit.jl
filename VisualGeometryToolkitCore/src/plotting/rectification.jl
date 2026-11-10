@@ -9,7 +9,9 @@
 # =============================================================================
 
 # The principal point of a camera's pixel frame (every panel's cross and title)
-# is Cameras' `_principal_point`, imported by the extension.
+# is Cameras' `_principal_point`, imported by the extension. For a SplineLens
+# camera the panels read its gauge K: the pinhole at the pixel imaging ẑ, and the
+# horizon of its grid's support (`monotone_radius(::SplineLens)`).
 
 # Centre and 180° radius of a camera's pixel frame. `monotone_radius` returns
 # `Inf` for a lens with no pole, so `isfinite(r_inf)` is the test for "this lens

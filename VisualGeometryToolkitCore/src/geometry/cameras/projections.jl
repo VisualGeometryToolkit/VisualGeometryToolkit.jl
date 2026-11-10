@@ -93,6 +93,11 @@ steps inside, as the rect builders' margin does.
   [`Additive`](@ref) led by one), wherever it sits — the stage [`project`](@ref)
   tests — read as above at that stage's output; the stages around it do not
   enter (for a stage behind a tilt, the frame's edge caps the stage's input).
+- a [`SplineLens`](@ref): the largest normalized radius about `x = 0` (its
+  gauge's principal point, the pixel imaging ẑ) whose disc lies inside the
+  lens's support — its backward area and the lattice cells whose 4 × 4 window
+  holds present nodes only, where the grid is defined (and, for a calibrated
+  grid, one-to-one); `0` when `x = 0` is outside it.
 """
 function monotone_radius(l::AbstractLensModel)
     lf = _precision(Float64, l)

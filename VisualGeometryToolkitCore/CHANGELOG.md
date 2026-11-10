@@ -27,6 +27,15 @@ sensor — so every consumer asks the camera what it images instead of supplying
   coverage ends on the way to it, so a circular fisheye's dark corners or a disc cut by a wide sensor give the angle the
   camera images. A camera whose whole sensor is covered reads as before, bit for bit. A principal point outside the
   coverage is an `ArgumentError`. No alias: `fov` is gone.
+- **Breaking: `RadialCamera(::PosedCamera{<:CameraModel})` refuses a lens that is not radially symmetric** — a
+  `Tangential`, `ThinPrism` or `Tilt` piece (alone, inside an `Additive` or in a `∘` composition) or a `SplineLens` —
+  with an `ArgumentError`: such a lens moves points off their rays from the centre, so the radial camera is not exact.
+  These were accepted silently before.
+- **New: a `SplineLens` camera's K is a frozen gauge.** An internal trait (`IntrinsicsRole`: free by default, a gauge
+  for a `SplineLens`) is the one switch of a camera's parameter protocol: for a gauge camera `parameter_names`,
+  `parameter_vector`, `parameter_bounds`, `parameters` and `with_parameters` (K kept identical) read the lens's
+  controls only. `monotone_radius(::SplineLens)` is the largest normalized disc about the principal point inside the
+  lens's support, so `horizon_radius` reads a grid.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

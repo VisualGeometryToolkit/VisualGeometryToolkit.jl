@@ -132,7 +132,7 @@ end
     return map(_ -> (false, false, false), lo)
 end
 @inline _bound_kinds(l::AbstractLensModel) = SVector(map(p -> (p[3], p[4], p[5]), _flatmap(_bound_spec, _leaves(l))))
-@inline _bound_kinds(m::CameraModel) = vcat(_bound_kinds(m.intrinsics), _bound_kinds(m.lens))
+@inline _bound_kinds(m::CameraModel) = vcat(map(_bound_kinds, _parameter_parts(m))...)
 @inline _bounds_eltype(l) = (T = _coeff_type(l); T === Union{} ? Float64 : T)
 
 """
@@ -223,21 +223,30 @@ convert_eltype(::Type{T}, m::RadialHomography) where {T <: AbstractFloat} =
 
 # --- CameraModel: the intrinsics' coordinates, then the lens's ---------------------
 #
-# A parametric camera's parameter vector is its intrinsics' followed by its
-# lens's, each part answered by its own methods once; the names stay unique
-# because the intrinsics' (`f, aspect, skew, cx, cy`) are no lens coefficient's.
+# A camera's parameters are those of its PARTS, in order, each part answered by
+# its own methods once (`_parameter_parts`, read off the lens's `IntrinsicsRole`):
+# free intrinsics, then the lens — `f, aspect, skew, cx, cy` and the lens's
+# coefficients, unique because the intrinsics' names are no lens coefficient's —
+# or, for a gauge camera (`SplineLens`), the lens alone: its K is the gauge and
+# is kept as it is by `with_parameters`, never moved by a fit.
 
-parameter_names(m::CameraModel) = (parameter_names(m.intrinsics)..., parameter_names(m.lens)...)
-@inline parameter_vector(m::CameraModel) = vcat(parameter_vector(m.intrinsics), parameter_vector(m.lens))
+@inline _parameter_parts(m::CameraModel) = _parameter_parts(IntrinsicsRole(m.lens), m)
+@inline _parameter_parts(::FreeIntrinsics, m::CameraModel) = (m.intrinsics, m.lens)
+@inline _parameter_parts(::GaugeIntrinsics, m::CameraModel) = (m.lens,)
+
+parameter_names(m::CameraModel) = _flatmap(parameter_names, _parameter_parts(m))
+@inline parameter_vector(m::CameraModel) = vcat(map(parameter_vector, _parameter_parts(m))...)
 @inline function parameter_bounds(m::CameraModel)
-    lo_i, hi_i = parameter_bounds(m.intrinsics)
-    lo_l, hi_l = parameter_bounds(m.lens)
-    return vcat(lo_i, lo_l), vcat(hi_i, hi_l)
+    b = map(parameter_bounds, _parameter_parts(m))
+    return vcat(map(first, b)...), vcat(map(last, b)...)
 end
 function with_parameters(m::CameraModel, θ::AbstractVector)
+    n = length(parameter_names(m))
+    length(θ) == n || throw(ArgumentError("CameraModel takes $n parameters $(parameter_names(m)); got $(length(θ))"))
+    return _with_camera_parameters(IntrinsicsRole(m.lens), m, θ)
+end
+function _with_camera_parameters(::FreeIntrinsics, m::CameraModel, θ)
     ni, nl = length(parameter_names(m.intrinsics)), length(parameter_names(m.lens))
-    length(θ) == ni + nl ||
-        throw(ArgumentError("CameraModel takes $(ni + nl) parameters $(parameter_names(m)); got $(length(θ))"))
     return _with_camera_parameters(m, θ, Val(ni), Val(nl))
 end
 @inline function _with_camera_parameters(m::CameraModel, θ, ::Val{ni}, ::Val{nl}) where {ni, nl}
@@ -245,6 +254,8 @@ end
     θl = SVector{nl}(ntuple(k -> θ[ni + k], Val(nl)))
     return CameraModel(with_parameters(m.intrinsics, θi), with_parameters(m.lens, θl))
 end
+# the gauge K as it is: `CameraModel(intrinsics, lens)`, so `calibration_matrix` is identical
+_with_camera_parameters(::GaugeIntrinsics, m::CameraModel, θ) = CameraModel(m.intrinsics, with_parameters(m.lens, θ))
 
 # --- the parameter manifold ----------------------------------------------------------
 

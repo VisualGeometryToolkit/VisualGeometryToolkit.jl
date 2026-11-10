@@ -194,6 +194,33 @@ Adapt.adapt_structure(to, cs::ChartSpline{K, T}) where {K, T} =
 # The controls convert as they are; the area stays.
 convert_eltype(::Type{T}, cs::ChartSpline{K}) where {T <: AbstractFloat, K} = ChartSpline(cs.area, map(SVector{K, T}, cs.controls))
 
+# ------------------------------------------------------------------------------
+# The controls as one coordinate vector
+# ------------------------------------------------------------------------------
+#
+# The ONE layout of a lattice's controls as a vector (a SplineLens's parameter
+# vector): the held nodes in `CartesianIndices` order — column-major over
+# `[row, column]`, the order of `nodes` (support.jl) — each node's K components in
+# turn. `present` is a presence mask (`nothing`: every node held); an absent node
+# holds no coordinate and keeps its control on a rebuild.
+_held_nodes(::Nothing, sz) = vec(CartesianIndices(sz))
+_held_nodes(present::AbstractMatrix{Bool}, sz) = [i for i in CartesianIndices(sz) if present[i]]
+_control_vector(controls::AbstractMatrix{SVector{K, T}}, present) where {K, T} =
+    T[controls[i][k] for i in _held_nodes(present, size(controls)) for k in 1:K]
+_control_names(controls::AbstractMatrix{<:SVector{K}}, present) where {K} =
+    Tuple(Symbol("c_", i[1], "_", i[2], "_", ("x", "y", "z")[k]) for i in _held_nodes(present, size(controls)) for k in 1:K)
+function _with_control_vector(controls::AbstractMatrix{SVector{K, T}}, present, θ::AbstractVector) where {K, T}
+    held = _held_nodes(present, size(controls))
+    length(θ) == K * length(held) ||
+        throw(ArgumentError("a $(size(controls, 1)) × $(size(controls, 2)) lattice of $(length(held)) held nodes takes $(K * length(held)) control coordinates; got $(length(θ))"))
+    S = float(promote_type(T, eltype(θ)))
+    out = map(SVector{K, S}, controls)
+    for (j, i) in enumerate(held)
+        out[i] = SVector{K, S}(ntuple(k -> θ[firstindex(θ) + K * (j - 1) + k - 1], Val(K)))
+    end
+    return out
+end
+
 # THE weights of a point's window and their derivatives in the lattice coordinate, from
 # ONE evaluation of the cubic pieces: `(gx, ix, iy, wx, wy, dwx, dwy)` at the point `x`
 # of the lattice of `gsz = (rows, cols)` over `area`, the window the point's own

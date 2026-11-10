@@ -116,6 +116,11 @@ end
     return SVector(o[1] + (gx1 - 2) * hx, o[2] + (gy1 - 2) * hy)
 end
 
+# The cell of window `(ix, iy)` (it reads columns ix − 2 … ix + 1 and covers the cell
+# between nodes ix − 1 and ix, rows likewise) as its corners `(lo, hi)` on `rect`.
+@inline _window_cell(rect::Rect2, gsz, ix::Integer, iy::Integer) =
+    (_lattice_node(rect, gsz, ix - 1, iy - 1), _lattice_node(rect, gsz, ix, iy))
+
 # Shared validation of the calibrated-area rectangle (integer pixel indices,
 # inclusive, COLMAP frame: area spans [min_x, max_x + 1) × [min_y, max_y + 1)).
 function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
@@ -459,6 +464,49 @@ end
 
 # A backward lens: its direction Jacobian differentiates `backproject` (camera_models.jl).
 LensDirection(::Type{<:SplineLens}) = BackwardLens()
+
+# Its K is a gauge (camera_models.jl, `IntrinsicsRole`): a camera's parameters are the lens's alone.
+IntrinsicsRole(::Type{<:SplineLens}) = GaugeIntrinsics()
+
+# The lens's parameters: its backward spline's controls at the present nodes, one
+# coordinate vector in the lattice's one layout (`_control_vector`, chart_spline.jl),
+# named `c_<row>_<col>_<x|y|z>`, unbounded. A heap vector: a lattice holds 10³–10⁴
+# coordinates. `with_parameters` keeps the area and the mask; a lens with a forward
+# spline refuses it — the forward is a fit of the backward, which a new backward
+# would leave stale (and `project` reads the forward). The parameter manifold of
+# a lattice of this size (`ParameterManifold`'s chart is static) is not yet served.
+parameter_vector(l::SplineLens) = _control_vector(l.backward.controls, l.present)
+parameter_names(l::SplineLens) = _control_names(l.backward.controls, l.present)
+parameter_bounds(l::SplineLens) = invoke(parameter_bounds, Tuple{Any}, l)        # unbounded: the generic default
+_bound_kinds(l::SplineLens) = invoke(_bound_kinds, Tuple{Any}, l)
+function with_parameters(l::SplineLens, θ::AbstractVector)
+    l.forward === nothing || throw(
+        ArgumentError(
+            "with_parameters: a SplineLens with a forward spline — the forward is a fit of the backward, which new controls would leave stale; " *
+                "drop it first: SplineLens(lens.backward; present = lens.present)"
+        )
+    )
+    b = l.backward
+    return SplineLens(ChartSpline(b.area, _with_control_vector(b.controls, l.present, θ)); present = l.present)
+end
+_rebuild(l::SplineLens, θ) = with_parameters(l, θ)
+
+# The largest normalized radius about x = 0 (the gauge's principal point) whose disc
+# lies inside the lens's support: its backward area ∩ the cells whose 4 × 4 window is
+# fully present (`monotone_radius`'s docstring, projections.jl).
+function monotone_radius(l::SplineLens)
+    b = l.backward
+    o = GeometryBasics.origin(b.area); w = GeometryBasics.widths(b.area)
+    r = max(0.0, min(-o[1], o[1] + w[1], -o[2], o[2] + w[2]))     # the area's edges (0 outside it)
+    l.present === nothing && return r
+    gsz = gh, gw = size(b.controls)
+    for iy in 3:(gh - 1), ix in 3:(gw - 1)
+        _window_present(l.present, ix, iy) && continue
+        lo, hi = _window_cell(b.area, gsz, ix, iy)
+        r = min(r, norm(max.(lo, min.(zero(lo), hi))))             # the disc's distance to an absent cell
+    end
+    return r
+end
 
 # The same camera under a diagonal change of the normalized plane, x′ = x / s
 # (`CameraModel(model, K′)` with a shared principal point, s = f′/f per axis):
@@ -1063,12 +1111,11 @@ function valid_domain(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
     area = _pixel_area(cam.intrinsics, b.area)
     l.present === nothing && return area
     gsz = gh, gw = size(b.controls)
-    # window (ix, iy) reads columns ix − 2 … ix + 1 and covers the cell between nodes ix − 1 and ix
     full = [(ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1) if _window_present(l.present, ix, iy)]
     isempty(full) && throw(ArgumentError("valid_domain: no 4 × 4 window of the spline lens holds present nodes only"))
     jx = extrema(first, full); jy = extrema(last, full)
-    a = _lattice_node(area, gsz, jx[1] - 1, jy[1] - 1)
-    z = _lattice_node(area, gsz, jx[2], jy[2])
+    a = first(_window_cell(area, gsz, jx[1], jy[1]))
+    z = last(_window_cell(area, gsz, jx[2], jy[2]))
     return Rect2{Float64}(a, z - a)
 end
 

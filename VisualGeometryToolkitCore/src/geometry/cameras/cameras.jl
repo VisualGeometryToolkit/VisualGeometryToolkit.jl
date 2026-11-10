@@ -792,7 +792,9 @@ focal_length(camera::PosedCamera) = focal_length(intrinsics(camera))
 """
     calibration_matrix(camera::PosedCamera) -> SMatrix{3,3,Float64,9}
 
-Return the 3×3 calibration matrix K as a plain `SMatrix`.
+Return the 3×3 calibration matrix K as a plain `SMatrix`. For a
+[`SplineLens`](@ref) camera K is the lens's gauge — the pinhole at the pixel
+imaging ẑ (skew 0) — kept as it is by every fit.
 
 # Example
 ```julia

@@ -29,6 +29,11 @@
     end
     @test_throws ArgumentError _assert_rotation(SMatrix{3, 3, Float32}(1.001, 0, 0, 0, 1, 0, 0, 0, 1) * 1.1f0)
 
+    # Float32's tolerance (100·eps(Float32) ≈ 1.2e-5) still refuses a visibly non-rigid
+    # matrix: a 1e-4 skew, far above Float32 rounding, is not a rotation.
+    R32 = SMatrix{3, 3, Float32}(Matrix(RotXYZ(0.3f0, 0.2f0, 0.1f0)))
+    @test_throws ArgumentError _assert_rotation(R32 + SMatrix{3, 3, Float32}(1.0f-4 * [0 1 0; 1 0 0; 0 0 0]))
+
     # Float64 is unchanged: the 1.5e-7 tolerance still refuses 1e-6 errors.
     R64 = SMatrix{3, 3, Float64}(Matrix(RotXYZ(0.3, 0.2, 0.1)))
     @test _assert_rotation(R64) === nothing

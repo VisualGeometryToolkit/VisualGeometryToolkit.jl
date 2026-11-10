@@ -146,13 +146,14 @@ end
 # `StaticMatrix{N,N}` and verifies `R Rᵀ ≈ I` (Frobenius norm) and `det(R) > 0`.
 # The residual is measured in Float64 whatever the element type, and the decision
 # and the error message use that one quantity, so the message can never contradict
-# the verdict. The default tolerance `10·√eps(T)` follows the element type `T`:
-# a Float32 matrix carries a Float32 rounding residual (a few ulps ≈ 1e-7), which
-# the Float64 tolerance (≈ 1.5e-7, unchanged for Float64) would refuse. Throws
+# the verdict. The default tolerance is `max(10·√eps(Float64), 100·eps(T))` for the
+# element type `T`: Float64 keeps ≈ 1.5e-7 unchanged, and a Float32 matrix — whose
+# rounding residual is a few Float32 ulps (≈ 1e-7) — is held to ≈ 1.2e-5, not to a
+# √eps(Float32) bound loose enough to accept a visibly non-rigid matrix. Throws
 # `ArgumentError` with the measured deviation on failure.
 function _assert_rotation(
         R::Union{Rotation{N}, StaticMatrix{N, N}};
-        atol::Real = 10 * sqrt(eps(float(real(eltype(R)))))
+        atol::Real = max(10 * sqrt(eps(Float64)), 100 * eps(float(real(eltype(R)))))
     ) where {N}
     Rm = SMatrix{N, N, Float64}(R)
     dev_orth = norm(Rm * Rm' - SMatrix{N, N, Float64}(LinearAlgebra.I))

@@ -329,6 +329,49 @@ Consolidate in the same task. The report names what was grepped and what was del
 - [ ] **Step 4: Run** the full Estimation suite. Expected: green. Also run the Features and Eval suites (they must stay green; they hold no references).
 - [ ] **Step 5: Duplication gate.** There is one quadrature, one spacing search and one gauge source. Commit: `"VisualGeometryToolkitEstimation: fit_camera(SplineLens) fits the backward grid and the forward spline of one camera"`.
 
+### Task 7b: Refine a SplineLens camera and its poses (owner, 2026-11-10: in 0.9)
+
+**Goal:** `refine_camera_and_poses(cam::BoundedCamera{<:CameraModel{<:Any,<:SplineLens}}, poses, views; …)` refines the backward controls of the present nodes together with the poses. K stays bit-identical (gauge). It replaces Task 7's refusal.
+
+**Files:**
+- Modify: `VisualGeometryToolkitEstimation/src/fitting/refine_camera_and_poses.jl` (dispatch on Core's `IntrinsicsRole`: `GaugeIntrinsics` takes the spline route; `FreeIntrinsics` is unchanged).
+- Create: one Estimation file for the spline refine (variables, residual block, regularizer block).
+- Core only where a helper must be shared (e.g. a public analytic `∂x*/∂controls` at the projected point). Nothing duplicated between Core and Estimation.
+- Tests: `refine_camera_and_poses_tests.jl` (Task 5's item, ported), plus a new item for the spline route.
+- CHANGELOG 0.9.0 (Estimation, and Core if a helper is added); the Estimation docs page that lists refine.
+
+**Design (from the Task 7 implementer's proposal, approved by the controller):**
+- **Variables.** One NLLSsolver variable per present node: an `SVector{3}` control, with a Euclidean 3-chart. The controls renormalize in the chart's retraction only if the lens stores unit controls (check `unit_controls`). Poses stay as they are in the parametric refine.
+- **Residual blocks.** One block per correspondence. It depends on its window's 16 nodes and its pose, so `ndeps = 17`, static. The residual is the pixel reprojection error `K·x* − u`, where `x* = project_lens(controls, X_cam)` is the lens LM solution. The block evaluates the LM once.
+- **Jacobian: analytic, by implicit differentiation at x*.** No ForwardDiff touches the LM (the #64827 rule).
+  - Let ρ(x, c, X) be the tangent-plane residual of `backward(x)` against `X`. Then `dx/dc = −(∂ρ/∂x)⁻¹ ∂ρ/∂c` and `dx/dX = −(∂ρ/∂x)⁻¹ ∂ρ/∂X`. `∂ρ/∂c` is linear in `spline_weights(cs, x*)`.
+  - Reuse Core's `_spline_value_and_partials` and `_spline_direction_and_jacobian`. Do not write a second window sweep.
+  - Pixel: `∂u/∂· = K₂ₓ₂ · ∂x/∂·`, with K frozen.
+  - A test checks the analytic block Jacobian against finite differences of the residual (not ForwardDiff through the LM) to 1e-6 relative.
+- **Regularizer.** A third-difference block (`difference_rows`, the same operator the P-spline backward fit uses: reuse it, do not copy it) over each row and column of present nodes, with weight `λ` (keyword, default from the fit's P-spline λ if the camera carries one, else documented). It holds nodes the data do not reach and fixes the gauge freedom the data leave.
+- **Gauge.** K is never a variable. A rotation of all controls together with all poses is a gauge freedom of the data. The regularizer does not fix it, so fix it explicitly: the lens axis `normalize(backward(0, 0))` stays ẑ, by holding the node(s) whose window contains x = 0 fixed, or by an equivalent documented constraint. A test shows the axis is unchanged to 1e-9 rad.
+- **Forward spline.** If the camera holds a forward, refine drops it, refines the backward, and refits the forward through `fit_camera(SplineLens, refined, region)` (Core/Estimation's one route) only if `refit_forward = true` (default true). The metadata says which happened.
+- **Masked nodes** are not variables. A correspondence whose window holds an absent node is dropped and counted in the metadata (`n_dropped_window`).
+- **Device:** CPU (NLLSsolver). State it in the docstring.
+
+**Steps:**
+- [ ] **Step 1: Write the failing tests.**
+  - The synthetic 3-view fixture (Task 5's brief): a KB-derived SplineLens camera, perturbed controls, noisy poses. Then:
+    - `calibration_matrix` is bit-identical after the refine (`===` intrinsics);
+    - the reprojection cost is lower;
+    - backproject agrees with the true lens to better than the perturbation (state the numbers);
+    - the axis is unchanged to 1e-9 rad.
+  - Analytic vs finite-difference block Jacobian to 1e-6 relative.
+  - `free = ()` refines poses only, and the controls are `==`.
+  - A camera with a forward: refined, forward refitted, `forward_max_px ≤ tolerance`.
+  - A masked lens: correspondences in absent windows dropped and counted.
+- [ ] **Step 2: Run.** Expected: FAIL (refusal ArgumentError).
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the full Estimation suite, and Core if touched. Expected: green.
+- [ ] **Step 5: Duplication gate** (one window sweep, one difference operator, one LM, one gauge). Commit: `"VisualGeometryToolkitEstimation: refine_camera_and_poses refines a SplineLens camera's controls with its poses, K frozen"`.
+
+**Docstring (owner, 2026-11-10):** state the model. The target is exact, so the result is the maximum-likelihood estimate for isotropic Gaussian detection noise. A board that departs from its design (an in-plane warp, such as an affine or smooth deformation, plus a height field) is not modelled here. That is the board-deformation solve of RadiometricCamera's calibration pipeline.
+
 ### Task 8: Whole-monorepo sweep
 
 - [ ] **Step 1:** Run `grep -rn` over the monorepo (excluding CHANGELOGs and the plans) for every retired name and for "generic model"/"generic camera" wording in docs and docstrings. Expected: no hits.

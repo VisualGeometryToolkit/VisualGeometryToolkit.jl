@@ -26,9 +26,9 @@ that this class of bug cannot be written down:
 ## What every vgio file guarantees
 
 Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
-rig v9; cameras and target v5; transforms, trajectory and generic_camera v4;
+rig v9; cameras and target v5; transforms and trajectory v4;
 target_poses, target_points2d, target_points3d and target_detections v2;
-target_homographies, capture_settings, calibration, vignetting,
+noncentral_spline, target_homographies, capture_settings, calibration, vignetting,
 environment_light and blur v1; and
 v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
@@ -147,15 +147,16 @@ current one as it stands: v4 / v7 only add a planar target's `layout`),
 `rig/v7`–`v8` (a v8 sensor's old grid body becomes its spline camera's body in
 v9) and `generic_camera/v2`–`v3` (the old grid records: a central one reads as
 the camera store of its one camera with a `SplineLens`, named after the file
-(`fisheye_14mm.json` → `:fisheye_14mm`), a non-central one as the v4 record;
+(`fisheye_14mm.json` → `:fisheye_14mm`), a non-central one as the
+`vgio/noncentral_spline/v1` record, the kind renamed after its `type` token;
 read, never rewritten — `vgio_migrate` writes a central one's camera store to a
-NEW `vgio/cameras/v5` file beside it, `<stem>.camera.json`, never overwriting
-one, and refuses a non-central one).
+NEW `vgio/cameras/v5` file beside it, `<stem>.camera.json`, a non-central one's
+record to `<stem>.noncentral.json`, never overwriting one).
 
 A version no published file holds, and that no step reads, is refused by
 name. A v1 or v2 transforms or trajectory file never had a migration,
-because its free-form frame names have no typed successor; `rig/v1`–`v2` and
-`generic_camera/v1` have none either. Re-export such a file from the program
+because its free-form frame names have no typed successor; `rig/v1`–`v2`,
+`generic_camera/v1` and the unreleased `generic_camera/v4` have none either. Re-export such a file from the program
 that produced it.
 
 The direct-serialization redesign (2026-10) also retired these kinds, with no

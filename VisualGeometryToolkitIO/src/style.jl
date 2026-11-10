@@ -186,7 +186,7 @@ end
 # convex, cut by the frame, with holes) — and its controls as the held nodes'
 # values, row by row. A record without runs holds every node. The ONE codec of
 # the lens record (camera_schema.jl) and the non-central record
-# (generic_camera_schema.jl), and of the old grid bodies their migrations read.
+# (noncentral_spline_schema.jl), and of the old grid bodies their migrations read.
 
 # The stored type names of the old grid models — the `type` of Schöps et al.'s
 # intrinsics0.yaml and of the old vgio grid records (generic_camera v2/v3, a rig

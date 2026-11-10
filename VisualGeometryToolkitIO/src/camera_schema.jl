@@ -496,7 +496,7 @@ Read a `vgio/cameras/v5` store: name → `BoundedCamera` of a `CameraModel`
 v1–v4 store is read through its version steps (`migrate_record`), and a
 central `vgio/generic_camera/v2` or `v3` file as the store of its one camera,
 named after the file's basename (`fisheye_14mm.json` → `:fisheye_14mm`; a
-`CameraModel` with a `SplineLens`: generic_camera_schema.jl).
+`CameraModel` with a `SplineLens`: noncentral_spline_schema.jl).
 """
 load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString) = _load_store(_read_vgio_json(path), path)
 # The store of a parsed file (`d`, its JSON).
@@ -529,7 +529,8 @@ config ends up calibrated for the wrong lens while reporting success.
 The grid cameras of Schöps et al. read through the same call, by the file's
 content: a central `vgio/generic_camera/v2` or `v3` file as its camera with a
 `SplineLens` (its nominal pinhole the K, else the lattice's gauge; its domain
-the lens coverage), a `vgio/generic_camera` non-central record as a
+the lens coverage), a `vgio/noncentral_spline` record (or an old non-central
+`vgio/generic_camera/v2`/`v3` file, through its steps) as a
 `BoundedCamera{<:NoncentralSplineModel}`, and the reference implementation's
 `intrinsics0.yaml` as either (schoeps.jl; a non-central YAML's `point_grid`
 unit is the caller's `file_unit`). Old grid files are read, never rewritten.
@@ -549,7 +550,7 @@ function load(
     file_unit === nothing ||
         throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
     d = _read_vgio_json(path)                           # parsed once (a grid file is large), read as the kind it is
-    if _is_noncentral_grid(d)                           # a vgio/generic_camera record (generic_camera_schema.jl)
+    if _is_noncentral_grid(d)                           # a non-central record (noncentral_spline_schema.jl)
         name === nothing || throw(ArgumentError("$(path) holds one non-central camera; `name` names a camera of a store"))
         return _load_noncentral(d, path)
     end

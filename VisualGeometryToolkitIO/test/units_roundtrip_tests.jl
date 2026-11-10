@@ -21,7 +21,7 @@
         "rig_pitch.json" => Rig,
         "target_points.json" => AbstractTarget, "target_planar.json" => AbstractTarget,
         "trajectory.json" => Trajectory, "target_poses.json" => TargetPoses,
-        "target_points3d.json" => TargetPoints3D, "generic_camera_v4.json" => BoundedCamera,
+        "target_points3d.json" => TargetPoints3D, "noncentral_spline.json" => BoundedCamera,
         "spline_camera_masked.json" => Dict{Symbol, BoundedCamera},
         "target_points2d.json" => TargetPoints2D,
     )

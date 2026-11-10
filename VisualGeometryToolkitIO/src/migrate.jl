@@ -260,8 +260,9 @@ A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
 VisualGeometryToolkitIO's own: `vgio/cameras/v1` → … → v5,
 `vgio/target/v1` → … → v5, `vgio/rig/v4` → … → v9 and
-`vgio/generic_camera/v2` → v3 → v4 (an old grid file is read, never rewritten:
-the file form of a central one writes its camera store to a new file).
+`vgio/generic_camera/v2` → v3 → `vgio/noncentral_spline/v1` (the kind renamed;
+an old grid file is read, never rewritten: its file form writes a central one's
+camera store, a non-central one's record, to a new file).
 """
 function migrate_schema end
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
@@ -306,7 +307,15 @@ function migrate_record(tree::AbstractDict)
 end
 # Whether a step's schema `to` is a later version of the kind `from` names
 # (`<kind>/v<n>`, an owner's kinds included): what keeps the steps from looping.
+# A step into a renamed kind (`_FORMER_KIND`) moves forward from any version of its former name.
 function _moves_forward(from::AbstractString, to)
+    a, b = _split_schema(from), _split_schema(to)
+    (a === nothing || b === nothing) && return _moves_forward_owned(from, to)
+    a.kind == b.kind && return b.version > a.version
+    return get(_FORMER_KIND, b.kind, nothing) == a.kind
+end
+# A schema owner's kind (any `<kind>/v<n>`, not only vgio's): a later version of the same kind.
+function _moves_forward_owned(from::AbstractString, to)
     a, b = match(r"^(.+)/v(\d+)$", from), to isa AbstractString ? match(r"^(.+)/v(\d+)$", to) : nothing
     return a !== nothing && b !== nothing && a[1] == b[1] && parse(Int, b[2]::AbstractString) > parse(Int, a[2]::AbstractString)
 end
@@ -314,14 +323,15 @@ end
 """
     vgio_migrate(path; out = <stem>.migrated.json beside path, dry_run = false) -> NamedTuple
 
-An old central grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten:
-its camera store — the `vgio/cameras/v5` record of its one camera, named after
-the file — is written to a NEW file, by default `<stem>.camera.json` beside it
-(an existing one refused, `out == path` refused); a non-central one is refused.
+An old grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten: a
+central one's camera store — the `vgio/cameras/v5` record of its one camera,
+named after the file — is written to a NEW file, by default `<stem>.camera.json`
+beside it, a non-central one's `vgio/noncentral_spline/v1` record to
+`<stem>.noncentral.json` (an existing one refused, `out == path` refused).
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, an old central grid file, and any
+schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, an old grid file, and any
 a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
@@ -379,12 +389,14 @@ _is_toml(path) = endswith(lowercase(path), ".toml")
 # An old grid file (vgio/generic_camera v2/v3) is read, never rewritten (owner, 2026-11-09).
 const _OLD_GRID_REFUSAL = "an old grid file is read, never rewritten (owner, 2026-11-09): load(BoundedCamera, path) reads it as it is"
 
-# Where `vgio_migrate` writes a file by default: an old central grid file's camera store
-# to a NEW file beside it, `<stem>.camera.json` (the input is never rewritten); any
-# other file beside itself as `<stem>.migrated<ext>`.
-_default_out(path) = _is_central_grid(_try_tree(path)) ? string(first(splitext(path)), ".camera.json") : _migrated_path(path)
-# The parsed file, `nothing` when it is not a readable JSON object.
-_try_tree(path) = endswith(lowercase(path), ".json") && isfile(path) ? (try _read_vgio_json(path) catch; nothing end) : nothing
+# Where `vgio_migrate` writes a file by default: an old grid file's current record to a
+# NEW file beside it (the input is never rewritten) — a central one's camera store,
+# `<stem>.camera.json`, a non-central one's record, `<stem>.noncentral.json`; any other
+# file beside itself as `<stem>.migrated<ext>`.
+function _default_out(path)
+    _try_schema(path) in _OLD_GRID_SCHEMAS || return _migrated_path(path)   # the schema peeked; a grid file parsed only then
+    return string(first(splitext(path)), _is_central_grid(_read_vgio_json(path)) ? ".camera.json" : ".noncentral.json")
+end
 
 # The generic file form for a TOML record whose schema has a step and no file
 # form: from the parsed `tree`, run the steps, print, read the print back and
@@ -981,7 +993,7 @@ migrate_schema(::Val{Symbol("vgio/rig/v6")}, t::AbstractDict) = _rig_v6_to_v7(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
-migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_v4(t)
+migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_noncentral(t)
 migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
 
 # The covariance storage (2026-11): a covariance is written in the storage its
@@ -1099,19 +1111,19 @@ function _noncentral_grid_body(b::AbstractDict)
     return merge(body, _old_grid_extras(b))
 end
 
-# vgio/generic_camera/v3 → v4 (the spline lens, 2026-11): the kind holds the
+# vgio/generic_camera/v3 → vgio/noncentral_spline/v1 (the spline lens, 2026-11): the kind holds the
 # non-central grid camera alone, its splines over the K-normalized plane. A
-# central v3 record has no v4 form — it is a camera with a spline lens, read as
+# central v3 record has no such form — it is a camera with a spline lens, read as
 # the camera store of its one camera (`load(BoundedCamera, path)`).
-function _generic_camera_v3_to_v4(old)
+function _generic_camera_v3_to_noncentral(old)
     get(old, "type", nothing) == _OLD_CENTRAL_TYPE && throw(
         ArgumentError(
-            "a central grid camera is a camera with a spline lens, not a vgio/generic_camera/v4 record: " *
+            "a central grid camera is a camera with a spline lens, not a $(_schema("noncentral_spline")) record: " *
                 "load(BoundedCamera, path) reads its file as the camera store of its one camera"
         )
     )
     head = Dict{String, Any}(k => old[k] for k in ("pixel_frame", "length_unit", "provenance") if haskey(old, k))
-    return merge(head, _noncentral_grid_body(old), Dict{String, Any}("schema" => "vgio/generic_camera/v4"))
+    return merge(head, _noncentral_grid_body(old), Dict{String, Any}("schema" => _schema("noncentral_spline")))
 end
 
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
@@ -1154,12 +1166,13 @@ migrate_schema(::Val{Symbol("vgio/cameras/v1")}, src::AbstractString, dst::Abstr
 migrate_schema(::Val{Symbol("vgio/cameras/v2")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v3")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
 migrate_schema(::Val{Symbol("vgio/cameras/v4")}, src::AbstractString, dst::AbstractString) = _migrate_cameras(src, dst)
-# An old grid file (vgio/generic_camera v2/v3) is never rewritten: a central one's
-# camera store — the store its reader gives — is written to the new file `dst`
-# (`vgio_migrate`'s default `<stem>.camera.json`), a non-central one is refused.
+# An old grid file (vgio/generic_camera v2/v3) is never rewritten: its current
+# record — a central one's camera store, the store its reader gives; a non-central
+# one's noncentral_spline record, through its steps — is written to the new file
+# `dst` (`vgio_migrate`'s default `<stem>.camera.json` / `<stem>.noncentral.json`).
 function _migrate_old_grid(src, dst)
     d = _read_vgio_json(src)
-    _is_central_grid(d) || throw(ArgumentError("$(src): $(_OLD_GRID_REFUSAL)"))
+    _is_central_grid(d) || return (_migrate_file(BoundedCamera, src, dst, "the old non-central grid file's camera"); (; to = _schema("noncentral_spline")))
     _migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store of the old central grid file"; current = _lower(_central_grid_store(d, src)))
     return (; to = _schema("cameras"))
 end
@@ -1532,7 +1545,6 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             end
             continue
         end
-        s in _OLD_GRID_SCHEMAS && !_is_central_grid(_try_tree(f)) && (println(io, "SKIPPED   ", f, ": ", s, ": ", _OLD_GRID_REFUSAL); continue)
         out = in_place && !(s in _OLD_GRID_SCHEMAS) ? f : _default_out(f)   # an old grid file is never rewritten
         so = isfile(out) ? _try_schema(out) : nothing
         if !in_place && so isa String && _is_current(so)

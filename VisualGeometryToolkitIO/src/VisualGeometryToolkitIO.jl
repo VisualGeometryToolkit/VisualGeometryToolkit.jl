@@ -33,8 +33,8 @@ and times) or an `Attributed` attribute (a camera's `calibration` block, a targe
 `calibration_record`; a covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
-versions: rig v8; target v5; cameras, transforms and trajectory v4;
-generic_camera v3; target_poses, target_points2d, target_points3d and
+versions: rig v9; cameras and target v5; transforms and trajectory v4;
+noncentral_spline v1 (the old grid kind generic_camera renamed); target_poses, target_points2d, target_points3d and
 target_detections v2; target_homographies, capture_settings, calibration,
 vignetting, environment_light and blur v1; the rest v2), and a file is
 sufficient on its own and minimal:
@@ -138,8 +138,8 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v5     the camera store
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed); the
 #                                                grid cameras of Schöps et al. too (a SplineLens camera, a
-#                                                NoncentralSplineModel: vgio/generic_camera, old grid files, intrinsics0.yaml)
-#   load(BoundedCamera, path)                    vgio/generic_camera/v4  a non-central grid camera (BoundedCamera{<:NoncentralSplineModel})
+#                                                NoncentralSplineModel: vgio/noncentral_spline, old grid files, intrinsics0.yaml)
+#   load(BoundedCamera, path)                    vgio/noncentral_spline/v1  a non-central grid camera (BoundedCamera{<:NoncentralSplineModel})
 #   load(Vector{EuclideanMap}, path)             vgio/transforms/v4  labeled poses
 #   load(Rig, path; resolve = nothing)           vgio/rig/v9         sensors, targets, or both
 #   load(AbstractTarget, path; resolve = nothing) vgio/target/v5     one target (+ its calibration record)
@@ -187,7 +187,7 @@ include("colmap_database.jl")
 include("frame_names.jl")     # the frame grammar: frame types ↔ names (every pose-carrying kind)
 include("transform_schema.jl")
 include("camera_schema.jl")
-include("generic_camera_schema.jl")  # the non-central grid camera, vgio/generic_camera/v4 (must precede rig_schema: sensors embed it)
+include("noncentral_spline_schema.jl")  # the non-central grid camera, vgio/noncentral_spline/v1 (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities

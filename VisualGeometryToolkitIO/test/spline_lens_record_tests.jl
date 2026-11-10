@@ -1,15 +1,16 @@
 # =============================================================================
-# The spline lens record, the non-central record (vgio/generic_camera/v4), and
+# The spline lens record, the non-central record (vgio/noncentral_spline/v1), and
 # the old grid files read through their migrations
 # =============================================================================
 #
 # A camera with a `SplineLens` is stored as any camera: a camera body whose lens
 # is the `{"spline": …}` record, in the K-normalized plane. The non-central grid
-# camera is the generic_camera/v4 record. An old central grid file
+# camera is the noncentral_spline/v1 record. An old central grid file
 # (vgio/generic_camera/v2, v3) reads as the camera store of its one camera, a
-# non-central one through its v3 → v4 step; both backproject as the old models
-# did (GOLDEN_IO, recorded with the old reader), and neither is rewritten:
-# `vgio_migrate` writes a central one's camera store to a new file beside it.
+# non-central one through its step to the noncentral_spline/v1 record; both
+# backproject as the old models did (GOLDEN_IO, recorded with the old reader),
+# and neither is rewritten: `vgio_migrate` writes a central one's camera store,
+# a non-central one's record, to a new file beside it.
 
 @testsetup module SplineRecordFixtures
     using StaticArrays: SVector
@@ -97,16 +98,33 @@ end
     # without a stored K the camera is refused, so nothing is written
     e = try VisualGeometryToolkitIO.vgio_migrate(p0; out = joinpath(tmp, "nok.camera.json")); nothing catch e; e end
     @test e isa ArgumentError && occursin("supply K", e.msg) && !ispath(joinpath(tmp, "nok.camera.json"))
-    # the non-central old file is read, never rewritten
-    e = try VisualGeometryToolkitIO.vgio_migrate(joinpath(fixtures, "old", "generic_camera_v2.json"); dry_run = true); nothing catch e; e end
-    @test e isa ArgumentError && occursin("never rewritten", e.msg)
+    # a non-central old file: the same rule, its vgio/noncentral_spline/v1 record at <stem>.noncentral.json
+    mktempdir() do dir
+        for f in ("old/generic_camera_v2.json", "units/generic_camera.json")
+            q = joinpath(dir, basename(f)); cp(joinpath(fixtures, f), q)
+            raw = read(q)
+            r = VisualGeometryToolkitIO.vgio_migrate(q)
+            o = joinpath(dir, first(splitext(basename(f))) * ".noncentral.json")
+            @test r.out == o && r.to == "vgio/noncentral_spline/v1" && VisualGeometryToolkitIO._peek_schema(o) == "vgio/noncentral_spline/v1"
+            @test read(q) == raw
+            @test VisualGeometryToolkitIO.same_value(load(BoundedCamera, o), load(BoundedCamera, q))
+            e = try VisualGeometryToolkitIO.vgio_migrate(q); nothing catch e; e end
+            @test e isa ArgumentError && occursin(o, e.msg)
+            e = try VisualGeometryToolkitIO.vgio_migrate(q; out = q); nothing catch e; e end
+            @test e isa ArgumentError && occursin("never rewritten", e.msg) && read(q) == raw
+        end
+    end
     # a tree: the same, file by file; the inputs untouched
     mktempdir() do dir
         cp(p, joinpath(dir, "grid.json"))
+        nc = joinpath(fixtures, "old", "generic_camera_v2.json")
+        cp(nc, joinpath(dir, "nc.json"))
         io = IOBuffer()
         VisualGeometryToolkitIO.vgio_migrate_tree(dir; io)
-        @test occursin("grid.camera.json", String(take!(io))) && sort(readdir(dir)) == ["grid.camera.json", "grid.json"]
-        @test read(joinpath(dir, "grid.json")) == before
+        log = String(take!(io))
+        @test occursin("grid.camera.json", log) && occursin("nc.noncentral.json", log)
+        @test sort(readdir(dir)) == ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json"]
+        @test read(joinpath(dir, "grid.json")) == before && read(joinpath(dir, "nc.json")) == read(nc)
         @test only(keys(load(Dict{Symbol, BoundedCamera}, joinpath(dir, "grid.camera.json")))) === :grid
     end
 end
@@ -245,7 +263,7 @@ end
     end
 end
 
-@testitem "generic_camera/v4: the non-central record round-trips; the central type is refused" setup = [VGIoFixtures, SplineRecordFixtures] begin
+@testitem "noncentral_spline/v1: the non-central record round-trips; the central type is refused" setup = [VGIoFixtures, SplineRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: model, lens_coverage, Circle, Point2, backproject, Sensor, sensor, μm, with_present
     c = corner_cut(spline_camera())
@@ -258,7 +276,7 @@ end
         bc = BoundedCamera(nc, Sensor(Size2(width = 64px, height = 48px), 3.45μm); lens_coverage = circle)
         save(p, bc)
         j = parse_json(read(p, String))
-        @test j.schema == "vgio/generic_camera/v4" && j.type == "noncentral_spline" && j.length_unit == "mm"   # a token of the format
+        @test j.schema == "vgio/noncentral_spline/v1" && j.type == "noncentral_spline" && j.length_unit == "mm"   # a token of the format
         @test length(j.spline.directions) == length(j.spline.points) == 8 * 7 - 2 && haskey(j, :pitch)
         back = load(BoundedCamera, p)
         @test VgtkIO.same_value(model(back), nc) && lens_coverage(back) == circle && sensor(back) !== nothing
@@ -272,22 +290,26 @@ end
                 "load(BoundedCamera, path)" => t -> (t["type"] = "CentralGenericModel"),
                 "entries" => t -> pop!(t["spline"]["points"]),
                 "skew" => t -> (t["K"]["skew"] = 0.25),
-                "schema" => t -> (t["schema"] = "vgio/generic_camera/v5"),
+                "schema" => t -> (t["schema"] = "vgio/noncentral_spline/v2"),
             )
             t = JSON.parse(text); f!(t)
             bad = joinpath(dir, "bad.json"); write(bad, JSON.json(t))
             e = try load(BoundedCamera, bad); nothing catch e; e end
             @test e isa ArgumentError && occursin(why, e.msg)
         end
-        # a central v3 record has no v4 form: its step names the read that takes it
+        # the old kind's unpublished v4 has no step: refused
+        t = JSON.parse(text); t["schema"] = "vgio/generic_camera/v4"
+        bad = joinpath(dir, "v4.json"); write(bad, JSON.json(t))
+        @test_throws ArgumentError load(BoundedCamera, bad)
+        # a central v3 record has no non-central form: its step names the read that takes it
         old = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", "generic_camera_masked.json"), String))
         e = try VgtkIO.migrate_record(old); nothing catch e; e end
         @test e isa ArgumentError && occursin("load(BoundedCamera, path)", e.msg)
-        # a non-central v3 record with a domain: the v4 record's lens coverage
+        # a non-central v3 record with a domain: the noncentral_spline/v1 record's lens coverage
         v3 = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", "generic_camera.json"), String))
         v3["domain"] = Dict("ellipse" => Any[32.0, 24.0, 30.0, 25.0, 0.0])
         t = VgtkIO.migrate_record(v3)
-        @test t["schema"] == "vgio/generic_camera/v4" && t["lens_coverage"] == Dict("ellipse" => Any[32.0, 24.0, 30.0, 25.0, 0.0])
+        @test t["schema"] == "vgio/noncentral_spline/v1" && t["lens_coverage"] == Dict("ellipse" => Any[32.0, 24.0, 30.0, 25.0, 0.0])
         @test t["spline"]["points"] == v3["point_grid"]                  # the points as the file holds them
     end
 end

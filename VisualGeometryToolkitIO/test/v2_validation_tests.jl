@@ -77,7 +77,7 @@
         VgtkIO.save_units_sidecar(files["units"], MM_PX)
         save(at!("transforms", "transforms.json"), [relabel(TargetFrame{:a}, BodyFrame{:b}, pose(3.0mm))])
         save(at!("cameras", "cameras.json"), Dict(:c => Attributed(BoundedCamera(CameraModel(K; lens = bc, pixel_frame = :colmap), Size2(4240, 2832)), (; calibration = (; tool = "t")))))
-        save(at!("generic_camera", "noncentral.json"), gn)
+        save(at!("noncentral_spline", "noncentral.json"), gn)
         save(
             at!("rig", "rig.json"),
             Rig{ViewFrame{:a}}(
@@ -115,7 +115,7 @@
         save_correspondences(at!("correspondences", "correspondences.json"), obs, files["rig_targets"])
         specs = Dict(
             "units" => VgtkIO._UNITS_SPEC, "transforms" => VgtkIO._TRANSFORMS_SPEC, "cameras" => VgtkIO._CAMERAS_SPEC,
-            "generic_camera" => VgtkIO._GENERIC_CAMERA_SPEC,
+            "noncentral_spline" => VgtkIO._NONCENTRAL_SPLINE_SPEC,
             "rig" => VgtkIO._RIG_SPEC, "rig_generic" => VgtkIO._RIG_SPEC, "rig_targets" => VgtkIO._RIG_SPEC, "target" => VgtkIO._TARGET_SPEC,
             "trajectory" => VgtkIO._TRAJECTORY_SPEC, "target_points2d" => VgtkIO._TARGET_POINTS2D_SPEC,
             "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_homographies" => VgtkIO._TARGET_HOMOGRAPHIES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
@@ -176,10 +176,10 @@
                 @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
                 @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
                 @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))
-            elseif startswith(name, "generic")
-                @test doc[:schema] == "vgio/generic_camera/v4"
-                @test occursin("no migration reads", something(relabeled(v1), ""))
-                @test not_theirs(relabeled("vgio/generic_camera/v3"))                         # v3 held the old grid body
+            elseif name == "noncentral_spline"
+                @test doc[:schema] == "vgio/noncentral_spline/v1"                            # born at v1, renamed from the old grid kind
+                @test not_theirs(relabeled("vgio/generic_camera/v3"))                         # the old kind's v3 held the old grid body
+                @test relabeled("vgio/generic_camera/v4") !== nothing                         # never published: no step reads it
             elseif endswith(doc[:schema], "/v3")
                 @test occursin("no migration reads", something(relabeled(v1), ""))
                 @test occursin("no migration reads", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
@@ -196,7 +196,7 @@
         ob = tomutable(parse_json(read(files["target_points2d"], String)))
         @test occursin("point_index_base", something(refusal(merge(ob, Dict(:point_index_base => 0)), dir, "tok4"), ""))
         @test occursin("targets", something(refusal(merge(ob, Dict(:targets => Any[])), dir, "tok5"), ""))
-        ge = tomutable(parse_json(read(files["generic_camera"], String)))
+        ge = tomutable(parse_json(read(files["noncentral_spline"], String)))
         @test occursin("load(BoundedCamera, path)", something(refusal(merge(ge, Dict(:type => "CentralGenericModel")), dir, "tok7"), ""))
         @test occursin("pixel_frame", something(refusal(merge(ge, Dict(:pixel_frame => "lower_left")), dir, "tok8"), ""))
         # the non-central camera's points are declared in a unit

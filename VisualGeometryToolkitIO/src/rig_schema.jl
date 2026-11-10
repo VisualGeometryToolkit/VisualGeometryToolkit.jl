@@ -767,7 +767,7 @@ end
 # less than its sensor carries its `lens_coverage` in its body too, a camera
 # store's form in the rig's pixel frame (rig/v9). A camera with a `SplineLens`
 # is a camera body (its lens the spline record); a non-central grid camera
-# embeds the generic_camera/v4 body, told apart by its `type`.
+# embeds the noncentral_spline/v1 body, told apart by its `type`.
 const _RIG_CAMERA_BODY = _Checked(
     _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]),
     x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a rig sensor"),

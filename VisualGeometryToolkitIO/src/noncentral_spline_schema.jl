@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/generic_camera/v4 — the non-central grid camera of Schöps et al.
+# vgio/noncentral_spline/v1 — the non-central grid camera of Schöps et al.
 # =============================================================================
 #
 # One `BoundedCamera{<:NoncentralSplineModel}` per file: the non-central grid
@@ -7,7 +7,7 @@
 # directions and the line points of its observation lines — laid over one
 # rectangle of the K-normalized plane x = K⁻¹u:
 #
-# {"schema": "vgio/generic_camera/v4", "pixel_frame": "colmap", "length_unit": "mm",
+# {"schema": "vgio/noncentral_spline/v1", "pixel_frame": "colmap", "length_unit": "mm",
 #  "type": "noncentral_spline",
 #  "width": …, "height": …,
 #  "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},   the gauge pinhole, in the file's pixel frame
@@ -23,10 +23,11 @@
 # `SplineLens`, stored as any camera (a vgio/cameras record whose lens is the
 # `{"spline": …}` record, camera_schema.jl). A central `vgio/generic_camera/v2`
 # or `v3` file reads as the camera store of its one camera — `load(BoundedCamera,
-# path)` — and a non-central one through its v3 → v4 step (migrate.jl); neither
-# is rewritten (owner, 2026-11-09): `vgio_migrate` writes a central one's camera
-# store to a new file beside it. A v4 record naming the central type is
-# refused, pointing at that read.
+# path)` — and a non-central one through its step to this kind (migrate.jl; the
+# kind was the old grid kind's v4 before it was renamed, unreleased); neither is
+# rewritten (owner, 2026-11-09): `vgio_migrate` writes a central one's camera
+# store, a non-central one's record, to a new file beside it. A record naming the
+# central type is refused, pointing at that read.
 #
 # The spline record is the lens record's (`_spline_json`): the held nodes (Core's
 # presence mask) as runs per lattice row and the controls over them; the absent
@@ -63,10 +64,10 @@ function _noncentral_check(x)
     return _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera")
 end
 const _NONCENTRAL_BODY = _Checked(_Obj(_NONCENTRAL_BODY_FIELDS, _NONCENTRAL_BODY_OPTIONAL), _noncentral_check)
-const _GENERIC_CAMERA_SPEC = _Checked(
+const _NONCENTRAL_SPLINE_SPEC = _Checked(
     _Obj(
         Pair{Symbol, _Spec}[
-            :schema => _schema_tok("generic_camera"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,
+            :schema => _schema_tok("noncentral_spline"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,
             _NONCENTRAL_BODY_FIELDS...,
         ],
         Pair{Symbol, _Spec}[_NONCENTRAL_BODY_OPTIONAL..., _PROVENANCE...],
@@ -106,7 +107,7 @@ end
 """
     save(path, camera::BoundedCamera{<:NoncentralSplineModel}; length_unit = mm, provenance = (;))
 
-Write a non-central grid camera (Schöps et al.) as a `vgio/generic_camera/v4`
+Write a non-central grid camera (Schöps et al.) as a `vgio/noncentral_spline/v1`
 file: its extent, gauge `K` and the two splines over the held nodes (`present`
 as runs per lattice row, the controls row by row), the line points — plain
 metres in memory — in `length_unit`; a physical sensor's pitch and the camera's
@@ -118,23 +119,25 @@ function save(
         length_unit::Units = mm, provenance::NamedTuple = (;)
     )
     s = VgioStyle(; length_unit)
-    head = (schema = _schema("generic_camera"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME), length_unit = unit_string(length_unit))
+    head = (schema = _schema("noncentral_spline"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME), length_unit = unit_string(length_unit))
     ext = extent(camera)
     body = merge(
         head, _with_pitch(_noncentral_body(s, model(camera), ext), sensor(camera), length_unit),
         _lens_coverage_json(s, lens_coverage(camera), ext),
     )
-    _write_store(path, _GENERIC_CAMERA_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _NONCENTRAL_SPLINE_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
 
-# A vgio/generic_camera file that is not a central v2/v3 one: the non-central record
-# (`load(BoundedCamera, path)` reads it; a v2/v3 file through its version steps).
+# A noncentral_spline record, or an old grid file (vgio/generic_camera, the kind's
+# former name) that is not a central v2/v3 one: `load(BoundedCamera, path)` reads it,
+# an old file through its version steps.
 _is_noncentral_grid(d) =
-    d isa AbstractDict && (v = _split_schema(get(d, :schema, nothing)); v !== nothing && v.kind == "generic_camera" && !_is_central_grid(d))
+    d isa AbstractDict && (v = _split_schema(get(d, :schema, nothing)); v !== nothing &&
+        (v.kind == "noncentral_spline" || (v.kind == _FORMER_KIND["noncentral_spline"] && !_is_central_grid(d))))
 
 function _load_noncentral(raw, path::AbstractString)
-    d = _checked_store(raw, path, "generic_camera", _GENERIC_CAMERA_SPEC)
+    d = _checked_store(raw, path, "noncentral_spline", _NONCENTRAL_SPLINE_SPEC)
     u = parse_unit(d.length_unit::String)
     s = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     m, ext = _noncentral_from_body(s, d)

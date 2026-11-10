@@ -274,19 +274,21 @@ end
 # target_points3d v2, target_detections v2. An earlier file reads through its
 # version step unchanged (its covariances are rows).
 #
-# generic_camera v4 and rig v9 (the spline lens, VisualGeometryToolkitCore 0.9):
+# noncentral_spline v1 and rig v9 (the spline lens, VisualGeometryToolkitCore 0.9):
 # the central grid camera is a `CameraModel` with a `SplineLens`, stored as any
 # camera (a camera body whose `lens` is the `{"spline": …}` record); the
-# generic_camera kind holds the non-central grid camera alone, its splines over
-# the K-normalized plane and its K the camera's. A central v2/v3 file reads as a
-# camera store of its one camera (`load(BoundedCamera, path)`), a non-central
-# one through its v3 → v4 step; neither is rewritten (`vgio_migrate` writes a
-# central one's camera store to a new file beside it). A rig/v8 sensor's grid
+# non-central grid camera is its own kind, `noncentral_spline` (its `type`
+# token's name; the old grid kind `generic_camera` renamed, `_FORMER_KIND`), its
+# splines over the K-normalized plane and its K the camera's. An old central
+# v2/v3 file reads as a camera store of its one camera (`load(BoundedCamera,
+# path)`), a non-central one through its step to noncentral_spline/v1; neither is
+# rewritten (`vgio_migrate` writes a central one's camera store, a non-central
+# one's record, to a new file beside it). A rig/v8 sensor's grid
 # body becomes the camera body or the non-central body; v9 also stores each
 # sensor's lens coverage (its camera body's `lens_coverage`, a camera store's
 # form), which v8 refused to write.
 const _SCHEMA_VERSION = Dict(
-    "cameras" => 5, "rig" => 9, "transforms" => 4, "trajectory" => 4, "generic_camera" => 4,
+    "cameras" => 5, "rig" => 9, "transforms" => 4, "trajectory" => 4, "noncentral_spline" => 1,
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
@@ -368,7 +370,8 @@ const _MIGRATIONS_TO_CURRENT = Dict(
 # (A vgio/generic_camera/v2 or v3 file is read through its migration and never
 # rewritten — the published grids stay as they are on disk, owner 2026-11-09: a
 # central one loads as a camera with a spline lens, `load(BoundedCamera, path)`, a
-# non-central one as the vgio/generic_camera/v4 record.)
+# non-central one as the vgio/noncentral_spline/v1 record. `vgio_migrate` writes
+# either's current record to a new file beside it.)
 
 function _refuse_schema(path, kind::AbstractString, s)
     if s isa AbstractString && haskey(_RETIRED_KINDS, s)
@@ -440,7 +443,13 @@ function _split_schema(s)
     return m === nothing ? nothing : (kind = String(m[1]::AbstractString), version = parse(Int, m[2]::AbstractString))
 end
 # Whether `s` names an earlier version of `kind`, and one its version steps read.
-_is_earlier_version(s, kind::AbstractString) = (v = _split_schema(s); v !== nothing && v.kind == kind && v.version < _schema_version(kind))
+_is_earlier_version(s, kind::AbstractString) = (v = _split_schema(s); v !== nothing &&
+    (v.kind == kind ? v.version < _schema_version(kind) : get(_FORMER_KIND, kind, nothing) == v.kind))
+# A renamed kind → the kind its earlier versions carry, read through their steps,
+# never written: the non-central grid camera's records were the old grid kind's.
+const _FORMER_KIND = Dict("noncentral_spline" => "generic_camera")
+# The current kind of a kind name, a former one included.
+_current_kind(k::AbstractString) = something(findfirst(==(k), _FORMER_KIND), k)
 _reads_through_migration(s, kind::AbstractString) = _is_earlier_version(s, kind) && _has_record_migration(s)
 
 # An old file's record through its version steps, parsed again from its JSON
@@ -548,7 +557,7 @@ function _spec(kind::AbstractString)
     kind == "units" && return _UNITS_SPEC
     kind == "transforms" && return _TRANSFORMS_SPEC
     kind == "cameras" && return _CAMERAS_SPEC
-    kind == "generic_camera" && return _GENERIC_CAMERA_SPEC
+    kind == "noncentral_spline" && return _NONCENTRAL_SPLINE_SPEC
     kind == "rig" && return _RIG_SPEC
     kind == "target" && return _TARGET_SPEC
     kind == "trajectory" && return _TRAJECTORY_SPEC
@@ -584,13 +593,14 @@ function validate(path::AbstractString)
     file = isdir(path) ? joinpath(path, UNITS_SIDECAR) : path
     s = _peek_schema(file)
     v = _split_schema(s)
+    kind = v === nothing ? nothing : _current_kind(v.kind)
     if v !== nothing
-        spec = _spec(v.kind)
-        if spec !== nothing && (s == _schema(v.kind) || _reads_through_migration(s, v.kind))
-            _read_store(file, v.kind, spec)
-            return v.kind
+        spec = _spec(kind)
+        if spec !== nothing && (s == _schema(kind) || _reads_through_migration(s, kind))
+            _read_store(file, kind, spec)
+            return kind
         end
     end
-    v !== nothing && _spec(v.kind) !== nothing && _refuse_schema(file, v.kind, s)
+    v !== nothing && _spec(kind) !== nothing && _refuse_schema(file, kind, s)
     throw(ArgumentError("$(file): not a vgio file (schema $(repr(s)))"))
 end

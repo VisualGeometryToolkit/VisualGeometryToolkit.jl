@@ -108,11 +108,14 @@ function _probe_onnx_cuda()
     for l in libs
         Libdl.dlopen(l, Libdl.RTLD_LAZY | Libdl.RTLD_LOCAL)
     end
-    # ONNX Runtime's GPU build itself (an artifact of ONNXRunTime's, downloaded on first use)
+    # ONNX Runtime's GPU build itself (an artifact of ONNXRunTime's, downloaded on first use), and one of its own kernels run
+    # on the device (ONNXRunTime's one-op test graph, x + 1): a device its build has no code for fails here, not in a run
     try
         ORT.CAPI.libptr(:cuda)
+        s = _onnx_session(ORT.testdatapath("increment2x3.onnx"), :cuda, 1)
+        only(values(s(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3) || error("x + 1 on the device is not 1")
     catch err
-        return _cuda_unavailable("ONNX Runtime's CUDA build did not load: $(sprint(showerror, err))", driver)
+        return _cuda_unavailable("ONNX Runtime's CUDA build does not run here: $(sprint(showerror, err))", driver)
     end
     return OnnxCudaStatus(true, "", driver, rt.version, dnn.version)
 end

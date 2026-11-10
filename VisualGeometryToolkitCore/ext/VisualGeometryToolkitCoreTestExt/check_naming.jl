@@ -438,7 +438,9 @@ const RETIRED_NAMES = String[
     "residuals" * "!", "whitened_constraint" * "_residual", "whitened" * "_distance",
     "sq" * "_residuals", "square" * "_residuals!",
     # VisualGeometryToolkitIO's old grid codec (plan 1b, Task 6): the SplineLens camera is a camera body, the
-    # non-central grid camera the generic_camera/v4 body
+    # non-central grid camera the noncentral_spline/v1 body
+    "_GENERIC" * "_CAMERA_SPEC",              # the non-central record's spec, its kind renamed after its `type` token: `_NONCENTRAL_SPLINE_SPEC`
+    "_generic_camera" * "_v3_to_v4",          # the old grid kind's v3 step into the renamed kind: `_generic_camera_v3_to_noncentral`
     "_id_grid" * "_model",                   # a grid sensor's identity: `_id_camera`'s lens branch (`_id_lens(::SplineLens)`, its spline record)
     "_GENERIC_BODY" * "_FIELDS", "_GENERIC" * "_OPTIONAL", "_GENERIC" * "_PRESENT",   # the old grid body's spec: `_NONCENTRAL_BODY_FIELDS`, `_NONCENTRAL_BODY_OPTIONAL`
     "_RIG_GENERIC" * "_BODY",                # a rig's grid sensor body: `_NONCENTRAL_BODY` (a SplineLens sensor is a camera body)

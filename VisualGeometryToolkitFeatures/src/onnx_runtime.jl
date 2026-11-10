@@ -126,6 +126,7 @@ function _cuda_driver()
     h === nothing && return "no NVIDIA driver (libcuda.so.1 is not on the library path)"
     rc = ccall(Libdl.dlsym(h, :cuInit), Cint, (Cuint,), 0)
     visible = get(ENV, "CUDA_VISIBLE_DEVICES", "unset")
+    rc == 100 && return "no CUDA device is visible (CUDA_VISIBLE_DEVICES=$visible)"   # CUDA_ERROR_NO_DEVICE
     rc == 0 || return "the CUDA driver failed to initialize (cuInit error $rc; CUDA_VISIBLE_DEVICES=$visible)"
     n = Ref{Cint}(0)
     ccall(Libdl.dlsym(h, :cuDeviceGetCount), Cint, (Ref{Cint},), n)

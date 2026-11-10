@@ -188,30 +188,33 @@ function _validate(::_RowRuns, x, file, at)
 end
 
 # A spline lattice record's own check, the lens record's and the non-central
-# record's: its `area` a finite rectangle of positive widths, its `grid_size`
-# `[gw, gh]` at least 4 × 4, its runs (`present`, already through `_RowRuns`)
-# inside the lattice, and each of its control arrays `arrays` (key => what)
-# holding one entry per held node. `s` a parsed record (keys by Symbol or
-# String); the message, or `nothing`.
+# record's: its `area` a finite rectangle of positive widths, then its lattice
+# (`_lattice_count_problem`) with each of its control arrays `arrays` (keys).
+# `s` a parsed record (keys by Symbol or String); the message, or `nothing`.
 function _lattice_problem(s, arrays)
-    g(k) = _getkey(s, k)
-    has(k) = _haskey(s, k)
-    a = g(:area)
+    a = _getkey(s, :area)
     (a[3] > 0 && a[4] > 0) || return "the spline's area [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
-    gw, gh = g(:grid_size)
+    gw, gh = _getkey(s, :grid_size)
+    runs = _haskey(s, :present) ? _getkey(s, :present) : nothing
+    return _lattice_count_problem(gw, gh, runs, [String(k) => _getkey(s, k) for k in arrays])
+end
+# A lattice of `gw × gh` nodes (at least 4 × 4), its runs of present nodes `runs`
+# (`nothing`: every node; already through `_RowRuns`) inside it, and each control
+# array (`name => array`) holding one entry per held node — the records' check and
+# the old grid body's (migrate.jl).
+function _lattice_count_problem(gw, gh, runs, arrays)
     (gw >= 4 && gh >= 4) || return "a cubic lattice has at least 4 × 4 nodes; grid_size = [$(gw), $(gh)]"
-    if has(:present)
-        runs = g(:present)
+    if runs !== nothing
         isempty(runs) && return "`present` holds no node"
         for e in runs
             e[1] < gh || return "`present` names row $(e[1]) of a lattice of $(gh) rows"
             last(e[2])[2] < gw || return "`present` names column $(last(e[2])[2]) of a lattice of $(gw) columns"
         end
     end
-    n = has(:present) ? _runs_count(g(:present)) : gw * gh
-    what = has(:present) ? "the $(n) nodes `present` holds" : "grid_size's $(gw) × $(gh) = $(n)"
-    for k in arrays
-        length(g(k)) == n || return "the spline's $(k) has $(length(g(k))) entries, expected $(what)"
+    n = runs === nothing ? gw * gh : _runs_count(runs)
+    what = runs === nothing ? "grid_size's $(gw) × $(gh) = $(n)" : "the $(n) nodes `present` holds"
+    for (k, v) in arrays
+        length(v) == n || return "the spline's $(k) has $(length(v)) entries, expected $(what)"
     end
     return nothing
 end

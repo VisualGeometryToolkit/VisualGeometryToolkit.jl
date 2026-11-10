@@ -196,6 +196,14 @@ end
 # the lens record (camera_schema.jl) and the non-central record
 # (generic_camera_schema.jl), and of the old grid bodies their migrations read.
 
+# The stored type names of the old grid models — the `type` of Schöps et al.'s
+# intrinsics0.yaml and of the old vgio grid records (generic_camera v2/v3, a rig
+# v6–v8 sensor's body), which schoeps.jl and the migrations read — and the old
+# grid records' schemas, read and never rewritten (migrate.jl).
+const _OLD_CENTRAL_TYPE = "CentralGenericModel"
+const _OLD_NONCENTRAL_TYPE = "NoncentralGenericModel"
+const _OLD_GRID_SCHEMAS = ("vgio/generic_camera/v2", "vgio/generic_camera/v3")
+
 # The present nodes of a `[gy, gx]` mask as runs per row, 0-based and inclusive.
 function _present_runs(P::AbstractMatrix{Bool})
     rows = Any[]

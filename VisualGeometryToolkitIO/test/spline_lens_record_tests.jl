@@ -69,8 +69,17 @@ end
     @test_throws ArgumentError load(CameraModel, p)
     # a store of its one camera; the old file is read, never rewritten
     @test only(keys(load(Dict{Symbol, BoundedCamera}, p))) === :camera
-    @test_throws ArgumentError VisualGeometryToolkitIO.vgio_migrate(p; dry_run = true)
-    @test_throws ArgumentError VisualGeometryToolkitIO.vgio_migrate(joinpath(fixtures, "old", "generic_camera_v2.json"); dry_run = true)
+    for q in (p, joinpath(fixtures, "old", "generic_camera_v2.json"))
+        e = try VisualGeometryToolkitIO.vgio_migrate(q; dry_run = true); nothing catch e; e end
+        @test e isa ArgumentError && occursin("never rewritten", e.msg) && occursin("load(BoundedCamera, path)", e.msg)
+    end
+    # a tree holding one says so, and rewrites nothing
+    mktempdir() do dir
+        cp(p, joinpath(dir, "grid.json"))
+        io = IOBuffer()
+        VisualGeometryToolkitIO.vgio_migrate_tree(dir; dry_run = true, io)
+        @test occursin("load(BoundedCamera, path)", String(take!(io))) && readdir(dir) == ["grid.json"]
+    end
 end
 
 @testitem "an old central record's domain becomes the lens coverage; its nominal pinhole the K" setup = [VGIoFixtures] begin
@@ -89,17 +98,29 @@ end
         # a bare CameraModel would drop the domain: refused, naming the call that keeps it
         e = try load(CameraModel, p); nothing catch e; e end
         @test e isa ArgumentError && occursin("BoundedCamera", e.msg)
-        # the K is a gauge: the camera of the stored pinhole and the camera of the lattice's gauge are one camera
-        q = write_with(t -> nothing)
-        a, b = model(bc), model(load(BoundedCamera, q))
-        @test a.intrinsics.K != b.intrinsics.K && isequal(a.lens.present, b.lens.present)
+        # the K is a gauge: the camera of a stored pinhole and the camera of the lattice's gauge are one camera, on a
+        # lattice holding every node (the masked fixture images nothing): units/generic_camera.json's directions as a
+        # central v3 record
+        full = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", "generic_camera.json"), String))
+        full["type"] = "CentralGenericModel"
+        delete!(full, "point_grid"); delete!(full, "length_unit")
+        write_full(f) = (t = deepcopy(full); f(t); q = joinpath(dir, "full.json"); write(q, JSON.json(t)); q)
+        a = model(load(BoundedCamera, write_full(t -> nothing)))
+        b = model(load(BoundedCamera, write_full(t -> (t["nominal_intrinsics"] = Any[61.7, 58.9, 30.25, 22.5, 0.0]))))
+        @test a.intrinsics.K != b.intrinsics.K && b.intrinsics.K[1, 1] == 61.7
         pixels = [SVector(x, y) for x in 0.5:3.0:63.5 for y in 0.5:3.0:47.5]
-        @test all(u -> isequal(isnan.(backproject(a, u)), isnan.(backproject(b, u))), pixels)
+        same_ray(r, q) = all(isnan, q) ? all(isnan, r) : maximum(abs.(r - q)) <= 1.0e-12
+        @test all(u -> same_ray(backproject(a, u), backproject(b, u)), pixels)
+        @test count(u -> all(isfinite, backproject(a, u)), pixels) > length(pixels) ÷ 2
+        # a well-formed central v2 record (every node, no `present`) reads as its v3 rewrite does
+        c = model(load(BoundedCamera, write_full(t -> (t["schema"] = "vgio/generic_camera/v2"))))
+        @test c.intrinsics.K == a.intrinsics.K && c.lens.present === nothing && c.lens.backward.controls == a.lens.backward.controls
+        @test all(u -> isequal(backproject(c, u), backproject(a, u)), pixels)
         # a skewed nominal pinhole has no SplineLens camera
         r = write_with(t -> (t["nominal_intrinsics"] = Any[31.7, 31.9, 32.25, 23.875, 0.5]))
         e = try load(BoundedCamera, r); nothing catch e; e end
         @test e isa ArgumentError && occursin("skew", e.msg)
-        # a v2 central record (every node) reads too, as a v2 record never held `present`
+        # a "v2" central record holding `present` was not written by v2 (every v2 record held every node): refused
         v2 = write_with(t -> (t["schema"] = "vgio/generic_camera/v2"))
         e = try load(BoundedCamera, v2); nothing catch e; e end
         @test e isa ArgumentError && occursin("present", e.msg)

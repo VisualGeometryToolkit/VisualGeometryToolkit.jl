@@ -360,6 +360,7 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
         return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
+    s in _OLD_GRID_SCHEMAS && throw(ArgumentError("$(path): $(_OLD_GRID_REFUSAL)"))
     _has_migration(s) ||
         throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
     return write_staged(out => basename(path); dry_run) do staged
@@ -370,6 +371,8 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
 end
 
 _is_toml(path) = endswith(lowercase(path), ".toml")
+# An old grid file (vgio/generic_camera v2/v3) is read, never rewritten (owner, 2026-11-09).
+const _OLD_GRID_REFUSAL = "an old grid file is read, never rewritten (owner, 2026-11-09): load(BoundedCamera, path) reads it as it is"
 
 # The generic file form for a TOML record whose schema has a step and no file
 # form: from the parsed `tree`, run the steps, print, read the print back and
@@ -1025,9 +1028,7 @@ end
 # round trip). An old body is read, never written (owner, 2026-11-09).
 # (The old type names and the nominal pinhole's key are retired as names; as the
 # tokens these records store they are check_naming's FOREIGN_FORMAT_TOKENS.)
-const _OLD_CENTRAL_TYPE = "CentralGenericModel"
-const _OLD_NOMINAL_KEY = "nominal_intrinsics"
-const _OLD_NONCENTRAL_TYPE = "NoncentralGenericModel"
+const _OLD_NOMINAL_KEY = "nominal_intrinsics"   # (the type names: style.jl)
 const _OLD_GRID_KEYS = ("type", "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
     "grid_width", "grid_height", "grid_layout", "direction_grid")
 function _old_grid_camera(b::AbstractDict)
@@ -1036,17 +1037,25 @@ function _old_grid_camera(b::AbstractDict)
     end
     b["type"] in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE) ||
         _not_written_by("an old grid body", "is of type $(repr(b["type"])), not $(_OLD_CENTRAL_TYPE) or $(_OLD_NONCENTRAL_TYPE)")
+    # its fields' types, as its version's spec held them (a value of another type is not a record it wrote)
+    what = "an old grid body"
+    for k in ("width", "height", "grid_width", "grid_height")
+        _validate(_PosInt(), b[k], what, k)
+    end
+    for k in ("calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y")
+        _validate(_Int(), b[k], what, k)
+    end
+    for k in ("direction_grid", "point_grid")
+        haskey(b, k) && _validate(_Vec(_XYZ), b[k], what, k)
+    end
+    haskey(b, _OLD_NOMINAL_KEY) && _validate(_Vec(_Real(), 5), b[_OLD_NOMINAL_KEY], what, _OLD_NOMINAL_KEY)
+    haskey(b, "domain") && _validate(_Obj(:ellipse => _Vec(_Real(), 5)), b["domain"], what, "domain")
     b["grid_layout"] == _GRID_LAYOUT || _not_written_by("an old grid body", "has the grid_layout $(repr(b["grid_layout"])), not $(repr(_GRID_LAYOUT))")
     gw, gh = Int(b["grid_width"]::Integer), Int(b["grid_height"]::Integer)
     if haskey(b, "present")
         _validate(_RowRuns(), b["present"], "an old grid body", "present")
     end
-    msg = _lattice_problem(
-        Dict{String, Any}("area" => Any[1, 1, 1, 1], "grid_size" => Any[gw, gh], "direction_grid" => b["direction_grid"],
-            (haskey(b, "present") ? ("present" => b["present"],) : ())...,
-            (haskey(b, "point_grid") ? ("point_grid" => b["point_grid"],) : ())...),
-        haskey(b, "point_grid") ? (:direction_grid, :point_grid) : (:direction_grid,),
-    )
+    msg = _lattice_count_problem(gw, gh, get(b, "present", nothing), [k => b[k] for k in ("direction_grid", "point_grid") if haskey(b, k)])
     msg === nothing || throw(ArgumentError("an old grid body: $(msg)"))
     (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
         throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
@@ -1095,7 +1104,7 @@ function _generic_camera_v3_to_v4(old)
 end
 
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
-_is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in ("vgio/generic_camera/v2", "vgio/generic_camera/v3") &&
+_is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS &&
     get(d, :type, nothing) == _OLD_CENTRAL_TYPE
 # …as the vgio/cameras record of its one camera, `camera` (`d` parsed, so the reader meets what a store file holds).
 function _central_grid_store(d, path)
@@ -1108,7 +1117,7 @@ function _central_grid_store(d, path)
             (haskey(t, "provenance") ? ("provenance" => t["provenance"],) : ())...,
         )
     catch e
-        e isa Union{ArgumentError, KeyError, MethodError, TypeError} || rethrow()
+        e isa Union{ArgumentError, KeyError} || rethrow()
         throw(ArgumentError("$(path): a $(t["schema"]) central grid camera, read as a camera with a spline lens: $(sprint(showerror, e))"))
     end
     return _parse_vgio_text(JSON.json(store), path)
@@ -1492,6 +1501,8 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
                 println(io, "SKIPPED   ", f, ": no readable schema")
             elseif haskey(_MEASUREMENT_KINDS, s)
                 # re-pointed below; a v1 file is rewritten as v2 there
+            elseif s in _OLD_GRID_SCHEMAS
+                println(io, "SKIPPED   ", f, ": ", s, ": ", _OLD_GRID_REFUSAL)
             elseif _is_current(s)
                 _is_target_definition(s) && push!(rigs, f)
                 println(io, "current   ", f, ": ", s)

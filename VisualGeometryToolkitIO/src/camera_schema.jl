@@ -249,12 +249,12 @@ JSON.lower(s::VgioStyle, model::CameraModel) = (K = _k_record(model.intrinsics.K
 _camera_body(s::VgioStyle, model::CameraModel, extent::Size2) =
     merge((width = Int(extent.width), height = Int(extent.height)), JSON.lower(s, model))
 
-# …and back, its K read in the style's pixel frame: `image_origin` is the
-# CameraModel constructor's keyword for "the frame the K I am handing you is
-# written in", and it converts to the canonical frame internally — the whole of
-# the half-pixel handling.
+# …and back, its K read in the style's pixel frame and moved into the canonical
+# one by `_k_from_record(k, frame)` (style.jl), the exact inverse of `_k_record`
+# and the one conversion of a stored K, a camera's and a non-central grid
+# camera's alike (a SplineLens lens is frame-free: x = K⁻¹u).
 JSON.lift(s::VgioStyle, ::Type{CameraModel}, b::_Record) =
-    CameraModel(_k_from_record(b.K); lens = _lens_from_json(b.lens), image_origin = pixel_origin(_pixel_frame(s)))
+    CameraModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), _lens_from_json(b.lens))
 _extent_from_body(b) = Size2(Int(b.width::Integer), Int(b.height::Integer))
 
 """
@@ -497,8 +497,9 @@ v1–v4 store is read through its version steps (`migrate_record`), and a
 central `vgio/generic_camera/v2` or `v3` file as the store of its one camera,
 `:camera` (a `CameraModel` with a `SplineLens`: generic_camera_schema.jl).
 """
-function load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString)
-    d = _read_vgio_json(path)
+load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString) = _load_store(_read_vgio_json(path), path)
+# The store of a parsed file (`d`, its JSON).
+function _load_store(d, path::AbstractString)
     _is_central_grid(d) && (d = _central_grid_store(d, path))   # a vgio/generic_camera/v2 or v3 central file: a store of its camera
     d = _checked_store(d, path, "cameras", _CAMERAS_SPEC)
     s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
@@ -546,11 +547,12 @@ function load(
     end
     file_unit === nothing ||
         throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
-    if _is_noncentral_grid(path)                        # a vgio/generic_camera record (generic_camera_schema.jl)
+    d = _read_vgio_json(path)                           # parsed once (a grid file is large), read as the kind it is
+    if _is_noncentral_grid(d)                           # a vgio/generic_camera record (generic_camera_schema.jl)
         name === nothing || throw(ArgumentError("$(path) holds one non-central camera; `name` names a camera of a store"))
-        return _load_noncentral(path)
+        return _load_noncentral(d, path)
     end
-    store = load(Dict{Symbol, BoundedCamera}, path)
+    store = _load_store(d, path)
     if name === nothing
         length(store) == 1 || throw(
             ArgumentError("$(path) holds $(length(store)) cameras; supply `name` — one of $(sort!(String.(collect(keys(store)))))")

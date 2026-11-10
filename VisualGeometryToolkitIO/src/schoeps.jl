@@ -120,12 +120,12 @@ end
 # `CameraModel(SplineLens, controls, size)`: the lattice's gauge, the YAML carrying
 # no pinhole). Every node is present; the directions are normalized unless unit to
 # 1e-12, as the reference's reader does.
-const _SCHOEPS_TYPES = ("CentralGenericModel", "NoncentralGenericModel")
 function _load_schoeps_camera(path::AbstractString, file_unit)
     yml = _yaml_text(path)
     type = _schoeps_field(yml, "type", path)
-    type in _SCHOEPS_TYPES || throw(ArgumentError("$(path) holds a Schöps $(type), not a grid camera ($(join(_SCHOEPS_TYPES, ", ")))"))
-    central = type == _SCHOEPS_TYPES[1]
+    type in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE) ||
+        throw(ArgumentError("$(path) holds a Schöps $(type), not a grid camera ($(_OLD_CENTRAL_TYPE), $(_OLD_NONCENTRAL_TYPE))"))
+    central = type == _OLD_CENTRAL_TYPE
     w, h, bounds... = map(k -> _schoeps_int(yml, k, path), (
         "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
     ))

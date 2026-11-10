@@ -130,11 +130,11 @@ end
 
 # A vgio/generic_camera file that is not a central v2/v3 one: the non-central record
 # (`load(BoundedCamera, path)` reads it; a v2/v3 file through its version steps).
-_is_noncentral_grid(path::AbstractString) =
-    (v = _split_schema(_peek_schema(path)); v !== nothing && v.kind == "generic_camera" && !_is_central_grid(_read_vgio_json(path)))
+_is_noncentral_grid(d) =
+    d isa AbstractDict && (v = _split_schema(get(d, :schema, nothing)); v !== nothing && v.kind == "generic_camera" && !_is_central_grid(d))
 
-function _load_noncentral(path::AbstractString)
-    d = _read_store(path, "generic_camera", _GENERIC_CAMERA_SPEC)
+function _load_noncentral(raw, path::AbstractString)
+    d = _checked_store(raw, path, "generic_camera", _GENERIC_CAMERA_SPEC)
     u = parse_unit(d.length_unit::String)
     s = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     m, ext = _noncentral_from_body(s, d)

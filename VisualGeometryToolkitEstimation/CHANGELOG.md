@@ -26,6 +26,8 @@ non-central one is a `NoncentralSplineModel`).
   non-central source is `BoundedCamera(model, Size2(w, h))`, and a function of the pixel is no longer a source — build
   its SplineLens camera with Core's `CameraModel(SplineLens, f, size)` (which gauges its K) and fit that, which keeps
   its backward and fits its forward.
+- **Breaking: a spline fit's `grid_size` is `(columns, rows)`** everywhere — the keyword, `pspline_grid`'s argument and
+  the metadata's `family.grid_size` — Core's `grid_size(m)` order (a fit once reported `(rows, columns)`).
 - **Breaking: `refine_camera_and_poses` refuses a SplineLens camera** (an `ArgumentError`, also with `free = ()`): its
   K is a frozen gauge, its parameters are its lattice's controls, and its projection solve is not differentiated by
   ForwardDiff.

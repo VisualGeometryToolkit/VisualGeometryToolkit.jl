@@ -56,6 +56,13 @@ CameraPosesRefineMetadata
 
 ## Camera-model regression
 
+`fit_camera(T, source, region; …)` regresses one camera model of type `T` onto a
+source over a region: a lens family, a `SplineLens` (a `CameraModel` whose lens
+is the backward spline of rays over the image) or a `NoncentralSplineModel` (its
+direction and point splines). `pspline_grid(T, source, region, grid_size)` is the
+spline targets' one penalized solve on a given lattice, `grid_size = (columns,
+rows)` in Core's order; `fit_camera` repeats it at each spacing it tries.
+
 ```@docs
 fit_camera
 pspline_grid

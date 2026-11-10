@@ -18,8 +18,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
   two-argument `imaged_region(camera, circle)` is removed (put the circle on the camera: `with_lens_coverage`). It is
   a small two-type Union, kept on purpose: `valid_domain(::CameraModel)` is an `Ellipse` or `WholePlane` by the
   lens's coefficients.
-- **Breaking: a grid model's `imaged_region(m)` is `valid_domain(m)`**: where the grid is defined (its calibrated
-  area ∩ its `domain`), the counterpart of a parametric lens's `valid_domain`.
+- **Breaking: a SplineLens camera's `imaged_region(camera)` reads its lens's `valid_domain`**: where the lattice is
+  defined (its calibrated area, the bounding rect of the fully present windows under a mask), the counterpart of a
+  parametric lens's `valid_domain`.
 - **Breaking: `view_overlap(cameras)` and `view_overlap(a, b)`** drop their circle arguments: each frame's footprint
   is its own `imaged_region`. The results for the same circles are unchanged bit for bit.
 - **Breaking: `fov` is renamed `angle_of_view`** (it always returned an angle, the angle of view; "field of view"
@@ -32,6 +33,35 @@ sensor — so every consumer asks the camera what it images instead of supplying
   with an `ArgumentError`: such a lens moves points off their rays from the centre, so the radial camera is not exact.
   These were accepted silently before. The check fails closed: a lens or a distortion piece not known to be radially
   symmetric is refused; a `LiftLens` and a `Lens` of `Radial`, `FieldOfView` and `Additive`s of them are accepted.
+- **Breaking: the grid camera is a `SplineLens`; the central and non-central grid models are retired** (plan 1b, the
+  SplineLens fold-in). The central grid camera is an ordinary `CameraModel(K, SplineLens(…))`: a backward lens (a
+  `ChartSpline` of rays over the K-normalized plane, `x = K⁻¹u`, K a skew-0 gauge) with an optional forward spline
+  on the equidistant chart about the lens axis. The non-central one is `NoncentralSplineModel`, on the same lattice.
+  Retired, with no alias (replacement after the arrow):
+  `CentralGenericModel` → `CameraModel(K, SplineLens(…))`, built from a source by `CameraModel(SplineLens, source,
+  size; grid_size)`; `NoncentralGenericModel` → `NoncentralSplineModel`; `SplineProjection` → the `forward` of a
+  `SplineLens`; `GenericGridSpec` → `SplineLensSpec`, its TOML table type `central_generic` → `spline`;
+  `GenericModelWindow` and `window(m, rows, cols)` of a grid → `window(cam, rows, cols)`, a SplineLens camera (or a
+  `NoncentralSplineModel`) of the block; `default_generic_grid` → `default_spline_grid`; `generic_lattice` →
+  `spline_lattice(SplineLens, source, size)`; `nominal_intrinsics`/`with_nominal` → `calibration_matrix(cam)`,
+  `intrinsics(cam)` and the re-gauge `CameraModel(cam, K′)`; `with_domain` → `with_lens_coverage` (where light falls is
+  the bound's); `interpolated_direction`/`interpolated_point` → the splines themselves, `cam.lens.backward(x)`,
+  `m.points(x)`; `in_present_domain` → `all(isfinite, backproject(cam, u))`; `spline_support`, `window_controls`,
+  `window_indices` → `spline_weights(cam.lens.backward, x)`, `directions(cam)` and `window_offset`. The accessors
+  `directions`, `grid_size`, `window_offset`, `spline_weights` and `direction_tangents` live on the new types;
+  `grid_size(m)` is `(columns, rows)`, the keyword's order. A SplineLens camera backprojects every pixel as the old grid
+  model did (the golden values of `test/fixtures/spline_lens_golden.jl`), whatever its K.
+- **Breaking: a SplineLens camera needs skew 0** (an `ArgumentError`), and K is frozen in every fit.
+- **New: the lens's one Newton/LM** `_spline_lm` replaces the old grid's pixel LM (`_pixel_lm`,
+  `_pixel_lm_increment`): scale-free constants, so `imaging_transform` and `project(cam, …)` agree, and the
+  analytic direction Jacobian, from one sweep of the basis, serves the solve and `backproject_with_jacobian` (the lens's
+  `LensDirection` trait: a backward lens differentiates its `backproject`, a forward lens its `project`).
+- **Breaking: `undistort`/`rectify` of a SplineLens camera run through Core's one KernelAbstractions warp**
+  (`image_warp`) on the destination's backend: exact on every backend (no sampled warp), the old grid's own kernels
+  deleted.
+- **New: `ka_upload` and `on_device`** (`base/device.jl`, beside `default_device`): the one upload to a device,
+  `ka_upload(T, dev, v)`, and `on_device(dev, A)` (the array itself when it is already there). They replace
+  VisualGeometryToolkitFeatures' `_ka_upload`, `_to_host`, `_upload_i32`, `_on_backend` and `in_kind_of`.
 - **New: a `SplineLens` camera's K is a frozen gauge.** An internal trait (`IntrinsicsRole`: free by default, a gauge
   for a `SplineLens`) is the one switch of a camera's parameter protocol: for a gauge camera `parameter_names`,
   `parameter_vector`, `parameter_bounds`, `parameters` and `with_parameters` (K kept identical) read the lens's

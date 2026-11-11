@@ -101,9 +101,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   (`nlls_stop_reasons`: `:nonfinite_gradient`; `nlls_stop_code`: a failed solve).
 - **New: `nlls_rows_and_jacobian(blocks, variables)`** (public): the rows of NLLSsolver residual blocks and their sparse
   Jacobian in the variables' chart coordinates, the stall postcondition's input for every NLLSsolver fit of the stack.
-- **New: `restrict(ch, idx::Vector{Int})`**, a `SubsetManifold` on a run-time index (its type parameter is now the
-  index container: `SubsetManifold{C, D, I}`): one variable type for many restrictions, its `NLLSsolver.nvars` read at
-  run time (a SplineLens refine's patches on their live controls).
+- **Breaking: the run-time-index method `restrict(ch, idx::Vector{Int})` is removed**, together with its
+  `SubsetManifold{C, D, Vector{Int}}` and its run-time `NLLSsolver.nvars`/`update`. It was added earlier in this
+  release for the SplineLens refine's patches, and that refine now restricts statically (NLLSsolver assembles its
+  system from statically sized blocks), so nothing in the stack calls it.
+  - `SubsetManifold{C, D, I}`'s index is an `SVector{M, Int}`.
+  - `restrict` itself stays, with its mask, static-index, name, `()` and subspace methods.
 - **Breaking: `spline_weights(cs, x)` loses its held-window argument** (no caller in the stack; a refinement holds its
   window by solving on the window's own cell). The projection Jacobians form the window's basis weights once.
 - **New: `device_free_bytes(dev)`, `reclaim_device!(dev)`, `device_names()`** (public): the accelerator's free memory,

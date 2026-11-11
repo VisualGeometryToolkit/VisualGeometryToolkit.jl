@@ -157,8 +157,27 @@ end
     using Test: @test, @test_throws
     using Random: Xoshiro, randn
     using VisualGeometryToolkitCore: estimate, retcode, rms
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses
-    export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error, check_gcv_choice
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, optical_axis
+    using VisualGeometryToolkitCore: axis_gauged, calibration_matrix, metadata, rotation
+    using Rotations: RotMatrix
+    export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error, check_gcv_choice, entry_gauge, truth_in_frame
+
+    # the camera and the rotation the refine's entry gives a guess: its optical axis (`optical_axis`), then Core's
+    # `axis_gauged` — the frame and the K the refine then holds exactly
+    function entry_gauge(cam)
+        r = optical_axis(cam)
+        K = calibration_matrix(estimate(r))
+        R = rotation(metadata(r).rotation)
+        return axis_gauged(cam, R, SVector(K[1, 3], K[2, 3])), R
+    end
+    # the truth and its poses in an estimate's frame (2026-11-11: the refine holds its guess's axis-gauged frame, no
+    # longer the truth's canonical one): turned by the rotation Q taking the truth's first pose onto the estimate's — the
+    # view whose rotation the joint solve holds; a turn of the frame changes no image
+    function truth_in_frame(truth, Es, est)
+        Q = RotMatrix{3, Float64}(est.poses[1].R * Es[1].R')
+        K = calibration_matrix(est.camera)
+        return axis_gauged(truth, Q, SVector(K[1, 3], K[2, 3])), [axis_gauged(E, Q) for E in Es]
+    end
 
     # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
     spline_truth() = CameraModel(SplineLens, CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002)),
@@ -220,16 +239,19 @@ end
             e
         end
         @test weak isa ArgumentError ? occursin("penalty = :gcv", weak.msg) : isfinite(rms(weak))
-        @test t <= 3 * weak_seconds
+        # (2026-11-11: the refine now also fits the guess's optical axis at its entry and the refined camera's after it, a
+        # diagnostic; those two fits run whatever the weight, so the bound adds them, timed warm here)
+        t_axis = (optical_axis(g0); @elapsed optical_axis(g0))
+        @test t <= 3 * (weak_seconds + 2 * t_axis)
         return nothing
     end
 end
 
-@testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined, K frozen, the axis on ẑ" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+@testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined from its optical axis, K frozen" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, retcode, rms, calibration_matrix, backproject, lens, SplineLens,
-        parameter_vector, angle_between
+        parameter_vector, angle_between, rotation
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
@@ -237,26 +259,32 @@ end
     res = refine_camera_and_poses(cam0, poses0, views)
     est = estimate(res)
     @test retcode(res) === :converged
-    @test est.camera.intrinsics === cam0.intrinsics && calibration_matrix(est.camera) == calibration_matrix(cam0)   # K bit-identical
+    # K bit-identical to the entry's: the guess on its optical axis (2026-11-11: no longer the guess's own K — the entry
+    # gauge moves its principal point to the axis's pixel; held exactly from there)
+    g0, R0 = entry_gauge(cam0)
+    @test calibration_matrix(est.camera) == calibration_matrix(g0)
     @test lens(est.camera) isa SplineLens && lens(est.camera).forward === nothing
     @test rms(res) < 1.0e-3 < spline_rms(cam0, poses0, views)                  # the guess's error is ≈ 3 px
     @test rms(res) ≈ spline_rms(est.camera, est.poses, views) rtol = 1.0e-6     # the rows are the refined camera's own
-    # the gauge, one rotation: the axis normalize(backward(0, 0)) on ẑ and the roll (the x-derivative at x = 0 in
-    # the xz plane) to rounding, the cost where it was
-    b = lens(est.camera).backward
-    d, J = VC.Cameras._spline_direction_and_jacobian(b.controls, b.area, SVector(0.0, 0.0))
-    @test angle_between(d, SVector(0.0, 0.0, 1.0)) < 1.0e-9 && abs(atan(J[2, 1], J[1, 1])) < 1.0e-9
-    # the scale gauge: every control rescaled after the solve so the mean control length is the guess's
-    @test sum(norm, b.controls) / length(b.controls) ≈ sum(norm, lens(cam0).backward.controls) / length(b.controls) rtol = 1.0e-14
+    # the entry's gauge recorded, and the diagnostic of the refined camera's own optical axis (2026-11-11, option A: the
+    # end step that turned the estimate's ray at x = 0 onto ẑ, then its roll, and rescaled the controls to the guess's mean
+    # length, is deleted — the entry's frame and K are held, nothing re-gauges the estimate)
+    @test rotation(res.spline.axis_rotation) == R0 && isfinite(res.spline.symmetry_residual)
+    # measured 2026-11-11: the axis's image 0.11 px from the held principal point; the symmetry residual 1.22 px for the
+    # perturbed guess, 0.56 px refined (the truth's own 12 × 10 lattice: 0.15 px; the diagnostic samples the whole image,
+    # past the detections, where the penalty holds the lattice)
+    @test res.spline.refined_axis_offset < 0.5
+    @test res.spline.refined_symmetry_residual < res.spline.symmetry_residual
     @test res.spline.n_nodes_unrefined == 0                                   # every node a data or Δ³ row reads
     # GCV chose the weight (the default): the curve over the decade grid and its golden refinement, tr H in (0, 2n)
     @test res.spline.gcv isa Vector && length(res.spline.gcv) >= 13 && res.spline.λ > 0
     @test res.spline.gcv_at_bound == (res.spline.β in (1.0e-12, 1.0))
     @test 0 < res.spline.effective_dof < 2res.n
-    # backprojection against the truth at the detections (the truth's own frame: the gauge is the truth's): better
+    # backprojection against the truth at the detections, in the estimate's frame (the guess's axis-gauged one): better
     # than the guess by > 10³, and the poses the truth's
-    @test ray_error(est.camera, truth, views) < ray_error(cam0, truth, views) / 1000
-    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-6
+    tf, Ef = truth_in_frame(truth, Es, est)
+    @test ray_error(est.camera, tf, views) < ray_error(cam0, truth, views) / 1000
+    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Ef)) < 1.0e-6
     @test res.n == 360 && res.spline.n_dropped_window == 0 && res.spline.n_dropped_unprojected == 0 && res.free == (:controls,)
     # the joint solve lowers its objective (λ fixed across the rounds), and the rows' rms is the penalty's bias against
     # exact data: at a 1e-14 relative weight it falls toward the solver's floor
@@ -277,14 +305,14 @@ end
     @test !rt.spline.windows_settled
     rp = refine_camera_and_poses(far, poses0, views; penalty = 1.0e-8, max_time = 0.0)
     @test retcode(rp) === :max_time && !rp.spline.windows_settled && rp.spline.β == 1.0e-8
-    @test ray_error(estimate(rf).camera, truth, views) < ray_error(far, truth, views) / 1000
+    @test ray_error(estimate(rf).camera, first(truth_in_frame(truth, Es, estimate(rf))), views) < ray_error(far, truth, views) / 1000
 end
 
 @testitem "refine_camera_and_poses: the SplineLens cameras fit_camera and the constructors make, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region,
-        estimate, retcode, rms, lens
+        estimate, retcode, rms, lens, calibration_matrix
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, fit_camera
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
     bk = BoundedCamera(kb, Size2(1280, 960))
@@ -300,18 +328,18 @@ end
         res = refine_camera_and_poses(cam0, poses0, views)
         est = estimate(res)
         @test retcode(res) === :converged
-        @test est.camera.intrinsics === cam0.intrinsics                                      # K bit-identical
+        @test calibration_matrix(est.camera) == calibration_matrix(first(entry_gauge(cam0)))   # K bit-identical to the entry's
         @test rms(res) < 1.0e-3 < spline_rms(cam0, poses0, views)
-        @test ray_error(est.camera, truth, views) < ray_error(cam0, truth, views) / 1000
-        mean_length(c) = sum(norm, lens(c).backward.controls) / length(lens(c).backward.controls)
-        @test mean_length(est.camera) ≈ mean_length(cam0) rtol = 1.0e-14                 # the scale gauge
+        @test ray_error(est.camera, first(truth_in_frame(truth, Es, est)), views) < ray_error(cam0, truth, views) / 1000
+        # (the mean control length is no longer rescaled to the guess's after the solve, 2026-11-11: the scale gauge is
+        # held during the solve by the node nearest x = 0's log-scale, and the images do not read it)
     end
     # a lens five times as far off (every control turned ≈ 0.05 rad): the fit_camera lattice still converges
     views = spline_views(fitted, Es, 1.1)
     cam0 = perturbed_controls(fitted, 0.05)
     res = refine_camera_and_poses(cam0, poses0, views)
     @test retcode(res) === :converged
-    @test ray_error(estimate(res).camera, fitted, views) < ray_error(cam0, fitted, views) / 1000
+    @test ray_error(estimate(res).camera, first(truth_in_frame(fitted, Es, estimate(res))), views) < ray_error(cam0, fitted, views) / 1000
 end
 
 @testitem "refine_camera_and_poses: a SplineLens block's analytic Jacobian matches finite differences of its residual" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
@@ -348,17 +376,19 @@ end
 @testitem "refine_camera_and_poses: a SplineLens camera's poses alone, a forward refitted, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, estimate, retcode,
-        lens, model, parameter_vector, with_present, spline_window, imaged_region
+        lens, model, parameter_vector, with_present, spline_window, imaged_region, calibration_matrix
     using LinearAlgebra: norm
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, fit_camera
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, refine_camera_and_poses, fit_camera
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
-    # the poses alone: the camera comes back as given, its controls ==, the poses recovered
+    # the poses alone: the camera comes back as the entry gauged it — the truth on its optical axis, its controls and K
+    # == (2026-11-11: no longer the given camera itself) — and the poses recovered in that frame
     held = refine_camera_and_poses(truth, poses0, views; free = ())
-    @test retcode(held) === :converged && estimate(held).camera === truth && held.free == ()
-    @test parameter_vector(estimate(held).camera) == parameter_vector(truth)
-    @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-6
+    gt, Rt = entry_gauge(truth)
+    @test retcode(held) === :converged && held.free == ()
+    @test parameter_vector(estimate(held).camera) == parameter_vector(gt) && calibration_matrix(estimate(held).camera) == calibration_matrix(gt)
+    @test maximum(maximum(abs, P.t - VC.axis_gauged(E, Rt).t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-6
     # a camera holding a forward spline: refined without it, the forward refitted over the bounded camera's imaged region
     cam0 = perturbed_controls(truth, 0.01)
     bc = BoundedCamera(estimate(fit_camera(SplineLens, BoundedCamera(cam0, Size2(1280, 960)), imaged_region(BoundedCamera(cam0, Size2(1280, 960)));
@@ -368,7 +398,7 @@ end
     @test retcode(rf) === :converged && estimate(rf).camera isa BoundedCamera
     @test lens(model(estimate(rf).camera)).forward isa ChartSpline{2} && rf.spline.forward === :refitted
     @test rf.spline.forward_max_px <= 1.0e-3
-    @test model(estimate(rf).camera).intrinsics === model(bc).intrinsics
+    @test calibration_matrix(estimate(rf).camera) == calibration_matrix(first(entry_gauge(bc)))   # the entry's K, held
     rd = refine_camera_and_poses(bc, poses0, views; refit_forward = false)
     @test lens(model(estimate(rd).camera)).forward === nothing && rd.spline.forward === :dropped
     @test_throws r"BoundedCamera" refine_camera_and_poses(model(bc), poses0, views)   # a refit needs the image
@@ -388,17 +418,16 @@ end
     island = trues(10, 12); island[1:4, 1:4] .= false; island[1, 1] = true           # node (1, 1) alone in its corner
     ri = refine_camera_and_poses(with_present(cam0, island), poses0, views)
     @test ri.spline.n_nodes_unrefined == 1
-    @test lens(estimate(ri).camera).backward.controls[1, 1] == lens(cam0).backward.controls[1, 1]
+    @test lens(estimate(ri).camera).backward.controls[1, 1] == last(entry_gauge(with_present(cam0, island))) * lens(cam0).backward.controls[1, 1]   # turned by the entry
     # a rim fragment: two present nodes (1, 1) and (1, 2) that no window and no third-difference row reads are held
     # at their guesses and counted
     rim = trues(10, 12); rim[1:4, 1:4] .= false; rim[1, 1] = rim[1, 2] = true
     rr = refine_camera_and_poses(with_present(cam0, rim), poses0, views; penalty = 1.0e-8)
     @test rr.spline.n_nodes_unrefined == 2
-    @test lens(estimate(rr).camera).backward.controls[1, 1:2] == lens(cam0).backward.controls[1, 1:2]
-    # the scale gauge's definition: the mean length over the LIVE nodes (the rim's two excluded) is the guess's
-    live = copy(rim); live[1, 1:2] .= false
-    mean_live(c) = sum(norm, lens(c).backward.controls[live]) / count(live)
-    @test mean_live(estimate(rr).camera) ≈ mean_live(with_present(cam0, rim)) rtol = 1.0e-14
+    Rr = last(entry_gauge(with_present(cam0, rim)))
+    @test lens(estimate(rr).camera).backward.controls[1, 1:2] == map(c -> Rr * c, lens(cam0).backward.controls[1, 1:2])
+    # (the mean length over the live nodes is no longer rescaled to the guess's after the solve, 2026-11-11: the end
+    # step is deleted; the scale is held during the solve by one node's log-scale)
     # refusals: a box, a partial `free`, a penalty that is neither :gcv nor a weight ≥ 0
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; penalty = :aic)
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; penalty = -1.0)
@@ -406,16 +435,21 @@ end
     @test_throws ArgumentError refine_camera_and_poses(truth, poses0, views; free = (:c_1_1_x,))
     # a lattice that folds where a point projects (every control ẑ: the backward's Jacobian exactly 0 there) is not
     # linearized: the error names the fold
+    # (2026-11-11: the refine's entry fits the optical axis first, and a lattice imaging ẑ everywhere has no field to
+    # fit — refused there; the fold refusal is the axis-gauged refine's own, checked on it directly)
     flat = CameraModel(truth.intrinsics, SplineLens(ChartSpline(b.area, fill(SVector(0.0, 0.0, 1.0), size(b.controls)))))
     P = poses0[1]
-    @test_throws r"lattice folds where the point .* projects at the guess" refine_camera_and_poses(flat, [P], [[P.R' * (SVector(0.0, 0.0, 2.0) - P.t) => SVector(640.0, 480.0)]])
+    one_point = [[P.R' * (SVector(0.0, 0.0, 2.0) - P.t) => SVector(640.0, 480.0)]]
+    @test_throws r"empty fit domain" refine_camera_and_poses(flat, [P], one_point)
+    np = VisualGeometryToolkitEstimation._refine_spline_axis_gauged(flat, [P], one_point, false)
+    @test occursin(r"lattice folds where the point .* projects at the guess", VisualGeometryToolkitEstimation._not_projected_message(np))
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: norm, eigvals, Symmetric, tr
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, estimate, retcode, rms, lens,
-        parameter_vector, spline_window, angle_between, backproject
+        parameter_vector, spline_window, angle_between, backproject, calibration_matrix
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
     truth = spline_truth(); Es = truth_poses(3)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
@@ -443,8 +477,11 @@ end
     @test size(Jf, 2) == 3count(pf.live) - 4 + 6 * 3
     ev = eigvals(Symmetric(Matrix(Jf' * Jf)))
     @test count(>(eps() * length(ev) * maximum(ev)), ev) == length(ev)                     # full rank
-    Q = VC.exp_so3(SVector(0.02, -0.01, 0.03))
-    @test cost(pf, VE._turned_variables(pf, pf.variables, Q, 0.3)) ≈ cost(pf) rtol = 1.0e-8 atol = 1.0e-18
+    # (the rotation: the camera and the poses turned together by Core's axis_gauged, every image kept)
+    Q = VC.RotMatrix{3, Float64}(VC.exp_so3(SVector(0.02, -0.01, 0.03)))
+    K7 = calibration_matrix(r7.camera)
+    pq = VE._spline_problem(VC.axis_gauged(r7.camera, Q, SVector(K7[1, 3], K7[2, 3])), [VC.axis_gauged(P, Q) for P in r7.poses], views, true, 3.0e-7; λ = pf.λ)
+    @test cost(pq) ≈ cost(pf) rtol = 1.0e-8 atol = 1.0e-18
     # the gauge held in the LM: an NLLSsolver solve of the directions-first (stage 2) and the joint (stage 3) problem
     # leaves the pinned view's rotation to the SO(3) re-projection's ulps and the scale node's log-scale == its start,
     # while the rest moves; the slots no row reads are no coordinate and stay bit for bit
@@ -504,13 +541,16 @@ end
     @test retcode(refine_camera_and_poses(cam0, poses0, views; penalty = 0)) === :max_iterations   # the default cap: visible
     r0 = refine_camera_and_poses(cam0, poses0, views; penalty = 0, max_iter = 300)
     @test retcode(r0) === :converged && r0.spline.β == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
+    # (the nodes no window reads, and their held controls, are the entry-gauged guess's, 2026-11-11: the refine starts
+    # from the guess on its optical axis — its controls turned, its principal point moved)
+    g0 = first(entry_gauge(cam0))
     read = falses(size(b.controls))
     for cs in views, x in cs
-        w = spline_window(b.area, size(b.controls), VC.Cameras._normalized_point(cam0.intrinsics, last(x)))
+        w = spline_window(lens(g0).backward.area, size(b.controls), VC.Cameras._normalized_point(g0.intrinsics, last(x)))
         read[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)] .= true
     end
     @test count(!, read) > 0 && r0.spline.n_nodes_unrefined == count(!, read)
-    @test lens(estimate(r0).camera).backward.controls[.!read] == b.controls[.!read]
+    @test lens(estimate(r0).camera).backward.controls[.!read] == lens(g0).backward.controls[.!read]
     @test rms(r0) < 1.0e-6                                                        # exact data, no penalty bias
 
     # detections with known noise (σ = 0.3 px), 3 views × 60: GCV's choice (`check_gcv_choice`, the scenes' setup).

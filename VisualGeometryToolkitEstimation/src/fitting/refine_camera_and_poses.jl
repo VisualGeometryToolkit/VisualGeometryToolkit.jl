@@ -44,7 +44,8 @@ free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
 SplineLens camera `(; β, λ, gcv, gcv_at_bound, effective_dof,
 n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
-windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start)`:
+windows_settled, forward, forward_max_px, cost_start, axis_rotation, symmetry_residual,
+refined_axis_offset, refined_symmetry_residual)`:
 the third-difference
 penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`;
 `gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
@@ -60,10 +61,13 @@ can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
 estimate until every window is its own) and whether the windows settled before
 the cap (`false` when a solve was cut short by `max_time`: its windows were never
 rebuilt); what became of a forward spline
-(`:none` without one, `:refitted`, `:dropped`, or `:kept` with the controls
-held) and the refit's held-out maximum (pixels, or `nothing`); the gauge
-rotation's two angles (the axis's and the roll's, rad); and the joint objective
-(½ the sum of squares, the penalty rows included) at the joint solve's start. For
+(`:none` without one, `:refitted` or `:dropped`: the entry's turn of the frame
+leaves it stale, so it is never kept) and the refit's held-out maximum (pixels, or `nothing`); and the joint objective
+(½ the sum of squares, the penalty rows included) at the joint solve's start; then the entry's optical-axis gauge: the frame-labelled
+rotation from the given camera's frame to the refined one's (`optical_axis`, the
+poses turned by it) and the axis fit's symmetry residual (px); and the diagnostic of
+the refined camera's own optical axis: its image's distance from the held principal
+point (px) and its symmetry residual (px). For
 a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
@@ -176,7 +180,7 @@ trait, `GaugeIntrinsics`, selects it):
   variable of that stage), then everything (a node's
   scale is weakly observed and nearly collinear with its direction, so a joint
   solve from far off creeps, or lets the scales absorb the poses' error). `free` is `(:controls,)` (the default) or
-  `()` (the poses alone, the camera returned as given); a `box` is an
+  `()` (the poses alone, the camera's lens held as the entry gauged it); a `box` is an
   `ArgumentError`.
 - Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
   on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
@@ -228,21 +232,25 @@ trait, `GaugeIntrinsics`, selects it):
   the cap the rows, `rms` and the stationarity test are read on the returned
   camera's own windows, and `windows_settled` is `false`). `iterations` sums
   every solve.
+- First, always, the optical axis. The camera is turned so ẑ is its optical axis and its principal point is that
+  axis's pixel, and the guess poses are turned with it, so every image is kept:
+  [`optical_axis`](@ref), then Core's `axis_gauged`. The refine runs from there. `result.spline.axis_rotation` is the
+  turn, from the given camera's frame to the refined one's. The refined K is the gauged guess's.
 - The gauge: a rotation of every control together with every pose, and one
-  common scale of every control, leave the cost unchanged; the estimate is the
-  one whose lens axis `normalize(backward(0, 0))` is ẑ, whose backward
-  x-derivative at x = 0 lies in the xz plane (the convention a SplineLens
-  camera's K is read in), and whose refined controls' mean length is the
-  guess's. During the solve the gauge is fixed exactly by the parametrization
-  (the first view's rotation and the log-scale of the node nearest x = 0 are no
-  coordinate of any variable), so the LM's normal matrix is full rank; after it, one
-  step (the minimal rotation onto ẑ, the roll, the scale) moves the estimate
-  to that canonical representative. K is bit-identical to the guess's.
+  common scale of every control, leave the cost unchanged. The solve fixes it
+  exactly by the parametrization: the first view's rotation and the log-scale of
+  the node nearest x = 0 are no coordinate of any variable, so the LM's normal
+  matrix is full rank. It holds the frame and K the entry set, and nothing moves
+  the estimate after the LM. K is bit-identical to the axis-gauged guess's.
+- A diagnostic only: `optical_axis` of the refined camera. `result.spline.refined_axis_offset`
+  is how far its axis's image lies from the held principal point (px), and
+  `result.spline.refined_symmetry_residual` is its symmetry residual. Nothing is
+  re-gauged from it.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which
-  needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). With
-  `free = ()` it is kept.
+  needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). It is
+  never kept, even with `free = ()`: the entry's turn of the frame leaves it stale.
 - The model: the target is exact, so the estimate is the maximum-likelihood
   one under isotropic Gaussian detection noise (penalized by the
   smoothness prior; with `penalty = 0` the plain maximum-likelihood one). A board that departs from its

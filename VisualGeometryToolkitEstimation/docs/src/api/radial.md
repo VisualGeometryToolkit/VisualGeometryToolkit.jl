@@ -88,8 +88,14 @@ direction and point splines). `pspline_grid(T, source, region, grid_size)` is th
 spline targets' one penalized solve on a given lattice, `grid_size = (columns,
 rows)` in Core's order; `fit_camera` repeats it at each spacing it tries.
 
+A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
+`optical_axis(camera)` is the one `fit_camera` call that finds the lens's optical axis: the closest radially
+symmetric camera, with its principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
+`refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
+
 ```@docs
 fit_camera
+optical_axis
 pspline_grid
 CameraFitMetadata
 ```

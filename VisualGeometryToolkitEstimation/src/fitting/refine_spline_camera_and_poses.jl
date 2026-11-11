@@ -41,13 +41,11 @@
 # they are: a gauge of 3 dimensions. Both are fixed EXACTLY by the parametrization:
 # the first view with a data row has a translation-only pose chart (its rotation is
 # data, stages 2–3), and the live node nearest x = 0 has no log-scale coordinate
-# (stage 3), so the reduced normal matrix is full rank. After the LM the estimate is
-# moved, in ONE step, to the canonical representative of its orbit (a representative
-# choice, not a gauge fix): the minimal rotation that takes the lens axis
-# `normalize(backward(0, 0))` onto ẑ, then the roll about ẑ that puts the backward's
-# x-derivative at x = 0 in the xz plane — the convention `_spline_gauge` reads K from
-# (a parametric source's own) — and the common scale that makes the live controls'
-# mean length the guess's.
+# (stage 3), so the reduced normal matrix is full rank. The frame they hold is the one
+# the entry set: the camera turned onto its optical axis (`_refine_spline_camera_and_poses`),
+# K's principal point that axis's pixel. Nothing moves the estimate after the LM, so K and
+# the frame are the entry's exactly; a diagnostic fit of the refined camera's optical axis
+# says how far the refine moved the axis's image from the held principal point.
 #
 # THE WEIGHT. The stack's convention (Core's `penalty_scale`): `λ = β·λ₁`, `λ₁ = penalty_scale(energy,
 # N, m̄)` with the data's Gauss–Newton energy per direction coordinate (the mean diagonal
@@ -521,56 +519,13 @@ end
 # The mean length of the controls at the nodes `live`.
 _mean_length(controls::AbstractMatrix, live::AbstractMatrix{Bool}) = sum(i -> norm(controls[i]), findall(live)) / count(live)
 
-# THE gauge rotation of a solved lattice: the minimal rotation taking its axis
-# `normalize(backward(0, 0))` onto ẑ (Rotations' `rotation_between`), then the roll
-# about ẑ putting its x-derivative at x = 0 in the xz plane; and the two angles.
-function _gauge_rotation(controls::AbstractMatrix, area::Rect2)
-    d, J = VgtkCore.Cameras._spline_direction_and_jacobian(controls, area, SVector(0.0, 0.0))
-    z = SVector(0.0, 0.0, 1.0)
-    θ = angle_between(d, z)
-    Qa = iszero(θ) ? SMatrix{3, 3, Float64}(I) : SMatrix{3, 3, Float64}(Rotations.rotation_between(d, z))
-    e = Qa * J[:, 1]
-    β = atan(e[2], e[1])
-    return SMatrix{3, 3, Float64}(Rotations.RotZ(-β)) * Qa, θ, β
-end
-
-# The variables moved along the gauge: the live controls' directions and the poses
-# turned by `Q`, the live controls' log-scales moved by `Δℓ` (every live control scaled
-# by e^Δℓ); the other slots are no coordinate of any variable and stay as they are.
-function _turned_variables(p, variables::AbstractVector, Q, Δℓ::Float64)
-    out = copy(variables)
-    for k in 1:p.nP
-        ch = variables[k]::_SplinePatch
-        live = ntuple(n -> _slot_live(ch, n), Val(4))
-        D = SMatrix{2, 2, SVector{3, Float64}, 4}(ntuple(n -> live[n] ? Q * _patch_direction(ch, n) : _patch_direction(ch, n), Val(4)))
-        ℓ = SVector{4, Float64}(ntuple(n -> live[n] ? _patch_scale(ch, n) + Δℓ : _patch_scale(ch, n), Val(4)))
-        out[k] = VgtkCore.restrict(_patch_chart(D, ℓ), ch.idx)
-    end
-    for k in (p.nP + 1):length(variables)
-        ch = variables[k]::_SplinePose
-        P = VgtkCore.axis_gauged(model(ch), RotMatrix{3, Float64}(Q))   # the pose in the turned camera frame: (Q·R, Q·t)
-        out[k] = VgtkCore.restrict(LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(P)), SVector{3, Float64}(translation(P))), ch.idx)
-    end
-    return out
-end
-
-# The solved variables moved along the gauge in one step — the rotation
-# (`_gauge_rotation`) and the common scale that makes the live controls' mean length
-# that of the guess `b`'s at the same nodes (`_turned_variables`) — the lattice's
-# controls they give, and the rotation's two angles; the poses alone: as they are.
-function _gauged(p, solved::AbstractVector, b::ChartSpline)
-    p.nP == 0 && return solved, b.controls, 0.0, 0.0
-    controls = _patch_controls(b, p, solved)
-    Q, θ, β = _gauge_rotation(controls, b.area)
-    vars = _turned_variables(p, solved, Q, log(_mean_length(b.controls, p.live) / _mean_length(controls, p.live)))
-    return vars, _patch_controls(b, p, vars), θ, β
-end
-
-# The forward spline of a refined SplineLens camera, over its imaged region: Core and
-# Estimation's one route (`fit_camera(SplineLens, …)`, which keeps the backward exactly).
+# The forward spline of a refined SplineLens camera, over its imaged region: `fit_camera(SplineLens, …)`'s own forward
+# fit (`_forward_spline`), on the camera as it is — not `fit_camera` itself, which gauges a gauge-K source onto its
+# optical axis first, and the refine holds its entry's frame and K exactly.
 function _refit_forward(camera::BoundedCamera, tolerance)
-    fr = fit_camera(SplineLens, camera, VgtkCore.imaged_region(camera); tolerance)
-    return VgtkCore.with_model(camera, estimate(fr)), retcode(fr), metadata(fr).family.forward_max_px
+    cam = model(camera)
+    fwd = _forward_spline(cam, VgtkCore.imaged_region(camera), tolerance, default_device())
+    return VgtkCore.with_model(camera, _with_forward(cam, fwd.spline)), fwd.code, fwd.r.errors.max
 end
 
 function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)
@@ -700,9 +655,33 @@ function _gcv_search(p, λ₁::Float64, back::CameraModel, views, max_iter, ftol
 end
 
 # The refinement: the estimate, or the `_NotProjected` of a correspondence (the public
-# boundary, `_refine_camera_and_poses`, states it).
-function _refine_spline_camera_and_poses(
-        camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
+# boundary, `_refine_camera_and_poses`, states it). ALWAYS on the camera's optical axis first:
+# the camera turned so ẑ is its axis and its principal point the axis's pixel (`optical_axis`,
+# Core's `axis_gauged`: exact), the poses turned with it, so every image is kept; the refine
+# runs from there and holds that frame and K exactly (`_refine_spline_axis_gauged`). A
+# forward the given camera held is stale once the controls turn: refitted or dropped, never
+# kept. Then, a diagnostic only, the refined camera's own optical axis: how far its image is
+# from the held principal point (px) and its symmetry residual; nothing is re-gauged from it.
+function _refine_spline_camera_and_poses(camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)
+    entry = optical_axis(camera)
+    K = calibration_matrix(estimate(entry))
+    R = metadata(entry).rotation
+    gauged = VgtkCore.axis_gauged(camera, rotation(R), SVector(K[1, 3], K[2, 3]))
+    turned = [VgtkCore.axis_gauged(pose, rotation(R)) for pose in poses]
+    out = _refine_spline_axis_gauged(gauged, turned, views, _camera_model(camera).lens.forward !== nothing; kwargs...)
+    out isa _NotProjected && return out
+    est, code, iterations, rms_px, n, md = out
+    refined = optical_axis(est.camera)
+    Kr = calibration_matrix(estimate(refined))
+    spline = (;
+        md.spline..., axis_rotation = R, symmetry_residual = metadata(entry).symmetry_residual,
+        refined_axis_offset = hypot(Kr[1, 3] - K[1, 3], Kr[2, 3] - K[2, 3]), refined_symmetry_residual = metadata(refined).symmetry_residual,
+    )
+    return est, code, iterations, rms_px, n, CameraPosesRefineMetadata(md.residuals, md.s², md.ν, md.free, spline)
+end
+
+function _refine_spline_axis_gauged(
+        camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector, had_forward::Bool;
         free::Tuple{Vararg{Symbol}} = (:controls,),
         box::Union{Nothing, NamedTuple} = nothing,
         penalty::Union{Symbol, Real, Nothing} = :gcv,
@@ -724,7 +703,7 @@ function _refine_spline_camera_and_poses(
     w = search ? exp10(_GCV_LOG10_BRACKET[2]) : penalty === nothing ? 0.0 : Float64(penalty::Real)   # under :gcv the scan's top β: the stages' start aid
     isfree = !isempty(free)
     held = VgtkCore.Cameras._held_nodes(l.present, size(l.backward.controls))
-    forward = l.forward === nothing ? :none : !isfree ? :kept : refit_forward ? :refitted : :dropped
+    forward = !had_forward ? :none : refit_forward ? :refitted : :dropped
     forward === :refitted && !(camera isa BoundedCamera) && throw(
         ArgumentError(
             "refine_camera_and_poses: the SplineLens camera holds a forward spline, which the refine drops and refits over the camera's image: " *
@@ -749,7 +728,7 @@ function _refine_spline_camera_and_poses(
     iterations = 0
     timed_out = false
     if isfree
-        pre = _refine_spline_camera_and_poses(back, poses, views; free = (), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
+        pre = _refine_spline_axis_gauged(back, poses, views, false; free = (), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
         pre isa _NotProjected && return pre
         iterations += pre[3]
         timed_out |= pre[2] === :max_time
@@ -790,8 +769,9 @@ function _refine_spline_camera_and_poses(
     p, solved, result, rounds, settled, cost_start = st.p, st.solved, st.result, st.rounds, st.settled, st.cost_start
     n, np, nobs = counts(p)                                    # a rebuild may take back a point the guess did not project
 
-    # the gauge, one step: the live controls and the poses turned by ONE rotation (the axis onto ẑ, the roll), the live controls scaled to the guess's mean length
-    vars, controls, θ, roll = _gauged(p, solved, b)
+    # the estimate as solved: the frame and K the entry set, held exactly
+    vars = solved
+    controls = p.nP == 0 ? b.controls : _patch_controls(b, p, solved)
     poses_out = [model(vars[p.nP + v]::_SplinePose) for v in 1:V]
     all(_finite_pose, poses_out) && all(c -> all(isfinite, c), controls[held]) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
@@ -812,6 +792,6 @@ function _refine_spline_camera_and_poses(
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
     spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
-        forward, forward_max_px, gauge_angle = θ, gauge_roll = roll, cost_start)
+        forward, forward_max_px, cost_start)
     return (; camera = out_camera, poses = out), code, iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end

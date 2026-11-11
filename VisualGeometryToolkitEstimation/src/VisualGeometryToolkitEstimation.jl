@@ -90,7 +90,7 @@ using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
 # frame accessors and the lens-profile queries.
 using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     Lens, LiftLens, DoubleSphere, Equidistant, Division, Perspective,
-    Stereographic, Equisolid, Orthographic, radial,
+    Stereographic, Equisolid, Orthographic,
     LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names,
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
     RadialCamera, source_map, destination_map,
@@ -260,6 +260,7 @@ export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camer
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
+export optical_axis           # the radially symmetric camera closest to a camera: its axis and principal point (fit_camera)
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
 export filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)

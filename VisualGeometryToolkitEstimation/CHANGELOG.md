@@ -5,6 +5,39 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: a SplineLens camera's principal point is its OPTICAL AXIS.** Breaking for every SplineLens fit's frame and K.
+  - **`fit_camera(L, source, region)` dispatches on the source's K** (Core's `IntrinsicsRole`). A physical K: today's
+    fit, its principal point and ẑ the source's own. A gauge K (a SplineLens camera): the principal point, the aspect
+    and the axis are free, the axis on a 2-coordinate sphere chart at ẑ embedded as the minimal rotation onto ẑ, so its
+    roll is fixed exactly. They live in the one chart builder, `_regression_manifold`.
+  - **One 2-D residual replaces the radial one**, for every pair. A forward target's residual is in pixels (its
+    `projected_radius` along the ray's azimuth, finite past a fold). A lift target's is angle-style, in the
+    equidistant chart about ẑ, scaled by the radius.
+    - At a physical K's sample (azimuth 0) both are exactly the former rows, so every recorded profile regression
+      keeps its minimizer: the golden test is unchanged (OPENCV3, the decentered OPENCV target and the double sphere
+      past its image circle included), and so is the own-family test's exact zero.
+  - **Every `fit_camera` method's `CameraFitMetadata` gains `rotation`** (a frame-labelled `RotationMap`,
+    `ViewFrame{:source}` → `ViewFrame{:fitted}`: exactly the identity where nothing turns) **and `symmetry_residual`**
+    (px: the azimuthal misfit about the fitted principal point; `NaN` where not measured). The lens families' record
+    gains `aspect`.
+  - **A non-central source** of a lens-family fit is an `ArgumentError` (not supported yet).
+- **New: `optical_axis(camera, region)`** (exported), the one `fit_camera` call of the Fisheye624 family
+  (`Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6}`, its decentering held at zero) onto a camera: its axis,
+  principal point, rotation and symmetry residual. The family's manifold frees a composition's first radial stage
+  (Core's `_bounding_radial`), so a composed target fits at all.
+- **`fit_camera(SplineLens, …)` gauges a gauge-K source onto its optical axis first** (`optical_axis`, then Core's
+  `axis_gauged`: every ray turned by R, exactly). Its forward is fitted there, and the metadata's `rotation` says by how
+  much. A physical source is unchanged.
+- **The SplineLens `refine_camera_and_poses` starts on the guess's optical axis.** The camera is turned and its
+  principal point moved to the axis's pixel, the poses turned with it.
+  - The refine holds that frame and K exactly. Its end step (the ray at x = 0 onto ẑ, the roll, the mean-length
+    rescale: `_gauged`, `_gauge_rotation`, `_turned_variables`) is deleted; with it, `spline.gauge_angle` and
+    `gauge_roll`.
+  - `spline` gains `axis_rotation`, `symmetry_residual` and the diagnostic `refined_axis_offset`,
+    `refined_symmetry_residual`: one `optical_axis` fit of the refined camera, from which nothing is re-gauged.
+  - A forward spline is now refitted or dropped, never kept (the turn leaves it stale). It is refitted by
+    `fit_camera(SplineLens)`'s own forward fit, which does not re-gauge.
+
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 

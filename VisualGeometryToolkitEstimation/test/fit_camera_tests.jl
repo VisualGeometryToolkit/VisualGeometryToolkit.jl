@@ -142,12 +142,12 @@ end
 end
 
 
-@testitem "fit_camera(SplineLens): a SplineLens source keeps its backward and gains a forward spline" setup = [FitCameraFisheye] begin
+@testitem "fit_camera(SplineLens): a SplineLens source keeps its backward, on its optical axis, and gains a forward spline" setup = [FitCameraFisheye] begin
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, ChartSpline, SplineLens, CameraModel,
-        BoundedCamera, Size2, project, backproject, calibration_matrix, lens
+        BoundedCamera, Size2, project, backproject, calibration_matrix, lens, rotation
     using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata
 
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3)
@@ -155,9 +155,15 @@ end
     @test cam isa CameraModel && lens(cam) isa SplineLens && lens(cam).forward isa ChartSpline{2}
     @test metadata(r) isa CameraFitMetadata
     @test retcode(r) === :converged
-    # the backward is the source's, exactly: its controls, area and K
-    @test lens(cam).backward.controls == lens(GRID).backward.controls && lens(cam).backward.area == lens(GRID).backward.area
-    @test calibration_matrix(cam) == calibration_matrix(GRID)
+    # the backward is the source's on its optical axis (2026-11-11, changed on purpose: a gauge-K source is gauged
+    # first, `optical_axis` then Core's `axis_gauged`): its controls turned by the fit's rotation, exactly, its K's
+    # principal point moved to the axis's pixel. GRID is the fisheye's own spline, so the turn is its approximation
+    # error alone (measured 2026-11-11: 6e-7 px of principal point)
+    R = rotation(metadata(r).rotation)
+    @test lens(cam).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
+    @test maximum(abs, R - one(R)) < 1.0e-8
+    K, KG = calibration_matrix(cam), calibration_matrix(GRID)
+    @test K[1, 1] == KG[1, 1] && K[2, 2] == KG[2, 2] && maximum(abs, K[1:2, 3] - KG[1:2, 3]) < 1.0e-5
     fam = metadata(r).family
     @test fam.λ === nothing && fam.grid_size == (40, 40) && fam.outer_iterations == 0
     @test metadata(r).max_px < 1.0e-9                                           # the kept backward against itself
@@ -176,13 +182,16 @@ end
     @test all(isnan, project(cam, SVector(sind(170.0), 0.0, cosd(170.0))))
     # forward = false: the backward alone, the same controls; no forward record
     rb = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, forward = false)
-    @test lens(estimate(rb)).forward === nothing && lens(estimate(rb)).backward.controls == lens(GRID).backward.controls
+    @test lens(estimate(rb)).forward === nothing && lens(estimate(rb)).backward.controls == lens(cam).backward.controls
     @test metadata(rb).family.forward_max_px === nothing && metadata(rb).family.counts === nothing
     # refitting the fitted camera, which holds a forward: the forward is dropped and
-    # refitted (the same rays, the same solve), the backward kept again
+    # refitted, the backward gauged again — already on its axis, so the second turn is the axis fit's own tolerance
+    # (changed on purpose, 2026-11-11: no longer `==` the first fit's, which the second gauge turns by ~1e-10 rad)
     r2 = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-3)
-    @test lens(estimate(r2)).backward.controls == lens(GRID).backward.controls
-    @test lens(estimate(r2)).forward.controls == lens(cam).forward.controls
+    R2 = rotation(metadata(r2).rotation)
+    @test lens(estimate(r2)).backward.controls == map(c -> R2 * c, lens(cam).backward.controls)
+    @test maximum(abs, R2 - one(R2)) < 1.0e-8
+    @test maximum(norm.(lens(estimate(r2)).forward.controls .- lens(cam).forward.controls)) < 1.0e-6
     @test retcode(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward_max_px <= 1.0e-3
     # a kept backward has no lattice to choose
     @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
@@ -407,7 +416,7 @@ end
 
 @testitem "fit_camera(SplineLens): a function source goes through Core's source constructor, which gauges it" setup = [FitCameraFisheye] begin
     using Test
-    using VisualGeometryToolkitCore: metadata, retcode, estimate, backproject, CameraModel, SplineLens, BoundedCamera, Size2, lens
+    using VisualGeometryToolkitCore: metadata, retcode, estimate, backproject, CameraModel, SplineLens, BoundedCamera, Size2, lens, rotation
     using VisualGeometryToolkitEstimation: fit_camera
     # a function of the pixel has neither an image nor a K: the fit refuses it, and
     # the route is the SplineLens camera of the function (its K the lattice's gauge),
@@ -418,7 +427,10 @@ end
     cam = CameraModel(SplineLens, f, (1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-2)
     @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-2
-    @test lens(estimate(r)).backward.controls == lens(cam).backward.controls
+    # the backward is the camera's on its optical axis (changed on purpose, 2026-11-11: a gauge-K source is gauged
+    # first), its controls turned by the fit's rotation exactly
+    R = rotation(metadata(r).rotation)
+    @test lens(estimate(r)).backward.controls == map(c -> R * c, lens(cam).backward.controls)
 end
 
 @testitem "fit_camera: a lens refitted onto its own family has exactly zero residuals" begin
@@ -534,7 +546,8 @@ end
 
 @testitem "fit_camera: a parametric lens from a SplineLens camera, through the camera's rays (the exporters' route)" setup = [FitCameraFisheye] begin
     using Test
-    using VisualGeometryToolkitCore: estimate, metadata, lens, rms, parameter_vector, calibration_matrix, KannalaBrandt
+    using VisualGeometryToolkitCore: estimate, metadata, lens, rms, parameter_vector, calibration_matrix, KannalaBrandt, rotation
+    using LinearAlgebra: I
     using VisualGeometryToolkitEstimation: fit_camera
     # A SplineLens camera has no OpenCV/COLMAP form: the exporters' refusal (VisualGeometryToolkitIO) says to fit a
     # parametric lens to it first, `fit_camera(KannalaBrandt{4}, camera, region)` — the bounded camera or its model.
@@ -547,7 +560,10 @@ end
         @test maximum(abs.(collect(parameter_vector(lens(kb))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-3
         @test abs(metadata(r).family.focal_scale - 1) <= 1.0e-3
         @test rms(r) < 0.05 && metadata(r).max_px < 0.5
-        @test calibration_matrix(kb)[1:2, 3] == calibration_matrix(GRID)[1:2, 3]   # the principal point kept
+        # a gauge K's principal point is fitted (changed on purpose, 2026-11-11: it was kept, the pixel imaging ẑ): GRID
+        # is the fisheye's own spline, so it lands on the fisheye's (500, 500) to the spline's approximation
+        @test maximum(abs, calibration_matrix(kb)[1:2, 3] - calibration_matrix(GRID)[1:2, 3]) < 1.0e-5
+        @test maximum(abs, rotation(metadata(r).rotation) - I) < 1.0e-8
     end
     # the image samples carry the :image density only
     @test_throws ArgumentError fit_camera(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)

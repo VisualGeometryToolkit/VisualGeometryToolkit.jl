@@ -562,10 +562,10 @@ FlexUnits.ustrip(u::Units, p::SchoepsPattern{<:Quantity}) =
 with_unit(p::SchoepsPattern{<:Real}, u::Units) =
     SchoepsPattern(; p.squares_x, p.squares_y, square_length = _attach_length(p.square_length, u), p.apriltags, p.star_segments, p.apriltag_family)
 
-for L in (:AprilGrid, :SchoepsPattern)
-    @eval FlexUnits.ustrip(::Units, ::$L{<:Real}) = throw(ArgumentError(string("ustrip: the ", $(string(L)), " is plain numbers already; `with_unit` attaches a unit")))
-    @eval with_unit(::$L{<:Quantity}, ::Units) = throw(ArgumentError(string("with_unit: the ", $(string(L)), " already has units")))
-end
+# A canvas, its texture and a layout move their unit once: stripping plain numbers or
+# attaching a unit twice is refused (target_calibration.jl's refusals, by type name).
+FlexUnits.ustrip(::Units, x::Union{CanvasTexture{<:Real}, Canvas{<:Real}, AprilGrid{<:Real}, SchoepsPattern{<:Real}}) = _refuse_strip(x)
+with_unit(x::Union{CanvasTexture{<:Quantity}, Canvas{<:Quantity}, AprilGrid{<:Quantity}, SchoepsPattern{<:Quantity}}, ::Units) = _refuse_attach(x)
 
 # The inner corners next to a tag (Schöps' IsValidFeatureCoord refuses them):
 # `covered[gx + 1, gy + 1]`, each tag marking its own range once.

@@ -246,7 +246,3 @@ FlexUnits.ustrip(u::Units, c::Canvas{<:Quantity}) =
     Canvas(_strip_rect(u, c)...; texture = c.texture === nothing ? nothing : ustrip(u, c.texture))
 with_unit(x::CanvasTexture{<:Real}, u::Units) = CanvasTexture(x.path, x.sha256, _attach_rect(u, x)...)
 with_unit(c::Canvas{<:Real}, u::Units) = Canvas(_attach_rect(u, c)...; texture = c.texture === nothing ? nothing : with_unit(c.texture, u))
-for R in (:CanvasTexture, :Canvas)
-    @eval FlexUnits.ustrip(::Units, ::$R{<:Real}) = throw(ArgumentError(string("ustrip: the ", $(string(R)), " is plain numbers already; `with_unit` attaches a unit")))
-    @eval with_unit(::$R{<:Quantity}, ::Units) = throw(ArgumentError(string("with_unit: the ", $(string(R)), " already has units")))
-end

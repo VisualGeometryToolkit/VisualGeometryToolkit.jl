@@ -144,7 +144,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         for x in xs
             NLLSsolver.addcost!(problem, _PointResidual(x, truth(x)))
         end
-        result = NLLSsolver.optimize!(problem, NLLSsolver.NLLSOptions(; numthreads = NLLSsolver.static(1)))
+        result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
         @test result.bestcost < 1.0e-20
         @test norm(local_coordinates(problem.variables[1], truth)) < 1.0e-9
     end
@@ -160,7 +160,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
             problem = NLLSsolver.NLLSProblem(typeof(ch₀), _PointResidual)
             NLLSsolver.addvariable!(problem, ch₀)
             foreach(x -> NLLSsolver.addcost!(problem, _PointResidual(x, truth(x))), xs)
-            result = NLLSsolver.optimize!(problem, NLLSsolver.NLLSOptions(; numthreads = NLLSsolver.static(1)))
+            result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
             @test problem.variables[1] isa typeof(ch₀)
             @test result.bestcost < result.startcost
             @test norm(local_coordinates(problem.variables[1], truth)) < (eltype(ch₀.t) === Float32 ? 1.0e-5 : 1.0e-9)

@@ -278,6 +278,24 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   input is read once per process. A driver checks its config's inputs the same
   way with
   [`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs).
+- **Tier roots.** An input's `path` is relative to its *tier's* root, which
+  is the data root unless the machine puts that tier elsewhere: first the
+  environment's `VGTK_DATA_ROOT_<TIER>` (`blobcalib_202609` →
+  `VGTK_DATA_ROOT_BLOBCALIB_202609`), then the graph's site table, then the
+  data root ([`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)).
+  A config never names a machine path; the machine's paths are its site's:
+
+  ```toml
+  [sites.dgx01]
+  data_root = "/raid/data/me/paper-data"
+  results_root = "/raid/data/me/paper-results"
+  tiers = { blobcalib_202609 = "/raid/data/me/datasets/202609_BlobCalib" }
+  ```
+
+  The runner gives its jobs the same roots (`VGTK_DATA_ROOT_<TIER>`,
+  `VGTK_SITE`), and a driver resolves one with
+  [`data_root(; tier)`](@ref VisualGeometryToolkitEval.Experiments.data_root).
+  A tier root that is named but missing is reported as such.
 - **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
   (an array over its items, sized from the config's cases or a list, `--time`
   from the cases' `max_time`), after the jobs of the stages it depends on

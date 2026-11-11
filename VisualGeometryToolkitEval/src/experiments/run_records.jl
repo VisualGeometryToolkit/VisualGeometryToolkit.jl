@@ -318,21 +318,23 @@ function promote_run(run_dir::AbstractString, tier::AbstractString; name::Abstra
 end
 
 """
-    verify_inputs(cfg; root = data_root()) -> Dict{String,String}
+    verify_inputs(cfg; root = nothing) -> Dict{String,String}
 
 The `[inputs.<id>]` of a config, checked as the runner checks them
-(`missing_inputs`): each `path` (relative to `root`) is there, and one with a
+(`missing_inputs`): each `path` (relative to its tier's root,
+[`data_root`](@ref)`(; tier)`, or to `root` for every input when given) is there, and one with a
 `sha256` has that content (streamed, cached: `file_sha256`). Returns `id =>`
 absolute path; an `ArgumentError` names every missing input (id, tier, path)
 and every other content (id, path, expected and actual hash).
 """
-function verify_inputs(cfg::AbstractDict; root::AbstractString = data_root())
+function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = nothing)
     out, bad = Dict{String,String}(), String[]
     for (id, t) in get(cfg, "inputs", Dict{String,Any}())
         (t isa AbstractDict && haskey(t, "path")) || continue
-        p = joinpath(root, t["path"])
+        r = root === nothing ? data_root(; tier = String(get(t, "tier", ""))) : root
+        p = joinpath(r, t["path"])
         if !ispath(p)
-            push!(bad, "input $id ($(get(t, "tier", "?"))): $(t["path"]) is not under $root")
+            push!(bad, "input $id ($(get(t, "tier", "?"))): $(t["path"]) is not under $r")
         elseif haskey(t, "sha256")
             want = lowercase(string(t["sha256"]))
             got = isfile(p) ? file_sha256(p) : "a directory"

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **New: per-tier input roots.** An input tier may live outside the data root on a machine (a capture on another
+  disk). Its root resolves in one order, for the runner and the drivers alike (`VisualGeometryToolkitEval.tier_data_root`):
+  the environment's `VGTK_DATA_ROOT_<TIER>` (`tier_variable`: the tier upper-cased, other characters `_`), then the
+  stage graph's `[sites.<site>.tiers]` table (`<tier> = "<root>"`, a relative root relative to the workdir), then the
+  one data root. Each `[inputs.<id>]` path is relative to its tier's root, so a config names no machine path (data
+  policy D1). `missing_inputs(…; site)` and the runner resolve it so (a named tier root that is not there is
+  reported with the variable or table that names it; the `sha256` check applies per input), the runner exports
+  the site's tier roots and `VGTK_SITE` to its jobs, and `Experiments.data_root(; tier)` resolves the same order
+  (the graph's table through `VGTK_SITE`); `verify_inputs` checks each input under its tier's root, and
+  `assert_not_input` guards every tier root. No link directories and no sibling-checkout paths.
+
 - **New: a results layout named by the config.** `[experiment] layout = ["mocap", "<camera>"]` (path segments) makes
   `experiment_dir` `<results root>/<layout…>` for a project whose results are not laid out by dataset, matcher and
   problem; `load_run_config` then needs no pool fields. `keyed_cell_dir(cfg, experiment, kind; base)` takes another

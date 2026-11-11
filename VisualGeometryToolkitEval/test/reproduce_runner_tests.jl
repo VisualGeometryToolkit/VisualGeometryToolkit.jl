@@ -277,6 +277,53 @@ end
         @test [r.path for r in missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)] == ["boards/a4.toml"]
     end
 
+    @testset "per-tier input roots: the environment, then the site's [sites.<site>.tiers], then the data root" begin
+        f = runner_project()
+        alt = mktempdir(); mkpath(joinpath(alt, "boards")); write(joinpath(alt, "boards", "a4.toml"), "board\n")
+        g = load_stage_graph(f.graph)
+        paths(rows) = [r.path for r in rows]
+        # the fallback: the one data root, which lacks the board
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")) == ["boards/a4.toml"]
+        # the environment's VGTK_DATA_ROOT_<TIER>
+        @test VisualGeometryToolkitEval.tier_variable("boards") == "VGTK_DATA_ROOT_BOARDS"
+        @test VisualGeometryToolkitEval.tier_variable("blobcalib_202609") == "VGTK_DATA_ROOT_BLOBCALIB_202609"
+        envb = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => alt))
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = envb, site = "desktop"))
+        # the site's table (a relative root is relative to the workdir); the environment comes first
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"$alt\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop"))
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "dgx01")) == ["boards/a4.toml"]   # another site's
+        empty_root = mktempdir()
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, site = "desktop",
+                                   env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => empty_root)))) == ["boards/a4.toml"]
+        mkpath(joinpath(f.proj, "altrel", "boards")); write(joinpath(f.proj, "altrel", "boards", "a4.toml"), "board\n")
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"altrel\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop"))
+        # a named tier root that is not there is reported as such
+        rows = missing_inputs(g, ["chrome_prepare"]; data_root = f.data, site = "desktop",
+                              env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => "/nonexistent/boards-root")))
+        @test only(rows).tier == "boards (root /nonexistent/boards-root, from VGTK_DATA_ROOT_BOARDS, is not there)"
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"/nonexistent/b\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test occursin("from [sites.desktop.tiers], is not there", only(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")).tier)
+        # the sha256 of an input under its tier's root: another content refused
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"$alt\" }\n"))
+        g = load_stage_graph(f.graph)
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        write(cfg, replace(read(cfg, String), "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$("0"^64)\""))
+        @test_throws r"input board .*sha256 expected 0{64}, actual" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # the jobs resolve as the launch did: the site's tier roots and the site in their environment
+        plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test plan.base_env["VGTK_DATA_ROOT_BOARDS"] == alt && plan.base_env["VGTK_SITE"] == "desktop"
+        plan = plan_reproduction(g, load_site("desktop"); env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => empty_root)), queue_states = noqueue, only = ["setup"])
+        @test plan.base_env["VGTK_DATA_ROOT_BOARDS"] == empty_root                                    # the caller's first
+        @test_throws r"unknown key sites.desktop.tier " load_stage_graph(begin
+            write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntier = 1\n")); f.graph end)
+    end
+
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
         f = runner_project()
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)

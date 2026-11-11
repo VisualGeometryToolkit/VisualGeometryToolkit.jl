@@ -217,3 +217,36 @@ function code_tree_changes(recorded, current::AbstractDict)
     end
     return out
 end
+
+# -----------------------------------------------------------------------------
+# Inputs: the root of each tier
+# -----------------------------------------------------------------------------
+
+"""
+    tier_variable(tier; prefix = "VGTK_DATA_ROOT") -> String
+
+The environment variable that gives the root of the input tier `tier`: `<prefix>_<TIER>`, the tier upper-cased with
+every character other than a letter or a digit made `_` (`blobcalib_202609` → `VGTK_DATA_ROOT_BLOBCALIB_202609`).
+"""
+tier_variable(tier::AbstractString; prefix::AbstractString = "VGTK_DATA_ROOT") =
+    prefix * "_" * uppercase(replace(tier, r"[^A-Za-z0-9]" => "_"))
+
+"""
+    tier_data_root(tier, data_root; env = ENV, tiers = nothing, workdir = "", prefix = "VGTK_DATA_ROOT") -> (root, source)
+
+THE root of an input tier, in one order for the runner and the drivers: the environment's
+[`tier_variable`](@ref)`(tier)` (`source = "env"`), else the machine's table `tiers` (a stage graph's
+`[sites.<site>.tiers]`: `tier = "<root>"`, a relative root relative to `workdir`; `source = "site"`), else the one
+`data_root` (`source = "data root"`). An `[inputs.<id>]` path is relative to its tier's root, so a config names no
+machine path whichever disk a tier lives on.
+"""
+function tier_data_root(tier::AbstractString, data_root::AbstractString; env = ENV, tiers = nothing,
+                        workdir::AbstractString = "", prefix::AbstractString = "VGTK_DATA_ROOT")
+    v = String(get(env, tier_variable(tier; prefix), ""))
+    isempty(v) || return (v, "env")
+    if tiers !== nothing && !isempty(tier) && haskey(tiers, tier)
+        t = String(tiers[tier])
+        return (isabspath(t) || isempty(workdir) ? t : normpath(joinpath(workdir, t)), "site")
+    end
+    return (String(data_root), "data root")
+end

@@ -132,7 +132,7 @@ const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_bran
                      "gpu", "default", "time", "array", "inputs_from")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s")
-const _SITE_ROOT_KEYS = ("data_root", "results_root", "env")
+const _SITE_ROOT_KEYS = ("data_root", "results_root", "env", "tiers")
 
 """
     StageSpec
@@ -257,8 +257,9 @@ A project's stage graph of record from its TOML (the project's `configs/reproduc
 every stage runs, default `src` — their git trees, with those of every stack package the project's environment loads
 ([`code_trees`](@ref VisualGeometryToolkitEval.code_trees)), are the code a launch records: a finished stage is
 reused only while they are unchanged, so a change elsewhere, the paper's text or the docs, reuses it, and a launch
-with uncommitted changes in them is refused), `[sites.<site>]` (`data_root`, `results_root` and an `env`
-table: where this project's data and results are on that machine), one `[[stage]]` per stage ([`StageSpec`](@ref)),
+with uncommitted changes in them is refused), `[sites.<site>]` (`data_root`, `results_root`, an `env`
+table, and a `tiers` table, `<tier> = "<root>"`, the roots of the input tiers that are not under the data root on
+that machine: where this project's data and results are on that machine), one `[[stage]]` per stage ([`StageSpec`](@ref)),
 and `[results_branch]` (`project`, the paper project's directory relative to `workdir`; `assets`, tables
 `{from, to, submitted_only}`: the renders matching the glob `from` go to the directory `to`, both relative to
 `project`, only those with a submitted copy there when `submitted_only`; `artifacts`, an `Artifacts.toml` relative to
@@ -366,7 +367,7 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    missing_inputs(g, stages; data_root, env = ENV) -> Vector{NamedTuple}
+    missing_inputs(g, stages; data_root, env = ENV, site = "") -> Vector{NamedTuple}
 
 Every input of the selected `stages` that is not there, as data, before anything runs: one row
 `(; path, tier, used_by)` per missing path (`used_by` every stage and config that reads it). A stage's inputs are its
@@ -374,14 +375,21 @@ configs of record (one per array item) and their `[inputs.<id>]` tables with a `
 `tier`; a missing config is a row of tier `"config of record"`. With no data root every data input is missing (tier
 as declared).
 
+Each input's path is relative to ITS TIER's root ([`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)):
+`env`'s `<data_env>_<TIER>`, else the graph's `[sites.<site>.tiers]` table, else `data_root`. A tier root that is
+named but not there makes each of its inputs a row whose tier says so (`"mocap (root /x, from VGTK_DATA_ROOT_MOCAP,
+is not there)"`).
+
 An input with a `sha256` (64 hex digits, of a file) is verified: an input that is there with another content is
 REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
 nothing runs on data other than the data of record. An input without one is not checked. The hash is streamed and
 cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is
 read once per process, and a launch that checks the same input from several configs reads it once.
 """
-function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV)
+function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV,
+                        site::AbstractString = "")
     rows = Dict{String, Tuple{String, Vector{String}}}()
+    tiers = get(get(g.site_roots, site, Dict{String, Any}()), "tiers", nothing)
     wrong = String[]
     add!(path, tier, user) = (r = get!(rows, path, (tier, String[])); user in r[2] || push!(r[2], user))
     function check!(cfg, user)
@@ -389,9 +397,15 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
         isfile(p) || (add!(cfg, "config of record", user); return)
         for (id, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
             (t isa AbstractDict && haskey(t, "path")) || continue
-            full = isempty(data_root) ? "" : joinpath(data_root, t["path"])
+            tier = String(get(t, "tier", ""))
+            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env)
+            if from != "data root" && !isdir(root)
+                add!(t["path"], "$tier (root $root, from $(from == "env" ? tier_variable(tier; prefix = g.data_env) : "[sites.$site.tiers]"), is not there)", user)
+                continue
+            end
+            full = isempty(root) ? "" : joinpath(root, t["path"])
             if isempty(full) || !ispath(full)
-                add!(t["path"], get(t, "tier", ""), user)
+                add!(t["path"], tier, user)
                 continue
             end
             haskey(t, "sha256") || continue
@@ -617,7 +631,17 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
-    plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, Dict{String, String}(env),
+    base = Dict{String, String}(env)
+    # The jobs resolve a tier's root as this launch did: the site's [sites.<site>.tiers] become the variables a
+    # driver reads first (`tier_data_root`), unless the caller's environment already sets them; VGTK_SITE names the
+    # site to a driver run by hand from inside a job.
+    for (tier, _) in get(get(g.site_roots, site.name, Dict{String, Any}()), "tiers", Dict{String, Any}())
+        var = tier_variable(tier; prefix = g.data_env)
+        haskey(base, var) || (base[var] = first(tier_data_root(tier, data; env = base, workdir = g.workdir, prefix = g.data_env,
+                                                              tiers = g.site_roots[site.name]["tiers"])))
+    end
+    base["VGTK_SITE"] = site.name
+    plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,
                          code.trees, code.dirty, code.project_paths)
     _mark_reuse!(plan, ids -> _queue_states(queue_states, ids, env))
     return plan
@@ -1418,7 +1442,7 @@ function reproduce_main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = 
         plan = plan_reproduction(g, site; only = String.(split(only, ','; keepempty = false)), deps = !("--no-deps" in args),
                                  data_root = _cli_value(args, "data-root"), results_root = _cli_value(args, "results-root"),
                                  job_name_prefix = _cli_value(args, "job-name-prefix"), env, queue_states)
-        miss = missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env)
+        miss = missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name)
         if "--dry-run" in args
             print_plan(io, plan; missing = miss)
             println(io, "\ndry run: nothing submitted or run")

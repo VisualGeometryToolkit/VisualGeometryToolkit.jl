@@ -352,6 +352,37 @@
         end
     end
 
+    @testset "data_root(; tier): the environment, then the stage graph's [sites.<site>.tiers], then the data root" begin
+        data = mktempdir(); res = mktempdir(); proj = mktempdir(); mocap = mktempdir()
+        mkpath(joinpath(proj, "configs")); mkpath(joinpath(proj, "rel", "mocap"))
+        write(joinpath(proj, "configs", "reproduce.toml"), """
+            [project]
+            name = "p"
+            workdir = ".."
+            [sites.m]
+            tiers = { mocap = "rel/mocap", abs = "$mocap" }
+            """)
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SITE" => nothing, "VGTK_DATA_ROOT_MOCAP" => nothing) do
+            E.set_project_root!(proj)
+            @test E.data_root(; tier = "mocap") == data                                            # no site: the data root
+            withenv("VGTK_SITE" => "m") do
+                @test E.data_root(; tier = "mocap") == joinpath(proj, "rel", "mocap")              # the site's, relative to the workdir
+                @test E.data_root(; tier = "abs") == mocap && E.data_root(; tier = "other") == data
+                withenv("VGTK_DATA_ROOT_MOCAP" => mocap) do
+                    @test E.data_root(; tier = "mocap") == mocap                                   # the environment first
+                    # verify_inputs per tier; the tier root is input: no write under it
+                    write(joinpath(mocap, "take.csv"), "1\n")
+                    h = first(split(read(`sha256sum $(joinpath(mocap, "take.csv"))`, String)))
+                    c = Dict{String,Any}("inputs" => Dict{String,Any}("take" => Dict{String,Any}("tier" => "mocap", "path" => "take.csv", "sha256" => h)))
+                    @test E.verify_inputs(c) == Dict("take" => joinpath(mocap, "take.csv"))
+                    @test_throws r"is not under" E.verify_inputs(c; root = data)
+                    @test_throws r"input tier \(VGTK_DATA_ROOT_MOCAP" E.assert_not_input(joinpath(mocap, "out"))
+                end
+            end
+            E.set_project_root!("")
+        end
+    end
+
     @testset "keyed cache" begin
         repo = gitrepo()
         E.set_project_root!(repo)

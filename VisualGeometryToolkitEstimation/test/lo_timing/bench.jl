@@ -34,35 +34,13 @@ using StaticArrays, LinearAlgebra
 using VisualGeometryToolkitEstimation: RansacWorkspace
 using VisualGeometryToolkitCore: MsacScoring
 
-const FIXTURE = joinpath(@__DIR__, "lo_calls_phototourism_e.bin")
 const OUT = ARGS[1]
 const REPS = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 7
 include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "lo_timing", "bench_record.jl"))   # calibration_spread, write_bench_record: the record the gate reads
 
 Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); got $(Threads.nthreads()) threads")
 
-function read_fixture(path)
-    open(path) do io
-        String(read(io, 8)) == "LOFX0001" || error("$path: not a LOFX0001 fixture")
-        npairs = read(io, Int64); nseeds = read(io, Int64); halfwidth = read(io, Float64)
-        rd(k) = [read(io, Float64) for _ in 1:k]
-        pairs = map(1:npairs) do _
-            n = Int(read(io, Int64))
-            Kc1 = SMatrix{3, 3, Float64, 9}(rd(9)); Kc2 = SMatrix{3, 3, Float64, 9}(rd(9))
-            x1 = reshape(rd(2n), 2, n); x2 = reshape(rd(2n), 2, n)
-            seeds = [EssentialMat(Tuple(rd(9))) for _ in 1:nseeds]
-            (; n, Kc1, Kc2, x1, x2, seeds)
-        end
-        eof(io) || error("$path: trailing bytes")
-        return pairs, halfwidth
-    end
-end
-
-function problem_of(pr)
-    P2 = Point2{Float64}
-    cs = Csponds([P2(pr.x1[1, i], pr.x1[2, i]) for i in 1:pr.n], [P2(pr.x2[1, i], pr.x2[2, i]) for i in 1:pr.n])
-    return EssentialProblem(CameraModel(pr.Kc1), CameraModel(pr.Kc2), cs)
-end
+include(joinpath(@__DIR__, "call_set.jl"))   # read_fixture, pool_csponds, problem_of: the call set's one reader
 
 # The Table 1 arms at the equal LO budget. The scale multiples are the Welsch
 # grid's centre (GM in its half-weight currency, as accv2026's arm table maps
@@ -74,7 +52,7 @@ const ARMS = [
     "GM-IRLS"     => () -> Irls{GemanMcclureShape}(; max_iter = BUDGET, scale_multiple = GM_MULTIPLE),
 ]
 
-const PAIRS, HALFWIDTH = read_fixture(FIXTURE)
+const PAIRS, HALFWIDTH = read_fixture(CALL_SET_FIXTURE)
 const PROBS = [problem_of(pr) for pr in PAIRS]
 # The core's default scorer: MSAC at the essential class's threshold of record
 # (configs/default.toml [pipelines.essential], 1 px), in the fixture's frame —

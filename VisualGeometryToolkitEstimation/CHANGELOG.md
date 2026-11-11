@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Tests: the recorded LO call set has one reader, test/lo_timing/call_set.jl** (`CALL_SET_FIXTURE`,
+  `read_fixture`, `pool_csponds`, `problem_of`), which this package's timing bench and LocalOptimizationDoneRight's
+  include from `pkgdir(VisualGeometryToolkitEstimation)` (the latter carried its own copy of the reader and of the
+  fixture file).
+
 - **New in `synthetic_scenes()`: `EpipolarScenes.contaminated_pixel_pairs(rng, n; planar)` and `PIXEL_PAIRS_K`**: the
   contaminated two-view pixel scene of the block-coordinate-descent `Recorded` tests (a homography scene with
   `planar = true`, else F/E; 40 % gross outliers), which LocalOptimizationDoneRight's recorded-BCD test restated as

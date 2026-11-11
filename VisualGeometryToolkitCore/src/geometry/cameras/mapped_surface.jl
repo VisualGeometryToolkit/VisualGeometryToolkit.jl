@@ -110,15 +110,30 @@ _primal_float(::Quad{T}) where {T} = primal_float(T)
     return fj
 end
 @inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> (X = s.map(p); (X - x, transform_deriv(s.map, p), X))
+# The same residuals without their Jacobian (`_value_residual(residual)`): the implicit-function step's one evaluation on the
+# Dual parts needs the residual's partials only — the chart map's Jacobian there would carry every partial for nothing.
+@inline function _hit_value(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
+    b1, b2 = s2_tangent_basis(d)
+    u1, u2 = oftype(d, b1), oftype(d, b2)
+    return p -> (δ = s.map(p) - o; SVector(dot(u1, δ), dot(u2, δ)))
+end
+@inline _chart_value(s::MappedSurface, x::StaticVector{3}) = p -> s.map(p) - x
+@inline _value_residual(::typeof(_hit_residual)) = _hit_value
+@inline _value_residual(::typeof(_chart_residual)) = _chart_value
 
 @inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
 # (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
-@inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
+# `seed`: a chart point to start the root at instead of the plane hit's when `use_seed` (a fast path's hit of the primal
+# surface, `intersection` of a height field with Duals).
+@inline _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) =
+    _mapped_intersection(s, o, d, zero(SVector{2, Float64}), false)
+@inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}, seed::StaticVector{2}, use_seed::Bool)
     t0, x0 = _plane_hit(s.frame, o, d)
     p0 = map(_primal, _plane_coordinates(s.frame, x0))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     seed_ok = all(isfinite, p0)
-    p, ok, X = _board_root(_hit_residual, (s, o, d), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)), lb, ub, sc, tol2, L)
+    x₀ = ifelse(use_seed, oftype(p0, seed), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)))
+    p, ok, X = _board_root(_hit_residual, (s, o, d), x₀, lb, ub, sc, tol2, L)
     x = _root_point(X, s, p)
     t = dot(x - o, d) / dot(d, d)
     return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
@@ -176,12 +191,18 @@ end
 end
 @inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}
     V = ForwardDiff.valtype(D)
-    pV, ok, _ = _board_root(V, residual, map(x -> _layer_values(D, x), parts), x₀, lb, ub, s, tol2, L)
-    rD, JD = residual(parts...)(map(v -> _lift_dual(D, v), pV))
-    Jv = map(x -> _outer_value(D, x), JD)
+    vparts = map(x -> _layer_values(D, x), parts)
+    pV, ok, _ = _board_root(V, residual, vparts, x₀, lb, ub, s, tol2, L)
+    return _implicit_partials(D, residual, parts, vparts, pV), ok, nothing
+end
+# The implicit-function step at the values' root `pV` of `residual` on `vparts` (the parts with D's outermost layer's values):
+# the root with D's partials, `∂p = −(JᵀJ)⁻¹Jᵀ ∂r`, from the values' Jacobian and ONE evaluation of the residual on the Dual parts.
+@inline function _implicit_partials(::Type{D}, residual::R, parts::Tuple, vparts::Tuple, pV::StaticVector{2}) where {D <: ForwardDiff.Dual, R}
+    Jv = residual(vparts...)(pV)[2]               # the values' Jacobian at their root: no Dual arithmetic
+    rD = _value_residual(residual)(parts...)(map(v -> _lift_dual(D, v), pV))   # the residual's partials: one Dual evaluation
     G = inv(Jv' * Jv) * Jv'                       # 2 × R: the least-squares inverse (J⁻¹ for a square J)
     ∂(i) = -sum(ntuple(k -> G[i, k] * ForwardDiff.partials(rD[k]), Val(length(rD))))
-    return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2))), ok, nothing
+    return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2)))
 end
 # A part with D's outermost layer's values: a vector's numbers, a surface's members and frame.
 @inline _layer_values(::Type{D}, x::StaticVector) where {D} = map(v -> _outer_value(D, v), x)

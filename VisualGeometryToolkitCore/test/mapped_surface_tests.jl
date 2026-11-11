@@ -696,3 +696,96 @@ end
     @test ForwardDiff.value.(d) == v
     @test ForwardDiff.partials.(d, 1) ≈ tps_pure_bending(sys, ones(16)) atol = 1.0e-14
 end
+
+@testitem "board deformation: Dual heights take the fast hit and one implicit-function step" begin
+    using Test, StaticArrays, LinearAlgebra, ForwardDiff
+    using KernelAbstractions
+    using KernelAbstractions: @kernel, @index, @Const
+    using Adapt: adapt
+    using VisualGeometryToolkitCore: convert_eltype
+    using Rotations: RotMatrix, RotXYZ
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: intersection, grid_nodes, with_parameters
+
+    dir = joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface")
+    include(joinpath(dir, "dual_hit_surface.jl"))
+    include(joinpath(dir, "dual_hit.jl"))
+    REF = DUAL_HIT_REFERENCE
+    s = dual_hit_surface(dual_hit_heights(REF.heights))
+    s0 = dual_hit_surface(REF.heights)
+    rays = [(SVector{3}(o), SVector{3}(d)) for (o, d) in zip(REF.origins, REF.directions)]
+
+    # the generic root's values and partials (generate_dual_hit.jl, before the fast path took Duals), to 1e-12
+    @testset "the generic root's hit, value and partials" begin
+        @test count(isfinite, REF.t) == length(REF.t) - 1          # one ray misses the page
+        for (k, (o, d)) in enumerate(rays)
+            t, x = intersection(s, o, d)
+            if isnan(REF.t[k])
+                @test isnan(ForwardDiff.value(t)) && all(isnan ∘ ForwardDiff.value, x)
+            else
+                @test abs(ForwardDiff.value(t) - REF.t[k]) <= 1.0e-12
+                @test maximum(abs.(collect(ForwardDiff.partials(t).values) .- REF.dt_dh[k])) <= 1.0e-12
+                @test abs(ForwardDiff.value(t) - intersection(s0, o, d)[1]) <= 1.0e-15   # the plain fast hit, to rounding
+            end
+        end
+    end
+
+    # the cost: the plain fast hit plus one Dual evaluation of the residual, not the generic 2 × 2 LM from the plane hit —
+    # over these rays ≈ 1.6× the plain hit with 25 partials (the LM: ≈ 3× on a hit, ≈ 36× on the miss, ≈ 5× in all) — and
+    # no allocation
+    @testset "the cost of the partials" begin
+        o, d = rays[findfirst(isfinite, REF.t)]
+        @test (intersection(s, o, d); @allocated intersection(s, o, d)) == 0
+        all_rays(s) = for (o, d) in rays; intersection(s, o, d); end
+        timed(s) = (t0 = time_ns(); for _ in 1:50; all_rays(s); end; time_ns() - t0)
+        all_rays(s); all_rays(s0)
+        tD, tP = typemax(UInt64), typemax(UInt64)
+        for _ in 1:9                                   # interleaved, the best of each: a busy machine slows both alike
+            tD = min(tD, timed(s)); tP = min(tP, timed(s0))
+        end
+        @test tD < 3.0 * tP
+    end
+
+    # on a device: the Dual heights' hit (Float64) and a Dual ray's (a pose's partials; Float64 and Float32) compile there and
+    # agree with the host's
+    cuda = try
+        m = Base.require(Main, :CUDA)
+        (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing   # CUDA is in the test target: no functional GPU here
+    else
+        CuArray = getproperty(cuda, :CuArray)
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        @kernel function hits!(t, @Const(os), @Const(ds), s)
+            i = @index(Global)
+            t[i] = intersection(s, os[i], ds[i])[1]
+        end
+        on_device(s, os, ds) = (out = Base.invokelatest(CuArray, Vector{eltype(eltype(os))}(undef, length(os)));
+                                Base.invokelatest(hits!(gpu, 64), out, Base.invokelatest(CuArray, os), Base.invokelatest(CuArray, ds),
+                                                  Base.invokelatest(adapt, gpu, s); ndrange = length(os));
+                                Base.invokelatest(KernelAbstractions.synchronize, gpu); Base.invokelatest(Array, out))
+        DH = eltype(dual_hit_heights(REF.heights))
+        td = on_device(s, [map(DH, o) for (o, _) in rays], [map(DH, d) for (_, d) in rays])
+        for (k, t) in enumerate(td)
+            isnan(REF.t[k]) && (@test isnan(ForwardDiff.value(t)); continue)
+            @test abs(ForwardDiff.value(t) - REF.t[k]) <= 1.0e-12
+            @test maximum(abs.(collect(ForwardDiff.partials(t).values) .- REF.dt_dh[k])) <= 1.0e-12
+        end
+        for F in (Float64, Float32)
+            tol = F === Float64 ? 1.0e-12 : 1.0e-3
+            Dr = ForwardDiff.Dual{Nothing, F, 6}
+            seed(v, k) = SVector(ntuple(i -> Dr(F(v[i]), ForwardDiff.Partials(ntuple(j -> F(j == k + i), 6))), 3))
+            tr = on_device(convert_eltype(F, s0), [seed(o, 0) for (o, _) in rays], [seed(d, 3) for (_, d) in rays])
+            th = [intersection(s0, map(x -> ForwardDiff.Dual{Nothing}(Float64(ForwardDiff.value(x)), Float64.(ForwardDiff.partials(x).values)...), seed(o, 0)),
+                               map(x -> ForwardDiff.Dual{Nothing}(Float64(ForwardDiff.value(x)), Float64.(ForwardDiff.partials(x).values)...), seed(d, 3)))[1] for (o, d) in rays]
+            for (a, b) in zip(tr, th)
+                isnan(ForwardDiff.value(b)) && (@test isnan(ForwardDiff.value(a)); continue)
+                @test abs(ForwardDiff.value(a) - ForwardDiff.value(b)) <= tol
+                @test maximum(abs.(Float64.(collect(ForwardDiff.partials(a).values)) .- collect(ForwardDiff.partials(b).values))) <= tol
+            end
+        end
+    end
+end

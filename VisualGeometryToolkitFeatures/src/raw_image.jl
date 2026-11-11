@@ -59,14 +59,14 @@ _decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decode
 _decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
 
 """
-    RawMosaic{A <: AbstractMatrix{UInt16}} <: AbstractMatrix{UInt16}
+    RawMosaic{A <: AbstractMatrix{UInt16}, M <: NamedTuple} <: AbstractMatrix{UInt16}
 
 A RAW file decoded and nothing more: the visible area of the sensor, as LibRaw
 reports it. It IS its photosite matrix: `size`, indexing and `parent` are the
 held array's, so an ordinary array or image function reads it unchanged, and
 what such a function makes (`similar`, `copy`, a broadcast, a reduction) is a
 plain array of the held array's kind — the colour pattern and the metadata stay
-with the mosaic. The held array may be a device array (`adapt(CuArray, m)`, or
+with the mosaic. It is read-only (no `setindex!`): write to `parent(m)`. The held array may be a device array (`adapt(CuArray, m)`, or
 `adapt(backend, m)` with a KernelAbstractions backend, moves the photosites and
 keeps the rest); a kernel receives `parent(m)`, never the wrapper.
 

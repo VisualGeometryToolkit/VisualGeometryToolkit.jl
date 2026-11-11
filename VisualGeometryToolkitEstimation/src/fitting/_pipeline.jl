@@ -94,7 +94,11 @@ _class_scoring(problem, class::Symbol, ::Nothing) =
 # A caller's scorer is the caller's, in the residual's unit, never rescaled.
 _in_problem_unit(sc, problem) = _in_unit(sc, _width_unit(problem))
 _in_unit(sc, ::Nothing) = sc
-_in_unit(sc::StudentTUniformScoring, u::Float64) = VgtkCore.with_width(sc, VgtkCore.OutlierHalfwidth(outlier_halfwidth(sc) * u))
+function _in_unit(sc::StudentTUniformScoring, u::Float64)
+    h = outlier_halfwidth(sc)   # a class table states a supplied half-width; an estimated support has none to scale
+    h === nothing && throw(ArgumentError("a class scorer whose outlier model estimates its support has no unit-free width to scale"))
+    return VgtkCore.with_width(sc, VgtkCore.OutlierHalfwidth(h * u))
+end
 _in_unit(sc::RansacScoring{DG}, u::Float64) where {DG} = RansacScoring(DG; threshold = sc.threshold * u)
 _in_unit(sc::MsacScoring{DG}, u::Float64) where {DG} = MsacScoring(DG; threshold = sc.threshold * u)
 _width_unit(_problem) = nothing

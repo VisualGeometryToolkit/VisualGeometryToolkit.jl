@@ -407,7 +407,9 @@ changes. The merge is made in a worktree of its own under `scratch_root`
 (removed at the end, whatever happens); the tag is made on it, then the base
 moves to it: a checkout of the base fast-forwards (one with local changes to an
 accepted asset refuses: the tag is deleted again and the base stays; an
-unrelated local change survives), and a base no checkout holds moves by
+unrelated local change survives). That fast-forward is a `git merge` in the
+user's checkout, so it runs the checkout's own `post-merge` hook; the commits
+`accept_results` makes skip hooks (`--no-verify`). A base no checkout holds moves by
 `update-ref`, so a checkout on another branch is untouched. Only the assets are
 merged, never the branch's manifest or comparison. A base that moved since the
 run (the manifest's `base_commit`) is a warning naming the accepted assets it

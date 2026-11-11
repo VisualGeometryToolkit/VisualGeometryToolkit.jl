@@ -190,7 +190,9 @@ remove_results_worktree(projectdir(), run.branch)                    # after acc
   tags it `accepted/<stamp>`, then moves the base to it: a checkout of the base
   fast-forwards (refused when an accepted asset has local changes: the tag is
   deleted again and the base stays), a checkout on another branch is
-  untouched. A base that moved since the run is a warning naming the accepted
+  untouched. The fast-forward is a `git merge` in that checkout and runs its
+  `post-merge` hook, the user's own; the merge commit and the results commit
+  are made with `--no-verify`. A base that moved since the run is a warning naming the accepted
   assets it changed. The manifest and the comparison stay on the branch.
 - [`remove_results_worktree`](@ref) removes the worktree and keeps the branch,
   or deletes it with `delete_branch = true`.

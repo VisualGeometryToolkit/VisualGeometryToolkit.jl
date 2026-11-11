@@ -282,8 +282,8 @@ end
     cam = spline_camera()
     bc = BoundedCamera(cam, Size2(64, 48))
     msg = "a SplineLens camera has no OpenCV/COLMAP form; store it as a vgio camera record (VisualGeometryToolkitIO.save), " *
-        "or fit a parametric lens to it first, `VisualGeometryToolkitEstimation.fit_camera(KannalaBrandt{4}, camera, region)` " *
-        "(any lens family; the region of its image to fit over)"   # the route Estimation's fit_camera tests follow
+        "or approximate it by a parametric lens first, `VisualGeometryToolkitEstimation.approximate_camera(KannalaBrandt{4}, camera, region)` " *
+        "(any lens family; the region of its image to fit over)"   # the route Estimation's approximate_camera tests follow
     refused(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError && e.msg == msg)
     @test refused(() -> VgtkIO.opencv_parameters(cam))
     @test refused(() -> VgtkIO.colmap_cameras(Dict(:c => bc)))

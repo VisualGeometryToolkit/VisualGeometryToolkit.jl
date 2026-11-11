@@ -1670,24 +1670,24 @@ end
 # exceptions to "every parameter refined". `free`, `fix`, `fixed_params` and
 # `hold` are refused as that KEYWORD — and only as it, never as a word:
 #   - Julia: a keyword argument so named in a CALL or a SIGNATURE of a
-#     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*` and
-#     their `_`-prefixed internals). A signature's refusal
+#     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*`, their
+#     `_`-prefixed internals, `LensSpec` and CaliBlobs' `LensTarget`). A signature's refusal
 #     slot (`free = _RetiredKeyword()`) and a call inside `@test_throws` (the
 #     test of the refusal) are the refusal itself, not a use. Comments
 #     ("CUDA-free", "free memory", "for free"), a local `free`, a struct field
 #     (a result's record of what was refined) and Base's or a package's own
 #     functions are not keywords of those callees and are not seen.
 #   - TOML: a key so named in a table whose path names a refine or an LM
-#     (`_R13_TABLES`), where a key IS a parameter-selection
+#     (`_R13_TABLES`), or in a lens table (one with a `lens` key: a LensSpec's), where a key IS a parameter-selection
 #     keyword; the same word in any other table (a scheduler's "free" slots) is
 #     not seen.
 # Limits: a selection keyword of a function outside `_R13_CALLEES` is not seen.
 const _R13_SPELLINGS = (:free, :fix, :fixed_params, :hold)
-const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$"
+const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$|^(LensSpec|LensTarget)$"
 const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
 _r13_callee(f) = f isa Symbol ? String(f) : (Meta.isexpr(f, :., 2) && f.args[2] isa QuoteNode ? String(f.args[2].value) :
                  Meta.isexpr(f, :curly) ? _r13_callee(f.args[1]) : "")
-_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword,)
+_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
 function _r13_keywords!(acc, ex, line::Int)
     ex isa Expr || return acc
     if Meta.isexpr(ex, :macrocall) && ex.args[1] in (Symbol("@test_throws"),)
@@ -1730,7 +1730,7 @@ function _fixed_keyword_rules!(out, f, src::AbstractString, parsed)
         function walk(d::AbstractDict, path)
             for (k, v) in d
                 p = isempty(path) ? k : path * "." * k
-                if Symbol(k) in _R13_SPELLINGS && occursin(_R13_TABLES, path)
+                if Symbol(k) in _R13_SPELLINGS && (occursin(_R13_TABLES, path) || haskey(d, "lens"))
                     line = something(findfirst(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines), 1)
                     push!(out, NamingViolation(f, line, k, :R13))
                 end

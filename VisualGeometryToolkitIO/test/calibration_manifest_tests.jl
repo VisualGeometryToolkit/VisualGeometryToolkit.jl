@@ -305,3 +305,27 @@ end
         end
     end
 end
+
+@testitem "calibration/v2: a v1 manifest's model `free` reads as its complement `fixed`; a save writes `fixed`" setup = [ManifestFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    import VisualGeometryToolkitIO as VgtkIO
+    using JSON: JSON
+    mktempdir() do dir
+        files = metric_dir(dir)
+        new = VgtkCore.CameraModelSpec(Dict("lens" => "kannala_brandt", "coefficients" => 4, "fixed" => ["k3", "k4"], "intrinsics" => "metric"))
+        p = VgtkIO.save_manifest(dir, files; kind = "metric", model = new)
+        saved = JSON.parse(read(p, String))
+        @test saved["schema"] == "vgio/calibration/v2"
+        @test saved["model"]["fixed"] == ["k3", "k4"] && !haskey(saved["model"], "free")    # a save writes `fixed` only
+        # the same manifest as v1 wrote it: the coefficients MOVED, k1 and k2
+        rewrite(p, d -> (d["schema"] = "vgio/calibration/v1"; delete!(d["model"], "fixed"); d["model"]["free"] = ["k1", "k2"]))
+        before = read(p, String)
+        m = VgtkIO.load_manifest(dir)
+        @test m.model == new                                                                 # the same LensSpec
+        @test VgtkCore.free_names(m.model.model) == (:k1, :k2)
+        @test read(p, String) == before                                                      # never rewritten on disk
+        # a v1 model with every coefficient moving (no "free") is unchanged
+        rewrite(p, d -> delete!(d["model"], "free"))
+        @test VgtkCore.free_names(VgtkIO.load_manifest(dir).model.model) == (:k1, :k2, :k3, :k4)
+    end
+end

@@ -353,6 +353,7 @@ public coefficient_jacobian, active_coefficients, control_points, with_control_p
 public RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart of its normalized radius, its centre moved and differentiated
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
+public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds

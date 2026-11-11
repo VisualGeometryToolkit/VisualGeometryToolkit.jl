@@ -376,6 +376,9 @@ end
         end
         @test rules("test/a.jl" => "VgtkEstimation.refine_x(a; $(FR) = ())\n") == [:R13]                 # qualified
         @test rules("configs/a.toml" => "[pipeline.lm]\nfix = [\"cx\"]\n") == [:R13]
+        @test rules("src/a.jl" => "s = LensSpec(:division; coefficients = 2, $(FR) = (:d1,))\n") == [:R13]       # a LensSpec
+        @test rules("configs/a.toml" => "[camera]\ntarget = { lens = \"division\", coefficients = 2, $(FR) = [\"d1\"] }\n") == [:R13]
+        @test isempty(rules("src/a.jl" => "LensSpec(family::Symbol; fixed = (), $(FR) = _NoFree(), kw...) = nothing\n"))
         # the keyword itself, its refusal slot and the test of the refusal are no finding
         @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
         @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = _RetiredKeyword()) end\n"))

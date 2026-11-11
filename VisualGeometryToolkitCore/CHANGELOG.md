@@ -21,6 +21,18 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **Breaking: `LensSpec` holds coefficients by `fixed`** (was `free`, the coefficients moved; the owner's ruling, the
+  stack's one parameter-holding keyword). `LensSpec(family; fixed = (), structure...)`, `LensSpec(lens; fixed)` and the
+  table key `"fixed"` name the coefficients HELD; `free_names(spec)` (unchanged, a contract generic) is the complement in
+  `parameter_names` order. The keyword `free` and the table key `"free"` are `ArgumentError`s naming `fixed`; a
+  calibration manifest of an earlier version is read through VisualGeometryToolkitIO's version step. `toml_value`
+  writes `"fixed"` only. Rule R13 also covers `LensSpec`/`LensTarget` calls and lens tables.
+- **`free_parameter_names(model, fixed)` (public): the stack's one expansion of a `fixed` list.** `parameter_names(model)`
+  (or a names tuple) in its order, less `:skew` (the gauge, held always: naming it is accepted, so `fixed =
+  parameter_names(model)` holds everything) and less `fixed`, whose entries are parameter names or groups (a
+  coefficient family's stem, `:k` for `k1…`, `:d`, `:p`, `:sx`, `:sy`). An entry that names nothing, or a parameter
+  named twice (directly or through a group), is an `ArgumentError`. `LensSpec`'s `fixed` and `free_names` resolve
+  through it, so a `LensSpec` now takes groups too.
 - **`check_naming` rule R13: the one parameter-holding keyword is `fixed`.** `free`, `fix`, `fixed_params` and `hold`
   are flagged as a KEYWORD of a `fit_*`/`refine_*` call or signature (and their `_`-prefixed internals) and as a key of a
   refine or LM TOML table; the bare word (comments such as "CUDA-free", locals, fields, accessors such as `free_names`,

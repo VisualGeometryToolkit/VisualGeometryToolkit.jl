@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **`vgio/calibration/v2`: a manifest's model names the coefficients held, `"fixed"`** (VisualGeometryToolkitCore's
+  `LensSpec`, the owner's ruling). A `vgio/calibration/v1` manifest is read through its version step: its model's
+  `"free"` (the coefficients moved) becomes the complement `"fixed"` within the lens's `parameter_names`, the same
+  LensSpec; it is never rewritten on disk, and `save_manifest` writes v2.
 - **The 2026-09 hand-eye record reads** (owner ruling 2026-11-11): a `vgio/transforms/v2` file of the one layout
   bmvc2026's hand-eye writer wrote for CaliBlobs icra2026's motion-capture runs — `camera_rig → camera_optical`, then
   one `printed_board_<id>` or `scene_<c>` → `board_rig` per marker — reads through a version step

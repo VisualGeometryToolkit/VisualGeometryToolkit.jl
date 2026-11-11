@@ -65,7 +65,7 @@ end
 @testitem "refine_camera_and_poses: a fisheye past 90°, camera and poses recovered" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, KannalaBrandt, lens
+    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, KannalaBrandt, lens, free_parameter_names
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
     cam = fisheye_camera(); Es = truth_poses(4)
     views = views_of(cam, Es, deg2rad(100))                                      # rays up to 100° off the axis
@@ -80,6 +80,10 @@ end
     @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-9
     @test maximum(norm(P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-9
     @test rms(res) < 1.0e-6
+    # `fixed` takes a group, by Core's one expansion: `:k` holds k1 … k4 (and `:skew`, the gauge, is accepted)
+    held = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; fixed = (:k, :skew))
+    @test held.free == (:f, :aspect, :cx, :cy) == free_parameter_names(cam0, (:k,))
+    @test parameter_vector(estimate(held).camera)[6:9] == parameter_vector(cam0)[6:9]
 end
 
 @testitem "refine_camera_and_poses: the Jacobian is in the charts' tangent coordinates" setup = [CameraPoseScenes] begin

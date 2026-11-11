@@ -11,7 +11,8 @@ non-central one is a `NoncentralSplineModel`).
   complement, bit for bit (the refined set keeps `parameter_names` order). A SplineLens camera takes `fixed = ()` (its
   controls refined; was `free = (:controls,)`) or `fixed = (:controls,)` (the poses alone; was `free = ()`). The result
   still records the refined set (`result.free`). `free`, `fix`, `fixed_params` and `hold` are `ArgumentError`s naming
-  `fixed`.
+  `fixed`. Its `fixed` is resolved by VisualGeometryToolkitCore's `free_parameter_names`, so it takes a group
+  (`fixed = (:k,)` holds k1…) and accepts `:skew`.
 - **Breaking: the strategy keywords are `local_optimization_strategy` (find) and `optimization_strategy` (refine, fit)**
   (the owner's ruling). `find_*`, `ransac` and `locally_optimize` take `local_optimization_strategy`; every `refine_*`,
   `refine_camera_and_poses` and `fit_linear`/`fit_rotation`/`fit_rotation_averaging` take `optimization_strategy`. A fit

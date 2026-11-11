@@ -184,9 +184,11 @@ scratch and the camera keeps its family (its lens type).
   that does not.
 
 # Keywords (configuration)
-- `fixed` — the camera parameters HELD, by name (`()`, the default: every
-  parameter is refined but the gauge, the skew, which is held by construction);
-  naming every parameter holds the camera and refines the poses alone. The
+- `fixed` — the camera parameters HELD, by name or by group (`:k` for
+  `k1…`; VisualGeometryToolkitCore's `free_parameter_names` resolves it), `()` the
+  default: every parameter is refined but the gauge, the skew, which is held by
+  construction (naming it is accepted); naming every parameter holds the camera
+  and refines the poses alone. The
   stack's one parameter-holding keyword (NLLSsolver's word; OpenCV's
   `CALIB_FIX_*`): `free`, `fix`, `fixed_params` and `hold` are refused, naming it.
 - `box` — a solver search box on the camera's parameters by name
@@ -549,11 +551,9 @@ function _refine_bundle(
     camera = _camera_model(bounded)
     V, B = length(poses), length(boards)
     names = parameter_names(camera)
-    for p in fixed
-        p in names || throw(ArgumentError("refine_camera_and_poses: the camera has no parameter $(repr(p)) to fix; its parameters are $(join(String.(names), ", "))"))
-    end
-    # every parameter is refined but the `fixed` ones and the gauge (the skew, held by construction)
-    free = Tuple(p for p in names if p !== :skew && !(p in fixed))
+    # every parameter is refined but the `fixed` ones (names or groups: `:k` holds k1…) and the gauge (the skew,
+    # held by construction): the stack's one expansion
+    free = VgtkCore.free_parameter_names(names, fixed)
     isempty(free) && box !== nothing &&
         throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's refined parameters, and `fixed` holds every one"))
     chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)

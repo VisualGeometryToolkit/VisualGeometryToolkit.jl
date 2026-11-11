@@ -80,8 +80,9 @@ surface_point(s::MappedSurface, p::StaticVector{2}) = s.map(p)
 # The iteration budget of a board root, its box and its scale: the chart's
 # rectangle (in primal Float64: a Dual pose's frame contributes its values), its
 # unit per axis, the acceptance of a final residual below √eps of the chart's
-# diagonal (rounding amplified at grazing incidence), and the diagonal itself,
-# the residual's scale for the LM's precision-aware stops.
+# diagonal (rounding amplified at grazing incidence; the root itself is resolved
+# to rounding, `_board_root`), and the diagonal itself, the residual's scale for
+# the LM's precision-aware stops.
 const _BOARD_MAXITER = 100
 @inline function _board_box(q::Quad)
     r = q.rect
@@ -158,7 +159,10 @@ end
 @inline function _board_root(::Type{T}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {T <: AbstractFloat, R}
     fj = residual(parts...)
     fT(p) = (rJ = fj(p); (SVector{length(rJ[1]), T}(rJ[1]), SMatrix{size(rJ[2], 1), 2, T}(rJ[2])))
-    p, ok = _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L))
+    # resolved to rounding (cost floor 0): the stops are what T resolves of a residual of the chart's scale L, so a
+    # nearly flat surface's plane-hit seed (a residual of its heights, below √eps·L for heights of 1e-8 L) is not
+    # taken for its root, and the hit is a smooth function of the surface; `tol2` is only the acceptance
+    p, ok = _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L), nothing, zero(T))
     return p, ok
 end
 @inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}

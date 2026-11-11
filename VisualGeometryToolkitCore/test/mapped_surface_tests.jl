@@ -624,3 +624,40 @@ end
         @test action_jacobian(chp, design[3]) ≈ Jp * Matrix(retract_jacobian(chp)) rtol = 1.0e-10
     end
 end
+
+# The generic ray–board root resolves a nearly flat surface to rounding: a residual of the plane-hit seed below √eps of
+# the chart's diagonal is not the root (heights of 1e-9 move the hit by 1e-9), so the hit is a smooth function of the
+# heights and its finite differences are its derivative.
+@testitem "board deformation: the generic root resolves tiny heights (finite differences, the fast path)" begin
+    using Test, StaticArrays, Random, LinearAlgebra
+    using ForwardDiff
+    using Rotations: RotMatrix, RotXYZ
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: intersection, grid_nodes, chart
+
+    rng = Xoshiro(31)
+    nodes = grid_nodes(4; lo = -0.6, hi = 0.6)
+    X = EuclideanMap(RotMatrix{3}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.02, -0.01, 2.0))
+    rect = Rect2(-0.5, -0.5, 1.0, 1.0)
+    generic(s, o, d) = VisualGeometryToolkitCore.Cameras._mapped_intersection(s, o, d)
+    warped(h) = MappedSurface(X, HeightField(nodes, h) ∘ ThinPlateSpline(nodes), nothing, rect)   # the generic root
+    rays = [(SVector(0.2randn(rng), 0.2randn(rng), 0.0), SVector(0.1randn(rng), 0.1randn(rng), 1.0)) for _ in 1:20]
+    for scale in (1.0e-9, 1.0e-8, 1.0e-7)
+        h = scale .* randn(rng, 16)
+        for (o, d) in rays
+            tg, xg = generic(warped(h), o, d)
+            tf, xf = intersection(MappedSurface(X, HeightField(nodes, h), nothing, rect), o, d)   # the 1-D fast path
+            isnan(tf) && continue
+            @test maximum(abs, xg - xf) <= 16eps()
+            @test maximum(abs, chart(warped(h), xg) - chart(MappedSurface(X, HeightField(nodes, h), nothing, rect), xf)) <= 1.0e-12
+        end
+        # the hit's derivative by the heights: central differences at a step of the heights' own size against the
+        # implicit derivative (a Dual through the root)
+        o, d = first(r for r in rays if isfinite(generic(warped(h), r...)[1]))
+        hit(v) = generic(warped(v), o, d)[2]
+        Jd = ForwardDiff.jacobian(hit, h)
+        δ = scale
+        Jfd = reduce(hcat, [(hit(h .+ δ .* (1:16 .== k)) - hit(h .- δ .* (1:16 .== k))) ./ 2δ for k in 1:16])
+        @test maximum(abs, Jfd - Jd) <= 1.0e-5 * maximum(abs, Jd)
+    end
+end

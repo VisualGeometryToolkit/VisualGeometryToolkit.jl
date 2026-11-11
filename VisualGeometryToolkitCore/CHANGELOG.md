@@ -24,6 +24,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   kept; the forward spline, which inverts the old directions, dropped), and **`with_present`/`with_directions` of a
   `BoundedCamera`**, which rebuild its spline model and keep the bound, the lens coverage and a pose. The non-central
   model's rebuilders and these share one control replacement.
+- **Fixed: a chart-map surface's ray root resolves a nearly flat surface.** The generic root of a `MappedSurface`
+  (`intersection`, `chart`) stopped at a residual below √eps, so a plane-hit seed with heights of 1e-9 to 1e-7 of the
+  chart's size was returned unmoved (the hit moved 0.89 of the true displacement at 1e-9) and finite differences of the
+  hit by the heights failed. The root is now resolved to rounding of the chart's scale; √eps of its diagonal stays the
+  acceptance only. It agrees with the height field's 1-D fast path to rounding at every height.
 - **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
   VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
   Estimation's `SimFitPP`/`simfitpp_select`.

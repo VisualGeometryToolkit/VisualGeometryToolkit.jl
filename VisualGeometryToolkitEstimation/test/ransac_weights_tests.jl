@@ -106,3 +106,42 @@ end
         ScaleEstimated, 3, 1.0, :not_run)
     @test isconcretetype(typeof(m)) && isbitstype(typeof(m.scale_source))
 end
+
+@testitem "ransac_weights: pooled_noise_scale pools the results' scales by their degrees of freedom" setup = [HomographyScenes] begin
+    using Test, StableRNGs
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: csponds, converged, noise_scale, scale_source, retcode, estimate, metadata,
+        MsacScoring, ScaleEstimated, ScaleNone, ScaleUpstream, scale_input
+    using VisualGeometryToolkitEstimation: HomographyProblem, find_homography, pooled_noise_scale
+    using VisualGeometryToolkitEstimation: PooledScaleMetadata   # documented, not public: its fields are read through the accessors
+
+    # three views of one noise model at σ = 0.5 px: the pool is √(Σ νᵢ ŝᵢ² / Σ νᵢ), between the views' scales
+    rs = [find_homography(csponds(homography_pairs(StableRNG(s), H_TRUE; n_in = n, n_out = 20, σ = 0.5)...);
+                          scoring = MsacScoring(HomographyProblem; threshold = 3.0), rng = StableRNG(s + 1)) for (s, n) in ((1, 60), (2, 120), (3, 240))]
+    @test all(converged, rs)
+    p = pooled_noise_scale(rs)
+    ν = [r.dof for r in rs]; s = [noise_scale(r) for r in rs]
+    @test retcode(p) === :pooled && metadata(p) isa PooledScaleMetadata
+    # type-stable: the pool, its metadata and its scale
+    @test @inferred(pooled_noise_scale(rs)) isa VgtkCore.FitResult{Float64, PooledScaleMetadata}
+    @test @inferred(PooledScaleMetadata(0.5, ScaleEstimated, 10, 2, 0)) isa PooledScaleMetadata
+    @test @inferred(noise_scale(p)) isa Float64
+    @test estimate(p) ≈ sqrt(sum(ν .* s .^ 2) / sum(ν)) rtol = 1.0e-14
+    @test noise_scale(p) == estimate(p) && scale_source(p) === ScaleEstimated
+    @test minimum(s) <= noise_scale(p) <= maximum(s)
+    @test metadata(p).dof == sum(ν) && metadata(p).pooled == 3 && metadata(p).left_out == 0
+    # the hand-off: a downstream stage given the pool records ScaleUpstream
+    @test scale_input(p, nothing).source === ScaleUpstream && scale_input(p, nothing).scale == noise_scale(p)
+    # one view's pool is its own scale
+    @test noise_scale(pooled_noise_scale(rs[1:1])) ≈ noise_scale(rs[1]) rtol = 1.0e-14
+    # a failed search (no scale) is left out and counted; none left: degenerate, no scale handed on
+    failed = find_homography(csponds(homography_pairs(StableRNG(7), H_TRUE; n_in = 3, n_out = 0, σ = 0.5)...);
+                             scoring = MsacScoring(HomographyProblem; threshold = 3.0), rng = StableRNG(8))
+    @test scale_source(failed) === ScaleNone
+    q = pooled_noise_scale([rs; failed])
+    @test noise_scale(q) ≈ noise_scale(p) rtol = 1.0e-14
+    @test metadata(q).left_out == 1
+    d = pooled_noise_scale([failed])
+    @test retcode(d) === :degenerate && isnan(estimate(d)) && scale_source(d) === ScaleNone
+    @test_throws ArgumentError noise_scale(d)
+end

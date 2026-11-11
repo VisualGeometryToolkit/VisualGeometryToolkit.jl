@@ -158,6 +158,54 @@ Fraction of data points that are inliers, `count(inlier_mask(result)) / length(w
 """
 inlier_ratio(r::RansacEstimate) = count(VgtkCore.inlier_mask(r)) / length(weights(r))
 
+"""
+    PooledScaleMetadata
+
+The `metadata` of [`pooled_noise_scale`](@ref)'s result: `scale` the pooled
+noise scale (read by `noise_scale`), `scale_source` `ScaleEstimated`, `dof`
+the pooled degrees of freedom `Σνᵢ`, `pooled` the number of results that
+entered the pool and `left_out` the number that did not (no scale, or no
+degrees of freedom).
+"""
+struct PooledScaleMetadata
+    scale::Float64
+    scale_source::ScaleSource
+    dof::Int
+    pooled::Int
+    left_out::Int
+end
+
+"""
+    pooled_noise_scale(results) -> FitResult{Float64, PooledScaleMetadata}
+
+ONE noise scale for a set of RANSAC results that share one noise model (one
+per view, board or photograph of a set): the degrees-of-freedom-weighted pool
+of their scales,
+
+    σ̂ = √(Σᵢ νᵢ ŝᵢ² / Σᵢ νᵢ),   ŝᵢ = noise_scale(rᵢ),   νᵢ = rᵢ.dof,
+
+the pooled variance of their consensus partitions. A result without a scale
+(`ScaleNone`: a failed search) or without degrees of freedom (`dof == 0`) is
+left out and counted. The estimate is `σ̂`, also the metadata's `scale`
+(`ScaleEstimated`), so a downstream stage takes it as `scale = result` and
+records `ScaleUpstream`. `retcode` is `:pooled`, or `:degenerate` (estimate
+and scale `NaN`, `ScaleNone`) when no result enters the pool.
+"""
+function pooled_noise_scale(results)
+    num, den, pooled, left_out = 0.0, 0, 0, 0
+    for r in results
+        if VgtkCore.scale_source(r) == ScaleNone || r.dof <= 0 || !isfinite(VgtkCore.noise_scale(r))
+            left_out += 1
+            continue
+        end
+        ν = r.dof
+        num += ν * Float64(VgtkCore.noise_scale(r))^2; den += ν; pooled += 1
+    end
+    pooled == 0 && return FitResult(NaN, :degenerate, 0, NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
+    σ = sqrt(num / den)
+    return FitResult(σ, :pooled, 0, NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
+end
+
 # The lean result of one local-optimization refit is VisualGeometryToolkitCore's
 # `lo_estimate(model, retcode; iterations, residuals_current)` (the LO contract).
 

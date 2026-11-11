@@ -340,7 +340,7 @@ public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, Exhausti
 public DltWorkspace, RansacWorkspace, RansacResultBuffers, LoBuffers
 # The result's metadata, the lean LO result, and posterior helpers. The last two
 # have a documented downstream consumer (LocalOptimizationDoneRight).
-public RansacMetadata, inlier_ratio, PosteriorLikelihood, LossPlainWeights,
+public RansacMetadata, inlier_ratio, pooled_noise_scale, PosteriorLikelihood, LossPlainWeights,
     consensus_s2!
 # The posterior-weight iteration a caller can drive outside RANSAC: its method,
 # state and model updates, and the EM spec of `fit_residual_mixture` (its TOML

@@ -165,6 +165,6 @@ end
     # a name or group the guess lacks, and the keywords that are not the stack's, are refused naming `fixed`
     @test_throws r"no parameter or group" refine_camera(g, kb, region; fixed = (:xi,))
     for kw in (:free, :fix, :fixed_params, :hold)
-        @test_throws r"`fixed = " refine_camera(g, kb, region; (kw => (:d,),)...)
+        @test_throws r"give `fixed`" refine_camera(g, kb, region; (kw => (:d,),)...)
     end
 end

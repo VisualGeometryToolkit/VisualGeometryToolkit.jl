@@ -269,9 +269,9 @@ function refine_camera(
         fixed::Tuple{Vararg{Symbol}} = (),
         weight::Symbol = :image, max_iter::Int = _dflt("refine_camera", "max_iter"), device = default_device(),
         optimization_strategy = nothing, scale = nothing, width = nothing,
-        free = _RetiredHold(), fix = _RetiredHold(), fixed_params = _RetiredHold(), hold = _RetiredHold()
+        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
     )
-    foreach(((k, v),) -> _check_retired_hold(k, v), ((:free, free), (:fix, fix), (:fixed_params, fixed_params), (:hold, hold)))
+    _refuse_held_spellings(free, fix, fixed_params, hold)
     _check_l2_refine(optimization_strategy, scale, width)
     gl = lens(guess)
     gl isa Union{Lens, LiftLens} || throw(
@@ -306,12 +306,6 @@ refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = re
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
-
-# The retired names of the held-parameter keyword (refused, naming `fixed`: it names the exceptions, NLLSsolver's word).
-struct _RetiredHold end
-_check_retired_hold(_, ::_RetiredHold) = nothing
-_check_retired_hold(k, _) = throw(ArgumentError(
-    "refine_camera: the keyword `$k` is not the stack's; give the held parameters as `fixed = (…)` (every other parameter is free)"))
 
 # The L2 refine's keywords: no loss, so no scale input (one given would be ignored, so it is refused).
 function _check_l2_refine(optimization_strategy, scale, width)

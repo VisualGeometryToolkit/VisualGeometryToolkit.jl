@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **New: `write_numbers(io::IO, nums; order = :name)`**: the number-macro fragment written to an IO, the same bytes
+  as the file form, which writes its section through it (one implementation). A figure that inlines its cell macro
+  writes `sprint(io -> write_numbers(io, nums; order = :added))`; CaliBlobs' icra2026 `numbers_text` wrote a
+  temporary file to read it back.
 - **New: `Reproduce.number_provenance(run_dir; root = project_root())`**: the provenance of numbers read from one
   run, from its `_provenance.toml` (`Experiments.read_provenance`): `run_key`, `commit` (the recorded `gitcommit`) and
   `config` (the recorded `config_source`, made relative to `root`), each only where recorded, for `add_number!`'s

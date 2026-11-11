@@ -55,10 +55,10 @@ The solver object of a thin-plate spline through `N` nodes in the plane: the
 node positions, the `(N + 3) × N` matrix `coeff` that maps nodal values to the
 spline's weights and affine part, `(w; a) = coeff · values`, and the `N × N`
 bending-energy form `Q` (`valuesᵀ Q values = wᵀ K w`, `K = [U(𝐩ᵢ, 𝐩ⱼ)]`, see
-[`bending_energy`](@ref)), and, read by the target calibration kinds' pure-bending
-rule ([`is_pure_bending`](@ref), [`tps_pure_bending`](@ref): the plane fields
-`[1 𝐩_x 𝐩_y]` are formed from the nodes), the `3 × N` affine rows of `coeff`,
-`affine` (`a = affine · values`).
+[`bending_energy`](@ref)). The target calibration kinds' pure-bending rule
+([`is_pure_bending`](@ref), [`tps_pure_bending`](@ref)) reads the `3 × N` affine
+rows `coeff[N+1:N+3, :]` (`a = coeff[N+1:N+3, :] · values`); the plane fields
+`[1 𝐩_x 𝐩_y]` are formed from the nodes.
 
 Everything it holds is in the CALLER's frame (frame in = frame out): the
 nodes as given, `(w, a)` of the spline `f(𝐩)` in those coordinates, and `Q`
@@ -90,17 +90,16 @@ struct ThinPlateSplineSystem{N, T <: AbstractFloat, M <: AbstractMatrix{T}}
     nodes::SVector{N, SVector{2, T}}
     coeff::M                    # (N+3) × N, the caller's frame
     Q::M                        # N × N, the caller's frame
-    affine::M                   # 3 × N: coeff's affine rows, a = affine · values
 end
-ThinPlateSplineSystem{N}(nodes::SVector{N, SVector{2, T}}, coeff::M, Q::M, affine::M) where {N, T, M <: AbstractMatrix{T}} =
-    ThinPlateSplineSystem{N, T, M}(nodes, coeff, Q, affine)
+ThinPlateSplineSystem{N}(nodes::SVector{N, SVector{2, T}}, coeff::M, Q::M) where {N, T, M <: AbstractMatrix{T}} =
+    ThinPlateSplineSystem{N, T, M}(nodes, coeff, Q)
 
 # The device form (`Adapt.adapt(backend, system)`): the matrices move, the
 # (isbits) nodes travel as they are. In a kernel only `coeff` is read
 # (`tps_coefficients`, `tps_pure_bending`); the rest moves with it so the
 # adapted system is one object of the host's layout.
 Adapt.adapt_structure(to, s::ThinPlateSplineSystem{N}) where {N} =
-    ThinPlateSplineSystem{N}(s.nodes, Adapt.adapt(to, s.coeff), Adapt.adapt(to, s.Q), Adapt.adapt(to, s.affine))
+    ThinPlateSplineSystem{N}(s.nodes, Adapt.adapt(to, s.coeff), Adapt.adapt(to, s.Q))
 # (`convert_eltype` of a system: geometry/cameras/target_calibration.jl, beside the kinds')
 
 function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
@@ -123,7 +122,7 @@ function ThinPlateSplineSystem(nodes::AbstractVector{<:StaticVector{2}})
     coeff[N + 2, :] .= σ .* C′[N + 2, :]                                                # (a_x, a_y) = σ (a′_x, a′_y)
     coeff[N + 3, :] .= σ .* C′[N + 3, :]
     Q = Matrix(Symmetric(σ^2 .* (Cw′' * Umat * Cw′)))                                   # Q = σ² Q′
-    return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q, coeff[(N + 1):(N + 3), :])
+    return ThinPlateSplineSystem{N}(SVector{N}(ps), coeff, Q)
 end
 
 """
@@ -165,11 +164,18 @@ end
 # values (a Float64 system keeps a Float32 value vector's sums in Float64, then
 # rounds; a Float32 device system sums in Float32), returned in the values'
 # float type.
+@inline function _coeff_row(::Type{S}, C::AbstractMatrix, r, ::Val{N}, t, o = 0) where {S, N}
+    acc = zero(S)
+    @inbounds for j in 1:N
+        acc += C[r, j] * t[o + j]
+    end
+    return acc
+end
 @inline function _tps_coefficients(C::AbstractMatrix, ::Val{N}, t::AbstractVector) where {N}
     T = float(eltype(t))
     S = promote_type(eltype(C), T)
     o = firstindex(t) - 1
-    row(r) = (acc = zero(S); @inbounds(for j in 1:N; acc += C[r, j] * t[o + j]; end); T(acc))
+    row(r) = T(_coeff_row(S, C, r, Val(N), t, o))
     return SVector{N, T}(ntuple(row, Val(N))), SVector{3, T}(row(N + 1), row(N + 2), row(N + 3))
 end
 
@@ -196,10 +202,10 @@ function tps_pure_bending(tps::ThinPlateSplineSystem{N}, v::AbstractVector) wher
     return _tps_pure_bending(tps, SVector{N, float(eltype(v))}(ntuple(i -> v[firstindex(v) + i - 1], Val(N))))
 end
 @inline function _tps_pure_bending(tps::ThinPlateSplineSystem{N}, v::SVector{N, T}) where {N, T}
-    A = tps.affine
-    S = promote_type(eltype(A), T)
-    arow(k) = (acc = zero(S); @inbounds(for j in 1:N; acc += A[k, j] * v[j]; end); acc)
-    a1, a2, a3 = arow(1), arow(2), arow(3)
+    C = tps.coeff
+    S = promote_type(eltype(C), T)
+    # the affine rows of `coeff` (N+1:N+3), summed as `_tps_coefficients` sums them but kept in S
+    a1, a2, a3 = ntuple(k -> _coeff_row(S, C, N + k, Val(N), v), Val(3))
     nodes = tps.nodes
     plane = SVector{N, S}(ntuple(i -> a1 + a2 * nodes[i][1] + a3 * nodes[i][2], Val(N)))
     # within the tolerance the values are kept as they are, bit for bit, and a Dual's
@@ -219,12 +225,12 @@ end
 # projection `with_parameters` applies.
 function _pure_bending_weights(tps::ThinPlateSplineSystem{N}, 𝐩::StaticVector{2}) where {N}
     n = nodal_weights(tps, 𝐩)
-    A = tps.affine
+    C = tps.coeff
     nodes = tps.nodes
     m1 = sum(n)
     m2 = sum(ntuple(i -> n[i] * nodes[i][1], Val(N)))
     m3 = sum(ntuple(i -> n[i] * nodes[i][2], Val(N)))
-    return SVector{N}(ntuple(j -> n[j] - (A[1, j] * m1 + A[2, j] * m2 + A[3, j] * m3), Val(N)))
+    return SVector{N}(ntuple(j -> n[j] - (C[N + 1, j] * m1 + C[N + 2, j] * m2 + C[N + 3, j] * m3), Val(N)))
 end
 # The relative size of an affine term below which nodal values count as pure
 # bending: far above the rounding of a projection, far below any real plane.

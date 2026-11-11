@@ -609,7 +609,7 @@ end
 
     # (3) the manifold's basis is orthogonal to the affine rows: K⁻¹-orthogonal to the pose's nodal fields
     B = Matrix(retract_jacobian(minimal_manifold(PlanarTarget(design; calibration = H ∘ T))))
-    Aff = sys.affine
+    Aff = sys.coeff[(end - 2):end, :]
     @test opnorm(cat(Aff, Aff, Aff; dims = (1, 2)) * B) <= 1.0e-13
 
     # (4) the pose's own members are refused without what fixes them

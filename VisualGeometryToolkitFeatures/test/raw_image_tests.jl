@@ -45,6 +45,103 @@ end
     @test_throws ArgumentError LinearRaw(RawMosaic(raw, p4, (0.0, 0.0, 0.0, 0.0), 16383.0, (0, 0), (4, 6), meta); mode = :bin2)
 end
 
+@testitem "raw: a RawMosaic is its photosite matrix" setup = [RawFixtures] begin
+    # The wrapper IS an AbstractMatrix: an ordinary array function reads the photosites unchanged, and
+    # what it makes is a plain array (the CFA and the metadata stay with the mosaic).
+    using VisualGeometryToolkitFeatures: RawMosaic
+    raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
+    m = mosaic(raw, LAYOUTS.GRBG; origin = (1, 0))
+    @test m isa AbstractMatrix{UInt16} && size(m) == (6, 8) && axes(m) == axes(raw)
+    @test parent(m) === m.raw && m == raw && m[2, 3] == raw[2, 3] && m[7] == raw[7]
+    @test IndexStyle(m) === IndexLinear()
+    @test similar(m) isa Matrix{UInt16} && size(similar(m, Float64, 2, 2)) == (2, 2)
+    @test copy(m) == raw && copy(m) isa Matrix{UInt16}
+    @test m .+ 1 == raw .+ 1 && (m .+ 1) isa Matrix
+    @test sum(m) == sum(raw) && extrema(m) == extrema(raw) && Float64.(m) == Float64.(raw)
+    @test m[2, 3:5] == raw[2, 3:5] && m[2, 3:5] isa Vector{UInt16}       # a row is a plain vector
+    @test occursin("RawMosaic", sprint(show, MIME"text/plain"(), m)) && occursin("GRBG", sprint(show, m))
+end
+
+@testitem "raw: a window of a mosaic keeps its colours and its frame" setup = [RawFixtures] begin
+    # A unit-range index (`m[rows, cols]`, a copy) or `view` (no copy) is a mosaic of its own: its
+    # colours are the parent's at those photosites, whatever the parity of the window's start (the
+    # CFA phase shifts with it), and its frame map is the window's offset into the visible raw, so a
+    # cell image made from it maps onto the parent's photosites exactly.
+    using VisualGeometryToolkitFeatures: RawMosaic, LinearRaw, photosite_colors, raw_frame_map, bayer_plane_map, raw_coordinates
+    using StaticArrays: SVector
+    f(x, y) = 4000 + 64 * x + 32 * y
+    lin(v) = (v - 500.0) / (16383.0 - 500.0)
+    for cell in LAYOUTS, origin in ORIGINS, (rows, cols) in ((3:10, 2:13), (2:9, 5:16), (1:12, 1:16))
+        m = scene_mosaic(f, cell, origin; black = (500.0, 500.0, 500.0, 500.0))
+        for w in (m[rows, cols], view(m, rows, cols))
+            @test w isa RawMosaic && w == parent(m)[rows, cols]
+            @test photosite_colors(w) == photosite_colors(m)[rows, cols]
+            @test w.metadata === m.metadata && w.visible_origin == m.visible_origin && w.white == m.white
+            @test raw_frame_map(w)(SVector(0.5, 0.5)) == SVector(first(cols) - 0.5, first(rows) - 0.5)
+            L = LinearRaw(w; mode = :bin2)
+            for i in axes(L.image, 1), j in axes(L.image, 2), c in 1:3
+                # the scene is affine: a plane's value is the scene at its photosites' centre
+                @test L.image[i, j, c] ≈ lin(f(bayer_plane_map(L, c)(SVector(j - 0.5, i - 0.5))...)) atol = 1e-12
+            end
+            G = LinearRaw(w; mode = :green_cells)
+            @test G.image[2, 2, 1] ≈ lin(f(raw_coordinates(G, SVector(1.5, 1.5))...)) atol = 1e-12
+        end
+        @test parent(view(m, rows, cols)) isa SubArray                    # a view copies no photosite
+        @test m[rows, cols][2:3, 2:5] == view(view(m, rows, cols), 2:3, 2:5)  # windows compose
+        @test raw_frame_map(view(view(m, rows, cols), 2:3, 2:5))(SVector(0.5, 0.5)) ==
+              SVector(first(cols) + 0.5, first(rows) + 0.5)
+    end
+    @test_throws BoundsError view(mosaic(fill(UInt16(3000), 4, 4), LAYOUTS.RGGB), 1:5, 1:2)
+end
+
+@testitem "raw: raw_coordinates is an image's one sensor-pixel accessor" setup = [RawFixtures] begin
+    # Where a position in an image lies on the sensor: the identity on the decoded mosaic, x ↦ 2x on
+    # the green-cell grid (a detection on the green cells written as raw pixels unmapped is half the
+    # scale). Backed by raw_frame_map; the display demosaic has no frame and is refused, and a plain
+    # matrix states no frame at all.
+    using VisualGeometryToolkitFeatures: LinearRaw, raw_coordinates, raw_frame_map
+    using StaticArrays: SVector
+    m = mosaic(fill(UInt16(3000), 8, 8), LAYOUTS.RGGB; origin = (1, 1))
+    x = SVector(3.25, 1.75)
+    @test raw_coordinates(m, x) === x
+    @test raw_coordinates(m, (3.25, 1.75)) === x && raw_coordinates(m, [3.25, 1.75]) === x
+    G = LinearRaw(m; mode = :green_cells)
+    @test raw_coordinates(G, x) == 2x == raw_frame_map(G)(x)
+    @test raw_coordinates(LinearRaw(m; mode = :bin2), x) == 2x
+    @test_throws ArgumentError raw_coordinates(LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;)), x)
+    @test_throws MethodError raw_coordinates(zeros(4, 4), x)
+end
+
+@testitem "raw: a mosaic on the device — Adapt moves it, the cell kernel reads its parent" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: RawMosaic, LinearRaw, photosite_colors, raw_coordinates
+    using Adapt: adapt
+    using CUDA: CUDA
+    import KernelAbstractions as KA
+    using StaticArrays: SVector
+    if CUDA.functional()
+        raw = UInt16[1000 + 37 * i + 11 * j for i in 1:12, j in 1:16]
+        raw[5, 6] = 16383
+        for cell in LAYOUTS, origin in ORIGINS
+            m = mosaic(raw, cell; origin)
+            d = adapt(CUDA.CuArray, m)
+            @test d isa RawMosaic{<:CUDA.CuArray} && d.metadata === m.metadata && photosite_colors(d) == photosite_colors(m)
+            @test adapt(Array, d) isa RawMosaic{Matrix{UInt16}} && adapt(Array, d) == m
+            @test adapt(CUDA.CUDABackend(), m) isa RawMosaic{<:CUDA.CuArray} && adapt(KA.CPU(), d) isa RawMosaic{Matrix{UInt16}}   # by KA backend
+            @test (d .+ 1) isa CUDA.CuArray && Array(d .+ 1) == raw .+ 1 && sum(d) == sum(raw)
+            @test contains(sprint(show, MIME"text/plain"(), d), "RawMosaic")   # no scalar read
+            for mode in (:green_cells, :bin2), w in (d, view(d, 2:11, 3:16))
+                Ld = LinearRaw(w; mode)
+                Lh = LinearRaw(adapt(Array, w); mode)
+                @test Ld.image isa CUDA.CuArray{Float64, 3} && Array(Ld.image) == Lh.image
+                @test Array(Ld.saturated) == Lh.saturated && Ld.geometry == Lh.geometry
+                @test raw_coordinates(Ld, SVector(1.5, 2.5)) == raw_coordinates(Lh, SVector(1.5, 2.5))
+            end
+        end
+    else
+        @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
+    end
+end
+
 @testitem "raw: linear values, gain and the 2×2 binning" setup = [RawFixtures] begin
     using VisualGeometryToolkitFeatures: LinearRaw, cfa_string
     black = (512.0, 500.0, 520.0, 508.0)

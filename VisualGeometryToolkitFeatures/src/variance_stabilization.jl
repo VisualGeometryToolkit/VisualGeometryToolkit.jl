@@ -83,10 +83,6 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
     return StabilizedImage(f.(G), L.saturated, f(g))
 end
 
-# The plane holding the green cells: bin2's second (R, G, B), the green-cell image's one.
-_green_plane(::LinearRaw{:bin2}) = 2
-_green_plane(::LinearRaw{:green_cells}) = 1
-
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search
 # reads, the interior ones 2 … NS − 1 — a boundary slice is no candidate's): the DoG is linear, so a slice's noise

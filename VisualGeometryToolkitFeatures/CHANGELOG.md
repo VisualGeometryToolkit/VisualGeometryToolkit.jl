@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Breaking: `RawMosaic{A} <: AbstractMatrix{UInt16}` is its photosite matrix** (the owner's raw-image decision;
+  BayeredImages' idea, no dependency on it). `size`, indexing, `IndexStyle` and `parent` are the held array's (`m.raw`,
+  any `AbstractMatrix{UInt16}`, a device array included), so an array or image function reads a mosaic unchanged;
+  what one makes (`similar`, `copy`, a broadcast, a reduction) is a plain array of the held array's kind. A mosaic is
+  now `==` to its photosite matrix, iterates over its photosites and prints one summary line. The type parameters are
+  `RawMosaic{A, M}` (was `RawMosaic{M}`).
+- **New: windows of a mosaic.** `m[rows, columns]` (unit ranges, a copy) and `view(m, rows, columns)` (no copy) are
+  mosaics of the same sensor: the new field `window_origin` (the constructor's keyword, `(0, 0)` as decoded) is the
+  window's offset into the visible area, so its colours are the parent's at those photosites for either parity of
+  its start, and `raw_frame_map(m::RawMosaic)` (new) is that offset. A `LinearRaw` made from a window maps onto the
+  parent's photosites exactly (its `raw_frame_map` and `bayer_plane_map` include the offset).
+- **New: `raw_coordinates(img, x)`, THE accessor of an image's sensor-pixel coordinates**: `raw_frame_map(img)(x)`, in
+  the visible raw's COLMAP frame — the identity on a decoded mosaic, `x ↦ 2x` on the cell grid of a `LinearRaw`; the
+  display demosaic is refused, a plain matrix has no method. A detection on the green cells reports through it (the
+  half-scale bug of writing cell positions as raw pixels). The design note: the guide's "Raw images" page.
+- **New: a mosaic on the device.** `adapt(CuArray, m)` or `adapt(backend, m)` (Adapt, a new dependency; a KernelAbstractions
+  backend) move the photosites and keep the mosaic; `LinearRaw(m; mode)` runs its cell kernel on `parent(m)`'s device and
+  leaves the image and the saturation flags there. **Breaking:** `LinearRaw{Mode, I, S, G, M}` holds
+  `image::AbstractArray{Float64, 3}` and `saturated::AbstractMatrix{Bool}` (an `Array` and a `BitMatrix` on the host,
+  as before); `CACHE_FORMAT` is 3, so decodes cached under the earlier layout are a miss.
+
 - **Internal: one launch path for the ASIFT kernels on every backend** (the owner's one-kernel policy; Core's
   `check_duplication` flagged the `_scheduled` method pair): every backend's kernels launch through `_ScheduledKernel`
   (formerly `_CPUKernel`), built on the device's static form (KernelAbstractions' `CPU(static = true)` on the CPU, the

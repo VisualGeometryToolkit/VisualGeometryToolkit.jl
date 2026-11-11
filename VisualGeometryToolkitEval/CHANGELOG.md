@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`Experiments.load_hand_eye` reads the 2026-09 one-file hand-eye record**: a record without its mount file (the
+  `vgio/transforms/v2` file the 2026-09 motion-capture runs hold, which VisualGeometryToolkitIO now reads as the
+  current transforms record) takes its marker mount from the file's `target:<id> → body:board_rig` poses.
+  `save_hand_eye` still writes the pair.
+
 - **New: `Render.write_station_fan_colorbar(colormap, io_or_path; span, ticks, tick_labels, label, logarithmic,
   reverse, colormap_name, orientation, length, comment)`**: the colorbar of a row of station fans, a pgfplots
   colorbar-only axis, vertical beside the row or horizontal beneath it, the colormap sampled at 15 points and defined

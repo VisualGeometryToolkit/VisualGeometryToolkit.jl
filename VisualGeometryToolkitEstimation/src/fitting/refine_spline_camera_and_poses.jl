@@ -548,8 +548,8 @@ function _turned_variables(p, variables::AbstractVector, Q, Δℓ::Float64)
     end
     for k in (p.nP + 1):length(variables)
         ch = variables[k]::_SplinePose
-        P = model(ch)
-        out[k] = VgtkCore.restrict(LeftRigidManifold6(Q * SMatrix{3, 3, Float64, 9}(rotation(P)), Q * SVector{3, Float64}(translation(P))), ch.idx)
+        P = VgtkCore.axis_gauged(model(ch), RotMatrix{3, Float64}(Q))   # the pose in the turned camera frame: (Q·R, Q·t)
+        out[k] = VgtkCore.restrict(LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(P)), SVector{3, Float64}(translation(P))), ch.idx)
     end
     return out
 end

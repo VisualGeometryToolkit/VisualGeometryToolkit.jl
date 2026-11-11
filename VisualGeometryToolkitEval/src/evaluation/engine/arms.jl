@@ -365,8 +365,8 @@ refit, render or carry it into another artifact) calls this, never
 
 A format-7 file's width is returned as stored. A format-6 file
 (`art.format == 6`, read through its version step,
-[`load_tuning_artifact`](@ref)) stored an [`EfficiencyConstant`](@ref
-VisualGeometryToolkitCore.EfficiencyConstant) arm's constant as the value its
+[`load_tuning_artifact`](@ref)) stored an `EfficiencyConstant`
+(VisualGeometryToolkitCore's) arm's constant as the value its
 `ctor` took then: this applies the arm's own `format6_constant` hook
 ([`ComposedSpec`](@ref); the identity unless the roster declares one), once,
 so `arm.ctor(tuned_width(art, arm))` is the LO the sidecar was tuned with. No

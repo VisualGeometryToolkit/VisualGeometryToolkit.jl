@@ -35,6 +35,7 @@ over the stack as a `DivisionCameraProblem`.
 
 ```@docs
 fit_division_camera
+DivisionCameraMetadata
 DivisionCameraProblem
 division_camera_step
 DivisionCameraState

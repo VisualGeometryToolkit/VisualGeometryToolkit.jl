@@ -27,7 +27,8 @@ const _CAM₂ = CameraModel(; focal = 600.0, pp = (300.0, 250.0))
 const _R = RotY(0.15)
 const _T = SA[1.0, 0.2, 0.1]
 const _F_TRUE = FundMat(EssentialMat(_R, _T), calibration_matrix(_CAM₁), calibration_matrix(_CAM₂))
-_box(rng) = SA[4.0 * (rand(rng) - 0.5), 3.0 * (rand(rng) - 0.5), 5.0 + 3.0 * rand(rng)]
+# Points in the box [-2, 2] × [-1.5, 1.5] × [5, 8] in front of view 1.
+_box(rng) = box_point(rng; width = 4.0, height = 3.0, near = 5.0, far = 8.0)
 
 function make_fundmat_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42)
     source_pts, target_pts = stereo_pixel_pairs(

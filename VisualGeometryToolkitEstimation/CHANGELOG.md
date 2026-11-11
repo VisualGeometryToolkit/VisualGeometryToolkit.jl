@@ -5,6 +5,16 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New in `synthetic_scenes()`: the scene builders downstream tests restated** (LocalOptimizationDoneRight's
+  accv2026 test_problem_arms.jl copied them from this package's tests): `PoseScenes.lens_board_scene(rng, camera, R,
+  t; σ, n_out)` (the absolute-pose board through a distorting lens), `DivisionBoards.radial_board(rng; f, k, n_out, σ)`
+  with `RADIAL_BOARD_FRAME`/`RADIAL_BOARD_CENTER` (one board for the radial camera), a new family `RadialScenes`
+  (`RADIAL_HOMOGRAPHY_FRAME`, `radial_homography(k_norm)`, `radial_homography_pairs(rng, model; n_in, n_out, σ)`),
+  `Contamination.contaminated_line(rng)` (the contaminated line problem and its seed), and `EpipolarScenes.box_point`
+  takes its box as keywords (`width`, `height`, `near`, `far`; the default box unchanged). Every draw is in the order
+  the private copies drew it, so the pinned tests keep their values; Contamination now loads first (the other
+  families build on it).
+
 - **Text: LocalOptimizationDoneRight's strategy registry is `STRATEGY_TAGS`** (renamed from `LO_TAGS` in its 0.9): the
   `scale_multiple = "cross_validated"` refusal of `local_optimization_from_toml`, its docstring, the guides and
   CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.

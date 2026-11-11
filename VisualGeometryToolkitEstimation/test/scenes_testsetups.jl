@@ -113,3 +113,11 @@ function radial_camera_pairs()
     )
 end
 end
+
+@testsetup module RadialScenes
+using Test: Test                                       # loads the extension
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().RadialScenes
+using ._Family
+eval(Expr(:export, setdiff(names(_Family), [:RadialScenes])...))
+end

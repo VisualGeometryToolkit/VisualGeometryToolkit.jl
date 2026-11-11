@@ -24,6 +24,60 @@ using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
 module TestScenes
 
     # -----------------------------------------------------------------------------
+    # Contaminated correspondence sets: inliers with target noise, then outliers,
+    # optionally shuffled (first: the other families build on it).
+    # -----------------------------------------------------------------------------
+    module Contamination
+    using Random: AbstractRNG, randperm
+    using StaticArrays: SA, SVector
+    using VisualGeometryToolkitCore: Line2D, Point2
+    using VisualGeometryToolkitEstimation: LineFittingProblem
+
+    export contaminated_pairs, contaminated_line
+
+    _inlier(rng, inliers::AbstractVector, i) = inliers[i]
+    _inlier(rng, inlier, i) = inlier(rng, i)
+
+    """
+        contaminated_pairs(rng, inliers[, n_in]; σ = 0, n_out = 0, outlier, shuffle = false) -> (pairs, is_inlier)
+
+    `n_in` inlier pairs `a => b + σ·(randn, randn)` — `inliers` is a vector of
+    clean pairs, or a function `(rng, i) -> a => b` drawn in turn with each one's
+    noise right after it — then `n_out` pairs `outlier(rng, k)`, then, with
+    `shuffle`, one `randperm` of both. The noise is drawn at every σ, 0 included,
+    so a scene's draws do not depend on σ.
+    """
+    function contaminated_pairs(
+            rng::AbstractRNG, inliers, n_in = length(inliers);
+            σ = 0.0, n_out = 0, outlier = nothing, shuffle = false
+        )
+        pairs = map(1:n_in) do i
+            a, b = _inlier(rng, inliers, i)
+            a => b + σ * SA[randn(rng), randn(rng)]
+        end
+        outs = [outlier(rng, k) for k in 1:n_out]
+        all_pairs = n_out == 0 ? pairs : [pairs; outs]
+        is_inlier = [trues(n_in); falses(n_out)]
+        shuffle || return all_pairs, is_inlier
+        perm = randperm(rng, length(all_pairs))
+        return all_pairs[perm], is_inlier[perm]
+    end
+    
+    """
+        contaminated_line(rng) -> (problem, seed)
+
+    57 points on `y = 0` at `x = 0, 1, …, 56` (σ = 0.01 in y), then 3 outliers at
+    `y = 0.5` (x = 10, 30, 50), as a `LineFittingProblem`; `seed` is the
+    contaminated mean line `y = 0.025` a local optimization starts from.
+    """
+    function contaminated_line(rng::AbstractRNG)
+        pts = [Point2{Float64}(Float64(i), 0.01 * randn(rng)) for i in 0:56]
+        append!(pts, [Point2{Float64}(Float64(x), 0.5) for x in (10, 30, 50)])
+        return LineFittingProblem(pts), Line2D{Float64}(SVector(0.0, 1.0, -0.025))
+    end
+    end
+
+    # -----------------------------------------------------------------------------
     # Two-view epipolar scenes: calibrated (normalized-plane) pairs, the pixel
     # cameras the E problems are stated in, and the stereo pixel pairs of F.
     # -----------------------------------------------------------------------------
@@ -39,8 +93,14 @@ module TestScenes
     export box_point, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, truncated_sampson_cost,
         FPX, CX, CY, ECAM, topx, essential_problem, ecs
 
-    # A point in the box `[-1, 1] × [-0.75, 0.75] × [3, 5]` in front of view 1.
-    box_point(rng::AbstractRNG) = SA[2.0 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), 3.0 + 2.0 * rand(rng)]
+    """
+        box_point(rng; width = 2, height = 1.5, near = 3, far = 5) -> SVector{3}
+
+    A point uniform in the box `[-width/2, width/2] × [-height/2, height/2] ×
+    [near, far]` in front of view 1 (x drawn first, then y, then the depth).
+    """
+    box_point(rng::AbstractRNG; width = 2.0, height = 1.5, near = 3.0, far = 5.0) =
+        SA[width * (rand(rng) - 0.5), height * (rand(rng) - 0.5), near + (far - near) * rand(rng)]
 
     """
         calibrated_pairs(rng, R, t; n, σ, outlier_every = 0) -> (u₁, u₂)
@@ -192,10 +252,31 @@ module TestScenes
     using StaticArrays: SVector
     using Rotations: AngleAxis, RotMatrix
     using VisualGeometryToolkitCore: EuclideanMap, Point3, RigidExpManifold6, Vec3, retract, rotation, log_so3,
-        translation, unproject
+        translation, unproject, project
+    using ..Contamination: contaminated_pairs
 
     export rigid, rand_pose, retract_pose, perturb_pose, frustum_point, rotation_error_deg, translation_error,
-        marker_pose, robot_world_hand_eye_scene
+        marker_pose, robot_world_hand_eye_scene, lens_board_scene
+
+    """
+        lens_board_scene(rng, camera, R, t; σ = 0.3, n_out = 40) -> (src, dst, is_inlier)
+
+    A 320 × 240 board (a 17 × 13 grid of 20-unit pitch on its `z = 0` plane, centred)
+    imaged by `camera` at the pose `x_cam = R·X + t` in a 4240 × 2832 frame: every
+    board point with a finite pixel, its pixel perturbed by `σ`, then `n_out` gross
+    outliers (a uniform board point with a uniform pixel of the frame), shuffled
+    (Contamination's `contaminated_pairs`). The absolute-pose scene through a
+    distorting lens.
+    """
+    function lens_board_scene(rng::AbstractRNG, camera, R, t; σ = 0.3, n_out = 40)
+        board = [Point3{Float64}(X, Y, 0.0) for X in -160.0:20.0:160.0 for Y in -120.0:20.0:120.0]
+        inliers = [Xw => SVector{2, Float64}(project(camera, R * SVector(Xw) + t)) for Xw in board]
+        pairs, is_inlier = contaminated_pairs(
+            rng, filter(c -> all(isfinite, c.second), inliers); σ, n_out, shuffle = true,
+            outlier = (rng, _) -> Point3{Float64}(320 * rand(rng) - 160, 240 * rand(rng) - 120, 0.0) => SVector(4240 * rand(rng), 2832 * rand(rng))
+        )
+        return first.(pairs), last.(pairs), is_inlier
+    end
 
     # A rigid map from a rotation and a translation, taken as given (no
     # orthonormality check: a caller's drifted rotation stays drifted).
@@ -262,9 +343,12 @@ module TestScenes
     using LinearAlgebra: norm
     using StaticArrays: SVector
     using Rotations: RotMatrix
-    using VisualGeometryToolkitCore: PosedCamera, CameraModel, Division, EuclideanMap, project
+    using Rotations: RotXYZ
+    using VisualGeometryToolkitCore: PosedCamera, CameraModel, Division, EuclideanMap, RadialCamera, project
+    using ..Contamination: contaminated_pairs
 
-    export F0, K0, BOARD_ANGLES, BOARD_TS, BOARD_GRID, board_camera, board_pixels, noisy_board_views
+    export F0, K0, BOARD_ANGLES, BOARD_TS, BOARD_GRID, board_camera, board_pixels, noisy_board_views,
+        RADIAL_BOARD_FRAME, RADIAL_BOARD_CENTER, radial_board
 
     # The focal length (px) and the division coefficient on the CENTRED PIXEL radius
     # (ρᵤ = ρ_d / (1 + k·ρ_d²)); the lens stores it on the normalized radius, k·f².
@@ -327,6 +411,85 @@ module TestScenes
         end
         return boards, inlier
     end
+
+    # The radial camera's frame (4000 × 3000 px) and its centre, about which the
+    # lens distorts.
+    const RADIAL_BOARD_FRAME = (4000.0, 3000.0)
+    const RADIAL_BOARD_CENTER = SVector(RADIAL_BOARD_FRAME[1] / 2, RADIAL_BOARD_FRAME[2] / 2)
+
+    """
+        radial_board(rng; f = 900, k = -2e-7, n_out = 20, σ = 0) -> (radial_camera, pairs, is_inlier)
+
+    One board (a 9 × 9 grid of 25-unit pitch, `board_pixels`) seen through a
+    division lens of pixel-radius coefficient `k` about `RADIAL_BOARD_CENTER` at a
+    fixed pose (focal `f`), its pixels RAW: perturbed by `σ`, then `n_out` gross
+    outliers (a uniform board point with a uniform pixel of the frame), shuffled.
+    `radial_camera` is the truth, `RadialCamera(camera)`: invariant to the focal
+    length and the distortion about the centre.
+    """
+    function radial_board(rng::AbstractRNG; f = 900.0, k = -2.0e-7, n_out = 20, σ = 0.0)
+        cam = board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f, ks = (k,), center = RADIAL_BOARD_CENTER)
+        W, H = RADIAL_BOARD_FRAME
+        pairs, is_inlier = contaminated_pairs(
+            rng, board_pixels(cam; grid = -100.0:25.0:100.0); σ, n_out, shuffle = true,
+            outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(W * rand(rng), H * rand(rng))
+        )
+        return RadialCamera(cam), pairs, is_inlier
+    end
+    end
+
+    # -----------------------------------------------------------------------------
+    # The radially distorted homography: a one-sided division model about the
+    # middle of a 1200 × 900 frame (VisualGeometryToolkitCore's `RadialHomography`,
+    # ground truth through its own `radial_transfer`).
+    # -----------------------------------------------------------------------------
+    module RadialScenes
+    using Random: AbstractRNG
+    using StaticArrays: SMatrix, SVector
+    using VisualGeometryToolkitCore: HomographyMat, RadialHomography, radial_transfer
+    using ..Contamination: contaminated_pairs
+
+    export RADIAL_HOMOGRAPHY_FRAME, radial_homography, radial_homography_pairs
+
+    # The target frame (px); the distortion centre is its middle.
+    const RADIAL_HOMOGRAPHY_FRAME = (1200.0, 900.0)
+
+    """
+        radial_homography(k_norm) -> RadialHomography{Float64}
+
+    The ground-truth model: a fixed pixel-scale homography and the division
+    coefficient `k_norm` on the radius normalized by the frame's diagonal, about
+    the frame's middle.
+    """
+    function radial_homography(k_norm)
+        W, H = RADIAL_HOMOGRAPHY_FRAME
+        H0 = SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0)
+        return RadialHomography{Float64}(HomographyMat{Float64}(Tuple(H0)), k_norm / hypot(W, H)^2, SVector(W / 2, H / 2))
+    end
+
+    """
+        radial_homography_pairs(rng, model; n_in = 70, n_out = 30, σ = 0) -> (pairs, is_inlier)
+
+    `n_in` sources uniform in `[0, 200] × [0, 150]`, each redrawn until its
+    `radial_transfer` lands inside the frame, the target perturbed by `σ`; then
+    `n_out` unrelated pairs (a uniform source with a uniform target of the frame),
+    shuffled.
+    """
+    function radial_homography_pairs(rng::AbstractRNG, model; n_in = 70, n_out = 30, σ = 0.0)
+        W, H = RADIAL_HOMOGRAPHY_FRAME
+        function inlier(rng, _)
+            while true
+                s = SVector(200 * rand(rng), 150 * rand(rng))
+                d = radial_transfer(model, s)
+                d === nothing && continue
+                (0 < d[1] < W && 0 < d[2] < H) && return s => SVector(d[1], d[2])
+            end
+        end
+        return contaminated_pairs(
+            rng, inlier, n_in; σ, n_out, shuffle = true,
+            outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(W * rand(rng), H * rand(rng))
+        )
+    end
     end
 
     # -----------------------------------------------------------------------------
@@ -379,45 +542,6 @@ module TestScenes
 
     # A camera's pixel as a calibrated point: its bearing on the z = 1 plane.
     calibrated_point(camera, u) = Point2{Float64}(project(Pinhole(), backproject(camera, u)))
-    end
-
-    # -----------------------------------------------------------------------------
-    # Contaminated correspondence sets: inliers with target noise, then outliers,
-    # optionally shuffled.
-    # -----------------------------------------------------------------------------
-    module Contamination
-    using Random: AbstractRNG, randperm
-    using StaticArrays: SA
-
-    export contaminated_pairs
-
-    _inlier(rng, inliers::AbstractVector, i) = inliers[i]
-    _inlier(rng, inlier, i) = inlier(rng, i)
-
-    """
-        contaminated_pairs(rng, inliers[, n_in]; σ = 0, n_out = 0, outlier, shuffle = false) -> (pairs, is_inlier)
-
-    `n_in` inlier pairs `a => b + σ·(randn, randn)` — `inliers` is a vector of
-    clean pairs, or a function `(rng, i) -> a => b` drawn in turn with each one's
-    noise right after it — then `n_out` pairs `outlier(rng, k)`, then, with
-    `shuffle`, one `randperm` of both. The noise is drawn at every σ, 0 included,
-    so a scene's draws do not depend on σ.
-    """
-    function contaminated_pairs(
-            rng::AbstractRNG, inliers, n_in = length(inliers);
-            σ = 0.0, n_out = 0, outlier = nothing, shuffle = false
-        )
-        pairs = map(1:n_in) do i
-            a, b = _inlier(rng, inliers, i)
-            a => b + σ * SA[randn(rng), randn(rng)]
-        end
-        outs = [outlier(rng, k) for k in 1:n_out]
-        all_pairs = n_out == 0 ? pairs : [pairs; outs]
-        is_inlier = [trues(n_in); falses(n_out)]
-        shuffle || return all_pairs, is_inlier
-        perm = randperm(rng, length(all_pairs))
-        return all_pairs[perm], is_inlier[perm]
-    end
     end
 
 end # module TestScenes

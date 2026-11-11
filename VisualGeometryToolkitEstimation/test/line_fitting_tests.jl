@@ -1,4 +1,4 @@
-@testitem "line_fitting" begin
+@testitem "line_fitting" setup = [Contamination] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -92,17 +92,9 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         @test abs(signed_distance(line3, Point2(56.0, 0.0))) < 1.0e-4
     end
 
-    # 57 inliers on y = 0 (σ = 0.01) and 3 outliers at y = 0.5, seeded at the
-    # contaminated mean line.
-    function _contaminated_line(rng)
-        pts = [Point2{Float64}(Float64(i), 0.01 * randn(rng)) for i in 0:56]
-        append!(pts, [Point2{Float64}(Float64(x), 0.5) for x in (10, 30, 50)])
-        return LineFittingProblem(pts), Line2D{Float64}(SVector(0.0, 1.0, -0.025))
-    end
-
     # (The Student-t + uniform IRLS version is LocalOptimizationDoneRight's test.)
     @testset "Irls{Welsch} recovers the line through its soft weights" begin
-        prob, θ₀ = _contaminated_line(StableRNG(57))
+        prob, θ₀ = contaminated_line(StableRNG(57))
         r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), threshold = 0.1)   # 10σ; the outliers sit 0.475 off the seed
         line = estimate(r)
         @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
@@ -115,7 +107,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         # robust line geometrically: the cost falls for several cycles. The stop
         # rule once compared the cost against an incumbent it had just set equal
         # to it, and every run stopped after two cycles.
-        prob, _ = _contaminated_line(StableRNG(58))
+        prob, _ = contaminated_line(StableRNG(58))
         θ₀ = Line2D{Float64}(SVector(0.0, 1.0, -0.1))
         sc = MsacScoring(prob; threshold = 0.2)   # the seed's consensus: the inliers (0.1 off), not the outliers (0.4 off)
         lo = Irls{HuberShape}(scale_multiple = 1.345)

@@ -21,28 +21,18 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialCamera, radial
     constraint_with_jacobians
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 
-const _CW, _CH = 4000.0, 3000.0
-const _CC = SVector(_CW / 2, _CH / 2)
+# The 4000 × 3000 frame, its centre, and the board seen through a division lens
+# about it (`radial_board`): the shared DivisionBoards.
+const _CW, _CH = RADIAL_BOARD_FRAME
+const _CC = RADIAL_BOARD_CENTER
 
-# The true radial camera and a projector through a division lens (k on the
-# centred pixel radius) — the pixels are what a detector would measure.
-function _board(rng; f = 900.0, k = -2.0e-7, n_out = 20, σ = 0.0)
-    cam = board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f, ks = (k,), center = _CC)
-    # The pixels are RAW (about `_CC`), and so is the problem: the camera
-    # carries its centre, so the ground truth carries the same one.
-    pairs, gt = contaminated_pairs(
-        rng, board_pixels(cam; grid = -100.0:25.0:100.0); σ, n_out, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(_CW * rand(rng), _CH * rand(rng))
-    )
-    return RadialCamera(cam), pairs, gt
-end
 # Radial cameras agree up to scale and sign: their rows' projective distance
 # (1 − |cos∠| = d²/2, so d < √(2ε) is |cos∠| within ε of 1).
 _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radial_rows(b))
 
 @testset "radial camera (RANSAC)" begin
     rng = StableRNG(7)
-    P_gt, pairs, gt = _board(rng)
+    P_gt, pairs, gt = radial_board(rng)
     p = RadialCameraProblem(pairs; center = _CC)
     @test data_size(p) == length(pairs) && codimension(typeof(p)) == 1
     # residuals of the truth: zero on inliers, large on outliers
@@ -75,7 +65,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     m = est.inlier_mask
     @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
     # with noise: still within the noise floor
-    P_gt2, pairs2, gt2 = _board(StableRNG(3); σ = 0.3)
+    P_gt2, pairs2, gt2 = radial_board(StableRNG(3); σ = 0.3)
     est2 = find_radial_camera(pairs2; center = _CC, threshold = 5.0, rng = StableRNG(2))
     @test est2 !== nothing
     r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
@@ -96,7 +86,7 @@ end
     using VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
         lift_model, lift_residuals
     rng = StableRNG(11)
-    P_gt, pairs, gt = _board(rng; σ = 0.2)
+    P_gt, pairs, gt = radial_board(rng; σ = 0.2)
     p = RadialCameraProblem(pairs; center = _CC)
     @test p isa MinimalSolveProblem
     seed = RadialCamera{Float64}(radial_rows(P_gt) + 0.02 * norm(radial_rows(P_gt)) * SMatrix{2, 3, Float64, 6}(0.3, -0.5, 0.8, 0.1, -0.4, 0.6), center(P_gt))

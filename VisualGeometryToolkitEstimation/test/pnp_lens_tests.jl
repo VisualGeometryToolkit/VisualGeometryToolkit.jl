@@ -34,19 +34,10 @@ const _SCENES = Dict(
     "opencv5" => (RotMatrix(RotXYZ(0.35, -0.55, 0.2)), Vec3{Float64}(280.0, -60.0, 420.0), 650.0),
 )
 
-function _board_scene(rng, cam, R, t; σ = 0.3, n_out = 40)
-    board = [Point3{Float64}(X, Y, 0.0) for X in -160.0:20.0:160.0 for Y in -120.0:20.0:120.0]
-    inliers = [Xw => SVector{2, Float64}(project(cam, R * SVector(Xw) + t)) for Xw in board]
-    pairs, gt = contaminated_pairs(
-        rng, filter(c -> all(isfinite, c.second), inliers); σ, n_out, shuffle = true,
-        outlier = (rng, _) -> Point3{Float64}(320 * rand(rng) - 160, 240 * rand(rng) - 120, 0.0) => SVector(4240 * rand(rng), 2832 * rand(rng))
-    )
-    return first.(pairs), last.(pairs), gt
-end
 @testset "absolute pose through a distorting lens — $name" for (name, cam) in _CAMS_L
     R_gt, t_gt, rim = _SCENES[name]
     rng = StableRNG(21)
-    src, dst, gt = _board_scene(rng, cam, R_gt, t_gt)
+    src, dst, gt = lens_board_scene(rng, cam, R_gt, t_gt)
     c = SVector(2120.0, 1416.0)
     radius = [norm(SVector{2, Float64}(d) - c) for d in dst]
     @test count(gt .& (radius .> rim)) >= 20                        # the scene really reaches its rim

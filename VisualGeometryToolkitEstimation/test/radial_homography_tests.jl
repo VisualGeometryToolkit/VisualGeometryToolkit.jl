@@ -1,4 +1,4 @@
-@testitem "radial_homography" setup = [Contamination] begin
+@testitem "radial_homography" setup = [RadialScenes] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # RadialHomographyProblem + find_radial_homography — one-sided division-model
@@ -20,42 +20,17 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, ra
     HomographyMat, unit_normalize
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 
-const _RW, _RH = 1200.0, 900.0
-_rdiag() = hypot(_RW, _RH)
-
-function _gt_model(k_norm)
-    H0 = SMatrix{3, 3, Float64}(
-        4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0
-    )
-    return RadialHomography{Float64}(
-        HomographyMat{Float64}(Tuple(H0)), k_norm / _rdiag()^2,
-        SVector(_RW / 2, _RH / 2)
-    )
-end
-
-# `n_in` sources drawn until their transfer lands in the image, then `n_out`
-# unrelated pairs, shuffled.
-function _make_scene(rng, m_gt; n_in = 70, n_out = 30, σ = 0.0)
-    function inlier(rng, _)
-        while true
-            s = SVector(200 * rand(rng), 150 * rand(rng))
-            d = radial_transfer(m_gt, s)
-            d === nothing && continue
-            (0 < d[1] < _RW && 0 < d[2] < _RH) && return s => SVector(d[1], d[2])
-        end
-    end
-    return contaminated_pairs(
-        rng, inlier, n_in; σ, n_out, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(_RW * rand(rng), _RH * rand(rng))
-    )
-end
+# The 1200 × 900 frame, the ground-truth model (`radial_homography`, distortion
+# centre at the frame's middle) and its contaminated pairs
+# (`radial_homography_pairs`): the shared RadialScenes.
+const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
 
 @testset "radial homography (RANSAC)" begin
     rng = StableRNG(1234)
-    m_gt = _gt_model(-0.25)
+    m_gt = radial_homography(-0.25)
 
     @testset "problem-level: minimal solve composes exact pixel-frame models" begin
-        pairs, _ = _make_scene(rng, m_gt; n_in = 20, n_out = 0)
+        pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 20, n_out = 0)
         p = RadialHomographyProblem(
             pairs; center = (_RW / 2, _RH / 2), extra_check = true
         )
@@ -85,7 +60,7 @@ end
             ("Irls{Welsch}", (; local_optimization = Irls{WelschShape}(scale_multiple = 1.5))),
         )   # the old default (the Welsch HQ lift) and the Student-t + uniform IRLS: LocalOptimizationDoneRight's suite
 
-        pairs, gt_mask = _make_scene(rng, m_gt; n_in = 70, n_out = 30)
+        pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
             max_trials = 4000, min_trials = 200,
@@ -104,7 +79,7 @@ end
     end
 
     @testset "noise: recovers sign and magnitude of k" begin
-        pairs, _ = _make_scene(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
+        pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.5,
             max_trials = 4000, rng = StableRNG(7)
@@ -116,7 +91,7 @@ end
     end
 
     @testset "fit M-step reduces cost from a perturbed seed" begin
-        pairs, _ = _make_scene(rng, m_gt; n_in = 40, n_out = 0, σ = 0.3)
+        pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 40, n_out = 0, σ = 0.3)
         p = RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2))
         n = data_size(p)
         θ0 = RadialHomography{Float64}(homography(m_gt), division_coeff(m_gt) * 1.5, center(m_gt))
@@ -131,7 +106,7 @@ end
     @testset "minimal = :homography — the global search for H with the (H, k) optimizer" begin
         using VisualGeometryToolkitEstimation: minimal_sample_size, _radial_k_seed
         rng2 = StableRNG(77)
-        pairs, gt = _make_scene(rng2, m_gt; n_in = 80, n_out = 25, σ = 0.3)
+        pairs, gt = radial_homography_pairs(rng2, m_gt; n_in = 80, n_out = 25, σ = 0.3)
         p4 = RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography)
         @test minimal_sample_size(p4) == 4
         # a four-point hypothesis is a plain homography with no distortion term
@@ -187,7 +162,7 @@ end
         @test !VgtkEstimation._check_extent(et, nothing, mbad, nothing)
 
         # end-to-end: the extent-bounded fit still converges and recovers k
-        pairs, _ = _make_scene(rng, m_gt; n_in = 60, n_out = 15)
+        pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 60, n_out = 15)
         res = find_radial_homography(
             pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
             extent = rect, max_trials = 3000, rng = StableRNG(21)

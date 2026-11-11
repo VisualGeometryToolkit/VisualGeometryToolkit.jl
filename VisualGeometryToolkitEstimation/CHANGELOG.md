@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Faster: `refine_camera_and_poses`' residual blocks read their variables as concrete types** (the problem's
+  variable vector holds a Union; each block asserts its camera chart's and pose charts' types), so the block's
+  residual and ForwardDiff Jacobian no longer box every variable: a warm 3-board, 6-view refine (756
+  correspondences) allocated 22 MB, now 17 MB. Core's restricted camera chart (`model` of a `SubsetManifold` of a
+  `ParameterManifold`, 128 B a call) and `reprojection_error` (32 B) still allocate per evaluation.
 - **New: `scoring_from_toml(table; problem, section, tags)`**, the scorers' TOML reader on the local optimization's
   schema (the owner's one-schema policy): `{ type = "msac", threshold = 3.0 }` through a scoring registry
   (VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge), every key required, unknown keys refused;

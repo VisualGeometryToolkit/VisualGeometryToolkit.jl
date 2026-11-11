@@ -99,8 +99,11 @@ _camera_model(c::BoundedCamera) = model(c)
 # `F = (camera, view, board)` says which of the three are variables of the block, in that order (`varind`); a held one
 # is the value the block carries. A refine without boards is one held identity board (`X` in the world).
 # A robust refine scales the block by `sqrt_weight` (an IRLS cycle's √w; 1 otherwise) or robustifies its squared norm
-# by `robust` (Triggs: NLLSsolver's robustifier, Core's `loss_robustifier`; `NoRobust()` otherwise).
-struct _BoardViewResidual{N, F, C, K} <: NLLSsolver.AbstractResidual
+# by `robust` (Triggs: NLLSsolver's robustifier, Core's `loss_robustifier`; `NoRobust()` otherwise). `M` is the camera
+# chart's type: the problem's variable vector holds a Union, and `getvars` asserts each slot's concrete type (the camera
+# chart, a pose chart), so the block's residual and its ForwardDiff Jacobian compile for concrete types instead of
+# boxing every variable (the warm solve allocated ~29 KB a correspondence without it).
+struct _BoardViewResidual{N, F, C, K, M} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     camera::C                       # the held camera (read when F[1] is false)
     view::PlainEuclideanMap{3, Float64}    # the held view pose (when F[2] is false)
@@ -110,15 +113,23 @@ struct _BoardViewResidual{N, F, C, K} <: NLLSsolver.AbstractResidual
     sqrt_weight::Float64
     robust::K
 end
-_BoardViewResidual{N, F, C}(varind, camera, view, board, X, u) where {N, F, C} =
-    _BoardViewResidual{N, F, C, NLLSsolver.NoRobust}(varind, camera, view, board, X, u, 1.0, NLLSsolver.NoRobust())
+_BoardViewResidual{N, F, C}(varind, camera, view, board, X, u; chart::Type = Any) where {N, F, C} =
+    _BoardViewResidual{N, F, C, NLLSsolver.NoRobust, chart}(varind, camera, view, board, X, u, 1.0, NLLSsolver.NoRobust())
 NLLSsolver.robustkernel(r::_BoardViewResidual) = r.robust
-_with_robust(r::_BoardViewResidual{N, F, C}, sqrt_weight::Float64, robust::K) where {N, F, C, K} =
-    _BoardViewResidual{N, F, C, K}(r.varind, r.camera, r.view, r.board, r.X, r.u, sqrt_weight, robust)
+_with_robust(r::_BoardViewResidual{N, F, C, <:Any, M}, sqrt_weight::Float64, robust::K) where {N, F, C, K, M} =
+    _BoardViewResidual{N, F, C, K, M}(r.varind, r.camera, r.view, r.board, r.X, r.u, sqrt_weight, robust)
 NLLSsolver.ndeps(::_BoardViewResidual{N}) where {N} = NLLSsolver.static(N)
 NLLSsolver.nres(::_BoardViewResidual) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_BoardViewResidual) = r.varind
-NLLSsolver.getvars(r::_BoardViewResidual{N}, vars::Vector) where {N} = ntuple(i -> vars[r.varind[i]], Val(N))
+@inline function NLLSsolver.getvars(r::_BoardViewResidual{N, F, C, K, M}, vars::Vector) where {N, F, C, K, M}
+    i = 1
+    cam = F[1] ? (vars[r.varind[i]]::M,) : ()
+    i += F[1]
+    view = F[2] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
+    i += F[2]
+    board = F[3] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
+    return (cam..., view..., board...)
+end
 Base.eltype(::_BoardViewResidual) = Float64
 function NLLSsolver.computeresidual(r::_BoardViewResidual{N, F}, vs...) where {N, F}
     i = 1
@@ -528,7 +539,8 @@ function _refine_bundle(
         )
         F = (chc !== nothing, !held_views[v], !held_boards[b])
         ind = SVector{count(F), Int}(Tuple(i for (i, f) in zip((1, view_var[v], board_var[b]), F) if f))
-        push!(blocks, _BoardViewResidual{count(F), F, typeof(camera)}(ind, camera, plain(view_charts[v]), plain(board_charts[b]), X, u))
+        push!(blocks, _BoardViewResidual{count(F), F, typeof(camera)}(ind, camera, plain(view_charts[v]), plain(board_charts[b]), X, u;
+                                                                     chart = chc === nothing ? Nothing : typeof(chc)))
     end
     RT = Union{unique(typeof.(blocks))...}
     costs = convert(Vector{RT}, blocks)

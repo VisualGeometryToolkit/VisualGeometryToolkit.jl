@@ -175,6 +175,59 @@ residual_rows!(r, lm, θ) = throw(ArgumentError("$(typeof(lm)) implements no `re
 residual_jacobian_rows!(J, lm, θ) =
     J .= ForwardDiff.jacobian(z -> residual_rows!(Vector{eltype(z)}(undef, size(J, 1)), lm, z), θ)
 
+"""
+    residual_cost!(r, lm, θ) -> ½‖r(θ)‖²
+    residual_normal_equations!(r, J, lm, θ::SVector{N}) -> (½‖r‖², Jᵀr::SVector{N}, JᵀJ::SMatrix{N, N})
+
+THE CHART LM'S TWO REDUCTIONS of the rows: what [`lmsolve_chart!`](@ref) reads.
+- `residual_cost!` gives the cost at a trial point.
+- `residual_normal_equations!` gives the cost, the gradient and the Gauss–Newton Hessian at a linearization. It also
+  feeds the stall postcondition, whose cosine `|Jⱼᵀr| / (‖Jⱼ‖‖r‖)` reads `g` and `diag(H)`.
+
+The defaults evaluate [`residual_rows!`](@ref) and [`residual_jacobian_rows!`](@ref) into the caller's buffers `r`
+and `J`, and reduce on the host.
+
+A state whose rows live on a DEVICE overrides both with one kernel that evaluates every row and its Jacobian and
+reduces them where they are. The rows never reach the host; `r` and `J` go unused. Only the `N × N` step is the
+host's.
+"""
+function residual_cost! end
+
+@doc (@doc residual_cost!)
+function residual_normal_equations! end
+
+function residual_cost!(r, lm, θ)
+    r = residual_rows!(r, lm, θ)
+    s = 0.0
+    @inbounds for i in eachindex(r)
+        s += r[i] * r[i]
+    end
+    return 0.5 * s
+end
+
+# The cost, the gradient Jᵀr and the Gauss–Newton Hessian JᵀJ in one sweep over
+# the rows, as static arrays: NLLSsolver's own `jac' * jac` on a dynamic n × N
+# Jacobian was the one NLLSsolver-specific cost of a refit (10% of its
+# samples), and this layout is the measured 0.84× (lm_core.jl header).
+function residual_normal_equations!(r, J, lm, x::SVector{N}) where {N}
+    r = residual_rows!(r, lm, x)
+    J = residual_jacobian_rows!(J, lm, x)
+    # Immutable accumulators: an `MMatrix` here escaped to the heap under
+    # `--check-bounds=yes` on Julia 1.12 (22 allocations per refit), the
+    # static values stay on the stack in every mode.
+    g = zero(SVector{N, Float64})
+    H = zero(SMatrix{N, N, Float64})
+    s = 0.0
+    @inbounds for i in eachindex(r)
+        ri = r[i]
+        s += ri * ri
+        Ji = SVector{N, Float64}(ntuple(a -> J[i, a], Val(N)))
+        g += Ji * ri
+        H += Ji * Ji'
+    end
+    return 0.5 * s, g, H
+end
+
 # √wᵢ for each point's `rows` residual rows (2 for a 2-vector residual, 1 for a
 # scalar one) — the one fill every LM refit's row scaling uses. The weights obey
 # the one weights contract (`check_weights`: finite, non-negative), checked here.
@@ -233,38 +286,10 @@ residual block of the stack returns its cost through it.
 """
 @inline finite_cost(c::Float64) = isfinite(c) ? c : Inf
 
-function NLLSsolver.computecost(c::_ChartRows, x)
-    r = residual_rows!(c.r, c.state.lm, x)
-    s = 0.0
-    @inbounds for i in eachindex(r)
-        s += r[i] * r[i]
-    end
-    return finite_cost(0.5 * s)
-end
-
-# The cost, the gradient Jᵀr and the Gauss–Newton Hessian JᵀJ in one sweep over
-# the rows, as static arrays: NLLSsolver's own `jac' * jac` on a dynamic n × N
-# Jacobian was the one NLLSsolver-specific cost of a refit (10% of its
-# samples), and this layout is the measured 0.84× (lm_core.jl header).
-function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N}
-    lm = c.state.lm
-    r = residual_rows!(c.r, lm, x)
-    J = residual_jacobian_rows!(c.J, lm, x)
-    # Immutable accumulators: an `MMatrix` here escaped to the heap under
-    # `--check-bounds=yes` on Julia 1.12 (22 allocations per refit), the
-    # static values stay on the stack in every mode.
-    g = zero(SVector{N, Float64})
-    H = zero(SMatrix{N, N, Float64})
-    s = 0.0
-    @inbounds for i in eachindex(r)
-        ri = r[i]
-        s += ri * ri
-        Ji = SVector{N, Float64}(ntuple(a -> J[i, a], Val(N)))
-        g += Ji * ri
-        H += Ji * Ji'
-    end
-    return 0.5 * s, g, H
-end
+# The cost and the normal equations NLLSsolver reads: the state's two reductions (`residual_cost!`,
+# `residual_normal_equations!`), so a device state's rows never reach the host.
+NLLSsolver.computecost(c::_ChartRows, x) = finite_cost(residual_cost!(c.r, c.state.lm, x))
+NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N} = residual_normal_equations!(c.r, c.J, c.state.lm, x)
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot
 # and its internal-data cache (NLLSsolver's typed `OptimizeCache`, `C`), so a
@@ -600,14 +625,14 @@ Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
    one `tol` serves every problem. An all-zero column (an unknown no row
    depends on) is skipped; a NaN anywhere fails.
 
-It evaluates `r` and `J` at `x` once, into the workspace's buffers, and the
-cosine on the workspace's scratch: allocation-free.
+It reads the state's two reductions at `x` (`residual_cost!`, then, past the exact-fit test,
+`residual_normal_equations!`: `Jⱼᵀr = gⱼ`, `‖Jⱼ‖² = Hⱼⱼ`), so a device state's rows stay where they are.
 """
 function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, ftol::Real)
-    r = residual_rows!(ews.r, lm, x)
-    sum(abs2, r) < ftol && return true
-    J = residual_jacobian_rows!(ews.J, lm, x)
-    return _residual_cosine!(ews.g, ews.w, J, r) <= tol
+    cost = residual_cost!(ews.r, lm, x)
+    2 * cost < ftol && return true
+    _, g, H = residual_normal_equations!(ews.r, ews.J, lm, x)
+    return _column_cosine(g, LinearAlgebra.diag(H), sqrt(2 * cost)) <= tol
 end
 
 # max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)
@@ -618,6 +643,11 @@ function _residual_cosine!(g, w, J, f)
     iszero(fn) && return zero(fn)
     LinearAlgebra.mul!(g, J', f)
     sum!(abs2, w', J)
+    return _column_cosine(g, w, fn)
+end
+# THE cosine of the stall postcondition from `g = Jᵀf`, the squared column norms `w` and ‖f‖ = `fn`.
+function _column_cosine(g, w, fn)
+    iszero(fn) && return zero(fn)
     c = zero(fn)
     @inbounds for j in eachindex(g, w)
         iszero(w[j]) && continue

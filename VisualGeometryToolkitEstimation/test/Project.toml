@@ -2,6 +2,7 @@
 # workspace member of ../Project.toml, so Pkg.test() runs it without a sandbox.
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
@@ -27,6 +28,7 @@ VisualGeometryToolkitEstimation = {path = ".."}
 
 [compat]
 Aqua = "0.8.18"
+CUDA = "5.11"
 Distributions = "0.25.131"
 ExplicitImports = "1.15"
 FiniteDiff = "2.33"

@@ -5,15 +5,23 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
-- **New: `axis_gauged(camera, R, principal_point)`, a SplineLens camera in the frame turned so ẑ is its optical
-  axis** (public, exported from `Cameras`). It is an exact re-gauge, not a fit:
+- **New: `axis_gauged(camera, R, K′)`, a SplineLens camera in the frame turned so ẑ is its optical axis**
+  (public, exported from `Cameras`). It is an exact re-gauge, not a fit:
   - every backward control is turned (`with_directions`, `c ↦ R·c`, every ray `R·d` to rounding);
-  - `K`'s principal point moves to the given pixel (`CameraModel(camera, K′)`, `fx`, `fy` and skew 0 kept);
+  - `K` becomes the skew-0 `K′`, the symmetric camera's fitted principal point, focal lengths and aspect
+    (`CameraModel(camera, K′)`), so no ray changes;
   - the stale forward spline is dropped.
 
   `axis_gauged(extrinsics, R)` turns a world → camera pose by the same rotation (`(R·R_p, R·t)`, the frame tags
   kept), so every image is kept. A posed camera turns its extrinsics with its model; a bounded camera keeps its bound.
   A spline that is never gauged keeps its source's ẑ.
+- **New: the chart LM's two reductions, `residual_cost!(r, lm, θ)` and `residual_normal_equations!(r, J, lm, θ)`**
+  (public, contract generics). They are what `lmsolve_chart!` reads (the cost; ½‖r‖², Jᵀr, JᵀJ).
+  - The defaults reduce `residual_rows!` and `residual_jacobian_rows!` on the host, as before.
+  - A state whose rows live on a device overrides both with one kernel, and its rows never reach the host;
+    Estimation's `fit_camera` regression is the first.
+  - The stall postcondition reads them too: the cosine from `g` and `diag(H)`.
+
 - **Breaking: `pointwise!` is one KernelAbstractions kernel on every backend; the host's execution policies are
   retired** (the owner's ruling on the twin audit's V4). `pointwise!(f, out, xs...)` and the lens batches (`project!`,
   `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the

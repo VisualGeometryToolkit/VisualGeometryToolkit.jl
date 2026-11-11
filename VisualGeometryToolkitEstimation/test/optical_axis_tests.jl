@@ -44,7 +44,7 @@ end
     r2 = fit_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)))
     @test rotation(metadata(r2).rotation) == rotation(R) && calibration_matrix(estimate(r2)) == K
     # the re-gauge: ẑ is the axis, the principal point its pixel; every image kept with the poses turned
-    g = axis_gauged(OFF_AXIS, rotation(R), pp)
+    g = axis_gauged(OFF_AXIS, rotation(R), K)
     @test norm(project(g, SVector(0.0, 0.0, 1.0)) - pp) < 1.0e-6
     @test norm(normalize(backproject(g, pp)) - SVector(0.0, 0.0, 1.0)) < 1.0e-4
     pose = relabel(WorldFrame, CameraFrame, EuclideanMap(RotMatrix(AngleAxis(0.3, 0.2, -1.0, 0.4)), (0.1, -0.2, 2.0)))
@@ -137,4 +137,29 @@ end
     @test metadata(r).symmetry_residual < 0.05
     whole = optical_axis(BoundedCamera(spl, Size2(1400, 1000)))
     @test metadata(whole).symmetry_residual > 10 * metadata(r).symmetry_residual
+end
+
+@testitem "fit_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
+    using Test
+    using CUDA: CUDA
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, metadata, retcode, iterations, rotation,
+        calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, fit_camera, optical_axis
+    # the reduction kernel (each sample's 2-D residual and Jacobian rows, Σ‖r‖², Jᵀr, JᵀJ) is the same KernelAbstractions
+    # kernel on every backend: the CPU's and the GPU's fits agree to the reduction's rounding (the work items' sums in
+    # another order), with the same steps
+    cpu = VC.KA.CPU()
+    b = with_lens_coverage(OFF_BOUNDED, DISC)
+    fits = [(VE._AXIS_FAMILY, b, imaged_region(b)), (KannalaBrandt{4}, FISHEYE, REGION)]     # a gauge K, a physical K
+    for (L, src, region) in fits
+        rc = fit_camera(L, src, region; device = cpu)
+        @test retcode(rc) === :converged
+        CUDA.functional() || continue
+        rg = fit_camera(L, src, region; device = VC.default_device())
+        @test retcode(rg) === :converged && iterations(rg) == iterations(rc)
+        @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
+        @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9
+        @test maximum(abs, rotation(metadata(rg).rotation) - rotation(metadata(rc).rotation)) < 1.0e-12
+        @test abs(rms(rg) - rms(rc)) < 1.0e-12 && abs(metadata(rg).max_px - metadata(rc).max_px) < 1.0e-12   # px
+    end
 end

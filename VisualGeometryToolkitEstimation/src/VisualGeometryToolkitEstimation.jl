@@ -140,7 +140,7 @@ using VisualGeometryToolkitCore: StoppingCriterion
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
     ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed,
     lm_retcode, loss_robustifier
-import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!
+import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!
 import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
     lift_model, lift_valid, lift_rows, lift_residuals, lift_size

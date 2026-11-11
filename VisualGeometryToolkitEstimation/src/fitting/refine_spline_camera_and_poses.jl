@@ -666,7 +666,7 @@ function _refine_spline_camera_and_poses(camera::_RefinedCamera, poses::Abstract
     entry = optical_axis(camera)
     K = calibration_matrix(estimate(entry))
     R = metadata(entry).rotation
-    gauged = VgtkCore.axis_gauged(camera, rotation(R), SVector(K[1, 3], K[2, 3]))
+    gauged = VgtkCore.axis_gauged(camera, rotation(R), K)
     turned = [VgtkCore.axis_gauged(pose, rotation(R)) for pose in poses]
     out = _refine_spline_axis_gauged(gauged, turned, views, _camera_model(camera).lens.forward !== nothing; kwargs...)
     out isa _NotProjected && return out

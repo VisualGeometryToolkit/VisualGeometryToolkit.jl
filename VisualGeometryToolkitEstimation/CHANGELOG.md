@@ -21,6 +21,17 @@ non-central one is a `NoncentralSplineModel`).
     (px: the azimuthal misfit about the fitted principal point; `NaN` where not measured). The lens families' record
     gains `aspect`.
   - **A non-central source** of a lens-family fit is an `ArgumentError` (not supported yet).
+- **The lens-family regression runs on the device** (`fit_camera(L, …; device = default_device())`).
+  - Each sample's 2-D residual and its Jacobian rows (ForwardDiff duals of the chart vector inside the kernel), and
+    their reduction to ½‖r‖², Jᵀr and JᵀJ, are one KernelAbstractions kernel on every backend, through Core's
+    `_launch_rows!`.
+  - Only the N × N step is the host's: Core's `lmsolve_chart!` through its new reduction protocol, the same chart
+    and stops.
+  - Measured on the 5° synthetic: 0.20 s on the 4090, 0.27 s on 32 CPU threads (the former host ForwardDiff over
+    every row: 3.9 s). The CPU and CUDA fits agree to 1e-13.
+- **The re-gauge takes the fitted K**: principal point, focal lengths and aspect (`axis_gauged(camera, R, K′)`, no ray
+  changes).
+
 - **New: `optical_axis(camera::BoundedCamera)`** (exported), the one `fit_camera` call of the Fisheye624 family
   (`Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6}`, its decentering held at zero) onto a camera, over the
   camera's own bound (`imaged_region`, never a default): its axis, principal point, rotation and symmetry residual.
@@ -37,7 +48,9 @@ non-central one is a `NoncentralSplineModel`).
     `gauge_roll`.
   - `spline` gains `axis_rotation`, `symmetry_residual` and the diagnostic `refined_axis_offset`,
     `refined_symmetry_residual`: one `optical_axis` fit of the refined camera, from which nothing is re-gauged.
-  - A forward spline is now refitted or dropped, never kept (the turn leaves it stale). It is refitted by
+  - Breaking: the refine returns the entry-gauged K, not the caller's.
+  - Breaking: `spline.forward === :kept` is gone. A forward spline is now refitted or dropped, never kept (the turn
+    leaves it stale). It is refitted by
     `fit_camera(SplineLens)`'s own forward fit, which does not re-gauge.
 
 - **New: a robust refine, `refine_camera_and_poses(…; robust, scale)`** (the owner's one-schema policy): `robust` takes

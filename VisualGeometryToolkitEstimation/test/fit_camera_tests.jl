@@ -148,7 +148,7 @@ end
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, ChartSpline, SplineLens, CameraModel,
         BoundedCamera, Size2, project, backproject, calibration_matrix, lens, rotation
-    using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata
+    using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata, optical_axis
 
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3)
     cam = estimate(r)
@@ -163,8 +163,11 @@ end
     R = rotation(metadata(r).rotation)
     @test lens(cam).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
     @test maximum(abs, R - one(R)) < 1.0e-6
+    # its K is the symmetric camera's (2026-11-11, owner: the re-gauge takes the fit's principal point and aspect):
+    # GRID's own K to the spline's approximation
     K, KG = calibration_matrix(cam), calibration_matrix(GRID)
-    @test K[1, 1] == KG[1, 1] && K[2, 2] == KG[2, 2] && maximum(abs, K[1:2, 3] - KG[1:2, 3]) < 1.0e-5
+    @test K == calibration_matrix(estimate(optical_axis(GRID_BOUNDED)))
+    @test maximum(abs, K - KG) < 1.0e-3
     fam = metadata(r).family
     @test fam.λ === nothing && fam.grid_size == (40, 40) && fam.outer_iterations == 0
     @test metadata(r).max_px < 1.0e-9                                           # the kept backward against itself
@@ -439,15 +442,20 @@ end
 
 @testitem "fit_camera: a lens refitted onto its own family has exactly zero residuals" begin
     using Test, StaticArrays
-    using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, Equidistant, Stereographic, Division, Scaramuzza, Ellipse,
-        metadata, rms
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore, CameraModel, Lens, Perspective, Equidistant, Stereographic, Division,
+        Scaramuzza, Ellipse, metadata, rms
     using VisualGeometryToolkitEstimation: fit_camera
     # the regression's targets are the source's plain radii, so a source at its
-    # family's anchor is reproduced exactly (a Dual radius differs in the last bits)
+    # family's anchor is reproduced exactly (a Dual radius differs in the last bits) — on the CPU backend, where the
+    # reduction kernel evaluates the lens with the host's own functions. On an accelerator its sin/cos/atan differ from
+    # the host's in the last bits (2026-11-11, the regression on the device): zero to rounding there
     region = Ellipse(SVector(320.0, 240.0), 200.0, 200.0, 0.0)
     for l in (Lens(Perspective()), Lens(Equidistant()), Lens(Stereographic()), zero(Division{2}), zero(Scaramuzza{3}))
-        r = fit_camera(typeof(l), CameraModel(; pp = (320.0, 240.0), focal = 300.0, lens = l), region)
+        src = CameraModel(; pp = (320.0, 240.0), focal = 300.0, lens = l)
+        r = fit_camera(typeof(l), src, region; device = VisualGeometryToolkitCore.KA.CPU())
         @test metadata(r).max_px == 0 && rms(r) == 0
+        rd = fit_camera(typeof(l), src, region)
+        @test metadata(rd).max_px < 1.0e-12 && rms(rd) < 1.0e-12
     end
 end
 
@@ -544,8 +552,9 @@ end
     @test retcode(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6
     # the batched central source lines are the scalar back-projection, normalized
     pix = [SVector(500.5, 400.5), SVector(20.5, 500.5), SVector(950.5, 980.5)]
-    @test VgtkEstimation._source_lines(FISHEYE, pix, VgtkEstimation.default_device()) ==
-        [(SVector(0.0, 0.0, 0.0), normalize(SVector{3, Float64}(backproject(FISHEYE, p)))) for p in pix]
+    # (to the last bit: on an accelerator the batched backprojection's functions are the device's, 2026-11-11)
+    @test all(map((a, b) -> a[1] == b[1] && maximum(abs, a[2] - b[2]) <= 4 * eps(), VgtkEstimation._source_lines(FISHEYE, pix, VgtkEstimation.default_device()),
+        [(SVector(0.0, 0.0, 0.0), normalize(SVector{3, Float64}(backproject(FISHEYE, p)))) for p in pix]))
     @test_throws ArgumentError fit_camera(NoncentralSplineModel, FISHEYE, REGION; tolerance = 0.01)
 end
 

@@ -618,7 +618,7 @@ public keep_best
 # `lmsolve_chart!` stays internal (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
-public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
+public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)

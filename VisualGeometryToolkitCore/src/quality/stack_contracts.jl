@@ -119,8 +119,8 @@ const CONTRACT_GENERICS = (
     # the block-coordinate-descent loop's hooks and readers (robust/block_coordinate_descent.jl)
     update_model!, update_residuals!, update_nuisance!, update_weights!, post_iteration!,
     stopping_criterion, stop_reason, block_coordinate_result, current_cost, current_s2,
-    # the chart LM's row protocol (robust/lm_core.jl)
-    residual_rows!, residual_jacobian_rows!,
+    # the chart LM's row protocol and its reductions (robust/lm_core.jl)
+    residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
     # the RANSAC / LO interface (robust/estimation.jl, robust/losses.jl, robust/width_axes.jl)
     solve, model_type, test_model, test_sample, test_consensus, constraint, constraint_with_jacobians, constraint_rounding_scale,
     inlier_weight, robust_weight, is_inlier,
@@ -197,7 +197,8 @@ package outside the stack are exempt.
 
 VisualGeometryToolkitCore's, by group:
 - the block-coordinate-descent hooks and readers (`update_model!`, …, `current_s2`);
-- the chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`);
+- the chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`) and its
+  reductions (`residual_cost!`, `residual_normal_equations!`);
 - the RANSAC / local-optimization interface, the constraint-problem protocol,
   the scoring and local-optimization contracts, pool selection and the
   chart-rows contract;

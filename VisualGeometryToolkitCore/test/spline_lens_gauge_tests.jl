@@ -441,9 +441,11 @@ end
     @test norm(SVector(Koff[1, 3], Koff[2, 3]) - SVector(500.0, 500.0)) > 20      # the old gauge: ~26 px off the axis's pixel
     R = RotMatrix{3}(Q')                                                          # the axis Q·ẑ of the turned frame onto ẑ
     pp = SVector(500.0, 500.0)
-    g = axis_gauged(off, R, pp)
+    # the K of the symmetric camera a fit finds: the axis's pixel, and its own focal lengths (an aspect off the gauge's)
+    Kn = SMatrix{3, 3, Float64}(300.0, 0.0, 0.0, 0.0, 300.0 * 1.0004, 0.0, pp[1], pp[2], 1.0)
+    g = axis_gauged(off, R, Kn)
     K′ = calibration_matrix(g)
-    @test SVector(K′[1, 3], K′[2, 3]) == pp && K′[1, 1] == Koff[1, 1] && K′[2, 2] == Koff[2, 2] && iszero(K′[1, 2])
+    @test K′ == Kn && SVector(K′[1, 3], K′[2, 3]) == pp && iszero(K′[1, 2])
     @test g.lens.backward.controls == map(c -> R * c, off.lens.backward.controls)
     # every pixel's ray is the old one turned by R, to rounding (the K is a gauge; the rotation commutes with normalization)
     pixels = [SVector(x, y) for x in 0.5:37.0:999.5 for y in 0.5:41.0:999.5]
@@ -463,16 +465,16 @@ end
     # a forward spline inverts the old directions: dropped; the presence mask kept
     fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
     withfwd = CameraModel(off.intrinsics, SplineLens(off.lens.backward; forward = fwd))
-    @test axis_gauged(withfwd, R, pp).lens.forward === nothing
+    @test axis_gauged(withfwd, R, Kn).lens.forward === nothing
     P = trues(size(off.lens.backward.controls)); P[1, 1] = P[end, 3] = false
-    @test axis_gauged(with_present(off, P), R, pp).lens.present == P
+    @test axis_gauged(with_present(off, P), R, Kn).lens.present == P
     # a bounded camera: its model gauged, its image kept
     bc = BoundedCamera(off, Size2(1000, 1000))
-    gb = axis_gauged(bc, R, pp)
-    @test gb isa BoundedCamera && calibration_matrix(model(gb)) == K′ && model(gb).lens.backward.controls == g.lens.backward.controls
+    gb = axis_gauged(bc, R, Kn)
+    @test gb isa BoundedCamera && calibration_matrix(model(gb)) == Kn && model(gb).lens.backward.controls == g.lens.backward.controls
     # a posed camera: its model and its extrinsics turned together, every world point imaged where it was
     posed = PosedCamera(off, pose)
-    gp = axis_gauged(posed, R, pp)
+    gp = axis_gauged(posed, R, Kn)
     @test gp isa PosedCamera && gp.extrinsics == turned && calibration_matrix(gp) == K′
     @test all(x -> norm(project(gp, x) - project(posed, x)) <= 1.0e-6, X)
 end

@@ -131,8 +131,12 @@ bounded): the minimizer of the integrated squared pixel error of the round trip,
 family and the solve:
 
 - **a lens family `L <: AbstractLensModel`** (`fit_camera(L, source::CameraModel,
-  region; weight = :image)`): a `CameraModel` with lens `L`. What is fitted
-  depends on the source's `K`, by Core's `IntrinsicsRole`.
+  region; weight = :image, device = default_device())`): a `CameraModel` with
+  lens `L`. What is fitted depends on the source's `K`, by Core's `IntrinsicsRole`.
+  - The regression runs on the backend `device`. Each sample's residual and its
+    Jacobian rows, and their reduction to the normal equations, are one
+    KernelAbstractions kernel, the same on every backend. Only the chart LM's
+    N × N step is the host's.
   - A PHYSICAL `K` (a parametric lens): `K` is scaled by a jointly fitted focal
     rescale `s`, and the principal point and ẑ are kept. The fit is to the
     source lens's radial profile `r(θ)` (its radial part: decentering terms are
@@ -262,15 +266,15 @@ function fit_camera end
 
 function fit_camera(
         ::Type{L}, source::CameraModel, region;
-        weight::Symbol = :image, max_iter::Int = _dflt("fit_camera", "max_iter")
+        weight::Symbol = :image, max_iter::Int = _dflt("fit_camera", "max_iter"), device = default_device()
     ) where {L <: AbstractLensModel}
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     pr = _profile_samples(role, L, source, region, K0, weight)
     P = _regression_manifold(role, _lens_family_manifold(L))
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
-    lm = _LensRegressionLm(P, L <: LiftLens, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
-    p, code, iters = _regress_lens(lm, 2 * length(pr.rays), Val(tangent_size(P)), max_iter)
+    lm = _LensRegressionLm(device, P, L <: LiftLens, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+    p, code, iters = _regress_lens(lm, Val(tangent_size(P)), max_iter)
 
     fit = _regression_parts(retract(P, p))
     s = fit.s
@@ -284,7 +288,7 @@ function fit_camera(
     out = CameraModel(LogicalIntrinsics(Kb), fit.lens)
     # the round trip's error per sample, in pixels: the forward form (a lift's radius capped inside its domain)
     θcap = L <: LiftLens ? view_angle_limit(fit.lens) - 1.0e-9 : Inf
-    e = [K0[1, 1] * _pixel_offset(fit, M, pr.rays[i], pr.angles[i], pr.points[i], θcap) for i in eachindex(pr.rays)]
+    e = K0[1, 1] .* _sample_errors(lm, p, θcap)
     w = pr.w
     rms_px = sqrt(sum(i -> w[i] * sum(abs2, e[i]), eachindex(e)) / max(sum(w), eps()))
     max_px = maximum(norm, e)
@@ -401,7 +405,7 @@ decentering held at zero) onto `camera`, that one call, nothing more.
     decentred lens reports it.
 - A physical `K` is its own axis: the identity rotation and the source's principal point.
 
-Core's `axis_gauged(camera, rotation(metadata(r).rotation), principal_point)` then turns the camera so ẑ is the
+Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` and the SplineLens `refine_camera_and_poses` do this first, always.
 """
 optical_axis(camera::BoundedCamera) = fit_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera))
@@ -554,19 +558,37 @@ function _radius_with_jacobian(srcr, θ::Float64)
     return Float64(ForwardDiff.value(r)), Float64(ForwardDiff.partials(r, 1))
 end
 
-# The linearization state of the stack's chart LM (VGC's `lmsolve_chart!`, over
-# the `residual_rows!` protocol): the chart `P`, whether the rows are angle
-# residuals (the lift families), `M = K₀₂ / fx₀` (a normalized offset in pixels / fx₀),
-# and per sample its ray, the ray's view angle about ẑ, its point `y` of the source's
-# normalized plane and its row weight √w.
-struct _LensRegressionLm{TP <: ProductManifold}
+# The linearization state of the stack's chart LM (Core's `lmsolve_chart!`): the chart `P`, whether the rows are angle
+# residuals (the lift families), `M = K₀₂ / fx₀` (a normalized offset in pixels / fx₀), and per sample — on the
+# KernelAbstractions backend `device` of the fit — its ray, the ray's view angle about ẑ, its point `y` of the source's
+# normalized plane and its row weight √w; and the reduction's partial sums there, one column per work item.
+#
+# THE ROWS NEVER REACH THE HOST. The state answers the chart LM's two reductions (`residual_cost!`,
+# `residual_normal_equations!`) with ONE kernel (Core's `_launch_rows!`, the same on every backend, the CPU's
+# included): each work item evaluates its samples' 2-D residuals — and, at a linearization, their Jacobian rows,
+# ForwardDiff duals of the chart vector inside the kernel — and sums ‖r‖², Jᵀr and JᵀJ into its column. The columns'
+# sum is the one device reduction after it; only the N × N step is the host's.
+struct _LensRegressionLm{D, TP <: ProductManifold, R, A, Y, B}
+    device::D
     P::TP
     angle_residual::Bool
     M::SMatrix{2, 2, Float64, 4}
-    rays::Vector{SVector{3, Float64}}
-    angles::Vector{Float64}
-    points::Vector{SVector{2, Float64}}
-    sw::Vector{Float64}
+    rays::R
+    angles::A
+    points::Y
+    sw::A
+    partials::B
+end
+# The work items of the reduction: enough to fill an accelerator, few enough that their columns sum in one reduction.
+const _REDUCTION_ITEMS = 2048
+function _LensRegressionLm(device, P::ProductManifold, angle_residual::Bool, M, rays, angles, points, sw)
+    N = tangent_size(P)
+    up(T, v) = VgtkCore.on_device(T, device, v)
+    W = max(1, min(length(rays), _REDUCTION_ITEMS))
+    return _LensRegressionLm(
+        device, P, angle_residual, M, up(SVector{3, Float64}, rays), up(Float64, angles), up(SVector{2, Float64}, points), up(Float64, sw),
+        VgtkCore.device_zeros(Float64, device, 1 + N + N * N, W)
+    )
 end
 
 # A ray's view angle about ẑ and its azimuth's unit vector (zero on the axis, where the radius is 0). Dual-safe.
@@ -604,24 +626,82 @@ end
     θ′, az = _fitted_ray(fit.R, d, θ)
     return VgtkCore.Cameras._radius(v) * (θB * azB - θ′ * az)
 end
-@inline _sample_offset(lm::_LensRegressionLm, fit, i) = lm.angle_residual ?
-    _chart_offset(fit, lm.rays[i], lm.angles[i], lm.points[i]) : _pixel_offset(fit, lm.M, lm.rays[i], lm.angles[i], lm.points[i], Inf)
-function residual_rows!(f, lm::_LensRegressionLm, x)
-    fit = _regression_parts(retract(lm.P, x))
-    for i in eachindex(lm.rays)
-        e = lm.sw[i] * _sample_offset(lm, fit, i)
-        f[2i - 1] = e[1]
-        f[2i] = e[2]
+@inline _sample_offset(angle_residual::Bool, M, fit, d, θ, y) =
+    angle_residual ? _chart_offset(fit, d, θ, y) : _pixel_offset(fit, M, d, θ, y, Inf)
+
+# The tag of the chart vector's duals inside the reduction kernel.
+struct _RegressionTag end
+# The chart vector `x` seeded as duals of itself.
+@inline _seeded(x::SVector{N, Float64}) where {N} = SVector{N}(ntuple(
+    k -> ForwardDiff.Dual{_RegressionTag}(x[k], ForwardDiff.Partials(ntuple(j -> j == k ? 1.0 : 0.0, Val(N)))), Val(N)
+))
+
+# Work item `w`'s share of the cost: Σ ‖√wᵢ rᵢ‖² over its samples `w, w + W, …`, into `out[1, w]`.
+Base.@propagate_inbounds function _cost_row!(out, w, P, angle_residual, M, rays, angles, points, sw, x)
+    fit = _regression_parts(retract(P, x))
+    s = 0.0
+    for i in w:size(out, 2):length(rays)
+        e = sw[i] * _sample_offset(angle_residual, M, fit, rays[i], angles[i], points[i])
+        s += e[1] * e[1] + e[2] * e[2]
     end
-    return f
+    out[1, w] = s
+    return nothing
 end
-# The Jacobian is VGC's default: ForwardDiff through `residual_rows!`.
+# Work item `w`'s share of the normal equations: Σ ‖rᵢ‖², Σ Jᵢᵀrᵢ and Σ JᵢᵀJᵢ over its samples into column `w` (the
+# cost, then the N gradient entries, then the N × N Hessian column-major), each sample's 2 × N Jacobian the partials
+# of its residual at the seeded chart vector.
+Base.@propagate_inbounds function _normal_row!(out, w, P, angle_residual, M, rays, angles, points, sw, x::SVector{N, Float64}) where {N}
+    fit = _regression_parts(retract(P, _seeded(x)))
+    s = 0.0
+    g = zero(SVector{N, Float64})
+    H = zero(SMatrix{N, N, Float64})
+    for i in w:size(out, 2):length(rays)
+        e = sw[i] * _sample_offset(angle_residual, M, fit, rays[i], angles[i], points[i])
+        r = SVector(ForwardDiff.value(e[1]), ForwardDiff.value(e[2]))
+        J = SMatrix{2, N, Float64}(ntuple(k -> ForwardDiff.partials(e[(k - 1) % 2 + 1], (k - 1) ÷ 2 + 1), Val(2N)))
+        s += r[1] * r[1] + r[2] * r[2]
+        g += J' * r
+        H += J' * J
+    end
+    out[1, w] = s
+    for a in 1:N
+        out[1 + a, w] = g[a]
+    end
+    for b in 1:N, a in 1:N
+        out[1 + N + (b - 1) * N + a, w] = H[a, b]
+    end
+    return nothing
+end
+
+function residual_cost!(_, lm::_LensRegressionLm, x)
+    VgtkCore._launch_rows!(_cost_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
+    return 0.5 * sum(view(lm.partials, 1, :))
+end
+function residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64}) where {N}
+    VgtkCore._launch_rows!(_normal_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
+    t = Array(sum(lm.partials; dims = 2))                       # the work items' columns summed where they are
+    return 0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N)))
+end
+
+# Each sample's round-trip error at the solution `x`, in pixels / fx₀: the forward form, a lift's radius capped at
+# `θcap` (one kernel, the same backend), back on the host.
+Base.@propagate_inbounds function _error_row!(out, i, P, M, rays, angles, points, x, θcap)
+    out[i] = _pixel_offset(_regression_parts(retract(P, x)), M, rays[i], angles[i], points[i], θcap)
+    return nothing
+end
+function _sample_errors(lm::_LensRegressionLm, x, θcap)
+    n = length(lm.rays)
+    out = VgtkCore.device_zeros(SVector{2, Float64}, lm.device, n)
+    VgtkCore._launch_rows!(_error_row!, out, n, lm.P, lm.M, lm.rays, lm.angles, lm.points, x, Float64(θcap))
+    return Array(out)
+end
 
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
 # zero), its retcode and its iterations — a function barrier static in the N
-# coordinates (the focal's and the family's).
-function _regress_lens(lm::_LensRegressionLm, rows::Int, ::Val{N}, max_iter::Int) where {N}
-    ews = _lm_workspace(nothing, rows, Val(N))      # the one LO-buffer reuse policy (interface.jl)
+# coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
+# device (one placeholder row, NLLSsolver's problem needs one).
+function _regress_lens(lm::_LensRegressionLm, ::Val{N}, max_iter::Int) where {N}
+    ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
     x, _, conv, iterations = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
     return x, VgtkCore.lm_retcode(conv), iterations
 end
@@ -1135,7 +1215,7 @@ function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, source::BoundedCam
     r = optical_axis(VgtkCore.with_model(source, cam))
     K = calibration_matrix(estimate(r))
     R = metadata(r).rotation
-    camera = VgtkCore.axis_gauged(cam, rotation(R), SVector(K[1, 3], K[2, 3]))
+    camera = VgtkCore.axis_gauged(cam, rotation(R), K)
     return (; camera, rotation = R, metadata(r).symmetry_residual, code = retcode(r))
 end
 

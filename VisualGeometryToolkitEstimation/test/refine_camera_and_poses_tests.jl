@@ -175,7 +175,7 @@ end
         r = optical_axis(b)
         K = calibration_matrix(estimate(r))
         R = rotation(metadata(r).rotation)
-        return axis_gauged(model(b), R, SVector(K[1, 3], K[2, 3])), R
+        return axis_gauged(model(b), R, K), R
     end
     # the truth and its poses in an estimate's frame (2026-11-11: the refine holds its guess's axis-gauged frame, no
     # longer the truth's canonical one): turned by the rotation Q taking the truth's first pose onto the estimate's — the
@@ -183,7 +183,7 @@ end
     function truth_in_frame(truth, Es, est)
         Q = RotMatrix{3, Float64}(est.poses[1].R * Es[1].R')
         K = calibration_matrix(model(est.camera))
-        return axis_gauged(truth, Q, SVector(K[1, 3], K[2, 3])), [axis_gauged(E, Q) for E in Es]
+        return axis_gauged(truth, Q, K), [axis_gauged(E, Q) for E in Es]
     end
 
     # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
@@ -620,7 +620,7 @@ end
     # (the rotation: the camera and the poses turned together by Core's axis_gauged, every image kept)
     Q = VC.RotMatrix{3, Float64}(VC.exp_so3(SVector(0.02, -0.01, 0.03)))
     K7 = calibration_matrix(model(r7.camera))
-    pq = VE._spline_problem(VC.axis_gauged(model(r7.camera), Q, SVector(K7[1, 3], K7[2, 3])), [VC.axis_gauged(P, Q) for P in r7.poses], views, true, 3.0e-7; λ = pf.λ)
+    pq = VE._spline_problem(VC.axis_gauged(model(r7.camera), Q, K7), [VC.axis_gauged(P, Q) for P in r7.poses], views, true, 3.0e-7; λ = pf.λ)
     @test cost(pq) ≈ cost(pf) rtol = 1.0e-8 atol = 1.0e-18
     # the gauge held in the LM: an NLLSsolver solve of the directions-first (stage 2) and the joint (stage 3) problem
     # leaves the pinned view's rotation to the SO(3) re-projection's ulps and the scale node's log-scale == its start,

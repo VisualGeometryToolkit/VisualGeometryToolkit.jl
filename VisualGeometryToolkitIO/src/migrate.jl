@@ -1117,7 +1117,7 @@ function _noncentral_grid_body(b::AbstractDict)
     cam = _old_grid_camera(b)
     d = cam.lens.backward
     m = NoncentralSplineModel(cam.intrinsics, d, ChartSpline(d.area, zero(d.controls)); present = cam.lens.present)
-    body = _lower(_noncentral_body(VgioStyle(), m, Size2(Int(b["width"]), Int(b["height"])); points = b["point_grid"]))
+    body = _lower(_model_body(VgioStyle(), m, Size2(Int(b["width"]), Int(b["height"])); points = b["point_grid"]))
     return merge(body, _old_grid_extras(b))
 end
 

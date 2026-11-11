@@ -61,10 +61,10 @@
             @test model(back[:cam_03]).lens == bc
             # the lens is VGC's record: the structure, the arities as array lengths
             for (c, l) in zip(d.cameras, every_lens)
-                @test VgtkIO._plain(c.lens) == lens_record(l)
+                @test VgtkIO._lower(c.lens) == lens_record(l)
             end
-            @test VgtkIO._plain(d.cameras[9].lens) == Dict("lift" => Dict("radial" => Any[Any[], Any[-0.28, -0.09]]))
-            @test VgtkIO._plain(d.cameras[5].lens) == Dict("equidistant" => Any[], "radial" => Any[Any[0.1, -0.02, 0.003, -0.0004], Any[]])
+            @test VgtkIO._lower(d.cameras[9].lens) == Dict("lift" => Dict("radial" => Any[Any[], Any[-0.28, -0.09]]))
+            @test VgtkIO._lower(d.cameras[5].lens) == Dict("equidistant" => Any[], "radial" => Any[Any[0.1, -0.02, 0.003, -0.0004], Any[]])
             # one pixel frame for the file; nothing restated per camera
             @test d.pixel_frame == "colmap" && !haskey(d.cameras[1], :pixel_frame)
             @test !haskey(d.cameras[1], :size) && !haskey(d.cameras[1].K, :unit)

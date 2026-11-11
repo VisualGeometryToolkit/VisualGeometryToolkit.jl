@@ -27,6 +27,9 @@ non-central one is a `NoncentralSplineModel`).
   form past `exact_max` now drops the parameters nothing reads, as the pencil already did (it threw "not positive
   definite" on one), and factors its sparse matrix with one symbolic analysis for every λ. Both forms share one pencil
   curve.
+- **Internal: dispatch and the graph's own refusal.** `fit_camera`'s decentering reads Core's `RadialSymmetry` trait by
+  dispatch (was an `isa` branch); `fit_rotation_averaging` refuses a disconnected graph through `require_connected`,
+  which names the components.
 - **Internal: Core's primitives.** `fit_camera`'s spacing search counts its nodes with Core's `_node_counts`, a
   source ray's off-axis angle is Core's `angle_between`, SIMFIT++'s naive σ² divides by Core's `chisq_median`; the
   full-lattice Δ³ operator's mean eigenvalue (a sparse QR) is formed once per lattice size, not at every spacing tried.

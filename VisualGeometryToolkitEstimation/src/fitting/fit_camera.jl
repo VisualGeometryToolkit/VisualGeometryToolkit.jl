@@ -264,7 +264,7 @@ function _radial_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, r
     src = lens(source)
     # Core's `RadialSymmetry` trait says whether anything is non-radial;
     # `_decentering` measures how much (a symmetric ∘ composition is not measured)
-    dec = VgtkCore.Cameras.RadialSymmetry(src) isa VgtkCore.Cameras.RadiallySymmetric ? 0.0 : _decentering(src)
+    dec = _decentering(VgtkCore.Cameras.RadialSymmetry(src), src)
     dec > 1.0e-8 &&
         @warn "fit_camera: the source $(nameof(typeof(src))) carries non-radial terms (decentering, norm $(round(dec; sigdigits = 3))) — no radially symmetric target can represent them; fitting the radial part only"
     srcr = radial_part(src)
@@ -364,7 +364,8 @@ end
 # `RadialSymmetry` trait flags, read only for a lens it calls asymmetric (for a
 # symmetric `∘` composition `radial_part` is the bare projection, so this
 # would count its radial coefficients).
-_decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))
+_decentering(::VgtkCore.Cameras.RadiallySymmetric, l::AbstractLensModel) = 0.0
+_decentering(_, l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - sum(abs2, parameter_vector(radial_part(l))), 0.0))
 
 # The target's anchor: its zero lens (the double sphere at ξ = α = ½, inside
 # the logit's interval), and the coefficients the fit moves — a forward lens's

@@ -271,7 +271,7 @@ end
 # nothing: a camera's backprojection, or a function `pixel -> direction`
 # (`nothing` or a non-finite vector = not imaged).
 _source_direction(f, px) = (v = f(px); v === nothing ? SVector(NaN, NaN, NaN) : normalize(SVector{3, Float64}(v[1], v[2], v[3])))
-_source_direction(c::CameraModel, px) = (v = backproject(c, px); v === nothing ? SVector(NaN, NaN, NaN) : normalize(SVector{3, Float64}(v)))
+_source_direction(c::CameraModel, px) = _source_direction(p -> backproject(c, p), px)
 
 # The direction controls of `init = :quasi_interpolate` on the lattice of `rect`
 # and `gsz = (rows, cols)`.

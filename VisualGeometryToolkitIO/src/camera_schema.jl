@@ -155,23 +155,13 @@ function _spline_from_json(s::AbstractDict, ::Val{K}, optional, what) where {K}
     _validate(spec, s, what, "")
     msg = _lattice_problem(s, (:controls,))
     msg === nothing || throw(ArgumentError("$(what): $(msg)"))
-    gw, gh = Int(s["grid_size"][1]), Int(s["grid_size"][2])
-    P = haskey(s, "present") ? _present_from_runs(s["present"], gw, gh) : trues(gh, gw)
-    a = s["area"]
-    area = Rect2{Float64}(Float64(a[1]), Float64(a[2]), Float64(a[3]), Float64(a[4]))
-    return (; spline = ChartSpline(area, _controls_from_json(s["controls"], P, Val(K))), present = haskey(s, "present") ? P : nothing)
+    L = _lattice_from_json(s["grid_size"], get(s, "present", nothing), s["area"])
+    return (; spline = ChartSpline(L.area, _controls_from_json(s["controls"], L.P, Val(K))), L.present)
 end
-
-# Parsed JSON objects (`JSON.Object`s) as the plain Dicts and Vectors the
-# lens record is.
-_plain(x::AbstractDict) = Dict{String, Any}(String(k) => _plain(v) for (k, v) in x)
-_plain(x::NamedTuple) = Dict{String, Any}(String(k) => _plain(v) for (k, v) in pairs(x))   # a record built in memory (`_lens_json`'s)
-_plain(x::AbstractVector) = Any[_plain(v) for v in x]
-_plain(x) = x
 
 function _lens_from_json(x)
     x isa Union{AbstractDict, NamedTuple} || throw(ArgumentError("a lens record is an object"))
-    x = _plain(x)
+    x = _lower(x)                       # the plain Dicts and Vectors the lens record is (a parsed or in-memory record)
     # the v1/v2 lens shape, `{"model": …, "params": …}`: read only in a v1/v2
     # file, through its version steps, never in a current record
     (haskey(x, "model") || haskey(x, :model)) && throw(
@@ -246,7 +236,7 @@ end
 # a frame-typed container written in another moves it with the declaration),
 # and its lens record. A body is its pixel extent and these.
 JSON.lower(s::VgioStyle, model::CameraModel) = (K = _k_record(model.intrinsics.K, _pixel_frame(s)), lens = _lens_json(model.lens))
-_camera_body(s::VgioStyle, model::CameraModel, extent::Size2) =
+_model_body(s::VgioStyle, model::CameraModel, extent::Size2) =
     merge((width = Int(extent.width), height = Int(extent.height)), JSON.lower(s, model))
 
 # …and back, its K read in the style's pixel frame and moved into the canonical
@@ -269,7 +259,7 @@ a bounded camera's body (its pitch and lens coverage too) is
 `camera_json(camera::BoundedCamera, frame)`.
 """
 camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
-    _camera_body(VgioStyle(; pixel_frame = frame), model, extent)
+    _model_body(VgioStyle(; pixel_frame = frame), model, extent)
 
 """
     camera_json(model::NoncentralSplineModel, extent, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
@@ -281,7 +271,7 @@ line points — plain metres in memory — in `length_unit`).
 [`camera_from_json`](@ref) reads it back (it tells the two bodies apart by `type`).
 """
 camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
-    _noncentral_body(VgioStyle(; pixel_frame = frame, length_unit), model, extent)
+    _model_body(VgioStyle(; pixel_frame = frame, length_unit), model, extent)
 
 """
     camera_json(camera::BoundedCamera, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
@@ -326,7 +316,7 @@ end
 # lens coverage; read back, a body with a `type` is a non-central one, posed by `pose` when given (a rig sensor's).
 function _bounded_body(s::VgioStyle, bc::BoundedCamera)
     m, ext = model(bc), extent(bc)
-    body = m isa CameraModel ? _camera_body(s, m, ext) : _noncentral_body(s, m, ext)
+    body = _model_body(s, m, ext)                      # the model's own body: a central camera's or a non-central one's
     return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
 end
 _model_from_body(s::VgioStyle, b::_Record) =

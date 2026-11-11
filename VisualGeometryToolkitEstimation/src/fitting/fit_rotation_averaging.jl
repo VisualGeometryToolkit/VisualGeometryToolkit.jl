@@ -178,7 +178,7 @@ function _averaging_seed(seed, edges, Rrel, p)
     live = Dict((isless(i, j) ? (i, j) : (j, i)) => VgtkCore.Attributed(isless(i, j) ? R : R', (; weight = q))
                 for ((i, j), R, q) in zip(edges, Rrel, p) if q > 0)
     vg = ViewGraph(frames, live)
-    length(components(vg)) == 1 || throw(ArgumentError("fit_rotation_averaging: the edges of positive weight do not connect every frame"))
+    require_connected(vg; what = "fit_rotation_averaging: graph of the edges of positive weight")   # names the components
     seed === :spectral &&
         return VgtkCore.spectral_rotation_averaging(live)
     seed === :spanning_tree && return chain(vg, first(frames); identity = one(SMatrix{3, 3, Float64, 9}), inverse = transpose)

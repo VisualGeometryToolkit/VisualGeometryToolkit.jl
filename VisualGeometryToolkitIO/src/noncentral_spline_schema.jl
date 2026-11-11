@@ -80,7 +80,7 @@ const _NONCENTRAL_SPLINE_SPEC = _CheckedSpec(
 # point controls (plain metres) in the style's length form (the file's unit; the
 # identity tree's persisted metres) — or `points`, a migration's own numbers as
 # its file holds them.
-function _noncentral_body(s::VgioStyle, m::NoncentralSplineModel, ext::Size2; points = nothing)
+function _model_body(s::VgioStyle, m::NoncentralSplineModel, ext::Size2; points = nothing)
     P = _held_mask(m.present, size(m.directions.controls))
     sp = _spline_json(m.directions, P)
     pts = points === nothing ? _controls_json(m.points.controls, P, x -> _leaf_power(x, s.length_unit, 1)) : points
@@ -95,12 +95,10 @@ end
 # style's pixel frame and whose points are in its length unit.
 function _noncentral_from_body(s::VgioStyle, b::_Record)
     sp = b.spline
-    gw, gh = Int(sp.grid_size[1]::Integer), Int(sp.grid_size[2]::Integer)
-    P = haskey(sp, :present) ? _present_from_runs(sp.present::Vector{Any}, gw, gh) : trues(gh, gw)
-    area = JSON.lift(s, Rect2, sp.area::Vector{Any})
-    D = ChartSpline(area, _controls_from_json(sp.directions::Vector{Any}, P, Val(3)))
-    X = ChartSpline(area, _controls_from_json(sp.points::Vector{Any}, P, Val(3), x -> _read_power(x, s.length_unit, 1)))
-    m = NoncentralSplineModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), D, X; present = haskey(sp, :present) ? P : nothing)
+    L = _lattice_from_json(sp.grid_size, haskey(sp, :present) ? sp.present : nothing, sp.area)
+    D = ChartSpline(L.area, _controls_from_json(sp.directions::Vector{Any}, L.P, Val(3)))
+    X = ChartSpline(L.area, _controls_from_json(sp.points::Vector{Any}, L.P, Val(3), x -> _read_power(x, s.length_unit, 1)))
+    m = NoncentralSplineModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), D, X; L.present)
     return m, _extent_from_body(b)
 end
 

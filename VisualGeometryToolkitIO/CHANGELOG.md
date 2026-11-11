@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **Internal: one lowering, one spline-lattice reader, a body by dispatch.** The lens record's `_plain` was `_lower`
+  under another name (gone); both spline lens schemas read a record's grid size, present runs and area through one
+  `_lattice_from_json`; a bounded camera's model body is `_model_body` by the model's type (was an `isa` branch over
+  `_camera_body` and `_noncentral_body`). Records unchanged.
 - **Breaking: the COLMAP database's raw matches are `raw_matches(cdb, i, j)`** (was `matches`), beside
   `verified_matches`. `matches` is VisualGeometryToolkitCore's plot of matched points; one public name had two meanings.
   Three private helpers that shared a name with Core's are renamed after what they do (`_CheckedSpec`, `_K_SPEC`,

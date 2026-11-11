@@ -183,7 +183,7 @@ end
 # A CameraModelSpec on the wire: VGC's own table (`toml_value`, the config form),
 # and back by VGC's own reader.
 JSON.lower(::VgioStyle, spec::VgtkCore.CameraModelSpec) = VgtkCore.toml_value(spec)
-JSON.lift(::VgioStyle, ::Type{VgtkCore.CameraModelSpec}, x::JSON.Object) = VgtkCore.CameraModelSpec(_plain(x))   # a parsed table
+JSON.lift(::VgioStyle, ::Type{VgtkCore.CameraModelSpec}, x::JSON.Object) = VgtkCore.CameraModelSpec(_lower(x))   # a parsed table
 
 # The model a manifest states, lifted; its refusal names the manifest.
 function _manifest_model(d, path)

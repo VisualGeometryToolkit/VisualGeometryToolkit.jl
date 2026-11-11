@@ -166,6 +166,16 @@ JSON.lower(::VgioStyle, r::Rect2) = Float64[r.origin[1], r.origin[2], r.widths[1
 JSON.lift(::VgioStyle, ::Type{Rect2}, v::AbstractVector{Any}) =
     (r = Float64[Float64(x::Real) for x in v]; Rect2{Float64}(r[1], r[2], r[3], r[4]))
 
+# A spline record's lattice (both spline lens schemas): its `grid_size` `(gw, gh)`, its
+# present nodes from the stored row runs (`nothing`: every node), its `area`
+# `[x, y, w, h]` — the mask `P` the controls are read on, the area, and the lens's
+# `present` (`nothing` for every node).
+function _lattice_from_json(grid_size, runs, a)
+    gw, gh = Int(grid_size[1]::Integer), Int(grid_size[2]::Integer)
+    P = runs === nothing ? trues(gh, gw) : _present_from_runs(runs, gw, gh)
+    return (; P, area = JSON.lift(VgioStyle(), Rect2, Any[a...]), present = runs === nothing ? nothing : P)
+end
+
 # A stored ellipse's invariants, as VGC's `Ellipse` holds it — semi-axes positive, the major first — so it reads back as
 # the numbers the file holds; the message names `what`, or `nothing` when they hold. (A spline lens camera's domain, a
 # camera store's image ellipse.)

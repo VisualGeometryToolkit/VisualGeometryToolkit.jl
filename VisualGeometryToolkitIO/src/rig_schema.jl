@@ -1055,7 +1055,7 @@ function _id_camera(c::BoundedCamera)   # a rig sensor (the writer requires its 
     if mdl isa CameraModel
         d["lens"] = _id_lens(mdl.lens)          # a SplineLens's: its spline record (camera_schema.jl)
     else
-        d["noncentral_spline"] = _lower(_noncentral_body(_ID_STYLE, mdl, e).spline)   # its points the persisted metres
+        d["noncentral_spline"] = _lower(_model_body(_ID_STYLE, mdl, e).spline)   # its points the persisted metres
     end
     cov = _lens_coverage_json(_ID_STYLE, lens_coverage(c), e)
     isempty(cov) || (d["lens_coverage"] = _lower(cov.lens_coverage))

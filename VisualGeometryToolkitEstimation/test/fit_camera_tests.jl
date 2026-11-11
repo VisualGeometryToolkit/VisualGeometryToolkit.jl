@@ -81,7 +81,7 @@ end
         cd = parameters(lens(estimate(rd)))
         @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 == 0 && cd.d3 == 0
         synthetic = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
-        @test VgtkEstimation._decentering(synthetic) ≈ hypot(1.0e-3, -5.0e-4, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
+        @test VgtkEstimation._decentering(VgtkEstimation.VgtkCore.Cameras.RadialSymmetry(synthetic), synthetic) ≈ hypot(1.0e-3, -5.0e-4, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
         @test radial_part(synthetic) === Lens(Perspective(), Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)))
         src = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = synthetic)
         @test_logs (:warn, r"non-radial terms") match_mode = :any fit_camera(OPENCV3, src, disc(src, 500.0))

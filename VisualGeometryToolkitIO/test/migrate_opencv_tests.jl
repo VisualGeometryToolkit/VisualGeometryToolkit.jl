@@ -43,7 +43,7 @@
         @test VgtkCore.model(cam) == cal.camera                            # K canonical (cx + 0.5), lens as the file names it
         @test VgtkCore.model(cam).intrinsics.K[1, 3] == 2175.69 + 0.5
         cd_ = parse_json(read(r.cameras, String))
-        @test VgtkIO._plain(cd_.cameras[1].lens) == lens_record(cal.camera.lens)
+        @test VgtkIO._lower(cd_.cameras[1].lens) == lens_record(cal.camera.lens)
         @test cd_.provenance.reprojection_error == 0.2737 && cd_.provenance.error_statistic == "rms"
 
         poses = load(Vector{EuclideanMap}, r.poses)

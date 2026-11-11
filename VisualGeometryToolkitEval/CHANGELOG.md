@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: `Render.write_station_fan_colorbar(colormap, io_or_path; span, ticks, tick_labels, label, logarithmic,
+  reverse, colormap_name, orientation, length, comment)`**: the colorbar of a row of station fans, a pgfplots
+  colorbar-only axis, vertical beside the row or horizontal beneath it, the colormap sampled at 15 points and defined
+  with its reverse (`<colormap_name>`, `<colormap_name>rev`). Byte for byte the committed bars of BlobBoards' bmvc2026
+  (`write_floorplan_tikz`'s colorbar loop) and CaliBlobs' icra2026 (`write_floorplan_colorbar` and its `_fp_cmap`
+  colormap string); both restated it.
 - **New: `Render.write_station_fan(colormap, io_or_path, cells; value, span, logarithmic, reverse, comment,
   ring_labels)`**: a floor plan's station fan as a bare TikZ picture, one annular wedge per `station_cells` cell
   coloured by `colormap` at the cell's statistic `value` placed in `span` (log10 when `logarithmic`, `1 - t` when

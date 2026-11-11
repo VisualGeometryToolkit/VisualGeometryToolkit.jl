@@ -1,9 +1,10 @@
 # =============================================================================
 # The station fan of a floor plan as TikZ: one annular wedge per cell of
-# `station_cells` (station_cells.jl), coloured by one of the cell's statistics.
-# BlobBoards bmvc2026 (scripts/plots/error_distributions.jl,
-# `write_floorplan_tikz`) and CaliBlobs icra2026 (src/floorplan_tikz.jl,
-# `write_floorplan_fan`, a verbatim copy) each wrote it.
+# `station_cells` (station_cells.jl), coloured by one of the cell's statistics,
+# and the fan row's colorbar. BlobBoards bmvc2026
+# (scripts/plots/error_distributions.jl, `write_floorplan_tikz`) and CaliBlobs
+# icra2026 (src/floorplan_tikz.jl, `write_floorplan_fan` and
+# `write_floorplan_colorbar`, a copy) each wrote both.
 # =============================================================================
 
 """
@@ -65,5 +66,80 @@ end
 function write_station_fan(colormap, path::AbstractString, cells; kwargs...)
     text = sprint(io -> write_station_fan(colormap, io, cells; kwargs...))
     write(path, text)
+    return path
+end
+
+# A span or a set of ticks on the colour axis: log10 of the statistic's units when `logarithmic`.
+_colour_axis(x, logarithmic::Bool) = logarithmic ? log10.(Float64.(x)) : Float64.(x)
+
+# A colormap sampled at 15 points as pgfplots' `rgb=(r,g,b) …`, reversed when `reverse`.
+_pgf_colormap(colormap, reverse::Bool) = join(
+    [let c = colormap(reverse ? 1 - t : t)
+         "rgb=($(round(c.r; digits = 4)),$(round(c.g; digits = 4)),$(round(c.b; digits = 4)))"
+     end for t in range(0, 1, 15)], " ")
+
+"""
+    write_station_fan_colorbar(colormap, io::IO; span, ticks, tick_labels = <the ticks>, label = nothing,
+                               logarithmic = false, reverse = false, colormap_name = "stationfan",
+                               orientation = :vertical, length = "1.6cm",
+                               comment = "station fan colorbar") -> io
+    write_station_fan_colorbar(colormap, path; <the same keywords>) -> path
+
+The colorbar of a row of station fans ([`write_station_fan`](@ref) with the
+same `colormap`, `span`, `logarithmic` and `reverse`) as a pgfplots
+colorbar-only axis in a TikZ picture, anchored at its top. `:vertical` stands
+beside the row, `length` its height; `:horizontal` lies beneath it, `length`
+its width. `ticks` are in the statistic's units (log10 inside when
+`logarithmic`), labelled `tick_labels` (default: each tick, an integer value
+without its decimals); `label` is the bar's axis label (`nothing`: none, where
+the document names the quantity already).
+
+The picture defines the colormap `colormap` sampled at 15 points as pgfplots'
+`<colormap_name>` and its reverse as `<colormap_name>rev` (both, so a figure's
+bars share one pair of definitions) and draws the bar in `<colormap_name>rev`
+when `reverse`. `comment` is the file's first line, after `% `. Requires, in
+the document, `\\usepackage{pgfplots}` and `\\pgfplotsset{compat=1.18}`.
+"""
+function write_station_fan_colorbar(colormap, io::IO; span::Tuple{Real, Real}, ticks,
+        tick_labels = [t == round(t) ? string(Int(t)) : string(t) for t in ticks],
+        label::Union{Nothing, AbstractString} = nothing, logarithmic::Bool = false, reverse::Bool = false,
+        colormap_name::AbstractString = "stationfan", orientation::Symbol = :vertical, length::AbstractString = "1.6cm",
+        comment::AbstractString = "station fan colorbar")
+    orientation in (:vertical, :horizontal) ||
+        throw(ArgumentError("write_station_fan_colorbar: orientation is :vertical or :horizontal, not $(repr(orientation))"))
+    Base.length(tick_labels) == Base.length(ticks) ||
+        throw(ArgumentError("write_station_fan_colorbar: $(Base.length(ticks)) ticks, $(Base.length(tick_labels)) tick labels"))
+    lo, hi = _colour_axis(span, logarithmic)
+    hi > lo || throw(ArgumentError("write_station_fan_colorbar: span $(span) is empty"))
+    marks = join(round.(_colour_axis(ticks, logarithmic); digits = 4), ",")
+    name = colormap_name * (reverse ? "rev" : "")
+    meta = "point meta min=$(round(lo; digits = 4)), point meta max=$(round(hi; digits = 4)),"
+    println(io, "% ", comment)
+    println(io, "\\begin{tikzpicture}[baseline=(current bounding box.north)]")
+    println(io, "\\pgfplotsset{colormap={$(colormap_name)rev}{$(_pgf_colormap(colormap, true))}, ",
+                "colormap={$(colormap_name)}{$(_pgf_colormap(colormap, false))}}")
+    if orientation === :vertical
+        println(io, "\\begin{axis}[hide axis, scale only axis, width=0pt, height=$(length),")
+        println(io, "  colormap name=$(name), colorbar, $(meta)")
+        println(io, "  colorbar style={height=$(length), width=0.25cm, ",
+                    label === nothing ? "" : "ylabel={$(label)}, ylabel style={font=\\scriptsize},")
+        println(io, "    ytick={$(marks)}, yticklabels={$(join(tick_labels, ","))}, tick label style={font=\\scriptsize},\n",
+                    "    yticklabel style={text width=1.7em, align=right}}]")
+    else
+        println(io, "\\begin{axis}[hide axis, scale only axis, width=$(length), height=0pt,")
+        println(io, "  colormap name=$(name), colorbar horizontal, $(meta)")
+        println(io, "  colorbar style={width=$(length), height=0.22cm, at={(0,0)}, anchor=north west, ",
+                    label === nothing ? "" : "xlabel={$(label)}, xlabel style={font=\\scriptsize},")
+        println(io, "    xtick={$(marks)}, xticklabels={$(join(tick_labels, ","))}, tick label style={font=\\scriptsize},\n",
+                    "    xticklabel style={yshift=-1pt}}]")
+    end
+    println(io, "  \\addplot[draw=none] coordinates {(0,0)};")
+    println(io, "\\end{axis}")
+    println(io, "\\end{tikzpicture}")
+    return io
+end
+
+function write_station_fan_colorbar(colormap, path::AbstractString; kwargs...)
+    write(path, sprint(io -> write_station_fan_colorbar(colormap, io; kwargs...)))
     return path
 end

@@ -41,3 +41,43 @@
     end
     @test_throws ArgumentError fan(; value = :med, span = (5, 5))
 end
+
+# The fan's colorbar, byte for byte the committed outputs of both papers: BlobBoards bmvc2026's
+# papers/figures/floorplan/floorplan_cbar_{trans,rot,det}.tex (vertical, its configured ticks) and CaliBlobs icra2026's
+# papers/figures/selfcal/floorplan_cbar_{trans,rot}.tex (horizontal, a custom span), and icra2026's current call (no
+# label), written by its `write_floorplan_colorbar`.
+@testitem "station_fan: colorbar" begin
+    using Test
+    using PlotUtils: cgrad
+    using VisualGeometryToolkitEval.Render: write_station_fan_colorbar
+    fixture(name) = read(joinpath(@__DIR__, "data", "station_fan", name), String)
+    colormap = let g = cgrad(:RdYlGn)
+        t -> get(g, t)
+    end
+    bar(; kw...) = sprint(io -> write_station_fan_colorbar(colormap, io; colormap_name = "rdylgn", kw...))
+    bmvc(m) = "floorplan colorbar: $(m) — generated, edit freely"
+    @test bar(; span = (2, 120), logarithmic = true, reverse = true, ticks = [2, 5, 10, 25, 60, 120],
+              label = raw"trans.~error [mm]", comment = bmvc("trans")) == fixture("bmvc2026_cbar_trans.tex")
+    @test bar(; span = (0.2, 50), logarithmic = true, reverse = true, ticks = [0.2, 0.5, 1, 2, 5, 15, 50],
+              tick_labels = ["0.2", "0.5", "1", "2", "5", "15", "50"], label = raw"rot.~error [$^\circ$]",
+              comment = bmvc("rot")) == fixture("bmvc2026_cbar_rot.tex")
+    @test bar(; span = (0, 1), ticks = 0:0.25:1, tick_labels = ["0", ".25", ".5", ".75", "1"], label = "P(detection)",
+              comment = bmvc("det")) == fixture("bmvc2026_cbar_det.tex")
+    icra(m) = "floorplan colorbar: $(m) (horizontal) — generated, edit freely"
+    horizontal = (; orientation = :horizontal, length = "4.4cm", logarithmic = true, reverse = true)
+    @test bar(; horizontal..., span = (1.5, 15.0), ticks = [2, 3, 5, 10, 15], label = raw"trans.~error [mm]",
+              comment = icra("trans")) == fixture("icra2026_cbar_trans.tex")
+    @test bar(; horizontal..., span = (0.15, 5.0), ticks = [0.2, 0.5, 1, 2, 5], label = raw"rot.~error [$^\circ$]",
+              comment = icra("rot")) == fixture("icra2026_cbar_rot.tex")
+    @test bar(; horizontal..., span = (1.5, 15.0), ticks = [2, 3, 5, 10, 15], comment = icra("trans")) ==
+          fixture("icra2026_cbar_trans_nolabel.tex")
+    # the file form writes the same bytes
+    mktempdir() do dir
+        path = joinpath(dir, "bar.tex")
+        @test write_station_fan_colorbar(colormap, path; colormap_name = "rdylgn", span = (0, 1), ticks = 0:0.25:1,
+                  tick_labels = ["0", ".25", ".5", ".75", "1"], label = "P(detection)", comment = bmvc("det")) == path
+        @test read(path, String) == fixture("bmvc2026_cbar_det.tex")
+    end
+    @test_throws ArgumentError bar(; span = (0, 1), ticks = [0, 1], orientation = :diagonal)
+    @test_throws ArgumentError bar(; span = (0, 1), ticks = [0, 1], tick_labels = ["0"])
+end

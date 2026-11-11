@@ -192,13 +192,19 @@ scratch and the camera keeps its family (its lens type).
   (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
   `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
   `max_iter` cycles, until the robust cost decreases by less than `ftol`),
-  each from the least-squares estimate. The loss width is the strategy's
+  each starting directly from the caller's start (`camera`, `poses`, board
+  poses): a robust refine runs no least-squares stage, so gross outliers never
+  pull a warm-up fit. The loss width is the strategy's
   `scale_multiple` (in its shape's currency) times the scale ŝ, frozen, or the
   strategy's absolute `loss_width`. ŝ is ANCHORED on a consensus partition
   (Core's consensus-anchored mechanism, the owner's ruling (b)): `scoring`
-  scores the least-squares residual distances (codimension 2) and its selected
+  scores the start's residual distances (codimension 2) and its selected
   consensus set gives ŝ (Core's `consensus_set`: the Student-t scale of the
-  set under the scorer's scale prior), so gross outliers do not inflate it. A
+  set under the scorer's scale prior), so gross outliers do not inflate it.
+  The start's own residuals are scored: from a start far from the data
+  (inlier residuals beyond the scorer's outlier half-width) the partition is
+  thin (at most the bundle's m + 1 points, the RANSAC loop's rule) and the
+  refine is an `ArgumentError` — supply `scale` or a closer start. A
   strategy that follows a scorer's inlier threshold (no width) or needs a
   RANSAC consensus set is an `ArgumentError`. The metadata's `weights` are the
   ρ′ at the estimate, `scale` and `loss_width` what the loss ran at.
@@ -576,17 +582,20 @@ function _refine_bundle(
         foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
         return pr, NLLSsolver.optimize!(pr, options)
     end
-    problem, result = solve(costs, vars0)
-    iters = result.niterations
-    # The robust stage (`robust`): from the least-squares estimate, the strategy's loss at its width over a frozen scale
-    # ŝ — the caller's `scale`, else anchored on the consensus partition the scorer selects among the least-squares
-    # residual distances (Core's consensus-anchored mechanism: `score!`, then `consensus_set`, as the RANSAC loop
-    # anchors its local optimization) — or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
+    # Least squares is the whole solve when `robust = nothing`. A robust refine has NO least-squares stage (the owner's
+    # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
+    # over a frozen scale ŝ — the caller's `scale`, else anchored on the consensus partition the scorer selects among the
+    # START's residual distances (Core's consensus-anchored mechanism: `score!`, then `consensus_set`, as the RANSAC
+    # loop anchors its local optimization) — or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
     # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
     # (relative) or `max_iter` cycles.
     weights = ones(n); used_scale = nothing; used_width = nothing; stationarity_blocks = costs
-    if robust !== nothing
-        r0, _ = nlls_rows_and_jacobian(costs, problem.variables)
+    if robust === nothing
+        problem, result = solve(costs, vars0)
+        iters = result.niterations
+    else
+        iters = 0
+        r0, _ = nlls_rows_and_jacobian(costs, vars0)
         cs = scale !== nothing ? ConsensusSet(; count = n, s2 = Float64(scale)^2, epoch = 0) :
              _anchored_consensus(scoring, _row_norms(r0), cld(p, 2))
         loss = lo_loss(robust, cs, nothing, nothing)
@@ -596,18 +605,20 @@ function _refine_bundle(
         sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
         if robust isa Triggs
             robustifier = loss_robustifier(shape, used_width)
-            problem, result = solve([_with_robust(c, 1.0, robustifier) for c in costs], copy(problem.variables))
+            problem, result = solve([_with_robust(c, 1.0, robustifier) for c in costs], copy(vars0))
             iters += result.niterations
         else
+            vars = copy(vars0)
             prev = Inf
-            for _ in 1:robust.max_iter
-                q = sqnorms(problem.variables)
+            for it in 1:max(robust.max_iter, 1)   # the first weighted solve always runs (no least-squares estimate)
+                q = sqnorms(vars)
                 cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-                prev - cost <= ftol * abs(cost) && break
+                it > 1 && prev - cost <= ftol * abs(cost) && break
                 prev = cost
                 w = [weight(shape, x, sq) for x in q]
                 problem, result = solve([_with_robust(c, sqrt(w[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)],
-                                        copy(problem.variables))
+                                        copy(vars))
+                vars = problem.variables
                 iters += result.niterations
             end
         end
@@ -645,7 +656,7 @@ _at_rows(sc::StudentTUniformScoring{P}, m::Int) where {P} =
     StudentTUniformScoring{P, 2}(m, VgtkCore.label_prior(sc), VgtkCore.scale_prior(sc), VgtkCore.outlier_model(sc))
 _at_rows(sc::AbstractScoring, ::Int) = sc
 
-# The consensus set the scorer selects among the least-squares residual distances `d` (the stack's default scorer when
+# The consensus set the scorer selects among the start's residual distances `d` (the stack's default scorer when
 # none is given): `score!`, then Core's `consensus_set` at the local optimization's dof (m + 1), the RANSAC loop's rule.
 function _anchored_consensus(scoring, d::Vector{Float64}, m::Int)
     sc = scoring === nothing ?
@@ -658,5 +669,13 @@ function _consensus_of(sc::AbstractScoring, d::Vector{Float64}, m::Int)
     n = length(d)
     W = scoring_workspace(sc, n, 2)
     score!(W, sc, Vector{Float64}(undef, n), d, n)
+    # The RANSAC loop's rule (`_holds_stable_partition`): a consensus set of at most m + 1 points has no residual dof, so
+    # no scale to anchor a loss at. From a start far from the data (every residual beyond the scorer's outlier
+    # half-width) that is what the scorer selects; refused, never run at the degenerate width.
+    k = inlier_count(sc, W)
+    k > m + 1 || throw(ArgumentError(
+        "refine_camera_and_poses: the scorer's consensus partition of the start's residuals holds $k of $n points, " *
+        "no more than the bundle's $(m + 1) (no residual dof): no scale to anchor the robust width at. Supply `scale` " *
+        "(the detections' noise σ), a start closer to the data, or a `scoring` with a wider outlier half-width"))
     return consensus_set(sc, W, d; model_dof = m + 1, d_g = 2, epoch = 0)
 end

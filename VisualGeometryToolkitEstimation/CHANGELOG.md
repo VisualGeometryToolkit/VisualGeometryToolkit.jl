@@ -5,6 +5,17 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking (behaviour): a robust `refine_camera_and_poses` runs no least-squares stage** (the owner's ruling). With
+  `robust`, the Triggs or Irls solve starts directly from the caller's start (camera and poses); plain least squares
+  is only the whole solve when `robust = nothing` (unchanged, bit for bit). With no `scale`, ŝ is anchored on the
+  scorer's consensus partition of the START's residuals; when that partition is thin (at most the bundle's m + 1
+  points: the start is far from the data, its inlier residuals beyond the scorer's outlier half-width) the refine is an
+  `ArgumentError` naming the remedies (a `scale`, a closer start, a wider half-width) instead of running at a degenerate
+  width. On the 8 %-outlier fixture (start 20–80 px off): at the caller's σ, camera error 0.175 px (Irls{Huber}, as
+  before) and 0.30 px (Triggs{Welsch}, 0.20 before: one Welsch LM from 25 px off, where the least-squares stage had
+  brought it to the data first); without a scale the far start is refused (it was 0.23 / 0.20 px with the stage). From a
+  start near the data (residuals median 3.3 px), the anchored default gives 0.34 / 0.20 px (σ: 0.175 / 0.202).
+
 - **Changed: `refine_camera_and_poses`' robust scale is anchored on a scorer's consensus partition** (the owner's
   ruling (b)): with `robust` and no `scale`, ŝ is the Student-t scale of the consensus set a scorer selects among the
   least-squares reprojection distances (codimension 2) — Core's consensus-anchored mechanism (`score!`, then

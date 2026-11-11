@@ -230,13 +230,15 @@ end
 # A robust refine (`robust`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
 # scale_multiple), read by its TOML reader, at the least-squares rows' frozen Student-t scale or the caller's; plain
 # least squares unchanged; the refusals.
-@testitem "refine_camera_and_poses: robust = Irls{Huber} / Triggs{Welsch}, the scale anchored on the scorer's consensus partition; least squares unchanged" setup = [CameraPoseScenes] begin
+@testitem "refine_camera_and_poses: robust = Irls{Huber} / Triggs{Welsch} from the caller's start, no least-squares stage; the scale anchored on the start's consensus partition; least squares unchanged" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, NoLocalOptimization, local_optimization_from_toml, config_dict,
         scoring_from_toml, HomographyProblem
+    using VisualGeometryToolkitCore: EuclideanMap, exp_so3
+    using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
     cam0 = with_parameters(cam, θ .* SVector(1.04, 1.01, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 6.0, -5.0))
@@ -254,22 +256,34 @@ end
     @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
     @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
     sc = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => 20.0); problem = HomographyProblem)
+    # A robust refine runs NO least-squares stage (the owner's ruling): it starts from the caller's start, and the
+    # default scale is anchored on the consensus partition the stack's default scorer (configs/default.toml: the
+    # Student-t + uniform scorer at 20 px, Jeffreys) selects among the START's residuals. This start is far from the data
+    # (every residual 20–80 px, median 30, beyond the outlier half-width): the partition is thin (≤ m + 1 points, the
+    # RANSAC loop's rule) and the refine refuses rather than run at a degenerate width. (Before the ruling a least-squares
+    # stage came first and ŝ was its inliers' 1.65 px: 0.23 / 0.20 px camera error.)
     for robust in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
-        # the owner's ruling (b): the default scale is anchored on the consensus partition the stack's default scorer
-        # (configs/default.toml: the Student-t + uniform scorer, Jeffreys) selects among the least-squares residuals —
-        # Core's consensus-anchored mechanism — so the 8 % gross outliers are not in it: ŝ is the scale of the biased
-        # least-squares fit's inliers (1.65 px here; the frozen Student-t of all the rows, the retired default, was
-        # 8.1 px) and the estimate lands at the noise level, as with the caller's σ below (0.23 / 0.20 px against
-        # 0.17 / 0.20; the frozen-rows scale left ~1 px)
-        r = refine_camera_and_poses(cam0, poses0, noisy; robust)
-        @test retcode(r) === :converged && err(r) < 0.3
-        @test r.scale < 2.0 && r.loss_width ≈ (robust isa Irls ? 1.345 : 2.98) * r.scale
-        # a caller's scorer, the stack's reader: the same anchored refine
-        @test refine_camera_and_poses(cam0, poses0, noisy; robust, scoring = sc).scale == r.scale
-        # at the caller's scale (the detections' σ): the truth, to the noise; the outliers' weights low
+        @test_throws r"no scale to anchor" refine_camera_and_poses(cam0, poses0, noisy; robust)
+        # at the caller's scale (the detections' σ), from the same far start: the truth, to the noise; the outliers'
+        # weights low (Irls{Huber} 0.175 px, as before the ruling; Triggs{Welsch} 0.30 px, 0.20 before: one Welsch LM from
+        # a start 25 px off, where the least-squares stage had brought it to the data first)
         rs = refine_camera_and_poses(cam0, poses0, noisy; robust, scale = 0.2)
         @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
+    end
+    # From a start near the data (f 0.5 %, 1 px, poses 2 mrad / 5 mm off: residuals median 3.3 px, a caller's linear
+    # calibration's), the anchored default works: ŝ is the start's inlier scale (2.49 px) and the estimate lands at the
+    # noise level (Irls{Huber} 0.34 px, Triggs{Welsch} 0.20 px; at σ 0.175 / 0.202)
+    near(E, v) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015v / 4, 0.002)) * E.R),
+                              E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
+    cam1 = with_parameters(cam, θ .* SVector(1.005, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 1.0, -1.0))
+    poses1 = [near(E, v) for (v, E) in enumerate(Es)]
+    for robust in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
+        r = refine_camera_and_poses(cam1, poses1, noisy; robust)
+        @test retcode(r) === :converged && err(r) < 0.4
+        @test r.scale < 3.0 && r.loss_width ≈ (robust isa Irls ? 1.345 : 2.98) * r.scale
+        # a caller's scorer, the stack's reader: the same anchored refine
+        @test refine_camera_and_poses(cam1, poses1, noisy; robust, scoring = sc).scale == r.scale
     end
     # the strategy from the LO's own TOML reader, and back
     t = Dict("type" => "triggs", "loss" => "welsch", "scale_multiple" => 2.98)

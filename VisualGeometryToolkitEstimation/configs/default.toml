@@ -130,7 +130,7 @@ max_iter = 100                   # the camera + poses LM's cap on ACCEPTED itera
 ftol = 1.0e-12
 xtol = 1.0e-12
 # A robust refine's scale ŝ (`robust` without a caller's `scale`): anchored on the consensus partition this scorer
-# selects among the least-squares reprojection distances (the owner's ruling (b), Core's consensus-anchored
+# selects among the start's reprojection distances (no least-squares stage) (the owner's ruling (b), Core's consensus-anchored
 # mechanism); its priors inherit [scoring.student_t_uniform]. 20 px: the stack's documented outlier half-width
 # for pixel residuals (the guides' `StudentTUniformScoring(problem, 20.0)`, [fit_division_camera]'s), a
 # convention, not a tuned value.

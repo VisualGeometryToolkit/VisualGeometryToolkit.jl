@@ -26,3 +26,13 @@ reason = "two-line public entry points over the shared `_ransac_pipeline`, diffe
 functions = ["VisualGeometryToolkitEstimation/src/fitting/circle.jl::refine_circle",
              "VisualGeometryToolkitEstimation/src/fitting/ellipse.jl::refine_ellipse"]
 reason = "as find_circle/find_ellipse, over the shared `_refine_pipeline`"
+
+[[similar]]
+functions = ["VisualGeometryToolkitCore/test/data/chain_equivalence/core_values.jl::canonical",
+             "VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::lit"]
+reason = "one-line list formatters of two different texts: the chain-equivalence record's canonical text and the fixture generators' Julia literals"
+
+[[similar]]
+functions = ["VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::rows",
+             "VisualGeometryToolkitIO/test/migrate_versions_tests.jl::vec_"]
+reason = "one-line list formatters of two different texts: a Julia literal of rows and a JSON vector in a test's hand-written record"

@@ -158,7 +158,7 @@ end
 # number a length in the file's unit; absent when the target has none.
 # (`Rect(board)` is the target's domain in the design chart.)
 
-const _TARGET_POINTS = _Checked(
+const _TARGET_POINTS = _CheckedSpec(
     _Vec(_Vec(_Real())),
     p -> (isempty(p) || (length(first(p)) in (2, 3) && all(v -> length(v) == length(first(p)), p))) ? nothing :
         "points must all be 2-vectors (a plane's) or all 3-vectors",
@@ -272,18 +272,18 @@ const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters
 # (`members`, the retired record's key, is admitted here only to be refused by
 # name in `_target_calibration_check`)
 const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_Free()), :members => _Vec(_Free())]))
-const _TARGET_CALIBRATION = _Checked(
+const _TARGET_CALIBRATION = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_TARGET_CALIBRATION_MEMBER), :members => _Vec(_Free())])),
     x -> _target_calibration_check(x, false),
 )
 
 const _BOARD = _Obj(
-    :size => _Checked(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0"),
+    :size => _CheckedSpec(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0"),
     :origin => _XY,
 )
 
 const _SIZE_WH = _Obj(:width => _Real(), :height => _Real())
-const _CANVAS_TEXTURE = _Checked(
+const _CANVAS_TEXTURE = _CheckedSpec(
     _Obj(
         :path => _Named(p -> !isempty(p) && !isabspath(p), "a path relative to the file that names it"),
         :sha256 => _Named(s -> occursin(r"^[0-9a-f]{64}$", s), "a SHA-256 hex digest (64 lowercase hex digits)"),
@@ -291,12 +291,12 @@ const _CANVAS_TEXTURE = _Checked(
     ),
     z -> (z[:size][:width] > 0 && z[:size][:height] > 0) ? nothing : "a canvas texture's width and height are > 0",
 )
-const _CANVAS = _Checked(
+const _CANVAS = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:size => _SIZE_WH, :origin => _XY], Pair{Symbol, _Spec}[:texture => _CANVAS_TEXTURE]),
     z -> (z[:size][:width] >= 0 && z[:size][:height] >= 0) ? nothing : "a canvas's width and height are ≥ 0",
 )
 
-const _PLACEMENT = _Checked(
+const _PLACEMENT = _CheckedSpec(
     _Obj(:origin => _XY, :side => _Real()),
     z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0",
 )
@@ -306,7 +306,7 @@ const _PLACEMENT = _Checked(
 _layout_keys(::Type{<:AprilGrid}) = (:tag_rows, :tag_cols, :tag_size, :tag_spacing, :apriltag_family, :first_id)
 _layout_keys(::Type{<:SchoepsPattern}) = (:squares_x, :squares_y, :square_length, :star_segments, :apriltag_family, :apriltags)
 const _SCHOEPS_TAG = _Obj(:x => _Int(), :y => _Int(), :width => _PosInt(), :height => _PosInt(), :id => _Int())
-const _TARGET_LAYOUT = _Checked(
+const _TARGET_LAYOUT = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
@@ -332,7 +332,7 @@ const _TARGET_LAYOUT = _Checked(
 # A planar body's design: exactly one of these (a reference, nominal points, a layout).
 const _DESIGN_KEYS = (:reference, :nominal, :layout)
 
-const _TARGET_BODY = _Checked(
+const _TARGET_BODY = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:type => _NonEmpty()],
         Pair{Symbol, _Spec}[
@@ -774,7 +774,7 @@ end
 # store's form in the rig's pixel frame (rig/v9). A camera with a `SplineLens`
 # is a camera body (its lens the spline record); a non-central grid camera
 # embeds the noncentral_spline/v1 body, told apart by its `type`.
-const _RIG_CAMERA_BODY = _Checked(
+const _RIG_CAMERA_BODY = _CheckedSpec(
     _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]),
     x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body"),
 )
@@ -787,7 +787,7 @@ const _SENSOR_RECORD = _Obj(
     :extrinsics => _POSE,
 )
 const _MEMBER_RECORD = _Obj(Pair{Symbol, _Spec}[:id => _NonEmpty(), :target => _TARGET_BODY, :pose => _UPOSE], Pair{Symbol, _Spec}[])
-const _RIG_SPEC = _Checked(
+const _RIG_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:schema => _schema_tok("rig"), _POSE_DECLARATIONS..., :frame => _FRAME_NAME],
         Pair{Symbol, _Spec}[

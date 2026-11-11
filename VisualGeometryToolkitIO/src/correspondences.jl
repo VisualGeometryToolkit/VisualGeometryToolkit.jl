@@ -23,12 +23,12 @@
 #            "object_points": [[x, y, z], …], "image_points": [[u, v], …]}],
 #  "provenance": {…}}                                               (optional)
 
-const _CORRESPONDENCES_SPEC = _Checked(
+const _CORRESPONDENCES_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("correspondences"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,
             :rows => _Vec(
-                _Checked(
+                _CheckedSpec(
                     _Obj(
                         :t => _Int(), :image => _NonEmpty(), :sensor => _NonEmpty(), :target => _NonEmpty(),
                         :object_points => _Vec(_XYZ), :image_points => _Vec(_XY),

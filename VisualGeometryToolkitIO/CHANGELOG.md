@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **Breaking: the COLMAP database's raw matches are `raw_matches(cdb, i, j)`** (was `matches`), beside
+  `verified_matches`. `matches` is VisualGeometryToolkitCore's plot of matched points; one public name had two meanings.
+  Three private helpers that shared a name with Core's are renamed after what they do (`_CheckedSpec`, `_K_SPEC`,
+  `_export_stamps`), and the frame pair of a pose is Core's `map_frames` (the copy here is deleted).
 - **New: the public camera bodies of a bounded camera and of a non-central grid camera.**
   `camera_json(camera::BoundedCamera, frame; length_unit)` is the body a camera store's entry, a rig sensor and the
   non-central record embed — the model's body, the sensor's pitch and the lens coverage (which `camera_json` of a

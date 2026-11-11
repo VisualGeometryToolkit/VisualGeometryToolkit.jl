@@ -29,12 +29,12 @@ const _TIME_UNIT = "s"   # the one time unit a file states (exposure times)
 const _IDENTITY_SOURCES = ("exif", "config")
 const _IDENTITY_SOURCE = _Named(s -> s in _IDENTITY_SOURCES, "an identity source (exif, config)")
 
-const _CAPTURE_SETTINGS_SPEC = _Checked(
+const _CAPTURE_SETTINGS_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("capture_settings"), :length_unit => _LENGTH_UNIT, :time_unit => _Tok(_TIME_UNIT),
             :body => _Obj(Pair{Symbol, _Spec}[:source => _IDENTITY_SOURCE], _DEVICE_IDENTITY_FIELDS),
-            :lens => _Checked(
+            :lens => _CheckedSpec(
                 _Obj(Pair{Symbol, _Spec}[:source => _IDENTITY_SOURCE], Pair{Symbol, _Spec}[_DEVICE_IDENTITY_FIELDS..., :exif => _DEVICE_IDENTITY]),
                 x -> (haskey(x, :exif) && x[:source] != "config") ? "`exif` is the claim a config-stated lens overrode; this lens's source is $(repr(x[:source]))" : nothing,
             ),

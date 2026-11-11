@@ -27,7 +27,7 @@
         walk!(out, spec, doc, Any[])
         return out
     end
-    walk!(out, s::VgtkIO._Checked, x, at) = walk!(out, s.inner, x, at)
+    walk!(out, s::VgtkIO._CheckedSpec, x, at) = walk!(out, s.inner, x, at)
     function walk!(out, s::VgtkIO._Obj, x, at)
         x isa AbstractDict || return nothing
         for (k, sk) in s.required

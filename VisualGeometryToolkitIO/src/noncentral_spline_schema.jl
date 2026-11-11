@@ -50,7 +50,7 @@ const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
         "\"$(_NONCENTRAL_TYPE)\" — a central grid camera is a camera with a spline lens, a vgio/cameras record; a central " *
             "vgio/generic_camera/v2 or v3 file reads through its migration, load(BoundedCamera, path)",
     ),
-    :width => _PosInt(), :height => _PosInt(), :K => _K, :spline => _NONCENTRAL_SPLINE,
+    :width => _PosInt(), :height => _PosInt(), :K => _K_SPEC, :spline => _NONCENTRAL_SPLINE,
 ]
 const _NONCENTRAL_BODY_OPTIONAL = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]
 
@@ -63,8 +63,8 @@ function _noncentral_check(x)
     p === nothing || return p
     return _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera")
 end
-const _NONCENTRAL_BODY = _Checked(_Obj(_NONCENTRAL_BODY_FIELDS, _NONCENTRAL_BODY_OPTIONAL), _noncentral_check)
-const _NONCENTRAL_SPLINE_SPEC = _Checked(
+const _NONCENTRAL_BODY = _CheckedSpec(_Obj(_NONCENTRAL_BODY_FIELDS, _NONCENTRAL_BODY_OPTIONAL), _noncentral_check)
+const _NONCENTRAL_SPLINE_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("noncentral_spline"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,

@@ -211,14 +211,14 @@ function _lens_check(x)
     return nothing
 end
 
-const _LENS = _Checked(_Free(), _lens_check)
+const _LENS = _CheckedSpec(_Free(), _lens_check)
 
 # -----------------------------------------------------------------------------
 # A camera body: its pixel extent, K and lens, in the file's pixel frame
 # -----------------------------------------------------------------------------
 
-const _K = _Obj(:fx => _Real(), :fy => _Real(), :cx => _Real(), :cy => _Real(), :skew => _Real())
-const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:width => _PosInt(), :height => _PosInt(), :K => _K, :lens => _LENS]
+const _K_SPEC = _Obj(:fx => _Real(), :fy => _Real(), :cx => _Real(), :cy => _Real(), :skew => _Real())
+const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:width => _PosInt(), :height => _PosInt(), :K => _K_SPEC, :lens => _LENS]
 const _CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[])
 
 # A camera bounded by its physical `Sensor` carries the sensor's pixel pitch
@@ -227,7 +227,7 @@ const _CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[])
 # `write_length`/`read_length`, decimal-exact). Absent, the body is the bare
 # extent's, byte for byte. Written by the rig (sensor bodies, parametric and
 # generic) and by the camera store; never dropped.
-const _PITCH = _Checked(
+const _PITCH = _CheckedSpec(
     _Vec(_Real(), 2),
     x -> all(v -> v > 0 && isfinite(v), x) ? nothing :
         "a pixel pitch is [width, height], two positive lengths per pixel in the file's length_unit",
@@ -411,7 +411,7 @@ function _calibration_check(x)
     return nothing
 end
 
-const _CALIBRATION = _Checked(
+const _CALIBRATION = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[],
         Pair{Symbol, _Spec}[
@@ -481,7 +481,7 @@ function _lens_coverage_from_json(s::VgioStyle, lc)
     return _in_frame(EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME), x)
 end
 
-const _CAMERAS_SPEC = _Checked(
+const _CAMERAS_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("cameras"), :pixel_frame => _PIXEL_FRAME,

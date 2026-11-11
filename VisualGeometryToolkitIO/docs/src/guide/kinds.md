@@ -84,7 +84,7 @@ covers the pitch. A camera bounded by a bare pixel extent has no `pitch` key.
 | Schöps et al.'s pattern YAML (`create_calibration_pattern.py`) | `PlanarTarget(SchoepsPattern(…); canvas)`, the page its canvas | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`): the form is told from the content | read-only (`save` writes `vgio/target/v5`, the layout as a record) |
 | Kalibr's target YAML of an `aprilgrid` | `PlanarTarget(AprilGrid(…))`, the gap `tagSize · tagSpacing` (Kalibr's `tagSpacing` is a ratio) | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`) | read-only (`save` writes `vgio/target/v5`) |
 | Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetPoints2D{SCHOEPS_PIXEL_FRAME}`: per image, `(target, feature id + 1, xy, 1.0)` | `load(TargetPoints2D, path; target)`: the target the ids index is the caller's | read-only |
-| COLMAP `database.db` | a lazy read handle | `ColmapDatabase(path)`, with the accessors `keypoints`, `descriptors`, `matches`, `verified_matches` and others (public, so qualify them) | read-only |
+| COLMAP `database.db` | a lazy read handle | `ColmapDatabase(path)`, with the accessors `keypoints`, `descriptors`, `raw_matches`, `verified_matches` and others (public, so qualify them) | read-only |
 
 See [Third-Party Calibrations](third-party.md) for the OpenCV and MATLAB
 readers and migrations.

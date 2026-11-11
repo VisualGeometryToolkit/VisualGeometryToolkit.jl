@@ -69,7 +69,7 @@ const _ENVIRONMENT_LIGHT_SPEC = _Obj(
     Pair{Symbol, _Spec}[
         :schema => _schema_tok("environment_light"), :length_unit => _LENGTH_UNIT,
         :center => _Vec(_Real(), 3), :radius => _Real(),
-        :map => _Checked(
+        :map => _CheckedSpec(
             _Obj(:type => _Tok("spherical_harmonics"), :basis => _Tok(_SH_BASIS), :l_max => _Int(), :coefficients => _Vec(_Vec(_Real()))),
             m -> all(r -> length(r) == (m[:l_max] + 1)^2, m[:coefficients]) ? nothing :
                 "every channel has (l_max + 1)² = $((m[:l_max] + 1)^2) coefficients",
@@ -78,7 +78,7 @@ const _ENVIRONMENT_LIGHT_SPEC = _Obj(
     Pair{Symbol, _Spec}[_PROVENANCE...],
 )
 
-const _BLUR_SPEC = _Checked(
+const _BLUR_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:schema => _schema_tok("blur"),
             :blurs => _Vec(_Obj(:name => _NonEmpty(), :unit => _Named(s -> s isa AbstractString && _blur_unit(s) !== nothing, "px^2 or a length unit squared (mm^2, …)"),

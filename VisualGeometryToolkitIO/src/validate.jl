@@ -20,7 +20,7 @@
 #   _Free                      any object — `provenance` alone, never read
 #   _Either(key => s, …)       one of several object shapes, told apart by a
 #                              key only that shape carries
-#   _Checked(s, f)             `s`, then a cross-field check `f(x)` returning
+#   _CheckedSpec(s, f)             `s`, then a cross-field check `f(x)` returning
 #                              an error message or `nothing`
 #
 # The same tables drive the tests: every required key of every kind is deleted
@@ -57,7 +57,7 @@ _Obj(required::Pair{Symbol}...) = _Obj(collect(Pair{Symbol, _Spec}, required), P
 struct _Either <: _Spec
     alts::Vector{Pair{Symbol, _Spec}}
 end
-struct _Checked{S <: _Spec} <: _Spec
+struct _CheckedSpec{S <: _Spec} <: _Spec
     inner::S
     check::Function
 end
@@ -126,7 +126,7 @@ function _validate(s::_Either, x, file, at)
     )
     return _validate(only(hits), x, file, at)
 end
-function _validate(s::_Checked, x, file, at)
+function _validate(s::_CheckedSpec, x, file, at)
     _validate(s.inner, x, file, at)
     msg = s.check(x)
     msg === nothing || _refuse(file, at, msg)

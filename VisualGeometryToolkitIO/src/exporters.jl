@@ -19,7 +19,7 @@
 # A physical pose's translation in metres and its quaternion; a plain one is refused.
 _pose_m(X) = (g = geom(X); (_lengths_json(g.t, m, "the exported pose's translation"), _qvec(g.R)))
 
-function _stamps(tr::Trajectory, ts, stamp::Symbol)
+function _export_stamps(tr::Trajectory, ts, stamp::Symbol)
     stamp === :index && return Float64.(ts)
     stamp === :time || throw(ArgumentError("`stamp` is :time (the trajectory's times) or :index (its frame indices)"))
     missing_ = [t for t in ts if !haskey(tr.times, t)]
@@ -42,7 +42,7 @@ comments, file_interface.py:77).
 """
 function save_tum_trajectory(path::AbstractString, tr::Trajectory{S, D}; stamp::Symbol = :time) where {S, D}
     ts = sort!(collect(keys(tr.poses)))
-    st = _stamps(tr, ts, stamp)
+    st = _export_stamps(tr, ts, stamp)
     open(path, "w") do io
         println(io, "# vgio trajectory $(frame_name(S)) -> $(frame_name(D)); timestamp ",
             stamp === :time ? "s since $(tr.time_origin)" : "= frame index", "; tx ty tz [m] qx qy qz qw")
@@ -67,7 +67,7 @@ integer nanoseconds (`stamp = :index`: the frame index).
 """
 function save_euroc_trajectory(path::AbstractString, tr::Trajectory; stamp::Symbol = :time)
     ts = sort!(collect(keys(tr.poses)))
-    st = _stamps(tr, ts, stamp)
+    st = _export_stamps(tr, ts, stamp)
     open(path, "w") do io
         println(io, "#timestamp [ns], p_RS_R_x [m], p_RS_R_y [m], p_RS_R_z [m], q_RS_w [], q_RS_x [], q_RS_y [], q_RS_z []")
         for (t, s) in zip(ts, st)

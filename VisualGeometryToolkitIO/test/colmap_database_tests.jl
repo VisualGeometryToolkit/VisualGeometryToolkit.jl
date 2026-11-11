@@ -95,11 +95,11 @@
     end
 
     @testset "matches" begin
-        @test VgtkIO.matches(cdb, 1, 7) == ref.m17
+        @test VgtkIO.raw_matches(cdb, 1, 7) == ref.m17
         # caller order reversed ⇒ columns swapped
-        @test VgtkIO.matches(cdb, 7, 1) == ref.m17[:, [2, 1]]
+        @test VgtkIO.raw_matches(cdb, 7, 1) == ref.m17[:, [2, 1]]
         # absent pair ⇒ 0×2, not an error
-        @test size(VgtkIO.matches(cdb, 1, 2)) == (0, 2)
+        @test size(VgtkIO.raw_matches(cdb, 1, 2)) == (0, 2)
         # verified table auto-detected as the pre-3.x name
         @test cdb.verified_table == "inlier_matches"
         @test VgtkIO.verified_matches(cdb, 1, 7) == UInt32[0 1;]

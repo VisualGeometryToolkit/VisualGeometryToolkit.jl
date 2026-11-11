@@ -96,14 +96,14 @@ function _manifest_model_check(x)
         "`model` calibrates $(repr(i)) intrinsics, but the result's `kind` is $(repr(x[:kind]))" : nothing
 end
 
-const _CALIBRATION_SPEC = _Checked(
+const _CALIBRATION_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("calibration"),
             :kind => _Named(k -> k in _MANIFEST_KINDS, "a calibration kind ($(join(_MANIFEST_KINDS, ", ")))"),
-            :files => _Checked(
+            :files => _CheckedSpec(
                 _Vec(
-                    _Checked(
+                    _CheckedSpec(
                         _Obj(
                             :path => _Named(_is_inside_path, "a relative path inside the manifest's directory"),
                             :sha256 => _HEX64,

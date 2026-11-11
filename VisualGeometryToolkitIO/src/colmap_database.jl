@@ -39,7 +39,7 @@ Open a lazy read handle on a COLMAP sqlite database. Close with `close(db)`.
 
 Accessors (unexported — qualify with the module):
 `n_images`, `image_names`, `image_id`, `image_name`, `keypoints`,
-`descriptors`, `matches`, `matched_pairs`, `verified_matches`, `pair_id`, `pair_image_ids`.
+`descriptors`, `raw_matches`, `matched_pairs`, `verified_matches`, `pair_id`, `pair_image_ids`.
 """
 struct ColmapDatabase
     db::SQLite.DB
@@ -259,13 +259,13 @@ function matched_pairs(cdb::ColmapDatabase, image_id::Integer)
 end
 
 """
-    matches(cdb, image_id1, image_id2) -> Matrix{UInt32}   (n × 2)
+    raw_matches(cdb, image_id1, image_id2) -> Matrix{UInt32}   (n × 2)
 
 Raw (unverified) keypoint-index match pairs, 0-BASED, column 1 indexing
 `image_id1`'s keypoints and column 2 `image_id2`'s — in the CALLER's argument
 order regardless of how COLMAP stored the pair. No entry ⇒ 0×2.
 """
-matches(cdb::ColmapDatabase, image_id1::Integer, image_id2::Integer) =
+raw_matches(cdb::ColmapDatabase, image_id1::Integer, image_id2::Integer) =
     _matches_from(cdb, "matches", image_id1, image_id2)
 
 """
@@ -273,7 +273,7 @@ matches(cdb::ColmapDatabase, image_id1::Integer, image_id2::Integer) =
 
 Geometrically verified match pairs, from `two_view_geometries` (current
 COLMAP) or `inlier_matches` (pre-3.x databases). Same conventions as
-[`matches`](@ref). Errors if the database has neither table.
+[`raw_matches`](@ref). Errors if the database has neither table.
 """
 function verified_matches(
         cdb::ColmapDatabase,

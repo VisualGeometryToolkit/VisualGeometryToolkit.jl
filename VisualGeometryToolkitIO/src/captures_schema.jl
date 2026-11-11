@@ -168,7 +168,7 @@ const _TRAJECTORY_FRAME = _Obj(
     Pair{Symbol, _Spec}[:t => _Int(), :pose => _UPOSE],
     Pair{Symbol, _Spec}[:image => _NonEmpty(), :time => _Real(), :recovered => _Tok(true)],
 )
-const _TRAJECTORY_SPEC = _Checked(
+const _TRAJECTORY_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("trajectory"), _POSE_DECLARATIONS...,
@@ -243,13 +243,13 @@ const _TARGET_POSE_RECORD = _Obj(
     Pair{Symbol, _Spec}[:target => _NonEmpty(), :rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3)],
     Pair{Symbol, _Spec}[:covariance => _COV6],
 )
-const _TARGET_POSES_SPEC = _Checked(
+const _TARGET_POSES_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("target_poses"), _POSE_DECLARATIONS...,
             :to => _FRAME_NAME,
             :frames => _Vec(
-                _Checked(
+                _CheckedSpec(
                     _Obj(
                         Pair{Symbol, _Spec}[:t => _Int(), _stamp_specs([:image, :sensor])[1]..., :poses => _Vec(_TARGET_POSE_RECORD)],
                         _stamp_specs([:image, :sensor])[2],
@@ -343,18 +343,18 @@ end
 const _HOMOGRAPHY_RECORD = _Obj(
     Pair{Symbol, _Spec}[
         :target => _NonEmpty(), :type => _Tok(_HOMOGRAPHY_TAG),
-        :parameters => _Checked(_Vec(_Real(), 9), _homography_parameters_check),
+        :parameters => _CheckedSpec(_Vec(_Real(), 9), _homography_parameters_check),
     ],
     Pair{Symbol, _Spec}[:covariance => _cov_spec(8)],
 )
 
-const _TARGET_HOMOGRAPHIES_SPEC = _Checked(
+const _TARGET_HOMOGRAPHIES_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("target_homographies"), :pixel_frame => _PIXEL_FRAME,
-            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the homographies name at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities")),
+            :targets => _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "the homographies name at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities")),
             :frames => _Vec(
-                _Checked(
+                _CheckedSpec(
                     _Obj(
                         Pair{Symbol, _Spec}[
                             :t => _Int(), _stamp_specs([:image, :sensor])[1]...,
@@ -466,12 +466,12 @@ end
 # target_points2d/v1 ↔ TargetPoints2D
 # =============================================================================
 
-const _TARGET_POINTS2D_SPEC = _Checked(
+const _TARGET_POINTS2D_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("target_points2d"), :pixel_frame => _PIXEL_FRAME,
             :point_index_base => _Tok(_POINT_INDEX_BASE),
-            :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the measurements name at least one targets file" : _unique_check(h, "targets identities")),
+            :targets => _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "the measurements name at least one targets file" : _unique_check(h, "targets identities")),
             :frames => _Vec(
                 _Obj(
                     Pair{Symbol, _Spec}[
@@ -577,7 +577,7 @@ end
 # target_points3d/v2 ↔ TargetPoints3D
 # =============================================================================
 
-const _TARGET_POINTS3D_SPEC = _Checked(
+const _TARGET_POINTS3D_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
             :schema => _schema_tok("target_points3d"), :length_unit => _LENGTH_UNIT,
@@ -598,7 +598,7 @@ const _TARGET_POINTS3D_SPEC = _Checked(
             ),
         ],
         Pair{Symbol, _Spec}[
-            :targets => _Checked(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
+            :targets => _CheckedSpec(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
             :time_origin => _NonEmpty(), _PROVENANCE...,
         ],
     ),
@@ -677,7 +677,7 @@ load(::Type{TargetPoints3D}, path::AbstractString) = _target_points3d(_read_stor
 # One target's detections in a frame: its point indices (unique, at least
 # one), its points (`d` numbers each), and per point, where the value has them,
 # a d×d covariance and a weight.
-_detection_record_spec(d::Int) = _Checked(
+_detection_record_spec(d::Int) = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:target => _NonEmpty(), :index => _Vec(_PosInt()), :points => _Vec(_Vec(_Real(), d))],
         Pair{Symbol, _Spec}[:covariance => _Vec(_cov_spec(d)), :weights => _Vec(_Real())],
@@ -693,7 +693,7 @@ _detection_record_spec(d::Int) = _Checked(
         return nothing
     end,
 )
-_detection_frame_spec(d::Int, required::Vector{Symbol}) = _Checked(
+_detection_frame_spec(d::Int, required::Vector{Symbol}) = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:t => _Int(), _stamp_specs(required)[1]..., :detections => _Vec(_detection_record_spec(d))],
         _stamp_specs(required)[2],
@@ -702,14 +702,14 @@ _detection_frame_spec(d::Int, required::Vector{Symbol}) = _Checked(
 )
 # Pixels (`pixel_frame`: every frame's image and sensor, at least one targets
 # identity) or 3D points (`frame` and `length_unit`: every frame's sensor).
-const _TARGET_DETECTIONS_SPEC = _Checked(
+const _TARGET_DETECTIONS_SPEC = _CheckedSpec(
     _Either(
         Pair{Symbol, _Spec}[
             :pixel_frame => _Obj(
                 Pair{Symbol, _Spec}[
                     :schema => _schema_tok("target_detections"), :pixel_frame => _PIXEL_FRAME,
                     :point_index_base => _Tok(_POINT_INDEX_BASE),
-                    :targets => _Checked(_Vec(_HEX64), h -> isempty(h) ? "the detections name at least one targets file" : _unique_check(h, "targets identities")),
+                    :targets => _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "the detections name at least one targets file" : _unique_check(h, "targets identities")),
                     :frames => _Vec(_detection_frame_spec(2, [:image, :sensor])),
                 ],
                 Pair{Symbol, _Spec}[:time_origin => _NonEmpty(), _PROVENANCE...],
@@ -721,7 +721,7 @@ const _TARGET_DETECTIONS_SPEC = _Checked(
                     :frames => _Vec(_detection_frame_spec(3, [:sensor])),
                 ],
                 Pair{Symbol, _Spec}[
-                    :targets => _Checked(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
+                    :targets => _CheckedSpec(_Vec(_HEX64), h -> _unique_check(h, "targets identities")),
                     :time_origin => _NonEmpty(), _PROVENANCE...,
                 ],
             ),

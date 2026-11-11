@@ -515,7 +515,7 @@ end
 # A calibration record (validated) back to VGC's kind, `Uncertain` iff it
 # states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)): the target lift's, the
 # inverse of `_target_calibration_json`.
-function _target_calibration_from_json(s::VgioStyle, x::_Record)
+function _target_calibration_from_json(s::VgioStyle, x::Record)
     u = s.length_unit
     c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
@@ -577,7 +577,7 @@ function JSON.lower(s::VgioStyle, L::AbstractTargetLayout)
         k === :apriltags ? [(; t.x, t.y, t.width, t.height, t.id) for t in v] : v)
     return merge((type = tag_of(TARGET_LAYOUT_TAGS, L),), NamedTuple(k => value(k) for k in _layout_keys(typeof(L))))
 end
-function JSON.lift(s::VgioStyle, ::Type{AbstractTargetLayout}, x::_Record)
+function JSON.lift(s::VgioStyle, ::Type{AbstractTargetLayout}, x::Record)
     T = TARGET_LAYOUT_TAGS[x.type::String]
     value(k) = (v = x[k]; k in _layout_lengths(T) ? read_length(v::Real, s.length_unit) :
         k === :apriltags ? [(x = t.x::Integer, y = t.y::Integer, width = t.width::Integer, height = t.height::Integer, id = t.id::Integer) for t in v] : v)
@@ -642,21 +642,21 @@ its nominal points — lengths, as the design's owner holds them; plain points
 are an `ArgumentError`.
 """
 target_from_json(t, unit::AbstractString; resolve = nothing) =
-    JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), AbstractTarget, t::_Record; resolve)
+    JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), AbstractTarget, t::Record; resolve)
 
 # A target body back on IO's style (the inverse of its `lower`), its lengths in
 # the style's unit; `resolve` as `target_from_json`'s.
-function JSON.lift(s::VgioStyle, ::Type{AbstractTarget}, t::_Record; resolve = nothing)
+function JSON.lift(s::VgioStyle, ::Type{AbstractTarget}, t::Record; resolve = nothing)
     u = s.length_unit
     if t.type == "points"
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     pl = haskey(t, :placement) ? _placement_from_json(t.placement, u) : nothing
-    c = _target_calibration_from_json(pl === nothing ? s : _with_length(s, _CHART), t.calibration::_Record)   # placed: plain chart numbers
+    c = _target_calibration_from_json(pl === nothing ? s : _with_length(s, _CHART), t.calibration::Record)   # placed: plain chart numbers
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
     haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)
-    haskey(t, :layout) && return PlanarTarget(JSON.lift(s, AbstractTargetLayout, t.layout::_Record); calibration = c, board = bd, canvas = cv, placement = pl)
+    haskey(t, :layout) && return PlanarTarget(JSON.lift(s, AbstractTargetLayout, t.layout::Record); calibration = c, board = bd, canvas = cv, placement = pl)
     ref = Symbol(t.reference::String)
     nominal = resolve === nothing ? nothing : resolve(ref)
     (nominal === nothing || isempty(nominal) || has_units(nominal)) ||
@@ -890,7 +890,7 @@ function _rig_from_record(d; resolve = nothing)
     haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, u)...,))
     s = VgioStyle(; length_unit = u)
     members = Dict{Symbol, PosedTarget}(
-        Symbol(t.id::String) => PosedTarget(JSON.lift(s, AbstractTarget, t.target::_Record; resolve), JSON.lift(s, EuclideanMap{3}, t.pose::_Record))
+        Symbol(t.id::String) => PosedTarget(JSON.lift(s, AbstractTarget, t.target::Record; resolve), JSON.lift(s, EuclideanMap{3}, t.pose::Record))
             for t in d.targets::Vector{Any}
     )
     targets = Dict{Symbol, typejoin(map(typeof, values(members))...)}(members)
@@ -901,8 +901,8 @@ end
 function _load_sensors(d, ::Type{F}, u::Units) where {F}
     st = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     return map(d.sensors::Vector{Any}) do s
-        Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, JSON.lift(st, EuclideanMap{3}, s.extrinsics::_Record))
-        _bounded_from_body(st, s.camera::_Record, Xl)
+        Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, JSON.lift(st, EuclideanMap{3}, s.extrinsics::Record))
+        _bounded_from_body(st, s.camera::Record, Xl)
     end
 end
 

@@ -20,7 +20,7 @@
 # The load pipeline is parse → `migrate_record` (an earlier version's steps) →
 # validate (the kind's spec) → `lift`: a lift reads a record the validator has
 # already checked, so it narrows each field at its use and checks nothing the
-# spec checks. A lift takes the parsed tree (`_Record`: a `JSON.Object` or a
+# spec checks. A lift takes the parsed tree (`Record`: a `JSON.Object` or a
 # NamedTuple, read by property access; an array for an ellipse), never JSON.jl's
 # lazy values.
 #
@@ -86,11 +86,16 @@ VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_
 _pixel_frame(::VgioStyle{U, F}) where {U, F} = F
 # The same style with another length form (a placed target's calibration: chart numbers).
 _with_length(s::VgioStyle{U, F}, u) where {U, F} = VgioStyle{typeof(u), F}(u)
-# What a lift reads: a record whose fields are read by property access — a
-# parsed JSON object (JSON.jl's `Object`, String keys as every reader hands it,
-# or Symbol keys) or a NamedTuple (a record built in memory,
-# `camera_from_json(camera_json(…))`). A `Dict` has no property access.
-const _Record = Union{JSON.Object, NamedTuple}
+"""
+    Record
+
+What a lift reads (`JSON.lift(::VgioStyle, T, record)`): a record whose fields
+are read by property access — a parsed JSON object (JSON.jl's `Object`, String
+keys as every reader hands it, or Symbol keys) or a NamedTuple (a record built
+in memory, `camera_from_json(camera_json(…))`). A `Dict` has no property
+access. Another package's lifts of its own kinds (BlobBoards') take it too.
+"""
+const Record = Union{JSON.Object, NamedTuple}
 
 # `CANONICAL_PIXEL_FRAME` is the single thing VGIo must state: which frame a
 # `CameraModel`'s stored K is in. VGC guarantees it — every `CameraModel`

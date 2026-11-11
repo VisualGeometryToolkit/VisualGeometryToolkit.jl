@@ -221,11 +221,11 @@ function load(::Type{Trajectory}, path::AbstractString)
     return JSON.lift(VgioStyle(; length_unit = parse_unit(d.length_unit::String)), Trajectory, d)
 end
 # …and back: a trajectory body read on the style (its lengths in the style's unit).
-function JSON.lift(s::VgioStyle, ::Type{Trajectory}, d::_Record)
+function JSON.lift(s::VgioStyle, ::Type{Trajectory}, d::Record)
     poses, images, times, recovered = Dict{Int, Any}(), Dict{Int, String}(), Dict{Int, Float64}(), Set{Int}()
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
-        poses[t] = JSON.lift(s, EuclideanMap{3}, f.pose::_Record)
+        poses[t] = JSON.lift(s, EuclideanMap{3}, f.pose::Record)
         _read_stamps!(images, nothing, times, f, t)
         get(f, :recovered, false) === true && push!(recovered, t)
     end
@@ -299,7 +299,7 @@ function load(::Type{TargetPoses}, path::AbstractString)
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => JSON.lift(s, EuclideanMap{3}, p::_Record) for p in f.poses::Vector{Any})
+        frames[t] = Dict{Symbol, Any}(Symbol(p.target::String) => JSON.lift(s, EuclideanMap{3}, p::Record) for p in f.poses::Vector{Any})
     end
     return TargetPoses{frame_from_name(d.to::String)}(frames; images, sensors, times, time_origin = _time_origin(d))
 end
@@ -322,7 +322,7 @@ const _HOMOGRAPHY_COV_DIMS = ntuple(_ -> 0, 8)
 JSON.lower(s::VgioStyle, h::HomographyMap{3}) = _parametric_record(_HOMOGRAPHY_TAG, h, s.length_unit)
 JSON.lower(s::VgioStyle, u::Uncertain{<:HomographyMap{3}}) =
     merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _HOMOGRAPHY_COV_DIMS),))
-function JSON.lift(s::VgioStyle, ::Type{HomographyMap}, x::_Record)
+function JSON.lift(s::VgioStyle, ::Type{HomographyMap}, x::Record)
     h = _from_parametric_record(_HOMOGRAPHY_PROTOTYPE, x, s.length_unit)
     haskey(x, :covariance) || return h
     return Uncertain(h, CovMat(_length_cov_from_json(x.covariance, 8, s.length_unit, _HOMOGRAPHY_COV_DIMS)))
@@ -447,7 +447,7 @@ function load(::Type{TargetHomographies}, path::AbstractString)
     for f in d.frames::Vector{Any}
         t = Int(f.t::Integer)
         _read_stamps!(images, sensors, times, f, t)
-        frames[t] = Dict{Symbol, Any}(Symbol(h.target::String) => JSON.lift(s, HomographyMap, h::_Record) for h in f.homographies::Vector{Any})
+        frames[t] = Dict{Symbol, Any}(Symbol(h.target::String) => JSON.lift(s, HomographyMap, h::Record) for h in f.homographies::Vector{Any})
     end
     return TargetHomographies{_pixel_frame(s)}(
         frames; images, sensors, times, time_origin = _time_origin(d), targets = String[h::String for h in d.targets::Vector{Any}],

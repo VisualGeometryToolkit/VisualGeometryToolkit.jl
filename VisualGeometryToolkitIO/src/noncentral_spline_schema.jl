@@ -93,7 +93,7 @@ end
 
 # …and back: the model and its extent, from a validated body whose K is in the
 # style's pixel frame and whose points are in its length unit.
-function _noncentral_from_body(s::VgioStyle, b::_Record)
+function _noncentral_from_body(s::VgioStyle, b::Record)
     sp = b.spline
     L = _lattice_from_json(sp.grid_size, haskey(sp, :present) ? sp.present : nothing, sp.area)
     D = ChartSpline(L.area, _controls_from_json(sp.directions::Vector{Any}, L.P, Val(3)))

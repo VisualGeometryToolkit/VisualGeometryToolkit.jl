@@ -156,7 +156,14 @@ end
 
 const _ROTATION_ENCODING = "quaternion_wxyz_hamilton"
 const _TRANSFORM_CONVENTION = "x_to = R * x_from + t"
-const _MATRIX_LAYOUT = "rows"
+"""
+    MATRIX_LAYOUT
+
+How a vgio record lays out a matrix: `"rows"`, a list of its rows (the
+`matrix_layout` a record declares). Another package's record that holds
+matrices (CaliBlobs' session record) declares the same.
+"""
+const MATRIX_LAYOUT = "rows"
 const _GRID_LAYOUT = "row_major"
 const _POINT_INDEX_BASE = 1
 

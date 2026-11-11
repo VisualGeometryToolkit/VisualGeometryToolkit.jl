@@ -243,7 +243,7 @@ _model_body(s::VgioStyle, model::CameraModel, extent::Size2) =
 # one by `_k_from_record(k, frame)` (style.jl), the exact inverse of `_k_record`
 # and the one conversion of a stored K, a camera's and a non-central grid
 # camera's alike (a SplineLens lens is frame-free: x = K⁻¹u).
-JSON.lift(s::VgioStyle, ::Type{CameraModel}, b::_Record) =
+JSON.lift(s::VgioStyle, ::Type{CameraModel}, b::Record) =
     CameraModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), _lens_from_json(b.lens))
 _extent_from_body(b) = Size2(Int(b.width::Integer), Int(b.height::Integer))
 
@@ -295,7 +295,7 @@ principal point is in the pixel `frame` the enclosing file declares: a
 points in `length_unit`), in VGC's canonical pixel frame, and its extent.
 """
 camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =
-    _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::_Record)
+    _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
 
 """
     camera_from_json(::Type{BoundedCamera}, body, frame; length_unit = mm) -> BoundedCamera
@@ -308,7 +308,7 @@ lens coverage (none: the whole sensor), in VGC's canonical pixel frame.
 """
 function camera_from_json(::Type{BoundedCamera}, body, frame::Type{<:PixelFrame}; length_unit::Units = mm)
     _validate(_BOUNDED_CAMERA_BODY, body, "a camera body", "")
-    return _bounded_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::_Record)
+    return _bounded_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
 end
 
 # A bounded camera's body on IO's style, and back: the one form every kind that stores one embeds (a camera store's
@@ -319,9 +319,9 @@ function _bounded_body(s::VgioStyle, bc::BoundedCamera)
     body = _model_body(s, m, ext)                      # the model's own body: a central camera's or a non-central one's
     return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
 end
-_model_from_body(s::VgioStyle, b::_Record) =
+_model_from_body(s::VgioStyle, b::Record) =
     haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
-function _bounded_from_body(s::VgioStyle, b::_Record, pose = nothing)
+function _bounded_from_body(s::VgioStyle, b::Record, pose = nothing)
     m, ext = _model_from_body(s, b)
     return BoundedCamera(_posed(m, pose), _bound_from_body(b, ext, s.length_unit); lens_coverage = _lens_coverage_from_json(s, get(b, :lens_coverage, nothing)))
 end
@@ -559,7 +559,7 @@ function _load_store(d, path::AbstractString)
                   length_unit = haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm)   # declared iff a camera carries a pitch
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
-        bc = _bounded_from_body(s, c::_Record)
+        bc = _bounded_from_body(s, c::Record)
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end

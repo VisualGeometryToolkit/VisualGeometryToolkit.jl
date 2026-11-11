@@ -236,6 +236,7 @@ export save_opencv_calibration        # the inverse of load_opencv_calibration: 
 # collide with FileIO's, BlobBoards' or a caller's own.
 public load, save                     # the two-verb I/O surface (see the top of this file)
 public VgioStyle                      # the serialization style every embedded VGC value is lowered and lifted on (style.jl)
+public Record, snap_integer, MATRIX_LAYOUT   # what a lift reads; a file number as a record writes it; the matrix layout a record declares
 public write_record, read_record      # the vgio file boundary for a record of another package's kind (validate.jl)
 public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract

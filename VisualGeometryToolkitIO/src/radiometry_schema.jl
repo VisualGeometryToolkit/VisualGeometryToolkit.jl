@@ -103,14 +103,14 @@ JSON.lower(::VgioStyle, v::RadialVignetting) = (
 JSON.lower(s::VgioStyle, v::LogVignetting) = (type = tag_of(VIGNETTING_TAGS, v), spline = JSON.lower(s, log_spline(v)))
 JSON.lower(::VgioStyle, v::AbstractVignetting) = throw(ArgumentError("save: a $(typeof(v)) has no vgio/vignetting body ($(_vignetting_tags()))"))
 
-JSON.lift(s::VgioStyle, ::Type{AbstractVignetting}, b::_Record) = _lift_vignetting(s, VIGNETTING_TAGS[b.type::String], b)
-_lift_vignetting(s::VgioStyle, ::Type{<:LogVignetting}, b::_Record) = LogVignetting(JSON.lift(s, AbstractVignetting, b.spline::_Record))
-function _lift_vignetting(::VgioStyle, ::Type{<:TensorProductVignetting}, b::_Record)
+JSON.lift(s::VgioStyle, ::Type{AbstractVignetting}, b::Record) = _lift_vignetting(s, VIGNETTING_TAGS[b.type::String], b)
+_lift_vignetting(s::VgioStyle, ::Type{<:LogVignetting}, b::Record) = LogVignetting(JSON.lift(s, AbstractVignetting, b.spline::Record))
+function _lift_vignetting(::VgioStyle, ::Type{<:TensorProductVignetting}, b::Record)
     P = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in b.control_points::Vector{Any}))
     return TensorProductVignetting(Float64[Float64(x::Real) for x in b.knots_x], Float64[Float64(x::Real) for x in b.knots_y], P;
         degree = (Int(b.degree[1]), Int(b.degree[2])))
 end
-function _lift_vignetting(::VgioStyle, ::Type{<:RadialVignetting}, b::_Record)
+function _lift_vignetting(::VgioStyle, ::Type{<:RadialVignetting}, b::Record)
     P = Float64[Float64(x::Real) for x in b.control_points]
     v = RadialVignetting(length(P), SVector(Float64(b.center[1]), Float64(b.center[2])), Float64(b.radius); degree = Int(b.degree))
     return with_control_points(v, P)
@@ -138,7 +138,7 @@ end
 Read a `vgio/vignetting/v1` file: the vignetting field [`save`](@ref) wrote.
 """
 load(::Type{AbstractVignetting}, path::AbstractString) =
-    JSON.lift(VgioStyle(), AbstractVignetting, _read_store(path, "vignetting", _VIGNETTING_SPEC).vignetting::_Record)
+    JSON.lift(VgioStyle(), AbstractVignetting, _read_store(path, "vignetting", _VIGNETTING_SPEC).vignetting::Record)
 
 # --- the environment light ------------------------------------------------------
 
@@ -170,7 +170,7 @@ function JSON.lower(s::VgioStyle, light::EnvironmentLight{<:SphericalHarmonicMap
                coefficients = [Float64[a[c, j] for j in axes(a, 2)] for c in axes(a, 1)]),
     )
 end
-function JSON.lift(s::VgioStyle{<:Units}, ::Type{EnvironmentLight}, d::_Record)
+function JSON.lift(s::VgioStyle{<:Units}, ::Type{EnvironmentLight}, d::Record)
     rows = d.map.coefficients::Vector{Any}
     a = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in rows))
     return EnvironmentLight(SphericalHarmonicMap(a, Int(d.map.l_max)), _lengths_from_json(Val(3), d.center::Vector{Any}, s.length_unit),
@@ -185,7 +185,7 @@ centre and radius lengths in metres.
 """
 function load(::Type{EnvironmentLight}, path::AbstractString)
     d = _read_store(path, "environment_light", _ENVIRONMENT_LIGHT_SPEC)
-    return JSON.lift(VgioStyle(; length_unit = parse_unit(d.length_unit::String)), EnvironmentLight, d::_Record)
+    return JSON.lift(VgioStyle(; length_unit = parse_unit(d.length_unit::String)), EnvironmentLight, d::Record)
 end
 
 # --- blurs ------------------------------------------------------------------------
@@ -234,7 +234,7 @@ function JSON.lift(s::VgioStyle, ::Type{Dict{Symbol, GaussianBlur}}, body::Vecto
     for b in body
         k = Symbol(b.name::String)
         haskey(blurs, k) && throw(ArgumentError("blurs: the name $(repr(String(k))) is repeated"))
-        blurs[k] = JSON.lift(s, GaussianBlur, b::_Record)
+        blurs[k] = JSON.lift(s, GaussianBlur, b::Record)
     end
     return blurs
 end
@@ -258,7 +258,7 @@ function JSON.lower(s::VgioStyle{<:Units}, b::GaussianBlur)
     d == dimension(m^2) || throw(ArgumentError("save: a blur's covariance is px² or a length squared, got the dimension $d"))
     return (unit = string(unit_string(s.length_unit), "^2"), covariance = _length_cov_json(cov(ustrip(m, b)), s.length_unit, (1, 1)))
 end
-function JSON.lift(::VgioStyle, ::Type{GaussianBlur}, b::_Record)
+function JSON.lift(::VgioStyle, ::Type{GaussianBlur}, b::Record)
     u = _blur_unit(b.unit::String)
     u === nothing && throw(ArgumentError("a blur's unit is px^2 or a length unit squared (mm^2, …), got $(repr(b.unit))"))
     u isa _PxSquared && return GaussianBlur(_cov_matrix(b.covariance, 2))

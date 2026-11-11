@@ -69,9 +69,19 @@ function _quantity_kind(q::Quantity)
     )
 end
 
-# A pixel count or a density is written as an integer when it is integral
-# (`640`, `300`), as the legacy writer did; a length is the Float64 `write_length` returns.
-_snap_integer(v::AbstractFloat) = (isinteger(v) && abs(v) < maxintfloat(Float64)) ? Int(v) : v
+"""
+    snap_integer(v) -> Real
+
+A file number as a record writes it: an integral value as an `Int` (`640`,
+`300`: a pixel count or a density, as the legacy writer did), anything else as
+it is — a float that is not integral or lies past Float64's exact integers, a
+`Rational` that is not integral as its `Float64`. A length is the Float64
+[`write_length`](@ref) returns and is not snapped.
+"""
+snap_integer(v::AbstractFloat) = (isinteger(v) && abs(v) < maxintfloat(Float64)) ? Int(v) : v
+snap_integer(v::Integer) = Int(v)
+snap_integer(v::Rational) = isinteger(v) ? Int(v) : Float64(v)
+snap_integer(v) = v
 
 """
     write_quantity(q::Quantity, contract::UnitContract; role = :world) -> Real
@@ -97,8 +107,8 @@ function write_quantity(q::Quantity, contract::UnitContract; role::Symbol = :wor
     kind = _quantity_kind(q)
     _check_role(kind, role)
     kind === :length && return write_length(q, role_unit(contract, role))
-    kind === :pixel && return _snap_integer(Float64(ustrip(px, q)))
-    return _snap_integer(Float64(ustrip(contract.density, q)))
+    kind === :pixel && return snap_integer(Float64(ustrip(px, q)))
+    return snap_integer(Float64(ustrip(contract.density, q)))
 end
 _check_role(kind::Symbol, role::Symbol) = (kind === :length || role === :world) || throw(
     ArgumentError("a length role ($(repr(role))) is for lengths; a $(kind) quantity has none")

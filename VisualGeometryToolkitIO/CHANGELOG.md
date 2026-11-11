@@ -4,6 +4,11 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **New: `Record`, `snap_integer`, `MATRIX_LAYOUT`** (public, not exported): what a lift reads (a parsed JSON object
+  or a NamedTuple, read by property access; was `_Record`), a file number as a record writes it (an integral value as
+  an `Int`; `Integer` and `Rational` methods beside the float one; was `_snap_integer`) and the matrix layout a record
+  declares (`"rows"`; was `_MATRIX_LAYOUT`). BlobBoards' lifts and CaliBlobs' session record restated them.
+
 - **Internal: one lowering, one spline-lattice reader, a body by dispatch.** The lens record's `_plain` was `_lower`
   under another name (gone); both spline lens schemas read a record's grid size, present runs and area through one
   `_lattice_from_json`; a bounded camera's model body is `_model_body` by the model's type (was an `isa` branch over

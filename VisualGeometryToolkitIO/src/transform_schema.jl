@@ -104,9 +104,9 @@ cross block in m·rad. The rotation is the stored quaternion itself, a
 writes back to the same numbers. The quaternion must be unit-norm to 1e-6
 (refused otherwise, never normalized silently).
 """
-pose_from_json(p, unit::AbstractString) = JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), EuclideanMap{3}, p::_Record)
+pose_from_json(p, unit::AbstractString) = JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), EuclideanMap{3}, p::Record)
 
-function JSON.lift(s::VgioStyle, ::Type{EuclideanMap{3}}, p::_Record)
+function JSON.lift(s::VgioStyle, ::Type{EuclideanMap{3}}, p::Record)
     q = SVector{4, Float64}(Float64.(p.rotation::Vector{Any})...)
     abs(norm(q) - 1) < 1.0e-6 || throw(
         ArgumentError("quaternion is not unit-norm (|q| = $(norm(q))); refusing to normalize silently")
@@ -164,7 +164,7 @@ function load(::Type{Vector{EuclideanMap}}, path::AbstractString)
     d = _read_store(path, "transforms", _TRANSFORMS_SPEC)
     s = VgioStyle(; length_unit = parse_unit(d.length_unit::String))
     return _AnyPose[
-        relabel(frame_from_name(r.from::String), frame_from_name(r.to::String), JSON.lift(s, EuclideanMap{3}, r::_Record))
+        relabel(frame_from_name(r.from::String), frame_from_name(r.to::String), JSON.lift(s, EuclideanMap{3}, r::Record))
             for r in d.transforms::Vector{Any}
     ]
 end

@@ -71,7 +71,7 @@ end
         @test Xb.t == Xa.t
         # a loaded translation is lengths in metres
         @test Xb.t isa SVector{3, Quantity{Float64, Dimensions{FixRat32}}}
-        @test VgtkIO._pose_frames(Xb) == VgtkIO._pose_frames(Xa)
+        @test VgtkCore.map_frames(Xb) == VgtkCore.map_frames(Xa)
         @test maximum(abs, Matrix(Xb.R) - Matrix(Xa.R)) <= POSE_ULP
         # a rig READ from a file round-trips exactly
         p2 = joinpath(dir, "again.json")

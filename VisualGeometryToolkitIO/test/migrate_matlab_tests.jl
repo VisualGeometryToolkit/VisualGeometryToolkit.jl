@@ -55,7 +55,7 @@
             posed = [(names[i], p) for (i, p) in enumerate(cal.poses) if p !== nothing]
             @test length(poses) == length(posed)
             for (rec, (n, p)) in zip(poses, posed)
-                @test VgtkIO._pose_frames(rec) == (VgtkCore.TargetFrame{:aprilgrid_matlab}, VgtkCore.ViewFrame{Symbol(n)})
+                @test VgtkCore.map_frames(rec) == (VgtkCore.TargetFrame{:aprilgrid_matlab}, VgtkCore.ViewFrame{Symbol(n)})
                 # the reader's values: the translation bit for bit (a fisheye's twisted, computed one
                 # to the mm file's 2 ulp), the rotation to the encoding's precision
                 @test VgtkIO._same_pose(rec, p) && maximum(abs, Matrix(rec.R) - Matrix(p.R)) <= 8 * eps()

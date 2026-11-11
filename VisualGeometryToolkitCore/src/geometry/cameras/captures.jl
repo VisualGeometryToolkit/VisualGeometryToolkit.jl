@@ -98,8 +98,6 @@ Base.:(==)(a::FrameStamps, b::FrameStamps) =
 Base.hash(s::FrameStamps, h::UInt) = hash(s.time_origin, hash(s.times, hash(s.sensors, hash(s.images, hash(FrameStamps, h)))))
 
 # The frames of a labeled pose, unlabeled frames included.
-_pose_frames(X::EuclideanMap{3}) = _em_frames(X)
-_pose_frames(u::Uncertain{<:EuclideanMap{3}}) = _em_frames(geom(u))
 
 
 # ------------------------------------------------------------------------------
@@ -149,7 +147,7 @@ Trajectory(::Type{S}, ::Type{D}, poses::AbstractDict; kwargs...) where {S <: Fra
 
 # A pose labeled S → D: an unlabeled one is labeled, a labeled one must already be.
 function _label_pose(::Type{S}, ::Type{D}, X::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) where {S, D}
-    Xs, Xd = _pose_frames(X)
+    Xs, Xd = map_frames(X)
     (Xs <: UnlabeledFrame && Xd <: UnlabeledFrame) && return relabel(S, D, X)
     (Xs === S && Xd === D) || throw(ArgumentError("a pose labeled $(Xs) → $(Xd) where $(S) → $(D) is held"))
     return X
@@ -213,7 +211,7 @@ end
 
 # Stored unlabeled; a labeled pose must be the one the value names.
 function _unlabel_target_pose(::Type{F}, id::Symbol, X) where {F}
-    S, D = _pose_frames(X)
+    S, D = map_frames(X)
     (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetFrame{id} && D === F) ||
         throw(ArgumentError("target $(id): a pose labeled $(S) → $(D) where TargetFrame{:$(id)} → $(F) is held"))
     return unlabel(X)
@@ -298,11 +296,10 @@ struct TargetHomographies{F <: PixelFrame, H} <: AbstractDict{Int, Dict{Symbol, 
 end
 
 # Stored unlabeled; a labeled map must be the one the value names (TargetPoses' rule).
-_homography_frames(h::HomographyMap{3, T, M, S, D}) where {T, M, S, D} = (S, D)
-_homography_frames(u::Uncertain{<:HomographyMap{3}}) = _homography_frames(geom(u))
-_homography_frames(h) = throw(ArgumentError("a target homography is a HomographyMap (plain or Uncertain); got a $(typeof(h)) — lift a matrix with HomographyMap(H)"))
 function _unlabel_target_homography(::Type{F}, id::Symbol, h) where {F}
-    S, D = _homography_frames(h)
+    h isa Union{HomographyMap{3}, Uncertain{<:HomographyMap{3}}} || throw(ArgumentError(
+        "a target homography is a HomographyMap (plain or Uncertain); got a $(typeof(h)) — lift a matrix with HomographyMap(H)"))
+    S, D = map_frames(h)
     (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame && D === F) ||
         throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame → $(F) is held"))
     return unlabel(h)

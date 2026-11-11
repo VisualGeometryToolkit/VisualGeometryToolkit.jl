@@ -179,6 +179,7 @@ end
 relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:HomographyMap{N}}) where {N, K, Src <: Frame{K}, Dst <: Frame{K}} =
     Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
 unlabel(u::Uncertain{<:HomographyMap{N}}) where {N} = relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, u)
+map_frames(::HomographyMap{N, T, M, Src, Dst}) where {N, T, M, Src, Dst} = (Src, Dst)
 
 # AbstractMatrixMap interface: HomographyMap's stored matrix IS its homogeneous
 # form — the one accessor to it (`inv(h)`'s is the stored inverse), as a plain SMatrix.

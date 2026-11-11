@@ -155,7 +155,7 @@ function _migrate_external(cal::ExternalCalibration, source::AbstractString, pat
         _verify(
             collect(keys(store)) == [Symbol(stem)] && model(store[Symbol(stem)]) == cal.camera && extent(store[Symbol(stem)]) == Size2(w, h) &&
                 length(back) == length(posed) &&
-                all(((X, Y),) -> _pose_frames(X) == _pose_frames(Y) && _same_pose(X, Y), zip(back, records)),
+                all(((X, Y),) -> VgtkCore.map_frames(X) == VgtkCore.map_frames(Y) && _same_pose(X, Y), zip(back, records)),
             path, "the $(source) calibration"
         )
     end

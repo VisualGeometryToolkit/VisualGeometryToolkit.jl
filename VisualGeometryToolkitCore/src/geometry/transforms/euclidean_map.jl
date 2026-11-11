@@ -446,6 +446,17 @@ relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:EuclideanMap{N}}) where {N, Src
     Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
 unlabel(u::Uncertain{<:EuclideanMap{N}}) where {N} = relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, u)
 
+"""
+    map_frames(X) -> (Src, Dst)
+
+The source and destination frame types of a frame-labeled map — an
+[`EuclideanMap`](@ref), a [`RotationMap`](@ref) or a [`HomographyMap`](@ref),
+plain or [`Uncertain`](@ref) — read off its type. The labels
+[`relabel`](@ref) sets: `relabel(map_frames(X)..., Y)` gives `Y` the frames of `X`.
+"""
+map_frames(::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst} = (Src, Dst)
+map_frames(u::Uncertain) = map_frames(geom(u))
+
 # Operations
 (E::EuclideanMap)(x) = E.R * x + E.t
 

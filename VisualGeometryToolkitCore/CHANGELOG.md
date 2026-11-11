@@ -13,6 +13,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `ViewGraph` before seeding — so the hand-written breadth-first search that ran the check a second time is deleted. A
   direct call on a split graph (two components, or a zero-weight bridge) now returns meaningless rotations instead of
   an `ArgumentError`; check connectivity first.
+- **New: `map_frames(X) -> (Src, Dst)`** (public, not exported): the source and destination frame types of a labeled
+  `EuclideanMap`, `RotationMap` or `HomographyMap`, plain or `Uncertain` — the labels `relabel` sets. The one reader of
+  them: Core's own `_em_frames`, `_rotation_frames`, `_homography_frames` and `_pose_frames`, Estimation's and IO's copies
+  are deleted.
 - **New: `test_docs(M; exceptions, backlog, signature_exceptions, dirs)`** (public, not exported; Test extension): the
   docstring gates every stack package's docs item runs — every public name documented, no docstring detached from its
   definition, every docstring signature accepted by a method — once. They were copied into each package's

@@ -69,8 +69,7 @@ rotation(M::RotationMap) = M.R
     RotationMap{N, T, R, Src, Dst}(M.R)
 @inline unlabel(M::RotationMap{N}) where {N} = relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, M)
 
-# (Src, Dst) of a rotation map, read off its type.
-_rotation_frames(::RotationMap{N, T, R, Src, Dst}) where {N, T, R, Src, Dst} = (Src, Dst)
+map_frames(::RotationMap{N, T, R, Src, Dst}) where {N, T, R, Src, Dst} = (Src, Dst)
 
 (M::RotationMap)(x) = M.R * x
 
@@ -124,12 +123,12 @@ with_unit(M::RotationMap, ::Units) = M
 # Equal tags (which fixes N) and equal, or approximately equal, rotation matrices.
 _rotation_matrix(M::RotationMap{N}) where {N} = SMatrix{N, N}(M.R)
 Base.:(==)(A::RotationMap, B::RotationMap) =
-    _rotation_frames(A) == _rotation_frames(B) && _rotation_matrix(A) == _rotation_matrix(B)
+    map_frames(A) == map_frames(B) && _rotation_matrix(A) == _rotation_matrix(B)
 # Hash what `==` compares (the tags and the rotation's matrix), so `isequal` maps hash alike whatever their
 # representation (a RotMatrix and a QuatRotation, q and −q); `+ 0.0` maps −0.0 to 0.0, which `==` does not tell apart.
-Base.hash(M::RotationMap, h::UInt) = hash(_rotation_matrix(M) .+ zero(eltype(_rotation_matrix(M))), hash(_rotation_frames(M), hash(:RotationMap, h)))
+Base.hash(M::RotationMap, h::UInt) = hash(_rotation_matrix(M) .+ zero(eltype(_rotation_matrix(M))), hash(map_frames(M), hash(:RotationMap, h)))
 Base.isapprox(A::RotationMap, B::RotationMap; kwargs...) =
-    _rotation_frames(A) == _rotation_frames(B) && isapprox(_rotation_matrix(A), _rotation_matrix(B); kwargs...)
+    map_frames(A) == map_frames(B) && isapprox(_rotation_matrix(A), _rotation_matrix(B); kwargs...)
 
 function Base.show(io::IO, M::RotationMap{N, T, R, Src, Dst}) where {N, T, R, Src, Dst}
     print(io, "RotationMap(", M.R, ")")

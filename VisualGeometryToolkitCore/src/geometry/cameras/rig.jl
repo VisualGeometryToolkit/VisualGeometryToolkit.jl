@@ -45,9 +45,6 @@ _raw_extrinsics(c::PosedCamera) = c.extrinsics
 _raw_extrinsics(c::BoundedCamera) = _raw_extrinsics(c.camera)
 _raw_extrinsics(c::AbstractCamera) = _unposed_only(_raw_extrinsics, "a rig member's extrinsics", c)
 
-# (Src, Dst) frame types of a labeled map, read off the type parameters.
-_em_frames(::EuclideanMap{N, T, R, V, Src, Dst}) where {N, T, R, V, Src, Dst} =
-    (Src, Dst)
 
 # View-identity symbol of a rig sensor's extrinsics (`F → ViewFrame{id}` → `id`).
 _view_id(::EuclideanMap{3, T, R, V, S, ViewFrame{b}}) where {T, R, V, S, b} = b
@@ -239,7 +236,7 @@ function _check_sensors(::Type{F}, members; gauge::Bool = true) where {F}
     isempty(members) && throw(ArgumentError("Rig: at least one sensor required"))
     _check_posed("Rig", members)
     for (i, c) in enumerate(members)
-        Src, Dst = _em_frames(_raw_extrinsics(c))
+        Src, Dst = map_frames(_raw_extrinsics(c))
         Src === F || throw(
             ArgumentError(
                 "Rig: sensor $i extrinsics is labeled $Src → $Dst, but the rig's " *
@@ -291,7 +288,7 @@ end
 # with its reason (no sensor, or an unposed one).
 Rig(members::Tuple{Vararg{AbstractCamera}}) = Rig{_rig_frame(members)}(members)
 _rig_frame(members) =
-    isempty(members) || !is_posed(first(members)) ? Frame{3} : _em_frames(_raw_extrinsics(first(members)))[1]
+    isempty(members) || !is_posed(first(members)) ? Frame{3} : map_frames(_raw_extrinsics(first(members)))[1]
 
 # The gauge invariant. A sensor rig whose frame is one of its views: that
 # view's stored extrinsics is the identity (a rig may also be posed in a view

@@ -379,10 +379,8 @@ function _refine_camera_and_poses(
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     S = sum(abs2, r)
     ν = 2n - p
-    out = [relabel(_frame_labels(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
+    out = [relabel(VgtkCore.map_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
     camera_out = camera_out === camera ? bounded : bounded isa BoundedCamera ? VgtkCore.with_model(bounded, camera_out) : camera_out
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free, nothing)
 end
 
-# The frame labels of a pose, to put back on the refined one.
-_frame_labels(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)

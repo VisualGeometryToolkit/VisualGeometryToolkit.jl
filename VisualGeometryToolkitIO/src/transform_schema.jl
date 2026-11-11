@@ -71,9 +71,6 @@ _cov_matrix(c, n::Int) = _cov_from_wire((x, k) -> Float64(x), c, n, ntuple(_ -> 
 # The plain and uncertain rigid maps, any labels.
 const _AnyPose = Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}
 
-_pose_frames(X::EuclideanMap{N, T, R, V, S, D}) where {N, T, R, V, S, D} = (S, D)
-_pose_frames(u::Uncertain{<:EuclideanMap{3}}) = _pose_frames(geom(u))
-
 """
     pose_json(X, unit = mm) -> NamedTuple
 
@@ -122,7 +119,7 @@ end
 
 # A labeled pose's frame names, from its labels.
 function _labeled_names(X)
-    S, D = _pose_frames(X)
+    S, D = VgtkCore.map_frames(X)
     (S <: UnlabeledFrame || D <: UnlabeledFrame) && throw(
         ArgumentError("a stored transform names its frames by its labels; this pose is labeled $(S) → $(D) — relabel it")
     )

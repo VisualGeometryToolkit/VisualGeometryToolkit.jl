@@ -185,5 +185,5 @@ end
 # frame labels (the problem's workspace labels its models `Extrinsics3`'s own).
 # A failed result (no estimate) stays failed.
 _with_frames(r::FitResult, pose::EuclideanMap{3}) = _map_estimate(
-    E -> relabel(_frame_labels(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))), r
+    E -> relabel(VgtkCore.map_frames(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))), r
 )

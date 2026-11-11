@@ -141,7 +141,7 @@ using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_uni
     _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, _pure_bending_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
-using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, Frame
+using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, map_frames, Frame
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
 using ..VisualGeometryToolkitCore: HomographyMap   # rectify.jl — the per-view rect→view collineation
 using ..VisualGeometryToolkitCore: ViewFrame, ImageFrame, TargetFrame  # per-view identity tags (minted by StereoRig)

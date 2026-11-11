@@ -10,7 +10,7 @@
     using VisualGeometryToolkitIO: ExternalCalibration, load_opencv_calibration, load_matlab_calibration,
         save_opencv_calibration
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, TargetFrame, CameraFrame, unlabel
-    using VisualGeometryToolkitIO: _pose_frames
+    using VisualGeometryToolkitCore: map_frames
     using Rotations: QuatRotation
 
     rvec = [0.12, -0.34, 0.56]
@@ -42,7 +42,7 @@
         @test lens === opencv_lens([-2.7068, 4.0035, 0.0028, 0.0017, 1.5827, -2.541, 3.5018, 2.406, -3.14e-5, 7.36e-5, -3.22e-3, 2.75e-4])
         @test length(cal.poses) == 2 && cal.poses[2] === nothing   # a null pose keeps its slot
         rec = cal.poses[1]
-        @test _pose_frames(rec) == (TargetFrame{:aprilgrid}, CameraFrame)   # a labeled VGC pose, target → camera
+        @test map_frames(rec) == (TargetFrame{:aprilgrid}, CameraFrame)   # a labeled VGC pose, target → camera
         @test ustrip.(m, rec.t) == [0.17, 0.0122, 1.3969]           # lengths, held in metres
         @test Matrix(rec.R) ≈ Matrix(R) atol = 1.0e-12
         # the default model: no k4–k6, s1–s4 in the file → OpenCV's 5-coefficient model
@@ -84,7 +84,7 @@
         @test (lm.k1, lm.k2, lm.k3, lm.p1, lm.p2) == (-0.1642, 0.0662, -0.0155, -0.000515, 0.00092)
         @test calm.camera.lens === opencv_lens([-0.1642, 0.0662, -0.000515, 0.00092, -0.0155])
         @test ustrip.(m, calm.poses[1].t) == [-0.708695, 0.1486439, 1.2122104]   # mm read decimal-exactly
-        @test _pose_frames(calm.poses[1]) == (TargetFrame{:calibration_target}, CameraFrame)
+        @test map_frames(calm.poses[1]) == (TargetFrame{:calibration_target}, CameraFrame)
         # the file's frame defaults to MATLAB's documented one and is overridden
         # positionally, for a file verified to be in another; the unit has no default
         @test load_matlab_calibration(PixelFrame{:julia}, ml; file_unit = mm).camera == calm.camera

@@ -889,7 +889,7 @@ function _refine_spline_camera_and_poses(
         out_camera, fcode, forward_max_px = _refit_forward(out_camera, forward_tolerance)
         fcode === :converged || code !== :converged || (code = fcode)
     end
-    out = [relabel(_frame_labels(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
+    out = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
     spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,

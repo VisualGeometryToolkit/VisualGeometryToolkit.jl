@@ -47,7 +47,7 @@
         @test cd_.provenance.reprojection_error == 0.2737 && cd_.provenance.error_statistic == "rms"
 
         poses = load(Vector{EuclideanMap}, r.poses)
-        @test [VgtkIO._pose_frames(p) for p in poses] == [
+        @test [VgtkCore.map_frames(p) for p in poses] == [
             (VgtkCore.TargetFrame{:calibration_target}, VgtkCore.ViewFrame{Symbol("IMG_0001.png")}),
             (VgtkCore.TargetFrame{:calibration_target}, VgtkCore.ViewFrame{Symbol("IMG_0003.png")}),
         ]
@@ -87,7 +87,7 @@
         @test occursin("2 posed, 1 unposed", String(take!(io))) && isempty(readdir(o4))
         @test VgtkIO._migrate_cli([args[1]; "--apply"; args[2:end]]; io) == 0
         @test sort(readdir(o4)) == ["calibration_opencv_default_cameras.json", "calibration_opencv_default_poses.json"]
-        @test [VgtkIO.frame_name(last(VgtkIO._pose_frames(p))) for p in load(Vector{EuclideanMap}, joinpath(o4, "calibration_opencv_default_poses.json"))] == ["view:IMG_0001.png", "view:IMG_0003.png"]
+        @test [VgtkIO.frame_name(last(VgtkCore.map_frames(p))) for p in load(Vector{EuclideanMap}, joinpath(o4, "calibration_opencv_default_poses.json"))] == ["view:IMG_0001.png", "view:IMG_0003.png"]
         @test VgtkIO._migrate_cli(["opencv", src]; io) == 2                               # --images and --image-size are required
         @test VgtkIO._migrate_cli(["opencv", "--images", imgs, "--image-size", "4240x2832", "--out", mkpath(joinpath(dir, "v2f")), src]; io) == 1   # no unit
         # the command converts third-party calibrations only: anything else is a usage error

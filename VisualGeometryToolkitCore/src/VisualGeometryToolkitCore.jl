@@ -179,6 +179,7 @@ public StereographicFrame, EquisolidFrame, OrthographicFrame
 # sections dispatch on it.
 public FrameDependence, GeometryDefined, ModelDefined, frame_dependence
 export unlabel, relabel
+public map_frames   # the (Src, Dst) frame types of a labeled map, the labels relabel sets
 export BoundedMap                # Map decorator pairing inner Map with output Rect
 # Image-warp adapter — wraps a math-space Transformation into a fused
 # BoundedMap callable from Julia (row, col) indices.  VGC math is COLMAP

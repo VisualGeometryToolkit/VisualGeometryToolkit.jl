@@ -7,8 +7,10 @@ kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_camera`, `fit_robot_world_hand_eye`, `fit_line`,
 `fit_rotation`, `fit_linear`) — and
-`refine_*` for polishing a given model (one per `find_*`, and the bundles
-`refine_robot_world_hand_eye` and `refine_camera_and_poses`). One-step
+`refine_*` for polishing a given model (one per `find_*`, `refine_camera`, and the bundles
+`refine_robot_world_hand_eye` and `refine_camera_and_poses`). `fit_camera` is the
+linear camera-from-camera fit (no guess), `refine_camera` its chart LM from a guess,
+and `approximate_camera` the two in one call. One-step
 algebraic algorithms keep their algorithm's name and live in
 VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 

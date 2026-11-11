@@ -92,21 +92,33 @@ VisualGeometryToolkitEstimation.check_penalty_weight
 
 ## Camera-model regression
 
-`fit_camera(T, source, region; …)` regresses one camera model of type `T` onto a
-source over a region: a lens family, a `SplineLens` (a `CameraModel` whose lens
-is the backward spline of rays over the image) or a `NoncentralSplineModel` (its
-direction and point splines). `pspline_grid(T, source, region, grid_size)` is the
-spline targets' one penalized solve on a given lattice, `grid_size = (columns,
-rows)` in Core's order; `fit_camera` repeats it at each spacing it tries.
+Three verbs regress one camera model onto a source camera over a region of its sensor, by the stack's naming rule
+(a fit has no guess, a refine needs one):
+
+- `fit_camera(T, source, region; …)` is LINEAR: one least-squares solve. For a lens family `L` it solves the focal
+  rescale and the family's coefficients from the samples' radial relation where the family has a linear form (a lift:
+  `Division`, `Scaramuzza`; a fixed projection with an even radial factor: Kannala–Brandt, the polynomial and rational
+  OpenCV models, Fisheye624), and refuses a family with none (`DoubleSphere`, `Unified`, `ExtendedUnified`, a `Tilt` or
+  `FieldOfView` term) with an `ArgumentError` naming the two verbs below. Its targets `SplineLens` (a `CameraModel`
+  whose lens is the backward spline of rays over the image) and `NoncentralSplineModel` (its direction and point
+  splines) are penalized linear least squares. `pspline_grid(T, source, region, grid_size)` is the spline targets' one
+  penalized solve on a given lattice, `grid_size = (columns, rows)` in Core's order; `fit_camera` repeats it at each
+  spacing it tries.
+- `refine_camera(guess, source, region; …)` is the chart LM from a guess to the exact pixel least-squares minimum of
+  the guess's family (for a SplineLens source also its principal point, aspect and axis).
+- `approximate_camera(L, source, region; …)` is the two: `refine_camera(estimate(fit_camera(L, source, region)), source, region)`,
+  a family with no linear form starting from its anchor.
 
 A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
-`optical_axis(camera::BoundedCamera)` is the one `fit_camera` call that finds the lens's optical axis: the closest
+`optical_axis(camera::BoundedCamera)` is the one `approximate_camera` call that finds the lens's optical axis: the closest
 radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out), with its
 principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
 ```@docs
 fit_camera
+refine_camera
+approximate_camera
 optical_axis
 pspline_grid
 CameraFitMetadata

@@ -152,7 +152,8 @@ src/
 │   ├── fit_radial_camera.jl   # fit_radial_camera
 │   ├── division_camera_step.jl # division_camera_step, DivisionCameraState, DivisionCameraError
 │   ├── fit_division_camera.jl # fit_division_camera
-│   ├── fit_camera.jl          # fit_camera, pspline_grid, CameraFitMetadata (a lens family, a SplineLens camera's backward + forward, or a NoncentralSplineModel onto a source over a region)
+│   ├── fit_camera.jl          # fit_camera (linear: no guess), pspline_grid, CameraFitMetadata (a lens family, a SplineLens camera's backward + forward, or a NoncentralSplineModel onto a source over a region)
+│   ├── refine_camera.jl       # refine_camera (the chart LM from a guess), approximate_camera (fit_camera, then refine_camera), optical_axis
 │   ├── essential.jl           # find_essential, refine_essential
 │   ├── pose.jl                # find_absolute_pose, refine_absolute_pose
 │   ├── fundmat.jl             # find_fundmat, refine_fundmat

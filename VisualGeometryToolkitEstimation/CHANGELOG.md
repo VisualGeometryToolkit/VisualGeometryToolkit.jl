@@ -28,6 +28,34 @@ non-central one is a `NoncentralSplineModel`).
   retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
   deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
   `currency migration` test item lists every one, the ports' included), so results are bit-identical.
+- **Breaking: the camera-from-camera regression follows the verbs** (owner ruling, 2026-11-11; contract §11).
+  - **`fit_camera(L, source, region)` is linear only** (a fit has no guess): ONE least-squares solve for the focal
+    rescale and the family's coefficients from the samples' radial relation, with its residual reported (the returned
+    camera's round-trip error per sample, `metadata.residuals`, `max_px`, `rms`; `retcode` `:solved`, 0 iterations).
+    A lift (`Division`, `Scaramuzza`, any `LiftLens`) and a fixed projection with an even radial factor and decentering
+    deltas (Kannala–Brandt, the polynomial and the RATIONAL OpenCV models, Fisheye624) are linear; the rational
+    factor's denominator is now fitted (one Steiglitz–McBride reweighting by the first solve's denominator). A family
+    with no linear form (`DoubleSphere`, `Unified`, `ExtendedUnified`, `Tilt`, `FieldOfView`) is an `ArgumentError`
+    naming `refine_camera` and `approximate_camera`. A gauge-K (SplineLens) source is read about its own principal
+    point and ẑ; the axis is the refine's. The `max_iter` and `device` keywords moved to the refine.
+  - **New: `refine_camera(guess::CameraModel, source, region; weight, max_iter, device, optimization_strategy = nothing)`**:
+    the former `fit_camera` chart LM, from the guess's lens and focal, to the exact pixel least-squares minimum; a
+    SplineLens source's principal point, aspect and axis are free. A forward lens's radial denominator is free too
+    (it was held at zero); its decentering terms are held at the guess's. L2 only: a `scale`, `width` or robust
+    `optimization_strategy` is an `ArgumentError`. `configs/default.toml`'s `[fit_camera] max_iter` is
+    `[refine_camera] max_iter`.
+  - **New: `approximate_camera(L, source, region; …)`** = `refine_camera(estimate(fit_camera(L, source, region)), source, region)`;
+    a family with no linear form starts from its anchor (the former start). It reproduces 0.8's `fit_camera` goldens to
+    1e-6, except the perspective polynomial over a 160° field (`OPENCV3`), whose LM never left its zero start
+    (925 672 px at the edge): it now starts from the linear fit.
+  - **`optical_axis` is unchanged in meaning**: it is now `approximate_camera` of the Fisheye624 family.
+  - **icra2026 failure A**: the rational OpenCV linear fit of the fisheye's Kannala–Brandt calibration (to 84° off
+    axis) lands at f 925.3 px against OpenCV's own rational calibration's 921.9 px, its coefficients OpenCV's in sign
+    and size; 0.8's LM from the zero start stalled at the pinhole (927.4 px, |k| < 1e-3, 6008 px at the edge).
+  - `CameraFitMetadata` gains `residuals` (px per sample; a spline target's held-out errors) and the robust stages'
+    scale record, `scale` (`NaN`) and `scale_source` (`ScaleNone`): no camera regression has a robust loss, so
+    `noise_scale` refuses to hand one on.
+
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

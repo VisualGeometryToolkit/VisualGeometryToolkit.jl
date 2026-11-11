@@ -79,8 +79,10 @@ end
         find_homography, find_fundmat, find_essential, find_rotation, find_circle, find_ellipse,
         find_radial_homography, find_radial_camera, find_absolute_pose
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    # a few distinct points, fewer than every class's minimal sample: each search returns its no-model result
+    ring = [Point2(300 + 120cospi(0.29k), 240 + 90sinpi(0.29k)) for k in 1:6]
+    pts(n) = ring[1:n]
+    cs(n) = csponds(ring[1:n], reverse(ring)[1:n])
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     c = Point2(500.0, 400.0)
     X = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]

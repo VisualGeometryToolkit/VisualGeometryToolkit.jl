@@ -1,5 +1,6 @@
 @testitem "core_defaults" setup = [RadialCameraScene, EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
                                    ConicScenes, RotationScene] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessor
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================

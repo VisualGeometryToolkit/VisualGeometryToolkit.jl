@@ -19,7 +19,11 @@ non-central one is a `NoncentralSplineModel`).
   - **`n` and `rms` follow the weights**: `n = count(>(0), weights)`, `rms = √(Σwᵢrᵢ²/Σwᵢ)`. For a threshold scorer this
     is the consensus set's size and rms, bit for bit as before. For the Student-t + uniform scorer it changes: before,
     the rms over the scorer's consensus partition; now every point of non-negligible posterior, at its weight (a
-    posterior below `eps(T)` is stored as an exact 0 and is out of the support). See the B4 measurements in the PR.
+    posterior below `eps(T)` is stored as an exact 0 and is out of the support). Measured on 24 seeded scenes (homography,
+    160 correspondences of which 40 outliers, and circle, 80 rim points + 30 clutter; σ 0.3 and 1.0; 6 seeds each), the
+    same scenes under MSAC unchanged bit for bit: model, scale, `dof` and `inlier_mask` identical (the MAP mask equals
+    the old partition mask on every scene); `rms` moves by −2.1 % … +3.4 % (median −0.48 % homography, −0.57 % circle);
+    `n` by +0 (homography: every outlier's posterior is below `eps(Float32)`) to +4 (circle).
   - `RansacResultBuffers` holds `residuals` and `weights` (no mask); `inlier_ratio(r)` is
     `count(inlier_mask(r)) / length(weights(r))`.
   - `locally_optimize` keeps its scorer: its result is the scorer's kind too.

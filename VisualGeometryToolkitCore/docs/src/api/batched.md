@@ -68,7 +68,10 @@ isotropic order-1 pairs) or [`bending_rows`](@ref) (the bending energy), and
 [`row_stencils`](@ref) its rows as a nonlinear solve's residual blocks. The
 weight's unit: [`penalty_scale`](@ref) with [`mean_positive_eigenvalue`](@ref)
 (m̄). The linear solve on sparse operators, on any KernelAbstractions device:
-[`cgls`](@ref) on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es. The
+[`cgls`](@ref) on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es, or
+[`normal_cg`](@ref) on a normal operator `AᵀA + DᵀWD` that is only applied (its
+rows never stored): one conjugate-gradient iteration, Jacobi-preconditioned on
+request, one stopping rule relative to `‖Aᵀb + DᵀWh‖`. The
 weight's choice by generalized cross-validation is
 VisualGeometryToolkitEstimation's (`gcv_curve`, `gcv_select`). No penalty fixes a
 gauge: a direction neither the data nor the penalty holds is held exactly by

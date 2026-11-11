@@ -206,7 +206,7 @@ public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, ker
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
 public difference_rows      # the sparse Δᵒʳᵈᵉʳ rows of a (masked) 2-D lattice along chosen axes: the P-spline penalty's operator
-public CSRMatrix, PenalizedOperator, cgls   # the stack's one device least-squares solve on sparse operators (numerics/penalized_least_squares.jl)
+public CSRMatrix, PenalizedOperator, cgls, normal_cg   # the stack's one device least-squares solve: on sparse operators, or on an applied normal operator (numerics/penalized_least_squares.jl)
 public gradient_pairs, mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization (m̄, its unit) and an operator's rows as residual blocks (numerics/penalized_least_squares.jl)
 public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial

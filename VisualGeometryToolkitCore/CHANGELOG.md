@@ -11,6 +11,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Before, the upper bound was strict and carried no slack, so a consumer that needs a pixel's four footprint corners lost
   the last column and row. The projection LM's box is the same closed rectangle (`ub = max + 1`, was `max + 0.999`), so
   a ray imaged on the far edge projects onto it.
+- **New: `normal_cg(N, g; diagonal, x0, rtol, max_iter)`** (public, not exported, beside `cgls`): conjugate gradients
+  on a penalized least squares' normal operator `AᵀA + DᵀWD` given applied (a function `N(y, x)` or an operator with
+  `mul!`), never its stored rows, on `g`'s KernelAbstractions backend, with a warm start and cgls's stopping rule
+  relative to `‖Aᵀb + DᵀWh‖`. `cgls` and `normal_cg` are one iteration (one loop, one stopping rule and iteration
+  count), and both take `diagonal`, the normal matrix's diagonal, as a Jacobi preconditioner. The solve a panorama's
+  vignetting fit makes on its accumulated stencil and Schur block (PanoramaStitching's `_pcg`).
 - **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
   VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
   Estimation's `SimFitPP`/`simfitpp_select`.

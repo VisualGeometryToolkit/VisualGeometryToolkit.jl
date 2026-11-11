@@ -19,7 +19,9 @@
 #   (β relative to the data's energy per parameter and to m̄).
 # THE LINEAR SOLVE. `cgls` (min ‖Ax − b‖² + ‖√w∘(Dx − h)‖², warm start, target,
 #   KernelAbstractions on any backend) on sparse operators, `CSRMatrix` their device
-#   form. A dense or CHOLMOD-sized problem solves its normal equations directly.
+#   form; `normal_cg` the same iteration on a normal operator AᵀA + DᵀWD that is
+#   only applied (rows never stored); either Jacobi-preconditioned. A dense or
+#   CHOLMOD-sized problem solves its normal equations directly.
 # THE WEIGHT'S CHOICE. VisualGeometryToolkitEstimation's `gcv_curve`/`gcv_select`
 #   (fitting/gcv.jl) — GCV is a fit's, not a numerical primitive.
 #
@@ -136,7 +138,7 @@ function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrix
 end
 
 """
-    cgls(op::PenalizedOperator, b; w = 1, h = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+    cgls(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
         -> (; x, iterations, converged, relres)
 
 The least-squares solution of `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` (`op`'s `A` and `D`;
@@ -144,6 +146,8 @@ The least-squares solution of `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)
 by CGLS — conjugate gradients on the normal equations `(AᵀA + DᵀWD) x = Aᵀb + DᵀWh`
 applied as the stacked operator `[A; √W D]`, never formed — from `x0` (a warm start;
 `nothing`: 0), on `op`'s device (the vectors moved there; `x` returned on it).
+`diagonal`, the normal matrix's diagonal `diag(AᵀA + DᵀWD)` (positive), preconditions the
+iteration (Jacobi: the unknowns' columns scaled to unit norm), `nothing` none.
 
 The stopping rule is relative to the normal equations' right-hand side, `‖sₖ‖ ≤ rtol ·
 ‖Aᵀb + DᵀWh‖`, `sₖ = Aᵀ(b − A xₖ) + DᵀW(h − D xₖ)` the normal-equation residual: a
@@ -151,9 +155,13 @@ reference fixed by the problem, not by the start, so a warm start that is alread
 needs few or no iterations (a rule relative to `‖s₀‖` asks a warm start for `rtol` more
 digits of improvement than a cold one). `converged` when the rule is met within
 `max_iter` iterations; `relres` is `‖sₖ‖ / ‖Aᵀb + DᵀWh‖`.
+
+The rows of `A` stored; a problem whose normal operator is only applied (its rows never
+formed) solves with [`normal_cg`](@ref), the same iteration.
 """
 function cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothing, AbstractVector} = nothing,
-        x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
+        diagonal::Union{Nothing, AbstractVector} = nothing, x0::Union{Nothing, AbstractVector} = nothing,
+        rtol::Real = 1.0e-6, max_iter::Integer = 500)
     dev = op.device
     n = op.A.n; mD = op.D.m
     length(b) == op.A.m || throw(DimensionMismatch("cgls: b has $(length(b)) entries, A $(op.A.m) rows"))
@@ -162,32 +170,120 @@ function cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothin
     sw = w isa Real ? fill!(KA.allocate(dev, Float64, mD), sqrt(Float64(w))) : sqrt.(vec_on(w))
     hd = h === nothing ? KA.zeros(dev, Float64, mD) : vec_on(h)
     x = x0 === nothing ? KA.zeros(dev, Float64, n) : copy(vec_on(x0))
-    r1 = similar(bd); r2 = similar(hd); s = similar(x); t = similar(x); q1 = similar(bd); q2 = similar(hd)
+    sys = _StackedNormal(op, sw, similar(bd), similar(hd), similar(bd), similar(hd), similar(x))
     # the reference: Aᵀb + DᵀWh
+    s = similar(x)
     LinearAlgebra.mul!(s, op.At, bd)
-    r2 .= sw .* sw .* hd
-    LinearAlgebra.mul!(t, op.Dt, r2); s .+= t
+    sys.r2 .= sw .* sw .* hd
+    LinearAlgebra.mul!(sys.t, op.Dt, sys.r2); s .+= sys.t
     sref = norm(s)
     # the residuals at x and the normal-equation residual
-    LinearAlgebra.mul!(r1, op.A, x); r1 .= bd .- r1
-    LinearAlgebra.mul!(r2, op.D, x); r2 .= sw .* (hd .- r2)
-    normal!(s) = (LinearAlgebra.mul!(s, op.At, r1); q2 .= sw .* r2; LinearAlgebra.mul!(t, op.Dt, q2); s .+= t; s)
-    normal!(s)
-    p = copy(s)
-    γ = dot(s, s)
+    LinearAlgebra.mul!(sys.r1, op.A, x); sys.r1 .= bd .- sys.r1
+    LinearAlgebra.mul!(sys.r2, op.D, x); sys.r2 .= sw .* (hd .- sys.r2)
+    _normal_residual!(s, sys)
+    return _normal_cg!(sys, x, s, _jacobi_inverse(diagonal, dev, n), sref, rtol, max_iter)
+end
+
+"""
+    normal_cg(N, g; diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+        -> (; x, iterations, converged, relres)
+
+The solution of the normal equations `N x = g` of a penalized least squares, `N = AᵀA +
+DᵀWD` and `g = Aᵀb + DᵀWh` ([`cgls`](@ref)'s problem), by conjugate gradients on `N`
+APPLIED: `N` a function `N(y, x)` writing `y = N x` into `y`, or an operator with `mul!(y,
+N, x)` (a matrix, a [`CSRMatrix`](@ref)). The problem whose rows are never stored — a
+panorama's pixels accumulated into a lattice stencil and a Schur block — solves here; one
+whose rows are stored solves with `cgls`, which applies the rows and so loses no digits to
+forming `N`. Both are one iteration with one stopping rule.
+
+`diagonal`, `N`'s diagonal (positive), preconditions the iteration (Jacobi), `nothing`
+none; `x0` is a warm start (`nothing`: 0). The vectors live on `g`'s KernelAbstractions
+backend (`diagonal` and `x0` moved there; `x` returned on it), and `N` applies there.
+The stopping rule is cgls's, relative to the right-hand side: `‖g − N xₖ‖ ≤ rtol · ‖g‖`,
+so a warm start at the solution takes 0 iterations. `converged` when it is met within
+`max_iter` iterations; `relres` is `‖g − N xₖ‖ / ‖g‖`.
+"""
+function normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVector} = nothing,
+        x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
+    dev = get_backend(g)
+    n = length(g)
+    gd = on_device(Float64, dev, g)
+    x = x0 === nothing ? KA.zeros(dev, Float64, n) : copy(on_device(Float64, dev, x0))
+    sys = _AppliedNormal(N, similar(gd))
+    s = copy(gd)
+    x0 === nothing || (_apply_normal!(sys.Np, N, x); s .-= sys.Np)
+    return _normal_cg!(sys, x, s, _jacobi_inverse(diagonal, dev, n), norm(gd), rtol, max_iter)
+end
+
+# -----------------------------------------------------------------------------
+# The one (preconditioned) conjugate-gradient iteration on the normal equations
+# N x = g, N = AᵀA + DᵀWD, shared by cgls and normal_cg. A system supplies the
+# curvature pᵀN p of a search direction (keeping its image) and the normal-equation
+# residual after a move of α along it: cgls from its stacked residuals [b − Ax;
+# √W(h − Dx)], normal_cg from N p. The stopping rule ‖sₖ‖ ≤ rtol·‖g‖ and the
+# iteration count are this loop's alone.
+# -----------------------------------------------------------------------------
+
+struct _StackedNormal{O <: PenalizedOperator, V <: AbstractVector{Float64}, U <: AbstractVector{Float64}}
+    op::O
+    sw::U      # √w per penalty row
+    r1::V      # b − A x
+    r2::U      # √W (h − D x)
+    q1::V      # A p
+    q2::U      # √W D p
+    t::V       # an n-vector of scratch (Dᵀ q2)
+end
+function _normal_residual!(s, sys::_StackedNormal)
+    LinearAlgebra.mul!(s, sys.op.At, sys.r1)
+    sys.q2 .= sys.sw .* sys.r2
+    LinearAlgebra.mul!(sys.t, sys.op.Dt, sys.q2)
+    s .+= sys.t
+    return s
+end
+function _curvature!(sys::_StackedNormal, p)
+    LinearAlgebra.mul!(sys.q1, sys.op.A, p)
+    LinearAlgebra.mul!(sys.q2, sys.op.D, p); sys.q2 .= sys.sw .* sys.q2
+    return dot(sys.q1, sys.q1) + dot(sys.q2, sys.q2)
+end
+function _descend!(s, sys::_StackedNormal, α)
+    sys.r1 .-= α .* sys.q1; sys.r2 .-= α .* sys.q2
+    return _normal_residual!(s, sys)
+end
+
+struct _AppliedNormal{F, V <: AbstractVector{Float64}}
+    N::F
+    Np::V      # N p
+end
+_apply_normal!(y, N::Function, x) = (N(y, x); y)
+_apply_normal!(y, N, x) = LinearAlgebra.mul!(y, N, x)
+_curvature!(sys::_AppliedNormal, p) = dot(p, _apply_normal!(sys.Np, sys.N, p))
+_descend!(s, sys::_AppliedNormal, α) = (s .-= α .* sys.Np; s)
+
+function _jacobi_inverse(diagonal, dev, n)
+    diagonal === nothing && return nothing
+    length(diagonal) == n || throw(DimensionMismatch("the Jacobi diagonal has $(length(diagonal)) entries, the unknowns $n"))
+    d = on_device(Float64, dev, diagonal)
+    all(>(0), d) || throw(ArgumentError("the Jacobi diagonal must be positive (the normal matrix's diagonal)"))
+    return 1 ./ d
+end
+
+function _normal_cg!(sys, x, s, dinv, sref, rtol, max_iter)
+    z = dinv === nothing ? s : dinv .* s       # the preconditioned residual (s itself without one)
+    p = copy(z)
+    γ = dot(s, z); σ = dot(s, s)
+    goal = (rtol * sref)^2
     it = 0
-    while it < max_iter && γ > (rtol * sref)^2
-        LinearAlgebra.mul!(q1, op.A, p)
-        LinearAlgebra.mul!(q2, op.D, p); q2 .= sw .* q2
-        qq = dot(q1, q1) + dot(q2, q2)
+    while it < max_iter && σ > goal
+        qq = _curvature!(sys, p)
         qq > 0 || break
         α = γ / qq
-        x .+= α .* p; r1 .-= α .* q1; r2 .-= α .* q2
-        normal!(s)
-        γn = dot(s, s)
-        p .= s .+ (γn / γ) .* p
+        x .+= α .* p
+        _descend!(s, sys, α)
+        dinv === nothing || (z .= dinv .* s)
+        γn = dot(s, z); σ = dot(s, s)
+        p .= z .+ (γn / γ) .* p
         γ = γn
         it += 1
     end
-    return (; x, iterations = it, converged = γ <= (rtol * sref)^2, relres = sref > 0 ? sqrt(γ) / sref : 0.0)
+    return (; x, iterations = it, converged = σ <= goal, relres = sref > 0 ? sqrt(σ) / sref : 0.0)
 end

@@ -24,7 +24,8 @@ module Render
 
 using PGFPlotsX: PGFPlotsX, @pgf, Axis, LegendEntry, Plot, Table
 using JLD2: JLD2
-using DataFrames: DataFrame, SubDataFrame, groupby
+using DataFrames: DataFrame, SubDataFrame, AbstractDataFrame, groupby, transform, combine, ByRow
+using Statistics: median
 import Printf
 using Printf: @sprintf
 import .._config_default   # configs/default.toml (config_defaults.jl)
@@ -54,7 +55,9 @@ export
     # tuning_table.jl — a coarse-fine tuning artifact's curve or surface
     tuning_slice, emit_tuning_table,
     # tables.jl — number cell and tab-separated table files
-    fmt3, write_tsv, read_tsv
+    fmt3, write_tsv, read_tsv,
+    # station_cells.jl — a floorplan fan's cells (the hand-eye rig's stations)
+    station_cells
 
 include("render/panel_spec.jl")
 include("render/axis_style.jl")
@@ -65,5 +68,6 @@ include("render/faceted.jl")
 include("render/emitters.jl")
 include("render/tuning_table.jl")
 include("render/tables.jl")
+include("render/station_cells.jl")   # station_cells: a floorplan fan's cells
 
 end # module Render

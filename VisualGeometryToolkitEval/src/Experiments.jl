@@ -71,7 +71,9 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        # the data policy (experiments/data_policy.jl)
        DataPolicyAllow, data_policy_violations,
        # re-keying (experiments/rekey.jl): the old → new key map of a tag rename
-       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map
+       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map,
+       # paper support (experiments/paper_support.jl)
+       assert_active_project, save_hand_eye, load_hand_eye, hand_eye_mount_file
 
 # Cooperative hooks of a kaimon warm-REPL run: no dependency on kaimon; they act
 # only when the session has defined `Main.KaimonGate`.
@@ -282,5 +284,8 @@ include("experiments/data_policy.jl")
 
 # Re-keying: the old-key → new-key map of a tag rename (computed before it lands).
 include("experiments/rekey.jl")
+
+# The paper projects' shared support: the active-project assertion, a hand-eye calibration's records.
+include("experiments/paper_support.jl")
 
 end # module Experiments

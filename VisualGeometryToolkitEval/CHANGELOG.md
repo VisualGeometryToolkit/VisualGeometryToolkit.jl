@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **New: the paper projects' shared support** (BlobBoards' bmvc2026 and CaliBlobs' icra2026 restated each):
+  `Experiments.assert_active_project(marker)` (DrWatson's `projectdir()` is the paper project, or an error naming
+  both), `Experiments.save_hand_eye(file, X, Y)` / `load_hand_eye(file)` / `hand_eye_mount_file(file)` (a hand-eye
+  calibration's two records: X `body:camera_rig → camera_optical` and the marker mount, a `Rig{BodyFrame{:board_rig}}`
+  of pose-only targets), and `Render.station_cells(df; stations)` (a floorplan fan's cells per rig station and
+  distance, the edge-on ±90° stations dropped, an empty station a zero). The bmvc2026 `_diag`/icra2026 `_fit_diag`
+  field probe is not hoisted: it reflects over a fit's fields, which the stack's accessors rule forbids; the papers
+  read the FitResult's accessors instead.
+
 - **New: `engine_fixtures()`** (public, not exported; a Test extension, `using Test` loads it): the evaluation engine's
   shared test fixtures, the module `EngineFixtures` exporting `epair` (THE synthetic E pool pair, `EPAIR_GT_VARIANCE`),
   `starts_pool`, `subpair(pair, cols)` (a pool pair restricted to some of its stored models, built through the

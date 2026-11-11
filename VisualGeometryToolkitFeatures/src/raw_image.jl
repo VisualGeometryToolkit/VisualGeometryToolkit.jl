@@ -336,9 +336,10 @@ function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Floa
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.
-_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(ArgumentError(
+_display_only(what) = ArgumentError(
     "$what: a :demosaic image interpolates and is for display figures only; geometry and radiometry read `mode = :green_cells`"
-)) : L
+)
+_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(_display_only(what)) : L
 
 """
     raw_frame_map(L::LinearRaw) -> SimilarityMap{2, …, BayerCellFrame{:G}, PixelFrame{:colmap}}
@@ -378,9 +379,11 @@ A warp reads plane `c` of an image through `inv(bayer_plane_map(L, c)) ∘ math`
 joins two planes' frames is refused (`MethodError`). A plane past the image's,
 or a `:demosaic` image, is an `ArgumentError`.
 """
-function bayer_plane_map(L::LinearRaw, c::Integer)
-    maps = _geometric(L, "bayer_plane_map").plane_maps
-    1 <= c <= length(maps) || throw(ArgumentError("bayer_plane_map: a :$(L.mode) image has $(length(maps)) plane(s), got plane $c"))
+bayer_plane_map(L::LinearRaw, c::Integer) = _nth_plane_map(L.plane_maps, L.mode, c)
+# the demosaic holds no maps (dispatch on what is held, so no path reads an absent tuple)
+_nth_plane_map(::Nothing, mode, c) = throw(_display_only("bayer_plane_map"))
+function _nth_plane_map(maps::Tuple, mode, c)
+    1 <= c <= length(maps) || throw(ArgumentError("bayer_plane_map: a :$mode image has $(length(maps)) plane(s), got plane $c"))
     return maps[c]
 end
 

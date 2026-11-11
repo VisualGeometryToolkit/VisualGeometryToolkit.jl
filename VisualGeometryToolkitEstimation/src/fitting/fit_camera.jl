@@ -304,7 +304,7 @@ function _radial_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source, 
     )
     VgtkCore.Cameras._check_lens_axis(lens(source), "fit_camera")
     q = _image_quadrature(source, region)
-    θ_all = map(r -> atan(hypot(r[1], r[2]), r[3]), q.fit_rays)
+    θ_all = map(r -> angle_between(r, SVector(0.0, 0.0, 1.0)), q.fit_rays)   # the ray's off-axis angle, the stack's one angle
     ρ_all = map(norm, _normalized_points(source.intrinsics, q.fit_px))
     θ_source = maximum(θ_all)
     θ_max, clipped = _family_domain(L, θ_source)
@@ -620,7 +620,7 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     At = SparseMatrixCSC(ny * nx, N, collect(1:16:(16N + 1)), rowval, nzval)
     AtA = At * transpose(At)
     D = difference_rows((ny, nx), 3)   # Core's Δ³ rows along both lattice axes
-    λ = _PSPLINE_BETA * penalty_scale(sum(diag(AtA)), size(AtA, 1), mean_positive_eigenvalue(D))
+    λ = _PSPLINE_BETA * penalty_scale(sum(diag(AtA)), size(AtA, 1), _lattice_m̄(ny, nx, D))
     M = AtA + λ * (transpose(D) * D)
     AtB = Matrix(At * B)
     F = cholesky(Symmetric(M); check = false)
@@ -782,13 +782,19 @@ function pspline_grid(
     return FitResult(r.fitted, :solved, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
 end
 
-# THE knot-count rule of the spacing search (the backward lattice's and the
-# forward's): `cells` cells along the longer of the widths `(w₁, w₂)`, the spacing
-# h = max(w) / cells, the node counts ⌈wᵢ / h⌉ + 3 per axis — the spacing and the
-# counts `(n₁, n₂)` along the two axes (x, y).
+# The mean positive eigenvalue of a full `ny × nx` lattice's Δ³ operator `D` (its DᵀD), once per
+# lattice size: its rank is a sparse QR, and the spacing search fits the same sizes again.
+const _LATTICE_M̄ = Dict{Tuple{Int, Int}, Float64}()
+const _LATTICE_M̄_LOCK = ReentrantLock()
+_lattice_m̄(ny::Integer, nx::Integer, D) = lock(() -> get!(() -> mean_positive_eigenvalue(D), _LATTICE_M̄, (Int(ny), Int(nx))), _LATTICE_M̄_LOCK)
+
+# The spacing search's lattice (the backward's and the forward's): `cells` cells along
+# the longer of the widths `(w₁, w₂)`, the spacing h = max(w) / cells, and Core's node
+# counts at it (`_node_counts`: ⌈wᵢ / h⌉ + 3 per axis) — the spacing and the counts
+# `(n₁, n₂)` along the two axes (x, y).
 function _knot_counts(w1::Real, w2::Real, cells::Integer)
     h = max(w1, w2) / cells
-    return h, (ceil(Int, w1 / h * (1 - 1.0e-12)) + 3, ceil(Int, w2 / h * (1 - 1.0e-12)) + 3)
+    return h, VgtkCore.Cameras._node_counts(w1, w2, h)
 end
 # The image's lattice of `cells` cells along its longer side, as Core's
 # `grid_size` (columns, rows).

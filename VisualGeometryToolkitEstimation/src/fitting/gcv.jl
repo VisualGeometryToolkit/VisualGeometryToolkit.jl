@@ -44,96 +44,105 @@ residual sum of squares `rss` and `dof = tr H` effective parameters.
 gcv_score(n::Integer, rss::Real, dof::Real) = n * Float64(rss) / (n - Float64(dof))^2
 
 """
-    gcv_curve(G, h, rr, Q, q, n; hold = nothing) -> (λ -> (; gcv, rss, dof, y))
+    gcv_curve(G, h, rr, Q, q, n) -> (λ -> (; gcv, rss, dof, y))
 
-GCV of the penalized least squares `min_y ‖J y − r‖² + λ‖D y − c‖² + ‖R y‖²` with the
+GCV of the penalized least squares `min_y ‖J y − r‖² + λ‖D y − c‖²` with the
 normal-equation pieces `G = JᵀJ`, `h = Jᵀr`, `rr = ‖r‖²`, `Q = DᵀD`, `q = Dᵀc` and `n` data
-rows, as a function of λ. `hold = RᵀR` is a λ-independent term that is not data (a
-nonlinear solve's rows holding coordinates no other row reads, zero at the linearization
-point): it enters the system, not `tr H`. One Cholesky `B = G + RᵀR + Q = L Lᵀ` and one
-symmetric eigendecomposition `L⁻¹ Q L⁻ᵀ = U diag(μ) Uᵀ` — the generalized eigenproblem of
-the pencil `(Q, B)`, `V = L⁻ᵀ U`: `VᵀBV = I`, `VᵀQV = diag μ` — diagonalize every
-`M_λ = G + RᵀR + λQ` at once, `VᵀM_λV = diag s`, `sᵢ = 1 − μᵢ + λμᵢ`. With `K = VᵀGV`
-(`I − diag μ` without a hold), `zh = Vᵀh`, `zq = Vᵀq` and `w = (zh + λ zq) ./ s` (the
-solution `y = V w`, returned: a nonlinear fit's Gauss–Newton step at the chosen λ): `rss =
-rr − 2 w⋅zh + wᵀKw`, `dof = tr H_λ = Σ Kᵢᵢ/sᵢ`. Parameters nothing reads (zero diagonal in
-`B`) are dropped (0 in `y`). `B` must then be positive definite: a
-direction no row holds is a gauge, which its caller holds exactly (Core's rule: no penalty
-or ridge fixes it); an `ArgumentError` otherwise. Dense, `O(p³)` once in the parameters,
-then `O(p²)` per λ. (Moved from RadiometricCamera's linear solves.)
+rows, as a function of λ. One Cholesky `B = G + Q = L Lᵀ` and one symmetric
+eigendecomposition `L⁻¹ Q L⁻ᵀ = U diag(μ) Uᵀ` — the generalized eigenproblem of the pencil
+`(Q, B)`, `V = L⁻ᵀ U`: `VᵀBV = I`, `VᵀQV = diag μ` — diagonalize every `M_λ = G + λQ` at
+once, `VᵀM_λV = diag s`, `sᵢ = 1 − μᵢ + λμᵢ`. With `zh = Vᵀh`, `zq = Vᵀq` and
+`w = (zh + λ zq) ./ s` (the solution `y = V w`, returned: a nonlinear fit's Gauss–Newton
+step at the chosen λ): `rss = rr − 2 w⋅zh + Σ (1 − μᵢ) wᵢ²`, `dof = tr H_λ = Σ (1 − μᵢ)/sᵢ`.
+Parameters nothing reads (zero diagonal in `B`) are dropped (0 in `y`). `B` must then
+be positive definite: a direction no row holds is a gauge, which its caller holds
+exactly (Core's rule: no penalty or ridge fixes it); an `ArgumentError` otherwise.
+Dense, `O(p³)` once in the parameters, then `O(p²)` per λ. (Moved from
+RadiometricCamera's linear solves.)
 
-    gcv_curve(J, r, D, c; hold = nothing, exact_max = 3000, probes = 64, seed) -> (λ -> (; gcv, rss, dof, y))
+    gcv_curve(J, r, D, c; exact_max = 3000, probes = 64, seed) -> (λ -> (; gcv, rss, dof, y))
 
-The same from the rows themselves (`J`, `D` and the hold's rows `R` dense or sparse): the
-pencil above for at most `exact_max` parameters, the data residual `r − J y` read from the
-rows (exact where it is small: the normal-equation form's `rr − 2w⋅zh + wᵀKw` cancels);
-past it, per λ one sparse Cholesky of
-`M_λ` (CHOLMOD) for the solution and a Hutchinson estimate of `tr H_λ = tr(M_λ⁻¹JᵀJ)` from
+The same from the rows themselves (`J`, `D` dense or sparse): the pencil above for at
+most `exact_max` parameters, the data residual `r − J y` read from the rows (exact where
+it is small: the normal-equation form's `rr − 2w⋅zh + …` cancels); past it, per λ one
+sparse Cholesky of `M_λ` (CHOLMOD, its symbolic analysis done once: the pattern does not
+depend on λ) for the solution and a Hutchinson estimate of `tr H_λ = tr(M_λ⁻¹JᵀJ)` from
 `probes` Rademacher vectors drawn from `seed` (deterministic; the probes read the
 symmetric `zᵀJM_λ⁻¹Jᵀz`, `H`'s eigenvalues in [0, 1], so its standard deviation is
-`≤ √(2 tr H / probes)`).
+`≤ √(2 tr H / probes)`). Either way the parameters nothing reads are dropped (0 in `y`).
 """
-function gcv_curve(G::AbstractMatrix, h::AbstractVector, rr::Real, Q::AbstractMatrix, q::AbstractVector, n::Integer;
-        hold::Union{Nothing, AbstractMatrix} = nothing)
-    P = _gcv_pencil(G, Q, hold)
+function gcv_curve(G::AbstractMatrix, h::AbstractVector, rr::Real, Q::AbstractMatrix, q::AbstractVector, n::Integer)
+    P = _gcv_pencil(G, Q)
+    return _pencil_curve(P, h, q, n, size(G, 1), (w, zh, yk) -> max(rr - 2 * dot(w, zh) + dot(w, P.k .* w), 0.0))
+end
+function gcv_curve(J::AbstractMatrix, r::AbstractVector, D::AbstractMatrix, c::AbstractVector;
+        exact_max::Integer = 3000, probes::Integer = 64, seed::Integer = 20261110)
+    n, p = size(J)
+    Js = convert(SparseMatrixCSC{Float64, Int}, J); Ds = convert(SparseMatrixCSC{Float64, Int}, D)
+    G = Js' * Js; Q = Ds' * Ds
+    h = Js' * r; q = Ds' * c
+    if p <= exact_max
+        # the pencil, and the data residual read from the rows (`r − J y`, no cancellation where it is small)
+        P = _gcv_pencil(G, Q)
+        Jk = Js[:, P.keep]
+        return _pencil_curve(P, h, q, n, p, (w, zh, yk) -> sum(abs2, r - Jk * yk))
+    end
+    keep = _read_parameters(G, Q)
+    Gk = G[keep, keep]; Qk = Q[keep, keep]; hk = h[keep]; qk = q[keep]; Jk = Js[:, keep]
+    M = Gk + Qk                                          # the pattern every M_λ shares
+    Gp = _on_pattern(Gk, M); Qp = _on_pattern(Qk, M)
+    F = cholesky(Symmetric(M); check = false)            # its symbolic analysis, reused at every λ
+    W = Jk' * rand(Random.Xoshiro(seed), (-1.0, 1.0), n, probes)
+    return function (λ::Real)
+        M.nzval .= Gp.nzval .+ λ .* Qp.nzval
+        cholesky!(F, Symmetric(M); check = false)
+        issuccess(F) || throw(ArgumentError("gcv_curve: J'J + λD'D is not positive definite at λ = $λ: a gauge is held exactly by the caller, never by a ridge"))
+        yk = F \ (hk + λ * qk)
+        rss = sum(abs2, r - Jk * yk)
+        dof = sum(W .* (F \ W)) / probes
+        return (; gcv = gcv_score(n, rss, dof), rss, dof, y = _scatter(p, keep, yk))
+    end
+end
+_scatter(p::Integer, keep::AbstractVector{Int}, yk::AbstractVector) = (y = zeros(p); y[keep] = yk; y)
+# The parameters something reads: a positive diagonal of `G + Q`.
+_read_parameters(G::AbstractMatrix, Q::AbstractMatrix) = [j for j in axes(G, 1) if G[j, j] + Q[j, j] > 0]
+# The sparse matrix `A` stored on the pattern of `M` (which holds `A`'s).
+function _on_pattern(A::SparseMatrixCSC, M::SparseMatrixCSC)
+    out = copy(M); fill!(out.nzval, 0.0)
+    for j in axes(A, 2), k in nzrange(A, j)
+        r = rowvals(M); rg = nzrange(M, j)
+        out.nzval[rg[searchsortedfirst(view(r, rg), rowvals(A)[k])]] = nonzeros(A)[k]
+    end
+    return out
+end
+# The pencil's curve over λ: `w = (zh + λzq)./s` in its coordinates, `y = V w` scattered
+# over the parameters, `rss_of(w, zh, yk)` the data residual's sum of squares.
+function _pencil_curve(P, h::AbstractVector, q::AbstractVector, n::Integer, p::Integer, rss_of)
     zh = P.V' * Vector{Float64}(h[P.keep]); zq = P.V' * Vector{Float64}(q[P.keep])
     return function (λ::Real)
         s = 1 .- P.μ .+ λ .* P.μ
         w = (zh .+ λ .* zq) ./ s
-        rss = max(rr - 2 * dot(w, zh) + dot(w, P.K * w), 0.0)
+        yk = P.V * w
+        rss = rss_of(w, zh, yk)
         dof = sum(P.k ./ s)
-        return (; gcv = gcv_score(n, rss, dof), rss, dof, y = _scatter(size(G, 1), P.keep, P.V * w))
+        return (; gcv = gcv_score(n, rss, dof), rss, dof, y = _scatter(p, P.keep, yk))
     end
 end
-function gcv_curve(J::AbstractMatrix, r::AbstractVector, D::AbstractMatrix, c::AbstractVector;
-        hold::Union{Nothing, AbstractMatrix} = nothing, exact_max::Integer = 3000, probes::Integer = 64, seed::Integer = 20261110)
-    n, p = size(J)
-    Js = SparseMatrixCSC{Float64, Int}(J); Ds = SparseMatrixCSC{Float64, Int}(D)
-    G = Js' * Js; Q = Ds' * Ds
-    h = Js' * r; q = Ds' * c
-    RR = hold === nothing ? nothing : (R = SparseMatrixCSC{Float64, Int}(hold); R' * R)
-    if p <= exact_max
-        # the pencil, and the data residual read from the rows (`r − J y`, no cancellation where it is small)
-        P = _gcv_pencil(G, Q, RR)
-        zh = P.V' * Vector{Float64}(h[P.keep]); zq = P.V' * Vector{Float64}(q[P.keep])
-        Jk = Js[:, P.keep]
-        return function (λ::Real)
-            s = 1 .- P.μ .+ λ .* P.μ
-            yk = P.V * ((zh .+ λ .* zq) ./ s)
-            rss = sum(abs2, r - Jk * yk)
-            dof = sum(P.k ./ s)
-            return (; gcv = gcv_score(n, rss, dof), rss, dof, y = _scatter(p, P.keep, yk))
-        end
-    end
-    Gh = RR === nothing ? G : G + RR
-    W = Js' * rand(Random.Xoshiro(seed), (-1.0, 1.0), n, probes)
-    return function (λ::Real)
-        F = cholesky(Symmetric(Gh + λ * Q); check = false)
-        issuccess(F) || throw(ArgumentError("gcv_curve: J'J + R'R + λD'D is not positive definite at λ = $λ: a gauge is held exactly by the caller, never by a ridge"))
-        y = F \ (h + λ * q)
-        rss = sum(abs2, r - Js * y)
-        dof = sum(W .* (F \ W)) / probes
-        return (; gcv = gcv_score(n, rss, dof), rss, dof, y)
-    end
-end
-_scatter(p::Integer, keep::AbstractVector{Int}, yk::AbstractVector) = (y = zeros(p); y[keep] = yk; y)
 
-# The generalized eigendecomposition of the pencil `(Q, B)`, `B = G + RᵀR + Q` over the
+# The generalized eigendecomposition of the pencil `(Q, B)`, `B = G + Q` over the
 # parameters something reads (`keep`, a positive diagonal of `B`): one Cholesky `B = L Lᵀ`
 # and one symmetric eigendecomposition `L⁻¹ Q L⁻ᵀ = U diag(μ) Uᵀ`, `V = L⁻ᵀ U` (`VᵀBV = I`,
-# `VᵀQV = diag μ`); `K = VᵀGV` (`I − diag μ` without a hold) and `k` its diagonal. A `B`
-# that is not positive definite is a gauge: an `ArgumentError`, never a ridge.
-function _gcv_pencil(G::AbstractMatrix, Q::AbstractMatrix, hold::Union{Nothing, AbstractMatrix})
-    Bf = hold === nothing ? G + Q : G + hold + Q
-    keep = [j for j in axes(Bf, 1) if Bf[j, j] > 0]
-    Gk = Matrix{Float64}(G[keep, keep]); Qk = Matrix{Float64}(Q[keep, keep])
-    F = LinearAlgebra.cholesky!(Symmetric(Matrix{Float64}(Bf[keep, keep])); check = false)
-    issuccess(F) || throw(ArgumentError("gcv_curve: J'J + R'R + D'D is not positive definite: a direction neither the data, the hold nor the penalty reads (a gauge) is held exactly by the caller, never by a ridge"))
+# `VᵀQV = diag μ`); `k = 1 − μ`, the diagonal of `VᵀGV`. A `B` that is not positive
+# definite is a gauge: an `ArgumentError`, never a ridge.
+function _gcv_pencil(G::AbstractMatrix, Q::AbstractMatrix)
+    keep = _read_parameters(G, Q)
+    Qk = Matrix{Float64}(Q[keep, keep])
+    F = LinearAlgebra.cholesky!(Symmetric(Matrix{Float64}(G[keep, keep]) + Qk); check = false)
+    issuccess(F) || throw(ArgumentError("gcv_curve: J'J + D'D is not positive definite: a direction neither the data nor the penalty reads (a gauge) is held exactly by the caller, never by a ridge"))
     μ, U = LinearAlgebra.eigen!(Symmetric(LinearAlgebra.rdiv!(LinearAlgebra.ldiv!(F.L, Qk), F.U)))
     μ = clamp.(μ, 0.0, 1.0)
     V = F.U \ U
-    K = hold === nothing ? LinearAlgebra.Diagonal(1 .- μ) : Symmetric(V' * (Gk * V))
-    return (; keep, μ, V, K, k = LinearAlgebra.diag(K))
+    return (; keep, μ, V, k = 1 .- μ)
 end
 
 """

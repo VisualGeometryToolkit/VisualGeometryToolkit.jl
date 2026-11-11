@@ -44,26 +44,27 @@ free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
 SplineLens camera `(; β, λ, gcv, gcv_at_bound, effective_dof,
 n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
-windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start,
-cost_before_gauge, cost_after_gauge, anchor_cost)`: the third-difference
+windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start)`:
+the third-difference
 penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`;
 `gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
 evaluated (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is
 an end of the bracket (the weight GCV wants lies at or past it), and tr H, the
-effective number of parameters at the chosen weight (`nothing` without GCV);
+effective number of parameters at the chosen weight (`nothing` without GCV, and
+when `max_time` cuts GCV's start solve short: then no weight is searched, and β is
+that solve's, 1);
 the present nodes no data row and no third-difference row reads (held at their
 guesses); the correspondences detected on an absent window,
 and those the camera does not project when detected within a cell of one (they
 can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
 estimate until every window is its own) and whether the windows settled before
-the cap; what became of a forward spline
+the cap (`false` when a solve was cut short by `max_time`: its windows were never
+rebuilt); what became of a forward spline
 (`:none` without one, `:refitted`, `:dropped`, or `:kept` with the controls
 held) and the refit's held-out maximum (pixels, or `nothing`); the gauge
-rotation's two angles (the axis's and the roll's, rad); the joint objective
-(½ the sum of squares, the penalty rows included) at the joint solve's start and
-on either side of the gauge step (equal to rounding: the rotation and the common scale are exact symmetries); and the
-anchors' part of the cost (0: the coordinates no row reads are held at their
-guesses). For a SplineLens camera `s²` reads the whole cost, the
+rotation's two angles (the axis's and the roll's, rad); and the joint objective
+(½ the sum of squares, the penalty rows included) at the joint solve's start. For
+a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
 6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
@@ -166,8 +167,9 @@ trait, `GaugeIntrinsics`, selects it):
   them would change the backprojection), each `c = e^ℓ·D` its direction on its
   own sphere (the reference's chart, Core's `ControlPatchManifold`) and its
   log-scale `ℓ` (3 coordinates; the controls grouped into 2 × 2 patches,
-  NLLSsolver's 10-variable block cap), and the poses; a coordinate no row reads
-  is held at its guess (`result.spline.n_nodes_unrefined` counts those nodes).
+  NLLSsolver's 10-variable block cap), and the poses; only the nodes a row
+  reads are variables, the others kept exactly as they are
+  (`result.spline.n_nodes_unrefined` counts them).
   The solve runs in three stages,
   each from the last: the poses alone through the guess's lens, then the
   directions and the poses with every scale held exactly (the scales are no
@@ -201,9 +203,9 @@ trait, `GaugeIntrinsics`, selects it):
     rows): the whole refine solved ONCE at β = 1 (the bracket's top, where
     the penalty weighs like the data and no weakly held node swings), its
     Gauss–Newton step from there for every λ (`r` the data rows' residuals
-    after the step, `H = J(JᵀJ + AᵀA + λDᵀD)⁻¹Jᵀ`, J, D and A the data, Δ³
-    and anchor rows' Jacobians there, the gauge removed), from ONE
-    generalized eigendecomposition of the pencil `(DᵀD, JᵀJ + AᵀA + DᵀD)` up
+    after the step, `H = J(JᵀJ + λDᵀD)⁻¹Jᵀ`, J and D the data and Δ³ rows'
+    Jacobians there, over the variables' coordinates), from ONE
+    generalized eigendecomposition of the pencil `(DᵀD, JᵀJ + DᵀD)` up
     to 3000 coordinates, else per λ a sparse Cholesky and a 64-probe
     Hutchinson trace from a fixed seed (deterministic; standard deviation
     ≤ √(2·tr H / 64)); minimized over `log₁₀ β ∈ [−12, 0]` by the stack's
@@ -216,7 +218,7 @@ trait, `GaugeIntrinsics`, selects it):
     longer projects: an `ArgumentError` says so and suggests `:gcv` or a
     larger weight.
   - `0` or `nothing`: no smoothness. Then every present node outside every
-    correspondence's window is held at its guess (and counted). Without the
+    correspondence's window is kept as it is (and counted). Without the
     Δ³ rows each node's log-scale is held by its data alone, nearly collinear
     with its own direction, so the joint solve needs ≈ 2–3× the default
     `max_iter` (≈ 210 iterations on the 3-view fixture); at the default cap it
@@ -231,9 +233,9 @@ trait, `GaugeIntrinsics`, selects it):
   one whose lens axis `normalize(backward(0, 0))` is ẑ, whose backward
   x-derivative at x = 0 lies in the xz plane (the convention a SplineLens
   camera's K is read in), and whose refined controls' mean length is the
-  guess's. During the solve the gauge is held exactly (the first view's
-  rotation, and the log-scale of the node nearest x = 0: their steps are 0,
-  with no cost row), so the LM's normal matrix is full rank; after it, one
+  guess's. During the solve the gauge is fixed exactly by the parametrization
+  (the first view's rotation and the log-scale of the node nearest x = 0 are no
+  coordinate of any variable), so the LM's normal matrix is full rank; after it, one
   step (the minimal rotation onto ẑ, the roll, the scale) moves the estimate
   to that canonical representative. K is bit-identical to the guess's.
 - A forward spline is dropped for the refinement and, with `refit_forward`
@@ -249,7 +251,8 @@ trait, `GaugeIntrinsics`, selects it):
   RadiometricCamera's calibration pipeline.
 - `max_time` caps the whole refine (every stage and rebuild round reads what
   is left of it; `:max_time` when any was cut short).
-- Device: the CPU (NLLSsolver).
+- Device: the projections that build each problem run batched on the device
+  (Core's `default_device()`); the LM is NLLSsolver's, on the CPU.
 
 # Units
 Plain inputs give plain poses; physical ones (unitful poses and target points,
@@ -304,28 +307,17 @@ _refine_camera_and_poses(camera::_RefinedCamera, poses::AbstractVector, views::A
 
 const _CameraPosePose = LeftRigidManifold6{Float64}
 
-# The rows of every correspondence and their dense Jacobian in the free chart
-# coordinates [camera | pose₁ | pose₂ | …] at the charts' anchors — the stall
-# postcondition's (ForwardDiff through the retractions, per block).
-function _camera_poses_rows_and_jacobian(costs, camera_chart, pose_charts, nd::Int)
-    n = length(costs)
-    r = Vector{Float64}(undef, 2n)
-    J = zeros(2n, nd + 6 * length(pose_charts))
-    zc = zeros(nd)
-    for (k, c) in enumerate(costs)
-        v = nd == 0 ? c.varind[1] : c.varind[2]
-        chp = pose_charts[v - (nd == 0 ? 0 : 1)]
-        cam(z) = nd == 0 ? c.camera : retract(camera_chart, z[1:nd])
-        f(z) = VgtkCore.reprojection_error(cam(z), retract(chp, SVector{6}(ntuple(i -> z[nd + i], 6))), c.X, c.u)
-        z0 = zeros(nd + 6)
-        r[(2k - 1):(2k)] = f(z0)
-        Jk = ForwardDiff.jacobian(f, z0)
-        o = nd + 6 * (v - (nd == 0 ? 1 : 2))
-        J[(2k - 1):(2k), 1:nd] = Jk[:, 1:nd]
-        J[(2k - 1):(2k), (o + 1):(o + 6)] = Jk[:, (nd + 1):(nd + 6)]
-    end
-    return r, J
+# The refine's input contract, both routes: the poses as pose charts (VGC's
+# `LeftRigidManifold6`), a correspondence `X => u` as finite static vectors (an
+# `ArgumentError` naming view `v`, correspondence `j` otherwise), and a pose chart's
+# model as a plain map.
+_pose_charts(poses) = _CameraPosePose[LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(p)), SVector{3, Float64}(translation(p))) for p in poses]
+function _correspondence(v::Integer, j::Integer, c)
+    X = SVector{3, Float64}(first(c)[1], first(c)[2], first(c)[3]); u = SVector{2, Float64}(last(c)[1], last(c)[2])
+    (all(isfinite, X) && all(isfinite, u)) || throw(ArgumentError("refine_camera_and_poses: view $v, correspondence $j: non-finite point or pixel"))
+    return X, u
 end
+_plain_pose(P) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
 
 function _refine_camera_and_poses(
         ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
@@ -347,13 +339,12 @@ function _refine_camera_and_poses(
         throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's free parameters, and `free = ()` frees none"))
     chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
     nd = chc === nothing ? 0 : tangent_size(chc)
-    pose_charts = _CameraPosePose[LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(p)), SVector{3, Float64}(translation(p))) for p in poses]
+    pose_charts = _pose_charts(poses)
     o = chc === nothing ? 0 : 1                                              # the poses' variable offset
     N = chc === nothing ? 1 : 2
     costs = _CameraPoseResidual{N, typeof(camera)}[]
     for (v, cs) in enumerate(views), (j, c) in enumerate(cs)
-        X = SVector{3, Float64}(first(c)[1], first(c)[2], first(c)[3]); u = SVector{2, Float64}(last(c)[1], last(c)[2])
-        (all(isfinite, X) && all(isfinite, u)) || throw(ArgumentError("refine_camera_and_poses: view $v, correspondence $j: non-finite point or pixel"))
+        X, u = _correspondence(v, j, c)
         all(isfinite, VgtkCore.reprojection_error(camera, model(pose_charts[v]), X, u)) || throw(
             ArgumentError("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project at the guess (behind the camera or outside the lens's domain)")
         )
@@ -370,17 +361,17 @@ function _refine_camera_and_poses(
     foreach(c -> NLLSsolver.addcost!(problem, c), costs)
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
     chc_out = chc === nothing ? nothing : problem.variables[1]
-    poses_out = [problem.variables[o + v] for v in 1:V]
+    poses_out = [model(problem.variables[o + v]) for v in 1:V]
     camera_out = chc_out === nothing ? camera : model(chc_out)
-    all(ch -> all(isfinite, rotation(model(ch))) && all(isfinite, translation(model(ch))), poses_out) && all(isfinite, parameter_vector(camera_out)) ||
+    all(P -> all(isfinite, rotation(P)) && all(isfinite, translation(P)), poses_out) && all(isfinite, parameter_vector(camera_out)) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
-    r, J = _camera_poses_rows_and_jacobian(costs, chc_out, poses_out, nd)
+    r, J = nlls_rows_and_jacobian(costs, problem.variables)
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     S = sum(abs2, r)
     ν = 2n - p
-    out = [relabel(VgtkCore.map_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
-    camera_out = camera_out === camera ? bounded : bounded isa BoundedCamera ? VgtkCore.with_model(bounded, camera_out) : camera_out
+    out = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(poses, poses_out)]
+    camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free, nothing)
 end
 

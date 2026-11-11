@@ -95,7 +95,8 @@ end
     chc = restrict(ParameterManifold(cam), free)
     chs = [LeftRigidManifold6(P) for P in poses0]
     costs = [VE._CameraPoseResidual{2, typeof(cam)}(SVector(1, 1 + v), cam, SVector{3, Float64}(first(c)), last(c)) for v in 1:2 for c in views[v]]
-    r, J = VE._camera_poses_rows_and_jacobian(costs, chc, chs, 8)
+    using VisualGeometryToolkitCore: nlls_rows_and_jacobian
+    r, J = nlls_rows_and_jacobian(costs, [chc; chs])                 # Core's assembler of the stall postcondition's rows
     @test size(J) == (32, 8 + 12)
     for (k, c) in enumerate(costs)
         v = c.varind[2] - 1
@@ -155,7 +156,7 @@ end
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, project, reprojection_error, backproject, angle_between
     using Test: @test, @test_throws
     using Random: Xoshiro, randn
-    using VisualGeometryToolkitCore: estimate, retcode
+    using VisualGeometryToolkitCore: estimate, retcode, rms
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
     export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error, check_gcv_choice
 
@@ -192,8 +193,8 @@ end
     # the grid), refined with `penalty = :gcv`: the search's bookkeeping, GCV's weight within 0.1 decade (the old search's
     # final bracket) of `old_log10β`, the weight the per-weight nonlinear search chose (before 2026-11-11), and within a
     # decade of the weight of `grid` (log₁₀ β) whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free),
-    # predicting them as well to 2%. A fixed small weight on the noisy detections: the error names the cause and the
-    # remedy, and the call returns within 3× `weak_seconds`, its time measured warm on one core (raptorlake,
+    # predicting them as well to 2%. A fixed small weight on the noisy detections: the call returns within 3×
+    # `weak_seconds` (an error naming the cause and the remedy, or a finite estimate), its time measured warm on one core (raptorlake,
     # 2026-11-11): its solves are bounded (the LM never sees a non-finite linearization, the rebuild rounds are capped),
     # so no machine spins in it (on dgx01 NLLSsolver 5.3.2's damping loop once did, > 60 min).
     function check_gcv_choice(E, p0, n, grid, old_log10β, weak_seconds)
@@ -211,7 +212,14 @@ end
         errors = [prediction(refine_camera_and_poses(g0, p0, noisy; penalty = 10.0^k)) for k in grid]
         @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
         @test prediction(rg) <= 1.02 * minimum(errors)
-        t = @elapsed @test_throws r"penalty = :gcv" refine_camera_and_poses(g0, p0, noisy; penalty = 1.0e-9)
+        # (the weak weight's solve is ill-posed: whether a correspondence stops projecting on its way depends on the
+        # last bits of the LM's path, so the call either names the cause and the remedy or returns a finite estimate)
+        t = @elapsed weak = try
+            refine_camera_and_poses(g0, p0, noisy; penalty = 1.0e-9)
+        catch e
+            e
+        end
+        @test weak isa ArgumentError ? occursin("penalty = :gcv", weak.msg) : isfinite(rms(weak))
         @test t <= 3 * weak_seconds
         return nothing
     end
@@ -238,10 +246,6 @@ end
     b = lens(est.camera).backward
     d, J = VC.Cameras._spline_direction_and_jacobian(b.controls, b.area, SVector(0.0, 0.0))
     @test angle_between(d, SVector(0.0, 0.0, 1.0)) < 1.0e-9 && abs(atan(J[2, 1], J[1, 1])) < 1.0e-9
-    # (GCV's weight leaves a cost of ≈ 1e-10 px² against exact data, so the rows' rounding in the pixel, ≈ 1e-13 px, is
-    # an absolute floor: measured 1.8e-19)
-    @test res.spline.cost_after_gauge ≈ res.spline.cost_before_gauge rtol = 1.0e-10 atol = 1.0e-15
-    @test res.spline.anchor_cost == 0.0
     # the scale gauge: every control rescaled after the solve so the mean control length is the guess's
     @test sum(norm, b.controls) / length(b.controls) ≈ sum(norm, lens(cam0).backward.controls) / length(b.controls) rtol = 1.0e-14
     @test res.spline.n_nodes_unrefined == 0                                   # every node a data or Δ³ row reads
@@ -256,7 +260,7 @@ end
     @test res.n == 360 && res.spline.n_dropped_window == 0 && res.spline.n_dropped_unprojected == 0 && res.free == (:controls,)
     # the joint solve lowers its objective (λ fixed across the rounds), and the rows' rms is the penalty's bias against
     # exact data: at a 1e-14 relative weight it falls toward the solver's floor
-    @test res.spline.cost_after_gauge <= res.spline.cost_start
+    @test 0.5 * res.s² * res.ν <= res.spline.cost_start
     @test rms(refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-14)) < 1.0e-6
     # a lens five times as far off (every control turned ≈ 0.05 rad): converges within the per-solve cap (the
     # directions-first stage; a joint solve from there crept for 158 iterations)
@@ -264,15 +268,16 @@ end
     rf = refine_camera_and_poses(far, poses0, views)
     @test retcode(rf) === :converged && rf.spline.windows_settled
     # `max_time` caps the whole refine, all stages and rounds: with a zero cap the first solve stops after its first
-    # iteration, and only the joint solve's one capped iteration follows
+    # iteration, and only the joint solve's one capped iteration follows. GCV's start solve (at β = 1) cut short: no
+    # weight is searched, and the metadata is that estimate's — β = 1, its λ, no curve and no tr H — and its windows,
+    # never rebuilt, are not settled
     rt = refine_camera_and_poses(far, poses0, views; max_time = 0.0)
     @test retcode(rt) === :max_time && rt.iterations <= 2 && rt.spline.rounds == 1
+    @test rt.spline.β == 1.0 && rt.spline.gcv === nothing && rt.spline.effective_dof === nothing && !rt.spline.gcv_at_bound
+    @test !rt.spline.windows_settled
+    rp = refine_camera_and_poses(far, poses0, views; penalty = 1.0e-8, max_time = 0.0)
+    @test retcode(rp) === :max_time && !rp.spline.windows_settled && rp.spline.β == 1.0e-8
     @test ray_error(estimate(rf).camera, truth, views) < ray_error(far, truth, views) / 1000
-    # the patch layout is no part of the estimate: the lattice laid one node into the patches agrees to the solver's tolerance
-    e1 = first(VE._refine_spline_camera_and_poses(cam0, poses0, views, 1))
-    @test ray_error(e1.camera, est.camera, views) < 1.0e-9
-    @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(e1.poses, est.poses)) < 1.0e-9
-    @test maximum(abs, parameter_vector(e1.camera) - parameter_vector(est.camera)) < 1.0e-6
 end
 
 @testitem "refine_camera_and_poses: the SplineLens cameras fit_camera and the constructors make, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
@@ -321,8 +326,10 @@ end
     # the full patches (directions and log-scales) and the directions-first stage's directions-only patches
     for directions_only in (false, true)
         p = VE._spline_problem(cam0, poses0, views, true, 1.0e-8; directions_only)
-        @test !isempty(p.costs) && !isempty(p.smooth) && !isempty(p.anchors)
-        for c in [p.costs; p.smooth; p.anchors]                                # the data, Δ³ and anchor blocks
+        @test !isempty(p.costs) && !isempty(p.smooth)
+        # every block arity the layout makes: a window over 2 × 2, 2 × 3 (3 × 2) and 3 × 3 patches, a Δ³ row over 2 and 3
+        @test Set(length(c.varind) for c in p.costs) == Set((5, 7, 10)) && Set(length(c.varind) for c in p.smooth) == Set((2, 3))
+        for c in [p.costs; p.smooth]                                           # the data and Δ³ blocks
             vars = NLLSsolver.getvars(c, p.variables)
             J = NLLSsolver.computeresjac(2^length(c.varind) - 1, c, vars...)[2]
             col = 0
@@ -377,12 +384,11 @@ end
     @test rm.n == 360 - n_absent - rm.spline.n_dropped_unprojected
     @test rm.spline.n_dropped_unprojected <= 10        # those the camera images onto an absent window, within a cell of one (the guess's taken back)
     @test lens(estimate(rm).camera).present == present
-    # a present node no window and no third-difference row reads is anchored: it comes back as its guess, and the anchors add 0
+    # a present node no window and no third-difference row reads is no variable: it comes back as its guess, bit for bit
     island = trues(10, 12); island[1:4, 1:4] .= false; island[1, 1] = true           # node (1, 1) alone in its corner
     ri = refine_camera_and_poses(with_present(cam0, island), poses0, views)
+    @test ri.spline.n_nodes_unrefined == 1
     @test lens(estimate(ri).camera).backward.controls[1, 1] == lens(cam0).backward.controls[1, 1]
-    @test ri.spline.anchor_cost == 0.0
-    @test ri.spline.cost_after_gauge ≈ ri.spline.cost_before_gauge rtol = 1.0e-10 atol = 1.0e-15
     # a rim fragment: two present nodes (1, 1) and (1, 2) that no window and no third-difference row reads are held
     # at their guesses and counted
     rim = trues(10, 12); rim[1:4, 1:4] .= false; rim[1, 1] = rim[1, 2] = true
@@ -419,68 +425,73 @@ end
     small = spline_views(truth, Es[1:2], 1.1; n = 24)
     b = lens(cam0).backward
     scaled = CameraModel(cam0.intrinsics, SplineLens(ChartSpline(b.area, map(c -> 3.7 * c, b.controls))))
+    using VisualGeometryToolkitCore: nlls_rows_and_jacobian, rotation, model
+    cost(q, vars = q.variables) = 0.5 * sum(abs2, first(nlls_rows_and_jacobian(VE._spline_blocks(q), vars)))
     p = VE._spline_problem(cam0, poses0[1:2], small, true, 1.0e-8)
     q = VE._spline_problem(scaled, poses0[1:2], small, true, 1.0e-8; λ = p.λ)
-    @test !isempty(p.smooth) && VE._spline_cost(p.variables, p.smooth) > 0
-    @test VE._spline_cost(q.variables, VE._spline_blocks(q)) ≈ VE._spline_cost(p.variables, VE._spline_blocks(p)) rtol = 1.0e-12
+    @test !isempty(p.smooth) && cost(merge(p, (; costs = empty(p.costs)))) > 0
+    @test cost(q) ≈ cost(p) rtol = 1.0e-12
     @test VE._spline_problem(scaled, poses0[1:2], small, true, 1.0e-8).λ ≈ p.λ rtol = 1.0e-12
-    # tr H: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree within 3σ, σ ≤ √(2 tr H / 64)
-    # the gauge held exactly: at the refined estimate, the normal matrix of every row (data, Δ³, anchors) over the
-    # coordinates the solve moves (the pins' held ones deleted) is full rank, while the unreduced one is singular along
-    # the common scale (the rotation's 3 directions are held off zero only by the Δ³ rows' Gauss–Newton term).
-    # Measured: reduced λmin/λmax 4.9e-13; unreduced 4e-20, then 5e-14 (×3)
-    r7 = estimate(refine_camera_and_poses(cam0, poses0, spline_views(truth, Es, 1.1); penalty = 3.0e-7))
-    pf = VE._spline_problem(r7.camera, r7.poses, spline_views(truth, Es, 1.1), true, 3.0e-7)
-    _, Jf = VE._spline_problem_rows_and_jacobian(pf, pf.variables)
-    @test length(pf.held) == 4 && length(pf.pins) == 2
-    kept = setdiff(axes(Jf, 2), pf.held)
-    ev = eigvals(Symmetric(Matrix(Jf[:, kept]' * Jf[:, kept]))); ev0 = sort(eigvals(Symmetric(Matrix(Jf' * Jf))))
-    @test ev0[1] / ev0[end] < 1.0e-17                                                         # the scale's null, unreduced
-    @test minimum(ev) > 1.0e4 * ev0[1] && count(>(eps() * length(ev) * maximum(ev)), ev) == length(ev)   # full rank, reduced
-
-    # the hold acts in the LM: an NLLSsolver solve of the directions-first (stage 2) and the joint (stage 3) problem
-    # leaves the held log-scale == its start and the pinned view's rotation to the SO(3) re-projection's ulps, while
-    # the rest moves
-    using VisualGeometryToolkitCore: rotation, model
+    # the gauge fixed exactly by the parametrization: at the refined estimate the variables' coordinates are the live
+    # controls' 3 less the gauge's 4 (the pinned view's rotation and the scale node's log-scale are no coordinate) and
+    # the poses', and the normal matrix over them is full rank; the gauge is a symmetry of the cost (the turned and
+    # scaled variables cost the same, to rounding). Measured: λmin/λmax 4.9e-13
+    views = spline_views(truth, Es, 1.1)
+    r7 = estimate(refine_camera_and_poses(cam0, poses0, views; penalty = 3.0e-7))
+    pf = VE._spline_problem(r7.camera, r7.poses, views, true, 3.0e-7)
+    _, Jf = nlls_rows_and_jacobian(VE._spline_blocks(pf), pf.variables)
+    @test size(Jf, 2) == 3count(pf.live) - 4 + 6 * 3
+    ev = eigvals(Symmetric(Matrix(Jf' * Jf)))
+    @test count(>(eps() * length(ev) * maximum(ev)), ev) == length(ev)                     # full rank
+    Q = VC.exp_so3(SVector(0.02, -0.01, 0.03))
+    @test cost(pf, VE._turned_variables(pf, pf.variables, Q, 0.3)) ≈ cost(pf) rtol = 1.0e-8 atol = 1.0e-18
+    # the gauge held in the LM: an NLLSsolver solve of the directions-first (stage 2) and the joint (stage 3) problem
+    # leaves the pinned view's rotation to the SO(3) re-projection's ulps and the scale node's log-scale == its start,
+    # while the rest moves; the slots no row reads are no coordinate and stay bit for bit
     for directions_only in (true, false)
-        ph = VE._spline_problem(cam0, poses0, spline_views(truth, Es, 1.1), true, 3.0e-7; directions_only)
-        _, sh = VE._spline_solve!(ph, true, 10, 1.0e-12, 1.0e-12, nothing)
-        pin = ph.pins[1]; v = pin.varind[1]
+        ph = VE._spline_problem(cam0, poses0, views, true, 3.0e-7; directions_only)
+        _, sh = VE._spline_solve!(ph, 10, 1.0e-12, 1.0e-12, nothing)
+        v = findfirst(k -> sh[k] isa VE._SplinePose && length(sh[k].idx) == 3, eachindex(sh))
+        @test count(k -> sh[k] isa VE._SplinePose && length(sh[k].idx) == 3, eachindex(sh)) == 1 && ph.variables[v].idx == [4, 5, 6]
         R0 = rotation(model(ph.variables[v])); R1 = rotation(model(sh[v]))
         @test maximum(abs, R1 - R0) <= 4 * eps()
         @test maximum(abs, VC.translation(model(sh[v])) - VC.translation(model(ph.variables[v]))) > 1.0e-6   # its translation moved
-        if !directions_only
-            sp = ph.pins[2]; k = sp.varind[1]; n = findfirst(sp.held) - 8
-            @test VE._patch_scale(sh[k], n) == VE._patch_scale(ph.variables[k], n)
-            @test any(m -> m != n && VE._patch_scale(sh[k], m) != VE._patch_scale(ph.variables[k], m), 1:4) ||
-                any(j -> j != k && sh[j] isa VE._SplinePatch && VE._patch_scale(sh[j], 1) != VE._patch_scale(ph.variables[j], 1), 1:ph.nP)
-        end
+        held = [(k, n) for k in 1:ph.nP for n in 1:4 if VE._slot_live(ph.variables[k], n) && !(8 + n in ph.variables[k].idx)]
+        @test length(held) == (directions_only ? count(ph.live) : 1)
+        @test all(((k, n),) -> VE._patch_scale(sh[k], n) == VE._patch_scale(ph.variables[k], n), held)
+        dead = [(k, n) for k in 1:ph.nP for n in 1:4 if !VE._slot_live(ph.variables[k], n)]
+        @test all(((k, n),) -> VE._patch_direction(sh[k], n) == VE._patch_direction(ph.variables[k], n), dead)
+        directions_only || @test any(k -> any(n -> VE._patch_scale(sh[k], n) != 0.0, 1:4), 1:ph.nP)
     end
-    # the anchors hold only coordinates nothing else reads: without them those coordinates are dropped and the curve is
-    # the same; with the pins' held coordinates kept (the gauge open) the system is singular and refused, never ridged
-    c_all = VE._gcv_linearization(pf, pf.variables); c_free = VE._gcv_linearization(merge(pf, (; anchors = empty(pf.anchors))), pf.variables)
-    @test all(λ -> c_free(λ).gcv ≈ c_all(λ).gcv, pf.λ .* (1.0e-3, 1.0, 1.0e3))
-    @test_throws r"not positive definite" VE._gcv_linearization(merge(pf, (; held = Int[])), pf.variables)
 
     # tr H on the 3-view fixture: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree
     # within 3σ, σ ≤ √(2 tr H / 64); tr H well below the 720 data rows
-    views = spline_views(truth, Es, 1.1)
+    using VisualGeometryToolkitEstimation: gcv_curve
     r8 = estimate(refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8))
     pt = VE._spline_problem(r8.camera, r8.poses, views, true, 1.0e-8)            # at the refined estimate
     solved = pt.variables
     # (the linearized curve at the problem's own weight: the pencil, exact, and the per-weight sparse Cholesky with the probes)
-    ex = VE._gcv_linearization(pt, solved; exact_max = typemax(Int))(pt.λ); hu = VE._gcv_linearization(pt, solved; exact_max = 0)(pt.λ)
+    rows = VE._gcv_rows(pt, solved)
+    ex = gcv_curve(rows...; exact_max = typemax(Int))(pt.λ); hu = gcv_curve(rows...; exact_max = 0)(pt.λ)
+    @test VE._gcv_linearization(pt, solved)(pt.λ).dof == ex.dof                     # the refine's: the pencil, at 3000 and below
     @test 0 < ex.dof < 0.6 * 720
     @test abs(hu.dof - ex.dof) <= 3 * sqrt(2 * ex.dof / 64)
-    @test VE._gcv_linearization(pt, solved; exact_max = 0)(pt.λ).dof == hu.dof   # the probes' seed is fixed
+    @test gcv_curve(rows...; exact_max = 0)(pt.λ).dof == hu.dof   # the probes' seed is fixed
     @test hu.rss ≈ ex.rss rtol = 1.0e-8
-    # the curve is the Gauss–Newton step's: δ = argmin ‖J_d δ + r_d‖² + λ‖J_s δ + s‖² + ‖A δ‖² over the coordinates the
-    # solve moves (the problem's own rows; its Δ³ rows already carry √λ), solved directly
-    rr, Jt = VE._spline_problem_rows_and_jacobian(pt, solved)
-    kt = setdiff(axes(Jt, 2), pt.held); Jk = Jt[:, kt]; nd = 2length(pt.costs)
-    δ = -(Matrix(Jk' * Jk) \ (Jk' * rr))
-    @test ex.rss ≈ sum(abs2, rr[1:nd] + Jk[1:nd, :] * δ) rtol = 1.0e-8
-    @test ex.dof ≈ tr(Matrix(Jk[1:nd, :] * (Matrix(Jk' * Jk) \ Matrix(Jk[1:nd, :]')))) rtol = 1.0e-8
+    # the curve is the Gauss–Newton step's: δ = argmin ‖J_d δ + r_d‖² + λ‖J_s δ + s‖² over the variables' coordinates
+    # (the problem's own rows; its Δ³ rows already carry √λ), solved directly
+    rr, Jt = nlls_rows_and_jacobian(VE._spline_blocks(pt), solved); nd = 2length(pt.costs)
+    δ = -(Matrix(Jt' * Jt) \ (Jt' * rr))
+    @test ex.rss ≈ sum(abs2, rr[1:nd] + Jt[1:nd, :] * δ) rtol = 1.0e-8
+    @test ex.dof ≈ tr(Matrix(Jt[1:nd, :] * (Matrix(Jt' * Jt) \ Matrix(Jt[1:nd, :]')))) rtol = 1.0e-8
+    @test ex.y ≈ δ rtol = 1.0e-6
+
+    # a rebuild keeps its λ: no unit weight is formed (the data's Gauss–Newton diagonal and the Δ³ operator's mean
+    # eigenvalue, a sparse QR), so it costs a fraction of a first build
+    VE._spline_problem(cam0, poses0, views, true, 1.0e-8; λ = pt.λ)
+    a_fresh = @allocated VE._spline_problem(cam0, poses0, views, true, 1.0e-8)
+    a_given = @allocated VE._spline_problem(cam0, poses0, views, true, 1.0e-8; λ = pt.λ)
+    @test a_given < 0.5 * a_fresh
 
     # a numeric penalty: GCV off, the weight as given, the same result every time
     r1 = refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8)
@@ -536,13 +547,13 @@ end
         @test e.dof ≈ tr(H) rtol = 1.0e-8
         @test e.gcv ≈ 40 * e.rss / (40 - e.dof)^2 rtol = 1.0e-12
     end
-    # with a hold R (not data: in the system, not in tr H) and a target c, normal-equation and rows forms; the rows form
-    # past `exact_max` (a sparse Cholesky per λ, a Hutchinson trace) gives the same rss and tr H within 3σ
-    R = randn(rng, 3, 8); c2 = randn(rng, size(Dm, 1))
-    ch = gcv_curve(J' * J, J' * r, sum(abs2, r), Dm' * Dm, Dm' * c2, 40; hold = R' * R)
-    cr = gcv_curve(J, r, Dm, c2; hold = R); cs = gcv_curve(J, r, Dm, c2; hold = R, exact_max = 0, probes = 4000)
+    # with a target c, normal-equation and rows forms; the rows form past `exact_max` (a sparse Cholesky per λ, its
+    # symbolic analysis once, a Hutchinson trace) gives the same rss and tr H within 3σ
+    c2 = randn(rng, size(Dm, 1))
+    ch = gcv_curve(J' * J, J' * r, sum(abs2, r), Dm' * Dm, Dm' * c2, 40)
+    cr = gcv_curve(J, r, Dm, c2); cs = gcv_curve(J, r, Dm, c2; exact_max = 0, probes = 4000)
     for λ in (1.0e-3, 0.1, 10.0)
-        A = J' * J + R' * R + λ * Dm' * Dm
+        A = J' * J + λ * Dm' * Dm
         y = A \ (J' * r + λ * Dm' * c2)
         e = ch(λ)
         @test e.rss ≈ sum(abs2, r - J * y) rtol = 1.0e-8
@@ -554,6 +565,15 @@ end
         @test cr(λ).y ≈ y rtol = 1.0e-8
         @test cs(λ).y ≈ y rtol = 1.0e-8
         @test abs(cs(λ).dof - e.dof) <= 3 * sqrt(2 * e.dof / 4000)
+    end
+    # a parameter no row reads (a zero column of J and of D) is dropped by every form, the pencil and the per-λ
+    # Cholesky alike: 0 in y, the rest as without it
+    Ju = hcat(J, zeros(40)); Du = hcat(Dm, zeros(size(Dm, 1)))
+    for exact_max in (3000, 0)
+        cu = gcv_curve(Ju, r, Du, c2; exact_max, probes = 4000)
+        @test cu(0.1).y[end] == 0.0
+        @test cu(0.1).y[1:8] ≈ cr(0.1).y rtol = 1.0e-8
+        @test cu(0.1).rss ≈ cr(0.1).rss rtol = 1.0e-8
     end
     # a direction neither term reads but the parameters share (two equal columns, the penalty blind to their difference):
     # a gauge, refused — never ridged

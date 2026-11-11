@@ -5,6 +5,35 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: a SplineLens refine's gauge is fixed by its parametrization, and only the live controls are variables.**
+  `refine_camera_and_poses` on a SplineLens camera held its rotation and scale gauges with zero-cost pin blocks and its
+  unread coordinates (pad slots, absent nodes, nodes no row reads) with anchor rows `coordinate − guess`. Now each patch
+  variable is Core's `restrict` of its chart to its live controls' coordinates (a patch with none is no variable), the
+  view holding the rotation gauge has a translation-only pose chart and the scale node no log-scale coordinate; a block
+  reads only the 2 × 2 to 3 × 3 patches its window lies in. The patch `offset` layout knob is gone. The spline metadata
+  loses `cost_before_gauge`, `cost_after_gauge` and `anchor_cost` (each an invariant the parametrization now guarantees);
+  `cost_start` is NLLSsolver's start cost of the joint solve. The estimates agree with the pinned form to the solver's
+  tolerance (3-view fixture: controls within 3e-7 under GCV, 1e-8 at β = 1e-8; GCV's β to 1e-5 relative; the noisy GCV
+  case to 2e-11), and the point-does-not-project condition travels as a status, stated once at the public boundary.
+- **Fixed: GCV's start solve cut short by `max_time`** returned the β = 1 estimate with the searched β and tr H in its
+  metadata; it now reports β = 1, no curve and no tr H. **Fixed: `windows_settled`** was `true` for a solve cut short by
+  `max_time`, whose windows were never rebuilt; it is `false`.
+- **Faster: a SplineLens refine's rebuilds.** A rebuild with its weight given forms no unit weight (the data's
+  Gauss–Newton diagonal and the Δ³ operator's mean eigenvalue, a sparse QR); the correspondences' projections that
+  build each problem run batched on the device (Core's projection kernel), a rebuild's warm-started at the last build's;
+  a block's projection solve is reused between NLLSsolver's trial cost and its linearization at the same point; its
+  gradient is lazy like its normal matrix, and its tangents are formed only for the controls it reads.
+- **Breaking: `gcv_curve` loses its `hold` keyword** (both forms; the refine's anchor rows were its only user). The rows
+  form past `exact_max` now drops the parameters nothing reads, as the pencil already did (it threw "not positive
+  definite" on one), and factors its sparse matrix with one symbolic analysis for every λ. Both forms share one pencil
+  curve.
+- **Internal: Core's primitives.** `fit_camera`'s spacing search counts its nodes with Core's `_node_counts`, a
+  source ray's off-axis angle is Core's `angle_between`, SIMFIT++'s naive σ² divides by Core's `chisq_median`; the
+  full-lattice Δ³ operator's mean eigenvalue (a sparse QR) is formed once per lattice size, not at every spacing tried.
+- **Internal: one rows-and-Jacobian assembler.** The three refines' stall postconditions (the parametric and spline
+  camera refines, `refine_robot_world_hand_eye`) read Core's `nlls_rows_and_jacobian`; the refines share one input
+  contract (`_pose_charts`, `_correspondence`, `_plain_pose`).
+
 - **New: `synthetic_scenes()`** (public, not exported; a Test extension, `using Test` loads it): the stack's shared synthetic
   test scenes, the module whose families `EpipolarScenes`, `HomographyScenes`, `PoseScenes`, `DivisionBoards`,
   `P3PScenes`, `Cameras` and `Contamination` export their seeded builders (`calibrated_pairs`, `stereo_pixel_pairs`,

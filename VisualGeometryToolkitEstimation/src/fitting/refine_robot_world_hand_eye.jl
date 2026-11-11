@@ -187,25 +187,6 @@ function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPose, X::
     return _rw_residual(r, Y, X), _rw_jacobian(r, Y, X)
 end
 
-# The reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts'
-# origins — the covariance's and the stall postcondition's (point k's rows
-# 2k − 1, 2k; its columns those of Y and of its X_m).
-function _rw_rows_and_jacobian(costs::AbstractVector{<:_RwPointResidual}, charts::AbstractVector)
-    n = length(costs)
-    r = Vector{Float64}(undef, 2n)
-    J = zeros(2n, 6 * length(charts))
-    @inbounds for (k, c) in enumerate(costs)
-        chY, chX = charts[c.varind[1]], charts[c.varind[2]]
-        rk = _rw_residual(c, chY, chX)
-        Jk = _rw_jacobian(c, chY, chX)
-        m = c.varind[2] - 1
-        r[2k-1:2k] = rk
-        J[2k-1:2k, 1:6] = Jk[:, 1:6]
-        J[2k-1:2k, 6m+1:6m+6] = Jk[:, 7:12]
-    end
-    return r, J
-end
-
 function _refine_robot_world_hand_eye(
         guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us, max_iter
     ) where {C}
@@ -238,7 +219,10 @@ function _refine_robot_world_hand_eye(
     all(p -> all(isfinite, rotation(p)) && all(isfinite, translation(p)), poses) ||
         throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))
 
-    r, J = _rw_rows_and_jacobian(costs, charts)
+    # the reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts' origins — the covariance's and the
+    # stall postcondition's (point k's rows 2k − 1, 2k; its columns those of Y and of its X_m)
+    r, Js = nlls_rows_and_jacobian(costs, charts)
+    J = Matrix(Js)
     # NLLSsolver's own stops (a small relative or absolute cost decrease, a
     # small step) do not prove convergence; the stall postcondition does —
     # the chart LM tests the same one (VGC `lmsolve_chart!`).

@@ -217,15 +217,15 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
-using VisualGeometryToolkitCore: nlls_retcode   # NLLSsolver's termination bits + the stall postcondition, as a retcode
-using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, finite_linearization, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
+using VisualGeometryToolkitCore: nlls_retcode, nlls_rows_and_jacobian, nlls_stop_reasons   # NLLSsolver's termination bits + the stall postcondition, as a retcode
+using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 # fit_camera's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
-using SparseArrays: SparseMatrixCSC
+using SparseArrays: SparseMatrixCSC, nzrange, rowvals, nonzeros   # (gcv.jl: the Hutchinson path's pattern)
 import SparseArrays
 import Graphs   # the view and observation graphs' algorithms (components, articulation, bridges, spanning trees)
-using LinearAlgebra: cholesky, lu, issuccess, diag
+using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
     mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization and an operator's rows as blocks (Core)

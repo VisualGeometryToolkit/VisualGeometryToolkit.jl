@@ -593,6 +593,12 @@ its model's `with_directions`, the bound, the lens coverage and a pose kept.
 """
 with_directions(bc::BoundedCamera, D::AbstractMatrix) = with_model(bc, with_directions(model(bc), D))
 
+# `axis_gauged` (spline_lens.jl) of a posed camera — its model and its extrinsics turned together — and of a bounded
+# one: its model's, the bound and the lens coverage kept (pixels do not move).
+axis_gauged(c::PosedCamera, rotation::Rotation{3}, principal_point) =
+    PosedCamera(axis_gauged(c.model, rotation, principal_point), axis_gauged(c.extrinsics, rotation))
+axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, principal_point) = with_model(bc, axis_gauged(model(bc), rotation, principal_point))
+
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
 is_posed(b::BoundedCamera) = is_posed(b.camera)
@@ -1176,6 +1182,7 @@ export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point cont
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part (likewise)
+export axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis (spline_lens.jl)
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)

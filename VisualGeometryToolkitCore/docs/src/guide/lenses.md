@@ -272,6 +272,14 @@ controls (the same `K`, lattice and mask; the forward spline, which inverted the
 old directions, is dropped). Both rebuild a `BoundedCamera` too, keeping its
 bound, lens coverage and pose.
 
+A spline's ẑ is a gauge: wherever its first calibration's frame put it, which
+may be far from the lens's optical axis. `axis_gauged(cam, R, pp)` turns the
+camera frame by `R` (every control `R·c`, so every ray `R·d`, exactly) and moves
+`K`'s principal point to the pixel `pp`. Turn the poses by the same `R` with
+`axis_gauged(extrinsics, R)`; a posed camera turns its own. Every image is then
+kept. With `R` taking the optical axis onto ẑ and `pp` the axis's pixel, the
+principal point is the optical axis.
+
 ```julia
 cam = CameraModel(SplineLens, fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
 w = window(cam, 5:14, 15:24)                       # rows (y) × cols (x) of the grid

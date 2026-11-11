@@ -1262,6 +1262,50 @@ presence mask. The forward spline, which inverts the old directions, is dropped
 with_directions(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, D::AbstractMatrix) =
     CameraModel(cam.intrinsics, SplineLens(_with_controls(cam.lens.backward, D, "with_directions"); present = cam.lens.present))
 
+"""
+    axis_gauged(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rotation::Rotation{3}, principal_point) -> CameraModel
+    axis_gauged(camera::Union{PosedCamera, BoundedCamera}, rotation, principal_point)
+    axis_gauged(extrinsics::Union{EuclideanMap{3}, RotationMap{3}}, rotation::Rotation{3})
+
+The same [`SplineLens`](@ref) camera in its camera frame turned by `rotation`
+(`d′ = R·d`). With `R` taking the lens's optical axis onto ẑ and
+`principal_point` the pixel imaging that axis, the principal point images ẑ and
+ẑ is the optical axis.
+
+It is an exact re-gauge, not a fit.
+- Every backward control is turned, `c ↦ R·c` ([`with_directions`](@ref)), so
+  each pixel's ray is `R` times its old ray, to rounding (the normalization
+  commutes with `R`).
+- `K`'s principal point moves to `principal_point` (`(u, v)` in pixels), with
+  `fx`, `fy` and skew 0 kept. This is `CameraModel(camera, K′)`: any skew-0
+  `K` is an exact gauge of the lattice.
+- The forward spline is dropped, since it inverts the old rays.
+- The presence mask is kept.
+
+The poses turn with the frame.
+- A world → camera map (extrinsics, `X_c = R_p·X + t`) becomes
+  `(R·R_p, R·t)`, its frame tags kept (the third form). Every projection is
+  then kept.
+- A posed camera turns its extrinsics with its model.
+- A bounded camera keeps its image and lens coverage.
+
+A spline that is never gauged this way keeps its source's ẑ: one read from a
+record, or one built by `CameraModel(SplineLens, source, size)`.
+"""
+function axis_gauged(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, rotation::Rotation{3}, principal_point)
+    R = SMatrix{3, 3, Float64}(rotation)
+    turned = with_directions(cam, map(c -> R * c, cam.lens.backward.controls))
+    K = SMatrix{3, 3, Float64}(_K(cam.intrinsics))
+    K′ = CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, principal_point[1], principal_point[2], 1.0))
+    return CameraModel(turned, K′)
+end
+# (a posed and a bounded camera: cameras.jl, beside `with_directions`)
+# The extrinsics in the turned camera frame: the rotation applied after them, in their camera frame (its tag on both sides).
+function axis_gauged(extrinsics::Union{EuclideanMap{3}, RotationMap{3}}, rotation::Rotation{3})
+    camera_frame = last(map_frames(extrinsics))
+    return relabel(camera_frame, camera_frame, RotationMap(rotation)) ∘ extrinsics
+end
+
 # A spline's controls replaced: `SVector{3}`s over its area, in its element type, the lattice's size checked.
 function _with_controls(s::ChartSpline, controls::AbstractMatrix, what)
     size(controls) == size(s.controls) ||

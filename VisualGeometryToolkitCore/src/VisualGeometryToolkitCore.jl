@@ -368,6 +368,7 @@ public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchMani
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part
+public axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis
 public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
 export SplineLens, NoncentralSplineModel   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl); the non-central grid on its directions (cameras/noncentral_spline_model.jl)
 public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it

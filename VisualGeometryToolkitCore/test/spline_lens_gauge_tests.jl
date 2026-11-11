@@ -385,3 +385,59 @@ end
     # the warp's device form is `Adapt.adapt` itself: no forwarding wrapper
     @test !isdefined(VisualGeometryToolkitCore, :_device_warp)
 end
+
+@testitem "axis_gauged: the frame rotated so ẑ is the given axis, K's principal point moved; every image kept with the poses turned" setup = [SplineAxis] begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm, normalize, I
+    using Rotations: RotMatrix, AngleAxis
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, calibration_matrix, backproject,
+        project, with_present, with_directions, axis_gauged, RotationMap, EuclideanMap, BoundedCamera, PosedCamera, Size2, model, Rect2,
+        relabel, map_frames, rotation, WorldFrame, CameraFrame
+
+    # a radially symmetric camera's spline (axis ẑ, the axis's pixel (500, 500)) whose frame is turned by Q, 5° about a
+    # tilted axis: its ẑ is off the optical axis by 5°, and its gauge K (the pixel imaging ẑ) is off the axis's pixel
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    on = CameraModel(SplineLens, src, (1000, 1000); grid_size = (20, 20))
+    Q = RotMatrix(AngleAxis(deg2rad(5.0), 0.6, 0.8, 0.0))
+    off = CameraModel(SplineLens, map(c -> Q * c, on.lens.backward.controls), (1000, 1000))
+    Koff = calibration_matrix(off)
+    @test norm(SVector(Koff[1, 3], Koff[2, 3]) - SVector(500.0, 500.0)) > 20      # the old gauge: ~26 px off the axis's pixel
+    R = RotMatrix{3}(Q')                                                          # the axis Q·ẑ of the turned frame onto ẑ
+    pp = SVector(500.0, 500.0)
+    g = axis_gauged(off, R, pp)
+    K′ = calibration_matrix(g)
+    @test SVector(K′[1, 3], K′[2, 3]) == pp && K′[1, 1] == Koff[1, 1] && K′[2, 2] == Koff[2, 2] && iszero(K′[1, 2])
+    @test g.lens.backward.controls == map(c -> R * c, off.lens.backward.controls)
+    # every pixel's ray is the old one turned by R, to rounding (the K is a gauge; the rotation commutes with normalization)
+    pixels = [SVector(x, y) for x in 0.5:37.0:999.5 for y in 0.5:41.0:999.5]
+    @test all(u -> norm(backproject(g, u) - R * backproject(off, u)) <= 1.0e-12, pixels)
+    # the principal point's ray is ẑ to the spline's approximation of the symmetric source (the unturned spline's own)
+    @test norm(principal_ray(g) - SVector(0.0, 0.0, 1.0)) <= 2 * norm(principal_ray(on) - SVector(0.0, 0.0, 1.0)) + 1.0e-9
+    @test norm(project(g, SVector(0.0, 0.0, 1.0)) - pp) <= 1.0e-6
+    # images unchanged with the poses (world → camera) turned by the same rotation: (R·R_p, R·t), the frame tags kept
+    pose = relabel(WorldFrame, CameraFrame, EuclideanMap(RotMatrix(AngleAxis(0.3, 0.2, -1.0, 0.4)), (0.1, -0.2, 2.0)))
+    turned = axis_gauged(pose, R)
+    @test map_frames(turned) == (WorldFrame, CameraFrame)
+    @test isapprox(rotation(turned), R * rotation(pose); atol = 1.0e-15) && isapprox(turned.t, R * pose.t; atol = 1.0e-15)
+    @test axis_gauged(RotationMap(RotMatrix(AngleAxis(0.3, 0.2, -1.0, 0.4))), R) isa RotationMap
+    X = [SVector(x, y, 0.0) for x in -0.8:0.2:0.8 for y in -0.6:0.2:0.6]
+    @test all(x -> norm(project(g, turned(x)) - project(off, pose(x))) <= 1.0e-6, X)
+    @test all(x -> all(isfinite, project(off, pose(x))), X)
+    # a forward spline inverts the old directions: dropped; the presence mask kept
+    fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
+    withfwd = CameraModel(off.intrinsics, SplineLens(off.lens.backward; forward = fwd))
+    @test axis_gauged(withfwd, R, pp).lens.forward === nothing
+    P = trues(size(off.lens.backward.controls)); P[1, 1] = P[end, 3] = false
+    @test axis_gauged(with_present(off, P), R, pp).lens.present == P
+    # a bounded camera: its model gauged, its image kept
+    bc = BoundedCamera(off, Size2(1000, 1000))
+    gb = axis_gauged(bc, R, pp)
+    @test gb isa BoundedCamera && calibration_matrix(model(gb)) == K′ && model(gb).lens.backward.controls == g.lens.backward.controls
+    # a posed camera: its model and its extrinsics turned together, every world point imaged where it was
+    posed = PosedCamera(off, pose)
+    gp = axis_gauged(posed, R, pp)
+    @test gp isa PosedCamera && gp.extrinsics == turned && calibration_matrix(gp) == K′
+    @test all(x -> norm(project(gp, x) - project(posed, x)) <= 1.0e-6, X)
+end

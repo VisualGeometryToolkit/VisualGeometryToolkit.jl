@@ -5,6 +5,16 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `axis_gauged(camera, R, principal_point)`, a SplineLens camera in the frame turned so ẑ is its optical
+  axis** (public, exported from `Cameras`). It is an exact re-gauge, not a fit:
+  - every backward control is turned (`with_directions`, `c ↦ R·c`, every ray `R·d` to rounding);
+  - `K`'s principal point moves to the given pixel (`CameraModel(camera, K′)`, `fx`, `fy` and skew 0 kept);
+  - the stale forward spline is dropped.
+
+  `axis_gauged(extrinsics, R)` turns a world → camera pose by the same rotation (`(R·R_p, R·t)`, the frame tags
+  kept), so every image is kept. A posed camera turns its extrinsics with its model; a bounded camera keeps its bound.
+  A spline that is never gauged keeps its source's ẑ.
+
 - **New: `RadialVignetting(…; chart = :projective)`, a radial profile on the projective chart** of its distance from the
   centre, `ρ = d / (radius + d)` (½ at the radius, → 1 at infinity), so no sensor point is beyond the knots whatever the
   centre; its knots are `projective_knots(n, degree)` (uniform in the distance up to the radius, one tail span beyond).

@@ -37,6 +37,15 @@ sensor — so every consumer asks the camera what it images instead of supplying
   are flagged as a KEYWORD of a `fit_*`/`refine_*` call or signature (and their `_`-prefixed internals) and as a key of a
   refine or LM TOML table; the bare word (comments such as "CUDA-free", locals, fields, accessors such as `free_names`,
   other functions) is not. A refusal slot (`free = _RetiredKeyword()`) and a `@test_throws` call are no finding.
+- **New: the core optimization strategies `Irls{K}` and `Triggs{K}` are VisualGeometryToolkitCore's** (moved from
+  VisualGeometryToolkitEstimation, so PoseLib and every estimator take the same configuration types), with `LOSS_TAGS`,
+  their width modes and identity (`strategy_loss`, `lo_loss`, `fixed_width`, `lo_width_value`, `lo_admits_shape`), the
+  strategy registry machinery every package registers its strategies with (`@lo_registry`, `lo_construct` and the hooks
+  `lo_tag`, `lo_defaults`, `lo_parametric`, `lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`, `lo_absent`,
+  `lo_validate`, `lo_efficiency_constant_shape`, now contract generics; `lo_has_default`, `lo_takes_width`) and their
+  registry `STRATEGY_TAGS`. Their keyword defaults are Core's new `configs/default.toml` (`[optimization_strategy.irls]
+  max_iter = 25`). A strategy is configuration only; the algorithms that run it stay the estimators'. `Triggs{K}`
+  selects the loss that `loss_robustifier` hands NLLSsolver.jl; nothing in Core forms the robustified LM.
 - **Breaking: one optimization-strategy family, `AbstractOptimizationStrategy`** (was `AbstractLocalOptimization`; the
   owner's ruling): Irls, Triggs, the LO wrappers and the downstream strategies alike, the contract gate checking which
   subset each verb accepts. No local optimization is `nothing` (TOML `"none"`): Core answers the LO contract for it

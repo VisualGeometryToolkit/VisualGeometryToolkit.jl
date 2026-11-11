@@ -13,6 +13,12 @@ non-central one is a `NoncentralSplineModel`).
   still records the refined set (`result.free`). `free`, `fix`, `fixed_params` and `hold` are `ArgumentError`s naming
   `fixed`. Its `fixed` is resolved by VisualGeometryToolkitCore's `free_parameter_names`, so it takes a group
   (`fixed = (:k,)` holds k1…) and accepts `:skew`.
+- **`Irls`, `Triggs`, `LOSS_TAGS` and the strategy registry machinery are VisualGeometryToolkitCore's** (moved, A2):
+  this package imports and re-publishes them (`VgtkEstimation.Irls`, `VgtkEstimation.@lo_registry` keep working), and
+  its `LO_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
+  Core's contract generics; this package's `CONTRACT_GENERICS` keeps its TOML reader's (`lo_concrete`,
+  `lo_resolve_efficiency_constant`), the writer and the placement. The `[optimization_strategy.irls]` defaults moved
+  to Core's `configs/default.toml`.
 - **Breaking: the strategy keywords are `local_optimization_strategy` (find) and `optimization_strategy` (refine, fit)**
   (the owner's ruling). `find_*`, `ransac` and `locally_optimize` take `local_optimization_strategy`; every `refine_*`,
   `refine_camera_and_poses` and `fit_linear`/`fit_rotation`/`fit_rotation_averaging` take `optimization_strategy`. A fit

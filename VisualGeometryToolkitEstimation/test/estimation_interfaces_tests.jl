@@ -155,8 +155,8 @@ end
     @testset "with_width sets the width mode and preserves every other field" begin
         RVGK = VisualGeometryToolkitEstimation
         strategies = Any[
-            RVGK.Irls{RVGK.WelschShape}(efficiency_constant = 1.5),                                   # parametric
-            RVGK.Irls{RVGK.GemanMcclureShape}(efficiency_constant = 1.9422174675375463, max_iter = 7),   # decision_width(GM, 1.25): the retired half-weight currency's 1.25
+            RVGK.Irls{WelschShape}(efficiency_constant = 1.5),                                   # parametric
+            RVGK.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463, max_iter = 7),   # decision_width(GM, 1.25): the retired half-weight currency's 1.25
         ]   # the moved strategies' constructor shapes: LocalOptimizationDoneRight's suite
         for lo in strategies
             @test lo_width(lo) isa EfficiencyConstant

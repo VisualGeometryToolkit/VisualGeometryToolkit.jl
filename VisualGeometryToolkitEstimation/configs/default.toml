@@ -280,10 +280,8 @@ scale_prior = "jeffreys"
 label_prior = "flat"
 
 # -----------------------------------------------------------------------------
-# Local-optimization strategy internals. The keyword defaults of each strategy
-# constructor read its table. A strategy's width (`efficiency_constant` or
-# `loss_width`) is deliberately absent: given none it follows the scorer's
-# decision point.
+# This package's optimization strategies' keyword defaults, one table per tag
+# (none has a default today: TerminalLO's `inner` is required). The core
+# strategies' (Irls, Triggs) are VisualGeometryToolkitCore's configs/default.toml.
 # -----------------------------------------------------------------------------
-[optimization_strategy.irls]
-max_iter = 25
+[optimization_strategy]

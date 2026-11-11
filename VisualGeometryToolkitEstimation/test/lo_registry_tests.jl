@@ -106,7 +106,7 @@ end
         @test lo_tag(Irls{TLSShape}) == "irls"
         @test LO_TAGS["none"] === nothing                                               # no local optimization
         @test_throws r"renamed \"none\"" LO_TAGS["no_local_optimization"]             # the retired tag names its successor
-        @test lo_defaults(Irls) === VgtkEstimation._TOML_DEFAULTS["optimization_strategy"]
+        @test lo_defaults(Irls) === VgtkCore._STRATEGY_DEFAULTS["optimization_strategy"]
         # The writer, recorded before the machinery went public (byte-identical tables).
         @test lo_config_dict(Irls{TLSShape}()) == Dict{String, Any}("type" => "irls", "loss" => "tls", "max_iter" => 25)
         @test lo_config_dict(Irls{WelschShape}(efficiency_constant = 2.0)) ==

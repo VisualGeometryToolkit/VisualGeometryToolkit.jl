@@ -97,8 +97,6 @@ using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     projected_radius, view_angle, view_angle_limit, radial_part,
     similarity_scale   # a normalization's length ratio: pixel tolerances inside (radial homography)
 import VisualGeometryToolkitCore: AbstractOptimizationStrategy,
-    optimization_path, path_suffix,
-    NoScale,
     AbstractWeightPolicy, NormalizedWeightPolicy,
     update_weights!, update_nuisance!,
     inlier_weight, robust_weight, is_inlier,
@@ -113,10 +111,19 @@ import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, m
     solver_covariance, provides_solver_covariance, refine!, refine_workspace,
     residual_context, mahalanobis_distance, whitened_residual,
     locally_optimize!, lo_workspace, lo_width
+# The core optimization strategies and the strategy registry machinery are
+# VisualGeometryToolkitCore's (robust/strategies.jl, A2); this package registers its
+# own (TerminalLO) with the same macro and re-publishes the machinery for its
+# downstream users.
+using VisualGeometryToolkitCore: Irls, Triggs, LOSS_TAGS, STRATEGY_TAGS, lo_loss, fixed_width,
+    lo_width_value, lo_admits_shape, lo_construct, lo_has_default, lo_takes_width, @lo_registry
+# the registry hooks `@lo_registry` and this package's strategies add methods to: imported
+import VisualGeometryToolkitCore: strategy_loss, lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field,
+    lo_field_from_toml, lo_absent, lo_validate, lo_efficiency_constant_shape
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
-    scale_prior, outlier_halfwidth, lo_estimate, loss_at, width_scale_interface, check_composition,
+    scale_prior, outlier_halfwidth, lo_estimate, check_composition,
     EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, decision_boundary,
     StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
@@ -164,11 +171,10 @@ import VisualGeometryToolkitCore: pnp_pixel_whitening
 # which applies `test_cheirality` itself); RVG calls it and does not re-export it.
 using VisualGeometryToolkitCore: triangulate, cheiral_pose_fast
 # Unified robust-loss family (VGC's loss shapes) — the GR-lift facet
-# verbs moved there verbatim. The CANONICAL tags are imported by name: they
-# parameterize the strategy type Irls{K}; VGC exports them.
-using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
-    GemanMcclureShape, CauchyShape, SmoothTLSShape, TLSShape, HuberShape,
-    BarronShape
+# verbs moved there verbatim. The shapes this package's defaults and
+# dispatch name are imported by name (the strategy types and the loss table
+# are VGC's, robust/strategies.jl).
+using VisualGeometryToolkitCore: GaussianShape, TLSShape
 # A width is COMPOSED onto a shape (VGC 0.29) rather than carried by it:
 # `deploy(shape, s2; efficiency_constant)` pairs the tag with the squared scale it
 # runs at, and the loss verbs then take no width argument. `bounded` is the redescending
@@ -186,8 +192,7 @@ using VisualGeometryToolkitCore: EssentialManifold5,
     radial_ray                                                     # the radial-H centred ray T₋c·H·s̃ (k seed, extent gate)
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
 # `import`. (`import` advertises an extension point that does not exist.)
-using VisualGeometryToolkitCore: weight,
-    loss_family, loss_label   # a shape's loss family and label prefix
+using VisualGeometryToolkitCore: weight
 import VisualGeometryToolkitCore:
     SvdWorkspace, # used by RANSAC + solvers
     test_model, # RANSAC problems extend this
@@ -347,9 +352,11 @@ public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, Camera
 # strategy by tag and write a config value back as a table.
 public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
-# The local-optimization strategy machinery every package registers its
-# strategies with: the registry macro, the keyword constructor, the generic
-# writer, the shared shape admission, and the hooks (CONTRACT_GENERICS below).
+# The strategy machinery every package registers its strategies with,
+# re-published from VisualGeometryToolkitCore (whose CONTRACT_GENERICS hold the
+# registry hooks): the registry macro, the keyword constructor, the shared shape
+# admission and the hooks; this package's own are the generic writer and the
+# TOML reader's hooks (CONTRACT_GENERICS below).
 public @lo_registry, lo_construct, lo_config_dict, lo_admits_shape,
     lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent,
     lo_validate, lo_concrete, lo_efficiency_constant_shape, lo_resolve_efficiency_constant
@@ -443,21 +450,16 @@ include("config_toml.jl")
 
 The generic functions of VisualGeometryToolkitEstimation another package may add methods
 to across a package boundary (VisualGeometryToolkitCore's quality gate,
-`contract_generic_violations`): the local-optimization strategy machinery's
-row facts (`lo_tag`, `lo_defaults`, `lo_parametric`, defined by `@lo_registry`)
-and hooks (`lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`,
-`lo_absent`, `lo_validate`, `lo_concrete`, `lo_efficiency_constant_shape`,
+`contract_generic_violations`): the TOML reader's hooks (`lo_concrete`,
 `lo_resolve_efficiency_constant`), the writer (`config_dict`, for a strategy whose
-table carries a key beyond the generic one), a loss-parametric or fixed-loss strategy's
-identity (`strategy_loss`), a wrapper's placement
+table carries a key beyond the generic one), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`), the parameter-change stop's measure of a
 problem (`change_parameters`) and the sampler / running-best
 protocol (`reset!`, `draw!`).
 """
-const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
-                           lo_absent, lo_validate, lo_concrete, lo_efficiency_constant_shape, lo_resolve_efficiency_constant,
-                           config_dict, scoring_from_toml, strategy_loss, lo_placement,
+const CONTRACT_GENERICS = (lo_concrete, lo_resolve_efficiency_constant,
+                           config_dict, scoring_from_toml, lo_placement,
                            iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

@@ -5,6 +5,17 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New in `check_duplication`: backend branches and CPU/GPU twins** (the owner's policy: a GPU branch's CPU branch is
+  the SAME KernelAbstractions kernel on the CPU backend). `:backend_branch` flags a definition that tests the
+  backend to run other code (`backend isa CPU`/`GPU`, `get_backend(x) isa …`, `x isa CuArray` and the other GPU
+  array types, `== CPU()`) and a pair of methods on a CPU and a GPU type (`::CPU` beside `::GPU`, `::Backend`,
+  `::CuArray`); the same kernel launched on whatever backend, and the transfer, allocation and device-query helpers
+  (by their names), are not flagged. `:twin_name` flags two bindings whose names differ only by a CPU/GPU marker
+  (`_cpu`/`_gpu`, `_host`/`_device`, `cpu_`/`gpu_`, `_cuda` beside the plain name). Exceptions are DUPLICATION.toml
+  `[[backend]]` (file, function, reason) and `[[twin]]` (names, reason) entries. Breaking for a package's quality
+  gate: this monorepo's own hits are open items (Core's `_foreach_row!` and pointwise policy, Features' ASIFT
+  `_scheduled` pair and `_chunk_warps`).
+
 - **`free_names` is a contract generic** (`CONTRACT_GENERICS`): a calibrator's own lens target (CaliBlobs'
   `LensTarget`) adds its method to Core's function instead of a namesake.
 

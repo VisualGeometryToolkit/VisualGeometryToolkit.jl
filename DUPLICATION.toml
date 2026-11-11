@@ -23,3 +23,8 @@ reason = "not code but each package's own data: Eval's parsed configs/default.to
 module = "VisualGeometryToolkitEval"
 name = "Pools"
 reason = "different contents: Eval.Pools reads and writes pool FILES (pool_io.jl); Core.Pools defines the pool RECORD types (PoolPair) Eval.Pools builds; no function of one restates the other"
+
+[[backend]]
+file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreCUDAExt.jl"
+function = "__init__"
+reason = "not a CPU/GPU twin of any code: the CUDA extension registers the device queries (free memory, reclaim) a KernelAbstractions backend cannot answer, and answers them for its own backend only; the policy's allowed device-query helpers"

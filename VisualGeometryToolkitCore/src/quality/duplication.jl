@@ -14,7 +14,7 @@
     DuplicationViolation
 
 One finding of [`check_duplication`](@ref): the check that found it (`:name`,
-`:similar`, `:file`, `:pattern` or `:stale_exception`), the file (relative to
+`:similar`, `:file`, `:pattern`, `:backend_branch`, `:twin_name` or `:stale_exception`), the file (relative to
 the repository root) and line, the text found (a name, a function, a code line
 or an exception entry), and `other` — the upstream owner, the matching function
 or file elsewhere (`<Repository>:<path>:<line>` outside this repository, a
@@ -34,6 +34,8 @@ const _DUPLICATION_RULE_TEXT = Dict{Symbol, String}(
     :file => "a file that is a copy of another: keep one",
     :pattern => "a retired pattern: go through its owner",
     :stale_exception => "a DUPLICATION.toml entry that matches nothing: remove it",
+    :backend_branch => "a branch on the backend that runs other code: run the same KernelAbstractions kernel on every backend",
+    :twin_name => "two names that differ only by a CPU/GPU marker: keep one, the same kernel on every backend",
 )
 
 function Base.show(io::IO, v::DuplicationViolation)
@@ -49,7 +51,7 @@ end
                       shingle = 8, min_file_tokens = 25) -> Vector{DuplicationViolation}
 
 The stack's no-duplication rule, checked over a package (`M`, its directory
-`pkgdir(M)`) or a directory `dir`. Four checks:
+`pkgdir(M)`) or a directory `dir`. Six checks:
 
 1. **Name ownership** (the `Module` form only). Every binding `M` (or a
    submodule of it) owns — defined there, not imported, a function or type
@@ -79,6 +81,21 @@ The stack's no-duplication rule, checked over a package (`M`, its directory
    `nlls_options`), `acos(clamp((tr(…` (Rotations' `rotation_angle`), the sRGB
    transfer constants (Features' `src/linear_image.jl`), and a `\\newcommand`
    writer (Eval's `src/reproduce/number_macros.jl`). The failure names the owner.
+5. **Backend branches** (`:backend_branch`). A GPU branch's CPU branch is the
+   SAME KernelAbstractions kernel on the CPU backend, so a definition that
+   tests the backend to run different code is a finding: `backend isa CPU`
+   (`KA.CPU`, `GPU`), `get_backend(x) isa …` (or `==`), `x isa CuArray`
+   (`AbstractGPUArray` and the other GPU array types), `== CPU()`; and a pair
+   of methods of one function, one on a CPU type (`::CPU`) and one on a GPU
+   type (`::GPU`, `::Backend`, `::CuArray`). Allowed, so not flagged: the same
+   kernel launched on whatever `get_backend` returns, and the transfer and
+   allocation helpers, by their names (an upload or download, `to_host`,
+   `to_device`, `on_device`, zeros, ones, fill, an allocation, a
+   synchronization, `adapt`, a copy, the device queries).
+6. **CPU/GPU twins** (`:twin_name`). Two bindings of the package whose names
+   differ only by a CPU/GPU marker: `_cpu`/`_gpu`, `_host`/`_device`,
+   `cpu_`/`gpu_`, or `_cuda` beside the plain name (the transfer helpers'
+   names excepted).
 
 The repository is the git checkout holding `dir`. Inside a monorepo the other
 packages' files are compared too (the package's own files are the ones checked;
@@ -108,6 +125,15 @@ reason = "…"
 [[pattern]]               # a retired pattern in one file
 use = "rotation_angle"
 file = "src/a.jl"
+reason = "…"
+
+[[backend]]               # a backend branch in one function of one file
+file = "src/a.jl"
+function = "f"
+reason = "…"
+
+[[twin]]                  # two names that differ by a CPU/GPU marker
+names = ["f_cpu", "f_gpu"]
 reason = "…"
 ```
 

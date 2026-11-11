@@ -129,3 +129,89 @@
     # Core is the bottom of the stack: nothing is upstream of it
     @test isempty(ext._stack_upstream(VisualGeometryToolkitCore))
 end
+
+# The owner's policy (2026-11-11): a GPU branch's CPU branch is the SAME
+# KernelAbstractions kernel on the CPU backend. A function that branches on the
+# backend to run different code, and a pair of bindings whose names differ only
+# by a CPU/GPU marker, are duplicates. Planted cases are found; the same kernel
+# launched on either backend and the transfer/allocation helpers are left alone.
+@testitem "quality: check_duplication finds backend branches and CPU/GPU twins" begin
+    using Test
+    using VisualGeometryToolkitCore: check_duplication
+    function repo(files::Pair...; name = "Consumer")
+        dir = mktempdir()
+        mkdir(joinpath(dir, ".git"))
+        write(joinpath(dir, "Project.toml"), "name = \"$name\"\n")
+        for (rel, src) in files
+            mkpath(dirname(joinpath(dir, rel)))
+            write(joinpath(dir, rel), src)
+        end
+        return dir
+    end
+    found(src; extra = ()) = check_duplication(repo("src/a.jl" => src, extra...); stack = String[])
+    kinds(src) = sort!([v.check for v in found(src)])
+
+    # backend branching: an `isa` on the backend, on `get_backend`, on a GPU array type
+    @test kinds("""
+        function smooth!(y, x, backend)
+            if backend isa KA.CPU
+                for i in eachindex(x); y[i] = x[i] / 2; end
+            else
+                kernel!(backend)(y, x; ndrange = length(x))
+            end
+            return y
+        end
+        """) == [:backend_branch]
+    @test kinds("scale!(y, x) = KA.get_backend(x) isa KA.GPU ? gpu_scale!(y, x) : (y .= 2 .* x)\n") == [:backend_branch]
+    @test kinds("""
+        function total(x)
+            x isa CuArray && return sum_kernel(x)
+            return sum(x)
+        end
+        """) == [:backend_branch]
+    # a dispatch pair on the backend whose bodies differ
+    v = only(found("""
+        accumulate!(::KA.CPU, y, x) = (for i in eachindex(x); y[i] += x[i]; end; y)
+        accumulate!(backend::KA.GPU, y, x) = (acc_kernel!(backend)(y, x; ndrange = length(x)); y)
+        """))
+    @test v.check === :backend_branch && occursin("accumulate!", v.text)
+    # twin names: a CPU/GPU marker pair, a host/device pair, a prefix pair, a _cuda beside a plain one
+    for (a, b) in (("_warp_cpu", "_warp_gpu"), ("sweep_host", "sweep_device"), ("cpu_render", "gpu_render"),
+                   ("sort_blobs", "sort_blobs_cuda"))
+        v = only(found("$a(x) = x\n$b(x) = 2x\n"))
+        @test v.check === :twin_name && Set([v.text, v.other]) == Set([a, b])
+    end
+
+    # left alone: the same kernel launched on either backend, a transfer or allocation helper, one marker alone
+    @test isempty(found("""
+        function smooth!(y, x)
+            backend = KA.get_backend(x)
+            kernel!(backend)(y, x; ndrange = length(x))
+            KA.synchronize(backend)
+            return y
+        end
+        upload(T, dev::KA.CPU, A) = Array{T}(A)
+        upload(T, dev, A) = copyto!(KA.allocate(dev, T, size(A)), A)
+        to_host(x) = x isa CuArray ? Array(x) : x
+        zeros_on(dev::KA.CPU, T, n) = zeros(T, n)
+        zeros_on(dev::KA.GPU, T, n) = fill!(KA.allocate(dev, T, n), zero(T))
+        workspace_gpu(n) = zeros(n)
+        """))
+    # in a comment or a docstring: not code
+    @test isempty(found("# if backend isa KA.CPU, the loop runs\n\"\"\"\n    f(x)\n\nNo `x isa CuArray` here.\n\"\"\"\nf(x) = x\n"))
+
+    # exceptions, each with its reason; one that matches nothing is a finding
+    toml = "DUPLICATION.toml" => """
+        [[backend]]
+        file = "src/a.jl"
+        function = "total"
+        reason = "a planted case"
+
+        [[twin]]
+        names = ["sweep_host", "sweep_device"]
+        reason = "a planted case"
+        """
+    @test isempty(found("function total(x)\n    x isa CuArray && return sum_kernel(x)\n    return sum(x)\nend\nsweep_host(x) = x\nsweep_device(x) = 2x\n"; extra = (toml,)))
+    stale = found("f(x) = x\n"; extra = (toml,))
+    @test length(stale) == 2 && all(v -> v.check === :stale_exception, stale)
+end

@@ -160,6 +160,7 @@ end
 const _EXCEPTION_KEYS = Dict(
     "name" => ("module", "name", "reason"), "similar" => ("functions", "reason"),
     "file" => ("files", "reason"), "pattern" => ("use", "file", "reason"),
+    "backend" => ("file", "function", "reason"), "twin" => ("names", "reason"),
 )
 
 # The entries of the root's DUPLICATION.toml, by kind (each a Dict); throws on a defect.
@@ -171,14 +172,14 @@ function _duplication_exceptions(root::AbstractString)
     decl = TOML.parsefile(file)
     for (kind, entries) in decl
         haskey(_EXCEPTION_KEYS, kind) && entries isa AbstractVector ||
-            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]] or [[pattern]] entry"); continue)
+            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]], [[pattern]], [[backend]] or [[twin]] entry"); continue)
         for e in entries
             want = _EXCEPTION_KEYS[kind]
             lacking = filter(k -> !haskey(e, k) || isempty(e[k]), collect(want))
             unknown = setdiff(keys(e), want)
             isempty(lacking) || push!(errors, "[[$kind]] $(repr(e)) lacks $(join(lacking, ", "))")
             isempty(unknown) || push!(errors, "[[$kind]] $(repr(e)) has unknown keys $(join(sort!(collect(unknown)), ", "))")
-            kind in ("similar", "file") && haskey(e, want[1]) && !(e[want[1]] isa AbstractVector && length(e[want[1]]) == 2) &&
+            kind in ("similar", "file", "twin") && haskey(e, want[1]) && !(e[want[1]] isa AbstractVector && length(e[want[1]]) == 2) &&
                 push!(errors, "[[$kind]] $(repr(e)): `$(want[1])` is a list of two")
             isempty(lacking) && isempty(unknown) && push!(out[kind], e)
         end
@@ -188,6 +189,113 @@ function _duplication_exceptions(root::AbstractString)
 end
 
 _entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k in _EXCEPTION_KEYS[kind] if k != "reason"), ", ")
+
+# --- backend branches and CPU/GPU twins ---------------------------------------------------
+#
+# The owner's policy (2026-11-11): a GPU branch's CPU branch is the SAME
+# KernelAbstractions kernel on the CPU backend. A definition that tests the
+# backend, `get_backend`'s answer or a GPU array type to run other code, a
+# dispatch pair on a CPU and a GPU type, and two names that differ only by a
+# CPU/GPU marker are each a duplicate. The transfer and allocation helpers
+# (an upload or download, a zero array, an allocation, a synchronization, a
+# device query) are the backends' own and are left alone, by their names.
+# Like the retired patterns, the tests are built from fragments.
+
+const _KA = "(KA\\.|KernelAbstractions\\.)?"
+const _GPU_ARRAYS = "(CUDA\\.)?(Cu" * "Array|CuDevice" * "Array|ROC" * "Array|Mtl" * "Array|one" * "Array|AbstractGPU" * "Array|CUDA" * "Backend)"
+const _BACKEND_TEST = Regex("\\bisa\\s+" * _KA * "(CPU|GPU)\\b|get_backend\\s*\\([^)]*\\)\\s*(isa|===?|!==?)\\s|" *
+                            "\\bisa\\s+" * _GPU_ARRAYS * "\\b|(===?|!==?)\\s*" * _KA * "CPU\\(\\)")
+const _CPU_SIGNATURE = Regex("::\\s*" * _KA * "CPU\\b")
+const _GPU_SIGNATURE = Regex("::\\s*" * _KA * "(GPU|Backend)\\b|::\\s*" * _GPU_ARRAYS * "\\b")
+const _TRANSFER_NAMES = r"(upload|download|to_host|to_device|on_device|zeros|ones|fill|allocat|synchroni[sz]e|adapt|copy|transfer|device_names|free_bytes|reclaim|default_device)"
+# a CPU/GPU marker: the suffix pairs and the prefix pair, and `_cuda` beside the plain name
+const _TWIN_SUFFIXES = (("_cpu", "_gpu"), ("_host", "_device"))
+const _TWIN_PREFIXES = (("cpu_", "gpu_"),)
+
+# Every function definition of a parsed file, long form and short form, with its name and its signature's text.
+function _all_definitions!(out, node)
+    k = _JS.kind(node)
+    cs = _JS.children(node)
+    if k == _JS.K"function" || (k == _JS.K"=" && cs !== nothing && !isempty(cs) && _is_signature(cs[1]))
+        push!(out, node)
+    end
+    cs === nothing || foreach(c -> _all_definitions!(out, c), cs)
+    return out
+end
+function _is_signature(sig)
+    while _JS.kind(sig) in (_JS.K"where", _JS.K"::") && !isempty(something(_JS.children(sig), ()))
+        sig = _JS.children(sig)[1]
+    end
+    return _JS.kind(sig) == _JS.K"call"
+end
+_signature_text(node) = String(_JS.sourcetext(_JS.children(node)[1]))
+_bare_name(name) = replace(last(split(name, '.')), "!" => "")
+
+function _backend_violations(files, entries)
+    out = DuplicationViolation[]
+    backend_used = falses(length(entries["backend"])); twin_used = falses(length(entries["twin"]))
+    allowed_backend(file, name) = (i = findfirst(e -> e["file"] == file && e["function"] == name, entries["backend"]);
+                                   i === nothing ? false : (backend_used[i] = true; true))
+    names = Dict{String, Tuple{String, Int}}()                  # bare name => where first defined
+    sigs = Dict{String, Vector{Tuple{String, Int, Symbol}}}()   # name => (file, line, :cpu | :gpu)
+    for (label, path) in files
+        src = read(path, String)
+        lines = _julia_code_lines(src)
+        tree = try
+            _JS.parseall(_JS.SyntaxNode, src; filename = path, ignore_errors = true)
+        catch
+            continue
+        end
+        for node in _all_definitions!(Any[], tree)
+            name = _definition_name(node)
+            first_line = _JS.source_line(node)
+            last_line = first_line + count(==('\n'), _JS.sourcetext(node))
+            get!(names, _bare_name(name), (label, first_line))
+            occursin(_TRANSFER_NAMES, name) && continue
+            sig = _signature_text(node)
+            occursin(_CPU_SIGNATURE, sig) && push!(get!(sigs, name, Tuple{String, Int, Symbol}[]), (label, first_line, :cpu))
+            occursin(_GPU_SIGNATURE, sig) && push!(get!(sigs, name, Tuple{String, Int, Symbol}[]), (label, first_line, :gpu))
+            for n in first_line:min(last_line, length(lines))
+                occursin(_BACKEND_TEST, lines[n]) || continue
+                allowed_backend(label, name) && break
+                push!(out, DuplicationViolation(:backend_branch, label, n, string(name, ": ", strip(lines[n])),
+                    "the same KernelAbstractions kernel on the CPU backend"))
+                break
+            end
+        end
+    end
+    # a dispatch pair on a CPU and a GPU type
+    for (name, s) in sigs
+        any(x -> x[3] === :cpu, s) && any(x -> x[3] === :gpu, s) || continue
+        cpu = s[findfirst(x -> x[3] === :cpu, s)]; gpu = s[findfirst(x -> x[3] === :gpu, s)]
+        allowed_backend(cpu[1], name) && continue
+        push!(out, DuplicationViolation(:backend_branch, cpu[1], cpu[2], string(name, " (a method per backend)"),
+            string(gpu[1], ":", gpu[2], " ", name)))
+    end
+    # twin names
+    twins = Tuple{String, String}[]
+    for n in keys(names)
+        occursin(_TRANSFER_NAMES, n) && continue
+        for (a, b) in _TWIN_SUFFIXES
+            endswith(n, a) && haskey(names, n[1:(end - length(a))] * b) && push!(twins, (n, n[1:(end - length(a))] * b))
+        end
+        for (a, b) in _TWIN_PREFIXES
+            startswith(n, a) && haskey(names, b * n[(length(a) + 1):end]) && push!(twins, (n, b * n[(length(a) + 1):end]))
+        end
+        endswith(n, "_cuda") && haskey(names, n[1:(end - 5)]) && push!(twins, (n[1:(end - 5)], n))
+    end
+    for (a, b) in twins
+        i = findfirst(e -> Set(String.(e["names"])) == Set([a, b]), entries["twin"])
+        i === nothing || (twin_used[i] = true; continue)
+        (file, line) = names[a]
+        push!(out, DuplicationViolation(:twin_name, file, line, a, b))
+    end
+    stale(kind, list, used) = [DuplicationViolation(:stale_exception, _DUPLICATION_FILE, 0, _entry_text(kind, e), "matches nothing")
+        for (e, u) in zip(list, used) if !u]
+    append!(out, stale("backend", entries["backend"], backend_used))
+    append!(out, stale("twin", entries["twin"], twin_used))
+    return out
+end
 
 # --- name ownership ---------------------------------------------------------------------
 
@@ -408,6 +516,8 @@ function _static_violations(dir, root, stack, entries; similarity, shingle, min_
             end
         end
     end
+    # backend branches and CPU/GPU twins, over this package's Julia files
+    append!(out, _backend_violations([(l, p) for (l, p) in code if endswith(p, ".jl")], entries))
     # stale entries: those about this package, every side of which was compared
     about_own(ids) = any(id -> !occursin(_EXTERNAL_ID, id) && startswith(id, own_prefix), ids) && all(side_scanned, ids)
     for (kind, list, used) in (("similar", sim_entries, sim_used), ("file", file_entries, file_used))

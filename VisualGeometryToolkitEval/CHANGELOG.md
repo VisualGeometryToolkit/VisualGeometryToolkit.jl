@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **New: a result is reused only while the code it was computed with is unchanged, by its git trees.** The run key
+  stays the configuration's (DrWatson's savename / produce_or_load, the runner's stage key: the stage key no longer
+  hashes the code). Beside DrWatson's `tag!` record (`gitcommit`, `gitpatch` when dirty), every result now keeps
+  `code_trees` (`VisualGeometryToolkitEval.code_trees`, src/code_identity.jl): the git tree of each of the project's
+  code paths (`git rev-parse HEAD:<path>`: the graph's `code` for the runner, the project's `src` for a driver's
+  records) and of every stack package the project's environment loads (its `[deps]` and what they reach in its
+  Manifest): a package loaded from a path by the trees of its `src`, `ext` and `Project.toml` in its own repository,
+  a released one by its Manifest `git-tree-sha1`. A docs-, tests- or paper-only commit changes no tree.
+  `VisualGeometryToolkitEval.code_tree_changes(recorded, current)` is the one reuse rule, and every consumer calls it:
+  the runner's stage reuse (a stage whose code changed reruns, `rerun: code changed: <tree>: <old> → <new>`; one still
+  in flight under other code stops the launch), `Experiments.run_complete` (no longer warns on another commit: the
+  trees decide) and `Experiments.cached_result`. `Experiments.current_code_trees` is a driver's current record.
+  RadiometricCamera's cvpr2027, CaliBlobs' icra2026, BlobBoards' bmvc2026, RANSACScoringDoneRight and
+  LocalOptimizationDoneRight get it through `write_provenance`/`write_run_records`, `run_complete` and the runner,
+  with no change of their own; docs: "Code identity: when a stored result is reused" (Reproducible figures).
+- **Behaviour change: a result recorded before the code trees existed runs once more** (a run directory's
+  `_provenance.toml`, a `cached_result` file, a runner launch's stage record), and from then on carries them.
+- **Changed: a run of record runs committed code.** The runner refuses a launch (exit 2) whose code paths, or a
+  package its environment loads from a path, have uncommitted changes (an edit, a staged, deleted or untracked
+  file); the dry run marks them `DIRTY`. A dirty docs or paper tree is no code and is not refused.
+
 - **The runner's reuse reads completion markers and the queue, never accounting** (`Reproduce`, src/reproduce/runner.jl).
   Every task of a stage writes a completion marker, `task-<t>.toml` under `<manifest without .toml>/<stage>/`
   (`stage_markers_dir`, `stage_markers`): its state (`completed`, `failed`), exit status, start and end, job id,

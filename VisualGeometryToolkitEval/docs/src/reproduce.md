@@ -230,7 +230,7 @@ The graph (`[project]`, `[sites.<site>]`, one `[[stage]]` per stage,
 name = "cvpr2027"
 workdir = "../.."                      # where the jobs are submitted from, relative to this file
 julia_project = "cvpr2027"
-code = ["src", "cvpr2027/src", "cvpr2027/scripts"]   # the code whose changes rerun a stage
+code = ["src", "cvpr2027/src", "cvpr2027/scripts"]   # the project's code: its trees identify a run (below)
 
 [sites.dgx01]                          # where this project's data and results are on that machine
 data_root = "/raid/data/me/paper-data"
@@ -288,11 +288,12 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `logs/<project>_<stage>[_<task>].log`.
 - **Run manifest, reuse.** Every launch writes
   `<results root>/<manifest_dir>/<UTC stamp>-<commit>.toml`: the commit, the
-  configs (sha256), the data and results roots, the site, and per stage its run
-  key, command, job id and state. A stage's run key hashes the code (`code`),
-  its launcher, driver and configs, its items, environment and command; a
-  later launch reuses a stage of the same key that completed (and depends on
-  one still in flight, by its job id) instead of running it again.
+  configs (sha256), the data and results roots, the site, the code trees
+  (below), and per stage its run key, command, job id, state and code trees.
+  A stage's run key hashes its launcher, driver and configs, its items,
+  environment and command, never the code; a later launch reuses a stage of
+  the same key that completed (and depends on one still in flight, by its job
+  id) instead of running it again, while its code trees are the current ones.
 - **Completion markers.** Each task writes
   `<manifest without .toml>/<stage>/task-<t>.toml` when it ends — its state
   (`completed` or `failed`), exit status, start and end, job id, commit and run
@@ -304,7 +305,12 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   on), failed by a marker (run again), and *unknown* when a task left no marker
   and its job is gone — a node failure, a kill past the time limit's grace —
   which is never taken as finished (run again). A `TERM` (scancel, the time
-  limit) reaches the stage and is recorded as a failed marker.
+  limit) reaches the stage and is recorded as a failed marker; a task Slurm
+  requeues under the same job id is in flight while the queue holds it,
+  whatever its earlier attempt's marker says. A signal the launcher's own
+  `#SBATCH --signal` asks for is forwarded to it and recorded. If `squeue`
+  fails for any reason other than an unknown job, the launch stops before
+  submitting anything.
 - **Status.** `reproduce_main(["status", …])` reads the last manifest back:
   per stage its state from the markers and the queue, with its tasks counted
   by state, the log of its first failed or unknown task and that log's first
@@ -316,8 +322,62 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   carrying the launch's commit, run keys, site, Slurm jobs and the data tiers
   (`artifacts`: an Artifacts.toml's git-tree-sha1s).
 
+### Code identity: when a stored result is reused
+
+A result's run key names its *configuration* only, as DrWatson's `savename`
+and `produce_or_load` do: the runner's stage key, and a driver's run key
+([`Experiments.run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)).
+The *code* a result was computed with is recorded beside it, by DrWatson's
+`tag!` (`gitcommit`, and `gitpatch` when the tree was dirty), together with the
+git **tree hashes** of that code
+([`code_trees`](@ref VisualGeometryToolkitEval.code_trees)):
+
+- the project's code paths: the graph's `code` for the runner, `src` of the
+  project for a driver's records (`git rev-parse HEAD:<path>`);
+- every stack package the project's environment loads (its `[deps]` and what
+  they reach in its Manifest, a workspace's included): a package loaded from a
+  path (`[sources]`, `Pkg.develop`) by the trees of its `src`, `ext` and
+  `Project.toml` in its own repository, a released one by its Manifest
+  `git-tree-sha1`.
+
+A tree moves only when a file under it changes. A commit that touches only the
+docs, the tests or the paper changes no tree, so it reuses every result; a
+commit that changes `src` of the project or of a package it loads reruns what
+it computed.
+
+The rule is one function,
+[`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)`(recorded,
+current)`: a stored result is reused only when it returns nothing. Every
+consumer goes through it — the runner's stage reuse,
+[`run_complete`](@ref VisualGeometryToolkitEval.Experiments.run_complete) (a
+driver's skip-if-complete) and
+[`cached_result`](@ref VisualGeometryToolkitEval.Experiments.cached_result) —
+and each change it returns names the tree:
+
+```text
+setup                            rerun: code changed: VisualGeometryToolkitCore: src 3fa29c01e2 → b71d0e44a9
+```
+
+- **A run of record runs committed code.** A launch whose code paths, or a
+  package loaded from a path, have uncommitted changes (an edit, a staged,
+  deleted or untracked file) is refused (exit 2); the dry run marks them
+  `DIRTY`. A dirty paper or docs tree is no code and is not refused. Drivers
+  run by hand still record a dirty tree's `gitpatch`.
+- **Results from before the trees were kept** record none, and run once more;
+  from then on they carry them. A launch recorded before the completion
+  markers existed likewise reruns its completed Slurm stages once.
+- **A stage still in flight under other code** stops the launch (exit 4): a
+  second job would write the same results. Wait for it, or `scancel` it.
+
+For a paper project (RadiometricCamera's cvpr2027, CaliBlobs' icra2026,
+BlobBoards' bmvc2026, RANSACScoringDoneRight, LocalOptimizationDoneRight) this
+needs nothing new: its drivers' `write_provenance`/`write_run_records` and
+`run_complete` record and compare the trees, and its graph's `code` lists the
+project's own code. List the code a stage runs there, not the docs: a path in
+`code` that holds the paper reruns every stage on a text edit.
+
 `src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; and
-`src/cli.jl`, included before it), so a launcher runs it by path from a bare
+`src/cli.jl`, included before it, which brings `src/code_identity.jl`), so a launcher runs it by path from a bare
 `julia` before the project's environment exists; the setup stage then
 instantiates the environment inside the scheduler.
 

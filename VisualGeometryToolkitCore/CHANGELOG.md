@@ -5,6 +5,16 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: the stack's git hooks, `sync_manifest`, `install_githooks`, `githooks_dir`** (public, not exported;
+  `githooks/` and src/quality/sync_manifest.jl). `githooks/sync-manifest` (with `post-checkout`, `post-merge` and
+  `post-rewrite` linking to it) re-resolves a repository's untracked root Manifest when a checkout, merge or rebase
+  changes a Project.toml at any depth — `Pkg.update()`, or `Pkg.instantiate()` for a tracked Manifest — through
+  `sync_manifest(mode = "update"; io, repo) -> (; created, moved, seconds)`, which reports the direct dependencies
+  that moved. The hook includes the dependency-free sync_manifest.jl by path instead of loading the package (its
+  Manifest may be the illegal one). `install_githooks(repo)` points a downstream repository's `core.hooksPath` at
+  this copy, and each re-resolve moves it to the newly resolved VisualGeometryToolkitCore's. One copy for the stack:
+  the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
+  BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
 - **Breaking: `finite_linearization` is removed.** NLLSsolver 5.3.3 (#68, the floor) stops on a non-finite step or
   gradient at an accepted point itself; no block wraps its linearization. Its termination bit 12 is decoded
   (`nlls_stop_reasons`: `:nonfinite_gradient`; `nlls_stop_code`: a failed solve).

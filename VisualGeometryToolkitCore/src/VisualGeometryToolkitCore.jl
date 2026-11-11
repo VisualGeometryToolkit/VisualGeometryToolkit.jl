@@ -757,6 +757,9 @@ public stack_dependencies, stack_dependency_violations, private_name_violations,
 public AGENT_DOC_FORBIDDEN, agent_doc_violations
 # The one copy of the stack conventions (quality/conventions.jl).
 public conventions_dir, convention_files
+# The git hooks every stack repository runs (githooks/, quality/sync_manifest.jl):
+# re-resolve the untracked Manifest when git moves a Project.toml.
+public sync_manifest, install_githooks, githooks_dir
 
 # =============================================================================
 # INCLUDE ORDER - Dependency-aware loading
@@ -996,6 +999,7 @@ const SCALE_INTERFACE_TAGS = TagRegistry(:scale_interface, "",
 include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
+include("quality/sync_manifest.jl")   # sync_manifest, install_githooks: the git hooks' Julia side (dependency-free; the hooks include it by path)
 
 # The precompile workload: the camera models' native code, cached in the package image
 using PrecompileTools: @setup_workload, @compile_workload

@@ -59,7 +59,9 @@ chart) is refused by both with the same error. The `find_*` sampling keywords
 neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
 `max_iter`; the chart LM's `[chart_lm]` cap). The bundles
 (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
-problems and keep their own non-robust LM and keywords.
+problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
+robust strategy under `find_*`'s keyword, `local_optimization` (`Irls{Shape}` or
+`Triggs{Shape}` at a `scale_multiple`).
 
 ## Homography
 

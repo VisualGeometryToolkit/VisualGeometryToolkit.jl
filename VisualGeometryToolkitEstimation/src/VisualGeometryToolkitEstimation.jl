@@ -16,6 +16,7 @@ using Rotations: Rotations, RotMatrix
 
 # VisualGeometryToolkitCore — explicit named imports only (no bare `using`).
 using Statistics: Statistics, cov
+using Distributions: Chisq, cdf   # SIMFIT++'s χ² noise model (estimators/ransac/simfitpp.jl)
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractFundMat,
     AbstractSolverBackend,
@@ -66,7 +67,8 @@ using VisualGeometryToolkitCore: CspondNormalization   # the correspondence norm
 # whose problem argument is RVG's) and builds its pool-frame problems.
 import VisualGeometryToolkitCore.Pools: PoolPair
 using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_K2,
-    pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale
+    pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale,
+    pixel_residuals, best_model_index   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
 using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, homography_dlt, test_dlt_conditioning
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
@@ -289,6 +291,10 @@ public CountedLO   # instrumentation: counts a strategy's locally_optimize! call
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
 # The zero-allocation RANSAC entry and its result buffers.
 export ransac!
+# SIMFIT++ (Edstedt, CVPRW 2025): the loss width from held-out residuals, and its pool adapter
+# (estimators/ransac/simfitpp.jl; moved from RANSACScoringDoneRight)
+export SimFitPP, simfitpp_loss_width, simfitpp_select
+public unbiased_median_variance, with_residual_unit
 
 # -----------------------------------------------------------------------------
 # PUBLIC, not exported — the machinery
@@ -385,6 +391,7 @@ include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
 include("estimators/ransac/problems/hand_eye.jl")
 include("estimators/ransac/problems/pool.jl")   # the pool-frame problems of a pool record; PoolPair(rng, problem, raw)
+include("estimators/ransac/simfitpp.jl")        # SIMFIT++ loss-width estimation (Edstedt 2025) + its pool adapter
 include("estimators/ransac/covariance.jl")   # the one model covariance: the constraint sandwich (all providers)
 # The chart-rows provider of every chart problem (VGC's rows contract; needs
 # the per-problem chart/residual helpers above).

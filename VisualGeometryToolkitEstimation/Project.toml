@@ -5,6 +5,7 @@ authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
 CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FixedSizeArrays = "3821ddf9-e5b5-40d5-8e25-6813ab96b5e2"
 FlexUnits = "76e01b6b-c995-4ce6-8559-91e72a3d4e95"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -21,6 +22,7 @@ VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
 [compat]
 CoordinateTransformations = "0.6.4"
+Distributions = "0.25.131"
 FixedSizeArrays = "1.4"
 FlexUnits = "0.6.16"
 Graphs = "1.15"

@@ -14,7 +14,7 @@ VisualGeometryToolkitEval = ["VisualGeometryToolkitCore", "VisualGeometryToolkit
 PoseLib = ["VisualGeometryToolkitCore"]
 # Never RANSACScoringDoneRight or LocalOptimizationDoneRight — not even in [extras].
 VisualGeometryToolkitEstimation = ["VisualGeometryToolkitCore"]
-RANSACScoringDoneRight = ["VisualGeometryToolkitCore"]
+RANSACScoringDoneRight = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"]
 # PoseLib is a weak dependency here.
 LocalOptimizationDoneRight = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"]
 BlobBoards = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation", "RANSACScoringDoneRight", "LocalOptimizationDoneRight"]

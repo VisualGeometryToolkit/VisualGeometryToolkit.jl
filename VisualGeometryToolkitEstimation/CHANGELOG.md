@@ -5,6 +5,14 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: SIMFIT++ loss-width estimation, moved from RANSACScoringDoneRight** (Edstedt, "Less Biased Noise Scale
+  Estimation for Threshold-Robust RANSAC", CVPRW 2025; a step-for-step port of github.com/Parskatt/simfitpp):
+  `SimFitPP` (the reference's defaults), `simfitpp_loss_width(fit, residuals_sq, n, initial_loss_width, cfg; ...)`
+  over a caller's estimator callbacks and `simfitpp_select` on a pool's residual matrix or a `PoolPair` (pixels in,
+  pixels out) are exported; `unbiased_median_variance` (the reference's `UnbiasedMed`, σ²) and `with_residual_unit`
+  are public. The train split's MSAC-best pool model is scored by Core's threshold `score!`, bit for bit the sum
+  RANSACScoringDoneRight's copy computed. New dependency: Distributions (the χ² noise model). The stack's dependency
+  allow-list gives RANSACScoringDoneRight Estimation, its consumer.
 - **Fixed: a SplineLens `refine_camera_and_poses` always returns.** Its blocks hand NLLSsolver their linearizations
   through Core's `finite_linearization` (a non-finite one made NLLSsolver 5.3.2's damping loop spin: a fixed
   `penalty = 1e-9` on noisy detections ran > 60 min on dgx01), its rebuild rounds are a bounded loop, and a lattice

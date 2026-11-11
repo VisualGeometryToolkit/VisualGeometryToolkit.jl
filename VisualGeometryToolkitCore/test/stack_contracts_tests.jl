@@ -183,7 +183,7 @@ end
         "VisualGeometryToolkitEval" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"],
         "PoseLib" => ["VisualGeometryToolkitCore"],
         "VisualGeometryToolkitEstimation" => ["VisualGeometryToolkitCore"],
-        "RANSACScoringDoneRight" => ["VisualGeometryToolkitCore"],
+        "RANSACScoringDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"],
         "LocalOptimizationDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"],
         "BlobBoards" => bb,
         "PanoramaStitching" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitFeatures", "VisualGeometryToolkitEstimation"],

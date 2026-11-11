@@ -11,6 +11,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Before, the upper bound was strict and carried no slack, so a consumer that needs a pixel's four footprint corners lost
   the last column and row. The projection LM's box is the same closed rectangle (`ub = max + 1`, was `max + 0.999`), so
   a ray imaged on the far edge projects onto it.
+- **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
+  VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
+  Estimation's `SimFitPP`/`simfitpp_select`.
 - **New: `finite_linearization(cost, g, H)`** (public, not exported, beside `finite_cost`): a residual block's
   linearization as the stack's NLLSsolver fits read it, `(Inf, 0, 0)` when any part is not finite. NLLSsolver 5.3.2's
   Levenberg–Marquardt damping loop spins on a non-finite gradient or Hessian at an accepted point (NLLSsolver#68,

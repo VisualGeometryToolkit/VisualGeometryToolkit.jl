@@ -48,6 +48,28 @@ MSAC and RANSAC at a threshold,
 `MsacScoring(problem; threshold)` is the default scorer of every `find_*`
 pipeline.
 
+## SIMFIT++ loss-width estimation
+
+A step-for-step port of SIMFIT++ ([Edstedt2025](@citet); the reference
+implementation is [Parskatt/simfitpp](https://github.com/Parskatt/simfitpp)):
+the noise scale of a robust fit, hence the loss width it runs at, estimated from
+held-out residuals so that the fit's own bias does not shrink it. The geometry
+estimator is a pair of callbacks, so the same loop runs on a full RANSAC refit
+([`simfitpp_loss_width`](@ref)) or on a fixed hypothesis pool
+([`simfitpp_select`](@ref), the paper's protocol: the MSAC-best pool model on
+the train split). [`SimFitPP`](@ref) holds the reference's defaults (coverage
+`alpha = 0.99`, loss-width bounds 0.25–8 in the residuals' unit, pixels in the
+reference); the pair method of `simfitpp_select` therefore runs on the pool's
+pixel residuals (VisualGeometryToolkitCore's `Pools.pixel_residuals`).
+
+```@docs
+SimFitPP
+simfitpp_loss_width
+simfitpp_select
+unbiased_median_variance
+with_residual_unit
+```
+
 ## Scale priors
 
 The prior a scorer's consensus scale is computed under (`scale_prior`,

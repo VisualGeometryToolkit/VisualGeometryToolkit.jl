@@ -32,7 +32,7 @@ end
 """
     NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3};
                           present = nothing) <: AbstractCamera
-    NoncentralSplineModel(source, size; grid_size, calib_area, init, sampling_margin, unit_controls)
+    NoncentralSplineModel(source, size; grid_size, calib_area, init, sampling_margin)
 
 The non-central grid camera (Schöps et al., CVPR 2020): the pixel `u` observes
 the LINE through `points(x)` along `normalize(directions(x))`, `x = K⁻¹u` the

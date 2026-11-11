@@ -107,6 +107,8 @@
             # the node samples taken as controls (Schoenberg's approximation) is no init: the
             # prefilter interpolates them, quasi-interpolation is the local alternative
             @test_throws "init must be :interpolate" CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), init = :sample)
+            # the source constructor's controls are re-normalized by its init (the prefilter's, not quasi-interpolation's): no keyword
+            @test_throws MethodError CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), unit_controls = false)
             # calibrated-area contract
             @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
             @test all(isfinite, backproject(g, SVector(Float64(W), 10.0)))   # the far edge: the area is closed

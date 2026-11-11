@@ -1156,8 +1156,7 @@ function spline_lattice(
 end
 
 """
-    CameraModel(SplineLens, source, size; grid_size, calib_area, init = :interpolate,
-                sampling_margin = 0.97, unit_controls = init !== :quasi_interpolate)
+    CameraModel(SplineLens, source, size; grid_size, calib_area, init = :interpolate, sampling_margin = 0.97)
         -> CameraModel{<:LogicalIntrinsics, <:SplineLens}
 
 The [`SplineLens`](@ref) camera initialized from `source` — a `CameraModel` (its
@@ -1174,8 +1173,9 @@ nodes, sampling a camera inside `sampling_margin` times its lens's valid
 domain. `init = :quasi_interpolate` is
 the 4th-order local quasi-interpolant on a lattice extended one node past the
 area ([`quasi_interpolant`](@ref)), with its border rule for a source whose
-domain ends near or inside the area; a function source takes it.
-`unit_controls = true` re-normalizes every control.
+domain ends near or inside the area; a function source takes it. The prefilter's
+controls are re-normalized (each unit unless it is unit to 1e-12), the
+quasi-interpolant's kept as it forms them.
 
 A camera source keeps its own `K` (skew ≠ 0 is an `ArgumentError`); any other
 source takes the gauge of its sampled spline: the principal point is the pixel
@@ -1189,11 +1189,10 @@ function CameraModel(
             (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
-        unit_controls::Bool = init !== :quasi_interpolate,
     )
     rect, gsz = _spline_layout(size, grid_size, calib_area)
     C = _init_directions(source, rect, gsz, init, sampling_margin)
-    return CameraModel(SplineLens, C, size; calib_area, intrinsics = _source_intrinsics(source), unit_controls)
+    return CameraModel(SplineLens, C, size; calib_area, intrinsics = _source_intrinsics(source), unit_controls = init !== :quasi_interpolate)
 end
 
 """

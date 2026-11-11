@@ -153,6 +153,7 @@ const CONTRACT_GENERICS = (
     # geometry and camera accessors other packages implement for their own types
     centroid, region, shape_matrix, feature_frame, geom, csponds, focal_length,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene, division_coeffs,
+    free_names,   # a lens family's free coefficients: a calibrator's own lens target (CaliBlobs' LensTarget) answers it
     # the support protocol a node model implements (geometry/cameras/support.jl)
     support_trait, nodes, support, node_position,
     # the spline models' rebuilders and central part (geometry/cameras/noncentral_spline_model.jl),

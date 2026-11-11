@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`free_names` is a contract generic** (`CONTRACT_GENERICS`): a calibrator's own lens target (CaliBlobs'
+  `LensTarget`) adds its method to Core's function instead of a namesake.
+
 - **New: `required_key(d, key, where)` and `is_finite_real(x)`** (public, not exported; base/config_toml.jl beside
   `check_keys`): a key a record or a config must hold, refused by name (an `ArgumentError` naming `where` and the
   key, never a `KeyError`), and a number a record may hold (a finite `Real`, not a `Bool`, finite as a Float64).

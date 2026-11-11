@@ -1,0 +1,10 @@
+# desktop: the owner's workstation (pop-os). One RTX 4090, no Slurm: every stage runs here in order. A GPU stage sees
+# device 0 only (CUDA_VISIBLE_DEVICES=0, never another device). The launchers' default thread count is kept, so the
+# runs are keyed as on dgx01. Keys: _template.toml.
+[site]
+name = "desktop"
+backend = "local"
+description = "pop-os: one RTX 4090, no scheduler"
+
+[local]
+cuda_visible_devices = "0"

@@ -206,3 +206,118 @@ script can run every driver in one warm session.
 cannot load this package can include them by path, in that order
 (`src/reproduce/results_branches.jl` is not among them: it runs git and reads
 TOML).
+
+## One command: the runner
+
+A paper project reproduces every result with one command: its *stage graph of
+record* (which launchers run which drivers on which configs of record, after
+what) run on a *site* (a machine: Slurm or local). The project keeps the graph
+(`configs/reproduce.toml`) and a one-line launcher per machine; the runner,
+the site profiles and their schema live here.
+
+```sh
+# from the repository root; a bare julia: the runner needs only the stdlibs
+julia --startup-file=no -e 'include(ARGS[1]); include(ARGS[2]); exit(reproduce_main(ARGS[3:end]))' \
+    <Eval>/src/cli.jl <Eval>/src/reproduce/runner.jl \
+    --graph=<project>/configs/reproduce.toml --site=dgx01 [--only=a,b] [--no-deps] [--dry-run]
+```
+
+The graph (`[project]`, `[sites.<site>]`, one `[[stage]]` per stage,
+`[results_branch]`; [`load_stage_graph`](@ref) documents every key):
+
+```toml
+[project]
+name = "cvpr2027"
+workdir = "../.."                      # where the jobs are submitted from, relative to this file
+julia_project = "cvpr2027"
+code = ["src", "cvpr2027/src", "cvpr2027/scripts"]   # the code whose changes rerun a stage
+
+[sites.dgx01]                          # where this project's data and results are on that machine
+data_root = "/raid/data/me/paper-data"
+results_root = "/raid/data/me/paper-results"
+
+[[stage]]
+name = "setup"                         # the environment: instantiated inside the scheduler
+sbatch = "cvpr2027/scripts/slurm/setup.sbatch"
+gpu = true
+
+[[stage]]
+name = "refinement_chrome"
+after = ["setup"]
+sbatch = "cvpr2027/scripts/slurm/refinement_chrome.sbatch"   # the project's own launcher, submitted as is
+driver = "cvpr2027/scripts/refinement_chrome.jl"
+config = "cvpr2027/configs/experiments/refinement_chrome.toml"
+gpu = true
+array = { from = "cases", select_env = "CHROME_CASES", max_time = "pipeline.lm.max_time", time_margin_s = 10800 }
+
+[[stage]]
+name = "results_branch"
+after = ["refinement_chrome"]
+results_branch = true
+
+[results_branch]
+project = "cvpr2027"
+assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
+```
+
+- **Selection.** No flags: every `default` stage. `--only=a,b`: those stages
+  and, transitively, every stage they run after; with `--no-deps`, those
+  alone ([`select_stages`](@ref)). `--dry-run` prints the job graph — per
+  stage its items, dependencies, run key, the driver's own command line and
+  the command the backend runs — and the missing inputs, and runs nothing
+  ([`print_plan`](@ref)).
+- **Inputs first.** Every `[inputs.<id>]` (`tier`, `path` under the data root)
+  of every selected stage's configs is checked before anything runs; a missing
+  one is a row `path  tier  used by`, the launch runs nothing and exits 3
+  ([`missing_inputs`](@ref)).
+- **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
+  (an array over its items, sized from the config's cases or a list, `--time`
+  from the cases' `max_time`), after the jobs of the stages it depends on
+  (`--dependency=afterok`), with the site's options over the launcher's
+  `#SBATCH` lines; a `command` stage is wrapped (`sbatch --wrap`). `local`:
+  every stage here in order, the launcher under `bash` with the Slurm
+  variables it reads (`SLURM_ARRAY_TASK_ID`, `SLURM_SUBMIT_DIR`,
+  `SLURM_CPUS_PER_TASK`) and the site's `CUDA_VISIBLE_DEVICES`, its output in
+  `logs/<project>_<stage>[_<task>].log`.
+- **Run manifest, reuse.** Every launch writes
+  `<results root>/<manifest_dir>/<UTC stamp>-<commit>.toml`: the commit, the
+  configs (sha256), the data and results roots, the site, and per stage its run
+  key, command, job id and state. A stage's run key hashes the code (`code`),
+  its launcher, driver and configs, its items, environment and command; a
+  later launch reuses a stage of the same key that completed (and depends on
+  one still in flight, by its job id) instead of running it again.
+- **Status.** `reproduce_main(["status", …])` reads the last manifest back:
+  per stage the job's task states (`sacct`), the log of its first failed task
+  and that log's first error line ([`reproduce_status`](@ref)).
+- **Results branch.** A `results_branch = true` stage runs
+  [`results_branch_of_run`](@ref) in the project's environment: the renders of
+  `[results_branch] assets` on a [`results_branch`](@ref), its RUN.toml
+  carrying the launch's commit, run keys, site, Slurm jobs and the data tiers
+  (`artifacts`: an Artifacts.toml's git-tree-sha1s).
+
+`src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; and
+`src/cli.jl`, included before it), so a launcher runs it by path from a bare
+`julia` before the project's environment exists; the setup stage then
+instantiates the environment inside the scheduler.
+
+### Adding your machine
+
+The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
+partition `gpu`, 28 CPUs and one GPU per task) and `configs/sites/desktop.toml`
+(one RTX 4090, no scheduler, device 0). For another machine:
+
+1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`
+   `backend` (`slurm` or `local`) and a `setup` shell snippet (module loads,
+   an activated environment); `[slurm]` `partition`, `gres` (a GPU stage's),
+   `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options; `[local]`
+   `cuda_visible_devices`, `cpus_per_task`; `[env]` variables every stage gets
+   (`JULIA`, `JULIA_DEPOT_PATH`, …).
+2. Keep it with the project (the graph's `[project] sites_dir`) or anywhere,
+   and give `--site=<name>` or `--site=path/to/mine.toml`.
+3. Say where the project's data and results live on it: the graph's
+   `[sites.<name>] data_root` / `results_root`, or `VGTK_DATA_ROOT` /
+   `VGTK_RESULTS_ROOT`, or `--data-root` / `--results-root`.
+4. Check it with `--dry-run`: the commands, the roots and the missing inputs,
+   with nothing run.
+
+A site holds no project's paths, and a project holds no machine's resources.

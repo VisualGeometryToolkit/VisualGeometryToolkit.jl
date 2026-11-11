@@ -76,39 +76,11 @@ The frame labels of `vg`, in the order it was built with.
 views(vg::ViewGraph) = vg.views
 
 """
-    edgelist(vg::ViewGraph) -> Vector{Pair}
-
-The edges as `(i, j) => data` pairs, sorted by `(i, j)`: the persistence form a
-ViewGraph is rebuilt from.
-"""
-edgelist(vg::ViewGraph) = sort!([p => e for (p, e) in vg.edges]; by = first)
-
-Base.getindex(vg::ViewGraph, i, j) = vg.edges[(i, j)]
-Base.haskey(vg::ViewGraph, i, j) = haskey(vg.edges, (i, j))
-
-"""
-    nedges(g) -> Int
-
-The number of edges of a [`ViewGraph`](@ref) (its verified pairs) or an
-[`ObservationGraph`](@ref) (its observations).
-"""
-nedges(vg::ViewGraph) = length(vg.edges)
-
-"""
     adjacent_views(vg::ViewGraph, v) -> Vector
 
 The views paired with `v`, sorted.
 """
 adjacent_views(vg::ViewGraph, v) = sort!([vg.views[u] for u in Graphs.neighbors(vg.graph, vg.index[v])])
-
-"""
-    components(vg::ViewGraph) -> Vector{Vector}
-
-The connected components as sorted view labels, largest first (equal sizes by
-their smallest view). Poses are comparable only within one component.
-"""
-components(vg::ViewGraph) =
-    sort!([sort!(vg.views[comp]) for comp in Graphs.connected_components(vg.graph)]; by = c -> (-length(c), first(c)))
 
 """
     label_components(vg::ViewGraph) -> Dict
@@ -138,21 +110,8 @@ OpenCV's `leaveBiggestComponent`): the SfM policy.
 """
 keep_largest_component(vg::ViewGraph) = isempty(vg.views) ? vg : induced(vg, first(components(vg)))
 
-"""
-    articulation(vg::ViewGraph) -> Vector
-
-The cut views: views whose removal splits their component, sorted.
-"""
-articulation(vg::ViewGraph) = sort!([vg.views[c] for c in Graphs.articulation(vg.graph)])
-
-"""
-    bridges(vg::ViewGraph) -> Vector{Tuple}
-
-The bridge edges: pairs whose removal splits their component, sorted.
-"""
-bridges(vg::ViewGraph) = sort!([_pair(vg, Graphs.src(e), Graphs.dst(e)) for e in Graphs.bridges(vg.graph)])
-
-_pair(vg::ViewGraph, a::Int, b::Int) = (i = vg.views[a]; j = vg.views[b]; isless(i, j) ? (i, j) : (j, i))
+_pair(vg::ViewGraph, a::Int, b::Int) =                 # a graph edge as its label pair (the labelled-graph core, observation_graph.jl)
+    (i = vg.views[a]; j = vg.views[b]; isless(i, j) ? (i, j) : (j, i))
 
 # An edge's relative transform and its weight are VGC's `value_of` and `weight_of`: the value and the
 # `weight` attribute of an `Attributed` edge; a bare transform is its own value and weighs 1.

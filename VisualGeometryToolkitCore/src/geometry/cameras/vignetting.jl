@@ -236,6 +236,15 @@ function projective_knots(n::Integer, p::Integer)
     return SVector{Int(n) + Int(p) + 1}(vcat(zeros(Int(p) + 1), interior, ones(Int(p) + 1)))
 end
 
+# The chart as a type parameter (isbits, a kernel specialises on it): `radial_chart` names it.
+abstract type _RadialChart end
+struct _LinearChart <: _RadialChart end
+struct _ProjectiveChart <: _RadialChart end
+_chart_type(chart::Symbol) = chart === :projective ? _ProjectiveChart : chart === :linear ? _LinearChart :
+    throw(ArgumentError("RadialVignetting: chart = $(repr(chart)) is not one of $(join(repr.(RADIAL_CHARTS), ", "))"))
+_chart_name(::Type{_LinearChart}) = :linear
+_chart_name(::Type{_ProjectiveChart}) = :projective
+
 """
     RadialVignetting(n, center, radius; degree = 3, T = Float64, chart = :linear)
     RadialVignetting(knots, center, radius, P; degree, chart = :linear)
@@ -261,15 +270,6 @@ and the control points: what a record is rebuilt from.
 [`radial_chart`](@ref) is the chart, [`with_center`](@ref) moves the centre,
 [`center_gradient`](@ref) is `∂V/∂center`.
 """
-# The chart as a type parameter (isbits, a kernel specialises on it): `radial_chart` names it.
-abstract type _RadialChart end
-struct _LinearChart <: _RadialChart end
-struct _ProjectiveChart <: _RadialChart end
-_chart_type(chart::Symbol) = chart === :projective ? _ProjectiveChart : chart === :linear ? _LinearChart :
-    throw(ArgumentError("RadialVignetting: chart = $(repr(chart)) is not one of $(join(repr.(RADIAL_CHARTS), ", "))"))
-_chart_name(::Type{_LinearChart}) = :linear
-_chart_name(::Type{_ProjectiveChart}) = :projective
-
 struct RadialVignetting{T, N, K, DP, C <: _RadialChart} <: AbstractVignetting
     center::SVector{2, T}
     radius::T

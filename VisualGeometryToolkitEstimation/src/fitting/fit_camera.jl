@@ -60,8 +60,8 @@ a `NamedTuple`:
   whether the target family cut the source's domain; the errors are at the
   quadrature's nodes of the radial profile;
 - `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
-  n_held_out_dropped, tolerance, spacing, counts, forward_λ,
-  forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms)` —
+  n_held_out_dropped, tolerance, forward)`, `forward` being `(; spacing, counts, λ,
+  outer_iterations, max_px, max_px_edge, rms)` or `nothing` —
   the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
   source's kept backward), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
   pixels, the spacing search's fits (0 for a given or kept lattice), the
@@ -69,7 +69,7 @@ a `NamedTuple`:
   spline's knot spacing `h` (radians in the chart), its control counts per chart
   axis, its `λ`, its search's fits and its held-out round trip
   `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
-  every forward field `nothing` with `forward = false`. The result's errors
+  `forward` is `nothing` with `forward = false`. The result's errors
   (`max_px`, `max_px_edge`, `rms`) are the backward's held-out direction error,
   as the non-central target's (below), over the held-out pixels where the
   source's back-projection Jacobian is finite — `n_held_out_dropped` counts the
@@ -962,13 +962,12 @@ function fit_camera(
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
     fwd === nothing || fwd.code === :converged || (code = fwd.code)
     out = fwd === nothing ? cam : CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd.spline, present = cam.lens.present))
-    ff = fwd === nothing ? (; spacing = nothing, counts = nothing, forward_λ = nothing, forward_outer_iterations = nothing,
-            forward_max_px = nothing, forward_max_px_edge = nothing, forward_rms = nothing) :
-        (; spacing = fwd.r.h, counts = fwd.r.counts, forward_λ = fwd.r.λ, forward_outer_iterations = fwd.n,
-            forward_max_px = fwd.r.errors.max, forward_max_px_edge = fwd.r.errors.max_edge, forward_rms = fwd.r.errors.rms)
+    ff = fwd === nothing ? nothing :
+        (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
+            max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
     return FitResult(
         out, code, 0, back.errors.rms, back.n,
-        CameraFitMetadata(region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), ff...))
+        CameraFitMetadata(region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), forward = ff))
     )
 end
 

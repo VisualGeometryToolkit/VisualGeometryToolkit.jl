@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: `fit_camera(SplineLens, …)`'s forward fields are one nested `forward`** in its metadata family:
+  `family.forward` is `(; spacing, counts, λ, outer_iterations, max_px, max_px_edge, rms)`, or `nothing` with
+  `forward = false` (seven `nothing` fields before: `spacing`, `counts`, `forward_λ`, `forward_outer_iterations`,
+  `forward_max_px`, `forward_max_px_edge`, `forward_rms`). The refine's own `forward_max_px` metadata is unchanged.
 - **Changed: `fit_camera` and `pspline_grid` read every camera source's quadrature rays and held-out Jacobians
   through Core's batched `backproject` / `backproject_with_jacobian` on `device`** (a parametric source ran as a host
   map, and its Jacobians always did). No per-lens-type branch; values unchanged on the CPU.

@@ -163,11 +163,11 @@ end
     @test metadata(r).max_px < 1.0e-9                                           # the kept backward against itself
     # the forward's held-out maximum, the edge band's included (the old forward map
     # it replaced measured 2026-11-04: 9.2e-4 px, in the band; rms 1.0e-4 px; 28 × 28 controls)
-    @test fam.forward_max_px <= 1.0e-3
-    @test fam.forward_max_px_edge <= 1.0e-3
-    @test fam.forward_rms < 2.0e-4
-    @test fam.counts[1] == fam.counts[2]                                        # a full disc: isotropic counts
-    @test fam.tolerance == 1.0e-3 && iterations(r) == 0 && fam.forward_outer_iterations > 1
+    @test fam.forward.max_px <= 1.0e-3
+    @test fam.forward.max_px_edge <= 1.0e-3
+    @test fam.forward.rms < 2.0e-4
+    @test fam.forward.counts[1] == fam.forward.counts[2]                                        # a full disc: isotropic counts
+    @test fam.tolerance == 1.0e-3 && iterations(r) == 0 && fam.forward.outer_iterations > 1
     # the round trip at fresh points of the region, through the public verbs: the
     # camera projects through its forward spline
     pts = [SVector(500.0 + ρ * cos(a), 500.0 + ρ * sin(a)) for ρ in (0.0, 120.0, 300.0, 470.0) for a in range(0, 2π; length = 13)]
@@ -177,13 +177,13 @@ end
     # forward = false: the backward alone, the same controls; no forward record
     rb = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, forward = false)
     @test lens(estimate(rb)).forward === nothing && lens(estimate(rb)).backward.controls == lens(GRID).backward.controls
-    @test metadata(rb).family.forward_max_px === nothing && metadata(rb).family.counts === nothing
+    @test metadata(rb).family.forward === nothing
     # refitting the fitted camera, which holds a forward: the forward is dropped and
     # refitted (the same rays, the same solve), the backward kept again
     r2 = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-3)
     @test lens(estimate(r2)).backward.controls == lens(GRID).backward.controls
     @test lens(estimate(r2)).forward.controls == lens(cam).forward.controls
-    @test retcode(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward_max_px <= 1.0e-3
+    @test retcode(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward.max_px <= 1.0e-3
     # a kept backward has no lattice to choose
     @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
 end
@@ -207,14 +207,14 @@ end
     # the disc cut by the frame: a non-square region, anisotropic counts
     cut = Rect(0, 150, 1000, 700) ∩ DISC
     r = fit_camera(SplineLens, GRID_BOUNDED, cut; tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-3
-    n = metadata(r).family.counts
+    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
+    n = metadata(r).family.forward.counts
     @test n[1] > n[2]                                                           # wider than tall (measured 28 × 22)
     # the whole sensor of a parametric camera (corners at 81°): its backward lattice
     # and its forward, both to the tolerance
     wide = BoundedCamera(CameraModel(500.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02)), Size2(1000, 1000))
     r = fit_camera(SplineLens, wide, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).max_px <= 1.0e-3 && metadata(r).family.forward_max_px <= 1.0e-3
+    @test retcode(r) === :converged && metadata(r).max_px <= 1.0e-3 && metadata(r).family.forward.max_px <= 1.0e-3
     # the grid's whole sensor (its corners near 150°, far past the lit disc): the
     # forward reaches 1e-3 px within the bracket, where the old forward map did
     # not. The cause, measured 2026-11-10 against the old code (004a004c): the
@@ -226,11 +226,11 @@ end
     # off ẑ — reaches 1.41e-3 px; the lens axis (ẑ, the ray of the principal
     # point) reaches 5.69e-4 px.
     r = fit_camera(SplineLens, GRID_BOUNDED, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-3
+    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
     # a forward tolerance out of reach within the bracket: the fit says so and
     # reports what it reached, the kept backward notwithstanding
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-7)
-    @test retcode(r) === :max_iterations && 1.0e-7 < metadata(r).family.forward_max_px < 1.0e-3 && metadata(r).max_px < 1.0e-9
+    @test retcode(r) === :max_iterations && 1.0e-7 < metadata(r).family.forward.max_px < 1.0e-3 && metadata(r).max_px < 1.0e-9
     # the quadrature is on the image: a spline target takes no weight
     @test_throws MethodError fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, weight = :image)
 end
@@ -420,7 +420,7 @@ end
     @test_throws r"CameraModel\(SplineLens, f, size" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)   # the refusal names the route
     cam = CameraModel(SplineLens, f, (1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-2)
-    @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-2
+    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-2
     @test lens(estimate(r)).backward.controls == lens(cam).backward.controls
 end
 

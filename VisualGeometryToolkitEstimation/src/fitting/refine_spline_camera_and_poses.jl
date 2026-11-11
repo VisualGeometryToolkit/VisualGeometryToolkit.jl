@@ -570,7 +570,7 @@ end
 # Estimation's one route (`fit_camera(SplineLens, …)`, which keeps the backward exactly).
 function _refit_forward(camera::BoundedCamera, tolerance)
     fr = fit_camera(SplineLens, camera, VgtkCore.imaged_region(camera); tolerance)
-    return VgtkCore.with_model(camera, estimate(fr)), retcode(fr), metadata(fr).family.forward_max_px
+    return VgtkCore.with_model(camera, estimate(fr)), retcode(fr), metadata(fr).family.forward.max_px
 end
 
 function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)

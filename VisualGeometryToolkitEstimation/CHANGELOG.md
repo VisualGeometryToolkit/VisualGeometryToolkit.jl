@@ -37,6 +37,14 @@ non-central one is a `NoncentralSplineModel`).
   mis-registered frames no longer poison the mount. Synthetic (30 frames × 2 markers, 2 mrad / 2 mm, five gross poses,
   20 seeds): `Y` 1.84° / 43.5 mm (least squares) → 0.025° / 0.55 mm (Huber). A redescending loss from the poisoned seed
   may reject a whole marker: an `ArgumentError` naming Huber.
+- **New: per-edge rotation covariances in `fit_rotation_averaging`** (the owner's ruling). An edge
+  `Attributed(Uncertain(R_ij, Σ), (; weight))` carries its rotation's unit-scale covariance (3×3 in the so(3) chart,
+  or 9×9 over vec(R) as `solver_covariance` returns it); each edge residual is whitened by Core's
+  `whitening_factor(R_j, Σ)` before the loss and in the update, and `scale` is then the variance factor σ₀ (noise
+  σ₀²Σ). Bare edges are solved exactly as before. `RotationProblem` declares `provides_solver_covariance`: its
+  `solver_covariance(problem, R, inliers)` is the existing constraint sandwich (Core's `implicit_covariance` on the
+  transfer-form rows, unit pixel noise), the implicit-function covariance of the Sampson LM its local optimization runs;
+  a Monte Carlo of that estimator matches it (300 trials, within 15 %).
 - **New: `fit_rigid_alignment(cs; optimization_strategy, scale | width, tol)`**, the rigid `b ≈ R·a + t` from point
   pairs (the ATE alignment): the weighted Kabsch on weighted centroids, least squares by default, a fixed-scale IRLS
   with an `Irls` strategy. `RigidAlignmentMetadata{L, W}`. A 150-frame walk (5 mm noise) with five centres 0.9–2.4 m

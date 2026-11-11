@@ -70,6 +70,18 @@ a reweighted first-order Lie-algebra least squares over every edge
 (Chatterjee & Govindu 2013), each a sparse linear solve, at ONE loss width
 fixed by the caller's scale input.
 
+- An edge may carry its rotation's covariance:
+  `Attributed(Uncertain(R_ij, Σ), (; weight))` (or a bare `Uncertain(R_ij, Σ)`),
+  Σ at unit scale — 3×3 in the so(3) chart of `R_ij` (left exp,
+  `R_ij → exp(δ)·R_ij`), or 9×9 over `vec(R_ij)` as
+  `solver_covariance(problem::RotationProblem, estimate(res), findall(inlier_mask(res)))`
+  returns it for a pairwise `find_rotation`. The noise is `σ₀²Σ` with σ₀ the
+  `scale` (the variance factor: with Σ from `solver_covariance`, which is in
+  unit pixel noise, σ₀ is the keypoints' pixel noise). Each edge residual is
+  whitened by its covariance (VisualGeometryToolkitCore's `whitening_factor`
+  of `R_j·Σ·R_jᵀ`, refreshed with `R_j`) before the loss and in the update, so a
+  weak edge (few inliers, a wide Σ) weighs less. A bare rotation is Σ = I; a
+  graph of bare rotations is solved exactly as before.
 - The edge weights: a zero weight drops its edge. The edges of positive weight
   must connect every frame (an `ArgumentError` otherwise — a zero-weight bridge
   splits the graph), and all-zero weights are refused.
@@ -115,10 +127,12 @@ function fit_rotation_averaging(
     ) where {K}
     f = _fit_irls("fit_rotation_averaging", optimization_strategy, scale, width, 3)
     edges = sort!(collect(keys(relative)))
-    p = [VgtkCore.weight_of(relative[e]) for e in edges]
+    meas = [_edge_measurement(relative[e]) for e in edges]
+    p = [last(x) for x in meas]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every edge weight is zero"))
-    Rrel = [SMatrix{3, 3, Float64, 9}(VgtkCore.value_of(relative[e])) for e in edges]
+    Rrel = [SMatrix{3, 3, Float64, 9}(_edge_rotation(first(x))) for x in meas]
+    Σrel = _edge_covariances([first(x) for x in meas], Rrel)          # nothing: every edge plain (Σ = I), today's path
     start = _averaging_seed(seed, edges, Rrel, p)
     frames = sort!(collect(keys(start)))
     R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
@@ -132,10 +146,11 @@ function fit_rotation_averaging(
     retcode = f === nothing ? :solved : :max_iterations; iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
-        _irls_weights!(w, f, norm.(r))
+        W = _edge_whitening(Σrel, edges, R)
+        _irls_weights!(w, f, _whitened_norms(W, r))
         sw = _solve_weights(p, w)
         col, nunk = _averaging_columns(frames, edges, sw)
-        ω = _averaging_update(edges, col, r, sw, nunk)
+        ω = _averaging_update(edges, col, r, sw, nunk, W)
         Δ = 0.0
         for k in frames
             c = col[k]; c < 0 && continue                              # the gauge, or held
@@ -146,7 +161,7 @@ function fit_rotation_averaging(
         edge_residuals!()
         Δ < tol && (retcode = :converged; break)
     end
-    _irls_weights!(w, f, norm.(r))                                     # the metadata at the returned rotations
+    _irls_weights!(w, f, _whitened_norms(_edge_whitening(Σrel, edges, R), r))   # the metadata at the returned rotations
     out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
     sw = _solve_weights(p, w)
@@ -175,8 +190,66 @@ function _averaging_columns(frames, edges, w)
     return col, nunk
 end
 
+# =============================================================================
+# Uncertain edges: each relative rotation with its own covariance
+# =============================================================================
+#
+# An edge `Attributed(Uncertain(R_ij, Σ), (; weight))` (or a bare
+# `Uncertain(R_ij, Σ)`) carries its rotation's covariance Σ, unit scale: the
+# noise is σ₀²Σ, σ₀ the call's `scale` (the variance factor). Σ is 3×3 in the
+# so(3) chart of R_ij (left exp, R_ij → exp(δ)·R_ij: VGC's `SO3Manifold`), or
+# 9×9 over vec(R_ij) as `solver_covariance(::RotationProblem, …)` returns it,
+# read into the chart as `Jᵀ·Σ·J/4` (`J` the chart's `retract_jacobian`, whose
+# columns are orthogonal of norm √2). To first order the edge residual
+# r_ij = log(R_j·R_ij·R_iᵀ) moves by R_j·δ, so its covariance is R_j·Σ·R_jᵀ and
+# its whitening VGC's `whitening_factor(R_j, Σ)` (the inverse Cholesky factor of
+# that propagated covariance), refreshed at every iteration's R_j. The loss reads
+# the whitened norm and the update solves the whitened rows. A plain edge is
+# Σ = I; when every edge is plain, nothing is whitened (today's path, bit for bit).
+_edge_measurement(e::VgtkCore.Uncertain) = (e, 1.0)
+_edge_measurement(e) = (VgtkCore.value_of(e), Float64(VgtkCore.weight_of(e)))
+_edge_rotation(x::VgtkCore.Uncertain) = VgtkCore.value_of(x)
+_edge_rotation(x) = x
+
+_edge_covariances(xs, Rrel) = any(x -> x isa VgtkCore.Uncertain, xs) ? [_edge_covariance(x, Rq) for (x, Rq) in zip(xs, Rrel)] : nothing
+_edge_covariance(_x, _R) = SMatrix{3, 3, Float64, 9}(LinearAlgebra.I)
+_edge_covariance(x::VgtkCore.Uncertain, R) = _chart_covariance(SMatrix{size(cov(x))..., Float64}(cov(x)), R)
+_chart_covariance(Σ::SMatrix{3, 3, Float64}, _R) = Σ
+function _chart_covariance(Σ::SMatrix{9, 9, Float64}, R)
+    J = VgtkCore.retract_jacobian(VgtkCore.SO3Manifold(R))
+    return SMatrix{3, 3, Float64, 9}(VgtkCore.propagate(J' / 2, Σ))
+end
+_chart_covariance(Σ, _R) = throw(ArgumentError(
+    "fit_rotation_averaging: an edge covariance is 3×3 (the so(3) chart) or 9×9 (vec(R), solver_covariance's), got $(size(Σ))"))
+
+_edge_whitening(::Nothing, _edges, _R) = nothing
+_edge_whitening(Σrel, edges, R) = [VgtkCore.whitening_factor(R[j], Σrel[q]) for (q, (_, j)) in enumerate(edges)]
+
+_whitened_norms(::Nothing, r) = norm.(r)
+_whitened_norms(W, r) = [norm(W[q] * r[q]) for q in eachindex(r)]
+
 # The weighted sparse least squares of ω_j − ω_i = −r_ij over the edges (3 rows
-# each, the gauge frame's columns absent): its normal equations, sparse.
+# each, the gauge frame's columns absent): its normal equations, sparse. With
+# Uncertain edges each edge's rows are its whitening W_ij times √w.
+_averaging_update(edges, col, r, w, nunk, ::Nothing) = _averaging_update(edges, col, r, w, nunk)
+function _averaging_update(edges, col, r, w, nunk, W::AbstractVector)
+    Is = Int[]; Js = Int[]; Vs = Float64[]; b = zeros(3 * length(edges))
+    for (q, (i, j)) in enumerate(edges)
+        S = sqrt(w[q]) * W[q]
+        z = S * r[q]
+        for a in 1:3
+            row = 3 * (q - 1) + a
+            for c in 1:3
+                col[j] >= 0 && (push!(Is, row); push!(Js, col[j] + c); push!(Vs, S[a, c]))
+                col[i] >= 0 && (push!(Is, row); push!(Js, col[i] + c); push!(Vs, -S[a, c]))
+            end
+            b[row] = -z[a]
+        end
+    end
+    A = sparse(Is, Js, Vs, 3 * length(edges), nunk)
+    return Vector((A' * A) \ (A' * b))
+end
+
 function _averaging_update(edges, col, r, w, nunk)
     Is = Int[]; Js = Int[]; Vs = Float64[]; b = zeros(3 * length(edges))
     for (q, (i, j)) in enumerate(edges)

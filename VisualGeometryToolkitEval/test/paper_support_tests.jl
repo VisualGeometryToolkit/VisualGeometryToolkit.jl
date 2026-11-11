@@ -1,4 +1,4 @@
-@testitem "paper support: assert_active_project" begin
+@testitem "paper_support" begin   # assert_active_project
     # bmvc2026's and icra2026's `_assert_project`: DrWatson's projectdir() is the
     # paper project only when it is the active project, so a driver asserts it.
     using Test
@@ -10,7 +10,7 @@
     @test occursin("NoSuchPaper.jl", msg) && occursin(here, msg) && occursin("--project", msg)
 end
 
-@testitem "paper support: station_cells" begin
+@testitem "paper_support: station_cells" begin
     # The floorplan fan's cells, restated by bmvc2026 and icra2026: one row per
     # (frame, marker) attempt → per (station, distance) the count placed, the
     # rate, the median distance error and median |angle error|.
@@ -31,7 +31,7 @@ end
     @test only(filter(c -> c.dist == 2000 && c.n > 0, cells)).angle == 0
 end
 
-@testitem "paper support: save_hand_eye, load_hand_eye" begin
+@testitem "paper_support: save_hand_eye, load_hand_eye" begin
     # A hand-eye calibration as its two records (bmvc2026 writes them, icra2026
     # reads them): X (body:camera_rig → camera_optical) and the marker mount.
     using Test, StaticArrays, Rotations

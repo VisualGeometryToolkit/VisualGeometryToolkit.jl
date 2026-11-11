@@ -369,7 +369,7 @@ arity, an arity outside 1–9, unbalanced braces, an unescaped `%` and a name
 function add_macro!(nums::PaperNumbers, name::AbstractString, body::AbstractString; arity::Integer,
         label::AbstractString = "", provenance::NamedTuple = (;))
     1 <= arity <= 9 || throw(ArgumentError("\\$name: a macro takes 1 to 9 parameters, not $arity"))
-    used = [parse(Int, m[1]) for m in eachmatch(r"(?<!\\)#(\d)", body)]
+    used = [parse(Int, _cap(m, 1)) for m in eachmatch(r"(?<!\\)#(\d)", body)]
     all(k -> 1 <= k <= arity, used) ||
         throw(ArgumentError("\\$name: its body reads parameter(s) $(sort(unique(used))) of an arity-$arity macro"))
     _check_tex_text(replace(body, r"(?<!\\)#\d" => "x"), "\\$name's body")
@@ -407,7 +407,7 @@ _without_provenance(text::AbstractString) = [l for l in eachsplit(text, '\n') if
 # The definitions a numbers file of this writer holds, one per line: `name => (arity, body)`.
 const _DEFINITION_LINE = r"^\\newcommand\{\\([A-Za-z]+)\}(?:\[(\d)\])?\{(.*)\}$"
 _macro_definitions(text::AbstractString) =
-    [String(m[1]) => (m[2] === nothing ? 0 : parse(Int, m[2]), String(m[3]))
+    [String(_cap(m, 1)) => (isempty(_cap(m, 2)) ? 0 : parse(Int, _cap(m, 2)), String(_cap(m, 3)))
      for m in (match(_DEFINITION_LINE, l) for l in eachsplit(text, '\n')) if m !== nothing]
 
 # A driver's section of a numbers file: its header, then per macro its provenance comment and definition.
@@ -434,7 +434,7 @@ function _sections(text::AbstractString, path)
         m = match(_HEADER_LINE, line)
         if m !== nothing
             cur === nothing || push!(out, cur => String(take!(buf)))
-            cur = String(m[1])
+            cur = String(_cap(m, 1))
         elseif cur === nothing
             isempty(line) || throw(ArgumentError("write_numbers: $path holds text before its first driver's header"))
             continue

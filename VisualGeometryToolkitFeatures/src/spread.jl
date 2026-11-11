@@ -135,19 +135,21 @@ function _ssc_cover!(b::_SSCBuffers, dev, width::Real, cols::Int, rows::Int)
         b.best = KA.zeros(dev, UInt64, ncell)
         b.first = KA.allocate(dev, Int32, ncell); fill!(b.first, _SSC_NO_POINT)
     end
-    _ssc_cells!(dev)(b.cell, b.x, b.y, c, Int32(ncols), Int32(nrows); ndrange = M)
-    _ssc_cell_max!(dev)(b.best, b.cell, b.key; ndrange = M)
-    _ssc_cell_first!(dev)(b.first, b.best, b.cell, b.key; ndrange = M)
+    # each launch through `_launch!` (foerstner.jl), completed before the next: behind its untyped barrier the
+    # kernel is not a Union over an abstract backend's kernels (no JET report)
+    _launch!(_ssc_cells!, dev, b.cell, b.x, b.y, c, Int32(ncols), Int32(nrows); ndrange = M)
+    _launch!(_ssc_cell_max!, dev, b.best, b.cell, b.key; ndrange = M)
+    _launch!(_ssc_cell_first!, dev, b.first, b.best, b.cell, b.key; ndrange = M)
     fill!(b.s0, _SSC_UNDECIDED)
     while true
         fill!(b.pending, Int32(0))
-        _ssc_round!(dev)(b.s1, b.s0, b.pending, b.first, b.cell, b.key, Int32(ncols), Int32(nrows), Int32(reach); ndrange = M)
+        _launch!(_ssc_round!, dev, b.s1, b.s0, b.pending, b.first, b.cell, b.key, Int32(ncols), Int32(nrows), Int32(reach); ndrange = M)
         b.s0, b.s1 = b.s1, b.s0
         Array(b.pending)[1] == 0 && break
     end
-    _ssc_clear!(dev)(b.best, b.first, b.cell; ndrange = M)
+    _launch!(_ssc_clear!, dev, b.best, b.first, b.cell; ndrange = M)
     fill!(b.count, Int32(0))
-    _ssc_count!(dev)(b.count, b.s0; ndrange = M)
+    _launch!(_ssc_count!, dev, b.count, b.s0; ndrange = M)
     return Int(Array(b.count)[1])
 end
 

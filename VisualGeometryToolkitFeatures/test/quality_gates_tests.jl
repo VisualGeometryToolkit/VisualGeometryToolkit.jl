@@ -44,13 +44,15 @@ end
 @testitem "JET" begin
     using JET
     # RATCHET: a ceiling that may only go down; lower it whenever reports are
-    # fixed. The remaining reports are false positives JET cannot see through:
-    # kernel launches on an abstract KernelAbstractions.Backend in the device
-    # matchers (matching_ka.jl, matching_stacked_ka.jl). 13 → 7 when the host
-    # cross-warp NMS kernels were folded into the pool ones and the stacked
-    # matcher's reverse buffers became one `nothing`-or-NamedTuple. Measure it
-    # under Pkg.test, not a bare REPL: the test target loads more packages.
-    BASELINE = 7
+    # fixed. 13 → 7 when the host cross-warp NMS kernels were folded into the
+    # pool ones and the stacked matcher's reverse buffers became one
+    # `nothing`-or-NamedTuple; 7 → 5 with spread.jl's kernels launched through
+    # `_launch!`. The 5: 2 false positives JET cannot see through (kernel
+    # launches on an abstract KernelAbstractions.Backend in matching_ka.jl's
+    # `_nn_select`), loma.jl's `_replicate_border!` on a `Union{Nothing,
+    # Matrix}` (2) and raw_image.jl's captured `black` (1). Measure it under
+    # Pkg.test, not a bare REPL: the test target loads more packages.
+    BASELINE = 5
     reports = JET.get_reports(
         JET.report_package(
             VisualGeometryToolkitFeatures;

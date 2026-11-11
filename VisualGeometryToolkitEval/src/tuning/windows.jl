@@ -128,7 +128,7 @@ struct CenteredWindow <: WindowRule
     end
 end
 
-_need(x, what, rule) = x === nothing ?
+_required(x, what, rule) = x === nothing ?
     throw(ArgumentError("window_bounds: the $(nameof(typeof(rule))) rule needs `$what`")) : x
 
 """
@@ -143,14 +143,14 @@ and is not given.
 """
 window_bounds(r::FixedWindow; _...) = (r.lo, r.hi)
 window_bounds(r::StandardizedWindow; scale_multiple_window = nothing, _...) =
-    (w = _need(scale_multiple_window, :scale_multiple_window, r); (w.lo, w.hi))
+    (w = _required(scale_multiple_window, :scale_multiple_window, r); (w.lo, w.hi))
 function window_bounds(r::CoverageWindow; scale_multiple_window = nothing, native = nothing, s2 = nothing, _...)
-    w = _need(scale_multiple_window, :scale_multiple_window, r)
-    f = _need(native, :native, r); v = _need(s2, :s2, r)
+    w = _required(scale_multiple_window, :scale_multiple_window, r)
+    f = _required(native, :native, r); v = _required(s2, :s2, r)
     scale_min, scale_max = scale_bounds(v, (r.q_lo, r.q_hi))
     ζ = 2.0^r.zeta_octaves
     return (exp(log(Float64(f(w.lo, scale_min / ζ))) - r.log_margin),
             exp(log(Float64(f(w.hi, scale_max * ζ))) + r.log_margin))
 end
 window_bounds(r::CenteredWindow; center = nothing, _...) =
-    (x = Float64(_need(center, :center, r)); (x / r.factor, x * r.factor))
+    (x = Float64(_required(center, :center, r)); (x / r.factor, x * r.factor))

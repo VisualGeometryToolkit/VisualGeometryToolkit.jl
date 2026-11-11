@@ -593,12 +593,12 @@ end
 
 # Two identities agree unless a field both state differs (case aside: LibRaw
 # writes a maker as "Sony" where EXIF has "SONY").
-_fields(d::DeviceIdentity) = (d.make, d.model, d.serial)
+_identity_fields(d::DeviceIdentity) = (d.make, d.model, d.serial)
 _agrees(a::DeviceIdentity, b::DeviceIdentity) =
-    all(((x, y),) -> x === nothing || y === nothing || lowercase(x) == lowercase(y), zip(_fields(a), _fields(b)))
+    all(((x, y),) -> x === nothing || y === nothing || lowercase(x) == lowercase(y), zip(_identity_fields(a), _identity_fields(b)))
 # Identities that agree pairwise, as one: each field the first that states it.
 _first_stated(xs) = (i = findfirst(!isnothing, xs); i === nothing ? nothing : xs[i])
-_merged(ids) = DeviceIdentity((_first_stated(xs) for xs in zip(map(_fields, ids)...))...)
+_merged(ids) = DeviceIdentity((_first_stated(xs) for xs in zip(map(_identity_fields, ids)...))...)
 function _one_identity(ids, what)
     all(a -> all(b -> _agrees(a, b), ids), ids) ||
         throw(ArgumentError("extract_capture_settings: the frames name $(length(unique(ids))) $(what)s, $(unique(ids)); a capture has one"))

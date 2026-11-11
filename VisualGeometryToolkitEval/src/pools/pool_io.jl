@@ -21,8 +21,8 @@ _model_type(class::AbstractString) =
     class == "FundMat" ? FundMat{Float64} :
     class == "HomographyMat" ? HomographyMat{Float64} :
     throw(ArgumentError("unknown pool model_class $(repr(class)) (expected \"FundMat\" | \"HomographyMat\")"))
-_model_class(::Type{<:FundMat}) = "FundMat"
-_model_class(::Type{<:HomographyMat}) = "HomographyMat"
+_model_class_name(::Type{<:FundMat}) = "FundMat"
+_model_class_name(::Type{<:HomographyMat}) = "HomographyMat"
 
 # The residual kinds a residuals file may declare.
 const _RESIDUAL_KINDS = (:sampson, :tangent_sampson)
@@ -122,7 +122,7 @@ function ScoringPool(pairs::AbstractVector{PoolPair{M}}, problem::Symbol, scene:
                      scene_names::AbstractVector{<:AbstractString}, stamps::NamedTuple) where {M}
     haskey(_POOL_MODEL_CLASS, problem) ||
         throw(ArgumentError("ScoringPool: problem must be :E, :F or :H, got :$problem"))
-    _POOL_MODEL_CLASS[problem] == _model_class(M) ||
+    _POOL_MODEL_CLASS[problem] == _model_class_name(M) ||
         throw(ArgumentError("ScoringPool: a :$problem pool stores $(_POOL_MODEL_CLASS[problem]), not $M"))
     length(scene_names) == length(pairs) || throw(DimensionMismatch(
         "ScoringPool: $(length(scene_names)) scene names for $(length(pairs)) pairs"))
@@ -227,7 +227,7 @@ _plain_pair(p::PoolPair) = NamedTuple{_PAIR_FIELDS}((
     p.snn === nothing ? nothing : Vector{Float32}(p.snn),
 ))
 
-function _record(::Type{M}, nt, path, i) where {M}
+function _pair_record(::Type{M}, nt, path, i) where {M}
     issetequal(keys(nt), _PAIR_FIELDS) ||
         throw(ArgumentError("$path: pair $i has fields $(keys(nt)), expected $(_PAIR_FIELDS)"))
     C = nt.csponds
@@ -287,7 +287,7 @@ function save_pool(path::AbstractString, pool::ScoringPool{M}) where {M}
     mkpath(dirname(abspath(path)))
     st = pool.stamps
     return _save_artifact(path, :pool;
-        problem = String(pool.problem), scene = pool.scene, model_class = _model_class(M),
+        problem = String(pool.problem), scene = pool.scene, model_class = _model_class_name(M),
         frame = string(nameof(frame(pool))), gt_convention = st.gt_convention,
         pool_key = pool.pool_key, scene_names = pool.scene_names,
         pool_rng = String(st.pool_rng), julia_version = String(st.julia_version),
@@ -339,7 +339,7 @@ function _pool_from_raw(raw::AbstractDict, path::AbstractString)
         throw(ArgumentError("$path: gt_convention $(repr(raw["gt_convention"])), expected $(repr(GT_CONVENTION))"))
     problem = Symbol(raw["problem"])
     M = _model_type(raw["model_class"])
-    pairs = PoolPair{M}[_record(M, nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
+    pairs = PoolPair{M}[_pair_record(M, nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
     stamps = (gt_convention = String(raw["gt_convention"]), pool_rng = String(raw["pool_rng"]),
               julia_version = String(raw["julia_version"]), total_samples = Int(raw["total_samples"]),
               total_solutions = Int(raw["total_solutions"]),

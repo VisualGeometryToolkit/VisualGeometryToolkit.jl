@@ -84,7 +84,7 @@
     # ONE mAA criterion. The retired `MAA(max_error_deg)` was the identical
     # statistic under a field name asserting degrees, which a criterion handed
     # millimetres cannot (BlobBoards' bmvc2026 invariance, configs/tuning_grid.toml).
-    # Its `"maa"` tag went with it — an alias would make `_tag`'s reverse lookup
+    # Its `"maa"` tag went with it — an alias would make `_family_tag`'s reverse lookup
     # ambiguous, since it finds a type's tag by scanning the table.
     @testset "mAA is units-neutral and refuses a non-positive cap" begin
         @test_throws ArgumentError MeanAverageAccuracy(0.0)

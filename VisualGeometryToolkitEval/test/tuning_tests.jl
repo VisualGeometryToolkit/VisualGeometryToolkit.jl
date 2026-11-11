@@ -170,7 +170,7 @@
     @testset "every tag parses; lossless round trips" begin
         @test Set(keys(TUNING_TAGS)) == Set(keys(samples))
         for (fam, xs) in samples
-            @test Set(T._tag(x) for x in xs) == Set(keys(TUNING_TAGS[fam]))   # every tag covered
+            @test Set(T._family_tag(x) for x in xs) == Set(keys(TUNING_TAGS[fam]))   # every tag covered
             for x in xs
                 @test read_tuning(abstract_of[fam], tuning_table(x)) == x       # type → table → type
                 @test read_tuning(abstract_of[fam], toml_text(x)) == x          # … through TOML text

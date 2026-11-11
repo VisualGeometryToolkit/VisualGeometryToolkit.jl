@@ -274,7 +274,7 @@ _Relpose5ptBuffers() = _Relpose5ptBuffers(Ref{NTuple{15,Float64}}(),
 # Five bearings per side, as an `NTuple` or as the `SVector{5}` VGC's
 # `solve(Essential5pt(PoseLibSolver()), cs, idx)` builds. `Tuple(::SVector)` is
 # free, so both reach the same packing.
-const _Bearings5 = Union{NTuple{5, <:StaticVector{3, Float64}},
+const _Float64Bearings5 = Union{NTuple{5, <:StaticVector{3, Float64}},
                          StaticVector{5, <:StaticVector{3, Float64}}}
 
 """
@@ -290,7 +290,7 @@ Returns every real solution that VisualGeometryToolkitCore's
 `is_valid_solution` accepts, up to ten; a degenerate sample returns fewer, possibly
 none. The public entry point is `solve(Essential5pt(PoseLibSolver()), cs, idx)`.
 """
-function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Bearings5, x2::_Bearings5)
+function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Float64Bearings5, x2::_Float64Bearings5)
     bufs = _relpose5pt_buffers()
     bufs.p1[] = _pack_points3(Tuple(x1))
     bufs.p2[] = _pack_points3(Tuple(x2))

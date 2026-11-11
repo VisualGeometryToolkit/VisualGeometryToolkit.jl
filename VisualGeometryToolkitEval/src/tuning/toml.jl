@@ -73,7 +73,7 @@ const _FAMILY_OF = Dict{Type,String}(
 )
 
 _family(::Type{T}) where {T} = get(_FAMILY_OF, T, nothing)
-function _tag(x)
+function _family_tag(x)
     for (abs, fam) in _FAMILY_OF
         x isa abs || continue
         for (tag, T) in TUNING_TAGS[fam]
@@ -133,7 +133,7 @@ function tuning_table(x::Union{_TABLE_TYPES,TuningCriterion})
     T = typeof(x)
     t = Dict{String,Any}(VgtkCore.toml_key(T, f) => _table_value(getfield(x, f)) for f in fieldnames(T)
                          if getfield(x, f) !== nothing)   # an absent optional table (an incumbent) is not written
-    _tagged(x) && (t["type"] = _tag(x))
+    _tagged(x) && (t["type"] = _family_tag(x))
     return t
 end
 tuning_table(s::TuningSpec) = tuning_table(s.scheme)
@@ -226,7 +226,7 @@ end
 # The field walk is VgtkCore's `read_table` (the writer's `fieldnames`/`toml_key`
 # walk); what stays here is the layering it does not do. Every key is handed
 # to it as the pair (config value, inherited value), so it visits every field
-# in field order, and `_read_field` reads the pair: a nested table layered
+# in field order, and `_read_toml_field` reads the pair: a nested table layered
 # over its own default, a leaf from the config or else the default, absent
 # from both an error naming the key path. No type here skips a field, so the
 # struct is built positionally from the walk.
@@ -236,7 +236,7 @@ function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) whe
     d === nothing || VgtkCore.check_keys(d, VgtkCore.allowed_keys(C, (tagged ? ("type",) : ())...), path)
     layered = Dict{String,Any}(key => (d === nothing ? nothing : get(d, key, nothing),
                                        dflt === nothing ? nothing : get(dflt, key, nothing)) for key in VgtkCore.allowed_keys(C))
-    from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_field(fieldtype(C, F), u, v, "$path.$(VgtkCore.toml_key(C, F))", inherit)
+    from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_toml_field(fieldtype(C, F), u, v, "$path.$(VgtkCore.toml_key(C, F))", inherit)
     # `Any` on purpose: the fields of `C` have different types, so a narrower element type is a Union JET
     # reports against each positional field type of `C(args...)`; the constructor checks them.
     args = Any[v for (_, v) in VgtkCore.read_table(C, layered; from_toml)]
@@ -250,15 +250,15 @@ end
 
 _is_table(::Type{T}) where {T} = _family(T) !== nothing || haskey(_TYPE_KEYS, T)
 
-function _read_field(::Type{T}, u, v, path, inherit::Bool) where {T}
+function _read_toml_field(::Type{T}, u, v, path, inherit::Bool) where {T}
     T === Union{Nothing,Incumbent} && return u === nothing && v === nothing ? nothing : _read(Incumbent, u, v, path, inherit)
     _is_table(T) && return _read(T, u, v, path, inherit)
     x = u === nothing ? v : u
     x === nothing && throw(ArgumentError("missing key `$path`"))
-    return _leaf(T, x, path, inherit)
+    return _toml_leaf(T, x, path, inherit)
 end
 
-function _leaf(::Type{T}, x, path, inherit::Bool) where {T}
+function _toml_leaf(::Type{T}, x, path, inherit::Bool) where {T}
     try
         T === Float64 && x isa Real && !(x isa Bool) && return Float64(x)
         T === Int && x isa Integer && !(x isa Bool) && return Int(x)

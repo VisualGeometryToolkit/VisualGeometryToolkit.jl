@@ -28,15 +28,15 @@ allocation-free form: build `RansacWorkspace(problem, scoring, lo)` and
 A scoring is any implementation of VisualGeometryToolkitCore's scoring contract.
 The core ships MSAC and RANSAC at a threshold (VisualGeometryToolkitCore's
 `MsacScoring`, `RansacScoring`); the paper scorer, the Student-t + uniform
-marginal `StudentTUniformScoring`, is RANSACScoringDoneRight's. See the
+marginal `StudentTUniformScoring`, is VisualGeometryToolkitCore's (its research outlier models and grids RANSACScoringDoneRight's). See the
 [Scoring Functions guide](scoring.md).
 
 ```julia
 scoring = MsacScoring(problem; threshold = 2.0)            # the find_* default
 
-using RANSACScoringDoneRight: StudentTUniformScoring, Predictive
-scoring = StudentTUniformScoring(problem, 20.0)            # outlier half-width, pixels
-scoring = StudentTUniformScoring{Predictive}(problem, 20.0)
+using VisualGeometryToolkitCore: StudentTUniformScoring, Predictive, JeffreysPrior, FlatLabelPrior
+scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())            # outlier half-width, pixels
+scoring = StudentTUniformScoring{Predictive}(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
 ```
 
 ## Local Optimization (LO-RANSAC)
@@ -126,7 +126,7 @@ using LocalOptimizationDoneRight: HQ, StudentTUniform
 using VisualGeometryToolkitCore: WelschShape
 
 result = ransac(problem, scoring; local_optimization = HQ{WelschShape}(scale_multiple = 1.6))
-result = ransac(problem, StudentTUniformScoring(problem, 20.0); local_optimization = StudentTUniform())
+result = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()); local_optimization = StudentTUniform())
 ```
 
 ### Two-Level Gating

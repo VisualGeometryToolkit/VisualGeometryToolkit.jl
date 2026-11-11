@@ -8,7 +8,7 @@ CurrentModule = VisualGeometryToolkitEstimation
 
 We show that the predictive constraint covariance
 ``\btSigma_{\bg_i}`` (3), and hence the predictive marginal score
-(RANSACScoringDoneRight's `StudentTUniformScoring{Predictive}`, a predictive
+(VisualGeometryToolkitCore's `StudentTUniformScoring{Predictive}`, a predictive
 scorer of VisualGeometryToolkitCore's scoring contract),
 is gauge-invariant for homogeneous geometric
 models such as the projective homography ``\mathbf{H}``. The proof relies on

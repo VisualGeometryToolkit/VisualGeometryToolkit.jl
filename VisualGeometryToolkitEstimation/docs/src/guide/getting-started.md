@@ -56,11 +56,11 @@ values.
 
 The loop runs on VisualGeometryToolkitCore's scoring and local-optimization
 contracts, so a scorer and a strategy from other packages plug in by keyword.
-The paper scorer is RANSACScoringDoneRight's; the paper strategies are
+The paper scorer is VisualGeometryToolkitCore's (moved from RANSACScoringDoneRight); the paper strategies are
 LocalOptimizationDoneRight's:
 
 ```julia
-using RANSACScoringDoneRight: StudentTUniformScoring
+using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
 using LocalOptimizationDoneRight: HQ, StudentTUniform, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
@@ -68,7 +68,7 @@ cs = csponds(src, dst)
 problem = HomographyProblem(cs)
 
 result = find_homography(cs;
-    scoring = StudentTUniformScoring(problem, 20.0),   # outlier half-width, pixels
+    scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),   # outlier half-width, pixels
     local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 ```
 
@@ -94,8 +94,8 @@ result = ransac(problem, MsacScoring(problem; threshold = 2.0);
                 local_optimization = Irls{WelschShape}(scale_multiple = 2.5))
 
 # the marginal scorer with a weakly-informative scale prior, or its predictive variant
-# scoring = StudentTUniformScoring(problem, 20.0; prior = IGPrior(2.0, 1.0))
-# scoring = StudentTUniformScoring{Predictive}(problem, 20.0)
+# scoring = StudentTUniformScoring(problem, 20.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())
+# scoring = StudentTUniformScoring{Predictive}(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
 ```
 
 `ransac(problem, scoring)` with no `local_optimization` runs none

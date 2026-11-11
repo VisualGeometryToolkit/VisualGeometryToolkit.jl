@@ -1,7 +1,7 @@
 # Ray Density Correction for Posterior Weights
 
 *In scale-free marginal RANSAC* (the Student-t + uniform marginal score,
-RANSACScoringDoneRight's `StudentTUniformScoring`).
+VisualGeometryToolkitCore's `StudentTUniformScoring`).
 
 ## [1. Setup](@id raydens-setup)
 

@@ -159,18 +159,18 @@ build the pieces directly. A scorer from RANSACScoringDoneRight and a strategy
 from LocalOptimizationDoneRight compose like the core ones:
 
 ```julia
-using RANSACScoringDoneRight: StudentTUniformScoring
+using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
 using LocalOptimizationDoneRight: HQ, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
 cs       = csponds(src, dst)
 problem  = HomographyProblem(cs)
 result   = find_homography(cs;
-                  scoring = StudentTUniformScoring(problem, 20.0),
+                  scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
                   local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 
 # or the loop itself
-result   = ransac(problem, StudentTUniformScoring(problem, 20.0);
+result   = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior());
                   local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 ```
 

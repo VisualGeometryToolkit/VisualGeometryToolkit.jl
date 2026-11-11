@@ -70,7 +70,7 @@ function consensus_order end
 consensus_order(scoring::AbstractScoring, W) = _foreign_workspace(:consensus_order, scoring, W)
 # The contract's fallbacks of the workspace readers and the model-certain `score!`: a workspace another scorer built.
 inlier_count(scoring::AbstractScoring, W) = _foreign_workspace(:inlier_count, scoring, W)
-score!(W, scoring::AbstractScoring, _scores, _residuals, _n::Integer; kw...) = _foreign_workspace(:score!, scoring, W)
+score!(W, scoring::AbstractScoring, _scores, _residuals, _n; kw...) = _foreign_workspace(:score!, scoring, W)
 _foreign_workspace(f::Symbol, scoring, W) = throw(ArgumentError(
     "$f: a $(nameof(typeof(W))) is not a workspace of $(nameof(typeof(scoring))); build it with scoring_workspace(scoring, n, d_g)"))
 

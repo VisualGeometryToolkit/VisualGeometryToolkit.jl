@@ -4,6 +4,11 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **`load` and `save` are contract generics** (`CONTRACT_GENERICS = (migrate_schema, load, save)`): a package whose own
+  kinds are files adds `load(::Type{<:T}, path)` and `save(path, x::T)` methods for its types (BlobBoards' boards and
+  patterns), so every kind of the stack is read and written through the two verbs. The kinds guide states the
+  extension point.
+
 - **New: `Record`, `snap_integer`, `MATRIX_LAYOUT`** (public, not exported): what a lift reads (a parsed JSON object
   or a NamedTuple, read by property access; was `_Record`), a file number as a record writes it (an integral value as
   an `Int`; `Integer` and `Rational` methods beside the float one; was `_snap_integer`) and the matrix layout a record

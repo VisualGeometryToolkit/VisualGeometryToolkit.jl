@@ -304,6 +304,12 @@ reader, and adds the file form `migrate_schema(::Val{Symbol("<schema>")}, src,
 dst)` that `vgio_migrate` runs — a declared extension point
 (`CONTRACT_GENERICS`).
 
+A package whose own kinds are files reads and writes them through the same two
+verbs: it adds `VisualGeometryToolkitIO.load(::Type{<:T}, path)` and
+`VisualGeometryToolkitIO.save(path, x::T)` methods for its types `T` (BlobBoards'
+boards and patterns), both declared extension points (`CONTRACT_GENERICS`), and
+writes its records through `write_record`/`read_record`.
+
 ## Building blocks for other kinds
 
 Every VisualGeometryToolkitCore value a native kind embeds is written and read

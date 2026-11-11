@@ -263,8 +263,11 @@ stack package may add methods to (VisualGeometryToolkitCore's
 `contract_generic_violations` checks it). [`migrate_schema`](@ref): the owner
 of a schema adds the step of each of its old versions, so its reader reads
 them ([`migrate_record`](@ref)), and the file form, so [`vgio_migrate`](@ref)
-rewrites its files.
+rewrites its files. [`load`](@ref) and [`save`](@ref), the two verbs: a
+package whose own kinds are files (BlobBoards' boards and patterns) adds
+`load(::Type{<:ItsType}, path)` and `save(path, x::ItsType)` methods, so a
+reader reaches every kind of the stack through the same two verbs.
 """
-const CONTRACT_GENERICS = (migrate_schema,)
+const CONTRACT_GENERICS = (migrate_schema, load, save)
 
 end # module

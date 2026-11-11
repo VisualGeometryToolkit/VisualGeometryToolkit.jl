@@ -256,7 +256,7 @@ end
 # `∂(t₂·w) = δd·(t₁ × w + (a × q⊥)/‖d × a‖) + t₂·δo`, `q = w × d`, `⊥` the part
 # orthogonal to `t₁`. No automatic differentiation inside the LM: a ForwardDiff
 # Jacobian there is the pattern Julia 1.12 and 1.13 miscompile at -O2
-# (test/fixtures/repro_o2_miscompile.jl).
+# (the reproducer test/fixtures/repro_o2_miscompile.jl, kept at commit a1da853f).
 @inline function _noncentral_residual_and_jacobian(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
     d, Jd = _spline_direction_and_jacobian(dctrl, area, p)
     o, ox, oy = _spline_value_and_partials(pctrl, area, p)

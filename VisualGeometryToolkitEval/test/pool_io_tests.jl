@@ -7,6 +7,7 @@
 # =============================================================================
 
 @testitem "pool_io" begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, JLD2, StaticArrays
     using VisualGeometryToolkitEval.Pools
@@ -16,7 +17,6 @@
     using VisualGeometryToolkitEval.Tuning: sampling_unit, PairUnit
 
     import VisualGeometryToolkitCore
-    errmsg(f) = try f(); "" catch e; sprint(showerror, e) end
     # a raw pair for the dummy build: only its index and (for pair 2) a scene label
     struct DummyRaw <: StereoRawPair
         k::Int
@@ -83,13 +83,13 @@
 
     @testset "residuals refused: another key, count or shape" begin
         other = ScoringPool([p2], :E, "x"; scene_names = ["x"], stamps = stamps())
-        m = errmsg(() -> load_pool_residuals(residuals_path(path), other))
+        m = thrown_message(() -> load_pool_residuals(residuals_path(path), other); shown = true)
         @test occursin(residuals_path(path), m) && occursin(pool.pool_key, m) && occursin(other.pool_key, m)
         bad = joinpath(dir, "bad.residuals.jld2")
         save_pool_residuals(bad, PoolResiduals(pool.pool_key, :sampson, [R1]))
-        @test occursin("1 residual matrices for 2 pairs", errmsg(() -> load_pool_residuals(bad, pool)))
+        @test occursin("1 residual matrices for 2 pairs", thrown_message(() -> load_pool_residuals(bad, pool); shown = true))
         save_pool_residuals(bad, PoolResiduals(pool.pool_key, :sampson, [R1, R2[:, 1:end-1]]))
-        m = errmsg(() -> load_pool_residuals(bad, pool))
+        m = thrown_message(() -> load_pool_residuals(bad, pool); shown = true)
         @test occursin("residual matrix 2", m) && occursin("num_points × num_models", m)
         @test_throws ArgumentError PoolResiduals(pool.pool_key, :plane, [R1])
     end
@@ -99,12 +99,12 @@
         r = load_pool_residuals(residuals_path(path), back; pairs = [2])
         @test r.pairs == [2] && length(r.matrices) == 1
         @test same(residual_matrix(r, 2), R2)                           # still a POOL index
-        @test occursin("pair 1 was not read", errmsg(() -> residual_matrix(r, 1)))
-        @test occursin("subset", errmsg(() -> save_pool_residuals(joinpath(dir, "sub.residuals.jld2"), r)))
-        @test occursin("outside 1:2", errmsg(() -> load_pool_residuals(residuals_path(path), back; pairs = [3])))
+        @test occursin("pair 1 was not read", thrown_message(() -> residual_matrix(r, 1); shown = true))
+        @test occursin("subset", thrown_message(() -> save_pool_residuals(joinpath(dir, "sub.residuals.jld2"), r); shown = true))
+        @test occursin("outside 1:2", thrown_message(() -> load_pool_residuals(residuals_path(path), back; pairs = [3]); shown = true))
         # the key check still applies to a subset read
         other = ScoringPool([p2], :E, "x"; scene_names = ["x"], stamps = stamps())
-        @test occursin(other.pool_key, errmsg(() -> load_pool_residuals(residuals_path(path), other; pairs = [1])))
+        @test occursin(other.pool_key, thrown_message(() -> load_pool_residuals(residuals_path(path), other; pairs = [1]); shown = true))
     end
 
     @testset "migrate_pool: a format-4 file into format 5, verified, original untouched" begin
@@ -121,7 +121,7 @@
         cp(residuals_path(path), residuals_path(v4))
         before = read(v4)
         # a format-4 file is refused by the reader, naming the migration
-        m = errmsg(() -> load_pool(v4))
+        m = thrown_message(() -> load_pool(v4); shown = true)
         @test occursin("pool format v4", m) && occursin("migrate_pool", m)
         out = joinpath(dir, "v5")
         # a dry run verifies and writes nothing
@@ -139,37 +139,37 @@
         @test load_pool_residuals(r.residuals, back).pool_key == pool.pool_key
         JLD2.jldopen(f -> @test(f["pool_format"] == 5), r.path, "r")
         # refusals: an existing output, the original's directory, a format-5 or an older file, a foreign pair
-        @test occursin("exists", errmsg(() -> migrate_pool(v4; out)))
+        @test occursin("exists", thrown_message(() -> migrate_pool(v4; out); shown = true))
         # an existing residuals destination is refused before the pool file is written
         out2 = mkpath(joinpath(dir, "v5r")); touch(residuals_path(joinpath(out2, "scene.jld2")))
-        m2 = errmsg(() -> migrate_pool(v4; out = out2))
+        m2 = thrown_message(() -> migrate_pool(v4; out = out2); shown = true)
         @test occursin("exists", m2) && occursin(residuals_path(joinpath(out2, "scene.jld2")), m2)
         @test !isfile(joinpath(out2, "scene.jld2"))
         # a sample-starts file is not copied: it binds by pool_key, which the migration keeps
         @test readdir(out) == sort([basename(r.path), basename(r.residuals)])
-        @test occursin("never overwritten", errmsg(() -> migrate_pool(v4; out = v4dir)))
+        @test occursin("never overwritten", thrown_message(() -> migrate_pool(v4; out = v4dir); shown = true))
         for same_dir in (v4dir * "/", joinpath(v4dir, "..", "v4"), joinpath(v4dir, "."))   # the same directory, spelled otherwise
-            @test occursin("never overwritten", errmsg(() -> migrate_pool(v4; out = same_dir)))
+            @test occursin("never overwritten", thrown_message(() -> migrate_pool(v4; out = same_dir); shown = true))
         end
-        @test occursin("nothing to migrate", errmsg(() -> migrate_pool(path; out = joinpath(dir, "v5b"))))
+        @test occursin("nothing to migrate", thrown_message(() -> migrate_pool(path; out = joinpath(dir, "v5b")); shown = true))
         v3 = joinpath(v4dir, "v3.jld2"); JLD2.jldsave(v3; pool_format = 3, pairs = [1])
-        @test occursin("convert_pools_v4", errmsg(() -> migrate_pool(v3; out = joinpath(dir, "v5c"))))
+        @test occursin("convert_pools_v4", thrown_message(() -> migrate_pool(v3; out = joinpath(dir, "v5c")); shown = true))
         bad = joinpath(v4dir, "bad.jld2")
         JLD2.jldsave(bad; (Symbol(k) => v for (k, v) in raw if k ∉ ("pairs", "pool_format"))...,
                      pairs = [Base.structdiff(nt, NamedTuple{(:snn,)}) for nt in pairs4], pool_format = 4)
-        @test occursin("not a format-4 pool pair", errmsg(() -> migrate_pool(bad; out = joinpath(dir, "v5d"))))
+        @test occursin("not a format-4 pool pair", thrown_message(() -> migrate_pool(bad; out = joinpath(dir, "v5d")); shown = true))
         @test !isdir(joinpath(dir, "v5d"))
     end
 
     @testset "light file refusals" begin
         v3 = joinpath(dir, "v3.jld2"); JLD2.jldsave(v3; pool_format = 3, pairs = [1])
-        m = errmsg(() -> load_pool(v3))
+        m = thrown_message(() -> load_pool(v3); shown = true)
         @test occursin("pool format v3", m) && occursin("convert_pools_v4", m)
         # pool_size: the pair count from the header, under the same format check (LODR's two jldopen copies)
         @test pool_size(path) == length(load_pool(path)) == 2 == JLD2.jldopen(f -> length(f["scene_names"]), path, "r")
-        @test occursin("pool format v3", errmsg(() -> pool_size(v3)))
-        @test occursin("no such pool", errmsg(() -> pool_size(joinpath(dir, "absent.jld2"))))
-        @test occursin("format v1", errmsg(() -> load_pool(residuals_path(path))))   # not a light file
+        @test occursin("pool format v3", thrown_message(() -> pool_size(v3); shown = true))
+        @test occursin("no such pool", thrown_message(() -> pool_size(joinpath(dir, "absent.jld2")); shown = true))
+        @test occursin("format v1", thrown_message(() -> load_pool(residuals_path(path)); shown = true))   # not a light file
         # a tampered pair no longer reproduces the stored key
         t = joinpath(dir, "tampered.jld2"); cp(path, t)
         JLD2.jldopen(t, "r+") do f
@@ -177,12 +177,12 @@
             ps[1] = merge(ps[1], (sample_indices = ps[1].sample_indices[:, end:-1:1],))
             f["pairs"] = ps
         end
-        @test occursin("is not the key of its pairs", errmsg(() -> load_pool(t)))
+        @test occursin("is not the key of its pairs", thrown_message(() -> load_pool(t); shown = true))
         # a frame or convention other than the pool's
         for (k, v, msg) in (("frame", "ImageFrame", "NormalizedImageFrame"), ("gt_convention", "inverse", "gt_convention"))
             u = joinpath(dir, "u_$k.jld2"); cp(path, u; force = true)
             JLD2.jldopen(u, "r+") do f; delete!(f, k); f[k] = v; end
-            @test occursin(msg, errmsg(() -> load_pool(u)))
+            @test occursin(msg, thrown_message(() -> load_pool(u); shown = true))
         end
         # a model class that is not the problem's
         @test_throws ArgumentError ScoringPool([p1], :H, "s"; scene_names = ["s"], stamps = stamps())
@@ -239,6 +239,6 @@
         back = load_pnp_pool(p)
         @test back.pools == pools && back.misses == ["q2"] && back.score == "snn"
         old = joinpath(dir, "pnp", "old.jld2"); JLD2.jldsave(old; pools, misses = String[], score = "none")
-        @test occursin("pnp_pool format v1", errmsg(() -> load_pnp_pool(old)))
+        @test occursin("pnp_pool format v1", thrown_message(() -> load_pnp_pool(old); shown = true))
     end
 end

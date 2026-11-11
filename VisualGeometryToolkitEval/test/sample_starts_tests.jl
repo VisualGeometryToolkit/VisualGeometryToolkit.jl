@@ -9,6 +9,7 @@
 # =============================================================================
 
 @testitem "sample_starts" begin
+    using VisualGeometryToolkitCore: thrown_message
     using Test, Random
     using VisualGeometryToolkitEval
     using VisualGeometryToolkitEval.Pools
@@ -16,7 +17,6 @@
     using VisualGeometryToolkitCore: FundMat
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models
 
-    errmsg(f) = try f(); "" catch e; sprint(showerror, e) end
     fields(p) = NamedTuple{fieldnames(typeof(p))}(Tuple(getfield(p, f) for f in fieldnames(typeof(p))))
     # the record whose model columns are `cols` of `p` (repeats allowed)
     cols_of(p, cols) = PoolPair{FundMat{Float64}}(; fields(p)..., models = p.models[cols],
@@ -47,9 +47,9 @@
 
     @testset "the stamp certifies; a duplicated root is refused" begin
         q = cols_of(p, [3, 3, 4])               # one B draw that returned B's model twice, then C
-        @test occursin("total_samples stamp is 2", errmsg(() -> sample_starts(mkpool([q], 2))))
+        @test occursin("total_samples stamp is 2", thrown_message(() -> sample_starts(mkpool([q], 2)); shown = true))
         @test sample_starts(mkpool([q], 3)) == [[1, 2, 3]]   # read as two B draws when the stamp says 3
-        @test occursin("total_samples", errmsg(() -> sample_starts(mkpool([q], 4))))
+        @test occursin("total_samples", thrown_message(() -> sample_starts(mkpool([q], 4)); shown = true))
     end
 
     @testset "the replay resolves what the record cannot" begin
@@ -61,13 +61,13 @@
         st = derive_sample_starts(pool, stream_of([X, B, X, C, A, X, A, X]))
         @test st == [[1, 3, 4, 6]]
         # a stream that drew B twice does not fit the stamp
-        @test occursin("total_samples", errmsg(() -> derive_sample_starts(pool, stream_of([B, B, C, A, A]))))
+        @test occursin("total_samples", thrown_message(() -> derive_sample_starts(pool, stream_of([B, B, C, A, A])); shown = true))
         # a stream that never draws the stored sample
-        @test occursin("not replayed", errmsg(() -> derive_sample_starts(pool, stream_of([X]); max_trials = 50)))
+        @test occursin("not replayed", thrown_message(() -> derive_sample_starts(pool, stream_of([X]); max_trials = 50); shown = true))
         # a replayed count the run cannot split into
         r = cols_of(p, [1, 2, 1, 2, 3])
-        @test occursin("does not split", errmsg(() -> derive_sample_starts(mkpool([r], 2),
-                                                                           stream_of([A, A, A, B]))))
+        @test occursin("does not split", thrown_message(() -> derive_sample_starts(mkpool([r], 2),
+                                                                           stream_of([A, A, A, B])); shown = true))
     end
 
     @testset "the sample-starts file" begin
@@ -78,11 +78,11 @@
         @test load_sample_starts(path, pool) == [[1, 3, 4, 6]]
         @test sample_starts(pool; derived = path) == [[1, 3, 4, 6]]
         other = mkpool([cols_of(p, [1, 2, 3, 4])], 3)
-        @test occursin("pool_key", errmsg(() -> load_sample_starts(path, other)))
-        @test occursin("not admissible", errmsg(() -> save_sample_starts(path, pool, [[1, 3, 5, 6]]; derivation = "x")))
-        @test occursin("not admissible", errmsg(() -> save_sample_starts(path, pool, [[1, 3, 4, 5]]; derivation = "x")))
-        @test occursin("total_samples", errmsg(() -> save_sample_starts(path, pool, [[1, 2, 3, 4, 6]]; derivation = "x")))
-        @test occursin("not the sample starts", errmsg(() -> sample_ids([2, 3], 4)))
+        @test occursin("pool_key", thrown_message(() -> load_sample_starts(path, other); shown = true))
+        @test occursin("not admissible", thrown_message(() -> save_sample_starts(path, pool, [[1, 3, 5, 6]]; derivation = "x"); shown = true))
+        @test occursin("not admissible", thrown_message(() -> save_sample_starts(path, pool, [[1, 3, 4, 5]]; derivation = "x"); shown = true))
+        @test occursin("total_samples", thrown_message(() -> save_sample_starts(path, pool, [[1, 2, 3, 4, 6]]; derivation = "x"); shown = true))
+        @test occursin("not the sample starts", thrown_message(() -> sample_ids([2, 3], 4); shown = true))
         @test sample_ids(Int[], 0) == Int[]
     end
     @testset "the one owner: no ad hoc boundaries elsewhere in the package" begin

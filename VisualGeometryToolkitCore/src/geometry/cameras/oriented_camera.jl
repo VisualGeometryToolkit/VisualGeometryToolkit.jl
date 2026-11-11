@@ -23,11 +23,18 @@ const _OrientedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, P
     )
 )
 
-HomographyMat(::_OrientedPinholeCamera) = _refuse_oriented("HomographyMat(camera)")
 RadialCamera(::PosedCamera{<:CameraModel, <:RotationMap{3}}) = _refuse_oriented("RadialCamera(camera)")
-transfer_ellipse(::OrientedCamera, ::Union{Circle, Ellipse}) = _refuse_oriented("transfer_ellipse")
-project(::OrientedCamera, ::Union{Circle, Ellipse}) = _refuse_oriented("project(camera, conic)")
-project(::OrientedCamera, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_oriented("project(camera, rect)")
+
+# The plane-coordinate verbs, refused once for both camera kinds that cannot take them —
+# a physical camera (its plane coordinates have no unit) and an oriented camera (it has no
+# position) — each refusal giving its kind's reason.
+_refuse_plane_verb(::_UnitfulPosedCamera, what) = _refuse_physical_camera(what)
+_refuse_plane_verb(::OrientedCamera, what) = _refuse_oriented(what)
+const _PlaneVerbRefused = Union{_UnitfulPosedCamera, OrientedCamera}
+HomographyMat(c::Union{_UnitfulPosedPinholeCamera, _OrientedPinholeCamera}) = _refuse_plane_verb(c, "HomographyMat(camera)")
+transfer_ellipse(c::_PlaneVerbRefused, ::Union{Circle, Ellipse}) = _refuse_plane_verb(c, "transfer_ellipse")
+project(c::_PlaneVerbRefused, ::Union{Circle, Ellipse}) = _refuse_plane_verb(c, "project(camera, conic)")
+project(c::_PlaneVerbRefused, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_plane_verb(c, "project(camera, rect)")
 
 _raw_extrinsics(::OrientedCamera) = throw(
     ArgumentError(

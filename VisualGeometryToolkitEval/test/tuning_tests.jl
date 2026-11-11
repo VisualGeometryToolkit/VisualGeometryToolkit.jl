@@ -11,6 +11,7 @@
 # =============================================================================
 
 @testitem "tuning" setup = [TuningFixtures] begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitEval as VgtkEval
     using Test, TOML, JLD2, Random
     using StableRNGs: StableRNG
@@ -26,7 +27,6 @@
 
     cfg(name, table) = Dict{String,Any}("tuning" => Dict{String,Any}(name => with_cross_validation(table)))
     spec_of(table; name = "t") = fixture_spec(table; name)
-    errmsg(f) = try f(); "" catch e; sprint(showerror, e) end
 
     @testset "spacings: the fencepost, exact endpoints, Base ranges, refusals" begin
         # d decades at p per decade: d·p intervals, d·p + 1 points, step 1/p in log10
@@ -122,9 +122,9 @@
         # and it is not accidentally equal to a spread band on the same σ̂²
         @test !all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w,
                           native = loss_width_map, s2 = s2v) .≈ (3.0, 9.9))
-        @test occursin("needs `scale_multiple_window`", errmsg(() -> window_bounds(StandardizedWindow())))
-        @test occursin("needs `s2`", errmsg(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map)))
-        @test occursin("needs `center`", errmsg(() -> window_bounds(CenteredWindow(2.0))))
+        @test occursin("needs `scale_multiple_window`", thrown_message(() -> window_bounds(StandardizedWindow()); shown = true))
+        @test occursin("needs `s2`", thrown_message(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map); shown = true))
+        @test occursin("needs `center`", thrown_message(() -> window_bounds(CenteredWindow(2.0)); shown = true))
         @test_throws ArgumentError ScaleMultipleWindow(3.3, 1.0)
         @test_throws ArgumentError CoverageWindow(0.9, 0.1, 0.0, 0.0)
         @test_throws ArgumentError CenteredWindow(1.0)
@@ -210,37 +210,37 @@
     end
 
     @testset "refusals name the key path" begin
-        m = errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "bogus" => 1)))
+        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "bogus" => 1)); shown = true)
         @test occursin("[tuning.t]", m) && occursin("bogus", m)
-        m = errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("per_decad" => 3)))))
+        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("per_decad" => 3)))); shown = true)
         @test occursin("[tuning.t.scale_multiple.spacing]", m) && occursin("per_decad", m)
-        m = errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("type" => "log_weird")))))
+        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("type" => "log_weird")))); shown = true)
         @test occursin("tuning.t.scale_multiple.spacing", m) && occursin("unknown spacing type", m) && occursin("log_weird", m)
-        @test occursin("unknown scheme type", errmsg(() -> spec_of(Dict("type" => "nope"))))
-        @test occursin("names no scheme", errmsg(() -> spec_of(Dict("criterion" => Dict()))))
-        @test occursin("unknown window type", errmsg(() -> spec_of(Dict("type" => "coarse_fine",
-                                                                         "coarse" => Dict("window" => Dict("type" => "wide"))))))
-        @test occursin("unknown criterion type", errmsg(() -> spec_of(Dict("type" => "coarse_fine", "criterion" => Dict("type" => "mean")))))
-        @test occursin("unknown rng", errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("rng" => "Bogus")))))
+        @test occursin("unknown scheme type", thrown_message(() -> spec_of(Dict("type" => "nope")); shown = true))
+        @test occursin("names no scheme", thrown_message(() -> spec_of(Dict("criterion" => Dict())); shown = true))
+        @test occursin("unknown window type", thrown_message(() -> spec_of(Dict("type" => "coarse_fine",
+                                                                         "coarse" => Dict("window" => Dict("type" => "wide")))); shown = true))
+        @test occursin("unknown criterion type", thrown_message(() -> spec_of(Dict("type" => "coarse_fine", "criterion" => Dict("type" => "mean"))); shown = true))
+        @test occursin("unknown rng", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("rng" => "Bogus"))); shown = true))
         # Julia's own generators are refused: their streams change across Julia versions
-        @test occursin("unknown rng", errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("rng" => "MersenneTwister")))))
+        @test occursin("unknown rng", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("rng" => "MersenneTwister"))); shown = true))
         @test occursin("tuning.t.budget_sampling.n_draws",
-                       errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("n_draws" => "x")))))
-        @test occursin("no [tuning.u]", errmsg(() -> tuning_spec(cfg("t", Dict("type" => "coarse_fine")), "u")))
-        @test occursin("no [tuning]", errmsg(() -> tuning_spec(Dict{String,Any}(), "t")))
+                       thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "budget_sampling" => Dict("n_draws" => "x"))); shown = true))
+        @test occursin("no [tuning.u]", thrown_message(() -> tuning_spec(cfg("t", Dict("type" => "coarse_fine")), "u"); shown = true))
+        @test occursin("no [tuning]", thrown_message(() -> tuning_spec(Dict{String,Any}(), "t"); shown = true))
         # a fixed window states its bounds (no tag default)
-        @test occursin("missing key", errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap",
-                                                                  "loss_width" => Dict("window" => Dict("type" => "fixed", "lo" => 1.0))))))
+        @test occursin("missing key", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap",
+                                                                  "loss_width" => Dict("window" => Dict("type" => "fixed", "lo" => 1.0)))); shown = true))
         # the retired axes are unknown keys
         for retired in ("kernel" * "_width", "thres" * "hold")      # spelled in fragments: retired names
-            @test occursin(retired, errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", retired => Dict()))))
+            @test occursin(retired, thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", retired => Dict())); shown = true))
         end
         # a value violating a constructor's invariant is refused with the path
-        @test occursin("[tuning.t.scale_multiple_window]", errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap",
-                                                                     "scale_multiple_window" => Dict("lo" => 3.0, "hi" => 1.0)))))
+        @test occursin("[tuning.t.scale_multiple_window]", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap",
+                                                                     "scale_multiple_window" => Dict("lo" => 3.0, "hi" => 1.0))); shown = true))
         # a persisted (complete) table inherits nothing
         t = tuning_table(LogPerDecade(7)); delete!(t, "per_decade")
-        @test occursin("missing key", errmsg(() -> read_tuning(GridSpacing, t)))
+        @test occursin("missing key", thrown_message(() -> read_tuning(GridSpacing, t); shown = true))
     end
 
     @testset "three-level inheritance; a different tag resets it" begin
@@ -331,7 +331,7 @@
         # the data a tuning runs on has no default
         for tag in keys(TUNING_TAGS["scheme"])
             @test spec_of(Dict("type" => tag)).scheme isa TUNING_TAGS["scheme"][tag]
-            m = errmsg(() -> tuning_spec(Dict("tuning" => Dict("t" => Dict("type" => tag))), "t"))
+            m = thrown_message(() -> tuning_spec(Dict("tuning" => Dict("t" => Dict("type" => tag))), "t"); shown = true)
             @test occursin("tuning.t.cross_validation.scene_split", m) && occursin("no `type`", m)
         end
     end
@@ -374,10 +374,10 @@
             @test issorted(sp.validation_scenes) && issorted(sp.test_scenes)
         end
         @test registered_split("phototourism").validation_scenes[1] == "brandenburg_gate"
-        @test occursin("no [splits.nope]", errmsg(() -> registered_split("nope")))
-        @test occursin("both validation and test", errmsg(() -> RegisteredSceneSplit("x", ["a", "b"], ["b", "c"])))
-        @test occursin("no test scenes", errmsg(() -> RegisteredSceneSplit("x", ["a"], String[])))
-        @test occursin("duplicate validation", errmsg(() -> RegisteredSceneSplit("x", ["a", "a"], ["b"])))
+        @test occursin("no [splits.nope]", thrown_message(() -> registered_split("nope"); shown = true))
+        @test occursin("both validation and test", thrown_message(() -> RegisteredSceneSplit("x", ["a", "b"], ["b", "c"]); shown = true))
+        @test occursin("no test scenes", thrown_message(() -> RegisteredSceneSplit("x", ["a"], String[]); shown = true))
+        @test occursin("duplicate validation", thrown_message(() -> RegisteredSceneSplit("x", ["a", "a"], ["b"]); shown = true))
         @test_throws ArgumentError RegisteredSceneSplit("", ["a"], ["b"])
         # a config names the split; listing scenes is allowed only verbatim
         reg = registered_split("eth3d")
@@ -385,27 +385,27 @@
         @test spec_of(table(Dict("type" => "registered", "name" => "eth3d"))).scheme.cross_validation.scene_split == reg
         @test spec_of(table(Dict("type" => "registered", "name" => "eth3d",
                                  "test_scenes" => reverse(reg.test_scenes)))).scheme.cross_validation.scene_split == reg
-        m = errmsg(() -> spec_of(table(Dict("type" => "registered", "name" => "eth3d", "test_scenes" => ["office"]))))
+        m = thrown_message(() -> spec_of(table(Dict("type" => "registered", "name" => "eth3d", "test_scenes" => ["office"]))); shown = true)
         @test occursin("tuning.t.cross_validation.scene_split", m) && occursin("differs from [splits.eth3d]", m)
-        @test occursin("no [splits.nope]", errmsg(() -> spec_of(table(Dict("type" => "registered", "name" => "nope")))))
-        @test occursin("needs a `name`", errmsg(() -> spec_of(table(Dict("type" => "registered")))))
-        @test occursin("unknown scene_split type", errmsg(() -> spec_of(table(Dict("type" => "listed")))))
+        @test occursin("no [splits.nope]", thrown_message(() -> spec_of(table(Dict("type" => "registered", "name" => "nope"))); shown = true))
+        @test occursin("needs a `name`", thrown_message(() -> spec_of(table(Dict("type" => "registered"))); shown = true))
+        @test occursin("unknown scene_split type", thrown_message(() -> spec_of(table(Dict("type" => "listed"))); shown = true))
         # unknown keys anywhere in the cross-validation are refused
         cvt(over) = Dict("type" => "coarse_fine", "cross_validation" =>
                          merge(Dict{String,Any}("scene_split" => Dict("type" => "registered", "name" => "heb")), over))
-        @test occursin("bogus", errmsg(() -> spec_of(cvt(Dict("bogus" => 1)))))
-        @test occursin("cap_per_scene", errmsg(() -> spec_of(cvt(Dict("validation" => Dict("type" => "uniform",
-                                                                                              "cap_per_scene" => 2))))))
-        @test occursin("unknown unit_sampling type", errmsg(() -> spec_of(cvt(Dict("test" => Dict("type" => "pooled"))))))
+        @test occursin("bogus", thrown_message(() -> spec_of(cvt(Dict("bogus" => 1))); shown = true))
+        @test occursin("cap_per_scene", thrown_message(() -> spec_of(cvt(Dict("validation" => Dict("type" => "uniform",
+                                                                                              "cap_per_scene" => 2)))); shown = true))
+        @test occursin("unknown unit_sampling type", thrown_message(() -> spec_of(cvt(Dict("test" => Dict("type" => "pooled")))); shown = true))
         # the retired unit-sampling tags name their successors (the tag rule)
         @test occursin("unit_sampling type \"all\" was renamed \"exhaustive\"",
-                       errmsg(() -> spec_of(cvt(Dict("test" => Dict("type" => "all"))))))
+                       thrown_message(() -> spec_of(cvt(Dict("test" => Dict("type" => "all")))); shown = true))
         @test occursin("unit_sampling type \"simple_random\" was renamed \"uniform\"",
-                       errmsg(() -> spec_of(cvt(Dict("validation" => Dict("type" => "simple_random", "fraction" => 0.5))))))
+                       thrown_message(() -> spec_of(cvt(Dict("validation" => Dict("type" => "simple_random", "fraction" => 0.5)))); shown = true))
         for retired in ("val" * "_fraction", "per" * "_scene", "np" * "_val", "np" * "_test")   # spelled in fragments: retired names
-            @test occursin(retired, errmsg(() -> spec_of(cvt(Dict("validation" => Dict("type" => "stratified", retired => 1))))))
+            @test occursin(retired, thrown_message(() -> spec_of(cvt(Dict("validation" => Dict("type" => "stratified", retired => 1)))); shown = true))
         end
-        @test occursin("unknown key", errmsg(() -> spec_of(Dict("type" => "windowed_bootstrap", "split" => Dict()))))
+        @test occursin("unknown key", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "split" => Dict())); shown = true))
     end
 
     @testset "unit samplings: fraction, cap after the shuffle, sort last, determinism, stability" begin
@@ -453,7 +453,7 @@
         @test_throws ArgumentError StratifiedSampling(1.5, 0, 1, "StableRNG")
         @test_throws ArgumentError StratifiedSampling(0.5, -1, 1, "StableRNG")
         @test_throws ArgumentError UniformSampling(0.5, -1, 1, "StableRNG")
-        @test occursin("unknown rng", errmsg(() -> UniformSampling(0.5, 0, 1, "Bogus")))
+        @test occursin("unknown rng", thrown_message(() -> UniformSampling(0.5, 0, 1, "Bogus"); shown = true))
     end
 
     @testset "validation_units / test_units; the driver's signature restricts the sampling" begin
@@ -465,7 +465,7 @@
         @test all(length(u) == 15 for (_, u) in v) && all(u == collect(1:30) for (_, u) in t)
         @test isempty(intersect(first.(v), first.(t)))
         @test occursin("no units for the validation scenes [\"Alamo\"]",
-                       errmsg(() -> validation_units(cv, Dict(s => units[s] for s in keys(units) if s != "Alamo"))))
+                       thrown_message(() -> validation_units(cv, Dict(s => units[s] for s in keys(units) if s != "Alamo")); shown = true))
         # a two-view driver accepts stratified (or all) validation; a pooled one is a MethodError
         two_view(cv::CrossValidation{<:SceneSplit,<:Union{ExhaustiveSampling,StratifiedSampling}}) = :ok
         pooled(cv::CrossValidation{<:SceneSplit,<:Union{ExhaustiveSampling,UniformSampling}}) = :ok
@@ -558,7 +558,7 @@
         @testset "old and newer formats are refused" begin
             old = joinpath(dir, "old.jld2")
             JLD2.jldsave(old; a_grid = [1.0, 2.0], arms = ["x"])               # no stamp: format 1
-            m = errmsg(() -> load_tuning_artifact(old))
+            m = thrown_message(() -> load_tuning_artifact(old); shown = true)
             @test occursin(old, m) && occursin("tuning format v1", m) && occursin("regenerate it by re-running its tuning", m)
             v1 = joinpath(dir, "v1.jld2")
             JLD2.jldsave(v1; tuning_format = 1)
@@ -569,20 +569,20 @@
             # other grid, so reading it through would be silently wrong.
             v4 = joinpath(dir, "v4.jld2")
             JLD2.jldsave(v4; tuning_format = 4)
-            m4 = errmsg(() -> load_tuning_artifact(v4))
+            m4 = thrown_message(() -> load_tuning_artifact(v4); shown = true)
             @test occursin("tuning format v4", m4) && occursin("NATIVE VALUE", m4) &&
                   occursin("regenerate it by re-running its tuning", m4)
             newer = joinpath(dir, "newer.jld2")
             JLD2.jldsave(newer; tuning_format = VgtkEval.ARTIFACT_FORMATS.tuning.version + 1)
-            @test occursin("newer than", errmsg(() -> load_tuning_artifact(newer)))
-            @test occursin("no such tuning artifact", errmsg(() -> load_tuning_artifact(joinpath(dir, "none.jld2"))))
+            @test occursin("newer than", thrown_message(() -> load_tuning_artifact(newer); shown = true))
+            @test occursin("no such tuning artifact", thrown_message(() -> load_tuning_artifact(joinpath(dir, "none.jld2")); shown = true))
             # a stored spec whose hash does not match its table is refused
             forged = joinpath(dir, "forged.jld2")
             cp(joinpath(dir, "run.jld2"), forged)
             JLD2.jldopen(forged, "r+") do f
                 delete!(f, "tuning_hash"); f["tuning_hash"] = "0000000000000000"
             end
-            @test occursin("hashes to", errmsg(() -> load_tuning_artifact(forged)))
+            @test occursin("hashes to", thrown_message(() -> load_tuning_artifact(forged); shown = true))
         end
 
     end

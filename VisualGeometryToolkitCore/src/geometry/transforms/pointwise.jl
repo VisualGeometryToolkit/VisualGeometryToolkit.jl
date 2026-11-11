@@ -154,8 +154,11 @@ function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
     _pointwise_on!(p, Adapt.adapt(p.backend, f), out, xs)   # the functor's own adapt rules, before it is taken apart
     return out
 end
-# The fields of `f`, as a tuple of exactly its field count.
-@generated _fields(f) = Expr(:tuple, (:(getfield(f, $i)) for i in 1:fieldcount(f))...)
+# A generated function's body for the tuple of the first `n` fields of its argument `x`
+# (a lens leaf's parameter fields, cameras/lenses.jl; a functor's fields, below).
+_field_tuple_expr(n::Integer) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:n)...)
+# The fields of a functor, as a tuple of exactly its field count.
+@generated _fields(x) = _field_tuple_expr(fieldcount(x))
 function _pointwise_on!(p::OnBackend, f::G, out, xs) where {G}
     if _splattable(G)
         fs = _fields(f)

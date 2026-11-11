@@ -421,7 +421,7 @@ Scaramuzza(a::Real...) = LiftLens(Radial{Full}((), a))
 # ends after them are derived from its coefficients, never parameters.
 _param_fields(::Type{X}) where {X} = length(fieldnames(X))
 _param_fields(::Type{<:Radial}) = 2
-@generated _fields(x) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:_param_fields(x))...)
+@generated _fields(x) = _field_tuple_expr(_param_fields(x))
 @generated _flatmap(f, t::Tuple) = Expr(:tuple, (Expr(:..., :(f(t[$i]))) for i in 1:fieldcount(t))...)
 
 @inline _leaves(::Nothing) = ()

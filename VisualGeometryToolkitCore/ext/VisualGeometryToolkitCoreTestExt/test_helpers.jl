@@ -31,10 +31,11 @@ end
 test_naming(M::Module) = _test_none(check_naming(pkgdir(M)))
 test_duplication(M::Module; kwargs...) = _test_none(check_duplication(M; kwargs...))
 
-function thrown_message(f)
+function thrown_message(f; shown::Bool = false)
     try
         f()
     catch e
+        shown && return sprint(showerror, e)
         e isa ArgumentError ? (return e.msg) : rethrow()
     end
     return ""

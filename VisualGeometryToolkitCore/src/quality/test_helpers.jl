@@ -60,10 +60,12 @@ keywords go to `check_duplication` (the stack repositories compared come from
 function test_duplication end
 
 """
-    thrown_message(f) -> String
+    thrown_message(f; shown = false) -> String
 
 The message of the `ArgumentError` that `f()` throws, `""` when it throws
-nothing; any other exception is rethrown. For a test that reads what a refusal
+nothing; any other exception is rethrown. With `shown = true`, any exception
+is caught and its shown text (`sprint(showerror, e)`, its type included) is
+returned. For a test that reads what a refusal
 says: `@test occursin("frame", thrown_message(() -> load(T, path)))`.
 Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """

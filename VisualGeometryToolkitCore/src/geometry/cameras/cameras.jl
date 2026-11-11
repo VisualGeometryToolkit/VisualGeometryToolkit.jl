@@ -142,6 +142,7 @@ using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_uni
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, _pure_bending_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, map_frames, Frame
+using ..VisualGeometryToolkitCore: _field_tuple_expr   # the generated field-tuple body (transforms/pointwise.jl)
 using ..VisualGeometryToolkitCore: FramedImage   # rect-form undistort return currency (warp layer)
 using ..VisualGeometryToolkitCore: HomographyMap   # rectify.jl — the per-view rect→view collineation
 using ..VisualGeometryToolkitCore: ViewFrame, ImageFrame, TargetFrame  # per-view identity tags (minted by StereoRig)
@@ -664,7 +665,6 @@ const _UnitfulPosedCamera = PosedCamera{<:AbstractCamera, <:UnitfulEuclideanMap{
     )
 )
 
-transfer_ellipse(::_UnitfulPosedCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("transfer_ellipse")
 
 has_units(c::PosedCamera) = has_units(c.extrinsics)
 has_units(c::BoundedCamera) = has_units(c.camera)
@@ -917,9 +917,7 @@ the camera. For pinhole cameras, the analytic conic projection yields an
 `Ellipse`; partially-behind-camera cases or distorting lens models fall
 back to boundary-point sampling and return a `Polygon`.
 """
-project(::_UnitfulPosedCamera, ::Union{Circle, Ellipse}) = _refuse_physical_camera("project(camera, conic)")
 project(::_UnitfulPosedCamera, ::Circle3D) = _refuse_physical_camera("project(camera, ::Circle3D)")
-project(::_UnitfulPosedCamera, ::GeometryBasics.HyperRectangle{2}, n::Int = 20) = _refuse_physical_camera("project(camera, rect)")
 @inline project(camera::PosedCamera, shape::Union{Circle, Ellipse}) =
     _camera_project_conic(camera, shape)
 

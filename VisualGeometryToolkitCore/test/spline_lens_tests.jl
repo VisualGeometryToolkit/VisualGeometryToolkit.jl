@@ -405,7 +405,7 @@ end
 
     # =============================================================================
     # A cross-optimization-level invariance check of the CURRENT code (plan 1b Task 3's
-    # -O2 miscompile: test/fixtures/repro_o2_miscompile.jl, Julia 1.12.7, 1.13.2,
+    # -O2 miscompile: test/fixtures/repro_o2_miscompile.jl at commit a1da853f, Julia 1.12.7, 1.13.2,
     # 1.13.3). Over the golden rays, compiled at optimization levels 1 and 2: the fused
     # and the stored test agree, the two levels agree, and each camera images its
     # golden count at BOTH levels (so a fault at both levels fails too). It was shown

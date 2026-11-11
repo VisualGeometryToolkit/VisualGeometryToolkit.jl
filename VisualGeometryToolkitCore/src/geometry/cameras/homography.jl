@@ -33,7 +33,6 @@ H_inv = inv(H)  # For warping: image → board
 HomographyMat(camera::PosedPinholeCamera) = _induced_plane_homography(camera)
 # a physical pinhole: the plane coordinates have no unit — refused, naming the fix
 const _UnitfulPosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}, <:UnitfulEuclideanMap{3}}
-HomographyMat(::_UnitfulPosedPinholeCamera) = _refuse_physical_camera("HomographyMat(camera)")
 HomographyMat(::_UnitfulPosedPinholeCamera, ::AbstractVector, ::AbstractVector, ::AbstractVector) =
     _refuse_physical_camera("HomographyMat(camera, origin, u, v)")
 

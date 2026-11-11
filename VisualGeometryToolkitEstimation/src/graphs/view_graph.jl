@@ -151,21 +151,15 @@ spanning-tree seed of rotation averaging (`d = R_k·f_k`).
 """
 function chain(vg::ViewGraph, root; compose = *, inverse = inv, identity)
     haskey(vg.index, root) || throw(ArgumentError("chain: the root $root is not a view of the graph"))
-    tree = spanning_tree(vg)
-    adj = Dict(v => eltype(vg.views)[] for v in vg.views)
-    for (i, j) in tree
-        push!(adj[i], j); push!(adj[j], i)
-    end
-    out = Dict{eltype(vg.views), Any}(root => identity)               # composed transforms need not share identity's type
-    queue = [root]
-    while !isempty(queue)
-        u = popfirst!(queue)
-        for v in sort!(adj[u])
-            haskey(out, v) && continue
-            out[v] = isless(u, v) ? compose(out[u], inverse(VgtkCore.value_of(vg[u, v]))) :
-                                    compose(out[u], VgtkCore.value_of(vg[v, u]))
-            push!(queue, v)
-        end
+    tree = Graphs.SimpleGraph(length(vg.views))
+    foreach(((i, j),) -> Graphs.add_edge!(tree, vg.index[i], vg.index[j]), spanning_tree(vg))
+    r = vg.index[root]
+    parent = Graphs.bfs_parents(tree, r)                               # 0: outside root's component
+    depth = Graphs.gdistances(tree, r)
+    out = Dict{eltype(vg.views), Any}(root => identity)               # untyped: `identity` (e.g. `I`) and the composed transforms may differ in type; narrowed once below
+    for v in sort!(filter(v -> v != r && parent[v] != 0, eachindex(parent)); by = v -> depth[v])   # a parent before its children
+        u, w = vg.views[parent[v]], vg.views[v]
+        out[w] = isless(u, w) ? compose(out[u], inverse(VgtkCore.value_of(vg[u, w]))) : compose(out[u], VgtkCore.value_of(vg[w, u]))
     end
     return Dict(k => T for (k, T) in out)                             # the narrowest value type the transforms share
 end

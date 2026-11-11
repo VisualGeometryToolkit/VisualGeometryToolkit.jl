@@ -142,6 +142,11 @@ end
     vg = ViewGraph(Dict((1, 2) => A, (2, 3) => A))
     out = chain(vg, 1; identity = I)                     # UniformScaling at the root, matrices elsewhere
     @test out[1] == I && out[2] ≈ inv(A) && out[3] ≈ inv(A) * inv(A)
+    # views outside the root's component get no entry; a branching tree composes along each view's own path
+    forest = ViewGraph(Dict((1, 2) => A, (1, 3) => 2A, (3, 4) => A, (7, 8) => A))
+    out = chain(forest, 3; identity = I)
+    @test sort!(collect(keys(out))) == [1, 2, 3, 4] && out[3] == I
+    @test out[1] == I * (2A) && out[2] == out[1] * inv(A) && out[4] == I * inv(A)
 end
 
 @testitem "ObservationGraph: frames × boards, components, covisibility" begin

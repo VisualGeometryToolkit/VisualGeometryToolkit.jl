@@ -378,6 +378,12 @@ end
     @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
 end
 
+@testitem "raw: the display image has no green cells to stabilize" begin
+    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize
+    display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
+    @test_throws ArgumentError variance_stabilize(display_image; electrons_per_dn = 2.5, read_noise = 3.0)
+end
+
 @testitem "raw: provenance records the decoder, the mode, LibRaw and the frame map" setup = [RawFixtures] begin
     using VisualGeometryToolkitFeatures: LinearRaw, RawMosaic, raw_provenance
     m = RawMosaic(fill(UInt16(3000), 4, 4), LAYOUTS.RGGB, (512.0, 512.0, 512.0, 512.0), 16383.0, (0, 0), (4, 4),

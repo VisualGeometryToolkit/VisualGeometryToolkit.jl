@@ -74,7 +74,7 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
         throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
     isfinite(read_noise) && read_noise >= 0 ||
         throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    d1, d2 = L.geometry.green_dn
+    d1, d2 = _geometry(L, "variance_stabilize").green_dn   # the display image's refusal, the raw module's one
     g = L.gain
     α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)
     σ² = g^2 * read_noise^2 / 4 * (1 / d1^2 + 1 / d2^2)
@@ -82,9 +82,6 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
     G = view(L.image, :, :, _green_plane(L))
     return StabilizedImage(f.(G), L.saturated, f(g))
 end
-
-variance_stabilize(::LinearRaw{:demosaic}; kwargs...) = throw(ArgumentError(
-    "variance_stabilize: the green cells of a :green_cells or :bin2 image, got :demosaic (an interpolated display image)"))
 
 # The plane holding the green cells: bin2's second (R, G, B), the green-cell image's one.
 _green_plane(::LinearRaw{:bin2}) = 2

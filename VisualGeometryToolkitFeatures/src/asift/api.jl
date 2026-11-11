@@ -323,7 +323,7 @@ const _MASK_REACH = 3
 # `mask` was the keyword's name before 0.9: refused, naming the new one (it would otherwise reach `asift_detect!` as
 # an unknown keyword, or be dropped by a method that forwards `kwargs...`).
 _refuse_retired_mask(kwargs) = haskey(kwargs, :mask) && throw(ArgumentError(
-    "asift_detect: the keyword `mask` is retired: pass the pixels excluded from detection as `exclusion_mask`"))
+    "asift_detect: the keyword `mask` is retired: the pixels excluded from detection are `exclusion_mask`"))
 
 _check_mask(::Nothing, sz) = nothing
 _check_mask(mask::AbstractMatrix{Bool}, sz) = size(mask) == sz ? nothing : throw(DimensionMismatch(

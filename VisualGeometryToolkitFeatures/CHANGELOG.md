@@ -4,7 +4,7 @@
 
 - **Breaking: `asift_detect`'s detection keyword `mask` is `exclusion_mask`** (the image and the `StabilizedImage`
   methods; the semantics are unchanged: a marked pixel excludes every detection whose centre lies within three of its
-  scales, and a `StabilizedImage`'s saturation joins it). Passing `mask` is an `ArgumentError` naming
+  scales, and a `StabilizedImage`'s saturation joins it). A call with `mask` is an `ArgumentError` naming
   `exclusion_mask`. `gaussian_blur(img, σ, mask)`'s positional weight map is another thing and keeps its name.
 
 - **Faster: `asift_detect(…; exclusion_mask)`** decides each detection's clearance from a summed-area table of the mask, read

@@ -705,6 +705,24 @@ end
         @test code == 0 && length(readlines(log)) == 2 && startswith(readlines(log)[2], "102 ")
     end
 
+    @testset "a launch that identifies none of the project's code is refused; a job's log found by its default name" begin
+        f = runner_project()
+        write(joinpath(f.proj, "configs", "nocode.toml"), replace(read(f.graph, String), r"^code = .*$"m => ""))
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false add -A`; stdout = devnull))
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm nocode`; stdout = devnull))
+        g = joinpath(f.proj, "configs", "nocode.toml")
+        code, out = run_main(["--graph=$g", "--site=desktop", "--only=setup"]; env = env0)
+        @test code == 2 && occursin("none of the project's own code is identified", out) && !isfile(joinpath(f.results, "ran.txt"))
+        code, out = run_main(["--graph=$g", "--site=desktop", "--only=setup", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("NO PROJECT CODE", out)
+        # %x in a launcher's --output is the job's name, which is <project>-<stage> when nothing names it
+        write(joinpath(f.proj, "slurm", "setup.sbatch"), "#!/bin/bash\n#SBATCH --output=logs/%x_%j.log\ntrue\n")
+        mkpath(joinpath(f.proj, "logs"))
+        write(joinpath(f.proj, "logs", "a-decoy_101.log"), ""); write(joinpath(f.proj, "logs", "leg-paper-setup_101.log"), "")
+        sg = load_stage_graph(f.graph)
+        @test Reproduce._slurm_log(sg, sg.stages[1], "101", 0) == joinpath(f.proj, "logs", "leg-paper-setup_101.log")
+    end
+
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
         f = runner_project()
         src = pkgdir(VisualGeometryToolkitEval, "src")

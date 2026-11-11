@@ -29,6 +29,9 @@ const _STACK_PACKAGES = ("VisualGeometryToolkitCore", "VisualGeometryToolkitIO",
 # What of a package loaded from a path is its code: what `using` reads. Its docs, tests and paper are not.
 const _PACKAGE_CODE = ("src", "ext", "Project.toml")
 
+# The mark of a tree whose files differ from HEAD: its value is then no commit's tree, so no clean record matches it.
+const _DIRTY_MARK = "+uncommitted"
+
 _git_line(dir, args) = try
     readchomp(pipeline(Cmd(`git -C $dir $args`); stderr = devnull))
 catch
@@ -75,7 +78,7 @@ function _loaded_entries(project::AbstractString, manifest::AbstractString)
 end
 
 """
-    code_trees(workdir; code = nothing, julia_project = workdir) -> (; trees, dirty)
+    code_trees(workdir; code = nothing, julia_project = workdir) -> (; trees, dirty, project_paths)
 
 The code identity of a run in the git checkout `workdir`: `trees`, by name, the git tree hash of each of the
 project's `code` paths (relative to `workdir`: `git rev-parse HEAD:<path>`; by default `src` when there is one) and of
@@ -83,7 +86,10 @@ every stack package `julia_project`'s environment loads (its `[deps]` and what t
 it or above it, a workspace's): a package loaded from a path (`[sources]`, `Pkg.develop`) by the trees of its
 `src`, `ext` and `Project.toml` in its own repository (`"src:<tree> ext:<tree> Project.toml:<blob>"`), a released
 stack package by its Manifest `git-tree-sha1`. `dirty` names each of them whose files differ from HEAD (an edit, a
-staged or deleted file, an untracked one), or that is in no git checkout: a run of record refuses to run with it.
+staged or deleted file, an untracked one), or that is in no git checkout: a run of record refuses to run with it
+([`refuse_uncommitted_code`](@ref)). Such a tree's value carries `+uncommitted` (or is `"uncommitted"`), so a result
+recorded with it is never reused for committed code. `project_paths` lists the project's own paths recorded (none:
+nothing identifies the project's code).
 
 A tree moves only when a file under it changes: a commit that touches only docs, tests or the paper changes no tree.
 Compare two records with [`code_tree_changes`](@ref).
@@ -97,11 +103,14 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
             ispath(joinpath(workdir, c)) || continue       # neither committed nor there: nothing to identify
             trees[c] = "uncommitted"
             push!(dirty, c)
+        elseif _uncommitted(workdir, [c])
+            trees[c] = t * _DIRTY_MARK                     # never equal to a clean record: never reused for one
+            push!(dirty, c)
         else
             trees[c] = t
-            _uncommitted(workdir, [c]) && push!(dirty, c)
         end
     end
+    project_paths = sort!(collect(keys(trees)))
     manifest = _find_manifest(julia_project)
     if manifest !== nothing
         for (name, e) in _loaded_entries(abspath(julia_project), manifest)
@@ -114,14 +123,33 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
                     push!(dirty, name)
                     continue
                 end
-                trees[name] = join(("$s:$(something(t, "uncommitted"))" for (s, t) in parts), " ")
-                (any(p -> p[2] === nothing, parts) || _uncommitted(dir, subs)) && push!(dirty, name)
+                marked = [(s, t === nothing ? "uncommitted" : _uncommitted(dir, [s]) ? t * _DIRTY_MARK : t) for (s, t) in parts]
+                trees[name] = join(("$s:$t" for (s, t) in marked), " ")
+                any(p -> p[2] == "uncommitted" || endswith(p[2], _DIRTY_MARK), marked) && push!(dirty, name)
             elseif name in _STACK_PACKAGES && haskey(e, "git-tree-sha1")
                 trees[name] = e["git-tree-sha1"]
             end
         end
     end
-    return (; trees, dirty = sort!(dirty))
+    return (; trees, dirty = sort!(dirty), project_paths)
+end
+
+"""
+    refuse_uncommitted_code(identity; what = "a run of record") -> nothing
+
+The refusal of a run of record whose code is not committed, the same for the runner and a driver's records:
+`identity` is [`code_trees`](@ref)'s result. An `ArgumentError` when any of its trees has uncommitted changes, or
+is in no git checkout (its results could not name the code they ran), or when it identifies none of the project's
+own code (no `src`, no `code` path).
+"""
+function refuse_uncommitted_code(identity; what::AbstractString = "a run of record")
+    d = identity.dirty
+    isempty(d) || throw(ArgumentError("$what runs committed code, and $(join(d, ", ")) " *
+                                      "$(length(d) == 1 ? "has" : "have") uncommitted changes (or no git checkout): " *
+                                      "commit them (or stash them), then run again"))
+    isempty(identity.project_paths) && throw(ArgumentError("$what records the code it runs, and none of the project's own " *
+        "code is identified (no `src`, no `code` path): name its code paths (a stage graph's [project] code)"))
+    return nothing
 end
 
 # A package loaded from a path: "src:<tree> ext:<tree> Project.toml:<blob>", by part.

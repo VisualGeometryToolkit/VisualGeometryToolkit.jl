@@ -444,7 +444,8 @@ differ from it), the `data_root` and `results_root`, the `stamp` of the launch, 
 `stages` in dependency order, the environment the launch was planned in (`base_env`: the stages' environment is it
 plus each stage's own), and the code it runs: `code_trees` (by name, the git trees of the graph's `code` paths and of
 every stack package the project's environment loads: [`code_trees`](@ref VisualGeometryToolkitEval.code_trees)) and
-`dirty_code`, those of them with uncommitted changes (a launch refuses to run them).
+`dirty_code`, those of them with uncommitted changes (a launch refuses to run them), and `code_paths`, the project's
+own paths among them (a launch that identifies none is refused too).
 """
 struct ReproducePlan
     graph::StageGraph
@@ -459,6 +460,7 @@ struct ReproducePlan
     base_env::Dict{String, String}
     code_trees::Dict{String, String}
     dirty_code::Vector{String}
+    code_paths::Vector{String}
 end
 
 _sha_file(path) = bytes2hex(open(sha256, path))
@@ -599,7 +601,7 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, Dict{String, String}(env),
-                         code.trees, code.dirty)
+                         code.trees, code.dirty, code.project_paths)
     _mark_reuse!(plan, ids -> _queue_states(queue_states, ids, env))
     return plan
 end
@@ -911,7 +913,8 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing)
     println(io, "  manifest $(plan.manifest)")
     println(io, "  markers  $(first(splitext(plan.manifest)))/<stage>/task-<t>.toml  (each task's completion marker: status and reuse read them)")
     println(io, "  code     $(length(plan.code_trees)) tree(s): $(join(sort!(collect(keys(plan.code_trees))), ", "))",
-            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) (a launch is refused)")
+            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) (a launch is refused)",
+            isempty(plan.code_paths) ? "  NO PROJECT CODE: no `src`, no [project] code (a launch is refused)" : "")
     isempty(site.setup) || println(io, "  setup    $(site.setup)")
     for (i, st) in enumerate(plan.stages)
         s = st.spec
@@ -1107,12 +1110,9 @@ function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{Strin
     return c
 end
 
-# A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in.
-function _refuse_dirty_code(plan::ReproducePlan)
-    isempty(plan.dirty_code) && return nothing
-    throw(ArgumentError("a run of record runs committed code, and $(join(plan.dirty_code, ", ")) " *
-                        "$(length(plan.dirty_code) == 1 ? "has" : "have") uncommitted changes: commit them (or stash them), then launch again"))
-end
+# A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in (the
+# one refusal, the drivers' records too).
+_refuse_dirty_code(plan::ReproducePlan) = refuse_uncommitted_code((; dirty = plan.dirty_code, project_paths = plan.code_paths))
 
 # The line a backend prints before running a stage an earlier launch ran under other code.
 _print_rerun(io, st::PlannedStage) = isempty(st.rerun) || println(io, rpad(st.spec.name, 32), " rerun: ", st.rerun)
@@ -1275,7 +1275,7 @@ function _slurm_log(g::StageGraph, s::StageSpec, id::AbstractString, task::Integ
         m = match(r"^#SBATCH\s+--output=(\S+)"m, read(joinpath(g.workdir, s.sbatch), String))
         m === nothing ? "slurm-%j.out" : m.captures[1]
     end
-    p = replace(pattern, "%A" => id, "%a" => string(task), "%x" => "*" * s.job_name,   # a site's job-name prefix comes first
+    p = replace(pattern, "%A" => id, "%a" => string(task), "%x" => "*" * _base_job_name(g, s),   # a site's job-name prefix comes first
                 "%j" => s.is_array ? "*" : id)
     if occursin('*', p)
         dir = joinpath(g.workdir, dirname(p))

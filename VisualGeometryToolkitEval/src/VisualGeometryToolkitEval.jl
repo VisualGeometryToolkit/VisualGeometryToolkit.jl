@@ -39,7 +39,7 @@ export Stats, Tuning, Evaluation, Experiments, Render, Pools, Datasets, DataArti
 export cli_option, start_output_flush!
 
 public ARTIFACT_FORMATS, DEFAULTS_PATH
-public code_trees, code_tree_changes   # the code identity of a run (src/code_identity.jl)
+public code_trees, code_tree_changes, refuse_uncommitted_code   # the code identity of a run (src/code_identity.jl)
 
 """
     engine_fixtures() -> Module

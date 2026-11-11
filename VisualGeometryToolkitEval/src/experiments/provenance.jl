@@ -64,8 +64,35 @@ the project's `src` (of `gitpath`) and every stack package its environment
 [`cached_result`](@ref) reuse a stored result only while they are unchanged
 (`code_tree_changes`).
 """
-current_code_trees(gitpath::AbstractString = project_root()) =
-    isempty(gitpath) ? Dict{String,String}() : code_trees(gitpath; julia_project = gitpath).trees
+current_code_trees(gitpath::AbstractString = project_root()) = _code_identity(gitpath).trees
+
+_code_identity(gitpath::AbstractString) = isempty(gitpath) ?
+    (; trees = Dict{String,String}(), dirty = String[], project_paths = String[]) :
+    code_trees(gitpath; julia_project = gitpath)
+
+"""
+    scratch_run() -> Bool
+
+Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment. A run of
+record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
+refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
+committed code.
+"""
+scratch_run() = get(ENV, "VGTK_SCRATCH", "") == "1"
+
+# The code trees a result being recorded now carries: refused for a run of record when the code is not committed
+# (the runner's refusal, `refuse_uncommitted_code`), warned for a scratch run; a project whose own code is not
+# identified (no `src`) is warned either way: only the packages it loads name its code.
+function _recorded_code_trees(gitpath::AbstractString, what::AbstractString)
+    ident = _code_identity(gitpath)
+    if !isempty(ident.dirty)
+        scratch_run() || refuse_uncommitted_code(ident; what = "a run of record")
+        @warn "a scratch run records $what of uncommitted code (VGTK_SCRATCH=1): it is never reused for committed code" uncommitted = join(ident.dirty, ", ") maxlog = 1
+    end
+    isempty(gitpath) || !isempty(ident.project_paths) ||
+        @warn "$what records no tree of the project's own code (no src under $gitpath): only the packages it loads identify its code" maxlog = 1
+    return ident.trees
+end
 
 # The paths a `git diff` touches, in order: what a dirty tree changed, readable
 # without applying the patch (a "-dirty" commit alone does not say whether the
@@ -112,7 +139,11 @@ touches) and `code_trees`, the git trees of the code the run loaded
 ([`current_code_trees`](@ref)). `inputs` (paths) are recorded relative to the
 results or data root they live under, the roots beside them
 (`inputs = {data = […], data_root = …}`). Refuses to write into the data root
-unless `producer` ([`assert_not_input`](@ref)). Returns the record's path.
+unless `producer` ([`assert_not_input`](@ref)), and refuses a run of record of
+uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
+staged, deleted or untracked file in the project's `src` or a package it loads
+from a path, or code in no git checkout); a [`scratch_run`](@ref) records it
+with a warning, its trees marked `+uncommitted`. Returns the record's path.
 """
 function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{String,Any}();
                           driver::AbstractString, inputs = nothing,
@@ -128,7 +159,7 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     inputs === nothing || (prov["inputs"] = _relative_inputs(inputs))
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
-    prov["code_trees"] = current_code_trees(gitpath)
+    prov["code_trees"] = _recorded_code_trees(gitpath, "the record of $dir")
     mkpath(dir)
     out = joinpath(dir, PROVENANCE_FILE)
     open(out, "w") do io
@@ -273,7 +304,8 @@ The keyed result cache: `<dir>/<prefix>_<key(cfg)>.jld2` is loaded (DrWatson
 ([`current_code_trees`](@ref), `code_tree_changes`; a file without them, from
 before they were kept, is computed once more), else `f(cfg)` (a String-keyed
 Dict) is computed and saved tagged like DrWatson's `tagsave` (gitcommit +
-gitpatch ride along, and `code_trees`) and written
+gitpatch ride along, and `code_trees`; uncommitted code is refused before
+computing, as by [`write_provenance`](@ref)) and written
 with DrWatson's `safesave`, so a forced re-run keeps the previous version as
 `_#n`. The file name is
 exactly the one DrWatson's `produce_or_load(…; filename = hash, prefix)` builds,
@@ -286,13 +318,14 @@ function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
                        gitpath::AbstractString = project_root())
     assert_not_input(dir)
     file = joinpath(dir, string(prefix, "_", key(cfg), ".jld2"))
-    trees = current_code_trees(gitpath)
     if !force && isfile(file)
+        trees = current_code_trees(gitpath)
         stored = wload(file)
         changes = code_tree_changes(get(stored, "code_trees", nothing), trees)
         isempty(changes) && return stored, file
         @info "recomputing $file: its code changed" changes = join(changes, "; ")
     end
+    trees = _recorded_code_trees(gitpath, file)                    # before computing: a refusal costs nothing
     data = f(cfg)
     mkpath(dir)
     data = _tag!(data; gitpath)

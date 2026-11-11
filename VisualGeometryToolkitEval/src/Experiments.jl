@@ -54,7 +54,7 @@ module Experiments
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
-import ..code_trees, ..code_tree_changes   # src/code_identity.jl: the code identity a record keeps (provenance.jl)
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code   # src/code_identity.jl: the code identity a record keeps (provenance.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        fresher, contract_violations,
@@ -67,7 +67,7 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        assert_primary_copy, assert_not_input, ArtifactView, install_artifact, link_tree!,
        artifact_view!, is_artifact_view,
        # the provenance record (experiments/provenance.jl)
-       write_provenance, read_provenance, current_code_trees, provenance_inputs, commit_drift, warn_commit_drift,
+       write_provenance, read_provenance, current_code_trees, scratch_run, provenance_inputs, commit_drift, warn_commit_drift,
        run_complete, legacy_hash_key, cached_result,
        # the data policy (experiments/data_policy.jl)
        DataPolicyAllow, data_policy_violations,

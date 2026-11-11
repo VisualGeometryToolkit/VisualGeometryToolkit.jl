@@ -251,6 +251,42 @@
         E.set_project_root!("")
     end
 
+    @testset "a run of record of uncommitted code is refused (the runner's refusal); a scratch run is warned and marked" begin
+        repo = gitrepo()
+        mkpath(joinpath(repo, "src")); write(joinpath(repo, "src", "M.jl"), "module M end\n")
+        git!(repo, "add", "-A"); git!(repo, "commit", "-qm", "code")
+        E.set_project_root!(repo)
+        out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
+        write(joinpath(repo, "src", "M.jl"), "module M\nf() = 1\nend\n")              # an uncommitted edit
+        @test_throws r"a run of record runs committed code, and src has uncommitted changes" E.write_provenance(out; driver = "d")
+        @test !isfile(joinpath(out, "_provenance.toml"))
+        dir = mktempdir()
+        @test_throws r"a run of record runs committed code" E.cached_result(c -> error("must not compute"), "r", Dict("a" => 1), dir)
+        @test isempty(readdir(dir))
+        write(joinpath(repo, "src", "N.jl"), "# untracked\n"); git!(repo, "checkout", "-q", "--", "src/M.jl")
+        @test_throws r"src has uncommitted changes" E.write_provenance(out; driver = "d")                 # an untracked file too
+        # a scratch run records it, warned, its tree marked: never reused once the code is committed (or reverted)
+        withenv("VGTK_SCRATCH" => "1") do
+            @test E.scratch_run()
+            @test_logs (:warn, r"scratch run records .* of uncommitted code") match_mode = :any E.write_provenance(out; driver = "d")
+        end
+        @test endswith(E.read_provenance(out)["code_trees"]["src"], "+uncommitted")
+        rm(joinpath(repo, "src", "N.jl"))
+        @test !(@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2"))
+        # code in no git checkout cannot be named: refused, and a scratch run records "uncommitted"
+        loose = mktempdir(); mkpath(joinpath(loose, "src")); write(joinpath(loose, "src", "M.jl"), "module M end\n")
+        E.set_project_root!(loose)
+        @test_throws r"src has uncommitted changes \(or no git checkout\)" E.write_provenance(joinpath(loose, "run"); driver = "d")
+        withenv("VGTK_SCRATCH" => "1") do
+            @test_logs (:warn, r"scratch run") match_mode = :any E.write_provenance(joinpath(loose, "run"); driver = "d")
+        end
+        @test E.read_provenance(joinpath(loose, "run"))["code_trees"]["src"] == "uncommitted"
+        # no src: the record names none of the project's own code, which is warned
+        E.set_project_root!(gitrepo())
+        @test_logs (:warn, r"records no tree of the project's own code") match_mode = :any E.write_provenance(mktempdir(); driver = "d")
+        E.set_project_root!("")
+    end
+
     @testset "keyed cache" begin
         repo = gitrepo()
         E.set_project_root!(repo)

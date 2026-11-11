@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: `Render.write_station_fan(colormap, io_or_path, cells; value, span, logarithmic, reverse, comment,
+  ring_labels)`**: a floor plan's station fan as a bare TikZ picture, one annular wedge per `station_cells` cell
+  coloured by `colormap` at the cell's statistic `value` placed in `span` (log10 when `logarithmic`, `1 - t` when
+  `reverse`), a cell without a detection grey. Byte for byte what BlobBoards' bmvc2026 `write_floorplan_tikz` and
+  CaliBlobs' icra2026 `write_floorplan_fan` (its verbatim copy) wrote; both restated it. The colormap is the paper's
+  (`t -> get(cgrad(:RdYlGn), t)`), so the package takes no colour dependency; the tests take PlotUtils.
 - **New: `write_numbers(io::IO, nums; order = :name)`**: the number-macro fragment written to an IO, the same bytes
   as the file form, which writes its section through it (one implementation). A figure that inlines its cell macro
   writes `sprint(io -> write_numbers(io, nums; order = :added))`; CaliBlobs' icra2026 `numbers_text` wrote a

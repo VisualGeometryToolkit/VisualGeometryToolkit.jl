@@ -95,7 +95,8 @@ ONNX Runtime itself is, on the CUDA path, conda-forge's build of release 1.31.1
 for sm_70 to sm_120; the package installs it on the first CUDA probe from four
 conda-forge files pinned by sha256 (0.34 GB, once per depot).
 ONNX Runtime's thread pool is `threads = Threads.nthreads()`, the process's
-allotment (start Julia with `--threads=$SLURM_CPUS_PER_TASK` in a Slurm job),
+allotment (in a Slurm job, start Julia with `--threads` set to the job's
+`SLURM_CPUS_PER_TASK`),
 never the machine's cores. [`loma_provenance`](@ref) records the provider
 used, the threads and the library versions.
 

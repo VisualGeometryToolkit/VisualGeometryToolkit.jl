@@ -1,5 +1,5 @@
-# Triggs — the robustified chart LM (one NLLSsolver LM under a loss with
-# Triggs' second-order correction, width efficiency_constant·ŝ): its strategy
+# Triggs — the robustified chart LM (one NLLSsolver LM under a loss, through
+# NLLSsolver's robustified Hessian, width efficiency_constant·ŝ): its strategy
 # identity and configuration, that it serves every chart problem — the circle
 # (its pipeline default, Welsch) and the homography — and that it admits exactly
 # the loss shapes Irls admits.

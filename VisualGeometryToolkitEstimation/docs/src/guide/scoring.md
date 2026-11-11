@@ -47,7 +47,7 @@ result  = ransac(problem, scoring)
 ```
 
 Every `find_*` reads its class's scorer, `[pipelines.<class>] scoring` in
-`configs/default.toml` (read by [`scoring_from_toml`](@ref)), when no
+`configs/default.toml` (read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml)), when no
 `scoring` is given; every class's is MSAC. The thresholds are in the problem's residual unit —
 pixels for every pixel-data class, E and PnP included, whose residuals are
 whitened into pixels by the cameras — and are conventions, not tuned values

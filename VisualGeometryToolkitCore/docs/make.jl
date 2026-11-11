@@ -72,14 +72,20 @@ makedocs(;
         # api/robust_statistics.md, the tag registry and stack contracts to
         # api/stack_contracts.md. Split on 2026-10-19 (api/solvers.html reached
         # 201.7 KiB with the citation links): the epipolar forms to
-        # api/epipolar_forms.md.
+        # api/epipolar_forms.md. Split on 2026-11-11 (with every public
+        # docstring in the manual, api/cameras.html measured 207 KiB and
+        # api/estimators.html 246 KiB): the intrinsics and sensors to
+        # api/intrinsics.md, the pool selection and its grid kernels to
+        # api/pool_selection.md, the Student-t + uniform scorer to
+        # api/student_t_scoring.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
         # the DoubleSphere/B-spline/ray-plane surfaces); same rationale as
         # size_threshold_warn above. Measured 1.15 MiB on 2026-11-04, once every
-        # public docstring was in the manual (checkdocs = :public).
-        search_size_threshold_warn = 1280 * 2^10,
+        # public docstring was in the manual (checkdocs = :public); 1.38 MiB on
+        # 2026-11-11, with the 19 docstrings whose files were in no page added.
+        search_size_threshold_warn = 1600 * 2^10,
     ),
     # The docs gates (General review, #171997, #173031, #173032): every public
     # docstring is in the manual, the doctests run, every external link
@@ -120,6 +126,7 @@ makedocs(;
             "Warping" => "api/warping.md",
             "Batched" => "api/batched.md",
             "Cameras" => "api/cameras.md",
+            "Intrinsics & Sensors" => "api/intrinsics.md",
             "Spline Lens" => "api/spline_lens.md",
             "Calibration" => "api/calibration.md",
             "Lenses" => "api/lenses.md",
@@ -133,6 +140,8 @@ makedocs(;
             "Epipolar Forms" => "api/epipolar_forms.md",
             "Correspondences" => "api/matching.md",
             "Robust Estimation" => "api/estimators.md",
+            "Student-t + Uniform Scoring" => "api/student_t_scoring.md",
+            "Pool Selection" => "api/pool_selection.md",
             "Robust Losses" => "api/robust_losses.md",
             "Robust Statistics & Solvers" => "api/robust_statistics.md",
             "Configuration Tags & Stack Contracts" => "api/stack_contracts.md",

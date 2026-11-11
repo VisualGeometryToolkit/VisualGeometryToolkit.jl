@@ -76,7 +76,7 @@ one per width axis:
 |---|---|
 | `LossWidth` (threshold family) | `loss_width = k·ŝ` (the truncated loss: identity) |
 | `OutlierHalfwidth` (Student-t marginal) | `outlier_halfwidth = ŝ·√(π/2)·e^{k²/2}` at codimension `d_g = 1` |
-| a lifted loss | the half-weight width of its shape |
+| a lifted loss | `loss_width = k·ŝ`, the plain multiple, for every shape |
 
 **One refit path, one scale port.** Every refiner runs through the one refit
 layer ([`refit_imc!`](@ref) and VisualGeometryToolkitCore's `RefitFamily`, with

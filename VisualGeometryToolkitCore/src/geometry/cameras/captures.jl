@@ -256,7 +256,7 @@ given map is unlabeled, or labeled exactly so; any other labels are an
 `ArgumentError`. An `H` is `RadialHomography`'s `H`: it
 acts BEFORE the lens of the camera `sensors[t]` names, about that camera's
 centre ([`radial_homography`](@ref)`(camera, H)` pairs them). An `Uncertain`
-homography's covariance is 8×8, in the [`HomographyManifold8`](@ref) chart
+homography's covariance is 8×8, in the [`HomographyManifold8`](@ref VisualGeometryToolkitCore.HomographyManifold8) chart
 about its canonical matrix (`parameter_vector`'s: unit Frobenius norm,
 `H[3,3] ≥ 0`). `targets` names the target definitions the ids resolve in by
 content identity (VisualGeometryToolkitIO's `content_id`: a rig's or a single

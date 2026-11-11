@@ -512,7 +512,7 @@ _resave_kwargs(old::AbstractDict) = merge(
 
 Whether two TYPED values are the same record: the same type at every level,
 compared field by field, an array element by element, a dict key by key, an
-[`Uncertain`](@ref) value with its covariance and a correspondence set through
+`Uncertain` value (VisualGeometryToolkitCore's) with its covariance and a correspondence set through
 its endpoints and attribute columns. A LENGTH — a quantity of dimension length
 or length², a covariance entry whose two parameters' length powers add up to 1
 or 2, a non-central model's points — is compared as its metre value within

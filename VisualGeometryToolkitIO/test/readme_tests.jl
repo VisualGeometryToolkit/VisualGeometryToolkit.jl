@@ -8,8 +8,10 @@
 # The install line is a `pkg>` block (```julia-repl), so it is not run as code:
 # the item checks that it names every non-standard-library package the
 # examples load, and nothing else. The examples then run in a child Julia
-# process in a temporary environment — this package by path, the rest of the
-# install line from the registries — with none of the test run's load path.
+# process in a temporary environment — this package and VisualGeometryToolkitCore
+# by path (both are workspace members, developed together: a registry's Core
+# need not be the one this package's compat names), the rest of the install
+# line from the registries — with none of the test run's load path.
 #
 # The item is VisualGeometryToolkitCore's test/readme_tests.jl with this
 # package's name and assertions; keep the two in step until the shared part
@@ -22,7 +24,7 @@
     # The README's example, run as a reader runs it (VisualGeometryToolkitCore's
     # test_readme_example): one block shown on the landing page, its install line
     # adding exactly what it loads, run in an environment built from that line.
-    VgtkCore.test_readme_example(pkgdir(VisualGeometryToolkitIO); checks = """
+    VgtkCore.test_readme_example(pkgdir(VisualGeometryToolkitIO); developed = Dict("VisualGeometryToolkitCore" => pkgdir(VgtkCore)), checks = """
     # What the example's comments claim: the pose comes back with its
     # frames and its translation exactly, the camera equal, and the store
     # validates as a camera store.

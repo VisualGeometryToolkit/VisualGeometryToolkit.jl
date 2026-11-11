@@ -55,8 +55,8 @@ p.attributes   # the depth
   as `Attributed(x, (; weight))` — a homography's vote in
   [`zhang_intrinsics`](@ref), a relative rotation's in
   [`spectral_rotation_averaging`](@ref), a view-graph edge's — and a stage
-  reads it with [`weight_of`](@ref) (1.0 for a bare value) and the value with
-  [`value_of`](@ref): never a parallel `weights` vector.
+  reads it with [`weight_of`](@ref VisualGeometryToolkitCore.weight_of) (1.0 for a bare value) and the value with
+  [`value_of`](@ref VisualGeometryToolkitCore.value_of): never a parallel `weights` vector.
 
 Downstream packages use `Attributed` for their own value-plus-attributes
 pairs and `FitResult` for their estimator results (RANSAC estimates, IRLS

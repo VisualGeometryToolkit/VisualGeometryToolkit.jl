@@ -24,11 +24,8 @@ Pages = ["cameras/cameras.jl", "cameras/camera_models.jl", "cameras/utilities.jl
 
 ## Intrinsics and Sensors
 
-```@autodocs
-Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
-Private = false
-Pages = ["cameras/intrinsics.jl", "cameras/sensors.jl"]
-```
+The intrinsics and sensor types are on the
+[Intrinsics and Sensors API](intrinsics.md) page.
 
 ## Boards and canvases
 

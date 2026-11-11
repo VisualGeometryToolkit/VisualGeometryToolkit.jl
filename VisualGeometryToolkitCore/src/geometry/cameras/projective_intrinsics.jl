@@ -28,7 +28,7 @@ takes `T` from `center` (integers become `Float64`). See [`principal_point`](@re
 [`convert_frame`](@ref).
 
 ```jldoctest
-julia> using VisualGeometryToolkitCore, GeometryBasics
+julia> using VisualGeometryToolkitCore
 
 julia> ProjectiveIntrinsics(Point2(2120.0, 1416.0))
 ProjectiveIntrinsics(cx = 2120.0, cy = 1416.0)

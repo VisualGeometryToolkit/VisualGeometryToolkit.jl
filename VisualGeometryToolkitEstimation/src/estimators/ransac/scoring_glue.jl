@@ -159,10 +159,8 @@ The ROBUSTIFIED LEVENBERG–MARQUARDT local optimization of every chart problem
 (the [`MinimalSolveProblem`](@ref) family): from the hypothesis θ, ONE chart LM
 over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)` — the problem's own refit rows on
 its own chart, robustified per datum by loss `K` through
-VisualGeometryToolkitCore's `loss_robustifier`. NLLSsolver applies the loss with
-Triggs' second-order correction (the ρ″ term of the Gauss–Newton Hessian;
-Ceres' `Corrector`), so
-there is no reweighting loop and no inlier set inside the refit: θ is the
+VisualGeometryToolkitCore's `loss_robustifier`. NLLSsolver applies the loss
+through its robustified Hessian, so there is no reweighting loop and no inlier set inside the refit: θ is the
 initial guess and the loss decides each datum's influence.
 
 The loss width is `loss_width = efficiency_constant·ŝ` (the plain multiple, as for
@@ -182,13 +180,9 @@ would deploy at ŝ² = `s2` (the role-isolated controls).
 (the pipelines' default), Geman–McClure, Cauchy, smooth TLS, TLS, Huber and
 Gaussian; Barron, whose shape carries its α, is refused by both.
 `Triggs{GaussianShape}` is the plain chart LM over every datum: like
-`Irls{GaussianShape}` it has no width and takes no `efficiency_constant`. For TLS
-ρ″ is zero everywhere but the cutoff, so the Triggs term vanishes and the step
-is the Gauss–Newton one with the loss's weights (the data inside the width at
-that evaluation); for Huber ρ″ is zero inside the width only, and in the tail
-`ρ″ = −w/(2s^{3/2})` (`w` the loss width, `s` the squared residual), so the
-Triggs term corrects the tail's data. The LM's acceptance test descends the
-robust cost, measured to the noise level on a circle.
+`Irls{GaussianShape}` it has no width and takes no `efficiency_constant`. The
+LM's acceptance test descends the robust cost, measured to the noise level on a
+circle.
 
 # Fields
 - `width`: the width mode, set by `efficiency_constant = m` (`EfficiencyConstant`);

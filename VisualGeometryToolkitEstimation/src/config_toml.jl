@@ -147,7 +147,7 @@ lo_resolve_scale_multiple(::Type, ::Type, v::AbstractString; class::Symbol) = th
     v == "cross_validated" ?
     "scale_multiple = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
         "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, " *
-        "LocalOptimizationDoneRight.LO_TAGS)), or give a number" :
+        "LocalOptimizationDoneRight.STRATEGY_TAGS)), or give a number" :
     "scale_multiple must be a number, got $(repr(v))"))
 
 function _loss_of(d::AbstractDict, section)
@@ -162,7 +162,7 @@ end
 Build a local-optimization strategy from its TOML table (see the registry
 comment above). `tags` is the strategy registry the `type` is looked up in —
 [`LO_TAGS`](@ref), or its merge with a downstream package's
-(`merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS)`); the entry is then
+(`merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`); the entry is then
 built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
 downstream `scale_multiple = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.

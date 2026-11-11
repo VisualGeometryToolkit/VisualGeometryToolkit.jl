@@ -237,7 +237,7 @@ using VisualGeometryToolkitEstimation: local_optimization_from_toml, LO_TAGS
 import LocalOptimizationDoneRight
 
 lo = local_optimization_from_toml(table; class = :homography,
-                                  tags = merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS))
+                                  tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
 ```
 
 ### Registering strategies

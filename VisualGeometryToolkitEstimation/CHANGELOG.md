@@ -5,6 +5,9 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Text: LocalOptimizationDoneRight's strategy registry is `STRATEGY_TAGS`** (renamed from `LO_TAGS` in its 0.9): the
+  `scale_multiple = "cross_validated"` refusal of `local_optimization_from_toml`, its docstring, the guides and
+  CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.
 - **Breaking: a SplineLens refine's gauge is fixed by its parametrization, and only the live controls are variables.**
   `refine_camera_and_poses` on a SplineLens camera held its rotation and scale gauges with zero-cost pin blocks and its
   unread coordinates (pad slots, absent nodes, nodes no row reads) with anchor rows `coordinate − guess`. Now each patch

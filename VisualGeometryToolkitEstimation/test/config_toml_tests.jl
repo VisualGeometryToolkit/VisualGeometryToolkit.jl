@@ -66,7 +66,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             sprint(showerror, e)
         end
         @test occursin("LocalOptimizationDoneRight", msg)
-        @test occursin("LO_TAGS", msg)
+        @test occursin("LocalOptimizationDoneRight.STRATEGY_TAGS", msg)   # its registry's name since LODR 0.9
         @test_throws ArgumentError lo_from("welsch", "not_a_number")
 
         # A LITERAL scale multiple claims no provenance, so any shape may take one.

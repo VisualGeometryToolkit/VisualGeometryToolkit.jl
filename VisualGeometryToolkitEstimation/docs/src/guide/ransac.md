@@ -200,7 +200,7 @@ import LocalOptimizationDoneRight
 using VisualGeometryToolkitEstimation: LO_TAGS
 
 lo = local_optimization_from_toml(Dict("type" => "hq", "loss" => "welsch", "scale_multiple" => 1.6);
-    class = :homography, tags = merge(LO_TAGS, LocalOptimizationDoneRight.LO_TAGS))
+    class = :homography, tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
 ```
 
 ## Result Type

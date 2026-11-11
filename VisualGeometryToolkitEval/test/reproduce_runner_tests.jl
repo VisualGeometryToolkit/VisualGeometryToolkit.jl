@@ -251,7 +251,7 @@ end
         declare(h) = write(cfg, replace(text, "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$h\""))
         # absent: unchecked, as before
         @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
-        # the content of record: passes
+        # the content of record: accepted
         declare(actual)
         @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
         declare(uppercase(actual))                                                                # hex in either case

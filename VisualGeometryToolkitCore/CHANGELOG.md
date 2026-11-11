@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
+  block views (a residual block of a run-time size assembled without a per-block allocation).
+
 - **New: `axis_gauged(camera, R, K′)`, a SplineLens camera in the frame turned so ẑ is its optical axis**
   (public, exported from `Cameras`). It is an exact re-gauge, not a fit:
   - every backward control is turned (`with_directions`, `c ↦ R·c`, every ray `R·d` to rounding);

@@ -21,6 +21,9 @@ non-central one is a `NoncentralSplineModel`).
     (px: the azimuthal misfit about the fitted principal point; `NaN` where not measured). The lens families' record
     gains `aspect`.
   - **A non-central source** of a lens-family fit is an `ArgumentError` (not supported yet).
+- **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
+  block views (a residual block of a run-time size assembled without a per-block allocation).
+
 - **The lens-family regression runs on the device** (`fit_camera(L, …; device = default_device())`).
   - Each sample's 2-D residual and its Jacobian rows (ForwardDiff duals of the chart vector inside the kernel), and
     their reduction to ½‖r‖², Jᵀr and JᵀJ, are one KernelAbstractions kernel on every backend, through Core's

@@ -31,7 +31,7 @@ using FlexUnits: Quantity
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractLossShape, GaussianShape, TLSShape, HuberShape, CauchyShape,
-    Irls, Triggs, EfficiencyConstant, FitResult,
+    Irls, Triggs, EfficiencyConstant, FitResult, AbstractOptimizationStrategy,
     HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
     EuclideanMap, UnlabeledFrame, UnitfulEuclideanMap, ustrip,
     PoseLibSolver, Vec3, Point3, Cspond, sources, targets, hasattr,
@@ -438,17 +438,43 @@ const Rigid3 = EuclideanMap{
 # -----------------------------------------------------------------------------
 
 """
-    LeZach()
+    LeZach() <: AbstractOptimizationStrategy
 
-PoseLib's own optimizer marker, given as `optimization_strategy = LeZach()`: the
-truncated loss `ρ = min(r², w²)` (VisualGeometryToolkitCore's `TLSShape()`),
+PoseLib's own optimization strategy, given as `optimization_strategy = LeZach()`
+or selected from TOML as `type = "le_zach"` (its tag in [`POSELIB_STRATEGY_TAGS`](@ref)):
+the truncated loss `ρ = min(r², w²)` (VisualGeometryToolkitCore's `TLSShape()`),
 optimized by the iteratively reweighted least-squares scheme of Le and Zach
 (International Conference on 3D Vision, 2021). This is PoseLib's
 `TRUNCATED_LE_ZACH` loss. It selects how the truncated loss is optimized, so it
 takes the same `width` as `Irls{TLSShape}`. Like TLS it has no efficiency
-constant, so it takes `width`, not `scale`.
+constant, so it takes `width`, not `scale`. A member of the stack's one
+optimization-strategy family: its loss family is TLS's, its path IRLS and its
+label `TLS-LZ`.
 """
-struct LeZach end
+struct LeZach <: AbstractOptimizationStrategy end
+
+# The registry of PoseLib's strategies, through VisualGeometryToolkitCore's one
+# machinery (`@lo_registry`). LeZach has no fields, so its `[optimization_strategy.le_zach]`
+# defaults table is empty.
+const _POSELIB_STRATEGY_DEFAULTS = Dict{String, Any}("le_zach" => Dict{String, Any}())
+
+#   type     tag        path    scale    family   label        shape     parametric
+const _POSELIB_STRATEGY_ROWS = (
+    (LeZach, "le_zach", :irls,  nothing, nothing, raw"TLS-LZ", TLSShape, false),
+)
+
+"""
+    POSELIB_STRATEGY_TAGS
+
+PoseLib's optimization strategies' registry (a VisualGeometryToolkitCore
+`TagRegistry`, built by its `@lo_registry`): `"le_zach"` → [`LeZach`](@ref).
+A caller that reads strategies from TOML merges it with the core's,
+`merge(VisualGeometryToolkitCore.STRATEGY_TAGS, PoseLib.POSELIB_STRATEGY_TAGS)` (or with
+VisualGeometryToolkitEstimation's `LO_TAGS`).
+"""
+const POSELIB_STRATEGY_TAGS = VisualGeometryToolkitCore.@lo_registry _POSELIB_STRATEGY_ROWS defaults = _POSELIB_STRATEGY_DEFAULTS
+
+public POSELIB_STRATEGY_TAGS
 
 # THE strategy table: the one place a ruling on which strategies PoseLib runs is
 # a one-line change. A strategy → PoseLib's `BundleOptions::LossType`.

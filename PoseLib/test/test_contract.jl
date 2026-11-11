@@ -8,6 +8,7 @@
 
 import VisualGeometryToolkitCore as VgtkCore
 using Test
+import TOML
 using Random: MersenneTwister
 using LinearAlgebra: normalize
 using Rotations: AngleAxis, RotMatrix
@@ -202,5 +203,34 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test_throws ArgumentError H((; optimization_strategy = TLSShape(), width = 2.0))
         # the retired names
         @test !isdefined(PoseLib, Symbol("LeZach" * "Truncation"))
+    end
+
+    # LeZach is a member of the stack's one optimization-strategy family: registered through Core's
+    # machinery with its TOML tag, and read back from a TOML table to the same strategy.
+    @testset "LeZach: one strategy family, its tag round-trips through TOML" begin
+        @test LeZach <: VgtkCore.AbstractOptimizationStrategy
+        reg = PoseLib.POSELIB_STRATEGY_TAGS
+        @test reg isa VgtkCore.TagRegistry && collect(keys(reg)) == ["le_zach"] && reg["le_zach"] === LeZach
+        @test VgtkCore.tag_of(reg, LeZach()) == "le_zach" == VgtkCore.lo_tag(LeZach())
+        @test VgtkCore.expected_tag(reg, LeZach) == "le_zach"
+        # its identity, as the registry row states it
+        @test VgtkCore.loss_family(LeZach()) == VgtkCore.loss_family(TLSShape)
+        @test VgtkCore.optimization_path(LeZach()) === :irls && VgtkCore.lo_label(LeZach()) == "TLS-LZ"
+        @test VgtkCore.lo_efficiency_constant_shape(LeZach) === TLSShape
+        @test !VgtkCore.lo_parametric(LeZach) && !VgtkCore.lo_takes_width(LeZach)
+        # merged with the core strategies' registry: one family, no clash
+        tags = merge(VgtkCore.STRATEGY_TAGS, reg)
+        @test sort(collect(keys(tags))) == sort([collect(keys(VgtkCore.STRATEGY_TAGS)); "le_zach"])
+        # TOML round trip: written as its tag (and its fields, none), read back to the same strategy,
+        # and the strategy read back refines as the one written
+        written = merge(Dict{String, Any}("type" => VgtkCore.tag_of(tags, LeZach())), VgtkCore.toml_table(LeZach()))
+        text = sprint(TOML.print, Dict("optimization_strategy" => written))
+        back = TOML.parse(text)["optimization_strategy"]
+        @test back == Dict("type" => "le_zach")
+        lo = tags[back["type"]]()
+        @test lo === LeZach()
+        @test _flat(estimate(H((; optimization_strategy = lo, width = 2.0)))) == _BASELINES[(:homography, :lezach)]
+        # a retired or unknown tag is refused by the registry
+        @test_throws ArgumentError tags["le_zach_truncation"]
     end
 end

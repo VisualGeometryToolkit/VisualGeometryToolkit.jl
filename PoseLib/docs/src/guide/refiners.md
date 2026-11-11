@@ -45,7 +45,7 @@ unchanged.
 | `Irls{TLSShape}()` | `min(r², w²)` | inliers have `r < w`; outliers get zero weight |
 | `Irls{HuberShape}()` | `r²` up to `w`, linear beyond | |
 | `Irls{CauchyShape}()` | `w² log(1 + r²/w²)` | |
-| [`LeZach`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's reweighting scheme |
+| [`LeZach`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's reweighting scheme; TOML `type = "le_zach"` ([`POSELIB_STRATEGY_TAGS`](@ref PoseLib.POSELIB_STRATEGY_TAGS)) |
 | `nothing` | `r²` | plain least squares; takes no `scale` or `width` |
 
 Given `scale = σ`, the loss runs at `w = c·σ`: `c` is the strategy's own

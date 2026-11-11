@@ -11,7 +11,10 @@
     `loss = TLSShape(), loss_width = w` is now `optimization_strategy = Irls{TLSShape}(), width = w`;
     `loss = GaussianShape()` is `optimization_strategy = nothing`. The keyword is the stack's refine name,
     `optimization_strategy`; `local_optimization` is refused, naming it.
-  - `LeZachTruncation()` is renamed `LeZach()`, PoseLib's own optimizer marker.
+  - `LeZachTruncation()` is renamed `LeZach()`, a member of the stack's one optimization-strategy family
+    (`LeZach <: AbstractOptimizationStrategy`), registered through VisualGeometryToolkitCore's `@lo_registry` in the
+    new public `PoseLib.POSELIB_STRATEGY_TAGS` with TOML tag `"le_zach"` (merge it with the core's `STRATEGY_TAGS` to read
+    `optimization_strategy = { type = "le_zach" }`).
   - A `Triggs{K}` strategy, any other loss shape and `Irls{GaussianShape}` are refused: PoseLib's
     Levenberg–Marquardt weighs residuals by `ρ′` alone, and it runs only the losses above.
   - The width is exactly one of `width = w` (unchanged from `loss_width`) and `scale = σ` (or an upstream robust

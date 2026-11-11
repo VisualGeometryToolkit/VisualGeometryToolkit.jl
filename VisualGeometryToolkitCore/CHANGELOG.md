@@ -5,6 +5,18 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: `pointwise!` is one KernelAbstractions kernel on every backend; the host's execution policies are
+  retired** (the owner's ruling on the twin audit's V4). `pointwise!(f, out, xs...)` and the lens batches (`project!`,
+  `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the
+  CPU's included; `exec` still takes `OnBackend(backend; workgroupsize)` (a backend value with its compiler options,
+  a workgroup size), now a plain struct. `ExecutionPolicy`, `Auto`, `Serial`, `Threaded` and `THREADED_MIN_LENGTH`
+  are gone (RETIRED_NAMES); no stack package passed them. The inputs share the output's shape (no broadcasting, a
+  `DimensionMismatch`); a device array now runs the KernelAbstractions kernel instead of a GPUArrays broadcast (a
+  B200 undistortion agrees with the host's per-point map to 3e-16). On the CPU the results are the per-point map's bit
+  for bit, as every policy's were. The CPU is slower: a 5-coefficient OpenCV undistortion of 256 / 1024 / 10⁶
+  points took 61 µs / 0.64 ms / 4.0 ms with the threaded broadcast and 117 µs / 0.61 ms / 78 ms as a kernel
+  (medians, in a 224-thread process).
+
 - **Changed: every LM row fill is one KernelAbstractions kernel on every backend** (the owner's ruling on the twin
   audit's V3: one kernel per job, the slower CPU accepted). `_foreach_row!`, which ran the rows as a plain loop on the
   CPU and as `_row_kernel!` elsewhere, is retired (RETIRED_NAMES): `_launch_rows!` launches `_row_kernel!` on the

@@ -113,7 +113,7 @@ using ..VisualGeometryToolkitCore: _is_dual_type, primal_float   # (base/duals.j
 import ..VisualGeometryToolkitCore: constraint_dim, _measurement_dim, ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
 import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record
-using ..VisualGeometryToolkitCore: pointwise!, ExecutionPolicy, Auto   # a lens over a batch of points (lens_rays.jl)
+using ..VisualGeometryToolkitCore: pointwise!, OnBackend   # a lens over a batch of points (lens_rays.jl)
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)

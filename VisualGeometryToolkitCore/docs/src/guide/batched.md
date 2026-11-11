@@ -17,25 +17,16 @@ The lens surfaces are [`project!`](@ref)`(u, m, X)`, [`backproject!`](@ref),
 converted once to the output's number type, so a `Float32` batch computes in
 `Float32` end to end (Metal has no `Float64`).
 
-## Execution policy
+## One kernel
 
-The `exec` keyword chooses how a **host** batch runs; a device array is one
-broadcast kernel, or one kernel on the backend [`OnBackend`](@ref) names.
-
-- [`Serial`](@ref)`()` — one loop on the calling task. Use it when the caller
-  already parallelizes an outer loop (RANSAC across image pairs), so threads
-  are not oversubscribed.
-- [`Threaded`](@ref)`()` — the same broadcast on contiguous chunks, one task
-  per thread.
-- [`Auto`](@ref)`()` (the default) — `Serial` below
-  [`THREADED_MIN_LENGTH`](@ref) points, `Threaded` above it.
-- [`OnBackend`](@ref)`(backend; workgroupsize)` — one kernel on that backend
-  value, on any array it owns. A broadcast launches on `get_backend(out)`, a
-  backend with the default options; this policy keeps the caller's, such as
-  `CUDABackend(; always_inline = true)`, and a fixed workgroup size. Like a
-  device broadcast it does not wait: synchronize the backend before reading.
-
-Every policy gives bitwise identical results.
+A batch runs as ONE KernelAbstractions kernel on the backend that owns the
+output, the CPU's included: the same per-point function, bit for bit, on every
+backend. The `exec` keyword, [`OnBackend`](@ref)`(backend; workgroupsize)`,
+launches it on a backend value the caller gives, so its compiler options hold
+(`CUDABackend(; always_inline = true)`), with a fixed workgroup size. On the CPU
+the launch has finished on return; on a device it does not wait: synchronize
+the backend before reading. (The host's broadcast policies, `Serial`,
+`Threaded` and `Auto`, are retired: the owner's one-kernel policy, 2026-11-11.)
 
 ## Failure
 

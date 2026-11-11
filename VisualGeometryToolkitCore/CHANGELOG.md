@@ -5,6 +5,11 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Changed: `spectral_rotation_averaging` no longer checks that its pairs connect every frame.** The caller checks it on
+  its graph — VisualGeometryToolkitEstimation's `fit_rotation_averaging`, its only stack caller, already refuses a split
+  `ViewGraph` before seeding — so the hand-written breadth-first search that ran the check a second time is deleted. A
+  direct call on a split graph (two components, or a zero-weight bridge) now returns meaningless rotations instead of
+  an `ArgumentError`; check connectivity first.
 - **New: `check_duplication(M)` / `check_duplication(dir)`** (public, not exported; Test extension, beside
   `check_naming` and `check_raw_decoding`): the no-duplication rule, checked. (1) Name ownership: a binding the package
   owns (not an import, not a method extension) whose name an upstream stack package owns, private names included;

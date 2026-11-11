@@ -85,8 +85,11 @@ identity (the common frame is that frame's). Symmetric in the frames, exact on
 consistent relative rotations, one eigendecomposition — the seed of a robust
 rotation averaging, not a robust estimator. A pair carries its non-negative
 weight as `Attributed(R_ij, (; weight))`, read with [`weight_of`](@ref); a bare
-`R_ij` weighs 1. A zero-weight pair contributes nothing, so frames that no pair of positive weight
-connects are an `ArgumentError` (a zero-weight bridge splits the graph).
+`R_ij` weighs 1. A zero-weight pair contributes nothing. The pairs of positive weight must
+connect every frame: the caller checks it on its graph (VisualGeometryToolkitEstimation's
+`fit_rotation_averaging` refuses a split one through its `ViewGraph`); on a split graph the
+leading eigenspace is degenerate and the rotations returned are meaningless (a chain with one
+zero-weight bridge came back 180° off).
 """
 function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) where {K}
     isempty(relative) && throw(ArgumentError("spectral_rotation_averaging: no relative rotations"))
@@ -94,8 +97,6 @@ function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) wher
     for (p, e) in relative
         weight_of(e) >= 0 || throw(ArgumentError("spectral_rotation_averaging: weight $(weight_of(e)) of the pair $p is negative"))
     end
-    # a zero-weight pair contributes no block: connectivity is over the pairs that carry weight
-    _check_connected(frames, [p for (p, e) in relative if weight_of(e) > 0])
     n = length(frames); idx = Dict(k => a for (a, k) in enumerate(frames))
     A = zeros(3n, 3n); deg = ones(n)
     for a in 1:n
@@ -114,24 +115,6 @@ function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) wher
     count(B -> det(B) < 0, blocks) > n / 2 && (blocks = [B * Diagonal(SVector(1.0, 1.0, -1.0)) for B in blocks])
     Rt = [SMatrix{3, 3, Float64, 9}(Rotations.nearest_rotation(B)) for B in blocks]   # ≈ R_kᵀ·Q
     return Dict(k => RotMatrix{3, Float64, 9}(Rt[1] * Rt[a]') for (a, k) in enumerate(frames))   # gauge: R_first = I
-end
-
-# Every frame reachable from the first through the pairs (either direction);
-# the caller supplies only the pairs that carry weight.
-function _check_connected(frames, pairs)
-    adj = Dict(k => Set{eltype(frames)}() for k in frames)
-    for (i, j) in pairs
-        push!(adj[i], j); push!(adj[j], i)
-    end
-    seen = Set([first(frames)]); stack = [first(frames)]
-    while !isempty(stack)
-        for n in adj[pop!(stack)]
-            n in seen || (push!(seen, n); push!(stack, n))
-        end
-    end
-    length(seen) == length(frames) ||
-        throw(ArgumentError("spectral_rotation_averaging: the frames $(setdiff(frames, seen)) are not connected to $(first(frames)) by any pair of positive weight"))
-    return nothing
 end
 
 # -----------------------------------------------------------------------------

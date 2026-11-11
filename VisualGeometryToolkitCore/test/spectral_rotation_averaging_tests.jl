@@ -29,12 +29,9 @@
     mixed = Dict{Tuple{Int, Int}, Any}(p => (p == (1, 2) ? Attributed(Rp, (; weight = 0.0)) : Rp) for (p, Rp) in bad)
     @test err(spectral_rotation_averaging(mixed)) < 1.0e-10
     @test_throws MethodError spectral_rotation_averaging(bad, Dict(p => 1.0 for p in keys(bad)))   # no weights dict
-    @test_throws ArgumentError spectral_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)))
     @test_throws ArgumentError spectral_rotation_averaging(Dict{Tuple{Int, Int}, RotMatrix{3, Float64, 9}}())
-    # a zero-weight bridge splits the graph: refused, not a degenerate eigenspace
-    # (the chain (1,2),(2,3),(3,4) with w(2,3) = 0 once came back 180° off)
+    # a split graph (two components, or a zero-weight bridge) is the caller's to refuse:
+    # Estimation's fit_rotation_averaging checks its ViewGraph (fit_rotation_averaging_tests.jl)
     chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
-    bridge = Dict(p => Attributed(Rp, (; weight = (p == (2, 3) ? 0.0 : 1.0))) for (p, Rp) in chain)
-    @test_throws ArgumentError spectral_rotation_averaging(bridge)
     @test_throws ArgumentError spectral_rotation_averaging(Dict(p => Attributed(Rp, (; weight = -1.0)) for (p, Rp) in chain))
 end

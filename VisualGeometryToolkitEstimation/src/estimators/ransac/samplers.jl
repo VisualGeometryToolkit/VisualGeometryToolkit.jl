@@ -300,7 +300,7 @@ Build a `GaussianSampler` from per-correspondence SNN ratios.
 
 `snn_sigma` is the standard deviation of the Gaussian SAMPLING PRIOR over SNN
 ratios, `w ∝ exp(−SNN²/2σ²)` — it lives in SNN units and has NOTHING to do
-with the robust loss width `scale_multiple·√s2` or with the residual noise σ. It is a
+with the robust loss width `efficiency_constant·√s2` or with the residual noise σ. It is a
 linear sigma on purpose: this is a prior over a dimensionless ratio, not the
 robust layer's scale port (which speaks `s2`). `floor` is the
 per-correspondence ε floor.

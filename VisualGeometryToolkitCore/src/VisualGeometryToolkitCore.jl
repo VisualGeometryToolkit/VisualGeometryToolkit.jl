@@ -353,6 +353,7 @@ public coefficient_jacobian, active_coefficients, control_points, with_control_p
 public RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart of its normalized radius, its centre moved and differentiated
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
+public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
@@ -461,7 +462,7 @@ export canonical_basis
 # Abstract types and interfaces
 # Robust-estimation interfaces (robust/estimation.jl)
 public scale_s2   # the squared scale ŝ² of a ConsensusSet, DeployedLoss or FixedS2
-export AbstractScoring, AbstractLocalOptimization, RefitFamily, FixedScale,
+export AbstractScoring, AbstractOptimizationStrategy, RefitFamily, FixedScale,
     AbstractWeightPolicy, update_weights!, update_nuisance!, FrozenNuisance
 # The interface machinery behind them: public, reached qualified or imported by
 # name. ConsensusSet is read through its accessors (inlier_count, scale_s2, consensus_score,
@@ -509,7 +510,7 @@ public StudentTUniformScoring, Predictive, AbstractLabelPrior, FlatLabelPrior, P
     score_residuals!, score_sq_residuals!
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
-    deployed_scale_multiple, width_scale_interface, width_s2, check_composition, width_value,
+    width_scale_interface, width_s2, check_composition, width_value,
     refine_external!, external_workspace, prepare_external!
 # Selection over a benchmark pool record (robust/pool_selection.jl).
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
@@ -532,7 +533,7 @@ public loss_family, loss_label
 # The width quantities as dispatch tags, their persisted names, and the scale
 # multiple → native width map (robust/width_axes.jl); RANSACScoringDoneRight
 # adds the OutlierHalfwidth method of `to_native`. Public, not exported.
-public WidthAxis, ScaleMultiple, LossWidth, OutlierHalfwidth, width_axis, width_axis_name, to_native,
+public WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis, width_axis_name, to_native,
     native_map, outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth
 # The chart-rows contract (robust/rows.jl): what a lifted local optimizer reads
 # of a chart problem — its provider's whitened rows, Jacobian and per-point
@@ -555,7 +556,7 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
 public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights
 public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √chisq_median(d), centred on the model
-# A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
+# A DEPLOYED loss carries the width it runs at as `efficiency_constant` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the
 # width-reading verbs above dispatch on.

@@ -40,7 +40,7 @@ log_margin = 0.05           # log headroom beyond the natives the window can req
 zeta_octaves = 0.0          # scale-corruption reach of the evaluation (0 = none)
 # q_lo == q_hi is the ONE-ANCHOR case; at 0.5 it is `reference_scale(s2)`, so
 # { q_lo = 0.5, q_hi = 0.5, zeta_octaves = 0.0 } is the window-matched grid —
-# the native image of the scale-multiple window and nothing more. That is what a
+# the native image of the efficiency-constant window and nothing more. That is what a
 # TUNE wants (it has one reference scale); a spread band is for the modes that
 # have many (validation_budget's 3500 draws share one sweep).
 
@@ -65,12 +65,12 @@ seed = 20260901
 rng = "StableRNG"
 
 # -----------------------------------------------------------------------------
-# Type defaults: the parameters of an untagged strategy (the scale-multiple
+# Type defaults: the parameters of an untagged strategy (the efficiency-constant
 # window, the grid extension, the cross-validation, the budget sampling)
 # wherever a scheme holds one.
 # -----------------------------------------------------------------------------
-[types.scale_multiple_window]
-lo = 0.8                    # the standardized window of scale multiples (σ-units)
+[types.efficiency_constant_window]
+lo = 0.8                    # the standardized window of efficiency constants (σ-units)
 hi = 6.0
 
 [types.grid_extension]      # expand-on-boundary of a grid axis
@@ -143,7 +143,7 @@ type = "spaced"
 window = { type = "coverage" }
 spacing = { type = "log_count" }
 
-[schemes.windowed_bootstrap.scale_multiple]       # the standardized display axis
+[schemes.windowed_bootstrap.efficiency_constant]       # the standardized display axis
 type = "spaced"
 window = { type = "standardized" }
 spacing = { type = "linear_count" }

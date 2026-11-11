@@ -6,13 +6,13 @@
 # builds its problem and names its model CLASS once; the class selects the
 # wrapper's `configs/default.toml` `[pipelines.<class>]` table, which supplies
 # both defaults — the `scoring` table (read by `scoring_from_toml`) and the
-# `local_optimization` table (read by `local_optimization_from_toml`): the one
+# `local_optimization_strategy` table (read by `optimization_strategy_from_toml`): the one
 # robust-estimation schema. The shared keywords are documented once, on
 # [`find_homography`](@ref).
 # =============================================================================
 
 """
-    _ransac_pipeline(problem, class::Symbol; scoring, local_optimization,
+    _ransac_pipeline(problem, class::Symbol; scoring, local_optimization_strategy,
                      max_trials, min_trials, config, workspace, rng)
         -> RansacEstimate
 
@@ -25,14 +25,15 @@ from `[pipelines.<class>]` for the class the wrapper names:
   scorer's `threshold`, the Student-t + uniform scorer's `outlier_halfwidth` —
   so a bare `threshold` or `outlier_halfwidth` keyword is refused
   (`ArgumentError`, naming `scoring`).
-- `local_optimization` defaults to the class's strategy (`_dflt_lo(class)`).
+- `local_optimization_strategy` defaults to the class's strategy (`_dflt_lo(class)`).
 - `config` resolves to `RansacConfig(; max_trials, min_trials)`.
 """
 function _ransac_pipeline(
         problem, class::Symbol;
         scoring::Union{AbstractScoring, Nothing} = nothing,
         # The class's strategy of record (configs/default.toml [pipelines.<class>]).
-        local_optimization::AbstractLocalOptimization = _dflt_lo(class),
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _dflt_lo(class),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
         # Defaults are configs/default.toml [ransac] — the same authority
         # RansacConfig() reads, so there is no second "default" to disagree.
         max_trials::Int = _dflt("ransac", "max_trials"),
@@ -43,13 +44,14 @@ function _ransac_pipeline(
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     scoring = _class_scoring(problem, class, scoring)
     config = something(config, RansacConfig(; max_trials, min_trials))
-    return ransac(problem, scoring; config, local_optimization, workspace, rng)
+    return ransac(problem, scoring; config, local_optimization_strategy, workspace, rng)
 end
 
 """
-    _refine_pipeline(problem, class::Symbol, θ₀; scoring, local_optimization,
+    _refine_pipeline(problem, class::Symbol, θ₀; scoring, optimization_strategy,
                      workspace) -> RansacEstimate
 
 The shared body of every `refine_*`: the class's RANSAC local-optimization step
@@ -58,7 +60,7 @@ no sampling ([`locally_optimize`](@ref): score θ₀, take ITS consensus set und
 the scorer, `locally_optimize!` from θ₀, re-score, `test_consensus`; the seed
 comes back when the refined model is not kept). The defaults are the class's
 `find_*`'s, read from the same `[pipelines.<class>]` table (`scoring`,
-`local_optimization`); the keywords are `_ransac_pipeline`'s minus the
+`optimization_strategy`); the keywords are `_ransac_pipeline`'s minus the
 sampling ones (`max_trials`, `min_trials`, `config` — a `RansacConfig` is the
 trial schedule and nothing else — and `rng`: no local optimization draws from
 the loop's generator; `locally_optimize!` takes none).
@@ -66,13 +68,17 @@ the loop's generator; `locally_optimize!` takes none).
 function _refine_pipeline(
         problem, class::Symbol, θ₀;
         scoring::Union{AbstractScoring, Nothing} = nothing,
-        local_optimization::AbstractLocalOptimization = _dflt_lo(class),
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _dflt_lo(class),
+        local_optimization = _RetiredKeyword(),            # refused, naming the refine's keyword
+        local_optimization_strategy = _RetiredKeyword(),   # (find_*'s keyword)
         workspace = nothing,
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    _refuse_retired_keyword(local_optimization_strategy, :local_optimization_strategy, :optimization_strategy)
     scoring = _class_scoring(problem, class, scoring)
-    return locally_optimize(problem, θ₀; local_optimization, scoring, workspace)
+    return locally_optimize(problem, θ₀; local_optimization_strategy = optimization_strategy, scoring, workspace)
 end
 
 # The scoring both pipelines run: the caller's, or the class's scorer of
@@ -137,4 +143,4 @@ _with_extent(p, extent) = BoundedProblem(p, extent)
 # `RansacWorkspace(P, n_data)` the default MSAC scoring's. Each entry checks it
 # against the scoring it runs (VisualGeometryToolkitCore `check_workspace`); for another
 # scorer or local optimizer build it from them
-# (`RansacWorkspace(problem, scoring, local_optimization)`).
+# (`RansacWorkspace(problem, scoring, local_optimization_strategy)`).

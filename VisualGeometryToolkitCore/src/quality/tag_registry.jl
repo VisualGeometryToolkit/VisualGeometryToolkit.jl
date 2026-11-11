@@ -37,7 +37,7 @@ snake_case(:FixedS2)              # "fixed_s2"
 snake_case(:SmoothTLS)            # "smooth_tls"
 snake_case(:WelschHQNewton)       # "welsch_hq_newton"
 snake_case(:StudentTUniform)      # "student_t_uniform"
-snake_case(:NoLocalOptimization)  # "no_local_optimization"
+snake_case(:TerminalPlacement)    # "terminal_placement"
 ```
 """
 snake_case(name::Symbol) = snake_case(String(name))
@@ -65,7 +65,7 @@ rarely, a value). `registry[tag]` returns the type; a retired tag throws
 `ArgumentError("tag \\"keep\\" was renamed \\"keep_model\\"")`, and an unknown
 tag throws an `ArgumentError` that lists the known tags.
 
-- `family` names the family (`:local_optimization`, `:loss`) in messages.
+- `family` names the family (`:optimization_strategy`, `:loss`) in messages.
 - `suffix` is the family's common type-name suffix (`"Shape"` for
   `TLSShape`), stripped before the spelling rule; `""` for none.
 - `pairs` are `tag => type`. The one value that is not a type is `nothing`,

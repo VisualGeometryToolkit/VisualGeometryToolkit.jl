@@ -25,7 +25,7 @@ using VisualGeometryToolkitCore: csponds,
     AbstractWeightPolicy, NormalizedWeightPolicy,
     RefitFamily, NativeRefit, ExternalRefit,
     ConsensusSet, is_fresh, inlier_count, consensus_set, score_model!, MsacScoring,
-    codimension, minimal_sample_size, lo_width, with_width, LossWidth, ScaleMultiple, sq_loss_width,
+    codimension, minimal_sample_size, lo_width, with_width, LossWidth, EfficiencyConstant, sq_loss_width,
     liftable, bounded,
     GaussianShape, WelschShape, GemanMcclureShape, CauchyShape,
     SmoothTLSShape
@@ -39,7 +39,7 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
 # Local strategy for the constructor-extension routing test (the pattern the
 # eval refit layer uses: a foreign concrete type declares its family by
 # extending VGC's abstract-type constructor).
-struct _ContractTestLO <: AbstractLocalOptimization end
+struct _ContractTestLO <: AbstractOptimizationStrategy end
 VgtkCore.RefitFamily(::_ContractTestLO) = ExternalRefit()
 
 # Small clean-ish homography problem (the HomographyScenes scene).
@@ -49,7 +49,7 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
 @testset "ConsensusSet epoch freshness + cached k*" begin
     problem = _contract_problem()
     scoring = MsacScoring(problem; threshold = 1.5)   # 5σ of the scene noise
-    ws = RansacWorkspace(problem, scoring, Irls{WelschShape}(scale_multiple = 1.5))
+    ws = RansacWorkspace(problem, scoring, Irls{WelschShape}(efficiency_constant = 1.5))
     buf = ws.buf
     # A model from an all-inlier sample (the scene's first 40 points are its
     # inliers). One noisy quadruple can be conditioned badly enough to support
@@ -86,7 +86,7 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
     # the fresh set's scale is what the score hands a consensus-anchored
     # strategy — through the owner, VGC's `loss_at` (here via `lo_loss`)
     cs = fresh()
-    @test scale_s2(VgtkEstimation.lo_loss(Irls{WelschShape}(scale_multiple = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
+    @test scale_s2(VgtkEstimation.lo_loss(Irls{WelschShape}(efficiency_constant = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
 end
 
 @testset "weight-policy verbs available per adapter" begin
@@ -138,8 +138,8 @@ end
 
 @testset "RefitFamily routing (VGC trait + constructor extension)" begin
     # VGC default: every strategy is NativeRefit unless it declares otherwise.
-    @test RefitFamily(NoLocalOptimization()) isa NativeRefit
-    @test RefitFamily(Irls{WelschShape}(scale_multiple = 1.5)) isa NativeRefit
+    @test RefitFamily(nothing) isa NativeRefit
+    @test RefitFamily(Irls{WelschShape}(efficiency_constant = 1.5)) isa NativeRefit
     @test RefitFamily(Irls{VgtkCore.TLSShape}()) isa NativeRefit
     # Constructor-extension pattern (what eval's engines do): dispatches.
     @test RefitFamily(_ContractTestLO()) isa ExternalRefit
@@ -155,11 +155,11 @@ end
     @testset "with_width sets the width mode and preserves every other field" begin
         RVGK = VisualGeometryToolkitEstimation
         strategies = Any[
-            RVGK.Irls{RVGK.WelschShape}(scale_multiple = 1.5),                                   # parametric
-            RVGK.Irls{RVGK.GemanMcclureShape}(scale_multiple = 1.25, max_iter = 7),
+            RVGK.Irls{RVGK.WelschShape}(efficiency_constant = 1.5),                                   # parametric
+            RVGK.Irls{RVGK.GemanMcclureShape}(efficiency_constant = 1.9422174675375463, max_iter = 7),   # decision_width(GM, 1.25): the retired half-weight currency's 1.25
         ]   # the moved strategies' constructor shapes: LocalOptimizationDoneRight's suite
         for lo in strategies
-            @test lo_width(lo) isa ScaleMultiple
+            @test lo_width(lo) isa EfficiencyConstant
             @test VgtkCore.scale_interface(lo) == VgtkCore.ConsensusAnchored()
             out = with_width(lo, LossWidth(0.25))
             @test typeof(out).name === typeof(lo).name
@@ -173,8 +173,8 @@ end
             @test with_width(out, lo_width(lo)) == lo
         end
         # A strategy with no width carries no width mode and implements no setter.
-        @test lo_width(NoLocalOptimization()) === missing
-        @test_throws MethodError with_width(NoLocalOptimization(), LossWidth(1.0))
+        @test lo_width(nothing) === missing
+        @test_throws MethodError with_width(nothing, LossWidth(1.0))
     end
 
 

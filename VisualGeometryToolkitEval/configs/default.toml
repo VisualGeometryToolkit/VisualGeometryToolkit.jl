@@ -139,10 +139,10 @@ train_sequences = [
 iteration_budget = 25
 
 [refit]
-# The scale multiple at which the outlier-half-width ↔ loss-width crossover is
+# The efficiency constant at which the outlier-half-width ↔ loss-width crossover is
 # inverted when a loss-width refiner rides an outlier-half-width selector grid
 # (`consumed_native`). A definition of the refit protocol, not a tuned value.
-operating_scale_multiple = 2.5
+operating_efficiency_constant = 2.5
 
 [selection]
 # The base seed of SIMFIT++'s random train/validation halves in a selection grid

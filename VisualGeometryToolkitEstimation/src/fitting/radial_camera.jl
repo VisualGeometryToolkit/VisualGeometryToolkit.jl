@@ -1,7 +1,7 @@
 """
     find_radial_camera(correspondences; center,
         scoring = MsacScoring(problem; threshold = 3.0), extent = nothing, workspace = nothing,
-        local_optimization, max_trials = 10000, min_trials = 100,
+        local_optimization_strategy, max_trials = 10000, min_trials = 100,
         config = nothing, rng = ...)
 
 Robust estimation of one board's 1-D radial camera (VisualGeometryToolkitCore
@@ -17,7 +17,7 @@ Returns a `RansacEstimate` whose model lives about the distortion centre
 The uncalibrated verification model for board correspondences: no distortion
 parameter is estimated per board (that is the focal stack's job, across
 boards), so the solve is closed form with no root to pick.
-`scoring` (its width in pixels) and `local_optimization` default to
+`scoring` (its width in pixels) and `local_optimization_strategy` default to
 `configs/default.toml` `[pipelines.radial_camera]` — MSAC, and least squares
 on the inliers, `Irls{TLSShape}()` — and the trial bounds to its `[ransac]`
 table. The other keywords as [`find_homography`](@ref).
@@ -42,13 +42,13 @@ end
 
 """
     refine_radial_camera(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        local_optimization = Irls{TLSShape}(), workspace = nothing)
+        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The 1-D radial camera `model` (VisualGeometryToolkitCore `RadialCamera`, about its
 distortion centre) refined against `plane_point => raw_pixel` correspondences:
 [`find_radial_camera`](@ref)'s step without the sampling. The problem's centre
-is the model's own (`center(model)`). `local_optimization` is the radial
+is the model's own (`center(model)`). `optimization_strategy` is the radial
 camera's RANSAC local-optimization step, run here alone from the given model (no
 sampling). Every default is `find_radial_camera`'s (`[pipelines.radial_camera]`),
 `extent` included; the keywords are those of every `refine_*`, documented on

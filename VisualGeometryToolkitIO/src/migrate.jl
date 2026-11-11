@@ -998,6 +998,37 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _gene
 migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
 migrate_schema(::Val{Symbol("vgio/transforms/v2")}, t::AbstractDict) = _hand_eye_transforms_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/trajectory/v2")}, t::AbstractDict) = _track_segment_trajectory_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/calibration/v1")}, t::AbstractDict) = _calibration_v1_to_v2(t)
+
+"""
+    _calibration_v1_to_v2(tree) -> Dict{String, Any}
+
+The version step `vgio/calibration/v1` → v2 (the owner's ruling, 2026-11-11: the stack's one
+parameter-holding keyword is `fixed`). A v1 manifest's `model` lens table named the coefficients a
+calibrator MOVES (`"free"`); v2 names those it HOLDS (`"fixed"`), the complement within the lens's
+`parameter_names`, in their order — the same LensSpec. A model without `"free"` (every coefficient
+moving) is unchanged. Read on load only, never rewritten on disk; saving writes v2.
+"""
+function _calibration_v1_to_v2(old::AbstractDict)
+    t = Dict{String, Any}(String(k) => v for (k, v) in old)
+    if haskey(t, "model")
+        m = Dict{String, Any}(String(k) => v for (k, v) in t["model"])
+        if haskey(m, "free")
+            free = Symbol.(m["free"])
+            body = Dict{String, Any}(k => v for (k, v) in m if k ∉ ("free", "intrinsics"))
+            names = VgtkCore.parameter_names(VgtkCore.lens(VgtkCore.LensSpec(body)))
+            for n in free
+                n in names || throw(ArgumentError("a vgio/calibration/v1 model's free name :$n is no coefficient of its lens ($names)"))
+            end
+            delete!(m, "free")
+            fixed = [String(n) for n in names if !(n in free)]
+            isempty(fixed) || (m["fixed"] = fixed)
+        end
+        t["model"] = m
+    end
+    t["schema"] = "vgio/calibration/v2"
+    return t
+end
 
 """
     _track_segment_trajectory_v2_to_v3(tree) -> Dict{String, Any}

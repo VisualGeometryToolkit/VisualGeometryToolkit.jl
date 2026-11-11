@@ -682,7 +682,8 @@ end
 
 function _refine_spline_axis_gauged(
         camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector, had_forward::Bool;
-        free::Tuple{Vararg{Symbol}} = (:controls,),
+        fixed::Tuple{Vararg{Symbol}} = (),
+        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
         penalty::Union{Symbol, Real, Nothing} = :gcv,
         refit_forward::Bool = true,
@@ -692,11 +693,13 @@ function _refine_spline_axis_gauged(
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
     )
+    _refuse_held_spellings(free, fix, fixed_params, hold)
     cam = _camera_model(camera)
     l = cam.lens
-    (free == (:controls,) || free == ()) || throw(
-        ArgumentError("refine_camera_and_poses: a SplineLens camera's `free` is (:controls,) (every present node's backward control) or () (the poses alone), got $free")
+    (fixed == () || fixed == (:controls,)) || throw(
+        ArgumentError("refine_camera_and_poses: a SplineLens camera's `fixed` is () (every present node's backward control refined, the default) or (:controls,) (the poses alone), got $fixed")
     )
+    free = fixed == () ? (:controls,) : ()
     box === nothing || throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's controls are unbounded; a `box` has nothing to bound"))
     check_penalty_weight(penalty, "refine_camera_and_poses: penalty"; allow_nothing = true)
     search = penalty === :gcv
@@ -728,7 +731,7 @@ function _refine_spline_axis_gauged(
     iterations = 0
     timed_out = false
     if isfree
-        pre = _refine_spline_axis_gauged(back, poses, views, false; free = (), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
+        pre = _refine_spline_axis_gauged(back, poses, views, false; fixed = (:controls,), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
         pre isa _NotProjected && return pre
         iterations += pre[3]
         timed_out |= pre[2] === :max_time

@@ -102,34 +102,34 @@
     end
 
     @testset "window rules" begin
-        w = ScaleMultipleWindow(1.0, 3.3)
+        w = EfficiencyConstantWindow(1.0, 3.3)
         @test window_bounds(FixedWindow(2.0, 5.0)) == (2.0, 5.0)
-        @test window_bounds(StandardizedWindow(); scale_multiple_window = w) == (1.0, 3.3)
+        @test window_bounds(StandardizedWindow(); efficiency_constant_window = w) == (1.0, 3.3)
         @test window_bounds(CenteredWindow(10.0); center = 2.0) == (0.2, 20.0)
         loss_width_map(m, s) = m * s
         s2 = fill(4.0, 10)                                                  # ŝ = 2 at every quantile
-        @test all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map, s2) .≈ (2.0, 6.6))
-        lo, hi = window_bounds(CoverageWindow(0.02, 0.98, 0.1, 1.0); scale_multiple_window = w, native = loss_width_map, s2)
+        @test all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); efficiency_constant_window = w, native = loss_width_map, s2) .≈ (2.0, 6.6))
+        lo, hi = window_bounds(CoverageWindow(0.02, 0.98, 0.1, 1.0); efficiency_constant_window = w, native = loss_width_map, s2)
         @test lo ≈ 1.0 * exp(-0.1) && hi ≈ 13.2 * exp(0.1)                 # ζ = 2 widening + margin
         # q_lo == q_hi is the ONE-ANCHOR case: both sides anchor on the same
         # √quantile(σ̂², q), and at q = 0.5 that is `reference_scale(s2)`. So
         # this IS the window-matched grid — the native image of the
-        # scale-multiple window and nothing more — which is why a separate rule
+        # efficiency-constant window and nothing more — which is why a separate rule
         # for it (`StandardizedNativeWindow`) was deleted rather than kept.
         s2v = [1.0, 4.0, 9.0, 16.0, 25.0]                                   # median 9 ⇒ s0 = 3
-        @test all(window_bounds(CoverageWindow(0.5, 0.5, 0.0, 0.0); scale_multiple_window = w,
+        @test all(window_bounds(CoverageWindow(0.5, 0.5, 0.0, 0.0); efficiency_constant_window = w,
                          native = loss_width_map, s2 = s2v) .≈ (3.0, 9.9))
         # and it is not accidentally equal to a spread band on the same σ̂²
-        @test !all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); scale_multiple_window = w,
+        @test !all(window_bounds(CoverageWindow(0.02, 0.98, 0.0, 0.0); efficiency_constant_window = w,
                           native = loss_width_map, s2 = s2v) .≈ (3.0, 9.9))
-        @test occursin("needs `scale_multiple_window`", thrown_message(() -> window_bounds(StandardizedWindow()); shown = true))
-        @test occursin("needs `s2`", thrown_message(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); scale_multiple_window = w, native = loss_width_map); shown = true))
+        @test occursin("needs `efficiency_constant_window`", thrown_message(() -> window_bounds(StandardizedWindow()); shown = true))
+        @test occursin("needs `s2`", thrown_message(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); efficiency_constant_window = w, native = loss_width_map); shown = true))
         @test occursin("needs `center`", thrown_message(() -> window_bounds(CenteredWindow(2.0)); shown = true))
-        @test_throws ArgumentError ScaleMultipleWindow(3.3, 1.0)
+        @test_throws ArgumentError EfficiencyConstantWindow(3.3, 1.0)
         @test_throws ArgumentError CoverageWindow(0.9, 0.1, 0.0, 0.0)
         @test_throws ArgumentError CenteredWindow(1.0)
         @test_throws ArgumentError scale_bounds(fill(NaN, 3), (0.1, 0.9))
-        @test grid_spec(SpacedAxis(StandardizedWindow(), LogCount(3)); scale_multiple_window = w) ==
+        @test grid_spec(SpacedAxis(StandardizedWindow(), LogCount(3)); efficiency_constant_window = w) ==
               SpacedGrid(1.0, 3.3, LogCount(3))
         @test grid_spec(ListedAxis([1.0, 2.0])) == ListedGrid([1.0, 2.0])
     end
@@ -155,7 +155,7 @@
         "unit_sampling" => [ExhaustiveSampling(), StratifiedSampling(0.5, 3, 11, "StableRNG"),
                             UniformSampling(0.25, 7, 5, "StableRNG")],
     )
-    untagged = Any[ScaleMultipleWindow(0.5, 2.0), GridExtension(3, 4),
+    untagged = Any[EfficiencyConstantWindow(0.5, 2.0), GridExtension(3, 4),
                    CoarseFineAxis(SpacedAxis(FixedWindow(1, 2), LogCount(3)), GridExtension(2, 1), LinearCount(4), false),
                    Incumbent(Dict("a" => 1.5), 0.9, 200, 3),
                    CrossValidation(RegisteredSceneSplit("x", ["a"], ["c", "b"]), StratifiedSampling(0.5, 3, 11, "StableRNG"),
@@ -190,8 +190,8 @@
         end
         # every spacing, window and criterion tag parses inside a spec
         for s in samples["spacing"]
-            sp = spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => tuning_table(s))))
-            @test sp.scheme.scale_multiple.spacing == s
+            sp = spec_of(Dict("type" => "windowed_bootstrap", "efficiency_constant" => Dict("spacing" => tuning_table(s))))
+            @test sp.scheme.efficiency_constant.spacing == s
         end
         for wr in samples["window"]
             sp = spec_of(Dict("type" => "windowed_bootstrap", "loss_width" => Dict("window" => tuning_table(wr))))
@@ -212,10 +212,10 @@
     @testset "refusals name the key path" begin
         m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "bogus" => 1)); shown = true)
         @test occursin("[tuning.t]", m) && occursin("bogus", m)
-        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("per_decad" => 3)))); shown = true)
-        @test occursin("[tuning.t.scale_multiple.spacing]", m) && occursin("per_decad", m)
-        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("type" => "log_weird")))); shown = true)
-        @test occursin("tuning.t.scale_multiple.spacing", m) && occursin("unknown spacing type", m) && occursin("log_weird", m)
+        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "efficiency_constant" => Dict("spacing" => Dict("per_decad" => 3)))); shown = true)
+        @test occursin("[tuning.t.efficiency_constant.spacing]", m) && occursin("per_decad", m)
+        m = thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", "efficiency_constant" => Dict("spacing" => Dict("type" => "log_weird")))); shown = true)
+        @test occursin("tuning.t.efficiency_constant.spacing", m) && occursin("unknown spacing type", m) && occursin("log_weird", m)
         @test occursin("unknown scheme type", thrown_message(() -> spec_of(Dict("type" => "nope")); shown = true))
         @test occursin("names no scheme", thrown_message(() -> spec_of(Dict("criterion" => Dict())); shown = true))
         @test occursin("unknown window type", thrown_message(() -> spec_of(Dict("type" => "coarse_fine",
@@ -236,8 +236,8 @@
             @test occursin(retired, thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap", retired => Dict())); shown = true))
         end
         # a value violating a constructor's invariant is refused with the path
-        @test occursin("[tuning.t.scale_multiple_window]", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap",
-                                                                     "scale_multiple_window" => Dict("lo" => 3.0, "hi" => 1.0))); shown = true))
+        @test occursin("[tuning.t.efficiency_constant_window]", thrown_message(() -> spec_of(Dict("type" => "windowed_bootstrap",
+                                                                     "efficiency_constant_window" => Dict("lo" => 3.0, "hi" => 1.0))); shown = true))
         # a persisted (complete) table inherits nothing
         t = tuning_table(LogPerDecade(7)); delete!(t, "per_decade")
         @test occursin("missing key", thrown_message(() -> read_tuning(GridSpacing, t); shown = true))
@@ -246,8 +246,8 @@
     @testset "three-level inheritance; a different tag resets it" begin
         dflt = TUNING_DEFAULTS
         # 1. tag defaults: a bare tag takes its tag's parameters
-        sp = spec_of(Dict("type" => "windowed_bootstrap", "scale_multiple" => Dict("spacing" => Dict("type" => "log_count"))))
-        @test sp.scheme.scale_multiple.spacing == LogCount(dflt["tags"]["spacing"]["log_count"]["n"])
+        sp = spec_of(Dict("type" => "windowed_bootstrap", "efficiency_constant" => Dict("spacing" => Dict("type" => "log_count"))))
+        @test sp.scheme.efficiency_constant.spacing == LogCount(dflt["tags"]["spacing"]["log_count"]["n"])
         # 2. scheme defaults override tag defaults (the probe's quarter decades)
         cf = spec_of(Dict("type" => "coarse_fine")).scheme
         @test cf.coarse.spacing == LogPerDecade(dflt["schemes"]["coarse_fine"]["coarse"]["spacing"]["per_decade"])
@@ -263,8 +263,8 @@
             "validation" => Dict("type" => "stratified", "fraction" => 0.25)))).scheme.cross_validation.validation
         tg = dflt["tags"]["unit_sampling"]["stratified"]
         @test sv == StratifiedSampling(0.25, tg["cap_per_scene"], tg["seed"], tg["rng"])
-        @test wb.scale_multiple_window == ScaleMultipleWindow(dflt["types"]["scale_multiple_window"]["lo"],
-                                                              dflt["types"]["scale_multiple_window"]["hi"])
+        @test wb.efficiency_constant_window == EfficiencyConstantWindow(dflt["types"]["efficiency_constant_window"]["lo"],
+                                                              dflt["types"]["efficiency_constant_window"]["hi"])
         # 3. the config overrides one key, the rest inherits
         sp3 = spec_of(Dict("type" => "coarse_fine", "coarse" => Dict("spacing" => Dict("per_decade" => 8))))
         @test sp3.scheme.coarse.spacing == LogPerDecade(8) && sp3.scheme.coarse.window == cf.coarse.window
@@ -344,7 +344,7 @@
         cv(; kw...) = Dict{String,Any}("scene_split" => Dict("type" => "registered", "name" => "phototourism"),
                                        (String(k) => v for (k, v) in kw)...)
         for over in (Dict("budget_sampling" => Dict("seed" => 8)),
-                     Dict("scale_multiple" => Dict("spacing" => Dict("n" => 99))),
+                     Dict("efficiency_constant" => Dict("spacing" => Dict("n" => 99))),
                      Dict("cross_validation" => cv(validation = Dict("type" => "stratified", "fraction" => 0.5))),
                      Dict("cross_validation" => cv(validation = Dict("type" => "stratified", "seed" => 3))),
                      Dict("cross_validation" => cv(test = Dict("type" => "uniform", "cap" => 9))),
@@ -492,14 +492,14 @@
     end
 
     # A product-grid run's specs from synthetic data: the persisted state. The
-    # native maps are the caller's (scale multiple × scale, in the test).
+    # native maps are the caller's (efficiency constant × scale, in the test).
     native(m, s) = m * s
     function run_state(scheme; s2 = collect(range(0.5, 2.0; length = 40)))
-        w = scheme.scale_multiple_window
+        w = scheme.efficiency_constant_window
         gs = Dict{Symbol,GridSpec}(
-            :outlier_halfwidth => grid_spec(scheme.outlier_halfwidth; scale_multiple_window = w, native, s2),
-            :loss_width => grid_spec(scheme.loss_width; scale_multiple_window = w, native, s2),
-            :scale_multiple => grid_spec(scheme.scale_multiple; scale_multiple_window = w))
+            :outlier_halfwidth => grid_spec(scheme.outlier_halfwidth; efficiency_constant_window = w, native, s2),
+            :loss_width => grid_spec(scheme.loss_width; efficiency_constant_window = w, native, s2),
+            :efficiency_constant => grid_spec(scheme.efficiency_constant; efficiency_constant_window = w))
         return gs
     end
 

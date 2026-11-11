@@ -101,7 +101,7 @@ end
 # =============================================================================
 
 """
-    window_columns(window::ScaleMultipleWindow, grid, tonat, scale) -> Vector{Int}
+    window_columns(window::EfficiencyConstantWindow, grid, tonat, scale) -> Vector{Int}
 
 Column indices of the native `grid` inside the standardized window
 `[tonat(window.lo, scale), tonat(window.hi, scale)]` — the candidate set of
@@ -110,7 +110,7 @@ calibration tune of LocalOptimizationDoneRight). Falls back to the EDGE CLAMP (t
 when the window slid entirely off the grid (extreme miscalibration on an
 unwidened grid); never a snapped candidate set.
 """
-function window_columns(window::ScaleMultipleWindow, grid::AbstractVector{<:Real}, tonat, scale::Real)
+function window_columns(window::EfficiencyConstantWindow, grid::AbstractVector{<:Real}, tonat, scale::Real)
     lo, hi = tonat(window.lo, scale), tonat(window.hi, scale)
     lo > hi && ((lo, hi) = (hi, lo))
     cols = [c for c in eachindex(grid) if lo <= grid[c] <= hi]
@@ -120,14 +120,14 @@ function window_columns(window::ScaleMultipleWindow, grid::AbstractVector{<:Real
 end
 
 # =============================================================================
-# WindowedGridMethod — scale-multiple tuning with cardinality-tied scale
+# WindowedGridMethod — efficiency-constant tuning with cardinality-tied scale
 # =============================================================================
 
 """
     WindowedGridMethod(label, scene_errors, scene_sigma2, native_grid, window, to_native,
                        criterion)
 
-Tunes on the **standardized scale-multiple axis** (accv §common-cutoff,
+Tunes on the **standardized efficiency-constant axis** (accv §common-cutoff,
 eq. 28) instead of the raw native grid, with the reference scale **estimated
 from the validation draw** so it tracks the validation cardinality `n` — the
 protocol of the `windowed_bootstrap` tuning scheme.
@@ -136,10 +136,10 @@ protocol of the `windowed_bootstrap` tuning scheme.
   on a fixed grid of native hyperparameter values (`native_grid`).
 - `scene_sigma2[i][j]` — pair `(i,j)`'s noise variance `σ̂²` (e.g. `gt_variance`),
   used to form the cardinality-tied scale `σ_med(n)`.
-- `to_native(scale_multiple, scale) -> native` — the eq-(28) map for this
+- `to_native(efficiency_constant, scale) -> native` — the eq-(28) map for this
   scoring, a closure over the caller's `native_map(axis; d_g)` so this package stays
   decoupled from the scoring-spec types.
-- `window` — the spec's [`ScaleMultipleWindow`](@ref); `criterion` — its
+- `window` — the spec's [`EfficiencyConstantWindow`](@ref); `criterion` — its
   objective (no default: both are parameters of the tuning spec).
 
 Per trial, `tune` draws `n` val pairs, forms `σ_med(n)=√median σ̂²` over them,
@@ -154,10 +154,10 @@ struct WindowedGridMethod{F,C<:TuningCriterion} <: BootstrapMethod
     scene_errors::Vector{Matrix{Float64}}
     scene_sigma2::Vector{Vector{Float64}}
     native_grid::Vector{Float64}
-    window::ScaleMultipleWindow
+    window::EfficiencyConstantWindow
     to_native::F
     criterion::C
-    WindowedGridMethod(label, scene_errors, scene_sigma2, native_grid, window::ScaleMultipleWindow,
+    WindowedGridMethod(label, scene_errors, scene_sigma2, native_grid, window::EfficiencyConstantWindow,
                        to_native::F, criterion::C) where {F,C<:TuningCriterion} =
         new{F,C}(label, scene_errors, scene_sigma2, collect(Float64, native_grid), window, to_native, criterion)
 end

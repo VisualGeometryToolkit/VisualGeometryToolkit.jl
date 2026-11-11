@@ -134,7 +134,7 @@ function _config_lo_error!(ctx, best_idx::Int, width::Float64, cfg)
     best_idx == 0 && return (NaN32, Int64(0))
     seed = refit_seed(ctx, ctx.pair.models[best_idx])
     # PROTOCOL: outlier-half-width arms refit at their tuned native;
-    # scale-multiple arms supply nat_ref = nothing (consensus from selection,
+    # efficiency-constant arms supply nat_ref = nothing (consensus from selection,
     # width in the LO). `consumed_native` maps the incoming native (on
     # `nat_axis`) to the refiner's consumed axis — identity for a native
     # refiner, outlier half-width → loss width for an external one — so every
@@ -156,6 +156,9 @@ function _lo_error!(ctx, s::ScoreSelector, lo, cfg)
     imc, lo_ns = refit_imc!(ctx, lo, seed, refit_width)
     return (Float32(imc), lo_ns)
 end
-# A selection-only column (a LossWidthSpec without a refiner): the selected
-# model's own `model_imc`, as its batch checkpoint records it; no refit.
-_lo_error!(ctx, s::ScoreSelector, ::NoLocalOptimization, cfg) = (checkpoint(s, ctx.geom, ctx.pair)[1], Int64(0))
+# A selection-only column (a LossWidthSpec without a refiner, `lo = nothing`):
+# the selected model's own `model_imc`, as its batch checkpoint records it; no
+# refit. Its selector carries `_SelectionOnly()`, since a selector's `nothing`
+# means "the config's LO".
+struct _SelectionOnly end
+_lo_error!(ctx, s::ScoreSelector, ::_SelectionOnly, cfg) = (checkpoint(s, ctx.geom, ctx.pair)[1], Int64(0))

@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/calibration/v1 — the manifest of a calibration result's record files
+# vgio/calibration/v2 — the manifest of a calibration result's record files
 # =============================================================================
 #
-# {"schema": "vgio/calibration/v1",
+# {"schema": "vgio/calibration/v2",
 #  "kind": "metric" | "projective" | "image",
 #  "model": {CameraModelSpec table},                                  (optional)
 #  "files": [{"path": "camera.json", "sha256": "<hex>", "kind": "vgio/cameras/v5",
@@ -140,7 +140,7 @@ end
 """
     save_manifest(dir, files; kind, model = nothing, metrics = nothing, provenance = (;)) -> String
 
-Write `dir/calibration.json`, a `vgio/calibration/v1` manifest binding a
+Write `dir/calibration.json`, a `vgio/calibration/v2` manifest binding a
 calibration result's record files, and return its path. `files` lists the
 vgio record files beside it: each a path relative to `dir` (an authority) or
 `(; path, role = "authority", derived_from = String[])`, where `role` is
@@ -267,7 +267,8 @@ end
 """
     load_manifest(dir) -> NamedTuple
 
-Read `dir/calibration.json`, a `vgio/calibration/v1` manifest, and check the set
+Read `dir/calibration.json`, a `vgio/calibration/v2` manifest (a v1 one read through its
+version step: its model's `"free"` coefficients as their complement `"fixed"`), and check the set
 it binds: every listed file exists, holds the record schema the manifest lists
 and hashes to the recorded SHA-256 — an `ArgumentError` naming the file
 otherwise — and the targets resolve: every target and rig file listed is

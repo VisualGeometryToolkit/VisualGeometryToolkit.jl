@@ -24,7 +24,7 @@
 # median (a 1-D absolute deviation's, which reads 2-D norms 1.745× too wide);
 # and the loss and its width are the stack's (an `Irls{K}` strategy) instead
 # of a hard-wired Huber at 3 × that scale. RC's exact width is
-# `Irls{HuberShape}(scale_multiple = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
+# `Irls{HuberShape}(efficiency_constant = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
 # =============================================================================
 
 """
@@ -43,7 +43,7 @@ struct RotationFitMetadata
 end
 
 """
-    fit_rotation(cs; local_optimization, tol)
+    fit_rotation(cs; optimization_strategy, tol)
         -> FitResult{RotMatrix{3, Float64}, RotationFitMetadata}
 
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
@@ -55,15 +55,15 @@ residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
 the pairs of positive prior weight), the
 weights of the strategy's loss at σ̂, and the weighted Kabsch.
 
-- `local_optimization` — the stack's robust-estimation strategy, an
+- `optimization_strategy` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
-  configs/default.toml `[fit_rotation] local_optimization`, Huber).
-  `scale_multiple = m` puts the width at `m · σ̂` (in the loss's currency,
-  [`plain_scale_multiple`](@ref)), `loss_width = w` at `w` radians; with no
+  configs/default.toml `[fit_rotation] optimization_strategy`, Huber).
+  `efficiency_constant = m` puts the width at `m · σ̂` (the plain multiple, for
+  every loss), `loss_width = w` at `w` radians; with no
   width — a fit has no scorer to follow — the shape's efficiency constant at
   codimension 2, which only an M-estimator (`AbstractMEstimator`) has: any
   other shape (`Irls{TLSShape}()`) requires a width, an `ArgumentError`
-  naming `scale_multiple` otherwise.
+  naming `efficiency_constant` otherwise.
 - `tol` — converged when an iteration moves `R` by less than `tol` radians
   (default configs/default.toml [fit_rotation]).
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
@@ -82,12 +82,14 @@ direction noise σ); the suite pins 20% random outliers among 200 pairs at
 """
 function fit_rotation(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
-        local_optimization::Irls = _fit_local_optimization("fit_rotation"),
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_local_optimization("fit_rotation"),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
         tol::Real = _dflt("fit_rotation", "tol"),
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
-    lo = _check_fit_width("fit_rotation", local_optimization)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    lo = _check_fit_width("fit_rotation", optimization_strategy)
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]
     w_col = VgtkCore.weights_column(cs)

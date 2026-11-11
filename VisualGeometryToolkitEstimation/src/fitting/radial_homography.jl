@@ -10,9 +10,9 @@
     find_radial_homography(correspondences; center,
         scoring = MsacScoring(problem; threshold = 3.0), extent=nothing,
         workspace=nothing, extra_check=nothing, minimal=:radial,
-        local_optimization, max_trials, min_trials, config=nothing, rng=...)
+        local_optimization_strategy, max_trials, min_trials, config=nothing, rng=...)
 
-`scoring` (its width in pixels) and `local_optimization` default to
+`scoring` (its width in pixels) and `local_optimization_strategy` default to
 `configs/default.toml` `[pipelines.radial_homography]`, `max_trials` and
 `min_trials` to its `[ransac]` table; a keyword overrides. A bare `threshold`
 or `outlier_halfwidth` keyword is refused, as [`find_homography`](@ref). `extra_check`
@@ -39,7 +39,7 @@ for fewer than a minimal sample (5 correspondences, 4 with `minimal = :homograph
 `center` — the distortion center in target pixels — is REQUIRED: the 5-pt
 solver runs in the Hartley frame about it.
 
-`local_optimization` defaults to `Irls{TLSShape}()` (least squares on the
+`local_optimization_strategy` defaults to `Irls{TLSShape}()` (least squares on the
 inliers) on the 9-dof sl(3) ⊕ k manifold, via the joint 9-dof LM M-step. The
 chart-rows provider makes LocalOptimizationDoneRight's lifts available on the
 same manifold.
@@ -68,7 +68,7 @@ end
 
 """
     refine_radial_homography(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        local_optimization = Irls{TLSShape}(), workspace = nothing)
+        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The radially distorted homography `model` (VisualGeometryToolkitCore
@@ -77,7 +77,7 @@ frame; a model with more division coefficients has no method, a `MethodError`)
 refined against `correspondences`: [`find_radial_homography`](@ref)'s step
 without the sampling. The problem's distortion centre is the model's own
 (`center(model)`); `minimal` and `extra_check` choose `find_radial_homography`'s
-hypotheses and have no meaning here. `local_optimization` is the radial
+hypotheses and have no meaning here. `optimization_strategy` is the radial
 homography's RANSAC local-optimization step, run here alone from the given model
 (no sampling). Every default is `find_radial_homography`'s
 (`[pipelines.radial_homography]`), `extent` included; the keywords are those of

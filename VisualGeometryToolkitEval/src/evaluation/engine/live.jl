@@ -46,7 +46,7 @@ The keywords below default so that the result is exactly the plain run's.
   `extras::Vector{Any}` (`nothing` for a pair not run). Without `finalize` the
   result has no `extras` field.
 """
-function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{<:PairCtx};
+function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ctxs::AbstractVector{<:PairCtx};
                    problem_of, seed_of, config::RansacConfig = RansacConfig(),
                    warmup::Bool = true, lo_of = nothing, on_improvement_of = nothing,
                    score_guard::Bool = false, cancelled = () -> false, finalize = nothing)
@@ -55,7 +55,7 @@ function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{
     lo_at(j) = lo_of === nothing ? lo : lo_of(j)
     cb_at(j) = on_improvement_of === nothing ? nothing : on_improvement_of(j)
     if warmup && n > 0
-        ransac(problem_at(1), scoring; local_optimization = lo_at(1),
+        ransac(problem_at(1), scoring; local_optimization_strategy = lo_at(1),
                config = RansacConfig(max_trials = 100, min_trials = 1),
                on_improvement = cb_at(0), score_guard)
     end
@@ -67,7 +67,7 @@ function live_runs(scoring, lo::AbstractLocalOptimization, ctxs::AbstractVector{
         rng = StableRNG(seed_of(j))
         loj = lo_at(j); cb = cb_at(j)
         t0 = time_ns()
-        r = ransac(prob, scoring; local_optimization = loj, config,
+        r = ransac(prob, scoring; local_optimization_strategy = loj, config,
                    on_improvement = cb, score_guard, rng)
         wall_s[j] = (time_ns() - t0) / 1e9
         trials[j] = iterations(r)

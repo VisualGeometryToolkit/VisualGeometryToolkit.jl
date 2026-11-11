@@ -9,7 +9,7 @@
 #
 #   1. `[tags.<family>.<tag>]` — the default parameters of a tagged strategy
 #      (a spacing, a window rule, an objective, an axis, a unit sampling), or
-#      `[types.<type>]` — those of an untagged one (the scale-multiple window,
+#      `[types.<type>]` — those of an untagged one (the efficiency-constant window,
 #      the grid extension, the cross-validation, the budget sampling);
 #   2. `[schemes.<scheme>]`    — the scheme's defaults, where they differ from 1;
 #   3. the config's `[tuning.<name>]` table.
@@ -98,7 +98,7 @@ _tag_defaults(fam::String, tag::String) = get(get(get(TUNING_DEFAULTS, "tags", D
 
 # The untagged strategy types and their `[types.<key>]` default tables.
 const _TYPE_KEYS = Dict{Type,String}(
-    ScaleMultipleWindow => "scale_multiple_window", GridExtension => "grid_extension",
+    EfficiencyConstantWindow => "efficiency_constant_window", GridExtension => "grid_extension",
     CoarseFineAxis => "coarse_fine_axis", Incumbent => "incumbent", CrossValidation => "cross_validation", BudgetSampling => "budget_sampling",
 )
 _type_defaults(::Type{T}) where {T} =
@@ -112,7 +112,7 @@ _type_defaults(::Type{T}) where {T} =
 # The spec types: every strategy, scheme and grid spec (the objectives
 # included) is written as a table.
 const _TABLE_TYPES = Union{GridSpacing, WindowRule, TuningAxis, GridSpec, TuningScheme,
-                           SceneSplit, UnitSampling, ScaleMultipleWindow, GridExtension,
+                           SceneSplit, UnitSampling, EfficiencyConstantWindow, GridExtension,
                            CoarseFineAxis, Incumbent, CrossValidation, BudgetSampling}
 
 _table_value(x::Union{_TABLE_TYPES,TuningCriterion}) = tuning_table(x)

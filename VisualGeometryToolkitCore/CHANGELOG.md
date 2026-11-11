@@ -21,6 +21,38 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **Breaking: `LensSpec` holds coefficients by `fixed`** (was `free`, the coefficients moved; the owner's ruling, the
+  stack's one parameter-holding keyword). `LensSpec(family; fixed = (), structure...)`, `LensSpec(lens; fixed)` and the
+  table key `"fixed"` name the coefficients HELD; `free_names(spec)` (unchanged, a contract generic) is the complement in
+  `parameter_names` order. The keyword `free` and the table key `"free"` are `ArgumentError`s naming `fixed`; a
+  calibration manifest of an earlier version is read through VisualGeometryToolkitIO's version step. `toml_value`
+  writes `"fixed"` only. Rule R13 also covers `LensSpec`/`LensTarget` calls and lens tables.
+- **`free_parameter_names(model, fixed)` (public): the stack's one expansion of a `fixed` list.** `parameter_names(model)`
+  (or a names tuple) in its order, less `:skew` (the gauge, held always: naming it is accepted, so `fixed =
+  parameter_names(model)` holds everything) and less `fixed`, whose entries are parameter names or groups (a
+  coefficient family's stem, `:k` for `k1…`, `:d`, `:p`, `:sx`, `:sy`). An entry that names nothing, or a parameter
+  named twice (directly or through a group), is an `ArgumentError`. `LensSpec`'s `fixed` and `free_names` resolve
+  through it, so a `LensSpec` now takes groups too.
+- **`check_naming` rule R13: the one parameter-holding keyword is `fixed`.** `free`, `fix`, `fixed_params` and `hold`
+  are flagged as a KEYWORD of a `fit_*`/`refine_*` call or signature (and their `_`-prefixed internals) and as a key of a
+  refine or LM TOML table; the bare word (comments such as "CUDA-free", locals, fields, accessors such as `free_names`,
+  other functions) is not. A refusal slot (`free = _RetiredKeyword()`) and a `@test_throws` call are no finding.
+- **Breaking: one optimization-strategy family, `AbstractOptimizationStrategy`** (was `AbstractLocalOptimization`; the
+  owner's ruling): Irls, Triggs, the LO wrappers and the downstream strategies alike, the contract gate checking which
+  subset each verb accepts. No local optimization is `nothing` (TOML `"none"`): Core answers the LO contract for it
+  (`locally_optimize!` returns the seed, `:no_lo`; `lo_workspace`, `lo_width`, `RefitFamily`, `optimization_path`
+  `:seed`, `scale_interface` `NoScale()`, `lo_label` `"seed"`, `loss_family` `:none`). The retired names are in
+  `RETIRED_NAMES`.
+- **Breaking: a width multiple is the `efficiency_constant`, always the PLAIN multiple** (the owner's Q7 ruling). The
+  keyword, field and TOML key `scale_multiple` is `efficiency_constant` (`deploy(shape, s2; codim,
+  efficiency_constant)`, a `DeployedLoss`'s `efficiency_constant`), the width mode `ScaleMultiple` is
+  `EfficiencyConstant` (its persisted axis name `:efficiency_constant`), and it defaults to
+  `efficiency_constant(shape, codim)`. The per-shape currencies are retired: the LO contract's
+  `deployed_scale_multiple` hook is removed, so `loss_at` deploys `c·ŝ` for every shape; a Geman–McClure multiple is
+  no longer read as a half-weight depth. Stored values were migrated once at full precision (`decision_width(GM, m)`;
+  Barron `m/√2` downstream), so every result is bit-identical. `EfficiencyConstant(c)` refuses a non-positive or
+  non-finite `c` (give no width to follow the scorer). The retired names are in `check_naming`'s `RETIRED_NAMES`, with
+  the call forms of `noise_sigma`.
 - **New: the robust stages' scale hand-off, `ScaleSource`, `noise_scale`, `scale_source` and `scale_input`**
   (public; the robust-estimation contract, owner rulings Q1/Q2). Every robust result will record ONE scale — the one it
   ran with, or the one it estimated — and where it came from:
@@ -38,8 +70,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Breaking: `mad_scale(residuals)` is the robust noise scale of residual VECTORS; `noise_sigma` is removed** (the
   owner's ruling). `mad_scale(rs)` takes `StaticVector{d}` residuals, reads `d` from their type, and returns
   `median(‖rᵢ‖) / √chisq_median(d)`: centred on zero (the model), never on the residuals' own median. A kernel that
-  holds only norms names them, `mad_scale(; norms, codimension)`; there is no positional norms form, so a reader
-  always sees that nothing is re-centred. The numbers are `noise_sigma(norms, d)`'s, bit for bit (Estimation's three
+  holds only norms calls the stack-internal `_mad_scale_norms(; norms, codimension)` (not public); there is no public
+  norms form, so a reader always sees that nothing is re-centred. The numbers are `noise_sigma(norms, d)`'s, bit for bit (Estimation's three
   callers switched). The former centred, normal-consistent `mad_scale(x)` of scalars is gone (StatsBase's
   `mad(x; normalize = true)` is that estimator); its scalar call shape is a `MethodError`, not silently re-meant.
 - **New: per-datum weights carry their kind as a trait** (public; the robust-estimation contract, Q3). `WeightKind` —

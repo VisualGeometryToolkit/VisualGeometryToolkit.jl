@@ -22,7 +22,7 @@ is the only structure a config loader may use to map a tag to a type:
 const MODEL_UPDATES = TagRegistry(:model_update, "",
     "keep_model" => KeepModel, "weighted_refine" => WeightedRefine, "none" => nothing;
     retired = ("keep" => "keep_model",),
-    paths = [r"local_optimization\.model_update"])
+    paths = [r"local_optimization_strategy\.model_update"])
 
 MODEL_UPDATES["keep_model"]        # KeepModel
 MODEL_UPDATES["keep"]              # ArgumentError: tag "keep" was renamed "keep_model"

@@ -72,7 +72,7 @@
         @test_throws ArgumentError LensSpec(:division, (; coefficients = 2), (:d9,), nothing)
         @test_throws ArgumentError LensSpec(:fish, (;), nothing, nothing)
         @test_throws ArgumentError LensSpec(:record, (; coefficients = 2), nothing, Dict{String, Any}())
-        @test LensSpec(:division, (; coefficients = 2), [:d1], nothing) == LensSpec(:division; coefficients = 2, free = (:d1,))
+        @test LensSpec(:division, (; coefficients = 2), [:d2], nothing) == LensSpec(:division; coefficients = 2, fixed = (:d2,))
     end
 
     @testset "round trips" begin
@@ -82,9 +82,10 @@
             @test LensSpec(TOML.parse(sprint(TOML.print, toml_value(spec)))) == spec
         end
         @test toml_value(LensSpec(:division; coefficients = 3)) == Dict{String, Any}("lens" => "division", "coefficients" => 3)
-        withfree = LensSpec(:kannala_brandt; coefficients = 4, free = (:k1, :k2))
-        @test LensSpec(TOML.parse(sprint(TOML.print, toml_value(withfree)))) == withfree
-        @test LensSpec(lens(withfree); free = (:k1, :k2)) == withfree
+        withfixed = LensSpec(:kannala_brandt; coefficients = 4, fixed = (:k3, :k4))
+        @test LensSpec(TOML.parse(sprint(TOML.print, toml_value(withfixed)))) == withfixed
+        @test toml_value(withfixed)["fixed"] == ["k3", "k4"] && !haskey(toml_value(withfixed), "free")   # saves `fixed` only
+        @test LensSpec(lens(withfixed); fixed = (:k3, :k4)) == withfixed
         @test LensSpec(:division; coefficients = 3) != LensSpec(:division; coefficients = 2)
         @test hash(LensSpec(:division; coefficients = 3)) == hash(LensSpec(:division; coefficients = 3))
     end
@@ -130,30 +131,60 @@
         @test_throws ArgumentError LensSpec(Dict("coefficients" => 3))
     end
 
-    @testset "free" begin
-        @test free_names(LensSpec(:kannala_brandt; coefficients = 4, free = (:k1, :k2))) == (:k1, :k2)
-        @test free_names(LensSpec(:kannala_brandt; coefficients = 4, free = [:k1, :k2])) == (:k1, :k2)
+    @testset "fixed: the coefficients held; free_names the complement" begin
+        @test free_names(LensSpec(:kannala_brandt; coefficients = 4, fixed = (:k3, :k4))) == (:k1, :k2)
+        @test free_names(LensSpec(:kannala_brandt; coefficients = 4, fixed = [:k3, :k4])) == (:k1, :k2)
+        @test free_names(LensSpec(:kannala_brandt; coefficients = 4, fixed = (:k4, :k3))) == (:k1, :k2)   # the chart's order
+        @test free_names(LensSpec(:kannala_brandt; coefficients = 4)) == (:k1, :k2, :k3, :k4)
+        # the retired spellings are refused, naming `fixed`
+        @test_throws r"give `fixed`" LensSpec(:kannala_brandt; coefficients = 4, free = (:k1, :k2))
+        @test_throws r"give `fixed`" LensSpec(KannalaBrandt(0.0, 0.0); free = (:k1,))
+        @test_throws r"give \"fixed\"" LensSpec(Dict("lens" => "kannala_brandt", "coefficients" => 4, "free" => ["k1"]))
         e = try
-            LensSpec(:kannala_brandt; coefficients = 2, free = (:k1, :k9))
+            LensSpec(:kannala_brandt; coefficients = 2, fixed = (:k1, :k9))
             nothing
         catch err
             err
         end
         @test e isa ArgumentError
-        @test occursin("k9", e.msg) && occursin("chart", e.msg) && occursin("(:k1, :k2)", e.msg)
-        @test_throws ArgumentError LensSpec(:division; coefficients = 2, free = (:d1, :d1))
+        @test occursin(":k9", e.msg) && occursin("its parameters are k1, k2", e.msg)
+        @test_throws ArgumentError LensSpec(:division; coefficients = 2, fixed = (:d1, :d1))
+        # a group holds a family's coefficients; a name held twice through it is refused
+        @test free_names(LensSpec(:brown_conrady; radial = 3, tangential = true, fixed = (:p,))) == (:k1, :k2, :k3)
+        @test_throws r"twice" LensSpec(:brown_conrady; radial = 3, fixed = (:k, :k2))
+    end
+
+    @testset "free_parameter_names: names, groups, the gauge" begin
+        fpn = VisualGeometryToolkitCore.free_parameter_names
+        intr = (:f, :aspect, :skew, :cx, :cy)
+        @test fpn(intr, ()) == (:f, :aspect, :cx, :cy)                       # skew is the gauge: never free
+        @test fpn(intr, (:skew,)) == (:f, :aspect, :cx, :cy)                 # naming it is accepted, a no-op
+        @test fpn(intr, intr) == ()                                          # fixed = parameter_names(model) holds all
+        @test fpn(intr, [:cx, :cy]) == (:f, :aspect)
+        rat = (:f, :cx, :cy, :k1, :k2, :k3, :d1, :d2, :p1, :p2)
+        @test fpn(rat, (:k,)) == (:f, :cx, :cy, :d1, :d2, :p1, :p2)          # a group: k1…k3
+        @test fpn(rat, (:d, :k3)) == (:f, :cx, :cy, :k1, :k2, :p1, :p2)
+        @test fpn(rat, (:p2, :f)) == (:cx, :cy, :k1, :k2, :k3, :d1, :d2, :p1)   # the names' order, not fixed's
+        @test fpn((:k1, :k10, :k2), (:k,)) == ()                             # every digit run is the group's
+        @test fpn((:sx1, :sy1, :s1), (:s,)) == (:sx1, :sy1)                  # a stem takes digits only
+        @test_throws r"no parameter or group" fpn(rat, (:q,))
+        @test_throws r"no parameter or group" fpn(rat, (:k1x,))
+        @test_throws r"twice" fpn(rat, (:k1, :k1))
+        @test_throws r"twice" fpn(rat, (:k, :k1))
+        @test_throws ArgumentError fpn(rat, ("k1",))                          # symbols only
+        @test fpn(LensSpec(:division; coefficients = 2) |> lens, (:d1,)) == (:d2,)   # the model form
     end
 
     @testset "show" begin
         @test sprint(show, LensSpec(:division; coefficients = 3)) == "LensSpec(:division; coefficients = 3)"
         @test sprint(show, LensSpec(:brown_conrady; radial = 3, tangential = true)) == "LensSpec(:brown_conrady; radial = 3, tangential = true)"
         @test sprint(show, LensSpec(:equidistant)) == "LensSpec(:equidistant)"
-        @test sprint(show, LensSpec(:division; coefficients = 2, free = (:d1,))) == "LensSpec(:division; coefficients = 2, free = (:d1,))"
+        @test sprint(show, LensSpec(:division; coefficients = 2, fixed = (:d2,))) == "LensSpec(:division; coefficients = 2, fixed = (:d2,))"
         # the record form lists the record's keys, sorted
         rec = LensSpec(Division(-0.1, 0.02))
         @test sprint(show, rec) == "LensSpec(record = {" * join(sort(collect(keys(rec.record))), ", ") * "})"
         @test startswith(sprint(show, rec), "LensSpec(record = {")
-        @test endswith(sprint(show, LensSpec(Division(-0.1, 0.02); free = (:d1,))), ", free = (:d1,))")
+        @test endswith(sprint(show, LensSpec(Division(-0.1, 0.02); fixed = (:d2,))), ", fixed = (:d2,))")
     end
 end
 
@@ -174,8 +205,8 @@ end
         @test CameraModelSpec(Dict("lens" => "division", "coefficients" => 2)) == spec   # intrinsics defaults to metric
         rec = CameraModelSpec(LensSpec(Division(0.1, 0.0)))
         @test roundtrip(rec) == rec
-        free = CameraModelSpec(LensSpec(:kannala_brandt; coefficients = 4, free = (:k1, :k2)))
-        @test roundtrip(free) == free
+        held = CameraModelSpec(LensSpec(:kannala_brandt; coefficients = 4, fixed = (:k3, :k4)))
+        @test roundtrip(held) == held
         @test hash(roundtrip(spec)) == hash(spec)
     end
 

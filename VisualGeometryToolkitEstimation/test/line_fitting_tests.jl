@@ -95,7 +95,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
     # (The Student-t + uniform IRLS version is LocalOptimizationDoneRight's test.)
     @testset "Irls{Welsch} recovers the line through its soft weights" begin
         prob, θ₀ = contaminated_line(StableRNG(57))
-        r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), scoring = MsacScoring(prob; threshold = 0.1))   # 10σ; the outliers sit 0.475 off the seed
+        r = locally_optimize(prob, θ₀; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), scoring = MsacScoring(prob; threshold = 0.1))   # 10σ; the outliers sit 0.475 off the seed
         line = estimate(r)
         @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
         @test abs(signed_distance(line, Point2(56.0, 0.0))) < 0.006
@@ -110,7 +110,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         prob, _ = contaminated_line(StableRNG(58))
         θ₀ = Line2D{Float64}(SVector(0.0, 1.0, -0.1))
         sc = MsacScoring(prob; threshold = 0.2)   # the seed's consensus: the inliers (0.1 off), not the outliers (0.4 off)
-        lo = Irls{HuberShape}(scale_multiple = 1.345)
+        lo = Irls{HuberShape}(efficiency_constant = 1.345)
         ws = RansacWorkspace(prob, sc, lo)
         _, k = VgtkCore.score_model!(ws.buf, sc, prob, θ₀)
         est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
@@ -126,7 +126,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         rng = StableRNG(59)
         pts = [SVector(Float64(i), 1.0 + 0.5i + 0.01 * randn(rng)) for i in 1:40]
         prob = InhomLineFittingProblem(pts)
-        r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization = Irls{WelschShape}(scale_multiple = 1.5), rng = StableRNG(60))
+        r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), rng = StableRNG(60))
         @test converged(r)
         @test r.lo_retcode === :solve_failed
     end

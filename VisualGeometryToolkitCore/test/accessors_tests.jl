@@ -48,7 +48,7 @@
 
     @testset "scale_s2: ConsensusSet, DeployedLoss, FixedS2" begin
         @test scale_s2(ConsensusSet(; count = 2, s2 = 0.25, epoch = 5)) == 0.25
-        @test scale_s2(deploy(WelschShape(), 0.37^2; scale_multiple = 1.0)) == 0.37^2
+        @test scale_s2(deploy(WelschShape(), 0.37^2; efficiency_constant = 1.0)) == 0.37^2
         @test scale_s2(FixedS2(0.5)) == 0.5
     end
 

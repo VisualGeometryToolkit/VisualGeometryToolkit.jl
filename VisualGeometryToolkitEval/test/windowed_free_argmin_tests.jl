@@ -2,7 +2,7 @@
 # windowed_free_argmin_tests.jl — regression gate: WindowedGridMethod tuning must
 # be the FREE ARGMIN over every native-grid column inside the standardized
 # window [to_native(lo, σₙ), to_native(hi, σₙ)] — NEVER the retired snap onto
-# a coarse scale-multiple axis.
+# a coarse efficiency-constant axis.
 #
 # The snap bug shipped panels tuned on a few candidates while the paper
 # described a 200-column free argmin (caught 2026-07-06). This test plants the
@@ -13,14 +13,14 @@
 @testitem "windowed_free_argmin" begin
     import VisualGeometryToolkitEval as VgtkEval
     using Test, Random
-    using VisualGeometryToolkitEval.Tuning: ScaleMultipleWindow
+    using VisualGeometryToolkitEval.Tuning: EfficiencyConstantWindow
     using VisualGeometryToolkitEval.Tuning: MedianError
     const RSDRT = VgtkEval.Evaluation
 
     @testset "WindowedGridMethod tunes by windowed free argmin" begin
-        # loss-width map: native = scale_multiple·σ with σ = 1 ⇒ window is [1, 3.3].
+        # loss-width map: native = efficiency_constant·σ with σ = 1 ⇒ window is [1, 3.3].
         g = collect(range(0.5, 4.0; length = 100))
-        window = ScaleMultipleWindow(1.0, 3.3)
+        window = EfficiencyConstantWindow(1.0, 3.3)
         loss_width_map(m, σ) = m * σ
         planted = argmin(abs.(g .- 2.335))
         errs = fill(10.0, 4, length(g)); errs[:, planted] .= 0.1

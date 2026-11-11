@@ -85,7 +85,7 @@ end
     using Test, Random
     using VisualGeometryToolkitCore: MsacScoring, estimate, converged
     using VisualGeometryToolkitEstimation: find_circle, find_fundmat, find_rotation, find_essential, CircleProblem,
-        RansacConfig, RansacWorkspace, NoLocalOptimization
+        RansacConfig, RansacWorkspace
     import VisualGeometryToolkitEstimation as VgtkEstimation
     # The shared keyword set is the one pipeline's (`_ransac_pipeline`); find_circle
     # declares no keyword of its own and forwards them all, as find_fundmat,
@@ -100,7 +100,7 @@ end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     p = CircleProblem(pts)
     supplied = Dict(
-        :local_optimization => NoLocalOptimization(),
+        :local_optimization_strategy => nothing,
         :max_trials => 500,
         :min_trials => 50,
         :scoring => MsacScoring(p; threshold = 1.0),
@@ -108,7 +108,7 @@ end
         :workspace => RansacWorkspace(CircleProblem, 300),
         :rng => Xoshiro(1),
     )
-    @test Set(keys(supplied)) ∪ Set([:threshold, :outlier_halfwidth]) == shared   # the two widths: declared to be refused
+    @test Set(keys(supplied)) ∪ Set([:threshold, :outlier_halfwidth, :local_optimization]) == shared   # the two widths and the retired keyword: declared to be refused
     for (k, v) in supplied
         res = find_circle(pts; (; k => v)..., (k == :rng ? (;) : (; rng = Xoshiro(2)))...)
         @test converged(res)

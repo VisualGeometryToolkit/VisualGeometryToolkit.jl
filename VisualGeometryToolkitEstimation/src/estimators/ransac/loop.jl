@@ -19,8 +19,25 @@
 #            optimizer left them current) → gate S > S_lo → test_consensus
 # =============================================================================
 
+# A retired strategy keyword (the owner's ruling, 2026-11-11): `find_*`, `ransac` and
+# `locally_optimize` take `local_optimization_strategy`, every `refine_*` and `fit_*`
+# `optimization_strategy`. A retired keyword is refused naming its successor, never aliased.
+struct _RetiredKeyword end
+_refuse_retired_keyword(::_RetiredKeyword, _old, _new) = nothing
+_refuse_retired_keyword(_value, old, new) =
+    throw(ArgumentError("the keyword `$old` is retired: give `$new`"))
+# The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word),
+# naming the exceptions; the other spellings are refused, never aliased.
+function _refuse_held_spellings(free, fix, fixed_params, hold)
+    for (v, name) in ((free, :free), (fix, :fix), (fixed_params, :fixed_params), (hold, :hold))
+        v isa _RetiredKeyword || throw(ArgumentError(
+            "the keyword `$name` is retired: give `fixed`, the parameters held (every other one is refined)"))
+    end
+    return nothing
+end
+
 """
-    ransac(problem, scoring; local_optimization, config, workspace, rng) -> RansacEstimate
+    ransac(problem, scoring; local_optimization_strategy, config, workspace, rng) -> RansacEstimate
 
 RANSAC on VisualGeometryToolkitCore's scoring and local-optimization contracts: the
 loop calls only the contract verbs, so any scorer composes with any local
@@ -40,8 +57,8 @@ count uses the hypergeometric distribution (the stopping criterion).
   (a paper's: RANSACScoringDoneRight's Student-t + uniform marginal)
 
 # Keyword Arguments
-- `local_optimization::AbstractLocalOptimization=default_local_optimization(scoring)`:
-  the LO-RANSAC refinement strategy (default `NoLocalOptimization()`); dispatched
+- `local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy}=default_local_optimization(scoring)`:
+  the LO-RANSAC refinement strategy (default `nothing`, no local optimization); dispatched
   in the loop's Phase 2 via `locally_optimize!`, or — a [`TerminalLO`](@ref)
   ([`lo_placement`](@ref)) — once on the final incumbent of a raw race
 - `config::RansacConfig=RansacConfig()`: max_trials, success_prob η, min_trials
@@ -76,13 +93,14 @@ means NO hypothesis survived — there is no estimate: its `estimate` is `nothin
 
 # Examples
 ```julia
-result = ransac(problem, MsacScoring(problem; threshold = 2.0); local_optimization = Irls{TLSShape}())
+result = ransac(problem, MsacScoring(problem; threshold = 2.0); local_optimization_strategy = Irls{TLSShape}())
 ```
 """
 function ransac(
         problem::AbstractRansacProblem,
         scoring::AbstractScoring;
-        local_optimization::AbstractLocalOptimization = default_local_optimization(scoring),
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization(scoring),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
         config::RansacConfig = RansacConfig(),
         workspace = nothing,
         on_improvement = nothing,
@@ -94,17 +112,18 @@ function ransac(
         # `rng = Xoshiro(seed)` makes the run bit-reproducible.
         rng::Random.AbstractRNG = Random.default_rng()
     )
+    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     _check_scoring(problem, scoring)
-    ws = _entry_workspace(workspace, problem, scoring, local_optimization)
+    ws = _entry_workspace(workspace, problem, scoring, local_optimization_strategy)
     return ransac!(
         _result_buffers(ws, problem), ws, problem, scoring;
-        local_optimization, config, on_improvement, on_hypothesis, score_guard, rng
+        local_optimization_strategy, config, on_improvement, on_hypothesis, score_guard, rng
     )
 end
 
 """
     ransac!(result::RansacResultBuffers, ws::RansacWorkspace, problem, scoring;
-            local_optimization, config, on_improvement, on_hypothesis, score_guard, rng) -> RansacEstimate
+            local_optimization_strategy, config, on_improvement, on_hypothesis, score_guard, rng) -> RansacEstimate
 
 The zero-allocation form of [`ransac`](@ref): RANSAC on the preallocated
 workspace `ws` (trimmed to the problem's data size), its result written into the
@@ -114,7 +133,7 @@ preallocated `result` buffers — the returned estimate's `inlier_mask`,
 function ransac!(
         result::RansacResultBuffers, ws::RansacWorkspace, problem::AbstractRansacProblem,
         scoring::AbstractScoring;
-        local_optimization::AbstractLocalOptimization = default_local_optimization(scoring),
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization(scoring),
         config::RansacConfig = RansacConfig(),
         on_improvement = nothing,
         on_hypothesis = nothing,
@@ -122,11 +141,11 @@ function ransac!(
         rng::Random.AbstractRNG = Random.default_rng()
     )
     _check_scoring(problem, scoring)
-    _entry_workspace(ws, problem, scoring, local_optimization)
+    _entry_workspace(ws, problem, scoring, local_optimization_strategy)
     _set_n!(result, data_size(problem))
     return _ransac_placed(
-        lo_placement(local_optimization),
-        ws, problem, scoring, local_optimization, config, on_improvement,
+        lo_placement(local_optimization_strategy),
+        ws, problem, scoring, local_optimization_strategy, config, on_improvement,
         score_guard, rng, on_hypothesis, result
     )
 end
@@ -138,17 +157,17 @@ end
 
 function _ransac_placed(
         ::TerminalPlacement, ws::RansacWorkspace, problem, scoring,
-        local_optimization, config, on_improvement,
+        local_optimization_strategy, config, on_improvement,
         score_guard::Bool, rng::Random.AbstractRNG, on_hypothesis, result
     )
     score_guard && throw(
         ArgumentError(
             "score_guard is a per-candidate acceptance rule; a terminal local optimization " *
-                "($(nameof(typeof(local_optimization)))) runs on no candidate, only on the final incumbent"
+                "($(nameof(typeof(local_optimization_strategy)))) runs on no candidate, only on the final incumbent"
         )
     )
     raw = _ransac_loop(
-        ws, problem, scoring, NoLocalOptimization(), config, on_improvement,
+        ws, problem, scoring, nothing, config, on_improvement,
         false, rng, on_hypothesis, result
     )
     converged(raw) || return raw
@@ -156,7 +175,7 @@ function _ransac_placed(
     # finalizes as it, at its race score.
     q = raw.quality
     return _locally_optimize_seed!(
-        ws, problem, scoring, local_optimization, estimate(raw);
+        ws, problem, scoring, local_optimization_strategy, estimate(raw);
         trial = iterations(raw), sar = raw.sample_acceptance_rate, result, unscored = (q, q)
     )
 end
@@ -186,7 +205,7 @@ _result_buffers(ws::RansacWorkspace{<:Any, <:Any, T}, problem) where {T} = Ransa
 # Function barrier: ws has fully concrete type {K,M,T,W,L} after dispatch
 function _ransac_loop(
         ws::RansacWorkspace{K}, problem, scoring,
-        local_optimization, config, on_improvement,
+        local_optimization_strategy, config, on_improvement,
         score_guard::Bool, rng::Random.AbstractRNG, on_hypothesis, result
     ) where {K}
     best = (-Inf, -Inf)
@@ -208,7 +227,7 @@ function _ransac_loop(
 
         old_best = best
         accepted, best = _score_trial!(
-            rng, ws, problem, scoring, local_optimization, best,
+            rng, ws, problem, scoring, local_optimization_strategy, best,
             score_guard, on_hypothesis, trial
         )
         accepted || continue
@@ -260,13 +279,13 @@ end
 # two-level incumbent `best` (`_try_model!`).
 function _score_trial!(
         rng, ws, problem, scoring::AbstractScoring,
-        local_optimization, best::Tuple{Float64, Float64},
+        local_optimization_strategy, best::Tuple{Float64, Float64},
         score_guard::Bool, on_hypothesis, trial::Int
     )
     accepted, _, best = _draw_trial!(rng, ws.sample_indices, problem, best) do (best_g, best_l), model
         on_hypothesis === nothing || on_hypothesis(trial, model)
         _try_model!(
-            ws, problem, scoring, local_optimization,
+            ws, problem, scoring, local_optimization_strategy,
             model, best_g, best_l, score_guard
         )
     end
@@ -298,7 +317,7 @@ function _track_best!(ws::RansacWorkspace, scoring, model, lo_stop_reason::Symbo
 end
 
 """
-    _try_model!(ws, problem, scoring, local_optimization, model, best_g, best_l, score_guard)
+    _try_model!(ws, problem, scoring, local_optimization_strategy, model, best_g, best_l, score_guard)
 
 Two-level gating with S_gl and S_lo.
 
@@ -314,7 +333,7 @@ Phase 3: the refined model re-scored under the same scorer, gated on S_lo.
 """
 function _try_model!(
         ws::RansacWorkspace{<:Any, M}, problem,
-        scoring::AbstractScoring, local_optimization::LO,
+        scoring::AbstractScoring, local_optimization_strategy::LO,
         model::M, best_g::Float64, best_l::Float64,
         score_guard::Bool = false
     ) where {M, LO}
@@ -335,7 +354,7 @@ function _try_model!(
     # refined model has no covariance on its refit set — dropped, as a failed
     # refit is.
     out = _lo_and_rescore!(
-        ws, problem, scoring, local_optimization, model, model_scored, k_star, ws.sample_indices, score_g
+        ws, problem, scoring, local_optimization_strategy, model, model_scored, k_star, ws.sample_indices, score_g
     )
     out === nothing && return (best_g, best_l)
     lo_est, score_l = out
@@ -469,14 +488,14 @@ end
 _check_scoring(_problem, _scoring) = nothing
 
 """
-    locally_optimize(problem, θ₀; local_optimization, scoring,
+    locally_optimize(problem, θ₀; local_optimization_strategy, scoring,
                      workspace=nothing, score_guard=false) -> RansacEstimate
 
 Refine a caller-supplied seed model `θ₀` with one local-optimization run — the
 same `score → locally_optimize! → re-score → test_consensus → _finalize`
 machinery a RANSAC trial runs in `_try_model!`, driven by `θ₀` instead of a
 minimal sample (no `draw_sample!`, no consensus search). Generic over the
-problem type. `local_optimization` is REQUIRED (no default: the strategy is the
+problem type. `local_optimization_strategy` is REQUIRED (no default: the strategy is the
 experiment's decision; the settled formulations live in the `find_*` pipelines).
 If the refined model fails `test_consensus` the seed is returned.
 `scoring` is REQUIRED too (a scorer object: MSAC or RANSAC at its threshold,
@@ -489,7 +508,7 @@ When `score_guard=true` the refined model is only accepted if it does not lower
 the seed's score (the seed is kept otherwise).
 
 The local optimizer receives its loss width through its width mode (VGC
-`loss_at`): a consensus-anchored strategy (`ScaleMultiple(m)`) reads the
+`loss_at`): a consensus-anchored strategy (`EfficiencyConstant(m)`) reads the
 consensus set's ŝ², an absolute one (`LossWidth`, see `with_width`) runs at the
 caller's width with the scoring untouched — the role-isolated validation
 controls (solo CV, oracle-scale) deploy the strategy that way — and a strategy
@@ -497,21 +516,23 @@ with no width follows the scorer's `decision_boundary`.
 """
 function locally_optimize(
         problem, θ₀;
-        local_optimization::AbstractLocalOptimization,   # REQUIRED — no default
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy},   # REQUIRED — no default
         scoring::AbstractScoring,                        # REQUIRED — no default
+        local_optimization = _RetiredKeyword(),          # refused, naming its successor
         workspace = nothing,
         score_guard::Bool = false,
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     sc = scoring
     _check_scoring(problem, sc)
-    ws = _entry_workspace(workspace, problem, sc, local_optimization)
+    ws = _entry_workspace(workspace, problem, sc, local_optimization_strategy)
     # Storage-boundary labeling: the workspace model type M may be a labeled
     # alias (`Extrinsics3` for the absolute-pose family) while callers hand in
     # an unlabeled seed — `convert` LABELS an unlabeled map into the typed slot.
     return _locally_optimize_seed!(
-        ws, problem, sc, local_optimization,
+        ws, problem, sc, local_optimization_strategy,
         _seed_convert(model_type(problem), θ₀); score_guard
     )
 end
@@ -534,7 +555,7 @@ _seed_convert(::Type{M}, θ) where {M} = convert(M, θ)
 _seed_convert(::Type{M}, θ::Uncertain) where {M} = Uncertain(convert(M, geom(θ)), cov(θ))
 
 """
-    locally_optimize(problem, models::FixedModels; local_optimization,
+    locally_optimize(problem, models::FixedModels; local_optimization_strategy,
                      scoring, workspace=nothing) -> RansacEstimate
 
 Entry for solvers that return several candidate models (e.g. the two planar-pose
@@ -547,25 +568,27 @@ required, as in the single-seed method.
 """
 function locally_optimize(
         problem, models::FixedModels;
-        local_optimization::AbstractLocalOptimization,   # REQUIRED — no default
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy},   # REQUIRED — no default
         scoring::AbstractScoring,                        # REQUIRED — no default
+        local_optimization = _RetiredKeyword(),          # refused, naming its successor
         workspace = nothing,
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     sc = scoring
     _check_scoring(problem, sc)
     # The no-consensus exit of `_select_then_optimize!` relies on `has_best`
     # being false, which `_entry_workspace` guarantees for a reused workspace too.
-    ws = _entry_workspace(workspace, problem, sc, local_optimization)
-    return _select_then_optimize!(ws, problem, sc, local_optimization, models)
+    ws = _entry_workspace(workspace, problem, sc, local_optimization_strategy)
+    return _select_then_optimize!(ws, problem, sc, local_optimization_strategy, models)
 end
 
 # Score every candidate against the consensus set, keep the single best, then run
 # the (single-model) local optimization on that winner only.
 function _select_then_optimize!(
         ws::RansacWorkspace{K, M, T}, problem,
-        scoring::AbstractScoring, lo::AbstractLocalOptimization,
+        scoring::AbstractScoring, lo::Union{Nothing, AbstractOptimizationStrategy},
         models::FixedModels
     ) where {K, M, T}
     _prepare!(problem)
@@ -594,7 +617,7 @@ end
 # one trial, every sample accepted, fresh buffers and no incumbent.
 function _locally_optimize_seed!(
         ws::RansacWorkspace{K, M, T}, problem,
-        scoring::AbstractScoring, lo::AbstractLocalOptimization, seed::Union{M, Uncertain{M}};
+        scoring::AbstractScoring, lo::Union{Nothing, AbstractOptimizationStrategy}, seed::Union{M, Uncertain{M}};
         score_guard::Bool = false, trial::Int = 1, sar::Float64 = 1.0,
         result::RansacResultBuffers = _result_buffers(ws, problem),
         unscored::Tuple = (T(-Inf), T(-Inf))

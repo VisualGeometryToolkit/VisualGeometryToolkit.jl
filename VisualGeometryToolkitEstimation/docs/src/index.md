@@ -30,12 +30,12 @@ and local optimizers plug in by keyword.
   [Fitting Algorithms](guide/fitting.md).
 - **Composition**: bring a scorer and a strategy from other packages by
   keyword — `scoring = StudentTUniformScoring(problem, a; scale_prior, label_prior)` from
-  VisualGeometryToolkitCore, `local_optimization = HQ{WelschShape}(…)`,
+  VisualGeometryToolkitCore, `local_optimization_strategy = HQ{WelschShape}(…)`,
   `StudentTUniform()`, `Gnc{…}(…)` from LocalOptimizationDoneRight. See
   [Getting Started](guide/getting-started.md).
-- **Core local optimizations**: [`NoLocalOptimization`](@ref) and the static
+- **Core local optimizations**: `nothing` (none) and the static
   IRLS [`Irls`](@ref)`{K}` on any VisualGeometryToolkitCore loss shape, with its width
-  following the scorer, anchored at the consensus scale (`ScaleMultiple(m)`)
+  following the scorer, anchored at the consensus scale (`EfficiencyConstant(m)`)
   or absolute (`LossWidth(w)`). The refit is Levenberg–Marquardt on a minimal
   chart about the current model: sl(3) for `HomographyProblem`, Bartoli–Sturm
   for `FundMatProblem`, so(3)⊕R³ for `AbsolutePoseProblem` and `HandEyeProblem`.

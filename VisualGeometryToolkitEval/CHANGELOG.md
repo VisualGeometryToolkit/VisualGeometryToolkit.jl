@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Breaking: the strategy names follow VisualGeometryToolkitCore/Estimation**: arms, specs and runners take
+  `AbstractOptimizationStrategy` or `nothing` (no local optimization; was `NoLocalOptimization()`), and call
+  `ransac`/`locally_optimize` with `local_optimization_strategy`.
+- **Breaking: the scale-multiple width axis is `EfficiencyConstant` (`:efficiency_constant`)** (VisualGeometryToolkitCore's
+  rename): grids, arms and tuning keys read and write the new name. Sidecars persisted under the old axis name are
+  migrated by the sidecar step (B6).
 - **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment
   the plan was made in, so a stage sees only the ones the backend sets (`SLURM_SUBMIT_DIR`, an array's
   `SLURM_ARRAY_TASK_ID`, the site's `SLURM_CPUS_PER_TASK`). Launched from inside a Slurm array task (the test suite's

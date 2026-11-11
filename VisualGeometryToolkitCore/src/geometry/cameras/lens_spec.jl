@@ -55,7 +55,7 @@ const _LENS_FAMILIES = Dict{Symbol, _LensFamily}(
 )
 
 """
-    LensSpec(family::Symbol; free = nothing, structure...)
+    LensSpec(family::Symbol; fixed = (), structure...)
     LensSpec(record::AbstractDict)
     LensSpec(lens::AbstractLensModel)
 
@@ -80,8 +80,11 @@ projection: all-zero coefficients for the polynomial families, and for the
 parametric projections the parameters that reduce them to perspective
 (`DoubleSphere(0, 0)`, `Unified(0)`, `ExtendedUnified(0, 1)`).
 
-`free` lists, by [`parameter_names`](@ref) of the lens, the coefficients a
-calibrator moves; the default (`nothing`) is all of them.
+`fixed` lists the coefficients a calibrator HOLDS (the stack's one
+parameter-holding keyword), each by [`parameter_names`](@ref) of the lens or by
+a group (`:k` for `k1…`; [`free_parameter_names`](@ref)); the default `()`
+moves all of them, and [`free_names`](@ref) is the complement. `free` is
+refused, naming `fixed`.
 
 The record form, `LensSpec(Dict("record" => lens_record(lens)))`, covers every
 composition the table does not name, and is the only form with numbers: a lens
@@ -92,20 +95,21 @@ a `Float32` lens at the reference values is named; a `-0.0` is not the reference
 `0.0`), else the record form, so no value is ever dropped.
 
 `toml_value(spec)` is `Dict("lens" => "division", "coefficients" => 3, …)` or
-`Dict("lens" => Dict("record" => …))`, plus `"free"` when set;
+`Dict("lens" => Dict("record" => …))`, plus `"fixed"` when not empty;
 `LensSpec(::AbstractDict)` reads it back (the keys of the table the spec sits
 in). `==` compares the specification, not the lens.
 
 Throws an `ArgumentError` for an unknown family (listing the known ones), a
-keyword the family does not take or lacks, a count out of range, a `free` name
-that is not a parameter name of the lens, and a record that is not a lens record.
+keyword the family does not take or lacks, a count out of range, a `fixed` name
+that is not a parameter name of the lens, a retired `free`, and a record that is
+not a lens record.
 """
 struct LensSpec
     family::Symbol                                          # :record for the record form
     structure::NamedTuple
-    free::Union{Nothing, Tuple{Vararg{Symbol}}}
+    fixed::Tuple{Vararg{Symbol}}
     record::Union{Nothing, Dict{String, Any}}
-    function LensSpec(family::Symbol, structure::NamedTuple, free, record)
+    function LensSpec(family::Symbol, structure::NamedTuple, fixed, record)
         (family === :record) == (record !== nothing) ||
             throw(ArgumentError("LensSpec: the family is :record exactly when a record is given; got :$family and record = $(repr(record))"))
         if record === nothing
@@ -113,7 +117,7 @@ struct LensSpec
         else
             isempty(structure) || throw(ArgumentError("LensSpec: a record spec has no structure keywords; got $(structure)"))
         end
-        return _validated(new(family, structure, _free_tuple(free), record))
+        return _validated(new(family, structure, _fixed_tuple(fixed), record))
     end
 end
 
@@ -149,45 +153,47 @@ end
 
 _reference_lens(family::Symbol, structure::NamedTuple) = _LENS_FAMILIES[family].build(structure)
 
-function _free_tuple(free)
-    free === nothing && return nothing
-    (free isa Union{Tuple, AbstractVector} && all(x -> x isa Union{Symbol, AbstractString}, free)) ||
-        throw(ArgumentError("LensSpec: free is a list of parameter names (symbols); got $(repr(free))"))
-    return Tuple(Symbol(x) for x in free)
+_fixed_tuple(::Nothing) = ()
+function _fixed_tuple(fixed)
+    (fixed isa Union{Tuple, AbstractVector} && all(x -> x isa Union{Symbol, AbstractString}, fixed)) ||
+        throw(ArgumentError("LensSpec: fixed is a list of parameter names (symbols); got $(repr(fixed))"))
+    return Tuple(Symbol(x) for x in fixed)
 end
 
+# `fixed` is resolved by the stack's one expansion (names and groups, each named once).
 function _validated(spec::LensSpec)
-    spec.free === nothing && return spec
-    names = parameter_names(lens(spec))
-    for n in spec.free
-        n in names || throw(
-            ArgumentError("LensSpec: free name :$n is not a parameter of the lens's chart; its parameter_names are $names")
-        )
-    end
-    allunique(spec.free) || throw(ArgumentError("LensSpec: free names $(spec.free) repeat a name"))
+    free_parameter_names(lens(spec), spec.fixed)
     return spec
 end
 
-function LensSpec(family::Symbol; free = nothing, kwargs...)
-    return LensSpec(family, NamedTuple(kwargs), free, nothing)
+# The retired spelling (the owner's ruling, 2026-11-11): `fixed` names the held coefficients.
+struct _NoFree end
+_refuse_free(::_NoFree) = nothing
+_refuse_free(_) = throw(ArgumentError(
+    "LensSpec: the keyword `free` is retired: give `fixed`, the coefficients held (every other one moves)"))
+
+function LensSpec(family::Symbol; fixed = (), free = _NoFree(), kwargs...)
+    _refuse_free(free)
+    return LensSpec(family, NamedTuple(kwargs), fixed, nothing)
 end
 
 # The record is read and written back, so the stored form is canonical (and refused early when it is no lens).
 _canonical_record(d::AbstractDict) = lens_record(lens_from_record(d))
 
-_record_spec(record::AbstractDict, free) =
-    LensSpec(:record, (;), free, _canonical_record(record))
+_record_spec(record::AbstractDict, fixed) =
+    LensSpec(:record, (;), fixed, _canonical_record(record))
 
-function LensSpec(l::AbstractLensModel; free = nothing)
+function LensSpec(l::AbstractLensModel; fixed = (), free = _NoFree())
+    _refuse_free(free)
     named = _named_structure(l)
     if named !== nothing
         family, structure = named
         ref = _reference_lens(family, structure)
         # by structure and values, whatever the eltype; `isequal` keeps a `-0.0` (its sign is a value)
         isequal(parameter_vector(ref), parameter_vector(l)) &&
-            return LensSpec(family, structure, free, nothing)
+            return LensSpec(family, structure, fixed, nothing)
     end
-    return _record_spec(lens_record(l), free)
+    return _record_spec(lens_record(l), fixed)
 end
 
 # The one (family, structure keywords) a lens's type and arities name (nothing: no family has that shape).
@@ -215,23 +221,26 @@ end
 
 function LensSpec(d::AbstractDict)
     keys_ = Set(String(k) for k in keys(d))
-    free = get(d, "free", nothing)
+    "free" in keys_ && throw(ArgumentError(
+        "LensSpec: the key \"free\" is retired: give \"fixed\", the coefficients held (a calibration manifest of an " *
+            "earlier version is read through its version step)"))
+    fixed = get(d, "fixed", ())
     if "lens" in keys_
         what = d["lens"]
         if what isa AbstractDict
             Set(String(k) for k in keys(what)) == Set(["record"]) ||
                 throw(ArgumentError("LensSpec: a lens table has the one key \"record\"; got $(sort(collect(keys(what))))"))
-            extra = setdiff(keys_, ("lens", "free"))
+            extra = setdiff(keys_, ("lens", "fixed"))
             isempty(extra) || throw(ArgumentError("LensSpec: a record lens has no structure keys; got $(sort(collect(extra)))"))
-            return _record_spec(what["record"], free)
+            return _record_spec(what["record"], fixed)
         end
         what isa AbstractString || throw(ArgumentError("LensSpec: \"lens\" is a family name or a { record = … } table; got $(repr(what))"))
-        kw = (Symbol(k) => d[k] for k in keys(d) if String(k) ∉ ("lens", "free"))
-        return LensSpec(Symbol(what); free, kw...)
+        kw = (Symbol(k) => d[k] for k in keys(d) if String(k) ∉ ("lens", "fixed"))
+        return LensSpec(Symbol(what); fixed, kw...)
     elseif "record" in keys_
-        extra = setdiff(keys_, ("record", "free"))
-        isempty(extra) || throw(ArgumentError("LensSpec: a record spec takes \"record\" and \"free\"; got also $(sort(collect(extra)))"))
-        return _record_spec(d["record"], free)
+        extra = setdiff(keys_, ("record", "fixed"))
+        isempty(extra) || throw(ArgumentError("LensSpec: a record spec takes \"record\" and \"fixed\"; got also $(sort(collect(extra)))"))
+        return _record_spec(d["record"], fixed)
     end
     throw(ArgumentError("LensSpec: a table needs \"lens\" (a family name, or { record = … }) or \"record\"; got keys $(sort(collect(keys_)))"))
 end
@@ -250,9 +259,10 @@ lens(spec::LensSpec) = spec.record === nothing ? _reference_lens(spec.family, sp
     free_names(spec::LensSpec) -> NTuple{N, Symbol}
 
 The coefficients a calibrator moves, by [`parameter_names`](@ref) of
-`lens(spec)`: `spec`'s `free` when it was given, else all of them.
+`lens(spec)`, in that order: every one but `spec`'s `fixed`
+([`free_parameter_names`](@ref): an entry names a coefficient or a group, `:k` for `k1…`).
 """
-free_names(spec::LensSpec) = spec.free === nothing ? parameter_names(lens(spec)) : spec.free
+free_names(spec::LensSpec) = free_parameter_names(lens(spec), spec.fixed)
 
 function toml_value(spec::LensSpec)
     d = Dict{String, Any}()
@@ -264,22 +274,22 @@ function toml_value(spec::LensSpec)
     else
         d["lens"] = Dict{String, Any}("record" => deepcopy(spec.record))
     end
-    spec.free === nothing || (d["free"] = Any[String(n) for n in spec.free])
+    isempty(spec.fixed) || (d["fixed"] = Any[String(n) for n in spec.fixed])
     return d
 end
 
-Base.:(==)(a::LensSpec, b::LensSpec) = a.family == b.family && a.structure == b.structure && a.free == b.free && a.record == b.record
-Base.hash(s::LensSpec, h::UInt) = hash((s.family, s.structure, s.free, s.record), hash(:LensSpec, h))
+Base.:(==)(a::LensSpec, b::LensSpec) = a.family == b.family && a.structure == b.structure && a.fixed == b.fixed && a.record == b.record
+Base.hash(s::LensSpec, h::UInt) = hash((s.family, s.structure, s.fixed, s.record), hash(:LensSpec, h))
 
 function Base.show(io::IO, spec::LensSpec)
     if spec.record === nothing
         print(io, "LensSpec(:", spec.family)
         args = String["$k = $v" for (k, v) in pairs(spec.structure)]
-        spec.free === nothing || push!(args, "free = $(spec.free)")
+        isempty(spec.fixed) || push!(args, "fixed = $(spec.fixed)")
         isempty(args) || print(io, "; ", join(args, ", "))
     else
         print(io, "LensSpec(record = {", join(sort(collect(keys(spec.record))), ", "), "}")
-        spec.free === nothing || print(io, ", free = ", spec.free)
+        isempty(spec.fixed) || print(io, ", fixed = ", spec.fixed)
     end
     return print(io, ")")
 end

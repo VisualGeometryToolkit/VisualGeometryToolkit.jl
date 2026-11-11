@@ -57,7 +57,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
     @testset "find_radial_homography: exact data + outliers ($loname)" for
         (loname, lokw) in (
             ("default (Irls{TLS})", (;)),
-            ("Irls{Welsch}", (; local_optimization = Irls{WelschShape}(scale_multiple = 1.5))),
+            ("Irls{Welsch}", (; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5))),
         )   # the old default (the Welsch HQ lift) and the Student-t + uniform IRLS: LocalOptimizationDoneRight's suite
 
         pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)
@@ -198,7 +198,7 @@ end
     W, H = RADIAL_HOMOGRAPHY_FRAME
     m_gt = radial_homography_truth(-0.25)
     # The multiple is the file's (no literal in code): three medians of a 2-D norm.
-    m = _dflt("pipelines.radial_homography.lift_seed", "scale_multiple")
+    m = _dflt("pipelines.radial_homography.lift_seed", "efficiency_constant")
     @test m ≈ 3 * sqrt(VgtkCore.chisq_median(2)) rtol = 1.0e-15
     for seed in 1:5
         pairs, _ = radial_homography_pairs(StableRNG(seed), m_gt; n_in = 70, n_out = 30, σ = 0.5)
@@ -207,7 +207,7 @@ end
         prov = rows_provider(p)
         k = division_coeff(lift_model(prov, lift_init(prov, plain)))
         rn = prov.lws.rn[1:prov.n]                                     # the plain-H norms lift_init gated
-        σ = VgtkCore.mad_scale(; norms = rn, codimension = 2)
+        σ = VgtkCore._mad_scale_norms(; norms = rn, codimension = 2)
         inside = Float64.(rn .^ 2 .< (m * σ)^2)                         # TLS at m·σ̂
         @test k == division_coeff(lift_model(prov, _radial_seed_chart(p, plain, inside)))
         # the same partition as the former private gate, three medians of the norms

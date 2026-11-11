@@ -46,6 +46,46 @@ from its leaves: `k1…, d1…` ([`Radial`](@ref)), `p1, p2`, `sx1…, sy1…`, 
 function parameter_names end
 
 """
+    free_parameter_names(model, fixed) -> NTuple{N, Symbol}
+    free_parameter_names(names::Tuple{Vararg{Symbol}}, fixed) -> NTuple{N, Symbol}
+
+The parameters a calibration moves: [`parameter_names`](@ref)`(model)` (or
+`names`), in that order, less `:skew` and less the `fixed` ones. A `fixed`
+entry is a parameter name (`:f`, `:cx`, `:k2`, `:d1`) or a GROUP, a coefficient
+family's stem standing for all of its numbered coefficients (`:k` for `k1…`,
+`:d` for `d1…`, `:p` for the tangential terms, `:sx`/`:sy` for the thin
+prism's). `:skew` is the gauge, held always, so naming it is accepted and
+changes nothing (`fixed = parameter_names(model)` holds everything). An entry
+that names nothing of the model, or a parameter named twice (directly or
+through a group), is an `ArgumentError`.
+
+[`LensSpec`](@ref)'s `fixed` and VisualGeometryToolkitEstimation's
+`refine_camera_and_poses` resolve their `fixed` here.
+"""
+free_parameter_names(model, fixed) = free_parameter_names(parameter_names(model), fixed)
+function free_parameter_names(names::Tuple{Vararg{Symbol}}, fixed)
+    (fixed isa Union{Tuple, AbstractVector} && all(x -> x isa Symbol, fixed)) ||
+        throw(ArgumentError("free_parameter_names: fixed is a list of parameter names or groups (symbols); got $(repr(fixed))"))
+    held = Symbol[]
+    for f in fixed
+        f === :skew && continue                       # the gauge: held already
+        group = [n for n in names if n === f || _in_group(n, f)]
+        isempty(group) && throw(ArgumentError(
+            "free_parameter_names: fixed names $(repr(f)), which is no parameter or group of the model; its parameters are $(join(String.(names), ", "))"))
+        append!(held, group)
+    end
+    allunique(held) || throw(ArgumentError(
+        "free_parameter_names: fixed $(repr(Tuple(fixed))) names a parameter twice ($(join(unique(n for n in held if count(==(n), held) > 1), ", ")))"))
+    return Tuple(n for n in names if n !== :skew && !(n in held))
+end
+
+# `n` is a numbered coefficient of the family `stem` (`k2` of `:k`): the stem, then digits only.
+function _in_group(n::Symbol, stem::Symbol)
+    s, t = String(n), String(stem)
+    return length(s) > length(t) && startswith(s, t) && all(isdigit, SubString(s, ncodeunits(t) + 1))
+end
+
+"""
     parameter_bounds(x) -> (lo::SVector, hi::SVector)
 
 The interval each coefficient of [`parameter_vector`](@ref) may take, entry by

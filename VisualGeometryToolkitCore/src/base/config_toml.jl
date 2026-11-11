@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # Every package in the family with a configuration of record (RobustVisual-
-# Geometry's `[ransac]`/`[local_optimization]`, BlobBoards' `[find_boards]`)
+# Geometry's `[ransac]`/`[optimization_strategy]`, BlobBoards' `[find_boards]`)
 # needs the same mechanisms, and until 2026-09 each carried its own copy —
 # ~180 lines forked and already drifting (one `_present_kwargs` took a
 # `fallback` table, the other a key→field renaming; one `_toml_key` dispatched
@@ -302,7 +302,7 @@ end
     toml_default(defaults::AbstractDict, table::AbstractString, key::AbstractString)
 
 Look a default up in a parsed defaults file. `table` is a dotted path
-(`"ransac"`, `"local_optimization.hq"`; `""` is the top level). Throws a
+(`"ransac"`, `"optimization_strategy.hq"`; `""` is the top level). Throws a
 `KeyError` naming the missing table or key BY DESIGN: a keyword default that
 is not in the file would be a silent second source of truth, which is what
 the mechanism exists to prevent.

@@ -63,7 +63,7 @@ then the data as the `find_*` takes them): the guess is scored as a hypothesis
 is, a consensus-anchored strategy reads its scale off the guess's consensus
 set, and the refined model comes back as the same `RansacEstimate`. The two
 share the class's defaults and the strategy keywords — `threshold`, `scoring`,
-`local_optimization`, `workspace` — so any strategy of the local-optimization
+`local_optimization_strategy`, `workspace` — so any strategy of the local-optimization
 contract plugs into both; only the sampling keywords (`max_trials`,
 `min_trials`, `config`, `rng`) are the `find_*`'s alone.
 
@@ -80,7 +80,7 @@ normalization). The shapes: [`GaussianShape`](@ref),
 [`HuberShape`](@ref), and the Barron α-family dial
 ([`BarronShape`](@ref)). Traits classify them ([`liftable`](@ref),
 [`bounded`](@ref)). A shape is paired with the width it runs at by
-[`deploy`](@ref) — `loss_width = scale_multiple · ŝ`, the width as a multiple of
+[`deploy`](@ref) — `loss_width = efficiency_constant · ŝ`, the width as a multiple of
 the noise scale — and the resulting [`DeployedLoss`](@ref) answers the
 one-argument verbs that read that width: [`lift_weight`](@ref),
 [`lift_rho`](@ref), [`lift_conjugate`](@ref), [`lift_cost`](@ref),
@@ -109,7 +109,7 @@ using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabe
 find_homography(cs)       # core default: the class's scorer (MSAC) + Irls{TLSShape} at its decision point
 find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0;   # outlier half-width, pixels
                         scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                    local_optimization = HQ{WelschShape}())                     # an optimizer (LODR)
+                    local_optimization_strategy = HQ{WelschShape}())                     # an optimizer (LODR)
 ```
 
 Every dispatch is static: the composed workspace is typed on the scorer's and
@@ -156,7 +156,7 @@ supplies only its per-point `residual_quality` (and, where it is proven, its
 `score_bound`) and inherits the one threshold `score!` with its consensus set,
 so a downstream loss-width family shares the loop.
 
-**The local-optimization contract** (`AbstractLocalOptimization`):
+**The local-optimization contract** (`AbstractOptimizationStrategy`):
 
 ```julia
 lo_workspace(::Type{P}, ::Type{T}, lo, n) -> L     # built once; default nothing
@@ -169,7 +169,7 @@ the score that just ran; the optimizer may overwrite the buffers and call
 `score_model!`, but never scores for acceptance (the loop re-scores and keeps
 the incumbent). A width-carrying optimizer has a width mode, read by `lo_width`
 and set by `with_width(lo, w)`: `nothing` follows the scorer's
-`decision_boundary`, [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple)`(m)`
+`decision_boundary`, [`EfficiencyConstant`](@ref VisualGeometryToolkitCore.EfficiencyConstant)`(m)`
 anchors the width at `m` times the consensus scale, and [`LossWidth`](@ref
 VisualGeometryToolkitCore.LossWidth)`(w)` is an absolute width. `loss_at` is the one
 resolution of a mode into a [`DeployedLoss`](@ref), and `check_composition`
@@ -202,11 +202,11 @@ device kernels (RANSACScoringDoneRight) implements its own staging and
 selection.
 
 **Width axes.** One name per width quantity, each a value carrier and, bare, an
-axis tag: [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple),
+axis tag: [`EfficiencyConstant`](@ref VisualGeometryToolkitCore.EfficiencyConstant),
 [`LossWidth`](@ref VisualGeometryToolkitCore.LossWidth) and
 [`OutlierHalfwidth`](@ref VisualGeometryToolkitCore.OutlierHalfwidth) (a scorer's
 width, never an optimizer's). `width_axis(name)` / `width_axis_name(axis)` map
-the persisted names, and `to_native` / `native_map` convert a scale multiple
+the persisted names, and `to_native` / `native_map` convert an efficiency constant
 into an axis's native width at the same decision point.
 
 **Configuration tags and quality gates.** A TOML tag that selects a type goes
@@ -222,7 +222,7 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
 ## Interfaces and loops
 
 - **Scoring/LO interface hierarchy** ([`AbstractScoring`](@ref),
-  [`AbstractLocalOptimization`](@ref), [`RefitFamily`](@ref),
+  [`AbstractOptimizationStrategy`](@ref), [`RefitFamily`](@ref),
   [`AbstractWeightPolicy`](@ref)) — the type hierarchy of the contracts above.
 - **Generic block-coordinate-descent loop** ([`block_coordinate_descent!`](@ref),
   [`AbstractBlockCoordinateMethod`](@ref) and its extension verbs) — the

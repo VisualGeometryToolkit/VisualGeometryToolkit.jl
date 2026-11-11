@@ -70,6 +70,14 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # one optimization-strategy family (the owner's ruling, 2026-11-11): `find_*`/`ransac`/`locally_optimize` take
+    # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
+    "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",
+    "NoLocal" * "Optimization",   # no local optimization is `nothing` (TOML "none")
+    # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
+    # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
+    "scale" * "_multiple", "Scale" * "Multiple", "plain_scale" * "_multiple", "deployed_scale" * "_multiple", "deployed" * "_shape",
+    "noise" * "_sigma(", "VgtkCore" * ".noise_sigma",   # residual scales are `mad_scale(residuals)` (the call forms only: Features' Förstner keyword is another quantity)
     # the owner's one-kernel policy (2026-11-11): pointwise! is one KernelAbstractions kernel on every backend (`OnBackend`)
     "Execution" * "Policy", "THREADED" * "_MIN_LENGTH", "VgtkCore" * ".Serial", "VgtkCore" * ".Threaded", "VgtkCore" * ".Auto",
     "exec = " * "Serial()", "exec = " * "Threaded()", "exec = " * "Auto()",
@@ -212,7 +220,7 @@ const RETIRED_NAMES = String[
     "apply" * "_map", "apply_with" * "_jacobian", "apply_with" * "_valid", "valid" * "_mask",
     "batched" * "_contract", "batched" * "_stack", "batched_distort" * "_stage", "batched_undistort" * "_stage",
     # the evaluation stack's retired public names (2026-10-01)
-    "knob" * "_grid", "cutoff_k" * "_grid",  # the product grid's scale-multiple axis: `grid(spec)`
+    "knob" * "_grid", "cutoff_k" * "_grid",  # the product grid's efficiency-constant axis: `grid(spec)`
     "eval" * "_cell", "cell" * "_results_root",
     "DEFAULT" * "_RESULTS_ROOT", "set_default" * "_results_root!",
     "num_lo" * "_steps",
@@ -226,17 +234,17 @@ const RETIRED_NAMES = String[
     # `extend(spec, sides; npts)`, persisted GridSpecs, every parameter in a
     # `[tuning.<name>]` spec; the two-knob tuning is the product tuning
     "log" * "_grid", "log" * "_grid_per_decade",       # `grid(lo, hi, LogCount(n))` / `LogPerDecade(p)`
-    "log_k" * "_grid", "linear_k" * "_grid",           # `grid(spec)` of the scale-multiple axis
+    "log_k" * "_grid", "linear_k" * "_grid",           # `grid(spec)` of the efficiency-constant axis
     "extend_k" * "_grid",                              # `extend(spec, sides; npts)`
     "cutoff_a" * "_grid", "absw" * "_grid",            # `grid_spec(axis; context…)` of the spec's axes
     "cutoff_native" * "_columns",                      # the `CoverageWindow` rule + `grid`
     "grid_extension" * "_offset",                      # `extension_offset(base, sup)` on GridSpecs
     "nn_draw" * "_schedule",                           # `budget_units(::BudgetSampling, n)`
-    "Common" * "CutoffSpec",                           # `ScaleMultipleWindow`
+    "Common" * "CutoffSpec",                           # `EfficiencyConstantWindow`
     "PER" * "_DECADE", "EXT_NEW" * "_PTS", "EXT" * "_SPACING", "MAX" * "_EXTENSIONS",
-    "PLATEAU_REL" * "_TOL", "K" * "_OP",               # spec fields; `OPERATING_SCALE_MULTIPLE`
+    "PLATEAU_REL" * "_TOL", "K" * "_OP",               # spec fields; `OPERATING_EFFICIENCY_CONSTANT`
     "Knob" * "Kind", "Cutoff" * "Knob", "ARef" * "Knob", "CRef" * "Knob", "AbsWidth" * "Knob",
-    "KNOB" * "_KINDS",                                 # `WidthParameterization`, `ScaleMultiple`,
+    "KNOB" * "_KINDS",                                 # `WidthParameterization`, `EfficiencyConstant`,
     "knob" * "_kind", "knob" * "_axis",                # `OutlierHalfwidth`, `LossWidth`,
     "knob" * "_window", "knob" * "_delivery",          # `WIDTH_PARAMETERIZATIONS`, `width_parameterization`,
                                                        # `tuning_axis`, `tuning_window`, `width_delivery`
@@ -250,7 +258,7 @@ const RETIRED_NAMES = String[
     "deployed_solo" * "_settings",                     # (historical reader; no successor)
     "_save" * "_pool", "POOL" * "_FORMAT",             # `_save_artifact(path, :pool; …)`, `ARTIFACT_FORMATS`
     "Tune" * "Config", "tune" * "_table",              # a BlobBoards project: `load_tune_config`, `tune_tables`
-    "cv_polish" * "_k",                                # accv2026: `cv_polish_scale_multiple`
+    "cv_polish" * "_k",                                # accv2026: `cv_polish_efficiency_constant`
     "run_sb_fair_test" * "_twoknob", "SB" * "_TWOKNOB", # accv2026: `run_sb_fair_deployed`, `SB_PRODUCT_TUNING`
     "PS" * "_KCV",                                     # accv2026: `PS_CV`
     # the codified cross-validation (VisualGeometryToolkitEval Tuning, 2026-10-01):
@@ -366,11 +374,11 @@ const RETIRED_NAMES = String[
     "log_outlier" * "_width",                            # `outlier_halfwidth(scoring)`
     "log" * "2a",                                        # `log_two_outlier_halfwidth` (and `StudentTUniformScoring.outlier_halfwidth`)
     "simfitpp" * "_threshold", "simfitpp" * "_kernel",   # `simfitpp_loss_width`, `simfitpp_loss`
-    "_MAGSAC" * "_K",                                    # `_MAGSAC_SCALE_MULTIPLE`
+    "_MAGSAC" * "_K",                                    # `_MAGSAC_EFFICIENCY_CONSTANT`
     # VisualGeometryToolkitEstimation: the loss vocabulary and the full width names
     "Kernel" * "PlainWeights", "strategy" * "_kernel", "lo" * "_kernel", "_lift" * "_kernel",   # `LossPlainWeights`, `strategy_loss`, `lo_loss`, `_lift_loss`
     "_KERNEL" * "_TABLE", "_KERNEL" * "_TAG_OF", "_kernel" * "_tag", "_kernel" * "_of", "_fixed_kernel" * "_shape",
-    "WELSCH_HQ_K" * "_ESSENTIAL", "WELSCH_HQ_K" * "_FUNDMAT", "WELSCH_HQ_K" * "_HOMOGRAPHY", "WELSCH_HQ_K" * "_ABSOLUTE_POSE",   # `WELSCH_HQ_SCALE_MULTIPLE_*`
+    "WELSCH_HQ_K" * "_ESSENTIAL", "WELSCH_HQ_K" * "_FUNDMAT", "WELSCH_HQ_K" * "_HOMOGRAPHY", "WELSCH_HQ_K" * "_ABSOLUTE_POSE",   # `WELSCH_HQ_EFFICIENCY_CONSTANT_*`
     "tau" * "_factor",                                   # `BarronAdaptive.truncation_multiple`
     "_crossover" * "_k", "_width" * "_k", "_resolve" * "_k", "_k" * "_currency", "_K" * "Currency", "_k" * "_shape",
     # one evaluation base (2026-10-05): the evaluation engine is VisualGeometryToolkitEval
@@ -532,7 +540,7 @@ function _foreign_token(f, r, re, line, strings)
 end
 
 # Rule 10: the width quantities are bound by their full names. One name per
-# quantity — `scale_multiple` (a width as a multiple of the estimated scale),
+# quantity — `efficiency_constant` (a width as a multiple of the estimated scale),
 # `loss_width` (a loss's scale parameter), `outlier_halfwidth` (the Student-t
 # marginal's uniform outlier half-width) — and the abbreviations they replaced
 # are banned as BINDINGS, at the precision a syntactic checker can reach:
@@ -556,7 +564,7 @@ const _WIDTH_ABBREVIATIONS = Set([
 const _WIDTH_LETTERS = Set(["k", "a", "c", "τ", "thr"])
 const _NOISE_SCALE_NAMES = Set([:s2, :ŝ, :s_hat, :ŝ2, :ŝ², :s_hat_sq])
 const _WIDTH_CARRIER_ROOTS = Set([
-    :AbstractLocalOptimization, :AbstractScoring, :AbstractWeightPolicy, :AbstractLossShape,
+    :AbstractOptimizationStrategy, :AbstractScoring, :AbstractWeightPolicy, :AbstractLossShape,
     :ScaleInterface, :SampleSelector, :WidthParameterization,
 ])
 # A CLI flag spelling an abbreviation or a letter (two dashes, then any of the
@@ -1494,7 +1502,7 @@ genuinely lacks or what must stay bit-identical to stored values is allowed by
 file, with its reason, in `_UNIT_RULE_ALLOW`.
 
 Rule R10 binds the three width quantities by their full names
-(`scale_multiple`, `loss_width`, `outlier_halfwidth`). The multi-letter
+(`efficiency_constant`, `loss_width`, `outlier_halfwidth`). The multi-letter
 abbreviations they replaced (`_WIDTH_ABBREVIATIONS`, and the word `tau` in any
 name) are flagged wherever they are bound — every Julia binding kind, quoted
 symbols, Python/shell names and TOML keys — and as dict (sidecar) keys and CLI
@@ -1517,6 +1525,10 @@ changelog — code, comments, docs and configuration alike. Limits: a sentence
 that calls the half-width a threshold farther from the scorer's name is not
 seen, and a threshold scorer's threshold written next to the Student-t's name
 is a finding to reword (or to spell apart, as a test of the refusal does).
+Rule R13: the one parameter-holding keyword is `fixed`. `free`, `fix`,
+`fixed_params` and `hold` as a KEYWORD of a fit, refine or target call or
+signature, or as a key of a refine/target/LM TOML table, are flagged; the bare
+word (comments, locals, fields, other functions) is not (see `_fixed_keyword_rules!`).
 """
 function check_naming(pkgdir::AbstractString)
     (; files) = naming_scope(pkgdir)
@@ -1599,6 +1611,7 @@ function check_naming(pkgdir::AbstractString)
             end
         end
         _is_changelog(f) || _student_t_threshold_rules!(out, f, src)
+        _fixed_keyword_rules!(out, f, src, endswith(f, ".jl") ? parsed[f] : nothing)
         literals = Ref{Union{Nothing, Dict{Int, String}}}(nothing)   # the string literals by line, lexed at the first hit
         for (k, text) in enumerate(eachline(IOBuffer(src)))
             endswith(f, ".jl") || _prose_rules!(out, f, k, text)
@@ -1645,6 +1658,87 @@ function _student_t_threshold_rules!(out, f, src::AbstractString)
     for (i, m) in enumerate(toks)
         m.match == "threshold" && any(j -> abs(j - i) <= _STUDENT_T_WINDOW, anchors) || continue
         push!(out, NamingViolation(f, count(==('\n'), SubString(src, 1, prevind(src, m.offset))) + 1, m.match, :R12))
+    end
+    return out
+end
+
+# -----------------------------------------------------------------------------
+# Rule 13: the one parameter-holding keyword is `fixed`
+# -----------------------------------------------------------------------------
+# The owner's ruling (2026-11-11): parameters held out of a fit, refine or
+# target are named by `fixed` (NLLSsolver's word; OpenCV's `CALIB_FIX_*`), the
+# exceptions to "every parameter refined". `free`, `fix`, `fixed_params` and
+# `hold` are refused as that KEYWORD — and only as it, never as a word:
+#   - Julia: a keyword argument so named in a CALL or a SIGNATURE of a
+#     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*`, their
+#     `_`-prefixed internals, `LensSpec` and CaliBlobs' `LensTarget`). A signature's refusal
+#     slot (`free = _RetiredKeyword()`) and a call inside `@test_throws` (the
+#     test of the refusal) are the refusal itself, not a use. Comments
+#     ("CUDA-free", "free memory", "for free"), a local `free`, a struct field
+#     (a result's record of what was refined) and Base's or a package's own
+#     functions are not keywords of those callees and are not seen.
+#   - TOML: a key so named in a table whose path names a refine or an LM
+#     (`_R13_TABLES`), or in a lens table (one with a `lens` key: a LensSpec's), where a key IS a parameter-selection
+#     keyword; the same word in any other table (a scheduler's "free" slots) is
+#     not seen.
+# Limits: a selection keyword of a function outside `_R13_CALLEES` is not seen.
+const _R13_SPELLINGS = (:free, :fix, :fixed_params, :hold)
+const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$|^(LensSpec|LensTarget)$"
+const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
+_r13_callee(f) = f isa Symbol ? String(f) : (Meta.isexpr(f, :., 2) && f.args[2] isa QuoteNode ? String(f.args[2].value) :
+                 Meta.isexpr(f, :curly) ? _r13_callee(f.args[1]) : "")
+_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
+function _r13_keywords!(acc, ex, line::Int)
+    ex isa Expr || return acc
+    if Meta.isexpr(ex, :macrocall) && ex.args[1] in (Symbol("@test_throws"),)
+        return acc
+    end
+    if Meta.isexpr(ex, :call) && occursin(_R13_CALLEES, _r13_callee(ex.args[1]))
+        for a in ex.args[2:end]
+            kws = Meta.isexpr(a, :parameters) ? a.args : (a,)
+            for k in kws
+                if Meta.isexpr(k, :kw, 2)
+                    name = k.args[1] isa Expr && Meta.isexpr(k.args[1], :(::)) ? k.args[1].args[1] : k.args[1]
+                    name in _R13_SPELLINGS && !_r13_refusal(k.args[2]) && push!(acc, (name, line))
+                elseif k isa Symbol && Meta.isexpr(a, :parameters) && k in _R13_SPELLINGS
+                    push!(acc, (k, line))       # `f(x; free)`
+                end
+            end
+        end
+    end
+    for a in ex.args
+        if a isa LineNumberNode
+            line = a.line
+        else
+            _r13_keywords!(acc, a, line)
+        end
+    end
+    return acc
+end
+function _fixed_keyword_rules!(out, f, src::AbstractString, parsed)
+    if endswith(f, ".jl")
+        for (name, line) in _r13_keywords!(Tuple{Symbol, Int}[], parsed, 1)
+            push!(out, NamingViolation(f, line, String(name), :R13))
+        end
+    elseif endswith(f, ".toml")
+        doc = try
+            TOML.parse(src)
+        catch
+            return out
+        end
+        lines = collect(eachline(IOBuffer(src)))
+        function walk(d::AbstractDict, path)
+            for (k, v) in d
+                p = isempty(path) ? k : path * "." * k
+                if Symbol(k) in _R13_SPELLINGS && (occursin(_R13_TABLES, path) || haskey(d, "lens"))
+                    line = something(findfirst(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines), 1)
+                    push!(out, NamingViolation(f, line, k, :R13))
+                end
+                v isa AbstractDict && walk(v, p)
+                v isa AbstractVector && foreach(x -> x isa AbstractDict && walk(x, p), v)
+            end
+        end
+        walk(doc, "")
     end
     return out
 end

@@ -17,7 +17,7 @@
     find_homography(correspondences; scoring = MsacScoring(problem; threshold = 3.0),
         extent=nothing, workspace=nothing,
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(), config=nothing)
+        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
 
 Robust homography estimation via RANSAC with MSAC scoring and least-squares-on-the-inliers local optimization.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
@@ -45,15 +45,15 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   `RansacWorkspace([T = Float32,] HomographyProblem{Float64}, n_data)`, `T` the
   per-point storage precision, holds the DEFAULT (MSAC) scorer's workspace; for
   another scoring or local optimization build it from them,
-  `RansacWorkspace(problem, scoring, local_optimization)`. Each call checks the
+  `RansacWorkspace(problem, scoring, local_optimization_strategy)`. Each call checks the
   workspace against its scoring (VisualGeometryToolkitCore `check_workspace`).
 - `max_trials`, `min_trials`: RANSAC trial bounds (`[ransac]`).
-- `local_optimization`: LO-RANSAC strategy (default: the class's
+- `local_optimization_strategy`: LO-RANSAC strategy (default: the class's
   `[pipelines.<class>]` strategy — here `Irls{TLSShape}()`, least squares on
   the inliers with its truncation at the scorer's decision point: a threshold
   scorer's threshold, the Student-t scorer's MAP crossover at the consensus
   partition's scale; any other
-  `AbstractLocalOptimization` changes mechanism — LocalOptimizationDoneRight's
+  `AbstractOptimizationStrategy` changes mechanism — LocalOptimizationDoneRight's
   half-quadratic lifts among them).
 - `config`: Override `RansacConfig` (ignores `max_trials`/`min_trials`).
 - `rng`: the sampler's random number generator.
@@ -89,7 +89,7 @@ end
 
 """
     refine_homography(H, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        local_optimization = Irls{TLSShape}(), workspace = nothing)
+        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The homography `H` refined against `correspondences`: [`find_homography`](@ref)'s
@@ -98,10 +98,10 @@ local-optimization step run ONCE from a given model — [`locally_optimize`](@re
 with the `find_*`'s defaults — so the guess is required and leads (a refine: the
 model family is kept), and the data follow as the `find_*` takes them.
 
-`local_optimization` is the homography's RANSAC local-optimization step, run
+`optimization_strategy` is the homography's RANSAC local-optimization step, run
 here alone from the given model (no sampling): `H` is scored under the scorer,
 ITS consensus set is the one a consensus-anchored strategy reads its scale ŝ
-from (the scale-multiple widths, [`Triggs`](@ref)), exactly as the RANSAC loop
+from (the efficiency-constant widths, [`Triggs`](@ref)), exactly as the RANSAC loop
 scores a hypothesis, and the strategy runs once from `H`. The refined model is
 re-scored and kept when it succeeds at the problem's consensus test; otherwise
 `H` comes back. When `H` holds no consensus beyond a minimal sample, nothing is
@@ -116,8 +116,8 @@ for fewer than 4 correspondences.
   the problem's residual unit (here PIXELS), as [`find_homography`](@ref);
   default the class's (`[pipelines.<class>] scoring`). A bare `threshold` or
   `outlier_halfwidth` keyword is refused.
-- `local_optimization`: any `AbstractLocalOptimization` the problem hosts —
-  `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`, LocalOptimizationDoneRight's
+- `optimization_strategy`: any `AbstractOptimizationStrategy` the problem hosts —
+  `Irls{K}`, `Triggs{K}`, `nothing`, LocalOptimizationDoneRight's
   half-quadratic lifts and GNC; a strategy the problem cannot host fails as it
   would inside `find_*`. Default: the class's `[pipelines.<class>]` strategy.
   The strategy's own knobs are its own (`Irls`'s `max_iter`; the chart LM's

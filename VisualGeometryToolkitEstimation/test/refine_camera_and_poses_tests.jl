@@ -65,7 +65,7 @@ end
 @testitem "refine_camera_and_poses: a fisheye past 90°, camera and poses recovered" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, KannalaBrandt, lens
+    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, KannalaBrandt, lens, free_parameter_names
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
     cam = fisheye_camera(); Es = truth_poses(4)
     views = views_of(cam, Es, deg2rad(100))                                      # rays up to 100° off the axis
@@ -80,6 +80,10 @@ end
     @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-9
     @test maximum(norm(P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-9
     @test rms(res) < 1.0e-6
+    # `fixed` takes a group, by Core's one expansion: `:k` holds k1 … k4 (and `:skew`, the gauge, is accepted)
+    held = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; fixed = (:k, :skew))
+    @test held.free == (:f, :aspect, :cx, :cy) == free_parameter_names(cam0, (:k,))
+    @test parameter_vector(estimate(held).camera)[6:9] == parameter_vector(cam0)[6:9]
 end
 
 @testitem "refine_camera_and_poses: the Jacobian is in the charts' tangent coordinates" setup = [CameraPoseScenes] begin
@@ -120,14 +124,23 @@ end
 
 @testitem "refine_camera_and_poses: a held camera, dict and vector forms, lengths, refusals" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, EuclideanMap, m, ustrip, with_unit, Csponds
+    using VisualGeometryToolkitCore: parameter_vector, parameter_names, with_parameters, estimate, retcode, EuclideanMap, m, ustrip, with_unit, Csponds
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
     cam = pinhole_camera(); Es = truth_poses(3)
     views = views_of(cam, Es, 0.5)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the camera held: the poses alone (the camera comes back as given)
-    held = refine_camera_and_poses(cam, poses0, views; free = ())
+    held = refine_camera_and_poses(cam, poses0, views; fixed = parameter_names(cam))
     @test retcode(held) === :converged && estimate(held).camera === cam && held.free == ()
+    # `fixed` names the held parameters, the complement of the refined set (the retired `free`), bit for bit:
+    # holding the aspect refines (f, cx, cy) exactly as the former `free = (:f, :cx, :cy)` did
+    part = refine_camera_and_poses(cam, poses0, views; fixed = (:aspect,))
+    @test part.free == (:f, :cx, :cy) && parameter_vector(estimate(part).camera)[2] === parameter_vector(cam)[2]
+    @test refine_camera_and_poses(cam, poses0, views; fixed = ()).free == refine_camera_and_poses(cam, poses0, views).free
+    # the other spellings are refused, naming `fixed`
+    for kw in (:free, :fix, :fixed_params, :hold)
+        @test_throws r"give `fixed`" refine_camera_and_poses(cam, poses0, views; (; kw => ())...)
+    end
     @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-9
     # a dict keyed by view: the same estimate, keyed back; a Csponds view is one too
     cam0 = with_parameters(cam, parameter_vector(cam) .* SVector(1.02, 1.0, 1.0, 1.0, 1.0))
@@ -142,10 +155,10 @@ end
     # refusals
     @test_throws ArgumentError refine_camera_and_poses(cam0, Dict(:a => poses0[1]), Dict(:b => views[1]))
     @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:2], views)
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; free = (:f, :k1))
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = (:k9,))
     @test_throws ArgumentError refine_camera_and_poses(cam0, [EuclideanMap(Es[1].R, SVector(0.0, 0.0, -50.0)); poses0[2:3]], views)   # behind the camera
     @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:1], [views[1][1:2]])   # underdetermined
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; free = (), box = (; f = (1.0, 2.0)))   # a box with nothing to bound
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = parameter_names(cam0), box = (; f = (1.0, 2.0)))   # a box with nothing to bound
     # the wall-clock cap reaches the LM: a zero cap stops after the first iteration, :max_time; Inf is no cap
     rt = refine_camera_and_poses(cam0, poses0, views; max_time = 0.0)
     @test retcode(rt) === :max_time && rt.iterations <= 1
@@ -254,15 +267,15 @@ end
     end
 end
 
-# A robust refine (`local_optimization`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
-# scale_multiple of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
+# A robust refine (`local_optimization_strategy`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
+# efficiency_constant of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
 # (no least-squares stage); a refine estimates no scale; plain least squares unchanged; the refusals.
-@testitem "refine_camera_and_poses: local_optimization = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
+@testitem "refine_camera_and_poses: local_optimization_strategy = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, NoLocalOptimization, local_optimization_from_toml, config_dict
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, optimization_strategy_from_toml, config_dict
     using VisualGeometryToolkitCore: EuclideanMap, exp_so3
     using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)
@@ -278,16 +291,16 @@ end
     ls = refine_camera_and_poses(cam0, poses0, noisy)
     @test err(ls) > 3.0 && ls.scale === nothing && ls.loss_width === nothing && all(==(1.0), ls.weights)
     # least squares is the default: the same estimate, bit for bit
-    ls2 = refine_camera_and_poses(cam0, poses0, noisy; local_optimization = nothing)
+    ls2 = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = nothing)
     @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
     @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
     # A robust refine runs NO least-squares stage (the owner's ruling) and estimates no scale: its width is the
-    # strategy's scale_multiple times the caller's `scale` (the detections' σ). From this far start (every residual
+    # strategy's efficiency_constant times the caller's `scale` (the detections' σ). From this far start (every residual
     # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Irls{Huber} 0.175 px; Triggs{Welsch}
     # 0.30 px, 0.20 with a least-squares stage: one Welsch LM from a start 25 px off)
-    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
-        @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo)
-        rs = refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo, scale = 0.2)
+    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
+        @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo)
+        rs = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
         @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
@@ -298,26 +311,25 @@ end
                               E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
     cam1 = with_parameters(cam, θ .* SVector(1.005, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 1.0, -1.0))
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
-    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
-        r = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2)
+    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
+        r = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
-    # an absolute width needs no scale (Irls; Triggs takes a scale multiple only): Huber at loss_width 1.345 · 0.2 px
-    rw = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = Irls{HuberShape}(loss_width = 1.345 * 0.2))
+    # an absolute width needs no scale (Irls; Triggs takes an efficiency constant only): Huber at loss_width 1.345 · 0.2 px
+    rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(loss_width = 1.345 * 0.2))
     @test retcode(rw) === :converged && err(rw) < 0.4 && rw.scale === nothing && rw.loss_width ≈ 1.345 * 0.2
     # the strategy from the LO's own TOML reader, and back
-    t = Dict("type" => "triggs", "loss" => "welsch", "scale_multiple" => 2.98)
-    lo = local_optimization_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization")
-    @test lo == Triggs{WelschShape}(scale_multiple = 2.98) && config_dict(lo) == t
+    t = Dict("type" => "triggs", "loss" => "welsch", "efficiency_constant" => 2.98)
+    lo = optimization_strategy_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization_strategy")
+    @test lo == Triggs{WelschShape}(efficiency_constant = 2.98) && config_dict(lo) == t
     # refusals: a strategy anchored on a RANSAC consensus set, one following a scorer's threshold, a scale without a
     # loss, a scorer (a refine takes none)
-    @test_throws r"RANSAC consensus" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = NoLocalOptimization())
-    @test_throws r"inlier threshold" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = Irls{WelschShape}())
+    @test_throws r"inlier threshold" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = Irls{WelschShape}())
     @test_throws r"reads none" refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2)
-    @test_throws MethodError refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2, scoring = nothing)
-    @test_throws r"positive finite" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo, scale = -1.0)
-    # the retired keyword `robust`, whatever its value: refused, naming `local_optimization`
-    @test_throws r"`robust` is retired: it is `local_optimization`" refine_camera_and_poses(cam1, poses1, noisy; robust = nothing)
+    @test_throws MethodError refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2, scoring = nothing)
+    @test_throws r"positive finite" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = -1.0)
+    # the retired keyword `robust`, whatever its value: refused, naming `local_optimization_strategy`
+    @test_throws r"`robust` is retired: it is `optimization_strategy`" refine_camera_and_poses(cam1, poses1, noisy; robust = nothing)
     @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo)
     @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo, scale = 0.2)
 end
@@ -545,7 +557,7 @@ end
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the poses alone: the camera comes back as the entry gauged it — the truth on its optical axis, its controls and K
     # == (2026-11-11: no longer the given camera itself) — and the poses recovered in that frame
-    held = refine_camera_and_poses(bounded(truth), poses0, views; free = ())
+    held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))   # the former `free = ()`
     gt, Rt = entry_gauge(truth)
     @test retcode(held) === :converged && held.free == ()
     @test parameter_vector(model(estimate(held).camera)) == parameter_vector(gt) && calibration_matrix(model(estimate(held).camera)) == calibration_matrix(gt)
@@ -589,11 +601,12 @@ end
     @test lens(model(estimate(rr).camera)).backward.controls[1, 1:2] == map(c -> Rr * c, lens(cam0).backward.controls[1, 1:2])
     # (the mean length over the live nodes is no longer rescaled to the guess's after the solve, 2026-11-11: the end
     # step is deleted; the scale is held during the solve by one node's log-scale)
-    # refusals: a box, a partial `free`, a penalty that is neither :gcv nor a weight ≥ 0
+    # refusals: a box, a `fixed` other than () or (:controls,), a penalty that is neither :gcv nor a weight ≥ 0, a retired spelling
     @test_throws ArgumentError refine_camera_and_poses(bounded(truth), poses0, views; penalty = :aic)
     @test_throws ArgumentError refine_camera_and_poses(bounded(truth), poses0, views; penalty = -1.0)
     @test_throws ArgumentError refine_camera_and_poses(bounded(truth), poses0, views; box = (; c_1_1_x = (0.0, 1.0)))
-    @test_throws ArgumentError refine_camera_and_poses(bounded(truth), poses0, views; free = (:c_1_1_x,))
+    @test_throws ArgumentError refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:c_1_1_x,))
+    @test_throws r"give `fixed`" refine_camera_and_poses(bounded(truth), poses0, views; free = ())
     # a lattice that folds where a point projects (every control ẑ: the backward's Jacobian exactly 0 there) is not
     # linearized: the error names the fold
     # (2026-11-11: the refine's entry fits the optical axis first, and a lattice imaging ẑ everywhere has no field to

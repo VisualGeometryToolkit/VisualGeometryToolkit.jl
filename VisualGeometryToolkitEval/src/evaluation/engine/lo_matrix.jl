@@ -19,7 +19,7 @@ One post-LO refit of a selection sweep: refine the selected model
 `consumed_native(lo, axis, grid[t])`. `axis` is the SELECTOR grid's native axis
 (a [`NativeAxis`](@ref): `OutlierHalfwidth()` | `LossWidth()`) — cross-axis conversion happens per
 column inside the refit layer, so callers never pre-convert grids.
-`lo = NoLocalOptimization()` records the selection imc (no refit).
+`lo = nothing` records the selection imc (no refit).
 
 Column `t` refits the model selected at column `seedcols[t]` of `idxs` at the
 EXPLICIT native value `natives[t]` when those fields are set (no `consumed_native`
@@ -50,14 +50,14 @@ is never read by a windowed argmin.)
 `fixed_s2s[t]` (a fixed external scale): refit at the column's native
 exactly as the default path (the refit template), with the strategy deployed
 at that scale, `with_width(lo, fixed_width(lo, fixed_s2s[t]))` — the
-`refit_imc!(…; s2)` conduit — so its loss width is `scale_multiple·√s2`
-instead of the consensus set's `scale_multiple·ŝ`. The consensus-anchoring
+`refit_imc!(…; s2)` conduit — so its loss width is `efficiency_constant·√s2`
+instead of the consensus set's `efficiency_constant·ŝ`. The consensus-anchoring
 ablation evaluation ([`miscal_evaluation_refit`](@ref) with `plugin_scale`) is built
 from it. Combines with `natives`; mutually exclusive with `widths`.
 """
 struct LoRefitSpec
     label::String
-    lo::AbstractLocalOptimization
+    lo::Union{Nothing, AbstractOptimizationStrategy}
     axis::NativeAxis
     grid::Vector{Float64}
     idxs::Matrix{Int32}
@@ -68,7 +68,7 @@ struct LoRefitSpec
     fixed_s2s::Union{Nothing,Vector{Float64}}
     columns::Union{Nothing,Vector{Int}}
 end
-function LoRefitSpec(label::AbstractString, lo::AbstractLocalOptimization, axis::WidthAxis,
+function LoRefitSpec(label::AbstractString, lo::Union{Nothing, AbstractOptimizationStrategy}, axis::WidthAxis,
                      grid::AbstractVector, idxs::AbstractMatrix; bundle::Bool = false,
                      seedcols::Union{Nothing,AbstractVector} = nothing,
                      natives::Union{Nothing,AbstractVector} = nothing,
@@ -99,7 +99,7 @@ end
 """
     apply_lo_refits(problem_type, specs::Vector{LoRefitSpec}, pairs;
                     scoring, solo_scoring = scoring,
-                    operating_scale_multiple = OPERATING_SCALE_MULTIPLE, on_fail = nothing)
+                    operating_efficiency_constant = OPERATING_EFFICIENCY_CONSTANT, on_fail = nothing)
         -> Dict{String, Matrix{Float64}}
 
 Run every refit spec over `pairs` and return each spec's post-LO error matrix.
@@ -115,7 +115,7 @@ worsens the running best); supply `NaN` for the ladder convention (failed refit
 """
 function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec}, pairs;
                          scoring = nothing, solo_scoring = scoring,
-                         operating_scale_multiple::Real = OPERATING_SCALE_MULTIPLE,
+                         operating_efficiency_constant::Real = OPERATING_EFFICIENCY_CONSTANT,
                          on_fail = nothing)
     P = length(pairs)
     out = Dict{String,Matrix{Float64}}(
@@ -137,7 +137,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
     #    ":dynamic ... assumes that the workload for each iteration is uniform"
     #    and "each task processes contiguous regions". Per-pair refit cost varies
     #    ~10x with #correspondences and per-spec cost by orders of magnitude (a
-    #    NoLocalOptimization selection row against an HQ or bundle refit), so the
+    #    no-LO (`nothing`) selection row against an HQ or bundle refit), so the
     #    uniformity assumption is false in both indices. :greedy is Base's answer
     #    for "workload ... not uniform/has a large spread" (Julia >= 1.11).
     #
@@ -168,7 +168,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
         # worker specializes the whole column loop on the CONCRETE LO type (one
         # dynamic dispatch per refit row, none per column).
         _apply_refit_row!(out[spec.label], ctx, spec.lo, spec, p,
-                         Float64(operating_scale_multiple), on_fail)
+                         Float64(operating_efficiency_constant), on_fail)
     end
     return out
 end
@@ -189,8 +189,8 @@ end
 # 2026-09-21 this row always took the E/F metric: on an H pool VgtkCore's loose
 # `EssentialMat(::AbstractMatrix, K1, K2)` wrapped the homography as a
 # fundamental matrix and scored nonsense.
-function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::NoLocalOptimization,
-                           spec::LoRefitSpec, p::Int, operating_scale_multiple::Float64, on_fail)
+function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::Nothing,
+                           spec::LoRefitSpec, p::Int, operating_efficiency_constant::Float64, on_fail)
     sc = spec.seedcols
     @inbounds for t in _refit_columns(spec)
         j = Int(spec.idxs[p, sc === nothing ? t : sc[t]]); j == 0 && continue
@@ -199,13 +199,13 @@ function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::NoLocalOptimiza
     return nothing
 end
 
-function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::AbstractLocalOptimization,
-                           spec::LoRefitSpec, p::Int, operating_scale_multiple::Float64, on_fail)
+function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::AbstractOptimizationStrategy,
+                           spec::LoRefitSpec, p::Int, operating_efficiency_constant::Float64, on_fail)
     sc = spec.seedcols; nv = spec.natives; wv = spec.widths; fv = spec.fixed_s2s
     @inbounds for t in _refit_columns(spec)
         j = Int(spec.idxs[p, sc === nothing ? t : sc[t]]); j == 0 && continue
         seed_E = refit_seed(ctx, ctx.pair.models[j])
-        nat′ = nv === nothing ? consumed_native(lo, spec.axis, spec.grid[t]; operating_scale_multiple, d_g = codimension(ctx.problem_type)) : nv[t]
+        nat′ = nv === nothing ? consumed_native(lo, spec.axis, spec.grid[t]; operating_efficiency_constant, d_g = codimension(ctx.problem_type)) : nv[t]
         # An absolute width is the exact solo_refit_imc! call (bitwise; see the
         # LoRefitSpec doc); otherwise the refit template, at the fixed external
         # scale when set.

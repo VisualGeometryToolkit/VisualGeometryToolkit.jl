@@ -16,7 +16,7 @@ dst = [SA[112.0, 195.0], SA[310.0, 148.0], ...]
 
 problem = HomographyProblem(csponds(src, dst))
 scoring = MsacScoring(problem; threshold = 2.0)    # pixels
-result  = ransac(problem, scoring; local_optimization = Irls{TLSShape}())
+result  = ransac(problem, scoring; local_optimization_strategy = Irls{TLSShape}())
 ```
 
 `ransac!(result_buffers, workspace, problem, scoring; …)` is the
@@ -49,7 +49,7 @@ Whenever a minimal-sample model beats the current best global score
 re-scored, and a second gate ``S_{\mathrm{lo}}`` tracks the best locally
 optimized score — the returned model is always the best LO result.
 
-`ransac(problem, scoring)` defaults to `NoLocalOptimization()`; the `find_*`
+`ransac(problem, scoring)` defaults to `nothing` (no local optimization); the `find_*`
 pipelines read theirs from `configs/default.toml` — `Irls{TLSShape}()` for
 every class.
 
@@ -63,17 +63,17 @@ loss width frozen at the start of the call by its width mode:
 | width mode | constructor | loss width |
 |:--|:--|:--|
 | follow the scorer (default) | `Irls{K}()` | the loss's decision point at the scorer's `decision_boundary` (`decision_width(K(), τ)`; τ itself for `TLSShape`) |
-| consensus-anchored | `Irls{K}(scale_multiple = m)` | `m·ŝ`, ŝ the consensus set's Student-t scale |
+| consensus-anchored | `Irls{K}(efficiency_constant = m)` | `m·ŝ`, ŝ the consensus set's Student-t scale |
 | absolute | `Irls{K}(loss_width = w)` | `w` |
 
 Following a scorer with no `decision_boundary` is refused at entry
 (`check_composition`) with the way to give a width. `with_width(lo,
-ScaleMultiple(m))` / `with_width(lo, LossWidth(w))` set the width of an
+EfficiencyConstant(m))` / `with_width(lo, LossWidth(w))` set the width of an
 existing strategy.
 
 ```julia
-result = ransac(problem, scoring; local_optimization = Irls{TLSShape}())                        # least squares on the inliers
-result = ransac(problem, scoring; local_optimization = Irls{WelschShape}(scale_multiple = 2.5))
+result = ransac(problem, scoring; local_optimization_strategy = Irls{TLSShape}())                        # least squares on the inliers
+result = ransac(problem, scoring; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 2.5))
 ```
 
 Each iteration computes the per-point weights ``w_i`` of the deployed loss at
@@ -107,8 +107,8 @@ NLLSsolver has it.
 
 ```julia
 Irls{K}(;
-    max_iter = 25,         # maximum IRLS iterations per hypothesis ([local_optimization.irls])
-    scale_multiple = m,    # or loss_width = w; neither: follow the scorer
+    max_iter = 25,         # maximum IRLS iterations per hypothesis ([local_optimization_strategy.irls])
+    efficiency_constant = m,    # or loss_width = w; neither: follow the scorer
 )
 ```
 
@@ -125,8 +125,8 @@ block-coordinate ascent and the PoseLib refiners:
 using LocalOptimizationDoneRight: HQ, StudentTUniform
 using VisualGeometryToolkitCore: WelschShape
 
-result = ransac(problem, scoring; local_optimization = HQ{WelschShape}(scale_multiple = 1.6))
-result = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()); local_optimization = StudentTUniform())
+result = ransac(problem, scoring; local_optimization_strategy = HQ{WelschShape}(efficiency_constant = 1.6))
+result = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()); local_optimization_strategy = StudentTUniform())
 ```
 
 ### Two-Level Gating
@@ -176,20 +176,20 @@ result = ransac(problem, scoring; config=config)
 ### Selecting a strategy in TOML
 
 A local-optimization strategy can be selected by tag, for instance from a
-configuration file. `local_optimization_from_toml` reads one strategy table.
+configuration file. `optimization_strategy_from_toml` reads one strategy table.
 The core registry `VisualGeometryToolkitEstimation.LO_TAGS` holds the tags
 `"no_local_optimization"`, `"irls"` and `"terminal_lo"` (the terminal placement,
 `{ type = "terminal_lo", inner = { … } }`: the race on raw scores, then one LO of
 its incumbent by the inner strategy):
 
 ```julia
-using VisualGeometryToolkitEstimation: local_optimization_from_toml
+using VisualGeometryToolkitEstimation: optimization_strategy_from_toml
 
-lo = local_optimization_from_toml(Dict("type" => "irls", "loss" => "welsch", "scale_multiple" => 2.5);
+lo = optimization_strategy_from_toml(Dict("type" => "irls", "loss" => "welsch", "efficiency_constant" => 2.5);
     class = :homography)
 ```
 
-A table without a width key follows the scorer; `scale_multiple` or
+A table without a width key follows the scorer; `efficiency_constant` or
 `loss_width` sets the width. Keys that are absent inherit the shipped
 `configs/default.toml`, and an unknown key or tag is an `ArgumentError`.
 Strategies from another package load through an explicit merge of its
@@ -199,7 +199,7 @@ registry, for example LocalOptimizationDoneRight's:
 import LocalOptimizationDoneRight
 using VisualGeometryToolkitEstimation: LO_TAGS
 
-lo = local_optimization_from_toml(Dict("type" => "hq", "loss" => "welsch", "scale_multiple" => 1.6);
+lo = optimization_strategy_from_toml(Dict("type" => "hq", "loss" => "welsch", "efficiency_constant" => 1.6);
     class = :homography, tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
 ```
 

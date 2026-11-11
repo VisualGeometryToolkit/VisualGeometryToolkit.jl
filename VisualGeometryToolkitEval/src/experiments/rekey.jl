@@ -18,7 +18,7 @@
 
 One tag rename: a string VALUE `old` whose dotted key path matches `path`
 becomes `new`. The path of a value is its keys joined by `.`, an array element
-adding `[i]` (`"selectors[1]"`, `"geometry.local_optimization.type"`), so a
+adding `[i]` (`"selectors[1]"`, `"geometry.local_optimization_strategy.type"`), so a
 rename can be scoped to the family that owns the tag: `"fixed"` is one tag in
 `nuisance.scale` and another in `window.type`.
 """

@@ -96,7 +96,7 @@ using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     RadialCamera, source_map, destination_map,
     projected_radius, view_angle, view_angle_limit, radial_part,
     similarity_scale   # a normalization's length ratio: pixel tolerances inside (radial homography)
-import VisualGeometryToolkitCore: AbstractLocalOptimization,
+import VisualGeometryToolkitCore: AbstractOptimizationStrategy,
     optimization_path, path_suffix,
     NoScale,
     AbstractWeightPolicy, NormalizedWeightPolicy,
@@ -108,16 +108,16 @@ import VisualGeometryToolkitCore: AbstractLocalOptimization,
 # problems implement it — `import`), the scoring contract (the loop CALLS it —
 # `using`; RVG adds no scorer), the local-optimization contract (RVG's hosted
 # strategies implement `locally_optimize!`/`lo_workspace`/`lo_width`/
-# `with_width`/`deployed_scale_multiple`) and the robust-statistics toolkit.
+# `with_width`) and the robust-statistics toolkit.
 import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     solver_covariance, provides_solver_covariance, refine!, refine_workspace,
     residual_context, mahalanobis_distance, whitened_residual,
-    locally_optimize!, lo_workspace, lo_width, deployed_scale_multiple
+    locally_optimize!, lo_workspace, lo_width
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, loss_at, width_scale_interface, check_composition,
-    ScaleMultiple, LossWidth, TagRegistry, MsacScoring, RansacScoring, decision_boundary,
+    EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, decision_boundary,
     StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
@@ -170,7 +170,7 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
     GemanMcclureShape, CauchyShape, SmoothTLSShape, TLSShape, HuberShape,
     BarronShape
 # A width is COMPOSED onto a shape (VGC 0.29) rather than carried by it:
-# `deploy(shape, s2; scale_multiple)` pairs the tag with the squared scale it
+# `deploy(shape, s2; efficiency_constant)` pairs the tag with the squared scale it
 # runs at, and the loss verbs then take no width argument. `bounded` is the redescending
 # axis — whether a shape rejects at all — which decides whether a frozen width
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
@@ -187,7 +187,6 @@ using VisualGeometryToolkitCore: EssentialManifold5,
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
 # `import`. (`import` advertises an extension point that does not exist.)
 using VisualGeometryToolkitCore: weight,
-    decision_width,
     loss_family, loss_label   # a shape's loss family and label prefix
 import VisualGeometryToolkitCore:
     SvdWorkspace, # used by RANSAC + solvers
@@ -289,7 +288,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # -----------------------------------------------------------------------------
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
-export Irls, Triggs, NoLocalOptimization
+export Irls, Triggs
 public synthetic_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
@@ -334,9 +333,9 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
 # The local-optimization extension point: a strategy adds a `locally_optimize!`
 # method (downstream: LocalOptimizationDoneRight); a loss-parametric strategy
 # names its loss (`strategy_loss`) and deploys it through `lo_loss`, its
-# `scale_multiple` read in the shape's currency (`plain_scale_multiple`); the
+# `efficiency_constant` the plain multiple whatever the shape; the
 # chart problems' rows provider and the problem family a lift runs on.
-public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_value,
+public lo_loss, strategy_loss, lo_width_value,
     ManifoldLiftProvider, LiftableProblem
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
@@ -346,14 +345,14 @@ public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMet
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, local_optimization_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
 # The local-optimization strategy machinery every package registers its
 # strategies with: the registry macro, the keyword constructor, the generic
 # writer, the shared shape admission, and the hooks (CONTRACT_GENERICS below).
 public @lo_registry, lo_construct, lo_config_dict, lo_admits_shape,
     lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent,
-    lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple
+    lo_validate, lo_concrete, lo_efficiency_constant_shape, lo_resolve_efficiency_constant
 
 
 # =============================================================================
@@ -447,18 +446,18 @@ to across a package boundary (VisualGeometryToolkitCore's quality gate,
 `contract_generic_violations`): the local-optimization strategy machinery's
 row facts (`lo_tag`, `lo_defaults`, `lo_parametric`, defined by `@lo_registry`)
 and hooks (`lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`,
-`lo_absent`, `lo_validate`, `lo_concrete`, `lo_scale_multiple_shape`,
-`lo_resolve_scale_multiple`), the writer (`config_dict`, for a strategy whose
+`lo_absent`, `lo_validate`, `lo_concrete`, `lo_efficiency_constant_shape`,
+`lo_resolve_efficiency_constant`), the writer (`config_dict`, for a strategy whose
 table carries a key beyond the generic one), a loss-parametric or fixed-loss strategy's
-identity (`strategy_loss`, `deployed_shape`), a wrapper's placement
+identity (`strategy_loss`), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`), the parameter-change stop's measure of a
 problem (`change_parameters`) and the sampler / running-best
 protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
-                           lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
-                           config_dict, scoring_from_toml, strategy_loss, deployed_shape, lo_placement,
+                           lo_absent, lo_validate, lo_concrete, lo_efficiency_constant_shape, lo_resolve_efficiency_constant,
+                           config_dict, scoring_from_toml, strategy_loss, lo_placement,
                            iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

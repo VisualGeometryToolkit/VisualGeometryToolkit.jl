@@ -5,6 +5,29 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: parameters are held by `fixed`, the stack's one parameter-holding keyword** (the owner's ruling;
+  NLLSsolver's word, OpenCV's `CALIB_FIX_*`). `refine_camera_and_poses` takes `fixed = ()` (every parameter refined but
+  the gauge, the skew, held by construction), naming the parameters held: the former `free = X` is `fixed =` its
+  complement, bit for bit (the refined set keeps `parameter_names` order). A SplineLens camera takes `fixed = ()` (its
+  controls refined; was `free = (:controls,)`) or `fixed = (:controls,)` (the poses alone; was `free = ()`). The result
+  still records the refined set (`result.free`). `free`, `fix`, `fixed_params` and `hold` are `ArgumentError`s naming
+  `fixed`. Its `fixed` is resolved by VisualGeometryToolkitCore's `free_parameter_names`, so it takes a group
+  (`fixed = (:k,)` holds k1…) and accepts `:skew`.
+- **Breaking: the strategy keywords are `local_optimization_strategy` (find) and `optimization_strategy` (refine, fit)**
+  (the owner's ruling). `find_*`, `ransac` and `locally_optimize` take `local_optimization_strategy`; every `refine_*`,
+  `refine_camera_and_poses` and `fit_linear`/`fit_rotation`/`fit_rotation_averaging` take `optimization_strategy`. A fit
+  takes `Irls{K}` or `nothing` (plain least squares) and refuses a `Triggs` (a robustified LM needs a guess). The
+  retired keyword `local_optimization` (and `local_optimization_strategy` on a refine) is an `ArgumentError` naming its
+  successor. `NoLocalOptimization` is removed: no local optimization is `nothing`, TOML `"none"` (the tag
+  `"no_local_optimization"` is retired, naming it). One reader, `optimization_strategy_from_toml` (was
+  `local_optimization_from_toml`), one registry (family `:optimization_strategy`); TOML keys `local_optimization_strategy`
+  in `[pipelines.*]`, `optimization_strategy` in `[fit_*]`, and the strategies' defaults table `[optimization_strategy.<type>]`.
+- **Breaking: `scale_multiple` is `efficiency_constant`, the plain multiple for every loss** (VisualGeometryToolkitCore's
+  rename; keywords, TOML keys — `[pipelines.*] local_optimization`, `branch_audit_efficiency_constant`, the lift seed's —
+  and the hooks `lo_resolve_efficiency_constant`, `lo_efficiency_constant_shape`). The half-weight currency is
+  retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
+  deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
+  `currency migration` test item lists every one, the ports' included), so results are bit-identical.
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

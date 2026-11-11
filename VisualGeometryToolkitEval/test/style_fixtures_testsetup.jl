@@ -12,7 +12,7 @@
     export ProbeLO, probe_style
 
     "A probe strategy: its loss family, optimization path, label and scale interface."
-    struct ProbeLO <: VgtkCore.AbstractLocalOptimization
+    struct ProbeLO <: VgtkCore.AbstractOptimizationStrategy
         family::Symbol
         path::Symbol
         label::String

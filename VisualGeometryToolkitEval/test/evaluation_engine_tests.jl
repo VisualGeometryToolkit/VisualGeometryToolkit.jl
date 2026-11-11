@@ -43,12 +43,12 @@
         lo_iteration_budget, n_batches, n_los, batch_sample_counts, lo_sample_counts, deployed_ref
     using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, sample_starts, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
-        tuning_table, ScaleMultipleWindow, PairUnit
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, NoLocalOptimization, EssentialProblem, FundMatProblem,
+        tuning_table, EfficiencyConstantWindow, PairUnit
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, EssentialProblem, FundMatProblem,
         HomographyProblem, RelposeBundleProblem, fixed_width
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: AbstractScoring, AbstractLocalOptimization, ExternalRefit, NativeRefit, RefitFamily,
-        MsacScoring, TLSShape, ScaleMultiple, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
+    using VisualGeometryToolkitCore: AbstractScoring, AbstractOptimizationStrategy, ExternalRefit, NativeRefit, RefitFamily,
+        MsacScoring, TLSShape, EfficiencyConstant, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
         width_axis_name, with_width, outlier_halfwidth, outlier_halfwidth_to_loss_width, loss_width,
         select_on_grid!, stage_selection, selection_staging, best_pool_model, scoring_workspace
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models, num_points, pool_imc
@@ -77,7 +77,7 @@
     VgtkCore.width_axis(::ThresholdMsac) = LossWidth()
     VgtkCore.with_width(::ThresholdMsac{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = MsacScoring(DG; threshold = loss_width(w))
 
-    struct WidthRefit <: AbstractLocalOptimization
+    struct WidthRefit <: AbstractOptimizationStrategy
         max_iter::Int
     end
     mutable struct WidthRefitWs
@@ -96,12 +96,12 @@
                            MsacScoring(VgtkCore.codimension(problem); threshold = lw))
     end
 
-    struct RefusingRefit <: AbstractLocalOptimization end
+    struct RefusingRefit <: AbstractOptimizationStrategy end
     VgtkCore.RefitFamily(::RefusingRefit) = ExternalRefit()
     VgtkCore.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
     VgtkCore.refine_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
 
-    struct ThrowingRefit <: AbstractLocalOptimization end   # a native refiner with no locally_optimize!
+    struct ThrowingRefit <: AbstractOptimizationStrategy end   # a native refiner with no locally_optimize!
 
     # ------------------------------------------------------------------------
     # Fixtures
@@ -113,7 +113,7 @@
     const P = EssentialProblem
     template(a = 1.0) = HalfwidthMsac(1, a)
     irls() = Irls{TLSShape}()                               # follows the refit scoring's threshold
-    irls_sm(m = 2.5) = Irls{TLSShape}(; scale_multiple = m)  # consensus-anchored
+    irls_sm(m = 2.5) = Irls{TLSShape}(; efficiency_constant = m)  # consensus-anchored
 
 
     @testset "the test-local template is a refit template" begin
@@ -127,7 +127,7 @@
         @test problem_type(:E) === EssentialProblem && problem_type(:F) === FundMatProblem &&
               problem_type(:H) === HomographyProblem
         @test_throws ArgumentError problem_type(:X)
-        @test OPERATING_SCALE_MULTIPLE === 2.5
+        @test OPERATING_EFFICIENCY_CONSTANT === 2.5
         @test lo_iteration_budget() isa Int && lo_iteration_budget() > 0
     end
 
@@ -173,7 +173,7 @@
         @test refit_imc!(ctx, irls(), seed, a; scoring = ctx.solo_scoring)[1] === e
         @test refit_imc!(ctx, irls(), seed, a; scoring = template(7.0))[1] === e
         @test any(k -> startswith(String(k), "ep_sc"), keys(ctx.lo_ws))
-        # s2: the strategy deployed at an absolute scale (its scale multiple at √s2)
+        # s2: the strategy deployed at an absolute scale (its efficiency constant at √s2)
         s2 = (0.004)^2
         e_s2 = first(refit_imc!(ctx, irls_sm(), seed, a; s2))
         @test e_s2 === model_imc(refit_model(ctx.ep, seed, irls_sm(), MsacScoring(1; threshold = a); s2), ctx)
@@ -230,11 +230,11 @@
         @test consumed_native(lo, LossWidth(), 0.2; d_g = 1) === 0.2
         @test consumed_native(irls(), OutlierHalfwidth(), 0.2; d_g = 1) === 0.2
         @test consumed_native(lo, OutlierHalfwidth(), 0.2; d_g = 1) ===
-              outlier_halfwidth_to_loss_width(0.2; operating_scale_multiple = OPERATING_SCALE_MULTIPLE, d_g = 1)
-        @test consumed_native(lo, OutlierHalfwidth(), 0.2; d_g = 2, operating_scale_multiple = 3.0) ===
-              outlier_halfwidth_to_loss_width(0.2; operating_scale_multiple = 3.0, d_g = 2)
+              outlier_halfwidth_to_loss_width(0.2; operating_efficiency_constant = OPERATING_EFFICIENCY_CONSTANT, d_g = 1)
+        @test consumed_native(lo, OutlierHalfwidth(), 0.2; d_g = 2, operating_efficiency_constant = 3.0) ===
+              outlier_halfwidth_to_loss_width(0.2; operating_efficiency_constant = 3.0, d_g = 2)
         @test consumed_native(irls(), LossWidth(), consumed_native(lo, OutlierHalfwidth(), 0.2; d_g = 1); d_g = 1) ≈ 0.2
-        @test_throws MethodError consumed_native(lo, ScaleMultiple(), 0.2; d_g = 1)
+        @test_throws MethodError consumed_native(lo, EfficiencyConstant(), 0.2; d_g = 1)
         @test_throws UndefKeywordError consumed_native(lo, LossWidth(), 0.2)
     end
 
@@ -243,7 +243,7 @@
         s = LoRefitSpec("x", irls(), OutlierHalfwidth(), 1:3, idxs)
         @test s.grid == [1.0, 2.0, 3.0] && s.grid isa Vector{Float64} && s.idxs == idxs && s.axis === OutlierHalfwidth()
         @test s.seedcols === s.natives === s.widths === s.fixed_s2s === s.columns === nothing && !s.bundle
-        @test_throws "native axis" LoRefitSpec("x", NoLocalOptimization(), ScaleMultiple(), [1.0, 2.0, 3.0], idxs)
+        @test_throws "native axis" LoRefitSpec("x", nothing, EfficiencyConstant(), [1.0, 2.0, 3.0], idxs)
         @test_throws "mutually exclusive" LoRefitSpec("x", irls(), LossWidth(), [1.0, 2.0, 3.0], idxs;
                                                       natives = [1.0, 1.0, 1.0], widths = [1.0, 1.0, 1.0])
         @test_throws "mutually exclusive" LoRefitSpec("x", irls(), LossWidth(), [1.0, 2.0, 3.0], idxs;
@@ -265,7 +265,7 @@
         ext = WidthRefit(25)
         specs = [LoRefitSpec("native", irls(), OutlierHalfwidth(), hw, idxs),
                  LoRefitSpec("external", ext, OutlierHalfwidth(), hw, idxs),
-                 LoRefitSpec("sel", NoLocalOptimization(), OutlierHalfwidth(), hw, idxs),
+                 LoRefitSpec("sel", nothing, OutlierHalfwidth(), hw, idxs),
                  LoRefitSpec("natives", irls(), OutlierHalfwidth(), hw, idxs; natives = 2 .* hw, seedcols = [5, 4, 3, 2, 1]),
                  LoRefitSpec("widths", irls_sm(1.0), OutlierHalfwidth(), hw, idxs; widths = hw ./ 5),
                  LoRefitSpec("widths_ext", ext, OutlierHalfwidth(), hw, idxs; widths = hw ./ 5),
@@ -331,12 +331,12 @@
             @test batch_sample_counts(cfg) == [5, 10, 15, 20] && lo_sample_counts(cfg) == [5, 10, 20]
             sbc(; kw...) = SampleBudgetConfig(; sample_cap = 20, batch_size = 5, lo_every = 10, lo_strategy = irls(), kw...)
             @test_throws ArgumentError sbc(budget_unit = :modles)
-            @test_throws ArgumentError sbc(budget_unit = :models, nat_axis = ScaleMultiple())
+            @test_throws ArgumentError sbc(budget_unit = :models, nat_axis = EfficiencyConstant())
         end
         methods = [SampleBudgetMethodSpec(:narrow, template(0.01)), SampleBudgetMethodSpec(:wide, template(0.03))]
         msac = [LossWidthSpec(:msac, MsacScoring(1), 0.01, WidthRefit(25); refinement_loss_width = 0.02)]
         @test LossWidthSpec(:m, MsacScoring(1), 1, WidthRefit(2)).refinement_loss_width === nothing
-        @test LossWidthSpec(:m, MsacScoring(1), 1).lo === NoLocalOptimization()
+        @test LossWidthSpec(:m, MsacScoring(1), 1).lo === nothing
         @test_throws "not a loss-width family" LossWidthSpec(:m, template(0.01), 0.01)
         @testset "per pair: shapes, selections, refits, the MSAC and oracle columns" begin
             res = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], loss_width_specs = msac, cfg)
@@ -382,7 +382,7 @@
             @test both.best_idx_batch[2:2, :, :] == res.best_idx_batch && both.err_lo[2:2, :, :] == res.err_lo
             @test both.best_idx_batch[1, :, :] == both.best_idx_batch[3, :, :] && both.err_lo[1, :, :] == both.err_lo[3, :, :]
         end
-        @testset "a selection-only loss-width column (RSDR's families, NoLocalOptimization)" begin
+        @testset "a selection-only loss-width column (RSDR's families, no local optimization)" begin
             sel = [LossWidthSpec(:ransac, VgtkCore.RansacScoring(1), 0.02), msac[1]]
             res = evaluate_sample_budget(P, methods, [pair], [R]; loss_width_specs = sel, cfg)
             @test res.methods == [:narrow, :wide, :ransac, :msac, :oracle]
@@ -424,7 +424,7 @@
             # The oracle-best model closes a stream in which sample 1 (2
             # siblings) was drawn twice in a row: A A B C, 4 samples in 6 columns.
             full = SampleBudgetConfig(; sample_cap = 27, batch_size = 27, lo_every = 27, budget_unit = :models,
-                                      lo_strategy = NoLocalOptimization())
+                                      lo_strategy = nothing)
             ob = Int(evaluate_sample_budget(P, methods[1:1], [pair], [R]; cfg = full).best_idx_batch[1, end, 1])
             @test ob > 4                                            # a single-model sample (models 5:27)
             b = ob == 5 ? 6 : 5
@@ -434,7 +434,7 @@
             @test starts == [[1, 3, 5, 6]]
             run(cap, unit; kw...) = evaluate_sample_budget(P, methods[1:1], [q], [Rq];
                 cfg = SampleBudgetConfig(; sample_cap = cap, batch_size = cap, lo_every = cap, budget_unit = unit,
-                                         lo_strategy = NoLocalOptimization()), kw...).best_idx_batch[1, :, 1]
+                                         lo_strategy = nothing), kw...).best_idx_batch[1, :, 1]
             @test run(3, :samples; sample_starts = starts) == run(5, :models)   # 3 samples = columns 1:5
             @test run(3, :samples; sample_starts = starts)[end] != 6
             @test run(5, :models)[end] != run(6, :models)[end] == 6
@@ -487,7 +487,7 @@
         prs = [epair(rng) for _ in 1:4]
         pairs = first.(prs); Rs = last.(prs)
         halfwidths = [0.005, 0.01, 0.02, 0.04]; a = halfwidths[2]
-        grids = Dict(:outlier_halfwidth => halfwidths, :scale_multiple => [1.0, 2.0, 3.0],
+        grids = Dict(:outlier_halfwidth => halfwidths, :efficiency_constant => [1.0, 2.0, 3.0],
                      :loss_width => [0.001, 0.002, 0.004])
         idxs = Matrix{Int32}(undef, 4, 4)
         select_on_grid!(idxs, P, template(), halfwidths, stage_selection(selection_staging(template()), pairs, Rs))
@@ -495,7 +495,7 @@
         arms = [ComposedSpec("HW +Irls", :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> irls()) => 0.03,
                 ComposedSpec("HW +Irls@a*", :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> irls();
                              source = SelectionWidth()) => nothing,
-                ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), ScaleMultiple(), m -> irls_sm(m)) => 2.0,
+                ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), EfficiencyConstant(), m -> irls_sm(m)) => 2.0,
                 ComposedSpec("HW +Ext", :hw, OutlierHalfwidth(), LossWidth(), _ -> WidthRefit(25)) => 0.002]
         budget = Dict{String,Vector{Float32}}()
         for (arm, tuned_width) in arms
@@ -503,7 +503,7 @@
             spec = miscal_evaluation_refit(arm, idxs_of, (selection = a, width = tuned_width), [1.0], grids; d_g = 1)
             miscal = only(values(apply_lo_refits(P, [spec], pairs; scoring = template())))
             ref = deployed_ref(arm.kind, a, width)
-            nat = arm.kind isa ScaleMultiple ? (;) : (; nat_ref = ref, nat_axis = arm.kind)
+            nat = arm.kind isa EfficiencyConstant ? (;) : (; nat_ref = ref, nat_axis = arm.kind)
             cfg = SampleBudgetConfig(; sample_cap = 12, batch_size = 4, lo_every = 4, budget_unit = :models,
                                      lo_strategy = arm.ctor(width), nat...)
             r = evaluate_sample_budget(P, [SampleBudgetMethodSpec(:hw, template(a))], pairs, Rs; cfg)
@@ -596,8 +596,8 @@
         @test selection_staging(hwsc) === selection_staging(msac) === :pool
         @test selection_staging(MsacScoring(1; threshold = 1.0)) === :pool
         refits_of = (idxs_of, _) -> [
-            LoRefitSpec("HW sel", NoLocalOptimization(), OutlierHalfwidth(), halfwidths, idxs_of[:hw]),
-            LoRefitSpec("MSAC sel", NoLocalOptimization(), LossWidth(), loss_widths, idxs_of[:msac]),
+            LoRefitSpec("HW sel", nothing, OutlierHalfwidth(), halfwidths, idxs_of[:hw]),
+            LoRefitSpec("MSAC sel", nothing, LossWidth(), loss_widths, idxs_of[:msac]),
             LoRefitSpec("HW +Irls", irls(), OutlierHalfwidth(), halfwidths, idxs_of[:hw]; columns = [2, 5]),
         ]
         grids = [:hw => (halfwidths, hwsc), :msac => (loss_widths, msac)]
@@ -631,9 +631,9 @@
         tuned = ComposedSpec("HW +Irls", :hw, OutlierHalfwidth(), OutlierHalfwidth(), bcd)
         matched = ComposedSpec("HW +Irls@a*", :hw, OutlierHalfwidth(), OutlierHalfwidth(), bcd; source = SelectionWidth())
         @test tuned.source === TunedWidth() && is_tuned(tuned) && !is_tuned(matched)
-        @test_throws ArgumentError ComposedSpec("x", :hw, OutlierHalfwidth(), ScaleMultiple(), bcd; source = SelectionWidth())
+        @test_throws ArgumentError ComposedSpec("x", :hw, OutlierHalfwidth(), EfficiencyConstant(), bcd; source = SelectionWidth())
         @test_throws ArgumentError ComposedSpec("x", :msac, LossWidth(), OutlierHalfwidth(), bcd; source = SelectionWidth())
-        @test_throws ArgumentError ComposedSpec("x", :hw, ScaleMultiple(), ScaleMultiple(), bcd)
+        @test_throws ArgumentError ComposedSpec("x", :hw, EfficiencyConstant(), EfficiencyConstant(), bcd)
         a = 0.017; w = 0.023
         @test operating_width(tuned, a, w) === w && operating_width(matched, a, nothing) === a
         @test operating_width(matched, a, a) === a
@@ -642,13 +642,13 @@
         # deliveries
         @test width_delivery(LossWidth(), irls(), 2.0, 2) == (; widths = [2.0, 2.0])
         @test width_delivery(OutlierHalfwidth(), irls(), 2.0, 2) == (; natives = [2.0, 2.0])
-        @test width_delivery(ScaleMultiple(), irls(), 2.0, 2) == (;)
-        @test_throws ArgumentError SoloSpec("x", :refinement, ScaleMultiple(), identity)
+        @test width_delivery(EfficiencyConstant(), irls(), 2.0, 2) == (;)
+        @test_throws ArgumentError SoloSpec("x", :refinement, EfficiencyConstant(), identity)
         @test_throws ArgumentError SoloSpec("x", :tuning, LossWidth(), identity)
         @test_throws ErrorException solo_refit_imc!(nothing, SoloSpec("x", :selection, LossWidth(), identity), nothing, 1.0, 1.0)
         # the evaluation refit: the matched arm is the tuned arm at width = a*, bitwise
         grids = Dict(:outlier_halfwidth => sort!([a * ζ for ζ in (0.25, 1.0, 4.0)]),
-                     :scale_multiple => [1.0, 2.0, 3.0], :loss_width => [0.001, 0.002, 0.004])
+                     :efficiency_constant => [1.0, 2.0, 3.0], :loss_width => [0.001, 0.002, 0.004])
         idxs_of = Dict(:hw => ones(Int32, 2, 3))
         zetas = [0.25, 1.0, 4.0]
         rm = miscal_evaluation_refit(matched, idxs_of, (selection = a, width = nothing), zetas, grids; d_g = 1)
@@ -656,11 +656,11 @@
         @test rm.natives == rt.natives == [a * ζ for ζ in zetas] && rm.seedcols == rt.seedcols == [1, 2, 3]
         @test rm.label == "HW +Irls@a*|evaluation" && rm.axis === OutlierHalfwidth() && rm.grid == zetas
         @test_throws ArgumentError miscal_evaluation_refit(matched, idxs_of, (selection = a, width = w), zetas, grids; d_g = 1)
-        # a scale-multiple arm refits at the selection native mapped onto the refiner's axis
-        for (arm, sel_w) in ((ComposedSpec("HW +m", :hw, OutlierHalfwidth(), ScaleMultiple(), m -> irls_sm(m)), 2.0),
+        # an efficiency-constant arm refits at the selection native mapped onto the refiner's axis
+        for (arm, sel_w) in ((ComposedSpec("HW +m", :hw, OutlierHalfwidth(), EfficiencyConstant(), m -> irls_sm(m)), 2.0),
                              (ComposedSpec("HW +ext", :hw, OutlierHalfwidth(), LossWidth(), _ -> WidthRefit(25)), 0.002))
             ro = miscal_evaluation_refit(arm, idxs_of, (selection = a, width = sel_w), [1.0], grids; d_g = 1)
-            @test only(ro.natives) == (arm.kind isa ScaleMultiple ? consumed_native(irls_sm(2.0), OutlierHalfwidth(), a; d_g = 1) : 0.002)
+            @test only(ro.natives) == (arm.kind isa EfficiencyConstant ? consumed_native(irls_sm(2.0), OutlierHalfwidth(), a; d_g = 1) : 0.002)
             @test ro.fixed_s2s === nothing
         end
         # a loss-width arm of a native refiner is an absolute width: basin-only
@@ -670,11 +670,11 @@
 
     @testset "miscal evaluation: the fixed external scale port" begin
         pair, _ = epair(MersenneTwister(7))
-        arm = ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), ScaleMultiple(), m -> irls_sm(m))
-        grids = Dict(:outlier_halfwidth => [0.005, 0.01, 0.02], :scale_multiple => [1.0, 2.0, 3.0],
+        arm = ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), EfficiencyConstant(), m -> irls_sm(m))
+        grids = Dict(:outlier_halfwidth => [0.005, 0.01, 0.02], :efficiency_constant => [1.0, 2.0, 3.0],
                      :loss_width => [0.001, 0.002, 0.004])
         idxs_of = Dict(:hw => fill(Int32(3), 1, 3))
-        tuned = (selection = grids[:outlier_halfwidth][2], width = grids[:scale_multiple][2])
+        tuned = (selection = grids[:outlier_halfwidth][2], width = grids[:efficiency_constant][2])
         zetas = [0.25, 1.0, 4.0]
         s0 = 2.0e-3
         with = miscal_evaluation_refit(arm, idxs_of, tuned, zetas, grids; d_g = 1)
@@ -697,7 +697,7 @@
     @testset "Roster: the gate-enforced readers" begin
         composed = p -> [
             ComposedSpec("HW +Irls",   :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> irls()),
-            ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), ScaleMultiple(), m -> irls_sm(m)),
+            ComposedSpec("HW +Irls(m)", :hw, OutlierHalfwidth(), EfficiencyConstant(), m -> irls_sm(m)),
             ComposedSpec("MSAC +Ext",  :msac, LossWidth(), LossWidth(), _ -> WidthRefit(25)),
             ComposedSpec("HW +Irls@a*", :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> irls(); source = SelectionWidth()),
         ]
@@ -712,11 +712,11 @@
         mktempdir() do dir
             cpath = joinpath(dir, "composed.jld2"); write_sidecar(cpath, composed(:E); mode = "miscal")
             bud = Dict(deployed_budget_settings(roster, cpath))
-            @test bud["HW +Irls(m)"].ref == bud["HW +Irls(m)"].sel        # scale multiple: refit at the selection native
+            @test bud["HW +Irls(m)"].ref == bud["HW +Irls(m)"].sel        # efficiency constant: refit at the selection native
             @test bud["MSAC +Ext"].ref == g[:loss_width][3]                # a native width at its tuned value
             @test bud["HW +Irls"].ref == g[:outlier_halfwidth][3]
-            @test bud["HW +Irls(m)"].kind === ScaleMultiple() && bud["MSAC +Ext"].kind === LossWidth()
-            @test bud["HW +Irls(m)"].lo == irls_sm(g[:scale_multiple][3])
+            @test bud["HW +Irls(m)"].kind === EfficiencyConstant() && bud["MSAC +Ext"].kind === LossWidth()
+            @test bud["HW +Irls(m)"].lo == irls_sm(g[:efficiency_constant][3])
             @test bud["HW +Irls@a*"].ref == bud["HW +Irls@a*"].sel == g[:outlier_halfwidth][3]   # pinned at a*
             @test Dict(deployed_arm_settings(roster, cpath))["MSAC +Ext"][2] == g[:loss_width][3]
             @test @test_logs (:info,) match_mode = :any audit_operating_points(roster, cpath)
@@ -745,7 +745,7 @@
                 tuned_objective = Dict("HW +Irls@a*" => 0.0), boundary_hits = Dict("HW +Irls@a*" => String[]))
             @test_throws ArgumentError deployed_budget_settings(roster, mpath)
 
-            # a scale-multiple arm on the basin roster is refused
+            # an efficiency-constant arm on the basin roster is refused
             bad = Roster(composed, roster.solo, p -> composed(p))
             @test_throws ErrorException deployed_basin_settings(bad, bpath)
             # a loss-width arm of a native refiner is basin-only: refused by the composed readers

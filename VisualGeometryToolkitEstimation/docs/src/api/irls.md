@@ -138,7 +138,7 @@ from there); they parameterize the loss-parametric LO strategies (the core
 `Irls{K}`; downstream, LocalOptimizationDoneRight's `HQ{K}` and `Gnc{S}`), so
 the loss is what carries the objective. A shape is
 the ρ profile alone — it gains a width only when
-`deploy(shape, ŝ²; scale_multiple)` composes the scale and the scale multiple
+`deploy(shape, ŝ²; efficiency_constant)` composes the scale and the efficiency constant
 onto it, and it is that deployed loss every function below takes. See the
 VisualGeometryToolkitCore documentation for the full API.
 
@@ -165,7 +165,7 @@ Key functions: `weight(shape, s, sq_loss_width)` (equivalently
 DEPLOYED loss, which carries the width, so no scale argument is supplied at
 the call site. `decision_width(shape, decision_boundary)` converts the
 residual at which a decision flips (for a lift arm, the half-weight radius
-`r_½ = scale_multiple·ŝ`) into the shape's loss width, and takes the bare
+`r_½ = efficiency_constant·ŝ`) into the shape's loss width, and takes the bare
 shape because that is the conversion that produces a width in the first place.
 
 !!! note "Retired API"

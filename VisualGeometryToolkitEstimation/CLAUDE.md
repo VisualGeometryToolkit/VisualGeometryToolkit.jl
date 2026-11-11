@@ -44,7 +44,7 @@ DOWN; a change that trips one is a defect in the change, not in the bound.
 `configs/default.toml` is the config of record, adopted from BlobBoards'
 mechanism (2026-09-03): `RansacConfig()`, every core local-optimization
 strategy's keyword defaults, every `find_*` pipeline's `scoring` table (MSAC at a `threshold`: a
-per-class convention, not a tuned value) and `local_optimization`, and
+per-class convention, not a tuned value) and `local_optimization_strategy`, and
 `fit_division_camera`/`fit_robot_world_hand_eye`'s knobs all READ that file. There is
 no second set of Julia literals — `src/config_defaults.jl` parses it at
 precompile time (`include_dependency`, so an edit forces a recompile; restart a
@@ -52,24 +52,24 @@ Revise session to see one) and exposes `_dflt(table, key)`, which every
 default expression calls. A default that is not in the file throws BY DESIGN.
 
 - **Override one value:** a keyword — `find_homography(p; scoring = MsacScoring(HomographyProblem; threshold = 2.0))`,
-  `RansacConfig(max_trials = 500)`, `Irls{WelschShape}(scale_multiple = 1.2, max_iter = 40)`.
+  `RansacConfig(max_trials = 500)`, `Irls{WelschShape}(efficiency_constant = 1.2, max_iter = 40)`.
   `outlier_halfwidth` is no keyword of the core entries (`ArgumentError`): it
   belongs to a marginal scorer supplied as `scoring`.
 - **Use another file:** `RansacConfig(path)` loads a file's `[ransac]` table and
-  `local_optimization_from_toml(table; class, tags = LO_TAGS)` a strategy table; absent keys
+  `optimization_strategy_from_toml(table; class, tags = LO_TAGS)` a strategy table; absent keys
   inherit the shipped file, present keys override, UNKNOWN keys/tags are an
   `ArgumentError`, never ignored. (There is no whole-file loader: the
   `PipelineConfig`/`RvgConfig` pair, `load_config` and `write_config` were
   deleted 2026-09-21 — only tests used them.)
-- **Select a strategy in TOML:** `local_optimization = { type = "irls", loss =
-  "tls" }` (no width key: follow the scorer; or `scale_multiple = m` /
+- **Select a strategy in TOML:** `local_optimization_strategy = { type = "irls", loss =
+  "tls" }` (no width key: follow the scorer; or `efficiency_constant = m` /
   `loss_width = w`) — tags in the `TagRegistry` values `LO_TAGS` / `LOSS_TAGS`
   (`src/config_toml.jl`, `scoring_glue.jl`). The core registry holds
   `"no_local_optimization"`, `"irls"` and `"terminal_lo"` (`TerminalLO`, the
   terminal placement: `{ type = "terminal_lo", inner = { … } }`); LocalOptimizationDoneRight's
   strategies load through an explicit merge,
   `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`,
-  which also resolves `scale_multiple = "cross_validated"` (the core refuses
+  which also resolves `efficiency_constant = "cross_validated"` (the core refuses
   it, naming the merge). A loss the mechanism cannot run (a Barron shape
   without its α) is refused at load.
 - **Write one back:** `config_dict` is derived from `fieldnames`, and
@@ -87,14 +87,14 @@ Revise.jl caveats:
 
 VisualGeometryToolkitEstimation is the composable RANSAC: ONE generic loop on
 VisualGeometryToolkitCore's scoring and local-optimization contracts, the RANSAC
-problems of the stack, and the core local optimizations `NoLocalOptimization`
-and `Irls{K}`. Out of the box every `find_*` runs its class's scorer (`[pipelines.<class>]
+problems of the stack, and the core local optimizations `Irls{K}` and `Triggs{K}`
+(`nothing` is no local optimization). Out of the box every `find_*` runs its class's scorer (`[pipelines.<class>]
 scoring`: VGC's MSAC) with `Irls{TLSShape}` following the scorer's threshold; per-class
 thresholds are conventions (H/F/radial 3 px, E 1 px, PnP 8 px, hand-eye
 0.01·L). Paper scorers (VisualGeometryToolkitCore's `StudentTUniformScoring`)
 and strategies (LocalOptimizationDoneRight's `HQ`, `Gnc`, `StudentTUniform`,
 …) implement the contracts downstream and are supplied as `scoring = …,
-local_optimization = …`. Depends ONLY on VisualGeometryToolkitCore (geometry types,
+local_optimization_strategy = …`. Depends ONLY on VisualGeometryToolkitCore (geometry types,
 solvers, the problem protocol, the contracts, the robust-statistics toolkit,
 robust losses, the BCD and chart-LM cores); it must never depend on
 RANSACScoringDoneRight or LocalOptimizationDoneRight.
@@ -122,7 +122,7 @@ src/
 │   ├── types.jl               # RansacConfig, RansacMetadata/RansacEstimate, DltWorkspace, LoBuffers, RansacWorkspace{K,M,T,W,L}, RansacResultBuffers
 │   ├── samplers.jl            # UniformSampler, ProsacSampler, GaussianSampler
 │   ├── interface.jl           # AbstractRansacProblem{K} API, refine_workspace, lo_workspace, RansacWorkspace constructors
-│   ├── scoring_glue.jl        # core strategy types (NoLocalOptimization, Irls{K,W}) + width modes, PosteriorLikelihood, LO_TAGS
+│   ├── scoring_glue.jl        # core strategy types (Irls{K,W}, Triggs{K,W}) + width modes, PosteriorLikelihood, LO_TAGS
 │   ├── loop.jl                # the contract-only RANSAC loop: ransac/ransac!, _try_model!, locally_optimize, _finalize
 │   ├── local_optimization.jl  # the core strategies' locally_optimize!, PosteriorIrlsMethod, consensus_posterior
 │   ├── hypotheses.jl          # draw_hypotheses: the RANSAC trial, repeated, no scoring
@@ -208,7 +208,7 @@ parameters.**
   `find_absolute_pose(camera, pairs)`, `AbsolutePoseProblem(camera, pairs)`.
 - A REQUIRED tool applied to the data leads (a kernel, scorer, network, the
   method being evaluated); a policy with a default value stays last
-  (`ransac(problem, scoring; local_optimization = …)`).
+  (`ransac(problem, scoring; local_optimization_strategy = …)`).
 
 **Mutation, types and RNGs follow Julia's style guide exactly** (the stack's
 rule; `conventions/signatures.md` quotes the manual). Base's order: (1) a function argument, (2) an

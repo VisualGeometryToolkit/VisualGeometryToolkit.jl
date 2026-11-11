@@ -9,7 +9,7 @@
     @testset "run_key: effective config minus the render section" begin
         cfg = Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "pt", "matcher" => "sift",
                                                                 "problem" => "E", "pool_dir" => "pools"),
-                               "arm" => Dict{String,Any}("scale_multiple" => 1.5, "arms" => "a,b"),
+                               "arm" => Dict{String,Any}("efficiency_constant" => 1.5, "arms" => "a,b"),
                                "render" => Dict{String,Any}("xticks" => [1, 10, 100], "legend" => "l"))
         key = RR.run_key(cfg)
         @test key isa String && length(key) == 16 && all(isxdigit, key)   # SHA-256 of the sorted TOML, Julia-version stable
@@ -18,7 +18,7 @@
         @test RR.run_key(c2) == key
         c3 = deepcopy(cfg); delete!(c3, "render")
         @test RR.run_key(c3) == key
-        c4 = deepcopy(cfg); c4["arm"]["scale_multiple"] = 2.0
+        c4 = deepcopy(cfg); c4["arm"]["efficiency_constant"] = 2.0
         @test RR.run_key(c4) != key
         # order-independent and TOML round-trip stable (the on-disk _config.toml names its directory)
         io = IOBuffer(); TOML.print(io, cfg; sorted = true)

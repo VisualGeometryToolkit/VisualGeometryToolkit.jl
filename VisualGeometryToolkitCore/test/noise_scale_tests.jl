@@ -40,7 +40,7 @@
                 norms = [norm(σ * randn(rng, d)) for _ in 1:n]
                 k = round(Int, ε * n)
                 norms[1:k] .= 10σ .+ 100σ .* rand(rng, k)
-                mad_scale(; norms, codimension = d)
+                VgtkCore._mad_scale_norms(; norms, codimension = d)
             end
             predicted = σ * quantile(Chi(d), 0.5 / (1 - ε)) / quantile(Chi(d), 0.5)
             @test abs(mean(est) - predicted) < 4 * std(est) / sqrt(N)
@@ -50,7 +50,8 @@
     @testset "mad_scale: residual vectors, centred on the model" begin
         rs = [SVector(3.0, 4.0), SVector(0.0, 1.0), SVector(6.0, 8.0)]          # norms 5, 1, 10
         @test @inferred(mad_scale(rs)) == 5.0 / sqrt(chisq_median(2))
-        @test mad_scale(rs) === mad_scale(; norms = [5.0, 1.0, 10.0], codimension = 2)
+        @test mad_scale(rs) === VgtkCore._mad_scale_norms(; norms = [5.0, 1.0, 10.0], codimension = 2)   # the internal norms form
+        @test_throws MethodError mad_scale(; norms = [5.0, 1.0, 10.0], codimension = 2)                   # no public norms form
         @test mad_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(chisq_median(1))   # d = 1: |r|, no centring
         @test mad_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(chisq_median(2))
         x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9
@@ -61,7 +62,7 @@
     end
 
     @testset "efficiency_constant: 95% Gaussian efficiency of the M-estimate" begin
-        # The constant's definition: at width scale_multiple·σ, scale_multiple = efficiency_constant(shape, d),
+        # The constant's definition: at width efficiency_constant·σ, efficiency_constant = efficiency_constant(shape, d),
         # the loss's M-estimate of a d-dim location has 95% of the sample mean's
         # efficiency under N(μ, σ²I). Paired: the same samples give both estimates.
         function mestimate(xs, S, c2)
@@ -76,14 +77,14 @@
             return μ
         end
         for (S, d) in ((WelschShape(), 1), (WelschShape(), 2), (CauchyShape(), 1), (GemanMcclureShape(), 2))
-            scale_multiple = efficiency_constant(typeof(S), d)
+            multiple = efficiency_constant(typeof(S), d)
             rng = MersenneTwister(60 + d)
             n, N = 400, 3000
             e_mean = zeros(N); e_m = zeros(N)
             for t in 1:N
                 xs = [SVector{d}(randn(rng, d)) for _ in 1:n]
                 e_mean[t] = sum(abs2, sum(xs) / n)
-                e_m[t] = sum(abs2, mestimate(xs, S, scale_multiple^2))
+                e_m[t] = sum(abs2, mestimate(xs, S, multiple^2))
             end
             # measured 2026-09-22: 0.952 / 0.948 / 0.952 / 0.948, bootstrap SE 0.006–0.008
             @test abs(mean(e_mean) / mean(e_m) - 0.95) < 0.025

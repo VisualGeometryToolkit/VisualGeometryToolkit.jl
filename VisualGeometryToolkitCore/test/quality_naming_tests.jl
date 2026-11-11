@@ -222,10 +222,10 @@ end
             "docs/a.md" => "`pool_frame_maps`, `pool_normalization`, `pool_frame_calibrations`, " *
                 "`POOL_FRAME_R_MAX`, `pool_frame_maps_unknown`, `UNKNOWN_POOL_FRAME_MAP`, " *
                 "`welsch_half_weight_depth`, " *
-                "`grid`, `extend`, `extension_offset`, `ScaleMultipleWindow`, `product_tuning_val_refits`, " *
-                "`selection_axis`, `tuning_axis`, `width_parameterization`, `OPERATING_SCALE_MULTIPLE`, " *
+                "`grid`, `extend`, `extension_offset`, `EfficiencyConstantWindow`, `product_tuning_val_refits`, " *
+                "`selection_axis`, `tuning_axis`, `width_parameterization`, `OPERATING_EFFICIENCY_CONSTANT`, " *
                 "`stream_product_tuning_cpu`, `budget_units`, `_save_artifact`, `ARTIFACT_FORMATS`, " *
-                "`load_tune_config`, `tune_tables`, `cv_polish_scale_multiple`, `run_sb_fair_deployed`, " *
+                "`load_tune_config`, `tune_tables`, `cv_polish_efficiency_constant`, `run_sb_fair_deployed`, " *
                 "`SB_PRODUCT_TUNING`, `PS_CV`, `audit_product_tuning`, `merge_product_tuning_sidecars`, " *
                 "`source_map`, `destination_map`, `_heb_pool_frame_maps`, `pool_frame_sidecar`, " *
                 "`<scene>.pool_frame.jld2`, `install_flushing_logger!`.\n"
@@ -309,14 +309,14 @@ end
         @test rules("src/a.jl" => "struct D\n    c::Float64\n    s2::Float64\nend\n") == [:R10]
         # a letter that is a field, type parameter or constructor keyword of a
         # width-carrying type, resolved through the package's declarations
-        @test rules("src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    $L::Float64\nend\n") == [:R10]
+        @test rules("src/a.jl" => "struct HQ <: AbstractOptimizationStrategy\n    $L::Float64\nend\n") == [:R10]
         @test rules(
-            "src/t.jl" => "abstract type MyLO <: VisualGeometryToolkitCore.AbstractLocalOptimization end\n",
+            "src/t.jl" => "abstract type MyLO <: VisualGeometryToolkitCore.AbstractOptimizationStrategy end\n",
             "src/a.jl" => "struct X{T} <: MyLO\n    a::T\nend\n"
         ) == [:R10]
         @test rules("src/a.jl" => "struct Sel <: SampleSelector\n    τ::Float64\nend\n") == [:R10]
         @test rules(
-            "src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    scale_multiple::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
+            "src/a.jl" => "struct HQ <: AbstractOptimizationStrategy\n    efficiency_constant::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
         ) == [:R10]
         # must NOT flag: loop indices, math locals, positional letters with no
         # noise scale, a letter that is another quantity's field or keyword or a
@@ -343,16 +343,16 @@ end
             lens = Dict("$L" => 1.0e-7, "a" => 2)
             v = lens["$L"]
             s = :$L
-            deploy(shape, s2; scale_multiple = 1.0) = (scale_multiple = scale_multiple, s2 = s2)
-            struct HQ <: AbstractLocalOptimization
-                scale_multiple::Float64
+            deploy(shape, s2; efficiency_constant = 1.0) = (efficiency_constant = efficiency_constant, s2 = s2)
+            struct HQ <: AbstractOptimizationStrategy
+                efficiency_constant::Float64
                 loss_width::Float64
                 outlier_halfwidth::Float64
             end
             taught = 1                 # a word that merely starts with the letters
             """,
-            "config/a.toml" => "[tuning]\nscale_multiple = 2.5\nloss_width = 1.0\noutlier_halfwidth = 3.0\n",
-            "scripts/run.sh" => "julia run.jl --scale-multiple 2.5 --outlier-halfwidth 3 --kernel-free\n",
+            "config/a.toml" => "[tuning]\nefficiency_constant = 2.5\nloss_width = 1.0\noutlier_halfwidth = 3.0\n",
+            "scripts/run.sh" => "julia run.jl --efficiency-constant 2.5 --outlier-halfwidth 3 --kernel-free\n",
             "docs/a.md" => "A $L-NN graph, and $(T_WORD) in prose, are prose.\n"
         )
     end
@@ -365,6 +365,30 @@ end
         @test isempty(rules("src/a.jl" => "w = decision_boundary(sc, buf); has_decision_boundary(typeof(sc))\n"))
         # RansacLib's and SupeRANSAC's settings field, set by name in a string
         @test isempty(rules("src/a.jl" => "setproperty!(c, Symbol(\"inlier_$(TH)\"), w)\n"))
+    end
+
+    @testset "R13: the one parameter-holding keyword is `fixed`" begin
+        FR = "fr" * "ee"     # the spellings, built so this file is no finding of its own
+        for kw in (FR, "fix", "fixed_params", "hold")
+            @test rules("src/a.jl" => "r = refine_camera_and_poses(cam, P, v; $(kw) = (:k1,))\n") == [:R13]   # a call
+            @test rules("src/a.jl" => "fit_x(a; $(kw) = ()) = a\n") == [:R13]                                 # a signature
+            @test rules("configs/a.toml" => "[refine_camera_and_poses]\n$(kw) = [\"k1\"]\n") == [:R13]       # a refine table's key
+        end
+        @test rules("test/a.jl" => "VgtkEstimation.refine_x(a; $(FR) = ())\n") == [:R13]                 # qualified
+        @test rules("configs/a.toml" => "[pipeline.lm]\nfix = [\"cx\"]\n") == [:R13]
+        @test rules("src/a.jl" => "s = LensSpec(:division; coefficients = 2, $(FR) = (:d1,))\n") == [:R13]       # a LensSpec
+        @test rules("configs/a.toml" => "[camera]\ntarget = { lens = \"division\", coefficients = 2, $(FR) = [\"d1\"] }\n") == [:R13]
+        @test isempty(rules("src/a.jl" => "LensSpec(family::Symbol; fixed = (), $(FR) = _NoFree(), kw...) = nothing\n"))
+        # the keyword itself, its refusal slot and the test of the refusal are no finding
+        @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
+        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = _RetiredKeyword()) end\n"))
+        @test isempty(rules("test/a.jl" => "@test_throws ArgumentError refine_x(a; $(FR) = ())\n"))
+        # the word elsewhere: comments (BlobBoards' "CUDA-free", "free memory", "for free"), a local, a field,
+        # an accessor, another function's keyword, another TOML table
+        @test isempty(rules("src/a.jl" => "f(x) = x   # CUDA-$(FR): the kernels allocate no $(FR) memory, for $(FR)\n"))
+        @test isempty(rules("src/a.jl" => "$(FR) = device_$(FR)_bytes(dev); r.$(FR) == (); $(FR)_names(spec)\n"))
+        @test isempty(rules("src/a.jl" => "struct M\n    $(FR)::Tuple\nend\nallocate(n; $(FR) = true)\n"))
+        @test isempty(rules("configs/a.toml" => "[slurm]\n$(FR) = 4\nhold = true\n"))
     end
 
     @testset "R12: the Student-t + uniform scorer has no threshold" begin

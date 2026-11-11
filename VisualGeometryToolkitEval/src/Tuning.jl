@@ -55,7 +55,7 @@ export
     # grids.jl — persisted grid specs and the extension
     GridSpec, SpacedGrid, ListedGrid, extend, extension_offset, nearest_column,
     # windows.jl — the cutoff band and window rules
-    ScaleMultipleWindow, WindowRule, FixedWindow, StandardizedWindow, CoverageWindow,
+    EfficiencyConstantWindow, WindowRule, FixedWindow, StandardizedWindow, CoverageWindow,
     CenteredWindow, window_bounds,
     # policies.jl — axes, the boundary rule, objectives
     TuningAxis, SpacedAxis, ListedAxis, grid_spec, GridExtension,

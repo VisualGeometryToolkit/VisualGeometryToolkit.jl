@@ -28,7 +28,7 @@ using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, csp
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, Circle
 using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem,
-    RadialCameraProblem, find_radial_homography, find_radial_camera, HandEyeProblem, NoLocalOptimization,
+    RadialCameraProblem, find_radial_homography, find_radial_camera, HandEyeProblem,
     RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
 
 thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
@@ -229,7 +229,7 @@ end
             st = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => h); problem = P)
             @test st isa StudentTUniformScoring && VgtkCore.outlier_halfwidth(st) === h
             @test deq(run((; scoring = st, rng = StableRNG(seed))),
-                      VgtkEstimation.ransac(p, st; local_optimization = _dflt_lo(class), rng = StableRNG(seed),
+                      VgtkEstimation.ransac(p, st; local_optimization_strategy = _dflt_lo(class), rng = StableRNG(seed),
                                             config = RansacConfig()))
             # the LO follows the scorer: the class's strategy has no width of its own
             @test VgtkCore.lo_width(_dflt_lo(class)) === nothing || class in (:circle, :ellipse)
@@ -256,7 +256,7 @@ end
     # a [pipelines.<class>] table holds the class's scorer and strategy (hand-eye its motion pairs, the radial
     # homography the lift seed's table), never a bare width
     for (class, t) in VgtkEstimation._TOML_DEFAULTS["pipelines"]
-        @test issubset(keys(t), ("scoring", "local_optimization", "motion_pairs", "lift_seed"))
+        @test issubset(keys(t), ("scoring", "local_optimization_strategy", "motion_pairs", "lift_seed"))
     end
 end
 
@@ -264,7 +264,7 @@ end
     cs, _ = h_scene()
     p = HomographyProblem(cs)
     θ = estimate(find_homography(cs; rng = StableRNG(1)))
-    lo = NoLocalOptimization()
+    lo = nothing
     sc = MsacScoring(p; threshold = 3.0)
     # a bare `threshold` and a bare `outlier_halfwidth` are refused on every entry, alone or beside a scorer,
     # naming `scoring` and the scorer that takes the width
@@ -273,9 +273,9 @@ end
                 () -> find_homography(cs; (; key => val)...),
                 () -> find_homography(cs; scoring = sc, (; key => val)...),
                 () -> refine_homography(θ, cs; (; key => val)...),
-                () -> locally_optimize(p, θ; scoring = sc, local_optimization = lo, (; key => val)...),
+                () -> locally_optimize(p, θ; scoring = sc, local_optimization_strategy = lo, (; key => val)...),
                 () -> locally_optimize(p, VgtkCore.FixedModels(1, (θ, θ)); scoring = sc,
-                                       local_optimization = lo, (; key => val)...),
+                                       local_optimization_strategy = lo, (; key => val)...),
             )
             err = try
                 call(); nothing
@@ -288,8 +288,8 @@ end
         end
     end
     # `locally_optimize` takes no class: its scorer is required
-    @test_throws UndefKeywordError(:scoring) locally_optimize(p, θ; local_optimization = lo)
-    r = locally_optimize(p, θ; scoring = sc, local_optimization = Irls{TLSShape}())
+    @test_throws UndefKeywordError(:scoring) locally_optimize(p, θ; local_optimization_strategy = lo)
+    r = locally_optimize(p, θ; scoring = sc, local_optimization_strategy = Irls{TLSShape}())
     @test converged(r)
     # a non-positive threshold is the scorer's refusal
     @test_throws ArgumentError find_homography(cs; scoring = MsacScoring(p; threshold = 0.0))
@@ -313,8 +313,11 @@ end
 @testset "refine_*: the keywords of the shared refine pipeline" begin
     kw(m) = Set(Base.kwarg_decl(m))
     shared = kw(only(methods(VgtkEstimation._refine_pipeline)))
-    @test shared == Set([:threshold, :outlier_halfwidth, :local_optimization, :scoring, :workspace])   # the two widths: declared to be refused
-    @test shared == setdiff(kw(only(methods(VgtkEstimation._ransac_pipeline))), [:max_trials, :min_trials, :config, :rng])
+    # the two widths and the retired strategy keywords: declared to be refused
+    @test shared == Set([:threshold, :outlier_halfwidth, :optimization_strategy, :local_optimization_strategy,
+                         :local_optimization, :scoring, :workspace])
+    @test setdiff(shared, [:optimization_strategy]) ==
+        setdiff(kw(only(methods(VgtkEstimation._ransac_pipeline))), [:max_trials, :min_trials, :config, :rng])
     # each refine_* forwards the rest like its find_*, and declares only the
     # find_*'s model-specific keywords — minus those that choose hypotheses (the
     # radial centre comes with the model)
@@ -334,7 +337,7 @@ end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     p = CircleProblem(pts)
     g = Circle(Point2(C₀ + SVector(1.0, -1.0)), R₀ + 1.0)
-    for (k, v) in (:local_optimization => Irls{TLSShape}(), :scoring => MsacScoring(p; threshold = 1.0),
+    for (k, v) in (:optimization_strategy => Irls{TLSShape}(), :scoring => MsacScoring(p; threshold = 1.0),
                    :workspace => RansacWorkspace(CircleProblem, 300))
         @test converged(refine_circle(g, pts; (; k => v)...))
     end
@@ -367,7 +370,7 @@ end
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
-    triggs = Triggs{CauchyShape}(scale_multiple = 2.5)
+    triggs = Triggs{CauchyShape}(efficiency_constant = 2.5)
     cases = (
         (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...), (triggs, Irls{TLSShape}())),
         (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...), (triggs,)),
@@ -381,11 +384,11 @@ end
         (:hand_eye, (; kw...) -> find_hand_eye(hecs; kw...), (θ; kw...) -> refine_hand_eye(θ, hecs; kw...), ()),
     )
     for (class, find, refine, strategies) in cases
-        raw = estimate(find(; local_optimization = NoLocalOptimization(), rng = StableRNG(3)))
+        raw = estimate(find(; local_optimization_strategy = nothing, rng = StableRNG(3)))
         for lo in (nothing, strategies...)
-            kws = lo === nothing ? (;) : (; local_optimization = lo)
+            kws = lo === nothing ? (;) : (; local_optimization_strategy = lo)
             f = find(; kws..., rng = StableRNG(3))
-            r = refine(raw; kws...)
+            r = refine(raw; (lo === nothing ? (;) : (; optimization_strategy = lo))...)
             @test converged(r) && r.lo_retcode !== :not_run
             m = f.inlier_mask
             # Within 30% of the noise level (find_*'s rms), the consensus but for 3%
@@ -403,8 +406,8 @@ end
     # path-dependent (here find_* keeps 311 points at rms 0.449 px), so the
     # refine is checked against the truth instead — to the noise level
     centre(e) = SVector(e.center[1], e.center[2])
-    e = estimate(refine_ellipse(estimate(find_ellipse(epts; local_optimization = NoLocalOptimization(), rng = StableRNG(3))), epts;
-                                local_optimization = Irls{TLSShape}()))
+    e = estimate(refine_ellipse(estimate(find_ellipse(epts; local_optimization_strategy = nothing, rng = StableRNG(3))), epts;
+                                optimization_strategy = Irls{TLSShape}()))
     # (the truncation's path also moves the axes: Julia 1.12 measured a 0.29 px off)
     @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.4 && abs(e.b - E₀.b) < 0.4 && abs(e.θ - E₀.θ) < 2.0e-3
     # a strategy the problem cannot host is refused as inside find_*
@@ -413,9 +416,9 @@ end
     catch e
         e
     end
-    raw = estimate(find_hand_eye(hecs; local_optimization = NoLocalOptimization(), rng = StableRNG(3)))
-    ef = err(() -> find_hand_eye(hecs; local_optimization = triggs, rng = StableRNG(3)))
-    er = err(() -> refine_hand_eye(raw, hecs; local_optimization = triggs))
+    raw = estimate(find_hand_eye(hecs; local_optimization_strategy = nothing, rng = StableRNG(3)))
+    ef = err(() -> find_hand_eye(hecs; local_optimization_strategy = triggs, rng = StableRNG(3)))
+    er = err(() -> refine_hand_eye(raw, hecs; optimization_strategy = triggs))
     @test ef isa ArgumentError && er isa ArgumentError && ef.msg == er.msg
 end
 
@@ -424,14 +427,14 @@ end
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
     for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; local_optimization = lo, scoring = MsacScoring(CircleProblem; threshold = 5.0))   # TLS: the truncation's basin is the threshold
+        kws = lo === nothing ? (;) : (; optimization_strategy = lo, scoring = MsacScoring(CircleProblem; threshold = 5.0))   # TLS: the truncation's basin is the threshold
         cr = estimate(refine_circle(g, pts; kws...))
         @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
     for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; local_optimization = lo, scoring = MsacScoring(EllipseProblem; threshold = 8.0))
+        kws = lo === nothing ? (;) : (; optimization_strategy = lo, scoring = MsacScoring(EllipseProblem; threshold = 8.0))
         e = estimate(refine_ellipse(ge, epts; kws...))
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end
@@ -446,8 +449,8 @@ end
     src, dst = homography_pairs(StableRNG(45), H_PX; n_in = 100, n_out = 0, σ = 0.0, source = gaussian_source,
                                 target = rng -> randn(rng, 2) .* 400 .+ 300)
     H = SMatrix{3, 3, Float64, 9}(H_PX)
-    for lo in (nothing, Triggs{CauchyShape}(scale_multiple = 2.5), Irls{GaussianShape}())
-        kws = lo === nothing ? (;) : (; local_optimization = lo)
+    for lo in (nothing, Triggs{CauchyShape}(efficiency_constant = 2.5), Irls{GaussianShape}())
+        kws = lo === nothing ? (;) : (; optimization_strategy = lo)
         Ĥ = SMatrix{3, 3, Float64, 9}(estimate(refine_homography(HomographyMat{Float64}(Tuple(H)), StructArray(src .=> dst); kws...)))
         @test norm(Ĥ / Ĥ[3, 3] - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-8
     end

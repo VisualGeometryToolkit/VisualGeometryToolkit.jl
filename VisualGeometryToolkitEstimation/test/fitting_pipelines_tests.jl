@@ -164,8 +164,8 @@ using VisualGeometryToolkitEstimation
             @test VgtkEstimation._dflt_lo(class) == Irls{TLSShape}()
         end
         # the circle's and the ellipse's are the robustified LM (configs/default.toml [pipelines.circle], [pipelines.ellipse])
-        @test VgtkEstimation._dflt_lo(:circle) == Triggs{WelschShape}(scale_multiple = 2.5)
-        @test VgtkEstimation._dflt_lo(:ellipse) == Triggs{WelschShape}(scale_multiple = 2.5)
+        @test VgtkEstimation._dflt_lo(:circle) == Triggs{WelschShape}(efficiency_constant = 2.5)
+        @test VgtkEstimation._dflt_lo(:ellipse) == Triggs{WelschShape}(efficiency_constant = 2.5)
     end
 
 end

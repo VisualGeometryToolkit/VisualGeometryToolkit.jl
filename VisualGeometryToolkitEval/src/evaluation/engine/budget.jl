@@ -17,7 +17,7 @@ Configuration for the sample-budget selection protocol.
 - `sample_cap::Int` — total minimal samples drawn per pair
 - `batch_size::Int` — selection (non-LO) checkpoint stride
 - `lo_every::Int`   — LO checkpoint stride (after the first batch)
-- `lo_strategy::AbstractLocalOptimization` — LO method
+- `lo_strategy::Union{Nothing, AbstractOptimizationStrategy}` — LO method (`nothing`: none)
 - `budget_unit::Symbol` — budget axis: `:models` counts essential
   matrices inspected (Shekhovtsov's unit); `:samples` counts minimal subsets.
 
@@ -30,12 +30,12 @@ Base.@kwdef struct SampleBudgetConfig
     sample_cap::Int
     batch_size::Int
     lo_every::Int
-    lo_strategy::AbstractLocalOptimization
+    lo_strategy::Union{Nothing, AbstractOptimizationStrategy}
     budget_unit::Symbol
     # PROTOCOL: the tuned refinement native of an arm whose width parameter is
     # native (outlier half-width, loss width), from the tuning sidecar
     # (deployed_arm_settings). `nothing` ⇒ the arm's refit runs at the SELECTION
-    # native, which is only correct for partition-anchored scale-multiple arms
+    # native, which is only correct for partition-anchored efficiency-constant arms
     # (width lives in the LO object).
     nat_ref::Union{Nothing,Float64} = nothing
     # AXIS the incoming native lives on (a `NativeAxis`); `lo_error!` routes it
@@ -52,7 +52,7 @@ Base.@kwdef struct SampleBudgetConfig
     # `budget_unit = :modles` run the `:samples` protocol to completion and
     # report success, and the value arrives from a TOML string in production
     # (`accv2026/configs/sample_budget_protocol.toml`). `nat_axis` must be a
-    # native axis: a scale multiple has no native to route.
+    # native axis: an efficiency constant has no native to route.
     function SampleBudgetConfig(sample_cap, batch_size, lo_every, lo_strategy, budget_unit,
                                 nat_ref, nat_axis)
         budget_unit in (:models, :samples) ||
@@ -268,7 +268,7 @@ struct SampleBudgetMethodSpec{S}
 end
 
 """
-    LossWidthSpec(name, scoring, loss_width, lo = NoLocalOptimization(); refinement_loss_width = nothing)
+    LossWidthSpec(name, scoring, loss_width, lo = nothing; refinement_loss_width = nothing)
 
 One loss-width column of [`evaluate_sample_budget`](@ref): selection by
 `scoring`, a loss-width family's template (its `width_axis` is `LossWidth()`:
@@ -278,7 +278,7 @@ paper's family with the same `with_width` and `score!` methods), built at
 Its running best is refit by its own refiner `lo` (a paper's truncated refiner
 — an `ExternalRefit` strategy such as PoseLib's TLS-LM) at
 `refinement_loss_width`, the arm's tuned refinement loss width (`nothing`:
-the selection loss width). With `lo = NoLocalOptimization()` the column is
+the selection loss width). With `lo = nothing` the column is
 selection only: its LO checkpoints record the selected model's `model_imc`, the
 same statistic as its batch checkpoints, and cost no refit.
 """
@@ -290,7 +290,7 @@ struct LossWidthSpec{S, L}
     refinement_loss_width::Union{Nothing,Float64}
 end
 function LossWidthSpec(name::Symbol, scoring::AbstractScoring, loss_width::Real,
-                       lo::AbstractLocalOptimization = NoLocalOptimization();
+                       lo::Union{Nothing, AbstractOptimizationStrategy} = nothing;
                        refinement_loss_width::Union{Nothing,Real} = nothing)
     width_axis(scoring) == LossWidth() || throw(ArgumentError(
         "LossWidthSpec $name: a $(nameof(typeof(scoring))) is not a loss-width family (its width axis is " *
@@ -327,7 +327,7 @@ A `:samples` budget (`cfg.budget_unit`) counts minimal samples through
 required then and ignored for a `:models` budget.
 Columns: the scoring methods, then one loss-width column per
 [`LossWidthSpec`](@ref) (MSAC, or a paper's loss-width family; selection only
-under `NoLocalOptimization`), then the oracle (last). Every checkpoint records
+under no local optimization, `nothing`), then the oracle (last). Every checkpoint records
 the running best's `model_imc`. Every native refit is seeded under `refit_scoring` (a
 scoring TEMPLATE, rebuilt at each refit's own outlier half-width) — the
 methods' own: they must share it.
@@ -388,7 +388,7 @@ function evaluate_sample_budget(problem_type::Type,
         Tuple(_scorer(m.name, m.scoring, _method_width(m)) for m in methods)...,
         # loss-width selection + its own refiner: one selector per spec.
         Tuple(_scorer(s.name, with_width(s.scoring, LossWidth(s.loss_width)), s.loss_width;
-                      lo = s.lo, refinement_width = s.refinement_loss_width) for s in loss_width_specs)...,
+                      lo = s.lo === nothing ? _SelectionOnly() : s.lo, refinement_width = s.refinement_loss_width) for s in loss_width_specs)...,
         # Oracle refines its GT-best model at a representative outlier
         # half-width (the first method's).
         OracleSelector(:oracle, _method_width(methods[1])),
@@ -452,7 +452,7 @@ function _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg,
     # outlier half-width → loss width for the truncated consumers — so the warm
     # call compiles and times the
     # Same path the loop takes.
-    if !(cfg.lo_strategy isa NoLocalOptimization)
+    if cfg.lo_strategy !== nothing
         nat_w = consumed_native(cfg.lo_strategy, cfg.nat_axis, something(cfg.nat_ref, _method_width(methods[1]));
                              d_g = codimension(problem_type))
         t  = time_ns()
@@ -464,7 +464,7 @@ function _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg,
     # The loss-width columns' own refiners: one warm call per refiner type.
     cold = Dict{DataType,Int64}()
     for (k, s) in enumerate(loss_width_specs)
-        s.lo isa NoLocalOptimization && continue
+        s.lo === nothing && continue
         startup[M + k] = get!(cold, typeof(s.lo)) do
             t = time_ns()
             refit_imc!(ctx, s.lo, seed_E, s.loss_width)

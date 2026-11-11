@@ -211,7 +211,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         # RANSAC counting runs the same loop to the same line.
         points, true_model, _ = make_line_data(n_inliers = 200, n_outliers = 50)
         problem = LineFittingProblem(points)
-        r = ransac(problem, RansacScoring(problem; threshold = 0.5); local_optimization = Irls{TLSShape}(),
+        r = ransac(problem, RansacScoring(problem; threshold = 0.5); local_optimization_strategy = Irls{TLSShape}(),
                    config = RansacConfig(max_trials = 2000, min_trials = 100), rng = StableRNG(144))
         @test converged(r)
         model = _line_coeffs(r)
@@ -364,8 +364,8 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         sc = MsacScoring(2; threshold = 0.5)
         lo = Irls{TLSShape}()
         ws = RansacWorkspace(LineFittingProblem(small), sc, lo)
-        r_ws = ransac(LineFittingProblem(large), sc; local_optimization = lo, workspace = ws, rng = StableRNG(149))
-        r_fresh = ransac(LineFittingProblem(large), sc; local_optimization = lo, rng = StableRNG(149))
+        r_ws = ransac(LineFittingProblem(large), sc; local_optimization_strategy = lo, workspace = ws, rng = StableRNG(149))
+        r_fresh = ransac(LineFittingProblem(large), sc; local_optimization_strategy = lo, rng = StableRNG(149))
         @test converged(r_ws) && estimate(r_ws) == estimate(r_fresh) && r_ws.inlier_mask == r_fresh.inlier_mask
         wl = RansacWorkspace(LineFittingProblem(large), sc)
         @test converged(ransac(LineFittingProblem(small), sc; workspace = wl, rng = StableRNG(150)))

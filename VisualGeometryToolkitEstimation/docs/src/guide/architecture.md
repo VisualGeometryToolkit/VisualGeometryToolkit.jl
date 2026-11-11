@@ -82,8 +82,8 @@ RansacWorkspace{K, M, T, W, L}             built once, reused across trials and 
 └── best_* / sample_indices                the incumbent (model, residuals, scores, mask, order)
 ```
 
-`RansacWorkspace(problem, scoring, local_optimization)` (or
-`RansacWorkspace(P, n_max, scoring, local_optimization)`) composes it; the
+`RansacWorkspace(problem, scoring, local_optimization_strategy)` (or
+`RansacWorkspace(P, n_max, scoring, local_optimization_strategy)`) composes it; the
 no-scoring form `RansacWorkspace(P, n)` builds the default MSAC scorer's. The
 storage eltype is an optional leading positional on each form,
 `RansacWorkspace(T, …)` (default `Float32`). All dispatch on `W` and `L` is
@@ -107,7 +107,7 @@ allocate.
 
 **A width is resolved once.** A strategy that carries a loss width, such as
 `Irls{K, W}`, has one of three width modes. With no width it follows the
-scorer's `decision_boundary`. `ScaleMultiple(m)` anchors the width at `m` times
+scorer's `decision_boundary`. `EfficiencyConstant(m)` anchors the width at `m` times
 the consensus set's scale, and `LossWidth(w)` fixes it. VisualGeometryToolkitCore's
 `loss_at` resolves the mode once per call. Following a scorer that defines no
 threshold is refused at entry by `check_composition`.
@@ -138,7 +138,7 @@ VisualGeometryToolkitCore's local-optimization contract:
 scoring)` on the strategy's workspace `L`, returning `lo_estimate(θ′, retcode;
 iterations, residuals_current)`. The core strategies are:
 
-- `NoLocalOptimization` — no local optimization anywhere; the default of
+- `nothing` — no local optimization anywhere; the default of
   `ransac(problem, scoring)`. When selected, `_finalize` does **not** run LO
   either — the contract is "no LO, period."
 - `Irls{K}` — static IRLS on a VGC loss shape `K` at a frozen width.
@@ -214,9 +214,9 @@ VisualGeometryToolkitCore (types, solvers, loss shapes, contracts, toolkit, MSAC
         ↓                                   ↓                         ↓
 VisualGeometryToolkitEstimation              RANSACScoringDoneRight     LocalOptimizationDoneRight
 (the RANSAC loop, problems,       (paper scorers; VGC only)  (paper strategies; VGC + RVG)
- NoLocalOptimization, Irls{K})
+ Irls{K}, Triggs{K})
 ```
 
 The user composes them: `find_*(…; scoring = <a RANSACScoringDoneRight scorer>,
-local_optimization = <a LocalOptimizationDoneRight strategy>)`. VisualGeometryToolkitEstimation depends on
+local_optimization_strategy = <a LocalOptimizationDoneRight strategy>)`. VisualGeometryToolkitEstimation depends on
 neither downstream package.

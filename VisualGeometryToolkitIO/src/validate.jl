@@ -296,7 +296,7 @@ end
 const _SCHEMA_VERSION = Dict(
     "cameras" => 5, "rig" => 9, "transforms" => 4, "trajectory" => 4, "noncentral_spline" => 1,
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
-    "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 1,
+    "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 2,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)

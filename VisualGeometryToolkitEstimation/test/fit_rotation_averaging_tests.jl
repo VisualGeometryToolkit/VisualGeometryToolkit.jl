@@ -23,7 +23,7 @@
     @testset "noise and one outlier edge: down-weighted" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
-        res = fit_rotation_averaging(noisy; local_optimization = Irls{CauchyShape}())
+        res = fit_rotation_averaging(noisy; optimization_strategy = Irls{CauchyShape}())
         @test err(estimate(res)) < 5.0e-3
         @test res.irls_weights[bad] < 0.01
         @test res.residuals[bad] > 0.3
@@ -55,7 +55,7 @@
         noisy[(7, 9)] = RotMatrix(RotationVec(0.6, 0.0, 0.0)) * rel(7, 9)
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); local_optimization = Irls{TLSShape}(scale_multiple = 3.0))
+        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0))
         seed = spectral_rotation_averaging(weighted(noisy, p))
         @test res.irls_weights[(7, 9)] == 0 && res.irls_weights[(8, 9)] == 0
         @test all(isfinite, estimate(res)[9])
@@ -70,7 +70,7 @@
         @test col[1] == -1 && col[3] == -1 && col[2] >= 0 && col[4] >= 0 && nunk == 6
     end
     @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)))
-    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); local_optimization = Irls{TLSShape}())
+    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); optimization_strategy = Irls{TLSShape}())
     # the private keywords are gone: the strategy is the one schema
     @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape())
     @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3)

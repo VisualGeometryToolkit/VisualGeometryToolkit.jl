@@ -137,7 +137,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         result = ransac(
             problem,
             MsacScoring(problem; threshold = 3.0);   # the class convention (noise 0.5 px)
-            local_optimization = Irls{WelschShape}(scale_multiple = 1.5),
+            local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5),
             config = RansacConfig(max_trials = 5000, min_trials = 500),
             rng = StableRNG(192)
         )

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **New: results branches, a full reproduction under review** (`Reproduce`, src/reproduce/results_branches.jl).
+  `results_branch(dir, assets; run_keys, tiers, machine, gpus, slurm_jobs, wall_times, …)` puts a reproduction's
+  paper-facing assets (number macros, tables, figures) on a branch `results/<UTC yyyymmdd_HHMMSS>-<short commit>`
+  of the paper's repository, created in a worktree of its own under a scratch root (`VGTK_RESULTS_WORKTREES`, else
+  `<repository>-results` beside it), without touching the user's checkout; the branch carries `RUN.toml` (the code
+  commit, each data tier's TIER.toml/MANIFEST sha256 or artifact git-tree-sha1, the run keys, the machine, GPUs,
+  Slurm jobs, wall times) and `COMPARISON.md` (every macro against the base branch: its delta and IMPROVED,
+  DEGRADED or UNCHANGED, CHANGED without a direction; every asset's verify verdict; changed PNGs side by side).
+  `accept_results(dir, branch; replace_submitted)` deploys the assets into the base through `deploy_assets` as one
+  merge commit and tags it `accepted/<stamp>`; `remove_results_worktree(dir, branch; delete_branch = false)` removes
+  the worktree. A failure after the worktree is created removes the worktree and the branch; RUN.toml warns and
+  records `missing` when no tiers, GPUs or wall times are given (GPUs detected by nvidia-smi or CUDA.jl); the
+  acceptance tags before it moves the base and deletes the tag when the base cannot move, and warns when the base moved
+  since the run. `add_number!` and `add_table_row!` take `better = :lower | :higher | :none` (or its String),
+  recorded in the provenance comment (`; better=…`). A fast-forward of the user's checkout of the base is a
+  `git merge` there and runs that checkout's `post-merge` hook; the commits `accept_results` makes skip hooks.
+  The paper-project template's driver renders under `plots/example/` and deploys into the paper in a `deploy` stage
+  (`deploy_assets`; `--replace-submitted` signs off a changed asset); with `--results-branch` it skips `deploy` and
+  makes a results branch of its renders, recording its synthetic draws (`samples.tsv`) as the data tier `example_samples`.
+
 - **New: the one writer of a paper's number macros** (`Reproduce`, src/reproduce/number_macros.jl, Base only).
   `PaperNumbers(; driver, config, run_key, commit)` collects a driver's numbers; `add_number!(nums, name, value;
   label, provenance, format...)` adds a number of the prose or a value a figure reads (`label = "fig:…"`);

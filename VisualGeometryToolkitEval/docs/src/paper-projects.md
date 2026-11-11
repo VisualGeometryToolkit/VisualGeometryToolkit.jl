@@ -25,7 +25,7 @@ already satisfies them.
 | `test/runtests.jl` | the suite; it calls `paper_project_violations` |
 | `paper/` | the manuscript, with generated assets under `paper/figures/` |
 | `data/exp_raw`, `data/exp_pro` | the per-machine bindings of the input and results trees (links or directories, ignored by git); `data/sims` for smoke runs |
-| `plots/` | local renderings that are not paper assets |
+| `plots/` | the drivers' renders (ignored by git); a deploy stage copies the paper's into the paper |
 | `REPRODUCE.md` | the asset index (see [Reproducible figures](@ref)) |
 | `Artifacts.toml`, `configs/data_artifacts.toml` | the published input data and their catalog |
 
@@ -123,7 +123,11 @@ new_paper_project("neurips2026"; papers = ["paper/main.tex"])   # git = false in
 `scripts/example_stage.jl`, `src/<name>.jl`, `test/runtests.jl`, the papers,
 `Artifacts.toml`, the catalog stub and `data/README.md`. The example stage
 shows the stage runner, a config of record, a run key and provenance; it
-writes a figure, its caption and a macro file. Then:
+renders a figure, its caption and a macro file under `plots/example/`, and its
+`deploy` stage copies them into the paper ([`deploy_assets`](@ref): a changed
+submitted asset needs `--replace-submitted`). With `--results-branch` it skips
+`deploy` and makes a [`results_branch`](@ref) of the renders instead, recording
+its synthetic draws as the data tier. Then:
 
 ```bash
 cd neurips2026

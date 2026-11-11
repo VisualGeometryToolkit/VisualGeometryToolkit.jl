@@ -155,7 +155,7 @@
         @test isempty(check(root))
         # a generator of the index without the stage runner
         root = good()
-        edit(s -> replace(s, "run_stages(\"example_stage\", STAGES)" => "foreach(st -> st.run(), STAGES)"),
+        edit(s -> replace(s, r"run_stages\(\"example_stage\", .*\)$"m => "foreach(st -> st.run(), STAGES)"),
              root, "scripts/example_stage.jl")
         @test rules(check(root)) == ["S1"]
     end

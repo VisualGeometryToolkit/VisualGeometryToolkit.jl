@@ -33,7 +33,8 @@ conventions: DrWatson's `initialize_project` with
   (the data bindings, local plots, LaTeX products; the Manifest is tracked);
 - `REPRODUCE.md` with the asset-index table, `configs/example.toml`,
   `scripts/example_stage.jl` (stage runner, config of record, run key,
-  provenance; it writes a figure, its caption and a macro file), `src/<name>.jl`
+  provenance; it renders a figure, its caption and a macro file under `plots/` and
+  deploys them into the paper), `src/<name>.jl`
   (the prelude), `test/runtests.jl` (calls [`paper_project_violations`](@ref));
 - the papers (the first reads the example's assets), `Artifacts.toml` and the
   data catalog stub `configs/data_artifacts.toml`, `data/README.md`.

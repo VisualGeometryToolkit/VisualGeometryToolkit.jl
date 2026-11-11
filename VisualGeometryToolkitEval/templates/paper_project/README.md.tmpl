@@ -14,6 +14,22 @@ julia --project=. scripts/example_stage.jl            # run what is pending
 julia --project=. test/runtests.jl                    # the conventions + the project's tests
 ```
 
+A driver renders under `plots/` and its `deploy` stage copies the renders into the paper
+(`deploy_assets`): a new asset goes in, a changed one only with `--replace-submitted`, the
+sign-off. A full reproduction is reviewed before it reaches the paper: with `--results-branch`
+the driver skips `deploy` and puts its renders on a branch `results/<UTC stamp>-<commit>` of this repository,
+in a worktree of its own (under `VGTK_RESULTS_WORKTREES`, else `<repository>-results` beside
+it), with `RUN.toml` (the commit, the run keys, the data tiers, the machine) and `COMPARISON.md`
+(every number against the paper as committed on its branch, IMPROVED or DEGRADED by the direction its
+`add_number!(…; better)` states). Then, in Julia (`using VisualGeometryToolkitEval.Reproduce`):
+
+```
+accept_results(".", "results/<stamp>-<commit>"; replace_submitted = true)   # one merge commit, tag accepted/<stamp>;
+                                                                            # this checkout fast-forwards (its post-merge hook runs)
+remove_results_worktree(".", "results/<stamp>-<commit>")                    # after acceptance, or as the rejection
+remove_results_worktree(".", "results/<stamp>-<commit>"; delete_branch = true)
+```
+
 | Path | Holds |
 |---|---|
 | `configs/` | the configs of record (TOML): every value a result depends on |
@@ -23,6 +39,6 @@ julia --project=. test/runtests.jl                    # the conventions + the pr
 | `{{PAPERDIR}}/` | the paper; generated assets under `{{FIGDIR}}/` |
 | `data/exp_raw` | the read-only inputs (a link or directory per machine, or the artifact view; `data/README.md`) |
 | `data/exp_pro` | the results, in directories keyed by run key, each with its `_provenance.toml` |
-| `plots/` | local renderings that are not paper assets |
+| `plots/` | the drivers' renders (not tracked); the `deploy` stage copies the paper's into `{{FIGDIR}}/` |
 | `REPRODUCE.md` | the asset index: every figure, table and macro the paper reads → its generator, config and data |
 | `Artifacts.toml`, `configs/data_artifacts.toml` | the published input data (Zenodo) and their catalog |

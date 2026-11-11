@@ -179,7 +179,7 @@ end
     using Random: Xoshiro, randn
     using LinearAlgebra: norm, Diagonal, diag, mul!
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, normal_cg, CSRMatrix
+    using VisualGeometryToolkitCore: difference_rows, normal_cg, CSRMatrix, on_device
     cuda = try
         m = Base.require(Main, :CUDA)
         (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
@@ -197,7 +197,7 @@ end
         x0 = (Matrix(N) \ g) .+ 1.0e-3 .* randn(rng, n)
         cpu = normal_cg(CSRMatrix(N), g; diagonal = d, x0, rtol = 1.0e-10, max_iter = 3000)
         dev = Base.invokelatest(getproperty(cuda, :CUDABackend))
-        up(v) = Base.invokelatest(VisualGeometryToolkitCore.on_device, dev, v)
+        up(v) = Base.invokelatest(on_device, dev, v)
         Nd = Base.invokelatest(CSRMatrix, N; device = dev)
         apply!(y, x) = mul!(y, Nd, x)
         gpu = Base.invokelatest(normal_cg, apply!, up(g); diagonal = up(d), x0 = up(x0), rtol = 1.0e-10, max_iter = 3000)

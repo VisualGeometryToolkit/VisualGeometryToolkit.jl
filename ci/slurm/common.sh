@@ -16,9 +16,8 @@ JULIA=${JULIA:-julia}
 command -v "$JULIA" > /dev/null || { echo "no julia binary \"$JULIA\" (set JULIA, or put julia on PATH)"; exit 2; }
 [ -f ci/slurm/common.sh ] || { echo "run from the repository root"; exit 2; }
 
-# The packages, in dependency order: the short name a launch may use, and the directory.
-VGTK_ALL_PACKAGES=(VisualGeometryToolkitCore VisualGeometryToolkitIO VisualGeometryToolkitEstimation
-                   VisualGeometryToolkitFeatures VisualGeometryToolkitEval PoseLib)
+# The packages, in dependency order (packages.sh): the short name a launch may use, and the directory.
+source ci/slurm/packages.sh
 
 # package_dir <name>: the package directory of a short or full name (Core, IO, Estimation, Features, Eval, PoseLib)
 package_dir() {

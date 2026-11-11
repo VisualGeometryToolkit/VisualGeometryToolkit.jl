@@ -8,8 +8,8 @@ set -uo pipefail
 [ $# -eq 1 ] || { echo "usage: summarize.sh <job id | log directory>"; exit 2; }
 if [ -d "$1" ]; then D=$1; else D=${VGTK_SUITE_LOGS:-ci/slurm/logs}/job-$1; fi
 [ -d "$D" ] || { echo "no log directory $D"; exit 2; }
-ORDER=(VisualGeometryToolkitCore VisualGeometryToolkitIO VisualGeometryToolkitEstimation VisualGeometryToolkitFeatures
-       VisualGeometryToolkitEval PoseLib)
+source "$(dirname "$0")/packages.sh"            # VGTK_ALL_PACKAGES, the table's order
+ORDER=("${VGTK_ALL_PACKAGES[@]}")
 LOGS=()
 for p in "${ORDER[@]}"; do [ -f "$D/$p.log" ] && LOGS+=("$D/$p.log"); done
 for f in "$D"/*.log; do [[ " ${ORDER[*]} " == *" $(basename "$f" .log) "* ]] || LOGS+=("$f"); done

@@ -337,7 +337,8 @@ non-central one is a `NoncentralSplineModel`).
 - **Internal: one posterior support-and-rms rule.** The EM fits (`fit_residual_mixture`, `fit_division_camera`)
   restated the `find_*` results' rule for posterior weights (a weight below eps stored as an exact 0; `n` the support,
   `rms` the weighted root mean square over it); all three call `_posterior_support_rms!`. `n` and `rms` are unchanged
-  bit for bit on every fit of their tests.
+  bit for bit on every fit of their tests. One edge case follows the `find_*` rule: a NaN posterior (none arises on
+  finite data) is now counted in an EM fit's `n` and makes its `rms` NaN, where the fits' own helpers left it out.
 - **Fixed: too few data refuses the keywords enough data refuse.** Below a minimal sample, a `find_*` / `refine_*`
   accepted any keyword and returned the `:no_model` result. The too-few path is now the pipeline itself (run on
   `_TooFew{P}(n)` in place of the problem), so a retired keyword (`local_optimization`, a refine's

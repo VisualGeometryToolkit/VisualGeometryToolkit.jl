@@ -1086,17 +1086,18 @@ function _old_grid_camera(b::AbstractDict)
     P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh) : trues(gh, gw)
     bounds = (Int(b["calibration_min_x"]), Int(b["calibration_min_y"]), Int(b["calibration_max_x"]), Int(b["calibration_max_y"]))
     nominal = haskey(b, _OLD_NOMINAL_KEY) ? LogicalIntrinsics(_k_from_values(b[_OLD_NOMINAL_KEY])) : nothing
-    build() = CameraModel(SplineLens, _controls_from_json(b["direction_grid"], P, Val(3)), (Int(b["width"]), Int(b["height"]));
-                          calib_area = bounds, intrinsics = nominal, present = all(P) ? nothing : P)
-    nominal === nothing || return build()
+    C = _controls_from_json(b["direction_grid"], P, Val(3))
+    sz, present = (Int(b["width"]), Int(b["height"])), all(P) ? nothing : P
     # no nominal pinhole: K is the lattice's gauge, which a lattice without a complete window at its pixel lacks
-    # (Core's refusal says to supply K) — name the reader's keyword that supplies it
-    return try
-        build()
-    catch e
-        (e isa ArgumentError && occursin("supply K", e.msg)) || rethrow()
-        throw(ArgumentError(e.msg * "; an old grid file that stores no nominal pinhole takes it from the reader: load(BoundedCamera, path; intrinsics = K), or load(Rig, path; intrinsics = Dict(:sensor_id => K))"))
-    end
+    # (Core's `has_spline_gauge`) — name the reader's keyword that supplies it
+    nominal === nothing && !VgtkCore.has_spline_gauge(C, sz; calib_area = bounds, present) && throw(
+        ArgumentError(
+            "an old grid body stores no nominal pinhole, and its lattice has no complete 4 × 4 window at the pixel its gauge " *
+                "reads, so K cannot be derived from it; supply K: an old grid file that stores none takes it from the reader: " *
+                "load(BoundedCamera, path; intrinsics = K), or load(Rig, path; intrinsics = Dict(:sensor_id => K))"
+        )
+    )
+    return CameraModel(SplineLens, C, sz; calib_area = bounds, intrinsics = nominal, present)
 end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
 _old_grid_extras(b::AbstractDict) = merge(
@@ -1138,19 +1139,16 @@ end
 
 # The parsed file `d` with the K a caller supplies (`load(…; intrinsics)`): `nothing`
 # leaves it as it is. An old grid body that stores no nominal pinhole takes the given
-# K as one (in the parsed record only — the file is never edited): the body of an old
+# K as one, written into the parsed record (no text round trip; the file is never edited): the body of an old
 # grid file (`intrinsics` one K), or of an old rig's grid sensors (`intrinsics` a K per
 # sensor id). A record that holds its K refuses one, and so does an unknown sensor.
 _with_given_intrinsics(d, ::Nothing, path) = d
 function _with_given_intrinsics(d, K::CameraCalibrationMat, path)
     (d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS) || _holds_k(path, "the record")
-    t = _lower(d)
-    _give_nominal!(t, K, path, "the record")
-    return _parse_vgio_text(JSON.json(t; allownan = true), path)
+    return _give_nominal!(d, K, path, "the record")
 end
 function _with_given_intrinsics(d, Ks::AbstractDict{Symbol, <:CameraCalibrationMat}, path)
-    t = _lower(d)
-    sensors = Dict{String, Any}(String(s["id"]) => s for s in get(t, "sensors", Any[]) if s isa AbstractDict && haskey(s, "id"))
+    sensors = Dict{String, Any}(String(s["id"]) => s for s in get(d, "sensors", Any[]) if s isa AbstractDict && haskey(s, "id"))
     for (id, K) in Ks
         s = get(sensors, String(id), nothing)
         s === nothing && throw(ArgumentError("$(path): no sensor $(repr(String(id))) to supply K to; sensors: $(sort!(collect(keys(sensors))))"))
@@ -1158,7 +1156,7 @@ function _with_given_intrinsics(d, Ks::AbstractDict{Symbol, <:CameraCalibrationM
         (c isa AbstractDict && get(c, "type", nothing) in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)) || _holds_k(path, "sensor $(repr(String(id)))")
         _give_nominal!(c, K, path, "sensor $(repr(String(id)))")
     end
-    return _parse_vgio_text(JSON.json(t; allownan = true), path)
+    return d
 end
 # An old grid body `b` without a nominal pinhole takes K as one.
 function _give_nominal!(b::AbstractDict, K::CameraCalibrationMat, path, what)

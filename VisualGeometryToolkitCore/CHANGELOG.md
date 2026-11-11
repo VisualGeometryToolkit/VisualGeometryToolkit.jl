@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `has_spline_gauge(controls, size; calib_area, present)`** (public): whether a SplineLens pixel lattice
+  gives its own gauge K (its 4 × 4 window at the gauge's pixel complete), the condition under which the controls
+  constructor refuses to build without `intrinsics`. VisualGeometryToolkitIO's old-grid reader asks it instead of
+  matching the refusal's text.
 - **Changed: the batched `backproject(camera, pixels; device)` runs on a KernelAbstractions backend for every
   `CameraModel`**, with the new batched `backproject_with_jacobian(camera, pixels; device)` beside it (and a
   `NoncentralSplineModel`'s, its central model's): one `pointwise!` over a device copy of the model, each ray an

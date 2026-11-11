@@ -1087,9 +1087,8 @@ end
 # refusal says which pixel lacks a window, not that ẑ is not imaged. Any skew-0 K is an
 # exact gauge of the camera (a pixel's lattice coordinate does not depend on it).
 function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2, present)
-    pp, on_axis = _imaged_z(pixel_direction.controls, rect, present)    # the pixel imaging ẑ, else the centre (the fallback)
-    ix, iy, _, _ = spline_window(rect, size(pixel_direction.controls), pp)
-    _window_present(present, ix, iy) || throw(
+    pp, on_axis, complete = _gauge_pixel(pixel_direction, rect, present)
+    complete || throw(
         ArgumentError(
             "SplineLens gauge: the grid has no complete 4 × 4 window at " *
                 (on_axis ? "the pixel $pp imaging ẑ" : "the calibrated area's centre $pp, where the search for the pixel imaging ẑ starts (ẑ may lie under an incomplete window)") *
@@ -1102,6 +1101,36 @@ function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2, present)
         ArgumentError("SplineLens gauge: the grid's local scale at the pixel $pp is not a positive finite focal length ($fx, $fy)")
     )
     return LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0.0, 0.0, 0.0, fy, 0.0, pp[1], pp[2], 1.0)))
+end
+
+# The gauge's pixel of a pixel-lattice direction spline — the pixel imaging ẑ, else the
+# rectangle's centre (the fallback) — whether it images ẑ, and whether the lattice's
+# 4 × 4 window there is complete (`present`), which the local scale needs.
+function _gauge_pixel(pixel_direction::ChartSpline{3}, rect::Rect2, present)
+    pp, on_axis = _imaged_z(pixel_direction.controls, rect, present)
+    ix, iy, _, _ = spline_window(rect, size(pixel_direction.controls), pp)
+    return pp, on_axis, _window_present(present, ix, iy)
+end
+
+"""
+    has_spline_gauge(controls::AbstractMatrix{<:StaticVector{3}}, size; calib_area, present = nothing) -> Bool
+
+Whether the pixel lattice of `CameraModel(SplineLens, controls, size; calib_area,
+present)` gives its own gauge `K`: whether its 4 × 4 window at the gauge's pixel
+(the pixel imaging ẑ, else the calibrated area's centre) holds only present
+nodes. Where it does not, that constructor refuses to build without a supplied
+`intrinsics`; a reader that can supply one asks this first.
+"""
+function has_spline_gauge(
+        controls::AbstractMatrix{<:StaticVector{3}}, size::Union{Tuple{Integer, Integer}, Size2};
+        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
+            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
+    )
+    gh, gw = Base.size(controls)
+    rect, _ = _spline_layout(size, (gw, gh), calib_area)
+    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(v), controls))
+    return last(_gauge_pixel(ChartSpline(rect, C), rect, present))
 end
 
 # The K a SplineLens camera built from `source` keeps: a camera's own (checked by

@@ -1178,6 +1178,7 @@ export ChartSpline                       # a uniform cubic B-spline on a 2-D cha
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export forward_chart                     # the chart of every SplineLens forward spline (public, not exported, at the top level)
+export has_spline_gauge                  # whether a SplineLens pixel lattice gives its own K (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

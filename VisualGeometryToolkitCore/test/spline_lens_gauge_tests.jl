@@ -196,6 +196,7 @@ end
     @test occursin("where the search for the pixel imaging ẑ starts", e.msg) && !occursin("not imaged", e.msg)
     for P in (hole, sparse, checker)
         @test refused(refusal(P))
+        @test !VisualGeometryToolkitCore.has_spline_gauge(nan_absent(P), (W, H); present = P)   # the refusal's condition, asked first
         # the camera of the same lattice under a given K: built, its rays the lattice's
         c = CameraModel(SplineLens, nan_absent(P), (W, H); intrinsics = src.intrinsics, present = P)
         @test calibration_matrix(c) == calibration_matrix(src)
@@ -204,6 +205,7 @@ end
         [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]) > 1000
     # every node present: gauged as before
     @test all(isfinite, gauge(trues(gh, gw)).K)
+    @test VisualGeometryToolkitCore.has_spline_gauge(C, (W, H)) && VisualGeometryToolkitCore.has_spline_gauge(C, (W, H); present = trues(gh, gw))
 end
 
 @testitem "SplineLens gauge and axis check: node absence is read from the presence mask, not from NaN controls" begin

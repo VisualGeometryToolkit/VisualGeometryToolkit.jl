@@ -139,6 +139,8 @@ const CONTRACT_GENERICS = (
     # the robust stages' scale hand-off, answered by a metadata type that records its scale otherwise
     # (base/scale_source.jl)
     noise_scale, scale_source,
+    # the termination record, answered by a metadata type that records it (base/return_code.jl)
+    return_code, stop_rule,
     # the weight kind of a producer or metadata type (robust/weights.jl)
     weight_kind,
     # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model

@@ -118,9 +118,11 @@ end
     # cost decrease and step size shrink together; the step stop is decoded
     # first, so the stall postcondition runs and the stop is :stalled.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
-    x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall; stationarity_tol = 0.05, ftol = 1.0e-10)
+    x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall; stationarity_tol = 0.05, ftol = 1.0e-10)
     @test isfinite(F) && x[3] <= 0.25
     @test lm_retcode(c) === :stalled
+    # the termination record agrees: a step-size stop that fails the postcondition
+    @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
 end
 
 @testset "the knob map" begin

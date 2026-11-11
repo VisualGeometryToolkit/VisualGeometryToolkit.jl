@@ -21,6 +21,28 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **New: every fit's termination record, `ReturnCode` and `StopRule`; Breaking: `converged` is strict** (the
+  robust-estimation contract §14, owner rulings 2026-11-11).
+  - `ReturnCode` is SciMLBase's return-code interface, MATCHED without the dependency: a module-scoped enum
+    (`ReturnCode.T`, `ReturnCode.Success`) with SciMLBase's names, integer values and `successful_retcode` rule, for
+    the codes the stack produces: `Success`, `Terminated`, `MaxIters`, `MaxTime`, `Stalled`, `InitialFailure`,
+    `Failure`, `InternalLinearSolveFailed`. A test pins the names and values to SciMLBase 3.58's.
+  - `StopRule` is the detail, which rule fired: `NoRule`, `ClosedForm`, `CostDecrease`, `IncrementSize`, `RejectionCap`,
+    `ParameterChange`, `NoImprovement`, `ExactFit`, `ToleranceMet`, `LadderConverged`, `LeftBasin`, `ShapeGate`, `IterationCap`,
+    `TimeCap`, `NonFinite`, `Callback`, `TrialBudget`, `AdaptiveCount`.
+  - A producer records both in its metadata (`return_code`, `stop_rule`) and declares
+    `return_code(m::MyMetadata)` (a contract generic, as is `stop_rule`). `retcode(r)` then returns its
+    `ReturnCode.T`. During the transition a producer that records none answers with the FitResult core's
+    `retcode::Symbol` as before; the core Symbol of a recording producer is written by `retcode_symbol(code, rule)`,
+    and `test_termination_record(r)` checks that they agree. When every producer records the code, the core field
+    becomes the `ReturnCode.T` (Breaking).
+  - **Breaking: `converged(r)` (and `r.converged`) is `successful_retcode(retcode(r))`** for a recording producer:
+    an iteration or RANSAC trial cap (`MaxIters`) is not converged, a closed-form solve (`Success`, `ClosedForm`) is.
+    `found_model(r)` (`estimate(r) !== nothing`) is the old "a RANSAC found a model". No producer records a code
+    yet, so no result's `converged` moves in this release of the interface.
+  - `nlls_termination(result_or_bits, postcondition)` maps NLLSsolver's termination bits to `(ReturnCode, StopRule)`
+    in `nlls_stop_code`'s one order. `lmsolve_chart!` returns it as a fifth value, under its own stall postcondition.
+    `worst_retcode` combines the solves of a multi-solve fit (the most severe; the later on a tie).
 - **New: the robust stages' scale hand-off, `ScaleSource`, `noise_scale`, `scale_source` and `scale_input`**
   (public; the robust-estimation contract, owner rulings Q1/Q2). Every robust result will record ONE scale — the one it
   ran with, or the one it estimated — and where it came from:

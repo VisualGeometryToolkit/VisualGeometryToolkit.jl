@@ -14,6 +14,17 @@ using VisualGeometryToolkitCore: Manifold, EssentialManifold, tangent_size, zero
 using StaticArrays: SVector, MVector, StaticVector
 using LinearAlgebra: norm
 
+function VgtkCore.test_termination_record(r::FitResult)
+    return Test.@testset "termination record: $(nameof(typeof(VgtkCore.metadata(r))))" begin
+        code = Test.@inferred VgtkCore.retcode(r)
+        Test.@test code isa VgtkCore.ReturnCode.T
+        rule = Test.@inferred VgtkCore.stop_rule(r)
+        Test.@test rule isa VgtkCore.StopRule
+        Test.@test (Test.@inferred VgtkCore.converged(r)) === VgtkCore.successful_retcode(code)
+        Test.@test getfield(r, :retcode) === VgtkCore.retcode_symbol(code, rule)
+    end
+end
+
 function test_manifold_contract(m::Manifold; atol::Real = 1.0e-12, allocations::Bool = true)
     return Test.@testset "manifold contract: $(nameof(typeof(m)))" begin
         D = tangent_size(m)

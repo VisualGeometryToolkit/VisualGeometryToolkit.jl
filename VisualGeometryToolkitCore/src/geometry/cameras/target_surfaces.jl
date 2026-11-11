@@ -166,16 +166,56 @@ _numbers_type(::Type{<:EuclideanMap{3, T}}) where {T} = T
 _numbers_type(::Type{<:SimilarityMap{N, T, Sc}}) where {N, T, Sc} = promote_type(T, Sc)
 _plain_fast(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTransformation{S, _PlainCalibration{C}}, I₂}}}, ::Type{O}, ::Type{Dr}) where {X, S, C, I₂, O, Dr} =
     _height_over_affine(C) && promote_type(_numbers_type(X), _numbers_type(S), _numbers_type(C), eltype(O), eltype(Dr)) <: AbstractFloat
+# the numbers of a hit of the chart map M with the ray (O, Dr), at compile time (a Dual: one implicit-function step for its partials)
+_hit_numbers(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTransformation{S, _PlainCalibration{C}}, I₂}}}, ::Type{O}, ::Type{Dr}) where {X, S, C, I₂, O, Dr} =
+    promote_type(_numbers_type(X), _numbers_type(S), _numbers_type(C), _numbers_type(I₂), eltype(O), eltype(Dr))
 
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
 @inline function intersection(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}) where {C, M <: _HeightOnlyMap{C}}
-    _plain_fast(M, typeof(o), typeof(d)) || return _mapped_intersection(s, o, d)
-    return _height_fast(s, s.map.t2.t1.t1, _field_and_affine(s.map.t2.t1.t2.c)..., o, d)
+    _plain_fast(M, typeof(o), typeof(d)) && return _height_fast(s, s.map.t2.t1.t1, _field_and_affine(s.map.t2.t1.t2.c)..., o, d)
+    _height_over_affine(C) || return _mapped_intersection(s, o, d)
+    # Duals in the field, the placement, the pose or the ray (heights, a board pose): the 1-D Newton's hit of the surface and
+    # ray with D's outermost layer's values, then ONE implicit-function step for D's partials (`_implicit_partials`, the generic
+    # root's) — never the generic 2 × 2 LM. Nested Duals (a Hessian): the generic root, seeded at the primal hit.
+    D = _hit_numbers(M, typeof(o), typeof(d))
+    D <: ForwardDiff.Dual{<:Any, <:AbstractFloat} && return _height_implicit(D, s, o, d)
+    sP = _primal_surface(s)
+    _, _, p, ok = _height_root(sP, sP.map.t2.t1.t1, _field_and_affine(sP.map.t2.t1.t2.c)..., map(_primal, o), map(_primal, d))
+    return _mapped_intersection(s, o, d, p, ok)
 end
+# The implicit-function step at the 1-D Newton's hit `pV` of the values: ONE evaluation of the chart map with D's partials at
+# `pV` (𝐗, its partials ∂𝐗/∂θ), the values' Jacobian J = ∂𝐗/∂p, the hit residual's partials in the ray's tangent basis
+# (u₁, u₂), ∂p = −(UᵀJ)⁻¹ ∂r, and the point's by the chain rule, 𝐱 = 𝐗 + J (p − pV) — the generic root's `_implicit_partials`
+# without a second Dual evaluation for the point.
+@inline function _height_implicit(::Type{D}, s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) where {D}
+    sV, oV, dV = map(x -> _layer_values(D, x), (s, o, d))
+    _, _, pV, ok = _height_root(sV, sV.map.t2.t1.t1, _field_and_affine(sV.map.t2.t1.t2.c)..., oV, dV)
+    pV = ifelse(ok, pV, zero(pV))
+    b1, b2 = s2_tangent_basis(d)
+    u1, u2 = oftype(d, b1), oftype(d, b2)
+    X = s.map(map(v -> _lift_dual(D, v), pV))              # the one Dual evaluation
+    δ = X - o
+    r = SVector(dot(u1, δ), dot(u2, δ))
+    J = transform_deriv(sV.map, pV)                        # the values' Jacobian: no Dual arithmetic
+    U = vcat(map(v -> _outer_value(D, v), u1)', map(v -> _outer_value(D, v), u2)')
+    G = inv(U * J)
+    ∂(i) = -(G[i, 1] * ForwardDiff.partials(r[1]) + G[i, 2] * ForwardDiff.partials(r[2]))
+    δp = SVector(_with_value(D, zero(pV[1]), ∂(1)), _with_value(D, zero(pV[2]), ∂(2)))
+    x = X + J * δp
+    t = dot(x - o, d) / dot(d, d)
+    return _masked(ok, t, x)
+end
+# A surface with every Dual layer of its members and frame stripped (`_primal`).
+@inline _primal_surface(s::MappedSurface) = MappedSurface(_map_members(m -> _member_numbers(_primal, m), s.map), _map_numbers(_primal, s.frame))
 
 @inline function _height_fast(s::MappedSurface, S::SimilarityMap{3}, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
+    t, x, _, ok = _height_root(s, S, H, J, β, o, d)
+    return _masked(ok, t, x)
+end
+# The 1-D Newton's hit: `(t, x, p, ok)` — the ray parameter, the point, its design point, whether it converged on the rectangle.
+@inline function _height_root(s::MappedSurface, S::SimilarityMap{3}, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
     q = s.frame
     n = normal(q)
     S₂ = _placement_plane(S)
@@ -219,5 +259,5 @@ end
     converged |= last <= sqrt(ε)
     # the design point: y = J c + β of the affine factors, p = S₂(c)
     p = S₂(J \ (S₂⁻¹(_plane_coordinates(q, x)) - β))
-    return _masked(converged & (t >= 0) & _in_rect(q.rect, p), t, x)
+    return t, x, p, converged & (t >= 0) & _in_rect(q.rect, p)
 end

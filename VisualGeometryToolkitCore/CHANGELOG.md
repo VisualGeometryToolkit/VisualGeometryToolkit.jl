@@ -93,6 +93,22 @@ sensor — so every consumer asks the camera what it images instead of supplying
   quadrature solves eff(c, d) = 0.95 under χ_d for Huber, Cauchy, Welsch and Geman–McClure at d = 1…3 and matches
   the table to its 4 decimals, so the provenance lives in the repository rather than in a scratch script. No value
   changed.
+- **A height field's ray hit with Duals takes the fast path: the 1-D Newton hit plus ONE implicit-function step.**
+  `intersection` of a `MappedSurface` whose chart map is a height field over an affine chart (`_HeightOnlyMap`), with
+  ForwardDiff Duals in the heights, the placement, the pose or the ray, no longer falls back to the generic 2 × 2 LM from
+  the plane hit. The values' hit is the plain 1-D Newton's (`_height_root`, the fast path's); the partials come from ONE
+  evaluation of the chart map on the Dual parts at that chart point — ∂p = −(UᵀJ)⁻¹ ∂r in the ray's tangent basis U, the
+  point's by the chain rule 𝐱 = 𝐗 + J (p − p_V) (`_height_implicit`). The Dual type is read off the members' and the ray's
+  types at compile time (`_hit_numbers`), so the path compiles for a device. Nested Duals (a Hessian) keep the generic root,
+  seeded at the primal fast hit. The generic root's implicit-function step (`_implicit_partials`) evaluates the residual
+  only (`_value_residual`), not its Jacobian, on the Dual parts.
+
+  Values and partials agree with the generic root's to 1e-12 (the golden `test/fixtures/height_surface/dual_hit.jl`,
+  recorded at 4c9252d6), on the host and on a CUDA device (Float64; Float32 to its rounding), Dual heights and a Dual ray.
+  With 25 height partials the hit costs ≈ 1.6× the plain hit (the generic root: ≈ 3× on a hit, ≈ 36× on a miss, ≈ 5× over
+  the fixture's rays; the test gates 3×), no allocation. RadiometricCamera's `HeightBoardRays` (its own fast hit plus
+  implicit-function step for the board heights' Jacobian columns) is retired onto it; RC's Float64 height kernel on a
+  12 048-px view on a B200: 67 ms with `HeightBoardRays`, 51 ms with this.
 
 - **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
   block views (a residual block of a run-time size assembled without a per-block allocation).

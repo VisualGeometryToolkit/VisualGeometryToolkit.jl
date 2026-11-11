@@ -76,8 +76,9 @@
         # its own path: the Loss-Path label and the path's marker, beside IRLS's
         @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
         @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)
-        # the multiple is required, and the width is always an efficiency constant
-        @test_throws UndefKeywordError Triggs{CauchyShape}()
+        # the width is always an efficiency constant; none stated (a refine's efficiency_constant(K, d), a RANSAC's
+        # scorer boundary) is `nothing`
+        @test Triggs{CauchyShape}().width === nothing
         @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
         @test Triggs{GaussianShape}().width === nothing                      # the plain chart LM: no width
         # fixed_width's freeze is the one absolute width it takes: the consensus

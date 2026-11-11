@@ -103,9 +103,11 @@ The loss width is `loss_width = efficiency_constant·ŝ` (the plain multiple, as
 the call: ŝ is the Student-t marginal scale of θ's residuals — the Sampson
 errors of all the data — over θ's consensus partition (VisualGeometryToolkitCore's
 `partition_student_t`, the scorer's `scale_s2`), the scale every
-consensus-anchored strategy reads. `efficiency_constant` is REQUIRED (but for the
-Gaussian shape): the stack has no established multiple for this strategy, so a
-configuration states one; an absolute `loss_width` or no width is an
+consensus-anchored strategy reads. With no `efficiency_constant` (`Triggs{K}()`)
+inside a RANSAC the width follows the scorer's `decision_boundary`, as for
+[`Irls`](@ref); in a refine (VisualGeometryToolkitEstimation's `refine_*`) it is
+`efficiency_constant(K, d)` times the caller's `scale`: a refine reads its scale
+from the caller, never from a consensus set. An absolute `loss_width` is an
 `ArgumentError` from a keyword or a TOML table. An absolute width reaches it
 only through `with_width`, for `fixed_width`'s freeze —
 `with_width(lo, fixed_width(lo, s2))`, the loss the consensus-anchored strategy
@@ -118,8 +120,8 @@ Gaussian; Barron, whose shape carries its α, is refused by both.
 `Irls{GaussianShape}` it has no width and takes no `efficiency_constant`.
 
 # Fields
-- `width`: the width mode, set by `efficiency_constant = m` (`EfficiencyConstant`);
-  `nothing` for `Triggs{GaussianShape}`
+- `width`: the width mode, set by `efficiency_constant = c` (`EfficiencyConstant`), or
+  `nothing` (no constant stated; always for `Triggs{GaussianShape}`)
 """
 struct Triggs{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     width::W
@@ -382,8 +384,6 @@ function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
     return lo_field_from_toml(T, Val(F), _lo_table(T, defaults)[lo_key(T, Val(F))])
 end
 lo_absent(::Type, ::Val{:width}; defaults::AbstractDict) = nothing
-lo_absent(::Type{<:Triggs}, ::Val{:width}; defaults::AbstractDict) = throw(UndefKeywordError(:efficiency_constant))
-lo_absent(::Type{<:Triggs{GaussianShape}}, ::Val{:width}; defaults::AbstractDict) = nothing
 
 """
     lo_validate(lo) -> lo

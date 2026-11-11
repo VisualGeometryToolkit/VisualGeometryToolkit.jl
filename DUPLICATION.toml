@@ -4,6 +4,12 @@
 # An entry that stops matching anything is itself a finding: remove it. Paths are
 # relative to this file.
 
+# API note (owner ruling 2026-11-11, D-mad): VisualGeometryToolkitCore._mad_scale_norms(; norms, codimension)
+# is a STACK-INTERNAL entry point, not a duplicate: the one median-of-norms scale that the public
+# `mad_scale(residuals)` itself calls, reached (qualified) by VisualGeometryToolkitEstimation only where a
+# kernel holds just the norms (fit_rotation's angles, the radial-homography lift seed). There is no
+# public norms form, so a reader of `mad_scale` never wonders whether norms are re-centred.
+
 [[similar]]
 functions = ["VisualGeometryToolkitCore/test/data/chain_equivalence/core_values.jl::canonical",
              "VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::lit"]

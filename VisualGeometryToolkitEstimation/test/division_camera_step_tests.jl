@@ -182,7 +182,7 @@
                 t3 = RVG._whitening_depth(cands[itrue]..., bo, f0, λs, use)
                 lm = RVG._lift_model(cands[itrue]..., f0, λs, t3)
                 r² .= [sum(abs2, RVG.VgtkCore.constraint(lm, X, x)) for (X, x) in bo]
-                σ = RVG.VgtkCore.mad_scale(; norms = sqrt.(r²), codimension = 2)
+                σ = RVG.VgtkCore._mad_scale_norms(; norms = sqrt.(r²), codimension = 2)
                 use .= r² .< (msm * σ)^2
             end
             t3 = RVG._whitening_depth(cands[itrue]..., bo, f0, λs, use)

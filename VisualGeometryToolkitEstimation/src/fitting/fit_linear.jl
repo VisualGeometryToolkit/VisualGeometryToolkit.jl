@@ -96,7 +96,7 @@ function fit_linear(
     iter = 0
     while iter < lo.max_iter
         iter += 1
-        σ = _fit_weights!(w, abs.(r), p, lo, 1)
+        σ = _fit_weights!(w, SVector{1}.(r), p, lo, 1)
         if iszero(σ)                        # an exact fit: the weights are the prior's, x stands
             retcode = :converged
             break
@@ -111,7 +111,7 @@ function fit_linear(
             break
         end
     end
-    σ = _fit_weights!(w, abs.(r), p, lo, 1)   # the metadata at the returned coefficients
+    σ = _fit_weights!(w, SVector{1}.(r), p, lo, 1)   # the metadata at the returned coefficients
     used = count(>(0), p)
     rms = sqrt(sum(abs2(r[i]) for i in eachindex(r) if p[i] > 0; init = 0.0) / max(used, 1))
     return FitResult(x, retcode, iter, rms, used, LinearFitMetadata(w, r, σ))

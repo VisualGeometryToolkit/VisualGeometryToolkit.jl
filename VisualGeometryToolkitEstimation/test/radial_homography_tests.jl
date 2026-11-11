@@ -207,7 +207,7 @@ end
         prov = rows_provider(p)
         k = division_coeff(lift_model(prov, lift_init(prov, plain)))
         rn = prov.lws.rn[1:prov.n]                                     # the plain-H norms lift_init gated
-        σ = VgtkCore.mad_scale(; norms = rn, codimension = 2)
+        σ = VgtkCore._mad_scale_norms(; norms = rn, codimension = 2)
         inside = Float64.(rn .^ 2 .< (m * σ)^2)                         # TLS at m·σ̂
         @test k == division_coeff(lift_model(prov, _radial_seed_chart(p, plain, inside)))
         # the same partition as the former private gate, three medians of the norms

@@ -112,7 +112,7 @@ lift_valid(p::_PnPProvider) = p.lws.valid
 # RadialHomography — the lift has no LO weights, so a plain-homography
 # hypothesis (no distortion term) seeds k on the correspondences its H already
 # explains: the TLS weights of the plain-H reprojection norms at
-# `scale_multiple · σ̂`, σ̂ their noise scale (Core's `mad_scale` of the norms, codimension
+# `scale_multiple · σ̂`, σ̂ their noise scale (Core's stack-internal `_mad_scale_norms`, codimension
 # 2) and the multiple configs/default.toml's [pipelines.radial_homography.lift_seed]
 # (3·√chisq_median(2): three medians of the norms); the refit's own
 # `_radial_seed_chart` otherwise. The scale is floored at floatmin, so on an
@@ -123,7 +123,7 @@ function lift_init(p::ManifoldLiftProvider{<:RadialHomographyProblem}, m::VgtkCo
     H = unit_normalize(SMatrix{3, 3, Float64, 9}(homography(m)))
     lift_refresh!(p, _radial_chart(H, 0.0, center(m)))
     rn = view(p.lws.rn, 1:p.n)
-    σ = VgtkCore.mad_scale(; norms = rn, codimension = codimension(p.problem))
+    σ = VgtkCore._mad_scale_norms(; norms = rn, codimension = codimension(p.problem))   # the lift workspace holds only the norms
     loss = deploy(TLSShape(), max(σ^2, floatmin(Float64)); scale_multiple = _LIFT_SEED_SCALE_MULTIPLE)
     c² = sq_loss_width(loss)
     return _radial_seed_chart(p.problem, m, [weight(TLSShape(), x^2, c²) for x in rn])

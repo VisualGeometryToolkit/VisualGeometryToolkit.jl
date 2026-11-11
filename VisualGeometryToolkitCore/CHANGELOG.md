@@ -38,8 +38,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Breaking: `mad_scale(residuals)` is the robust noise scale of residual VECTORS; `noise_sigma` is removed** (the
   owner's ruling). `mad_scale(rs)` takes `StaticVector{d}` residuals, reads `d` from their type, and returns
   `median(‖rᵢ‖) / √chisq_median(d)`: centred on zero (the model), never on the residuals' own median. A kernel that
-  holds only norms names them, `mad_scale(; norms, codimension)`; there is no positional norms form, so a reader
-  always sees that nothing is re-centred. The numbers are `noise_sigma(norms, d)`'s, bit for bit (Estimation's three
+  holds only norms calls the stack-internal `_mad_scale_norms(; norms, codimension)` (not public); there is no public
+  norms form, so a reader always sees that nothing is re-centred. The numbers are `noise_sigma(norms, d)`'s, bit for bit (Estimation's three
   callers switched). The former centred, normal-consistent `mad_scale(x)` of scalars is gone (StatsBase's
   `mad(x; normalize = true)` is that estimator); its scalar call shape is a `MethodError`, not silently re-meant.
 - **New: per-datum weights carry their kind as a trait** (public; the robust-estimation contract, Q3). `WeightKind` —

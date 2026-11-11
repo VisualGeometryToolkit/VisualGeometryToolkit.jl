@@ -110,7 +110,7 @@ function fit_rotation_averaging(
     retcode = :max_iterations; iter = 0; σ = NaN
     while iter < lo.max_iter
         iter += 1
-        σ = _fit_weights!(w, norm.(r), p, lo, 3)
+        σ = _fit_weights!(w, r, p, lo, 3)
         iszero(σ) && (retcode = :converged; break)                     # every edge agrees
         col, nunk = _averaging_columns(frames, edges, w)
         ω = _averaging_update(edges, col, r, w, nunk)
@@ -124,7 +124,7 @@ function fit_rotation_averaging(
         edge_residuals!()
         Δ < tol && (retcode = :converged; break)
     end
-    σ = _fit_weights!(w, norm.(r), p, lo, 3)
+    σ = _fit_weights!(w, r, p, lo, 3)
     out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K}(Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), Dict(e => w[q] for (q, e) in enumerate(edges)), σ)
     live = [q for q in 1:m if p[q] > 0]                                # a zero weight drops its edge

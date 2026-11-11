@@ -36,20 +36,27 @@ function _check_fit_width(fit::AbstractString, lo::Irls)
     return lo
 end
 
-# σ̂ of the residual `norms` over the entries of positive `prior` — Core's
-# `mad_scale` of the norms at codimension `codim` (an excluded entry's residual does not
-# widen the loss) — and the IRLS weights of `lo`'s loss at σ̂² times the prior
-# into `w`; the prior itself on an exact fit (σ̂ = 0). Returns σ̂.
-function _fit_weights!(w, norms, prior, lo::Irls, codim::Integer)
-    σ = VgtkCore.mad_scale(; norms = (norms[i] for i in eachindex(norms) if prior[i] > 0), codimension = codim)
+# σ̂ of the residuals `rs` over the entries of positive `prior` (an excluded
+# entry's residual does not widen the loss) — Core's `mad_scale` of the residual
+# vectors; for residuals held only as norms (fit_rotation's angles), Core's
+# stack-internal `_mad_scale_norms` at codimension `codim` — and the IRLS weights
+# of `lo`'s loss at σ̂² times the prior into `w`; the prior itself on an exact fit
+# (σ̂ = 0). Returns σ̂.
+_fit_scale(rs::AbstractVector{<:StaticVector}, prior, _codim) = VgtkCore.mad_scale(rs[prior .> 0])
+_fit_scale(norms::AbstractVector{<:Real}, prior, codim) =
+    VgtkCore._mad_scale_norms(; norms = (norms[i] for i in eachindex(norms) if prior[i] > 0), codimension = codim)
+_residual_norm(r::StaticVector) = norm(r)
+_residual_norm(r::Real) = r
+function _fit_weights!(w, rs, prior, lo::Irls, codim::Integer)
+    σ = _fit_scale(rs, prior, codim)
     if iszero(σ)
         w .= prior
         return σ
     end
     loss = _fit_loss(lo, σ^2, codim)
     shape, c² = loss_shape(loss), sq_loss_width(loss)
-    @inbounds for i in eachindex(w, norms, prior)
-        w[i] = prior[i] * weight(shape, norms[i]^2, c²)
+    @inbounds for i in eachindex(w, rs, prior)
+        w[i] = prior[i] * weight(shape, _residual_norm(rs[i])^2, c²)
     end
     return σ
 end

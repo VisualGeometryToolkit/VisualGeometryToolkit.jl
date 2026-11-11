@@ -554,14 +554,13 @@ median) at d = 2.
 constant is not being the same estimator; see [`mad_scale`](@ref).
 
 Answers for every `d` on purpose — a hand-tabulated d ∈ {1, 2} would throw on
-the very call pattern this interface exists for, `mad_scale(; norms,
-codimension = codimension(problem))`, where a hand-eye problem reports d = 6.
+the very call pattern this interface exists for, `mad_scale` of a problem's
+residuals at `codimension(problem)`, where a hand-eye problem reports d = 6.
 """
 chisq_median(d::Integer) = Distributions.quantile(Distributions.Chisq(d), 0.5)
 
 """
     mad_scale(residuals) -> Float64
-    mad_scale(; norms, codimension::Integer) -> Float64
 
 The robust noise scale σ̂ of residual VECTORS `residuals` (`StaticVector{d}`s,
 `d` read from their type): the median of their norms over the median of `χ_d`,
@@ -580,13 +579,19 @@ its median `1.1774σ`, a scalar residual's `0.6745σ`; reading 2-D norms as
 d = 1 returns 1.745× the true σ, and every downstream width inherits it. A
 scalar residual is a `StaticVector{1}`.
 
-The keyword form is for a kernel that holds only the NORMS: it names them, and
-their codimension, at the call (`mad_scale(norms = rn, codimension = 2)`), so a
-reader sees that nothing is re-centred. There is no positional norms form.
+There is no public norms form: a reader of `mad_scale(norms, d)` could not tell
+whether the norms are re-centred. A kernel that truly holds only the norms (an
+angle residual, a lift workspace's norms) calls the stack-internal
+`_mad_scale_norms(; norms, codimension)` (the owner's ruling, 2026-11-11).
 """
 mad_scale(residuals::AbstractVector{<:StaticVector{D}}) where {D} =
-    mad_scale(; norms = (LinearAlgebra.norm(r) for r in residuals), codimension = D)
-mad_scale(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(chisq_median(codimension))
+    _mad_scale_norms(; norms = (LinearAlgebra.norm(r) for r in residuals), codimension = D)
+
+# STACK-INTERNAL entry point (not public; VisualGeometryToolkitEstimation calls it
+# qualified, the one sanctioned `_` name it reaches): `mad_scale` of residuals of
+# codimension `codimension` given only their NORMS, named at the call so nothing
+# reads as re-centred. Residual vectors go through `mad_scale(residuals)`.
+_mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(chisq_median(codimension))
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width

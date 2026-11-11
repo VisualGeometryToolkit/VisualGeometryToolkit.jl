@@ -143,8 +143,8 @@ distances of positive weight, and `rms` the weight-weighted root mean square
 """
 function fit_residual_mixture(distances::AbstractVector{<:Real}; weighting::AbstractScoring,
                               model_dof::Int, config::MixtureEmConfig = MixtureEmConfig(),
-                              scoring = nothing)   # refused, with the way to say it
-    scoring === nothing || throw(_scoring_is_weighting("fit_residual_mixture"))
+                              scoring = _RetiredKeyword())   # refused, with the way to say it
+    scoring isa _RetiredKeyword || throw(_scoring_is_weighting("fit_residual_mixture"))
     config.model_update isa KeepModel || throw(ArgumentError(
         "fit_residual_mixture: the distances are a held model's, so the model update must be " *
             "KeepModel, got $(config.model_update)"))

@@ -157,6 +157,7 @@ export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the cell grid's and each plane's exact map onto the raw, a green cell's footprint
+export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
 public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)

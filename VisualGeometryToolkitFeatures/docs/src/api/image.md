@@ -14,7 +14,10 @@ and VisualGeometryToolkitCore's `check_raw_decoding` flags any other decoding
 path. `load_raw(path; mode, gain)` reads a Bayer RAW file in the sensor's
 orientation (the EXIF flip is never applied). The decoder is
 [`LibRawDecoder`](@ref) (`using LibRaw_jll`: LibRaw 0.22 through `ccall`, no
-Python). Everything after the decode is Julia code here.
+Python). Everything after the decode is Julia code here. A decoded
+[`RawMosaic`](@ref) is an `AbstractMatrix` of its photosites, and
+[`raw_coordinates`](@ref) is every image's one way to its sensor pixels: the
+guide's [Raw images](@ref) page is the design.
 
 | mode | image | use |
 |---|---|---|

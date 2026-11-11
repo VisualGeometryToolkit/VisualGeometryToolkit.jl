@@ -25,6 +25,7 @@
 # =============================================================================
 
 using KernelAbstractions: @kernel, @index, @Const
+using Adapt: Adapt, adapt
 
 """
     RawDecoder
@@ -58,15 +59,28 @@ _decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decode
 _decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
 
 """
-    RawMosaic
+    RawMosaic{A <: AbstractMatrix{UInt16}} <: AbstractMatrix{UInt16}
 
 A RAW file decoded and nothing more: the visible area of the sensor, as LibRaw
-reports it.
+reports it. It IS its photosite matrix: `size`, indexing and `parent` are the
+held array's, so an ordinary array or image function reads it unchanged, and
+what such a function makes (`similar`, `copy`, a broadcast, a reduction) is a
+plain array of the held array's kind — the colour pattern and the metadata stay
+with the mosaic. The held array may be a device array (`adapt(CuArray, m)`, or
+`adapt(backend, m)` with a KernelAbstractions backend, moves the photosites and
+keeps the rest); a kernel receives `parent(m)`, never the wrapper.
 
-- `raw::Matrix{UInt16}` — the visible photosites, `raw[row, column]`, in the
-  sensor's orientation (no EXIF flip): pixel `(row, column)` is the raw's
-  COLMAP pixel centred at `(column − ½, row − ½)` — the visible raw's
-  `PixelFrame{:colmap}`, the frame every calibration of the raw is in.
+A unit-range index `m[rows, columns]` (a copy) or `view(m, rows, columns)` (no
+copy) is a window: a mosaic of its own whose colours are the parent's at those
+photosites (the colour phase shifts with an odd start, as a `circshift` of the
+pattern would) and whose [`raw_frame_map`](@ref) is its offset into the visible
+raw. Any other index is a plain array.
+
+- `raw::A` — the photosites, `raw[row, column]`, in the sensor's orientation
+  (no EXIF flip): pixel `(row, column)` is the raw's COLMAP pixel centred at
+  `(column − ½, row − ½)` — the visible raw's `PixelFrame{:colmap}`, the frame
+  every calibration of the raw is in (a window's pixels are offset by
+  `window_origin`).
 - `pattern::Matrix{UInt8}` — the smallest repeating colour pattern, square,
   at most 4 × 4, from the full raw frame's origin (LibRaw's `COLOR` read
   from there), in LibRaw's colour indices: `0` R, `1` G, `2` B, `3` the
@@ -87,42 +101,88 @@ reports it.
   `daylight_wb` (LibRaw's daylight white balance, R G B), `linear_max` (the
   camera's declared linear-response limit per channel, `nothing` when the file
   has none), `decoder` and `libraw_version`.
+- `window_origin::NTuple{2, Int}` — `(rows, columns)`, the offset of `raw[1, 1]`
+  from the visible area's first photosite: `(0, 0)` as decoded (the keyword of
+  the constructor), a window's start less one otherwise.
 """
-struct RawMosaic{M <: NamedTuple}
-    raw::Matrix{UInt16}
+struct RawMosaic{A <: AbstractMatrix{UInt16}, M <: NamedTuple} <: AbstractMatrix{UInt16}
+    raw::A
     pattern::Matrix{UInt8}
     black::NTuple{4, Float64}
     white::Float64
     visible_origin::NTuple{2, Int}
     raw_size::NTuple{2, Int}
     metadata::M
-    function RawMosaic(raw, pattern, black, white, visible_origin, raw_size, metadata::M) where {M <: NamedTuple}
+    window_origin::NTuple{2, Int}
+    function RawMosaic(raw::A, pattern, black, white, visible_origin, raw_size, metadata::M;
+                       window_origin::NTuple{2, Integer} = (0, 0)) where {A <: AbstractMatrix{UInt16}, M <: NamedTuple}
         n = size(pattern, 1)
         (size(pattern, 2) == n && 1 <= n <= 4) ||
             throw(ArgumentError("RawMosaic: the colour pattern must be square, at most 4 × 4, got $(join(size(pattern), '×'))"))
         all(c -> c <= 3, pattern) || throw(ArgumentError("RawMosaic: colour indices are 0 (R), 1 (G), 2 (B) or 3 (G2), got $pattern"))
         all(<(white), black) || throw(ArgumentError("RawMosaic: every black level must be below the white level $white, got $black"))
-        return new{M}(raw, pattern, black, white, visible_origin, raw_size, metadata)
+        return new{A, M}(raw, pattern, black, white, visible_origin, raw_size, metadata, window_origin)
     end
 end
+
+# The photosite matrix: the held array's size, indices and kind. Whatever an array function makes from
+# it is the held array's kind (`similar`, a broadcast, a reduction on a device array), never the wrapper.
+Base.size(m::RawMosaic) = size(m.raw)
+Base.parent(m::RawMosaic) = m.raw
+Base.IndexStyle(::Type{<:RawMosaic{A}}) where {A} = IndexStyle(A)
+Base.@propagate_inbounds Base.getindex(m::RawMosaic, i::Int...) = m.raw[i...]
+Base.similar(m::RawMosaic, ::Type{T}, dims::Dims) where {T} = similar(m.raw, T, dims)
+Base.Broadcast.broadcastable(m::RawMosaic) = m.raw
+Base.mapreduce(f, op, m::RawMosaic; kw...) = mapreduce(f, op, m.raw; kw...)
+Adapt.adapt_structure(to, m::RawMosaic) = _with_raw(m, adapt(to, m.raw), m.window_origin)
+
+# A window (unit ranges in both axes) is a mosaic of the same sensor: the photosites `raw` (the
+# window's copy or view) and its offset added to the parent's.
+_with_raw(m::RawMosaic, raw, window_origin) =
+    RawMosaic(raw, m.pattern, m.black, m.white, m.visible_origin, m.raw_size, m.metadata; window_origin)
+function _window(m::RawMosaic, raw, rows::AbstractUnitRange, columns::AbstractUnitRange)
+    return _with_raw(m, raw, m.window_origin .+ (first(rows) - 1, first(columns) - 1))
+end
+Base.getindex(m::RawMosaic, rows::AbstractUnitRange{<:Integer}, columns::AbstractUnitRange{<:Integer}) =
+    _window(m, m.raw[rows, columns], rows, columns)
+Base.view(m::RawMosaic, rows::AbstractUnitRange{<:Integer}, columns::AbstractUnitRange{<:Integer}) =
+    _window(m, view(m.raw, rows, columns), rows, columns)
+
+# One line, no photosite read (a device array is never read element by element).
+function Base.show(io::IO, m::RawMosaic)
+    print(io, join(size(m), '×'), " RawMosaic (", cfa_string(m), " from the raw origin; visible origin ", m.visible_origin)
+    m.window_origin == (0, 0) || print(io, ", window origin ", m.window_origin)
+    return print(io, ") of a ", nameof(typeof(m.raw)), "{UInt16}")
+end
+Base.show(io::IO, ::MIME"text/plain", m::RawMosaic) = show(io, m)
 
 """
     photosite_colors(mosaic::RawMosaic) -> Matrix{UInt8}
 
-Each visible photosite's colour index (LibRaw's: `0` R, `1` G, `2` B, `3` the
-second G), the size of `mosaic.raw`: the `pattern` tiled from the full raw
-frame's origin, so visible photosite `(row, column)` reads
+Each photosite's colour index (LibRaw's: `0` R, `1` G, `2` B, `3` the second
+G), the size of `mosaic`: the `pattern` tiled from the full raw frame's origin,
+so photosite `(row, column)` reads
 `pattern[mod(top + row − 1, n) + 1, mod(left + column − 1, n) + 1]` with
-`(top, left) = visible_origin`.
+`(top, left) = visible_origin .+ window_origin`.
 """
-photosite_colors(m::RawMosaic) = UInt8[_photosite_color(m, i, j) for i in axes(m.raw, 1), j in axes(m.raw, 2)]
+photosite_colors(m::RawMosaic) = UInt8[_photosite_color(m, i, j) for i in axes(m, 1), j in axes(m, 2)]
 
-# The colour index of visible photosite (i, j): the pattern tiled from the raw origin.
+# The colour index of photosite (i, j): the pattern tiled from the raw origin.
 @inline function _photosite_color(m::RawMosaic, i, j)
     n = size(m.pattern, 1)
-    top, left = m.visible_origin
+    top, left = m.visible_origin .+ m.window_origin
     return @inbounds m.pattern[mod(top + i - 1, n) + 1, mod(left + j - 1, n) + 1]
 end
+
+"""
+    raw_frame_map(m::RawMosaic) -> SimilarityMap{2, …, PixelFrame{:colmap}, PixelFrame{:colmap}}
+
+The map of the mosaic's pixels onto the visible raw's `PixelFrame{:colmap}`:
+the identity as decoded, a window's offset (`x ↦ x + (columns, rows)` of its
+`window_origin`) for a window.
+"""
+raw_frame_map(m::RawMosaic) = relabel(PixelFrame{:colmap}, PixelFrame{:colmap},
+    SimilarityMap(Translation(SVector{2, Float64}(reverse(m.window_origin)))))
 
 """
     cfa_string(mosaic::RawMosaic) -> String
@@ -174,8 +234,11 @@ camera raw colour, white balance 1, `1.0` = the white level (before the gain).
 Not clipped: a value above 1 (a gain above 1) or below 0 (noise under the black
 level) is kept.
 
-- `image::Array{Float64, 3}` — `image[row, column, plane]`.
-- `saturated::BitMatrix` — the pixels whose value includes a photosite at the
+- `image::AbstractArray{Float64, 3}` — `image[row, column, plane]`, the planes
+  plain arrays on the mosaic's device (an `Array` on the host); a plane's frame
+  is asked of the image with its index ([`bayer_plane_map`](@ref)`(L, c)`).
+- `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the pixels
+  whose value includes a photosite at the
   white level (`raw ≥ white`): in `:bin2` a cell is saturated when ANY of its
   four photosites is, so a cell whose two greens straddle the white level is
   flagged rather than averaged into a plausible value; in `:green_cells` when
@@ -198,20 +261,25 @@ methods of the cell images, and the display image's are its refusals.
 [`raw_provenance`](@ref) gives the mode, the gain, the metadata and the frame
 map as plain data for a result to record.
 """
-struct LinearRaw{Mode, G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn)}}, M <: NamedTuple}
-    image::Array{Float64, 3}
-    saturated::BitMatrix
+struct LinearRaw{Mode, I <: AbstractArray{Float64, 3}, S <: AbstractMatrix{Bool},
+                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn)}}, M <: NamedTuple}
+    image::I
+    saturated::S
     geometry::G
     gain::Float64
     metadata::M
     # the display image alone holds no geometry
-    function LinearRaw{Mode}(image, saturated, geometry::G, gain, metadata::M) where {Mode, G, M}
+    function LinearRaw{Mode}(image::I, saturated::S, geometry::G, gain, metadata::M) where {Mode, I, S, G, M}
         Mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$Mode"))
         (Mode === :demosaic) == (geometry === nothing) ||
             throw(ArgumentError("LinearRaw: a :$Mode image $(Mode === :demosaic ? "holds no" : "needs its") sample geometry"))
-        return new{Mode, G, M}(image, saturated, geometry, gain, metadata)
+        return new{Mode, I, S, G, M}(image, saturated, geometry, gain, metadata)
     end
 end
+
+# The saturation flags as held: packed bits on the host, the kernel's Bool array on a device.
+_saturation_mask(sat::Array{Bool}) = BitMatrix(sat)
+_saturation_mask(sat::AbstractMatrix{Bool}) = sat
 
 _mode(::LinearRaw{Mode}) where {Mode} = Mode
 
@@ -296,7 +364,7 @@ end
 end
 
 function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
-    H, W = size(m.raw)
+    H, W = size(m)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))
     # the cell's colour layout, the same in every cell of a 2×2 Bayer pattern
@@ -318,17 +386,20 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     green_offsets = (site_offset(g[1]), site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
-    img = Array{Float64, 3}(undef, H2, W2, P)
-    sat = Matrix{Bool}(undef, H2, W2)
-    backend = KA.get_backend(img)
-    _cells_kernel!(backend)(img, sat, m.raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
+    # on the photosites' device: the kernel reads the held array, never the wrapper
+    raw = parent(m)
+    img = similar(raw, Float64, H2, W2, P)
+    sat = similar(raw, Bool, H2, W2)
+    backend = KA.get_backend(raw)
+    _cells_kernel!(backend)(img, sat, raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
     KA.synchronize(backend)
     # each plane's samples from the cell centre, in cell pixels (the frame map's
-    # scale, the one place it is stated), as the plane's translation onto the grid
+    # scale, the one place it is stated), as the plane's translation onto the grid, and the
+    # mosaic's own map onto the visible raw (a window's offset) after it
     offset(ks) = sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP))
-    maps = map((C, ks) -> _plane_map(Val(C), offset(ks)), colours, used)
+    maps = map((C, ks) -> raw_frame_map(m) ∘ _plane_map(Val(C), offset(ks)), colours, used)
     geometry = (plane_maps = maps, green_offsets, green_dn = (den[g[1]], den[g[2]]))
-    return LinearRaw{mode}(img, BitMatrix(sat), geometry, gain, m.metadata)
+    return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
 # The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
@@ -362,14 +433,38 @@ frame) onto the visible raw's `PixelFrame{:colmap}`
 (the frame of `RawMosaic.raw` and of every calibration of the raw): `x ↦ 2x`,
 exactly, for every Bayer phase and either parity of the visible origin (the
 cells start at the visible area's first photosite; an odd margin changes only
-the cell's colour phase). Its inverse is `inv(raw_frame_map(L))`, and a
+the cell's colour phase); for an image made from a window of the mosaic, `x ↦ 2x`
+then the window's offset. Its inverse is `inv(raw_frame_map(L))`, and a
 calibration matrix moves with it through Core,
 `reframed_calibration(raw_frame_map(L), K_cells)`, `K_cells` in the cell
 image's pixels (`BayerCellFrame{:G}`), giving K in the raw's pixels (and back
 with the inverse; K carries no frame label, so which frame it is in is the
 caller's statement). A `:demosaic` image is refused (`ArgumentError`): it is for display.
 """
-raw_frame_map(L::LinearRaw) = (_geometry(L, "raw_frame_map"); _CELL_FRAME_MAP)
+raw_frame_map(L::LinearRaw) = _geometry(L, "raw_frame_map").plane_maps[_green_plane(L)]
+
+# The plane holding the green cells (the cell grid): bin2's second (R, G, B), the green-cell image's one.
+_green_plane(::LinearRaw{:bin2}) = 2
+_green_plane(::LinearRaw{:green_cells}) = 1
+
+"""
+    raw_coordinates(img, x) -> SVector{2, Float64}
+
+Where the point `x` of an image's pixel frame (COLMAP, `(column − ½, row − ½)`
+the centre of pixel `(row, column)`; any 2-vector or tuple) lies on the sensor:
+in the visible raw's `PixelFrame{:colmap}`, the frame of every calibration of
+the raw. THE accessor of an image's sensor-pixel coordinates, `raw_frame_map(img)(x)`:
+
+- a [`RawMosaic`](@ref): the identity as decoded, a window's offset added for a window;
+- a [`LinearRaw`](@ref) cell image (`:green_cells`, `:bin2`): the cell grid's
+  map, `x ↦ 2x` (and a window's offset) — a detection on the green cells
+  reports its position through it, never as raw pixels unmapped (half the scale);
+  a position on another plane of a `:bin2` image is
+  [`bayer_plane_map`](@ref)`(L, c)(x)`;
+- a `:demosaic` image is refused (`ArgumentError`), and a plain matrix, which
+  states no frame, has no method.
+"""
+raw_coordinates(img::Union{RawMosaic, LinearRaw}, x) = raw_frame_map(img)(SVector{2, Float64}(Tuple(x)))
 
 """
     bayer_plane_map(L::LinearRaw, c::Integer) -> SimilarityMap{2, …, BayerCellFrame{C}, PixelFrame{:colmap}}
@@ -410,7 +505,7 @@ the mean of the two — what a renderer models to predict it exactly. A
 """
 function green_cell_sites(L::LinearRaw, row::Integer, column::Integer)
     o = _geometry(L, "green_cell_sites").green_offsets
-    c = _CELL_FRAME_MAP(SVector(column - 0.5, row - 0.5))
+    c = raw_frame_map(L)(SVector(column - 0.5, row - 0.5))
     return (c + o[1], c + o[2])
 end
 

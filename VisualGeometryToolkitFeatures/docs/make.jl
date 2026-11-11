@@ -44,6 +44,7 @@ makedocs(;
             "Detection" => "guide/detection.md",
             "The Förstner operator" => "guide/foerstner.md",
             "Matching" => "guide/matching.md",
+            "Raw images" => "guide/raw-images.md",
         ],
         "API Reference" => [
             # Split on 2026-11-04 (api/detection.html measured 100.01 KiB,

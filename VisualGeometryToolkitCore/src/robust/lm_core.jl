@@ -26,9 +26,11 @@
 # workspace with NLLSsolver's `OptimizeCache`, so a refit reuses the problem
 # and the solver's internal data.
 #
-# NLLSsolver ≥ 5.3.1 has every upstream pull request the stack relies on: the
+# NLLSsolver ≥ 5.3.3 has every upstream pull request the stack relies on: the
 # typed `OptimizeCache` (#62), the linear system reused at an accepted trial
-# (#63), a NaN trial rejected (#64) and a non-finite start point stopped (#65).
+# (#63), a NaN trial rejected (#64), a non-finite start point stopped (#65) and
+# a non-finite step or gradient at an accepted point stopped, the damping loop
+# bounded (#68: termination bit 12).
 # One addition is still open upstream and DETECTED, never assumed: the
 # Schur-complement linear system VisualGeometryToolkitEstimation's bundle uses
 # (`nlls_features`).
@@ -231,23 +233,6 @@ residual block of the stack returns its cost through it.
 """
 @inline finite_cost(c::Float64) = isfinite(c) ? c : Inf
 
-"""
-    finite_linearization(cost, g, H) -> (cost, g, H)
-
-A block's linearization (`computecostgradhess`: its cost ½‖r‖², gradient Jᵀr and
-Gauss–Newton Hessian JᵀJ) as the stack's NLLSsolver fits read it: as it is when all
-three are finite, else `(Inf, zero(g), zero(H))`. NLLSsolver 5.3.2's
-Levenberg–Marquardt damping loop exits only on an improved cost or a step below
-`dstep`; a non-finite gradient or Hessian at an accepted point makes every damped
-step NaN, so neither exit is ever met and the loop spins with no time check (fixed
-upstream by NLLSsolver#68, unreleased). With this form a non-finite linearization
-never reaches the linear system: at a trial point its `+Inf` cost rejects the step,
-and at a relinearized accepted point the cost disagrees with the one the step was
-accepted at (NLLSsolver's termination bit 10) and the solve stops on the finite
-system. Every `computecostgradhess` of the stack returns through it.
-"""
-@inline finite_linearization(cost::Float64, g, H) =
-    isfinite(cost) && all(isfinite, g) && all(isfinite, H) ? (cost, g, H) : (Inf, zero(g), zero(H))
 function NLLSsolver.computecost(c::_ChartRows, x)
     r = residual_rows!(c.r, c.state.lm, x)
     s = 0.0
@@ -278,7 +263,7 @@ function NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N
         g += Ji * ri
         H += Ji * Ji'
     end
-    return finite_linearization(0.5 * s, g, H)
+    return 0.5 * s, g, H
 end
 
 # The kept NLLSsolver problem of one linearization-state type, its state slot
@@ -332,7 +317,8 @@ of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 that applies:
 
 1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
-   (10), a start point whose cost or gradient is not finite (11) — WITHOUT a
+   (10), a start point whose cost or gradient is not finite (11), a gradient
+   that is not finite at an accepted point (12) — WITHOUT a
    step-size stop: `-3`, `:solve_failed`;
 2. the step-size stop (6): `2`, the stall postcondition decides it (checked
    before the cost tolerance: a tiny last step at a wall also shows a tiny
@@ -349,7 +335,7 @@ NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
 """
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
-    any(bit, (0, 1, 4, 5, 10, 11)) && !bit(6) && return _LM_FAILED
+    any(bit, (0, 1, 4, 5, 10, 11, 12)) && !bit(6) && return _LM_FAILED
     bit(6) && return 2
     (bit(2) || bit(3)) && return 1
     bit(7) && return 4
@@ -362,7 +348,8 @@ end
 const _NLLS_STOP_BITS = (
     (0, :cost_infinite), (1, :cost_nan), (2, :relative_cost_decrease), (3, :absolute_cost_decrease),
     (4, :delta_infinite), (5, :delta_nan), (6, :delta_size), (7, :max_consecutive_rejections),
-    (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (11, :nonfinite_start), (16, :callback),
+    (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (11, :nonfinite_start), (12, :nonfinite_gradient),
+    (16, :callback),
 )
 
 """
@@ -376,7 +363,8 @@ bit order: `:cost_infinite` (0), `:cost_nan` (1), `:relative_cost_decrease`
 best), `:max_iterations` (8), `:max_time` (9), `:cost_disagreement` (10, the
 residual and the residual-Jacobian evaluations disagree), `:nonfinite_start`
 (11, the start point's cost or gradient is not finite: no step is tried),
-`:callback` (16).
+`:nonfinite_gradient` (12, the gradient at an accepted point is not finite: the
+solve stops there, its best point kept), `:callback` (16).
 A report of the stop; [`nlls_stop_code`](@ref) is the one decision read from
 the same bits.
 """
@@ -701,6 +689,37 @@ function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::Abstr
     code = nlls_stop_code(result.termination)
     (code == 2 || code == 4) && return is_stationary(J, r; tol, ftol) ? :converged : :stalled
     return lm_retcode(code)
+end
+
+"""
+    nlls_rows_and_jacobian(blocks, variables) -> (r, J::SparseMatrixCSC)
+
+The rows of NLLSsolver residual `blocks` at `variables` (an NLLSsolver problem's
+variable vector) and their sparse Jacobian in the variables' chart coordinates
+— `NLLSsolver.computeresjac` of every block with all its variables free —
+the rows in block order, each variable's `NLLSsolver.nvars` columns in variable
+order (a run-time size included). What [`nlls_retcode`](@ref)'s stall
+postcondition reads, and a covariance or a GCV linearization of the same fit.
+"""
+function nlls_rows_and_jacobian(blocks, variables::AbstractVector)
+    offsets = cumsum([0; [Int(NLLSsolver.dynamic(NLLSsolver.nvars(v))) for v in variables]])
+    rows = Float64[]; Ii = Int[]; Jj = Int[]; Vv = Float64[]
+    for c in blocks
+        vi = NLLSsolver.varindices(c)
+        rk, Jk = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)
+        o = length(rows)
+        append!(rows, rk)
+        col = 0
+        for v in vi, q in (offsets[v] + 1):offsets[v + 1]
+            col += 1
+            for i in eachindex(rk)
+                x = Jk[i, col]
+                iszero(x) && continue
+                push!(Ii, o + i); push!(Jj, q); push!(Vv, x)
+            end
+        end
+    end
+    return rows, sparse(Ii, Jj, Vv, length(rows), offsets[end])
 end
 
 """

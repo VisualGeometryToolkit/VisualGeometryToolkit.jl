@@ -268,9 +268,11 @@ ambient_coordinates(parts::Tuple) = vcat(map(ambient_coordinates, parts)...)
 """
     restrict(ch::Manifold, free::SVector{D, Bool}) -> SubsetManifold
     restrict(ch::Manifold, idx::SVector{M, Int})
+    restrict(ch::Manifold, idx::Vector{Int})
 
 The manifold `ch` on the coordinates `free` marks (or the ascending, distinct
-indices `idx`): `tangent_size` is the number of free coordinates, and `retract`,
+indices `idx`, static or known at run time): `tangent_size` is the number of free
+coordinates, and `retract`,
 `recenter`, `retract_jacobian` and `action_jacobian` act through the parent
 with the fixed coordinates at zero. `restrict(ch, ())` — no coordinate — is
 the pinned model. See [`SubsetManifold`](@ref); a lens manifold also restricts

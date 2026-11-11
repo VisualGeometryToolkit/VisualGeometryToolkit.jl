@@ -105,6 +105,15 @@
             @test_throws ArgumentError restrict(ch, SVector(true, false))
             @test_throws ArgumentError restrict(ch, SVector(3, 1))
             @test_throws ArgumentError restrict(ch, SVector(1, 7))
+            # a run-time index: one type for every restriction, the same chart as the static one, its NLLSsolver size and
+            # update read at run time
+            rd = restrict(ch, [1, 3, 6])
+            @test rd isa SubsetManifold && tangent_size(rd) == 3 && typeof(rd) === typeof(restrict(ch, [2]))
+            @test retract(rd, v).t == retract(rc, v).t && retract_jacobian(rd) == retract_jacobian(rc)
+            @test VisualGeometryToolkitCore.NLLSsolver.nvars(rd) === 3
+            δ = [9.0, 0.02, -0.01, 0.3]
+            @test model(VisualGeometryToolkitCore.NLLSsolver.update(rd, δ, 2)).t == model(recenter(rc, v)).t
+            @test_throws ArgumentError restrict(ch, [3, 1])
         end
 
         @testset "lens manifold: the family's coordinates, the target's free coefficients" begin

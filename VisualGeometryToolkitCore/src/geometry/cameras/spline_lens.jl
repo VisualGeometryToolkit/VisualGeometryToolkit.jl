@@ -153,7 +153,12 @@ node every 64 px plus the three border nodes the cubic window needs
 CALIBRATED AREA, not the frame, when the two differ — a circular fisheye's
 lit field is smaller than its sensor.
 """
-default_spline_grid(width, height) = (max(4, ceil(Int, width / 64) + 3), max(4, ceil(Int, height / 64) + 3))
+default_spline_grid(width, height) = _node_counts(width, height, 64)
+# THE node-count rule of a lattice over a `w₁ × w₂` area at the node spacing `h`: ⌈wᵢ / h⌉ + 3
+# nodes per axis (the cubic window's three border nodes), at least 4 — the reference's grid
+# (`h` = 64 px) and the spline fits' spacing search alike. A quotient within rounding of
+# an integer is that integer (the `1 − 1e-12`).
+_node_counts(w1::Real, w2::Real, h::Real) = (max(4, ceil(Int, w1 / h * (1 - 1.0e-12)) + 3), max(4, ceil(Int, w2 / h * (1 - 1.0e-12)) + 3))
 
 # ------------------------------------------------------------------------------
 # Initialization from a source: the direction controls of a pixel lattice
@@ -778,8 +783,9 @@ end
 # `(I − d dᵀ)/‖S‖`. The direction in two roundings: `d = S/‖S‖`, `backproject`'s, and
 # `‖S‖⁻¹S`, `normalize`'s, the LM's residual. In the precision of `x` and the
 # controls. Device-safe (isbits, no allocation).
-@inline function _spline_direction_differential(controls::AbstractMatrix, area, x::StaticVector{2})
-    S, Sx, Sy = _spline_value_and_partials(controls, area, x)
+@inline _spline_direction_differential(controls::AbstractMatrix, area, x::StaticVector{2}) =
+    _direction_differential(_spline_value_and_partials(controls, area, x)...)
+@inline function _direction_differential(S, Sx, Sy)
     n = norm(S)
     d = S / n
     m = inv(n)
@@ -811,12 +817,12 @@ end
 # controls. A SplineLens camera's bundle refinement reads it
 # (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
 function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rect2, x::StaticVector{2}, t::StaticVector{3})
-    _, _, Jx, n = _spline_direction_differential(controls, area, x)
+    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(size(controls), area, x)   # the basis weights once: the differential's and w
+    _, _, Jx, n = _direction_differential(_window_sums(controls, area, gx, ix, iy, wx, wy, dwx, dwy)...)
     H = inv(Jx' * Jx) * Jx'
     tn = norm(t)
     t̂ = t / tn
-    ix, iy, w, _ = spline_weights(ChartSpline(area, controls), x)
-    return H * (SMatrix{3, 3, Float64}(LinearAlgebra.I) - t̂ * t̂') / tn, -H / n, ix, iy, w
+    return H * (SMatrix{3, 3, Float64}(LinearAlgebra.I) - t̂ * t̂') / tn, -H / n, ix, iy, _window_tensor(wx, wy)
 end
 
 # THE projection solve that `_projection_jacobians` differentiates: `_spline_project` of
@@ -827,7 +833,7 @@ end
 # be one cell of a lattice with its 4 × 4 window as `controls` (the pieces extrapolate
 # off the cell): the window a refinement holds between rebuilds.
 @inline _solved_projection(controls, area::Rect2, t::StaticVector{3}, lb, ub, s) =
-    _spline_project(controls, area, t, _rect_centre(area), lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    _spline_project(controls, area, t, SVector{2, Float64}(centroid(area)), lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
 # route of `backproject_with_jacobian`): the analytic one, NaN where the lens does not
@@ -856,7 +862,7 @@ _forward_chart() = equidistant_chart(SVector(0.0, 0.0, 1.0))
 # predicate for both.
 function _imaged_z(controls::AbstractMatrix, area::Rect2)
     p, ok = _solved_projection(controls, area, SVector(0.0, 0.0, 1.0), _spline_lm_box(area)...)
-    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (_rect_centre(area), false)
+    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (SVector{2, Float64}(centroid(area)), false)
 end
 
 # Whether a SplineLens camera's gauge is the off-axis fallback — ẑ not imaged inside
@@ -895,13 +901,11 @@ end
     end
     b = l.backward
     lb, ub, s = _spline_lm_box(b.area)
-    x₀ = all(isfinite, x₀) ? x₀ : _rect_centre(b.area)      # a non-finite seed (a failed warm start): the cold start's fallback
+    x₀ = all(isfinite, x₀) ? x₀ : SVector{2, Float64}(centroid(b.area))      # a non-finite seed (a failed warm start): the cold start's fallback
     x, ok = _spline_project(b.controls, b.area, X, x₀, lb, ub, s, maxiter, tol2)
     return ok && _in_backward(l, x) ? (x, true) : (nan, false)
 end
 
-# The centre of a rectangle, the cold start's fallback and the gauge's.
-@inline _rect_centre(r::Rect2) = (o = GeometryBasics.origin(r); w = GeometryBasics.widths(r); SVector{2, Float64}(o[1] + w[1] / 2, o[2] + w[2] / 2))
 
 # The cold start of a projection solve of the ray (or camera-frame point) `X` through
 # the lens `l`: its pinhole point `(X₁/X₃, X₂/X₃)` — the gauge's first-order inverse
@@ -912,7 +916,7 @@ end
 # (measured 2.7e-12 px from the centre start over the golden cameras, the imaged mask
 # identical; tested).
 @inline function _cold_start(l::SplineLens, X::StaticVector{3})
-    c = _rect_centre(l.backward.area)
+    c = SVector{2, Float64}(centroid(l.backward.area))
     X[3] > 0 || return c
     p = SVector{2, Float64}(X[1] / X[3], X[2] / X[3])
     return _in_backward(l, p) ? p : c
@@ -934,13 +938,58 @@ backward area's centre; NaN unless it converges onto a point whose window is pre
 @inline project(l::SplineLens, X::StaticVector{3}) =
     first(_project_lens(l, X, _cold_start(l, X), _PROJECT_MAXITER, _PROJECT_TOL^2))
 
-@kernel function _spline_project_kernel!(px_out, ok_out, lens, intrinsics, @Const(rays), @Const(p₀s), iters::Int, tol2::Float64)
+# THE batched projection: per ray `_project_lens` from its seed — `seed_map` of
+# `seeds[i]` (the pixel seed's normalized point, or a normalized seed as it is), the
+# cold start (`_cold_start`) where that is not finite or without seeds — and the point
+# out through `out_map` (the pixel affinity, or the normalized point as it is).
+@kernel function _spline_project_kernel!(out, ok_out, lens, out_map, seed_map, @Const(rays), seeds, iters::Int, tol2::Float64)
     i = @index(Global)
     @inbounds begin
-        x, ok = _project_lens(lens, rays[i], SVector{2, Float64}(_normalized_point(intrinsics, p₀s[i])), iters, tol2)
-        u = _pixel_affine(intrinsics)(x)
-        px_out[i] = SVector{2, Float64}(u[1], u[2])
+        X = rays[i]
+        x, ok = _project_lens(lens, X, _projection_seed(lens, X, seed_map, seeds, i), iters, tol2)
+        u = out_map(x)
+        out[i] = SVector{2, Float64}(u[1], u[2])
         ok_out[i] = ok
+    end
+end
+@inline _projection_seed(l, X, seed_map, ::Nothing, i) = _cold_start(l, X)
+@inline function _projection_seed(l, X, seed_map, seeds, i)
+    s = SVector{2, Float64}(seed_map(@inbounds seeds[i]))
+    return all(isfinite, s) ? s : _cold_start(l, X)
+end
+
+# The batched projection of the camera-frame points `rays` through the lens `l` to its
+# normalized plane (`project`'s solve, `iters` iterations, converged below `tol`),
+# seeded at the normalized points `seeds` (a non-finite one, or `nothing`: the cold
+# start), on `device`: `(; x, ok)` in the rays' array kind. With `fold`, also the
+# backward's Gram determinant `det(JxᵀJx)` at each point (NaN where not imaged): 0 or
+# not finite where the lattice folds (no projection Jacobian exists there).
+function _spline_projections(
+        l::SplineLens, rays::AbstractVector{<:StaticVector{3}}, seeds::Union{Nothing, AbstractVector{<:StaticVector{2}}};
+        iters::Int = _PROJECT_MAXITER, tol::Real = _PROJECT_TOL, device::KA.Backend = default_device(), fold::Bool = false
+    )
+    seeds === nothing || length(seeds) == length(rays) || throw(ArgumentError("project: length(seeds) != length(rays)"))
+    N = length(rays)
+    x = KA.allocate(device, SVector{2, Float64}, N)
+    ok = KA.allocate(device, Bool, N)
+    g = fold ? KA.allocate(device, Float64, N) : nothing
+    if N > 0
+        dl = Adapt.adapt(device, l)
+        ds = seeds === nothing ? nothing : on_device(device, _concrete_points(seeds))
+        _spline_project_kernel!(device, 64)(x, ok, dl, identity, identity, on_device(device, _concrete_points(rays)), ds, iters, Float64(tol)^2; ndrange = N)
+        fold && _spline_fold_kernel!(device, 64)(g, dl.backward.controls, dl.backward.area, x, ok; ndrange = N)
+        KA.synchronize(device)
+    end
+    back = get_backend(rays)
+    return (; x = on_device(back, x), ok = on_device(back, ok), fold = fold ? on_device(back, g) : nothing)
+end
+@kernel function _spline_fold_kernel!(g, controls, area, @Const(xs), @Const(oks))
+    i = @index(Global)
+    @inbounds if oks[i]
+        _, _, Jx, _ = _spline_direction_differential(controls, area, xs[i])
+        g[i] = LinearAlgebra.det(Jx' * Jx)
+    else
+        g[i] = NaN
     end
 end
 
@@ -951,8 +1000,8 @@ end
 Batched projection on the KernelAbstractions backend `device`
 ([`default_device`](@ref)`()` by default: an accelerator when one is functional,
 else `KA.CPU()`): the scalar [`project`](@ref)'s solve per ray, warm-started at
-the pixel `p₀s[i]` and given at most `iters` iterations (a lens with a forward
-spline reads no seed). The rays and seeds are uploaded once (a device copy of the
+the pixel `p₀s[i]` (a non-finite seed: the scalar `project`'s own start) and given
+at most `iters` iterations (a lens with a forward spline reads no seed). The rays and seeds are uploaded once (a device copy of the
 lens too), and both outputs come back in the rays' array kind (an `Array` gives
 `Array`s, a device array stays on its device with no copy). Returns the pixels and
 the mask of the imaged ones (converged below `tol` onto a present window); a pixel
@@ -968,9 +1017,10 @@ function project(
     px = KA.allocate(device, SVector{2, Float64}, N)
     ok = KA.allocate(device, Bool, N)
     if N > 0
+        intr = cam.intrinsics
         _spline_project_kernel!(device, 64)(
-            px, ok, Adapt.adapt(device, cam.lens), cam.intrinsics, on_device(device, rs), on_device(device, ss),
-            iters, Float64(tol)^2; ndrange = N
+            px, ok, Adapt.adapt(device, cam.lens), _pixel_affine(intr), p -> _normalized_point(intr, p), on_device(device, rs),
+            on_device(device, ss), iters, Float64(tol)^2; ndrange = N
         )
         KA.synchronize(device)
     end
@@ -1073,11 +1123,7 @@ _source_intrinsics(_) = nothing
 # the map `backproject` applies (`_K_inv`), so a pixel on the rectangle's corner
 # lands on the area's corner bit for bit.
 function _spline_camera(K::LogicalIntrinsics, rect::Rect2, controls::AbstractMatrix; present = nothing)
-    o = GeometryBasics.origin(rect); w = GeometryBasics.widths(rect)
-    Ki = _K_inv(K)
-    lo = Ki * SVector(o[1], o[2], 1.0)
-    hi = Ki * SVector(o[1] + w[1], o[2] + w[2], 1.0)
-    area = Rect2{Float64}(lo[1], lo[2], hi[1] - lo[1], hi[2] - lo[2])
+    area = _mapped_rect(_K_inv(K), rect)
     C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(v[1], v[2], v[3]), controls))
     return CameraModel(K, SplineLens(ChartSpline(area, C); present))
 end
@@ -1280,11 +1326,14 @@ end
 
 # A rectangle of the normalized plane in pixels: its corners through `K` (skew 0, so
 # a rectangle again) — the calibrated pixel area of a lattice over `area`.
-function _pixel_area(intrinsics::AbstractIntrinsics, area::Rect2)
-    K = SMatrix{3, 3, Float64}(_K(intrinsics))
-    o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
-    lo = K * SVector(o[1], o[2], 1.0)
-    hi = K * SVector(o[1] + w[1], o[2] + w[2], 1.0)
+_pixel_area(intrinsics::AbstractIntrinsics, area::Rect2) = _mapped_rect(SMatrix{3, 3, Float64}(_K(intrinsics)), area)
+
+# A rectangle's image under the skew-0 affinity `M` (a K or K⁻¹, 3 × 3: `_check_spline_gauge`'s
+# precondition): its two corners mapped, the rectangle between them.
+function _mapped_rect(M::AbstractMatrix, r::Rect2)
+    o = GeometryBasics.origin(r); w = GeometryBasics.widths(r)
+    lo = M * SVector(o[1], o[2], 1.0)
+    hi = M * SVector(o[1] + w[1], o[2] + w[2], 1.0)
     return Rect2{Float64}(lo[1], lo[2], hi[1] - lo[1], hi[2] - lo[2])
 end
 

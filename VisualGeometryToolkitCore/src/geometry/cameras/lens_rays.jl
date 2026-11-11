@@ -98,9 +98,8 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
     inf, s = S(Inf), _inverse_lm_scale(S)
     fs = max(one(S), sqrt(xd[1]^2 + xd[2]^2))
     x, ok, J = _spline_lm(fj, x0, SVector(-inf, -inf), SVector(inf, inf), SVector(s, s), last(_trips(S)), tol2, fs, S(1) / 10, zero(S))
-    return x, ok, _det(J)
+    return x, ok, det(J)
 end
-@inline _det(J::SMatrix{2, 2}) = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
 
 # -----------------------------------------------------------------------------
 # Frames: ray ↔ frame point
@@ -413,10 +412,9 @@ end
 # iteration is JuliaLang/julia#64827's pattern); `_distort_jacobian` is its
 # second half.
 
-@inline _id2(x) = (o = one(x[1]); z = zero(o); SMatrix{2, 2}(o, z, z, o))
 @inline _distort_jacobian(d, x::StaticVector{2}) = last(_distort_and_jacobian(d, x))
 
-@inline _map_and_jacobian(::Nothing, x::StaticVector{2}) = (Vec2(x[1], x[2]), _id2(x))
+@inline _map_and_jacobian(::Nothing, x::StaticVector{2}) = (Vec2(x[1], x[2]), one(SMatrix{2, 2, typeof(one(x[1])), 4}))
 # x ↦ F(u)·x, u = |x|²: F·I + 2F′(u)·x xᵀ.
 @inline _radial_jacobian(F, dF, x) = (c = 2 * dF; SMatrix{2, 2}(F + c * x[1] * x[1], c * x[1] * x[2], c * x[1] * x[2], F + c * x[2] * x[2]))
 @inline function _map_and_jacobian(r::Radial{Even}, x::StaticVector{2})
@@ -468,7 +466,7 @@ end
 @inline _stage_and_jacobian(a::Union{Additive, Tangential, ThinPrism}, x::StaticVector{2}) = _additive_and_jacobian(a, x)
 @inline _stage_and_jacobian(m, x::StaticVector{2}) = _map_and_jacobian(m, x)
 @inline _distort_and_jacobian(d, x::StaticVector{2}) = _stage_and_jacobian(d, x)
-@inline _distort_and_jacobian(c::ComposedTransformation, x::StaticVector{2}) = _chain_and_jacobian(_stages(c), Vec2(x[1], x[2]), _id2(x))
+@inline _distort_and_jacobian(c::ComposedTransformation, x::StaticVector{2}) = _chain_and_jacobian(_stages(c), Vec2(x[1], x[2]), one(SMatrix{2, 2, typeof(one(x[1])), 4}))
 @inline _chain_and_jacobian(::Tuple{}, x, J) = (x, J)
 @inline function _chain_and_jacobian(ds::Tuple, x, J)
     y, Js = _stage_and_jacobian(first(ds), x)
@@ -591,7 +589,7 @@ end
         h = _head(ap)
         x, ok = h isa Union{Nothing, Radial} ? _fixed_point(ap, h, x0) : (x0, false)
         if ok      # the contraction's root: its determinant, unless the cheap radial test already fails
-            dJ = _radial_ok(ap, x) ? _det(_distort_jacobian(ap, x)) : zero(eltype(x))
+            dJ = _radial_ok(ap, x) ? det(_distort_jacobian(ap, x)) : zero(eltype(x))
         else
             x, ok, dJ = _inverse_lm(ap, x0, h isa Radial ? x : x0)
         end
@@ -673,7 +671,7 @@ end
 @inline _is_radial(_) = false
 @inline _any_radial(ds::Tuple) = any(_is_radial, ds)
 
-@inline _on_imaged_branch(d, x::SVector{2}) = _radial_ok(d, x) && _det(_distort_jacobian(d, x)) > 0
+@inline _on_imaged_branch(d, x::SVector{2}) = _radial_ok(d, x) && det(_distort_jacobian(d, x)) > 0
 
 # A converged root on the branch stands as solved: the result is the solver's
 # own, unchanged. `dJ` is det J at the root. Otherwise (no convergence, or a
@@ -729,7 +727,7 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
             budget -= 1
             fz, Jw = _distort_and_jacobian(d, z)
             Jz = SMatrix{2, 2, S}(Jw)
-            _det(Jz) > 0 || break           # a fold: shorten
+            det(Jz) > 0 || break           # a fold: shorten
             Δz = Jz \ SVector{2, S}(fz[1] - y1, fz[2] - y2)
             z = SVector{2, S}(z[1] - Δz[1], z[2] - Δz[2])
             δ2, s2 = Δz[1] * Δz[1] + Δz[2] * Δz[2], z[1] * z[1] + z[2] * z[2]

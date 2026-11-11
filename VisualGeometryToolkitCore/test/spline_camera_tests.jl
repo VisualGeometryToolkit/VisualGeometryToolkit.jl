@@ -216,16 +216,11 @@
             jx, jy, w2, (w1x, w1y) = spline_weights(b, x)
             @test (jx, jy) == (ix, iy) && w2 == w
             @test sum(w2 .* C) == d
-            Jw = FiniteDiff.finite_difference_jacobian(p -> vec(spline_weights(b, SVector{2}(p), (ix, iy))[3]), Vector(x), Val(:central))
+            Jw = FiniteDiff.finite_difference_jacobian(p -> vec(spline_weights(b, SVector{2}(p))[3]), Vector(x), Val(:central))
             @test maximum(abs.(vec(w1x) .- Jw[:, 1])) < 1.0e-7 * maximum(abs, Jw)
             @test maximum(abs.(vec(w1y) .- Jw[:, 2])) < 1.0e-7 * maximum(abs, Jw)
             @test abs(sum(w1x)) < 1.0e-9 && abs(sum(w1y)) < 1.0e-9
-            # held fixed, the window's pieces extrapolate off its cell
-            y = x + SVector(0.3 * b.area.widths[1] / (size(b.controls, 2) - 3), -0.2 * b.area.widths[2] / (size(b.controls, 1) - 3))   # 0.3, −0.2 cells away
-            @test spline_weights(b, y, (ix, iy))[1:2] == (ix, iy)
-            @test sum(spline_weights(b, y, (ix, iy))[3]) ≈ 1 atol = 1.0e-12
         end
-        @test_throws ArgumentError spline_weights(b, SVector(0.0, 0.0), (2, 5))
         # the control grid and its size, in the grid_size keyword's order
         @test directions(g) === b.controls && grid_size(g) == (20, 16)
         @test all(isnan, backproject(g, SVector(-5.0, 10.0)))

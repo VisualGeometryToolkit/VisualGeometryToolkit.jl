@@ -129,3 +129,13 @@ end
     @test ext !== nothing
     @test check_no_stale_explicit_imports(ext) === nothing
 end
+
+# The monorepo's package list in the Slurm launchers is spelled once (ci/slurm/packages.sh): every other script sources it.
+@testitem "quality: the CI package list is defined once" begin
+    using Test
+    using VisualGeometryToolkitCore
+    root = dirname(pkgdir(VisualGeometryToolkitCore))
+    scripts = filter(f -> endswith(f, ".sh") || endswith(f, ".sbatch"), readdir(joinpath(root, "ci", "slurm"); join = true))
+    lists = [f for f in scripts if occursin(r"VisualGeometryToolkitCore\s+VisualGeometryToolkitIO\s+VisualGeometryToolkitEstimation", read(f, String))]
+    @test basename.(lists) == ["packages.sh"]
+end

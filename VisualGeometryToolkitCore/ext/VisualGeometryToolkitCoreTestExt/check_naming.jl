@@ -70,6 +70,11 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # the 0.9 /simplify fixes: the spline refine's gauge by parametrization, one rows-and-Jacobian assembler
+    "finite" * "_linearization",             # NLLSsolver ≥ 5.3.3 stops on a non-finite linearization itself (#68); no block wraps it
+    "_Spline" * "Anchor", "_Spline" * "Pin",   # VisualGeometryToolkitEstimation: only live controls are variables, the gauges no coordinate (`restrict`)
+    "_camera_poses_rows" * "_and_jacobian", "_rw_rows" * "_and_jacobian", "_spline_problem_rows" * "_and_jacobian",   # Core's `nlls_rows_and_jacobian`
+    "_rect" * "_centre",                     # a rectangle's centre: `centroid(r)`
     # a value with its cost is Core's `Attributed(θ, (; cost))` (`keep_best`) (2026-11). Only the
     # forms Core's type took are listed: Eval's tuning `Incumbent` (a search's setting in force and
     # its bootstrap test) is a different concept and keeps the bare word

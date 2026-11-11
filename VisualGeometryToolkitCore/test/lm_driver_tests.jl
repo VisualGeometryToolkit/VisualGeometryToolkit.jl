@@ -110,7 +110,7 @@ end
     @test VgtkCore.nlls_stop_reasons(0) == Symbol[]
     @test VgtkCore.nlls_stop_reasons((1 << 2) | (1 << 8)) == [:relative_cost_decrease, :max_iterations]
     @test VgtkCore.nlls_stop_reasons((1 << 0) | (1 << 6) | (1 << 16)) == [:cost_infinite, :delta_size, :callback]
-    @test length(VgtkCore.nlls_stop_reasons(typemax(Int32))) == 13                # every named bit (0–11, 16)
+    @test length(VgtkCore.nlls_stop_reasons(typemax(Int32))) == 14                # every named bit (0–12, 16)
 end
 
 @testset "a NaN wall at the production cost tolerance" begin
@@ -184,12 +184,12 @@ end
     @test !VgtkCore._robust_stationary(ws, tstate, SVector(5.0, 5.0, 0.0), Val(1), 0.05, 1.0e-12)
 end
 
-# NLLSsolver 5.3.2's damping loop spins on a non-finite linearization at an accepted point (every damped step NaN,
-# λ overflowing to Inf; NLLSsolver#68 unreleased): a block returning through `finite_linearization` hands it +Inf and
-# a zero gradient and Hessian instead, so the step is rejected and the solve stops on any machine.
-@testitem "finite_linearization: a NaN linearization at an accepted point stops the LM" begin
+# NLLSsolver 5.3.2's damping loop spun on a non-finite linearization at an accepted point (every damped step NaN,
+# λ overflowing to Inf); 5.3.3 (#68, the stack's floor) stops there itself: termination bit 12, the accepted point kept,
+# a failed solve by the stack's one decoder. No block wraps its linearization.
+@testitem "NLLSsolver ≥ 5.3.3: a NaN linearization at an accepted point stops the LM (bit 12)" begin
     using StaticArrays: SVector, SMatrix
-    using VisualGeometryToolkitCore: finite_linearization, nlls_options, NLLSsolver
+    using VisualGeometryToolkitCore: nlls_options, nlls_stop_code, nlls_stop_reasons, NLLSsolver
     # r(x) = [acos(min(x, 1)), x − 2]: finite everywhere, its derivative NaN for x ≥ 1 (acos′(1)·0); from x = 0 the first
     # step crosses x = 1 and lowers the cost, so it is accepted, and the linearization there is NaN
     struct NaNPastOne <: NLLSsolver.AbstractResidual end
@@ -202,15 +202,14 @@ end
     function NLLSsolver.computecostgradhess(varflags, r::NaNPastOne, x)
         res = NLLSsolver.computeresidual(r, x)
         J = SMatrix{2, 1, Float64}(x < 1 ? -1 / sqrt(1 - x^2) : NaN, 1.0)
-        return finite_linearization(0.5 * sum(abs2, res), J' * res, J' * J)
+        return 0.5 * sum(abs2, res), J' * res, J' * J
     end
-    @test finite_linearization(1.0, SVector(NaN), SMatrix{1, 1}(1.0)) == (Inf, SVector(0.0), SMatrix{1, 1}(0.0))
-    @test finite_linearization(1.0, SVector(2.0), SMatrix{1, 1}(3.0)) == (1.0, SVector(2.0), SMatrix{1, 1}(3.0))
     problem = NLLSsolver.NLLSProblem(Float64, NaNPastOne)
     NLLSsolver.addvariable!(problem, 0.0)
     NLLSsolver.addcost!(problem, NaNPastOne())
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter = 100, ftol = 1.0e-12, xtol = 1.0e-12))   # returns, rather than spinning
-    @test result.termination & (1 << 10) != 0                    # stopped: the relinearized cost disagrees with the accepted one
+    @test :nonfinite_gradient in nlls_stop_reasons(result.termination)
+    @test nlls_stop_code(result.termination) == -3                # a failed solve
     @test result.niterations <= 3
     @test isfinite(result.bestcost) && result.bestcost < result.startcost
     @test problem.variables[1] >= 1                              # the accepted step is kept

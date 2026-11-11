@@ -618,7 +618,7 @@ public residual_rows!, residual_jacobian_rows!, lm_retcode, is_stationary, nlls_
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
-public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, finite_cost, finite_linearization   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded; a block's cost and linearization as its LM reads them
+public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope

@@ -156,7 +156,7 @@ end
 
 # Whether the lens coverage holds a point, closed (a sensor edge point lies on the default coverage's boundary): a Rect by
 # its bounds, a Circle as its round Ellipse (as `∩` meets it), an Ellipse by its own membership.
-_covers(r::Rect2, p) = r.origin[1] <= p[1] <= r.origin[1] + r.widths[1] && r.origin[2] <= p[2] <= r.origin[2] + r.widths[2]
+_covers(r::Rect2, p) = _in_rect(r, SVector{2}(p[1], p[2]))
 _covers(c::Circle, p) = Point2(p) ∈ Ellipse(c)
 _covers(e::Ellipse, p) = Point2(p) ∈ e
 # The last point of the segment c → u0 the coverage holds (c held): u0 itself when held, else by bisection — the coverage

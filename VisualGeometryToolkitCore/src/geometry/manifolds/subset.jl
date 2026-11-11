@@ -11,45 +11,48 @@
 # -----------------------------------------------------------------------------
 
 """
-    SubsetManifold{C, D, M} <: Manifold
+    SubsetManifold{C, D, I} <: Manifold
 
-[`restrict`](@ref)'s manifold: the parent `manifold::C` of tangent size `D` on its `M` free
-coordinates `idx` (ascending). `retract(rc, v)` is the parent's at `v`
+[`restrict`](@ref)'s manifold: the parent `manifold::C` of tangent size `D` on its free
+coordinates `idx::I` (ascending): an `SVector{M, Int}` (a tangent size that is a
+constant of the type), or a `Vector{Int}` (a size known at run time: one variable type
+for many restrictions — its `NLLSsolver.nvars` is then a run-time `Int`). `retract(rc, v)` is the parent's at `v`
 lifted into `D` coordinates (zeros elsewhere), the Jacobians are the parent's
 columns `idx`, `recenter` re-anchors the parent.
 """
-struct SubsetManifold{C <: Manifold, D, M} <: Manifold
+struct SubsetManifold{C <: Manifold, D, I <: AbstractVector{Int}} <: Manifold
     manifold::C
-    idx::SVector{M, Int}
-    function SubsetManifold(manifold::C, idx::SVector{M, Int}) where {C <: Manifold, M}
+    idx::I
+    function SubsetManifold(manifold::C, idx::I) where {C <: Manifold, I <: Union{SVector{<:Any, Int}, Vector{Int}}}
         D = tangent_size(manifold)
         # strictly ascending, pair by pair: `allunique(idx)` collected the SVector
         # into an Array on Julia 1.12 (64 bytes per recenter at M = 4)
         ascending = true
-        for j in 1:(M - 1)
+        for j in 1:(length(idx) - 1)
             ascending &= idx[j] < idx[j + 1]
         end
         ascending ||
             throw(ArgumentError("restrict: coordinate indices must be ascending and distinct, got $idx"))
         all(i -> 1 <= i <= D, idx) || throw(ArgumentError("restrict: coordinate indices $idx outside 1:$D"))
-        return new{C, D, M}(manifold, idx)
+        return new{C, D, I}(manifold, idx)
     end
 end
 
-restrict(ch::Manifold, idx::SVector{M, Int}) where {M} = SubsetManifold(ch, idx)
+restrict(ch::Manifold, idx::Union{SVector{<:Any, Int}, Vector{Int}}) = SubsetManifold(ch, idx)
 function restrict(ch::Manifold, free::SVector{D, Bool}) where {D}
     D == tangent_size(ch) || throw(ArgumentError("restrict: a $D-entry mask for a manifold of tangent size $(tangent_size(ch))"))
     return SubsetManifold(ch, SVector{count(free), Int}(findall(free)))
 end
 restrict(ch::Manifold, ::Tuple{}) = SubsetManifold(ch, SVector{0, Int}())
 
-tangent_size(::SubsetManifold{C, D, M}) where {C, D, M} = M
+tangent_size(::SubsetManifold{C, D, SVector{M, Int}}) where {C, D, M} = M
+tangent_size(rc::SubsetManifold{C, D, Vector{Int}}) where {C, D} = length(rc.idx)
 model(rc::SubsetManifold) = model(rc.manifold)
 
 # The M free coordinates lifted into the parent's D, the fixed ones at zero.
-@inline function _lift(rc::SubsetManifold{C, D, M}, v::AbstractVector) where {C, D, M}
+@inline function _lift(rc::SubsetManifold{C, D}, v::AbstractVector) where {C, D}
     full = zero(SVector{D, promote_type(eltype(v), Float64)})   # an empty v has eltype Union{}
-    @inbounds for j in 1:M
+    @inbounds for j in eachindex(rc.idx)
         full = Base.setindex(full, v[j], rc.idx[j])
     end
     return full
@@ -61,6 +64,12 @@ retract_jacobian(rc::SubsetManifold) = retract_jacobian(rc.manifold)[:, rc.idx]
 retract_jacobian(rc::SubsetManifold, v::StaticVector) = retract_jacobian(rc.manifold, _lift(rc, v))[:, rc.idx]
 action_jacobian(rc::SubsetManifold, x) = action_jacobian(rc.manifold, x)[:, rc.idx]
 action_jacobian(rc::SubsetManifold, x, v::StaticVector) = action_jacobian(rc.manifold, x, _lift(rc, v))[:, rc.idx]
+# As an NLLSsolver variable (lm_core.jl's protocol), a restriction to a run-time index
+# (`restrict(ch, idx::Vector{Int})`): one variable type whose size is read at run time
+# (NLLSsolver sizes each variable's block from `nvars`).
+NLLSsolver.nvars(rc::SubsetManifold{<:Manifold, <:Any, Vector{Int}}) = length(rc.idx)
+NLLSsolver.update(rc::SubsetManifold{<:Manifold, <:Any, Vector{Int}}, δ, start = 1) =
+    recenter(rc, view(δ, start:(start + length(rc.idx) - 1)))
 
 # -----------------------------------------------------------------------------
 # LinearSubspaceManifold — a manifold on a linear subspace of its parent's

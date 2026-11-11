@@ -5,6 +5,24 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: `finite_linearization` is removed.** NLLSsolver 5.3.3 (#68, the floor) stops on a non-finite step or
+  gradient at an accepted point itself; no block wraps its linearization. Its termination bit 12 is decoded
+  (`nlls_stop_reasons`: `:nonfinite_gradient`; `nlls_stop_code`: a failed solve).
+- **New: `nlls_rows_and_jacobian(blocks, variables)`** (public): the rows of NLLSsolver residual blocks and their sparse
+  Jacobian in the variables' chart coordinates, the stall postcondition's input for every NLLSsolver fit of the stack.
+- **New: `restrict(ch, idx::Vector{Int})`**, a `SubsetManifold` on a run-time index (its type parameter is now the
+  index container: `SubsetManifold{C, D, I}`): one variable type for many restrictions, its `NLLSsolver.nvars` read at
+  run time (a SplineLens refine's patches on their live controls).
+- **Breaking: `spline_weights(cs, x)` loses its held-window argument** (no caller in the stack; a refinement holds its
+  window by solving on the window's own cell). The projection Jacobians form the window's basis weights once.
+- **Internal: one implementation each.** A rectangle's centre is `centroid` (`_rect_centre` retired), the lens
+  coverage's rectangle test is `_in_rect`, a rectangle mapped through K or K⁻¹ is one `_mapped_rect`, a 2 × 2
+  determinant and identity are StaticArrays' `det` and `one`, and a lattice's node counts at a spacing are one
+  `_node_counts` (the reference's 64 px grid and VisualGeometryToolkitEstimation's spacing search). Values unchanged.
+- **Changed: the batched SplineLens `project`** takes a non-finite seed as the scalar `project`'s own start (the pinhole
+  point where the lens images it, else the area's centre; was the area's centre). The same kernel serves a refine's
+  normalized projections (with the lattice's fold measure).
+
 - **Changed: `pool_frame_calibrations` moves K through `reframed_calibration`**, the one change of image frame of a
   calibration, instead of multiplying by the stored map by hand. The values are the same bit for bit; a stored map
   that is not an isotropic scale and a translation (the pool frame always is) is now an `ArgumentError`.

@@ -104,9 +104,10 @@ only the contract verbs, so a scorer or an optimizer from any package plugs in
 as a keyword:
 
 ```julia
-using VisualGeometryToolkitEstimation, RANSACScoringDoneRight, LocalOptimizationDoneRight
+using VisualGeometryToolkitEstimation, LocalOptimizationDoneRight
+using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
 find_homography(cs)       # core default: MsacScoring + Irls{TLSShape} at the scorer's threshold
-find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0),  # a scorer (RSDR)
+find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),  # a scorer (Core's)
                     local_optimization = HQ{WelschShape}())                     # an optimizer (LODR)
 ```
 

@@ -118,6 +118,8 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, loss_at, width_scale_interface, check_composition,
     ScaleMultiple, LossWidth, TagRegistry, MsacScoring, RansacScoring, inlier_threshold,
+    StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
+    LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
     median_seeded_posterior, Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, inlier_prior,
     square_distances!, sq_distances, s_hat_sq, student_t_dof,
@@ -173,7 +175,6 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # axis — whether a shape rejects at all — which decides whether a frozen width
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
-using VisualGeometryToolkitCore: partition_student_t, IGPrior   # a robust refine's scale: the least-squares rows' Student-t (refine_camera_and_poses.jl)
 using VisualGeometryToolkitCore: EssentialManifold5,
     HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,
@@ -344,7 +345,7 @@ public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMet
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
+public default_config_path, local_optimization_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
 # The local-optimization strategy machinery every package registers its
 # strategies with: the registry macro, the keyword constructor, the generic
@@ -455,7 +456,7 @@ protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
                            lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
-                           config_dict, strategy_loss, deployed_shape, lo_placement,
+                           config_dict, scoring_from_toml, strategy_loss, deployed_shape, lo_placement,
                            iterations_without_improvement, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

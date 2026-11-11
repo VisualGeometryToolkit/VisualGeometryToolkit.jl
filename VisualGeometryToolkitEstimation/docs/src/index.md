@@ -29,8 +29,8 @@ and local optimizers plug in by keyword.
   ellipse 1 px; absolute pose 8 px; hand-eye `0.01·L`). See
   [Fitting Algorithms](guide/fitting.md).
 - **Composition**: bring a scorer and a strategy from other packages by
-  keyword — `scoring = StudentTUniformScoring(problem, a)` from
-  RANSACScoringDoneRight, `local_optimization = HQ{WelschShape}(…)`,
+  keyword — `scoring = StudentTUniformScoring(problem, a; scale_prior, label_prior)` from
+  VisualGeometryToolkitCore, `local_optimization = HQ{WelschShape}(…)`,
   `StudentTUniform()`, `Gnc{…}(…)` from LocalOptimizationDoneRight. See
   [Getting Started](guide/getting-started.md).
 - **Core local optimizations**: [`NoLocalOptimization`](@ref) and the static

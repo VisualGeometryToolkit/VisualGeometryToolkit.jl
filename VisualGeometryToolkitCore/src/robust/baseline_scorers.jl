@@ -86,19 +86,14 @@ struct MsacScoring{DG, T} <: AbstractThresholdScoring{T}
     MsacScoring{DG, T}(threshold) where {DG, T} = new{DG, T}(threshold)
 end
 
-"""
-    SCORING_TAGS
-
-The [`TagRegistry`](@ref) of the scoring families: `"ransac"`
-([`RansacScoring`](@ref)) and `"msac"` ([`MsacScoring`](@ref)), `snake_case` of
-the type's name with the family's suffix `Scoring` stripped. A package that
-adds families (RANSACScoringDoneRight's MLESAC, MAGSAC++, …) declares its own
-registry of the same family and suffix, `TagRegistry(:scoring, "Scoring", …;
-retired)`, and its loaders read `merge(VgtkCore.SCORING_TAGS, its_tags)`.
-"""
-const SCORING_TAGS = TagRegistry(:scoring, "Scoring", "ransac" => RansacScoring, "msac" => MsacScoring)
+# The scoring families' registry, `SCORING_TAGS`, is robust/student_t_uniform_scoring.jl's (it names that
+# file's `StudentTUniformScoring` too).
 
 const _ThresholdScoring{DG, T} = Union{RansacScoring{DG, T}, MsacScoring{DG, T}}
+
+# A scorer built for a problem TYPE reads its codimension here: the one call every problem-aware scorer constructor
+# shares (these and StudentTUniformScoring's), the problem protocol's `codimension` implemented by the problem type.
+_problem_codimension(::Type{P}) where {P <: AbstractConstraintProblem} = codimension(P)
 
 for S in (:RansacScoring, :MsacScoring)
     @eval begin
@@ -108,7 +103,7 @@ for S in (:RansacScoring, :MsacScoring)
         $S(problem::AbstractConstraintProblem; threshold::Union{Nothing, Real} = nothing) =
             _at_threshold($S{codimension(problem)}, threshold)
         $S(::Type{P}; threshold::Union{Nothing, Real} = nothing) where {P <: AbstractConstraintProblem} =
-            _at_threshold($S{codimension(P)}, threshold)
+            _at_threshold($S{_problem_codimension(P)}, threshold)
     end
 end
 _at_threshold(::Type{S}, ::Nothing) where {S} = S{Nothing}(nothing)

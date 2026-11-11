@@ -240,6 +240,15 @@ lo = local_optimization_from_toml(table; class = :homography,
                                   tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
 ```
 
+The scorer is selected the same way, by one reader through a tag registry
+(VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge such as
+RANSACScoringDoneRight's), every key required:
+
+```julia
+using VisualGeometryToolkitEstimation: scoring_from_toml
+scoring = scoring_from_toml(Dict("type" => "msac", "threshold" => 3.0); problem = HomographyProblem)
+```
+
 ### Registering strategies
 
 The strategy machinery — the registry, the keyword constructor, the TOML
@@ -267,6 +276,7 @@ every strategy.
 default_config_path
 local_optimization_from_toml
 lo_from_toml
+scoring_from_toml
 config_dict
 lo_config_dict
 LO_TAGS

@@ -57,18 +57,18 @@ is a fraction of the characteristic length, `0.01·L`.
 ## Composing a scorer from another package
 
 Any type implementing the contract is a `scoring`. The paper scorer of the
-stack is RANSACScoringDoneRight's `StudentTUniformScoring`: a scale-free
+stack is VisualGeometryToolkitCore's `StudentTUniformScoring`: a scale-free
 Student-t + uniform marginal likelihood that profiles the inlier set by
 sort-and-sweep and marginalises σ² under a scale prior (Jeffreys by default,
 `IGPrior(α₀, β₀)` optional). Its one width parameter is the outlier
 half-width `a`, the half-width of the uniform outlier support:
 
 ```julia
-using RANSACScoringDoneRight: StudentTUniformScoring
+using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
 using VisualGeometryToolkitCore: IGPrior
 
-scoring = StudentTUniformScoring(problem, 20.0)                              # Jeffreys
-scoring = StudentTUniformScoring(problem, 20.0; prior = IGPrior(2.0, 1.0))   # weakly informative
+scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())                              # Jeffreys
+scoring = StudentTUniformScoring(problem, 20.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())   # weakly informative
 result  = find_homography(pairs; scoring)
 ```
 

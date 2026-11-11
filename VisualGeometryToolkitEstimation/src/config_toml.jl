@@ -243,6 +243,106 @@ function lo_from_toml(::Type{<:TerminalLO}, d::AbstractDict; class::Symbol,
     return TerminalLO(local_optimization_from_toml(inner; class, section = "$sec.inner", tags))
 end
 
+# -----------------------------------------------------------------------------
+# Scorers — the RANSAC scoring of the same schema
+# -----------------------------------------------------------------------------
+# A scorer is a TOML table `{ type = <tag>, … }` like a strategy's: `type` selects it from a scoring registry
+# (VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream package's merge of it, RANSACScoringDoneRight's
+# `ALL_SCORING_TAGS`), every other key is the scorer's, required (a scorer has no code default: its width is its
+# config's), an unknown key refused. The problem type gives what a table cannot state: the codimension and the
+# minimal sample size. One reader for every registered scorer (`scoring_from_toml`), a downstream scorer's
+# table read by its owner's method of the same generic.
+
+"""
+    scoring_from_toml(table; problem, section = "scoring", tags = SCORING_TAGS) -> AbstractScoring
+    scoring_from_toml(T, table; problem, section)
+
+The RANSAC scorer of its TOML table: `type` looked up in `tags`
+(VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge of it), then
+the entry `T` built from the table by its method of the second form, which a
+downstream scorer adds. `problem` is the problem type the scorer scores (its
+codimension). Core's threshold scorers take one key, `threshold` (required: a
+loss width in the residual's units, e.g. `{ type = "msac", threshold = 3.0 }`).
+Unknown `type` or keys, and a missing key, are an `ArgumentError`.
+[`config_dict`](@ref) writes the table back.
+"""
+function scoring_from_toml(d::AbstractDict; problem::Type, section::AbstractString = "scoring",
+                           tags::TagRegistry = VgtkCore.SCORING_TAGS)
+    haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
+    return scoring_from_toml(tags[d["type"]], d; problem, section = "$section.$(d["type"])")
+end
+function scoring_from_toml(::Type{T}, d::AbstractDict; problem::Type, section::AbstractString) where {T <: Union{RansacScoring, MsacScoring}}
+    _check_keys(d, ("type", "threshold"), section)
+    haskey(d, "threshold") || throw(ArgumentError("[$section] needs `threshold` (a scorer's width is its config's)"))
+    return T(problem; threshold = Float64(d["threshold"]))
+end
+scoring_from_toml(::Type{T}, ::AbstractDict; problem::Type, section::AbstractString) where {T} =
+    throw(ArgumentError("[$section] scorer $T has no TOML reader (its package adds a `scoring_from_toml` method)"))
+
+config_dict(sc::Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}) =
+    Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "threshold" => sc.threshold)
+
+# The Student-t + uniform marginal scorer (Core's `StudentTUniformScoring`): `{ type = "student_t_uniform",
+# outlier_halfwidth = h, scale_prior = …, label_prior = … }`. The width is the table's, required. The two priors are
+# REQUIRED keys of the resolved table, and the stack's default is configs/default.toml's [scoring.student_t_uniform]:
+# a key the table leaves out inherits it there, as a strategy's keys inherit [local_optimization.<type>]. Nothing is
+# defaulted in code (Core's constructor takes both priors as required keywords).
+#   scale_prior = "jeffreys"                               π(σ²) ∝ 1/σ²
+#   scale_prior = "ig", alpha0 = α₀, beta0 = β₀            IGPrior(α₀, β₀), both parameters required
+#   label_prior = "flat" | "profiled"
+#   label_prior = "beta", alpha = α, beta = β              BetaLabelPrior(α, β), both parameters required
+const _STUDENT_T_KEYS = ("type", "outlier_halfwidth", "scale_prior", "alpha0", "beta0", "label_prior", "alpha", "beta")
+const _STUDENT_T_DEFAULTS = "scoring.student_t_uniform"
+
+# A prior's parameters: required with the prior that takes them, refused with any other (a stray `alpha0` beside
+# `scale_prior = "jeffreys"` would otherwise be silently ignored).
+function _prior_parameters(d::AbstractDict, keys::Tuple, takes::Bool, what::AbstractString, section::AbstractString)
+    for key in keys
+        takes && !haskey(d, key) && throw(ArgumentError("[$section] $what needs `$key`"))
+        !takes && haskey(d, key) && throw(ArgumentError("[$section] `$key` is a parameter of another $(what): $what takes none"))
+    end
+    return takes ? map(key -> Float64(d[key]), keys) : ()
+end
+
+function _scale_prior_from_toml(d::AbstractDict, section::AbstractString)
+    tag = get(d, "scale_prior", _dflt(_STUDENT_T_DEFAULTS, "scale_prior"))
+    tag in ("jeffreys", "ig") || throw(ArgumentError("[$section] scale_prior = $(repr(tag)): one of \"jeffreys\", \"ig\""))
+    params = _prior_parameters(d, ("alpha0", "beta0"), tag == "ig", "scale_prior = $(repr(tag))", section)
+    return tag == "ig" ? IGPrior(params...) : JeffreysPrior()
+end
+
+function _label_prior_from_toml(d::AbstractDict, section::AbstractString)
+    tag = get(d, "label_prior", _dflt(_STUDENT_T_DEFAULTS, "label_prior"))
+    L = LABEL_PRIOR_TAGS[tag]
+    params = _prior_parameters(d, ("alpha", "beta"), L === BetaLabelPrior, "label_prior = $(repr(tag))", section)
+    return L(params...)
+end
+
+function scoring_from_toml(::Type{<:StudentTUniformScoring}, d::AbstractDict; problem::Type, section::AbstractString)
+    _check_keys(d, _STUDENT_T_KEYS, section)
+    haskey(d, "outlier_halfwidth") || throw(ArgumentError("[$section] needs `outlier_halfwidth` (a scorer's width is its config's)"))
+    return StudentTUniformScoring(problem, Float64(d["outlier_halfwidth"]);
+                                  scale_prior = _scale_prior_from_toml(d, section),
+                                  label_prior = _label_prior_from_toml(d, section))
+end
+
+# The writer states both priors (a written table reads back the same scorer whatever the defaults file says). The
+# model-certain scorer at a supplied width only: a predictive scorer, or an outlier model that estimates the support,
+# has no table of this schema.
+function config_dict(sc::StudentTUniformScoring{Nothing, DG, L, FixedHalfwidth}) where {DG, L}
+    d = Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "outlier_halfwidth" => VgtkCore.outlier_halfwidth(sc))
+    p = VgtkCore.scale_prior(sc)
+    if p == JeffreysPrior()
+        d["scale_prior"] = "jeffreys"
+    else
+        d["scale_prior"] = "ig"; d["alpha0"] = p.alpha0; d["beta0"] = p.beta0
+    end
+    lp = VgtkCore.label_prior(sc)
+    d["label_prior"] = VgtkCore.tag_of(LABEL_PRIOR_TAGS, lp)
+    lp isa BetaLabelPrior && (d["alpha"] = lp.alpha; d["beta"] = lp.beta)
+    return d
+end
+
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
 _dflt_lo(class::Symbol) =

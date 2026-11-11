@@ -58,7 +58,7 @@ one `solver_covariance`, the constraint sandwich over an index set).
 AbstractScoring (VGC)                        the scoring contract
 ├── MsacScoring{DG, T}, RansacScoring{DG, T} VGC's baseline scorers at a threshold
 │                                            (MSAC is every find_*'s default)
-└── StudentTUniformScoring{P, DG}            RANSACScoringDoneRight's Student-t + uniform marginal
+└── StudentTUniformScoring{P, DG}            VisualGeometryToolkitCore's Student-t + uniform marginal
                                              (one downstream implementation)
 ```
 

@@ -136,6 +136,9 @@ const CONTRACT_GENERICS = (
     scoring_workspace, score!, inlier_count, consensus_order, inlier_threshold, has_inlier_threshold,
     is_predictive, scored_model, scale_prior, outlier_halfwidth, score_bound, check_workspace,
     with_width, width_axis, residual_quality,
+    # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model
+    # (robust/partition_sweep.jl)
+    estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth,
     # the local-optimization contract (robust/lo_contract.jl)
     lo_workspace, locally_optimize!, lo_width, deployed_scale_multiple,
     refine_external!, external_workspace, prepare_external!,

@@ -567,6 +567,12 @@ with_lens_coverage(bc::BoundedCamera, region) = BoundedCamera(bc.camera, bc.boun
 _rebound(bc::BoundedCamera, camera::AbstractCamera) = BoundedCamera(camera, bc.bound, bc.lens_coverage)
 # a bounded camera in another element type: the wrapped camera converted, the bound kept (a device kernel's Float32 camera)
 convert_eltype(::Type{T}, bc::BoundedCamera) where {T <: Real} = _rebound(bc, convert_eltype(T, bc.camera))
+# The device form (`Adapt.adapt(backend, bc)`): the wrapped camera's arrays move (a spline lens's controls and mask), the
+# bound and the lens coverage (isbits) travel as they are. A posed camera's pose stays, its model moves.
+Adapt.adapt_structure(to, bc::BoundedCamera) = _rebound(bc, Adapt.adapt(to, bc.camera))
+Adapt.adapt_structure(to, c::PosedCamera) = _device_posed(Adapt.adapt(to, c.model), c.extrinsics)
+_device_posed(m::M, X::Rt) where {M, Rt} = PosedCamera{M, Rt}(m, X)   # the stored extrinsics as they are, no re-check
+
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()

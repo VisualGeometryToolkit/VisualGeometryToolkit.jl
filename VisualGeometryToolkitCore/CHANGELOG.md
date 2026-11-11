@@ -17,6 +17,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
   relative to `‖Aᵀb + DᵀWh‖`. `cgls` and `normal_cg` are one iteration (one loop, one stopping rule and iteration
   count), and both take `diagonal`, the normal matrix's diagonal, as a Jacobi preconditioner. The solve a panorama's
   vignetting fit makes on its accumulated stencil and Schur block (PanoramaStitching's `_pcg`).
+- **New: a bounded camera and a posed camera move to a device** (`Adapt.adapt(backend, bc)`): the wrapped camera's
+  arrays move (a spline lens's controls and presence mask), the bound, the lens coverage and the pose travel as they are,
+  so a kernel reads where the camera images (its lens coverage and its backprojection) without the bound being stripped.
 - **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
   VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
   Estimation's `SimFitPP`/`simfitpp_select`.

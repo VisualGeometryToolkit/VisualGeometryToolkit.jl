@@ -119,3 +119,56 @@ end
         end
     end
 end
+
+# A bounded camera of a spline lens on a device: `Adapt.adapt` moves the wrapped camera's arrays (a pose kept) and keeps the
+# bound and the lens coverage, so a kernel reads where the camera images (inside its coverage, its backprojection finite).
+@testitem "BoundedCamera: Adapt keeps the bound and the lens coverage; a kernel reads where it images (CUDA availability-gated)" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: KannalaBrandt, lens_coverage, with_present, node_mask
+    using StaticArrays
+    using Adapt: adapt
+    using KernelAbstractions
+    using KernelAbstractions: @kernel, @index, @Const
+    using Rotations: RotXYZ
+
+    @kernel function imaged!(ok, @Const(ps), c)
+        i = @index(Global)
+        p = ps[i]
+        d = backproject(c, p)
+        ok[i] = p ∈ lens_coverage(c) && isfinite(d[1]) && isfinite(d[2]) && isfinite(d[3])
+    end
+    W, H = 1280, 960
+    fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
+    disc = Circle(Point2(640.0, 480.0), 250π / 3)
+    m = CameraModel(SplineLens, fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    m = with_present(m, node_mask(m, valid_domain(m) ∩ disc))
+    X = EuclideanMap(RotXYZ(0.1, -0.2, 0.3), SVector(0.5, -0.1, 2.0))
+    cams = (BoundedCamera(m, Size2(W, H); lens_coverage = disc), BoundedCamera(PosedCamera(m, X), Sensor(Size2(W, H), 5.95μm); lens_coverage = disc))
+    ps = vec([SVector(x, y) for x in 0.25:19.5:(W - 0.25), y in 0.25:19.5:(H - 0.25)])
+    host(c) = [p ∈ lens_coverage(c) && all(isfinite, backproject(c, p)) for p in ps]
+    @test any(host(cams[1])) && !all(host(cams[1]))
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        CuArray = getproperty(cuda, :CuArray)
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        for c in cams
+            d = Base.invokelatest(adapt, CuArray, c)
+            @test d isa BoundedCamera && d.bound === c.bound && lens_coverage(d) === lens_coverage(c)
+            @test !(model(d).lens.backward.controls isa Array) && !(model(d).lens.present isa Array)
+            @test isequal(Base.invokelatest(Array, model(d).lens.backward.controls), model(c).lens.backward.controls)
+            c.camera isa PosedCamera && @test d.camera.extrinsics === c.camera.extrinsics
+            ok = Base.invokelatest(CuArray, falses(length(ps)))
+            Base.invokelatest(imaged!(gpu, 64), ok, Base.invokelatest(CuArray, ps), d; ndrange = length(ps))
+            Base.invokelatest(KernelAbstractions.synchronize, gpu)
+            @test Base.invokelatest(Array, ok) == host(c)
+        end
+    end
+end

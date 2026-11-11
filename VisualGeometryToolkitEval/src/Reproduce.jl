@@ -46,7 +46,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     macro_literal_violations, reproduce_index_violations,
     fragment_coordinates, compare_fragments, verify_assets, assets_deployed, deploy_assets,
     gather_numbers, uncited_macros,
-    PaperNumbers, add_number!, add_table_row!, write_numbers, tex_number, number_macro_name,
+    PaperNumbers, add_number!, add_table_row!, add_macro!, write_numbers, tex_number, number_macro_name,
     results_branch, accept_results, remove_results_worktree
 
 public VERIFY_REPORT, RESULTS_MANIFEST, RESULTS_COMPARISON

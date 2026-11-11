@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **New: the number-macro writer takes macros with parameters and shared files.** `add_macro!(nums, name, body;
+  arity, label, provenance)` adds `\newcommand{\<name>}[<arity>]{<body>}` (a figure's helper, `#1` … `#<arity>` its
+  arguments; not a value, so `tex_macro_values` skips it; `gather_numbers` gathers it as written).
+  `write_numbers(path, nums; shared = true)` writes one driver's section of a file several drivers write: its section
+  alone is replaced, the others kept, the sections ordered by driver (the same file whatever order the drivers ran
+  in), a macro another section defines refused; `order = :added` keeps the order the macros were added (default
+  `:name`, as before). CaliBlobs' icra2026 TeX writers port to it.
+
 - **New: the paper projects' shared support** (BlobBoards' bmvc2026 and CaliBlobs' icra2026 restated each):
   `Experiments.assert_active_project(marker)` (DrWatson's `projectdir()` is the paper project, or an error naming
   both), `Experiments.save_hand_eye(file, X, Y)` / `load_hand_eye(file)` / `hand_eye_mount_file(file)` (a hand-eye

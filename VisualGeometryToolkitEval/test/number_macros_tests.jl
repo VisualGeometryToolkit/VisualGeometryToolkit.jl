@@ -252,3 +252,56 @@
         end
     end
 end
+
+@testitem "number_macros: a macro with parameters" begin
+    # A paper's figure helpers (CaliBlobs icra2026: a panel's equal-height cell)
+    # are macros with arguments; the one writer writes them too, with their arity.
+    using Test
+    using VisualGeometryToolkitEval.Reproduce
+    prov = (; driver = "scripts/fig.jl", config = "configs/fig.toml", run_key = "3f2a9c1e", commit = "f11598f7")
+    nums = PaperNumbers(; prov...)
+    add_number!(nums, "nA", 3; digits = 0)
+    add_macro!(nums, "panelcell", "\\parbox[c][\\panelht][c]{#1}{\\centering #2}"; arity = 2, label = "fig:pipeline")
+    path = write_numbers(joinpath(mktempdir(), "fig.tex"), nums)
+    text = read(path, String)
+    @test occursin("\\newcommand{\\panelcell}[2]{\\parbox[c][\\panelht][c]{#1}{\\centering #2}}\n", text)
+    @test occursin("% provenance \\panelcell: driver=scripts/fig.jl;", text)
+    @test tex_macro_values(path) == ["nA" => "3"]               # a macro with parameters is no value
+    # the body's parameters are the arity's, braces balanced, one definition
+    @test_throws ArgumentError add_macro!(PaperNumbers(; prov...), "x", "#3"; arity = 2)
+    @test_throws ArgumentError add_macro!(PaperNumbers(; prov...), "x", "{#1"; arity = 1)
+    @test_throws ArgumentError add_macro!(PaperNumbers(; prov...), "x", "#1"; arity = 0)
+    @test_throws ArgumentError add_macro!(PaperNumbers(; prov...), "x", "#1"; arity = 10)
+    # gathered with the numbers, the definition kept as written
+    out = gather_numbers([path], joinpath(mktempdir(), "numbers.tex"); generator = "t", root = dirname(path))
+    @test occursin("\\newcommand{\\panelcell}[2]{\\parbox[c][\\panelht][c]{#1}{\\centering #2}}", read(out, String))
+end
+
+@testitem "number_macros: several drivers share one file" begin
+    # CaliBlobs icra2026's drivers append their trajectory macros to one file: each
+    # driver's entries are its own section, rewritten whole when it reruns, the
+    # others' left as they are, the sections ordered by driver.
+    using Test
+    using VisualGeometryToolkitEval.Reproduce
+    path = joinpath(mktempdir(), "trajectory.tex")
+    nums(driver, pairs...; order = :name) = (n = PaperNumbers(; driver, config = "configs/c.toml", run_key = "k1", commit = "c1");
+        foreach(((k, v),) -> add_number!(n, k, v; digits = 1), pairs); n)
+    write_numbers(path, nums("scripts/b.jl", "bTwo" => 2.0, "bOne" => 1.0); shared = true, order = :added)
+    write_numbers(path, nums("scripts/a.jl", "aX" => 5.0); shared = true)
+    text1 = read(path, String)
+    @test findfirst("scripts/a.jl", text1)[1] < findfirst("scripts/b.jl", text1)[1]       # sections by driver
+    @test findfirst("\\bTwo", text1)[1] < findfirst("\\bOne", text1)[1]                 # b's in the order added
+    @test Set(first.(tex_macro_values(path))) == Set(["aX", "bOne", "bTwo"])
+    # rerunning b replaces b's section alone; the result is the same whatever the order of the runs
+    write_numbers(path, nums("scripts/b.jl", "bTwo" => 2.5); shared = true, order = :added)
+    @test Dict(tex_macro_values(path)) == Dict("aX" => "5.0", "bTwo" => "2.5")
+    other = joinpath(mktempdir(), "trajectory.tex")
+    write_numbers(other, nums("scripts/b.jl", "bTwo" => 2.5); shared = true, order = :added)
+    write_numbers(other, nums("scripts/a.jl", "aX" => 5.0); shared = true)
+    @test read(other, String) == read(path, String)
+    # a macro another driver's section defines is refused; a non-shared write replaces the file
+    @test_throws ArgumentError write_numbers(path, nums("scripts/c.jl", "aX" => 1.0); shared = true)
+    @test Dict(tex_macro_values(path)) == Dict("aX" => "5.0", "bTwo" => "2.5")
+    write_numbers(path, nums("scripts/a.jl", "aX" => 5.0))
+    @test tex_macro_values(path) == ["aX" => "5.0"]
+end

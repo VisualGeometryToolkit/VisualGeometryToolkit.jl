@@ -212,8 +212,10 @@ naming the `generator` and each fragment as `<root_label>/<path relative to
 root>` (no machine path). A macro's provenance comment in its fragment (the
 `% provenance \\<name>: …` line [`write_numbers`](@ref) writes) goes before
 it. Never `\\providecommand`: a macro the manuscript
-also defines must clash. A macro that two fragments define, and a fragment
-macro with arguments (a number is a value, not a template), are an
+also defines must clash. A macro with parameters that the writer wrote
+([`add_macro!`](@ref): its provenance comment before it) is gathered as
+written, its arity kept. A macro that two fragments define, and any other
+fragment macro with arguments (a number is a value, not a template), are an
 `ArgumentError`.
 
 Write `out` beside the generator's results, not into the paper: a submitted
@@ -222,16 +224,19 @@ numbers file is replaced under the same sign-off as a figure, by
 """
 function gather_numbers(fragments, out::AbstractString; generator::AbstractString, root::AbstractString,
         root_label::AbstractString = "<results_root()>")
-    numbers = Dict{String, String}()
+    numbers = Dict{String, Union{String, Tuple{Int, String}}}()
     owner = Dict{String, String}()
     provenance = Dict{String, String}()
     for f in fragments
         text = read(f, String)
-        args = _macros_with_arguments(text)
-        isempty(args) || throw(ArgumentError("$f defines macros with arguments (" * join("\\" .* args, ", ") *
-            "): a number fragment defines values only"))
+        # a macro with parameters is the writer's (add_macro!: one definition per line, after its
+        # provenance comment), gathered with its arity; any other is refused
         comments = _macro_provenance(text)
-        for (name, value) in _macro_values(text)
+        params = Dict(n => d for (n, d) in _macro_definitions(text) if first(d) > 0 && haskey(comments, n))
+        args = setdiff(_macros_with_arguments(text), keys(params))
+        isempty(args) || throw(ArgumentError("$f defines macros with arguments (" * join("\\" .* args, ", ") *
+            ") that no add_macro! wrote: a number fragment defines values, and the writer's macros with parameters"))
+        for (name, value) in [_macro_values(text); [n => d for (n, d) in params]]
             haskey(owner, name) && throw(ArgumentError("\\$name is defined by both $(owner[name]) and $f"))
             numbers[name], owner[name] = value, f
             haskey(comments, name) && (provenance[name] = comments[name])
@@ -245,7 +250,8 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
         end
         for name in sort!(collect(keys(numbers)))
             haskey(provenance, name) && println(io, provenance[name])
-            _write_macro(io, name, numbers[name])
+            v = numbers[name]
+            v isa Tuple ? _write_macro(io, name, last(v), first(v)) : _write_macro(io, name, v)
         end
     end
     return out

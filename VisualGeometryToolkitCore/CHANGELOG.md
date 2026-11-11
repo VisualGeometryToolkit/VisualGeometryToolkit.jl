@@ -29,6 +29,14 @@ sensor — so every consumer asks the camera what it images instead of supplying
   chart's size was returned unmoved (the hit moved 0.89 of the true displacement at 1e-9) and finite differences of the
   hit by the heights failed. The root is now resolved to rounding of the chart's scale; √eps of its diagonal stays the
   acceptance only. It agrees with the height field's 1-D fast path to rounding at every height.
+- **Fixed: a thin-plate kind's parameter derivative is the derivative of its projection.** `with_parameters` of a
+  `HeightField` or a `ThinPlateSpline` projects its values onto pure bending, so every perturbation off that subspace
+  is removed; but at pure-bending values `tps_pure_bending` kept a ForwardDiff Dual's partials unprojected, and
+  `transform_deriv_params` was the bare nodal weights, so the Jacobian along a node's coordinate disagreed with central
+  differences of the function (75 % at a field's own heights). The values are still kept bit for bit and the partials
+  are projected; `transform_deriv_params` is the nodal weights through the projection, `Pᵀn`. On every pure-bending
+  direction (the target manifold's) nothing changes; in the stored coordinates each spline's affine directions are now
+  null (a height field's 3, an in-plane spline's 6), as the function they differentiate has them.
 - **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
   VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
   Estimation's `SimFitPP`/`simfitpp_select`.

@@ -185,9 +185,10 @@ plane exactly, so the projection keeps the weights `w` and zeroes `a`; it is
 oblique (along the plane fields, not orthogonal to them: orthogonal to the
 affine rows of `coeff`) and idempotent. Values whose plane part is within
 `1e-12` of them (`‖M a(v)‖ ≤ 1e-12 ‖v‖`, the rule of
-[`is_pure_bending`](@ref)) are kept as they are, bit for bit — a ForwardDiff
-`Dual`'s partials too, the derivative along the pure-bending subspace (where the
-projection is the identity); other values are projected, values and partials. Loops only: allocation-free, generic in the element type and
+[`is_pure_bending`](@ref)) are kept as they are, bit for bit, and a ForwardDiff
+`Dual`'s partials are projected all the same, so a Dual through it is the
+derivative of the projection everywhere (the kinds' `transform_deriv_params`); other
+values are projected, values and partials. Loops only: allocation-free, generic in the element type and
 callable in a KernelAbstractions kernel on an adapted system.
 """
 function tps_pure_bending(tps::ThinPlateSplineSystem{N}, v::AbstractVector) where {N}
@@ -201,11 +202,29 @@ end
     a1, a2, a3 = arow(1), arow(2), arow(3)
     nodes = tps.nodes
     plane = SVector{N, S}(ntuple(i -> a1 + a2 * nodes[i][1] + a3 * nodes[i][2], Val(N)))
-    # within the tolerance the values are kept as they are, a Dual's partials too: the
-    # derivative ALONG the pure-bending subspace, where the projection is the identity
-    # (the kinds' `transform_deriv_params`, their nodal weights)
-    _within_rtol(_primal_values(plane), _primal_values(v)) && return v
+    # within the tolerance the values are kept as they are, bit for bit, and a Dual's
+    # partials are projected all the same: the function projects every perturbation off
+    # the subspace, so its derivative is the projection's everywhere (`p − primal(p)`
+    # carries the plane's partials with a zero value, so `v − it` keeps v's value exactly)
+    _within_rtol(_primal_values(plane), _primal_values(v)) &&
+        return T <: AbstractFloat ? v : SVector{N, T}(ntuple(i -> v[i] - (plane[i] - _primal(plane[i])), Val(N)))
     return SVector{N, T}(ntuple(i -> v[i] - plane[i], Val(N)))
+end
+
+# The derivative of a pure-bending field's value at 𝐩 by its nodal values: the
+# nodal weights `n` through the projection, `Pᵀn = n − Aᵀ(Mᵀn)` (`P = I − M A`,
+# `A` the affine rows, `M = [1 u v]` at the nodes) — the transpose of the
+# projection's own operations, so a Dual through `tps_pure_bending` gives the same
+# numbers. The thin-plate kinds' `transform_deriv_params`: the Jacobian of the
+# projection `with_parameters` applies.
+function _pure_bending_weights(tps::ThinPlateSplineSystem{N}, 𝐩::StaticVector{2}) where {N}
+    n = nodal_weights(tps, 𝐩)
+    A = tps.affine
+    nodes = tps.nodes
+    m1 = sum(n)
+    m2 = sum(ntuple(i -> n[i] * nodes[i][1], Val(N)))
+    m3 = sum(ntuple(i -> n[i] * nodes[i][2], Val(N)))
+    return SVector{N}(ntuple(j -> n[j] - (A[1, j] * m1 + A[2, j] * m2 + A[3, j] * m3), Val(N)))
 end
 # The relative size of an affine term below which nodal values count as pure
 # bending: far above the rounding of a projection, far below any real plane.

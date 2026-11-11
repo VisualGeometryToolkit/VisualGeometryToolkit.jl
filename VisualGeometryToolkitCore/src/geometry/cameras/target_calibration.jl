@@ -469,7 +469,8 @@ An in-plane residual, `p ↦ p + (f_x(p), f_y(p))`: two thin-plate splines
 target's plane, through the nodal displacements `fx` and `fy`. Nodes and
 displacements are in the design's length form (plain, or lengths).
 Parameters `(:fx1, …, :fxK, :fy1, …, :fyK)`, unbounded;
-`transform_deriv_params` is 2 × 2K (the splines' `nodal_weights`);
+`transform_deriv_params` is 2 × 2K (the splines' `nodal_weights` through the
+pure-bending projection: the derivative of `with_parameters`);
 [`regularizer`](@ref) the two splines' bending-energy rows (`2K` rows; a
 quadratic block, see its docstring).
 
@@ -568,7 +569,7 @@ function with_parameters(c::ThinPlateSpline{K}, θ::AbstractVector) where {K}
     return _thin_plate_spline(c.system, c.bending, _wrap(θ, Val(K), 0, T), _wrap(θ, Val(K), K, T), c.physical)
 end
 function transform_deriv_params(c::ThinPlateSpline{K}, x) where {K}
-    n = nodal_weights(c.system, _plain_point(x))
+    n = _pure_bending_weights(c.system, _plain_point(x))   # the projection with_parameters applies, differentiated
     z = zero(n)
     return hcat(_two_rows(n, z), _two_rows(z, n))
 end
@@ -598,7 +599,8 @@ An out-of-plane deformation, `p ↦ (p, h(p))`: one thin-plate spline
 through the nodal `heights`, both in the design's length form (plain, or
 lengths). The height at `p` is `tps_evaluate` of the spline, nothing else.
 Parameters `(:h1, …, :hK)`, unbounded; `transform_deriv_params` is 3 × K
-(zero in the plane, the spline's `nodal_weights` in z); [`regularizer`](@ref)
+(zero in the plane, the spline's `nodal_weights` through the pure-bending
+projection in z: the derivative of `with_parameters`); [`regularizer`](@ref)
 the bending-energy rows (`K` rows).
 
 A target with a height field is not planar ([`is_planar`](@ref)): its
@@ -698,7 +700,7 @@ function with_parameters(c::HeightField{K}, θ::AbstractVector) where {K}
     return _height_field(c.system, c.bending, _wrap(θ, Val(K), 0, float(eltype(θ))), c.physical)
 end
 function transform_deriv_params(c::HeightField{K}, x) where {K}
-    n = nodal_weights(c.system, _plain_point(x))
+    n = _pure_bending_weights(c.system, _plain_point(x))   # the projection with_parameters applies, differentiated
     return SMatrix{3, K}(ntuple(k -> mod1(k, 3) == 3 ? n[(k + 2) ÷ 3] : 0.0, Val(3K)))
 end
 regularizer(c::HeightField) = _bending_rows(c.bending, c.h)

@@ -121,12 +121,15 @@ end
     Gfd = [(g(Vector(raw) + ε * (1:25 .== k)) - g(Vector(raw) - ε * (1:25 .== k))) / 2ε for k in 1:25]
     @test G ≈ Gfd atol = 1.0e-9
     @test abs(sum(G .* (M * [1.0, 0.5, -0.25]))) <= 1.0e-12               # a plane direction moves nothing
-    # at pure-bending values a Dual is kept as it is: the derivative along the subspace (the nodal
-    # weights, the kinds' transform_deriv_params), equal to the projected one on every pure-bending direction
+    # at pure-bending values the values are kept bit for bit and a Dual's partials projected: the
+    # derivative is the projection's there too (the projected nodal weights, the kinds' transform_deriv_params),
+    # the nodal weights themselves on every pure-bending direction
     Gv = ForwardDiff.gradient(g, Vector(v))
-    @test Gv ≈ collect(VisualGeometryToolkitCore.nodal_weights(sys, p)) atol = 1.0e-12
+    @test Gv ≈ collect(VisualGeometryToolkitCore._pure_bending_weights(sys, p)) atol = 1.0e-12
+    @test Gv ≈ [(g(Vector(v) + ε * (1:25 .== k)) - g(Vector(v) - ε * (1:25 .== k))) / 2ε for k in 1:25] atol = 1.0e-9
     b = tps_pure_bending(sys, SVector{25}(randn(rng, 25)))
     @test dot(Gv, b) ≈ dot(G, b) atol = 1.0e-12
+    @test dot(Gv, b) ≈ dot(VisualGeometryToolkitCore.nodal_weights(sys, p), b) atol = 1.0e-12
 
     # (c) allocation-free on the CPU
     allocs(fn, args...) = (fn(args...); @allocated fn(args...))
@@ -660,4 +663,36 @@ end
         Jfd = reduce(hcat, [(hit(h .+ δ .* (1:16 .== k)) - hit(h .- δ .* (1:16 .== k))) ./ 2δ for k in 1:16])
         @test maximum(abs, Jfd - Jd) <= 1.0e-5 * maximum(abs, Jd)
     end
+end
+
+# A thin-plate kind's derivative by its parameters is the derivative of the projection its `with_parameters` applies:
+# a ForwardDiff Dual through it, at pure-bending values (kept bit for bit) and off them, agrees with central
+# differences of the function, and `transform_deriv_params` is that Jacobian.
+@testitem "board deformation: the thin-plate kinds' parameter derivative is the projection's (Dual, central differences)" begin
+    using Test, StaticArrays, Random, LinearAlgebra
+    using ForwardDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: grid_nodes, with_parameters, parameter_vector, transform_deriv_params, tps_pure_bending
+
+    rng = Xoshiro(32)
+    nodes = grid_nodes(4; lo = -0.6, hi = 0.6)
+    H = HeightField(nodes, 0.01 .* randn(rng, 16))
+    T = ThinPlateSpline(nodes, 0.01 .* randn(rng, 16), 0.01 .* randn(rng, 16))
+    q = SVector(0.13, -0.27)
+    for c in (H, T)
+        n = length(parameter_vector(c))
+        f(θ) = with_parameters(c, θ)(q)
+        central(θ, ε) = reduce(hcat, [(f(θ .+ ε .* (1:n .== k)) - f(θ .- ε .* (1:n .== k))) ./ 2ε for k in 1:n])
+        for θ in (Vector(parameter_vector(c)), 0.01 .* randn(rng, n))    # pure bending (kept), and with a plane part
+            J = ForwardDiff.jacobian(f, θ)
+            @test maximum(abs, J - central(θ, 1.0e-6)) <= 1.0e-8 * maximum(abs, J)
+            @test transform_deriv_params(with_parameters(c, θ), q) ≈ J atol = 1.0e-12
+        end
+    end
+    # pure-bending values are kept bit for bit under a Dual, their partials projected
+    sys = H.system
+    v = parameter_vector(H)
+    d = tps_pure_bending(sys, ForwardDiff.Dual.(v, 1.0))
+    @test ForwardDiff.value.(d) == v
+    @test ForwardDiff.partials.(d, 1) ≈ tps_pure_bending(sys, ones(16)) atol = 1.0e-14
 end

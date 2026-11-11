@@ -634,19 +634,17 @@ end
             @test nullity_default(c) == 0
         end
     end
-    # The drop: with every stored parameter free, the canonical composition at
-    # the design (a flat height field, a spline at zero displacement) is
-    # rank-deficient by exactly the old gauge count — the spline's six affine
-    # directions (four the pose's, two the aspect and skew again) and the height
-    # field's three plane directions — and on its manifold by none. (Away from
-    # the design the plane directions are near-gauges, observed only through
-    # the bending: a height field of 1 mm leaves its piston alone exactly
-    # unobservable, the tilts at singular values ~1e-7 of the largest.)
+    # The drop: with every stored parameter free, the composition is
+    # rank-deficient by exactly the splines' affine directions — the in-plane
+    # spline's six and the height field's three plane directions, which the
+    # pure-bending projection `with_parameters` applies removes, so its derivative
+    # (a Dual's, `transform_deriv_params`) moves nothing along them, at the design
+    # and away from it — and on its manifold by none.
     T0 = ThinPlateSpline(nodes)
     @test nullity_default(H0 ∘ T0 ∘ A; ambient = true) == 6 + 3 && nullity_default(H0 ∘ T0 ∘ A) == 0
-    @test nullity_default(H0 ∘ T; ambient = true) == 4 + 3          # (no aspect and skew: the spline's stretch and shear are observed)
-    @test nullity_default(H0; ambient = true) == 3 && nullity_default(T; ambient = true) == 4
-    @test nullity_default(H; ambient = true) == 1                    # the piston: a translation along the normal, at any height
+    @test nullity_default(H0 ∘ T; ambient = true) == 6 + 3 && nullity_default(H0 ∘ T) == 0
+    @test nullity_default(H0; ambient = true) == 3 && nullity_default(T; ambient = true) == 6
+    @test nullity_default(H; ambient = true) == 3                    # a height field of 1 mm: the same three
     # the harness can see a gauge: the pose's directions, put back into the
     # composition, come back as exactly their count — the scale (1) and the rigid
     # member (3) — which is why the joint-pose manifold refuses them unless a

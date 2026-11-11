@@ -1,0 +1,10 @@
+# ONNX Runtime's CUDA provider on x86-64 Linux: conda-forge's onnxruntime-cpp 1.31.1 (cuda129, device code for sm_70 to
+# sm_120 with sm_100) merged with the libraries it links (libprotobuf, libabseil, libre2). Pkg cannot unpack a .conda,
+# so src/onnx_runtime.jl installs it from the four conda-forge files it pins by sha256 (`_ORT_CUDA_FILES`) and checks
+# the unpacked tree against this git-tree-sha1. Lazy: the first CUDA probe installs it, never without a device.
+[[onnxruntime_cuda]]
+arch = "x86_64"
+git-tree-sha1 = "c50ac462f5c883b10863bbe87b41299f605cb564"
+lazy = true
+libc = "glibc"
+os = "linux"

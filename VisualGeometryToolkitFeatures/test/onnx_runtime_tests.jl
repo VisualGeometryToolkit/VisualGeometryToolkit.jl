@@ -54,6 +54,45 @@ end
     @test p.execution_provider === :cpu && p.threads == 3 && startswith(p.onnxruntime, "1.")
 end
 
+# ONNX Runtime's CUDA build: conda-forge's files pinned by sha256 and their merged tree by Artifacts.toml. Nothing here
+# downloads or runs it (the probe in the first item and the device item below do, where a device is visible).
+@testitem "ONNX Runtime's CUDA build: conda-forge's files pinned, merged into one tree, checked" begin
+    using Base.BinaryPlatforms: Platform
+    using Artifacts: artifact_hash, load_artifacts_toml
+    using VisualGeometryToolkitCore: sha256_hex
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    toml = VgtkFeatures._ARTIFACTS_TOML
+    entry = only(load_artifacts_toml(toml)["onnxruntime_cuda"])
+    @test entry["lazy"] && (entry["arch"], entry["os"], entry["libc"]) == ("x86_64", "linux", "glibc")
+    @test !haskey(entry, "download")                         # installed by the package, not by Pkg
+    @test artifact_hash("onnxruntime_cuda", toml; platform = Platform("x86_64", "linux")) !== nothing
+    @test artifact_hash("onnxruntime_cuda", toml; platform = Platform("aarch64", "macos")) === nothing
+    files = VgtkFeatures._ORT_CUDA_FILES
+    @test startswith(first(first(files)), "onnxruntime-cpp-1.31.1-") && endswith(first(first(files)), "_cuda129")
+    @test all(f -> occursin(r"^[0-9a-f]{64}$", f[2]), files) && allunique(first.(files))
+    # a download whose sha256 differs is refused and leaves nothing behind (a local file:// source)
+    mktempdir() do dir
+        src = joinpath(dir, "src.bin"); write(src, "not the pinned bytes")
+        dst = joinpath(dir, "dst.bin")
+        @test_throws r"sha256 .* expected 0{64}" VgtkFeatures._download_verified("file://$src", "0"^64, dst)
+        @test !ispath(dst)
+        digest = open(sha256_hex, src)
+        @test VgtkFeatures._download_verified("file://$src", digest, dst) == dst && read(dst, String) == "not the pinned bytes"
+    end
+    # packages merge directory by directory; two holding one file is an error
+    mktempdir() do dir
+        a, b, out = mkpath(joinpath(dir, "a", "lib")), mkpath(joinpath(dir, "b", "lib")), mkpath(joinpath(dir, "out"))
+        write(joinpath(a, "liba.so.1"), "a"); symlink("liba.so.1", joinpath(a, "liba.so"))
+        write(joinpath(b, "libb.so.1"), "b"); mkpath(joinpath(dir, "b", "include"))
+        VgtkFeatures._merge_tree!(joinpath(dir, "a"), out)
+        VgtkFeatures._merge_tree!(joinpath(dir, "b"), out)
+        @test sort(readdir(joinpath(out, "lib"))) == ["liba.so", "liba.so.1", "libb.so.1"]
+        @test islink(joinpath(out, "lib", "liba.so")) && isdir(joinpath(out, "include"))
+        c = mkpath(joinpath(dir, "c", "lib")); write(joinpath(c, "libb.so.1"), "c")
+        @test_throws r"two conda packages hold" VgtkFeatures._merge_tree!(joinpath(dir, "c"), out)
+    end
+end
+
 # LoMa on CUDA against LoMa on the CPU, on a device (skipped without one: CI). The pair: a textured 784² frame (the graph's
 # input, no resampling) and the same scene shifted by 9 pixels, ASIFT-detected; the same detections on both providers.
 @testitem "LoMa on CUDA describes and matches as on the CPU (skipped without a device)" begin
@@ -85,6 +124,7 @@ end
         @test pdc.execution_provider === pmc.execution_provider === :cpu && pdc.threads == pmc.threads == 4
         @test pdg.execution_provider === pmg.execution_provider === :cuda
         @test pdg.cuda_runtime == string(status.cuda_runtime) && pdg.threads == Threads.nthreads()
+        @test pdg.onnxruntime == "1.31.1" && occursin("onnxruntime-cpp-1.31.1-", pdg.onnxruntime_build)
         @test pdg.model == "loma_descriptor_dedode_b.onnx" && pmg.model == "loma_matcher_B128.onnx"
         # Descriptors: the same up to the providers' float differences (cuDNN's convolutions and cuBLAS's products sum in
         # another order than MLAS). Measured 2026-11-10 on the RTX 4090: max |ΔD| / max |D| = 2.1e-3 here and

@@ -90,6 +90,10 @@ cannot run is an error naming why). The CUDA provider needs a CUDA device and
 an environment that holds `CUDA_Runtime_jll` and `CUDNN_jll`: their CUDA 12
 builds are downloaded on first use and loaded for ONNX Runtime alone, whatever
 CUDA runtime CUDA.jl uses ([`onnx_cuda_status`](@ref) says what was found).
+ONNX Runtime itself is, on the CUDA path, conda-forge's build of release 1.31.1
+(Microsoft's GPU builds carry no code for sm_100, the B200), with device code
+for sm_70 to sm_120; the package installs it on the first CUDA probe from four
+conda-forge files pinned by sha256 (0.34 GB, once per depot).
 ONNX Runtime's thread pool is `threads = Threads.nthreads()`, the process's
 allotment (start Julia with `--threads=$SLURM_CPUS_PER_TASK` in a Slurm job),
 never the machine's cores. [`loma_provenance`](@ref) records the provider

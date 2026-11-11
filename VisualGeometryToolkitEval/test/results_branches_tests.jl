@@ -278,3 +278,23 @@
                    replace_submitted = true, scratch_root = h.scratch)
     end
 end
+
+@testitem "results_branches: one git process for the assets, the identity read once" setup = [GitFixture] begin
+    using Test
+    using VisualGeometryToolkitEval.Reproduce: Reproduce
+    repo = gitrepo()
+    write(joinpath(repo, "b.bin"), UInt8[0x00, 0x0a, 0xff, 0x0a])          # binary, newlines inside and at the end
+    write(joinpath(repo, "e.txt"), "")
+    git!(repo, "add", "-A"); git!(repo, "commit", "-q", "-m", "two")
+    @test Reproduce._git_blobs(repo, ["HEAD:b.bin", "HEAD:e.txt", "HEAD:a.txt"]) == [UInt8[0x00, 0x0a, 0xff, 0x0a], UInt8[], Vector{UInt8}("a\n")]
+    @test isempty(Reproduce._git_blobs(repo, String[]))
+    @test_throws "HEAD:nope.txt does not exist" Reproduce._git_blobs(repo, ["HEAD:a.txt", "HEAD:nope.txt"])
+    # no configured identity: the package's own; a repository's own name and email: none added
+    withenv("GIT_CONFIG_GLOBAL" => "/dev/null", "GIT_CONFIG_NOSYSTEM" => "1", "GIT_CONFIG_SYSTEM" => "/dev/null") do
+        @test Reproduce._commit_identity(repo) == ("-c", "user.name=VisualGeometryToolkitEval", "-c", "user.email=vgtk@localhost")
+        git!(repo, "config", "user.name", "R")
+        @test Reproduce._commit_identity(repo) == Reproduce._commit_identity(repo) != ()   # a name alone is not an identity
+        git!(repo, "config", "user.email", "r@r")
+        @test Reproduce._commit_identity(repo) == ()
+    end
+end

@@ -338,6 +338,11 @@ non-central one is a `NoncentralSplineModel`).
   restated the `find_*` results' rule for posterior weights (a weight below eps stored as an exact 0; `n` the support,
   `rms` the weighted root mean square over it); all three call `_posterior_support_rms!`. `n` and `rms` are unchanged
   bit for bit on every fit of their tests.
+- **Fixed: too few data refuses the keywords enough data refuse.** Below a minimal sample, a `find_*` / `refine_*`
+  accepted any keyword and returned the `:no_model` result. The too-few path is now the pipeline itself (run on
+  `_TooFew{P}(n)` in place of the problem), so a retired keyword (`local_optimization`, a refine's
+  `local_optimization_strategy`), a width keyword (`threshold`, `outlier_halfwidth`) or an unknown one raises the same
+  error with too few data as with enough.
 - **Internal: one IRLS weight step.** `fit_linear`, `fit_rotation` and `fit_rotation_averaging` each restated the same
   reweighting (σ̂ = median/√χ²_d-median, the loss deployed at σ̂², its weights times the prior) with only the
   codimension differing; they share `_irls_weights!`, whose σ̂ is Core's `noise_sigma`. The results are unchanged bit for

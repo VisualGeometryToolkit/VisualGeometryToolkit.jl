@@ -170,3 +170,45 @@ end
     # the too-few result is the same type as a search's
     @test typeof(find_homography(cs(3))) === typeof(find_homography(cs(8)))
 end
+
+@testitem "ransac: too few points refuses the keywords enough points refuse" begin
+    # The too-few path is the pipeline's: a retired, a width or an unknown keyword
+    # raises the same error below the minimal sample as above it, never a :no_model.
+    using Test, StaticArrays, LinearAlgebra
+    using Rotations: RotMatrix
+    using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Csponds, csponds, HomographyMat, Extrinsics3, Vec3,
+        TLSShape
+    using VisualGeometryToolkitEstimation: Irls, find_homography, refine_homography, find_circle, refine_circle,
+        find_absolute_pose, refine_absolute_pose
+
+    caught(f) = try f(); nothing catch e; e end
+    # the same refusal: the same exception type and, for an ArgumentError, the same message
+    same(a, b) = a !== nothing && typeof(a) === typeof(b) && (!(a isa ArgumentError) || a.msg == b.msg)
+
+    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
+    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    H = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
+    cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
+    Xs(n) = [SA[0.1i, 0.2 - 0.05i^2, 2.0 + 0.1i] for i in 1:n]
+    us(n) = [SA[400.0 + 20i, 300.0 + 3i^2] for i in 1:n]
+    pose = Extrinsics3(RotMatrix{3, Float64}(I), Vec3{Float64}(0.0, 0.0, 0.0))
+    lo = Irls{TLSShape}()
+
+    find_kw = ((; local_optimization = lo), (; threshold = 2.0), (; outlier_halfwidth = 20.0), (; no_such_keyword = 1))
+    refine_kw = ((; local_optimization = lo), (; local_optimization_strategy = lo), (; threshold = 2.0),
+                 (; no_such_keyword = 1))
+    calls = (
+        (find_kw, n -> kw -> find_homography(cs(n); kw...), 3, 8),
+        (refine_kw, n -> kw -> refine_homography(H, cs(n); kw...), 3, 8),
+        (find_kw, n -> kw -> find_circle(pts(n); kw...), 2, 8),
+        (refine_kw, n -> kw -> refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(n); kw...), 2, 8),
+        (find_kw, n -> kw -> find_absolute_pose(cam, Xs(n) .=> us(n); kw...), 2, 8),
+        (refine_kw, n -> kw -> refine_absolute_pose(pose, cam, Xs(n) .=> us(n); kw...), 2, 8),
+        (refine_kw, n -> kw -> refine_absolute_pose(pose, Csponds(Xs(n), normalize.(Xs(n))); kw...), 2, 8),
+    )
+    for (kws, call, few, enough) in calls, kw in kws
+        enough_err = caught(() -> call(enough)(kw))
+        @test enough_err isa Union{ArgumentError, MethodError}
+        @test same(caught(() -> call(few)(kw)), enough_err)
+    end
+end

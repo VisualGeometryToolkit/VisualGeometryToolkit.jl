@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: a results layout named by the config.** `[experiment] layout = ["mocap", "<camera>"]` (path segments) makes
+  `experiment_dir` `<results root>/<layout…>` for a project whose results are not laid out by dataset, matcher and
+  problem; `load_run_config` then needs no pool fields. `keyed_cell_dir(cfg, experiment, kind; base)` takes another
+  base, refused unless it lies under the results root. CaliBlobs' icra2026 (`mocap/<camera>/…`,
+  `absolute_pose_experiments/<set>/{selfcal,tune_radial_camera}`) keys its runs through it.
+
 - **New: an input's content of record.** An `[inputs.<id>]` table may carry `sha256` (64 hex digits, of a file).
   When it does, `missing_inputs` (the runner, before anything runs; the dry run too), the new
   `Experiments.verify_inputs(cfg; root)` and `Experiments.require_input(path; …, sha256)` verify it, and another

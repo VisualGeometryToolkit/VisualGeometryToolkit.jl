@@ -139,7 +139,7 @@ Nested tables are listed in their own right: a check on `[render]` alone sees
 `main` as one known key and nothing inside it.
 """
 const RUN_CONFIG_KEYS = [
-    "experiment"     => ("dataset", "matcher", "problem", "pool_dir", "oracle_tag"),
+    "experiment"     => ("dataset", "matcher", "problem", "pool_dir", "oracle_tag", "layout"),
     "protocol"       => ("cv_section",),
     "render"         => ("panel", "med_panel", "rows", "legend", "sweep", "deploy", "exclude",
                          "extra_arms", "xticks", "ymin", "ymax", "ytick_spacing",
@@ -166,15 +166,18 @@ end
     load_run_config(path) -> Dict
 
 Parse a run config: it must carry `[experiment]` with `dataset`, `matcher`,
-`problem` and `pool_dir`, and an unknown key in a section this package owns
-([`RUN_CONFIG_KEYS`](@ref)) is refused.
+`problem` and `pool_dir` — or, for a project whose results are not laid out by
+pool, a `layout` ([`experiment_dir`](@ref)) — and an unknown key in a section
+this package owns ([`RUN_CONFIG_KEYS`](@ref)) is refused.
 """
 function load_run_config(path::AbstractString)
     isfile(path) || error("run config not found: $path")
     cfg = TOML.parsefile(path)
     haskey(cfg, "experiment") || error("run config $path: no [experiment] table")
-    for k in ("dataset", "matcher", "problem", "pool_dir")
-        haskey(cfg["experiment"], k) || error("run config $path: [experiment] lacks `$k`")
+    if !haskey(cfg["experiment"], "layout")
+        for k in ("dataset", "matcher", "problem", "pool_dir")
+            haskey(cfg["experiment"], k) || error("run config $path: [experiment] lacks `$k` (or a `layout`)")
+        end
     end
     # Unknown keys are REFUSED in the sections this package owns
     # ([`RUN_CONFIG_KEYS`](@ref)). Only `[tuning.<name>]` was checked before,
@@ -236,24 +239,42 @@ end
     experiment_dir(cfg) -> String
 
 The results directory of the config's `[experiment]`:
-`<results root>/<dataset>/<matcher>/<problem>`. A run's keyed directory lives
-under it, named by the project.
+`<results root>/<dataset>/<matcher>/<problem>`, or, when it names a `layout`
+(an array of path segments, `layout = ["mocap", "cam0"]`, for a project whose
+results are not laid out by dataset, matcher and problem), `<results
+root>/<layout…>`. The layout is the config's, never the code's; a segment that
+is empty, absolute, `.` or `..` is refused. A run's keyed directory lives under
+it ([`keyed_cell_dir`](@ref)).
 """
-experiment_dir(cfg::AbstractDict) =
-    joinpath(results_root(), cfg["experiment"]["dataset"],
-             cfg["experiment"]["matcher"], cfg["experiment"]["problem"])
+function experiment_dir(cfg::AbstractDict)
+    e = cfg["experiment"]
+    haskey(e, "layout") || return joinpath(results_root(), e["dataset"], e["matcher"], e["problem"])
+    seg = e["layout"]
+    (seg isa AbstractVector && !isempty(seg) && all(s -> s isa AbstractString && !isempty(s) && !isabspath(s) &&
+         !(s in (".", "..")) && !occursin('/', s) && !occursin('\\', s), seg)) ||
+        throw(ArgumentError("[experiment] layout = $(repr(seg)): a non-empty array of path segments (no `/`, `.`, `..`)"))
+    return joinpath(results_root(), String.(seg)...)
+end
 
 """
-    keyed_cell_dir(cfg, experiment, kind; files, upstream, parts) -> String
+    keyed_cell_dir(cfg, experiment, kind; base = experiment_dir(cfg), files, upstream, parts) -> String
 
 The keyed directory of one cell of `kind` under the results of `experiment`:
-`<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg; files, upstream, parts)>`.
-A changed config (or a folded file, upstream key or part, [`run_key`](@ref)) is
-a new directory, never an overwrite; the config is keyed as given (fold the
-protocols of record into it first).
+`<base>/<experiment>/<kind>-<run_key(cfg; files, upstream, parts)>`, `base`
+by default the config's [`experiment_dir`](@ref) (its `[experiment] layout`,
+else dataset, matcher and problem). A `base` given must lie under the results
+root (`ArgumentError` otherwise). A changed config (or a folded file, upstream
+key or part, [`run_key`](@ref)) is a new directory, never an overwrite; the
+config is keyed as given (fold the protocols of record into it first).
 """
-keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
-    joinpath(experiment_dir(cfg), experiment, kind * "-" * run_key(cfg; files, upstream, parts))
+function keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString;
+                        base::Union{Nothing,AbstractString} = nothing, files = nothing, upstream = nothing, parts = nothing)
+    b = base === nothing ? experiment_dir(cfg) : String(base)
+    root = results_root()
+    _is_under(b, root) ||
+        throw(ArgumentError("keyed_cell_dir: base $b is not under the results root $root"))
+    return joinpath(b, experiment, kind * "-" * run_key(cfg; files, upstream, parts))
+end
 
 """
     keyed_data_dir(cfg, tier, kind; files, upstream, parts) -> String

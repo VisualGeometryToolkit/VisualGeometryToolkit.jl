@@ -305,6 +305,23 @@
             @test kp != k0 && kp == E.run_key(cfg; parts = Dict("frame_limit" => 10)) && kp != E.run_key(cfg; parts = (; frame_limit = 0))
             @test_throws r"keyed_with" E.run_key(merge(cfg, Dict{String,Any}("keyed_with" => 1)))
             @test basename(E.keyed_cell_dir(cfg, "e", "pose"; parts = (; frame_limit = 10))) == "pose-" * kp
+            # a project laid out by its own config, not by pool: [experiment] layout, or a base under the results root
+            lay = Dict{String,Any}("experiment" => Dict{String,Any}("layout" => ["mocap", "cam0"]), "n" => 3)
+            @test E.experiment_dir(lay) == joinpath(res, "mocap", "cam0")
+            @test E.keyed_cell_dir(lay, "selfcal", "run") == joinpath(res, "mocap", "cam0", "selfcal", "run-" * E.run_key(lay))
+            b = joinpath(res, "absolute_pose_experiments", "set1")
+            @test E.keyed_cell_dir(cfg, "tune_radial_camera", "run"; base = b) == joinpath(b, "tune_radial_camera", "run-" * k0)
+            @test E.keyed_cell_dir(cfg, "x", "run"; base = res) == joinpath(res, "x", "run-" * k0)
+            @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = mktempdir())
+            @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = joinpath(res, "..", "elsewhere"))
+            for bad in (String[], ["a", ".."], ["/abs"], ["a/b"], [""], "mocap")
+                @test_throws r"layout" E.experiment_dir(Dict{String,Any}("experiment" => Dict{String,Any}("layout" => bad)))
+            end
+            p = joinpath(mktempdir(), "lay.toml")
+            write(p, "[experiment]\nlayout = [\"mocap\", \"cam0\"]\n")
+            @test E.load_run_config(p)["experiment"]["layout"] == ["mocap", "cam0"]               # no pool fields needed
+            write(p, "[experiment]\ndataset = \"d\"\n")
+            @test_throws r"lacks `matcher` \(or a `layout`\)" E.load_run_config(p)
             # a producer's keyed directory under the data root
             @test E.keyed_data_dir(cfg, "annotations", "train") == joinpath(data, "annotations", "train-" * k0)
             # a run of record made an input of record

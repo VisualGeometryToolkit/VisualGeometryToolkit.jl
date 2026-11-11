@@ -245,7 +245,7 @@ function gather_numbers(fragments, out::AbstractString; generator::AbstractStrin
         end
         for name in sort!(collect(keys(numbers)))
             haskey(provenance, name) && println(io, provenance[name])
-            println(io, "\\newcommand{\\", name, "}{", numbers[name], "}")
+            _write_macro(io, name, numbers[name])
         end
     end
     return out

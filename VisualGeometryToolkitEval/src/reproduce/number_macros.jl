@@ -351,6 +351,10 @@ function add_table_row!(nums::PaperNumbers, row::AbstractString, cells;
     return join(("\\" * first(c) for c in staged), " & ")
 end
 
+# The one writer of a macro definition line, `\newcommand{\<name>}{<body>}`
+# (`write_numbers` and `gather_numbers` both write through it).
+_write_macro(io::IO, name::AbstractString, body) = println(io, "\\newcommand{\\", name, "}{", body, "}")
+
 # The provenance comment of a macro, the line before its \newcommand.
 _provenance_comment(name::AbstractString, m::_NumberMacro) =
     "% provenance \\" * name * ": driver=" * m.provenance.driver * "; config=" * m.provenance.config *
@@ -394,7 +398,7 @@ function write_numbers(path::AbstractString, nums::PaperNumbers)
         for name in sort!(collect(keys(nums.macros)))
             m = nums.macros[name]
             println(io, _provenance_comment(name, m))
-            println(io, "\\newcommand{\\", name, "}{", m.value, "}")
+            _write_macro(io, name, m.value)
         end
         close(io)
         chmod(tmp, 0o644)                  # mktemp's file is private; a fragment is not

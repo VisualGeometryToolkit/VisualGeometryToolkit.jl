@@ -94,7 +94,9 @@ end
     free = (:f, :aspect, :cx, :cy, :k1, :k2, :k3, :k4)
     chc = restrict(ParameterManifold(cam), free)
     chs = [LeftRigidManifold6(P) for P in poses0]
-    costs = [VE._CameraPoseResidual{2, typeof(cam)}(SVector(1, 1 + v), cam, SVector{3, Float64}(first(c)), last(c)) for v in 1:2 for c in views[v]]
+    world = model(LeftRigidManifold6(SMatrix{3, 3, Float64}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), SVector(0.0, 0.0, 0.0)))   # the held identity board
+    costs = [VE._BoardViewResidual{2, (true, true, false), typeof(cam)}(SVector(1, 1 + v), cam, world, world, SVector{3, Float64}(first(c)), last(c))
+             for v in 1:2 for c in views[v]]
     using VisualGeometryToolkitCore: nlls_rows_and_jacobian
     r, J = nlls_rows_and_jacobian(costs, [chc; chs])                 # Core's assembler of the stall postcondition's rows
     @test size(J) == (32, 8 + 12)
@@ -223,6 +225,92 @@ end
         @test t <= 3 * weak_seconds
         return nothing
     end
+end
+
+# Several boards (owner decision 20): the board poses a block of the same bundle, each board → world a variable unless
+# held; each connected component of the view–board graph fixes its gauge by a held pose, exactly (no pin, no prior).
+@testsetup module BoardScenes
+    using StaticArrays: SVector
+    using Rotations: RotMatrix, RotXYZ
+    using Random: Xoshiro, randn
+    using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project, rotation, translation
+    export board_points, truth_boards, view_poses, board_views, nudged
+    # a 9 × 7 grid of points on the board's plane (z = 0), 4 cm pitch
+    board_points() = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
+    # three boards around the world origin, tilted differently (board → world)
+    truth_boards() = Dict(:A => EuclideanMap(RotMatrix(RotXYZ(0.0, 0.0, 0.0)), SVector(0.0, 0.0, 0.0)),
+                          :B => EuclideanMap(RotMatrix(RotXYZ(0.25, -0.3, 0.1)), SVector(0.42, 0.05, 0.08)),
+                          :C => EuclideanMap(RotMatrix(RotXYZ(-0.2, 0.35, -0.15)), SVector(-0.38, -0.06, 0.12)))
+    # six cameras looking at the boards from 1.2–1.6 m (world → camera)
+    view_poses() = Dict(v => EuclideanMap(RotMatrix(RotXYZ(0.15 * sin(v), 0.2 * cos(v), 0.05v)), SVector(0.08 * (v - 3.5), 0.03 * (-1)^v, 1.2 + 0.08v))
+                        for v in 1:6)
+    # which boards each view sees: every board twice or more, the graph connected
+    const SEES = Dict(1 => (:A, :B), 2 => (:A, :C), 3 => (:B, :C), 4 => (:A, :B, :C), 5 => (:B,), 6 => (:C, :A))
+    function board_views(camera, views, boards; σ = 0.0, rng = Xoshiro(1))
+        Dict((v, b) => [X => SVector{2, Float64}(project(camera, views[v](boards[b](X)))) + σ * SVector(randn(rng), randn(rng))
+                        for X in board_points()] for v in keys(views) for b in SEES[v])
+    end
+    # a pose moved by ≈ 0.04 rad and ≈ 3 cm, differently per key
+    nudged(E, k) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.02, -0.015, 0.03) .* (1 + 0.1k)) * rotation(E)),
+                                translation(E) + SVector(0.03, -0.02, 0.025) .* (1 - 0.07k))
+end
+
+@testitem "refine_camera_and_poses: board poses, recovered from exact and noisy pixels, the gauge held exactly" setup = [CameraPoseScenes, BoardScenes] begin
+    using StaticArrays: SVector
+    using LinearAlgebra: norm
+    using Random: Xoshiro
+    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, rotation, translation, project
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses
+    cam = pinhole_camera(); boards = truth_boards(); views = view_poses()
+    θ = parameter_vector(cam)
+    cam0 = with_parameters(cam, θ .* SVector(1.03, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 5.0, -4.0))
+    views0 = Dict(v => nudged(E, v) for (v, E) in views)
+    keyn = Dict(:A => 1, :B => 2, :C => 3)
+    boards0 = Dict(b => b === :A ? E : nudged(E, 7 + keyn[b]) for (b, E) in boards)     # board A at the truth: the held gauge
+    Δ(P, E) = max(maximum(abs, rotation(P) - rotation(E)), norm(translation(P) - translation(E)))   # ≈ rad, m
+    # exact pixels: everything recovered to the LM's tolerance, board A (each component's first board) held exactly
+    res = refine_camera_and_poses(cam0, views0, boards0, board_views(cam, views, boards))
+    est = estimate(res)
+    @test retcode(res) === :converged && rms(res) < 1.0e-9
+    @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
+    @test est.board_poses[:A] === boards0[:A]
+    @test maximum(Δ(est.board_poses[b], boards[b]) for b in (:B, :C)) < 1.0e-9
+    @test maximum(Δ(est.poses[v], views[v]) for v in 1:6) < 1.0e-9
+    @test res.ν == 2 * 63 * 12 - (4 + 6 * 6 + 6 * 2)
+    # noisy pixels (σ = 0.2 px per coordinate): from the perturbed start, the optimum the truth start reaches (the
+    # estimator's own, recovered), its rms at the noise (σ√2 per correspondence), the camera and poses to the noise
+    # (measured: f, cx, cy within 4.2 px, the boards within 1.5 mrad / mm, the views within 1 cm: the boards are near
+    # fronto-parallel, so the views' depth trades with f)
+    noisy = board_views(cam, views, boards; σ = 0.2, rng = Xoshiro(7))
+    rn = refine_camera_and_poses(cam0, views0, boards0, noisy)
+    rt = refine_camera_and_poses(cam, views, boards, noisy)
+    en, et = estimate(rn), estimate(rt)
+    @test retcode(rn) === :converged && retcode(rt) === :converged
+    @test parameter_vector(en.camera) ≈ parameter_vector(et.camera) rtol = 1.0e-8
+    @test maximum(Δ(en.poses[v], et.poses[v]) for v in 1:6) < 1.0e-6
+    @test maximum(Δ(en.board_poses[b], et.board_poses[b]) for b in (:A, :B, :C)) < 1.0e-6
+    @test 0.24 < rms(rn) < 0.32
+    @test maximum(abs.(parameter_vector(en.camera) - θ)[[1, 4, 5]]) < 8.0          # f, cx, cy: 1 % of f
+    @test maximum(Δ(en.board_poses[b], boards[b]) for b in (:B, :C)) < 5.0e-3
+    @test maximum(Δ(en.poses[v], views[v]) for v in 1:6) < 2.0e-2
+    # the gauge held by a view instead: the same solution up to the gauge (every view ∘ board the same map)
+    rv = refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), held_views = (1,))
+    ev = estimate(rv)
+    @test ev.poses[1] == views0[1] && retcode(rv) === :converged
+    @test rms(rv) ≈ rms(rn) rtol = 1.0e-8
+    for v in 1:6, b in (:A, :B, :C)
+        @test Δ(ev.poses[v] ∘ ev.board_poses[b], en.poses[v] ∘ en.board_poses[b]) < 1.0e-6
+    end
+    # a second component (view 7 sees board D alone) is held by its own first board
+    vd = merge(views, Dict(7 => views[2])); bd = merge(boards, Dict(:D => nudged(boards[:B], 1)))
+    obs = merge(board_views(cam, views, boards), Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X))))
+                                                                   for X in board_points()]))
+    r2 = refine_camera_and_poses(cam0, merge(views0, Dict(7 => nudged(views[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs)
+    @test retcode(r2) === :converged && estimate(r2).board_poses[:D] === bd[:D] && rms(r2) < 1.0e-9
+    # refusals: a component with no held pose, a key without a pose, a pose without correspondences
+    @test_throws r"hold no pose" refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = ())
+    @test_throws r"no pose" refine_camera_and_poses(cam0, views0, Dict(:A => boards[:A], :B => boards[:B]), noisy)
+    @test_throws r"no correspondence" refine_camera_and_poses(cam0, merge(views0, Dict(9 => views[1])), boards0, noisy)
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined, K frozen, the axis on ẑ" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin

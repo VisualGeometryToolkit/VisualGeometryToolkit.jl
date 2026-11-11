@@ -5,6 +5,13 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: board poses in `refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views)`** (owner
+  decision 20): several rigid boards, each board → world pose a variable of the same bundle (one more pose chart of the
+  same NLLSsolver problem and assembler as the camera and the view poses), the correspondences keyed by
+  `(view, board)`. The gauge of each connected component of the view–board graph is fixed exactly by a held pose (by
+  default its first board; `held_views` holds a view instead), no pin and no prior; a component without one is an
+  `ArgumentError`. The single-board refine is the same bundle with one held identity board. CaliBlobs' own refine
+  moves onto it.
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 

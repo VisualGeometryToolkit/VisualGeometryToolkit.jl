@@ -650,8 +650,10 @@ end
 The tasks of the Slurm jobs `ids` that are still in the queue (`squeue`, found on `env`'s PATH; it needs no
 accounting), by job id and task: `Dict(0 => "RUNNING", 1 => "PENDING")` (task 0 for a job that is not an array; task
 -1 for a range of tasks squeue does not list one by one). Only the states of a job not yet finished (`PENDING`,
-`RUNNING`, `COMPLETING`, …); a job that left the queue is absent, as is every job when squeue is not there, and so
-is a task pending on a dependency that can never be satisfied (an earlier stage failed: it will never run).
+`RUNNING`, `COMPLETING`, …); a job that left the queue is absent (squeue's "Invalid job id specified"), as is every
+job when squeue is not there, and so is a task pending on a dependency that can never be satisfied (an earlier stage
+failed: it will never run). Any other failure of squeue (a slurmctld timeout, a controller restart) is an error: the
+queue's state is then unknown, and reading its jobs as gone would submit a stage that is still running again.
 """
 function slurm_queue_states(ids::AbstractVector{<:AbstractString}; env = ENV)
     out = Dict{String, Dict{Int, String}}()
@@ -659,7 +661,22 @@ function slurm_queue_states(ids::AbstractVector{<:AbstractString}; env = ENV)
     squeue === nothing && return out
     fmt = "%i|%T|%r"
     for id in unique(ids)
-        txt = try readchomp(pipeline(Cmd(`$squeue -h -r -j $id -o $fmt`; env = Dict{String, String}(env)); stderr = devnull)) catch; "" end
+        out_buf, err_buf = IOBuffer(), IOBuffer()
+        rc = try
+            run(pipeline(Cmd(`$squeue -h -r -j $id -o $fmt`; env = Dict{String, String}(env), ignorestatus = true);
+                         stdout = out_buf, stderr = err_buf)).exitcode
+        catch ex
+            ex isa Base.IOError || rethrow()
+            print(err_buf, sprint(showerror, ex)); -1
+        end
+        txt, err = String(take!(out_buf)), strip(String(take!(err_buf)))
+        if rc != 0
+            # A job that left the queue is what squeue calls an invalid id; any other failure (a slurmctld timeout,
+            # a controller restart) says nothing about the job, and reading it as gone would resubmit a running stage.
+            occursin("Invalid job id specified", err) && continue
+            error("squeue -j $id failed (exit $rc): $(isempty(err) ? "no message" : err); the queue cannot be read, ",
+                  "so whether the earlier launch's stages are still in flight is not known. Retry when squeue answers.")
+        end
         for l in split(txt, '\n'; keepempty = false)
             occursin('|', l) || continue
             parts = strip.(split(l, '|'))
@@ -685,7 +702,9 @@ end
 The directory of a stage's completion markers in the launch whose run manifest is `manifest`: `<manifest without
 .toml>/<stage>/`. Each task of the stage writes `task-<t>.toml` there when it ends (`t` its array task, 0 for a stage
 that is not an array): `state` (`"completed"` or `"failed"`), `exit_status`, `start` and `end` (UTC), `job_id`,
-`commit`, `key` (the stage's run key), `stage`, `task`, `host`, and `signal` when the job was stopped by one. On a
+`commit`, `key` (the stage's run key), `stage`, `task`, `host`, `restart_count` (Slurm's `SLURM_RESTART_COUNT`,
+0 for a first attempt), and `signal` when the job received one (TERM, then `state = "failed"`; or a signal the
+launcher's `--signal` directive asks for, forwarded to it). On a
 Slurm site the job writes it itself (a wrapper the runner submits around the stage's launcher, kept in the same
 directory with the launcher's copy as submitted); the local backend writes it after each task. Every marker is
 written atomically (a temporary file in the directory, renamed into place): a reader sees a whole marker or none.
@@ -735,10 +754,13 @@ end
 
 What the run of a stage that a run manifest records (`record`, one of its `[stages]`) came to, read from the
 stage's completion markers ([`stage_markers`](@ref)) and the queue (`queue`: [`slurm_queue_states`](@ref)), never
-from accounting. `tasks` maps each task to its state: its marker's (`"completed"`, `"failed"`), else its job's
-state in the queue (`"PENDING"`, `"RUNNING"`, …), else `"unknown"`. `state` is
+from accounting. `tasks` maps each task to its state: its job's state while the queue holds the task
+(`"PENDING"`, `"RUNNING"`, …), else its marker's (`"completed"`, `"failed"`), else `"unknown"`. The queue comes first
+because Slurm requeues a task under the same job id (preemption with `PreemptMode=REQUEUE`, `scontrol requeue`): the
+attempt it stopped left a `"failed"` marker, and the task is pending or running again. A task that is finishing
+(`COMPLETING`) reads its marker when it has one. `state` is
 
-- `"failed"` when a task's marker says so;
+- `"failed"` when a task's marker says so and the queue no longer holds it;
 - `"unknown"` when a task has no marker and its job is no longer queued: it died without writing one (a node
   failure, a kill past the time limit's grace) or its markers are gone. Never taken as finished: a later launch
   runs the stage again;
@@ -761,7 +783,11 @@ function stage_run_state(r::AbstractDict, queue::AbstractDict = Dict{String, Dic
     queued = get(queue, id, Dict{Int, String}())
     tasks = Dict{Int, String}()
     for t in 0:(n - 1)
-        tasks[t] = haskey(marks, t) ? marks[t]["state"] : get(queued, t, get(queued, -1, "unknown"))
+        q = get(queued, t, get(queued, -1, ""))
+        # A task the queue holds again (requeued under the same job id: preemption, `scontrol requeue`) is in flight
+        # whatever marker an earlier attempt left; only a task that is finishing (COMPLETING) reads its marker.
+        tasks[t] = !isempty(q) && (q != "COMPLETING" || !haskey(marks, t)) ? q :
+                   haskey(marks, t) ? marks[t]["state"] : "unknown"
     end
     v = values(tasks)
     state = any(==("failed"), v) ? "failed" : any(==("unknown"), v) ? "unknown" :
@@ -942,7 +968,9 @@ const _MARKER_WRAPPER = raw"""#!/bin/bash
 # @@MANIFEST@@: it runs the stage and then writes this task's completion marker, task-<array task>.toml in
 # @@DIR@@, atomically (a temporary file in that directory renamed into place): its state (completed or failed), exit
 # status, start and end, job id, commit and run key. A TERM (scancel, the time limit) is forwarded to the stage and
-# recorded as failed; a job killed outright (a node failure, a KILL) writes none, which status reports as unknown.
+# recorded as failed; a signal the launcher's own --signal directive asks for is forwarded to the stage and recorded,
+# its state then the stage's exit status; a job killed outright (a node failure, a KILL) writes none, which status
+# reports as unknown. The launcher's copy is run through its interpreter, so a noexec results root cannot stop it.
 _vgtk_dir=@@DIR@@
 _vgtk_task=${SLURM_ARRAY_TASK_ID:-0}
 _vgtk_start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -956,6 +984,7 @@ _vgtk_marker() {
     printf 'slurm_job_id = "%s"\n' "${SLURM_JOB_ID:-}"
     printf 'commit = "%s"\n' @@COMMIT@@
     printf 'key = "%s"\n' @@KEY@@
+    printf 'restart_count = %d\n' "${SLURM_RESTART_COUNT:-0}"
     printf 'host = "%s"\n' "$(hostname)"
     printf 'start = "%s"\n' "$_vgtk_start"
     printf 'end = "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -965,22 +994,48 @@ _vgtk_marker() {
   } > "$tmp" && mv -f "$tmp" "$_vgtk_dir/task-$_vgtk_task.toml" || { rm -f "$tmp"; return 1; }
 }
 _vgtk_signal=
+_vgtk_forwarded=
 @@BODY@@ &
 _vgtk_child=$!
 trap '_vgtk_signal=TERM; kill -TERM "$_vgtk_child" 2>/dev/null' TERM
+@@TRAPS@@
 wait "$_vgtk_child"; _vgtk_rc=$?
 while kill -0 "$_vgtk_child" 2>/dev/null; do wait "$_vgtk_child"; _vgtk_rc=$?; done
 if [ "$_vgtk_rc" -eq 0 ] && [ -z "$_vgtk_signal" ]; then
-  _vgtk_marker completed 0 ""
+  _vgtk_marker completed 0 "$_vgtk_forwarded"
 else
-  _vgtk_marker failed "$_vgtk_rc" "$_vgtk_signal"
+  _vgtk_marker failed "$_vgtk_rc" "${_vgtk_signal:-$_vgtk_forwarded}"
 fi
 exit "$_vgtk_rc"
 """
 
+# The signals a launcher's `#SBATCH --signal=[{R|B}:]<sig>[@<time>]` directives ask Slurm to send (names without
+# `SIG`, or numbers), TERM aside: the wrapper, which now receives them in the launcher's place, forwards each.
+function _directive_signals(header)
+    out = String[]
+    for d in header
+        m = match(r"^#SBATCH\s+--signal(?:=|\s+)(?:[RB]+:)?(?:SIG)?([A-Za-z0-9]+)"i, d)
+        m === nothing && continue
+        sig = uppercase(String(something(m.captures[1])))
+        sig in ("TERM", "15") || sig in out || push!(out, sig)
+    end
+    return out
+end
+
+# The command line that runs a launcher's copy `snap` through its interpreter (its `#!` line: the program and at
+# most one argument, as the kernel reads it; bash without one), never by executing the file itself: a results root
+# mounted noexec refuses that.
+function _interpreted(snap::AbstractString, text::AbstractString)
+    first_line = isempty(text) ? "" : first(eachline(IOBuffer(text)))
+    startswith(first_line, "#!") || return "/bin/bash " * _shell_quote(snap)
+    parts = split(strip(first_line[3:end]), r"\s+"; limit = 2, keepempty = false)
+    isempty(parts) && return "/bin/bash " * _shell_quote(snap)
+    return join(_shell_quote.([String.(parts); snap]), " ")
+end
+
 # The script a Slurm stage is submitted as, written into its marker directory `dir`: the launcher's #SBATCH
-# directives, then the stage (a copy of the launcher, taken now as sbatch would take it; or the command of a `command`
-# stage, `wrap`) and its completion marker. Returns its path.
+# directives, then the stage (a copy of the launcher, taken now as sbatch would take it and run through its
+# interpreter; or the command of a `command` stage, `wrap`) and its completion marker. Returns its path.
 function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractString; wrap::AbstractString = "")
     g, s = plan.graph, st.spec
     mkpath(dir)
@@ -990,13 +1045,15 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
         src = joinpath(g.workdir, s.sbatch)
         snap = joinpath(dir, basename(s.sbatch))
         cp(src, snap; force = true)
-        chmod(snap, 0o755)
-        _sbatch_directives(read(src, String)), _shell_quote(snap)
+        chmod(snap, 0o644)                                 # read, never executed (`_interpreted`)
+        text = read(src, String)
+        _sbatch_directives(text), _interpreted(snap, text)
     end
+    traps = join(("trap '_vgtk_forwarded=$sig; kill -$sig \"\$_vgtk_child\" 2>/dev/null' $sig" for sig in _directive_signals(header)), "\n")
     text = _MARKER_WRAPPER
     for (k, v) in ("@@HEADER@@" => join(header, "\n"), "@@MANIFEST@@" => plan.manifest, "@@STAGE@@" => _shell_quote(s.name),
                    "@@DIR@@" => _shell_quote(dir), "@@COMMIT@@" => _shell_quote(plan.commit), "@@KEY@@" => _shell_quote(st.key),
-                   "@@BODY@@" => body)
+                   "@@BODY@@" => body, "@@TRAPS@@" => traps)
         text = replace(text, k => v)
     end
     path = joinpath(dir, "marker_wrapper.sbatch")
@@ -1005,6 +1062,9 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
 end
 
 # The sbatch argv of a stage through its marker wrapper: the wrapper in place of the launcher, or of `--wrap=<line>`.
+# A job given no name is named as a prefix would name it, without the prefix (`_base_job_name`): Slurm would otherwise
+# name it after the script submitted, the wrapper, `marker_wrapper.sbatch` for every such stage. The run key, taken of
+# the planned command, is unchanged.
 function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{String}, dir::AbstractString)
     c = copy(c)
     if isempty(st.spec.sbatch)
@@ -1014,6 +1074,8 @@ function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{Strin
         @assert c[end] == st.spec.sbatch
         c[end] = _marker_wrapper(plan, st, dir)
     end
+    any(a -> a == "-J" || startswith(a, "--job-name"), c) ||
+        insert!(c, length(c), "--job-name=$(_base_job_name(plan.graph, st.spec))")
     return c
 end
 
@@ -1024,12 +1086,20 @@ Submits the plan's stages in order with sbatch, each after the jobs of the stage
 (`--dependency=afterok`; a GPU array also after the GPU array submitted before it, `afterany`, when the site sets
 `gpu_limit`); a reused stage is not submitted (a completed one is no dependency, one in flight is depended on). Each
 stage is submitted through a wrapper that runs it and writes each task's completion marker
-([`stage_markers_dir`](@ref)): the stage's own launcher, copied as submitted, with its `#SBATCH` directives.
+([`stage_markers_dir`](@ref)): the stage's own launcher, copied as submitted, with its `#SBATCH` directives (a
+signal its `--signal` directive asks for is forwarded to it), named `<project>-<stage>` when neither the stage nor its
+launcher names it. sbatch runs without the `SLURM_*` variables of the process that launches it (`SLURM_CONF` kept):
+launched from inside a Slurm job, that job's array task and job id would otherwise reach every stage's job.
 Returns the manifest records; the manifest is written after every submission, so a failed sbatch leaves the record of
 what was submitted.
 """
 function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
     g, site = plan.graph, plan.site
+    # The launching process's own job (a launcher or a test suite run under sbatch) is not the stage's: its SLURM_*
+    # variables, exported to the job by sbatch's default --export=ALL, would give a non-array stage the parent's array
+    # task and job id (its marker then written for the wrong task, under the wrong job). SLURM_CONF, where the site
+    # sets it, tells sbatch which cluster to submit to.
+    base_env = Dict(k => v for (k, v) in plan.base_env if !startswith(k, "SLURM_") || k == "SLURM_CONF")
     mkpath(joinpath(g.workdir, "logs")); mkpath(plan.results_root)
     ids, records = Dict{String, String}(), Dict{String, Any}()
     last_gpu = ""
@@ -1055,7 +1125,7 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         markers = stage_markers_dir(plan.manifest, s.name)
         c = _through_wrapper(plan, st, c, markers)
         out = IOBuffer(); err = IOBuffer()
-        e = merge(plan.base_env, st.env)
+        e = merge(base_env, st.env)
         ok = try
             success(pipeline(Cmd(Cmd(_with_setup(site, c, e)); env = e, dir = g.workdir); stdout = out, stderr = err))
         catch ex
@@ -1126,7 +1196,7 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
             tasks[string(t)] = ok ? "completed" : "failed"
             marker = Dict{String, Any}("stage" => s.name, "task" => t, "job_id" => "", "commit" => plan.commit, "key" => st.key,
                                        "host" => gethostname(), "start" => start, "end" => _utc_now(), "exit_status" => rc,
-                                       "state" => tasks[string(t)])
+                                       "restart_count" => 0, "state" => tasks[string(t)])
             _write_atomic(io -> TOML.print(io, marker; sorted = true), joinpath(markers, "task-$t.toml"))
             println(io, rpad(s.name, 32), " ", s.is_array ? "task $t ($item) " : "", ok ? "ok" : "FAILED",
                     "  $(round(time() - t0; digits = 1)) s  $(relpath(log, g.workdir))")

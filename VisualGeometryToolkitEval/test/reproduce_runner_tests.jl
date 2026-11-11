@@ -485,6 +485,99 @@ end
         @test proc.exitcode == 143 && mk["state"] == "failed" && mk["exit_status"] == 143 && mk["signal"] == "TERM"
     end
 
+    @testset "the Slurm backend's hazards: a requeued task, a failing squeue, the launcher's own SLURM_*, unnamed jobs, --signal, noexec" begin
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        bin = fake_bin()
+        log, queue = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "squeue.txt")
+        write(queue, "")
+        # a stand-in sbatch, before the fixture's on PATH, that also records the SLURM_* variables it was run with
+        spy = mktempdir(); envlog = joinpath(spy, "env.log")
+        write(joinpath(spy, "sbatch"), "#!/bin/bash\nenv | grep '^SLURM_' | sort | tr '\\n' ' ' >> $envlog; echo >> $envlog\nexec $(joinpath(bin, "sbatch")) \"\$@\"\n")
+        chmod(joinpath(spy, "sbatch"), 0o755)
+        # launched from inside an array task of another job (a test suite under sbatch)
+        parent = Dict("SLURM_ARRAY_TASK_ID" => "5", "SLURM_ARRAY_JOB_ID" => "99", "SLURM_JOB_ID" => "99", "SLURM_CONF" => "/etc/slurm/x.conf")
+        env = merge(env0, parent, Dict("PATH" => spy * ":" * bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
+                                       "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
+        launch(args; env = env) = run_main(args; env, queue_states = nothing, job_states = nothing)
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        @test code == 0
+        m1 = only(run_manifests(joinpath(f.results, "_reproduce")))
+        # sbatch sees none of the launching job's SLURM_* (SLURM_CONF, the cluster's configuration, kept)
+        @test readlines(envlog) == ["SLURM_CONF=/etc/slurm/x.conf ", "SLURM_CONF=/etc/slurm/x.conf "]
+        # a job no stage and no launcher names is named <project>-<stage>, never after the wrapper; a named one keeps its name
+        lines = readlines(log)
+        @test occursin(" --job-name=paper-setup ", lines[1])
+        @test count("--job-name=", lines[2]) == 1 && occursin(" --job-name=paper-prepare-chrome ", lines[2])
+        @test TOML.parsefile(m1)["stages"]["setup"]["key"] ==
+              plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env, queue_states = noqueue, only = ["setup"],
+                                stamp = "x").stages[1].key                                         # the run key is the planned command's
+
+        # a task preempted and requeued under the same job id: its first attempt's TERM left a "failed" marker, and the
+        # queue holds it again → in flight, depended on, not submitted a second time
+        sdir = stage_markers_dir(m1, "setup")
+        mkpath(sdir); write(joinpath(sdir, "task-0.toml"), "job_id = \"101\"\nstate = \"failed\"\nexit_status = 143\nsignal = \"TERM\"\n")
+        r = TOML.parsefile(m1)["stages"]["setup"]
+        @test stage_run_state(r).state == "failed"
+        @test stage_run_state(r, Dict("101" => Dict(0 => "PENDING"))).state == "in flight"
+        @test stage_run_state(r, Dict("101" => Dict(0 => "RUNNING"))).tasks == Dict(0 => "RUNNING")
+        @test stage_run_state(r, Dict("101" => Dict(0 => "COMPLETING"))).state == "failed"        # finishing: its marker
+        write(queue, "101|PENDING|BeginTime\n102|PENDING|Dependency\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        @test code == 0 && occursin(r"setup\s+101  \(in flight", out) && length(readlines(log)) == 2
+
+        # squeue failing for any other reason than an unknown job aborts the launch: nothing is submitted
+        @test slurm_queue_states(["101"]; env) == Dict("101" => Dict(0 => "PENDING"))
+        @test slurm_queue_states(["555"]; env) == Dict{String, Dict{Int, String}}()                  # "Invalid job id specified": gone
+        down = mktempdir()
+        write(joinpath(down, "squeue"), "#!/bin/bash\necho 'slurm_load_jobs error: Socket timed out on send/recv operation' >&2\nexit 1\n")
+        chmod(joinpath(down, "squeue"), 0o755)
+        envdown = merge(env, Dict("PATH" => down * ":" * env["PATH"]))
+        @test_throws r"squeue -j 101 failed.*Socket timed out" slurm_queue_states(["101"]; env = envdown)
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"]; env = envdown)
+        @test code == 4 && occursin("Socket timed out", out) && length(readlines(log)) == 2
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01"]; env = envdown, queue_states = nothing)
+        @test code == 4 && occursin("squeue -j", out)
+
+        # the wrapper: the attempt is recorded (SLURM_RESTART_COUNT); the launcher's copy is run through its
+        # interpreter, so a copy that cannot be executed (a noexec results root) still runs
+        g = load_stage_graph(f.graph)
+        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
+        dir = stage_markers_dir(plan.manifest, "setup")
+        w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
+        snap = joinpath(dir, "setup.sbatch")
+        @test !Sys.isexecutable(snap)
+        chmod(snap, 0o644)
+        e = merge(env0, Dict("VGTK_RESULTS_ROOT" => f.results, "SLURM_JOB_ID" => "7", "SLURM_RESTART_COUNT" => "1"))
+        @test run(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true)).exitcode == 0
+        mk = stage_markers(dir)[0]
+        @test mk["state"] == "completed" && mk["restart_count"] == 1
+        @test Reproduce._interpreted("/r/x.sbatch", "#!/usr/bin/env bash\necho\n") == "/usr/bin/env bash /r/x.sbatch"
+        @test Reproduce._interpreted("/r/x.sbatch", "echo\n") == "/bin/bash /r/x.sbatch"
+
+        # a launcher's --signal directive now signals the wrapper: it is forwarded to the launcher, which handles it,
+        # and recorded in the marker
+        write(joinpath(f.proj, "slurm", "setup.sbatch"), """
+            #!/bin/bash
+            #SBATCH --signal=B:USR1@60
+            trap 'touch "$dir/got_usr1"; exit 0' USR1
+            touch "$dir/started"
+            while true; do sleep 0.1; done
+            """)
+        @test Reproduce._directive_signals(["#SBATCH --signal=B:USR1@60", "#SBATCH --signal SIGUSR2", "#SBATCH --signal=TERM@30"]) == ["USR1", "USR2"]
+        rm(joinpath(dir, "task-0.toml"))
+        w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
+        proc = run(pipeline(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while !isfile(joinpath(dir, "started")) && time() - t0 < 30
+            sleep(0.1)
+        end
+        kill(proc, Base.SIGUSR1); wait(proc)
+        @test proc.exitcode == 0 && isfile(joinpath(dir, "got_usr1"))
+        mk = get(stage_markers(dir), 0, Dict{String, Any}())
+        @test get(mk, "state", "") == "completed" && get(mk, "signal", "") == "USR1"
+    end
+
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
         f = runner_project()
         src = pkgdir(VisualGeometryToolkitEval, "src")

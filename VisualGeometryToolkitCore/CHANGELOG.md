@@ -33,6 +33,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   this copy, and each re-resolve moves it to the newly resolved VisualGeometryToolkitCore's. One copy for the stack:
   the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
   BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
+- **Changed: a SplineLens lattice's absent nodes are read from its `present` mask alone.** The gauge
+  (`CameraModel(SplineLens, controls, size; present)`) and the off-axis check of `angle_of_view`, `image_circle`,
+  `undistort`, `valid_rect`, `view_overlap` and `horizon_radius` read the mask; they read NaN controls before, so a lens
+  built by `SplineLens(backward; present)` (which keeps the absent slots' values) passed the axis check with ẑ under a
+  hole. The NaN in absent slots that `with_present` and the controls constructor write is a debugging aid only. The
+  gauge no longer maps the whole lattice to test one window.
 - **Breaking: `SplineLens` has no `chart` field** (and so no fourth type parameter, `SplineLens{B, F, P}`). The
   forward spline's chart is the same constant for every lens, the equidistant chart about ẑ; it is the new public
   `forward_chart(SplineLens)`, which `project` evaluates a forward on and VisualGeometryToolkitEstimation's

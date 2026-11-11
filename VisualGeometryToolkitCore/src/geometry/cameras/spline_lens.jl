@@ -82,9 +82,10 @@ _device_present(to, p::AbstractMatrix{Bool}) = Adapt.adapt(to, p)
     return true
 end
 
-# The controls with NaN in every absent slot (`present[i]` false): no evaluation
-# reads an absent slot (a point is evaluated only when its whole 4×4 window is
-# present), and one read anywhere shows as NaN.
+# The controls with NaN in every absent slot (`present[i]` false). A debugging aid
+# only: absence is the mask's (`present`), which every evaluation, the gauge and the
+# axis check read; no code reads an absent slot's value, and one read anywhere shows
+# as NaN.
 function _absent_nan(G::AbstractMatrix{V}, present::AbstractMatrix{Bool}) where {V}
     size(G) == size(present) || throw(DimensionMismatch("with_present: a $(size(present)) mask for a $(size(G)) grid"))
     return map((v, p) -> p ? v : V(NaN, NaN, NaN), G, present)
@@ -851,13 +852,15 @@ evaluates a forward on it and a fit of a forward is made on it.
 forward_chart(::Type{SplineLens}) = _FORWARD_CHART
 
 # Where a lattice images ẑ: THE solve of ẑ through `controls` over `area` (from the
-# area's centre, the scale-free box) and whether it converged there — the gauge's
-# choice of principal point (`_spline_gauge`: the pixel imaging ẑ, else the
-# rectangle's centre, the fallback) and the off-axis check's condition below, one
-# predicate for both.
-function _imaged_z(controls::AbstractMatrix, area::Rect2)
+# area's centre, the scale-free box) and whether it converged there onto a window
+# whose nodes `present` holds — the gauge's choice of principal point
+# (`_spline_gauge`: the pixel imaging ẑ, else the rectangle's centre, the fallback)
+# and the off-axis check's condition below, one predicate for both. Absence is read
+# from `present` alone, whatever the absent slots of `controls` hold.
+function _imaged_z(controls::AbstractMatrix, area::Rect2, present)
     p, ok = _solved_projection(controls, area, SVector(0.0, 0.0, 1.0), _spline_lm_box(area)...)
-    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (SVector{2, Float64}(centroid(area)), false)
+    ok = ok && all(isfinite, p) && _window_present(present, spline_window(area, size(controls), p)[1:2]...)
+    return ok ? (SVector{2, Float64}(p), true) : (SVector{2, Float64}(centroid(area)), false)
 end
 
 # Whether a SplineLens camera's gauge is the off-axis fallback — ẑ not imaged inside
@@ -868,7 +871,7 @@ end
 # `ArgumentError` naming `what`. Every other lens has nothing to check.
 _check_lens_axis(::AbstractLensModel, what) = nothing
 function _check_lens_axis(l::SplineLens, what)
-    last(_imaged_z(l.backward.controls, l.backward.area)) || throw(
+    last(_imaged_z(l.backward.controls, l.backward.area, l.present)) || throw(
         ArgumentError(
             "$what: the SplineLens camera's lattice does not image ẑ inside its calibrated area, so its principal point " *
                 "is the off-axis gauge's fallback (the area's centre); the method reads the principal point as the " *
@@ -1077,18 +1080,17 @@ end
 # inside `rect` (the solve does not converge there), the principal point is the
 # rectangle's centre and the focal lengths the local scale there.
 #
-# The local scale needs a fully present 4 × 4 window at that pixel: a lattice holding
-# absent nodes (NaN controls) without one there has no scale to derive K from, an
+# The local scale needs a fully present 4 × 4 window at that pixel (`present`, the
+# lattice's mask, `nothing` for every node): a lattice without one there has no scale to derive K from, an
 # `ArgumentError` naming the pixel and saying to supply K. When ẑ's pixel is not found
 # and the centre's own window is incomplete, the search for it could not start there:
 # ẑ may be imaged under an incomplete window (a hole over ẑ) or not at all, so the
 # refusal says which pixel lacks a window, not that ẑ is not imaged. Any skew-0 K is an
 # exact gauge of the camera (a pixel's lattice coordinate does not depend on it).
-function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
-    pp, on_axis = _imaged_z(pixel_direction.controls, rect)    # the pixel imaging ẑ, else the centre (the fallback)
-    G = pixel_direction.controls
-    ix, iy, _, _ = spline_window(rect, size(G), pp)
-    _window_present(map(v -> all(isfinite, v), G), ix, iy) || throw(
+function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2, present)
+    pp, on_axis = _imaged_z(pixel_direction.controls, rect, present)    # the pixel imaging ẑ, else the centre (the fallback)
+    ix, iy, _, _ = spline_window(rect, size(pixel_direction.controls), pp)
+    _window_present(present, ix, iy) || throw(
         ArgumentError(
             "SplineLens gauge: the grid has no complete 4 × 4 window at " *
                 (on_axis ? "the pixel $pp imaging ẑ" : "the calibrated area's centre $pp, where the search for the pixel imaging ẑ starts (ẑ may lie under an incomplete window)") *
@@ -1227,9 +1229,9 @@ function CameraModel(
     gh, gw = Base.size(controls)
     rect, _ = _spline_layout(size, (gw, gh), calib_area)
     C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
-    present === nothing || (C = _absent_nan(C, present))   # the absent nodes hold no value: the gauge reads none
+    present === nothing || (C = _absent_nan(C, present))   # NaN in the absent slots: a debugging aid, read by nothing
     intrinsics === nothing || _check_spline_gauge(intrinsics)   # before the lattice is laid under it
-    K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect) : intrinsics
+    K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect, present) : intrinsics
     return _spline_camera(K, rect, C; present)
 end
 

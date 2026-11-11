@@ -179,7 +179,7 @@ end
     gh, gw = size(C)
     rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
     nan_absent(P) = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, P)
-    gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect)
+    gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect, P)
     refusal(P) = try
         gauge(P); nothing
     catch err
@@ -204,6 +204,40 @@ end
         [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]) > 1000
     # every node present: gauged as before
     @test all(isfinite, gauge(trues(gh, gw)).K)
+end
+
+@testitem "SplineLens gauge and axis check: node absence is read from the presence mask, not from NaN controls" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, with_present
+    import VisualGeometryToolkitCore.Cameras as VgtkCore
+
+    # Absence lives in one place, the lens's `present` mask. A lens built from controls that
+    # still hold their values in the absent slots (`SplineLens(backward; present)` does not
+    # NaN-fill) is gauged and axis-checked exactly as the NaN-filled one (`with_present`).
+    W, H = 640, 480
+    src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    cam = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
+    b = cam.lens.backward
+    gh, gw = size(b.controls)
+    hole = trues(gh, gw)
+    hole[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false   # over the window imaging ẑ
+    filled = with_present(cam, hole)
+    raw = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, b.controls); present = hole))
+    @test all(v -> all(isfinite, v), raw.lens.backward.controls)    # the absent slots keep their values
+    refuses(c) = try
+        VgtkCore._check_lens_axis(c.lens, "the axis check"); false
+    catch e
+        e isa ArgumentError && occursin("does not image ẑ", e.msg)
+    end
+    @test refuses(filled)
+    @test refuses(raw)
+    # the gauge of the pixel lattice reads the mask: no complete window at ẑ's pixel, whatever the slots hold
+    rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
+    pix = cam.lens.backward.controls
+    @test_throws "no complete 4 × 4 window" VgtkCore._spline_gauge(ChartSpline(rect, pix), rect, hole)
+    @test all(isfinite, VgtkCore._spline_gauge(ChartSpline(rect, pix), rect, nothing).K)
 end
 
 @testitem "CameraModel(SplineLens, controls, size): the camera of a given pixel lattice" begin

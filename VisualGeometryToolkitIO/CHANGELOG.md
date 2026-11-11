@@ -4,6 +4,13 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **The 2026-09 hand-eye record reads** (owner ruling 2026-11-11): a `vgio/transforms/v2` file of the one layout
+  bmvc2026's hand-eye writer wrote for CaliBlobs icra2026's motion-capture runs — `camera_rig → camera_optical`, then
+  one `printed_board_<id>` or `scene_<c>` → `board_rig` per marker — reads through a version step
+  (`migrate_schema(::Val{Symbol("vgio/transforms/v2")}, tree)`) as the frames the current writer names
+  (`body:camera_rig`, `camera_optical`, `target:<id>`, `target:scene_<c>`, `body:board_rig`), every number as it
+  stands. Saving writes `vgio/transforms/v4`. Any other v2 file is refused as before (its names are free strings).
+
 - **A radial vignetting body states its chart**: `vgio/vignetting/v1`'s `radial` body carries `"chart": "linear"` or
   `"projective"` (VisualGeometryToolkitCore's `RadialVignetting(…; chart)`), so a profile on the projective chart reads
   back as itself; a body without `chart` (written before) is the linear chart's, as it was.

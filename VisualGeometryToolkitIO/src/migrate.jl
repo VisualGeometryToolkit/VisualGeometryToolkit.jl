@@ -996,6 +996,54 @@ migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_noncentral(t)
 migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
+migrate_schema(::Val{Symbol("vgio/transforms/v2")}, t::AbstractDict) = _hand_eye_transforms_v2_to_v3(t)
+
+# vgio/transforms/v2 → v3: THE HAND-EYE RECORD OF 2026-09 (owner ruling 2026-11-11).
+# A v2 file names its frames by free strings, which v3 types through the frame
+# grammar, so a v2 file is in general not readable. ONE v2 layout is: the
+# hand-eye record bmvc2026's writer wrote for CaliBlobs icra2026's motion-capture
+# runs (2026-09; the published runs hold it) — the camera mount `camera_rig →
+# camera_optical`, then the marker mount, one `<marker> → board_rig` per
+# marker, a printed board `printed_board_<id>` or a reconstructed scene
+# `scene_<c>`. Its names map one to one onto the frames the current hand-eye
+# writer names (`body:camera_rig`, `camera_optical`, `target:<id>`,
+# `target:scene_<c>`, `body:board_rig`); every number is carried as it stands.
+# Any other v2 file is refused as before. Saving writes only the current version.
+const _V2_HAND_EYE_CAMERA = ("camera_rig" => "camera_optical") => ("body:camera_rig" => "camera_optical")
+const _V2_HAND_EYE_MOUNT = "board_rig" => "body:board_rig"
+function _v2_hand_eye_marker(name::AbstractString)
+    m = match(r"^printed_board_([A-Za-z0-9_]+)$", name)
+    m === nothing || return "target:" * m[1]
+    occursin(r"^scene_\d+$", name) && return "target:" * name
+    return nothing
+end
+function _hand_eye_transforms_v2_to_v3(old::AbstractDict)
+    free(why) = throw(ArgumentError("a vgio/transforms/v2 file's frame names are free strings, which the frame grammar " *
+        "does not type; the one v2 layout read is the 2026-09 hand-eye record (`camera_rig → camera_optical`, then " *
+        "`printed_board_<id>` or `scene_<c>` → `board_rig`): $(why). Re-export it from its producer"))
+    ts = old["transforms"]
+    ts isa AbstractVector && !isempty(ts) || free("it holds no transforms")
+    out = Any[]
+    for (k, r) in enumerate(ts)
+        from, to = String(r["from"]), String(r["to"])
+        name = if k == 1
+            (from => to) == first(_V2_HAND_EYE_CAMERA) || free("its first transform is $(repr(from)) → $(repr(to)), not the camera mount")
+            last(_V2_HAND_EYE_CAMERA)
+        else
+            marker = to == first(_V2_HAND_EYE_MOUNT) ? _v2_hand_eye_marker(from) : nothing
+            marker === nothing && free("its transform $(repr(from)) → $(repr(to)) is not a marker of the mount")
+            marker => last(_V2_HAND_EYE_MOUNT)
+        end
+        n = Dict{String, Any}(r)
+        n["from"], n["to"] = first(name), last(name)
+        push!(out, n)
+    end
+    length(out) >= 2 || free("it holds the camera mount and no marker")
+    t = Dict{String, Any}(old)
+    t["schema"] = "vgio/transforms/v3"
+    t["transforms"] = out
+    return t
+end
 
 # The covariance storage (2026-11): a covariance is written in the storage its
 # value holds (VisualGeometryToolkitCore's CovMat: an SMatrix, SDiagonal or

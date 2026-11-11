@@ -132,3 +132,47 @@ end
         @test pose_covariance_from_ros(vec(permutedims(Matrix(Σr)))) == Σ          # the message's row-major float64[36]
     end
 end
+
+@testitem "transforms/v2: the hand-eye record of 2026-09 reads as the current one; saving writes v4" setup = [VGIoFixtures] begin
+    # Two real files of CaliBlobs icra2026's motion-capture runs (2026-09), as
+    # bmvc2026's hand-eye writer wrote them: the camera mount `camera_rig →
+    # camera_optical` and the marker mount, one `<marker> → board_rig` per
+    # marker — a printed board (`printed_board_<id>`) or a reconstructed
+    # scene (`scene_<c>`). Its names are free strings; this record is the one
+    # v2 layout read, and it reads as the frames the current writer names.
+    using VisualGeometryToolkitCore: relabel, CameraFrame, BodyFrame, TargetFrame
+    old(f) = joinpath(@__DIR__, "fixtures", "old", f)
+    by_hand(r) = qpose(SVector{4, Float64}(r["rotation"]...), SVector{3, Float64}(r["translation"]...))
+    for (file, marker) in (("hand_eye_transforms_v2_printed_board.json", :aprilgrid),
+                           ("hand_eye_transforms_v2_scene.json", :scene_1))
+        raw = JSON.parse(read(old(file), String); dicttype = Dict{String, Any})
+        @test raw["schema"] == "vgio/transforms/v2"
+        X, Y = raw["transforms"]
+        want = [relabel(BodyFrame{:camera_rig}, CameraFrame, by_hand(X)),
+                relabel(TargetFrame{marker}, BodyFrame{:board_rig}, by_hand(Y))]
+        got = load(Vector{EuclideanMap}, old(file))
+        @test got == want                                            # the labels, every number bit for bit
+        @test typeof.(got) == typeof.(want)
+        mktempdir() do dir
+            p = joinpath(dir, "hand_eye.json")
+            save(p, got)
+            d = parse_json(read(p, String))
+            @test d.schema == "vgio/transforms/v4"                   # only the current version is written
+            @test [(t.from, t.to) for t in d.transforms] == [("body:camera_rig", "camera_optical"), ("target:$(marker)", "body:board_rig")]
+            @test load(Vector{EuclideanMap}, p) == want
+        end
+    end
+    # any other v2 file's names are free strings with no frame to map to: refused, as before
+    mktempdir() do dir
+        t = JSON.parse(read(old("hand_eye_transforms_v2_scene.json"), String); dicttype = Dict{String, Any})
+        t["transforms"][2]["from"] = "left_board"
+        p = joinpath(dir, "other.json")
+        write(p, JSON.json(t))
+        e = try load(Vector{EuclideanMap}, p); nothing catch e; e end
+        @test e isa ArgumentError && occursin("free strings", e.msg) && occursin("left_board", e.msg)
+        t["transforms"] = t["transforms"][2:2]                       # no camera mount: not the hand-eye record
+        t["transforms"][1]["from"] = "scene_1"
+        write(p, JSON.json(t))
+        @test_throws ArgumentError load(Vector{EuclideanMap}, p)
+    end
+end

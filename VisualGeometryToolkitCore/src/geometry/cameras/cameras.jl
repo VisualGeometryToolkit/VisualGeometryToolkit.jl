@@ -46,6 +46,7 @@ public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens 
 
 # Import general Julia packages directly (not through parent)
 using StaticArrays: StaticArrays, SVector, SMatrix, MMatrix, StaticVector, StaticMatrix
+using ForwardDiff: ForwardDiff   # a radial profile's centre gradient, a two-partial Dual (vignetting.jl)
 using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd, dot, diag
 using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures.jl)
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
@@ -1163,6 +1164,7 @@ export AbstractBlur, GaussianBlur, convolve   # one blur of an imaging model by 
 export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
+export RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
 export Ray3                              # a non-central pixel's observation line

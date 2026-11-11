@@ -4,6 +4,10 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **A radial vignetting body states its chart**: `vgio/vignetting/v1`'s `radial` body carries `"chart": "linear"` or
+  `"projective"` (VisualGeometryToolkitCore's `RadialVignetting(…; chart)`), so a profile on the projective chart reads
+  back as itself; a body without `chart` (written before) is the linear chart's, as it was.
+
 - **`load` and `save` are contract generics** (`CONTRACT_GENERICS = (migrate_schema, load, save)`): a package whose own
   kinds are files adds `load(::Type{<:T}, path)` and `save(path, x::T)` methods for its types (BlobBoards' boards and
   patterns), so every kind of the stack is read and written through the two verbs. The kinds guide states the

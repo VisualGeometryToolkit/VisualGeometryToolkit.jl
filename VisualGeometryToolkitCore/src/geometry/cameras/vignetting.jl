@@ -6,12 +6,14 @@
 # evaluated by the stack's one isbits Cox–de Boor basis (`bspline_basis`) on clamped uniform knots (`clamped_knots`):
 #
 #   TensorProductVignetting   V(u) = Σᵢ Σⱼ Nᵢ,ₚ(u₁) Mⱼ,ₚ(u₂) Pᵢⱼ    a tensor-product B-spline surface over a box of the sensor
-#   RadialVignetting          V(u) = Σᵢ Nᵢ,ₚ(‖u − c‖ / r) Pᵢ        a profile in the radius about a centre
+#   RadialVignetting          V(u) = Σᵢ Nᵢ,ₚ(ρ(‖u − c‖)) Pᵢ        a profile in the radius about a centre, on a chart of the
+#                                                                    distance d: linear ρ = d / r or projective ρ = d / (r + d)
 #
 # "Tensor product" names how the 2-D basis is built, Nᵢ(u₁)·Mⱼ(u₂) from two 1-D bases (de Boor); V itself is a scalar
 # field on the sensor, not a tensor.
 #
-# Positions are sensor points in COLMAP pixels; outside the knots the basis is clamped (a constant continuation). Both are
+# Positions are sensor points in COLMAP pixels; outside the knots the basis is clamped (a constant continuation; the
+# projective chart never leaves its knots). Both are
 # isbits (kernel-lawful in `pointwise!`). The estimators that fit them are their owners' (a radiometric calibration, a
 # panorama's self-calibration); the model, its basis and the regular subspace of a radial profile are here.
 # =============================================================================
@@ -207,40 +209,113 @@ end
 # The radial profile
 # -----------------------------------------------------------------------------
 
+"""The charts of a radial profile's normalized radius: `:linear` (`ρ = d / radius`) and `:projective` (`ρ = d / (radius + d)`, [`projective_chart`](@ref))."""
+const RADIAL_CHARTS = (:linear, :projective)
+
 """
-    RadialVignetting(n, center, radius; degree = 3, T = Float64)
+    projective_chart(r) -> Transformation
+
+The projective chart of the distance `d` (a 1-vector) at the radius `r`: `ρ = d / (r + d)`, Core's 1-D `HomographyMap([1 0; 1 r])`
+dehomogenized by `PerspectiveMap` (`ρ(r) = ½`, `ρ(∞) = 1`). Isbits: it runs in a kernel.
+"""
+@inline projective_chart(r::T) where {T} = CoordinateTransformations.PerspectiveMap() ∘ HomographyMap(SMatrix{2, 2, T, 4}(one(T), one(T), zero(T), r))
+
+"""
+    projective_knots(n, p) -> SVector{n + p + 1, Float64}
+
+The knots of a radial profile on the projective chart of `n` control points of degree `p`: `m = n − p − 1` spans uniform in the
+distance up to the radius — knots at `d = k·r/m`, which the chart maps to `k / (m + k)`, `k = 0 … m` (so ½ at the radius) — and one
+tail span `[½, 1)` for every point beyond, clamped (`p + 1` knots at each end). Needs `n > p + 1`. With `n` one more than a linear
+profile's count, the pixel spacing up to the radius is the linear profile's.
+"""
+function projective_knots(n::Integer, p::Integer)
+    m = Int(n) - Int(p) - 1
+    m >= 1 || throw(ArgumentError("projective_knots: need more than p + 1 = $(p + 1) control points, got $n"))
+    χ = projective_chart(Float64(m))                                       # the chart at radius m: d = k ↦ k / (m + k)
+    interior = [only(χ(SVector(Float64(k)))) for k in 1:m]                 # k = m is the rim, ρ = ½; then the tail span to 1
+    return SVector{Int(n) + Int(p) + 1}(vcat(zeros(Int(p) + 1), interior, ones(Int(p) + 1)))
+end
+
+"""
+    RadialVignetting(n, center, radius; degree = 3, T = Float64, chart = :linear)
+    RadialVignetting(knots, center, radius, P; degree, chart = :linear)
 
 The radial B-spline vignetting profile: `n` control points of degree `degree`
-on clamped uniform knots over the normalized radius `ρ = ‖u − center‖ / radius
-∈ [0, 1]` (`center` and `radius` in COLMAP pixels, plain or `px`; a length is
-a `DimensionError`, a radius that is not positive an `ArgumentError`), `P ≡ 1` (`V ≡ 1`).
-`V(u) = Σᵢ Nᵢ(ρ(u)) Pᵢ`, constant beyond `radius`. Radially symmetric by
-construction: a field about one centre. [`pole_regular_basis`](@ref) is the
-subspace of the profiles that are smooth at the centre.
+over a normalized radius `ρ ∈ [0, 1]` of the distance `d = ‖u − center‖`
+(`center` and `radius` in COLMAP pixels, plain or `px`; a length is a
+`DimensionError`, a radius that is not positive an `ArgumentError`), `P ≡ 1`
+(`V ≡ 1`), `V(u) = Σᵢ Nᵢ(ρ(u)) Pᵢ`. The `chart` of `ρ` ([`RADIAL_CHARTS`](@ref)):
+
+- `:linear`: `ρ = d / radius` on clamped uniform knots, `V` constant beyond `radius`;
+- `:projective`: `ρ = d / (radius + d)` ([`projective_chart`](@ref)), `½` at
+  `radius` and `→ 1` at infinity, so no sensor point is ever beyond the knots
+  whatever the centre; on the knots [`projective_knots`](@ref)`(n, degree)`:
+  uniform in the distance up to `radius` and one tail span beyond.
+
+Radially symmetric by construction: a field about one centre.
+[`pole_regular_basis`](@ref) is the subspace of the profiles that are smooth at
+the centre (`V′(0) = 0` on either chart: `dρ/dd = 1 / radius` at the centre),
+and `V(center) = P₁` exactly. The second form takes the clamped knot vector
+itself (checked: `n + degree + 1` knots, nondecreasing, clamped, from 0 to 1)
+and the control points: what a record is rebuilt from.
+[`radial_chart`](@ref) is the chart, [`with_center`](@ref) moves the centre,
+[`center_gradient`](@ref) is `∂V/∂center`.
 """
-struct RadialVignetting{T, N, K, DP} <: AbstractVignetting
+# The chart as a type parameter (isbits, a kernel specialises on it): `radial_chart` names it.
+abstract type _RadialChart end
+struct _LinearChart <: _RadialChart end
+struct _ProjectiveChart <: _RadialChart end
+_chart_type(chart::Symbol) = chart === :projective ? _ProjectiveChart : chart === :linear ? _LinearChart :
+    throw(ArgumentError("RadialVignetting: chart = $(repr(chart)) is not one of $(join(repr.(RADIAL_CHARTS), ", "))"))
+_chart_name(::Type{_LinearChart}) = :linear
+_chart_name(::Type{_ProjectiveChart}) = :projective
+
+struct RadialVignetting{T, N, K, DP, C <: _RadialChart} <: AbstractVignetting
     center::SVector{2, T}
     radius::T
     knots::SVector{K, T}
     P::SVector{N, T}
 end
-function RadialVignetting(n::Integer, center, radius; degree::Integer = 3, T = Float64)
+# the fields without a chart: the linear chart (the profile's form before the chart parameter)
+RadialVignetting{T, N, K, DP}(center, radius, knots, P) where {T, N, K, DP} = RadialVignetting{T, N, K, DP, _LinearChart}(center, radius, knots, P)
+function RadialVignetting(n::Integer, center, radius; degree::Integer = 3, T = Float64, chart::Symbol = :linear)
+    C = _chart_type(chart)
     # pixel-sized: a plain number or a px quantity, a length refused (DimensionError; units.md)
     c1, c2, r = _strip_pixels(center[1]), _strip_pixels(center[2]), _strip_pixels(radius)
     r isa Real && isfinite(r) && r > 0 || throw(ArgumentError("RadialVignetting: the radius must be a positive finite number of pixels; got $(radius)"))
-    knots = clamped_knots(n, degree, 0.0, 1.0)
-    return RadialVignetting{T, Int(n), length(knots), Int(degree)}(SVector{2, T}(c1, c2), T(r),
-                                                                   SVector{length(knots), T}(knots), ones(SVector{Int(n), T}))
+    knots = chart === :projective ? projective_knots(n, degree) : clamped_knots(n, degree, 0.0, 1.0)
+    return RadialVignetting{T, Int(n), length(knots), Int(degree), C}(SVector{2, T}(c1, c2), T(r),
+                                                                          SVector{length(knots), T}(knots), ones(SVector{Int(n), T}))
 end
+function RadialVignetting(knots::AbstractVector, center, radius, P::AbstractVector; degree::Integer, chart::Symbol = :linear)
+    C = _chart_type(chart)
+    N, p = length(P), Int(degree)
+    length(knots) == N + p + 1 || throw(ArgumentError("RadialVignetting: $(length(knots)) knots for $N control points of degree $p (need $(N + p + 1))"))
+    (issorted(knots) && all(==(first(knots)), knots[1:(p + 1)]) && all(==(last(knots)), knots[(end - p):end]) && first(knots) == 0 && last(knots) == 1) ||
+        throw(ArgumentError("RadialVignetting: the knots are not a clamped nondecreasing vector of degree $p from 0 to 1"))
+    r = float(_strip_pixels(radius))
+    isfinite(r) && r > 0 || throw(ArgumentError("RadialVignetting: the radius must be a positive finite number of pixels; got $radius"))
+    T = promote_type(typeof(r), eltype(knots), eltype(P)); K = length(knots)
+    return RadialVignetting{T, N, K, p, C}(SVector{2, T}(_strip_pixels(center[1]), _strip_pixels(center[2])), T(r), SVector{K, T}(knots), SVector{N, T}(P))
+end
+
+"""
+    radial_chart(v) -> Symbol
+
+The chart of a radial profile's normalized radius: `:linear` or `:projective` ([`RADIAL_CHARTS`](@ref)); a log field's, its spline's.
+"""
+radial_chart(::RadialVignetting{T, N, K, DP, C}) where {T, N, K, DP, C <: _RadialChart} = _chart_name(C)
 
 """
     radial_coordinate(v::RadialVignetting, u) -> ρ
 
-The normalized radius `‖u − center‖ / radius` of the sensor point `u` (the profile's argument).
+The normalized radius of the sensor point `u` (the profile's argument) on the profile's chart: `‖u − center‖ / radius` (linear) or
+`‖u − center‖ / (radius + ‖u − center‖)` (projective).
 """
-@inline function radial_coordinate(v::RadialVignetting, u::StaticVector{2})
+@inline function radial_coordinate(v::RadialVignetting{T, N, K, DP, C}, u::StaticVector{2}) where {T, N, K, DP, C <: _RadialChart}
     dx = u[1] - v.center[1]
     dy = u[2] - v.center[2]
+    C === _ProjectiveChart && return only(projective_chart(v.radius)(SVector(sqrt(dx * dx + dy * dy))))   # a constant per type
     return sqrt(dx * dx + dy * dy) / v.radius
 end
 
@@ -263,17 +338,47 @@ n_control_points(::RadialVignetting{T, N}) where {T, N} = N
 knot_vectors(v::RadialVignetting) = (v.knots,)
 spline_degree(::RadialVignetting{T, N, K, DP}) where {T, N, K, DP} = (DP,)
 center(v::RadialVignetting) = v.center
-"""The radius (COLMAP pixels) at which a radial profile's normalized radius is 1."""
+"""The radius (COLMAP pixels) at which a radial profile's normalized radius is 1 (linear chart) or ½ (projective chart)."""
 field_radius(v::RadialVignetting) = v.radius
 
-function with_control_points(v::RadialVignetting{T, N, K, DP}, P::AbstractVector{S}) where {T, N, K, DP, S}
+function with_control_points(v::RadialVignetting{T, N, K, DP, C}, P::AbstractVector{S}) where {T, N, K, DP, C <: _RadialChart, S}
     R = promote_type(T, S)
-    return RadialVignetting{R, N, K, DP}(SVector{2, R}(v.center), R(v.radius), SVector{K, R}(v.knots), SVector{N, R}(P))
+    return RadialVignetting{R, N, K, DP, C}(SVector{2, R}(v.center), R(v.radius), SVector{K, R}(v.knots), SVector{N, R}(P))
 end
 with_control_points(v::RadialVignetting, P::AbstractMatrix) = with_control_points(v, vec(collect(P)))
 
-convert_eltype(::Type{T}, v::RadialVignetting{S, N, K, DP}) where {T <: Real, S, N, K, DP} =
-    RadialVignetting{T, N, K, DP}(SVector{2, T}(v.center), T(v.radius), SVector{K, T}(v.knots), SVector{N, T}(v.P))
+convert_eltype(::Type{T}, v::RadialVignetting{S, N, K, DP, C}) where {T <: Real, S, N, K, DP, C <: _RadialChart} =
+    RadialVignetting{T, N, K, DP, C}(SVector{2, T}(v.center), T(v.radius), SVector{K, T}(v.knots), SVector{N, T}(v.P))
+
+"""
+    with_center(v::RadialVignetting, center) -> v′
+
+The same radial profile (chart, knots, degree, radius, control points) about the centre `center` (COLMAP pixels): what a fit of the
+centre steps. The element type is `promote_type` of the field's and the centre's (a Dual centre gives a Dual field, its knots exact).
+"""
+function with_center(v::RadialVignetting{T, N, K, DP, C}, center::StaticVector{2, S}) where {T, N, K, DP, C <: _RadialChart, S}
+    R = promote_type(T, S)
+    return RadialVignetting{R, N, K, DP, C}(SVector{2, R}(center), R(v.radius), SVector{K, R}(v.knots), SVector{N, R}(v.P))
+end
+with_center(v::RadialVignetting, center) = with_center(v, SVector{2}(center[1], center[2]))
+
+struct _CenterTag end
+"""
+    center_gradient(v, u) -> SVector{2}
+
+`∂V(u)/∂c` of a radial profile at its centre `c` (COLMAP pixels): the dipole `−V′(ρ) ∂ρ/∂d · (u − c)/d`, by a two-partial Dual
+through [`with_center`](@ref) and the same basis evaluation as `v(u)` (isbits: it runs in a kernel); zero at the centre itself
+(`V′(0) = 0` under the pole tie; the distance's derivative has no value there) and for a field without a centre parameter.
+"""
+@inline function center_gradient(v::RadialVignetting, u::StaticVector{2})
+    T = eltype(control_points(v)); c = center(v)
+    dx = T(u[1]) - c[1]; dy = T(u[2]) - c[2]
+    (dx * dx + dy * dy) > 0 || return zero(SVector{2, T})
+    d1 = ForwardDiff.Dual{_CenterTag}(c[1], one(T), zero(T)); d2 = ForwardDiff.Dual{_CenterTag}(c[2], zero(T), one(T))
+    x = with_center(v, SVector(d1, d2))(SVector{2, T}(u[1], u[2]))
+    return SVector{2, T}(ForwardDiff.partials(x, 1), ForwardDiff.partials(x, 2))
+end
+@inline center_gradient(v::AbstractVignetting, u::StaticVector{2}) = zero(SVector{2, eltype(control_points(v))})
 
 """
     pole_regular_basis(v::RadialVignetting) -> Matrix{Float64}
@@ -343,6 +448,7 @@ center(v::LogVignetting) = center(v.spline)
 field_radius(v::LogVignetting{<:RadialVignetting}) = field_radius(v.spline)
 radial_coordinate(v::LogVignetting{<:RadialVignetting}, u::StaticVector{2}) = radial_coordinate(v.spline, u)
 pole_regular_basis(v::LogVignetting{<:RadialVignetting}) = pole_regular_basis(v.spline)
+radial_chart(v::LogVignetting{<:RadialVignetting}) = radial_chart(v.spline)
 with_control_points(v::LogVignetting, P) = LogVignetting(with_control_points(v.spline, P))
 convert_eltype(::Type{T}, v::LogVignetting) where {T <: Real} = LogVignetting(convert_eltype(T, v.spline))
 support_trait(::Type{LogVignetting{S}}) where {S} = support_trait(S)

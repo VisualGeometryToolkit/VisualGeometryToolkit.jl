@@ -5,11 +5,13 @@
 # {"schema": "vgio/vignetting/v1", "pixel_frame": "colmap",
 #  "vignetting": {"type": "tensor_product", "degree": [p, q], "knots_x": […], "knots_y": […],
 #                 "control_points": [[P₁₁, …, P₁ny], …, [Pnx1, …]]}            (row i: x index i)
-#              | {"type": "radial", "degree": p, "center": [cx, cy], "radius": r, "control_points": [P₁, …]}
+#              | {"type": "radial", "degree": p, "center": [cx, cy], "radius": r, "chart": "linear" | "projective",
+#                 "control_points": [P₁, …]}
 #              | {"type": "log", "spline": {a tensor_product or radial body}}}
 #      VGC's TensorProductVignetting, RadialVignetting, LogVignetting: positions in COLMAP pixels (the
 #      fields' own convention), V unitless; a tensor surface's knots are stated (rebuilt exactly); a
-#      radial profile's are its count's and degree's on [0, 1].
+#      radial profile's are its count's, degree's and chart's (VGC's `RADIAL_CHARTS`; a body without a
+#      `chart`, written before the chart existed, is the linear chart's).
 #
 # {"schema": "vgio/environment_light/v1", "length_unit": "mm", "center": [x, y, z], "radius": r,
 #  "map": {"type": "spherical_harmonics", "basis": "real_orthonormal_no_condon_shortley", "l_max": L,
@@ -43,8 +45,10 @@ struct _VignettingBody <: _Spec end
 _vignetting_type(T::Type{<:AbstractVignetting}) = _Tok(tag_of(VIGNETTING_TAGS, T))
 _vignetting_body(T::Type{<:TensorProductVignetting}) = _Obj(:type => _vignetting_type(T), :degree => _Vec(_PosInt(), 2),
     :knots_x => _Vec(_Real()), :knots_y => _Vec(_Real()), :control_points => _Vec(_Vec(_Real())))
-_vignetting_body(T::Type{<:RadialVignetting}) = _Obj(:type => _vignetting_type(T), :degree => _PosInt(),
-    :center => _Vec(_Real(), 2), :radius => _Real(), :control_points => _Vec(_Real()))
+_vignetting_body(T::Type{<:RadialVignetting}) = _Obj(
+    Pair{Symbol, _Spec}[:type => _vignetting_type(T), :degree => _PosInt(), :center => _Vec(_Real(), 2), :radius => _Real(),
+                        :control_points => _Vec(_Real())],
+    Pair{Symbol, _Spec}[:chart => _Named(c -> c in String.(RADIAL_CHARTS), "a radial chart ($(join(String.(RADIAL_CHARTS), ", ")))")])
 _vignetting_body(T::Type{<:LogVignetting}) = _Obj(:type => _vignetting_type(T), :spline => _VignettingBody())
 _vignetting_tags() = join(keys(VIGNETTING_TAGS), ", ")
 function _validate(::_VignettingBody, x, file, at)
@@ -98,7 +102,7 @@ JSON.lower(::VgioStyle, v::TensorProductVignetting) = (
 )
 JSON.lower(::VgioStyle, v::RadialVignetting) = (
     type = tag_of(VIGNETTING_TAGS, v), degree = only(spline_degree(v)), center = Float64.(collect(VgtkCore.center(v))),
-    radius = Float64(field_radius(v)), control_points = Float64.(collect(vec(control_points(v)))),
+    radius = Float64(field_radius(v)), chart = String(radial_chart(v)), control_points = Float64.(collect(vec(control_points(v)))),
 )
 JSON.lower(s::VgioStyle, v::LogVignetting) = (type = tag_of(VIGNETTING_TAGS, v), spline = JSON.lower(s, log_spline(v)))
 JSON.lower(::VgioStyle, v::AbstractVignetting) = throw(ArgumentError("save: a $(typeof(v)) has no vgio/vignetting body ($(_vignetting_tags()))"))
@@ -112,7 +116,8 @@ function _lift_vignetting(::VgioStyle, ::Type{<:TensorProductVignetting}, b::Rec
 end
 function _lift_vignetting(::VgioStyle, ::Type{<:RadialVignetting}, b::Record)
     P = Float64[Float64(x::Real) for x in b.control_points]
-    v = RadialVignetting(length(P), SVector(Float64(b.center[1]), Float64(b.center[2])), Float64(b.radius); degree = Int(b.degree))
+    chart = Symbol(get(b, :chart, "linear")::String)
+    v = RadialVignetting(length(P), SVector(Float64(b.center[1]), Float64(b.center[2])), Float64(b.radius); degree = Int(b.degree), chart)
     return with_control_points(v, P)
 end
 
@@ -121,7 +126,7 @@ end
 
 Write a VGC vignetting field — a `TensorProductVignetting`, `RadialVignetting`
 or `LogVignetting` — as a `vgio/vignetting/v1` file: its type, degree, knots
-(a tensor surface's, stated) or centre and radius (a radial profile's), and
+(a tensor surface's, stated) or centre, radius and chart (a radial profile's), and
 control points, positions in COLMAP pixels. [`load`](@ref) gives the same field
 back, bit for bit.
 """

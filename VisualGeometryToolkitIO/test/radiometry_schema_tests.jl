@@ -12,7 +12,8 @@
     mktempdir() do dir
         tv = with_control_points(TensorProductVignetting((5, 4), Rect(0.0, 0.0, 640.0, 480.0); degree = (2, 3)), [w(i, j) for i in 1:5, j in 1:4])
         rv = with_control_points(RadialVignetting(7, SVector(320.3, 241.7), 401.25), [w(i, 1) for i in 1:7])
-        for v in (tv, rv, LogVignetting(rv), LogVignetting(tv))
+        pv = with_control_points(RadialVignetting(8, SVector(320.3, 241.7), 401.25; chart = :projective), [w(i, 1) for i in 1:8])
+        for v in (tv, rv, pv, LogVignetting(rv), LogVignetting(tv), LogVignetting(pv))
             p = joinpath(dir, "v.json")
             save(p, v)
             b = load(AbstractVignetting, p)
@@ -21,6 +22,17 @@
             @test [b(u) for u in us] == [v(u) for u in us]
         end
         @test JSON.parse(read(joinpath(dir, "v.json"), String))["pixel_frame"] == "colmap"
+        # a radial profile states its chart; a body without one (written before the chart existed) is the linear chart's
+        save(joinpath(dir, "p.json"), pv)
+        @test JSON.parse(read(joinpath(dir, "p.json"), String))["vignetting"]["chart"] == "projective"
+        save(joinpath(dir, "r.json"), rv)
+        old = JSON.parse(read(joinpath(dir, "r.json"), String))
+        @test old["vignetting"]["chart"] == "linear"
+        delete!(old["vignetting"], "chart"); write(joinpath(dir, "r.json"), JSON.json(old))
+        @test load(AbstractVignetting, joinpath(dir, "r.json")) == rv
+        bad = JSON.parse(read(joinpath(dir, "p.json"), String)); bad["vignetting"]["chart"] = "polar"
+        write(joinpath(dir, "bad.json"), JSON.json(bad))
+        @test_throws ArgumentError load(AbstractVignetting, joinpath(dir, "bad.json"))
         L = with_unit(EnvironmentLight(SphericalHarmonicMap([w(i, j) for i in 1:3, j in 1:9], 2), SVector(0.1, -0.2, 0.3), 1.5), m)
         p = joinpath(dir, "light.json")
         save(p, L)

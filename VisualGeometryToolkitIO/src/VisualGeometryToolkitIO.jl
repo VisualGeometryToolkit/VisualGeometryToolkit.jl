@@ -92,7 +92,7 @@ using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
-    spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS,
+    spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS, RADIAL_CHARTS, radial_chart,
     EnvironmentLight, SphericalHarmonicMap, coefficients, max_degree, GaussianBlur, with_unit, ImageFrame   # the radiometric kinds (radiometry_schema.jl)
 using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params

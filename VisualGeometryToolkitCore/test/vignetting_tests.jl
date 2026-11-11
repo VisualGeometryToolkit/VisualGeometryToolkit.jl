@@ -193,3 +193,110 @@ end
     err = try VIGNETTING_TAGS["tensor"]; nothing catch e; e end
     @test err isa ArgumentError && occursin("tensor_product", err.msg)
 end
+
+# The radial profile's chart (`chart = :projective`, ported from RadiometricCamera's ProjectiveRadialVignetting, owner
+# decision 22): the knots, the chart's values, the basis on the chart, the pole, the knots form, the centre moved and
+# differentiated, isbits on a device.
+@testitem "vignetting: a radial profile on the projective chart" begin
+    using Test
+    using StaticArrays: SVector
+    using LinearAlgebra: dot
+    using VisualGeometryToolkitCore: RadialVignetting, LogVignetting, TensorProductVignetting, Rect, with_control_points, control_points,
+        n_control_points, knot_vectors, center, field_radius, radial_coordinate, coefficient_jacobian, active_coefficients,
+        pole_regular_basis, convert_eltype, bspline_basis, RADIAL_CHARTS, projective_chart, projective_knots, radial_chart,
+        with_center, center_gradient
+
+    @test RADIAL_CHARTS == (:linear, :projective)
+    @test only(projective_chart(4.0)(SVector(4.0))) == 0.5 && only(projective_chart(4.0)(SVector(12.0))) == 0.75
+    W, H = 4256, 2848
+    c0 = SVector(2126.0, 1554.0)
+    vp = RadialVignetting(17, c0, 2560.5; chart = :projective)
+    vl = RadialVignetting(16, SVector(W / 2, H / 2), 2560.5)
+    @test radial_chart(vp) == :projective && radial_chart(vl) == :linear && radial_chart(LogVignetting(vp)) == :projective
+    @test_throws ArgumentError RadialVignetting(8, c0, 100.0; chart = :polar)
+    # the knots: k / (m + k) up to ½ (m = n − p − 1 spans uniform in the distance), one tail span to 1, clamped
+    k = knot_vectors(vp)[1]
+    @test k == projective_knots(17, 3) && length(k) == 21 && all(k[1:4] .== 0) && all(k[18:21] .== 1)
+    @test collect(k[5:17]) ≈ [j / (13 + j) for j in 1:13] && k[17] == 0.5
+    @test_throws ArgumentError projective_knots(4, 3)
+    # the chart: ½ at the radius, 2/3 at twice it, below 1 however far, 0 at the centre
+    r0 = field_radius(vp)
+    @test radial_coordinate(vp, c0 + SVector(0.0, r0)) == 0.5 && radial_coordinate(vp, c0 + SVector(2r0, 0.0)) ≈ 2 / 3
+    @test radial_coordinate(vp, c0) == 0 && radial_coordinate(vp, c0 + SVector(1e7, 0.0)) < 1
+    # the basis on the chart; the row sums to one; the active coefficients are its nonzeros; V(c) = P₁
+    Pp = [1.0 - 0.04 * (i - 1)^1.2 for i in 1:17]; vpp = with_control_points(vp, Pp)
+    @test radial_chart(vpp) == :projective
+    for u in (SVector(10.0, 20.0), SVector(2000.0, 1500.0), SVector(4200.0, 10.0))
+        d = hypot(u[1] - c0[1], u[2] - c0[2])
+        @test vpp(u) ≈ dot(bspline_basis(k, Val(3), d / (r0 + d)), Pp) atol = 1e-13
+        @test sum(coefficient_jacobian(vpp, u)) ≈ 1.0
+        idx, w = active_coefficients(vpp, u); J = coefficient_jacobian(vpp, u)
+        @test all(J[collect(idx)] .== collect(w)) && all(iszero, J[setdiff(1:17, collect(idx))])
+    end
+    @test vpp(c0) == Pp[1] && size(pole_regular_basis(vpp)) == (17, 16) && isbitstype(typeof(vpp))
+    @test convert_eltype(Float32, vpp)(SVector(100.0f0, 100.0f0)) ≈ vpp(SVector(100.0, 100.0)) rtol = 1e-6
+    @test radial_chart(convert_eltype(Float32, vpp)) == :projective
+    # the knots form: the record's rebuild, checked
+    @test RadialVignetting(k, c0, r0, Pp; degree = 3, chart = :projective) == vpp
+    @test RadialVignetting(knot_vectors(vl)[1], center(vl), field_radius(vl), ones(16); degree = 3) == vl
+    @test_throws ArgumentError RadialVignetting(k[1:(end - 1)], c0, r0, Pp; degree = 3, chart = :projective)
+    @test_throws ArgumentError RadialVignetting(collect(k) .* 2, c0, r0, Pp; degree = 3, chart = :projective)
+    @test_throws ArgumentError RadialVignetting(17, c0, 0.0; chart = :projective)
+    # the fields without a chart are the linear chart's
+    @test RadialVignetting{Float64, 16, 20, 3}(vl.center, vl.radius, vl.knots, vl.P) == vl
+    # the centre moved (the chart and control points kept) and its gradient against central differences, both charts
+    @test radial_chart(with_center(vpp, SVector(2100.0, 1500.0))) == :projective && center(with_center(vpp, (2100.0, 1500.0))) == SVector(2100.0, 1500.0)
+    v16 = with_control_points(vl, [1.0 - 0.05 * i for i in 0:15])
+    v17 = with_control_points(RadialVignetting(17, SVector(W / 2, H / 2), 2560.5; chart = :projective), [1.0 - 0.05 * i for i in 0:16])
+    for v in (v16, v17), u in (SVector(100.0, 200.0), SVector(3000.0, 2000.0), SVector(W / 2 + 0.3, H / 2 - 0.2))
+        g = center_gradient(v, u); h = 1e-3; c = center(v)
+        fd = SVector((with_center(v, c + SVector(h, 0.0))(u) - with_center(v, c - SVector(h, 0.0))(u)) / 2h,
+                     (with_center(v, c + SVector(0.0, h))(u) - with_center(v, c - SVector(0.0, h))(u)) / 2h)
+        @test g ≈ fd rtol = 1e-5 atol = 1e-12
+        g32 = center_gradient(convert_eltype(Float32, v), SVector{2, Float32}(u))
+        @test eltype(g32) == Float32
+        @test g32 ≈ g atol = 2e-6
+    end
+    @test center_gradient(v16, SVector(W / 2, H / 2)) == zeros(SVector{2, Float64})        # at the centre itself: zero, no NaN
+    @test center_gradient(TensorProductVignetting((4, 4), Rect(0, 0, 400, 300); degree = 2), SVector(10.0, 20.0)) == zeros(SVector{2, Float64})
+end
+
+# The port against its source: RadiometricCamera's ProjectiveRadialVignetting (src/camera/vignetting.jl at 254a3a3b), its
+# outputs recorded once by test/data/radial_projective_rc/generate.jl on the same inputs (rc_values.toml). Values and
+# Jacobians — the coefficient row ∂V/∂P, ∂V/∂u, ∂V/∂centre — to rounding.
+@testitem "vignetting: the projective chart is RadiometricCamera's" begin
+    using Test
+    using StaticArrays: SVector
+    using TOML: TOML
+    import ForwardDiff
+    using VisualGeometryToolkitCore: RadialVignetting, with_control_points, knot_vectors, radial_coordinate, coefficient_jacobian,
+        active_coefficients, convert_eltype, projective_knots, with_center, center_gradient
+    fx = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "data", "radial_projective_rc", "rc_values.toml"))
+    @test occursin("254a3a3b", fx["provenance"]["rc_commit"])
+    for e in fx["projective_knots"]
+        @test collect(projective_knots(e["n"], e["p"])) == Float64.(e["knots"])
+    end
+    near(a, b) = isapprox(a, b; rtol = 4eps(), atol = 4eps())
+    n_points = 0
+    for pr in fx["profiles"]
+        c = SVector{2}(Float64.(pr["center"]))
+        v = with_control_points(RadialVignetting(pr["n"], c, pr["radius"]; degree = pr["degree"], chart = :projective), Float64.(pr["P"]))
+        @test collect(only(knot_vectors(v))) == Float64.(pr["knots"])
+        moved = with_center(v, c .+ SVector(7.25, -3.5))
+        v32 = convert_eltype(Float32, v)
+        for q in pr["points"]
+            n_points += 1
+            u = SVector{2}(Float64.(q["u"]))
+            @test near(radial_coordinate(v, u), q["rho"])
+            @test near(v(u), q["value"])
+            @test all(near.(collect(coefficient_jacobian(v, u)), Float64.(q["row"])))
+            idx, w = active_coefficients(v, u)
+            @test collect(idx) == Int.(q["active_index"]) && all(near.(collect(w), Float64.(q["active_weight"])))
+            isempty(q["grad_u"]) || @test all(near.(ForwardDiff.gradient(x -> v(SVector{2}(x)), collect(u)), Float64.(q["grad_u"])))
+            @test all(near.(collect(center_gradient(v, u)), Float64.(q["grad_center"])))
+            @test Float64(v32(SVector{2, Float32}(u))) == q["value_f32"]
+            @test near(moved(u), q["value_moved"])
+        end
+    end
+    @test n_points == 36
+end

@@ -5,6 +5,18 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `RadialVignetting(…; chart = :projective)`, a radial profile on the projective chart** of its distance from the
+  centre, `ρ = d / (radius + d)` (½ at the radius, → 1 at infinity), so no sensor point is beyond the knots whatever the
+  centre; its knots are `projective_knots(n, degree)` (uniform in the distance up to the radius, one tail span beyond).
+  Ported from RadiometricCamera's `ProjectiveRadialVignetting` (254a3a3b) with its math, parameter order and defaults,
+  values and Jacobians bit for bit (an equivalence test against RC's outputs, recorded once with their generating
+  script, test/data/radial_projective_rc/). With it, public: `RADIAL_CHARTS`, `projective_chart(r)`,
+  `projective_knots(n, p)`, `radial_chart(v)`, `with_center(v, center)` (the profile about another centre, chart kept)
+  and `center_gradient(v, u)` (`∂V/∂c`, isbits). The knots form `RadialVignetting(knots, center, radius, P; degree,
+  chart)` rebuilds a recorded profile. `RadialVignetting` gains a fifth type parameter, the chart (`:linear` or
+  `:projective`); the four-parameter field constructor `RadialVignetting{T, N, K, DP}(center, radius, knots, P)` is the
+  linear chart's. RadiometricCamera deletes its own type.
+
 - **New in `check_duplication`: backend branches and CPU/GPU twins** (the owner's policy: a GPU branch's CPU branch is
   the SAME KernelAbstractions kernel on the CPU backend). `:backend_branch` flags a definition that tests the
   backend to run other code (`backend isa CPU`/`GPU`, `get_backend(x) isa …`, `x isa CuArray` and the other GPU

@@ -27,7 +27,7 @@ non-central one is a `NoncentralSplineModel`).
   accv2026 test_problem_arms.jl copied them from this package's tests): `PoseScenes.lens_board_scene(rng, camera, R,
   t; σ, n_out)` (the absolute-pose board through a distorting lens), `DivisionBoards.radial_board(rng; f, k, n_out, σ)`
   with `RADIAL_BOARD_FRAME`/`RADIAL_BOARD_CENTER` (one board for the radial camera), a new family `RadialScenes`
-  (`RADIAL_HOMOGRAPHY_FRAME`, `radial_homography(k_norm)`, `radial_homography_pairs(rng, model; n_in, n_out, σ)`),
+  (`RADIAL_HOMOGRAPHY_FRAME`, `radial_homography_truth(k_norm)`, `radial_homography_pairs(rng, model; n_in, n_out, σ)`),
   `Contamination.contaminated_line(rng)` (the contaminated line problem and its seed), and `EpipolarScenes.box_point`
   takes its box as keywords (`width`, `height`, `near`, `far`; the default box unchanged). Every draw is in the order
   the private copies drew it, so the pinned tests keep their values; Contamination now loads first (the other

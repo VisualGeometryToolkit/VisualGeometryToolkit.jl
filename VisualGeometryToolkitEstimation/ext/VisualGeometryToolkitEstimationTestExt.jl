@@ -479,19 +479,19 @@ module TestScenes
     using VisualGeometryToolkitCore: HomographyMat, RadialHomography, radial_transfer
     using ..Contamination: contaminated_pairs
 
-    export RADIAL_HOMOGRAPHY_FRAME, radial_homography, radial_homography_pairs
+    export RADIAL_HOMOGRAPHY_FRAME, radial_homography_truth, radial_homography_pairs
 
     # The target frame (px); the distortion centre is its middle.
     const RADIAL_HOMOGRAPHY_FRAME = (1200.0, 900.0)
 
     """
-        radial_homography(k_norm) -> RadialHomography{Float64}
+        radial_homography_truth(k_norm) -> RadialHomography{Float64}
 
     The ground-truth model: a fixed pixel-scale homography and the division
     coefficient `k_norm` on the radius normalized by the frame's diagonal, about
     the frame's middle.
     """
-    function radial_homography(k_norm)
+    function radial_homography_truth(k_norm)
         W, H = RADIAL_HOMOGRAPHY_FRAME
         H0 = SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0)
         return RadialHomography{Float64}(HomographyMat{Float64}(Tuple(H0)), k_norm / hypot(W, H)^2, SVector(W / 2, H / 2))

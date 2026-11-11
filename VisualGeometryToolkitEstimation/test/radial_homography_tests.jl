@@ -20,14 +20,14 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, ra
     HomographyMat, unit_normalize
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 
-# The 1200 × 900 frame, the ground-truth model (`radial_homography`, distortion
+# The 1200 × 900 frame, the ground-truth model (`radial_homography_truth`, distortion
 # centre at the frame's middle) and its contaminated pairs
 # (`radial_homography_pairs`): the shared RadialScenes.
 const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
 
 @testset "radial homography (RANSAC)" begin
     rng = StableRNG(1234)
-    m_gt = radial_homography(-0.25)
+    m_gt = radial_homography_truth(-0.25)
 
     @testset "problem-level: minimal solve composes exact pixel-frame models" begin
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 20, n_out = 0)

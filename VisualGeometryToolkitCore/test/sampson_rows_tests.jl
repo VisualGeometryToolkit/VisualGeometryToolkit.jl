@@ -96,9 +96,9 @@
         # the CPU fast path there): the same per-row function, the same rows
         KA = VgtkCore.KA
         rk = zeros(n); Jk = zeros(n, 6)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, M,
-            VgtkCore._direction_rows(dM), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_residual_row!, rk, M, (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_jacobian_row!, Jk, M,
+            VgtkCore._direction_rows(dM), (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
         KA.synchronize(KA.CPU())
         # The CPU loop vectorizes across rows; its fma contraction differs from the kernel's.
         @test rk ≈ r rtol = 1.0e-14
@@ -120,19 +120,11 @@
         Js = zeros(n, 6); sampson_jacobian_rows!(Js, M, dM, xs)
         @test Js == J1
         @test J ≈ sqrtw .* J1 rtol = 1.0e-13
-        # no allocation per row: the one kernel launch allocates KernelAbstractions' launch
-        # objects (a few hundred bytes, whatever the row count) and nothing more. A kernel
-        # compiled for a widened signature (`args...` as `Vararg{Any}`) boxes every row
-        # (≈150 bytes a row, 2026-11-11), which this catches as growth with n.
+        # no allocation in the rows or the per-correspondence Jacobian
         rows_allocs(f!, r, M, xs) = (f!(r, M, xs); @allocated f!(r, M, xs))
         jac_allocs(f!, J, M, dM, xs) = (f!(J, M, dM, xs); @allocated f!(J, M, dM, xs))
-        k = 10; xk = withattrs(Csponds(u₁[1:k], u₂[1:k]); sqrt_weights = sqrtw[1:k]); rk1 = zeros(k); Jk1 = zeros(k, 6)
-        for f! in (sampson_residuals!, wres!)
-            @test rows_allocs(f!, r, M, xs) == rows_allocs(f!, rk1, M, xk)
-        end
-        for f! in (sampson_jacobian_rows!, wjac!)
-            @test jac_allocs(f!, J, M, dM, xs) == jac_allocs(f!, Jk1, M, dM, xk)
-        end
+        @test rows_allocs(sampson_residuals!, r, M, xs) == 0 && rows_allocs(wres!, r, M, xs) == 0
+        @test jac_allocs(sampson_jacobian_rows!, J, M, dM, xs) == 0 && jac_allocs(wjac!, J, M, dM, xs) == 0
         f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
         allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
         @test allocs(M, u₁[1], u₂[1], A) == 0
@@ -233,27 +225,23 @@ end
     end
 
     rows(xs, f!) = A -> (r = zeros(eltype(A), 2n); f!(r, retract(ch, A), xs); r)
-    # the cases over the correspondences `I` (all of them, and a prefix for the allocation check)
-    cases(I) = (
-            ("plain, geometric", withattrs(Csponds(u₁[I], u₂[I]); sqrt_weights = sqrtw[I]), sampson_residuals!, sampson_jacobian_rows!),
-            ("exact source, whitened", withattrs(Csponds(u₁[I], u₂[I]); noise_columns(exact.(u₁[I]), u₂[I])..., sqrt_weights = sqrtw[I]),
+    for (name, xs, f!, J!) in (
+            ("plain, geometric", withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw), sampson_residuals!, sampson_jacobian_rows!),
+            ("exact source, whitened", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
                 whitened_residuals!, whitened_jacobian_rows!),
-            ("exact source, whitened, weighted", withattrs(Csponds(u₁[I], u₂[I]); noise_columns(exact.(u₁[I]), u₂[I])..., sqrt_weights = sqrtw[I]),
+            ("exact source, whitened, weighted", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
                 VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!),
             ("uncertain points, whitened",
-                withattrs(Csponds(u₁[I], u₂[I]); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁[I]], u₂[I])..., sqrt_weights = sqrtw[I]),
+                withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
                 whitened_residuals!, whitened_jacobian_rows!),
             ("uncertain points, whitened, weighted",
-                withattrs(Csponds(u₁[I], u₂[I]); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁[I]], u₂[I])..., sqrt_weights = sqrtw[I]),
+                withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
                 VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!))
-    for ((name, xs, f!, J!), (_, xk, _, _)) in zip(cases(1:n), cases(1:5))
         @testset "$name: exact rows (ForwardDiff through the residuals)" begin
             J = zeros(2n, 8); J!(J, retract(ch, a), retract_jacobian(ch, a), xs)
             @test J ≈ ForwardDiff.jacobian(rows(xs, f!), a) rtol = 1.0e-10 atol = 1.0e-12
-            # nothing allocated per row: the kernel launch's own objects only (the same at 5 rows as at n)
             allocs(J, M, D, xs) = (J!(J, M, D, xs); @allocated J!(J, M, D, xs))
-            M, D = retract(ch, a), retract_jacobian(ch, a)
-            @test allocs(J, M, D, xs) == allocs(zeros(10, 8), M, D, xk)
+            @test allocs(J, retract(ch, a), retract_jacobian(ch, a), xs) == 0
         end
     end
     @testset "whitened rows are unweighted; the weighted rows are √w times them" begin

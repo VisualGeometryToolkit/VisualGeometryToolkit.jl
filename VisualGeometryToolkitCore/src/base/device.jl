@@ -235,19 +235,20 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 # state, which a device kernel cannot receive. Row functions are
 # `Base.@propagate_inbounds`, so the kernel's `@inbounds` reaches their indexing.
 #
-# CPU cost: the signature is `row!::R, args::Vararg{Any, N}` with `R` and `N`
-# type parameters, not a bare `args...`. Julia compiles a bare vararg method
-# (and a `Function` argument it only hands on) for a WIDENED signature,
-# `Vararg{Any}`: KernelAbstractions' CPU backend calls the kernel function
-# through that instance, so every row was a dynamic dispatch with its
-# arguments boxed (≈150 bytes and 80 ns a row: 1000 Sampson rows took 83 µs
-# against the plain loop's 1.3 µs). Type parameters force the specialization
-# on the call's concrete types; a device compiler specializes on them anyway,
-# so the device kernel is unchanged.
+# CPU cost: the kernel takes ONE argument, the job tuple `(row!, out, args...)`. A
+# kernel call is a call of KernelAbstractions' `(::Kernel)(args...; ndrange)`, a
+# vararg method, and Julia compiles a vararg method called with more than one or
+# two arguments for a WIDENED signature (`Vararg{Any}`): every launch then boxed
+# its arguments and dispatched `__run` dynamically (≈290 bytes a launch on the
+# CPU, so an LM refit's row fills were not allocation-free), and while the kernel
+# function itself took `args...` every ROW was such a dynamic call (≈150 bytes and
+# 80 ns a row: 1000 Sampson rows took 83 µs against a plain loop's 1.3 µs). One
+# concrete tuple argument is compiled for its own type at both levels: the launch
+# allocates nothing. A device kernel receives the tuple converted element by element.
 
-@kernel function _row_kernel!(row!::R, out, args::Vararg{Any, N}) where {R, N}
+@kernel function _row_kernel!(job)
     i = @index(Global)
-    @inbounds row!(out, i, args...)
+    @inbounds job[1](job[2], i, Base.tail(Base.tail(job))...)
 end
 
 """
@@ -255,12 +256,13 @@ end
 
 Run `row!(out, i, args...)` for `i in 1:n` as one `_row_kernel!` launch over
 `ndrange = n` on the backend that owns `out` (every backend, the CPU's
-included), followed by a synchronize. `n = 0` launches nothing.
+included), followed by a synchronize. The kernel takes the job as one tuple,
+`(row!, out, args...)`. `n = 0` launches nothing.
 """
 function _launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
     n > 0 || return out
     backend = get_backend(out)
-    _row_kernel!(backend)(row!, out, args...; ndrange = n)
+    _row_kernel!(backend)((row!, out, args...); ndrange = n)
     KA.synchronize(backend)
     return out
 end

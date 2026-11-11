@@ -74,9 +74,8 @@
             @test norm(r[2i-1:2i]) ≈ mahalanobis_distance(H, Uncertain(b[i], CovMat(Σ₁[i])), Uncertain(u[i], CovMat(Σ₂[i]))) rtol = 1.0e-12
         end
         xs = withattrs(Csponds(b, u); Σ₁, Σ₂)
-        # nothing allocated per row: the kernel launch's own objects only (the same at 5 correspondences as at n)
         allocs(r, H, xs) = (whitened_residuals!(r, H, xs); @allocated whitened_residuals!(r, H, xs))
-        @test allocs(r, H, xs) == allocs(zeros(10), H, withattrs(Csponds(b[1:5], u[1:5]); Σ₁ = Σ₁[1:5], Σ₂ = Σ₂[1:5]))
+        @test allocs(r, H, xs) == 0
     end
 
     @testset "normalization moves the noise with the points" begin

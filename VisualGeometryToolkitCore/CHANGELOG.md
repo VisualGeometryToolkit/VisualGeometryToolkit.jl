@@ -35,6 +35,13 @@ sensor — so every consumer asks the camera what it images instead of supplying
   224 threads; at 10⁶ points the kernel matches a hand-threaded host loop). KernelAbstractions' CPU default already
   runs ≤ 1024 items as one workgroup with no task spawned.
 
+- **Fixed: an LM row fill allocates nothing on the host again.** KernelAbstractions' kernel call is itself a vararg
+  method, compiled for `Vararg{Any}` when it is given more than one argument, so every `_row_kernel!` launch boxed its
+  arguments and dispatched dynamically (≈290 B a launch on the CPU). `_row_kernel!` now takes one argument, the job
+  tuple `(row!, out, args...)`, and the launch allocates nothing. The allocation-free refits are allocation-free again:
+  Estimation's RotationProblem and CircleProblem refits and its whitened rows allocated 335664 / 149472 / 10816 B
+  before the specialization fix, 3056 / 2816 / 288 B after it, and now 0 B.
+
 - **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
   `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is
   and becomes the target float type through one KernelAbstractions kernel on every backend, the CPU's included, bit for

@@ -107,7 +107,7 @@ allocate.
 
 **A width is resolved once.** A strategy that carries a loss width, such as
 `Irls{K, W}`, has one of three width modes. With no width it follows the
-scorer's `decision_boundary`. `ScaleMultiple(m)` anchors the width at `m` times
+scorer's `decision_boundary`. `EfficiencyConstant(m)` anchors the width at `m` times
 the consensus set's scale, and `LossWidth(w)` fixes it. VisualGeometryToolkitCore's
 `loss_at` resolves the mode once per call. Following a scorer that defines no
 threshold is refused at entry by `check_composition`.

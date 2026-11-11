@@ -52,7 +52,7 @@ Revise session to see one) and exposes `_dflt(table, key)`, which every
 default expression calls. A default that is not in the file throws BY DESIGN.
 
 - **Override one value:** a keyword — `find_homography(p; scoring = MsacScoring(HomographyProblem; threshold = 2.0))`,
-  `RansacConfig(max_trials = 500)`, `Irls{WelschShape}(scale_multiple = 1.2, max_iter = 40)`.
+  `RansacConfig(max_trials = 500)`, `Irls{WelschShape}(efficiency_constant = 1.2, max_iter = 40)`.
   `outlier_halfwidth` is no keyword of the core entries (`ArgumentError`): it
   belongs to a marginal scorer supplied as `scoring`.
 - **Use another file:** `RansacConfig(path)` loads a file's `[ransac]` table and
@@ -62,14 +62,14 @@ default expression calls. A default that is not in the file throws BY DESIGN.
   `PipelineConfig`/`RvgConfig` pair, `load_config` and `write_config` were
   deleted 2026-09-21 — only tests used them.)
 - **Select a strategy in TOML:** `local_optimization = { type = "irls", loss =
-  "tls" }` (no width key: follow the scorer; or `scale_multiple = m` /
+  "tls" }` (no width key: follow the scorer; or `efficiency_constant = m` /
   `loss_width = w`) — tags in the `TagRegistry` values `LO_TAGS` / `LOSS_TAGS`
   (`src/config_toml.jl`, `scoring_glue.jl`). The core registry holds
   `"no_local_optimization"`, `"irls"` and `"terminal_lo"` (`TerminalLO`, the
   terminal placement: `{ type = "terminal_lo", inner = { … } }`); LocalOptimizationDoneRight's
   strategies load through an explicit merge,
   `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`,
-  which also resolves `scale_multiple = "cross_validated"` (the core refuses
+  which also resolves `efficiency_constant = "cross_validated"` (the core refuses
   it, naming the merge). A loss the mechanism cannot run (a Barron shape
   without its α) is refused at load.
 - **Write one back:** `config_dict` is derived from `fieldnames`, and

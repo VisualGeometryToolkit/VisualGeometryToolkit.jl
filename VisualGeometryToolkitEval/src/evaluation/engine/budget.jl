@@ -35,7 +35,7 @@ Base.@kwdef struct SampleBudgetConfig
     # PROTOCOL: the tuned refinement native of an arm whose width parameter is
     # native (outlier half-width, loss width), from the tuning sidecar
     # (deployed_arm_settings). `nothing` ⇒ the arm's refit runs at the SELECTION
-    # native, which is only correct for partition-anchored scale-multiple arms
+    # native, which is only correct for partition-anchored efficiency-constant arms
     # (width lives in the LO object).
     nat_ref::Union{Nothing,Float64} = nothing
     # AXIS the incoming native lives on (a `NativeAxis`); `lo_error!` routes it
@@ -52,7 +52,7 @@ Base.@kwdef struct SampleBudgetConfig
     # `budget_unit = :modles` run the `:samples` protocol to completion and
     # report success, and the value arrives from a TOML string in production
     # (`accv2026/configs/sample_budget_protocol.toml`). `nat_axis` must be a
-    # native axis: a scale multiple has no native to route.
+    # native axis: an efficiency constant has no native to route.
     function SampleBudgetConfig(sample_cap, batch_size, lo_every, lo_strategy, budget_unit,
                                 nat_ref, nat_axis)
         budget_unit in (:models, :samples) ||

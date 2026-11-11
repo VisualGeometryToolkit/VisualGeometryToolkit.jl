@@ -42,14 +42,15 @@ Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); go
 
 include(joinpath(@__DIR__, "call_set.jl"))   # read_fixture, pool_csponds, problem_of: the call set's one reader
 
-# The Table 1 arms at the equal LO budget. The scale multiples are the Welsch
-# grid's centre (GM in its half-weight currency, as accv2026's arm table maps
-# it) — the width barely moves per-call time.
+# The Table 1 arms at the equal LO budget. The efficiency constants are the Welsch
+# grid's centre (GM at the plain multiple whose half-weight depth is the Welsch
+# point's, 1.5·√log2 — decision_width(GM, 1.5·√log2), stored at full precision
+# when the half-weight currency was retired) — the width barely moves per-call time.
 const BUDGET = 25
-const GM_MULTIPLE = 1.5 * sqrt(log(2.0))
+const GM_MULTIPLE = 1.9404025301632923
 const ARMS = [
-    "Welsch-IRLS" => () -> Irls{WelschShape}(; max_iter = BUDGET, scale_multiple = 1.5),
-    "GM-IRLS"     => () -> Irls{GemanMcclureShape}(; max_iter = BUDGET, scale_multiple = GM_MULTIPLE),
+    "Welsch-IRLS" => () -> Irls{WelschShape}(; max_iter = BUDGET, efficiency_constant = 1.5),
+    "GM-IRLS"     => () -> Irls{GemanMcclureShape}(; max_iter = BUDGET, efficiency_constant = GM_MULTIPLE),
 ]
 
 const PAIRS, HALFWIDTH = read_fixture(CALL_SET_FIXTURE)

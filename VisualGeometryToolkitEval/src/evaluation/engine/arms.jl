@@ -15,16 +15,16 @@
 #   :loss_width         the threshold-score selectors' axis (MSAC, RANSAC, …:
 #                       a threshold is its truncated loss's width), and the
 #                       loss-width width parameter's
-#   :scale_multiple     the scale-multiple width parameter's (dimensionless)
+#   :efficiency_constant     the efficiency-constant width parameter's (dimensionless)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Width parameterizations — how an arm's refinement width is supplied, by
 # VisualGeometryToolkitCore's `WidthAxis`:
 #
-# - `ScaleMultiple()` — the user supplies the scale multiple; the loss width is
-#   `scale_multiple·ŝ`, ŝ read from the consensus set at refit time
-#   (CONSENSUS-ANCHORED). The value is baked into `ctor(scale_multiple)`.
+# - `EfficiencyConstant()` — the user supplies the efficiency constant; the loss width is
+#   `efficiency_constant·ŝ`, ŝ read from the consensus set at refit time
+#   (CONSENSUS-ANCHORED). The value is baked into `ctor(efficiency_constant)`.
 # - `LossWidth()` — the loss width itself, in absolute residual units: One
 #   quantity whatever the refiner. A native refiner runs its unit-multiple
 #   strategy at it (`with_width(lo, fixed_width(lo, w²))` — basin-only), an
@@ -73,7 +73,7 @@ selections `idxs_of[sel]` a refit seeds from); `selection` is that sweep's
 native axis — VisualGeometryToolkitCore's `width_axis` of the selection scoring
 (`OutlierHalfwidth()` for the Student-t marginal, `LossWidth()` for a threshold
 score); `kind` is the arm's width parameterization; `ctor(value)` builds the
-LO strategy at a width value (a scale-multiple arm bakes it in; the other
+LO strategy at a width value (an efficiency-constant arm bakes it in; the other
 kinds deliver it through their port, see [`width_delivery`](@ref)); `source`
 is where the width value comes from ([`WidthSource`](@ref)): a
 [`SelectionWidth`](@ref) arm requires `kind == selection`, and the tuning
@@ -124,18 +124,18 @@ _operating_width(::SelectionWidth, arm, selection, tuned::Real) =
     width_delivery(P::WidthAxis, lo, value, n) -> NamedTuple
 
 How a width `value` reaches the refit of `lo` over `n` columns, as LoRefitSpec
-keywords. A scale multiple is baked into the LO object; an outlier half-width
+keywords. An efficiency constant is baked into the LO object; an outlier half-width
 is the refit's native (`natives`); a loss width is an absolute width
 (`widths`), the solo delivery bitwise whatever the refiner.
 """
-width_delivery(::ScaleMultiple, lo, value, n) = (;)
+width_delivery(::EfficiencyConstant, lo, value, n) = (;)
 width_delivery(::OutlierHalfwidth, lo, value, n) = (; natives = fill(value, n))
 width_delivery(::LossWidth, lo, value, n) = (; widths = fill(Float64(value), n))
 
-# The native a DEPLOYED refit consumes: a scale-multiple arm refits at its
+# The native a DEPLOYED refit consumes: an efficiency-constant arm refits at its
 # selection native (the width lives in the LO, consensus-anchored); every native
 # parameterization at its tuned value.
-deployed_ref(::ScaleMultiple, selection, width) = Float64(selection)
+deployed_ref(::EfficiencyConstant, selection, width) = Float64(selection)
 deployed_ref(::WidthAxis, selection, width) = Float64(width)
 
 # =============================================================================
@@ -215,11 +215,11 @@ sidecar ([`deployed_budget_settings`](@ref), [`deployed_basin_settings`](@ref),
 [`audit_operating_points`](@ref)). Each field is the paper's builder:
 
 - `composed(problem::Symbol) -> Vector{ComposedSpec}` — the composed
-  score+LO roster (scale-multiple / outlier-half-width / natively delivered
+  score+LO roster (efficiency-constant / outlier-half-width / natively delivered
   loss-width arms) of the composed miscal and budget evaluations;
 - `solo(problem::Symbol; role::Symbol) -> Vector{SoloSpec}` — the solo roster;
 - `basin(problem::Symbol) -> Vector{ComposedSpec}` — the basin roster
-  (loss-width and outlier-half-width arms only; a scale multiple has no
+  (loss-width and outlier-half-width arms only; an efficiency constant has no
   meaning on the basin axis).
 """
 struct Roster{C,S,B}
@@ -230,8 +230,8 @@ end
 
 function _basin_specs(r::Roster, problem::Symbol)
     specs = r.basin(problem)
-    bad = [a.base for a in specs if a.kind isa ScaleMultiple]
-    isempty(bad) || error("basin roster: scale-multiple arms $(bad) — only LossWidth() / " *
+    bad = [a.base for a in specs if a.kind isa EfficiencyConstant]
+    isempty(bad) || error("basin roster: efficiency-constant arms $(bad) — only LossWidth() / " *
                           "OutlierHalfwidth() arms have a basin width")
     return specs
 end
@@ -241,7 +241,7 @@ end
 # -----------------------------------------------------------------------------
 
 # The composed evaluations (miscal, validation-budget) refit at a NATIVE: they
-# consume the scale-multiple / outlier-half-width roster and the loss-width
+# consume the efficiency-constant / outlier-half-width roster and the loss-width
 # arms of an external refiner (whose native IS its loss width); a loss-width
 # arm of a native refiner (an absolute width — basin-only) is refused.
 _composed_kind(arm::ComposedSpec, who::String) = _composed_kind(arm.kind, arm, who)
@@ -251,11 +251,11 @@ _composed_family(::ExternalRefit, P, arm, who) = P
 _composed_family(::NativeRefit, P, arm, who) =
     error("$who: arm $(arm.base) is LossWidth() on a native refiner (an absolute width — " *
           "basin-only); the composed evaluations refit at a native")
-# The native an evaluation refit consumes: a scale-multiple arm refits at the
+# The native an evaluation refit consumes: an efficiency-constant arm refits at the
 # (possibly corrupted) SELECTION native, mapped onto the refiner's own axis
 # (`consumed_native`), so tuning and evaluation see one operating point; a
 # native parameterization refits at its (possibly corrupted) tuned value.
-_evaluation_native(::ScaleMultiple, lo, axis, selection, width, d_g) = consumed_native(lo, axis, selection; d_g)
+_evaluation_native(::EfficiencyConstant, lo, axis, selection, width, d_g) = consumed_native(lo, axis, selection; d_g)
 _evaluation_native(::WidthAxis, lo, axis, selection, width, d_g) = Float64(width)
 
 """
@@ -265,15 +265,15 @@ The miscalibration evaluation refit of one arm, one column per ζ in `zetas`.
 Column j seeds at the
 selection column nearest ζ_j·selection* and refits at the exactly-scaled
 refinement native (ζ_j·width* for the native parameterizations — both formed
-from the corrupted plug-in — while a scale multiple is consensus-anchored and
+from the corrupted plug-in — while an efficiency constant is consensus-anchored and
 NOT corrupted). `tuned` is the tuned point as NATIVE VALUES,
 `(; selection, width)`, its width read through [`operating_width`](@ref) (a
 [`SelectionWidth`](@ref) arm: `width` is `nothing` or the selection, and
 column j refits at ζ_j·selection*, the selection's own corrupted native); `grids` supplies the arm's selection grid, which the
 seed columns are found in.
 
-`plugin_scale` (the consensus-anchoring ABLATION, scale-multiple arms only):
-the same operating point and seeds, the scale multiple's loss width delivered
+`plugin_scale` (the consensus-anchoring ABLATION, efficiency-constant arms only):
+the same operating point and seeds, the efficiency constant's loss width delivered
 at the FIXED external plug-in scale ζ_j·`plugin_scale` instead of the consensus
 set's ŝ — `with_width(lo, fixed_width(lo, (ζ_j·plugin_scale)²))` through the
 LoRefitSpec `fixed_s2s` column. A native parameterization's width already is
@@ -295,14 +295,14 @@ function miscal_evaluation_refit(arm::ComposedSpec, idxs_of::Dict{Symbol,Matrix{
 end
 
 # The fixed external scale of an evaluation column: none (the arm's own interface)
-# unless a plug-in scale is given, which only a scale-multiple arm can take.
+# unless a plug-in scale is given, which only an efficiency-constant arm can take.
 _evaluation_fixed_scale(P::WidthAxis, arm, ::Nothing, zetas) = nothing
-_evaluation_fixed_scale(P::ScaleMultiple, arm, plugin_scale::Real, zetas) =
+_evaluation_fixed_scale(P::EfficiencyConstant, arm, plugin_scale::Real, zetas) =
     [corrupt_native(plugin_scale, ζ)^2 for ζ in zetas]
 _evaluation_fixed_scale(P::WidthAxis, arm, plugin_scale::Real, zetas) =
     throw(ArgumentError("miscal_evaluation_refit: arm $(arm.base) is :$(width_axis_name(P)) — its width " *
                         "already is the ζ-corrupted plug-in; the fixed-scale evaluation is defined " *
-                        "for ScaleMultiple() arms only"))
+                        "for EfficiencyConstant() arms only"))
 
 # -----------------------------------------------------------------------------
 # The interior-argmin gate (read side)
@@ -352,8 +352,8 @@ _is_basin(tk) = String(tk["mode"]) == "basin"
 Per-arm tuned operating points of a composed tuning sidecar, rebuilt through the roster.
 The sidecar is read through VisualGeometryToolkitEval `load_tuning_artifact`, which
 refuses another format; each arm is rebuilt through `roster.composed(problem)`: the LO instance (the tuned scale
-multiple baked in for scale-multiple arms), the SELECTION native and the
-REFINEMENT native (scale-multiple arms refit at the selection native —
+multiple baked in for efficiency-constant arms), the SELECTION native and the
+REFINEMENT native (efficiency-constant arms refit at the selection native —
 consensus-anchored; native parameterizations at their tuned value) and the
 arm's width parameterization `kind` — the roster's, the one source of an
 arm's kind (a sidecar's own `kinds` list is not read). `problem` defaults to

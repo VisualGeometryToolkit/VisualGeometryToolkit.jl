@@ -16,8 +16,8 @@ _fit_local_optimization(fit::AbstractString) =
                                  section = "$fit.local_optimization")
 
 # The loss strategy `lo` deploys at the fit's noise scale σ̂² = `s2`, re-estimated
-# every iteration. A width mode (`scale_multiple = m`: m·σ̂ in the loss's
-# currency, `plain_scale_multiple`; `loss_width = w`: w) resolves through
+# every iteration. A width mode (`efficiency_constant = m`: m·σ̂, the plain
+# multiple; `loss_width = w`: w) resolves through
 # `lo_loss` (Core's `loss_at`) at the fit's scale; the least-squares arm has no
 # width. With no width — a fit has no scorer to follow — the shape's efficiency
 # constant at the fit's codimension (Core's `deploy` default), which only an
@@ -32,7 +32,7 @@ _fit_loss(lo, s2) = lo_loss(lo, ConsensusSet(; count = 0, s2, epoch = 0), nothin
 function _check_fit_width(fit::AbstractString, lo::Irls)
     lo isa Irls{GaussianShape} || lo_width(lo) !== nothing || strategy_loss(lo) <: VgtkCore.AbstractMEstimator ||
         throw(ArgumentError("$fit: the loss $(nameof(strategy_loss(lo))) has no efficiency default; give the " *
-                            "strategy its width, Irls{$(nameof(strategy_loss(lo)))}(scale_multiple = m)"))
+                            "strategy its width, Irls{$(nameof(strategy_loss(lo)))}(efficiency_constant = m)"))
     return lo
 end
 

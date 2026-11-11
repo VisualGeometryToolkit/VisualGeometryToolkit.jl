@@ -64,7 +64,7 @@ _is_guarded(::ScoreGuarded) = true
 
 The native width axes, `Union{OutlierHalfwidth, LossWidth}` (VisualGeometryToolkitCore
 `WidthAxis`): what a selector grid, a selection sweep or a refiner's own native
-lives on. `ScaleMultiple()` is a width parameterization, never a native.
+lives on. `EfficiencyConstant()` is a width parameterization, never a native.
 """
 const NativeAxis = Union{OutlierHalfwidth, LossWidth}
 
@@ -84,23 +84,23 @@ consumed_axis(lo::Union{CountedLO, TerminalLO, ScoreGuarded}) = consumed_axis(lo
 
 """
     consumed_native(lo, axis::NativeAxis, native::Real;
-                    operating_scale_multiple = OPERATING_SCALE_MULTIPLE, d_g) -> Float64
+                    operating_efficiency_constant = OPERATING_EFFICIENCY_CONSTANT, d_g) -> Float64
 
 The native width THIS refiner consumes ([`consumed_axis`](@ref)), given a
 selector grid value `native` on native axis `axis`. Same-axis is identity;
-cross-axis converts at the `operating_scale_multiple` crossover
+cross-axis converts at the `operating_efficiency_constant` crossover
 (VisualGeometryToolkitCore `outlier_halfwidth_to_loss_width` /
 `loss_width_to_outlier_halfwidth`) for residual codimension `d_g`
 (`codimension(problem_type)`: 1 for E/F, 2 for H).
 """
 consumed_native(lo, axis::NativeAxis, native::Real;
-                operating_scale_multiple::Real = OPERATING_SCALE_MULTIPLE, d_g::Integer) =
-    _convert_native(axis, consumed_axis(lo), Float64(native), Float64(operating_scale_multiple), Int(d_g))
-_convert_native(::A, ::A, x, operating_scale_multiple, d_g) where {A<:NativeAxis} = x
-_convert_native(::OutlierHalfwidth, ::LossWidth, x, operating_scale_multiple, d_g) =
-    outlier_halfwidth_to_loss_width(x; operating_scale_multiple, d_g)
-_convert_native(::LossWidth, ::OutlierHalfwidth, x, operating_scale_multiple, d_g) =
-    loss_width_to_outlier_halfwidth(x; operating_scale_multiple, d_g)
+                operating_efficiency_constant::Real = OPERATING_EFFICIENCY_CONSTANT, d_g::Integer) =
+    _convert_native(axis, consumed_axis(lo), Float64(native), Float64(operating_efficiency_constant), Int(d_g))
+_convert_native(::A, ::A, x, operating_efficiency_constant, d_g) where {A<:NativeAxis} = x
+_convert_native(::OutlierHalfwidth, ::LossWidth, x, operating_efficiency_constant, d_g) =
+    outlier_halfwidth_to_loss_width(x; operating_efficiency_constant, d_g)
+_convert_native(::LossWidth, ::OutlierHalfwidth, x, operating_efficiency_constant, d_g) =
+    loss_width_to_outlier_halfwidth(x; operating_efficiency_constant, d_g)
 
 """
     guarded_refit(opt, score, on_fail; warn_label = nothing)
@@ -154,7 +154,7 @@ plus the bracketed optimizer wall-clock.
 - `s2`: an externally supplied squared scale — the one conduit for a
   non-consensus width:
   * NativeRefit: the strategy is deployed at the absolute width
-    `with_width(lo, fixed_width(lo, s2))` (its scale multiple at the scale
+    `with_width(lo, fixed_width(lo, s2))` (its efficiency constant at the scale
     `√s2`) — the role-isolated controls (solo CV, oracle-scale controls, the
     anchoring ablation). The seed sweep still runs; only the LO's width moves.
   * ExternalRefit: the fixed scale `FixedS2(s2)` replaces `nat′` (by default

@@ -80,7 +80,7 @@ normalization). The shapes: [`GaussianShape`](@ref),
 [`HuberShape`](@ref), and the Barron α-family dial
 ([`BarronShape`](@ref)). Traits classify them ([`liftable`](@ref),
 [`bounded`](@ref)). A shape is paired with the width it runs at by
-[`deploy`](@ref) — `loss_width = scale_multiple · ŝ`, the width as a multiple of
+[`deploy`](@ref) — `loss_width = efficiency_constant · ŝ`, the width as a multiple of
 the noise scale — and the resulting [`DeployedLoss`](@ref) answers the
 one-argument verbs that read that width: [`lift_weight`](@ref),
 [`lift_rho`](@ref), [`lift_conjugate`](@ref), [`lift_cost`](@ref),
@@ -169,7 +169,7 @@ the score that just ran; the optimizer may overwrite the buffers and call
 `score_model!`, but never scores for acceptance (the loop re-scores and keeps
 the incumbent). A width-carrying optimizer has a width mode, read by `lo_width`
 and set by `with_width(lo, w)`: `nothing` follows the scorer's
-`decision_boundary`, [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple)`(m)`
+`decision_boundary`, [`EfficiencyConstant`](@ref VisualGeometryToolkitCore.EfficiencyConstant)`(m)`
 anchors the width at `m` times the consensus scale, and [`LossWidth`](@ref
 VisualGeometryToolkitCore.LossWidth)`(w)` is an absolute width. `loss_at` is the one
 resolution of a mode into a [`DeployedLoss`](@ref), and `check_composition`
@@ -202,11 +202,11 @@ device kernels (RANSACScoringDoneRight) implements its own staging and
 selection.
 
 **Width axes.** One name per width quantity, each a value carrier and, bare, an
-axis tag: [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple),
+axis tag: [`EfficiencyConstant`](@ref VisualGeometryToolkitCore.EfficiencyConstant),
 [`LossWidth`](@ref VisualGeometryToolkitCore.LossWidth) and
 [`OutlierHalfwidth`](@ref VisualGeometryToolkitCore.OutlierHalfwidth) (a scorer's
 width, never an optimizer's). `width_axis(name)` / `width_axis_name(axis)` map
-the persisted names, and `to_native` / `native_map` convert a scale multiple
+the persisted names, and `to_native` / `native_map` convert an efficiency constant
 into an axis's native width at the same decision point.
 
 **Configuration tags and quality gates.** A TOML tag that selects a type goes

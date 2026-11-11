@@ -174,7 +174,7 @@ end
     msac = MsacScoring(p; threshold = 3.0)
     for (lo, sc) in (
             (NoLocalOptimization(), msac),
-            (Irls{WelschShape}(scale_multiple = 1.5), msac),
+            (Irls{WelschShape}(efficiency_constant = 1.5), msac),
             (Irls{TLSShape}(), msac),                              # follows the scorer's threshold
             (Irls{TLSShape}(), RansacScoring(p; threshold = 3.0)),
         )
@@ -187,7 +187,7 @@ end
     msac = MsacScoring(p; threshold = 2.0)
     for (lo, sc) in (
             (NoLocalOptimization(), msac),
-            (Irls{WelschShape}(scale_multiple = 1.5), msac),
+            (Irls{WelschShape}(efficiency_constant = 1.5), msac),
             (Irls{TLSShape}(), msac),
         )
         test_local_optimization_contract(lo, p, θ, sc; allocations = false)

@@ -13,7 +13,7 @@ error ζ — the model of a mis-estimated inlier scale at deployment time. Every
 ζ-scaling of a calibrated native goes through this one function so the
 corruption sites are greppable.
 
-PARTITION-ANCHORED quantities never go through it: a tuned scale multiple, a
+PARTITION-ANCHORED quantities never go through it: a tuned efficiency constant, a
 seed-partition Student-t ŝ², or any quantity re-derived from the deployed
 data's own partition is immune to calibration error by construction — that
 immunity IS the claim the miscal experiment measures.

@@ -80,7 +80,7 @@ problems = (
 )
 # The moved strategies' states (the Student-t + uniform and Barron-adaptive
 # IRLS, StuTuBCD, the HQ lifts, GNC, the mixture lifts): LocalOptimizationDoneRight's suite.
-arms(kind) = Any[VgtkEstimation.Irls{WelschShape}(scale_multiple = 1.5), VgtkEstimation.Irls{GemanMcclureShape}(scale_multiple = 1.25)]
+arms(kind) = Any[VgtkEstimation.Irls{WelschShape}(efficiency_constant = 1.5), VgtkEstimation.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463)]   # GM: decision_width(GM, 1.25), the retired half-weight currency's 1.25
 @testset "Recorded == bare: $kind $(nameof(typeof(lo)))" for (kind, p) in problems, lo in arms(kind)
     sc = MsacScoring(p; threshold = 3.0)   # 6σ of the scenes' 0.5 px noise
     θ = estimate(VgtkEstimation.ransac(p, sc; rng = Xoshiro(1), config = VgtkEstimation.RansacConfig(max_trials = 200)))

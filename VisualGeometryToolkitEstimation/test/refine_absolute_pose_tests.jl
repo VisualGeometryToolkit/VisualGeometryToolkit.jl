@@ -206,7 +206,7 @@ end
     rd = refine_absolute_pose(guess, cs)
     re = refine_absolute_pose(guess, cs; scoring = MsacScoring(pb; threshold = 1.0 * VisualGeometryToolkitEstimation._width_unit(pb)))
     @test isequal(estimate(rd), estimate(re)) && rd.inlier_mask == re.inlier_mask && isequal(rd.quality, re.quality)
-    for lo in (Triggs{CauchyShape}(scale_multiple = 2.5), Triggs{WelschShape}(scale_multiple = 2.5))
+    for lo in (Triggs{CauchyShape}(efficiency_constant = 2.5), Triggs{WelschShape}(efficiency_constant = 2.5))
         r = refine_absolute_pose(guess, cs; local_optimization = lo, scoring = MsacScoring(BearingPoseProblem; threshold = 8.0))   # px
         @test converged(r) && r.lo_retcode === :converged
         @test sort(findall(r.inlier_mask)) == sort(good)

@@ -145,7 +145,7 @@ const CONTRACT_GENERICS = (
     # (robust/partition_sweep.jl)
     estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth,
     # the local-optimization contract (robust/lo_contract.jl)
-    lo_workspace, locally_optimize!, lo_width, deployed_scale_multiple,
+    lo_workspace, locally_optimize!, lo_width,
     refine_external!, external_workspace, prepare_external!,
     # selection over a benchmark pool (robust/pool_selection.jl)
     best_pool_model, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,

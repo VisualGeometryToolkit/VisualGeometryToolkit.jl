@@ -5,6 +5,12 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: `scale_multiple` is `efficiency_constant`, the plain multiple for every loss** (VisualGeometryToolkitCore's
+  rename; keywords, TOML keys — `[pipelines.*] local_optimization`, `branch_audit_efficiency_constant`, the lift seed's —
+  and the hooks `lo_resolve_efficiency_constant`, `lo_efficiency_constant_shape`). The half-weight currency is
+  retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
+  deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
+  `currency migration` test item lists every one, the ports' included), so results are bit-identical.
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

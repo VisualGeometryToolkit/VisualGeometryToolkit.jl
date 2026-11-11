@@ -88,10 +88,10 @@ From that single number every other method is inherited and guaranteed:
 |-----------------------------------|--------------------------------------------|
 | `efficiency_constant(K, d)`       | the constant at codimension `d`             |
 | `codimension_factor(K, d)`        | its ratio to the d = 1 constant             |
-| `sq_loss_width(loss)`           | `scale_multiple^2 * s2`, the squared width it runs at    |
-| `loss_width(loss)`                   | `scale_multiple * sqrt(s2)`, derived                     |
+| `sq_loss_width(loss)`           | `efficiency_constant^2 * s2`, the squared width it runs at    |
+| `loss_width(loss)`                   | `efficiency_constant * sqrt(s2)`, derived                     |
 
-Note `sq_loss_width`/`loss_width` are methods of a DEPLOYMENT (`deploy(shape, s2; scale_multiple)`),
+Note `sq_loss_width`/`loss_width` are methods of a DEPLOYMENT (`deploy(shape, s2; efficiency_constant)`),
 not of the shape: a bare shape has no width.
 
 The noise level is an INPUT. This interface turns one into a width; it does
@@ -117,11 +117,11 @@ influence function, and `BarronShape`'s shape is itself fitted — deriving a
 fixed constant for it would contradict the fit.
 
 `SmoothTLSShape` is the one shape that sits outside this hierarchy yet DOES
-carry constants. It is a truncation, so it ships no default `scale_multiple` and subtyping
+carry constants. It is a truncation, so it ships no default `efficiency_constant` and subtyping
 `AbstractMEstimator` would wrongly promise one — but `eff(m, d) = 0.95` is
 genuinely solvable for its psi, so `efficiency_constant(SmoothTLSShape)` and
 its whole solved column exist and are supported. Read the subtype relation as
-"has a default `scale_multiple`", NOT as "has a constant": a caller wanting the
+"has a default `efficiency_constant`", NOT as "has a constant": a caller wanting the
 efficiency-matched truncation asks `efficiency_constant` directly. This is why
 `efficiency_constant(K, d)` and `codimension_factor(K, d)` below take
 `Type{<:AbstractLossShape}` and not `Type{<:AbstractMEstimator}`.
@@ -435,17 +435,17 @@ deployed loss, which carries its multiple as a field) — reads the shape's
 type. A shape whose instance carries a parameter (`BarronShape`'s `α`) has no
 constant: a `MethodError`.
 
-The DEFAULT for a deployed `scale_multiple`, not the only legitimate value. It solves
+The DEFAULT for a deployed `efficiency_constant`, not the only legitimate value. It solves
 `eff(m, d) = 0.95` at the GAUSSIAN — the width that minimises variance
 inflation on CLEAN data. A stage running under real contamination may
 legitimately cross-validate its own operating point, and will land tighter:
-VisualGeometryToolkitEstimation deploys a scale multiple ≈ 1.6 per model class where this returns ≈ 3.25,
+VisualGeometryToolkitEstimation deploys an efficiency constant ≈ 1.6 per model class where this returns ≈ 3.25,
 trading efficiency for breakdown. Both are right for their stage.
 
 Defined only for losses that efficiency parameterises: `GaussianShape` has no width and `BarronShape`'s shape is itself fitted, so
 neither has one; those raise a `MethodError` by design. `TLSShape` likewise.
 `SmoothTLSShape` is a truncation rather than an influence function and ships
-no default `scale_multiple` in its constructor, but `eff(m, d) = 0.95` IS solvable for its
+no default `efficiency_constant` in its constructor, but `eff(m, d) = 0.95` IS solvable for its
 psi, so it does carry a tabulated constant for a caller that wants the
 efficiency-matched truncation.
 """
@@ -473,7 +473,7 @@ function efficiency_constant end
 # fast as any per-`d` dispatch, and extending to d = 7 is one number per row.
 #
 # Smooth-TLS is a truncation, not an influence function, so it ships no default
-# `scale_multiple` in its constructor — but eff(m, d) = 0.95 is still solvable for its psi,
+# `efficiency_constant` in its constructor — but eff(m, d) = 0.95 is still solvable for its psi,
 # and the solved values are tabulated for a caller that wants the
 # efficiency-matched truncation.
 _solved_constants(::Type{<:AbstractLossShape}) = nothing
@@ -599,30 +599,30 @@ _mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqr
 #
 # A loss is a SHAPE plus the width it runs at, and the width factors as
 #
-#     loss_width = scale_multiple * sigma          (the TARGET width)
+#     loss_width = efficiency_constant * sigma          (the TARGET width)
 #
-# with `scale_multiple` the dimensionless multiple of the noise scale (a
+# with `efficiency_constant` the dimensionless multiple of the noise scale (a
 # DEPLOYMENT choice, defaulting to the shape's efficiency constant) and `sigma`
 # the noise scale (DATA, always supplied by the caller — this package never
 # estimates it; see `ScaleInterface` in robust/estimation.jl for the axis that
 # decides how).
 #
 # The two are stored SEPARATELY, never their product: a `SelfScaling` strategy
-# re-estimates sigma every iteration while `scale_multiple` is fixed, so
+# re-estimates sigma every iteration while `efficiency_constant` is fixed, so
 # `rescale` replaces one field and leaves the other alone. Collapsed into a
-# width you would have to recover `scale_multiple` to do it.
+# width you would have to recover `efficiency_constant` to do it.
 
 """
-    deploy(shape, s2; codim = 1, scale_multiple = efficiency_constant(typeof(shape), codim))
+    deploy(shape, s2; codim = 1, efficiency_constant = efficiency_constant(shape, codim))
 
 A SHAPE at the width it runs at — the pairing every consumer was assembling by
 hand. Returns a [`DeployedLoss`](@ref) whose [`loss_width`](@ref) is
-`scale_multiple * sqrt(s2)`.
+`efficiency_constant * sqrt(s2)`.
 
 `s2` is the noise VARIANCE (sigma squared), not sigma. The whole robust layer
 speaks squared scale — `LossWidth(m, s2)`, `FixedS2(s2)`, `scale_s2(cs)`, and
 every shape closed form takes a squared width — so storing the square is what
-makes `sq_loss_width` exact: `scale_multiple^2 * s2` is the arithmetic the call
+makes `sq_loss_width` exact: `efficiency_constant^2 * s2` is the arithmetic the call
 sites already do, bit for bit. Storing a linear sigma instead would force a
 sqrt in and a square out, and the two disagree in the last ulps on 61% of
 inputs.
@@ -631,35 +631,36 @@ It is the CALLER's: this package does not estimate it (see `ScaleInterface` in
 robust/estimation.jl for the axis that decides how). From a linear sigma, square
 it at the call: `deploy(shape, mad_scale(residuals)^2; codim = 2)`.
 
-`scale_multiple` is the width as a dimensionless multiple of the noise scale,
+`efficiency_constant` is the width as a dimensionless multiple of the noise scale,
 defaulting to the shape's efficiency constant at `codim` and overridden by a
 caller that cross-validates its own operating point.
 
 The two are kept APART, never multiplied into a stored width: a `SelfScaling`
-strategy re-estimates the variance every iteration while `scale_multiple` is
+strategy re-estimates the variance every iteration while `efficiency_constant` is
 fixed, so [`rescale`](@ref) replaces one and leaves the other.
 
 ```julia
 deploy(WelschShape(), 0.37^2; codim = 2)                         # from efficiency -> 3.2510
-deploy(WelschShape(), 0.37^2; codim = 2, scale_multiple = 1.597) # a CV'd operating point
+deploy(WelschShape(), 0.37^2; codim = 2, efficiency_constant = 1.597) # a CV'd operating point
 ```
 """
 deploy(
     shape::AbstractMEstimator, s2::Real; codim::Integer = 1,
-    scale_multiple::Real = efficiency_constant(typeof(shape), codim)
+    # the keyword shares the function's name: the default calls it qualified
+    efficiency_constant::Real = VisualGeometryToolkitCore.efficiency_constant(shape, codim)
 ) =
-    Attributed(shape, (scale_multiple = Float64(scale_multiple), s2 = Float64(s2)))
+    Attributed(shape, (efficiency_constant = Float64(efficiency_constant), s2 = Float64(s2)))
 
 # A shape with no efficiency constant — a truncation, or Barron's fitted alpha —
-# has nothing to default `scale_multiple` from, so it is required rather than
+# has nothing to default `efficiency_constant` from, so it is required rather than
 # raising a MethodError from inside a default argument.
-deploy(shape::AbstractLossShape, s2::Real; scale_multiple::Real) =
-    Attributed(shape, (scale_multiple = Float64(scale_multiple), s2 = Float64(s2)))
+deploy(shape::AbstractLossShape, s2::Real; efficiency_constant::Real) =
+    Attributed(shape, (efficiency_constant = Float64(efficiency_constant), s2 = Float64(s2)))
 
 """
     DeployedLoss
 
-A shape together with the width it runs at: `Attributed(shape, (scale_multiple,
+A shape together with the width it runs at: `Attributed(shape, (efficiency_constant,
 s2))`, the multiple of the noise scale and the noise VARIANCE. This is the
 homotopy's TARGET — [`anneal`](@ref) wraps one to move along the path, and
 [`target_loss`](@ref) unwraps back to it.
@@ -667,7 +668,7 @@ homotopy's TARGET — [`anneal`](@ref) wraps one to move along the path, and
 `isbits` and 16 bytes: the shape is a zero-byte tag, so a deployment is two
 Float64s and costs a stack write.
 """
-const DeployedLoss = Attributed{<:AbstractLossShape, <:NamedTuple{(:scale_multiple, :s2)}}
+const DeployedLoss = Attributed{<:AbstractLossShape, <:NamedTuple{(:efficiency_constant, :s2)}}
 
 """
     AnnealedLoss
@@ -700,43 +701,43 @@ scale_s2(loss::DeployedLoss) = loss.s2
 """
     sq_loss_width(loss) -> Float64
 
-The squared [`loss_width`](@ref), `scale_multiple^2 * s2` — the quantity the
+The squared [`loss_width`](@ref), `efficiency_constant^2 * s2` — the quantity the
 shape's closed forms are written in, and the one this type exists to make exact.
 """
-@inline sq_loss_width(loss::DeployedLoss) = loss.scale_multiple^2 * loss.s2
+@inline sq_loss_width(loss::DeployedLoss) = loss.efficiency_constant^2 * loss.s2
 
 """
     loss_width(loss) -> Float64
 
 The loss's scale parameter in the residual's own units,
-`scale_multiple * sqrt(s2)`: the residual scale at which the loss leaves the
+`efficiency_constant * sqrt(s2)`: the residual scale at which the loss leaves the
 quadratic regime (see [`AbstractLossShape`](@ref)). DERIVED; prefer
 [`sq_loss_width`](@ref), which is what every closed form consumes and which
 needs no square root.
 """
-@inline loss_width(loss::DeployedLoss) = loss.scale_multiple * sqrt(loss.s2)
+@inline loss_width(loss::DeployedLoss) = loss.efficiency_constant * sqrt(loss.s2)
 
 """
     rescale(loss, s2) -> DeployedLoss
 
-The same shape and scale multiple at a new noise VARIANCE — the `SelfScaling`
+The same shape and efficiency constant at a new noise VARIANCE — the `SelfScaling`
 update, and what a moving-scale lift arm calls once per iteration.
-`scale_multiple` is not a function of the data and does not move.
+`efficiency_constant` is not a function of the data and does not move.
 
 Goes through [`deploy`](@ref) rather than rebuilding the attribute tuple, so
-the `(scale_multiple, s2)` schema is written in exactly one place.
+the `(efficiency_constant, s2)` schema is written in exactly one place.
 """
 @inline rescale(loss::DeployedLoss, s2::Real) =
-    deploy(loss_shape(loss), s2; scale_multiple = loss.scale_multiple)
+    deploy(loss_shape(loss), s2; efficiency_constant = loss.efficiency_constant)
 
 """
-    retune(loss, scale_multiple) -> DeployedLoss
+    retune(loss, efficiency_constant) -> DeployedLoss
 
-The same shape and noise variance at a new scale multiple — a caller replacing
+The same shape and noise variance at a new efficiency constant — a caller replacing
 the derived efficiency constant with a cross-validated operating point.
 """
-@inline retune(loss::DeployedLoss, scale_multiple::Real) =
-    deploy(loss_shape(loss), loss.s2; scale_multiple)
+@inline retune(loss::DeployedLoss, efficiency_constant::Real) =
+    deploy(loss_shape(loss), loss.s2; efficiency_constant)
 
 # =============================================================================
 # The public vocabulary: the loss knows its own width
@@ -844,15 +845,15 @@ loss_shape(annealed::AnnealedLoss) = loss_shape(annealed.value)
 @inline sq_loss_width(annealed::AnnealedLoss) = _annealed_sq_loss_width(gnc_surrogate(annealed), annealed)
 
 # `loss_width` is the one verb that is genuinely per-type, because the
-# association matters: `scale_multiple * sqrt(s2)`, never
-# `sqrt(scale_multiple^2 * s2)` — the two disagree on ~30% of inputs. The
+# association matters: `efficiency_constant * sqrt(s2)`, never
+# `sqrt(efficiency_constant^2 * s2)` — the two disagree on ~30% of inputs. The
 # annealed width is the target's scaled by the family's own factor, taken from
 # the trait rather than recovered by dividing two `sq_loss_width`s (the ratio
 # is not bitwise `μ`, and costs a divide and two roots).
 @inline loss_width(annealed::AnnealedLoss) = loss_width(annealed.value) * _annealed_loss_width_factor(gnc_surrogate(annealed), annealed)
 
 rescale(annealed::AnnealedLoss, s2::Real) = Attributed(rescale(annealed.value, s2), annealed.attributes)
-retune(annealed::AnnealedLoss, scale_multiple::Real) = Attributed(retune(annealed.value, scale_multiple), annealed.attributes)
+retune(annealed::AnnealedLoss, efficiency_constant::Real) = Attributed(retune(annealed.value, efficiency_constant), annealed.attributes)
 
 # THE w̄ → 1 LIMIT of the z-block Hessian. With ε = 1 − w̄, both `rinv2` (≈ κ̄²″(1)·ε)
 # and κ̄² (≈ κ̄²″(1)·ε²/2) vanish, but their ratio does not: `hreg → 2κ̄²″(1)`,
@@ -978,7 +979,7 @@ end
 The native width of `m` whose inlier/outlier decision flips at the residual
 `boundary` (a [`decision_boundary`](@ref)) — THE one conversion behind every "same decision point"
 comparison across methods (the evaluation's fairness axis, where
-`boundary = scale_multiple · ŝ`). Each owner defines its own method:
+`boundary = efficiency_constant · ŝ`). Each owner defines its own method:
 
 - a loss shape: the [`loss_width`](@ref) at which the shape's NORMALIZED IRLS
   weight at `boundary` is exactly ½, `ω(t²; w²)/w_max = ½` (the

@@ -248,8 +248,8 @@ interface is read off its width mode ([`lo_width`](@ref)).
 
 - [`ConsensusAnchored`](@ref) — takes `ŝ` from the consensus set the SCORE
   selected for the hypothesis being refined and sets
-  `loss_width = scale_multiple·ŝ` (the [`ScaleMultiple`](@ref) width mode),
-  cross-validating only the dimensionless `scale_multiple`.
+  `loss_width = efficiency_constant·ŝ` (the [`EfficiencyConstant`](@ref) width mode),
+  cross-validating only the dimensionless `efficiency_constant`.
 - [`FixedScale`](@ref) — one ABSOLUTE loss width for every hypothesis
   (the [`LossWidth`](@ref) width mode; TLS-LM, TLS-LZ, classical TLS-LO⁺).
 - [`FollowsScorer`](@ref) — the loss width follows the scorer's decision point,
@@ -275,7 +275,7 @@ struct UnspecifiedScale <: ScaleInterface end
     scale_interface(lo::AbstractLocalOptimization) -> ScaleInterface
 
 The strategy's [`ScaleInterface`](@ref) label. A width-carrying strategy's is
-DERIVED from its width mode ([`lo_width`](@ref)): `ScaleMultiple` →
+DERIVED from its width mode ([`lo_width`](@ref)): `EfficiencyConstant` →
 `ConsensusAnchored()`, `LossWidth` → `FixedScale()`, `nothing` →
 `FollowsScorer()`. Default `UnspecifiedScale()` so registries can detect an
 undeclared strategy.

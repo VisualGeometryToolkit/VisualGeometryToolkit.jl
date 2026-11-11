@@ -232,7 +232,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
 
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
-            local_optimization = Irls{WelschShape}(scale_multiple = 1.5),
+            local_optimization = Irls{WelschShape}(efficiency_constant = 1.5),
             config = RansacConfig(max_trials = 3000, min_trials = 200),
             rng = StableRNG(128)
         )
@@ -251,7 +251,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
         problem = HomographyProblem(csponds(source_pts, target_pts))
-        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        inner = Irls{WelschShape}(efficiency_constant = 1.5)
         counted = VgtkEstimation.CountedLO(inner)
         run(lo) = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
@@ -269,16 +269,13 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
         @test VgtkCore.optimization_path(counted) == VgtkCore.optimization_path(inner)
         @test VgtkCore.loss_family(counted) == VgtkCore.loss_family(inner)
-        # rewidthing keeps the counters (the same Refs), and the currency hook is the inner's
+        # rewidthing keeps the counters (the same Refs)
         @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).calls === counted.calls
         @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).iterations === counted.iterations
-        @test VgtkCore.deployed_scale_multiple(VgtkEstimation.CountedLO(inner), WelschShape(), 1.5, 1.0, nothing) ==
-            VgtkCore.deployed_scale_multiple(inner, WelschShape(), 1.5, 1.0, nothing)
-        # the loss identity and the fixed-width control are the inner's (a currency that reads the shape too)
-        for lo in (inner, Irls{GemanMcclureShape}(scale_multiple = 2.0))
+        # the loss identity and the fixed-width control are the inner's
+        for lo in (inner, Irls{GemanMcclureShape}(efficiency_constant = 2.0))
             c = VgtkEstimation.CountedLO(lo)
             @test VgtkEstimation.strategy_loss(c) === VgtkEstimation.strategy_loss(lo)
-            @test VgtkEstimation.deployed_shape(c) == VgtkEstimation.deployed_shape(lo)
             @test VgtkEstimation.fixed_width(c, 4.0) == VgtkEstimation.fixed_width(lo, 4.0)
             @test VgtkCore.with_width(c, VgtkEstimation.fixed_width(c, 4.0)).inner ==
                 VgtkCore.with_width(lo, VgtkEstimation.fixed_width(lo, 4.0))
@@ -293,7 +290,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             src, tgt, _, _ = make_homography_data(n_inliers = 100, n_outliers = 30, noise = 0.5, seed = seed)
             HomographyProblem(csponds(src, tgt))
         end
-        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        inner = Irls{WelschShape}(efficiency_constant = 1.5)
         run(lo, j) = ransac(
             problems[j], MsacScoring(problems[j]; threshold = 3.0);
             local_optimization = lo,
@@ -334,7 +331,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         problem = HomographyProblem(csponds(source_pts, target_pts))
         sc = MsacScoring(problem; threshold = 3.0)
         cfg = RansacConfig(max_trials = 3000, min_trials = 200)
-        inner = Irls{WelschShape}(scale_multiple = 1.5)
+        inner = Irls{WelschShape}(efficiency_constant = 1.5)
         events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode))
         run(lo, trace = []; kw...) = ransac(
             problem, sc; local_optimization = lo, config = cfg, rng = StableRNG(128),
@@ -406,7 +403,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             # an external refit is not counted: the wrapper that ran the bracket counts nothing
             w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0
         end
-        native = Irls{WelschShape}(scale_multiple = 1.5)
+        native = Irls{WelschShape}(efficiency_constant = 1.5)
         @test VgtkCore.RefitFamily(VgtkEstimation.CountedLO(native)) === VgtkCore.RefitFamily(native) === VgtkCore.NativeRefit()
         @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()
     end
@@ -426,7 +423,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         sc = MsacScoring(problem; threshold = 0.5)
         cfg = RansacConfig(max_trials = 5000, min_trials = 3000)
         r0 = ransac(problem, sc; local_optimization = NoLocalOptimization(), config = cfg, rng = StableRNG(1))
-        rt = ransac(problem, sc; local_optimization = VgtkEstimation.TerminalLO(Irls{WelschShape}(scale_multiple = 1.5)),
+        rt = ransac(problem, sc; local_optimization = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
             config = cfg, rng = StableRNG(1))
         @test sum(rt.inlier_mask) == 5
         @test rt.lo_retcode === :thin_partition
@@ -526,7 +523,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # the Student-t + uniform IRLS and the Welsch HQ lift on the mapped
         # problem are LocalOptimizationDoneRight's test
         lo_default = VgtkEstimation._dflt_lo(:homography)
-        for lo in (Irls{WelschShape}(scale_multiple = 1.5), lo_default)
+        for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
             cfg = RansacConfig(max_trials = 3000, min_trials = 200)
             rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
             ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
@@ -541,7 +538,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         end
         # `locally_optimize` from a perturbed model-frame seed.
         Hs = _to_model(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H_true) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0)))))
-        for lo in (Irls{WelschShape}(scale_multiple = 1.5), lo_default)
+        for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
             r = VgtkEstimation.locally_optimize(pm, Hs; scoring = MsacScoring(pm; threshold = 3.0), local_optimization = lo)
             @test max_transfer_error(_to_px(estimate(r)), H_true, mapped_test_pts) < 1.0
         end

@@ -222,10 +222,10 @@ end
             "docs/a.md" => "`pool_frame_maps`, `pool_normalization`, `pool_frame_calibrations`, " *
                 "`POOL_FRAME_R_MAX`, `pool_frame_maps_unknown`, `UNKNOWN_POOL_FRAME_MAP`, " *
                 "`welsch_half_weight_depth`, " *
-                "`grid`, `extend`, `extension_offset`, `ScaleMultipleWindow`, `product_tuning_val_refits`, " *
-                "`selection_axis`, `tuning_axis`, `width_parameterization`, `OPERATING_SCALE_MULTIPLE`, " *
+                "`grid`, `extend`, `extension_offset`, `EfficiencyConstantWindow`, `product_tuning_val_refits`, " *
+                "`selection_axis`, `tuning_axis`, `width_parameterization`, `OPERATING_EFFICIENCY_CONSTANT`, " *
                 "`stream_product_tuning_cpu`, `budget_units`, `_save_artifact`, `ARTIFACT_FORMATS`, " *
-                "`load_tune_config`, `tune_tables`, `cv_polish_scale_multiple`, `run_sb_fair_deployed`, " *
+                "`load_tune_config`, `tune_tables`, `cv_polish_efficiency_constant`, `run_sb_fair_deployed`, " *
                 "`SB_PRODUCT_TUNING`, `PS_CV`, `audit_product_tuning`, `merge_product_tuning_sidecars`, " *
                 "`source_map`, `destination_map`, `_heb_pool_frame_maps`, `pool_frame_sidecar`, " *
                 "`<scene>.pool_frame.jld2`, `install_flushing_logger!`.\n"
@@ -316,7 +316,7 @@ end
         ) == [:R10]
         @test rules("src/a.jl" => "struct Sel <: SampleSelector\n    τ::Float64\nend\n") == [:R10]
         @test rules(
-            "src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    scale_multiple::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
+            "src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    efficiency_constant::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
         ) == [:R10]
         # must NOT flag: loop indices, math locals, positional letters with no
         # noise scale, a letter that is another quantity's field or keyword or a
@@ -343,16 +343,16 @@ end
             lens = Dict("$L" => 1.0e-7, "a" => 2)
             v = lens["$L"]
             s = :$L
-            deploy(shape, s2; scale_multiple = 1.0) = (scale_multiple = scale_multiple, s2 = s2)
+            deploy(shape, s2; efficiency_constant = 1.0) = (efficiency_constant = efficiency_constant, s2 = s2)
             struct HQ <: AbstractLocalOptimization
-                scale_multiple::Float64
+                efficiency_constant::Float64
                 loss_width::Float64
                 outlier_halfwidth::Float64
             end
             taught = 1                 # a word that merely starts with the letters
             """,
-            "config/a.toml" => "[tuning]\nscale_multiple = 2.5\nloss_width = 1.0\noutlier_halfwidth = 3.0\n",
-            "scripts/run.sh" => "julia run.jl --scale-multiple 2.5 --outlier-halfwidth 3 --kernel-free\n",
+            "config/a.toml" => "[tuning]\nefficiency_constant = 2.5\nloss_width = 1.0\noutlier_halfwidth = 3.0\n",
+            "scripts/run.sh" => "julia run.jl --efficiency-constant 2.5 --outlier-halfwidth 3 --kernel-free\n",
             "docs/a.md" => "A $L-NN graph, and $(T_WORD) in prose, are prose.\n"
         )
     end

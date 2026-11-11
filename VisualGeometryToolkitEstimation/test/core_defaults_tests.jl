@@ -367,7 +367,7 @@ end
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
-    triggs = Triggs{CauchyShape}(scale_multiple = 2.5)
+    triggs = Triggs{CauchyShape}(efficiency_constant = 2.5)
     cases = (
         (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...), (triggs, Irls{TLSShape}())),
         (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...), (triggs,)),
@@ -446,7 +446,7 @@ end
     src, dst = homography_pairs(StableRNG(45), H_PX; n_in = 100, n_out = 0, σ = 0.0, source = gaussian_source,
                                 target = rng -> randn(rng, 2) .* 400 .+ 300)
     H = SMatrix{3, 3, Float64, 9}(H_PX)
-    for lo in (nothing, Triggs{CauchyShape}(scale_multiple = 2.5), Irls{GaussianShape}())
+    for lo in (nothing, Triggs{CauchyShape}(efficiency_constant = 2.5), Irls{GaussianShape}())
         kws = lo === nothing ? (;) : (; local_optimization = lo)
         Ĥ = SMatrix{3, 3, Float64, 9}(estimate(refine_homography(HomographyMat{Float64}(Tuple(H)), StructArray(src .=> dst); kws...)))
         @test norm(Ĥ / Ĥ[3, 3] - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-8

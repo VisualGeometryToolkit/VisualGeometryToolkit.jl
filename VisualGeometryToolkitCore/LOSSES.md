@@ -11,7 +11,7 @@ parameter conventions (facets). Sections 1–4 describe the shipped design.
 | loss shape | a normalized SCALE FAMILY `ρ_w(r) = w²·ρ₁(r/w)`; a tag type (`WelschShape`, …) under `AbstractLossShape` |
 | `loss_width` | the family's scale parameter `w`: the residual scale at which the loss leaves the quadratic regime every shape shares at the origin |
 | `sq_loss_width` | `loss_width²`, the argument every closed form takes |
-| `scale_multiple` | `loss_width / ŝ`: the width as a dimensionless multiple of the estimated noise scale (NOT a quantile) |
+| `efficiency_constant` | `loss_width / ŝ`: the width as a dimensionless multiple of the estimated noise scale (NOT a quantile) |
 | `scale`, `s2` | the noise scale `ŝ` and its square — data, never a width |
 | `outlier_halfwidth` | the half-width of a Student-t marginal's uniform outlier component (RANSACScoringDoneRight) |
 | `decision_width(m, boundary)` | the native width of `m` whose inlier/outlier decision flips at the residual `boundary` (its inverse: `decision_boundary(m, width)`) |
@@ -134,7 +134,7 @@ abstract type AbstractLossShape end
 
 # Shapes whose width is set by asymptotic efficiency at the Gaussian. One method
 # — `efficiency_constant(::Type{S})` at codimension 1 — supplies the default
-# `scale_multiple` a deployment uses.
+# `efficiency_constant` a deployment uses.
 abstract type AbstractMEstimator <: AbstractLossShape end
 
 struct WelschShape       <: AbstractMEstimator end     # g(u) = 1 − e^{−u}
@@ -155,21 +155,21 @@ end
 ### A shape carries no width: deployment composes it on
 
 ```julia
-deploy(shape, s2; codim = 1, scale_multiple = efficiency_constant(typeof(shape), codim))
-const DeployedLoss = Attributed{<:AbstractLossShape, <:NamedTuple{(:scale_multiple, :s2)}}
+deploy(shape, s2; codim = 1, efficiency_constant = efficiency_constant(typeof(shape), codim))
+const DeployedLoss = Attributed{<:AbstractLossShape, <:NamedTuple{(:efficiency_constant, :s2)}}
 const AnnealedLoss = Attributed{<:DeployedLoss,      <:NamedTuple{(:μ,)}}
-loss_width(loss)    == loss.scale_multiple * sqrt(loss.s2)
-sq_loss_width(loss) == loss.scale_multiple^2 * loss.s2
+loss_width(loss)    == loss.efficiency_constant * sqrt(loss.s2)
+sq_loss_width(loss) == loss.efficiency_constant^2 * loss.s2
 ```
 
 `s2` is the noise VARIANCE, not a linear sigma: the whole robust layer speaks
 squared scale, so storing the square makes `sq_loss_width` exact.
-`scale_multiple` and `s2` are stored APART, never as their product:
+`efficiency_constant` and `s2` are stored APART, never as their product:
 
 | verb | moves | driver |
 | --- | --- | --- |
 | `rescale(loss, s2)` | the variance | `SelfScaling`, per iteration |
-| `retune(loss, scale_multiple)` | the scale multiple | deploying a CV'd operating point |
+| `retune(loss, efficiency_constant)` | the efficiency constant | deploying a CV'd operating point |
 | `anneal(loss, μ)` | the homotopy position | a GNC rung |
 
 Annealing is an ATTRIBUTE: `μ` is not one quantity across the families (a
@@ -195,7 +195,7 @@ defines its own shape there.
 Comparing methods at "the same decision" means comparing them at the residual
 where each one's inlier/outlier decision flips. `decision_width(m, t)` returns
 the native width of `m` whose decision flips at the residual `t`
-(`t = scale_multiple · ŝ` on the evaluation's fairness axis). One
+(`t = efficiency_constant · ŝ` on the evaluation's fairness axis). One
 generic, one method per owner, each owner's own math:
 
 | `m` | owner | decision | width returned |

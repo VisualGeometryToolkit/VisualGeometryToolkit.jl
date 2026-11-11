@@ -58,7 +58,7 @@
         @test_throws DimensionMismatch fit_linear(A, ones(m - 1))
         @test_throws DimensionMismatch fit_linear(A, ones(m), ones(3))
         @test_throws ArgumentError fit_linear(A, A * x0; local_optimization = Irls{TLSShape}())
-        @test fit_linear(A, A * x0; local_optimization = Irls{TLSShape}(scale_multiple = 3.0)).retcode in (:converged, :max_iterations)
+        @test fit_linear(A, A * x0; local_optimization = Irls{TLSShape}(efficiency_constant = 3.0)).retcode in (:converged, :max_iterations)
         p = zeros(m); p[1:3] .= 1
         @test fit_linear(A, A * x0, p).retcode === :degenerate
         @test_throws ArgumentError fit_linear(A, A * x0, fill(-1.0, m))
@@ -85,16 +85,17 @@ end
     # The strategy's max_iter caps the iterations; no private keyword remains.
     @test fit_linear(A, y; local_optimization = Irls{HuberShape}(max_iter = 3), tol = 0).iterations == 3
     @test_throws MethodError fit_linear(A, y; loss = HuberShape())
-    @test_throws MethodError fit_linear(A, y; scale_multiple = 2.0)
+    @test_throws MethodError fit_linear(A, y; efficiency_constant = 2.0)
     @test_throws MethodError fit_linear(A, y; max_iter = 3)
     # A width mode resolves through Core's loss_at at the fit's σ̂: Welsch at 2.5·σ̂ ...
-    rw = fit_linear(A, y; local_optimization = Irls{WelschShape}(scale_multiple = 2.5))
+    rw = fit_linear(A, y; local_optimization = Irls{WelschShape}(efficiency_constant = 2.5))
     c² = (2.5 * rw.sigma)^2
     @test rw.weights ≈ [exp(-x^2 / c²) for x in rw.residuals] rtol = 1.0e-12
-    # ... in the loss's own currency: a Geman–McClure multiple is a half-weight
-    # depth (plain_scale_multiple), the width decision_width(GM, m)·σ̂.
-    rg = fit_linear(A, y; local_optimization = Irls{GemanMcclureShape}(scale_multiple = 2.0))
-    cg² = (decision_width(GemanMcclureShape(), 2.0) * rg.sigma)^2
+    # ... the plain multiple for every loss: a Geman–McClure multiple m puts the
+    # width at m·σ̂ (3.1075479480600743 = decision_width(GM, 2.0), the half-weight
+    # depth 2.0 of the retired currency, at full precision).
+    rg = fit_linear(A, y; local_optimization = Irls{GemanMcclureShape}(efficiency_constant = 3.1075479480600743))
+    cg² = (3.1075479480600743 * rg.sigma)^2
     @test rg.weights ≈ [(cg² / (cg² + x^2))^2 for x in rg.residuals] rtol = 1.0e-12
     # An absolute width: the loss at w whatever σ̂.
     rl = fit_linear(A, y; local_optimization = Irls{HuberShape}(loss_width = 0.004))

@@ -63,7 +63,7 @@ neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
 (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
 problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
 robust strategy under `find_*`'s keyword, `local_optimization` (`Irls{Shape}` or
-`Triggs{Shape}` at a `scale_multiple`).
+`Triggs{Shape}` at a `efficiency_constant`).
 
 ## Homography
 
@@ -164,18 +164,18 @@ from LocalOptimizationDoneRight compose like the core ones:
 
 ```julia
 using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
-using LocalOptimizationDoneRight: HQ, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
+using LocalOptimizationDoneRight: HQ, WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
 cs       = csponds(src, dst)
 problem  = HomographyProblem(cs)
 result   = find_homography(cs;
                   scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                  local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
+                  local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 
 # or the loop itself
 result   = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior());
-                  local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
+                  local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 ```
 
 See the [RANSAC](ransac.md) page for the full configuration surface (samplers,

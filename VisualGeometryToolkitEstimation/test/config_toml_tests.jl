@@ -24,7 +24,7 @@ using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
 using VisualGeometryToolkitEstimation: LO_TAGS, config_dict, local_optimization_from_toml   # public, not exported
 using VisualGeometryToolkitEstimation
 import VisualGeometryToolkitCore
-# A width-carrying strategy's scale multiple (its `ScaleMultiple` width mode).
+# A width-carrying strategy's efficiency constant (its `EfficiencyConstant` width mode).
 sm(lo) = VgtkCore.lo_width(lo).value
 using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalOptimization
 
@@ -37,22 +37,22 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         @test rc.max_trials == _dflt("ransac", "max_trials")
         @test rc.min_trials == _dflt("ransac", "min_trials") == 100
         # The core strategy's keyword defaults ARE its table.
-        @test Irls{WelschShape}(scale_multiple = 1.0).max_iter == _dflt("local_optimization.irls", "max_iter")
+        @test Irls{WelschShape}(efficiency_constant = 1.0).max_iter == _dflt("local_optimization.irls", "max_iter")
         @test Irls{TLSShape}().max_iter == _dflt("local_optimization.irls", "max_iter")
         # Every pipeline deploys the file's strategy: the core's TLS IRLS,
         # following the scorer — the circle and the ellipse the robustified LM
         # at its stated multiple. (The strategies' tables and their cross-validated operating
         # points are LocalOptimizationDoneRight's.)
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
-            @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{WelschShape}(scale_multiple = 2.5) :
+            @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{WelschShape}(efficiency_constant = 2.5) :
                                       class === :bearing_pose ? Irls{GaussianShape}() : Irls{TLSShape}())
         end
         @test !haskey(_TOML_DEFAULTS, "tuning_constants")
     end
 
-    @testset "a cross-validated scale multiple is LocalOptimizationDoneRight's to resolve" begin
-        lo_from(loss, scale_multiple) = local_optimization_from_toml(
-            Dict("type" => "irls", "loss" => loss, "scale_multiple" => scale_multiple); class = :homography
+    @testset "a cross-validated efficiency constant is LocalOptimizationDoneRight's to resolve" begin
+        lo_from(loss, efficiency_constant) = local_optimization_from_toml(
+            Dict("type" => "irls", "loss" => loss, "efficiency_constant" => efficiency_constant); class = :homography
         )
         for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
             @test _dflt_lo(class) isa AbstractLocalOptimization
@@ -69,14 +69,14 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         @test occursin("LocalOptimizationDoneRight.STRATEGY_TAGS", msg)   # its registry's name since LODR 0.9
         @test_throws ArgumentError lo_from("welsch", "not_a_number")
 
-        # A LITERAL scale multiple claims no provenance, so any shape may take one.
+        # A LITERAL efficiency constant claims no provenance, so any shape may take one.
         @test sm(lo_from("geman_mcclure", 1.25)) == 1.25
         @test sm(lo_from("cauchy", 0.9)) == 0.9
 
         # The retired spellings fail loudly: an old `k` or `kernel` key is an
         # unknown key, never silently read.
         @test_throws ArgumentError local_optimization_from_toml(
-            Dict("type" => "irls", "kernel" => "welsch", "scale_multiple" => 1.0); class = :homography
+            Dict("type" => "irls", "kernel" => "welsch", "efficiency_constant" => 1.0); class = :homography
         )
         @test_throws ArgumentError local_optimization_from_toml(
             Dict("type" => "irls", "loss" => "welsch", "k" => 1.0); class = :homography
@@ -99,11 +99,11 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             end
         end
         # Every strategy table names every keyword its constructor defaults —
-        # `scale_multiple` / `alpha` are REQUIRED per call, deliberately absent.
-        # `scale_multiple` is cross-validated per model class, never defaulted
+        # `efficiency_constant` / `alpha` are REQUIRED per call, deliberately absent.
+        # `efficiency_constant` is cross-validated per model class, never defaulted
         # in the file, for EVERY arm that takes one.
         # The terminal placement's `inner` is a strategy, never a file default.
-        required = Dict("irls" => (:scale_multiple,), "terminal_lo" => (:inner,))
+        required = Dict("irls" => (:efficiency_constant,), "terminal_lo" => (:inner,))
         lo_table(tag) = get(_TOML_DEFAULTS["local_optimization"], tag, Dict{String, Any}())
         for (tag, T) in LO_TAGS
             tag == "no_local_optimization" && continue
@@ -115,7 +115,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             end
         end
         # ...and the converse, asserted rather than assumed: a key listed in
-        # `required` is deliberately ABSENT from the file. `scale_multiple` is
+        # `required` is deliberately ABSENT from the file. `efficiency_constant` is
         # cross-validated per model class, so a file default for it would
         # silently defeat that resolution — which is exactly what a literal 1.5
         # did for the four fixed-loss arms.
@@ -141,7 +141,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
                 max_trials = 42
 
                 [pipelines.homography]
-                local_optimization = { type = "irls", loss = "huber", scale_multiple = 2.0 }
+                local_optimization = { type = "irls", loss = "huber", efficiency_constant = 2.0 }
 
                 [pipelines.essential]
                 local_optimization = { type = "irls", loss = "welsch", max_iter = 7 }
@@ -182,13 +182,13 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             @test_throws ArgumentError RansacConfig(success_prob = 1.5)
             @test RansacConfig(success_prob = 1.0).success_prob == 1.0
             lo_bad(tbl) = local_optimization_from_toml(tbl; class = :homography)
-            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welch", "scale_multiple" => 1.0))               # unknown loss
-            @test_throws ArgumentError lo_bad(Dict("type" => "irlss", "loss" => "welsch", "scale_multiple" => 1.0))             # unknown type
-            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "scale_multiple" => 1.0))                                  # no loss
+            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welch", "efficiency_constant" => 1.0))               # unknown loss
+            @test_throws ArgumentError lo_bad(Dict("type" => "irlss", "loss" => "welsch", "efficiency_constant" => 1.0))             # unknown type
+            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "efficiency_constant" => 1.0))                                  # no loss
             # no width: the strategy follows the scorer's inlier threshold (not a refusal)
             @test VgtkCore.lo_width(lo_bad(Dict("type" => "irls", "loss" => "welsch"))) === nothing
-            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.0, "loss_width" => 2.0))   # both widths
-            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.0, "max_itr" => 3)) # typo'd knob
+            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welsch", "efficiency_constant" => 1.0, "loss_width" => 2.0))   # both widths
+            @test_throws ArgumentError lo_bad(Dict("type" => "irls", "loss" => "welsch", "efficiency_constant" => 1.0, "max_itr" => 3)) # typo'd knob
             # a retired tag names its successor
             @test_throws ArgumentError lo_bad(Dict("type" => "none"))
         end
@@ -204,14 +204,14 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             # config_dict is derived from fieldnames: every strategy field appears.
             for (tag, T) in LO_TAGS
                 tag == "no_local_optimization" && continue
-                takes_scale_multiple = hasfield(T, :width) || hasfield(T, :scale_multiple)
+                takes_efficiency_constant = hasfield(T, :width) || hasfield(T, :efficiency_constant)
                 takes_loss = VgtkEstimation.lo_parametric(T)
                 # the minimal table for this tag: only the keys it actually takes
                 tbl = Dict{String, Any}("type" => tag)
                 takes_loss && (tbl["loss"] = "welsch")
-                takes_scale_multiple && (tbl["scale_multiple"] = 1.0)
+                takes_efficiency_constant && (tbl["efficiency_constant"] = 1.0)
                 hasfield(T, :inner) &&
-                    (tbl["inner"] = Dict{String, Any}("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.0))
+                    (tbl["inner"] = Dict{String, Any}("type" => "irls", "loss" => "welsch", "efficiency_constant" => 1.0))
                 lo = local_optimization_from_toml(tbl; class = :homography)
                 d = config_dict(lo)
                 for f in fieldnames(T)

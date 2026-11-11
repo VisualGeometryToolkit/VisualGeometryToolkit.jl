@@ -61,18 +61,18 @@
             end
         end
 
-        # The retired Welsch native map, ŝ*sqrt(pi/2)*exp(scale_multiple^2/2), IS
+        # The retired Welsch native map, ŝ*sqrt(pi/2)*exp(efficiency_constant^2/2), IS
         # this pair at codimension 1 — that is why it could be deleted rather than
         # kept. Not bit-identical: the generalised path associates the floats
         # differently, ~1e-14 relative, twelve orders below the ~2.3%/point
         # spacing of the protocol's log grid, so it cannot move a selection.
         @testset "subsumes the retired closed form" begin
-            old(scale_multiple, ŝ) = ŝ * sqrt(π / 2) * exp(0.5 * scale_multiple^2)
-            for ŝ in (0.05, 0.3, 1.0, 2.7, 11.0), scale_multiple in (0.4, 0.8, 1.5, 3.0, 4.5, 6.0)
+            old(efficiency_constant, ŝ) = ŝ * sqrt(π / 2) * exp(0.5 * efficiency_constant^2)
+            for ŝ in (0.05, 0.3, 1.0, 2.7, 11.0), efficiency_constant in (0.4, 0.8, 1.5, 3.0, 4.5, 6.0)
                 m = GauInlier(ŝ^2; d_g = 1)
-                @test decision_width(m, scale_multiple * ŝ) ≈ old(scale_multiple, ŝ) rtol = 1.0e-13
-                # …and it inverts to exactly scale_multiple·ŝ, which is what made it a boundary.
-                @test decision_boundary(m, decision_width(m, scale_multiple * ŝ)) ≈ scale_multiple * ŝ rtol = 1.0e-12
+                @test decision_width(m, efficiency_constant * ŝ) ≈ old(efficiency_constant, ŝ) rtol = 1.0e-13
+                # …and it inverts to exactly efficiency_constant·ŝ, which is what made it a boundary.
+                @test decision_boundary(m, decision_width(m, efficiency_constant * ŝ)) ≈ efficiency_constant * ŝ rtol = 1.0e-12
             end
         end
     end

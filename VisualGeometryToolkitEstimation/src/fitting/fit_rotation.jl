@@ -24,7 +24,7 @@
 # median (a 1-D absolute deviation's, which reads 2-D norms 1.745× too wide);
 # and the loss and its width are the stack's (an `Irls{K}` strategy) instead
 # of a hard-wired Huber at 3 × that scale. RC's exact width is
-# `Irls{HuberShape}(scale_multiple = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
+# `Irls{HuberShape}(efficiency_constant = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
 # =============================================================================
 
 """
@@ -58,12 +58,12 @@ weights of the strategy's loss at σ̂, and the weighted Kabsch.
 - `local_optimization` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
   configs/default.toml `[fit_rotation] local_optimization`, Huber).
-  `scale_multiple = m` puts the width at `m · σ̂` (in the loss's currency,
-  [`plain_scale_multiple`](@ref)), `loss_width = w` at `w` radians; with no
+  `efficiency_constant = m` puts the width at `m · σ̂` (the plain multiple, for
+  every loss), `loss_width = w` at `w` radians; with no
   width — a fit has no scorer to follow — the shape's efficiency constant at
   codimension 2, which only an M-estimator (`AbstractMEstimator`) has: any
   other shape (`Irls{TLSShape}()`) requires a width, an `ArgumentError`
-  naming `scale_multiple` otherwise.
+  naming `efficiency_constant` otherwise.
 - `tol` — converged when an iteration moves `R` by less than `tol` radians
   (default configs/default.toml [fit_rotation]).
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's

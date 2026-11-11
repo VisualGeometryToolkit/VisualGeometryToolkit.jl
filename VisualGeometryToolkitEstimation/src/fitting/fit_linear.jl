@@ -55,8 +55,8 @@ prior, and the weighted least squares.
 - `local_optimization` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
   configs/default.toml `[fit_linear] local_optimization`, Huber;
-  `local_optimization_from_toml` reads a table). `scale_multiple = m` puts
-  the width at `m · σ̂` (in the loss's currency, [`plain_scale_multiple`](@ref)),
+  `local_optimization_from_toml` reads a table). `efficiency_constant = m` puts
+  the width at `m · σ̂` (the plain multiple, for every loss),
   `loss_width = w` at `w`; with no width — a fit has no scorer to follow — the
   shape's efficiency constant at codimension 1 (Huber's 1.345), which only an
   M-estimator (`AbstractMEstimator`) has: any other shape requires a width

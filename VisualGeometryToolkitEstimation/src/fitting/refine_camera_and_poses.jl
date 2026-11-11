@@ -192,7 +192,7 @@ scratch and the camera keeps its family (its lens type).
 - `local_optimization` — `nothing` (the default: plain least squares) or a
   robust strategy of the RANSAC local optimization's own types, under the same
   keyword `find_*` takes it by, configured by the same TOML tables (`local_optimization_from_toml`, e.g. `{ type = "triggs", loss =
-  "welsch", scale_multiple = 2.98 }`): `Triggs{Shape}`, one robustified LM
+  "welsch", efficiency_constant = 2.98 }`): `Triggs{Shape}`, one robustified LM
   (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
   `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
   `max_iter` cycles, until the robust cost decreases by less than `ftol`),
@@ -200,15 +200,15 @@ scratch and the camera keeps its family (its lens type).
   poses): it runs no least-squares stage, so gross outliers never pull a
   warm-up fit. (The keyword was `robust`; that name is refused, an
   `ArgumentError` naming this one.) The loss width is the strategy's
-  `scale_multiple` (in its shape's currency) times the caller's `scale`,
+  `efficiency_constant` (the plain multiple) times the caller's `scale`,
   frozen, or an Irls strategy's absolute `loss_width`. A refine estimates no
-  scale: a `scale_multiple` strategy without a `scale` is an `ArgumentError`.
+  scale: a `efficiency_constant` strategy without a `scale` is an `ArgumentError`.
   A strategy that follows a scorer's inlier threshold (no width) or needs a
   RANSAC consensus set is an `ArgumentError`. The metadata's `weights` are the
   ρ′ at the estimate, `scale` and `loss_width` what the loss ran at.
   Parametric cameras (both forms).
 - `scale` — the detections' noise scale σ (pixels, per coordinate) a
-  `local_optimization` strategy's `scale_multiple` multiplies.
+  `local_optimization` strategy's `efficiency_constant` multiplies.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -490,8 +490,8 @@ function _refine_camera_and_poses(
 end
 
 # The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables, under `find_*`'s
-# keyword `local_optimization`): Irls{K} and Triggs{K} at a width of their own (a scale multiple of the caller's
-# `scale`, or an absolute width), or the least-squares shape. A refine estimates no scale, so a scale multiple needs
+# keyword `local_optimization`): Irls{K} and Triggs{K} at a width of their own (an efficiency constant of the caller's
+# `scale`, or an absolute width), or the least-squares shape. A refine estimates no scale, so an efficiency constant needs
 # the caller's `scale`. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set,
 # has nothing to read here.
 function _check_local_optimization(lo, scale)
@@ -506,8 +506,8 @@ function _check_local_optimization(lo, scale)
         "none; a refine takes Irls{Shape} or Triggs{Shape}"))
     strategy_loss(lo) === GaussianShape || lo_width(lo) !== nothing || throw(ArgumentError(
         "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) follows a RANSAC scorer's inlier threshold, " *
-        "which a refine has none: give it a `scale_multiple` (of the caller's `scale`) or a `loss_width`"))
-    strategy_loss(lo) === GaussianShape || !(lo_width(lo) isa ScaleMultiple) || scale !== nothing || throw(ArgumentError(
+        "which a refine has none: give it a `efficiency_constant` (of the caller's `scale`) or a `loss_width`"))
+    strategy_loss(lo) === GaussianShape || !(lo_width(lo) isa EfficiencyConstant) || scale !== nothing || throw(ArgumentError(
         "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) is a multiple of the noise scale, and a refine " *
         "estimates none: supply `scale` (the detections' noise σ, pixels), or give an Irls strategy a `loss_width`"))
     return nothing

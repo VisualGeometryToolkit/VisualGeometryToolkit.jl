@@ -130,34 +130,30 @@ GNC). Runs the posterior-weight iteration
 best-cost tracking and stop rule — with only the per-iteration weight functor
 swapped per loss:
 
-- `Irls{WelschShape}`: `wᵢ = exp(−rᵢ²/loss_width²)`, `loss_width = scale_multiple·ŝ`
+- `Irls{WelschShape}`: `wᵢ = exp(−rᵢ²/loss_width²)`, `loss_width = efficiency_constant·ŝ`
   (the paper's Welsch-IRLS arm; 1.5 was the pre-anchoring point)
-- `Irls{HuberShape}`: `wᵢ = min(1, loss_width/|rᵢ|)`, `loss_width = scale_multiple·ŝ`
+- `Irls{HuberShape}`: `wᵢ = min(1, loss_width/|rᵢ|)`, `loss_width = efficiency_constant·ŝ`
   (the elbow; 1.345 is the classical value) — the static-tail control (influence
   constant, never vanishing, past the elbow)
 - `Irls{GemanMcclureShape}`: `wᵢ = (loss_width²/(loss_width²+rᵢ²))²`,
-  `loss_width = decision_width(GM, scale_multiple·ŝ)` — the GM static-reweighting
-  arm; its `scale_multiple` is in the half-weight currency
-  ([`plain_scale_multiple`](@ref), the one currency table), so one CV grid
-  transfers across the static and lifted mechanisms (half-weight depth of a
-  Welsch point: `scale_multiple·√log2`)
-- `Irls{GaussianShape}`: unit weights, no scale and NO scale multiple —
+  `loss_width = efficiency_constant·ŝ` — the GM static-reweighting arm
+- `Irls{GaussianShape}`: unit weights, no scale and NO efficiency constant —
   plain least squares over all points, the coverage extreme. It takes no
-  `scale_multiple`; supplying one is an `ArgumentError` (a width it would
+  `efficiency_constant`; supplying one is an `ArgumentError` (a width it would
   silently ignore)
 
 The loss width is **frozen** at the start of the call, set by the width mode
 `W` (VisualGeometryToolkitCore's `loss_at`) — no per-iteration scale refit:
 
-- `scale_multiple = m` (`ScaleMultiple(m)`): `m·ŝ` at the consensus set's
-  Student-t scale ŝ, in the loss's currency above;
+- `efficiency_constant = m` (`EfficiencyConstant(m)`): `m·ŝ` at the consensus set's
+  Student-t scale ŝ — `m` the plain multiple, for every loss;
 - `loss_width = w` (`LossWidth(w)`): the absolute width `w`;
 - neither (`nothing`, the default): the scorer's decision point
   (`decision_boundary`) — MSAC with `Irls{TLSShape}` refits at MSAC's threshold.
 
 # Fields
 - `max_iter::Int=25`: max IRLS iterations per hypothesis
-- `width::W`: the width mode, `nothing` | `ScaleMultiple{Float64}` | `LossWidth{NTuple{2,Float64}}`
+- `width::W`: the width mode, `nothing` | `EfficiencyConstant{Float64}` | `LossWidth{NTuple{2,Float64}}`
 """
 struct Irls{K <: AbstractLossShape, W} <: AbstractLocalOptimization
     max_iter::Int
@@ -177,12 +173,12 @@ Ceres' `Corrector`), so
 there is no reweighting loop and no inlier set inside the refit: θ is the
 initial guess and the loss decides each datum's influence.
 
-The loss width is `loss_width = scale_multiple·ŝ` (in the loss's currency,
-[`plain_scale_multiple`](@ref), as for [`Irls`](@ref)), frozen at the start of
+The loss width is `loss_width = efficiency_constant·ŝ` (the plain multiple, as for
+[`Irls`](@ref)), frozen at the start of
 the call: ŝ is the Student-t marginal scale of θ's residuals — the Sampson
 errors of all the data — over θ's consensus partition (VisualGeometryToolkitCore's
 `partition_student_t`, the scorer's `scale_s2`), the scale every
-consensus-anchored strategy reads. `scale_multiple` is REQUIRED (but for the
+consensus-anchored strategy reads. `efficiency_constant` is REQUIRED (but for the
 Gaussian shape): the stack has no established multiple for this strategy, so a
 configuration states one; an absolute `loss_width` or no width is an
 `ArgumentError` from a keyword or a TOML table. An absolute width reaches it
@@ -194,7 +190,7 @@ would deploy at ŝ² = `s2` (the role-isolated controls).
 (the pipelines' default), Geman–McClure, Cauchy, smooth TLS, TLS, Huber and
 Gaussian; Barron, whose shape carries its α, is refused by both.
 `Triggs{GaussianShape}` is the plain chart LM over every datum: like
-`Irls{GaussianShape}` it has no width and takes no `scale_multiple`. For TLS
+`Irls{GaussianShape}` it has no width and takes no `efficiency_constant`. For TLS
 ρ″ is zero everywhere but the cutoff, so the Triggs term vanishes and the step
 is the Gauss–Newton one with the loss's weights (the data inside the width at
 that evaluation); for Huber ρ″ is zero inside the width only, and in the tail
@@ -203,7 +199,7 @@ Triggs term corrects the tail's data. The LM's acceptance test descends the
 robust cost, measured to the noise level on a circle.
 
 # Fields
-- `width`: the width mode, set by `scale_multiple = m` (`ScaleMultiple`);
+- `width`: the width mode, set by `efficiency_constant = m` (`EfficiencyConstant`);
   `nothing` for `Triggs{GaussianShape}`
 """
 struct Triggs{K <: AbstractLossShape, W} <: AbstractLocalOptimization
@@ -285,91 +281,33 @@ VgtkCore.loss_family(lo::Irls) = loss_family(strategy_loss(lo))
 VgtkCore.lo_label(lo::Triggs) = loss_label(strategy_loss(lo)) * "-" * path_suffix(optimization_path(lo))
 VgtkCore.loss_family(lo::Triggs) = loss_family(strategy_loss(lo))
 
-# -----------------------------------------------------------------------------
-# The scale-multiple CURRENCY — ONE table, `plain_scale_multiple(shape, m)`
-# -----------------------------------------------------------------------------
-# A loss's `scale_multiple` is stated in the LOSS's currency, so one CV grid
-# transfers across the static and lifted mechanisms: `Irls{K}` and the lifts
-# (LocalOptimizationDoneRight's `HQ{K}`) read the same `scale_multiple` the
-# same way. `plain_scale_multiple` converts it to the plain multiple a
-# deployment's `scale_multiple` slot takes (loss width `scale_multiple·ŝ`,
-# `sq_loss_width` `scale_multiple²·ŝ²`):
-#
-#   width multiple     loss_width = scale_multiple·ŝ        Welsch, Huber (the
-#                                                            elbow), TLS and
-#                                                            smooth TLS (the cut)
-#   half-weight depth  w(r) = ½ at r = scale_multiple·ŝ     GM, Cauchy (VGC
-#                      (`decision_width`)                   `decision_width`, linear
-#                                                            in ŝ, so at ŝ = 1 it IS
-#                                                            the multiple)
-#
-# Smooth TLS's former `scale_multiple ≤ 0` sentinel — the scorer's
-# inlier/outlier crossover — is the follow-the-scorer width mode (no width), so
-# a non-positive multiple is refused.
-
-"""
-    plain_scale_multiple(shape, m::Float64) -> Float64
-
-The plain scale multiple a deployment of `shape` takes for a `scale_multiple`
-`m` stated in the shape's currency: the identity for a width-multiple loss
-(Welsch, Huber, TLS, smooth TLS), `decision_width(shape, m)` for a half-weight
-loss (Geman–McClure, Cauchy). A non-positive multiple of smooth TLS is refused
-(the retired crossover sentinel: give no width to follow the scorer).
-"""
-plain_scale_multiple(::AbstractLossShape, m::Float64) = m
-plain_scale_multiple(shape::Union{GemanMcclureShape, CauchyShape}, m::Float64) = decision_width(shape, m)
-function plain_scale_multiple(::SmoothTLSShape, m::Float64)
-    m > 0 || throw(
-        ArgumentError(
-            "scale_multiple = $m: the crossover sentinel is retired — give no width to " *
-                "follow the scorer's decision_boundary"
-        )
-    )
-    return m
-end
-
-# VisualGeometryToolkitCore's `deployed_scale_multiple` (the LO contract's currency
-# hook, read by `loss_at` under a `ScaleMultiple` width mode).
-VgtkCore.deployed_scale_multiple(::Union{Irls, Triggs}, shape, m::Float64, _s2, _scoring) = plain_scale_multiple(shape, m)
 
 """
     lo_loss(lo, cs::ConsensusSet, scoring, buf) -> DeployedLoss
 
 The loss a loss-parametric strategy (`Irls{K}`, and downstream families with a
 [`strategy_loss`](@ref)) deploys: its shape at the width its mode resolves to
-(VisualGeometryToolkitCore's `loss_at`: the consensus scale times its multiple in the
-shape's currency, an absolute width, or the scorer's decision point). The
+(VisualGeometryToolkitCore's `loss_at`: the consensus scale times its multiple, an
+absolute width, or the scorer's decision point). The
 least-squares arm has no scale and no width: it deploys at `s2 = Inf`,
-`scale_multiple = 1` (its weights are unit whatever the width).
+`efficiency_constant = 1` (its weights are unit whatever the width).
 """
 lo_loss(lo::AbstractLocalOptimization, cs::ConsensusSet, scoring, buf) = loss_at(lo, strategy_loss(lo)(), cs, scoring, buf)
 lo_loss(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}, ::ConsensusSet, _scoring, _buf) =
-    deploy(GaussianShape(), Inf; scale_multiple = 1.0)
-
-"""
-    deployed_shape(lo) -> AbstractLossShape | nothing
-
-The loss shape a width-carrying strategy deploys, as `fixed_width` hands it to
-the currency hook (`deployed_scale_multiple`): `strategy_loss(lo)()` for a
-loss-parametric strategy, `nothing` (the default) for a strategy whose currency
-reads no shape. A downstream fixed-loss arm adds its method.
-"""
-deployed_shape(::AbstractLocalOptimization) = nothing
-deployed_shape(lo::Union{Irls, Triggs}) = strategy_loss(lo)()
+    deploy(GaussianShape(), Inf; efficiency_constant = 1.0)
 
 """
     fixed_width(lo, s2) -> LossWidth
 
-The absolute width mode of a strategy deployed at `ScaleMultiple(m)` with the
-consensus scale held at `s2`: `LossWidth(m′, s2)`, `m′` the plain multiple of
-`m` in the strategy's currency — so `with_width(lo, fixed_width(lo, s2))`
+The absolute width mode of a strategy deployed at `EfficiencyConstant(m)` with the
+consensus scale held at `s2`: `LossWidth(m, s2)` — so `with_width(lo, fixed_width(lo, s2))`
 deploys exactly the loss the consensus-anchored strategy would at ŝ² = `s2`
 (the role-isolated controls: solo CV, oracle scale, the anchoring ablation).
 """
 fixed_width(lo::AbstractLocalOptimization, s2::Real) =
-    LossWidth(deployed_scale_multiple(lo, deployed_shape(lo), _scale_multiple_of(lo_width(lo)), Float64(s2), nothing), Float64(s2))
-_scale_multiple_of(w::ScaleMultiple{Float64}) = w.value
-_scale_multiple_of(w) = throw(ArgumentError("fixed_width: the strategy's width mode is $(w), not a ScaleMultiple"))
+    LossWidth(_efficiency_constant_of(lo_width(lo)), Float64(s2))
+_efficiency_constant_of(w::EfficiencyConstant{Float64}) = w.value
+_efficiency_constant_of(w) = throw(ArgumentError("fixed_width: the strategy's width mode is $(w), not a EfficiencyConstant"))
 
 """
     default_local_optimization(scoring::AbstractScoring) -> AbstractLocalOptimization
@@ -454,7 +392,7 @@ a no-op.
 struct LossPlainWeights{L <: DeployedLoss} <: AbstractWeightPolicy
     rws::PosteriorWeightState
     n::Int
-    loss::L        # shape + (scale_multiple, ŝ²); `sq_loss_width` = scale_multiple²·ŝ², never stored
+    loss::L        # shape + (efficiency_constant, ŝ²); `sq_loss_width` = efficiency_constant²·ŝ², never stored
 end
 
 update_nuisance!(::LossPlainWeights) = nothing   # scale FROZEN at the seed
@@ -462,7 +400,7 @@ current_s2(lh::LossPlainWeights) = scale_s2(lh.loss)   # the scale the loss runs
 function update_weights!(lh::LossPlainWeights)
     rws = lh.rws
     # Read the shape and its width ONCE. `sq_loss_width` is
-    # `scale_multiple²·ŝ²`, computed from the two stored slots, so calling it
+    # `efficiency_constant²·ŝ²`, computed from the two stored slots, so calling it
     # per point re-multiplies every iteration for a value that is frozen at
     # construction by definition.
     shape = loss_shape(lh.loss)
@@ -516,19 +454,19 @@ VgtkCore.scale_interface(lo::Irls) = width_scale_interface(lo.width)
     lo_width_value(w) -> w
 
 A local optimization's width mode, checked: `nothing` (follow the scorer),
-`ScaleMultiple(m)` or `LossWidth(w)` — never an outlier half-width (a
+`EfficiencyConstant(m)` or `LossWidth(w)` — never an outlier half-width (a
 scorer's). Anything else is an `ArgumentError`.
 """
 lo_width_value(::Nothing) = nothing
-lo_width_value(w::ScaleMultiple{Float64}) = w
+lo_width_value(w::EfficiencyConstant{Float64}) = w
 lo_width_value(w::LossWidth{NTuple{2, Float64}}) = w
 lo_width_value(w) = throw(
     ArgumentError(
-        "a local optimization's width is ScaleMultiple(m), LossWidth(w) or nothing (follow the scorer), got $w"
+        "a local optimization's width is EfficiencyConstant(m), LossWidth(w) or nothing (follow the scorer), got $w"
     )
 )
 VgtkCore.with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_value(w))
-# The robustified LM's width mode — a scale multiple, always supplied, at the
+# The robustified LM's width mode — an efficiency constant, always supplied, at the
 # keyword and TOML boundary (`lo_field`); `with_width` also takes the absolute
 # width `fixed_width` freezes it at, which no caller spells.
 VgtkCore.lo_width(lo::Triggs) = lo.width
@@ -566,7 +504,7 @@ VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = 
 # The keyword constructor is driven by `fieldnames` and the tag: a field's
 # keyword is the field's name; its default is the strategy's table key
 # (`lo_key`, ASCII-spelled); a field with NO key in the table is REQUIRED.
-# The width field is set by `scale_multiple = m` (`ScaleMultiple(m)`) or
+# The width field is set by `efficiency_constant = m` (`EfficiencyConstant(m)`) or
 # `loss_width = w` (`LossWidth(w)`) — both is an `ArgumentError` — and by
 # neither follows the scorer (`nothing`). An unknown keyword is an
 # `ArgumentError`. The per-strategy exceptions are the hooks, each stated once:
@@ -577,8 +515,8 @@ VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = 
 #   `lo_absent(T, Val(f); defaults)`       a field's value when the caller omits it
 #   `lo_validate(lo)`                      cross-field checks on the built value
 #   `lo_concrete(T, d, section; tags)`     the concrete type a TOML table names
-#   `lo_scale_multiple_shape(T)`           the shape a `scale_multiple` is read for
-#   `lo_resolve_scale_multiple(T, K, v; class)`   a TOML `scale_multiple` → a number
+#   `lo_efficiency_constant_shape(T)`           the shape a `efficiency_constant` is read for
+#   `lo_resolve_efficiency_constant(T, K, v; class)`   a TOML `efficiency_constant` → a number
 
 """
     lo_tag(T) -> String
@@ -647,13 +585,13 @@ field of its type is ambiguous with the `Val{:width}` catch-all below.
 """
 lo_field(::Type{T}, ::Val{F}, v) where {T, F} = convert(fieldtype(T, F), v)
 lo_field(::Type, ::Val{:width}, w) = lo_width_value(w)
-lo_field(::Type{<:Triggs}, ::Val{:width}, w::ScaleMultiple{Float64}) = w
+lo_field(::Type{<:Triggs}, ::Val{:width}, w::EfficiencyConstant{Float64}) = w
 lo_field(::Type{T}, ::Val{:width}, w) where {T <: Triggs} = throw(ArgumentError(
-    "$T: the loss width is scale_multiple·ŝ — give `scale_multiple`, got $w"))
+    "$T: the loss width is efficiency_constant·ŝ — give `efficiency_constant`, got $w"))
 # The plain LM has no width at all.
-lo_field(::Type{T}, ::Val{:width}, w::ScaleMultiple{Float64}) where {T <: Triggs{GaussianShape}} = _no_width(T)
+lo_field(::Type{T}, ::Val{:width}, w::EfficiencyConstant{Float64}) where {T <: Triggs{GaussianShape}} = _no_width(T)
 lo_field(::Type{T}, ::Val{:width}, w) where {T <: Triggs{GaussianShape}} = w === nothing ? nothing : _no_width(T)
-_no_width(T) = throw(ArgumentError("$T is the plain chart LM: it has no width, so it takes no `scale_multiple` or `loss_width`"))
+_no_width(T) = throw(ArgumentError("$T is the plain chart LM: it has no width, so it takes no `efficiency_constant` or `loss_width`"))
 
 """
     lo_field_from_toml(T, Val(f), v)
@@ -682,7 +620,7 @@ function lo_absent(::Type{T}, ::Val{F}; defaults::AbstractDict) where {T, F}
     return lo_field_from_toml(T, Val(F), _lo_table(T, defaults)[lo_key(T, Val(F))])
 end
 lo_absent(::Type, ::Val{:width}; defaults::AbstractDict) = nothing
-lo_absent(::Type{<:Triggs}, ::Val{:width}; defaults::AbstractDict) = throw(UndefKeywordError(:scale_multiple))
+lo_absent(::Type{<:Triggs}, ::Val{:width}; defaults::AbstractDict) = throw(UndefKeywordError(:efficiency_constant))
 lo_absent(::Type{<:Triggs{GaussianShape}}, ::Val{:width}; defaults::AbstractDict) = nothing
 
 """
@@ -704,7 +642,7 @@ _lo_has_default(::Type{T}, f::Symbol, defaults::AbstractDict) where {T} =
 
 THE keyword constructor of every registered strategy (`@lo_registry` defines
 `T(; kw...)` as this call): each field is its keyword or, omitted, its
-`defaults` value ([`lo_absent`](@ref)); the width is spelled `scale_multiple`
+`defaults` value ([`lo_absent`](@ref)); the width is spelled `efficiency_constant`
 or `loss_width` (both is an `ArgumentError`; neither follows the scorer). The
 hooks [`lo_admits`](@ref), [`lo_field`](@ref) and [`lo_validate`](@ref) state
 the per-strategy exceptions. `defaults` is the `[local_optimization]` table,
@@ -727,46 +665,46 @@ function lo_construct(::Type{T}; defaults::AbstractDict = lo_defaults(T), kw...)
     return lo_validate(T(vals...))
 end
 
-# A strategy takes a width (`scale_multiple` / `loss_width` keys) iff it has a
+# A strategy takes a width (`efficiency_constant` / `loss_width` keys) iff it has a
 # `width` field.
 _lo_takes_width(::Type{T}) where {T} = :width in fieldnames(T)
 
 # The keywords a caller spells: the fields, the width field as its two keys.
 _lo_keywords(::Type{T}) where {T} =
-    _lo_takes_width(T) ? [filter(!=(:width), collect(fieldnames(T))); :scale_multiple; :loss_width] :
+    _lo_takes_width(T) ? [filter(!=(:width), collect(fieldnames(T))); :efficiency_constant; :loss_width] :
     collect(fieldnames(T))
 
-# `scale_multiple = m` / `loss_width = w` → the `width` field.
+# `efficiency_constant = m` / `loss_width = w` → the `width` field.
 function _lo_width_keywords(::Type{T}, kw) where {T}
     _lo_takes_width(T) || return kw
-    hm, hw = haskey(kw, :scale_multiple), haskey(kw, :loss_width)
-    hm && hw && throw(ArgumentError("$T: give `scale_multiple` or `loss_width`, not both"))
+    hm, hw = haskey(kw, :efficiency_constant), haskey(kw, :loss_width)
+    hm && hw && throw(ArgumentError("$T: give `efficiency_constant` or `loss_width`, not both"))
     hm || hw || return kw
-    rest = Dict{Symbol, Any}(k => v for (k, v) in kw if k ∉ (:scale_multiple, :loss_width))
-    rest[:width] = hm ? _lo_scale_multiple(T, kw[:scale_multiple]) : LossWidth(Float64(kw[:loss_width]))
+    rest = Dict{Symbol, Any}(k => v for (k, v) in kw if k ∉ (:efficiency_constant, :loss_width))
+    rest[:width] = hm ? _lo_efficiency_constant(T, kw[:efficiency_constant]) : LossWidth(Float64(kw[:loss_width]))
     return rest
 end
-_lo_scale_multiple(::Type, m) = ScaleMultiple(Float64(m))
-# Least squares has no scale multiple; one would be a width it silently ignores.
-_lo_scale_multiple(::Type{<:Irls{GaussianShape}}, _) = throw(
+_lo_efficiency_constant(::Type, m) = EfficiencyConstant(Float64(m))
+# Least squares has no efficiency constant; one would be a width it silently ignores.
+_lo_efficiency_constant(::Type{<:Irls{GaussianShape}}, _) = throw(
     ArgumentError(
-        "Irls{GaussianShape} is plain least squares: it has no scale multiple, " *
-            "so it takes no `scale_multiple`"
+        "Irls{GaussianShape} is plain least squares: it has no efficiency constant, " *
+            "so it takes no `efficiency_constant`"
     )
 )
-_lo_scale_multiple(::Type{T}, _) where {T <: Triggs{GaussianShape}} = _no_width(T)
+_lo_efficiency_constant(::Type{T}, _) where {T <: Triggs{GaussianShape}} = _no_width(T)
 
 """
-    lo_scale_multiple_shape(T) -> Type{<:AbstractLossShape}
+    lo_efficiency_constant_shape(T) -> Type{<:AbstractLossShape}
 
-The loss shape a TOML `scale_multiple` of strategy `T` is read for (and a
+The loss shape a TOML `efficiency_constant` of strategy `T` is read for (and a
 named one, `"cross_validated"`, tuned for): a loss-parametric family's
 [`strategy_loss`](@ref), a fixed-loss arm's `@lo_registry` `shape` column. An
 `ArgumentError` for a strategy that has neither.
 """
-lo_scale_multiple_shape(::Type{T}) where {T} =
+lo_efficiency_constant_shape(::Type{T}) where {T} =
     lo_parametric(T) ? strategy_loss(T) :
-    throw(ArgumentError("$(nameof(T)) takes no `scale_multiple` (it has no width)"))
+    throw(ArgumentError("$(nameof(T)) takes no `efficiency_constant` (it has no width)"))
 
 """
     @lo_registry rows defaults = table [retired = (old => new, …)]
@@ -788,7 +726,7 @@ defines [`lo_tag`](@ref), [`lo_defaults`](@ref), VisualGeometryToolkitCore's
 `toml_skip_fields` and, for a stated path, `optimization_path` (the width is written as its two
 keys, never as `width`); for a parametric row [`lo_parametric`](@ref); for a
 stated scale interface, loss family or label the Core accessor; for a stated
-`shape` [`lo_scale_multiple_shape`](@ref) and the loss family of that shape;
+`shape` [`lo_efficiency_constant_shape`](@ref) and the loss family of that shape;
 and, for a strategy with fields, the keyword constructor `T(; kw...)`
 (`T{K}(; kw...)` for a parametric family) as [`lo_construct`](@ref). A macro
 rather than a function because it defines methods in the caller's module.
@@ -820,7 +758,7 @@ function _register_lo_rows(M::Module, rows, defaults; retired = ())
         family === nothing || Core.eval(M, :($C.loss_family(::$T) = $(QuoteNode(family))))
         label === nothing || Core.eval(M, :($C.lo_label(::$T) = $label))
         shape === nothing || Core.eval(M, quote
-            $E.lo_scale_multiple_shape(::Type{<:$T}) = $shape
+            $E.lo_efficiency_constant_shape(::Type{<:$T}) = $shape
             $C.loss_family(::$T) = $C.loss_family($shape)
         end)
         fieldcount(T) == 0 && continue          # no fields: the default constructor is it

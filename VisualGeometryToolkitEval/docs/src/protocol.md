@@ -62,17 +62,17 @@ a split, a pair prefix or a sampling seed in code. Run directories come from
 the run records ([`run_key`](@ref), [`experiment_dir`](@ref),
 [`results_root`](@ref)).
 
-## 1. The fairness axis: the scale multiple
+## 1. The fairness axis: the efficiency constant
 
 Methods are compared at the same operating point, not at arbitrary native
-values. The shared axis is the scale multiple: the number of inlier-noise
+values. The shared axis is the efficiency constant: the number of inlier-noise
 standard deviations σ at which a method's inlier/outlier decision flips. It is
 anchored at the reference scale `ŝ = √median σ̂²` of the validation data
-([`reference_scale`](@ref)). The maps from a scale multiple to a native width
+([`reference_scale`](@ref)). The maps from an efficiency constant to a native width
 are VisualGeometryToolkitCore's (`to_native`, `native_map`, `decision_width`),
 one per width axis:
 
-| axis | native width at scale multiple `k` |
+| axis | native width at efficiency constant `k` |
 |---|---|
 | `LossWidth` (threshold family) | `loss_width = k·ŝ` (the truncated loss: identity) |
 | `OutlierHalfwidth` (Student-t marginal) | `outlier_halfwidth = ŝ·√(π/2)·e^{k²/2}` at codimension `d_g = 1` |
@@ -84,7 +84,7 @@ the values `NativeRefit` and `ExternalRefit`). The deployed native width
 reaches a refiner only as its width on the axis it consumes
 ([`consumed_axis`](@ref), [`consumed_native`](@ref)). A loss-width refiner
 that rides on an outlier-half-width selector grid converts at the refit
-protocol's fixed [`OPERATING_SCALE_MULTIPLE`](@ref) (`configs/default.toml`,
+protocol's fixed [`OPERATING_EFFICIENCY_CONSTANT`](@ref) (`configs/default.toml`,
 table `[refit]`). No refiner estimates its own scale from a plug-in window.
 
 **The outlier-half-width axis carries a codimension.** The marginal map takes
@@ -128,14 +128,14 @@ its window (the artifact's `boundary_hits`, or
 [`enforce_probe_interior`](@ref) for a probe artifact), because a window that
 clips the argmin has not located it.
 
-## 3. Miscalibration: the fixed-scale-multiple protocol
+## 3. Miscalibration: the fixed-efficiency-constant protocol
 
 Each method is tuned once at the true validation scale. Then the deployed
-plug-in scale is corrupted, `σ̂ → ζσ̂`, while the tuned scale multiple is held
+plug-in scale is corrupted, `σ̂ → ζσ̂`, while the tuned efficiency constant is held
 fixed ([`corrupt_native`](@ref)). Every native parameter is homogeneous of
 degree 1 in `σ̂`, so the corruption multiplies each method's tuned parameter by
 the same factor ζ. Each method thus suffers the same relative error in its own
-units. A tuned scale multiple is anchored on the data's own partition and is
+units. A tuned efficiency constant is anchored on the data's own partition and is
 not corrupted. Test data is untouched. Evaluation reads the grid column
 nearest to `ζ·native*` ([`nearest_column`](@ref)). This lookup is for
 evaluation only; a tuning never takes a nearest column.

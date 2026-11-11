@@ -48,7 +48,7 @@ _check_keys(d::AbstractDict, allowed, section::AbstractString) =
 
 # Allowed keys are the struct's fields (VGC's `allowed_keys`) — derived, never
 # hand-listed. A strategy's width field is spelled by its two keys,
-# `scale_multiple` and `loss_width` (the strategy types' hook methods follow the
+# `efficiency_constant` and `loss_width` (the strategy types' hook methods follow the
 # tag registry below).
 
 # The READER's half of VGC's field walk is VGC's `read_table`: only the keys
@@ -99,8 +99,8 @@ end
 #
 # `type` selects the strategy from a tag registry (LO_TAGS, or a merge of it
 # with a downstream package's); `loss` (Irls) selects the robust loss from
-# LOSS_TAGS. A strategy with a width takes it as `scale_multiple` (the loss
-# width as a multiple of the consensus scale, VGC's `ScaleMultiple`) or
+# LOSS_TAGS. A strategy with a width takes it as `efficiency_constant` (the loss
+# width as a multiple of the consensus scale, VGC's `EfficiencyConstant`) or
 # `loss_width` (an absolute width, `LossWidth`) — both is an error — and with
 # neither its width follows the scorer's decision point. Every other key is a
 # constructor keyword of that strategy and defaults to its
@@ -122,33 +122,33 @@ const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TA
 # `LO_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
 # from the one row per strategy (`_LO_REGISTRY`), which also gives every
 # strategy type its `toml_skip_fields` (the width is written and read as its
-# two keys, `scale_multiple` | `loss_width`, never as `width`).
+# two keys, `efficiency_constant` | `loss_width`, never as `width`).
 
 # The width keys a strategy's table may carry: both for a width-carrying one
 # (the least-squares arm takes neither), none for another.
-_width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("scale_multiple", "loss_width") : ()
+_width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("efficiency_constant", "loss_width") : ()
 _width_keys(::Type{<:Union{Irls{GaussianShape}, Triggs{GaussianShape}}}) = ()
 
 # A strategy's TOML values convert through its hook.
 _from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractLocalOptimization, F} = lo_field_from_toml(T, Val(F), v)
 
 """
-    lo_resolve_scale_multiple(T, K, value; class::Symbol) -> Float64
+    lo_resolve_efficiency_constant(T, K, value; class::Symbol) -> Float64
 
-A TOML `scale_multiple` of strategy `T`, read for loss shape `K`
-([`lo_scale_multiple_shape`](@ref)) in pipeline model class `class`. A number
+A TOML `efficiency_constant` of strategy `T`, read for loss shape `K`
+([`lo_efficiency_constant_shape`](@ref)) in pipeline model class `class`. A number
 is the caller's own and claims nothing about provenance, so it is taken as
 given. A string is refused here: `"cross_validated"` names the accv2026
 operating points, LocalOptimizationDoneRight's tuning constants, which its
 strategies resolve with a method of this hook.
 """
-lo_resolve_scale_multiple(::Type, ::Type, v::Real; class::Symbol) = Float64(v)
-lo_resolve_scale_multiple(::Type, ::Type, v::AbstractString; class::Symbol) = throw(ArgumentError(
+lo_resolve_efficiency_constant(::Type, ::Type, v::Real; class::Symbol) = Float64(v)
+lo_resolve_efficiency_constant(::Type, ::Type, v::AbstractString; class::Symbol) = throw(ArgumentError(
     v == "cross_validated" ?
-    "scale_multiple = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
+    "efficiency_constant = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
         "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, " *
         "LocalOptimizationDoneRight.STRATEGY_TAGS)), or give a number" :
-    "scale_multiple must be a number, got $(repr(v))"))
+    "efficiency_constant must be a number, got $(repr(v))"))
 
 function _loss_of(d::AbstractDict, section)
     haskey(d, "loss") || throw(ArgumentError("[$section] needs a `loss` (one of $(sort(collect(keys(LOSS_TAGS)))))"))
@@ -164,7 +164,7 @@ comment above). `tags` is the strategy registry the `type` is looked up in —
 [`LO_TAGS`](@ref), or its merge with a downstream package's
 (`merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`); the entry is then
 built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
-downstream `scale_multiple = "cross_validated"` resolves through it). Unknown
+downstream `efficiency_constant = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.
 """
 function local_optimization_from_toml(d::AbstractDict; class::Symbol, section::AbstractString = "local_optimization",
@@ -195,11 +195,11 @@ The strategy of registry entry `T` (a type or a loss-parametric family,
 registered by any package with [`@lo_registry`](@ref)) from its TOML table —
 the half of [`local_optimization_from_toml`](@ref) after the tag lookup.
 The table's keys are the fields (Greek spelled ASCII), the width as
-`scale_multiple` or `loss_width`, and [`lo_concrete`](@ref)'s extra keys; an
+`efficiency_constant` or `loss_width`, and [`lo_concrete`](@ref)'s extra keys; an
 unknown key is refused, a field the owner's defaults have no key for is
-required, every other absent key inherits the defaults. A `scale_multiple`
-goes through [`lo_resolve_scale_multiple`](@ref) at
-[`lo_scale_multiple_shape`](@ref).
+required, every other absent key inherits the defaults. A `efficiency_constant`
+goes through [`lo_resolve_efficiency_constant`](@ref) at
+[`lo_efficiency_constant_shape`](@ref).
 """
 function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "local_optimization",
                       tags::TagRegistry = LO_TAGS)
@@ -216,17 +216,17 @@ function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::Abstract
         haskey(d, toml_key(C, f)) || _lo_has_default(C, f, defaults) ||
             throw(ArgumentError("[$sec] needs `$(toml_key(C, f))`"))
     end
-    # A plain `scale_multiple` FIELD (a fixed-loss arm such as LocalOptimizationDoneRight's
-    # Welsch-HQ-ECM) is read below, through `lo_resolve_scale_multiple`, like a width's:
+    # A plain `efficiency_constant` FIELD (a fixed-loss arm such as LocalOptimizationDoneRight's
+    # Welsch-HQ-ECM) is read below, through `lo_resolve_efficiency_constant`, like a width's:
     # converting the key here as a field would turn the string "cross_validated" into a
     # MethodError before the hook sees it.
-    kw = _table_kwargs(C, d; skip = (:scale_multiple,))
-    haskey(d, "scale_multiple") && haskey(d, "loss_width") &&
-        throw(ArgumentError("[$sec] give `scale_multiple` or `loss_width`, not both"))
+    kw = _table_kwargs(C, d; skip = (:efficiency_constant,))
+    haskey(d, "efficiency_constant") && haskey(d, "loss_width") &&
+        throw(ArgumentError("[$sec] give `efficiency_constant` or `loss_width`, not both"))
     haskey(d, "loss_width") && return lo_construct(C; defaults, kw..., loss_width = Float64(d["loss_width"]))
-    haskey(d, "scale_multiple") || return lo_construct(C; defaults, kw...)
-    scale_multiple = lo_resolve_scale_multiple(C, lo_scale_multiple_shape(C), d["scale_multiple"]; class)
-    return lo_construct(C; defaults, kw..., scale_multiple)
+    haskey(d, "efficiency_constant") || return lo_construct(C; defaults, kw...)
+    efficiency_constant = lo_resolve_efficiency_constant(C, lo_efficiency_constant_shape(C), d["efficiency_constant"]; class)
+    return lo_construct(C; defaults, kw..., efficiency_constant)
 end
 
 # The terminal placement's table names its strategy in a nested `inner` table,
@@ -380,7 +380,7 @@ config_dict(lo::AbstractLocalOptimization) = lo_config_dict(lo)
 The TOML table of any registered strategy: VisualGeometryToolkitCore's
 `toml_table` field walk (the width skipped, Greek spelled ASCII, a field's
 own spelling through `toml_field`), its `type` ([`lo_tag`](@ref)), its `loss`
-for a loss-parametric family, and its width as `scale_multiple` or
+for a loss-parametric family, and its width as `efficiency_constant` or
 `loss_width` (no width writes nothing).
 """
 function lo_config_dict(lo::AbstractLocalOptimization)
@@ -396,10 +396,10 @@ end
 # (`config_dict`, so a downstream inner strategy writes its own keys).
 lo_config_dict(lo::TerminalLO) = Dict{String, Any}("type" => lo_tag(lo), "inner" => config_dict(lo.inner))
 
-# The width mode, written as its key: `scale_multiple`, or `loss_width` (an
+# The width mode, written as its key: `efficiency_constant`, or `loss_width` (an
 # absolute width, `√s2` of `LossWidth(w) = (1, w²)`); no width writes nothing.
 _width_to_toml!(d, ::Nothing) = d
-_width_to_toml!(d, w::ScaleMultiple{Float64}) = (d["scale_multiple"] = w.value; d)
+_width_to_toml!(d, w::EfficiencyConstant{Float64}) = (d["efficiency_constant"] = w.value; d)
 function _width_to_toml!(d, w::LossWidth{NTuple{2, Float64}})
     m, s2 = w.value
     d["loss_width"] = m * sqrt(s2)

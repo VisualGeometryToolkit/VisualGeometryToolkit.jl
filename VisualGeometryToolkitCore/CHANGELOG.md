@@ -21,6 +21,16 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **Breaking: a width multiple is the `efficiency_constant`, always the PLAIN multiple** (the owner's Q7 ruling). The
+  keyword, field and TOML key `scale_multiple` is `efficiency_constant` (`deploy(shape, s2; codim,
+  efficiency_constant)`, a `DeployedLoss`'s `efficiency_constant`), the width mode `ScaleMultiple` is
+  `EfficiencyConstant` (its persisted axis name `:efficiency_constant`), and it defaults to
+  `efficiency_constant(shape, codim)`. The per-shape currencies are retired: the LO contract's
+  `deployed_scale_multiple` hook is removed, so `loss_at` deploys `c·ŝ` for every shape; a Geman–McClure multiple is
+  no longer read as a half-weight depth. Stored values were migrated once at full precision (`decision_width(GM, m)`;
+  Barron `m/√2` downstream), so every result is bit-identical. `EfficiencyConstant(c)` refuses a non-positive or
+  non-finite `c` (give no width to follow the scorer). The retired names are in `check_naming`'s `RETIRED_NAMES`, with
+  the call forms of `noise_sigma`.
 - **New: the robust stages' scale hand-off, `ScaleSource`, `noise_scale`, `scale_source` and `scale_input`**
   (public; the robust-estimation contract, owner rulings Q1/Q2). Every robust result will record ONE scale — the one it
   ran with, or the one it estimated — and where it came from:

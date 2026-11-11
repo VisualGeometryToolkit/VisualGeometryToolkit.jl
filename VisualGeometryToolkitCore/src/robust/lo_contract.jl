@@ -5,7 +5,7 @@
 #
 #   lo_workspace(::Type{P}, ::Type{T}, lo, n) -> L       [nothing]  built once per composed workspace
 #   locally_optimize!(L, lo, problem, θ, cs::ConsensusSet, buf::ScoreBuffers, scoring) -> lo_estimate(…)
-#   lo_width(lo) -> nothing | ScaleMultiple | LossWidth  the width mode of a width-carrying optimizer
+#   lo_width(lo) -> nothing | EfficiencyConstant | LossWidth  the width mode of a width-carrying optimizer
 #   with_width(lo, w) -> typeof(lo) at the width mode w
 #   loss_at(lo, shape, cs, scoring, buf) -> DeployedLoss the loss it runs at, resolved from its mode
 #
@@ -91,10 +91,10 @@ lo_estimate(model::M, retcode::Symbol; iterations::Int = 0, residuals_current::B
     FitResult{M, LoInfo}(model, retcode, iterations, NaN, 0, LoInfo(residuals_current))
 
 """
-    lo_width(lo) -> nothing | ScaleMultiple{Float64} | LossWidth{NTuple{2,Float64}}
+    lo_width(lo) -> nothing | EfficiencyConstant{Float64} | LossWidth{NTuple{2,Float64}}
 
 The width mode of a width-carrying local optimizer: `nothing` (follow the
-scorer's [`decision_boundary`](@ref)), [`ScaleMultiple`](@ref)`(m)` (the loss
+scorer's [`decision_boundary`](@ref)), [`EfficiencyConstant`](@ref)`(m)` (the loss
 width `m·ŝ` at the consensus scale) or [`LossWidth`](@ref) (an absolute width).
 The owner of the strategy implements it; a strategy with no width mode (the
 seed, a self-scaling optimizer) keeps the default `missing`.
@@ -104,24 +104,14 @@ lo_width(::AbstractLocalOptimization) = missing
 """
     width_scale_interface(w) -> ScaleInterface
 
-The [`ScaleInterface`](@ref) label of a width mode: `ScaleMultiple` →
+The [`ScaleInterface`](@ref) label of a width mode: `EfficiencyConstant` →
 `ConsensusAnchored()`, `LossWidth` → `FixedScale()`, `nothing` →
 `FollowsScorer()` — what a width-carrying strategy's `scale_interface`
 returns, so the label has one source of truth.
 """
 width_scale_interface(::Nothing) = FollowsScorer()
-width_scale_interface(::ScaleMultiple) = ConsensusAnchored()
+width_scale_interface(::EfficiencyConstant) = ConsensusAnchored()
 width_scale_interface(::LossWidth) = FixedScale()
-
-"""
-    deployed_scale_multiple(lo, shape, m, s2, scoring) -> Float64
-
-The plain scale multiple a deployment's `scale_multiple` slot takes, from the
-strategy's `m` stated in its loss's own currency (a half-weight depth for
-Geman–McClure, a width multiple for Welsch, …). The owner of the strategy
-states its currency; the default is the identity.
-"""
-deployed_scale_multiple(::AbstractLocalOptimization, _shape, m::Float64, _s2, _scoring) = m
 
 """
     loss_at(lo, shape, cs::ConsensusSet, scoring, buf::ScoreBuffers) -> DeployedLoss
@@ -129,29 +119,29 @@ deployed_scale_multiple(::AbstractLocalOptimization, _shape, m::Float64, _s2, _s
 THE resolution of a width-carrying local optimizer's loss, statically
 dispatched on its width mode [`lo_width`](@ref):
 
-- `nothing` (follow the scorer): `deploy(shape, w²; scale_multiple = 1)` with
+- `nothing` (follow the scorer): `deploy(shape, w²; efficiency_constant = 1)` with
   `w = decision_width(shape, decision_boundary(scoring, buf))` — the loss's
   decision boundary at the scorer's (the identity for `TLSShape`): a threshold
   scorer's constant threshold, or the Student-t + uniform scorer's MAP crossover
   at the current consensus scale and its outlier half-width, re-estimated with
   every score;
-- `ScaleMultiple(m)`: `deploy(shape, ŝ²; scale_multiple = deployed_scale_multiple(lo, shape, m, ŝ², scoring))`,
-  `ŝ² = max(scale_s2(cs), eps())` — the consensus-anchored width;
-- `LossWidth((m₀, s2))`: `deploy(shape, max(s2, eps()); scale_multiple = m₀)` — the absolute width.
+- `EfficiencyConstant(m)`: `deploy(shape, ŝ²; efficiency_constant = m)`, `ŝ² = max(scale_s2(cs), eps())` — the
+  consensus-anchored width, `m` always the plain multiple (`loss_width = m·ŝ`) whatever the shape;
+- `LossWidth((m₀, s2))`: `deploy(shape, max(s2, eps()); efficiency_constant = m₀)` — the absolute width.
 """
 loss_at(lo::AbstractLocalOptimization, shape, cs::ConsensusSet, scoring, buf) =
     _loss_at(lo_width(lo), lo, shape, cs, scoring, buf)
 
 function _loss_at(::Nothing, lo, shape, cs, scoring, buf)
     w = decision_width(shape, decision_boundary(scoring, buf))
-    return deploy(shape, w^2; scale_multiple = 1.0)
+    return deploy(shape, w^2; efficiency_constant = 1.0)
 end
-function _loss_at(sm::ScaleMultiple{Float64}, lo, shape, cs, scoring, buf)
+function _loss_at(sm::EfficiencyConstant{Float64}, lo, shape, cs, scoring, buf)
     s2 = max(scale_s2(cs), eps())
-    return deploy(shape, s2; scale_multiple = deployed_scale_multiple(lo, shape, sm.value, s2, scoring))
+    return deploy(shape, s2; efficiency_constant = sm.value)
 end
 _loss_at(lw::LossWidth{NTuple{2, Float64}}, lo, shape, cs, scoring, buf) =
-    deploy(shape, max(lw.value[2], eps()); scale_multiple = lw.value[1])
+    deploy(shape, max(lw.value[2], eps()); efficiency_constant = lw.value[1])
 _loss_at(::Missing, lo, _shape, _cs, _scoring, _buf) =
     throw(ArgumentError("$(nameof(typeof(lo))) has no width mode (lo_width), so it has no loss to deploy"))
 
@@ -159,11 +149,11 @@ _loss_at(::Missing, lo, _shape, _cs, _scoring, _buf) =
     width_s2(lo, cs::ConsensusSet) -> Float64
 
 The squared scale a width-carrying strategy's mode runs at — the consensus
-scale under `ScaleMultiple`, the absolute `s2` under `LossWidth`, both floored
+scale under `EfficiencyConstant`, the absolute `s2` under `LossWidth`, both floored
 at eps; the INITIAL estimate of a self-scaling strategy is `scale_s2(cs)`.
 """
 width_s2(lo::AbstractLocalOptimization, cs::ConsensusSet) = _width_s2(lo_width(lo), cs)
-_width_s2(::ScaleMultiple, cs) = max(scale_s2(cs), eps())
+_width_s2(::EfficiencyConstant, cs) = max(scale_s2(cs), eps())
 _width_s2(lw::LossWidth{NTuple{2, Float64}}, cs) = max(lw.value[2], eps())
 _width_s2(::Union{Nothing, Missing}, cs) = max(scale_s2(cs), eps())
 
@@ -182,7 +172,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
     ArgumentError(
         "$(nameof(S)) has no decision boundary (has_decision_boundary is false) for a local optimization " *
             "with no width to follow; give it an explicit width: " *
-            "with_width(lo, ScaleMultiple(m)) or with_width(lo, LossWidth(w))"
+            "with_width(lo, EfficiencyConstant(m)) or with_width(lo, LossWidth(w))"
     )
 )
 

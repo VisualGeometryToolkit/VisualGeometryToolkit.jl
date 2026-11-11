@@ -18,7 +18,7 @@ module EngineFixtures
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models
     using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
-        tuning_table, ScaleMultipleWindow, PairUnit
+        tuning_table, EfficiencyConstantWindow, PairUnit
     using VisualGeometryToolkitCore: width_axis_name
 
     export EPAIR_GT_VARIANCE, epair, starts_pool, subpair, engine_scene, roster_tuning, write_roster_sidecar
@@ -73,18 +73,18 @@ module EngineFixtures
 
     The tuning record the roster readers are tested on: a windowed-bootstrap spec on
     the registered phototourism split, five-point grids of the three width axes
-    (`grids`, and their `values`) and the scale-multiple window `[1, 3.3]`.
+    (`grids`, and their `values`) and the efficiency-constant window `[1, 3.3]`.
     """
     function roster_tuning()
         spec = tuning_spec(Dict{String,Any}("tuning" => Dict{String,Any}("t" => Dict{String,Any}(
-            "type" => "windowed_bootstrap", "scale_multiple_window" => Dict("lo" => 1.0, "hi" => 3.3),
+            "type" => "windowed_bootstrap", "efficiency_constant_window" => Dict("lo" => 1.0, "hi" => 3.3),
             "cross_validation" => Dict{String,Any}("scene_split" => Dict{String,Any}(
                 "type" => "registered", "name" => "phototourism"))))), "t")
         grids = Dict{Symbol,GridSpec}(:outlier_halfwidth => SpacedGrid(0.01, 0.1, LinearCount(5)),
                                       :loss_width => SpacedGrid(0.001, 0.01, LinearCount(5)),
-                                      :scale_multiple => SpacedGrid(1.0, 3.3, LinearCount(5)))
+                                      :efficiency_constant => SpacedGrid(1.0, 3.3, LinearCount(5)))
         values = Dict(k => grid(v) for (k, v) in grids)
-        return (; spec, grids, values, window = ScaleMultipleWindow(1.0, 3.3))
+        return (; spec, grids, values, window = EfficiencyConstantWindow(1.0, 3.3))
     end
 
     """

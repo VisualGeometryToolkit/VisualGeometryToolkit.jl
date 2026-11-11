@@ -221,7 +221,7 @@ A strategy is selected in TOML by tag:
 [pipelines.homography]
 scoring            = { type = "msac", threshold = 3.0 }  # px; a Student-t: { type = "student_t_uniform", outlier_halfwidth = 20.0 }
 local_optimization = { type = "irls", loss = "tls" }     # no width key: follow the scorer
-# explicit widths: { type = "irls", loss = "welsch", scale_multiple = 2.5 }
+# explicit widths: { type = "irls", loss = "welsch", efficiency_constant = 2.5 }
 #              or  { type = "irls", loss = "welsch", loss_width = 2.0 }   (both keys: ArgumentError)
 ```
 
@@ -230,7 +230,7 @@ local_optimization = { type = "irls", loss = "tls" }     # no width key: follow 
 package's — and `loss` a tag of [`LOSS_TAGS`](@ref). The registries are
 VisualGeometryToolkitCore `TagRegistry` values; a retired tag is refused with its
 successor's name. The paper strategies and their cross-validated operating
-points (`scale_multiple = "cross_validated"`) are LocalOptimizationDoneRight's:
+points (`efficiency_constant = "cross_validated"`) are LocalOptimizationDoneRight's:
 
 ```julia
 using VisualGeometryToolkitEstimation: local_optimization_from_toml, LO_TAGS
@@ -268,7 +268,7 @@ const MY_LO_TAGS = VgtkEstimation.@lo_registry ROWS defaults = MY_DEFAULTS["loca
 A strategy's exceptions are methods of the hooks — [`lo_admits`](@ref),
 [`lo_key`](@ref), [`lo_field`](@ref), [`lo_field_from_toml`](@ref),
 [`lo_absent`](@ref), [`lo_validate`](@ref), [`lo_concrete`](@ref),
-[`lo_scale_multiple_shape`](@ref) and [`lo_resolve_scale_multiple`](@ref) —
+[`lo_efficiency_constant_shape`](@ref) and [`lo_resolve_efficiency_constant`](@ref) —
 all of them [`CONTRACT_GENERICS`](@ref); the reader and writer are the same for
 every strategy.
 
@@ -293,8 +293,8 @@ lo_field_from_toml
 lo_absent
 lo_validate
 lo_concrete
-lo_scale_multiple_shape
-lo_resolve_scale_multiple
+lo_efficiency_constant_shape
+lo_resolve_efficiency_constant
 LOSS_TAGS
 MODEL_UPDATE_TAGS
 NUISANCE_TAGS

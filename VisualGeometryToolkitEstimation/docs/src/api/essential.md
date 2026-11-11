@@ -29,11 +29,11 @@ refine_essential
 `find_essential`'s default threshold, 1 px (`[pipelines.essential]` in
 `configs/default.toml`), is a convention (OpenCV's `findEssentialMat`), not a
 tuned value. The paper's cross-validated operating points — the per-class
-scale multiples of the Welsch half-quadratic lift, with their provenance — are
+efficiency constants of the Welsch half-quadratic lift, with their provenance — are
 LocalOptimizationDoneRight's tuning constants (`tuning_constant`,
-`WELSCH_HQ_SCALE_MULTIPLE_ESSENTIAL`, …) and are supplied with its strategy:
+`WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL`, …) and are supplied with its strategy:
 `find_essential(cam1, cam2, cs; scoring = …, local_optimization =
-HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_ESSENTIAL))`.
+HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL))`.
 
 ## The Pure Rotation
 

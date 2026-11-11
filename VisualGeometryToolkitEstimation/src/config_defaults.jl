@@ -51,7 +51,7 @@ Look a default up in `configs/default.toml`. `table` is a dotted path
 missing table or key BY DESIGN: a keyword default that is not in the file
 would be a silent second source of truth, which is what this mechanism exists
 to prevent. A strategy's width is deliberately NOT a default: with none it
-follows the scorer's decision point, and an explicit `scale_multiple` or
+follows the scorer's decision point, and an explicit `efficiency_constant` or
 `loss_width` is the caller's.
 """
 _dflt(table::AbstractString, key::AbstractString) = toml_default(_TOML_DEFAULTS, table, key)

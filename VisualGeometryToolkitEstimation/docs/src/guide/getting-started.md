@@ -62,7 +62,7 @@ LocalOptimizationDoneRight's:
 
 ```julia
 using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
-using LocalOptimizationDoneRight: HQ, StudentTUniform, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
+using LocalOptimizationDoneRight: HQ, StudentTUniform, WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
 cs = csponds(src, dst)
@@ -71,7 +71,7 @@ problem = HomographyProblem(cs)
 result = find_homography(cs;
     scoring = StudentTUniformScoring(problem, 20.0;    # outlier half-width, pixels
                                      scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-    local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
+    local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 ```
 
 A bare `threshold` or `outlier_halfwidth` keyword is refused by every RANSAC
@@ -94,7 +94,7 @@ result = ransac(problem, MsacScoring(problem; threshold = 2.0);
 
 # a Welsch IRLS anchored at the consensus set's scale
 result = ransac(problem, MsacScoring(problem; threshold = 2.0);
-                local_optimization = Irls{WelschShape}(scale_multiple = 2.5))
+                local_optimization = Irls{WelschShape}(efficiency_constant = 2.5))
 
 # the marginal scorer with a weakly-informative scale prior, or its predictive variant
 # scoring = StudentTUniformScoring(problem, 20.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())

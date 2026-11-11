@@ -1,24 +1,24 @@
 # Triggs — the robustified chart LM (one NLLSsolver LM under a loss with
-# Triggs' second-order correction, width scale_multiple·ŝ): its strategy
+# Triggs' second-order correction, width efficiency_constant·ŝ): its strategy
 # identity and configuration, that it serves every chart problem — the circle
 # (its pipeline default, Welsch) and the homography — and that it admits exactly
 # the loss shapes Irls admits.
 
 @testitem "Triggs: strategy identity and configuration" begin
     using Test
-    using VisualGeometryToolkitCore: CauchyShape, WelschShape, GaussianShape, ScaleMultiple, LossWidth, lo_width, with_width,
+    using VisualGeometryToolkitCore: CauchyShape, WelschShape, GaussianShape, EfficiencyConstant, LossWidth, lo_width, with_width,
         optimization_path, scale_interface, ConsensusAnchored, FixedScale, lo_label, lo_marker
     using VisualGeometryToolkitEstimation: Triggs, Irls, LO_TAGS, local_optimization_from_toml, config_dict, fixed_width
-    lo = Triggs{CauchyShape}(scale_multiple = 2.5)
-    @test lo_width(lo) == ScaleMultiple(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
+    lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
+    @test lo_width(lo) == EfficiencyConstant(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
     # its own path: the Loss-Path label and the path's marker, beside IRLS's
     @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
     @test LO_TAGS["triggs"] === Triggs
-    @test local_optimization_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "scale_multiple" => 2.5);
+    @test local_optimization_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
                                        class = :circle) == lo
     @test local_optimization_from_toml(config_dict(lo); class = :circle) == lo
-    @test with_width(lo, ScaleMultiple(3.0)) == Triggs{CauchyShape}(scale_multiple = 3.0)
-    # the multiple is required, and the width is always a scale multiple
+    @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)
+    # the multiple is required, and the width is always an efficiency constant
     @test_throws UndefKeywordError Triggs{CauchyShape}()
     @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
     @test_throws ArgumentError local_optimization_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "loss_width" => 2.0);
@@ -29,7 +29,7 @@
     @test frozen isa Triggs{CauchyShape} && lo_width(frozen) == fixed_width(lo, 4.0)
     @test lo_width(frozen) isa LossWidth && scale_interface(frozen) == FixedScale()
     @test with_width(frozen, lo_width(lo)) == lo
-    @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(scale_multiple = 2.5), 4.0))
+    @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(efficiency_constant = 2.5), 4.0))
 end
 
 @testitem "Triggs: the homography and the circle refit with it" setup = [HomographyScenes] begin
@@ -41,7 +41,7 @@ end
     import VisualGeometryToolkitEstimation as VgtkEstimation
     src, dst = homography_pairs(StableRNG(41), H_PX; n_in = 150, n_out = 60, σ = 0.5, source = gaussian_source)
     pairs = src .=> dst
-    lo = Triggs{CauchyShape}(scale_multiple = 2.5)
+    lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
     res = find_homography(pairs; local_optimization = lo, rng = StableRNG(42))
     irls = find_homography(pairs; rng = StableRNG(42))                    # the class default, Irls{TLSShape}
     err(H) = projective_distance(SMatrix{3, 3}(estimate(H)), SMatrix{3, 3}(H_PX))
@@ -55,7 +55,7 @@ end
     @test converged(r)
     @test err(r) < 1.0e-2
     # the Welsch loss runs through the same strategy (any shape the robustifier takes)
-    @test converged(find_homography(pairs; local_optimization = Triggs{WelschShape}(scale_multiple = 2.0), rng = StableRNG(44)))
+    @test converged(find_homography(pairs; local_optimization = Triggs{WelschShape}(efficiency_constant = 2.0), rng = StableRNG(44)))
     # a codimension-1 problem through the same method: the circle. The Cauchy
     # loss's influence decays as loss_width²/r, never to zero, so far outliers
     # pull the M-estimate by ~loss_width²·n_out/(n_in·r_out): measured 0.006 px
@@ -88,12 +88,12 @@ end
     n_admitted = 0
     for (K, tag) in VgtkEstimation._LOSS_TABLE
         # the same set as Irls: no narrower, no wider (Barron, whose shape carries its α, is refused by both)
-        width = K === GaussianShape ? (;) : (; scale_multiple = 2.5)
+        width = K === GaussianShape ? (;) : (; efficiency_constant = 2.5)
         @test admits(() -> Irls{K}()) == admits(() -> Triggs{K}(; width...))
         admits(() -> Irls{K}()) || (@test_throws "$(nameof(K))" Triggs{K}(; width...); continue)
         n_admitted += 1
         lo = Triggs{K}(; width...)
-        toml = Dict{String, Any}("type" => "triggs", "loss" => tag, (K === GaussianShape ? () : ("scale_multiple" => 2.5,))...)
+        toml = Dict{String, Any}("type" => "triggs", "loss" => tag, (K === GaussianShape ? () : ("efficiency_constant" => 2.5,))...)
         @test local_optimization_from_toml(toml; class = :circle) == lo
         @test local_optimization_from_toml(config_dict(lo); class = :circle) == lo
         # outlier-free points at σ = 0.3 px: to the noise level (σ/√100 ≈ 0.03 px)
@@ -104,6 +104,6 @@ end
     end
     @test n_admitted == 7
     # the plain LM has no width
-    @test_throws ArgumentError Triggs{GaussianShape}(scale_multiple = 2.5)
+    @test_throws ArgumentError Triggs{GaussianShape}(efficiency_constant = 2.5)
     @test_throws ArgumentError Triggs{GaussianShape}(loss_width = 2.0)
 end

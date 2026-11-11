@@ -16,7 +16,7 @@
 
 using Test
 using VisualGeometryToolkitCore: AbstractLocalOptimization, AbstractLossShape, TLSShape, WelschShape,
-    GaussianShape, BarronShape, ScaleMultiple, LossWidth, NoScale, optimization_path, lo_label,
+    GaussianShape, BarronShape, EfficiencyConstant, LossWidth, NoScale, optimization_path, lo_label,
     loss_family, scale_interface, contract_generic_violations
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: Irls, NoLocalOptimization, LO_TAGS, LOSS_TAGS, @lo_registry,
@@ -26,7 +26,7 @@ using VisualGeometryToolkitEstimation: Irls, NoLocalOptimization, LO_TAGS, LOSS_
 # --- a downstream strategy family, registered here --------------------------
 # A plain strategy with a Greek field, a width, a default read from another
 # key (`lo_key`), a cross-field check (`lo_validate`) and a string scale
-# multiple it resolves itself (`lo_resolve_scale_multiple`); and a
+# multiple it resolves itself (`lo_resolve_efficiency_constant`); and a
 # loss-parametric family with its own admission (`lo_admits`).
 struct ToyArm{W} <: AbstractLocalOptimization
     max_iter::Int
@@ -46,11 +46,11 @@ struct ToyWrap{S <: AbstractLocalOptimization, W} <: AbstractLocalOptimization
     width::W
 end
 ToyWrap{S}(factor::Real, width::W) where {S, W} = ToyWrap{S, W}(Float64(factor), width)
-# A fixed-loss arm whose scale multiple is a plain FIELD, not a `width` (the shape of
+# A fixed-loss arm whose efficiency constant is a plain FIELD, not a `width` (the shape of
 # LocalOptimizationDoneRight's Welsch-HQ-ECM): a string value must reach the resolver.
 struct ToyEcm <: AbstractLocalOptimization
     max_iter::Int
-    scale_multiple::Float64
+    efficiency_constant::Float64
 end
 VgtkEstimation.strategy_loss(::Type{<:ToyWrap{S}}) where {S} = VgtkEstimation.strategy_loss(S)
 
@@ -72,12 +72,12 @@ const TOY_TAGS = @lo_registry TOY_ROWS defaults = TOY_DEFAULTS retired = ("toy" 
 VgtkEstimation.lo_key(::Type{<:ToyArm}, ::Val{:max_iter}) = "toy_iters"
 VgtkEstimation.lo_validate(lo::ToyArm) =
     lo.μ > 0 ? lo : throw(ArgumentError("ToyArm: μ must be positive, got $(lo.μ)"))
-VgtkEstimation.lo_resolve_scale_multiple(::Type{<:ToyArm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
+VgtkEstimation.lo_resolve_efficiency_constant(::Type{<:ToyArm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
     v == "tuned" ? (class === :homography && K === WelschShape ? 3.0 : 4.0) :
-    throw(ArgumentError("toy: unknown scale multiple $(repr(v))"))
-VgtkEstimation.lo_resolve_scale_multiple(::Type{<:ToyEcm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
+    throw(ArgumentError("toy: unknown efficiency constant $(repr(v))"))
+VgtkEstimation.lo_resolve_efficiency_constant(::Type{<:ToyEcm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
     v == "cross_validated" ? (class === :homography ? 2.5 : 3.5) :
-    throw(ArgumentError("toy_ecm: scale_multiple must be a number or \"cross_validated\", got $(repr(v))"))
+    throw(ArgumentError("toy_ecm: efficiency_constant must be a number or \"cross_validated\", got $(repr(v))"))
 VgtkEstimation.lo_admits(::Type{<:ToyFamily}, ::Type{K}) where {K} =
     K === GaussianShape ? throw(ArgumentError("ToyFamily{GaussianShape}: no")) : lo_admits_shape(ToyFamily{K}, K)
 
@@ -101,15 +101,15 @@ end
 @testset "LO-strategy machinery" begin
     @testset "this package's strategies through the public API" begin
         @test lo_construct(Irls{TLSShape}) == Irls{TLSShape}()
-        @test lo_construct(Irls{WelschShape}; scale_multiple = 2) == Irls{WelschShape}(scale_multiple = 2.0)
+        @test lo_construct(Irls{WelschShape}; efficiency_constant = 2) == Irls{WelschShape}(efficiency_constant = 2.0)
         @test lo_construct(Irls{WelschShape}; defaults = Dict("irls" => Dict("max_iter" => 3))).max_iter == 3
         @test lo_tag(Irls{TLSShape}) == "irls"
         @test lo_tag(NoLocalOptimization) == "no_local_optimization"
         @test lo_defaults(Irls) === VgtkEstimation._TOML_DEFAULTS["local_optimization"]
         # The writer, recorded before the machinery went public (byte-identical tables).
         @test lo_config_dict(Irls{TLSShape}()) == Dict{String, Any}("type" => "irls", "loss" => "tls", "max_iter" => 25)
-        @test lo_config_dict(Irls{WelschShape}(scale_multiple = 2.0)) ==
-            Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "scale_multiple" => 2.0)
+        @test lo_config_dict(Irls{WelschShape}(efficiency_constant = 2.0)) ==
+            Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "efficiency_constant" => 2.0)
         @test lo_config_dict(Irls{WelschShape}(loss_width = 2)) ==
             Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "loss_width" => 2.0)
         @test lo_config_dict(NoLocalOptimization()) == Dict{String, Any}("type" => "no_local_optimization")
@@ -117,12 +117,12 @@ end
 
         # The terminal placement: a nested `inner` table, read through the same registry.
         term = Dict{String, Any}("type" => "terminal_lo",
-                                 "inner" => Dict{String, Any}("type" => "irls", "loss" => "welsch", "scale_multiple" => 1.5))
+                                 "inner" => Dict{String, Any}("type" => "irls", "loss" => "welsch", "efficiency_constant" => 1.5))
         t = local_optimization_from_toml(term; class = :essential)
-        @test t == VgtkEstimation.TerminalLO(Irls{WelschShape}(scale_multiple = 1.5))
+        @test t == VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5))
         @test lo_tag(t) == "terminal_lo"
         @test lo_config_dict(t) == config_dict(t) ==
-            Dict{String, Any}("type" => "terminal_lo", "inner" => lo_config_dict(Irls{WelschShape}(scale_multiple = 1.5)))
+            Dict{String, Any}("type" => "terminal_lo", "inner" => lo_config_dict(Irls{WelschShape}(efficiency_constant = 1.5)))
         @test local_optimization_from_toml(config_dict(t); class = :essential) == t
         @test VgtkEstimation.TerminalLO(; inner = Irls{TLSShape}()) == VgtkEstimation.TerminalLO(Irls{TLSShape}())
         # The config-tag gate reads the nested strategy's tag too, at any depth.
@@ -158,13 +158,13 @@ end
         @test_throws ArgumentError Irls{BarronShape}()
         @test_throws ArgumentError lo_admits_shape(Irls{BarronShape}, BarronShape)
         @test lo_admits_shape(Irls{TLSShape}, TLSShape) === nothing
-        # Least squares takes no scale multiple, by keyword or by key.
-        @test_throws ArgumentError Irls{GaussianShape}(scale_multiple = 1.0)
+        # Least squares takes no efficiency constant, by keyword or by key.
+        @test_throws ArgumentError Irls{GaussianShape}(efficiency_constant = 1.0)
         @test_throws ArgumentError local_optimization_from_toml(
-            Dict("type" => "irls", "loss" => "gaussian", "scale_multiple" => 1.0); class = :homography)
-        # The core resolves no string scale multiple.
+            Dict("type" => "irls", "loss" => "gaussian", "efficiency_constant" => 1.0); class = :homography)
+        # The core resolves no string efficiency constant.
         @test_throws ArgumentError local_optimization_from_toml(
-            Dict("type" => "irls", "loss" => "tls", "scale_multiple" => "cross_validated"); class = :homography)
+            Dict("type" => "irls", "loss" => "tls", "efficiency_constant" => "cross_validated"); class = :homography)
     end
 
     @testset "an unknown loss is refused, naming every LOSS_TAGS key" begin
@@ -199,10 +199,10 @@ end
         a = ToyArm()
         @test (a.max_iter, a.μ) == (4, 0.5)
         @test a.width === nothing
-        @test ToyArm(; scale_multiple = 2).width === ScaleMultiple(2.0)
+        @test ToyArm(; efficiency_constant = 2).width === EfficiencyConstant(2.0)
         @test ToyArm(; loss_width = 2).width isa LossWidth
         @test_throws ArgumentError ToyArm(; μ = -1.0)                         # lo_validate
-        @test_throws ArgumentError ToyArm(; scale_multiple = 1, loss_width = 1)
+        @test_throws ArgumentError ToyArm(; efficiency_constant = 1, loss_width = 1)
         @test_throws ArgumentError ToyArm(; iters = 3)                        # unknown keyword
         @test ToyFamily{TLSShape}().max_iter == 9
         @test_throws ArgumentError ToyFamily{GaussianShape}()                 # lo_admits
@@ -211,33 +211,33 @@ end
         # The reader through the merged registry, and the writer back.
         tags = merge(LO_TAGS, TOY_TAGS)
         load(d; class = :homography) = local_optimization_from_toml(d; class, tags)
-        t = load(Dict("type" => "toy_arm", "mu" => 0.25, "scale_multiple" => "tuned"))
-        @test t == ToyArm(; μ = 0.25, scale_multiple = 3.0)                   # lo_resolve_scale_multiple at its shape
-        @test load(Dict("type" => "toy_arm", "scale_multiple" => "tuned"); class = :essential).width === ScaleMultiple(4.0)
-        @test load(Dict("type" => "toy_arm", "scale_multiple" => 1.5)).width === ScaleMultiple(1.5)
-        @test lo_config_dict(t) == Dict{String, Any}("type" => "toy_arm", "max_iter" => 4, "mu" => 0.25, "scale_multiple" => 3.0)
+        t = load(Dict("type" => "toy_arm", "mu" => 0.25, "efficiency_constant" => "tuned"))
+        @test t == ToyArm(; μ = 0.25, efficiency_constant = 3.0)                   # lo_resolve_efficiency_constant at its shape
+        @test load(Dict("type" => "toy_arm", "efficiency_constant" => "tuned"); class = :essential).width === EfficiencyConstant(4.0)
+        @test load(Dict("type" => "toy_arm", "efficiency_constant" => 1.5)).width === EfficiencyConstant(1.5)
+        @test lo_config_dict(t) == Dict{String, Any}("type" => "toy_arm", "max_iter" => 4, "mu" => 0.25, "efficiency_constant" => 3.0)
         @test load(lo_config_dict(t)) == t
         f = load(Dict("type" => "toy_family", "loss" => "welsch", "loss_width" => 2.0))
         @test f == ToyFamily{WelschShape}(; loss_width = 2.0)
         @test config_dict(f) == Dict{String, Any}("type" => "toy_family", "loss" => "welsch", "max_iter" => 9, "loss_width" => 2.0)
         @test load(config_dict(f)) == f
-        # A plain `scale_multiple` field: a string reaches the resolver (it was a MethodError
+        # A plain `efficiency_constant` field: a string reaches the resolver (it was a MethodError
         # from the field's conversion), a number is taken as given, and the table round-trips.
-        e = load(Dict("type" => "toy_ecm", "scale_multiple" => "cross_validated"))
+        e = load(Dict("type" => "toy_ecm", "efficiency_constant" => "cross_validated"))
         @test e == ToyEcm(5, 2.5)
-        @test load(Dict("type" => "toy_ecm", "scale_multiple" => "cross_validated"); class = :essential) == ToyEcm(5, 3.5)
-        @test load(Dict("type" => "toy_ecm", "scale_multiple" => 1.75, "max_iter" => 2)) == ToyEcm(2, 1.75)
+        @test load(Dict("type" => "toy_ecm", "efficiency_constant" => "cross_validated"); class = :essential) == ToyEcm(5, 3.5)
+        @test load(Dict("type" => "toy_ecm", "efficiency_constant" => 1.75, "max_iter" => 2)) == ToyEcm(2, 1.75)
         d = lo_config_dict(e)
-        @test d == Dict{String, Any}("type" => "toy_ecm", "max_iter" => 5, "scale_multiple" => 2.5)
+        @test d == Dict{String, Any}("type" => "toy_ecm", "max_iter" => 5, "efficiency_constant" => 2.5)
         @test load(d) == e
         @test load(lo_config_dict(load(d))) == e
         msg = try
-            load(Dict("type" => "toy_ecm", "scale_multiple" => "tuned")); ""
+            load(Dict("type" => "toy_ecm", "efficiency_constant" => "tuned")); ""
         catch err
             err isa ArgumentError ? sprint(showerror, err) : "not an ArgumentError: $err"
         end
         @test occursin("must be a number or \"cross_validated\"", msg) && occursin("\"tuned\"", msg)
-        @test_throws ArgumentError load(Dict("type" => "toy_ecm"))                          # its scale_multiple is required
+        @test_throws ArgumentError load(Dict("type" => "toy_ecm"))                          # its efficiency_constant is required
         @test_throws ArgumentError load(Dict("type" => "toy_family"))                       # no loss
         @test_throws ArgumentError load(Dict("type" => "toy_family", "loss" => "nope"))     # unknown loss
         @test_throws ArgumentError load(Dict("type" => "toy_arm", "mu" => 1.0, "nu" => 2))  # unknown key
@@ -247,10 +247,10 @@ end
         @test ToyWrap{Irls{WelschShape}}().factor == 1.4
         @test_throws ArgumentError ToyWrap{NoLocalOptimization}()
         @test_throws ArgumentError ToyWrap{Irls{BarronShape}}()
-        w = load(Dict("type" => "toy_wrap", "inner" => "irls", "loss" => "welsch", "factor" => 2.0, "scale_multiple" => 1.5))
-        @test w == ToyWrap{Irls{WelschShape}}(; factor = 2.0, scale_multiple = 1.5)
+        w = load(Dict("type" => "toy_wrap", "inner" => "irls", "loss" => "welsch", "factor" => 2.0, "efficiency_constant" => 1.5))
+        @test w == ToyWrap{Irls{WelschShape}}(; factor = 2.0, efficiency_constant = 1.5)
         @test config_dict(w) == Dict{String, Any}("type" => "toy_wrap", "inner" => "irls", "loss" => "welsch",
-                                                  "factor" => 2.0, "scale_multiple" => 1.5)
+                                                  "factor" => 2.0, "efficiency_constant" => 1.5)
         @test load(config_dict(w)) == w
         @test_throws ArgumentError load(Dict("type" => "toy_wrap", "loss" => "welsch", "max_iter" => 3))   # unknown key
 

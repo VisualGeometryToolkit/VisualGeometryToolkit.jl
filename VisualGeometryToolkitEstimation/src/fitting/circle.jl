@@ -11,7 +11,7 @@
 """
     find_circle(points; scoring = MsacScoring(problem; threshold = 1.0),
         max_trials = 10000, min_trials = 100,
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), config = nothing)
+        local_optimization = Triggs{WelschShape}(efficiency_constant = 2.5), config = nothing)
 
 Robust estimation of a 2D circle through points (a contour, edge points) by
 RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCore's
@@ -19,7 +19,7 @@ RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCor
 `‖x − c‖² − r²` — the geometric distance to the circle to first order — and,
 as local optimization, the robustified LM ([`Triggs`](@ref)) on the centre
 and log radius: one Levenberg–Marquardt solve from the hypothesis over all the
-points under the Welsch loss at `scale_multiple·ŝ`, ŝ the Student-t scale of the
+points under the Welsch loss at `efficiency_constant·ŝ`, ŝ the Student-t scale of the
 hypothesis's Sampson errors. Every default
 shown is `configs/default.toml`'s (`[ransac]`, `[pipelines.circle]`); a keyword
 overrides.
@@ -34,7 +34,7 @@ drawn); test `converged(result)` before reading the model (see
   storage canonicalized internally), plain: unit isotropic noise.
 - `scoring`: the scorer, its width **in PIXELS** (the points' unit), as [`find_homography`](@ref); default `[pipelines.circle] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] CircleProblem, n_data)`.
-- `local_optimization`: default `Triggs{WelschShape}(scale_multiple = 2.5)`; any
+- `local_optimization`: default `Triggs{WelschShape}(efficiency_constant = 2.5)`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
@@ -44,7 +44,7 @@ end
 
 """
     refine_circle(circle, points; scoring = MsacScoring(problem; threshold = 1.0),
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), workspace = nothing) -> RansacEstimate
+        local_optimization = Triggs{WelschShape}(efficiency_constant = 2.5), workspace = nothing) -> RansacEstimate
 
 The 2D circle through `points` refined from the given `circle`:
 [`find_circle`](@ref)'s step without the sampling. `local_optimization` is the

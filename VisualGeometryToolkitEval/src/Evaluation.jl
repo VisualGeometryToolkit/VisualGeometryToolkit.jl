@@ -47,7 +47,7 @@ using StableRNGs: StableRNG
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractLocalOptimization, NativeRefit,
     ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Csponds, Point2, sources, targets,
     converged, estimate, iterations, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
-    WidthAxis, ScaleMultiple, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
+    WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,
     score!, external_workspace, prepare_external!, refine_external!, select_on_grid!, stage_selection,
     selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2
@@ -63,7 +63,7 @@ import .._config_default   # configs/default.toml (config_defaults.jl)
 using ..Stats: bootstrap_ci, reference_scale, eligible_maa, maa_threshold, finite_median, pair_outcomes,
     stable_seed
 using ..Tuning: CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, stats_objective, SpacedGrid, GridSpec,
-    ScaleMultipleWindow, BudgetSampling, grid, extend, budget_rng, unit_statistics,
+    EfficiencyConstantWindow, BudgetSampling, grid, extend, budget_rng, unit_statistics,
     resampling_rng, _sample_indices,
     # the criteria and their objective: Tuning owns them since 2026-10-02
     # (they came from RSDR's eval_strategy.jl — see tuning/policies.jl).
@@ -92,7 +92,7 @@ export
     bootstrap_trials, compute_method_rows,
     # engine/ — the composition evaluator
     # operating_point.jl
-    OPERATING_SCALE_MULTIPLE,
+    OPERATING_EFFICIENCY_CONSTANT,
     # geometry.jl
     problem_type, PairCtx, build_pair_ctx, model_imc, refit_seed, essential_bearings,
     perturbed_seed_E,
@@ -123,7 +123,7 @@ include("evaluation/cv_probe.jl")
 include("evaluation/rigid_invariance.jl")   # rigid_invariance_errors: the rigid-target invariance criterion
 include("evaluation/coarse_fine_artifact.jl")   # save_coarse_fine_artifact, deployed_setting
 include("evaluation/evaluate_val.jl")
-include("evaluation/engine/operating_point.jl")  # OPERATING_SCALE_MULTIPLE, lo_iteration_budget
+include("evaluation/engine/operating_point.jl")  # OPERATING_EFFICIENCY_CONSTANT, lo_iteration_budget
 include("evaluation/engine/geometry.jl")         # PairGeom, PairCtx, build_pair_ctx, model_imc, problem_type
 include("evaluation/engine/refit.jl")            # the refit layer (refit_imc!), ScoreGuarded, RefitHalfwidth
 include("evaluation/engine/lo_matrix.jl")        # LoRefitSpec, apply_lo_refits

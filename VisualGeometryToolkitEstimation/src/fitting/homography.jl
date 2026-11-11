@@ -101,7 +101,7 @@ model family is kept), and the data follow as the `find_*` takes them.
 `local_optimization` is the homography's RANSAC local-optimization step, run
 here alone from the given model (no sampling): `H` is scored under the scorer,
 ITS consensus set is the one a consensus-anchored strategy reads its scale ŝ
-from (the scale-multiple widths, [`Triggs`](@ref)), exactly as the RANSAC loop
+from (the efficiency-constant widths, [`Triggs`](@ref)), exactly as the RANSAC loop
 scores a hypothesis, and the strategy runs once from `H`. The refined model is
 re-scored and kept when it succeeds at the problem's consensus test; otherwise
 `H` comes back. When `H` holds no consensus beyond a minimal sample, nothing is

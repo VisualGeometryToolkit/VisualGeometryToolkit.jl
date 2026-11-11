@@ -58,9 +58,9 @@ first-order Lie-algebra least squares over every edge (Chatterjee & Govindu
 - `local_optimization` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
   configs/default.toml `[fit_rotation_averaging] local_optimization`, Huber).
-  `scale_multiple = m` puts the width at `m · σ̂` (σ̂ the median of the
-  residual angles over `√chisq_median(3)`; `m` in the loss's currency,
-  [`plain_scale_multiple`](@ref)), `loss_width = w` at `w` radians; with no
+  `efficiency_constant = m` puts the width at `m · σ̂` (σ̂ the median of the
+  residual angles over `√chisq_median(3)`; `m` the plain multiple, for every
+  loss), `loss_width = w` at `w` radians; with no
   width — a fit has no scorer to follow — the shape's efficiency constant at
   codimension 3, which only an M-estimator has.
 - `tol` — converged when an iteration moves every frame by less than `tol`

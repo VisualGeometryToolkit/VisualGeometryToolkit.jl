@@ -55,7 +55,7 @@
         noisy[(7, 9)] = RotMatrix(RotationVec(0.6, 0.0, 0.0)) * rel(7, 9)
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); local_optimization = Irls{TLSShape}(scale_multiple = 3.0))
+        res = fit_rotation_averaging(weighted(noisy, p); local_optimization = Irls{TLSShape}(efficiency_constant = 3.0))
         seed = spectral_rotation_averaging(weighted(noisy, p))
         @test res.irls_weights[(7, 9)] == 0 && res.irls_weights[(8, 9)] == 0
         @test all(isfinite, estimate(res)[9])

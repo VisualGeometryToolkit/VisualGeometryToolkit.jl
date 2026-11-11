@@ -103,20 +103,20 @@ struct JointCoarseFine <: TuningScheme
 end
 
 """
-    WindowedBootstrap(scale_multiple_window, outlier_halfwidth, loss_width,
-                      scale_multiple, criterion, cross_validation, budget_sampling)
+    WindowedBootstrap(efficiency_constant_window, outlier_halfwidth, loss_width,
+                      efficiency_constant, criterion, cross_validation, budget_sampling)
 
 The bootstrap tuning harness (Evaluation `WindowedGridMethod`): per draw of
 `budget_sampling` from the validation units of `cross_validation`, the free argmin of `criterion` over the native-grid columns inside
-the scale-multiple window at the draw's reference scale. `outlier_halfwidth`
-and `loss_width` are the native grids, `scale_multiple` the standardized display
+the efficiency-constant window at the draw's reference scale. `outlier_halfwidth`
+and `loss_width` are the native grids, `efficiency_constant` the standardized display
 axis. TOML tag `"windowed_bootstrap"`.
 """
 struct WindowedBootstrap <: TuningScheme
-    scale_multiple_window::ScaleMultipleWindow
+    efficiency_constant_window::EfficiencyConstantWindow
     outlier_halfwidth::TuningAxis
     loss_width::TuningAxis
-    scale_multiple::TuningAxis
+    efficiency_constant::TuningAxis
     criterion::TuningCriterion
     cross_validation::CrossValidation
     budget_sampling::BudgetSampling

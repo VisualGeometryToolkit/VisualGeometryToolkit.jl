@@ -134,7 +134,7 @@ function _config_lo_error!(ctx, best_idx::Int, width::Float64, cfg)
     best_idx == 0 && return (NaN32, Int64(0))
     seed = refit_seed(ctx, ctx.pair.models[best_idx])
     # PROTOCOL: outlier-half-width arms refit at their tuned native;
-    # scale-multiple arms supply nat_ref = nothing (consensus from selection,
+    # efficiency-constant arms supply nat_ref = nothing (consensus from selection,
     # width in the LO). `consumed_native` maps the incoming native (on
     # `nat_axis`) to the refiner's consumed axis — identity for a native
     # refiner, outlier half-width → loss width for an external one — so every

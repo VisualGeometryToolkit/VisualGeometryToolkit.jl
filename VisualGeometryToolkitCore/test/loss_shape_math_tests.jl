@@ -69,10 +69,10 @@
         # pinned here against the closed forms of the Symbol vocabulary it
         # replaced, EXACTLY (`==`), for all three.
         @testset "gnc_* dispatch on GncSurrogate == the retired Symbol forms" begin
-            # `scale_multiple = 1` so sq_loss_width IS cbar2, which is what the old API took.
-            kW = deploy(WEL, cbar2; scale_multiple = 1.0)
-            kG = deploy(GM, cbar2; scale_multiple = 1.0)
-            kT = deploy(TLS_, cbar2; scale_multiple = 1.0)
+            # `efficiency_constant = 1` so sq_loss_width IS cbar2, which is what the old API took.
+            kW = deploy(WEL, cbar2; efficiency_constant = 1.0)
+            kG = deploy(GM, cbar2; efficiency_constant = 1.0)
+            kT = deploy(TLS_, cbar2; efficiency_constant = 1.0)
             @test gnc_surrogate(WEL) isa WidthAnnealed
             @test gnc_surrogate(GM) isa ConvexityAnnealed
             @test gnc_surrogate(TLS_) isa BandAnnealed
@@ -108,12 +108,12 @@
         # inert homotopy that reports convergence is the failure this trait
         # replaced. (Regression for the adversarial-review finding.)
         @testset "a NoSurrogate shape refuses to anneal" begin
-            kC = deploy(CAU, cbar2; scale_multiple = 1.0)
+            kC = deploy(CAU, cbar2; efficiency_constant = 1.0)
             @test gnc_surrogate(CAU) isa NoSurrogate
             @test_throws MethodError sq_loss_width(anneal(kC, 10.0))
             @test_throws MethodError lift_weight(anneal(kC, 10.0), 1.0)
             # ...while a graduating shape anneals exactly
-            @test sq_loss_width(anneal(deploy(WEL, cbar2; scale_multiple = 1.0), 2.5)) === 2.5 * cbar2
+            @test sq_loss_width(anneal(deploy(WEL, cbar2; efficiency_constant = 1.0), 2.5)) === 2.5 * cbar2
         end
 
         # =====================================================================
@@ -181,25 +181,25 @@
             end
         end
 
-        # The scale_multiple/s2 split exists so one can move without the other.
+        # The efficiency_constant/s2 split exists so one can move without the other.
         # Exported verbs with no consumer yet (RVG adopts them next), so they
         # are pinned here rather than left to rot untested.
-        @testset "deployment movers: scale_multiple and s2 move independently" begin
+        @testset "deployment movers: efficiency_constant and s2 move independently" begin
             loss = deploy(WEL, 0.37^2; codim = 2)
             @test loss_shape(loss) === WEL
-            @test loss.scale_multiple == efficiency_constant(WelschShape, 2) == 3.251
-            @test sq_loss_width(loss) == loss.scale_multiple^2 * loss.s2
-            # `loss_width` is scale_multiple*sqrt(s2), NEVER sqrt(scale_multiple^2*s2)
+            @test loss.efficiency_constant == efficiency_constant(WelschShape, 2) == 3.251
+            @test sq_loss_width(loss) == loss.efficiency_constant^2 * loss.s2
+            # `loss_width` is efficiency_constant*sqrt(s2), NEVER sqrt(efficiency_constant^2*s2)
             # — the association is the whole reason s2 is stored rather than a
             # linear sigma.
-            @test VgtkCore.loss_width(loss) == loss.scale_multiple * sqrt(loss.s2)
+            @test VgtkCore.loss_width(loss) == loss.efficiency_constant * sqrt(loss.s2)
             # the old field name is gone, not aliased
             @test !hasproperty(loss, :k)
 
             re = rescale(loss, 0.5^2)          # new noise, same multiple
-            @test re.s2 == 0.25 && re.scale_multiple == loss.scale_multiple && loss_shape(re) === WEL
+            @test re.s2 == 0.25 && re.efficiency_constant == loss.efficiency_constant && loss_shape(re) === WEL
             rt = retune(loss, 1.6)             # new multiple, same noise
-            @test rt.scale_multiple == 1.6 && rt.s2 == loss.s2
+            @test rt.efficiency_constant == 1.6 && rt.s2 == loss.s2
 
             # codimension_factor is the ratio it says it is, and 1 at d = 1
             @test codimension_factor(WelschShape, 1) == 1.0
@@ -372,7 +372,7 @@
     @testset "z-block rinv2 = −κ̄′(w̄), and the half-weight decision width, per liftable shape" begin
         c2 = 1.7
         for shape in (WEL, GM, CAU, STLS)
-            d = deploy(shape, c2; scale_multiple = 1.0)
+            d = deploy(shape, c2; efficiency_constant = 1.0)
             wmax = lift_wmax(shape)
             κ̄(w̄) = lift_conjugate(d, wmax * w̄) / wmax        # the normalized conjugate penalty
             for w̄ in (1.0e-8, 1.0e-6, 1.0e-3, 0.01, 0.1, 0.3, 0.5, 0.7, 0.9, 0.99, 0.999)
@@ -385,11 +385,11 @@
             end
             @test lift_zblock(d, 1.0)[1] ≈ 0 atol = 1.0e-14      # r²(1) = 0: the inlier limit
             # the normalized IRLS weight at the decision threshold is ½ at the width it returns
-            for scale_multiple in (0.8, 1.0, 1.5, 2.5, 3.3), ŝ in (0.003, 1.0)
-                decision_boundary = scale_multiple * ŝ
+            for efficiency_constant in (0.8, 1.0, 1.5, 2.5, 3.3), ŝ in (0.003, 1.0)
+                decision_boundary = efficiency_constant * ŝ
                 loss_width = decision_width(shape, decision_boundary)
                 @test loss_width > 0
-                @test lift_weight(deploy(shape, loss_width^2; scale_multiple = 1.0), decision_boundary^2) / wmax ≈ 0.5 atol = 1.0e-12
+                @test lift_weight(deploy(shape, loss_width^2; efficiency_constant = 1.0), decision_boundary^2) / wmax ≈ 0.5 atol = 1.0e-12
             end
         end
         # a hard truncation decides at its own width

@@ -1,5 +1,5 @@
-# The scale multiple → native maps on the outlier-half-width axis, the curried
-# per-axis map, the native-axis conversions at an operating scale multiple, and
+# The efficiency constant → native maps on the outlier-half-width axis, the curried
+# per-axis map, the native-axis conversions at an operating efficiency constant, and
 # the absolute loss width a `LossWidth` value carries (robust/width_axes.jl;
 # moved from RANSACScoringDoneRight, K+ 2026-10-09).
 
@@ -7,7 +7,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ScaleMultiple, LossWidth, OutlierHalfwidth, to_native, native_map,
+    using VisualGeometryToolkitCore: EfficiencyConstant, LossWidth, OutlierHalfwidth, to_native, native_map,
         outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, loss_width,
         GauInlier, decision_width, decision_boundary, with_width, MsacScoring, RansacScoring
 
@@ -29,35 +29,35 @@
             f = native_map(axis; d_g)
             @test f(3.0, 0.2) == to_native(axis, 3.0, 0.2; d_g)
         end
-        @test_throws MethodError native_map(ScaleMultiple(); d_g = 1)
+        @test_throws MethodError native_map(EfficiencyConstant(); d_g = 1)
         @test_throws UndefKeywordError native_map(LossWidth())
     end
 
-    @testset "outlier half-width <-> loss width at an operating scale multiple" begin
+    @testset "outlier half-width <-> loss width at an operating efficiency constant" begin
         # round trip
-        for operating_scale_multiple in (1.0, 2.5, 4.0), outlier_halfwidth in (0.7, 5.0, 120.0), d_g in (1, 2)
-            w = outlier_halfwidth_to_loss_width(outlier_halfwidth; operating_scale_multiple, d_g)
-            @test loss_width_to_outlier_halfwidth(w; operating_scale_multiple, d_g) ≈
+        for operating_efficiency_constant in (1.0, 2.5, 4.0), outlier_halfwidth in (0.7, 5.0, 120.0), d_g in (1, 2)
+            w = outlier_halfwidth_to_loss_width(outlier_halfwidth; operating_efficiency_constant, d_g)
+            @test loss_width_to_outlier_halfwidth(w; operating_efficiency_constant, d_g) ≈
                   outlier_halfwidth rtol = 1.0e-12
         end
         # d_g = 1: the closed form around the unit-scale crossover, bitwise
         uh1(m) = decision_width(GauInlier(1.0; d_g = 1), Float64(m))
         for m in (1.0, 2.5, 4.0), x in (0.004, 0.05, 0.7, 120.0)
-            @test outlier_halfwidth_to_loss_width(x; operating_scale_multiple = m, d_g = 1) === Float64(m) * x / uh1(m)
-            @test loss_width_to_outlier_halfwidth(x; operating_scale_multiple = m, d_g = 1) === uh1(m) * x / Float64(m)
+            @test outlier_halfwidth_to_loss_width(x; operating_efficiency_constant = m, d_g = 1) === Float64(m) * x / uh1(m)
+            @test loss_width_to_outlier_halfwidth(x; operating_efficiency_constant = m, d_g = 1) === uh1(m) * x / Float64(m)
         end
         # d_g = 2: the codim-2 boundary itself — the half-width at scale ŝ maps
         # to the loss width m·ŝ
         for m in (1.0, 2.5, 4.0), ŝ in (0.01, 0.3, 2.0)
             h = decision_width(GauInlier(ŝ^2; d_g = 2), m * ŝ)
-            @test outlier_halfwidth_to_loss_width(h; operating_scale_multiple = m, d_g = 2) ≈ m * ŝ rtol = 1.0e-12
+            @test outlier_halfwidth_to_loss_width(h; operating_efficiency_constant = m, d_g = 2) ≈ m * ŝ rtol = 1.0e-12
             # ≡ to_native on the two axes at the same (m, ŝ)
             @test outlier_halfwidth_to_loss_width(to_native(OutlierHalfwidth(), m, ŝ; d_g = 2);
-                                                  operating_scale_multiple = m, d_g = 2) ≈
+                                                  operating_efficiency_constant = m, d_g = 2) ≈
                   to_native(LossWidth(), m, ŝ; d_g = 2) rtol = 1.0e-12
         end
-        @test_throws UndefKeywordError outlier_halfwidth_to_loss_width(1.0; operating_scale_multiple = 2.5)
-        @test_throws UndefKeywordError loss_width_to_outlier_halfwidth(1.0; operating_scale_multiple = 2.5)
+        @test_throws UndefKeywordError outlier_halfwidth_to_loss_width(1.0; operating_efficiency_constant = 2.5)
+        @test_throws UndefKeywordError loss_width_to_outlier_halfwidth(1.0; operating_efficiency_constant = 2.5)
     end
 
     @testset "loss_width(::LossWidth): the absolute width of a factored value" begin

@@ -63,8 +63,8 @@ end
     prior = ones(n); prior[out] .= 0
     resp = fit_rotation(withattrs(cs; weights = prior); local_optimization = Irls{HuberShape}())
     @test rotation_angle(estimate(resp) * R') < 5.0e-4
-    # RC's width (Huber at 3 × 1.4826 × median-of-angles) as a scale_multiple
-    @test rotation_angle(estimate(fit_rotation(cs; local_optimization = Irls{HuberShape}(scale_multiple = 3 * 1.4826 * 1.1774))) * R') < 1.0e-3
+    # RC's width (Huber at 3 × 1.4826 × median-of-angles) as an efficiency_constant
+    @test rotation_angle(estimate(fit_rotation(cs; local_optimization = Irls{HuberShape}(efficiency_constant = 3 * 1.4826 * 1.1774))) * R') < 1.0e-3
     # the metadata is at the RETURNED rotation, also when the fit stops at max_iter: the residuals, σ̂ and the weights
     # recomputed from the estimate agree with the result's (they came from the previous iterate before)
     using VisualGeometryToolkitCore: chisq_median, deploy, sq_loss_width, weight, angle_between
@@ -86,10 +86,10 @@ end
     resx = fit_rotation(withattrs(Csponds(as, bsx); weights = priorx); local_optimization = Irls{HuberShape}())
     @test resx.sigma < 2σ && rotation_angle(estimate(resx) * R') < 1.0e-3
     # a loss that is no M-estimator (TLS, a hard cutoff): no efficiency default, so its width multiple is required —
-    # an ArgumentError naming `scale_multiple` without one; with one, the fit runs and rejects the outliers
+    # an ArgumentError naming `efficiency_constant` without one; with one, the fit runs and rejects the outliers
     e = try fit_rotation(cs; local_optimization = Irls{TLSShape}()); nothing catch e; e end
-    @test e isa ArgumentError && occursin("scale_multiple", e.msg) && occursin("TLSShape", e.msg)
-    rest = fit_rotation(cs; local_optimization = Irls{TLSShape}(scale_multiple = 3.0))
+    @test e isa ArgumentError && occursin("efficiency_constant", e.msg) && occursin("TLSShape", e.msg)
+    rest = fit_rotation(cs; local_optimization = Irls{TLSShape}(efficiency_constant = 3.0))
     @test retcode(rest) === :converged && rotation_angle(estimate(rest) * R') < 5.0e-4
     @test all(iszero, rest.weights[out])
 end

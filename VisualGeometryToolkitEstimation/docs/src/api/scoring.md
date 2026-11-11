@@ -89,11 +89,11 @@ A strategy implements VisualGeometryToolkitCore's local-optimization contract
 (`lo_workspace`, `locally_optimize!`, returning `lo_estimate`). The core
 strategies are [`NoLocalOptimization`](@ref), [`Irls`](@ref) and
 [`Triggs`](@ref) — the robustified chart LM: one NLLSsolver solve under a
-loss with Triggs' second-order correction, its width `scale_multiple·ŝ` at the
+loss with Triggs' second-order correction, its width `efficiency_constant·ŝ` at the
 hypothesis's Student-t scale, for every chart problem; every other strategy is
 LocalOptimizationDoneRight's. A width-carrying strategy's loss is
 resolved by `loss_at` from its width mode (`lo_width`, set by `with_width`):
-no width follows the scorer's `decision_boundary`, `ScaleMultiple(m)` anchors
+no width follows the scorer's `decision_boundary`, `EfficiencyConstant(m)` anchors
 it at the consensus scale, `LossWidth(w)` fixes it.
 
 The contract is VisualGeometryToolkitCore's:
@@ -103,7 +103,7 @@ The contract is VisualGeometryToolkitCore's:
 [`with_width`](@extref VisualGeometryToolkitCore.with_width),
 [`loss_at`](@extref VisualGeometryToolkitCore.loss_at),
 [`check_composition`](@extref VisualGeometryToolkitCore.check_composition),
-[`ScaleMultiple`](@extref VisualGeometryToolkitCore.ScaleMultiple) and
+[`EfficiencyConstant`](@extref VisualGeometryToolkitCore.EfficiencyConstant) and
 [`LossWidth`](@extref VisualGeometryToolkitCore.LossWidth). The methods of
 `locally_optimize!` for this package's strategies are documented here.
 
@@ -139,10 +139,8 @@ downstream strategy can use them to follow the same width rules.
 ```@docs
 lo_loss
 strategy_loss
-deployed_shape
 fixed_width
 lo_width_value
-plain_scale_multiple
 locally_optimize_rescored!
 ```
 

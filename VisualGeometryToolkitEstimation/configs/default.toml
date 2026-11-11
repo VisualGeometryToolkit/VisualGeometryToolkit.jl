@@ -60,22 +60,21 @@ local_optimization = { type = "irls", loss = "tls" }
 [pipelines.circle]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
 # The robustified LM (Triggs): one NLLSsolver LM under the Welsch loss,
-# Triggs-corrected, its width scale_multiple·ŝ at the hypothesis's Student-t
-# scale — the multiple read in Welsch's own currency (plain_scale_multiple: the
-# plain multiple, loss_width = scale_multiple·ŝ), as for Irls{WelschShape}.
+# its width efficiency_constant·ŝ at the hypothesis's Student-t scale (the plain
+# multiple, loss_width = efficiency_constant·ŝ), as for Irls{WelschShape}.
 # Triggs has NO default multiple. Welsch (owner-decided 2026-10-29, was Cauchy):
 # a redescending loss, so far outliers lose all influence — on a fisheye image
 # circle's contour the Cauchy fit sat ~0.9 px from the inliers' least squares.
 # 2.5: owner-decided (2026-10-29), the stack's operating multiple of a
 # consensus-anchored LM width (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
+local_optimization = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
 [pipelines.ellipse]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
 # The circle's robustified LM (Triggs{WelschShape}). 2.5: owner-decided (2026-10-29), the
 # stack's operating multiple of a consensus-anchored LM width
 # (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
+local_optimization = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
 [pipelines.absolute_pose]
 scoring            = { type = "msac", threshold = 8.0 }   # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
@@ -128,7 +127,7 @@ mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop 
 # The branch audit's trimmed depth refits (`_branch_residual`): each trim keeps
 # the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
 # lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
-branch_audit_scale_multiple = 3.5322300675464233
+branch_audit_efficiency_constant = 3.5322300675464233
 
 [robot_world_hand_eye]
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
@@ -156,19 +155,19 @@ forward_tolerance = 1.0e-3
 # max_iter — the reweight-and-solve iterations at most), read by
 # local_optimization_from_toml. The loss's width follows the robust scale of the
 # residual angles at every iteration (no width key: the shape's efficiency
-# constant at codimension 2; `scale_multiple = m`: m × σ̂).
+# constant at codimension 2; `efficiency_constant = m`: m × σ̂).
 local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
 [fit_rotation_averaging]
 # The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): the
 # loss's width follows the robust scale of the edges' residual angles
-# (`scale_multiple` × σ̂, the shape's efficiency constant at codimension 3
+# (`efficiency_constant` × σ̂, the shape's efficiency constant at codimension 3
 # unless the strategy gives one). An Irls strategy, read by local_optimization_from_toml.
 local_optimization = { type = "irls", loss = "huber", max_iter = 100 }
 tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
 # The reweighted least squares of `fit_linear`. The loss's width follows the
-# robust (MAD) scale of the residuals at every iteration (`scale_multiple` × σ̂,
+# robust (MAD) scale of the residuals at every iteration (`efficiency_constant` × σ̂,
 # the shape's efficiency constant at codimension 1 unless the strategy gives
 # one). An Irls strategy, read by local_optimization_from_toml.
 local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
@@ -176,10 +175,10 @@ tol                = 1.0e-12     # converged when an iteration moves x by less (
 [pipelines.radial_homography.lift_seed]
 # The plain-homography seed of the radial homography's lifted local optimization
 # (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the
-# correspondences inside a TLS loss at `scale_multiple` × σ̂, σ̂ the noise scale
+# correspondences inside a TLS loss at `efficiency_constant` × σ̂, σ̂ the noise scale
 # of the plain-H reprojection norms (codimension 2). 3·√chisq_median(2): three
 # medians of the norms.
-scale_multiple = 3.5322300675464233
+efficiency_constant = 3.5322300675464233
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC
@@ -282,7 +281,7 @@ label_prior = "flat"
 
 # -----------------------------------------------------------------------------
 # Local-optimization strategy internals. The keyword defaults of each strategy
-# constructor read its table. A strategy's width (`scale_multiple` or
+# constructor read its table. A strategy's width (`efficiency_constant` or
 # `loss_width`) is deliberately absent: given none it follows the scorer's
 # decision point.
 # -----------------------------------------------------------------------------

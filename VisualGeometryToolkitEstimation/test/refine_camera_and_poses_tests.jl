@@ -255,7 +255,7 @@ end
 end
 
 # A robust refine (`local_optimization`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
-# scale_multiple of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
+# efficiency_constant of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
 # (no least-squares stage); a refine estimates no scale; plain least squares unchanged; the refusals.
 @testitem "refine_camera_and_poses: local_optimization = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
@@ -282,10 +282,10 @@ end
     @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
     @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
     # A robust refine runs NO least-squares stage (the owner's ruling) and estimates no scale: its width is the
-    # strategy's scale_multiple times the caller's `scale` (the detections' σ). From this far start (every residual
+    # strategy's efficiency_constant times the caller's `scale` (the detections' σ). From this far start (every residual
     # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Irls{Huber} 0.175 px; Triggs{Welsch}
     # 0.30 px, 0.20 with a least-squares stage: one Welsch LM from a start 25 px off)
-    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
+    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo)
         rs = refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo, scale = 0.2)
         @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
@@ -298,17 +298,17 @@ end
                               E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
     cam1 = with_parameters(cam, θ .* SVector(1.005, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 1.0, -1.0))
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
-    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
+    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         r = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2)
         @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
-    # an absolute width needs no scale (Irls; Triggs takes a scale multiple only): Huber at loss_width 1.345 · 0.2 px
+    # an absolute width needs no scale (Irls; Triggs takes an efficiency constant only): Huber at loss_width 1.345 · 0.2 px
     rw = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = Irls{HuberShape}(loss_width = 1.345 * 0.2))
     @test retcode(rw) === :converged && err(rw) < 0.4 && rw.scale === nothing && rw.loss_width ≈ 1.345 * 0.2
     # the strategy from the LO's own TOML reader, and back
-    t = Dict("type" => "triggs", "loss" => "welsch", "scale_multiple" => 2.98)
+    t = Dict("type" => "triggs", "loss" => "welsch", "efficiency_constant" => 2.98)
     lo = local_optimization_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization")
-    @test lo == Triggs{WelschShape}(scale_multiple = 2.98) && config_dict(lo) == t
+    @test lo == Triggs{WelschShape}(efficiency_constant = 2.98) && config_dict(lo) == t
     # refusals: a strategy anchored on a RANSAC consensus set, one following a scorer's threshold, a scale without a
     # loss, a scorer (a refine takes none)
     @test_throws r"RANSAC consensus" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = NoLocalOptimization())

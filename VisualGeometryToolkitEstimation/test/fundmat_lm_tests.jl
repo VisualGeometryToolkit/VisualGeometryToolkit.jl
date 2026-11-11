@@ -55,7 +55,7 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
     sc = MsacScoring(typeof(prob); threshold = 0.05)   # outlier-free scene: wide enough for the perturbed seed's consensus
     ws = VgtkEstimation.RansacWorkspace(prob, sc)
     rlift = VgtkEstimation.locally_optimize(
-        prob, F_seed; local_optimization = VgtkEstimation.Irls{VgtkEstimation.WelschShape}(max_iter = 25, scale_multiple = 1.5),
+        prob, F_seed; local_optimization = VgtkEstimation.Irls{VgtkEstimation.WelschShape}(max_iter = 25, efficiency_constant = 1.5),
         scoring = sc, workspace = ws
     )
     @test estimate(rlift) !== nothing

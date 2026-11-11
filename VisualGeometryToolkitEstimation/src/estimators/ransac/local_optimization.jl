@@ -436,9 +436,6 @@ const _WrappedLO = Union{CountedLO, TerminalLO}
 lo_workspace(::Type{P}, ::Type{T}, lo::_WrappedLO, n::Int) where {P <: AbstractRansacProblem, T} =
     lo_workspace(P, T, lo.inner, n)
 lo_width(lo::_WrappedLO) = lo_width(lo.inner)
-deployed_scale_multiple(lo::_WrappedLO, shape, m::Float64, s2, scoring) =
-    deployed_scale_multiple(lo.inner, shape, m, s2, scoring)
-deployed_shape(lo::_WrappedLO) = deployed_shape(lo.inner)
 strategy_loss(::Type{<:CountedLO{L}}) where {L} = strategy_loss(L)
 strategy_loss(::Type{<:TerminalLO{L}}) where {L} = strategy_loss(L)
 VgtkCore.optimization_path(lo::_WrappedLO) = VgtkCore.optimization_path(lo.inner)

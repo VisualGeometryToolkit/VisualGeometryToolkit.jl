@@ -489,7 +489,7 @@ When `score_guard=true` the refined model is only accepted if it does not lower
 the seed's score (the seed is kept otherwise).
 
 The local optimizer receives its loss width through its width mode (VGC
-`loss_at`): a consensus-anchored strategy (`ScaleMultiple(m)`) reads the
+`loss_at`): a consensus-anchored strategy (`EfficiencyConstant(m)`) reads the
 consensus set's ŝ², an absolute one (`LossWidth`, see `with_width`) runs at the
 caller's width with the scoring untouched — the role-isolated validation
 controls (solo CV, oracle-scale) deploy the strategy that way — and a strategy

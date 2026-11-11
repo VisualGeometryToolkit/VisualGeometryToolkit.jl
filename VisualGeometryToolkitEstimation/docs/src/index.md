@@ -35,7 +35,7 @@ and local optimizers plug in by keyword.
   [Getting Started](guide/getting-started.md).
 - **Core local optimizations**: [`NoLocalOptimization`](@ref) and the static
   IRLS [`Irls`](@ref)`{K}` on any VisualGeometryToolkitCore loss shape, with its width
-  following the scorer, anchored at the consensus scale (`ScaleMultiple(m)`)
+  following the scorer, anchored at the consensus scale (`EfficiencyConstant(m)`)
   or absolute (`LossWidth(w)`). The refit is Levenberg–Marquardt on a minimal
   chart about the current model: sl(3) for `HomographyProblem`, Bartoli–Sturm
   for `FundMatProblem`, so(3)⊕R³ for `AbsolutePoseProblem` and `HandEyeProblem`.

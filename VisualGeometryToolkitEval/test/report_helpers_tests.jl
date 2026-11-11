@@ -153,7 +153,7 @@
         @test tuning_spec(cfg, "t"; under = Dict("cross_validation" => cv)) == ut_spec("t") == base
         # LODR `protocol_tuning`: [types] filtered by the scheme's fields, entry, then the cell's over
         types = Dict{String,Any}("cross_validation" => cv, "not_a_scheme_field" => Dict("x" => 1))
-        over = Dict{String,Any}("scale_multiple_window" => Dict{String,Any}("lo" => 1.5, "hi" => 2.5))
+        over = Dict{String,Any}("efficiency_constant_window" => Dict{String,Any}("lo" => 1.5, "hi" => 2.5))
         function lodr_protocol_tuning(name; over = Dict{String,Any}())
             en = cfg["tuning"][name]
             T = TUNING_TAGS["scheme"][en["type"]]
@@ -184,11 +184,11 @@
             @test nested == snapshot
         end
         o = deepcopy(over); e = layered_tuning_entry(cfg, "t"; over = o)
-        e["scale_multiple_window"]["lo"] = -1.0
+        e["efficiency_constant_window"]["lo"] = -1.0
         @test o == over                                                              # nor the `over` it was given
         @test_throws ArgumentError layered_tuning_entry(cfg, "nope")
         @test s != lodr_protocol_tuning("t")
-        @test tuning_table(s)["scale_multiple_window"]["lo"] == 1.5
+        @test tuning_table(s)["efficiency_constant_window"]["lo"] == 1.5
         @test_throws ArgumentError tuning_spec(cfg, "t"; under = Dict("cross_validation" => cv),
                                                over = Dict("typo_key" => 1))
         # an `over` naming another scheme replaces the entry: none of its keys is

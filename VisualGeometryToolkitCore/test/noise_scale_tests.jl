@@ -62,7 +62,7 @@
     end
 
     @testset "efficiency_constant: 95% Gaussian efficiency of the M-estimate" begin
-        # The constant's definition: at width scale_multiple·σ, scale_multiple = efficiency_constant(shape, d),
+        # The constant's definition: at width efficiency_constant·σ, efficiency_constant = efficiency_constant(shape, d),
         # the loss's M-estimate of a d-dim location has 95% of the sample mean's
         # efficiency under N(μ, σ²I). Paired: the same samples give both estimates.
         function mestimate(xs, S, c2)
@@ -77,14 +77,14 @@
             return μ
         end
         for (S, d) in ((WelschShape(), 1), (WelschShape(), 2), (CauchyShape(), 1), (GemanMcclureShape(), 2))
-            scale_multiple = efficiency_constant(typeof(S), d)
+            multiple = efficiency_constant(typeof(S), d)
             rng = MersenneTwister(60 + d)
             n, N = 400, 3000
             e_mean = zeros(N); e_m = zeros(N)
             for t in 1:N
                 xs = [SVector{d}(randn(rng, d)) for _ in 1:n]
                 e_mean[t] = sum(abs2, sum(xs) / n)
-                e_m[t] = sum(abs2, mestimate(xs, S, scale_multiple^2))
+                e_m[t] = sum(abs2, mestimate(xs, S, multiple^2))
             end
             # measured 2026-09-22: 0.952 / 0.948 / 0.952 / 0.948, bootstrap SE 0.006–0.008
             @test abs(mean(e_mean) / mean(e_m) - 0.95) < 0.025

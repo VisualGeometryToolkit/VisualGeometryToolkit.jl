@@ -16,10 +16,10 @@ artifact keys:
 
 | name | meaning |
 |---|---|
-| `scale_multiple` | a width as a multiple of the estimated inlier scale ŝ (dimensionless); width = scale_multiple · ŝ |
+| `efficiency_constant` | a width as a multiple of the estimated inlier scale ŝ (dimensionless); width = efficiency_constant · ŝ |
 | `loss_width` | a robust loss's width, supplied directly (no scale estimate): the width of a lifted loss, of a loss minimized by iteratively reweighted least squares (IRLS), or of a threshold score (a threshold is its truncated loss's width) |
 | `outlier_halfwidth` | the Student-t marginal's uniform outlier half-width |
-| `scale_multiple_window` | the standardized window `[lo, hi]` of scale multiples every search window is cut from |
+| `efficiency_constant_window` | the standardized window `[lo, hi]` of efficiency constants every search window is cut from |
 
 ## Where the parameters live: three levels
 
@@ -29,7 +29,7 @@ inherited through three levels:
 
 1. `[tags.<family>.<tag>]`: the default parameters of a tagged strategy (for
    example, `log_count` has `n = 200`). The untagged strategies use
-   `[types.<type>]` instead: the scale-multiple window, the grid extension,
+   `[types.<type>]` instead: the efficiency-constant window, the grid extension,
    the cross-validation and the budget sampling.
 2. `[schemes.<scheme>]`: the scheme's own defaults, where they differ from
    level 1.
@@ -75,13 +75,13 @@ intervals, so they have `d·p + 1` points.
 
 ### `window`: `WindowRule`
 
-`window_bounds(rule; scale_multiple_window, native, s2, center)` returns `(lo, hi)`.
+`window_bounds(rule; efficiency_constant_window, native, s2, center)` returns `(lo, hi)`.
 A rule refuses a context it needs and is not given.
 
 | tag | type | parameters | window |
 |---|---|---|---|
 | `fixed` | `FixedWindow` | `lo`, `hi` (required) | `[lo, hi]` in native units |
-| `standardized` | `StandardizedWindow` | none | the run's scale-multiple window |
+| `standardized` | `StandardizedWindow` | none | the run's efficiency-constant window |
 | `coverage` | `CoverageWindow` | `q_lo`, `q_hi`, `log_margin`, `zeta_octaves` | `[native(lo, ŝ_min/ζ)·e^-m, native(hi, ŝ_max·ζ)·e^m]`, where `(ŝ_min, ŝ_max) = scale_bounds(s2, (q_lo, q_hi))`, `ζ = 2^zeta_octaves` and `m = log_margin` |
 | `centered` | `CenteredWindow` | `factor` | `[center/factor, center·factor]` around a centre the axis supplies |
 
@@ -149,7 +149,7 @@ are refused as unknown.
 
 | key | type | fields |
 |---|---|---|
-| `scale_multiple_window` | `ScaleMultipleWindow` | `lo`, `hi` |
+| `efficiency_constant_window` | `EfficiencyConstantWindow` | `lo`, `hi` |
 | `grid_extension` | `GridExtension` | `npts` (per clipped side per round), `max_rounds` |
 | `cross_validation` | `CrossValidation` | `scene_split` (no default), `validation`, `test` (both `exhaustive` by default) |
 | `budget_sampling` | `BudgetSampling` | `sizes`, `n_draws`, `seed`, `rng` |
@@ -291,9 +291,9 @@ keys).
 
 | field | meaning |
 |---|---|
-| `scale_multiple_window` | the standardized window every search window is cut from |
+| `efficiency_constant_window` | the standardized window every search window is cut from |
 | `outlier_halfwidth`, `loss_width` | the native grids (axes) |
-| `scale_multiple` | the standardized display axis |
+| `efficiency_constant` | the standardized display axis |
 | `criterion` | the objective of each draw's windowed free argmin |
 | `cross_validation` | the scene split and the validation / test unit samplings |
 | `budget_sampling` | the validation budgets and draws (`compute_method_rows`) |
@@ -327,8 +327,8 @@ The bootstrap harness:
 ```toml
 [tuning.lo_sensitivity]
 type = "windowed_bootstrap"
-scale_multiple_window = { lo = 1.0, hi = 3.3 }
-scale_multiple = { spacing = { type = "linear_count", n = 17 } }
+efficiency_constant_window = { lo = 1.0, hi = 3.3 }
+efficiency_constant = { spacing = { type = "linear_count", n = 17 } }
 budget_sampling = { n_draws = 120 }
 cross_validation = { scene_split = { type = "registered", name = "phototourism" } }
 ```

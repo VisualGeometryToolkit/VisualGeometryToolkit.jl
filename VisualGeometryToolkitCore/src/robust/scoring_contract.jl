@@ -197,7 +197,7 @@ end
 
 The width setter shared by scorings and local optimizations: a scoring rebuilt
 at a native width (`with_width(scoring, OutlierHalfwidth(a))`), a local
-optimizer given an explicit width mode (`with_width(lo, ScaleMultiple(m))`,
+optimizer given an explicit width mode (`with_width(lo, EfficiencyConstant(m))`,
 `with_width(lo, LossWidth(w))`). The owner of the type implements it.
 """
 function with_width end

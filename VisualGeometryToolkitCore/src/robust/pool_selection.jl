@@ -112,7 +112,7 @@ function select_on_grid!(idxs::AbstractMatrix{Int32}, ::Type, scoring, grid::Abs
 end
 _width_of(::LossWidth, w::Float64) = LossWidth(w)
 _width_of(::OutlierHalfwidth, a::Float64) = OutlierHalfwidth(a)
-_width_of(::ScaleMultiple, m::Float64) = ScaleMultiple(m)
+_width_of(::EfficiencyConstant, m::Float64) = EfficiencyConstant(m)
 
 # The exact selection of a residual-quality family, pair by pair on the CPU backend: the score
 # kernel over the pair's models at every width, then the argmax kernel over its widths (one work

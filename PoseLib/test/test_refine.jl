@@ -6,12 +6,12 @@
 import VisualGeometryToolkitCore as VgtkCore
 using Random: MersenneTwister
 using LinearAlgebra: normalize, norm, dot
-using Rotations: AngleAxis
+using Rotations: AngleAxis, RotMatrix, rotation_angle
 using VisualGeometryToolkitCore: Csponds, withattrs, backproject_with_jacobian, s2_tangent_basis,
                           CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
                           TLSShape, HuberShape, CauchyShape, GaussianShape
 
-_rot_err_deg(Ra, Rb) = rad2deg(acos(clamp((sum(SMatrix{3,3}(Ra) .* SMatrix{3,3}(Rb)) - 1) / 2, -1, 1)))
+_rot_err_deg(Ra, Rb) = rad2deg(rotation_angle(RotMatrix{3}(SMatrix{3,3}(Ra)' * SMatrix{3,3}(Rb))))   # the angle of Raᵀ·Rb
 _nrm(Y) = SVector(Y[1] / Y[3], Y[2] / Y[3])
 _proj(K, Y) = _nrm(K * Y)
 # Projective 3×3 models agree up to scale and sign.

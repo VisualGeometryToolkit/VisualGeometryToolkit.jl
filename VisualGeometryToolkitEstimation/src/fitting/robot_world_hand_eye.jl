@@ -102,7 +102,7 @@ _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
     RobotWorldHandEyeCalibration(first(poses), Dict{K, Rigid3}(id => poses[m + 1] for (m, id) in enumerate(ids)))
 
 """
-    RobotWorldHandEyeMetadata{K, S}
+    RobotWorldHandEyeMetadata{K, S, L, W}
 
 `FitResult` metadata of [`fit_robot_world_hand_eye`](@ref) (`S = Float64`) and of
 [`refine_robot_world_hand_eye`](@ref) (`S = Nothing`: no pose-residual noise
@@ -137,8 +137,20 @@ the reprojection error per point in pixels). Here:
 - `σ_rot::S` (rad), `σ_trans::S` — the fit's per-block noise scales of its
   pose residual (given or profiled at the estimate); `nothing` for the
   refinement, whose residual is pixels at unit isotropic noise.
+- `weights::W` — the per-datum weights (the fit: one per pose observation; the
+  refinement: one per point), flattened marker by marker in `ids` order as
+  `residuals` is: lazy unit weights (`unit_weights`) for a least-squares estimate
+  (`L = Nothing`, `BinaryWeights`), the normalized loss weights `ρ′` of a
+  robust one (`L` the strategy type, `IrlsWeights`). Read with `weights(result)`;
+  `weight_kind(result)` dispatches on `L`.
+- `scale::Float64`, `scale_source::ScaleSource` — the scale record of the
+  robust-estimation contract (`noise_scale(result)`, `scale_source(result)`):
+  the scale a robust estimate ran at and where it came from; `NaN` and
+  `ScaleNone` for least squares or a width-only call.
+- `loss_width::Float64` — the loss width the robust estimate ran at (`NaN`
+  for least squares).
 """
-struct RobotWorldHandEyeMetadata{K, S <: Union{Float64, Nothing}}
+struct RobotWorldHandEyeMetadata{K, S <: Union{Float64, Nothing}, L, W <: AbstractVector{Float64}}
     residuals::Dict{K, Vector{Float64}}
     s2::Float64
     dof::Int
@@ -148,7 +160,18 @@ struct RobotWorldHandEyeMetadata{K, S <: Union{Float64, Nothing}}
     min_eigvec::Vector{Float64}
     σ_rot::S
     σ_trans::S
+    weights::W
+    scale::Float64
+    scale_source::VgtkCore.ScaleSource
+    loss_width::Float64
 end
+
+# The weights' kind, read off the strategy type `L` (§12 of the robust-estimation
+# contract): least squares carries binary all-ones weights, Irls and Triggs the
+# loss's weights.
+VgtkCore.weight_kind(::Type{<:RobotWorldHandEyeMetadata{K, S, L}}) where {K, S, L} = _strategy_weight_kind(L)
+_strategy_weight_kind(::Type{Nothing}) = VgtkCore.weight_kind(Nothing)
+_strategy_weight_kind(::Type{<:Union{Irls, Triggs}}) = VgtkCore.IrlsWeights()
 
 # Below this ratio of JᵀJ's smallest to largest eigenvalue the normal matrix is
 # numerically singular: an inverse at condition number ≥ 10¹² keeps no more than
@@ -162,16 +185,33 @@ const _ROBOT_WORLD_HAND_EYE_RANK_RTOL = 1.0e-12
 # marker) and their Jacobian `J` in the calibration's chart. The smallest
 # eigenpair of JᵀJ comes from the singular values of `J` (JᵀJ is never formed
 # here); below `_ROBOT_WORLD_HAND_EYE_RANK_RTOL` the covariance is unbounded, otherwise it
-# is `covariance(s2)` — the estimator's own, `nothing` when it has none.
+# is `covariance(s2)` — the estimator's own, `nothing` when it has none. The
+# robust record (`strategy`, the per-datum `weights`, the scale record and the
+# loss width) defaults to least squares: `Nothing`, all-ones unit weights,
+# `ScaleNone`, NaN. A robust estimate (`strategy !== nothing`) reports the
+# weighted statistics of the robust-estimation contract: `s2` the weighted
+# RSS over the weighted dof, `rms` the weighted root mean square (per datum as
+# `rms_rows` makes it), and `n` the support (the data of positive weight);
+# its `J` comes √w-scaled from the caller, so the eigen-diagnostics and the
+# covariance are the weighted problem's.
 function _robot_world_hand_eye_result(
         cal::RobotWorldHandEyeCalibration{K}, r::AbstractVector, J::AbstractMatrix, w::Int, counts, covariance,
-        σ_rot::S, σ_trans::S; retcode::Symbol, iterations::Int, rms_rows::Int
-    ) where {K, S}
+        σ_rot::S, σ_trans::S; retcode::Symbol, iterations::Int, rms_rows::Int,
+        strategy::L = nothing, weights::AbstractVector{Float64} = VgtkCore.unit_weights(length(r) ÷ w),
+        scale::Float64 = NaN, scale_source::VgtkCore.ScaleSource = VgtkCore.ScaleNone, loss_width::Float64 = NaN
+    ) where {K, S, L}
     N = size(J, 2)
     n = length(r) ÷ w
-    dof = length(r) - N
-    RSS = sum(abs2, r)
-    s2 = RSS / dof
+    length(weights) == n || throw(DimensionMismatch("$n data, $(length(weights)) weights"))
+    dof, RSS, rms, support = if strategy === nothing
+        length(r) - N, sum(abs2, r), sqrt(sum(abs2, r) / rms_rows), n
+    else
+        rss_w = sum(weights[k] * sum(abs2, view(r, (w * (k - 1) + 1):(w * k))) for k in 1:n if weights[k] > 0; init = 0.0)
+        sum_w = sum(weights)
+        dof_w = w * sum_w - N
+        round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), count(>(0), weights)
+    end
+    s2 = strategy === nothing ? RSS / dof : RSS / max(w * sum(weights) - N, eps())
     λ_min, v_min, cov = if all(isfinite, J)
         F = svd(J)                                    # singular values descending: JᵀJ's eigenpairs
         λ = F.S .^ 2
@@ -181,10 +221,11 @@ function _robot_world_hand_eye_result(
         NaN, fill(NaN, N), fill(Inf, N, N)
     end
     res_norms = split_blocks(point_norms!(Vector{Float64}(undef, n), r, n, w), cal.ids, counts)
-    md = RobotWorldHandEyeMetadata{K, S}(
-        res_norms, s2, dof, cov, SMatrix{6, 6, Float64, 36}(cov[1:6, 1:6]), λ_min, v_min, σ_rot, σ_trans
+    md = RobotWorldHandEyeMetadata{K, S, L, typeof(weights)}(
+        res_norms, s2, dof, cov, SMatrix{6, 6, Float64, 36}(cov[1:6, 1:6]), λ_min, v_min, σ_rot, σ_trans,
+        weights, scale, scale_source, loss_width
     )
-    return FitResult(cal, retcode, iterations, sqrt(RSS / rms_rows), n, md)
+    return FitResult(cal, retcode, iterations, rms, support, md)
 end
 
 # -----------------------------------------------------------------------------

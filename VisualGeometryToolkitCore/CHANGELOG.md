@@ -49,6 +49,14 @@ sensor — so every consumer asks the camera what it images instead of supplying
   rule `is_map_inlier`, or an `ArgumentError` for IRLS weights, which have no cut of their own;
   `inlier_mask(result, cut)` takes an explicit cut for any kind. `RansacScoring`/`MsacScoring` answer binary and
   `StudentTUniformScoring` posterior. No result type adopts it yet.
+- **New: an L2 result's weights are lazy unit weights, binary by kind.** `unit_weights([T], n)` is
+  `FillArrays.Fill(one(T), n)` (no allocation; FillArrays is a new dependency), what an L2 producer stores as its
+  `weights`; an L2 producer is `nothing`, and `weight_kind(Nothing)` is `BinaryWeights()`, so its `inlier_mask` is every
+  datum. `weights` is a contract generic (a metadata that stores its weights otherwise adds a method), and a result
+  without metadata refuses `weight_kind`.
+- **New: `efficiency_constant(shape, d)` on a shape instance** — the entry point a deployment calls on the shape it
+  deploys (and `efficiency_constant(shape)` at d = 1); the type forms stay. `efficiency_constant` is a contract
+  generic: a shape of another package states its constant. No value changed.
 - **The `efficiency_constant` table is re-derived by a test** (`test/efficiency_constant_tests.jl`): the
   quadrature solves eff(c, d) = 0.95 under χ_d for Huber, Cauchy, Welsch and Geman–McClure at d = 1…3 and matches
   the table to its 4 decimals, so the provenance lives in the repository rather than in a scratch script. No value

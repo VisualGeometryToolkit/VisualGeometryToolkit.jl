@@ -206,6 +206,9 @@
             @test codimension_factor(WelschShape, 2) ==
                 efficiency_constant(WelschShape, 2) / efficiency_constant(WelschShape)
             # past the solved table, the chi lift takes over
+            @test @inferred(efficiency_constant(WelschShape(), 2)) === efficiency_constant(WelschShape, 2)   # the instance entry point
+            @test efficiency_constant(HuberShape()) === efficiency_constant(HuberShape)
+            @test_throws MethodError efficiency_constant(BarronShape(0.5), 2)
             @test efficiency_constant(WelschShape, 9) ≈
                 efficiency_constant(WelschShape) * sqrt((9 + 2) / 3)
 

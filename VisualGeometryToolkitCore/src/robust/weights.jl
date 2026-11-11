@@ -7,7 +7,8 @@
 # where its inlier cut lies — is the weight KIND, a trait decided by the
 # producer's type, never a field:
 #
-#   BinaryWeights     a threshold scorer's decision (1/0), and every L2 result (all ones)
+#   BinaryWeights     a threshold scorer's decision (1/0), and every L2 result (all ones,
+#                     a lazy `unit_weights(T, n)`, no allocation)
 #   PosteriorWeights  a posterior inlier probability (the Student-t + uniform scorer, an EM fit)
 #   IrlsWeights       an M-estimator's loss weight ρ′ (Irls, Triggs), normalized to w_max = 1
 #
@@ -66,9 +67,22 @@ package adds its method on the type.
 """
 function weight_kind end
 weight_kind(r::FitResult) = weight_kind(typeof(r.metadata))
+weight_kind(::FitResult{<:Any, Nothing}) = throw(ArgumentError("a result without metadata has no weights"))
 weight_kind(::Type{<:AbstractThresholdScoring}) = BinaryWeights()
 weight_kind(::Type{<:StudentTUniformScoring}) = PosteriorWeights()
-weight_kind(::Type{Nothing}) = throw(ArgumentError("a result without metadata has no weights"))
+# An L2 stage's producer is `nothing` (`local_optimization = nothing`): unit weights, binary.
+weight_kind(::Type{Nothing}) = BinaryWeights()
+
+"""
+    unit_weights([T = Float64], n) -> AbstractVector{T}
+
+The weights of an L2 result — every datum at weight one — as a lazy
+`FillArrays.Fill(one(T), n)`: no allocation, and [`BinaryWeights`](@ref) by
+kind (their [`inlier_mask`](@ref) is every datum). What an L2 producer stores
+as its metadata's `weights`.
+"""
+unit_weights(::Type{T}, n::Integer) where {T <: AbstractFloat} = FillArrays.Fill(one(T), Int(n))
+unit_weights(n::Integer) = unit_weights(Float64, n)
 
 """
     inlier_mask(result) -> BitVector

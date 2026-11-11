@@ -46,6 +46,7 @@ using StaticArrays:
     StaticArrays, @SMatrix, FieldVector, SVector, SMatrix, MVector, MMatrix, SOneTo, StaticArray, StaticVector, StaticMatrix, similar_type
 using Statistics: Statistics
 using Distributions: Distributions
+import FillArrays   # an L2 result's lazy unit weights (robust/weights.jl, `unit_weights`)
 using LinearAlgebra: LinearAlgebra, Diagonal, UniformScaling, Symmetric, Adjoint, Transpose,
     cholesky, lu, issuccess, cross, dot, norm, det, I, eigen
 using CoordinateTransformations:
@@ -552,7 +553,7 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
     ScaleInput, scale_input
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
-public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind
+public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights
 public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √chisq_median(d), centred on the model
 # A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);

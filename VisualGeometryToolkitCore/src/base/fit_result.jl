@@ -249,10 +249,14 @@ end
 # no `nothing` to return), exactly as before, just derived instead of
 # hand-written per metadata type.
 """
-    weights(r::FitResult) -> AbstractVector{Float64}
+    weights(r::FitResult) -> AbstractVector
 
-Per-observation weights from the metadata (`r.metadata.weights`). Errors on
-a metadata type that carries none — including the lean `nothing`.
+Per-datum weights in [0, 1] from the metadata (`r.metadata.weights`): a plain
+vector in the data's order (a lazy all-ones `unit_weights` for an L2 result).
+What they mean is the producer's `weight_kind`, and `inlier_mask(r)` cuts them
+by it. Errors on a metadata type that carries none — including the lean
+`nothing`. A contract generic: a metadata that stores its weights otherwise
+adds a method.
 """
 weights(r::FitResult) = r.metadata.weights
 

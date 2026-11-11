@@ -38,3 +38,20 @@
         @test @inferred(inlier_mask(result(MsacScoring{1, Float64}, w))) isa BitVector
     end
 end
+
+@testitem "weights: L2 results carry lazy unit weights, binary" begin
+    using VisualGeometryToolkitCore: FitResult, weights, weight_kind, inlier_mask, unit_weights, BinaryWeights
+    using FillArrays: Fill
+
+    struct _L2Meta{P}
+        weights::Fill{Float64, 1, Tuple{Base.OneTo{Int}}}
+    end
+    VisualGeometryToolkitCore.weight_kind(::Type{<:_L2Meta{P}}) where {P} = weight_kind(P)
+    w = @inferred unit_weights(4)
+    @test w isa Fill && w == ones(4) && eltype(unit_weights(Float32, 3)) === Float32
+    @test (@allocated unit_weights(10_000)) == 0
+    r = FitResult(0.0, :converged, 1, 0.0, 4, _L2Meta{Nothing}(w))
+    @test @inferred(weight_kind(r)) === BinaryWeights()             # an L2 producer is `nothing`
+    @test weights(r) === w
+    @test inlier_mask(r) == trues(4)
+end

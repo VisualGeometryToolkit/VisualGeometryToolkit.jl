@@ -422,17 +422,18 @@ the Geman–Reynolds literature also calls ψ — that one takes a WEIGHT.
 """
     efficiency_constant(K::Type{<:AbstractMEstimator}) -> Float64
     efficiency_constant(K::Type{<:AbstractLossShape}, codim::Integer) -> Float64
+    efficiency_constant(shape::AbstractLossShape, codim::Integer) -> Float64
 
 The loss's width as a MULTIPLE OF THE NOISE SIGMA. The one-argument form is
 the shape's own constant at codimension 1 — a property of its psi, like its
 influence function — and is what a loss must define to join this interface.
 The two-argument form lifts it to codimension `d` through `codimension_factor`.
 
-TAKES THE TYPE, not an instance. The constant is a property of the SHAPE, and a
-deployed loss carries `scale_multiple` as a field — so an instance method would be
-circular: you would need a loss to obtain the constant used to build one.
-(Contrast `lift_*`, which must take an instance: `BarronShape`'s `α` is a
-field, so its type carries strictly less information than its value.)
+A shape type defines it; the instance form `efficiency_constant(shape, d)` —
+THE entry point every deployment calls, on the SHAPE it deploys (never on a
+deployed loss, which carries its multiple as a field) — reads the shape's
+type. A shape whose instance carries a parameter (`BarronShape`'s `α`) has no
+constant: a `MethodError`.
 
 The DEFAULT for a deployed `scale_multiple`, not the only legitimate value. It solves
 `eff(m, d) = 0.95` at the GAUSSIAN — the width that minimises variance
@@ -490,6 +491,12 @@ _solved_constants(::Type{SmoothTLSShape}) = (3.6732, 4.0231, 4.3204, 4.5826, 4.8
 efficiency_constant(::Type{K}) where {
     K <: Union{HuberShape, CauchyShape, WelschShape, GemanMcclureShape, SmoothTLSShape},
 } = _solved_constants(K)[1]
+
+# THE entry point a deployment calls, on the shape it deploys: the instance
+# forms read its type (a shape whose instance carries a parameter — Barron's α —
+# has no constant and stays a MethodError).
+efficiency_constant(shape::AbstractLossShape, d::Integer) = efficiency_constant(typeof(shape), d)
+efficiency_constant(shape::AbstractLossShape) = efficiency_constant(typeof(shape))
 
 function efficiency_constant(K::Type{<:AbstractLossShape}, d::Integer)
     d == 1 && return efficiency_constant(K)

@@ -1,35 +1,22 @@
-# Triggs — the robustified chart LM (one NLLSsolver LM under a loss with
-# Triggs' second-order correction, width efficiency_constant·ŝ): its strategy
-# identity and configuration, that it serves every chart problem — the circle
+# Triggs — the robustified chart LM (one NLLSsolver LM under a loss, width
+# efficiency_constant·ŝ): its TOML reader and writer (its identity is Core's), that it serves every chart problem — the circle
 # (its pipeline default, Welsch) and the homography — and that it admits exactly
 # the loss shapes Irls admits.
 
-@testitem "Triggs: strategy identity and configuration" begin
+@testitem "Triggs: the TOML reader and writer" begin
+    # The strategy's identity, width modes and fixed_width's freeze are Core's (VisualGeometryToolkitCore's
+    # strategies_tests); this item holds what this package owns: its registry and its TOML reader and writer.
     using Test
-    using VisualGeometryToolkitCore: CauchyShape, WelschShape, GaussianShape, EfficiencyConstant, LossWidth, lo_width, with_width,
-        optimization_path, scale_interface, ConsensusAnchored, FixedScale, lo_label, lo_marker
-    using VisualGeometryToolkitEstimation: Triggs, Irls, LO_TAGS, optimization_strategy_from_toml, config_dict, fixed_width
+    using VisualGeometryToolkitCore: CauchyShape
+    using VisualGeometryToolkitEstimation: Triggs, LO_TAGS, optimization_strategy_from_toml, config_dict
     lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
-    @test lo_width(lo) == EfficiencyConstant(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
-    # its own path: the Loss-Path label and the path's marker, beside IRLS's
-    @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
     @test LO_TAGS["triggs"] === Triggs
     @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
                                        class = :circle) == lo
     @test optimization_strategy_from_toml(config_dict(lo); class = :circle) == lo
-    @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)
-    # the multiple is required, and the width is always an efficiency constant
-    @test_throws UndefKeywordError Triggs{CauchyShape}()
-    @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
+    # the width is always an efficiency constant, at the TOML boundary too
     @test_throws ArgumentError optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "loss_width" => 2.0);
                                                             class = :circle)
-    # fixed_width's freeze is the one absolute width it takes: the consensus
-    # scale held at s2, the anchored strategy's loss, and back
-    frozen = with_width(lo, fixed_width(lo, 4.0))
-    @test frozen isa Triggs{CauchyShape} && lo_width(frozen) == fixed_width(lo, 4.0)
-    @test lo_width(frozen) isa LossWidth && scale_interface(frozen) == FixedScale()
-    @test with_width(frozen, lo_width(lo)) == lo
-    @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(efficiency_constant = 2.5), 4.0))
 end
 
 @testitem "Triggs: the homography and the circle refit with it" setup = [HomographyScenes] begin

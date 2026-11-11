@@ -493,7 +493,7 @@ The local optimizer receives its loss width through its width mode (VGC
 consensus set's ŝ², an absolute one (`LossWidth`, see `with_width`) runs at the
 caller's width with the scoring untouched — the role-isolated validation
 controls (solo CV, oracle-scale) deploy the strategy that way — and a strategy
-with no width follows the scorer's `inlier_threshold`.
+with no width follows the scorer's `decision_boundary`.
 """
 function locally_optimize(
         problem, θ₀;

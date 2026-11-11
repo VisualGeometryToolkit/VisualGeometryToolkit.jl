@@ -64,7 +64,7 @@ include("robust/rows.jl")           # the chart-rows contract (rows_provider, li
 include("robust/lm_core.jl")        # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
 include("robust/problem.jl")          # the constraint-problem protocol (mahalanobis_distances!, refine!)
 include("robust/scale.jl")            # IGPrior, fit_scale, the consensus Student-t scale
-include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_threshold
+include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # the scoring contract, ScoreBuffers, score_model!

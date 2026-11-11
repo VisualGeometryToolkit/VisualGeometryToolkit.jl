@@ -153,7 +153,7 @@ The loss width is **frozen** at the start of the call, set by the width mode
   Student-t scale ŝ, in the loss's currency above;
 - `loss_width = w` (`LossWidth(w)`): the absolute width `w`;
 - neither (`nothing`, the default): the scorer's decision point
-  (`inlier_threshold`) — MSAC with `Irls{TLSShape}` refits at MSAC's threshold.
+  (`decision_boundary`) — MSAC with `Irls{TLSShape}` refits at MSAC's threshold.
 
 # Fields
 - `max_iter::Int=25`: max IRLS iterations per hypothesis
@@ -322,7 +322,7 @@ function plain_scale_multiple(::SmoothTLSShape, m::Float64)
     m > 0 || throw(
         ArgumentError(
             "scale_multiple = $m: the crossover sentinel is retired — give no width to " *
-                "follow the scorer's inlier_threshold"
+                "follow the scorer's decision_boundary"
         )
     )
     return m

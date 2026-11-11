@@ -184,7 +184,7 @@ function outlier_cost end
 
 The uniform-equivalent outlier half-width the selected partition (`k` of `n`)
 was scored with, recorded on the workspace (what the scorer's
-`inlier_threshold` reads); `NaN` for a model that states none. A model
+`decision_boundary` reads); `NaN` for a model that states none. A model
 implements it (the fallback is an `ArgumentError`).
 """
 function scored_outlier_halfwidth end

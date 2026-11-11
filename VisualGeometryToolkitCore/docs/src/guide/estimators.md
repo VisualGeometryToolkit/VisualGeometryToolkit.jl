@@ -136,7 +136,7 @@ scoring; and the weighted refit `refine!(R, problem, θ, w)` on
 Optional verbs have defaults: `is_predictive` and `scored_model` (a scorer that
 scores a model with its covariance), `scale_prior` (Jeffreys),
 `outlier_halfwidth` (a uniform outlier model, `nothing` by default),
-`inlier_threshold` with its static trait `has_inlier_threshold` (the decision
+`decision_boundary` with its static trait `has_decision_boundary` (the decision
 point a width-free optimizer follows), `score_bound` (a bounded-sum scorer may
 stop a score early) and `check_workspace`. The derived verbs are stated once and
 never overridden: `consensus_s2`, `consensus_set` (the `ConsensusSet`, the inlier
@@ -169,7 +169,7 @@ the score that just ran; the optimizer may overwrite the buffers and call
 `score_model!`, but never scores for acceptance (the loop re-scores and keeps
 the incumbent). A width-carrying optimizer has a width mode, read by `lo_width`
 and set by `with_width(lo, w)`: `nothing` follows the scorer's
-`inlier_threshold`, [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple)`(m)`
+`decision_boundary`, [`ScaleMultiple`](@ref VisualGeometryToolkitCore.ScaleMultiple)`(m)`
 anchors the width at `m` times the consensus scale, and [`LossWidth`](@ref
 VisualGeometryToolkitCore.LossWidth)`(w)` is an absolute width. `loss_at` is the one
 resolution of a mode into a [`DeployedLoss`](@ref), and `check_composition`

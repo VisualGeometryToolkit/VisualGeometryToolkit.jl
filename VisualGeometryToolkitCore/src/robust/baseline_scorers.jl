@@ -32,7 +32,7 @@ scoring contract), `Nothing` for the width-free form, a grid family that a loss
 width is swept over and that implements no scoring contract.
 
 A subtype at a threshold implements [`residual_quality`](@ref) and holds its
-threshold in a field `threshold` (or adds an [`inlier_threshold`](@ref) method),
+threshold in a field `threshold` (or adds an [`decision_boundary`](@ref) method),
 and inherits the rest from `AbstractThresholdScoring{Float64}`:
 
 - [`score!`](@ref) on a [`ThresholdScoringWorkspace`](@ref): the one threshold
@@ -41,7 +41,7 @@ and inherits the rest from `AbstractThresholdScoring{Float64}`:
   the minimal sample's points corrected to zero residual; the consensus set is
   `d² < τ²` (strict) with the sample's points in it.
 - [`scoring_workspace`](@ref), [`inlier_count`](@ref), [`consensus_order`](@ref),
-  [`inlier_threshold`](@ref) (`τ`) and [`has_inlier_threshold`](@ref) (`true`).
+  [`decision_boundary`](@ref) (`τ`) and [`has_decision_boundary`](@ref) (`true`).
 - [`score_bound`](@ref): `nothing` (no early exit) by default. A subtype states a
   bound `b` only where it holds `0 ≤ residual_quality(scoring, d², τ) ≤ b` for
   every finite `d² ≥ 0`, to within a few ulps of `b` (the exit's margin absorbs
@@ -166,8 +166,8 @@ Base.resize!(W::ThresholdScoringWorkspace, n::Integer) = (resize!(W.order, n); W
 
 inlier_count(::AbstractThresholdScoring{Float64}, W::ThresholdScoringWorkspace) = W.k
 consensus_order(::AbstractThresholdScoring{Float64}, W::ThresholdScoringWorkspace) = W.order
-inlier_threshold(sc::AbstractThresholdScoring{Float64}, _buf) = sc.threshold
-has_inlier_threshold(::Type{<:AbstractThresholdScoring{Float64}}) = true
+decision_boundary(sc::AbstractThresholdScoring{Float64}, _buf) = sc.threshold
+has_decision_boundary(::Type{<:AbstractThresholdScoring{Float64}}) = true
 # Each quality is in [0, 1]: RANSAC's an indicator, MSAC's `1 − min(d², τ²)/τ²`.
 score_bound(::_ThresholdScoring{<:Any, Float64}) = 1.0
 
@@ -200,7 +200,7 @@ end
 
 function score!(W::ThresholdScoringWorkspace, sc::AbstractThresholdScoring{Float64}, scores::AbstractVector,
                 residuals::AbstractVector, n::Int; sample = nothing, bound::Float64 = -Inf)
-    τ = inlier_threshold(sc, nothing)
+    τ = decision_boundary(sc, nothing)
     τ2 = τ * τ
     q0 = residual_quality(sc, 0.0, τ)
     ns = sample === nothing ? 0 : length(sample)

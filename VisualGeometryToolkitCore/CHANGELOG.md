@@ -10,6 +10,16 @@ sensor — so every consumer asks the camera what it images instead of supplying
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are
   unchanged bit for bit; a model with no device form now fails on an accelerator as every `pointwise!` kernel's does,
   instead of running as a host map there.
+- **Breaking: the scorer's decision point is `decision_boundary`** (the owner's ruling). `inlier_threshold(scoring, buf)`
+  → `decision_boundary(scoring, buf)`, `has_inlier_threshold(S)` → `has_decision_boundary(S)`, and every
+  `decision_threshold` method — the Gaussian–uniform pair's `(::GauInlier, outlier_halfwidth)` and the loss shapes'
+  `(shape, loss_width)` — is a method of the same `decision_boundary` generic (no signature clashes: a scorer with
+  its buffers, a `GauInlier`, a loss shape lead their own methods; one name for "the residual where the inlier/outlier
+  decision flips"). The docstring states both behaviours: a threshold scorer's boundary is its threshold τ, a
+  constant; the Student-t + uniform scorer's is the MAP crossover at the CURRENT consensus scale ŝ and its outlier
+  half-width h, an estimate recomputed with every score. `decision_width(m, boundary)` keeps its name (its argument
+  renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
+  width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
 - **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
   block views (a residual block of a run-time size assembled without a per-block allocation).

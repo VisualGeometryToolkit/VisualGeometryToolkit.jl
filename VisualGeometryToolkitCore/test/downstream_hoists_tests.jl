@@ -5,9 +5,9 @@
 # the same inputs), so phase 4 deletes the copies against a test.
 # =============================================================================
 
-@testitem "downstream_hoists: SCORING_TAGS, decision_threshold, FrozenNuisance, sha256_hex" begin
+@testitem "downstream_hoists: SCORING_TAGS, decision_boundary, FrozenNuisance, sha256_hex" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: SCORING_TAGS, RansacScoring, MsacScoring, TagRegistry, tag_of, decision_threshold,
+    using VisualGeometryToolkitCore: SCORING_TAGS, RansacScoring, MsacScoring, TagRegistry, tag_of, decision_boundary,
         decision_width, WelschShape, GemanMcclureShape, CauchyShape, SmoothTLSShape, TLSShape, BarronShape, FrozenNuisance,
         update_nuisance!, update_weights!, AbstractWeightPolicy, sha256_hex
     @test SCORING_TAGS["ransac"] === RansacScoring && SCORING_TAGS["msac"] === MsacScoring
@@ -23,11 +23,11 @@
     # the inverse of decision_width, shape by shape; LODR's Welsch arm spelled √ln2 by hand
     for s in (WelschShape(), GemanMcclureShape(), CauchyShape(), SmoothTLSShape(), TLSShape(), BarronShape(0.5), BarronShape(-1.0))
         for t in (0.3, 1.0, 7.5)
-            @test decision_threshold(s, decision_width(s, t)) ≈ t rtol = 1.0e-14
+            @test decision_boundary(s, decision_width(s, t)) ≈ t rtol = 1.0e-14
         end
     end
     m = 1.7
-    @test decision_threshold(WelschShape(), m) == m * sqrt(log(2.0))     # accv2026's welsch_half_weight_depth, bit for bit
+    @test decision_boundary(WelschShape(), m) == m * sqrt(log(2.0))     # accv2026's welsch_half_weight_depth, bit for bit
 
     p = FrozenNuisance()
     @test p isa AbstractWeightPolicy && update_nuisance!(p) === p && update_weights!(p) === p

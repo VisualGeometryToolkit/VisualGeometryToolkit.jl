@@ -155,7 +155,7 @@ Key functions: `weight(shape, s, sq_loss_width)` (equivalently
 `lift_weight(loss, s)` on a deployed loss) and, for the half-quadratic lift,
 `lift_rho` / `lift_weight` / `lift_zblock` / `lift_cost` — each on a
 DEPLOYED loss, which carries the width, so no scale argument is supplied at
-the call site. `decision_width(shape, decision_threshold)` converts the
+the call site. `decision_width(shape, decision_boundary)` converts the
 residual at which a decision flips (for a lift arm, the half-weight radius
 `r_½ = scale_multiple·ŝ`) into the shape's loss width, and takes the bare
 shape because that is the conversion that produces a width in the first place.

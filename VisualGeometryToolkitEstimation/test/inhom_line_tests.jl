@@ -13,7 +13,7 @@ using VisualGeometryToolkitCore: codimension, solver_covariance, scoring_workspa
 using VisualGeometryToolkitCore: MsacScoring, ThresholdScoringWorkspace   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation: RansacMetadata   # public, not exported
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: inlier_threshold   # the scoring contract (VGC)
+using VisualGeometryToolkitCore: decision_boundary   # the scoring contract (VGC)
 using VisualGeometryToolkitEstimation: RansacConfig, ransac,
     RansacWorkspace,
     data_size, minimal_sample_size, model_type, constraint_with_jacobians
@@ -134,7 +134,7 @@ _g_of_y(pts, model, y, i) = constraint(
         mq = MsacScoring(prob; threshold = 1.5)
         mq_manual = MsacScoring(1; threshold = 1.5)
         @test mq === mq_manual
-        @test inlier_threshold(mq, nothing) == 1.5
+        @test decision_boundary(mq, nothing) == 1.5
         @test codimension(mq) == codimension(prob) == 1
         mq_ws = scoring_workspace(mq, data_size(prob), codimension(prob))
         @test mq_ws isa ThresholdScoringWorkspace

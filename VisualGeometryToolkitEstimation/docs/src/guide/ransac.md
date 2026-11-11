@@ -62,11 +62,11 @@ loss width frozen at the start of the call by its width mode:
 
 | width mode | constructor | loss width |
 |:--|:--|:--|
-| follow the scorer (default) | `Irls{K}()` | the loss's decision point at the scorer's `inlier_threshold` (`decision_width(K(), τ)`; τ itself for `TLSShape`) |
+| follow the scorer (default) | `Irls{K}()` | the loss's decision point at the scorer's `decision_boundary` (`decision_width(K(), τ)`; τ itself for `TLSShape`) |
 | consensus-anchored | `Irls{K}(scale_multiple = m)` | `m·ŝ`, ŝ the consensus set's Student-t scale |
 | absolute | `Irls{K}(loss_width = w)` | `w` |
 
-Following a scorer with no `inlier_threshold` is refused at entry
+Following a scorer with no `decision_boundary` is refused at entry
 (`check_composition`) with the way to give a width. `with_width(lo,
 ScaleMultiple(m))` / `with_width(lo, LossWidth(w))` set the width of an
 existing strategy.

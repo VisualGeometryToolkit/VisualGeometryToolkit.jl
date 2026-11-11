@@ -9,14 +9,14 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ScaleMultiple, LossWidth, OutlierHalfwidth, to_native, native_map,
         outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, loss_width,
-        GauInlier, decision_width, decision_threshold, with_width, MsacScoring, RansacScoring
+        GauInlier, decision_width, decision_boundary, with_width, MsacScoring, RansacScoring
 
     @testset "to_native(::OutlierHalfwidth): the Gaussian-uniform crossover" begin
         for d_g in (1, 2), scale in (0.01, 1.0, 3.0), k in (0.8, 2.0, 6.0)
             h = to_native(OutlierHalfwidth(), k, scale; d_g)
             @test h == decision_width(GauInlier(scale^2; d_g), k * scale)
             # the MAP rule of that mixture flips at the residual k·scale
-            @test decision_threshold(GauInlier(scale^2; d_g), h) ≈ k * scale rtol = 1e-10
+            @test decision_boundary(GauInlier(scale^2; d_g), h) ≈ k * scale rtol = 1e-10
         end
         # d_g is the outlier density's exponent: it moves the native width by decades
         @test to_native(OutlierHalfwidth(), 6.0, 1.0; d_g = 1) ≈ 8.2293e7 rtol = 1e-4

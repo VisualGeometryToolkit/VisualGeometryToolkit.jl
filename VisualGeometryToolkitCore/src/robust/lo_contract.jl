@@ -94,7 +94,7 @@ lo_estimate(model::M, retcode::Symbol; iterations::Int = 0, residuals_current::B
     lo_width(lo) -> nothing | ScaleMultiple{Float64} | LossWidth{NTuple{2,Float64}}
 
 The width mode of a width-carrying local optimizer: `nothing` (follow the
-scorer's [`inlier_threshold`](@ref)), [`ScaleMultiple`](@ref)`(m)` (the loss
+scorer's [`decision_boundary`](@ref)), [`ScaleMultiple`](@ref)`(m)` (the loss
 width `m·ŝ` at the consensus scale) or [`LossWidth`](@ref) (an absolute width).
 The owner of the strategy implements it; a strategy with no width mode (the
 seed, a self-scaling optimizer) keeps the default `missing`.
@@ -130,8 +130,11 @@ THE resolution of a width-carrying local optimizer's loss, statically
 dispatched on its width mode [`lo_width`](@ref):
 
 - `nothing` (follow the scorer): `deploy(shape, w²; scale_multiple = 1)` with
-  `w = decision_width(shape, inlier_threshold(scoring, buf))` — the loss's
-  decision point at the scorer's (the identity for `TLSShape`);
+  `w = decision_width(shape, decision_boundary(scoring, buf))` — the loss's
+  decision boundary at the scorer's (the identity for `TLSShape`): a threshold
+  scorer's constant threshold, or the Student-t + uniform scorer's MAP crossover
+  at the current consensus scale and its outlier half-width, re-estimated with
+  every score;
 - `ScaleMultiple(m)`: `deploy(shape, ŝ²; scale_multiple = deployed_scale_multiple(lo, shape, m, ŝ², scoring))`,
   `ŝ² = max(scale_s2(cs), eps())` — the consensus-anchored width;
 - `LossWidth((m₀, s2))`: `deploy(shape, max(s2, eps()); scale_multiple = m₀)` — the absolute width.
@@ -140,7 +143,7 @@ loss_at(lo::AbstractLocalOptimization, shape, cs::ConsensusSet, scoring, buf) =
     _loss_at(lo_width(lo), lo, shape, cs, scoring, buf)
 
 function _loss_at(::Nothing, lo, shape, cs, scoring, buf)
-    w = decision_width(shape, inlier_threshold(scoring, buf))
+    w = decision_width(shape, decision_boundary(scoring, buf))
     return deploy(shape, w^2; scale_multiple = 1.0)
 end
 function _loss_at(sm::ScaleMultiple{Float64}, lo, shape, cs, scoring, buf)
@@ -167,17 +170,18 @@ _width_s2(::Union{Nothing, Missing}, cs) = max(scale_s2(cs), eps())
 """
     check_composition(scoring, lo) -> nothing
 
-Refuse, once at entry, a local optimizer that follows the scorer's threshold
-(`lo_width(lo) === nothing`) composed with a scorer that defines none
-([`has_inlier_threshold`](@ref)). A strategy without a width mode is accepted.
+Refuse, once at entry, a local optimizer that follows the scorer's decision
+boundary (`lo_width(lo) === nothing`) composed with a scorer that defines none
+([`has_decision_boundary`](@ref)). A strategy without a width mode is accepted.
 """
 check_composition(scoring::AbstractScoring, lo::AbstractLocalOptimization) =
     _check_composition(scoring, lo, lo_width(lo))
 _check_composition(_scoring, _lo, _w) = nothing
 _check_composition(scoring::S, lo, ::Nothing) where {S} =
-    has_inlier_threshold(S) ? nothing : throw(
+    has_decision_boundary(S) ? nothing : throw(
     ArgumentError(
-        "$(nameof(S)) defines no inlier_threshold; give the local optimization an explicit width: " *
+        "$(nameof(S)) has no decision boundary (has_decision_boundary is false) for a local optimization " *
+            "with no width to follow; give it an explicit width: " *
             "with_width(lo, ScaleMultiple(m)) or with_width(lo, LossWidth(w))"
     )
 )

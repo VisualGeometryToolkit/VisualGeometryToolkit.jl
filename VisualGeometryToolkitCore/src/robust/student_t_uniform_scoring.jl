@@ -528,13 +528,13 @@ end
 # The decision point of the last score: the Gaussian-uniform MAP crossover of the
 # consensus set's Student-t scale (at the local optimizer's dof, m + 1) against
 # the uniform outlier box.
-function inlier_threshold(s::StudentTUniformScoring{P, DG}, buf::ScoreBuffers) where {P, DG}
+function decision_boundary(s::StudentTUniformScoring{P, DG}, buf::ScoreBuffers) where {P, DG}
     sws = buf.scoring_ws
     k = sws.k
     s2 = consensus_s2(s, residuals(buf), sws.perm, k; model_dof = s.model_dof + 1, d_g = DG)
-    return decision_threshold(GauInlier(s2; d_g = DG), sws.outlier_halfwidth)
+    return decision_boundary(GauInlier(s2; d_g = DG), sws.outlier_halfwidth)
 end
-has_inlier_threshold(::Type{<:StudentTUniformScoring}) = true
+has_decision_boundary(::Type{<:StudentTUniformScoring}) = true
 
 # A workspace's tables are built for one scale prior, one label prior and one
 # kind of outlier model (the tail buffers or none).

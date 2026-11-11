@@ -16,8 +16,8 @@
 #     scored_model(scoring, problem, θ, sample) [θ]   predictive: Uncertain(θ, Σ̃θ) or nothing
 #     scale_prior(scoring)                     [JeffreysPrior()]
 #     outlier_halfwidth(scoring)               [nothing]   the uniform-outlier model, if any
-#     inlier_threshold(scoring, buf)           [none]      the decision point of the last score!
-#     has_inlier_threshold(S)                  [false]     static trait: whether the method exists
+#     decision_boundary(scoring, buf)           [none]      the decision point of the last score!
+#     has_decision_boundary(S)                  [false]     static trait: whether the method exists
 #     score_bound(scoring)                     [nothing]   a per-point upper bound of a bounded-sum score
 #     check_workspace(scoring, W)              [nothing]   once at entry
 #   DERIVED (one statement each)
@@ -109,24 +109,35 @@ Student-t + uniform posterior weights read it); `nothing` otherwise (default).
 outlier_halfwidth(::AbstractScoring) = nothing
 
 """
-    inlier_threshold(scoring, buf::ScoreBuffers) -> Float64
+    decision_boundary(scoring, buf::ScoreBuffers) -> Float64
 
-The scorer's decision point for the most recent [`score!`](@ref) on `buf`: the
-residual below which a point is an inlier. A threshold scorer returns its
-threshold; a scale-free scorer derives one from its consensus set. A local
-optimizer with no width of its own follows it ([`loss_at`](@ref)). Only scorers
-with [`has_inlier_threshold`](@ref) define it.
+The scorer's decision boundary for the most recent [`score!`](@ref) on `buf`:
+the residual below which a point is an inlier. Two behaviours, by scorer:
+
+- a threshold scorer (`RansacScoring`, `MsacScoring`, the loss-width families):
+  its threshold `τ`, a CONSTANT of the scorer — the same whatever `buf` holds;
+- the Student-t + uniform scorer (`StudentTUniformScoring`): the MAP
+  inlier/outlier crossover of the Gaussian–uniform pair at the CURRENT consensus
+  scale `ŝ` (the Student-t scale of the last score's consensus set) and its
+  outlier half-width `h`, `decision_boundary(GauInlier(ŝ²; d_g), h)` — an
+  ESTIMATE, recomputed with every score.
+
+A local optimizer with no width of its own follows it ([`loss_at`](@ref)). Only
+scorers with [`has_decision_boundary`](@ref) define it. The same generic gives
+a loss shape's half-weight boundary at a loss width and the Gaussian–uniform
+pair's at an outlier half-width (`decision_boundary(shape, loss_width)`,
+`decision_boundary(::GauInlier, outlier_halfwidth)`).
 """
-function inlier_threshold end
+function decision_boundary end
 
 """
-    has_inlier_threshold(::Type{S}) -> Bool
+    has_decision_boundary(::Type{S}) -> Bool
 
-Whether scorer type `S` defines [`inlier_threshold`](@ref) — a static trait,
+Whether scorer type `S` defines [`decision_boundary`](@ref) — a static trait,
 `false` by default, declared `true` beside the method.
 """
-has_inlier_threshold(::Type{<:AbstractScoring}) = false
-has_inlier_threshold(scoring::AbstractScoring) = has_inlier_threshold(typeof(scoring))
+has_decision_boundary(::Type{<:AbstractScoring}) = false
+has_decision_boundary(scoring::AbstractScoring) = has_decision_boundary(typeof(scoring))
 
 """
     score_bound(scoring) -> Float64 | nothing

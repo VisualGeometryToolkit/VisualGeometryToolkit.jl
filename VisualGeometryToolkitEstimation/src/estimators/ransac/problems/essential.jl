@@ -79,7 +79,7 @@ _pixel_angle(p::_BearingProblem) =
 _check_scoring(p::_BearingProblem, scoring::AbstractScoring) = _check_halfwidth(p, outlier_halfwidth(scoring))
 # A threshold scorer's threshold is in pixels too, under the same floor.
 _check_scoring(p::_BearingProblem, scoring::Union{MsacScoring{<:Any, Float64}, RansacScoring{<:Any, Float64}}) =
-    _check_halfwidth(p, inlier_threshold(scoring, nothing), "threshold")
+    _check_halfwidth(p, decision_boundary(scoring, nothing), "threshold")
 _check_halfwidth(::_BearingProblem, ::Nothing, _what = "") = nothing
 function _check_halfwidth(p::_BearingProblem, halfwidth::Float64, what::AbstractString = "outlier half-width")
     (halfwidth >= _ESSENTIAL_HALFWIDTH_FLOOR_PX || _pixel_angle(p) > _CALIBRATED_PIXEL_RAD) ||

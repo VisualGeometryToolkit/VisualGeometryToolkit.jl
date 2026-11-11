@@ -13,8 +13,8 @@ The scoring contract on `scoring` over one residual vector, as tests:
 deterministic; [`inlier_count`](@ref) in `0:n`; [`consensus_order`](@ref) a
 permutation of `1:n`; the derived [`consensus_set`](@ref) and
 [`consensus_s2`](@ref) inferred; [`check_workspace`](@ref) accepting the
-scorer's own workspace and refusing a foreign one; [`inlier_threshold`](@ref) a `Float64` where
-[`has_inlier_threshold`](@ref); and, for a bounded-sum scorer
+scorer's own workspace and refusing a foreign one; [`decision_boundary`](@ref) a `Float64` where
+[`has_decision_boundary`](@ref); and, for a bounded-sum scorer
 ([`score_bound`](@ref)), the early exit tie-safe: a `bound` the score beats or
 ties never changes it, and an exit returns a value at or below its bound.
 Implemented by VisualGeometryToolkitCoreTestExt.

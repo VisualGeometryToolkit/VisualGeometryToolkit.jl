@@ -314,13 +314,13 @@ end
 # =============================================================================
 #
 # The mixture has TWO parameterisations of one boundary: the outlier half-width
-# that the marginal family carries, and the decision threshold — the residual at
+# that the marginal family carries, and the decision boundary — the residual at
 # which the MAP rule flips — that a truncation at that boundary would carry as
 # its loss width. Converting between them IS the MAP rule solved for one unknown
 # or the other, so there are exactly two functions:
 #
-#     decision_threshold(m, outlier_halfwidth)  -> the residual the rule flips at
-#     decision_width(m, threshold)              -> the outlier half-width
+#     decision_boundary(m, outlier_halfwidth)  -> the residual the rule flips at
+#     decision_width(m, boundary)               -> the outlier half-width
 # =============================================================================
 
 """
@@ -355,7 +355,7 @@ GauInlier(s2::Real; nu::Real = Inf, gamma::Real = 0.5, d_g::Integer) =
 @inline _log_peak(m::GauInlier) = _student_t_log_normaliser(m.nu, m.s2, m.d_g)
 
 """
-    decision_threshold(m::GauInlier, outlier_halfwidth) -> Float64
+    decision_boundary(m::GauInlier, outlier_halfwidth) -> Float64
 
 The residual at which the MAP rule flips between inlier and outlier: `z* = 1`
 iff `gamma*f_in > (1-gamma)*f_out` holds exactly when `norm(r)` is below it.
@@ -363,7 +363,7 @@ iff `gamma*f_in > (1-gamma)*f_out` holds exactly when `norm(r)` is below it.
 Returns `0.0` when the outlier component already explains every residual at
 least as well (the mixture admits nothing), rather than a negative root.
 """
-function decision_threshold(m::GauInlier, outlier_halfwidth::Real)
+function decision_boundary(m::GauInlier, outlier_halfwidth::Real)
     d, L = m.d_g, _label_logodds(m)
     # log(gamma*peak / ((1-gamma)*(2·outlier_halfwidth)^-d))
     rhs = L + _log_peak(m) + d * log(2 * outlier_halfwidth)
@@ -376,17 +376,17 @@ function decision_threshold(m::GauInlier, outlier_halfwidth::Real)
 end
 
 """
-    decision_width(m::GauInlier, threshold) -> outlier_halfwidth
+    decision_width(m::GauInlier, boundary) -> outlier_halfwidth
 
 The mixture's method of [`decision_width`](@ref), and the inverse of
-[`decision_threshold`](@ref): the per-axis outlier half-width that puts the
-MAP boundary at `threshold`. A HALF-WIDTH and not a radius — the outlier
+[`decision_boundary`](@ref): the per-axis outlier half-width that puts the
+MAP boundary at `boundary`. A HALF-WIDTH and not a radius — the outlier
 support is a box, a product of intervals, never a ball, which is why the
 codimension enters as the exponent.
 """
-function decision_width(m::GauInlier, threshold::Real)
+function decision_width(m::GauInlier, boundary::Real)
     d, L = m.d_g, _label_logodds(m)
-    lhs = -_student_t_log_kernel((m.nu + d) / 2, m.nu * m.s2, m.s2, threshold^2)
+    lhs = -_student_t_log_kernel((m.nu + d) / 2, m.nu * m.s2, m.s2, boundary^2)
     return 0.5 * exp((lhs - L - _log_peak(m)) / d)
 end
 

@@ -22,8 +22,8 @@ VisualGeometryToolkitCore:
 [`scored_model`](@extref VisualGeometryToolkitCore.scored_model),
 [`scale_prior`](@extref VisualGeometryToolkitCore.scale_prior),
 [`outlier_halfwidth`](@extref VisualGeometryToolkitCore.outlier_halfwidth),
-[`inlier_threshold`](@extref VisualGeometryToolkitCore.inlier_threshold),
-[`has_inlier_threshold`](@extref VisualGeometryToolkitCore.has_inlier_threshold) and
+[`decision_boundary`](@extref VisualGeometryToolkitCore.decision_boundary),
+[`has_decision_boundary`](@extref VisualGeometryToolkitCore.has_decision_boundary) and
 [`check_workspace`](@extref VisualGeometryToolkitCore.check_workspace).
 
 ## Derived verbs and buffers
@@ -93,7 +93,7 @@ loss with Triggs' second-order correction, its width `scale_multiple·ŝ` at the
 hypothesis's Student-t scale, for every chart problem; every other strategy is
 LocalOptimizationDoneRight's. A width-carrying strategy's loss is
 resolved by `loss_at` from its width mode (`lo_width`, set by `with_width`):
-no width follows the scorer's `inlier_threshold`, `ScaleMultiple(m)` anchors
+no width follows the scorer's `decision_boundary`, `ScaleMultiple(m)` anchors
 it at the consensus scale, `LossWidth(w)` fixes it.
 
 The contract is VisualGeometryToolkitCore's:

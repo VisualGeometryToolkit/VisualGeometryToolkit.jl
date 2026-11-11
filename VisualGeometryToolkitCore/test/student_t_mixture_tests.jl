@@ -10,7 +10,7 @@
     using KernelAbstractions: @kernel, @index, @Const
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, mixture_nll,
-        posterior_weight_derivative, soft_posterior_weights!, GauInlier, decision_threshold,
+        posterior_weight_derivative, soft_posterior_weights!, GauInlier, decision_boundary,
         PosteriorWeightState, JeffreysPrior, update_inlier_prior!
 
     # The mixture from its definition in probability space (Distributions' Student-t).
@@ -70,7 +70,7 @@
             m = StudentTMixture(ν, s2, log(2 * halfwidth), dg)
             @test all(isfinite, (inlier_posterior(m, 0.5), posterior_weight(m, 0.5),
                                  mixture_nll(m, 0.5), posterior_weight_derivative(m, 0.5)))
-            crossover = decision_threshold(GauInlier(s2; nu = ν, d_g = dg), halfwidth)
+            crossover = decision_boundary(GauInlier(s2; nu = ν, d_g = dg), halfwidth)
             @test inlier_posterior(m, crossover^2) ≈ 0.5 rtol = 1e-12
         end
         @test posterior_weight(StudentTMixture(Inf, 0.3, log(8.0), 1), 0.0) ≈

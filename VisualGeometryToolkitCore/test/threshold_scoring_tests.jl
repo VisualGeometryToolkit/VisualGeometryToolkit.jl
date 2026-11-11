@@ -11,8 +11,8 @@
     using Random: MersenneTwister, randperm
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace,
-        CauchyShape, residual_quality, scoring_workspace, score!, inlier_count, consensus_order, inlier_threshold,
-        has_inlier_threshold, score_bound, test_scoring_contract
+        CauchyShape, residual_quality, scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
+        has_decision_boundary, score_bound, test_scoring_contract
 
     # A family of the test's own: the Cauchy cost as a quality, 1 − ρ/τ², which
     # goes below 0 past the threshold and so has no score bound.
@@ -61,10 +61,10 @@
         end
     end
 
-    # The inherited contract: the threshold through `inlier_threshold`, the trait,
+    # The inherited contract: the threshold through `decision_boundary`, the trait,
     # no score bound unless one is stated (and so a finite bound never stops it).
     sc = CauchyCostScoring(2.0)
-    @test inlier_threshold(sc, nothing) === 2.0 && has_inlier_threshold(sc)
+    @test decision_boundary(sc, nothing) === 2.0 && has_decision_boundary(sc)
     @test score_bound(sc) === nothing
     @test score_bound(MsacScoring(1; threshold = 2.0)) === 1.0 === score_bound(RansacScoring(1; threshold = 2.0))
     r = abs.(randn(rng, n)) .* 3
@@ -77,7 +77,7 @@
     # The width-free form implements no scoring contract, as before.
     for F in (RansacScoring, MsacScoring)
         @test F() isa AbstractThresholdScoring{Nothing}
-        @test !has_inlier_threshold(F()) && score_bound(F()) === nothing
+        @test !has_decision_boundary(F()) && score_bound(F()) === nothing
         @test_throws MethodError scoring_workspace(F(), n, 1)
     end
 

@@ -18,8 +18,8 @@ implements:
 
 and optionally `is_predictive`/`scored_model` (predictive scorers),
 `scale_prior` (default Jeffreys), `outlier_halfwidth` (the uniform outlier
-model, if it has one), `inlier_threshold` with the static trait
-`has_inlier_threshold` (its decision point, which a local optimizer with no
+model, if it has one), `decision_boundary` with the static trait
+`has_decision_boundary` (its decision point, which a local optimizer with no
 width follows) and `check_workspace`. VisualGeometryToolkitCore derives the rest once
 for every scorer: `score_model!` (residuals → `score!` → consensus mask, the
 one scoring path of the loop and of every local optimizer), `consensus_set`
@@ -36,7 +36,7 @@ the baseline scorers. MSAC sums the truncated quadratic
 ``1 - \min(r_i^2, \tau^2)/\tau^2`` over the points; RANSAC counts
 ``r_i^2 < \tau^2``. Both are O(N) — no sort; the consensus set is a stable
 partition of the indices below the threshold — and both define
-`inlier_threshold = τ`.
+`decision_boundary = τ`.
 
 ```julia
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring

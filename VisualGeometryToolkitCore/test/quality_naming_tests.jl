@@ -357,6 +357,16 @@ end
         )
     end
 
+    @testset "R9: the scorer's decision point is decision_boundary (the old names retired)" begin
+        TH = "thres" * "hold"
+        for old in ("inlier_$(TH)", "has_inlier_$(TH)", "decision_$(TH)")
+            @test rules("src/a.jl" => "w = $(old)(sc, buf)\n") == [:R9]
+        end
+        @test isempty(rules("src/a.jl" => "w = decision_boundary(sc, buf); has_decision_boundary(typeof(sc))\n"))
+        # RansacLib's and SupeRANSAC's settings field, set by name in a string
+        @test isempty(rules("src/a.jl" => "setproperty!(c, Symbol(\"inlier_$(TH)\"), w)\n"))
+    end
+
     @testset "R12: the Student-t + uniform scorer has no threshold" begin
         TH = "thres" * "hold"     # the word, spelled so this file is no finding of its own
         @test rules("src/a.jl" => "sc = StudentTUniformScoring(P; $(TH) = 3.0)\n") == [:R12]
@@ -364,9 +374,10 @@ end
         @test rules("configs/a.toml" => "[p]\nscoring = { type = \"student_t_uniform\", $(TH) = 3.0 }\n") == [:R12]
         @test rules("docs/a.md" => "the $(TH) of the StudentTUniformScoring\n") == [:R12]
         @test rules("src/a.jl" => "f(x) = x   # the student_t_uniform scorer's $(TH)\n") == [:R12]
-        # its width by its name, and the contract's decision point, are no finding
+        # its width by its name, its decision boundary, and a compound name holding the word are no finding
         @test isempty(rules("src/a.jl" => "sc = StudentTUniformScoring(P, outlier_halfwidth)\n"))
-        @test isempty(rules("src/a.jl" => "w = inlier_$(TH)(sc::StudentTUniformScoring, buf)\n"))
+        @test isempty(rules("src/a.jl" => "w = decision_boundary(sc::StudentTUniformScoring, buf)\n"))
+        @test isempty(rules("src/a.jl" => "w = probe_$(TH)_of(sc::StudentTUniformScoring, buf)\n"))
         # an MSAC width far from the Student-t's name is no finding
         @test isempty(rules("src/a.jl" => "a = MsacScoring(P; $(TH) = 3.0)\n" * "x = 1\n"^4 *
                                          "b = StudentTUniformScoring(P, outlier_halfwidth)\n"))

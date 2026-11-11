@@ -488,10 +488,10 @@ public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, par
     PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
     update_inlier_prior!, mixture_ecm!, median_seeded_posterior, posterior_inlier_probs!,
-    posterior_weights!, GauInlier, decision_threshold, truncated_log_normaliser
+    posterior_weights!, GauInlier, truncated_log_normaliser
 # The scoring contract and the baseline scorers.
-public scoring_workspace, score!, inlier_count, consensus_order, inlier_threshold,
-    has_inlier_threshold, is_predictive, scored_model, scale_prior, outlier_halfwidth,
+public scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
+    has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
     score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
     with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality,
@@ -877,7 +877,7 @@ include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol
 # and the local-optimization contract.
 include("robust/problem.jl")          # AbstractConstraintProblem + data_size/codimension/mahalanobis_distances!/refine!
 include("robust/scale.jl")            # IGPrior, fit_scale, partition_student_t, partition_rss, weighted_rss
-include("robust/mixture.jl")          # StudentTMixture, the E-step, next_nu, GauInlier/decision_threshold
+include("robust/mixture.jl")          # StudentTMixture, the E-step, next_nu, GauInlier/decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, ScoreBuffers, score_model!

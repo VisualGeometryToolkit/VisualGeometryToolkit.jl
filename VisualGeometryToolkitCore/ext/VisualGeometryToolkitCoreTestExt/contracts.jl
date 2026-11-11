@@ -4,7 +4,7 @@
 
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: scoring_workspace, score!, inlier_count, consensus_order, consensus_set,
-    consensus_s2, inlier_threshold, has_inlier_threshold, score_bound, ScoreBuffers, score_model!,
+    consensus_s2, decision_boundary, has_decision_boundary, score_bound, ScoreBuffers, score_model!,
     lo_workspace, locally_optimize!, LoInfo, FitResult, estimate, mahalanobis_distances!, data_size,
     codimension, minimal_sample_size, whitened_residual, mahalanobis_distance, residual_context, model_type,
     check_workspace
@@ -64,9 +64,9 @@ function test_scoring_contract(scoring, residuals::AbstractVector; n::Integer = 
         cs = Test.@inferred consensus_set(scoring, W, residuals; model_dof = 1, d_g, epoch = 1)
         Test.@test VgtkCore.inlier_count(cs) == k
         Test.@test (Test.@inferred consensus_s2(scoring, residuals, order, k; model_dof = 1, d_g)) isa Float64
-        if has_inlier_threshold(scoring)
+        if has_decision_boundary(scoring)
             buf = ScoreBuffers{eltype(residuals)}(n, W)
-            Test.@test inlier_threshold(scoring, buf) isa Float64
+            Test.@test decision_boundary(scoring, buf) isa Float64
         end
         b = score_bound(scoring)
         if b !== nothing && isfinite(S)

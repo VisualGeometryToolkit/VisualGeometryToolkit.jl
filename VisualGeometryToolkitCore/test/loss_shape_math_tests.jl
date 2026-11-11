@@ -383,10 +383,10 @@
             @test lift_zblock(d, 1.0)[1] ≈ 0 atol = 1.0e-14      # r²(1) = 0: the inlier limit
             # the normalized IRLS weight at the decision threshold is ½ at the width it returns
             for scale_multiple in (0.8, 1.0, 1.5, 2.5, 3.3), ŝ in (0.003, 1.0)
-                decision_threshold = scale_multiple * ŝ
-                loss_width = decision_width(shape, decision_threshold)
+                decision_boundary = scale_multiple * ŝ
+                loss_width = decision_width(shape, decision_boundary)
                 @test loss_width > 0
-                @test lift_weight(deploy(shape, loss_width^2; scale_multiple = 1.0), decision_threshold^2) / wmax ≈ 0.5 atol = 1.0e-12
+                @test lift_weight(deploy(shape, loss_width^2; scale_multiple = 1.0), decision_boundary^2) / wmax ≈ 0.5 atol = 1.0e-12
             end
         end
         # a hard truncation decides at its own width

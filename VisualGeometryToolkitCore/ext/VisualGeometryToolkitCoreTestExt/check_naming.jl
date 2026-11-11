@@ -86,6 +86,9 @@ const RETIRED_NAMES = String[
     "_edge" * "_weight",                      # an edge's weight is Core's `weight_of` (2026-11)
     "_rel" * "ative",                         # an edge's transform is Core's `value_of` (2026-11)
     "_bou" * "nded",                          # a stored camera's BoundedCamera is Core's `value_of` (2026-11)
+    "inlier" * "_threshold",                  # the scorer's decision point is `decision_boundary(scoring, buf)` (2026-11)
+    "has_inlier" * "_threshold",              # its trait is `has_decision_boundary(S)` (2026-11)
+    "decision" * "_threshold",                # the residual a decision flips at is `decision_boundary` (a loss shape, the Gaussian–uniform pair, a scorer) (2026-11)
     "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_brent_minimum` (2026-11)
     "grid" * "_golden_minimum",             # the one 1-D minimizer refines by Brent's method: `grid_brent_minimum` (2026-11)
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `forward_chart(SplineLens)` (2026-11)
@@ -337,9 +340,9 @@ const RETIRED_NAMES = String[
     "kernel" * "_family", "kernel" * "_short",   # `loss_family` (a method on the shape type), `loss_label`
     "KERNEL" * "_TAGS",                      # VisualGeometryToolkitEstimation: `LOSS_TAGS`
     "sq" * "_width",                         # `sq_loss_width` (and `loss_width` for the deployed width)
-    "half_weight" * "_scale",                # `decision_width(shape, decision_threshold)`
+    "half_weight" * "_scale",                # `decision_width(shape, boundary)`
     "decision_threshold_to" * "_outlier_halfwidth",  # RANSACScoringDoneRight: `decision_width(::GauInlier, …)`
-    "outlier_halfwidth_to" * "_decision_threshold",  # RANSACScoringDoneRight: `decision_threshold(::GauInlier, …)`
+    "outlier_halfwidth_to" * "_decision_threshold",  # RANSACScoringDoneRight: `decision_boundary(::GauInlier, …)`
     "KERNELS" * ".md",                       # `LOSSES.md`
     "Inlier" * "Kernel", "AbstractLift" * "Kernel",  # aliases of `AbstractLossShape`, deleted
     "Kernel" * "Width",                      # VisualGeometryToolkitCore: `LossWidth`
@@ -513,6 +516,8 @@ const FOREIGN_FORMAT_TOKENS = [
     "image" * "_origin" => (; owner = "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
         accepted_in = :format_literal),
     "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
+    "inlier" * "_threshold" => (; owner = "RansacLib's and SupeRANSAC's settings field (C++ and pysuperansac), set by name in a string",
+        accepted_in = :format_literal),
 ]
 _is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
@@ -1505,8 +1510,8 @@ or as a field of a type outside those roots, cannot be told from a loop index or
 another quantity by syntax and is not flagged; neither is a quoted single
 letter (`:k`) or a letter used as a dict key (a lens coefficient `"k"` is one).
 Rule R12: the Student-t + uniform scorer has no threshold. That word (the
-whole token: `inlier_threshold` and `decision_threshold`, the contract's
-decision point, are other names) within six tokens of the scorer's type name or
+whole token, not a compound name that holds it) within six tokens of the
+scorer's type name or
 its TOML tag (`_STUDENT_T_ANCHORS`) is flagged in every file but a
 changelog — code, comments, docs and configuration alike. Limits: a sentence
 that calls the half-width a threshold farther from the scorer's name is not
@@ -1627,8 +1632,8 @@ end
 # -----------------------------------------------------------------------------
 # Its one width is `outlier_halfwidth` (the half-width of the uniform outlier
 # component); a threshold is a threshold scorer's (RANSAC, MSAC, the loss-width
-# families). The word `threshold` — the whole token, not `inlier_threshold` or
-# `decision_threshold`, which are the scorer contract's decision point — within
+# families). The word `threshold` — the whole token, not a compound name that
+# holds it — within
 # `_STUDENT_T_WINDOW` tokens of the scorer's type or TOML tag, in code, comments,
 # docs or config alike, misnames that half-width.
 const _STUDENT_T_ANCHORS = ("StudentTUniformScoring", "student_t_uniform")

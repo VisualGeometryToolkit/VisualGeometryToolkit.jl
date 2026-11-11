@@ -14,7 +14,7 @@ parameter conventions (facets). Sections 1–4 describe the shipped design.
 | `scale_multiple` | `loss_width / ŝ`: the width as a dimensionless multiple of the estimated noise scale (NOT a quantile) |
 | `scale`, `s2` | the noise scale `ŝ` and its square — data, never a width |
 | `outlier_halfwidth` | the half-width of a Student-t marginal's uniform outlier component (RANSACScoringDoneRight) |
-| `decision_width(m, decision_threshold)` | the native width of `m` whose inlier/outlier decision flips at the residual `decision_threshold` |
+| `decision_width(m, boundary)` | the native width of `m` whose inlier/outlier decision flips at the residual `boundary` (its inverse: `decision_boundary(m, width)`) |
 
 "Kernel" is not a name for any of these. In the stack it is kept only where it
 means something else: a GPU (KernelAbstractions) kernel, a convolution or

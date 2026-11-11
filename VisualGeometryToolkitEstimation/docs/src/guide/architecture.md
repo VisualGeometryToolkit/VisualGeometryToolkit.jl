@@ -66,7 +66,7 @@ The loop reads a scorer only through VisualGeometryToolkitCore's scoring contrac
 `scoring_workspace(scoring, n, d_g)` builds its scratch once, `score!` scores a
 model's residuals, `inlier_count` and `consensus_order` give its consensus
 set; the optional verbs (`is_predictive`, `scored_model`, `scale_prior`,
-`outlier_halfwidth`, `inlier_threshold`, `check_workspace`) default in VGC. The
+`outlier_halfwidth`, `decision_boundary`, `check_workspace`) default in VGC. The
 derived verbs `score_model!`, `consensus_set`, `consensus_s2` and
 `inlier_probabilities!` are stated once in VGC and serve every scorer. See
 [Scoring Functions](scoring.md).
@@ -107,7 +107,7 @@ allocate.
 
 **A width is resolved once.** A strategy that carries a loss width, such as
 `Irls{K, W}`, has one of three width modes. With no width it follows the
-scorer's `inlier_threshold`. `ScaleMultiple(m)` anchors the width at `m` times
+scorer's `decision_boundary`. `ScaleMultiple(m)` anchors the width at `m` times
 the consensus set's scale, and `LossWidth(w)` fixes it. VisualGeometryToolkitCore's
 `loss_at` resolves the mode once per call. Following a scorer that defines no
 threshold is refused at entry by `check_composition`.
@@ -143,7 +143,7 @@ iterations, residuals_current)`. The core strategies are:
   either — the contract is "no LO, period."
 - `Irls{K}` — static IRLS on a VGC loss shape `K` at a frozen width.
   `Irls{TLSShape}()` with no width (it follows the scorer's
-  `inlier_threshold`) is the default of every `find_*` pipeline
+  `decision_boundary`) is the default of every `find_*` pipeline
   (`[pipelines.<class>]` in `configs/default.toml`).
 
 Every other strategy — the half-quadratic lifts `HQ{K}`, `Gnc{S}`, the

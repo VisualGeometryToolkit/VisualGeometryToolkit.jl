@@ -24,7 +24,7 @@ using StableRNGs
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, csponds, radial_transfer, RadialHomography,
-    HomographyMat, inlier_threshold, rotation, translation, StudentTUniformScoring
+    HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, Circle
 using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem,
@@ -306,7 +306,7 @@ end
     end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     @test_throws ArgumentError find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.05))
-    @test inlier_threshold(MsacScoring(p; threshold = 0.06), nothing) == 0.06
+    @test decision_boundary(MsacScoring(p; threshold = 0.06), nothing) == 0.06
     @test find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.06), rng = StableRNG(8)) !== nothing   # at the floor: accepted
 end
 

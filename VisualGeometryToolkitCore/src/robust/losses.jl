@@ -981,21 +981,21 @@ function cost(shape::AbstractLossShape, r, sq_loss_width::Real, n::Int)
 end
 
 """
-    decision_width(m, decision_threshold) -> Float64
+    decision_width(m, boundary) -> Float64
 
 The native width of `m` whose inlier/outlier decision flips at the residual
-`decision_threshold` — THE one conversion behind every "same decision point"
+`boundary` (a [`decision_boundary`](@ref)) — THE one conversion behind every "same decision point"
 comparison across methods (the evaluation's fairness axis, where
-`decision_threshold = scale_multiple · ŝ`). Each owner defines its own method:
+`boundary = scale_multiple · ŝ`). Each owner defines its own method:
 
 - a loss shape: the [`loss_width`](@ref) at which the shape's NORMALIZED IRLS
-  weight at `decision_threshold` is exactly ½, `ω(t²; w²)/w_max = ½` (the
+  weight at `boundary` is exactly ½, `ω(t²; w²)/w_max = ½` (the
   half-weight decision of a reweighting loss);
 - `TLSShape`: the identity — a hard truncation decides at its own width;
 - RANSACScoringDoneRight's `GauInlier`: the Student-t marginal's outlier
-  half-width whose MAP boundary sits at `decision_threshold`.
+  half-width whose MAP boundary sits at `boundary`.
 
-Closed forms for the shapes (`t` the decision threshold, `w` the loss width):
+Closed forms for the shapes (`t` the decision boundary, `w` the loss width):
 - Welsch:        `e^{−t²/w²} = ½`        ⇒ `w = t/√(ln 2)`
 - Geman–McClure: `(1+t²/w²)^{−2} = ½`    ⇒ `w = t/√(√2 − 1)`
 - Cauchy:        `(1+t²/w²)^{−1} = ½`    ⇒ `w = t`
@@ -1004,29 +1004,29 @@ Closed forms for the shapes (`t` the decision threshold, `w` the loss width):
 """
 function decision_width end
 
-decision_width(::WelschShape, decision_threshold::Real) = Float64(decision_threshold) / sqrt(log(2.0))
-decision_width(::GemanMcclureShape, decision_threshold::Real) = Float64(decision_threshold) / sqrt(sqrt(2.0) - 1.0)
-decision_width(::CauchyShape, decision_threshold::Real) = Float64(decision_threshold)
-decision_width(::SmoothTLSShape, decision_threshold::Real) = sqrt(2.0) * Float64(decision_threshold)
-decision_width(::TLSShape, decision_threshold::Real) = Float64(decision_threshold)
+decision_width(::WelschShape, boundary::Real) = Float64(boundary) / sqrt(log(2.0))
+decision_width(::GemanMcclureShape, boundary::Real) = Float64(boundary) / sqrt(sqrt(2.0) - 1.0)
+decision_width(::CauchyShape, boundary::Real) = Float64(boundary)
+decision_width(::SmoothTLSShape, boundary::Real) = sqrt(2.0) * Float64(boundary)
+decision_width(::TLSShape, boundary::Real) = Float64(boundary)
 
 """
-    decision_threshold(shape::AbstractLossShape, loss_width) -> Float64
+    decision_boundary(shape::AbstractLossShape, loss_width) -> Float64
 
 The inverse of [`decision_width`](@ref) for a loss shape: the residual at which
 the shape's normalized IRLS weight at `loss_width` is exactly ½ (its
 half-weight decision), with the same closed forms read the other way —
 Welsch `t = √(ln 2)·w`, Geman–McClure `t = √(√2 − 1)·w`, Cauchy and TLS
 `t = w`, smooth-TLS `t = w/√2`, Barron `t = w·√(b·(2^{2/(2−α)} − 1))`.
-`decision_threshold(shape, decision_width(shape, t)) ≈ t`. The mixture's
-method, `decision_threshold(::GauInlier, outlier_halfwidth)`, is the same
+`decision_boundary(shape, decision_width(shape, t)) ≈ t`. The mixture's
+method, `decision_boundary(::GauInlier, outlier_halfwidth)`, is the same
 inverse for the Gaussian-uniform pair.
 """
-decision_threshold(::WelschShape, loss_width::Real) = Float64(loss_width) * sqrt(log(2.0))
-decision_threshold(::GemanMcclureShape, loss_width::Real) = Float64(loss_width) * sqrt(sqrt(2.0) - 1.0)
-decision_threshold(::CauchyShape, loss_width::Real) = Float64(loss_width)
-decision_threshold(::SmoothTLSShape, loss_width::Real) = Float64(loss_width) / sqrt(2.0)
-decision_threshold(::TLSShape, loss_width::Real) = Float64(loss_width)
+decision_boundary(::WelschShape, loss_width::Real) = Float64(loss_width) * sqrt(log(2.0))
+decision_boundary(::GemanMcclureShape, loss_width::Real) = Float64(loss_width) * sqrt(sqrt(2.0) - 1.0)
+decision_boundary(::CauchyShape, loss_width::Real) = Float64(loss_width)
+decision_boundary(::SmoothTLSShape, loss_width::Real) = Float64(loss_width) / sqrt(2.0)
+decision_boundary(::TLSShape, loss_width::Real) = Float64(loss_width)
 
 # -----------------------------------------------------------------------------
 # GNC surrogate facet — the graduated (μ-parameterized) surrogate closed forms
@@ -1379,11 +1379,11 @@ end
 # Half-weight decision: w(t²; c²) = ½ at the decision threshold t ⇒
 # c = t/√(b·(2^{2/(2−α)} − 1)) (no 1/α — regular at α = 0, where it gives t/√2 =
 # the Cauchy-at-2c² identity: the effective Cauchy width is √2·c = t).
-function decision_width(shape::BarronShape, decision_threshold::Real)
+function decision_width(shape::BarronShape, boundary::Real)
     b = _barron_b(shape.α)
-    return Float64(decision_threshold) / sqrt(b * (2.0^(2.0 / (2.0 - shape.α)) - 1.0))
+    return Float64(boundary) / sqrt(b * (2.0^(2.0 / (2.0 - shape.α)) - 1.0))
 end
-decision_threshold(shape::BarronShape, loss_width::Real) =
+decision_boundary(shape::BarronShape, loss_width::Real) =
     Float64(loss_width) * sqrt(_barron_b(shape.α) * (2.0^(2.0 / (2.0 - shape.α)) - 1.0))
 
 # =============================================================================

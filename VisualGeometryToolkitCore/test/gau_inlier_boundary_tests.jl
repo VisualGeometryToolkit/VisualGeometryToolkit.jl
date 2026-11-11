@@ -1,7 +1,7 @@
 # =============================================================================
 # The Gaussian-Uniform boundary, both directions.
 #
-# `decision_threshold` and its inverse `decision_width(::GauInlier, ·)` are the
+# `decision_boundary` and its inverse `decision_width(::GauInlier, ·)` are the
 # ONE place the MAP rule of the Gaussian-uniform mixture lives, so what needs
 # pinning is that they are genuine inverses — across the Gaussian AND the
 # scale-marginalised (Student-t) inlier, every codimension, and a label prior
@@ -10,7 +10,7 @@
 
 @testitem "gau_inlier_boundary" begin
     using Test
-    using VisualGeometryToolkitCore: GauInlier, decision_threshold, decision_width
+    using VisualGeometryToolkitCore: GauInlier, decision_boundary, decision_width
 
     @testset "GauInlier boundary: the two directions are inverse" begin
         @testset "round trip outlier half-width -> crossover -> outlier half-width" begin
@@ -19,7 +19,7 @@
                 outlier_halfwidth in (0.5, 3.41, 90.0, 1.0e4)
 
                 m = GauInlier(s2; nu = ν, gamma = γ, d_g = d)
-                crossover = decision_threshold(m, outlier_halfwidth)
+                crossover = decision_boundary(m, outlier_halfwidth)
                 # 0 means the outlier component already explains everything;
                 # there is nothing to invert there, and that guard is tested below.
                 crossover > 0 && @test decision_width(m, crossover) ≈ outlier_halfwidth rtol = 1.0e-12
@@ -29,7 +29,7 @@
         @testset "round trip crossover -> outlier half-width -> crossover" begin
             for d in (1, 2, 4), ν in (Inf, 3.0), s2 in (0.25, 4.0), crossover in (0.1, 1.0, 12.0)
                 m = GauInlier(s2; nu = ν, gamma = 0.5, d_g = d)
-                @test decision_threshold(m, decision_width(m, crossover)) ≈ crossover rtol = 1.0e-12
+                @test decision_boundary(m, decision_width(m, crossover)) ≈ crossover rtol = 1.0e-12
             end
         end
 
@@ -37,8 +37,8 @@
         # the two branches must MEET, or one of the closed forms is wrong.
         @testset "Gaussian is the ν → ∞ limit" begin
             for d in (1, 2, 3), s2 in (0.09, 2.0), outlier_halfwidth in (1.0, 20.0)
-                g = decision_threshold(GauInlier(s2; d_g = d), outlier_halfwidth)
-                t = decision_threshold(GauInlier(s2; nu = 1.0e9, gamma = 0.5, d_g = d), outlier_halfwidth)
+                g = decision_boundary(GauInlier(s2; d_g = d), outlier_halfwidth)
+                t = decision_boundary(GauInlier(s2; nu = 1.0e9, gamma = 0.5, d_g = d), outlier_halfwidth)
                 @test t ≈ g rtol = 1.0e-5
             end
         end
@@ -47,17 +47,17 @@
         # A larger inlier prior must ADMIT MORE, i.e. push the boundary out.
         @testset "the label prior moves the boundary monotonically" begin
             m(γ) = GauInlier(1.0; nu = 5.0, gamma = γ, d_g = 2)
-            crossovers = [decision_threshold(m(γ), 3.41) for γ in (0.1, 0.3, 0.5, 0.7, 0.9)]
+            crossovers = [decision_boundary(m(γ), 3.41) for γ in (0.1, 0.3, 0.5, 0.7, 0.9)]
             @test issorted(crossovers)
-            @test decision_threshold(m(0.5), 3.41) ≈
-                decision_threshold(GauInlier(1.0; nu = 5.0, d_g = 2), 3.41)
+            @test decision_boundary(m(0.5), 3.41) ≈
+                decision_boundary(GauInlier(1.0; nu = 5.0, d_g = 2), 3.41)
         end
 
         # A half-width small enough that the uniform outlier density beats the
         # inlier peak admits nothing: 0, never a negative root.
         @testset "no admissible set ⇒ 0, not a negative root" begin
             for ν in (Inf, 4.0)
-                @test decision_threshold(GauInlier(100.0; nu = ν, d_g = 1), 1.0e-6) == 0.0
+                @test decision_boundary(GauInlier(100.0; nu = ν, d_g = 1), 1.0e-6) == 0.0
             end
         end
 
@@ -72,7 +72,7 @@
                 m = GauInlier(ŝ^2; d_g = 1)
                 @test decision_width(m, scale_multiple * ŝ) ≈ old(scale_multiple, ŝ) rtol = 1.0e-13
                 # …and it inverts to exactly scale_multiple·ŝ, which is what made it a boundary.
-                @test decision_threshold(m, decision_width(m, scale_multiple * ŝ)) ≈ scale_multiple * ŝ rtol = 1.0e-12
+                @test decision_boundary(m, decision_width(m, scale_multiple * ŝ)) ≈ scale_multiple * ŝ rtol = 1.0e-12
             end
         end
     end

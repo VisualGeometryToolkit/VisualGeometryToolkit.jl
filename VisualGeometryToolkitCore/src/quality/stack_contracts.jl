@@ -133,7 +133,7 @@ const CONTRACT_GENERICS = (
     residual_context, whitened_residual,
     measurement_covariance, solver_covariance, provides_solver_covariance, refine!, refine_workspace,
     # the scoring contract (robust/scoring_contract.jl, robust/baseline_scorers.jl)
-    scoring_workspace, score!, inlier_count, consensus_order, inlier_threshold, has_inlier_threshold,
+    scoring_workspace, score!, inlier_count, consensus_order, decision_boundary, has_decision_boundary,
     is_predictive, scored_model, scale_prior, outlier_halfwidth, score_bound, check_workspace,
     with_width, width_axis, residual_quality,
     # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model

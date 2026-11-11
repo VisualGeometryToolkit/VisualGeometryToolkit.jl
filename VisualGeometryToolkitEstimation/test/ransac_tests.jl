@@ -7,7 +7,7 @@ using StaticArrays
 using Random
 using StableRNGs
 using VisualGeometryToolkitCore: Attributed
-using VisualGeometryToolkitCore: consensus_order, inlier_threshold, ThresholdScoringWorkspace   # the scoring contract (VGC)
+using VisualGeometryToolkitCore: consensus_order, decision_boundary, ThresholdScoringWorkspace   # the scoring contract (VGC)
 using VisualGeometryToolkitCore: converged, estimate, iterations, retcode   # VGC accessors (public)
 using VisualGeometryToolkitCore: FitResult, FixedModels   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring, TLSShape   # owned and exported by VisualGeometryToolkitCore
@@ -206,7 +206,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
 
     @testset "threshold scorers under the loop" begin
         ms = MsacScoring(2; threshold = 0.5)
-        @test inlier_threshold(ms, nothing) == 0.5
+        @test decision_boundary(ms, nothing) == 0.5
         @test_throws ArgumentError MsacScoring(2; threshold = -1.0)
         # RANSAC counting runs the same loop to the same line.
         points, true_model, _ = make_line_data(n_inliers = 200, n_outliers = 50)

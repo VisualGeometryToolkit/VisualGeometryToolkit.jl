@@ -253,7 +253,7 @@ interface is read off its width mode ([`lo_width`](@ref)).
 - [`FixedScale`](@ref) — one ABSOLUTE loss width for every hypothesis
   (the [`LossWidth`](@ref) width mode; TLS-LM, TLS-LZ, classical TLS-LO⁺).
 - [`FollowsScorer`](@ref) — the loss width follows the scorer's decision point,
-  [`inlier_threshold`](@ref) (a strategy with no width of its own).
+  [`decision_boundary`](@ref) (a strategy with no width of its own).
 - [`SelfScaling`](@ref) — re-estimates `ŝ` at each iteration; the consensus
   set only initializes it (Stu-tU-BCD, Stu-tU-IRLS).
 - [`NoScale`](@ref) — consumes no scale at all (the seed, ℓ₂).
@@ -263,7 +263,7 @@ abstract type ScaleInterface end
 struct ConsensusAnchored <: ScaleInterface end
 "Scale interface: one absolute loss width for every hypothesis (see [`ScaleInterface`](@ref))."
 struct FixedScale <: ScaleInterface end
-"Scale interface: the loss width follows the scorer's [`inlier_threshold`](@ref) (see [`ScaleInterface`](@ref))."
+"Scale interface: the loss width follows the scorer's [`decision_boundary`](@ref) (see [`ScaleInterface`](@ref))."
 struct FollowsScorer <: ScaleInterface end
 "Scale interface: the strategy re-estimates `ŝ` at each iteration (see [`ScaleInterface`](@ref))."
 struct SelfScaling <: ScaleInterface end

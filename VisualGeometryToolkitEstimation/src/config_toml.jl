@@ -109,15 +109,7 @@ end
 # methods: a downstream package's strategies load through this one entry once
 # their tags are merged in.
 
-"""
-    LOSS_TAGS
-
-The loss-shape registry (VisualGeometryToolkitCore's `TagRegistry`, family suffix
-`Shape`): TOML `loss` tag → shape type, read off the one loss-identity table
-(`_LOSS_TABLE`, scoring_glue.jl).
-"""
-const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TABLE)...;
-                              paths = [r"^(.*\.)?loss$"])
+# `LOSS_TAGS`, the loss-shape registry, is VisualGeometryToolkitCore's (robust/strategies.jl).
 
 # `LO_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
 # from the one row per strategy (`_LO_REGISTRY`), which also gives every
@@ -126,7 +118,7 @@ const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TA
 
 # The width keys a strategy's table may carry: both for a width-carrying one
 # (the least-squares arm takes neither), none for another.
-_width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("efficiency_constant", "loss_width") : ()
+_width_keys(::Type{C}) where {C} = lo_takes_width(C) ? ("efficiency_constant", "loss_width") : ()
 _width_keys(::Type{<:Union{Irls{GaussianShape}, Triggs{GaussianShape}}}) = ()
 
 # A strategy's TOML values convert through its hook.
@@ -214,7 +206,7 @@ function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::Abstract
     defaults = lo_defaults(C)
     for f in fieldnames(C)
         f in toml_skip_fields(C) && continue
-        haskey(d, toml_key(C, f)) || _lo_has_default(C, f, defaults) ||
+        haskey(d, toml_key(C, f)) || lo_has_default(C, f, defaults) ||
             throw(ArgumentError("[$sec] needs `$(toml_key(C, f))`"))
     end
     # A plain `efficiency_constant` FIELD (a fixed-loss arm such as LocalOptimizationDoneRight's
@@ -390,7 +382,7 @@ function lo_config_dict(lo::AbstractOptimizationStrategy)
     d = toml_table(lo)
     d["type"] = lo_tag(T)
     lo_parametric(T) && (d["loss"] = tag_of(LOSS_TAGS, strategy_loss(lo)))
-    _lo_takes_width(T) && _width_to_toml!(d, lo.width)
+    lo_takes_width(T) && _width_to_toml!(d, lo.width)
     return d
 end
 

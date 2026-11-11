@@ -462,6 +462,7 @@ export canonical_basis
 # Abstract types and interfaces
 # Robust-estimation interfaces (robust/estimation.jl)
 public scale_s2   # the squared scale ŝ² of a ConsensusSet, DeployedLoss or FixedS2
+export Irls, Triggs   # the core optimization strategies (robust/strategies.jl)
 export AbstractScoring, AbstractOptimizationStrategy, RefitFamily, FixedScale,
     AbstractWeightPolicy, update_weights!, update_nuisance!, FrozenNuisance
 # The interface machinery behind them: public, reached qualified or imported by
@@ -554,6 +555,11 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
     ScaleInput, scale_input
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
+# The core optimization strategies and the registry machinery every package registers its strategies with
+# (robust/strategies.jl).
+public LOSS_TAGS, STRATEGY_TAGS, strategy_loss, lo_loss, fixed_width, lo_width_value, lo_admits_shape,
+    lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent, lo_validate,
+    lo_construct, lo_efficiency_constant_shape, lo_has_default, lo_takes_width, @lo_registry
 public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights
 public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √chisq_median(d), centred on the model
 # A DEPLOYED loss carries the width it runs at as `efficiency_constant` (the multiple
@@ -895,6 +901,7 @@ include("robust/partition_sweep.jl")  # label priors, FixedHalfwidth, ScoringWor
 include("robust/student_t_uniform_scoring.jl") # StudentTUniformScoring + its scoring contract; SCORING_TAGS (needs baseline_scorers.jl, partition_sweep.jl)
 include("robust/weights.jl")           # WeightKind traits, weight_kind, inlier_mask(result) (needs fit_result.jl and the scorer types)
 include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estimate, loss_at
+include("robust/strategies.jl")       # Irls{K}, Triggs{K}, LOSS_TAGS, the strategy registry machinery, STRATEGY_TAGS (needs lo_contract.jl, the loss shapes, TagRegistry)
 
 # Geometry Transforms (partial - matrices and rigid transforms only)
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives

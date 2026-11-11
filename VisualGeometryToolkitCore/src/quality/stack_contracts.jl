@@ -139,6 +139,9 @@ const CONTRACT_GENERICS = (
     # the robust stages' scale hand-off, answered by a metadata type that records its scale otherwise
     # (base/scale_source.jl)
     noise_scale, scale_source,
+    # the strategy registry's hooks and a loss-parametric strategy's loss (robust/strategies.jl)
+    lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent, lo_validate,
+    lo_efficiency_constant_shape, strategy_loss,
     # the weight kind of a producer or metadata type (robust/weights.jl)
     weight_kind,
     # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model

@@ -1,0 +1,11 @@
+# =============================================================================
+# VisualGeometryToolkitCore defaults — the config of record of the core
+# optimization strategies (src/robust/strategies.jl). The keyword defaults of
+# each strategy constructor read its `[optimization_strategy.<tag>]` table. A
+# strategy's width (`efficiency_constant` or `loss_width`) is deliberately
+# absent: given none it follows the scorer's decision point (find), or the
+# estimator states its default (refine, fit).
+# =============================================================================
+
+[optimization_strategy.irls]
+max_iter = 25

@@ -427,14 +427,15 @@ function _linear_lens(::_ProjectionForm, a::Lens, ρ, θ, w)
     end
     b = collect(Float64, ρ)
     c = sqrt.(w)
-    u = _weighted_lstsq(A, b, c)
-    if Q > 0
-        D = map(gi -> 1 + sum(j -> u[1 + P + j] * gi^(2j), 1:Q), g)
-        all(x -> isfinite(x) && x > 0, D) && (u = _weighted_lstsq(A, b, c ./ D))
-    end
+    u1 = _weighted_lstsq(A, b, c)
+    D = Q > 0 ? _denominators(u1, P, Q, g) : g
+    u = Q > 0 && all(x -> isfinite(x) && x > 0, D) ? _weighted_lstsq(A, b, c ./ D) : u1
     s = u[1]
     return s, _linear_with_coefficients(a, s, ntuple(k -> u[1 + k] / s, P), ntuple(j -> u[1 + P + j], Q))
 end
+
+# The rational factor's denominator D(g) = 1 + Σⱼ dⱼ g²ʲ at the projection radii `g`, from a solve's unknowns `u`.
+_denominators(u, P, Q, g) = map(gi -> 1 + sum(j -> u[1 + P + j] * gi^(2j), 1:Q), g)
 
 # The anchor lens `a` with its radial factor's coefficients `k` (numerator) and `d` (denominator) by name, every other
 # coefficient (the decentering deltas) at zero.

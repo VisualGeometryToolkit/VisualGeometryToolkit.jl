@@ -110,6 +110,10 @@ local_optimization = { type = "irls", loss = "tls" }
 ncoef             = 1
 max_iter          = 30
 outlier_halfwidth = 20.0         # px — the uniform outlier half-width, NOT the residual scale
+# The branch audit's trimmed depth refits (`_branch_residual`): each trim keeps
+# the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
+# lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
+branch_audit_scale_multiple = 3.5322300675464233
 
 [robot_world_hand_eye]
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init

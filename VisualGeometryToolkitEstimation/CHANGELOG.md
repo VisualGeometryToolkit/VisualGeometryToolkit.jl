@@ -5,6 +5,14 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **The division camera's branch audit trims through the stack's loss** (robust-schema audit): `_branch_residual`'s
+  two trimmed depth refits keep the rows inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's `noise_sigma` of the
+  lift's residual norms, codimension 2), the multiple the new `[fit_division_camera] branch_audit_scale_multiple`
+  (3·√chisq_median(2), three medians), in place of the private cut `9 × median(r²)`. The held posterior was not
+  taken: the audit exists for the views whose inliers the posterior has rejected. Every branch decision of the suite
+  is unchanged (91 audits replayed, 14 of them switches; 356 of 364 candidate scores bit-identical, the rest within
+  4e-15 relative). fit_division_camera's posterior EM is untouched.
+
 - **The radial homography's lifted seed reads its gate from the TOML** (robust-schema audit): `lift_init` of a
   plain-homography hypothesis seeds k on the correspondences inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's
   `noise_sigma` of the plain-H reprojection norms, codimension 2; the multiple the new table

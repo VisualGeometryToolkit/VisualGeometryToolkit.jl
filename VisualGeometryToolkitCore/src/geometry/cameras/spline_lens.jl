@@ -217,9 +217,9 @@ end
 # The direction controls of `init = :interpolate` on the lattice of `rect` and
 # `gsz = (rows, cols)`, sampled from the camera `model`.
 function _directions_from(
-        model::CameraModel, rect::Rect2, gsz, ::Type{T};
+        model::CameraModel, rect::Rect2, gsz;
         sampling_margin::Real   # the caller supplies it; the public default lives on the constructors
-    ) where {T}
+    )
     gh, gw = gsz
     Ki = inv(SMatrix{3, 3, Float64}(calibration_matrix(model)))
     pp = SVector{2, Float64}(_principal_point(model))
@@ -235,7 +235,7 @@ function _directions_from(
     Ay = _prefilter_matrix(gh)
     Ax = _prefilter_matrix(gw)
     C = ntuple(k -> Ay \ (([S[gy, gx][k] for gy in 1:gh, gx in 1:gw]) / transpose(Ax)), 3)
-    return [Vec3{T}(C[1][gy, gx], C[2][gy, gx], C[3][gy, gx]) for gy in 1:gh, gx in 1:gw]
+    return [SVector(C[1][gy, gx], C[2][gy, gx], C[3][gy, gx]) for gy in 1:gh, gx in 1:gw]
 end
 
 """
@@ -346,7 +346,7 @@ function _init_directions(source, rect::Rect2, gsz, init::Symbol, sampling_margi
                 "takes init = :quasi_interpolate"
         )
     )
-    return _directions_from(source, rect, gsz, Float64; sampling_margin)
+    return _directions_from(source, rect, gsz; sampling_margin)
 end
 
 # What a spline grid is initialized from: a camera (its backprojection) or a function `pixel -> direction`.

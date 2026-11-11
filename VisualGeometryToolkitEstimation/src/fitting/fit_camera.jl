@@ -364,13 +364,12 @@ end
 _basis_degree(::Radial{Even}, i::Int) = 2i
 _basis_degree(::Radial, i::Int) = i + 1
 
-# The weighted linear least squares `min ‖diag(c)(A u − b)‖²`, its columns equilibrated (the powers of the radius span
-# decades) and solved by Householder QR.
-function _weighted_lstsq(A::Matrix{Float64}, b::Vector{Float64}, c::Vector{Float64})
-    Aw = c .* A
-    bw = c .* b
-    nrm = map(j -> (n = norm(view(Aw, :, j)); n > 0 ? n : 1.0), axes(Aw, 2))
-    return (qr(Aw ./ transpose(nrm)) \ bw) ./ nrm
+# The weighted linear least squares `min ‖diag(c)(A u − b)‖²` (`c` the rows' √ weights): fit_linear's one solver
+# (`_weighted_lstsq(A, y, w)`, the column-pivoted QR of √w·A on the rows of positive weight), its unknowns NaN when
+# fewer such rows than columns remain (the fit then reports `:solve_failed`).
+function _row_weighted_lstsq(A, b, c)
+    u = _weighted_lstsq(A, b, c .^ 2)
+    return u === nothing ? fill(NaN, size(A, 2)) : u
 end
 
 # A LIFT `(x·N(ρ), D(ρ))` of the target-normalized point `x = y/s`: the ray is parallel to the sample's,
@@ -397,7 +396,7 @@ function _linear_lens(::_LiftForm, a::LiftLens, ρ, θ, w)
         b[i] = ρ[i] * cθ
         c[i] = sqrt(w[i]) * sθ
     end
-    u = _weighted_lstsq(A, b, c)
+    u = _row_weighted_lstsq(A, b, c)
     s = u[1]
     k = ntuple(i -> u[1 + Q + i] * s^_basis_degree(r, i), P)
     d = ntuple(j -> u[1 + j] * s^(_basis_degree(r, j) - 1), Q)
@@ -427,9 +426,9 @@ function _linear_lens(::_ProjectionForm, a::Lens, ρ, θ, w)
     end
     b = collect(Float64, ρ)
     c = sqrt.(w)
-    u1 = _weighted_lstsq(A, b, c)
+    u1 = _row_weighted_lstsq(A, b, c)
     D = Q > 0 ? _denominators(u1, P, Q, g) : g
-    u = Q > 0 && all(x -> isfinite(x) && x > 0, D) ? _weighted_lstsq(A, b, c ./ D) : u1
+    u = Q > 0 && all(x -> isfinite(x) && x > 0, D) ? _row_weighted_lstsq(A, b, c ./ D) : u1
     s = u[1]
     return s, _linear_with_coefficients(a, s, ntuple(k -> u[1 + k] / s, P), ntuple(j -> u[1 + P + j], Q))
 end

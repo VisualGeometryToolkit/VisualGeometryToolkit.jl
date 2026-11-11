@@ -42,18 +42,15 @@ block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
 free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined; and `spline`, `nothing` for a parametric camera, for a
-SplineLens camera `(; β, λ, gcv, gcv_at_bound, gcv_limit, effective_dof,
+SplineLens camera `(; β, λ, gcv, gcv_at_bound, effective_dof,
 n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
 windows_settled, forward, forward_max_px, gauge_angle, gauge_roll, cost_start,
 cost_before_gauge, cost_after_gauge, anchor_cost)`: the third-difference
 penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`;
 `gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
-solved (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is an
-end of the decade scan (then not refined: the weight GCV wants lies at or past
-it), the largest β whose estimate stopped projecting a correspondence (no
-smaller β was solved, so a minimum just above it lies against that limit; or
-`nothing`), and tr H, the effective number of parameters at the chosen weight
-(`nothing` without GCV);
+evaluated (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is
+an end of the bracket (the weight GCV wants lies at or past it), and tr H, the
+effective number of parameters at the chosen weight (`nothing` without GCV);
 the present nodes no data row and no third-difference row reads (held at their
 guesses); the correspondences detected on an absent window,
 and those the camera does not project when detected within a cell of one (they
@@ -200,19 +197,20 @@ trait, `GaugeIntrinsics`, selects it):
   eigenvalue of the Δ³ operator's `DᵀD`. β = 1 weighs the penalty like the
   data. β is set by `penalty`:
   - `:gcv` (the default): β minimizes the generalized cross-validation score
-    `GCV = n‖r‖² / (n − tr H)²` (`n` the data rows, `r` their residuals at
-    the estimate for β, `H = J(JᵀJ + λDᵀD)⁻¹Jᵀ`, J and D the data and penalty
-    rows' Jacobians there, the gauge removed), by the stack's `gcv_select`:
-    a scan of one β a decade over `10⁻¹² … 1`, solved from the top down with
-    warm starts, then golden-section steps on `log₁₀ β` to a bracket 0.1
-    decade wide; a minimum at a scan end is not refined and is reported
-    (`gcv_at_bound`). Each β is a full nonlinear solve (not a linearization).
-    tr H comes from a sparse Cholesky: exact up to 3000 coordinates, else a
-    64-probe Hutchinson estimate from a fixed seed (deterministic; standard
-    deviation ≤ √(2·tr H / 64)). The poses-alone and directions-first stages
-    run once, at the scan's top β = 1, as a start aid. A β whose estimate
-    stops projecting a correspondence scores `GCV = Inf` (in the curve), no
-    smaller β is solved, and `gcv_limit` records it.
+    `GCV = n‖r‖² / (n − tr H)²` of the refine's linearization (`n` the data
+    rows): the whole refine solved ONCE at β = 1 (the bracket's top, where
+    the penalty weighs like the data and no weakly held node swings), its
+    Gauss–Newton step from there for every λ (`r` the data rows' residuals
+    after the step, `H = J(JᵀJ + AᵀA + λDᵀD)⁻¹Jᵀ`, J, D and A the data, Δ³
+    and anchor rows' Jacobians there, the gauge removed), from ONE
+    generalized eigendecomposition of the pencil `(DᵀD, JᵀJ + AᵀA + DᵀD)` up
+    to 3000 coordinates, else per λ a sparse Cholesky and a 64-probe
+    Hutchinson trace from a fixed seed (deterministic; standard deviation
+    ≤ √(2·tr H / 64)); minimized over `log₁₀ β ∈ [−12, 0]` by the stack's
+    `gcv_select` (one β a decade, then Brent's method to its own floor;
+    a minimum at a bracket end is reported, `gcv_at_bound`); then ONE final
+    solve at the chosen β, from the linearization's Gauss–Newton step there
+    (from the β = 1 estimate if that step stops projecting a correspondence).
   - a number β > 0: that weight; no GCV. On noisy detections a small weight
     can let the nodes the data hold weakly swing until a correspondence no
     longer projects: an `ArgumentError` says so and suggests `:gcv` or a

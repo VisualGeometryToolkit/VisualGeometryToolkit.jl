@@ -62,7 +62,7 @@ using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
 using SHA: sha256   # stable_seed's fixed hash, sha256_hex (base/utils.jl)
-using SparseArrays: sparse   # a lattice's difference rows (numerics/bspline_energy.jl)
+using SparseArrays: sparse, SparseMatrixCSC   # a lattice's difference rows (numerics/bspline_energy.jl); penalized least squares (numerics/penalized_least_squares.jl)
 import ForwardDiff   # the transfer form's mixed derivative ∂G_x/∂θ (geometry/forms.jl)
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
@@ -109,7 +109,7 @@ export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified
 public is_positive_definite       # the 2×2 positive-definiteness test (Sylvester), reached qualified
-public grid_golden_minimum      # the one 1-D minimizer: a grid scan, then golden-section steps (numerics/minimize.jl)
+public grid_brent_minimum       # the one 1-D minimizer: a grid scan, then Brent's method (numerics/minimize.jl)
 export is_peak
 export boundary, region, scale, shape_factor
 export bbox
@@ -205,7 +205,9 @@ public gauss_hermite_prob, hammersley, square_rule, unit_disc_rule   # quadratur
 public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, kernel-safe; on the CPU BSplineKit's)
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
-public difference_rows      # the sparse Δᵒʳᵈᵉʳ rows of a (masked) 2-D lattice along both axes: the P-spline penalty's operator
+public difference_rows      # the sparse Δᵒʳᵈᵉʳ rows of a (masked) 2-D lattice along chosen axes: the P-spline penalty's operator
+public CSRMatrix, PenalizedOperator, cgls   # the stack's one device least-squares solve on sparse operators (numerics/penalized_least_squares.jl)
+public gradient_pairs, mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization (m̄, its unit) and an operator's rows as residual blocks (numerics/penalized_least_squares.jl)
 public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
 public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
@@ -926,12 +928,13 @@ include("geometry/transforms/pointwise.jl")
 # rrules attach in the ChainRulesCore extension.
 include("numerics/bspline.jl")
 include("numerics/bspline_energy.jl")   # the bending energy and the natural boundary condition of a B-spline (BSplineKit)
+include("numerics/penalized_least_squares.jl")   # the stack's one penalized least squares: m̄, the weight's unit, row stencils, CGLS
 include("numerics/special.jl")    # device-safe lgamma/digamma/trigamma (adaptation kernels)
 include("numerics/quadrature.jl") # Gauss–Hermite (probabilists') and Hammersley points
 include("numerics/small_lu.jl")   # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")  # KernelAbstractions workgroup tree reduction
 include("numerics/thin_plate_spline.jl")   # thin-plate spline: host-side solver, isbits allocation-free evaluator
-include("numerics/minimize.jl")   # the one grid-and-golden 1-D minimizer
+include("numerics/minimize.jl")   # the one grid-and-Brent 1-D minimizer
 include("geometry/primitives/surfaces.jl")   # the surface protocol and Quad (MappedSurface: geometry/cameras/mapped_surface.jl)
 include("base/raster.jl")         # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")   # shape → SpatialIndexing.Rect (needs frames + dilate)

@@ -227,7 +227,8 @@ import SparseArrays
 import Graphs   # the view and observation graphs' algorithms (components, articulation, bridges, spanning trees)
 using LinearAlgebra: cholesky, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
-    pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device
+    pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
+    mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization and an operator's rows as blocks (Core)
 using VisualGeometryToolkitCore: nearest_point, backproject_with_jacobian
 
 
@@ -299,7 +300,7 @@ public unbiased_median_variance, with_residual_unit
 # -----------------------------------------------------------------------------
 # PUBLIC, not exported — the machinery
 # -----------------------------------------------------------------------------
-public gcv_select, gcv_curve, gcv_score, penalty_scale, mean_positive_eigenvalue, check_penalty_weight   # the one GCV of a penalty weight and its normalization (RadiometricCamera's solves call it)
+public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it; its normalization is Core's penalty_scale, mean_positive_eigenvalue)
 # Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
 # PoseLib has its own), `refine!` the LO refit an extender implements.
@@ -409,7 +410,7 @@ include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
-include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight and its normalization (penalty_scale, gcv_curve, gcv_select)
+include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, gcv_select; the weight's normalization is Core's)
 include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, or a SplineLens camera or non-central spline model, onto a source over a region
 include("fitting/essential.jl")
 include("fitting/rotation.jl")

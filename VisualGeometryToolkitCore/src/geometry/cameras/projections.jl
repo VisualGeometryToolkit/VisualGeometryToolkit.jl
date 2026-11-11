@@ -202,7 +202,7 @@ end
 # at every azimuth (azimuth 0 is read). When a stage comes before it (a tilt),
 # the onset depends on the azimuth, and the limit is its MINIMUM over azimuths
 # — the angle within which every ray is imaged: 36 azimuths, the least refined
-# by a golden-section search between its neighbours. A composition without a radial
+# by Brent's method between its neighbours. A composition without a radial
 # stage: the plain scan.
 function _chain_view_angle_limit(l::Lens, edge)
     _bounding_radial(_precision(Float64, l)) === nothing &&
@@ -213,11 +213,11 @@ function _chain_view_angle_limit(l::Lens, edge)
     return _azimuth_minimum(onset, 36)
 end
 # The minimum of a function of the azimuth ψ: `n` samples around the circle, the
-# least refined by a golden-section search between its neighbours (`iters`
-# steps); the smallest value evaluated. The one azimuthal minimizer: the chain's
+# least refined by Brent's method between its neighbours (`grid_brent_minimum`);
+# the smallest value evaluated. The one azimuthal minimizer: the chain's
 # view-angle limit above and the valid domain's inscribed radius
 # (image_circle.jl).
-_azimuth_minimum(f, n::Int; iters::Int = 40) = grid_golden_minimum(f, range(0, 2π; length = n + 1)[1:n]; iters, periodic = true).value
+_azimuth_minimum(f, n::Int) = grid_brent_minimum(f, range(0, 2π; length = n + 1)[1:n]; periodic = true).value
 # The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
 # first failure to rounding; `edge` when it never fails.
 function _nan_onset(imaged, edge)

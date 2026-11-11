@@ -18,6 +18,7 @@ non-central one is a `NoncentralSplineModel`).
   `penalty = 1e-9` on noisy detections ran > 60 min on dgx01), its rebuild rounds are a bounded loop, and a lattice
   that folds where a point projects (the backward's Jacobian exactly singular) raises the not-projected error, naming
   the fold, instead of being linearized.
+- **Compat: NLLSsolver ≥ 5.3.3** (NLLSsolver#68: the damping loop stops at a non-finite step).
 - **Breaking: a view-graph edge's weight and transform are Core's `weight_of` and `value_of`** (the private
   `_edge_weight`/`_relative` are gone; an edge without `:weight` still weighs 1). `fit_rotation_averaging`'s spectral
   seed hands Core's `spectral_rotation_averaging` the live (weight > 0) `Attributed` edges directly.
@@ -75,18 +76,19 @@ non-central one is a `NoncentralSplineModel`).
   β = 3e-7 (`_PSPLINE_BETA`) and m̄ the Δ³ operator's mean positive eigenvalue (≈ 31 on a 12 × 10 lattice, → 40 on
   large ones), in place of `1e-8·mean(diag(AᵀA))`: λ is 3e-7/m̄ ≈ 0.75–1 × the former one, so the fitted lattices
   move within the fit's tolerance (the metadata's `family.λ`, formerly `penalty`, and `forward_λ`, formerly `forward_penalty`).
-- **New (public, not exported): the stack's one generalized cross-validation of a penalty weight and its
-  normalization** — `penalty_scale(energy, N, m̄)` (`λ = β·energy/N/m̄`: β relative to the data's energy per parameter
-  and to the penalty operator's mean positive eigenvalue), `mean_positive_eigenvalue(D)` (`‖D‖²_F / rank D`, a sparse
-  QR's rank) or `mean_positive_eigenvalue(Symmetric(DᵀD))` (`tr / rank`), `gcv_score(n, rss, dof)`,
-  `gcv_curve(G, h, rr, Q, q, n)` (the closed-form GCV curve of one Gauss–Newton system, a generalized
-  eigendecomposition), `gcv_select(score, scale; log10_bracket, points, xtol, refine_ends = true)` → `(; β, λ, gcv,
-  rss, dof, log10_β_bracket, at_bracket_end)` (a scan of log₁₀ β from the top down, then golden-section steps through
-  Core's `grid_golden_minimum`, a least value at a scan end refined on its one interval; `at_bracket_end` when the
-  result lies at the end) and `check_penalty_weight(w, what; allow_nothing = false)`. Moved from RadiometricCamera's
-  linear solves (its `_gcv_curve`, `gcv_select`,
-  `_mean_positive_eigenvalue`, `_check_penalty_weight`: its copies go when it adopts these); `refine_camera_and_poses` on a
-  SplineLens camera uses them too.
+- **New (public, not exported): the stack's one generalized cross-validation of a penalty weight** — `gcv_score(n, rss,
+  dof)`, `gcv_curve(G, h, rr, Q, q, n; hold)` and `gcv_curve(J, r, D, c; hold, exact_max = 3000, probes = 64, seed)`
+  (the closed-form GCV curve of one penalized least squares, and its solution `y` at each λ: ONE generalized eigendecomposition of the pencil
+  `(DᵀD, JᵀJ + RᵀR + DᵀD)` up to `exact_max` parameters, else per λ a sparse Cholesky and a Hutchinson trace from a fixed
+  seed; `hold = R` rows that are in the system but not data; no ridge: a gauge is refused, `ArgumentError`),
+  `gcv_select(score, scale; log10_bracket, points)` → `(; β, λ, gcv, rss, dof, log10_β_bracket, at_bracket_end)` (a
+  coarse scan of log₁₀ β from the top down, then Brent's method through Core's `grid_brent_minimum`, a least value at
+  a scan end refined on its one interval; `at_bracket_end` when the result lies at the end) and
+  `check_penalty_weight(w, what; allow_nothing = false)`. The weight's normalization, `penalty_scale` and
+  `mean_positive_eigenvalue`, is Core's (VisualGeometryToolkitCore 0.9; not re-exported here). Moved from
+  RadiometricCamera's linear solves (its `_gcv_curve`, `gcv_select`, `_brent_minimize`, `_mean_positive_eigenvalue`,
+  `_check_penalty_weight`: its copies go when it adopts these); `refine_camera_and_poses` on a SplineLens camera uses
+  them too.
 - **`refine_camera_and_poses` refines a SplineLens camera's controls with its poses, K frozen** (bit-identical): the
   present nodes' backward controls, any norms (a `fit_camera` lattice, a quasi-interpolant), each `c = e^ℓ·D` its
   direction on its sphere (Core's `ControlPatchManifold`) and its log-scale, grouped into 2 × 2 patches (NLLSsolver's
@@ -95,11 +97,13 @@ non-central one is a `NoncentralSplineModel`).
   `_projection_jacobians`: no ForwardDiff reaches the solve); a scale-free third-difference penalty over the present
   nodes (Core's `difference_rows`, each row divided by the mean control length of its own 4 nodes, its denominator in
   the analytic Jacobian), weighted by the stack's normalized β (`λ = β·energy/N/m̄`, the data's Gauss–Newton energy per
-  direction coordinate and the Δ³ operator's mean positive eigenvalue; see `penalty_scale` below) set by `penalty`:
-  `:gcv` (the default) chooses β by generalized cross-validation, `GCV = n‖r‖²/(n − tr H)²`, through `gcv_select`
-  (one β a decade over 1e-12…1, solved top down with warm starts — each β a full nonlinear solve — then golden-section
-  steps to a 0.1-decade bracket; tr H from a gauge-reduced sparse Cholesky, exact up to 3000 coordinates, else a
-  64-probe Hutchinson estimate with a fixed seed), a number fixes β (GCV off; a small one that lets noisy data swing a
+  direction coordinate and the Δ³ operator's mean positive eigenvalue; Core's `penalty_scale`) set by `penalty`:
+  `:gcv` (the default) chooses β by generalized cross-validation, `GCV = n‖r‖²/(n − tr H)²`, of the refine's
+  linearization: ONE nonlinear solve at β = 1 (the bracket's top, where no weakly held node swings), the GCV curve of
+  its Gauss–Newton step for every λ from one decomposition (`gcv_curve`: the pencil up to 3000 coordinates, else a
+  sparse Cholesky per λ and a 64-probe Hutchinson trace with a fixed seed; the gauge's held coordinates removed, the
+  anchors a hold), `gcv_select` over 1e-12…1 (one β a decade, then Brent's method), then ONE final solve at the chosen
+  β from the linearization's Gauss–Newton step there (two full solves in place of the per-weight search's 13–17), a number fixes β (GCV off; a small one that lets noisy data swing a
   node until a correspondence no longer projects is an `ArgumentError` naming `:gcv`), and `0` or `nothing` turns the smoothness off (the nodes no correspondence's window reads then held at their guesses); the
   poses refined alone first, then the directions with the scales held exactly (a directions-only patch variable, no
   weighted rows), then everything; the blocks rebuilt at the
@@ -108,8 +112,8 @@ non-central one is a `NoncentralSplineModel`).
   so the normal matrix is full rank), and the estimate moved after the solve, in one step, to the canonical
   representative (the lens axis onto ẑ, the roll putting the x-derivative at x = 0 in the xz plane, the live
   controls' mean length the guess's; the cost unchanged). `result.spline` carries the weight `β` and `λ`,
-  the GCV curve `[(; β, λ, gcv)]`, whether its minimum is a scan end (`gcv_at_bound`), the largest β whose estimate
-  stopped projecting a correspondence (`gcv_limit`), tr H (`effective_dof`) and the present nodes no row reads
+  the GCV curve `[(; β, λ, gcv)]` (every weight evaluated), whether its minimum is a bracket end (`gcv_at_bound`),
+  tr H (`effective_dof`) and the present nodes no row reads
   (`n_nodes_unrefined`). `free` is `(:controls,)` or `()` (the
   poses alone). A forward spline is dropped and, with `refit_forward = true` (the default), refitted by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` over the camera's imaged region (a `BoundedCamera` then

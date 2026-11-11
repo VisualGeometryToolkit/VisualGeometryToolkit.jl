@@ -105,11 +105,11 @@ _primal_float(::Quad{T}) where {T} = primal_float(T)
         X = s.map(p)
         J = transform_deriv(s.map, p)
         δ = X - o
-        return SVector(dot(u1, δ), dot(u2, δ)), vcat(u1' * J, u2' * J)
+        return SVector(dot(u1, δ), dot(u2, δ)), vcat(u1' * J, u2' * J), X
     end
     return fj
 end
-@inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> (s.map(p) - x, transform_deriv(s.map, p))
+@inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> (X = s.map(p); (X - x, transform_deriv(s.map, p), X))
 
 @inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
 # (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
@@ -118,8 +118,8 @@ end
     p0 = map(_primal, _plane_coordinates(s.frame, x0))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     seed_ok = all(isfinite, p0)
-    p, ok = _board_root(_hit_residual, (s, o, d), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)), lb, ub, sc, tol2, L)
-    x = s.map(p)
+    p, ok, X = _board_root(_hit_residual, (s, o, d), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)), lb, ub, sc, tol2, L)
+    x = _root_point(X, s, p)
     t = dot(x - o, d) / dot(d, d)
     return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
 end
@@ -127,7 +127,7 @@ end
 @inline function chart(s::MappedSurface, x::StaticVector{3})
     p0 = map(_primal, _plane_coordinates(s.frame, x))
     lb, ub, sc, tol2, L = _board_box(s.frame)
-    p, ok = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
+    p, ok, _ = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
     nan = oftype(p[1], NaN)
     return ifelse(ok, p, SVector(nan, nan))
 end
@@ -138,11 +138,14 @@ end
 end
 
 # THE ray–board root behind one narrow interface, so the solver behind it can
-# be swapped: `residual(parts...)` builds `fj(p) -> (r, ∂r/∂p)`, the residual and
-# its Jacobian at a chart point, from the problem's parts (the surface and the
-# ray, or the surface and a point); `x₀` the seed, `[lb, ub]` the box, `s` the
-# chart's unit per axis, `tol2` the acceptance of the final squared residual,
-# `L` the residual's scale. Returns `(p, converged)`.
+# be swapped: `residual(parts...)` builds `fj(p) -> (r, ∂r/∂p, X)`, the residual,
+# its Jacobian and the surface point `X = map(p)` at a chart point, from the
+# problem's parts (the surface and the ray, or the surface and a point); `x₀` the
+# seed, `[lb, ub]` the box, `s` the chart's unit per axis, `tol2` the acceptance
+# of the final squared residual, `L` the residual's scale. Returns `(p, converged,
+# X)`: the LM's own last evaluation's point for plain parts, `nothing` for Dual
+# parts (their point carries the root's partials: `_root_point` maps the root).
+# The numbers' type is read off `fj`'s inferred result, not from an evaluation.
 #
 # The ITERATION IS PLAIN. Plain parts are solved by Core's one static 2-D LM
 # (`_spline_lm`, the SplineLens projection's, in their float type). Parts with
@@ -153,26 +156,32 @@ end
 # on the Dual parts at that root (`J⁻¹` for a square J), the value parts the
 # values' root exactly. Nested Duals (a Hessian) differentiate exactly.
 @inline function _board_root(residual::R, parts::Tuple, x₀::StaticVector{2}, lb, ub, s, tol2, L) where {R}
-    r, J = residual(parts...)(x₀)
-    return _board_root(promote_type(eltype(r), eltype(J)), residual, parts, x₀, lb, ub, s, tol2, L)
+    fj = residual(parts...)
+    T = _root_numbers(Base.promote_op(fj, typeof(x₀)))
+    T === nothing && (rJ = fj(x₀); T = promote_type(eltype(rJ[1]), eltype(rJ[2])))   # not inferred: one evaluation
+    return _board_root(T, residual, parts, x₀, lb, ub, s, tol2, L)
 end
+@inline _root_numbers(::Type{<:Tuple{R, J, Vararg}}) where {R <: StaticArrays.StaticArray, J <: StaticArrays.StaticArray} = promote_type(eltype(R), eltype(J))
+@inline _root_numbers(::Type) = nothing
+@inline _root_point(X, s, p) = X
+@inline _root_point(::Nothing, s, p) = s.map(p)
 @inline function _board_root(::Type{T}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {T <: AbstractFloat, R}
     fj = residual(parts...)
-    fT(p) = (rJ = fj(p); (SVector{length(rJ[1]), T}(rJ[1]), SMatrix{size(rJ[2], 1), 2, T}(rJ[2])))
+    fT(p) = (rJ = fj(p); (SVector{length(rJ[1]), T}(rJ[1]), SMatrix{size(rJ[2], 1), 2, T}(rJ[2]), rJ[3]))
     # resolved to rounding (cost floor 0): the stops are what T resolves of a residual of the chart's scale L, so a
     # nearly flat surface's plane-hit seed (a residual of its heights, below √eps·L for heights of 1e-8 L) is not
     # taken for its root, and the hit is a smooth function of the surface; `tol2` is only the acceptance
-    p, ok = _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L), nothing, zero(T))
-    return p, ok
+    p, ok, _, (_, _, X) = _spline_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L), nothing, zero(T))
+    return p, ok, X
 end
 @inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}
     V = ForwardDiff.valtype(D)
-    pV, ok = _board_root(V, residual, map(x -> _layer_values(D, x), parts), x₀, lb, ub, s, tol2, L)
+    pV, ok, _ = _board_root(V, residual, map(x -> _layer_values(D, x), parts), x₀, lb, ub, s, tol2, L)
     rD, JD = residual(parts...)(map(v -> _lift_dual(D, v), pV))
     Jv = map(x -> _outer_value(D, x), JD)
     G = inv(Jv' * Jv) * Jv'                       # 2 × R: the least-squares inverse (J⁻¹ for a square J)
     ∂(i) = -sum(ntuple(k -> G[i, k] * ForwardDiff.partials(rD[k]), Val(length(rD))))
-    return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2))), ok
+    return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2))), ok, nothing
 end
 # A part with D's outermost layer's values: a vector's numbers, a surface's members and frame.
 @inline _layer_values(::Type{D}, x::StaticVector) where {D} = map(v -> _outer_value(D, v), x)

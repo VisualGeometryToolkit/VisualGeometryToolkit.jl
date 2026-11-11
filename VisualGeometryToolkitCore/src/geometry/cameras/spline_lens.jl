@@ -596,7 +596,9 @@ const _PROJECT_TOL = 1.0e-6
 # (the reference's: no limit), or a relative radius `b`, a step longer than
 # `b·max(‖x‖, 1)` shortened to it along its direction — COLMAP's
 # IterativeUndistortion clipping (`b = 0.1`), which the parametric lens inverse
-# reads (lens_rays.jl `_inverse_lm`). `cost_floor` is the absolute stops' floor, the
+# reads (lens_rays.jl `_inverse_lm`). It returns `(x, converged, J, e)`, `e` the
+# evaluation `fj(x)` itself (anything `fj` returns past `(r, J)` with it: the
+# board root's surface point). `cost_floor` is the absolute stops' floor, the
 # reference's `eps(Float64)` by default: a cost below it ends the solve, a residual
 # of order one resolved to √eps. A root that must be resolved to rounding (the lens
 # inverse: a seed whose residual is 1e-9 is not its root) gives 0, leaving the
@@ -631,11 +633,12 @@ const _PROJECT_TOL = 1.0e-6
     ϵG = max(cost_floor, (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
     λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
-    f, Jx = fj(x)
+    ex = fj(x)
+    f, Jx = ex[1], ex[2]
     F = sum(abs2, f)
-    F < ϵF && return x, F < tol2, Jx
+    F < ϵF && return x, F < tol2, Jx, ex
     g = Jx' * f
-    norm(g, Inf) < ϵG && return x, F < tol2, Jx
+    norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex
     JtJ = Jx' * Jx
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
@@ -647,6 +650,7 @@ const _PROJECT_TOL = 1.0e-6
         pr = zero(T)
         ρ = zero(T)
         xk = x
+        ek = ex
         fk = f
         Jk = Jx
         Fk = F
@@ -664,7 +668,8 @@ const _PROJECT_TOL = 1.0e-6
         end
         if info == 0 && !clipped
             xk = x .- p
-            fk, Jk = fj(xk)
+            ek = fj(xk)
+            fk, Jk = ek[1], ek[2]
             Fk = sum(abs2, fk)
             if Fk < F
                 ac = F - Fk
@@ -674,7 +679,7 @@ const _PROJECT_TOL = 1.0e-6
             end
             if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
                 if accepted
-                    x, f, F, Jx = xk, fk, Fk, Jk
+                    x, f, F, Jx, ex = xk, fk, Fk, Jk, ek
                 end
                 break
             end
@@ -685,6 +690,7 @@ const _PROJECT_TOL = 1.0e-6
             Fold = F
             F = Fk
             Jx = Jk
+            ex = ek
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
             g = Jx' * f
@@ -701,7 +707,7 @@ const _PROJECT_TOL = 1.0e-6
         end
         λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
-    return x, F < tol2, Jx
+    return x, F < tol2, Jx, ex
 end
 
 # The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.

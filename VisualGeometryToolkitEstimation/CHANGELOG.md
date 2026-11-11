@@ -5,6 +5,12 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: `test_scenes()`** (public, not exported; a Test extension, `using Test` loads it): the stack's shared synthetic
+  test scenes, the module whose families `EpipolarScenes`, `HomographyScenes`, `PoseScenes`, `DivisionBoards`,
+  `P3PScenes`, `Cameras` and `Contamination` export their seeded builders (`calibrated_pairs`, `stereo_pixel_pairs`,
+  `homography_pairs`, `frustum_point`, `board_camera`, `noisy_board_views`, `p3p_scene`, `contaminated_pairs`, …). They
+  were this package's private test setups, which LocalOptimizationDoneRight's paper tests copied; every stack package's
+  tests now draw from the one definition (the package's own setups re-export them). The draws are unchanged.
 - **Internal: one IRLS weight step.** `fit_linear`, `fit_rotation` and `fit_rotation_averaging` each restated the same
   reweighting (σ̂ = median/√χ²_d-median, the loss deployed at σ̂², its weights times the prior) with only the
   codimension differing; they share `_irls_weights!`, whose σ̂ is Core's `noise_sigma`. The results are unchanged bit for

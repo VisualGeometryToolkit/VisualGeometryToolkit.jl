@@ -50,8 +50,8 @@ function loaded_packages(code::AbstractString)
     return Set(filter(name -> !isdir(joinpath(Sys.STDLIB, name)), loaded))
 end
 
-function run_readme_child(env::AbstractString, script::AbstractString)
-    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$env $script`
+function run_readme_child(env::AbstractString, args::AbstractString...)
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$env $args`
     proc = withenv("JULIA_LOAD_PATH" => "@:@stdlib", "JULIA_PROJECT" => nothing) do   # --project overrides JULIA_PROJECT
         run(ignorestatus(cmd))
     end
@@ -84,10 +84,12 @@ function readme_environment(root::AbstractString, packages; developed = Dict{Str
     return env
 end
 
-function test_readme_row(env::AbstractString, task::AbstractString, blocks; after::AbstractString = "")
+function test_readme_row(env::AbstractString, task::AbstractString, blocks; preamble::AbstractString = "",
+                         after::AbstractString = "")
     Test.@test !isempty(blocks)
     write(joinpath(env, "run.jl"), """
     using Test
+    $preamble
     mods = Module[]
     @testset $(repr("examples of: " * task)) begin
         for (i, code) in enumerate($(repr(collect(String, blocks))))

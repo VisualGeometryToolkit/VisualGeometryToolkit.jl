@@ -6,6 +6,7 @@
     using Test
     using VisualGeometryToolkitCore: ReadmeExample, readme_examples, install_table, install_packages, loaded_packages,
         readme_environment, test_readme_row, test_readme_example
+    import VisualGeometryToolkitCore
     root = mktempdir()
     mkpath(joinpath(root, "src")); mkpath(joinpath(root, "docs", "src"))
     write(joinpath(root, "Project.toml"), "name = \"TinyReadme\"\nuuid = \"5b8c6a1e-2f4d-4c3b-9e7a-1d2c3b4a5f60\"\nversion = \"0.1.0\"\n")
@@ -25,5 +26,6 @@
 
     test_readme_example(root; checks = "@test readme.x == 42")
     env = readme_environment(root, ["TinyReadme"])
-    test_readme_row(env, "compute", [only(ex).code]; after = "@test length(mods) == 1")
+    test_readme_row(env, "compute", [only(ex).code]; preamble = "import TinyReadme", after = "@test length(mods) == 1 && TinyReadme.answer() == 42")
+    @test VisualGeometryToolkitCore.run_readme_child(env, "-e", "using TinyReadme; exit(TinyReadme.answer() == 42 ? 0 : 1)") == 0
 end

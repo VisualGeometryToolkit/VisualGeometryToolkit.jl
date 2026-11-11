@@ -252,9 +252,9 @@ VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 function readme_environment end
 
 """
-    run_readme_child(env, script) -> Int
+    run_readme_child(env, args...) -> Int
 
-Run the Julia file `script` in the environment `env` in a child Julia with the
+Run Julia with `args` (a script, or `"-e", code`) in the environment `env`, a child Julia with the
 test run's flags (`Base.julia_cmd()`: `--depwarn=error`, coverage) and a load
 path of the project and the standard library only, so no default environment
 supplies a package the install line does not add. Returns its exit code.
@@ -263,12 +263,13 @@ Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 function run_readme_child end
 
 """
-    test_readme_row(env, task, blocks; after = "")
+    test_readme_row(env, task, blocks; preamble = "", after = "")
 
 Run each Julia example of `blocks` (code strings) in the environment `env`,
 each in a module of its own, so each is shown complete on its own; a block
-whose last line ends `# true` must return `true`. `after` is code run in the
-same child after the examples, `mods` their modules in order (the row's
+whose last line ends `# true` must return `true`. `preamble` is top-level code
+run first (an `import` the assertions need); `after` is code run in the same
+child after the examples, `mods` their modules in order (the row's
 assertions). `@test` that the child succeeds. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """

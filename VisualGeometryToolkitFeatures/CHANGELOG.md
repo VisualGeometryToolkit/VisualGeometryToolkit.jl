@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Fixed: the stabilized image's noise threshold** (`asift_detect(::StabilizedImage; noise_sigmas)`) read the noise σ of
+  every DoG slice, the two boundary slices included, while the extremum search reads only the interior ones (2 … NS − 1,
+  since the interior-slice search): the threshold was set by a slice no extremum comes from, so too high, and faint
+  extrema were dropped. It is the noisiest searched slice's σ now: a lower threshold, more detections at the same
+  `noise_sigmas`.
+- **Changed: LoMa on ONNX Runtime's CUDA provider no longer releases the ASIFT detector's plans at every call** (a full GC,
+  the pool reclaimed and the plan rebuilt at the next detection). Each CUDA session's arena is capped
+  (`gpu_mem_limit` 8 GiB, grown by request), and the detector's plans size their resident warps from the free device
+  memory less that cap for every CUDA session of the process; the plans cached before a session is created are released
+  once, then.
+- **Internal: Core's device queries.** The chunk sizing's `device_free_bytes` and the plan release's pool reclaim are
+  Core's (`device_free_bytes`, `reclaim_device!`, answered by its CUDA extension); the CUDA 12 cuDNN probe reads its
+  version with the module's one `_library_version`.
+- **Faster: `load_raw(...; mode = :demosaic)` through LibRaw** copies the visible photosites once, into the display image:
+  its checks of the mosaic's layout no longer copy the mosaic too.
 - **New: the stack's one image viewer, `compare_images(entries; titles, default, size)`** (exported; the Makie
   extension): a menu over named entries, each a tuple of images (or a function returning one, loaded when chosen),
   one axis per image, the axes linked, each image drawn by Core's orientation rule (`imshow!`). PanoramaStitching's

@@ -335,6 +335,10 @@ end
             end
             m = X._mosaic(lr, "synthetic.raw")
             rgb, md = GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
+            # the demosaic copies the visible photosites only once, into its image: never the mosaic too
+            # (its checks read LibRaw's layout, `_mosaic_layout`)
+            a = @allocated GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
+            @test a < sizeof(rgb) + sizeof(m.raw)
             return m, rgb, md
         finally
             @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid

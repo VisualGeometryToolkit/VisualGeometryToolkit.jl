@@ -359,7 +359,19 @@ _rawdata_ptr(other_p::Ptr{Cvoid}) = other_p + sizeof(ImgOther) + sizeof(Thumbnai
 # The EXIF orientation of a sizes structure (`flip`: 0 none, 3 180°, 5 90° CCW, 6 90° CW).
 _store_flip!(sizes_p::Ptr{Cvoid}, flip::Integer) = unsafe_store!(Ptr{Int32}(_fieldptr(sizes_p, ImageSizes, :flip)), Int32(flip))
 
+# The mosaic of an open, unpacked handle: its layout checked (the mirrored structures, a
+# flat 2×2 Bayer sensor), then its visible photosites copied out (`_mosaic_layout`'s
+# description, the one copy).
 function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
+    m = _mosaic_layout(lr, path)
+    full = unsafe_wrap(Matrix{UInt16}, m.raw_image, (m.RW, m.RH))     # full[c + 1, r + 1] is photosite (r, c)
+    raw = permutedims(view(full, (m.left + 1):(m.left + m.W), (m.top + 1):(m.top + m.H)))   # one copy, out of LibRaw's buffer
+    return RawMosaic(raw, m.pattern, Float64.(m.black), m.white, (m.top, m.left), (m.RH, m.RW), m.metadata)
+end
+
+# The mosaic's layout, checked, without its photosites: LibRaw's raw buffer and frame, the
+# visible area, the colour pattern, the black and white levels and the metadata.
+function _mosaic_layout(lr::Ptr{Cvoid}, path::AbstractString)
     (; sizes_p, sizes, idata_p, other_p, color_p, lens_p) = _structures(lr)
     rawdata_p = _rawdata_ptr(other_p)
     rsizes = _field(rawdata_p, RawData, :sizes)
@@ -382,8 +394,6 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     top, left = Int(sizes.top_margin), Int(sizes.left_margin)
     H, W = Int(sizes.height), Int(sizes.width)
     top + H <= RH && left + W <= RW || error("load_raw: the visible area exceeds the raw frame")
-    full = unsafe_wrap(Matrix{UInt16}, raw_image, (RW, RH))     # full[c + 1, r + 1] is photosite (r, c)
-    raw = permutedims(view(full, (left + 1):(left + W), (top + 1):(top + H)))   # one copy, out of LibRaw's buffer
 
     # -- colours: LibRaw's COLOR relative to the visible area, read from the raw
     #    origin, reduced 4×4 → 2×2 when it repeats; each photosite's index is
@@ -403,7 +413,7 @@ function _mosaic(lr::Ptr{Cvoid}, path::AbstractString)
     black = VisualGeometryToolkitFeatures._per_channel_black(cblack, Int(_field(rcolor_p, ColorData, :black)), filters, path)
     white = Float64(_field(rcolor_p, ColorData, :maximum))
     metadata = _metadata(idata_p, other_p, lens_p, rcolor_p)
-    return RawMosaic(raw, pattern, Float64.(black), white, (top, left), (RH, RW), metadata)
+    return (; raw_image, RH, RW, top, left, H, W, pattern, black, white, metadata)
 end
 
 # The display demosaic of an open, unpacked handle: LibRaw's AHD interpolation
@@ -414,12 +424,12 @@ end
 # `params.user_flip`, and `dcraw_process` restores `sizes` (EXIF `flip`
 # included) from the unpacked copy, so `sizes.flip` is zeroed after the
 # processing and before the image is copied out (`dcraw_make_mem_image` rotates
-# by it). The mosaic's checks run first (`_mosaic`: the mirrored layout, a flat
-# 2×2 Bayer sensor), and the output must be the visible area's size (a
-# non-square pixel aspect or a Fuji rotation would resample it: refused).
+# by it). The mosaic's checks run first (`_mosaic_layout`: the mirrored layout, a flat
+# 2×2 Bayer sensor; no copy of its photosites), and the output must be the visible
+# area's size (a non-square pixel aspect or a Fuji rotation would resample it: refused).
 const _AHD = 3                   # LibRaw's user_qual for AHD
 function _demosaiced(lr::Ptr{Cvoid}, path::AbstractString)
-    m = _mosaic(lr, path)
+    m = _mosaic_layout(lr, path)
     @ccall libraw.libraw_set_output_bps(lr::Ptr{Cvoid}, 16::Cint)::Cvoid
     @ccall libraw.libraw_set_gamma(lr::Ptr{Cvoid}, 0::Cint, 1.0f0::Cfloat)::Cvoid
     @ccall libraw.libraw_set_gamma(lr::Ptr{Cvoid}, 1::Cint, 1.0f0::Cfloat)::Cvoid
@@ -439,7 +449,7 @@ function _demosaiced(lr::Ptr{Cvoid}, path::AbstractString)
     try
         h = unsafe_load(img)
         (h.colors == 3 && h.bits == 16) || error("load_raw: LibRaw's demosaic of $path has $(h.colors) colours at $(h.bits) bits, not 3 at 16")
-        H, W = size(m.raw)
+        H, W = m.H, m.W
         (Int(h.height), Int(h.width)) == (H, W) ||
             error("load_raw: LibRaw's demosaic of $path is $(h.height)×$(h.width), not the visible area's $(H)×$(W) (a resampled or rotated output)")
         Int(h.data_size) == 2 * 3 * H * W || error("load_raw: LibRaw's demosaic of $path holds $(h.data_size) bytes, not $(6H * W)")

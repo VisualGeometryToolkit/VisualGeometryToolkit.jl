@@ -283,8 +283,7 @@ function _jll_cuda12_artifact(jll::Base.PkgId, name, accept)
     end
     name == "CUDA_Runtime" && return (; dir, version = best[2])
     for f in readdir(joinpath(dir, "lib"))
-        m = Base.match(r"^libcudnn\.so\.(\d+\.\d+\.\d+)$", f)
-        m === nothing || return (; dir, version = VersionNumber(something(m[1])))
+        occursin(r"^libcudnn\.so\.\d+\.\d+\.\d+$", f) && return (; dir, version = _library_version(f))
     end
     return "$(jll.name)'s CUDA 12 build of $name at $dir holds no libcudnn.so.9.x.y"
 end
@@ -311,8 +310,18 @@ function resolve_execution_provider(execution_provider::Symbol, status::Function
     return :cpu
 end
 
+# ONNX Runtime's CUDA provider allocates outside the ASIFT detector's device pool. Each CUDA session's arena is capped
+# (`gpu_mem_limit`, grown by what each run requests: ONNX Runtime's kSameAsRequested), and the detector's plans size their
+# resident warps from the free device memory less that cap for every CUDA session of the process (`_onnx_cuda_reserve`),
+# so the two never compete for the device and no plan is released for a session's run. The cap holds a LoMa session on
+# a panorama frame's green cells; a run that needs more is ONNX Runtime's out-of-memory error, naming the limit.
+const _ONNX_CUDA_ARENA_BYTES = 8 * 2^30
+const _ONNX_CUDA_SESSIONS = Threads.Atomic{Int}(0)
+_onnx_cuda_reserve() = _ONNX_CUDA_SESSIONS[] * _ONNX_CUDA_ARENA_BYTES
+
 # ONNXRunTime's `load_inference`, with the session options it does not take: the provider resolved, the intra-op pool
-# `threads` (which also disables ONNX Runtime's core pinning), the inter-op pool 1.
+# `threads` (which also disables ONNX Runtime's core pinning), the inter-op pool 1; on CUDA the arena capped, and the
+# detector's plans cached before the session (sized without its reserve) released once.
 function _onnx_session(path::AbstractString, execution_provider::Symbol, threads::Integer)
     threads >= 1 || throw(ArgumentError("threads must be at least 1, got $threads"))
     capi = ORT.CAPI
@@ -321,8 +330,12 @@ function _onnx_session(path::AbstractString, execution_provider::Symbol, threads
     options = capi.CreateSessionOptions(api)
     capi.check_and_release(api, @ccall $(api.SetIntraOpNumThreads)(options::Ptr{Cvoid}, threads::Cint)::Ptr{Cvoid})
     capi.check_and_release(api, @ccall $(api.SetInterOpNumThreads)(options::Ptr{Cvoid}, 1::Cint)::Ptr{Cvoid})
-    execution_provider === :cuda &&
-        capi.SessionOptionsAppendExecutionProvider_CUDA(api, options, capi.OrtCUDAProviderOptions())
+    if execution_provider === :cuda
+        cuda = capi.OrtCUDAProviderOptions(; gpu_mem_limit = _ONNX_CUDA_ARENA_BYTES, arena_extend_strategy = 1)
+        capi.SessionOptionsAppendExecutionProvider_CUDA(api, options, cuda)
+        Threads.atomic_add!(_ONNX_CUDA_SESSIONS, 1)
+        clear_asift_plans!()
+    end
     session = capi.CreateSession(api, env, path, options)
     meminfo = capi.CreateCpuMemoryInfo(api)
     allocator = capi.CreateAllocator(api, session, meminfo)

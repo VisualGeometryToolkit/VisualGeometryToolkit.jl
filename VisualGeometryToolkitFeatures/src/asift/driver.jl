@@ -731,40 +731,6 @@ mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     covh::Vector{Float32}
 end
 
-"""
-    device_free_bytes(dev) -> Int
-
-Free memory on `dev`, in bytes, used to size the tilt chunk and the matcher's
-score blocks. The package that defines the device's backend type answers: for
-CUDA that is `free_memory()` of `CUDA` (5.x) or `CUDACore` (6.x). A backend with
-no known query gets `typemax(Int)`, which disables chunking, with a one-time
-warning.
-"""
-function device_free_bytes(dev)
-    dev isa KA.CPU && return Int(Sys.free_memory())
-    pkg = Base.moduleroot(parentmodule(typeof(dev)))
-    if nameof(pkg) in (:CUDA, :CUDACore) && isdefined(pkg, :free_memory)
-        # This used `available_memory` — deprecated in CUDA 5, gone in 6 — inside
-        # a bare `catch` that returned typemax: chunking switched off silently,
-        # every warp stayed resident, and a 24 MP frame ran out of device memory.
-        return Int(Base.invokelatest(getfield(pkg, :free_memory)))
-    end
-    @warn "no free-memory query for $(typeof(dev)): tilt and score chunking are disabled" maxlog = 1
-    return typemax(Int)
-end
-
-# Return the memory the backend's pool holds to the device: freed buffers stay in CUDA.jl's pool, which no allocator
-# outside it (ONNX Runtime's) can use. The package that defines the backend answers, as for `device_free_bytes`; a
-# backend with no pool query is left as it is.
-function _reclaim_device_pool(dev)
-    dev isa KA.CPU && return nothing
-    pkg = Base.moduleroot(parentmodule(typeof(dev)))
-    if nameof(pkg) in (:CUDA, :CUDACore) && isdefined(pkg, :reclaim)
-        Base.invokelatest(getfield(pkg, :reclaim))
-    end
-    return nothing
-end
-
 # The per-chunk warp and pyramid buffers for `nwc` resident warps. The free memory the chunk was sized from is the
 # device's at that moment, and another allocator on the device (ONNX Runtime's arena grows as its sessions run) can
 # leave less by the time the buffers are allocated: an out-of-memory error then releases what was allocated and
@@ -781,7 +747,7 @@ function _pyramid_buffers(dev, W, H, Wr_max, Hr_max, dims, S, nwc, fixed::Bool)
         catch e
             foreach(_free_plan_buffers!, bufs)
             (fixed || nwc == 1 || !_out_of_memory(e)) && rethrow()
-            _reclaim_device_pool(dev)
+            reclaim_device!(dev)
             @debug "AsiftPlan: out of device memory for $nwc resident warps, retrying with $(nwc ÷ 2)"
             nwc ÷= 2
         end
@@ -804,12 +770,14 @@ const _PYRAMID_BUDGET = 0.8
 
 Warps to keep resident per chunk. `chunk > 0` is honoured verbatim (capped at
 `nw`); `chunk <= 0` auto-sizes from `device_free_bytes` so the pyramids fit in
-`_PYRAMID_BUDGET` of what is free right now.
+`_PYRAMID_BUDGET` of what is free right now, less the room ONNX Runtime's CUDA
+sessions may take (`_onnx_cuda_reserve`).
 """
 function _chunk_warps(dev, nw::Int, warp_bytes::Int, chunk::Integer)
     chunk > 0 && return min(Int(chunk), nw)
     free = device_free_bytes(dev)
     free == typemax(Int) && return nw
+    dev isa KA.CPU || (free = max(free - _onnx_cuda_reserve(), 0))     # ONNX Runtime's CUDA arenas' room (onnx_runtime.jl)
     budget = floor(Int, _PYRAMID_BUDGET * free)
     return clamp(fld(budget, max(warp_bytes, 1)), 1, nw)
 end

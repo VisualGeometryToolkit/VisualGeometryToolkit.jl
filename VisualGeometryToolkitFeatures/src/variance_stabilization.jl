@@ -84,8 +84,9 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
     return StabilizedImage(f.(G), L.saturated, f(g))
 end
 
-# The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest DoG slice (the
-# finest octave's, at its noisiest sample phase when that octave is upsampled): the DoG is linear, so a slice's noise
+# The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
+# (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search
+# reads, the interior ones 2 … NS − 1 — a boundary slice is no candidate's): the DoG is linear, so a slice's noise
 # σ at a sample is the root energy of its impulse response there, read off the pyramid of a unit impulse through a
 # plan of the same seed blur and upsampling (the untilted view: a tilt's anti-aliasing only lowers it). The driver
 # compares the DoG with `intensity_thr / nb_scales`, hence the factor.
@@ -102,7 +103,7 @@ function _noise_intensity_thr(seed_sigma::Real, upsample::Bool)
             dog = Array(plan.dogs[1])
             f = plan.o_first < 0 ? 2 : 1                       # an upsampled octave: one impulse response per sample phase
             σ = maximum(sqrt(sum(abs2, view(dog, px:f:size(dog, 1), py:f:size(dog, 2), sl, 1)))
-                        for px in 1:f, py in 1:f, sl in axes(dog, 3))
+                        for px in 1:f, py in 1:f, sl in 2:(size(dog, 3) - 1))
             plan.nb_scales * Float64(σ)
         end
     end
@@ -113,8 +114,8 @@ end
 
 ASIFT on a variance-stabilized image ([`variance_stabilize`](@ref)), its DoG
 contrast threshold `noise_sigmas` noise σ: on unit iid noise, the DoG's noise
-σ in its noisiest slice (the finest octave's finest slice; about 0.137 for the
-default upsampled pyramid with seed blur 1.6) is derived from the pyramid's
+σ in its noisiest searched slice (the finest octave's finest interior slice, the
+extremum search's first) is derived from the pyramid's
 own impulse response, and an extremum must exceed `noise_sigmas` times it. Every
 coarser slice, and every tilted view, has less noise, so is held to more than
 `noise_sigmas` σ of its own. The default 3 is Lowe's three-sigma reading of a

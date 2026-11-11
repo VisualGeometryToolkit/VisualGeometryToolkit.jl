@@ -142,7 +142,7 @@ end
     end
 end
 
-@testitem "LoMa on CUDA after ASIFT on CUDA in one process: the detector's plans are released first (skipped without a device)" begin
+@testitem "LoMa on CUDA after ASIFT on CUDA in one process: the detector's plan leaves ONNX Runtime room and is kept (skipped without a device)" begin
     using Random: Xoshiro
     using CUDA: CUDA
     import VisualGeometryToolkitFeatures as VgtkFeatures
@@ -159,11 +159,12 @@ end
         end
         d = LoMaDescriptor(:b; execution_provider = :cuda); m = LoMaMatcher(:b128; execution_provider = :cuda)
         img = permutedims(repeat(base, 1, 1, 3), (3, 1, 2))
+        @test VgtkFeatures._onnx_cuda_reserve() >= 2 * VgtkFeatures._ONNX_CUDA_ARENA_BYTES   # both sessions' arenas
         feats = map(1:2) do _                              # detect, describe, detect again: the loop of a registration
             dets = asift_detect(base; device = CUDA.CUDABackend())
-            @test !isempty(VgtkFeatures._ASIFT_PLAN_CACHE)
+            @test length(VgtkFeatures._ASIFT_PLAN_CACHE) == 1
             f = d(img, dets)
-            @test isempty(VgtkFeatures._ASIFT_PLAN_CACHE)   # released before ONNX Runtime ran
+            @test length(VgtkFeatures._ASIFT_PLAN_CACHE) == 1   # kept across ONNX Runtime's run: no release, no rebuild
             f
         end
         @test length(m(feats[1], feats[2], (H, W), (H, W))) > 100

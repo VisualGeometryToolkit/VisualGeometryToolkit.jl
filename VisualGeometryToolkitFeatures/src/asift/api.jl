@@ -156,7 +156,7 @@ function clear_asift_plans!()
         # still alive: those wrappers are garbage now, but may have been promoted past a young collection, so a full
         # one drops them (measured: a panorama frame's 10.6 GiB plan stayed in use after the frees until it ran)
         isempty(devices) || GC.gc()
-        foreach(_reclaim_device_pool, devices)
+        foreach(reclaim_device!, devices)
     end
     return nothing
 end

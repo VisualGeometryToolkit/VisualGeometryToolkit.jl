@@ -15,39 +15,41 @@
 # The chart of the regression
 # ------------------------------------------------------------------------------
 
-# Whether the refine frees a forward lens's radial DENOMINATOR (0.9: yes, from the linear fit's; 0.8 held it at zero).
-# Pending the owner's ruling: the one toggle.
-const _REFINE_FREES_DENOMINATOR = true
-
-# The coefficients the refine moves, as the family's manifold (`LensManifold`, Dual-safe) at the guess's lens
-# restricted to them: a forward lens's projection coefficients and its radial factor's numerator `k` and denominator
-# `d` (its decentering terms held at the guess's values: a radially symmetric objective does not determine them), a
-# lift's every coefficient.
-function _lens_family_manifold(a::AbstractLensModel)
+# The coefficients the refine moves: the guess lens's manifold (`LensManifold`, Dual-safe) restricted by NAME to the
+# `free` ones (Core's `restrict(ch, names)`, the one name→mask plumbing refine_camera_and_poses feeds), every other
+# coefficient held at the guess's value. A PHYSICAL source's radial profile has no azimuth, so it determines no
+# decentering term (tangential, thin prism): those are held for it whatever `free` says.
+function _lens_family_manifold(role, a::AbstractLensModel, free::Tuple{Vararg{Symbol}})
     ch = LensManifold(a)
-    a isa LiftLens && return ch
-    r = VgtkCore.Cameras._bounding_radial(a)   # the radial factor: `radial`, or a composition's first radial stage (Fisheye624's)
-    proj = VgtkCore.Cameras.coefficient_names(typeof(a.projection))
-    rad = r === nothing ? () : (
-        ntuple(i -> Symbol(:k, i), Val(length(r.k)))...,
-        (_REFINE_FREES_DENOMINATOR ? ntuple(j -> Symbol(:d, j), Val(length(r.d))) : ())...,
-    )
-    free = (proj..., rad...)
-    length(free) == tangent_size(ch) && return ch
-    isempty(free) && return restrict(ch, SVector{tangent_size(ch), Bool}(ntuple(_ -> false, Val(tangent_size(ch)))))
-    return restrict(ch, free)
+    held = role isa VgtkCore.Cameras.FreeIntrinsics ? _decentering_names(a) : ()
+    names = Tuple(n for n in parameter_names(a) if n in free && !(n in held))
+    length(names) == tangent_size(ch) && return ch
+    return restrict(ch, names)
 end
+# The names of a lens's decentering deltas (Core's `isdelta` leaves: tangential, thin prism).
+_decentering_names(a::AbstractLensModel) =
+    Tuple(Iterators.flatten(VgtkCore.Cameras.coefficient_names(typeof(t)) for t in VgtkCore.Cameras._leaves(a) if t isa VgtkCore.AbstractDistortionTerm && VgtkCore.isdelta(t)))
+_decentering_names(::LiftLens) = ()
 # The refine's chart, by the role of the source's K: the focal's log-scale (an `EuclideanManifold` at the guess's
-# `log s₀`, `s = exp`) before the lens family's manifold. For a GAUGE K, whose focal lengths are the lattice's local
-# scale at its ẑ's pixel (an aspect off 1 wherever that is off the axis), the scale has a second coordinate, the log
-# aspect `a` (`fy′ = s·a·fy₀`); then the principal point's move δ (an `EuclideanManifold{2}` at the guess's δ₀, in the
-# source's normalized plane: K₀₂·δ pixels) and the axis (Core's `SphereManifold` at ẑ, 2 coordinates), embedded as
-# the minimal rotation taking it onto ẑ (`_axis_rotation`): its roll fixed exactly by that parametrization.
-_regression_manifold(::VgtkCore.Cameras.FreeIntrinsics, ch::Manifold, start) = ProductManifold(EuclideanManifold(SVector(log(start.s))), ch)
-_regression_manifold(::VgtkCore.Cameras.GaugeIntrinsics, ch::Manifold, start) = ProductManifold(
-    EuclideanManifold(SVector(log(start.s), log(start.a))), EuclideanManifold(start.δ),
+# `log s₀`, `s = exp`; `:f` in `free`) before the lens family's manifold. For a GAUGE K, whose focal lengths are the
+# lattice's local scale at its ẑ's pixel (an aspect off 1 wherever that is off the axis), the scale has a second
+# coordinate, the log aspect `a` (`fy′ = s·a·fy₀`; `:aspect`); then the principal point's move δ (an
+# `EuclideanManifold{2}` at the guess's δ₀, in the source's normalized plane: K₀₂·δ pixels; `:cx`, `:cy`) and the axis
+# (Core's `SphereManifold` at ẑ, 2 coordinates, always free), embedded as the minimal rotation taking it onto ẑ
+# (`_axis_rotation`): its roll fixed exactly by that parametrization. A held coordinate keeps the guess's value. A
+# PHYSICAL K's principal point and aspect are data (its samples are the radial profile about them): held.
+_regression_manifold(::VgtkCore.Cameras.FreeIntrinsics, ch::Manifold, start, free) =
+    ProductManifold(_held_unless(EuclideanManifold(SVector(log(start.s))), free, (:f,)), ch)
+_regression_manifold(::VgtkCore.Cameras.GaugeIntrinsics, ch::Manifold, start, free) = ProductManifold(
+    _held_unless(EuclideanManifold(SVector(log(start.s), log(start.a))), free, (:f, :aspect)),
+    _held_unless(EuclideanManifold(start.δ), free, (:cx, :cy)),
     VgtkCore.SphereManifold(SVector(0.0, 0.0, 1.0), _axis_rotation), ch
 )
+# A Euclidean block whose coordinates are the parameters `names`, restricted to those in `free` (all: the block).
+function _held_unless(e::EuclideanManifold{N}, free, names::NTuple{N, Symbol}) where {N}
+    mask = SVector{N, Bool}(map(n -> n in free, names))
+    return all(mask) ? e : restrict(e, mask)
+end
 # The minimal rotation taking the unit axis `a` onto ẑ (Rotations' `rotation_between`, Dual-safe).
 _axis_rotation(a) = SMatrix{3, 3}(Rotations.rotation_between(a, SVector(0.0, 0.0, 1.0)))
 # The fit at the chart's retracted parts: the focal rescale `s` and aspect `a`, the principal point's move `δ`
@@ -211,7 +213,7 @@ end
 # ==============================================================================
 
 """
-    refine_camera(guess::CameraModel, source, region; weight = :image, max_iter, device = default_device(),
+    refine_camera(guess::CameraModel, source, region; fixed = (), weight = :image, max_iter, device = default_device(),
                   optimization_strategy = nothing) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The camera of `guess`'s lens family polished onto `source` over `region` (a region of the source's sensor in its pixel
@@ -220,12 +222,16 @@ frame, as [`fit_camera`](@ref) takes it): the exact minimizer of the integrated 
 converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where the family has a linear form;
 [`approximate_camera`](@ref) is the two in one call.
 
-- **What moves.** The focal rescale `s` from the guess's focal (relative to the source's, `fx′ = s·fx₀`), and the
-  family's coefficients from the guess's lens: a forward lens's projection coefficients and its radial factor's
-  numerator and denominator, a lift's every coefficient. A forward lens's decentering terms (tangential, thin prism)
-  are held at the guess's values: the radially symmetric objective does not determine them.
-- **A physical `K`** (a parametric source): the principal point and ẑ are the source's, data, so the guess's principal
-  point must be the source's (an `ArgumentError` otherwise). The samples are the source lens's radial profile (its
+- **What moves: everything but `fixed`**, the guess's parameters held by name (`parameter_names(guess)`: the
+  intrinsics' `:f`, `:aspect`, `:cx`, `:cy`, then the lens's) or by group (a coefficient family's stem: `:k` the radial
+  numerator, `:d` its denominator, `:p` the tangential terms, `:sx`/`:sy` the thin prism's); the gauge's skew is held
+  by construction. A held parameter keeps the guess's value. `:f` is the focal rescale `s` from the guess's focal
+  (relative to the source's, `fx′ = s·fx₀`); a forward lens's radial factor moves its numerator and its denominator
+  (`fixed = (:d,)` holds the denominator); a lift moves every coefficient. A name or group the guess does not have is
+  an `ArgumentError`, and so are the keywords `free`, `fix`, `fixed_params` and `hold` (naming `fixed`).
+- **A physical `K`** (a parametric source): the principal point, the aspect and ẑ are the source's, data, so the
+  guess's principal point must be the source's (an `ArgumentError` otherwise) and `:aspect`, `:cx`, `:cy` are held, as
+  are the decentering terms (tangential, thin prism) its azimuth-0 profile does not see. The samples are the source lens's radial profile (its
   radial part: decentering terms are stripped, warned when non-negligible) on Clenshaw–Curtis nodes, the exact
   reduction of the image integral to `θ`, with the density `weight` (`:image`, `:solid_angle` or `:uniform`) and the
   region's coverage of each radius (the region star-shaped about the principal point).
@@ -260,27 +266,32 @@ kb = approximate_camera(KannalaBrandt{4}, camera, region)              # the sam
 """
 function refine_camera(
         guess::CameraModel, source::CameraModel, region;
+        fixed::Tuple{Vararg{Symbol}} = (),
         weight::Symbol = :image, max_iter::Int = _dflt("refine_camera", "max_iter"), device = default_device(),
-        optimization_strategy = nothing, scale = nothing, width = nothing
+        optimization_strategy = nothing, scale = nothing, width = nothing,
+        free = _RetiredHold(), fix = _RetiredHold(), fixed_params = _RetiredHold(), hold = _RetiredHold()
     )
+    foreach(((k, v),) -> _check_retired_hold(k, v), ((:free, free), (:fix, fix), (:fixed_params, fixed_params), (:hold, hold)))
     _check_l2_refine(optimization_strategy, scale, width)
     gl = lens(guess)
     gl isa Union{Lens, LiftLens} || throw(
         ArgumentError("refine_camera: the guess must carry a parametric lens (a Lens or a LiftLens), got a $(nameof(typeof(gl)))")
     )
     L = typeof(gl)
+    moving = _free_names(parameter_names(guess), fixed)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
     start = _refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
     pr = _profile_samples(role, L, source, region, K0, weight)
-    P = _regression_manifold(role, _lens_family_manifold(gl), start)
+    P = _regression_manifold(role, _lens_family_manifold(role, gl, moving), start, moving)
     # a forward guess that folds before the domain's edge (a linear fit over a field its family cannot image) images
     # no radius past its fold: its residual there is capped at the fold, as the reported errors are
     # (a guess at the source's own fold, to its rounding, is not capped: 1e-6 rad)
     θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
-    p, code, iters = _regress_lens(lm, Val(tangent_size(P)), max_iter)
+    # nothing free (a physical K with `free = ()`; a gauge K's axis is always free): the guess itself, no LM
+    p, code, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), :converged, 0) : _regress_lens(lm, Val(tangent_size(P)), max_iter)
 
     fit = _regression_parts(retract(P, p))
     # a regression that ends non-finite did not converge: its FitResult reports it
@@ -295,6 +306,27 @@ refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = re
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
+
+# The parameters a refine moves: every one of the guess's (`parameter_names`) but the gauge's skew and the `fixed`
+# ones. A `fixed` entry is a parameter name (`:f`, `:cx`, `:k2`, `:d1`) or a GROUP, a coefficient family's stem naming
+# all of its numbered coefficients (`:k` the radial numerator `k1…`, `:d` its denominator `d1…`, `:p` the tangential
+# terms, `:sx`/`:sy` the thin prism's); one that names nothing of the guess is an `ArgumentError`.
+function _free_names(names::Tuple, fixed::Tuple{Vararg{Symbol}})
+    held = Symbol[]
+    for f in fixed
+        group = [n for n in names if n === f || match(Regex("^" * String(f) * "[0-9]+\$"), String(n)) !== nothing]
+        isempty(group) && throw(ArgumentError(
+            "refine_camera: `fixed` names $(repr(f)), which is no parameter or group of the guess; its parameters are $(join(String.(names), ", "))"))
+        append!(held, group)
+    end
+    return Tuple(n for n in names if n !== :skew && !(n in held))
+end
+
+# The retired names of the held-parameter keyword (refused, naming `fixed`: it names the exceptions, NLLSsolver's word).
+struct _RetiredHold end
+_check_retired_hold(_, ::_RetiredHold) = nothing
+_check_retired_hold(k, _) = throw(ArgumentError(
+    "refine_camera: the keyword `$k` is not the stack's; give the held parameters as `fixed = (…)` (every other parameter is free)"))
 
 # The L2 refine's keywords: no loss, so no scale input (one given would be ignored, so it is refused).
 function _check_l2_refine(optimization_strategy, scale, width)
@@ -344,7 +376,7 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
 The camera of lens family `L` closest to `source` over `region`, from no guess:
 `refine_camera(estimate(fit_camera(L, source, region)), source, region)` — the linear fit's camera is the refine's
 start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` to both,
-`max_iter` and `device` to the refine. The result is the refine's.
+`fixed`, `max_iter` and `device` to the refine. The result is the refine's.
 
 A family with no linear form (a projection with a shape parameter — `DoubleSphere`, `Unified`, `ExtendedUnified` —
 or a `Tilt` or `FieldOfView` term) starts from its anchor instead: the family's zero lens (the double sphere at
@@ -398,7 +430,7 @@ and focal, then the refine with the principal point and the axis free.
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` and the SplineLens `refine_camera_and_poses` do this first, always.
 """
-optical_axis(camera::BoundedCamera) = approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera))
+optical_axis(camera::BoundedCamera) = approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera); fixed = _AXIS_FIXED)
 optical_axis(camera::VgtkCore.AbstractCamera) = throw(
     ArgumentError(
         "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
@@ -406,7 +438,9 @@ optical_axis(camera::VgtkCore.AbstractCamera) = throw(
     )
 )
 # The radially symmetric family of the optical axis: Fisheye624 (COLMAP RAD_TAN_THIN_PRISM_FISHEYE), its six radial
-# coefficients fitted, its decentering held at zero (`_lens_family_manifold`).
+# coefficients fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the focal,
+# aspect, principal point, radial coefficients and the axis free).
 const _AXIS_FAMILY = typeof(
     VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ VgtkCore.Radial(ntuple(_ -> 0.0, 6)))
 )
+const _AXIS_FIXED = (:p, :sx, :sy)

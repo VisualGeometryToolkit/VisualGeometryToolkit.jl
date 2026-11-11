@@ -125,3 +125,39 @@ end
     moved = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, K[1, 3] + 3, K[2, 3], 1); check = false)), lens(g))
     @test_throws r"principal point" refine_camera(moved, mdiv, disc(mdiv, 1500.0))
 end
+
+@testitem "camera_verbs: refine_camera's `fixed` holds parameters by name or group; the default frees the rational denominator" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, Perspective, Radial, Even, Ellipse, Rect, estimate, metadata,
+        retcode, calibration_matrix, parameters, parameter_names, lens, rms
+    using VisualGeometryToolkitEstimation: fit_camera, refine_camera, approximate_camera
+    kb = CameraModel(; pp = (2138.8425928470033, 1436.604235274649), focal = 927.4663595958699,
+        lens = KannalaBrandt(-0.03371588391401308, 0.0013137235024557887, -0.0019529571546981683, 0.0001827493332399132))
+    RAT = Lens{Perspective, Radial{Even, 3, 3, Float64}}
+    region = Rect(0, 0, 4256, 2848) ∩ Ellipse(SVector(2138.8425928470033, 1436.604235274649), 1250.0, 1250.0, 0.0)
+    g = estimate(fit_camera(RAT, kb, region))
+    cg = parameters(lens(g))
+    # the denominator group held: it keeps the guess's values exactly, the numerator and the focal move — the
+    # denominator-held refine (0.8's free set, here from the linear start); the group is its names
+    rh = refine_camera(g, kb, region; fixed = (:d,))
+    ch = parameters(lens(estimate(rh)))
+    @test retcode(rh) === :converged
+    @test (ch.d1, ch.d2, ch.d3) === (cg.d1, cg.d2, cg.d3)
+    @test ch.k1 != cg.k1 && calibration_matrix(estimate(rh))[1, 1] != calibration_matrix(g)[1, 1]
+    @test lens(estimate(refine_camera(g, kb, region; fixed = (:d1, :d2, :d3)))) == lens(estimate(rh))
+    # the default (`fixed = ()`) frees it, to a lower minimum; approximate_camera passes `fixed` on
+    rd = refine_camera(g, kb, region)
+    cd = parameters(lens(estimate(rd)))
+    @test cd.d1 != cg.d1 && rms(rd) < rms(rh)
+    @test rms(approximate_camera(RAT, kb, region)) == rms(rd)
+    @test lens(estimate(approximate_camera(RAT, kb, region; fixed = (:d,)))) == lens(estimate(rh))
+    # everything held: the guess, unmoved
+    r0 = refine_camera(g, kb, region; fixed = (:f, :k, :d))
+    @test lens(estimate(r0)) == lens(g) && calibration_matrix(estimate(r0)) == calibration_matrix(g)
+    # a name or group the guess lacks, and the keywords that are not the stack's, are refused naming `fixed`
+    @test_throws r"no parameter or group" refine_camera(g, kb, region; fixed = (:xi,))
+    for kw in (:free, :fix, :fixed_params, :hold)
+        @test_throws r"`fixed = " refine_camera(g, kb, region; (kw => (:d,),)...)
+    end
+end

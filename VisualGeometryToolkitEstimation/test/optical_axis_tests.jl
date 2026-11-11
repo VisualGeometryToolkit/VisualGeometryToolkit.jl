@@ -40,8 +40,9 @@ end
     pp = SVector(K[1, 3], K[2, 3])
     @test norm(pp - SVector(500.0, 500.0)) < 0.02                                  # the axis's pixel
     @test metadata(r).symmetry_residual < 1.0e-3 && metadata(r).max_px < 0.05      # a symmetric lens: nothing azimuthal left
-    # the same call as approximate_camera's: optical_axis is that one call, on the radially symmetric family it names
-    r2 = approximate_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)))
+    # the same call as approximate_camera's: optical_axis is that one call, on the radially symmetric family it names,
+    # its decentering groups held
+    r2 = approximate_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)); fixed = (:p, :sx, :sy))
     @test rotation(metadata(r2).rotation) == rotation(R) && calibration_matrix(estimate(r2)) == K
     # the re-gauge: ẑ is the axis, the principal point its pixel; every image kept with the poses turned
     g = axis_gauged(OFF_AXIS, rotation(R), K)
@@ -152,12 +153,12 @@ end
     # another order), with the same steps
     cpu = VC.KA.CPU()
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    fits = [(VE._AXIS_FAMILY, b, imaged_region(b)), (KannalaBrandt{4}, FISHEYE, REGION)]     # a gauge K, a physical K
-    for (L, src, region) in fits
-        rc = approximate_camera(L, src, region; device = cpu)
+    fits = [(VE._AXIS_FAMILY, b, imaged_region(b), VE._AXIS_FIXED), (KannalaBrandt{4}, FISHEYE, REGION, ())]   # a gauge K, a physical K
+    for (L, src, region, fixed) in fits
+        rc = approximate_camera(L, src, region; fixed, device = cpu)
         @test retcode(rc) === :converged
         CUDA.functional() || continue
-        rg = approximate_camera(L, src, region; device = VC.default_device())
+        rg = approximate_camera(L, src, region; fixed, device = VC.default_device())
         @test retcode(rg) === :converged && iterations(rg) == iterations(rc)
         @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9

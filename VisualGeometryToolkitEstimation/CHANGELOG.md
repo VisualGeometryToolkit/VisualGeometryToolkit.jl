@@ -40,8 +40,13 @@ non-central one is a `NoncentralSplineModel`).
     point and ẑ; the axis is the refine's. The `max_iter` and `device` keywords moved to the refine.
   - **New: `refine_camera(guess::CameraModel, source, region; weight, max_iter, device, optimization_strategy = nothing)`**:
     the former `fit_camera` chart LM, from the guess's lens and focal, to the exact pixel least-squares minimum; a
-    SplineLens source's principal point, aspect and axis are free. A forward lens's radial denominator is free too
-    (it was held at zero); its decentering terms are held at the guess's. L2 only: a `scale`, `width` or robust
+    SplineLens source's principal point, aspect and axis are free. Every parameter moves but the gauge's skew and
+    `fixed`, the held ones by name or group (`fixed::Tuple{Vararg{Symbol}} = ()`; a group is a coefficient family's
+    stem: `:k`, `:d`, `:p`, `:sx`, `:sy`; `approximate_camera` passes it on); a held parameter keeps the guess's value.
+    The keywords `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`. A forward lens's radial
+    denominator is free by default (it was held at zero; `fixed = (:d,)` holds it). A physical source holds its
+    principal point, aspect and decentering terms (its radial profile does not see them); `optical_axis` holds
+    Fisheye624's decentering (`fixed = (:p, :sx, :sy)`). L2 only: a `scale`, `width` or robust
     `optimization_strategy` is an `ArgumentError`. `configs/default.toml`'s `[fit_camera] max_iter` is
     `[refine_camera] max_iter`.
   - **New: `approximate_camera(L, source, region; …)`** = `refine_camera(estimate(fit_camera(L, source, region)), source, region)`;

@@ -218,6 +218,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Dual layer at a time (nested Duals exact). A height field alone or over the affine factors keeps a 1-D Newton as
   the root's specialization for its map type (plain numbers): 1.1–1.8 µs a ray against the 2 × 2 root's 17 µs, the
   hits within 8.9e-16 and every hit and miss the same.
+- **Breaking: `ThinPlateSplineSystem` has no `affine` field.** It held `coeff`'s affine rows a second time; read them
+  as `coeff[N+1:N+3, :]` (the pure-bending rule and the target calibration's affine-row basis do).
 - **New: the thin-plate kinds on the device.** `ThinPlateSplineSystem{N, T, M}`, `HeightField` and `ThinPlateSpline`
   take `Adapt.adapt_structure` (their matrices become device arrays, nodes and values stay isbits) and
   `convert_eltype` (a Float32 device form). `tps_coefficients` is a loop (no BLAS: allocation-free, kernel-safe, any

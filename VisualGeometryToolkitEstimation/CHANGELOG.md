@@ -5,6 +5,13 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **The radial homography's lifted seed reads its gate from the TOML** (robust-schema audit): `lift_init` of a
+  plain-homography hypothesis seeds k on the correspondences inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's
+  `noise_sigma` of the plain-H reprojection norms, codimension 2; the multiple the new table
+  `[pipelines.radial_homography.lift_seed]`, 3·√chisq_median(2) — three medians, the former private `3 * median`).
+  The scorer's decision point was not taken: the gate is relative to the hypothesis' own residuals, not an absolute
+  width. The partition equals the former one on the test scenes (to rounding of the multiple).
+
 - **Breaking: `fit_linear`, `fit_rotation` and `fit_rotation_averaging` take the stack's one robust-estimation schema,
   an `Irls{K}` strategy** (`local_optimization = Irls{HuberShape}(…)`; owner policy, robust-schema audit). Their
   private keywords `loss`, `scale_multiple` and `max_iter` are gone (a `MethodError`): the loss is the strategy's `K`,

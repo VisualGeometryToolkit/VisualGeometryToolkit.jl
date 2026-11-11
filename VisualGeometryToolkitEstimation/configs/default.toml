@@ -154,6 +154,13 @@ tol                = 1.0e-12     # rad: converged when an iteration moves every 
 # one). An Irls strategy, read by local_optimization_from_toml.
 local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
+[pipelines.radial_homography.lift_seed]
+# The plain-homography seed of the radial homography's lifted local optimization
+# (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the
+# correspondences inside a TLS loss at `scale_multiple` × σ̂, σ̂ the noise scale
+# of the plain-H reprojection norms (codimension 2). 3·√chisq_median(2): three
+# medians of the norms.
+scale_multiple = 3.5322300675464233
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC

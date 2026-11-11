@@ -168,7 +168,8 @@ _node_counts(w1::Real, w2::Real, h::Real) = (max(4, ceil(Int, w1 / h * (1 - 1.0e
 # Cubic B-spline interpolation ("prefilter") matrix along one axis: at an
 # interior node the spline reads (c[j−1] + 4c[j] + c[j+1])/6, so solving the
 # tridiagonal system per axis makes the spline INTERPOLATE the node samples
-# instead of smoothing them (quasi-interpolation, the :sample init). The two
+# instead of smoothing them (the node samples as controls would be Schoenberg's
+# variation-diminishing approximation, no init of the stack's). The two
 # boundary controls keep their samples — their own nodes lie outside the
 # evaluable domain, so no interpolation condition exists for them.
 function _prefilter_matrix(n::Int)
@@ -213,11 +214,11 @@ function _sampling_radius(model::CameraModel)
     return ρ === nothing ? Float64(_imaging_domain_radius(l)) : ρ
 end
 
-# The direction controls of `init = :interpolate` or `:sample` on the lattice of
-# `rect` and `gsz = (rows, cols)`, sampled from the camera `model`.
+# The direction controls of `init = :interpolate` on the lattice of `rect` and
+# `gsz = (rows, cols)`, sampled from the camera `model`.
 function _directions_from(
         model::CameraModel, rect::Rect2, gsz, ::Type{T};
-        init::Symbol, sampling_margin::Real   # both callers supply both; the public defaults live on the constructors
+        sampling_margin::Real   # the caller supplies it; the public default lives on the constructors
     ) where {T}
     gh, gw = gsz
     Ki = inv(SMatrix{3, 3, Float64}(calibration_matrix(model)))
@@ -231,13 +232,6 @@ function _directions_from(
         return normalize(SVector{3, Float64}(backproject(model, px)))
     end
     S = [_node_sample(gx, gy) for gy in 1:gh, gx in 1:gw]
-    init === :sample && return [Vec3{T}(v) for v in S]
-    init === :interpolate || throw(
-        ArgumentError(
-            "spline grid init must be :interpolate (cubic prefilter) or :sample " *
-                "(quasi-interpolation), got :$init"
-        )
-    )
     Ay = _prefilter_matrix(gh)
     Ax = _prefilter_matrix(gw)
     C = ntuple(k -> Ay \ (([S[gy, gx][k] for gy in 1:gh, gx in 1:gw]) / transpose(Ax)), 3)
@@ -341,13 +335,18 @@ end
 # The direction controls of `source` on the lattice of `rect` and `gsz = (rows, cols)` by `init`.
 function _init_directions(source, rect::Rect2, gsz, init::Symbol, sampling_margin::Real)
     init === :quasi_interpolate && return _quasi_interpolation_directions(source, rect, gsz)
+    init === :interpolate || throw(
+        ArgumentError(
+            "spline grid init must be :interpolate (cubic prefilter) or :quasi_interpolate (the local quasi-interpolant), got :$init"
+        )
+    )
     source isa CameraModel || throw(
         ArgumentError(
             "spline grid init :$init samples a camera model inside its valid domain; a $(nameof(typeof(source))) source " *
                 "takes init = :quasi_interpolate"
         )
     )
-    return _directions_from(source, rect, gsz, Float64; init, sampling_margin)
+    return _directions_from(source, rect, gsz, Float64; sampling_margin)
 end
 
 # What a spline grid is initialized from: a camera (its backprojection) or a function `pixel -> direction`.
@@ -1171,9 +1170,8 @@ whole image).
 
 `init = :interpolate` (default) solves the cubic-prefilter tridiagonal system
 per axis so the spline INTERPOLATES the source's backprojection at the grid
-nodes; `init = :sample` takes each node's sample as its control (Schoenberg's
-variation-diminishing approximation); both sample a camera inside
-`sampling_margin` times its lens's valid domain. `init = :quasi_interpolate` is
+nodes, sampling a camera inside `sampling_margin` times its lens's valid
+domain. `init = :quasi_interpolate` is
 the 4th-order local quasi-interpolant on a lattice extended one node past the
 area ([`quasi_interpolant`](@ref)), with its border rule for a source whose
 domain ends near or inside the area; a function source takes it.

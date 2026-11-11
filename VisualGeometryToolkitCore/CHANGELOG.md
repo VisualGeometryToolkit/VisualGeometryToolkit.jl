@@ -33,6 +33,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   this copy, and each re-resolve moves it to the newly resolved VisualGeometryToolkitCore's. One copy for the stack:
   the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
   BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
+- **Breaking: `init = :sample` is removed** from `CameraModel(SplineLens, source, size)` (and so from
+  `NoncentralSplineModel(source, size)`): the node samples taken as controls (Schoenberg's approximation) had one
+  test caller and no other in the stack or downstream. `init` is `:interpolate` (the cubic prefilter, default) or
+  `:quasi_interpolate`; anything else is an `ArgumentError` naming the two.
 - **Changed: a SplineLens lattice's absent nodes are read from its `present` mask alone.** The gauge
   (`CameraModel(SplineLens, controls, size; present)`) and the off-axis check of `angle_of_view`, `image_circle`,
   `undistort`, `valid_rect`, `view_overlap` and `horizon_radius` read the mask; they read NaN controls before, so a lens

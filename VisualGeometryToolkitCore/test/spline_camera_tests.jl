@@ -104,17 +104,9 @@
             end
             @test worst_rt < 1.0e-3            # LM converges to the same pixel
             @test worst_angle < 2.0e-4         # prefilter-init floor (measured 8.9e-5)
-            # the prefilter init beats quasi-interpolation by an order of magnitude
-            gq = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), init = :sample)
-            wq = 0.0
-            rng2 = MersenneTwister(3)
-            for _ in 1:25
-                px = SVector(20 + (W - 40) * rand(rng2), 20 + (H - 40) * rand(rng2))
-                dq = backproject(gq, px)
-                dsq = normalize(SVector{3, Float64}(backproject(src, px)))
-                wq = max(wq, translation_angle(dq, dsq))
-            end
-            @test wq > 5 * worst_angle
+            # the node samples taken as controls (Schoenberg's approximation) is no init: the
+            # prefilter interpolates them, quasi-interpolation is the local alternative
+            @test_throws "init must be :interpolate" CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), init = :sample)
             # calibrated-area contract
             @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
             @test all(isfinite, backproject(g, SVector(Float64(W), 10.0)))   # the far edge: the area is closed

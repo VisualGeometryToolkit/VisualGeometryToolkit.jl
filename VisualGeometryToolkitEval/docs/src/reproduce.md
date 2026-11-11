@@ -358,11 +358,19 @@ and each change it returns names the tree:
 setup                            rerun: code changed: VisualGeometryToolkitCore: src 3fa29c01e2 → b71d0e44a9
 ```
 
-- **A run of record runs committed code.** A launch whose code paths, or a
-  package loaded from a path, have uncommitted changes (an edit, a staged,
-  deleted or untracked file) is refused (exit 2); the dry run marks them
-  `DIRTY`. A dirty paper or docs tree is no code and is not refused. Drivers
-  run by hand still record a dirty tree's `gitpatch`.
+- **A run of record runs committed code.** Code whose files differ from its
+  commit (an edit, a staged, deleted or untracked file in the code paths or in
+  a package loaded from a path), or code in no git checkout, is refused with
+  one error,
+  [`refuse_uncommitted_code`](@ref VisualGeometryToolkitEval.refuse_uncommitted_code):
+  by a launch (exit 2; the dry run marks it `DIRTY`) and by a driver's records
+  (`write_provenance`, `write_run_records`, `cached_result`). Scratch work sets
+  `VGTK_SCRATCH=1`
+  ([`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)):
+  its results are recorded with a warning, their trees marked `+uncommitted`,
+  and never reused for committed code. A dirty paper or docs tree is no code
+  and is not refused. A launch that identifies none of the project's own code
+  (no `src`, no `[project] code`) is refused.
 - **Results from before the trees were kept** record none, and run once more;
   from then on they carry them. A launch recorded before the completion
   markers existed likewise reruns its completed Slurm stages once.

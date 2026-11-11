@@ -19,9 +19,14 @@
   with no change of their own; docs: "Code identity: when a stored result is reused" (Reproducible figures).
 - **Behaviour change: a result recorded before the code trees existed runs once more** (a run directory's
   `_provenance.toml`, a `cached_result` file, a runner launch's stage record), and from then on carries them.
-- **Changed: a run of record runs committed code.** The runner refuses a launch (exit 2) whose code paths, or a
-  package its environment loads from a path, have uncommitted changes (an edit, a staged, deleted or untracked
-  file); the dry run marks them `DIRTY`. A dirty docs or paper tree is no code and is not refused.
+- **Changed: a run of record runs committed code.** Code with uncommitted changes (an edit, a staged, deleted or
+  untracked file in the project's code paths or in a package its environment loads from a path), or code in no git
+  checkout, is refused with one error (`VisualGeometryToolkitEval.refuse_uncommitted_code`): by the runner (exit 2;
+  the dry run marks it `DIRTY`) and by a driver's records (`write_provenance`, `write_run_records`, `cached_result`,
+  before computing). A scratch run (`VGTK_SCRATCH=1`, `Experiments.scratch_run`) records it with a warning instead,
+  its trees marked `+uncommitted`, so its result is never reused for committed code. A dirty docs or paper tree is
+  no code and is not refused. A launch that identifies none of the project's own code (no `src`, no `[project] code`)
+  is refused; a driver's record without a `src` is warned.
 
 - **The runner's reuse reads completion markers and the queue, never accounting** (`Reproduce`, src/reproduce/runner.jl).
   Every task of a stage writes a completion marker, `task-<t>.toml` under `<manifest without .toml>/<stage>/`

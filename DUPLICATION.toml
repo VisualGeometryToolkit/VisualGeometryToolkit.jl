@@ -1,38 +1,25 @@
-# The monorepo's exceptions to VisualGeometryToolkitCore's `check_duplication`, each
-# with its reason. An entry that stops matching anything is itself a finding: remove it.
-# Paths are relative to this file.
-
-[[similar]]
-functions = ["VisualGeometryToolkitCore/src/geometry/cameras/spline_lens.jl::_spline_lm_increment",
-             "VisualGeometryToolkitCore/test/fixtures/repro_o2_miscompile.jl::lm_increment"]
-reason = "the fixture is a frozen copy of the device-side LM step, kept to reproduce the -O2 miscompile it was reduced from; it must not follow the source"
-
-[[similar]]
-functions = ["VisualGeometryToolkitCore/src/geometry/cameras/cameras.jl::project",
-             "VisualGeometryToolkitCore/src/geometry/cameras/oriented_camera.jl::project"]
-reason = "two refusals of the same calls for two kinds of camera (a physical-unit camera, an oriented camera), each with its own reason; one-line methods of one function, not a second implementation"
-
-[[similar]]
-functions = ["VisualGeometryToolkitCore/src/geometry/cameras/lenses.jl::_fields",
-             "VisualGeometryToolkitCore/src/geometry/transforms/pointwise.jl::_fields"]
-reason = "the generated-tuple idiom over two different field sets: a lens leaf's parameter fields (its derived fields left out) and every field of a pointwise functor"
-
-[[similar]]
-functions = ["VisualGeometryToolkitEstimation/src/fitting/circle.jl::find_circle",
-             "VisualGeometryToolkitEstimation/src/fitting/ellipse.jl::find_ellipse"]
-reason = "two-line public entry points over the shared `_ransac_pipeline`, differing in the problem and its pipeline key; the minimal-sample guard they repeat is repeated by every find_*/refine_* (about 20), a follow-up for the pipeline itself"
-
-[[similar]]
-functions = ["VisualGeometryToolkitEstimation/src/fitting/circle.jl::refine_circle",
-             "VisualGeometryToolkitEstimation/src/fitting/ellipse.jl::refine_ellipse"]
-reason = "as find_circle/find_ellipse, over the shared `_refine_pipeline`"
+# The monorepo's entries for VisualGeometryToolkitCore's `check_duplication`. Owner ruling
+# (2026-11-11): every duplicate is hoisted into its one owner; an entry is allowed only
+# where the two things are NOT the same concept, and its reason is the one-line proof.
+# An entry that stops matching anything is itself a finding: remove it. Paths are
+# relative to this file.
 
 [[similar]]
 functions = ["VisualGeometryToolkitCore/test/data/chain_equivalence/core_values.jl::canonical",
              "VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::lit"]
-reason = "one-line list formatters of two different texts: the chain-equivalence record's canonical text and the fixture generators' Julia literals"
+reason = "different output grammars: `canonical` writes the chain-equivalence record's canonical text (\",\" with no space, sorted keys, every number as a Float64), `lit` writes Julia source literals (\", \", a Float32 kept); no input gives both the same text"
 
 [[similar]]
 functions = ["VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::rows",
              "VisualGeometryToolkitIO/test/migrate_versions_tests.jl::vec_"]
-reason = "one-line list formatters of two different texts: a Julia literal of rows and a JSON vector in a test's hand-written record"
+reason = "different output grammars: `rows` writes a multi-line Julia array literal of literals, `vec_` a one-line JSON array of numbers inside a hand-written record"
+
+[[name]]
+module = "VisualGeometryToolkitEval"
+name = "_TOML_DEFAULTS"
+reason = "not code but each package's own data: Eval's parsed configs/default.toml and Estimation's are different files with different tables (experiment defaults vs RANSAC defaults); both are parsed and read through Core's one `parse_defaults`/`toml_default`"
+
+[[name]]
+module = "VisualGeometryToolkitEval"
+name = "Pools"
+reason = "different contents: Eval.Pools reads and writes pool FILES (pool_io.jl); Core.Pools defines the pool RECORD types (PoolPair) Eval.Pools builds; no function of one restates the other"

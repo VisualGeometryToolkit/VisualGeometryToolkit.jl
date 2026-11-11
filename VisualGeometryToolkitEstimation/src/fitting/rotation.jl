@@ -42,12 +42,10 @@ the `:no_model` result (`iterations` 0) for fewer than 2 correspondences; test `
 reading the model.
 """
 function find_rotation(camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return _too_few(RotationProblem, length(pixel_cs); kwargs...)
-    return _ransac_pipeline(RotationProblem(camera1, camera2, pixel_cs), :rotation; kwargs...)
+    return _guarded_ransac(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), :rotation; kwargs...)
 end
 function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(bearings)) || return _too_few(RotationProblem, length(bearings); kwargs...)
-    return _ransac_pipeline(RotationProblem(bearings), :rotation; kwargs...)
+    return _guarded_ransac(() -> RotationProblem(bearings), RotationProblem, length(bearings), :rotation; kwargs...)
 end
 
 """
@@ -65,10 +63,8 @@ the keywords are those of every `refine_*`, documented on
 [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 2 correspondences.
 """
 function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(pixel_cs)) || return _too_few(RotationProblem, length(pixel_cs); kwargs...)
-    return _refine_pipeline(RotationProblem(camera1, camera2, pixel_cs), :rotation, R; kwargs...)
+    return _guarded_refine(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), :rotation, R; kwargs...)
 end
 function refine_rotation(R, bearings::VgtkCore.Csponds; kwargs...)
-    _holds_minimal_sample(RotationProblem, length(bearings)) || return _too_few(RotationProblem, length(bearings); kwargs...)
-    return _refine_pipeline(RotationProblem(bearings), :rotation, R; kwargs...)
+    return _guarded_refine(() -> RotationProblem(bearings), RotationProblem, length(bearings), :rotation, R; kwargs...)
 end

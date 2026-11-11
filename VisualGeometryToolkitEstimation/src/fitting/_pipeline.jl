@@ -103,6 +103,14 @@ _default_scoring_at(problem, τ::Float64) = MsacScoring(problem; threshold = τ)
 # default, so it is the type a search on the same data returns.
 _too_few(::Type{P}, n::Int; workspace = nothing, _...) where {P} =
     _no_model_result(model_type(P), RansacResultBuffers{_storage_eltype(workspace)}(n), 0, NaN)
+
+# The guarded entry of a `find_*` / `refine_*` on `n` data of the problem type `P`: the
+# `:no_model` result when they hold no minimal sample, else the shared pipeline on
+# `problem()`, built only then (a constructor may refuse so few data).
+_guarded_ransac(problem, ::Type{P}, n::Integer, class::Symbol; kwargs...) where {P} =
+    _holds_minimal_sample(P, n) ? _ransac_pipeline(problem(), class; kwargs...) : _too_few(P, n; kwargs...)
+_guarded_refine(problem, ::Type{P}, n::Integer, class::Symbol, θ₀; kwargs...) where {P} =
+    _holds_minimal_sample(P, n) ? _refine_pipeline(problem(), class, θ₀; kwargs...) : _too_few(P, n; kwargs...)
 _storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 

@@ -84,9 +84,7 @@ function find_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_homography")
-    _holds_minimal_sample(HomographyProblem, length(pairs)) ||
-        return _too_few(HomographyProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
-    return _ransac_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography; kwargs...)
+    return _guarded_ransac(() -> _with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography; kwargs...)
 end
 
 """
@@ -138,7 +136,5 @@ function refine_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_homography")
-    _holds_minimal_sample(HomographyProblem, length(pairs)) ||
-        return _too_few(HomographyProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
-    return _refine_pipeline(_with_extent(HomographyProblem(pairs), extent), :homography, H; kwargs...)
+    return _guarded_refine(() -> _with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography, H; kwargs...)
 end

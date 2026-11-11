@@ -62,9 +62,7 @@ function find_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _too_few(AbsolutePoseProblem, length(pairs); kwargs...)
-    problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
-    return _ransac_pipeline(problem, :absolute_pose; kwargs...)
+    return _guarded_ransac(() -> _with_extent(AbsolutePoseProblem(camera_model, pairs), extent), AbsolutePoseProblem, length(pairs), :absolute_pose; kwargs...)
 end
 
 # Physical world points: stripped in metres once, the plain search, the pose

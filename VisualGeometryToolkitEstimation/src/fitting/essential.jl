@@ -80,9 +80,7 @@ function find_essential(
     )
     # The sub-detector half-width refusal is the problem's (`_check_scoring`,
     # problems/essential.jl), run on whatever scoring the pipeline ends up with.
-    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) ||
-        return _too_few(EssentialProblem{Float64}, length(pixel_cs); kwargs...)
-    return _ransac_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential; kwargs...)
+    return _guarded_ransac(() -> EssentialProblem(camera1, camera2, pixel_cs), EssentialProblem{Float64}, length(pixel_cs), :essential; kwargs...)
 end
 
 
@@ -102,7 +100,5 @@ run here alone from the given model (no sampling). Every default is
 than 5 correspondences.
 """
 function refine_essential(E, camera1, camera2, pixel_cs; kwargs...)
-    _holds_minimal_sample(EssentialProblem, length(pixel_cs)) ||
-        return _too_few(EssentialProblem{Float64}, length(pixel_cs); kwargs...)
-    return _refine_pipeline(EssentialProblem(camera1, camera2, pixel_cs), :essential, E; kwargs...)
+    return _guarded_refine(() -> EssentialProblem(camera1, camera2, pixel_cs), EssentialProblem{Float64}, length(pixel_cs), :essential, E; kwargs...)
 end

@@ -38,10 +38,7 @@ function find_radial_camera(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_radial_camera")
-    _holds_minimal_sample(RadialCameraProblem, length(pairs)) ||
-        return _too_few(RadialCameraProblem{Float64}, length(pairs); kwargs...)
-    problem = _with_extent(RadialCameraProblem(pairs; center), extent)
-    return _ransac_pipeline(problem, :radial_camera; kwargs...)
+    return _guarded_ransac(() -> _with_extent(RadialCameraProblem(pairs; center), extent), RadialCameraProblem{Float64}, length(pairs), :radial_camera; kwargs...)
 end
 
 """
@@ -64,8 +61,5 @@ function refine_radial_camera(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_radial_camera")
-    _holds_minimal_sample(RadialCameraProblem, length(pairs)) ||
-        return _too_few(RadialCameraProblem{Float64}, length(pairs); kwargs...)
-    problem = _with_extent(RadialCameraProblem(pairs; center = center(model)), extent)
-    return _refine_pipeline(problem, :radial_camera, model; kwargs...)
+    return _guarded_refine(() -> _with_extent(RadialCameraProblem(pairs; center = center(model)), extent), RadialCameraProblem{Float64}, length(pairs), :radial_camera, model; kwargs...)
 end

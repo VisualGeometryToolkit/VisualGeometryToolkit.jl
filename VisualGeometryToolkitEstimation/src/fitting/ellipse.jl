@@ -52,8 +52,7 @@ sampling: [`refine_ellipse`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
 function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(EllipseProblem, length(points)) || return _too_few(EllipseProblem, length(points); kwargs...)
-    return _ransac_pipeline(EllipseProblem(points), :ellipse; kwargs...)
+    return _guarded_ransac(() -> EllipseProblem(points), EllipseProblem, length(points), :ellipse; kwargs...)
 end
 
 """
@@ -81,6 +80,5 @@ covariance is the one model covariance on the inliers,
 (in `ambient_coordinates(e)`), `s² = result.sigma²`.
 """
 function refine_ellipse(ellipse::VgtkCore.Ellipse, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(EllipseProblem, length(points)) || return _too_few(EllipseProblem, length(points); kwargs...)
-    return _refine_pipeline(EllipseProblem(points), :ellipse, ellipse; kwargs...)
+    return _guarded_refine(() -> EllipseProblem(points), EllipseProblem, length(points), :ellipse, ellipse; kwargs...)
 end

@@ -28,9 +28,7 @@ function find_fundmat(
         pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
         kwargs...
     )
-    _holds_minimal_sample(FundMatProblem, length(pairs)) ||
-        return _too_few(FundMatProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
-    return _ransac_pipeline(FundMatProblem(pairs), :fundmat; kwargs...)
+    return _guarded_ransac(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), :fundmat; kwargs...)
 end
 
 """
@@ -49,7 +47,5 @@ function refine_fundmat(
         F, pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
         kwargs...
     )
-    _holds_minimal_sample(FundMatProblem, length(pairs)) ||
-        return _too_few(FundMatProblem{_cspond_scalar(pairs)}, length(pairs); kwargs...)
-    return _refine_pipeline(FundMatProblem(pairs), :fundmat, F; kwargs...)
+    return _guarded_refine(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), :fundmat, F; kwargs...)
 end

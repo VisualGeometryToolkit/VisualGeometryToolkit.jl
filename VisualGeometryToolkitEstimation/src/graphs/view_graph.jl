@@ -260,10 +260,8 @@ The angle (radians) by which the rotations of a triangle's edges fail to close:
 The residual of [`filter_cycles`](@ref) for rotation edges (each edge a rotation
 or an `Attributed` one).
 """
-rotation_loop_angle(ij, jk, ik) = _rotation_angle(_m3(VgtkCore.value_of(ik))' * _m3(VgtkCore.value_of(jk)) * _m3(VgtkCore.value_of(ij)))
+rotation_loop_angle(ij, jk, ik) = Rotations.rotation_angle(RotMatrix{3}(_m3(VgtkCore.value_of(ik))' * _m3(VgtkCore.value_of(jk)) * _m3(VgtkCore.value_of(ij))))
 
-# The angle (radians) of a rotation, as fit_rotation_averaging measures its residuals: ‖log R‖.
-_rotation_angle(R) = norm(VgtkCore.log_so3(R))
 _m3(R) = SMatrix{3, 3, Float64, 9}(R)
 
 """
@@ -277,6 +275,6 @@ An edge with a view missing from `world_from` stays.
 """
 function filter_by_orientation(vg::ViewGraph{K, E}, world_from::AbstractDict; tol::Real) where {K, E}
     agrees(i, j, e) = !(haskey(world_from, i) && haskey(world_from, j)) ||
-        _rotation_angle(_m3(world_from[j]) * _m3(VgtkCore.value_of(e)) * _m3(world_from[i])') <= tol
+        Rotations.rotation_angle(RotMatrix{3}(_m3(world_from[j]) * _m3(VgtkCore.value_of(e)) * _m3(world_from[i])')) <= tol
     return ViewGraph(vg.views, Dict{Tuple{K, K}, E}(p => e for (p, e) in vg.edges if agrees(p..., e)))
 end

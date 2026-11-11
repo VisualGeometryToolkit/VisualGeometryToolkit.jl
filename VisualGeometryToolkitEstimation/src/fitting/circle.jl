@@ -40,8 +40,7 @@ drawn); test `converged(result)` before reading the model (see
 - the other keywords as [`find_homography`](@ref).
 """
 function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(CircleProblem, length(points)) || return _too_few(CircleProblem, length(points); kwargs...)
-    return _ransac_pipeline(CircleProblem(points), :circle; kwargs...)
+    return _guarded_ransac(() -> CircleProblem(points), CircleProblem, length(points), :circle; kwargs...)
 end
 
 """
@@ -59,6 +58,5 @@ are those of every `refine_*`, documented on [`refine_homography`](@ref).
 The `:no_model` result (`iterations` 0) for fewer than 3 points.
 """
 function refine_circle(circle::VgtkCore.Circle, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    _holds_minimal_sample(CircleProblem, length(points)) || return _too_few(CircleProblem, length(points); kwargs...)
-    return _refine_pipeline(CircleProblem(points), :circle, circle; kwargs...)
+    return _guarded_refine(() -> CircleProblem(points), CircleProblem, length(points), :circle, circle; kwargs...)
 end

@@ -196,10 +196,8 @@ export image_warp!, image_warp_batch_to!
 export image_sample!      # the same bilinear tap at scattered points (one kernel, every backend)
 export canonical_map, logpolar_map, logpolar_to_cartesian
 export dilate, intersects
-# Pointwise maps over arrays: one broadcast driver for every backend, with the
-# host batch's threading as an execution policy.
+# Pointwise maps over arrays: one KernelAbstractions kernel on every backend, the CPU's included.
 export pointwise!
-public ExecutionPolicy, Auto, Serial, Threaded, THREADED_MIN_LENGTH
 public OnBackend   # one kernel on a given backend value (its compiler options kept), with an optional workgroup size
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with

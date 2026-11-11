@@ -14,6 +14,32 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `axis_gauged(extrinsics, R)` turns a world → camera pose by the same rotation (`(R·R_p, R·t)`, the frame tags
   kept), so every image is kept. A posed camera turns its extrinsics with its model; a bounded camera keeps its bound.
   A spline that is never gauged keeps its source's ẑ.
+- **Breaking: `pointwise!` is one KernelAbstractions kernel on every backend; the host's execution policies are
+  retired** (the owner's ruling on the twin audit's V4). `pointwise!(f, out, xs...)` and the lens batches (`project!`,
+  `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the
+  CPU's included; `exec` still takes `OnBackend(backend; workgroupsize)` (a backend value with its compiler options,
+  a workgroup size), now a plain struct. `ExecutionPolicy`, `Auto`, `Serial`, `Threaded` and `THREADED_MIN_LENGTH`
+  are gone (RETIRED_NAMES); no stack package passed them. The inputs share the output's shape (no broadcasting, a
+  `DimensionMismatch`); a device array now runs the KernelAbstractions kernel instead of a GPUArrays broadcast (a
+  B200 undistortion agrees with the host's per-point map to 3e-16). On the CPU the results are the per-point map's bit
+  for bit, as every policy's were. The CPU is slower: a 5-coefficient OpenCV undistortion of 256 / 1024 / 10⁶
+  points took 61 µs / 0.64 ms / 4.0 ms with the threaded broadcast and 117 µs / 0.61 ms / 78 ms as a kernel
+  (medians, in a 224-thread process).
+
+- **Changed: every LM row fill is one KernelAbstractions kernel on every backend** (the owner's ruling on the twin
+  audit's V3: one kernel per job, the slower CPU accepted). `_foreach_row!`, which ran the rows as a plain loop on the
+  CPU and as `_row_kernel!` elsewhere, is retired (RETIRED_NAMES): `_launch_rows!` launches `_row_kernel!` on the
+  output's backend, the CPU's included (Sampson, tangent Sampson, the homography and radial transfer rows, the per-pair
+  Sampson squares). The rows equal the plain loop's to rounding (1 ulp in 10 of 100 Sampson rows; a test checks
+  1e-14). The CPU launch is slower: Sampson residuals of 100 / 1000 correspondences took 0.18 / 1.6 µs as a loop and
+  14 / 90 µs as a kernel (medians, in a 224-thread process: KernelAbstractions' CPU launch spawns a task per thread).
+
+- **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
+  `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is
+  and becomes the target float type through one KernelAbstractions kernel on every backend, the CPU's included, bit for
+  bit the host's `T.(A)`; no host-converted copy. A 50 Mpx 8-bit image to Float32 on a B200: 113 ms → 3.2 ms (median
+  of 7; 87 ms of the old time was the host's conversion, and it moved 4 B/px instead of 1).
+
 - **New: the exact grid selection's kernels, `exact_pm_score_kernel!` and `argmax_models_kernel!`** (public, not
   exported; robust/pool_grid_kernels.jl), moved from RANSACScoringDoneRight (the twin audit's V1): per (pair, model) the
   sum of a family's per-residual quality at every width of a grid, then per (pair, width) the first strictly best model,
@@ -21,7 +47,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   backend for a scoring with `has_residual_quality` (RANSAC and MSAC here; RANSACScoringDoneRight's loss-width
   families add theirs) on a loss-width axis, on `sorted_squared_residuals(pair, R)` (the squared residuals with the
   minimal sample at zero, sorted: the staging of both); `support_sq_loss_width(scoring, max_loss_width)` is where a
-  compact family's quality ends. `best_pool_model` stays the selection of a scoring without a per-residual quality.
+  compact family's quality ends (both in `CONTRACT_GENERICS`: another package's family adds its methods). `best_pool_model`
+  stays the selection of a scoring without a per-residual quality.
   The selections are `best_pool_model`'s (a test checks every width).
 
 - **New: `RadialVignetting(…; chart = :projective)`, a radial profile on the projective chart** of its distance from the

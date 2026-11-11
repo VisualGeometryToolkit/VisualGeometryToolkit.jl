@@ -173,6 +173,7 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # axis — whether a shape rejects at all — which decides whether a frozen width
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
+using VisualGeometryToolkitCore: partition_student_t, IGPrior   # a robust refine's scale: the least-squares rows' Student-t (refine_camera_and_poses.jl)
 using VisualGeometryToolkitCore: EssentialManifold5,
     HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,

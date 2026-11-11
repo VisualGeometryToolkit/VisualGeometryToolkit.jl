@@ -9,7 +9,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore: imaging_chain, FramedStage, FramedChain, distort_stage,
-        undistort_stage, FramedLensProjection, ray_map, DistortedFrame, Serial, Threaded
+        undistort_stage, FramedLensProjection, ray_map, DistortedFrame
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: _precision
     using VisualGeometryToolkitCore.Cameras: _ds_end_cos
@@ -204,16 +204,14 @@
         @test isbitstype(typeof(lens32))
     end
 
-    @testset "a batch through pointwise!: every policy the same" begin
+    @testset "a batch through pointwise!: the per-point map" begin
         xs = [SVector(u, v) for u in range(-0.4, 0.4; length = 9) for v in range(-0.3, 0.3; length = 9)]
         push!(xs, SVector(2.0, 0.0))                      # not imaged by DS_C
         for lens in (DS_A, DS_C, UC[1], EU[1])
             ref = [undistort_normalized(lens, x) for x in xs]
-            for exec in (Serial(), Threaded(), VgtkCore.Auto())
-                out = similar(xs)
-                undistort_normalized!(out, lens, xs; exec)
-                @test isequal(out, ref)                    # NaN where not imaged, identical otherwise
-            end
+            out = similar(xs)
+            undistort_normalized!(out, lens, xs)
+            @test isequal(out, ref)                        # NaN where not imaged, identical otherwise
         end
     end
 

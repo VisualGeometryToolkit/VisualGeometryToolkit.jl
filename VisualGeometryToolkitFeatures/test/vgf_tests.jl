@@ -167,19 +167,19 @@ end
 end
 
 @testitem "CPU launches: static, dynamic inside a threaded loop, same features" setup = [Fixtures] begin
-    using VisualGeometryToolkitFeatures: _CPUKernel, _in_threaded_region
+    using VisualGeometryToolkitFeatures: _ScheduledKernel, _in_threaded_region
     # the fallback, against Base's own error: `@threads :static` throws inside
     # any `@threads` loop (also on one thread), and the launch runs dynamically
     # instead
     ran = Symbol[]
     static() = (Threads.@threads :static for _ in 1:2; end; push!(ran, :static))
-    _CPUKernel(static, () -> push!(ran, :dynamic))()
+    _ScheduledKernel(static, () -> push!(ran, :dynamic))()
     @test ran == [:static]
     empty!(ran)
     inside = Bool[]
     Threads.@threads for _ in 1:1
         push!(inside, _in_threaded_region())
-        _CPUKernel(static, () -> push!(ran, :dynamic))()
+        _ScheduledKernel(static, () -> push!(ran, :dynamic))()
     end
     @test inside == [true] && ran == [:dynamic]
     # a static launch that loses the race to another loop: the error is caught
@@ -194,11 +194,11 @@ end
         wait(entered)                     # another task's loop is now running
         return static()
     end
-    _CPUKernel(racing, () -> push!(ran, :dynamic))()
+    _ScheduledKernel(racing, () -> push!(ran, :dynamic))()
     notify(release); wait(other[])
     @test ran == [:dynamic]
     # any other error propagates
-    @test_throws ArgumentError _CPUKernel(() -> throw(ArgumentError("x")), () -> nothing)()
+    @test_throws ArgumentError _ScheduledKernel(() -> throw(ArgumentError("x")), () -> nothing)()
     # the detector launched both ways: asift_detection_tests.jl ("the same keypoints in the same order")
 end
 

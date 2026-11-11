@@ -1,5 +1,5 @@
-# The redesigned lens families over a batch: pointwise! (broadcast) with the
-# Serial / Threaded / Auto policies on the host and one broadcast kernel on CUDA.
+# The redesigned lens families over a batch: pointwise!'s one KernelAbstractions
+# kernel on the host's CPU backend and on CUDA.
 #   CUDA_VISIBLE_DEVICES=3 julia --project=. -t 32 run_new.jl new.toml
 using VisualGeometryToolkitCore, StaticArrays, BenchmarkTools, CUDA, Random, TOML
 const VgtkCore = VisualGeometryToolkitCore
@@ -24,10 +24,8 @@ for T in (Float32, Float64)
         lens = VgtkCore._precision(T, lens64)
         pts = _points(lens64, 10^6, T); o = similar(pts)
         r = Dict{String, Float64}()
-        for (pname, exec) in (("serial", VgtkCore.Serial()), ("threaded", VgtkCore.Threaded()))
-            r["cpu_$(pname)_undistort"] = _t(@benchmark undistort_normalized!($o, $lens, $pts; exec = $exec))
-            r["cpu_$(pname)_distort"] = _t(@benchmark distort_normalized!($o, $lens, $pts; exec = $exec))
-        end
+        r["cpu_undistort"] = _t(@benchmark undistort_normalized!($o, $lens, $pts))
+        r["cpu_distort"] = _t(@benchmark distort_normalized!($o, $lens, $pts))
         if CUDA.functional()
             cp = CuArray(pts); co = similar(cp)
             r["gpu_undistort"] = _t(@benchmark CUDA.@sync undistort_normalized!($co, $lens, $cp))
@@ -37,12 +35,11 @@ for T in (Float32, Float64)
     end
     out[string(T)] = res
 end
-# the crossover of Serial and Threaded, by batch length (Auto's THREADED_MIN_LENGTH)
+# the CPU kernel by batch length
 cross = Dict{String, Any}()
 for (name, lens) in lenses[[1, 4]], n in (256, 1024, 4096, 16384, 65536)
     pts = _points(lens, n, Float64); o = similar(pts)
-    cross["$(name)_$(n)_serial"] = _t(@benchmark undistort_normalized!($o, $lens, $pts; exec = VgtkCore.Serial()))
-    cross["$(name)_$(n)_threaded"] = _t(@benchmark undistort_normalized!($o, $lens, $pts; exec = VgtkCore.Threaded()))
+    cross["$(name)_$(n)_cpu"] = _t(@benchmark undistort_normalized!($o, $lens, $pts))
 end
-out["crossover"] = cross
+out["by_length"] = cross
 open(io -> TOML.print(io, out; sorted = true), ARGS[1], "w")

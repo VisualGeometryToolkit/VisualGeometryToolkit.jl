@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Internal: one launch path for the ASIFT kernels on every backend** (the owner's one-kernel policy; Core's
+  `check_duplication` flagged the `_scheduled` method pair): every backend's kernels launch through `_ScheduledKernel`
+  (formerly `_CPUKernel`), built on the device's static form (KernelAbstractions' `CPU(static = true)` on the CPU, the
+  device itself elsewhere) and on the device; the CPU's static/dynamic launches are unchanged. `_chunk_warps`' backend
+  test is a free-memory reserve (an allocation, the same kernels on every backend): a DUPLICATION.toml `[[backend]]`
+  entry with that reason.
 - **New: `onnx_session(path; execution_provider = :auto, threads, gpu_mem_limit)`, public**: the package's ONNX Runtime
   session builder (formerly the internal `_onnx_session`), for another package's network: the provider resolved as
   LoMa's is (`resolve_execution_provider`; on CUDA, conda-forge's ONNX Runtime build, which runs on the B200's sm_100),

@@ -52,7 +52,11 @@ SplineLens camera refines its backward controls instead (K frozen, the lens
 axis held on ẑ), by implicit differentiation of its projection solve, with a
 scale-free third-difference penalty over its lattice whose weight generalized
 cross-validation chooses by default (`penalty = :gcv`; a number fixes it, `0`
-turns it off); a forward spline is refitted after.
+turns it off); a forward spline is refitted after. With several rigid boards,
+`refine_camera_and_poses(camera, poses, board_poses, views)` adds one pose per
+board (board → world) to the same bundle, the correspondences keyed by
+`(view, board)`; each connected group of views and boards keeps its gauge by a
+held pose (its first board by default, `held_boards`/`held_views`), exactly.
 
 ```@docs
 refine_camera_and_poses

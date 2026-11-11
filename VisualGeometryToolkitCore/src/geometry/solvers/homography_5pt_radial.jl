@@ -584,7 +584,7 @@ stay visible to LM next to a constant out-of-field one.
 const OUT_OF_FIELD_RESIDUAL = 1.0e6
 
 # The two rows of one correspondence, in the uniform `(out, i, args...)` form
-# `_foreach_row!` runs (a plain loop on the CPU, one kernel on a device). `lens`
+# `_launch_rows!` runs (one kernel on every backend, the CPU's included). `lens`
 # is `_projection_lens(m)`, built once per launch.
 Base.@propagate_inbounds function _radial_rows!(r, i, m, lens, u₁, u₂, sqrtw)
     s = u₁[i]; d = u₂[i]
@@ -638,11 +638,11 @@ columns `M + 1 … M + N` along the division coefficients `λ₁ … λ_N`
 (`transform_deriv_params`). A ray outside the
 model's field ([`project`](@ref)'s edge rule) is a constant residual with a
 ZERO Jacobian row, so LM rejects a step that pushes rays out rather than being
-rewarded for it. One KernelAbstractions kernel each on device backends, a plain
-loop over the same row functions on the CPU.
+rewarded for it. One KernelAbstractions kernel each, on every backend (the
+CPU's included).
 """
 function radial_transfer_rows!(r::AbstractVector, m::RadialHomography, u₁::AbstractVector, u₂::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_radial_rows!, r, length(u₁), m, _projection_lens(m), u₁, u₂, sqrtw)
+    return _launch_rows!(_radial_rows!, r, length(u₁), m, _projection_lens(m), u₁, u₂, sqrtw)
 end
 
 """
@@ -653,7 +653,7 @@ The Jacobian of [`radial_transfer_rows!`](@ref): columns `1:M` along the
 coefficients, a zero row for a ray outside the model's field.
 """
 function radial_transfer_jacobian_rows!(J::AbstractMatrix, m::RadialHomography, dH::Tuple, u₁::AbstractVector, sqrtw::AbstractVector)
-    return _foreach_row!(_radial_jacobian_rows!, J, length(u₁), m, _projection_lens(m), dH, u₁, sqrtw)
+    return _launch_rows!(_radial_jacobian_rows!, J, length(u₁), m, _projection_lens(m), dH, u₁, sqrtw)
 end
 
 """

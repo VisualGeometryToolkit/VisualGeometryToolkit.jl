@@ -38,6 +38,22 @@ non-central one is a `NoncentralSplineModel`).
   - A forward spline is now refitted or dropped, never kept (the turn leaves it stale). It is refitted by
     `fit_camera(SplineLens)`'s own forward fit, which does not re-gauge.
 
+- **New: a robust refine, `refine_camera_and_poses(…; robust, scale)`** (the owner's one-schema policy): `robust` takes
+  the RANSAC local optimization's own strategies, `Irls{Shape}` and `Triggs{Shape}` with Core's loss shapes and a
+  `scale_multiple` (or an absolute `loss_width`), read by the same TOML reader (`local_optimization_from_toml`). From the
+  least-squares estimate, Triggs runs one robustified LM and Irls weighted solves, at the loss width the strategy's
+  multiple of a FROZEN scale gives: the caller's `scale`, else Core's Student-t scale of the least-squares rows
+  (`partition_student_t`). No new loss, strategy or scale rule. A strategy without a width of its own (it would follow a
+  scorer's threshold), or one that needs a RANSAC consensus set, is an `ArgumentError`. The metadata adds
+  `residual_norms`, `weights` (ρ′), `scale` and `loss_width`. `robust = nothing` (the default) is the least-squares
+  refine bit for bit. Both forms (one board, several boards); parametric cameras.
+- **New: board poses in `refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views)`** (owner
+  decision 20): several rigid boards, each board → world pose a variable of the same bundle (one more pose chart of the
+  same NLLSsolver problem and assembler as the camera and the view poses), the correspondences keyed by
+  `(view, board)`. The gauge of each connected component of the view–board graph is fixed exactly by a held pose (by
+  default its first board; `held_views` holds a view instead), no pin and no prior; a component without one is an
+  `ArgumentError`. The single-board refine is the same bundle with one held identity board. CaliBlobs' own refine
+  moves onto it.
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 

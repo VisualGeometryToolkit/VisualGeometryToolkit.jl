@@ -3,7 +3,8 @@
 # correspondences, against the reprojection error
 # =============================================================================
 #
-# The bundle of a calibration with a known target: given a camera guess (its
+# The bundle of a calibration with a known target (or several rigid boards, each a pose: the board-pose block,
+# owner decision 20, 2026-11-11): given a camera guess (its
 # intrinsics and lens, a parametric `CameraModel`), a pose guess per view
 # (world → camera, X_c = R·X + t) and per view the correspondences `X => u` of
 # target points and the pixels they are detected at, minimize
@@ -81,41 +82,72 @@ struct CameraPosesRefineMetadata
     ν::Int
     free::Tuple{Vararg{Symbol}}
     spline::Union{Nothing, NamedTuple}
+    residual_norms::Vector{Float64}
+    weights::Vector{Float64}
+    scale::Union{Nothing, Float64}
+    loss_width::Union{Nothing, Float64}
 end
+# A least-squares refine: unit weights, no scale and no loss width; the norms from the rows.
+CameraPosesRefineMetadata(residuals::Vector{Float64}, s²::Real, ν::Integer, free, spline) =
+    CameraPosesRefineMetadata(residuals, Float64(s²), Int(ν), free, spline, _row_norms(residuals),
+                              ones(length(residuals) ÷ 2), nothing, nothing)
+_row_norms(r) = [hypot(r[2k - 1], r[2k]) for k in 1:(length(r) ÷ 2)]
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
 const _RefinedCamera = Union{CameraModel, BoundedCamera{<:CameraModel}}
 _camera_model(c::CameraModel) = c
 _camera_model(c::BoundedCamera) = model(c)
 
-# One correspondence's residual block: the target point and its pixel, its
-# variables (camera, pose) — or (pose,) under a held camera, which it carries.
-struct _CameraPoseResidual{N, C} <: NLLSsolver.AbstractResidual
+# One correspondence's residual block: a board point `X` (the board's frame) and its pixel `u`, projected through the
+# camera, its view's pose (world → camera) and its board's pose (board → world): `project(camera, view(board(X))) − u`.
+# `F = (camera, view, board)` says which of the three are variables of the block, in that order (`varind`); a held one
+# is the value the block carries. A refine without boards is one held identity board (`X` in the world).
+# A robust refine scales the block by `sqrt_weight` (an IRLS cycle's √w; 1 otherwise) or robustifies its squared norm
+# by `robust` (Triggs: NLLSsolver's robustifier, Core's `loss_robustifier`; `NoRobust()` otherwise).
+struct _BoardViewResidual{N, F, C, K} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
-    camera::C                       # the held camera (read only when N == 1)
+    camera::C                       # the held camera (read when F[1] is false)
+    view::PlainEuclideanMap{3, Float64}    # the held view pose (when F[2] is false)
+    board::PlainEuclideanMap{3, Float64}   # the held board pose (when F[3] is false)
     X::SVector{3, Float64}
     u::SVector{2, Float64}
+    sqrt_weight::Float64
+    robust::K
 end
-NLLSsolver.ndeps(::_CameraPoseResidual{N}) where {N} = NLLSsolver.static(N)
-NLLSsolver.nres(::_CameraPoseResidual) = NLLSsolver.static(2)
-NLLSsolver.varindices(r::_CameraPoseResidual) = r.varind
-NLLSsolver.getvars(r::_CameraPoseResidual{2}, vars::Vector) = (vars[r.varind[1]], vars[r.varind[2]])
-NLLSsolver.getvars(r::_CameraPoseResidual{1}, vars::Vector) = (vars[r.varind[1]],)
-Base.eltype(::_CameraPoseResidual) = Float64
-NLLSsolver.computeresidual(r::_CameraPoseResidual{2}, camera_chart, pose_chart) =
-    VgtkCore.reprojection_error(model(camera_chart), model(pose_chart), r.X, r.u)
-NLLSsolver.computeresidual(r::_CameraPoseResidual{1}, pose_chart) = VgtkCore.reprojection_error(r.camera, model(pose_chart), r.X, r.u)
+_BoardViewResidual{N, F, C}(varind, camera, view, board, X, u) where {N, F, C} =
+    _BoardViewResidual{N, F, C, NLLSsolver.NoRobust}(varind, camera, view, board, X, u, 1.0, NLLSsolver.NoRobust())
+NLLSsolver.robustkernel(r::_BoardViewResidual) = r.robust
+_with_robust(r::_BoardViewResidual{N, F, C}, sqrt_weight::Float64, robust::K) where {N, F, C, K} =
+    _BoardViewResidual{N, F, C, K}(r.varind, r.camera, r.view, r.board, r.X, r.u, sqrt_weight, robust)
+NLLSsolver.ndeps(::_BoardViewResidual{N}) where {N} = NLLSsolver.static(N)
+NLLSsolver.nres(::_BoardViewResidual) = NLLSsolver.static(2)
+NLLSsolver.varindices(r::_BoardViewResidual) = r.varind
+NLLSsolver.getvars(r::_BoardViewResidual{N}, vars::Vector) where {N} = ntuple(i -> vars[r.varind[i]], Val(N))
+Base.eltype(::_BoardViewResidual) = Float64
+function NLLSsolver.computeresidual(r::_BoardViewResidual{N, F}, vs...) where {N, F}
+    i = 1
+    camera = F[1] ? model(vs[i]) : r.camera
+    i += F[1]
+    view = F[2] ? model(vs[i]) : r.view
+    i += F[2]
+    board = F[3] ? model(vs[i]) : r.board
+    e = VgtkCore.reprojection_error(camera, view, board(r.X), r.u)
+    return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e
+end
 # The block's cost as the LM reads it: non-finite (a candidate update that moves a
 # point off the lens's domain) is +Inf (`finite_cost`).
-NLLSsolver.computecost(vars::AbstractVector, r::_CameraPoseResidual) =
+NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
-    refine_camera_and_poses(camera, poses, views; free, box = nothing,
+    refine_camera_and_poses(camera, poses, views; free, box = nothing, robust = nothing, scale = nothing,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
     refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = :gcv,
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
+    refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), free, box,
+                            robust = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
+        -> FitResult{<:NamedTuple{(:camera, :poses, :board_poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
 3D → 2D correspondences: minimize `Σ ‖project(camera, pose_v(X)) − u‖²` over
@@ -146,6 +178,24 @@ scratch and the camera keeps its family (its lens type).
 - `box` — a solver search box on the camera's parameters by name
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
   with `free = ()` (nothing to bound) a box is an `ArgumentError`.
+- `robust` — `nothing` (the default: plain least squares) or a robust
+  strategy of the RANSAC local optimization's own types, configured by the same
+  TOML tables (`local_optimization_from_toml`, e.g. `{ type = "triggs", loss =
+  "welsch", scale_multiple = 2.98 }`): `Triggs{Shape}`, one robustified LM
+  (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
+  `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
+  `max_iter` cycles, until the robust cost decreases by less than `ftol`),
+  each from the least-squares estimate. The loss width is the strategy's
+  `scale_multiple` (in its shape's currency) times the scale ŝ, frozen: the
+  caller's `scale`, else Core's Student-t scale of the least-squares rows
+  (`partition_student_t` over the 2n rows less the unknowns); or the
+  strategy's absolute `loss_width`. A strategy that follows a scorer's inlier
+  threshold (no width) or needs a RANSAC consensus set is an `ArgumentError`.
+  The metadata's `weights` are the ρ′ at the estimate, `scale` and
+  `loss_width` what the loss ran at. Parametric cameras (both forms).
+- `scale` — the detections' noise scale σ (pixels, per coordinate) a `robust`
+  strategy's width multiplies, or `nothing` (the least-squares rows' Student-t
+  scale; gross outliers inflate it).
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -161,6 +211,29 @@ stationary point (VisualGeometryToolkitCore's `nlls_retcode`), else
 ([`CameraPosesRefineMetadata`](@ref)) carries the residual rows, `s²`, `ν` and
 the free parameter names. Plain least squares: the correspondences must be
 inliers.
+
+# Several boards
+With `board_poses`, the target is several rigid boards, each with its own pose:
+`poses` maps each view to its world → camera pose, `board_poses` each board to
+its board → world pose (both `AbstractDict`s of plain `EuclideanMap{3}`), and
+`views` maps `(view, board)` to the correspondences `X => u` of that board's
+points (`X` in the board's frame) detected in that view. The residual is
+`project(camera, pose_v(board_b(X))) − u`; each board pose is one more pose
+chart of the same NLLSsolver problem, beside the camera's chart and the view
+poses (the same assembler and LM, the same retcode and metadata; `ν` counts 6
+per free board too). A pose the data never reach is an `ArgumentError`, and so
+is a correspondence of a view or board without a pose.
+
+The gauge: a common rigid motion of every board, undone by every view, leaves
+the cost unchanged, once per connected component of the view–board graph
+(views and boards linked by their correspondences). It is fixed EXACTLY, by
+holding poses at their guesses (no pin, no prior): `held_boards` (by default
+each component's first board, in sorted key order) and `held_views` (none by
+default) are held, every other pose is a variable, and a component without a
+held pose is an `ArgumentError`. Holding more than one pose of a component
+constrains the solve (a held pose is known). The estimate's `board_poses`
+returns a held pose as given. A parametric camera only (a SplineLens camera's
+gauge is its own: an `ArgumentError`); plain poses and points.
 
 # A SplineLens camera
 Its K is a frozen gauge (skew 0) and its parameters are its backward lattice's
@@ -285,6 +358,65 @@ function refine_camera_and_poses(
     return _camera_poses_result(_refine_camera_and_poses(camera, collect(poses), collect(views); kwargs...)...)
 end
 
+# Several boards: the view poses (world → camera) and the board poses (board → world) keyed, the correspondences keyed
+# by (view, board). Each connected component of the view–board graph has a held pose: its gauge.
+function refine_camera_and_poses(
+        camera::_RefinedCamera, poses::AbstractDict{V, <:PlainEuclideanMap{3}}, board_poses::AbstractDict{B, <:PlainEuclideanMap{3}},
+        views::AbstractDict{<:Tuple{V, B}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        held_boards = nothing, held_views = (), kwargs...
+    ) where {V, B}
+    VgtkCore.Cameras.IntrinsicsRole(_camera_model(camera).lens) isa VgtkCore.Cameras.FreeIntrinsics || throw(ArgumentError(
+        "refine_camera_and_poses: board poses refine a parametric camera; a SplineLens camera's gauge is its own (refine it with one board)"))
+    vids = sort!(collect(keys(poses))); bids = sort!(collect(keys(board_poses)))
+    keys_ = sort!(collect(keys(views)))
+    isempty(keys_) && throw(ArgumentError("refine_camera_and_poses: no views"))
+    vi = Dict(k => i for (i, k) in enumerate(vids)); bi = Dict(k => i for (i, k) in enumerate(bids))
+    for (v, b) in keys_
+        haskey(vi, v) || throw(ArgumentError("refine_camera_and_poses: the correspondences of ($(repr(v)), $(repr(b))) name a view with no pose"))
+        haskey(bi, b) || throw(ArgumentError("refine_camera_and_poses: the correspondences of ($(repr(v)), $(repr(b))) name a board with no pose"))
+    end
+    seen_v = Set(first.(keys_)); seen_b = Set(last.(keys_))
+    for v in vids
+        v in seen_v || throw(ArgumentError("refine_camera_and_poses: view $(repr(v)) has a pose and no correspondence"))
+    end
+    for b in bids
+        b in seen_b || throw(ArgumentError("refine_camera_and_poses: board $(repr(b)) has a pose and no correspondence"))
+    end
+    # the connected components of the view–board graph (views 1:nv, boards nv+1:nv+nb), by union–find
+    nv, nb = length(vids), length(bids)
+    parent = collect(1:(nv + nb))
+    root(i) = parent[i] == i ? i : (parent[i] = root(parent[i]))
+    for (v, b) in keys_
+        parent[root(vi[v])] = root(nv + bi[b])
+    end
+    held_b = falses(nb); held_v = falses(nv)
+    if held_boards === nothing                                   # each component's first board
+        firsts = Dict{Int, Int}()
+        for b in 1:nb
+            get!(firsts, root(nv + b), b)
+        end
+        foreach(b -> held_b[b] = true, values(firsts))
+    else
+        for b in held_boards
+            haskey(bi, b) || throw(ArgumentError("refine_camera_and_poses: held board $(repr(b)) has no pose"))
+            held_b[bi[b]] = true
+        end
+    end
+    for v in held_views
+        haskey(vi, v) || throw(ArgumentError("refine_camera_and_poses: held view $(repr(v)) has no pose"))
+        held_v[vi[v]] = true
+    end
+    for c in unique(root(i) for i in 1:(nv + nb))
+        any(held_v[i] for i in 1:nv if root(i) == c) || any(held_b[b] for b in 1:nb if root(nv + b) == c) || throw(ArgumentError(
+            "refine_camera_and_poses: the views $(repr([vids[i] for i in 1:nv if root(i) == c])) and boards " *
+            "$(repr([bids[b] for b in 1:nb if root(nv + b) == c])) hold no pose: their common motion is free (hold a board or a view)"))
+    end
+    obs = [(vi[v], bi[b], _correspondence(vi[v], j, c)...) for (v, b) in keys_ for (j, c) in enumerate(views[(v, b)])]
+    est, rest... = _refine_bundle(camera, [poses[k] for k in vids], [board_poses[k] for k in bids], obs, held_v, held_b; kwargs...)
+    return _camera_poses_result((; camera = est.camera, poses = Dict{V, eltype(est.poses)}(zip(vids, est.poses)),
+                                 board_poses = Dict{B, eltype(est.boards)}(zip(bids, est.boards))), rest...)
+end
+
 # Physical inputs: the poses and the target points in metres once, the plain
 # refinement, the poses read back in metres once.
 function refine_camera_and_poses(
@@ -328,18 +460,56 @@ end
 _finite_pose(P::PlainEuclideanMap{3}) = all(isfinite, rotation(P)) && all(isfinite, translation(P))
 _plain_pose(P::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
 
+# Without boards: every correspondence's point in the world, one held identity board.
 function _refine_camera_and_poses(
-        ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
+        ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...
+    )
+    V = length(views)
+    V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
+    obs = [(v, 1, _correspondence(v, j, c)...) for (v, cs) in enumerate(views) for (j, c) in enumerate(cs)]
+    world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))
+    est, rest... = _refine_bundle(bounded, poses, [world], obs, falses(V), trues(1); kwargs...)
+    return (; camera = est.camera, poses = est.poses), rest...
+end
+
+# The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables): Irls{K} and
+# Triggs{K} at a width of their own (a scale multiple of the refine's scale, or an absolute width), or the least-squares
+# shape. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set, has nothing to
+# read here.
+function _check_robust(robust, scale)
+    robust === nothing && (scale === nothing || throw(ArgumentError(
+        "refine_camera_and_poses: a `scale` sets a `robust` strategy's width; least squares (robust = nothing) reads none")))
+    robust === nothing && return nothing
+    scale === nothing || (isfinite(scale) && scale > 0) ||
+        throw(ArgumentError("refine_camera_and_poses: scale = $scale is not a positive finite number of pixels"))
+    robust isa Union{Irls, Triggs} || throw(ArgumentError(
+        "refine_camera_and_poses: robust = $(nameof(typeof(robust))) needs a RANSAC consensus set, which a refine has none; " *
+        "a refine takes Irls{Shape} or Triggs{Shape}"))
+    strategy_loss(robust) === GaussianShape || lo_width(robust) !== nothing || throw(ArgumentError(
+        "refine_camera_and_poses: robust = $(VgtkCore.lo_label(robust)) follows a RANSAC scorer's inlier threshold, which a refine has " *
+        "none: give it a `scale_multiple` (of the refine's scale) or a `loss_width`"))
+    return nothing
+end
+
+# The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
+# (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
+# problem: the camera's chart (when anything is free), a pose chart per free view and per free board, one residual
+# block per correspondence.
+function _refine_bundle(
+        bounded::_RefinedCamera, poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
+        held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool};
         free::Tuple{Vararg{Symbol}} = Tuple(p for p in parameter_names(_camera_model(bounded)) if p !== :skew),
         box::Union{Nothing, NamedTuple} = nothing,
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
+        robust::Union{Nothing, AbstractLocalOptimization} = nothing,
+        scale::Union{Nothing, Real} = nothing,
     )
+    _check_robust(robust, scale)
     camera = _camera_model(bounded)
-    V = length(views)
-    V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
+    V, B = length(poses), length(boards)
     names = parameter_names(camera)
     for p in free
         p in names || throw(ArgumentError("refine_camera_and_poses: the camera has no parameter $(repr(p)); its parameters are $(join(String.(names), ", "))"))
@@ -348,39 +518,96 @@ function _refine_camera_and_poses(
         throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's free parameters, and `free = ()` frees none"))
     chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
     nd = chc === nothing ? 0 : tangent_size(chc)
-    pose_charts = _pose_charts(poses)
-    o = chc === nothing ? 0 : 1                                              # the poses' variable offset
-    N = chc === nothing ? 1 : 2
-    costs = _CameraPoseResidual{N, typeof(camera)}[]
-    for (v, cs) in enumerate(views), (j, c) in enumerate(cs)
-        X, u = _correspondence(v, j, c)
-        all(isfinite, VgtkCore.reprojection_error(camera, model(pose_charts[v]), X, u)) || throw(
-            ArgumentError("refine_camera_and_poses: view $v, correspondence $j: the point $(X) does not project at the guess (behind the camera or outside the lens's domain)")
-        )
-        push!(costs, _CameraPoseResidual{N, typeof(camera)}(N == 2 ? SVector(1, o + v) : SVector(o + v), camera, X, u))
+    view_charts = _pose_charts(poses); board_charts = _pose_charts(boards)
+    # the variables: the camera's chart, then the free views', then the free boards'
+    o = chc === nothing ? 0 : 1
+    view_var = zeros(Int, V); board_var = zeros(Int, B)
+    for v in 1:V
+        held_views[v] || (o += 1; view_var[v] = o)
     end
-    n = length(costs)
-    p = nd + 6V
+    for b in 1:B
+        held_boards[b] || (o += 1; board_var[b] = o)
+    end
+    plain(ch) = model(ch)::PlainEuclideanMap{3, Float64}
+    blocks = NLLSsolver.AbstractResidual[]
+    for (k, (v, b, X, u)) in enumerate(obs)
+        all(isfinite, VgtkCore.reprojection_error(camera, plain(view_charts[v]), plain(board_charts[b])(X), u)) || throw(
+            ArgumentError("refine_camera_and_poses: view $v, correspondence $k: the point $(X) does not project at the guess (behind the camera or outside the lens's domain)")
+        )
+        F = (chc !== nothing, !held_views[v], !held_boards[b])
+        ind = SVector{count(F), Int}(Tuple(i for (i, f) in zip((1, view_var[v], board_var[b]), F) if f))
+        push!(blocks, _BoardViewResidual{count(F), F, typeof(camera)}(ind, camera, plain(view_charts[v]), plain(board_charts[b]), X, u))
+    end
+    RT = Union{unique(typeof.(blocks))...}
+    costs = convert(Vector{RT}, blocks)
+    n = length(obs)
+    p = nd + 6 * (count(!, held_views) + count(!, held_boards))
     2n > p || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
+    o > 0 || throw(ArgumentError("refine_camera_and_poses: nothing to refine (the camera, every view and every board held)"))
 
-    problem = chc === nothing ? NLLSsolver.NLLSProblem(_CameraPosePose, eltype(costs)) :
-        NLLSsolver.NLLSProblem(Union{typeof(chc), _CameraPosePose}, eltype(costs))
-    chc === nothing || NLLSsolver.addvariable!(problem, chc)
-    foreach(ch -> NLLSsolver.addvariable!(problem, ch), pose_charts)
-    foreach(c -> NLLSsolver.addcost!(problem, c), costs)
-    result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
-    chc_out = chc === nothing ? nothing : problem.variables[1]
-    poses_out = PlainEuclideanMap{3, Float64}[model(problem.variables[o + v]::_CameraPosePose) for v in 1:V]
-    camera_out = chc_out === nothing ? camera : model(chc_out)
-    all(_finite_pose, poses_out) && all(isfinite, parameter_vector(camera_out)) ||
+    VT = chc === nothing ? _CameraPosePose : Union{typeof(chc), _CameraPosePose}
+    vars0 = VT[]
+    chc === nothing || push!(vars0, chc)
+    foreach(v -> held_views[v] || push!(vars0, view_charts[v]), 1:V)
+    foreach(b -> held_boards[b] || push!(vars0, board_charts[b]), 1:B)
+    options = nlls_options(; max_iter, ftol, xtol, max_time)
+    function solve(blocks, start)
+        RTb = Union{unique(typeof.(blocks))...}
+        pr = NLLSsolver.NLLSProblem(VT, RTb)
+        foreach(x -> NLLSsolver.addvariable!(pr, x), start)
+        foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
+        return pr, NLLSsolver.optimize!(pr, options)
+    end
+    problem, result = solve(costs, vars0)
+    iters = result.niterations
+    # The robust stage (`robust`): from the least-squares estimate, the strategy's loss at its width over the scale ŝ of
+    # the least-squares residuals, frozen (Core's Student-t of the 2n rows, `partition_student_t`; or the caller's
+    # `scale`): Triggs, one robustified LM (NLLSsolver's Triggs correction); Irls, weighted solves at the loss's
+    # weights ρ′ until the robust cost decreases by less than `ftol` (relative) or `max_iter` cycles.
+    weights = ones(n); used_scale = nothing; used_width = nothing; stationarity_blocks = costs
+    if robust !== nothing
+        r0, _ = nlls_rows_and_jacobian(costs, problem.variables)
+        s2 = scale === nothing ? last(partition_student_t(IGPrior(), sum(abs2, r0), 2n; model_dof = p)) : Float64(scale)^2
+        loss = lo_loss(robust, ConsensusSet(; count = n, s2, epoch = 0), nothing, nothing)
+        shape = strategy_loss(robust)(); sq = sq_loss_width(loss)
+        used_scale = sqrt(s2); used_width = sqrt(sq)
+        sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
+        if robust isa Triggs
+            robustifier = loss_robustifier(shape, used_width)
+            problem, result = solve([_with_robust(c, 1.0, robustifier) for c in costs], copy(problem.variables))
+            iters += result.niterations
+        else
+            prev = Inf
+            for _ in 1:robust.max_iter
+                q = sqnorms(problem.variables)
+                cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
+                prev - cost <= ftol * abs(cost) && break
+                prev = cost
+                w = [weight(shape, x, sq) for x in q]
+                problem, result = solve([_with_robust(c, sqrt(w[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)],
+                                        copy(problem.variables))
+                iters += result.niterations
+            end
+        end
+        weights = [weight(shape, x, sq) for x in sqnorms(problem.variables)]
+        # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
+        stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
+    end
+    camera_out = chc === nothing ? camera : model(problem.variables[1])
+    pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(problem.variables[var[i]]::_CameraPosePose)
+    poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in 1:V]
+    boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in 1:B]
+    all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
-    r, J = nlls_rows_and_jacobian(costs, problem.variables)
+    r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
+    robust === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     ν = 2n - p
-    out = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(poses, poses_out)]
+    relabelled(inputs, outs) = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(inputs, outs)]
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
-    return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free, nothing)
+    meta = CameraPosesRefineMetadata(r, S / ν, ν, free, nothing, _row_norms(r), weights, used_scale, used_width)
+    return (; camera = camera_out, poses = relabelled(poses, poses_out), boards = relabelled(boards, boards_out)), code,
+        iters, sqrt(S / n), n, meta
 end
-

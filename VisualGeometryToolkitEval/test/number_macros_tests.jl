@@ -305,3 +305,24 @@ end
     write_numbers(path, nums("scripts/a.jl", "aX" => 5.0))
     @test tex_macro_values(path) == ["aX" => "5.0"]
 end
+
+# A TeX length is not a re-typed number: a number directly followed by a TeX unit, or with a space where TeX reads a
+# length (a braced argument, after a skip primitive), is no literal; a bare number, a number with a unit in prose, or one
+# followed by a word that is no unit still is.
+@testitem "number_macros: a TeX length is not a literal" begin
+    using VisualGeometryToolkitEval.Reproduce: macro_literal_violations
+    mktempdir() do dir
+        macros = joinpath(dir, "numbers.tex")
+        write(macros, "\\newcommand{\\learnedWeight}{0.3}\n")
+        prose = joinpath(dir, "prose.tex")
+        lines = ["\\begin{equation}a \\hspace{-0.3cm} b\\end{equation}",   # 1: a length
+                 "The weight is 0.3 here.",                                    # 2: a re-typed number
+                 "\\hspace{0.3 cm}\\kern 0.3 pt",                            # 3: lengths with a space, where TeX reads one
+                 "The token 0.3cmx is not a length.",                          # 4: no unit: a number
+                 "\\vspace{0.3em}\\kern0.3pt\\hskip0.3in",                  # 5: lengths
+                 "A gap of 0.3 cm in prose."]                                  # 6: a number with a unit, in prose
+        write(prose, join(lines, "\n") * "\n")
+        hits = macro_literal_violations([prose], [macros]; root = dir)
+        @test sort([parse(Int, last(split(v.location, ':'))) for v in hits]) == [2, 4, 6]
+    end
+end

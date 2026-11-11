@@ -1,13 +1,14 @@
 # =============================================================================
-# A lens over a batch of points: pointwise! broadcasts the per-point maps — the
-# same function on the host (serial or split across threads) and on a GPU —
-# and every execution policy gives identical results.
+# A lens over a batch of points: pointwise! runs the per-point maps as ONE
+# KernelAbstractions kernel on every backend (the CPU's included; the owner's
+# one-kernel policy retired the host's Serial/Threaded/Auto broadcast paths),
+# bit for bit the per-point map.
 # =============================================================================
 
 @testitem "pointwise" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: _precision, Serial, Threaded, Auto, OnBackend, THREADED_MIN_LENGTH
+    using VisualGeometryToolkitCore: _precision, OnBackend
     using KernelAbstractions: KernelAbstractions
     struct VecAffine
         w::Vector{Float64}
@@ -61,9 +62,14 @@
         @test all(isnan, undistort_normalized(eq, SVector(1.7, 0.0)))
     end
 
-    @testset "every policy is the per-point map, bitwise" begin
+    @testset "the one kernel is the per-point map, bitwise" begin
+        # the host's broadcast policies are retired: one launch path
+        for name in (:Serial, :Threaded, :Auto, Symbol("Execution" * "Policy"), Symbol("THREADED" * "_MIN_LENGTH"))
+            @test !isdefined(VisualGeometryToolkitCore, name)
+        end
+        cpu = KernelAbstractions.CPU()
         rng = Xoshiro(3)
-        n = 2 * THREADED_MIN_LENGTH + 17              # several chunks, a ragged tail
+        n = 2065                                      # several workgroups, a ragged tail
         rays = [(θ = 1.6 * rand(rng); ψ = 2π * rand(rng); SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))) for _ in 1:n]
         pts = [SVector(0.9 * randn(rng), 0.9 * randn(rng)) for _ in 1:n]
         push!(pts, SVector(50.0, 50.0)); push!(rays, SVector(0.0, 0.0, -1.0))   # not imaged by most lenses
@@ -71,7 +77,10 @@
             for (f!, f, xs, T) in ((project!, project, rays, SVector{2, Float64}), (backproject!, backproject, pts, SVector{3, Float64}),
                     (distort_normalized!, distort_normalized, pts, SVector{2, Float64}), (undistort_normalized!, undistort_normalized, pts, SVector{2, Float64}))
                 ref = [f(lens, x) for x in xs]
-                for exec in (Serial(), Threaded(), Auto())
+                out = Vector{T}(undef, length(xs))
+                @test f!(out, lens, xs) === out
+                @test isequal(out, ref)
+                for exec in (OnBackend(cpu), OnBackend(cpu; workgroupsize = 64))
                     out = Vector{T}(undef, length(xs))
                     @test f!(out, lens, xs; exec) === out
                     @test isequal(out, ref)
@@ -81,13 +90,13 @@
         # a camera is a per-point map too: K ∘ lens, through the same driver
         cam = CameraModel(; focal = 800.0, pp = (640.0, 480.0), lens = KB)
         u = Vector{SVector{2, Float64}}(undef, length(rays))
-        project!(u, cam, rays; exec = Threaded())
+        project!(u, cam, rays)
         @test isequal(u, [project(cam, X) for X in rays])
         # pointwise! itself: any per-point function, several inputs
         a, b = randn(rng, 100), randn(rng, 100)
-        @test pointwise!(hypot, similar(a), a, b; exec = Threaded()) == hypot.(a, b)
+        @test pointwise!(hypot, similar(a), a, b) == hypot.(a, b)
+        @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(3), zeros(1))         # no broadcasting
         # one kernel on a given backend value (here KernelAbstractions' CPU), with and without a workgroup size, any shape
-        cpu = KernelAbstractions.CPU()
         for exec in (OnBackend(cpu), OnBackend(cpu; workgroupsize = 16))
             out = similar(rays, SVector{2, Float64})
             pointwise!(Base.Fix1(project, KB), out, rays; exec); KernelAbstractions.synchronize(cpu)

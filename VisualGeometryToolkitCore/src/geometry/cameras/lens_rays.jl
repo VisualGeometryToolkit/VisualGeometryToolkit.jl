@@ -1489,26 +1489,26 @@ end
 _batch_precision(out, m) = m isa AbstractLensModel ? _precision(eltype(eltype(out)), m) : m
 
 """
-    project!(u, m, X; exec = Auto()) -> u
-    backproject!(X, lens, u; exec = Auto()) -> X
-    distort_normalized!(xd, lens, x; exec = Auto()) -> xd
-    undistort_normalized!(x, lens, xd; exec = Auto()) -> x
+    project!(u, m, X; exec = OnBackend(get_backend(u))) -> u
+    backproject!(X, lens, u; exec = OnBackend(get_backend(X))) -> X
+    distort_normalized!(xd, lens, x; exec = OnBackend(get_backend(xd))) -> xd
+    undistort_normalized!(x, lens, xd; exec = OnBackend(get_backend(x))) -> x
 
 [`project`](@ref) / [`backproject`](@ref) / [`distort_normalized`](@ref) /
 [`undistort_normalized`](@ref) of every point of a batch, into `u` / `X` /
 … — arrays of static vectors on any backend. `m` is a lens or anything else
 [`project`](@ref) takes (a camera). A point the lens does not image comes back
-NaN. `exec` chooses how a host batch is split across threads
-([`pointwise!`](@ref)); every policy gives identical results.
+NaN. One kernel on the output's backend, the CPU's included
+([`pointwise!`](@ref)); `exec` launches it on another backend value.
 """
-project!(u::AbstractArray, m, X::AbstractArray; exec::ExecutionPolicy = Auto()) =
+project!(u::AbstractArray, m, X::AbstractArray; exec::OnBackend = OnBackend(KA.get_backend(u))) =
     pointwise!(Base.Fix1(project, _batch_precision(u, m)), u, X; exec)
 "See [`project!`](@ref)."
-backproject!(X::AbstractArray, l::AbstractLensModel, u::AbstractArray; exec::ExecutionPolicy = Auto()) =
+backproject!(X::AbstractArray, l::AbstractLensModel, u::AbstractArray; exec::OnBackend = OnBackend(KA.get_backend(X))) =
     pointwise!(Base.Fix1(backproject, _batch_precision(X, l)), X, u; exec)
 "See [`project!`](@ref)."
-distort_normalized!(xd::AbstractArray, l::AbstractLensModel, x::AbstractArray; exec::ExecutionPolicy = Auto()) =
+distort_normalized!(xd::AbstractArray, l::AbstractLensModel, x::AbstractArray; exec::OnBackend = OnBackend(KA.get_backend(xd))) =
     pointwise!(Base.Fix1(distort_normalized, _batch_precision(xd, l)), xd, x; exec)
 "See [`project!`](@ref)."
-undistort_normalized!(x::AbstractArray, l::AbstractLensModel, xd::AbstractArray; exec::ExecutionPolicy = Auto()) =
+undistort_normalized!(x::AbstractArray, l::AbstractLensModel, xd::AbstractArray; exec::OnBackend = OnBackend(KA.get_backend(x))) =
     pointwise!(Base.Fix1(undistort_normalized, _batch_precision(x, l)), x, xd; exec)

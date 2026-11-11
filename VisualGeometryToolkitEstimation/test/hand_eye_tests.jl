@@ -1,4 +1,5 @@
 @testitem "hand_eye" setup = [PoseScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
 using LinearAlgebra: norm, I
@@ -113,8 +114,8 @@ end
         mm(p) = Rigid3(rotation(p), SVector{3, Float64}((1000 .* translation(p))...))
         r_m = find_hand_eye(A .=> B; rng = StableRNG(253))
         r_mm = find_hand_eye(mm.(A) .=> mm.(B); rng = StableRNG(253))
-        @test sum(r_m.inlier_mask) >= 50
-        @test r_m.inlier_mask == r_mm.inlier_mask
+        @test sum(inlier_mask(r_m)) >= 50
+        @test inlier_mask(r_m) == inlier_mask(r_mm)
         @test norm(log_so3(rotation(estimate(r_mm))' * rotation(estimate(r_m)))) < 1.0e-6
         @test norm(translation(estimate(r_mm)) ./ 1000 - translation(estimate(r_m))) < 1.0e-6
     end

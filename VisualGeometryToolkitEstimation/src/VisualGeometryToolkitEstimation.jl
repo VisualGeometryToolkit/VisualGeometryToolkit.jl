@@ -56,6 +56,9 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
+# The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
+# robust/weights.jl): RansacMetadata records the scorer's scale and its kind.
+using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, BinaryWeights, PosteriorWeights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.

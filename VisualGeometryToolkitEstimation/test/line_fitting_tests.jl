@@ -1,4 +1,5 @@
 @testitem "line_fitting" setup = [Contamination] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -99,7 +100,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         line = estimate(r)
         @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
         @test abs(signed_distance(line, Point2(56.0, 0.0))) < 0.006
-        @test count(r.inlier_mask[1:57]) >= 55 && !any(r.inlier_mask[58:60])
+        @test count(inlier_mask(r)[1:57]) >= 55 && !any(inlier_mask(r)[58:60])
     end
 
     @testset "posterior IRLS runs until its cost stops falling" begin

@@ -52,80 +52,103 @@ end
 # fixed core (`estimate`, `retcode`, `iterations`, `rms`, `n`) plus one
 # concrete metadata type selected at compile time. RANSAC carries its
 # consensus diagnostics in `RansacMetadata`; a local-optimization refit is
-# VisualGeometryToolkitCore's lean `lo_estimate` result. Metadata fields forward as properties,
-# so `r.inlier_mask` reads exactly as it did on the retired
-# `RansacAttributes` — only `.value → .estimate`, `.stop_reason → .retcode`
-# and `.trials → .iterations` changed spelling.
+# VisualGeometryToolkitCore's lean `lo_estimate` result. Metadata fields forward
+# as properties (`r.quality`, `r.dof`); the per-datum weights, their kind, the
+# inlier mask and the scale are read through Core's accessors (`weights`,
+# `weight_kind`, `inlier_mask`, `noise_scale`, `scale_source`).
 
 """
-    RansacMetadata{T}
+    RansacMetadata{T, S}
 
-RANSAC-specific diagnostics, the `metadata` of a [`RansacEstimate`](@ref).
+RANSAC-specific diagnostics, the `metadata` of a [`RansacEstimate`](@ref):
+`T` the per-point storage precision, `S` the SCORER's type — the producer
+whose `weight_kind` gives the weights their meaning (a threshold scorer's
+`BinaryWeights`, the Student-t + uniform scorer's `PosteriorWeights`).
+
 The core fields carry the rest: `retcode` is `:converged` or `:no_model` (no
-estimate: test `converged(result)`),
-`iterations` the number of trials (hypotheses drawn — RANSAC's loop count;
-VGC's shared `FitResult` field, no second name), `rms` the root-mean-square residual over
-the INLIER set and `n` that set's size — so `rms` is not outlier-dominated
-(`length(inlier_mask)` is the data size).
+estimate: test `converged(result)`), `iterations` the number of trials
+(hypotheses drawn — RANSAC's loop count; VGC's shared `FitResult` field, no
+second name), and `n` and `rms` the weights' support and weighted
+root-mean-square residual:
+
+- `n = count(>(0), weights)`;
+- `rms = √(Σᵢ wᵢ rᵢ² / Σᵢ wᵢ)`.
+
+For a threshold scorer (binary weights) these are the consensus set's size and
+its rms, so `rms` is not outlier-dominated. For a posterior scorer they span
+every point of non-negligible posterior, each counted at its weight.
 
 # Fields
-- `inlier_mask::BitVector`: consensus set (true = inlier)
 - `residuals::Vector{T}`: final residuals for all data points (storage precision)
-- `weights::Vector{T}`: posterior inlier weights (storage precision)
+- `weights::Vector{T}`: per-point weights in [0, 1] (storage precision), read by
+  `weights(result)`: the consensus membership 1/0 for a threshold scorer, the
+  posterior inlier probability for the Student-t + uniform scorer (a value
+  below `eps(T)` is stored as an exact 0). `inlier_mask(result)` cuts them by
+  the scorer's kind (`w > 0`; the MAP rule `w > ½`)
 - `quality::Float64`: total model quality (higher = better) — the marginal score
-- `sigma::Float64`: residual scale `σ = √(fit_scale(prior, RSS, ν))` when
-  `dof > 0`, else `NaN` — the inverse-gamma MAP (VisualGeometryToolkitCore's
-  `consensus_s2`) under the scoring's scale prior, `√((RSS + 2β₀)/(ν + 2α₀))`, so `√(RSS/ν)` under the
-  default Jeffreys prior, floored at `√eps` (a noise-free partition, `RSS = 0`,
-  gives ≈ 1.49e-8, not 0). A LINEAR σ, not a variance and not a loss width —
-  the robust layer's own scale port speaks `s2` (the consensus set's,
-  `consensus_s2`)
-- `dof::Int`: residual degrees of freedom `ν = d_g·(n_in − p)` (`n_in` inliers,
-  `p` the minimal-sample dof); 0 when scored at a supplied loss width
+- `scale::Float64`: the scale the scorer ORIGINATES, read by `noise_scale(result)`:
+  `√(fit_scale(prior, RSS, ν))` of the consensus partition — the inverse-gamma
+  MAP (VisualGeometryToolkitCore's `consensus_s2`) under the scoring's scale
+  prior, `√((RSS + 2β₀)/(ν + 2α₀))`, so `√(RSS/ν)` under the default Jeffreys
+  prior, floored at `√eps` (a noise-free partition, `RSS = 0`, gives ≈ 1.49e-8,
+  not 0). A LINEAR scale, not a variance and not a loss width. `NaN` when there
+  is no partition to scale (`dof == 0`, or no model)
+- `scale_source::ScaleSource`: `ScaleEstimated` (the scorer's partition), or
+  `ScaleNone` with a `NaN` scale, which `noise_scale` refuses
+- `dof::Int`: residual degrees of freedom `ν = d_g·(n_in − p)` of the consensus
+  partition (`n_in` its size, `p` the minimal-sample dof); 0 when it is too thin
 - `sample_acceptance_rate::Float64`: fraction of trials that succeeded at `test_sample`
   (effective trials / `iterations`); low values mean frequent sample degeneracy
 - `lo_retcode::Symbol`: why the local-optimization loop stopped for the best
   model (see [`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate)); `:not_run` when no LO ran
 
-`quality` and `sigma` are `Float64` regardless of `T`: scalars carry no
+`quality` and `scale` are `Float64` regardless of `T`: scalars carry no
 footprint argument, and these are the numbers downstream thresholds compare.
 """
-struct RansacMetadata{T}
-    inlier_mask::BitVector
+struct RansacMetadata{T, S}
     residuals::Vector{T}
     weights::Vector{T}
     quality::Float64
-    sigma::Float64
+    scale::Float64
+    scale_source::ScaleSource
     dof::Int
     sample_acceptance_rate::Float64
     lo_retcode::Symbol
 end
 
-"""
-    RansacEstimate{M, T} = FitResult{Union{M, Nothing}, RansacMetadata{T}}
+# The weights' kind is the scorer's, from the metadata's type (Core's trait).
+VgtkCore.weight_kind(::Type{<:RansacMetadata{<:Any, S}}) where {S} = VgtkCore.weight_kind(S)
 
-The return type of [`ransac`](@ref) and every `find_*` pipeline. The model and
-the core diagnostics are read through VisualGeometryToolkitCore's accessors —
-`estimate(result)`, `converged(result)`, `iterations(result)` (for RANSAC the
-number of trials, hypotheses drawn) —
-and the RANSAC diagnostics of [`RansacMetadata`](@ref) forward as properties:
-`result.inlier_mask`, `result.quality`.
+"""
+    RansacEstimate{M, T, S} = FitResult{Union{M, Nothing}, RansacMetadata{T, S}}
+
+The return type of [`ransac`](@ref), [`locally_optimize`](@ref) and every
+`find_*` pipeline: `M` the model, `T` the storage precision, `S` the scorer's
+type. The model and the core diagnostics are read through
+VisualGeometryToolkitCore's accessors — `estimate(result)`,
+`converged(result)`, `iterations(result)` (for RANSAC the number of trials,
+hypotheses drawn), `rms(result)` — the weights through `weights(result)`,
+`weight_kind(result)` and `inlier_mask(result)`, the scale through
+`noise_scale(result)` and `scale_source(result)`; the other diagnostics of
+[`RansacMetadata`](@ref) forward as properties (`result.quality`,
+`result.dof`).
 
 `converged(result)` is THE success predicate. A failed search —
 `retcode(result) === :no_model`, `converged(result) == false` — has no
 estimate: its `estimate` is `nothing` (so `estimate(result)` is
 `Union{M, Nothing}`, Base's `findfirst` idiom), its `quality` is `-Inf`, its
-`inlier_mask` all false and `rms`/`sigma` NaN. Every `find_*` and `refine_*`
-pipeline returns this type on every path and inherits the rule.
+weights all zero (an all-false `inlier_mask`), `rms` NaN and its scale
+`ScaleNone`. Every `find_*` and `refine_*` pipeline returns this type on every
+path and inherits the rule.
 """
-const RansacEstimate{M, T} = FitResult{Union{M, Nothing}, RansacMetadata{T}}
+const RansacEstimate{M, T, S} = FitResult{Union{M, Nothing}, RansacMetadata{T, S}}
 
 """
     inlier_ratio(result::RansacEstimate) -> Float64
 
-Fraction of data points classified as inliers.
+Fraction of data points that are inliers, `count(inlier_mask(result)) / length(weights(result))`.
 """
-inlier_ratio(r::RansacEstimate) = sum(r.inlier_mask) / length(r.inlier_mask)
+inlier_ratio(r::RansacEstimate) = count(VgtkCore.inlier_mask(r)) / length(weights(r))
 
 # The lean result of one local-optimization refit is VisualGeometryToolkitCore's
 # `lo_estimate(model, retcode; iterations, residuals_current)` (the LO contract).
@@ -272,22 +295,21 @@ end
 """
     RansacResultBuffers{T}(n)
 
-The per-point arrays of a [`RansacEstimate`](@ref) — `inlier_mask`,
-`residuals` and the soft `weights` — preallocated, so that
+The per-point arrays of a [`RansacEstimate`](@ref) — its `residuals` and
+`weights` — preallocated, so that
 [`ransac!`](@ref) writes its result into them with no allocation. The returned
 estimate's metadata holds THESE arrays: the next `ransac!` into the same
 buffers overwrites it.
 """
 struct RansacResultBuffers{T <: AbstractFloat}
-    inlier_mask::BitVector
     residuals::Vector{T}
     weights::Vector{T}
 end
-RansacResultBuffers{T}(n::Int) where {T} = RansacResultBuffers{T}(falses(n), Vector{T}(undef, n), Vector{T}(undef, n))
+RansacResultBuffers{T}(n::Int) where {T} = RansacResultBuffers{T}(Vector{T}(undef, n), Vector{T}(undef, n))
 RansacResultBuffers(ws::RansacWorkspace{<:Any, <:Any, T}) where {T} = RansacResultBuffers{T}(length(ws.best_residuals))
 
 function _set_n!(r::RansacResultBuffers, n::Int)
-    resize!(r.inlier_mask, n); resize!(r.residuals, n); resize!(r.weights, n)
+    resize!(r.residuals, n); resize!(r.weights, n)
     return r
 end
 

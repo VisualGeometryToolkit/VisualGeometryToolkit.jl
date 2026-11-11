@@ -69,7 +69,7 @@ robust strategy under `find_*`'s keyword, `local_optimization_strategy` (`Irls{S
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, estimate, MsacScoring
+using VisualGeometryToolkitCore: csponds, estimate, MsacScoring, inlier_mask
 using StaticArrays
 
 src = [SA[100.0, 200.0], ...]
@@ -77,7 +77,7 @@ dst = [SA[112.0, 195.0], ...]
 
 result = find_homography(csponds(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
 H       = estimate(result)         # 3×3 homography matrix
-inliers = result.inlier_mask
+inliers = inlier_mask(result)
 ```
 
 See [`find_homography`](@ref) on the [Homography](../api/homography.md) API page
@@ -138,14 +138,14 @@ two `EuclideanMap{3,Float64}` streams: `A_i = T_WR` (rig in world, from motion c
 and `B_i = T_CP` (pattern in camera, from PnP).
 
 ```julia
-using VisualGeometryToolkitCore: EuclideanMap, estimate
+using VisualGeometryToolkitCore: EuclideanMap, estimate, inlier_mask
 
 A = EuclideanMap{3,Float64}[ ... ]   # T_WR per frame (e.g. mocap)
 B = EuclideanMap{3,Float64}[ ... ]   # T_CP per frame (e.g. PnP)
 
 result = find_hand_eye(A .=> B)     # one A_i => B_i per frame, time order
 X       = estimate(result)         # T_RP, the rigid pattern-in-rig transform
-inliers = result.inlier_mask
+inliers = inlier_mask(result)
 ```
 
 Unlike the other `find_*` pipelines, its inputs are pose pairs rather than

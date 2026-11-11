@@ -1,4 +1,5 @@
 @testitem "config_toml" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -247,7 +248,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         @test_throws ArgumentError find_homography(pairs; threshold = 5.0)
         r_tbl = find_homography(pairs; rng = StableRNG(282),
             scoring = VgtkEstimation.scoring_from_toml(_dflt("pipelines.homography", "scoring"); problem = HomographyProblem{Float64}))
-        @test estimate(r_tbl) == estimate(r_default) && r_tbl.inlier_mask == r_default.inlier_mask
+        @test estimate(r_tbl) == estimate(r_default) && inlier_mask(r_tbl) == inlier_mask(r_default)
         lo = nothing
         θ₀ = estimate(r_default)
         @test converged(locally_optimize(prob, θ₀; local_optimization_strategy = lo, scoring = sc))

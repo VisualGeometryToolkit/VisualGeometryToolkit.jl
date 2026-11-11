@@ -3,6 +3,7 @@
 # placeholder a forgotten `converged` test would read as a model.
 
 @testitem "ransac: no model" setup = [ConicScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleNone   # the robust contract's accessors
     using Test, Random, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, csponds,
         estimate, converged, retcode, iterations
@@ -13,10 +14,11 @@
         @test retcode(r) === :no_model
         @test estimate(r) === nothing
         @test !converged(r)
-        @test !any(r.inlier_mask)
+        @test !any(inlier_mask(r))
         @test iterations(r) > 0
         @test r.quality == -Inf
-        @test isnan(r.sigma)
+        @test scale_source(r) == ScaleNone && isnan(r.scale)
+        @test_throws ArgumentError noise_scale(r)
         @test r.dof == 0
         @test r.lo_retcode === :not_run
         return r
@@ -56,6 +58,7 @@
 end
 
 @testitem "ransac: no model through the metre and frame re-wrappers" begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, StaticArrays
     using Rotations: RotMatrix, RotX, RotZ
     import VisualGeometryToolkitCore as VgtkCore
@@ -67,7 +70,7 @@ end
         @test retcode(r) === :no_model
         @test estimate(r) === nothing
         @test !converged(r)
-        @test !any(r.inlier_mask)
+        @test !any(inlier_mask(r))
         return r
     end
 
@@ -95,6 +98,7 @@ end
 end
 
 @testitem "ransac: too few points is the no-model result" begin
+    using VisualGeometryToolkitCore: inlier_mask, scale_source, ScaleNone   # the robust contract's accessors
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
     import VisualGeometryToolkitCore as VgtkCore
@@ -113,9 +117,9 @@ end
         @test iterations(r) == 0
         @test estimate(r) === nothing
         @test !converged(r)
-        @test length(r.inlier_mask) == n && !any(r.inlier_mask)
+        @test length(inlier_mask(r)) == n && !any(inlier_mask(r))
         @test isnan(r.sample_acceptance_rate)
-        @test r.quality == -Inf && isnan(r.sigma) && isnan(r.rms)
+        @test r.quality == -Inf && scale_source(r) == ScaleNone && isnan(r.scale) && isnan(r.rms)
         return r
     end
 

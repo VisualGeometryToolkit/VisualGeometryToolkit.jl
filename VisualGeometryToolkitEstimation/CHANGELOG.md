@@ -42,6 +42,28 @@ non-central one is a `NoncentralSplineModel`).
   with. `n` is now the support, `count(>(0), weights)`, and `rms` the posterior-weighted RMS `√(Σwᵢrᵢ²/Σwᵢ)`:
   - fit_division_camera: `n` was the rows that entered the fit, `rms` their unweighted RMS;
   - fit_residual_mixture: `n` was the MAP inlier count, `rms` theirs — that count is now `count(inlier_mask(result))`.
+- **Breaking: a RANSAC result carries per-point weights of its scorer's kind, and the scale the scorer originates**
+  (the robust-estimation contract, §2 and §12). `RansacMetadata{T}` becomes `RansacMetadata{T, S}`, `S` the scorer's
+  type (so `RansacEstimate{M, T}` is `RansacEstimate{M, T, S}`; a two-parameter `isa` still matches).
+  - **The `inlier_mask` field is removed.** The mask is `inlier_mask(result)` (VisualGeometryToolkitCore, public), cut
+    from `weights(result)` by the scorer's `weight_kind`: a threshold scorer's (MSAC, RANSAC) binary 1/0 weights at
+    `w > 0` — the same mask as before —, the Student-t + uniform scorer's posterior at the MAP rule `w > ½`.
+    `inlier_mask(result, cut)` takes an explicit cut. `result.inlier_mask` → `inlier_mask(result)`.
+  - **The `sigma` field is `scale`, with `scale_source`**: `noise_scale(result)` reads it (the hand-off a later stage
+    takes as `scale = result`), `scale_source(result)` is `ScaleEstimated`, or `ScaleNone` (scale `NaN`, which
+    `noise_scale` refuses) for a result with no model or a consensus set too thin to scale. `result.sigma` →
+    `noise_scale(result)`. Same values.
+  - **`n` and `rms` follow the weights**: `n = count(>(0), weights)`, `rms = √(Σwᵢrᵢ²/Σwᵢ)`. For a threshold scorer this
+    is the consensus set's size and rms, bit for bit as before. For the Student-t + uniform scorer it changes: before,
+    the rms over the scorer's consensus partition; now every point of non-negligible posterior, at its weight (a
+    posterior below `eps(T)` is stored as an exact 0 and is out of the support). Measured on 24 seeded scenes (homography,
+    160 correspondences of which 40 outliers, and circle, 80 rim points + 30 clutter; σ 0.3 and 1.0; 6 seeds each), the
+    same scenes under MSAC unchanged bit for bit: model, scale, `dof` and `inlier_mask` identical (the MAP mask equals
+    the old partition mask on every scene); `rms` moves by −2.1 % … +3.4 % (median −0.48 % homography, −0.57 % circle);
+    `n` by +0 (homography: every outlier's posterior is below `eps(Float32)`) to +4 (circle).
+  - `RansacResultBuffers` holds `residuals` and `weights` (no mask); `inlier_ratio(r)` is
+    `count(inlier_mask(r)) / length(weights(r))`.
+  - `locally_optimize` keeps its scorer: its result is the scorer's kind too.
 
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,

@@ -130,7 +130,7 @@ function refine_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _too_few(AbsolutePoseProblem, length(pairs); kwargs...)
+    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _too_few(AbsolutePoseProblem, length(pairs), :absolute_pose; kwargs...)
     problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
     return _with_frames(_refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...), pose)
 end
@@ -154,7 +154,7 @@ function refine_absolute_pose(
         cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         kwargs...
     )
-    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return _too_few(BearingPoseProblem, length(cs); kwargs...)
+    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return _too_few(BearingPoseProblem, length(cs), :bearing_pose; kwargs...)
     problem = BearingPoseProblem(cs)
     θ₀ = unlabel(pose)
     R0 = rotation(θ₀); t0 = translation(θ₀); o = problem.context.origins

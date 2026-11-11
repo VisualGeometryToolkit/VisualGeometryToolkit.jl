@@ -1,4 +1,5 @@
 @testitem "ransac_fundmat" setup = [EpipolarScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
 using Rotations: RotY
@@ -118,7 +119,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         sv = svdvals(estimate(result))
         @test sv[3] / sv[1] < 0.01    # rank-2 enforced
         @test inlier_ratio(result) > 0.5
-        @test sum(result.inlier_mask) >= n_inliers * 0.6
+        @test sum(inlier_mask(result)) >= n_inliers * 0.6
 
         r_inliers = [
             sampson_distance(estimate(result), source_pts[i], target_pts[i])
@@ -145,7 +146,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         @test converged(result)
         sv = svdvals(estimate(result))
         @test sv[3] / sv[1] < 0.01
-        @test sum(result.inlier_mask) >= n_inliers * 0.6
+        @test sum(inlier_mask(result)) >= n_inliers * 0.6
     end
 
 end

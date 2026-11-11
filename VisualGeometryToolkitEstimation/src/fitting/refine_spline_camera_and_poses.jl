@@ -738,7 +738,7 @@ end
 # The variables `solved` of the problem `p` moved by the chart step `δ` over the
 # coordinates the solve moves (`p.held` excluded, held at 0: the gauge stays exact), in
 # the Jacobian's column order [patches | poses] (`_spline_problem_rows_and_jacobian`).
-function _stepped(p, solved::_SplineVars, δ::AbstractVector)
+function _moved_along(p, solved::_SplineVars, δ::AbstractVector)
     W = _patch_width(_patch_type(p.smooth))
     full = zeros(W * p.nP + 6 * (length(solved) - p.nP))
     full[setdiff(eachindex(full), p.held)] = δ
@@ -769,7 +769,7 @@ function _gcv_search(p, λ₁::Float64, back::CameraModel, views, offset, max_it
     evaluated = [(; β = λ / λ₁, λ, gcv) for (λ, gcv) in sort(unique(seen))]
     st₀.timed_out && return st₀, evaluated, found.at_bracket_end, found.β, found.dof
     start = try
-        _rebuilt(_with_λ(st₀.p, found.λ), _stepped(st₀.p, st₀.solved::_SplineVars, curve(found.λ).y), back, views, found.β, offset,
+        _rebuilt(_with_λ(st₀.p, found.λ), _moved_along(st₀.p, st₀.solved::_SplineVars, curve(found.λ).y), back, views, found.β, offset,
             "at the Gauss–Newton step to the GCV weight")
     catch e
         e isa _NotProjected || rethrow()

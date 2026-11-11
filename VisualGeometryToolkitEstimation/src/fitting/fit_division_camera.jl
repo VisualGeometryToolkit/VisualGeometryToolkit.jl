@@ -49,8 +49,8 @@ views' radial cameras and board points, their prior row weights, the
 coefficient mode and the stack's one normalization, built by
 [`fit_division_camera`](@ref). Its distances (`mahalanobis_distances!`) are the
 whitened residual norms of the correspondences (pixels, codimension 2) and its
-`refine!` is one weighted, whitened `division_camera_step`. As a TYPE it is what a
-scorer of the fit is built for: `scoring_from_toml(table; problem =
+`refine!` is one weighted, whitened `division_camera_step`. As a TYPE it is what the
+fit's `weighting` (its Student-t + uniform E-step) is built for: `scoring_from_toml(table; problem =
 DivisionCameraProblem)` or `StudentTUniformScoring(DivisionCameraProblem, h;
 scale_prior, label_prior)` (codimension 2).
 """
@@ -176,14 +176,14 @@ function _division_irls_state(rws::PosteriorWeightState, p::DivisionCameraProble
     return PosteriorIrlsState(rws, r, copy(r), θ, weighted_rss(robust_weight(rws), sq_distances(rws), n))
 end
 
-# The fit's two configured parts, checked: the E-step's scorer (a Student-t +
+# The fit's two configured parts, checked: the E-step's weighting (a Student-t +
 # uniform scorer at codimension 2 with a supplied outlier half-width) and the
 # loop's EM, whose model update must refit the stack.
-function _check_division_config(scoring::StudentTUniformScoring, mixture_em::MixtureEmConfig)
-    codimension(scoring) == 2 || throw(ArgumentError(
-        "fit_division_camera: the residuals are whitened 2-vectors, so the scorer's codimension must be 2, got " *
-            "$(codimension(scoring)) — build it for the stack: `scoring_from_toml(table; problem = DivisionCameraProblem)`"))
-    required_outlier_halfwidth(scoring)
+function _check_division_config(weighting::StudentTUniformScoring, mixture_em::MixtureEmConfig)
+    codimension(weighting) == 2 || throw(ArgumentError(
+        "fit_division_camera: the residuals are whitened 2-vectors, so the weighting's codimension must be 2, got " *
+            "$(codimension(weighting)) — build it for the stack: `scoring_from_toml(table; problem = DivisionCameraProblem)`"))
+    required_outlier_halfwidth(weighting)
     mixture_em.model_update isa WeightedRefine || throw(ArgumentError(
         "fit_division_camera: the loop refits the stack each iteration, so `mixture_em.model_update` must be " *
             "WeightedRefine (\"weighted_refine\"), got $(mixture_em.model_update)"))
@@ -194,13 +194,13 @@ function _check_division_config(scoring::StudentTUniformScoring, mixture_em::Mix
     return nothing
 end
 
-# The defaults of record: configs/default.toml [fit_division_camera] `scoring` and
+# The defaults of record: configs/default.toml [fit_division_camera] `weighting` and
 # `mixture_em`, absent keys inheriting [scoring.student_t_uniform] and [mixture_em].
-function _division_scoring_default()
-    sc = scoring_from_toml(_dflt("fit_division_camera", "scoring"); problem = DivisionCameraProblem,
-                           section = "fit_division_camera.scoring")
+function _division_weighting_default()
+    sc = scoring_from_toml(_dflt("fit_division_camera", "weighting"); problem = DivisionCameraProblem,
+                           section = "fit_division_camera.weighting")
     sc isa StudentTUniformScoring || throw(ArgumentError(
-        "[fit_division_camera.scoring] must be a Student-t + uniform scorer (type = \"student_t_uniform\"), got $(typeof(sc))"))
+        "[fit_division_camera.weighting] must be a Student-t + uniform scorer (type = \"student_t_uniform\"), got $(typeof(sc))"))
     return sc
 end
 _division_mixture_em_default() = mixture_em_from_toml(_dflt("fit_division_camera", "mixture_em");
@@ -211,9 +211,9 @@ _refuse_division_keyword(::Nothing, ::Symbol) = nothing
 function _refuse_division_keyword(_v, key::Symbol)
     key === :outlier_halfwidth && throw(ArgumentError(
         "fit_division_camera: `outlier_halfwidth` is no keyword since 0.9 — the uniform outlier half-width is the " *
-            "scorer's: give `scoring = scoring_from_toml(Dict(\"type\" => \"student_t_uniform\", " *
+            "weighting's: give `weighting = scoring_from_toml(Dict(\"type\" => \"student_t_uniform\", " *
             "\"outlier_halfwidth\" => h); problem = DivisionCameraProblem)` (configs/default.toml " *
-            "[fit_division_camera] `scoring`)"))
+            "[fit_division_camera] `weighting`)"))
     throw(ArgumentError(
         "fit_division_camera: `max_iter` is no keyword since 0.9 — the iteration cap is the EM's: give " *
             "`mixture_em = mixture_em_from_toml(Dict(\"model_update\" => \"weighted_refine\", \"max_iter\" => n))` " *
@@ -226,19 +226,33 @@ end
 `FitResult` metadata of [`fit_division_camera`](@ref), keyed by the views'
 identity: the converged solve `state` (a `DivisionCameraState{K}` — `f`, the
 BabelCalib coefficients, the per-view poses), the `radial_cameras` the fit
-consumed, the `views` carrying each correspondence's final posterior weight as
-their `weights` column (normalized to max 1; times the input column when the
-view had one), and the Student-t `sigma`/`ν` of the final iteration. The core fields
-carry the camera (`estimate`), `retcode`, `iterations`, and the
-whitened-residual `rms` over `n` rows.
+consumed, the `views` carrying each correspondence's final IRLS row weight as
+their `weights` column (the posterior's weight normalized to max 1, times the
+input column when the view had one — the weight the solve ran with), and the
+robust-estimation contract's record of the final E-step:
+- `weights`, every correspondence's posterior inlier probability, flat in the
+  views' key order (`sort(collect(keys(views)))`, each view's in its order) —
+  [`PosteriorWeights`](@extref VisualGeometryToolkitCore.PosteriorWeights), so
+  `inlier_mask(result)` is the MAP rule (posterior > ½); a row the fit did not
+  take (prior weight zero, or a view the final iteration left without a pose),
+  and a posterior below `eps()`, is an exact 0; read by `weights(result)`;
+- `scale` = ŝ (pixels, a LINEAR scale) with `scale_source` `ScaleEstimated`,
+  read by `noise_scale(result)`; and the Student-t `ν`.
+
+The core fields carry the camera (`estimate`), `retcode`, `iterations`, the
+support `n` (the rows of positive weight) and the whitened-residual `rms`
+weighted by those weights, `√(Σwᵢrᵢ² / Σwᵢ)` (pixels).
 """
 struct DivisionCameraMetadata{S, C, V}
     state::S
     radial_cameras::C
     views::V
-    sigma::Float64
+    weights::Vector{Float64}
+    scale::Float64
+    scale_source::ScaleSource
     ν::Float64
 end
+weight_kind(::Type{<:DivisionCameraMetadata}) = PosteriorWeights()
 
 # A view with its weights as the `weights` column (its other columns kept).
 _with_weights(cs::VgtkCore.Csponds, w) = withattrs(cs; weights = w)
@@ -247,7 +261,7 @@ _with_weights(cs, w) = VgtkCore.Csponds(sources(cs), targets(cs); weights = w)
 """
     fit_division_camera(radial_cameras::AbstractDict{K}, views::AbstractDict{K};
                         image_size = nothing, focal_seed = nothing, ncoef, k = nothing,
-                        scoring, mixture_em,   # defaults: configs/default.toml [fit_division_camera]
+                        weighting, mixture_em,   # defaults: configs/default.toml [fit_division_camera]
                         verbose = false)
         -> FitResult{CameraModel, DivisionCameraMetadata}
 
@@ -267,12 +281,14 @@ previous iteration's whitened residuals.
 THE ROBUST MACHINERY IS THE STACK'S SHARED ONE (configs/default.toml
 [fit_division_camera], one schema):
 
-- `scoring` — the E-step: the posterior of a `StudentTUniformScoring` at
+- `weighting` — the E-step: the posterior of a `StudentTUniformScoring` at
   codimension 2 with a supplied outlier half-width, its scale prior the
-  posterior's (default the table's `scoring`, read by
+  posterior's (default the table's `weighting`, read by
   [`scoring_from_toml`](@ref) with `problem = DivisionCameraProblem`; absent keys
-  inherit [scoring.student_t_uniform]). Another codimension, or a scorer without
-  a half-width, is an `ArgumentError`.
+  inherit [scoring.student_t_uniform]). Another codimension, or one without
+  a half-width, is an `ArgumentError`. A fit takes no `scoring` (the
+  robust-estimation contract): the former `scoring` keyword is an
+  `ArgumentError` naming `weighting`.
 - `mixture_em` — the loop: a [`MixtureEmConfig`](@ref) driving the
   posterior-weight iteration ([`PosteriorIrlsMethod`](@ref)) — its model update
   must be [`WeightedRefine`](@ref) (the stack is refitted each iteration), its
@@ -285,7 +301,7 @@ THE ROBUST MACHINERY IS THE STACK'S SHARED ONE (configs/default.toml
   absent keys inherit [mixture_em]). Anything else is an `ArgumentError`.
 
 `outlier_halfwidth` and `max_iter` are no keywords since 0.9 (an
-`ArgumentError` naming the form above): the half-width is the scorer's, the cap
+`ArgumentError` naming the form above): the half-width is the weighting's, the cap
 the EM's.
 
 INPUT CONTRACT: each view is that board's VALIDATED correspondences — the
@@ -380,10 +396,15 @@ willing to stand behind; it will not launder contaminated ones.
 Returns the camera `CameraModel(::DivisionCameraState)` builds — `K = diag(f, f, 1)` at the
 cameras' shared centre, `Division{ncoef}` lens in K's chart — plus the
 final keyed `DivisionCameraState` (pixels), the `views` with each correspondence's
-posterior weight as their `weights` column, the Student-t scale `sigma` = ŝ
-(pixels — a LINEAR sigma), ν, and the loop outcome. `rms` (pixels) and `n` count
-the rows that entered the fit: a row with prior weight zero, or of a view the
-final iteration left without a pose, is not a residual.
+IRLS row weight as their `weights` column, and the loop outcome — and the
+robust-estimation contract's record of the E-step ([`DivisionCameraMetadata`](@ref)):
+`weights(result)`, each correspondence's posterior inlier probability
+(`PosteriorWeights`: `inlier_mask(result)` is posterior > ½), and
+`noise_scale(result)`, the E-step's Student-t scale ŝ (pixels, a LINEAR scale;
+`scale_source(result)` is `ScaleEstimated`), with its `ν`. `n` is the support
+(the rows of positive weight) and `rms` the posterior-weighted whitened-residual
+RMS, `√(Σwᵢrᵢ² / Σwᵢ)` (pixels): a row with prior weight zero, or of a view the
+final iteration left without a pose, weighs 0 and is not a residual.
 
 Units: the board points are plain numbers. The radial cameras and the board
 poses carry the board plane's unit, which neither a matrix nor this result
@@ -397,15 +418,17 @@ function fit_division_camera(
         image_size = nothing,
         focal_seed::Union{Nothing, Real} = nothing,
         ncoef::Int = _dflt("fit_division_camera", "ncoef"), k::Union{Nothing, Real} = nothing,
-        scoring::StudentTUniformScoring = _division_scoring_default(),
+        weighting::StudentTUniformScoring = _division_weighting_default(),
         mixture_em::MixtureEmConfig = _division_mixture_em_default(),
         verbose::Bool = false,
-        outlier_halfwidth = nothing,   # refused, with the way to say it (the scorer's)
+        scoring = nothing,             # refused, with the way to say it (the fit's `weighting`)
+        outlier_halfwidth = nothing,   # refused, with the way to say it (the weighting's)
         max_iter = nothing,            # refused, with the way to say it (the EM's)
     ) where {K}
+    scoring === nothing || throw(_scoring_is_weighting("fit_division_camera"))
     _refuse_division_keyword(outlier_halfwidth, :outlier_halfwidth)
     _refuse_division_keyword(max_iter, :max_iter)
-    _check_division_config(scoring, mixture_em)
+    _check_division_config(weighting, mixture_em)
     focal_seed === nothing || (focal_seed > 0 && isfinite(focal_seed)) ||
         throw(ArgumentError("fit_division_camera: focal_seed must be positive and finite (pixels), got $focal_seed"))
     focal_seed === nothing && image_size === nothing &&
@@ -419,7 +442,7 @@ function fit_division_camera(
     kk = k === nothing ? nothing : Float64(k)
     fseed = Float64(focal_seed === nothing ? hypot(image_size[1], image_size[2]) / 2 : focal_seed)   # pixels; default: a 90° diagonal FOV
     problem = DivisionCameraProblem(Hs, boards, prior, ncoef, kk, N, sum(length, boards), verbose)
-    st, lh, method, state0 = _division_irls(problem, scoring, mixture_em, fseed)
+    st, lh, method, state0 = _division_irls(problem, weighting, mixture_em, fseed)
     max_iter = mixture_em.max_iter
     verbose && println("  iteration 0: f=$(round(state0.f; digits = 3)) px  k=$(round.(state0.k; sigdigits = 5))  " *
                        "ŝ=$(round(sqrt(s_hat_sq(st.rws)); digits = 4)) px")
@@ -454,21 +477,26 @@ function fit_division_camera(
     # checked above; views are raw pixels and nothing here re-centres them.
     camera = VgtkCore.CameraModel(state)
     wpost = _combined_weights(prior, _board_weights(robust_weight(st.rws), boards))
-    # The whitened-residual RMS (px) over the rows that entered the fit: a view
-    # without a pose has NaN residuals (the posterior's buffer holds a 1e12
-    # sentinel for them, which is not a residual), and a row of prior weight
-    # zero was never fitted.
-    ss, nres = 0.0, 0
+    # The E-step's posterior inlier probabilities, flat in the views' order, over
+    # the rows that entered the fit: a view without a pose has NaN residuals (the
+    # posterior's buffer holds a 1e12 sentinel for them, which is not a residual),
+    # and a row of prior weight zero was never fitted — both weigh exactly 0.
+    post = inlier_weight(st.rws)
+    w = Vector{Float64}(undef, problem.n)
+    sq = Vector{Float64}(undef, problem.n)
+    l = 0
     for (i, sqi) in enumerate(best.sq_distances), (j, r²) in enumerate(sqi)
-        (isfinite(r²) && (prior === nothing || prior[i][j] > 0)) || continue
-        ss += r²; nres += 1
+        l += 1
+        took = isfinite(r²) && (prior === nothing || prior[i][j] > 0)
+        w[l] = took ? _stored_posterior(post[l]) : 0.0
+        sq[l] = took ? r² : 0.0
     end
     return FitResult(
         camera, rc, niter,
-        nres > 0 ? sqrt(ss / nres) : NaN, nres,               # whitened-residual RMS over the fitted rows (px)
+        _weighted_rms(w, sq), count(>(0), w),               # the posterior-weighted whitened-residual RMS (px), its support
         DivisionCameraMetadata(
             state, radial_cameras, Dict(ids[i] => _with_weights(views[ids[i]], wpost[i]) for i in eachindex(ids)),
-            sqrt(s_hat_sq(st.rws)), Float64(student_t_dof(st.rws))
+            w, sqrt(s_hat_sq(st.rws)), ScaleEstimated, Float64(student_t_dof(st.rws))
         ),
     )
 end
@@ -479,15 +507,15 @@ end
 # prior, the nuisance updated under the EM's policies, and the shared method and
 # state (`PosteriorIrlsMethod` under `WeightedRefine`, `PosteriorIrlsState`).
 # Returns `(state, likelihood, method, iteration 0)`.
-function _division_irls(problem::DivisionCameraProblem, scoring::StudentTUniformScoring, mixture_em::MixtureEmConfig,
+function _division_irls(problem::DivisionCameraProblem, weighting::StudentTUniformScoring, mixture_em::MixtureEmConfig,
                         fseed::Float64)
     state0 = _division_camera_step(problem.normalization, problem.Hs, problem.boards; ncoef = problem.ncoef,
                                    k = problem.k, point_weights = problem.prior, whiten_at = fseed)
     n = data_size(problem)
     r = mahalanobis_distances!(Vector{Float64}(undef, n), problem, state0)
     rws = median_seeded_posterior(square_distances!(Vector{Float64}(undef, n), r, n), n;
-                                  outlier_halfwidth = required_outlier_halfwidth(scoring),
-                                  codimension = codimension(scoring), prior = scale_prior(scoring))
+                                  outlier_halfwidth = required_outlier_halfwidth(weighting),
+                                  codimension = codimension(weighting), prior = scale_prior(weighting))
     nu = mixture_em.nuisance
     lh = PosteriorLikelihood(rws, n; scale_update = nu.scale, prior_update = nu.inlier_prior, nu_update = nu.nu)
     st = PosteriorIrlsState(rws, r, copy(r), state0, weighted_rss(robust_weight(rws), sq_distances(rws), n))

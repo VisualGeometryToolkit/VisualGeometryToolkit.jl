@@ -5,7 +5,7 @@ using StableRNGs
 using StaticArrays: SVector, SMatrix, @SMatrix
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens
-using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms   # VGC accessors (public)
+using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms, noise_scale   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
 using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError
@@ -39,7 +39,7 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     @test abs(f_irls - f0) / f0 < 1.0e-2                                  # information limit under 8 % contamination
     @test abs(parameter_vector(lens(estimate(res)))[1] / f_irls^2 - k0) / abs(k0) < 0.05
     @test retcode(res) in (:converged, :max_iterations)
-    @test 0.2 < res.sigma < 1.0                                        # ŝ recovers the pixel noise scale
+    @test 0.2 < noise_scale(res) < 1.0                                        # ŝ recovers the pixel noise scale
     @test sort!(collect(keys(res.views))) == 1:6
     w = reduce(vcat, [res.views[i].weights for i in 1:6])               # posterior weights, as the views' column
     @test count(<(0.2), w) >= 0.05 * length(w)                          # the outliers are down-weighted

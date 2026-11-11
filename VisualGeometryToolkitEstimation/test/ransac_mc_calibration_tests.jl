@@ -695,7 +695,7 @@ end
             sqd = board_sq_residuals(res.state)
             sq = reduce(vcat, [sqd[id] for id in res.state.ids]); idx = findall(inl)   # `inl` is in board order
             j = idx[rand(rng, 1:length(idx))]
-            s = scale === :true ? σ : res.sigma
+            s = scale === :true ? σ : VisualGeometryToolkitCore.noise_scale(res)
             return [sqrt(sq[j]), 0.0], s^2 * Matrix(1.0I, 2, 2)
         end
     end
@@ -703,7 +703,7 @@ end
         return map(1:N) do _
             Hs, boards, _ = _dc_scene(rng; kw...)
             res = _dc_fit(Hs, boards; focal_seed)
-            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = res.sigma, ν = res.ν)
+            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = VisualGeometryToolkitCore.noise_scale(res), ν = res.ν)
         end
     end
     # GATE — the currency: the Sampson-whitened residuals are in calibrated

@@ -25,6 +25,7 @@ using VisualGeometryToolkitCore: inlier_mask, is_inlier, inlier_weight, robust_w
 using VisualGeometryToolkitCore: s_hat_sq, student_t_dof, inlier_prior, sq_distances, update_scale!, update_nu!,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof
 using VisualGeometryToolkitCore: MsacScoring, median_seeded_posterior
+using VisualGeometryToolkitCore: weights, weight_kind, PosteriorWeights, noise_scale, scale_source, ScaleEstimated
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: PosteriorLikelihood, MixtureEmConfig, KeepModel, WeightedRefine,
     mixture_em_from_toml, config_dict, ResidualMixtureMetadata
@@ -107,11 +108,11 @@ end
     # a weighted refit needs a model to refit — refused, not ignored (before
     # the scorer is read)
     r, _ = reprojection_residuals(StableRNG(11); n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0)
-    @test_throws ArgumentError fit_residual_mixture(r, MsacScoring(2; threshold = 2.0); model_dof = 4,
+    @test_throws ArgumentError fit_residual_mixture(r; weighting = MsacScoring(2; threshold = 2.0), model_dof = 4,
                                                     config = MixtureEmConfig(model_update = WeightedRefine()))
     # the input is distances (≥ 0): a signed residual is refused, naming `abs`
     rs = copy(r); rs[3] = -rs[3]
-    err = try fit_residual_mixture(rs, MsacScoring(2; threshold = 2.0); model_dof = 4) catch e; e end
+    err = try fit_residual_mixture(rs; weighting = MsacScoring(2; threshold = 2.0), model_dof = 4) catch e; e end
     @test err isa ArgumentError && occursin("abs", err.msg) && occursin("distances[3]", err.msg)
 end
 
@@ -121,7 +122,7 @@ end
     σ, a = 0.8, 40.0
     r, truth = reprojection_residuals(StableRNG(5); n_in = 400, n_out = 100, σ, halfwidth = a)
     sc = HalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = a)
-    fit = fit_residual_mixture(r, sc; model_dof = 4)
+    fit = fit_residual_mixture(r; weighting = sc, model_dof = 4)
     @test fit isa FitResult{PosteriorWeightState, ResidualMixtureMetadata}
     @test converged(fit) && 1 <= iterations(fit) < MixtureEmConfig().max_iter
     p = estimate(fit)
@@ -132,16 +133,27 @@ end
     @test inlier_prior(p) ≈ 0.8 atol = 0.02
     @test inlier_mask(p) == truth
     @test all(i -> is_inlier(p, i) == truth[i], eachindex(r))
-    # rms and n over the MAP inliers; the metadata the NLL the EM lowered
-    @test fit.n == count(truth)
-    @test rms(fit) ≈ sqrt(sum(abs2, r[truth]) / count(truth))
+    # the contract's record: the posteriors as the weights (PosteriorWeights: the MAP
+    # labels are inlier_mask(fit)), the E-step's ŝ estimated; n the support and rms
+    # the posterior-weighted RMS; the metadata the NLL the EM lowered
+    w = weights(fit)
+    @test w == [x < eps() ? 0.0 : x for x in inlier_weight(p)] && weight_kind(fit) === PosteriorWeights()
+    @test inlier_mask(fit) == truth
+    @test noise_scale(fit) === sqrt(s_hat_sq(p)) && scale_source(fit) === ScaleEstimated
+    @test fit.n == count(>(0), w) && fit.n >= count(truth)
+    @test rms(fit) ≈ sqrt(sum(w .* r .^ 2) / sum(w))
     @test isfinite(metadata(fit).nll)
+    # a fit takes no `scoring`: the former positional scorer and the keyword are refused, naming `weighting`
+    for call in (() -> fit_residual_mixture(r, sc; model_dof = 4), () -> fit_residual_mixture(r; weighting = sc, scoring = sc, model_dof = 4))
+        err = try call(); nothing catch e; e end
+        @test err isa ArgumentError && occursin("weighting", err.msg)
+    end
     # the residuals are not moved, and the vector type does not matter
     r0 = copy(r)
-    fit32 = fit_residual_mixture(Float32.(r), sc; model_dof = 4)
+    fit32 = fit_residual_mixture(Float32.(r); weighting = sc, model_dof = 4)
     @test r == r0 && inlier_mask(estimate(fit32)) == truth
     # a partition too thin to carry a scale: nothing
-    @test fit_residual_mixture(r, HalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a); model_dof = 4) === nothing
+    @test fit_residual_mixture(r; weighting = HalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a), model_dof = 4) === nothing
 end
 
 @testset "fit_residual_mixture: the [mixture_em] defaults" begin
@@ -151,12 +163,12 @@ end
     # the defaults are what an omitted `config` runs
     r, _ = reprojection_residuals(StableRNG(7); n_in = 200, n_out = 50, σ = 1.2, halfwidth = 60.0)
     sc = HalfwidthScoring(2; threshold = 4.0, outlier_halfwidth = 60.0)
-    a = fit_residual_mixture(r, sc; model_dof = 3)
-    b = fit_residual_mixture(r, sc; model_dof = 3, config = mixture_em_from_toml(Dict{String, Any}()))
+    a = fit_residual_mixture(r; weighting = sc, model_dof = 3)
+    b = fit_residual_mixture(r; weighting = sc, model_dof = 3, config = mixture_em_from_toml(Dict{String, Any}()))
     @test (s_hat_sq(estimate(a)), student_t_dof(estimate(a)), inlier_prior(estimate(a)), iterations(a), a.n) ===
           (s_hat_sq(estimate(b)), student_t_dof(estimate(b)), inlier_prior(estimate(b)), iterations(b), b.n)
     # a held part stays held through the EM
-    h = fit_residual_mixture(r, sc; model_dof = 3,
+    h = fit_residual_mixture(r; weighting = sc, model_dof = 3,
                              config = MixtureEmConfig(nuisance = (; scale = Estimated(), inlier_prior = FixedPrior(0.75),
                                                                   nu = FixedNu(6.0))))
     @test inlier_prior(estimate(h)) === 0.75 && student_t_dof(estimate(h)) === 6.0
@@ -184,15 +196,15 @@ end
     m = cld(d * n - dof, d)
     @test m == 75
     scoring = HalfwidthScoring(d; threshold = 2.0, outlier_halfwidth = classification.outlier_halfwidth)
-    fit = fit_residual_mixture(residuals, scoring; model_dof = m + 1, config = classification.em)
+    fit = fit_residual_mixture(residuals; weighting = scoring, model_dof = m + 1, config = classification.em)
     @test fit !== nothing && converged(fit)
     pws = estimate(fit)
     @test sqrt(s_hat_sq(pws)) ≈ 0.4 rtol = 0.1
-    @test fit.n == count(inlier_mask(pws)) && n - fit.n >= 20
+    @test count(inlier_mask(fit)) == count(inlier_mask(pws)) && n - count(inlier_mask(fit)) >= 20
     @test count(inlier_mask(pws) .!= truth) <= 3
     @test rms(fit) < 1.0
     # ν held at the seed's posterior-predictive dof: unchanged by the EM
-    seed = fit_residual_mixture(residuals, scoring; model_dof = m + 1,
+    seed = fit_residual_mixture(residuals; weighting = scoring, model_dof = m + 1,
                                 config = MixtureEmConfig(nuisance = (; scale = Estimated(), inlier_prior = Estimated(),
                                                                      nu = ConsensusDof()), max_iter = 1))
     @test student_t_dof(pws) == student_t_dof(estimate(seed))

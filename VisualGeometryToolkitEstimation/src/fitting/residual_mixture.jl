@@ -64,20 +64,43 @@ end
 data_size(p::_FixedDistances) = length(p.distances)
 mahalanobis_distances!(d::AbstractVector, p::_FixedDistances, _held) = copyto!(d, p.distances)
 
+# The robust-estimation contract's result of an EM fit (§2, §12): its per-datum
+# weights are the E-step's posterior inlier probabilities (`PosteriorWeights`; a
+# posterior below eps stored as an exact 0, and a datum the fit did not take a
+# weight of 0), its scale the E-step's σ̂ (`ScaleEstimated`), `n` the support
+# (the data of positive weight) and `rms` the weight-weighted root mean square.
+_stored_posterior(p::Real) = p < eps(Float64) ? 0.0 : Float64(p)
+function _weighted_rms(w::AbstractVector, sq)
+    sw, swr = 0.0, 0.0
+    for (wi, s) in zip(w, sq)
+        wi > 0 || continue
+        sw += wi; swr += wi * s
+    end
+    return sw > 0 ? sqrt(swr / sw) : NaN
+end
+
 """
     ResidualMixtureMetadata
 
 The `metadata` of a [`fit_residual_mixture`](@ref) result: the mixture's
 negative log-likelihood `nll` of the distances at the fitted noise model (the
-quantity the EM lowered).
+quantity the EM lowered), each distance's posterior inlier probability
+`weights` ([`PosteriorWeights`](@extref VisualGeometryToolkitCore.PosteriorWeights):
+`inlier_mask(result)` is the MAP rule, posterior > ½; a posterior below
+`eps()` is an exact 0) and the E-step's scale `scale` = ŝ (the distances' unit,
+a LINEAR scale; `scale_source` `ScaleEstimated`), read by `weights(result)`
+and `noise_scale(result)`.
 """
 struct ResidualMixtureMetadata
     nll::Float64
+    weights::Vector{Float64}
+    scale::Float64
+    scale_source::ScaleSource
 end
+weight_kind(::Type{<:ResidualMixtureMetadata}) = PosteriorWeights()
 
 """
-    fit_residual_mixture(distances, scoring; model_dof,
-                         config = MixtureEmConfig())
+    fit_residual_mixture(distances; weighting, model_dof, config = MixtureEmConfig())
         -> Union{FitResult{PosteriorWeightState, ResidualMixtureMetadata}, Nothing}
 
 Fit the Student-t + uniform mixture to a held model's `distances` (`≥ 0`,
@@ -86,16 +109,21 @@ measurement — what `mahalanobis_distances!` fills) and classify each one. A
 negative entry is a signed residual, not a distance, and is an
 `ArgumentError` (supply `abs.(r)`).
 
-1. The scorer takes their consensus set — `score!` of `scoring` (any scorer with
-   a uniform outlier model, `outlier_halfwidth`, whose per-point scores are the
-   squared residuals, as a sort-and-sweep scorer's are) at its codimension and
+`weighting` is the EM's weighting, the Student-t + uniform E-step: a scorer with
+a uniform outlier model (`outlier_halfwidth`) whose per-point scores are the
+squared residuals, as a sort-and-sweep scorer's are (VisualGeometryToolkitCore's
+`StudentTUniformScoring`). A fit takes no `scoring`: the former positional
+`scoring` argument and a `scoring` keyword are an `ArgumentError` naming
+`weighting` (the robust-estimation contract, since 0.9).
+
+1. The weighting takes their consensus set — `score!` at its codimension and
    scale prior — and the set's Student-t (ŝ² at the residual dof
    `(k* − model_dof)·d_g`) seeds the posterior (`PosteriorWeightState` on the
-   scorer's `consensus_order`).
+   weighting's `consensus_order`).
 2. EM with the model held — `config.model_update` must be [`KeepModel`](@ref) —
    under VisualGeometryToolkitCore's `block_coordinate_descent!`: each iteration the
-   nuisance parts (`config.nuisance`) then the E-step, until the mixture NLL
-   stops falling (`tol`) or `config.max_iter`.
+   nuisance parts (`config.nuisance`) then the E-step, until `config.stop` or
+   `config.max_iter`.
 3. Each residual's MAP label: inlier iff `is_map_inlier` of its posterior.
 
 `model_dof` counts the parameters the held model spent per correspondence
@@ -105,14 +133,18 @@ negative entry is a signed residual, not a distance, and is an
 The result: `estimate` the fitted mixture, a `PosteriorWeightState` — its
 `s_hat_sq`, `student_t_dof` and `inlier_prior`, and per residual its posterior
 `inlier_weight(estimate)[i]`, whose MAP label is VisualGeometryToolkitCore's
-`is_inlier(estimate, i)` (`is_map_inlier` of the posterior: the state is a
-`NormalizedWeightPolicy`; `inlier_mask(estimate)` labels them all); `rms` and
-`n` the root-mean-square residual over the MAP inliers and their count, so
-`rms` is the reprojection error of record; `retcode` and `iterations` the EM's;
-`metadata` a [`ResidualMixtureMetadata`](@ref).
+`is_inlier(estimate, i)`. The contract's record (`metadata`, a
+[`ResidualMixtureMetadata`](@ref)): `weights(result)` the posteriors
+(`PosteriorWeights`, so `inlier_mask(result)` is the MAP labels) and
+`noise_scale(result)` = ŝ, estimated (`ScaleEstimated`). `n` is the support, the
+distances of positive weight, and `rms` the weight-weighted root mean square
+`√(Σwᵢrᵢ² / Σwᵢ)` (the MAP inliers' count is `count(inlier_mask(result))`);
+`retcode` and `iterations` the EM's.
 """
-function fit_residual_mixture(distances::AbstractVector{<:Real}, scoring::AbstractScoring;
-                              model_dof::Int, config::MixtureEmConfig = MixtureEmConfig())
+function fit_residual_mixture(distances::AbstractVector{<:Real}; weighting::AbstractScoring,
+                              model_dof::Int, config::MixtureEmConfig = MixtureEmConfig(),
+                              scoring = nothing)   # refused, with the way to say it
+    scoring === nothing || throw(_scoring_is_weighting("fit_residual_mixture"))
     config.model_update isa KeepModel || throw(ArgumentError(
         "fit_residual_mixture: the distances are a held model's, so the model update must be " *
             "KeepModel, got $(config.model_update)"))
@@ -122,7 +154,7 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}, scoring::Abstra
             "supply its magnitude, `abs.(r)`"))
     r = collect(Float64, distances)
     n = length(r)
-    rws = _consensus_seeded_posterior(r, n, scoring; model_dof)
+    rws = _consensus_seeded_posterior(r, n, weighting; model_dof)
     rws === nothing && return nothing
     lh = PosteriorLikelihood(rws, n; scale_update = config.nuisance.scale,
                              prior_update = config.nuisance.inlier_prior, nu_update = config.nuisance.nu)
@@ -131,15 +163,18 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}, scoring::Abstra
     state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
     res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config),
                                     _FixedDistances(r), r; max_iter = config.max_iter)
-    ss, k = 0.0, 0
-    for i in 1:n
-        is_inlier(rws, i) || continue
-        ss += r[i]^2
-        k += 1
-    end
-    return FitResult(rws, retcode(res), iterations(res), k > 0 ? sqrt(ss / k) : NaN, k,
-                     ResidualMixtureMetadata(state.current_cost))
+    w = Float64[_stored_posterior(p) for p in view(inlier_weight(rws), 1:n)]
+    return FitResult(rws, retcode(res), iterations(res), _weighted_rms(w, (x^2 for x in r)), count(>(0), w),
+                     ResidualMixtureMetadata(state.current_cost, w, sqrt(s_hat_sq(rws)), ScaleEstimated))
 end
+
+# The former positional scorer: refused, naming the keyword.
+fit_residual_mixture(::AbstractVector{<:Real}, ::AbstractScoring; kw...) = throw(_scoring_is_weighting("fit_residual_mixture"))
+
+# A fit takes no `scoring` (the robust-estimation contract): its Student-t + uniform E-step is its `weighting`.
+_scoring_is_weighting(f::AbstractString) = ArgumentError(
+    "$f: `scoring` is no keyword (nor argument) of a fit since 0.9 — the Student-t + uniform E-step is the fit's `weighting` " *
+        "(`weighting = StudentTUniformScoring(…)`, or a `weighting` table read by `scoring_from_toml`)")
 
 # The posterior seeded from the scorer's consensus set of residuals `r[1:n]`:
 # `score!` (the squared residuals into the state's own buffer), then the set's

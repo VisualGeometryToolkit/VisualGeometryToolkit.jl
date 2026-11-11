@@ -5,6 +5,21 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: the EM fits take a `weighting`, never a `scoring`, and record the robust-estimation contract's scale
+  and weights** (B3). The Student-t + uniform E-step of `fit_division_camera` and `fit_residual_mixture` is their
+  `weighting`: the keyword, and `[fit_division_camera] weighting` (was `scoring`; the same table schema, read by the
+  same `scoring_from_toml`). `fit_residual_mixture(distances; weighting, model_dof, config)` replaces
+  `fit_residual_mixture(distances, scoring; …)`. The old positional scorer and a `scoring` keyword are an
+  `ArgumentError` naming `weighting`. The fits run bit for bit as before (every golden, test and MC (e) fit
+  replayed). Both now ORIGINATE their scale: the metadata's `scale` = the E-step's ŝ with `scale_source`
+  `ScaleEstimated`, read by `noise_scale(result)`. `DivisionCameraMetadata.sigma` is gone (`noise_scale(result)`).
+  Their `weights(result)` are the E-step's posterior inlier probabilities (`PosteriorWeights`: `inlier_mask(result)`
+  is the MAP rule, > ½; a posterior below eps, and a datum the fit did not take, is an exact 0). For the division
+  camera these are flat in the views' key order; the views' `weights` column keeps the IRLS row weight the solve ran
+  with. `n` is now the support, `count(>(0), weights)`, and `rms` the posterior-weighted RMS `√(Σwᵢrᵢ²/Σwᵢ)`:
+  - fit_division_camera: `n` was the rows that entered the fit, `rms` their unweighted RMS;
+  - fit_residual_mixture: `n` was the MAP inlier count, `rms` theirs — that count is now `count(inlier_mask(result))`.
+
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

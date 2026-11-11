@@ -674,6 +674,37 @@ end
         @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))
     end
 
+    @testset "code identity on Slurm: a stage in flight under other code stops the launch, nothing submitted twice" begin
+        f = runner_project()
+        bin = fake_bin()
+        log, queue = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "squeue.txt")
+        write(queue, "")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
+                               "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
+        launch(args) = run_main(args; env, queue_states = nothing, job_states = nothing)    # the stand-ins on PATH
+        args = ["--graph=$(f.graph)", "--site=dgx01", "--only=setup"]
+        code, out = launch(args)
+        @test code == 0 && length(readlines(log)) == 1                                      # setup: job 101
+        # job 101 still runs; the same code: depended on, not submitted again
+        write(queue, "101|RUNNING|None\n")
+        code, out = launch(args)
+        @test code == 0 && occursin(r"setup\s+101  \(in flight", out) && length(readlines(log)) == 1
+        # a commit changes the code (scripts/) while job 101 runs: the launch stops (exit 4), naming the job and the
+        # tree, and submits nothing
+        write(joinpath(f.proj, "scripts", "chrome.jl"), "# the driver, changed\n")
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam driver`; stdout = devnull, stderr = devnull))
+        nman = length(run_manifests(joinpath(f.results, "_reproduce")))
+        code, out = launch(args)
+        @test code == 4 && occursin("job 101 of an earlier launch is still in flight, under other code (scripts: ", out)
+        @test length(readlines(log)) == 1 && length(run_manifests(joinpath(f.results, "_reproduce"))) == nman
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run"])          # the dry run says so too
+        @test code == 4 && occursin("still in flight, under other code", out)
+        # once the job has left the queue it reruns under the new code (its marker never written: unknown)
+        write(queue, "")
+        code, out = launch(args)
+        @test code == 0 && length(readlines(log)) == 2 && startswith(readlines(log)[2], "102 ")
+    end
+
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
         f = runner_project()
         src = pkgdir(VisualGeometryToolkitEval, "src")

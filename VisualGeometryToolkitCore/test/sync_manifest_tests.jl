@@ -35,9 +35,10 @@
     # an instantiate of an empty project creates its Manifest and reports it
     proj = mktempdir()
     write(joinpath(proj, "Project.toml"), "name = \"Empty\"\nuuid = \"0c4f8b8e-7a4c-4a39-9d8e-1f2e3d4c5b6a\"\n")
-    using Pkg: Pkg
+    # Pkg (a standard library, not a dependency of the test environment) as sync_manifest loads it
+    Pkg = Base.require(Base.PkgId(Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
     out = IOBuffer()
-    res = Pkg.activate(() -> sync_manifest("instantiate"; io = out), proj)
+    res = Base.invokelatest(Pkg.activate, () -> sync_manifest("instantiate"; io = out), proj)
     @test res.created && isempty(res.moved) && res.seconds >= 0
     @test isfile(joinpath(proj, "Manifest.toml"))
     @test startswith(String(take!(out)), "Manifest created")

@@ -22,6 +22,7 @@ import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,
     test_manifold_contract
 
+include("VisualGeometryToolkitCoreTestExt/lexers.jl")        # the one Julia token walk and the one `#`-language lexer the checks share
 include("VisualGeometryToolkitCoreTestExt/check_naming.jl")
 include("VisualGeometryToolkitCoreTestExt/check_raw_decoding.jl")   # the one RAW path (reads naming_scope)
 include("VisualGeometryToolkitCoreTestExt/check_duplication.jl")    # one implementation per concept (reads both)

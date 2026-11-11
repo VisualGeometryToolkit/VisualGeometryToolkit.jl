@@ -84,7 +84,7 @@ const RETIRED_NAMES = String[
     "_bou" * "nded",                          # a stored camera's BoundedCamera is Core's `value_of` (2026-11)
     "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_brent_minimum` (2026-11)
     "grid" * "_golden_minimum",             # the one 1-D minimizer refines by Brent's method: `grid_brent_minimum` (2026-11)
-    "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
+    "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `forward_chart(SplineLens)` (2026-11)
     "fit" * "_height_field",                  # a one-step algorithm is no `fit_*` (the estimators guide): `HeightField(nodes, points .=> heights; smoothing)` (2026-11)
     "strong" * "est(", "VgtkFeatures" * ".strongest", "VisualGeometryToolkitFeatures" * ".strongest",   # the global top n by |response|: `spread_strongest(detections, image_size, n)` (SSC, VisualGeometryToolkitFeatures, 2026-11)
     "_imas" * "_tilts_25",                    # ASIFT's schedules by name: `tilt_schedule(:imas25)`, `tilt_schedule(:untilted)` (VisualGeometryToolkitFeatures, 2026-11)
@@ -811,139 +811,7 @@ function _counts_draws_as_iterations(words, kind::Symbol)
     return any(in(_RANDOM_DRAW_WORDS), words) && any(in(_ITERATION_WORDS), words)
 end
 
-# -----------------------------------------------------------------------------
-# Julia prose: the comment and string text of a source, by line
-# -----------------------------------------------------------------------------
-
-_is_ident_char(c::Char) = isletter(c) || isdigit(c) || c == '_' || c == '!'
-
-# One level of the prose lexer's stack, by `kind`: `:code` (paren `depth`, and
-# `interp` when it is an interpolation `$(…)`), `:string` (its `delim`, and
-# `interp` when it interpolates), `:line_comment`, or `:block_comment` (nesting
-# `depth`). Fields a kind does not use hold their defaults.
-struct _LexFrame
-    kind::Symbol
-    depth::Int
-    interp::Bool
-    delim::String
-end
-_LexFrame(kind::Symbol; depth::Int = 0, interp::Bool = false, delim::String = "") =
-    _LexFrame(kind, depth, interp, delim)
-
-# Whether the string opening at `cs[i]` is a test's name: the code before it, spaces
-# skipped, ends in `@testset` or `@testitem`.
-function _names_a_test(cs, i)
-    j = i - 1
-    while j >= 1 && cs[j] in (' ', '\t')
-        j -= 1
-    end
-    k = j
-    while k >= 1 && _is_ident_char(cs[k])
-        k -= 1
-    end
-    return k >= 1 && cs[k] == '@' && String(cs[(k + 1):j]) in ("testset", "testitem")
-end
-
-# The comment and string text of `src` by line; with `comments = false`, its plain
-# string literals' text alone (not a docstring's, not a test's name: those are prose).
-function _julia_prose(src::AbstractString; comments::Bool = true)
-    cs = collect(src)
-    n = length(cs)
-    prose = Dict{Int, String}()
-    buf = IOBuffer()
-    line = 1
-    frames = [_LexFrame(:code)]
-    at(j) = j <= n ? cs[j] : '\0'
-    i = 1
-    while i <= n
-        c = cs[i]
-        top = frames[end]
-        if c == '\n'
-            # each line is flushed once, so its prose is one leading-space chunk
-            s = String(take!(buf))
-            isempty(s) || (prose[line] = " " * s)
-            line += 1
-            top.kind === :line_comment && pop!(frames)
-            i += 1
-        elseif top.kind === :code
-            if c == '#'
-                if at(i + 1) == '='
-                    push!(frames, _LexFrame(:block_comment; depth = 1))
-                    i += 2
-                else
-                    push!(frames, _LexFrame(:line_comment))
-                    i += 1
-                end
-            elseif c == '"' || c == '`'
-                interp = !(i > 1 && _is_ident_char(cs[i - 1]))
-                delim = at(i + 1) == c && at(i + 2) == c ? string(c, c, c) : string(c)
-                # with `comments = false` only plain literals are kept: a docstring (triple-quoted) and a
-                # test's name (`@testset "…"`, `@testitem "…"`) are prose
-                as_prose = !comments && (length(delim) == 3 || _names_a_test(cs, i))
-                push!(frames, _LexFrame(as_prose ? :prose_string : :string; interp, delim))
-                i += length(delim)
-            elseif c == '\''
-                p = i > 1 ? cs[i - 1] : ' '
-                if _is_ident_char(p) || p in (')', ']', '}', '\'', '.')
-                    i += 1                                   # adjoint
-                elseif at(i + 1) == '\\'
-                    j = i + 3
-                    while j <= n && cs[j] != '\'' && cs[j] != '\n'
-                        j += 1
-                    end
-                    i = j + 1
-                elseif at(i + 2) == '\''
-                    i += 3                                   # one-character literal
-                else
-                    i += 1
-                end
-            elseif c == '(' && top.interp
-                frames[end] = _LexFrame(:code; depth = top.depth + 1, interp = true)
-                i += 1
-            elseif c == ')' && top.interp
-                top.depth == 1 ? pop!(frames) : (frames[end] = _LexFrame(:code; depth = top.depth - 1, interp = true))
-                i += 1
-            else
-                i += 1
-            end
-        elseif top.kind === :string || top.kind === :prose_string
-            delim = top.delim
-            keep = top.kind === :string
-            if c == '\\' && at(i + 1) != '\n'
-                keep && print(buf, c, at(i + 1))
-                i += 2
-            elseif all(k -> at(i + k - 1) == delim[k], 1:length(delim))
-                pop!(frames)
-                keep && print(buf, ' ')                      # separate literals stay separate words
-                i += length(delim)
-            elseif top.interp && c == '$' && at(i + 1) == '('
-                push!(frames, _LexFrame(:code; depth = 1, interp = true))
-                i += 2
-            else
-                keep && print(buf, c)
-                i += 1
-            end
-        elseif top.kind === :line_comment
-            comments && print(buf, c)
-            i += 1
-        else                                                 # block comment
-            if c == '#' && at(i + 1) == '='
-                frames[end] = _LexFrame(:block_comment; depth = top.depth + 1)
-                i += 2
-            elseif c == '=' && at(i + 1) == '#'
-                top.depth == 1 ? pop!(frames) : (frames[end] = _LexFrame(:block_comment; depth = top.depth - 1))
-                print(buf, ' ')
-                i += 2
-            else
-                comments && print(buf, c)
-                i += 1
-            end
-        end
-    end
-    s = String(take!(buf))
-    isempty(s) || (prose[line] = " " * s)
-    return prose
-end
+# (Julia prose, the comment and string text of a source by line, is `_julia_prose`: lexers.jl)
 
 # -----------------------------------------------------------------------------
 # Julia code: the names a file binds
@@ -1298,46 +1166,6 @@ const _PYTHON_KEYWORDS = Set(split(
 
 _offset_lines(code) = pushfirst!([i + 1 for i in findall(==('\n'), code)], 1)
 _line_of(starts, offset) = searchsortedlast(starts, offset)
-
-# A Python source with its comments and string literals blanked (newlines and
-# byte offsets kept): what is left is code.
-function _python_code(src::AbstractString)
-    b = Vector{UInt8}(codeunits(src))
-    n = length(b)
-    blank!(r) = foreach(k -> b[k] == UInt8('\n') || (b[k] = UInt8(' ')), r)
-    i = 1
-    while i <= n
-        c = b[i]
-        if c == UInt8('#')
-            j = i
-            while j <= n && b[j] != UInt8('\n')
-                j += 1
-            end
-            blank!(i:(j - 1))
-            i = j
-        elseif c == UInt8('"') || c == UInt8('\'')
-            q = i + 2 <= n && b[i + 1] == c && b[i + 2] == c ? 3 : 1
-            j = i + q
-            while j <= n
-                if b[j] == UInt8('\\')
-                    j += 2
-                elseif q == 1 && b[j] == UInt8('\n')
-                    break
-                elseif b[j] == c && (q == 1 || (j + 2 <= n && b[j + 1] == c && b[j + 2] == c))
-                    j += q
-                    break
-                else
-                    j += 1
-                end
-            end
-            blank!(i:min(j - 1, n))
-            i = j
-        else
-            i += 1
-        end
-    end
-    return String(b)
-end
 
 # Split `s` at the commas outside brackets, with each piece's byte offset.
 function _toplevel_split(s::AbstractString, sep::Char = ',')

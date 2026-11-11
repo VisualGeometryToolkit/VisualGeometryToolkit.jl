@@ -5,6 +5,11 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Changed: the scoring contract's workspace readers have fallbacks**: `score!(W, scoring, scores, residuals, n)`,
+  `inlier_count(scoring, W)` and `consensus_order(scoring, W)` on a workspace another scorer built are an
+  `ArgumentError` naming the fix (was a `MethodError`); `check_workspace` ignores the fallback. A caller that holds a
+  scorer of an abstract type (a refine's anchoring scorer) analyses clean under JET.
+
 - **New: the Student-t + uniform marginal scorer, `StudentTUniformScoring`, moved here from RANSACScoringDoneRight**
   (the owner's ruling: hoisted with no duplication; RSDR deletes its copies and imports these). Moved, not rewritten
   (`robust/partition_sweep.jl`, `robust/student_t_uniform_scoring.jl`): the model-certain and `Predictive` scorer and

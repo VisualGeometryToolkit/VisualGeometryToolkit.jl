@@ -67,8 +67,12 @@ scorer built is an `ArgumentError` (the contract's fallback; see
 [`check_workspace`](@ref)).
 """
 function consensus_order end
-consensus_order(scoring::AbstractScoring, W) = throw(ArgumentError(
-    "consensus_order: a $(nameof(typeof(W))) is not a workspace of $(nameof(typeof(scoring))); build it with scoring_workspace(scoring, n, d_g)"))
+consensus_order(scoring::AbstractScoring, W) = _foreign_workspace(:consensus_order, scoring, W)
+# The contract's fallbacks of the workspace readers and the model-certain `score!`: a workspace another scorer built.
+inlier_count(scoring::AbstractScoring, W) = _foreign_workspace(:inlier_count, scoring, W)
+score!(W, scoring::AbstractScoring, _scores, _residuals, _n::Integer; kw...) = _foreign_workspace(:score!, scoring, W)
+_foreign_workspace(f::Symbol, scoring, W) = throw(ArgumentError(
+    "$f: a $(nameof(typeof(W))) is not a workspace of $(nameof(typeof(scoring))); build it with scoring_workspace(scoring, n, d_g)"))
 
 """
     is_predictive(scoring) -> Bool
@@ -141,13 +145,14 @@ score_bound(::AbstractScoring) = nothing
 
 Refuse, at entry, a workspace built for a different scorer (`ArgumentError`).
 The default refuses a workspace the scorer cannot read — no
-[`inlier_count`](@ref)`(scoring, W)` method: another scorer's
-`scoring_workspace` built it — and names the scorers it was built for. A scorer
+[`inlier_count`](@ref)`(scoring, W)` method but the contract's fallback:
+another scorer's `scoring_workspace` built it — and names the scorers it was
+built for. A scorer
 whose workspace also depends on its configuration (a prior's tables) adds a
 method that checks that as well. Called once per entry, never in the inner loop.
 """
 function check_workspace(scoring::AbstractScoring, W)
-    applicable(inlier_count, scoring, W) && return nothing
+    _reads_workspace(scoring, W) && return nothing
     owners = _workspace_owners(W)
     throw(ArgumentError(
         "this workspace ($(nameof(typeof(W)))) was built for " *
@@ -155,8 +160,12 @@ function check_workspace(scoring::AbstractScoring, W)
         "`scoring_workspace(scoring, n, d_g)` for $(nameof(typeof(scoring)))"))
 end
 
+# Whether a method of `inlier_count` reads `W` for `scoring`: an applicable one other than the contract's fallback.
+_reads_workspace(scoring, W) = applicable(inlier_count, scoring, W) &&
+    which(inlier_count, Tuple{typeof(scoring), typeof(W)}) !== which(inlier_count, Tuple{AbstractScoring, Any})
+
 # The scorer types whose `inlier_count` reads a workspace like `W` (the error
-# path of `check_workspace` only).
+# path of `check_workspace` only; the contract's fallback names no scorer).
 function _workspace_owners(W)
     owners = String[]
     for m in methods(inlier_count)
@@ -166,7 +175,7 @@ function _workspace_owners(W)
         (WT isa Type && typeof(W) <: WT) || continue
         for s in Base.uniontypes(S)
             s = Base.unwrap_unionall(s)
-            s isa DataType && s <: AbstractScoring && push!(owners, string(nameof(s)))
+            s isa DataType && s <: AbstractScoring && s !== AbstractScoring && push!(owners, string(nameof(s)))
         end
     end
     return unique!(owners)

@@ -63,67 +63,30 @@
     end
 end
 
-@testitem "ControlPatchManifold: point controls on the ray-normal chart" begin
-    using Test, StaticArrays, LinearAlgebra, Random
-    using ForwardDiff: ForwardDiff
-    import NLLSsolver
+@testitem "ControlPatchManifold: point controls move additively, the one point chart" begin
+    using Test, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ControlPatchManifold, AdditivePoints, RayNormalPoints, direction_tangents, retract, recenter,
-        retract_jacobian, local_coordinates, tangent_size, model
+    using VisualGeometryToolkitCore: ControlPatchManifold, tangent_size
 
-    rng = Xoshiro(20261104)
-    dirs = SMatrix{2, 3}(ntuple(_ -> (1.0 + 0.2 * rand(rng)) * normalize(SVector(0.3 * randn(rng), 0.3 * randn(rng), 1.0)), 6))   # not unit
-    pts = SMatrix{2, 3}(ntuple(_ -> SVector(1.0e-3 * randn(rng), 1.0e-3 * randn(rng), 1.0e-3 * randn(rng)), 6))
-    r = ControlPatchManifold(dirs, pts, RayNormalPoints())
-    @test ControlPatchManifold(dirs, pts) == ControlPatchManifold(dirs, pts, AdditivePoints())
-
-    @testset "2 coordinates per point: p + a·t₁ + b·t₂ of the node's own direction" begin
-        @test tangent_size(r) == 24
-        v = SVector{24}(1.0e-2 .* randn(rng, 24))
-        m = retract(r, v)
-        for k in 1:6
-            d = dirs[k]; t1, t2 = direction_tangents(normalize(d))
-            @test m.directions[k] ≈ norm(d) * normalize(d + v[4k - 3] * t1 + v[4k - 2] * t2) rtol = 1.0e-15
-            @test m.points[k] ≈ pts[k] + v[4k - 1] * t1 + v[4k] * t2 rtol = 1.0e-15
-            @test abs(dot(m.points[k] - pts[k], normalize(d))) < 1.0e-16     # no move along the ray
-        end
-        @test recenter(r, v) isa typeof(r) && model(recenter(r, v)) == m
-    end
-
-    @testset "local_coordinates inverts retract" begin
-        for _ in 1:5
-            v = SVector{24}(1.0e-2 .* randn(rng, 24))
-            @test local_coordinates(r, retract(r, v)) ≈ v rtol = 1.0e-10
-        end
-        z = local_coordinates(r, model(r))
-        @test norm(z) < 1.0e-15 && all(iszero, z[3:4:end]) && all(iszero, z[4:4:end])   # the point offsets exactly
-    end
-
-    @testset "retract_jacobian is ForwardDiff's at zero: (t₁ t₂) per direction and per point" begin
-        flat(x) = vcat([vcat(x.directions[k], x.points[k]) for k in 1:6]...)
-        J = ForwardDiff.jacobian(u -> flat(retract(r, u)), zeros(tangent_size(r)))
-        @test size(retract_jacobian(r)) == (36, 24)
-        @test J ≈ retract_jacobian(r) rtol = 1.0e-12 atol = 1.0e-15
-        t1, t2 = direction_tangents(normalize(dirs[2]))
-        @test retract_jacobian(r)[10:12, 7:8] == hcat(t1, t2)
-    end
-
-    @testset "an NLLSsolver variable" begin
-        u = randn(rng, 30) .* 1.0e-2
-        @test Int(NLLSsolver.nvars(r)) == 24
-        @test (@inferred NLLSsolver.update(r, u, 1)) isa typeof(r)
-    end
+    # No chart hierarchy for the points (the ray-normal chart had no caller): a point
+    # control moves by (Δx, Δy, Δz), and the patch type has no point-chart parameter.
+    @test !isdefined(VisualGeometryToolkitCore, :RayNormalPoints) && !isdefined(VisualGeometryToolkitCore, :AdditivePoints)
+    @test !isdefined(VisualGeometryToolkitCore, :ControlPointChart)
+    dirs = SMatrix{2, 2}(ntuple(i -> SVector(0.1i, 0.2, 1.0), 4))
+    pts = SMatrix{2, 2}(ntuple(i -> SVector(0.3, 0.1i, 2.0), 4))
+    ch = ControlPatchManifold(dirs, pts)
+    @test length(typeof(ch).parameters) == 5 && tangent_size(ch) == 20
 end
 
 @testitem "ControlPatchManifold: retract_jacobian is static and allocates nothing" begin
     using Test, StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ControlPatchManifold, AdditivePoints, RayNormalPoints, EuclideanManifold, ProductManifold,
-        direction_tangents, retract_jacobian, tangent_size
+    using VisualGeometryToolkitCore: ControlPatchManifold, EuclideanManifold, ProductManifold, direction_tangents,
+        retract_jacobian, tangent_size
 
     dirs = SMatrix{2, 2}(ntuple(i -> SVector(0.1i, 0.2, 1.0), 4))
     pts = SMatrix{2, 2}(ntuple(i -> SVector(0.3, 0.1i, 2.0), 4))
-    patches = (ControlPatchManifold(dirs), ControlPatchManifold(dirs, pts), ControlPatchManifold(dirs, pts, RayNormalPoints()))
+    patches = (ControlPatchManifold(dirs), ControlPatchManifold(dirs, pts))
     J(ch) = retract_jacobian(ch)
     for ch in patches
         T = J(ch)
@@ -135,7 +98,6 @@ end
     t1, t2 = direction_tangents(normalize(dirs[3]))
     @test J(patches[1])[7:9, 5:6] == hcat(t1, t2) && iszero(J(patches[1])[1:3, 5:8])
     @test J(patches[2])[16:18, 13:15] == SMatrix{3, 3, Float64}(I) && J(patches[2])[13:15, 11:12] == hcat(t1, t2)
-    @test J(patches[3])[16:18, 11:12] == hcat(t1, t2) && J(patches[3])[13:15, 9:10] == hcat(t1, t2)
     # inside a product (a patch variable of the SplineLens refine)
     P = ProductManifold(patches[1], EuclideanManifold(SVector(0.0, 0.0, 0.0, 0.0)))
     @test J(P) isa SMatrix{16, 12, Float64}

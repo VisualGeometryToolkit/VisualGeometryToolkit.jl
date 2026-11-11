@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: `ControlPointChart`, `AdditivePoints` and `RayNormalPoints` are removed**, and `ControlPatchManifold`
+  loses its point-chart type parameter and field (`ControlPatchManifold{PX, PY, L, T, P}`; the three-argument
+  constructor is gone). The ray-normal chart had no caller but its tests; a point control moves additively,
+  `p + (Δx, Δy, Δz)`, as before by default. Downstream port: RadiometricCamera's `_NoncentralPatch` alias
+  (src/calibration_pipeline/grid_tiles.jl, also in the rc-abc and rc-flat checkouts) drops its
+  `VgtkCore.AdditivePoints` parameter.
 - **New: `has_spline_gauge(controls, size; calib_area, present)`** (public): whether a SplineLens pixel lattice
   gives its own gauge K (its 4 × 4 window at the gauge's pixel complete), the condition under which the controls
   constructor refuses to build without `intrinsics`. VisualGeometryToolkitIO's old-grid reader asks it instead of

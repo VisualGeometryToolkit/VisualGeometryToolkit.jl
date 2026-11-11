@@ -363,7 +363,6 @@ public directions, grid_size, window_offset, spline_weights   # its control grid
 export default_spline_grid  # the reference's control grid of an area
 public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
 public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable
-public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part

@@ -64,6 +64,48 @@ non-central one is a `NoncentralSplineModel`).
   - `RansacResultBuffers` holds `residuals` and `weights` (no mask); `inlier_ratio(r)` is
     `count(inlier_mask(r)) / length(weights(r))`.
   - `locally_optimize` keeps its scorer: its result is the scorer's kind too.
+- **Breaking: the camera-from-camera regression follows the verbs** (owner ruling, 2026-11-11; contract §11).
+  - **`fit_camera(L, source, region)` is linear only** (a fit has no guess): ONE least-squares solve for the focal
+    rescale and the family's coefficients from the samples' radial relation, with its residual reported (the returned
+    camera's round-trip error per sample, `metadata.residuals`, `max_px`, `rms`; `retcode` `:solved`, 0 iterations).
+    A lift (`Division`, `Scaramuzza`, any `LiftLens`) and a fixed projection with an even radial factor and decentering
+    deltas (Kannala–Brandt, the polynomial and the RATIONAL OpenCV models, Fisheye624) are linear; the rational
+    factor's denominator is now fitted (one Steiglitz–McBride reweighting by the first solve's denominator). A family
+    with no linear form (`DoubleSphere`, `Unified`, `ExtendedUnified`, `Tilt`, `FieldOfView`) is an `ArgumentError`
+    naming `refine_camera` and `approximate_camera`. A gauge-K (SplineLens) source is read about its own principal
+    point and ẑ; the axis is the refine's. The `max_iter` and `device` keywords moved to the refine.
+  - **New: `refine_camera(guess::CameraModel, source, region; weight, max_iter, device, optimization_strategy = nothing)`**:
+    the former `fit_camera` chart LM, from the guess's lens and focal, to the exact pixel least-squares minimum; a
+    SplineLens source's principal point, aspect and axis are free. Every parameter moves but the gauge's skew and
+    `fixed`, the held ones by name or group (`fixed::Tuple{Vararg{Symbol}} = ()`; a group is a coefficient family's
+    stem: `:k`, `:d`, `:p`, `:sx`, `:sy`; `approximate_camera` forwards it); a held parameter keeps the guess's value.
+    The keywords `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`. A forward lens's radial
+    denominator is free by default (it was held at zero; `fixed = (:d,)` holds it). A physical source holds its
+    principal point, aspect and decentering terms (its radial profile does not see them); `optical_axis` holds
+    Fisheye624's decentering (`fixed = (:p, :sx, :sy)`). L2 only: a `scale`, `width` or robust
+    `optimization_strategy` is an `ArgumentError`. `configs/default.toml`'s `[fit_camera] max_iter` is
+    `[refine_camera] max_iter`.
+  - **New: `approximate_camera(L, source, region; …)`** = `refine_camera(estimate(fit_camera(L, source, region)), source, region)`;
+    a family with no linear form starts from its anchor (the former start). It reproduces 0.8's `fit_camera` goldens to
+    1e-6, except the perspective polynomial over a 155° field (`OPENCV3`), whose LM never left its zero start
+    (925 672 px at the edge): it is now refused (below).
+  - **A region past the target family's view-angle limit is refused** (`fit_camera`, `approximate_camera`,
+    `refine_camera`): the limit is Core's `view_angle_limit` of the family (a gnomonic family — the OpenCV polynomial
+    and rational models, Brown–Conrady, ± tangential and thin-prism terms — applies its distortion on the perspective
+    plane, which ends at 90°; a fixed fisheye projection at its own edge). It was fitted over the clipped field with a
+    warning; it is now a `ViewAngleLimitError` (public), whose fields carry the measurement — `family`,
+    `field_angle` (the region's largest view angle, radians) and `limit` (the family's, radians) — so a caller catches
+    it by type and quotes the angle; its message names the plane (or the limit) and the region's extent, and points
+    to a lift (division) model or the same radial factor in an equidistant frame. No margin angle: near the limit the fit is
+    ill-conditioned, the caller's choice of region. The family record's `clipped` now says only that the region reached
+    past the radii the SOURCE images.
+  - **`optical_axis` is unchanged in meaning**: it is now `approximate_camera` of the Fisheye624 family.
+  - **icra2026 failure A**: the rational OpenCV linear fit of the fisheye's Kannala–Brandt calibration (to 84° off
+    axis) lands at f 925.3 px against OpenCV's own rational calibration's 921.9 px, its coefficients OpenCV's in sign
+    and size; 0.8's LM from the zero start stalled at the pinhole (927.4 px, |k| < 1e-3, 6008 px at the edge).
+  - `CameraFitMetadata` gains `residuals` (px per sample; a spline target's held-out errors) and the robust stages'
+    scale record, `scale` (`NaN`) and `scale_source` (`ScaleNone`): no camera regression has a robust loss, so
+    `noise_scale` refuses to hand one on.
 
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,

@@ -1,4 +1,4 @@
-# The optical axis of a SplineLens camera: fit_camera of a radially symmetric family onto a gauge-K source frees the
+# The optical axis of a SplineLens camera: approximate_camera of a radially symmetric family onto a gauge-K source frees the
 # principal point and the axis; the camera re-gauged so ẑ is that axis (Core's axis_gauged).
 
 @testsetup module OffAxisSpline
@@ -26,7 +26,7 @@ end
     using Rotations: RotMatrix, AngleAxis
     using VisualGeometryToolkitCore: estimate, metadata, retcode, calibration_matrix, rotation, map_frames, ViewFrame, project,
         backproject, axis_gauged, EuclideanMap, relabel, WorldFrame, CameraFrame, model, with_lens_coverage, imaged_region
-    using VisualGeometryToolkitEstimation: optical_axis, fit_camera
+    using VisualGeometryToolkitEstimation: optical_axis, approximate_camera
 
     K0 = calibration_matrix(OFF_AXIS)
     @test norm(SVector(K0[1, 3], K0[2, 3]) - SVector(500.0, 500.0)) > 20          # the never-fitted gauge: off the axis's pixel
@@ -40,8 +40,9 @@ end
     pp = SVector(K[1, 3], K[2, 3])
     @test norm(pp - SVector(500.0, 500.0)) < 0.02                                  # the axis's pixel
     @test metadata(r).symmetry_residual < 1.0e-3 && metadata(r).max_px < 0.05      # a symmetric lens: nothing azimuthal left
-    # the same call as fit_camera's: optical_axis is that one call, on the radially symmetric family it names
-    r2 = fit_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)))
+    # the same call as approximate_camera's: optical_axis is that one call, on the radially symmetric family it names,
+    # its decentering groups held
+    r2 = approximate_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)); fixed = (:p, :sx, :sy))
     @test rotation(metadata(r2).rotation) == rotation(R) && calibration_matrix(estimate(r2)) == K
     # the re-gauge: ẑ is the axis, the principal point its pixel; every image kept with the poses turned
     g = axis_gauged(OFF_AXIS, rotation(R), K)
@@ -58,7 +59,7 @@ end
     using StaticArrays: SA, SVector
     using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Lens, Equidistant, Radial, Additive, Tangential,
         estimate, metadata, rotation, calibration_matrix, px, KannalaBrandt, NoncentralSplineModel, ChartSpline, with_lens_coverage
-    using VisualGeometryToolkitEstimation: optical_axis, fit_camera
+    using VisualGeometryToolkitEstimation: optical_axis, fit_camera, approximate_camera, refine_camera
 
     # a fisheye with a tangential (decentring) term: no radially symmetric camera about any axis images it
     dec = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = Lens(Equidistant(), Additive(Radial((-0.02,)), Tangential(2.0e-3, -1.5e-3))))
@@ -78,6 +79,8 @@ end
     nc = NoncentralSplineModel(G.intrinsics, G.lens.backward, ChartSpline(G.lens.backward.area, fill(SVector(0.0, 0.0, 0.0), size(G.lens.backward.controls))))
     @test_throws r"not supported yet" fit_camera(KannalaBrandt{4}, nc, REGION)
     @test_throws r"not supported yet" fit_camera(KannalaBrandt{4}, BoundedCamera(nc, Size2(1000, 1000)), REGION)
+    @test_throws r"not supported yet" approximate_camera(KannalaBrandt{4}, nc, REGION)
+    @test_throws r"not supported yet" refine_camera(estimate(rp), nc, REGION)
 end
 
 @testitem "fit_camera(SplineLens): a gauge-K source is gauged on its optical axis first; a physical source is unchanged" setup = [OffAxisSpline] begin
@@ -139,23 +142,23 @@ end
     @test metadata(whole).symmetry_residual > 10 * metadata(r).symmetry_residual
 end
 
-@testitem "fit_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
+@testitem "refine_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
     using Test
     using CUDA: CUDA
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, metadata, retcode, iterations, rotation,
         calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, fit_camera, optical_axis
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, approximate_camera, optical_axis
     # the reduction kernel (each sample's 2-D residual and Jacobian rows, Σ‖r‖², Jᵀr, JᵀJ) is the same KernelAbstractions
     # kernel on every backend: the CPU's and the GPU's fits agree to the reduction's rounding (the work items' sums in
     # another order), with the same steps
     cpu = VC.KA.CPU()
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    fits = [(VE._AXIS_FAMILY, b, imaged_region(b)), (KannalaBrandt{4}, FISHEYE, REGION)]     # a gauge K, a physical K
-    for (L, src, region) in fits
-        rc = fit_camera(L, src, region; device = cpu)
+    fits = [(VE._AXIS_FAMILY, b, imaged_region(b), VE._AXIS_FIXED), (KannalaBrandt{4}, FISHEYE, REGION, ())]   # a gauge K, a physical K
+    for (L, src, region, fixed) in fits
+        rc = approximate_camera(L, src, region; fixed, device = cpu)
         @test retcode(rc) === :converged
         CUDA.functional() || continue
-        rg = fit_camera(L, src, region; device = VC.default_device())
+        rg = approximate_camera(L, src, region; fixed, device = VC.default_device())
         @test retcode(rg) === :converged && iterations(rg) == iterations(rc)
         @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9

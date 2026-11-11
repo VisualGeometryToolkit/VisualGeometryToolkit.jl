@@ -11,7 +11,10 @@ VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
 calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
 the inliers by default (least squares for most problems), and other scorers
-and local optimizers plug in by keyword.
+and local optimizers plug in by keyword. A camera model is regressed onto
+another camera by three verbs: `fit_camera` (one linear solve, no guess),
+`refine_camera` (the exact pixel least squares from a guess) and
+`approximate_camera` (the two).
 
 ## Installation
 

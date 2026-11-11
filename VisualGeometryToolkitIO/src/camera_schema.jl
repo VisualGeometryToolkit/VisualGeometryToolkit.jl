@@ -642,7 +642,7 @@ end
 _refuse_spline_export(::SplineLens) = throw(
     ArgumentError(
         "a SplineLens camera has no OpenCV/COLMAP form; store it as a vgio camera record (VisualGeometryToolkitIO.save), " *
-            "or fit a parametric lens to it first, `VisualGeometryToolkitEstimation.fit_camera(KannalaBrandt{4}, camera, region)` " *
+            "or approximate it by a parametric lens first, `VisualGeometryToolkitEstimation.approximate_camera(KannalaBrandt{4}, camera, region)` " *
             "(any lens family; the region of its image to fit over)"
     )
 )

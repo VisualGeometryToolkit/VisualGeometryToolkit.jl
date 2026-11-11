@@ -139,8 +139,10 @@ device_names() = (q = _DEVICE_MEMORY[]; q === nothing ? String[] : q.names())
 
 A copy of `A` with element type `T` on `device`: one `Array{T}` on the host
 (`Array{T}(A)`, which also downloads a device array), else a `KA.allocate`d
-array filled by one `copyto!` — from `A` itself when it is a dense array of `T`,
-else from `T.(A)` (a view, an adjoint, a reinterpret, another eltype). An
+array filled by one `copyto!` — from `A`'s own memory when it is a dense array of
+`T` or a host wrapper of `T` that is a dense array's memory in order (a
+reinterpret, a reshape, a contiguous view: no host copy), else from `T.(A)` (a
+strided view, an adjoint, another eltype). An
 integer image (`UInt8`, `UInt16`, `N0f8`, `N0f16`: an integer or fixed-point
 eltype narrower than a float `T`) crosses as it is and is converted ON the
 device by one KernelAbstractions kernel, `T(x)` per element, on every backend
@@ -151,13 +153,28 @@ ka_upload(::Type{T}, dev::KA.CPU, A::AbstractArray) where {T} = _narrow_upload(T
 function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
     _narrow_upload(T, eltype(A)) && return _convert_on(T, dev, A)
     d = KA.allocate(dev, T, size(A)...)
-    # A dense array of `T` is copied as it is; anything else — another eltype, a view, an
-    # adjoint, a reinterpret — is materialized first (`T.(A)`: a host wrapper becomes an
-    # `Array`, a device one stays on its device), since a device `copyto!` from the host
-    # takes a dense array only.
-    copyto!(d, A isa DenseArray && eltype(A) === T ? A : T.(A))
+    # A dense array of `T` is copied as it is, and so is a host wrapper that IS a dense array's
+    # memory in column-major order (`_host_contiguous`: BlobBoards' `reinterpret(N0f8, ::Matrix{Gray{N0f8}})`,
+    # a reshape of a reinterpret, a contiguous view), as an `Array` over that memory — a device
+    # `copyto!` from the host takes a dense array only, and materializing the wrapper cost a 50 Mpx
+    # 8-bit upload 46 ms against 3.8 ms dense (B200 medians, 2026-11-11). Anything else — another eltype, a strided
+    # view, an adjoint — is materialized first (`T.(A)`: a host wrapper becomes an `Array`, a
+    # device one stays on its device).
+    if eltype(A) === T && A isa DenseArray
+        copyto!(d, A)
+    elseif eltype(A) === T && _host_contiguous(A)
+        GC.@preserve A copyto!(d, unsafe_wrap(Array, pointer(A), size(A)))
+    else
+        copyto!(d, T.(A))
+    end
     return d
 end
+# A host array whose elements are a dense array's memory in column-major order, with no gap: a strided wrapper (Base's
+# StridedArray: a reinterpret, a reshape, a view, of a dense array) whose memory is host memory (a `Ptr`; a device
+# array's is its own pointer type) and whose strides are the dense ones.
+_host_contiguous(A::StridedArray) =
+    isbitstype(eltype(A)) && pointer(A) isa Ptr && strides(A) == Base.size_to_strides(1, size(A)...)
+_host_contiguous(::AbstractArray) = false
 
 # An integer image (UInt8, UInt16, a FixedPointNumbers `Normed`, any integer or fixed-point eltype narrower than the
 # target float) goes to the device as it is, `sizeof(S)` bytes a pixel instead of `sizeof(T)`, and becomes `T` there:
@@ -172,6 +189,7 @@ end
 function _convert_on(::Type{T}, dev, A::AbstractArray{S}) where {T, S}
     src = on_device(S, dev, A)                    # the narrow eltype crosses as it is (on the host: the image itself)
     out = KA.allocate(dev, T, size(A)...)
+    isempty(out) && return out                    # no launch over an empty ndrange (CUDA's partition divides by it)
     _convert_elements!(dev)(out, src; ndrange = length(out))
     KA.synchronize(dev)
     return out
@@ -216,10 +234,21 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 # (arrays, static matrices, tuples of them) — never a closure over non-isbits
 # state, which a device kernel cannot receive. Row functions are
 # `Base.@propagate_inbounds`, so the kernel's `@inbounds` reaches their indexing.
+#
+# CPU cost: the kernel takes ONE argument, the job tuple `(row!, out, args...)`. A
+# kernel call is a call of KernelAbstractions' `(::Kernel)(args...; ndrange)`, a
+# vararg method, and Julia compiles a vararg method called with more than one or
+# two arguments for a WIDENED signature (`Vararg{Any}`): every launch then boxed
+# its arguments and dispatched `__run` dynamically (≈290 bytes a launch on the
+# CPU, so an LM refit's row fills were not allocation-free), and while the kernel
+# function itself took `args...` every ROW was such a dynamic call (≈150 bytes and
+# 80 ns a row: 1000 Sampson rows took 83 µs against a plain loop's 1.3 µs). One
+# concrete tuple argument is compiled for its own type at both levels: the launch
+# allocates nothing. A device kernel receives the tuple converted element by element.
 
-@kernel function _row_kernel!(row!, out, args...)
+@kernel function _row_kernel!(job)
     i = @index(Global)
-    @inbounds row!(out, i, args...)
+    @inbounds job[1](job[2], i, Base.tail(Base.tail(job))...)
 end
 
 """
@@ -227,12 +256,13 @@ end
 
 Run `row!(out, i, args...)` for `i in 1:n` as one `_row_kernel!` launch over
 `ndrange = n` on the backend that owns `out` (every backend, the CPU's
-included), followed by a synchronize. `n = 0` launches nothing.
+included), followed by a synchronize. The kernel takes the job as one tuple,
+`(row!, out, args...)`. `n = 0` launches nothing.
 """
 function _launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
     n > 0 || return out
     backend = get_backend(out)
-    _row_kernel!(backend)(row!, out, args...; ndrange = n)
+    _row_kernel!(backend)((row!, out, args...); ndrange = n)
     KA.synchronize(backend)
     return out
 end

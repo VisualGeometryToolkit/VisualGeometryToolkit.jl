@@ -52,7 +52,7 @@ _ka_launch(r) = r isa JET.MethodErrorReport && all(_launch_sig, r.t isa Type ? (
 # or not a test item sharing this worker loaded CUDA (whose `CUDABackend` makes
 # a launch on the abstract `KA.GPU` resolvable).
 struct _DecoyGPU <: VgtkCore.KA.GPU end
-_decoy_launch(b, r, M) = VgtkCore._row_kernel!(b)(VgtkCore._sampson_residual_row!, r, M, (r, r), r, NamedTuple(); ndrange = 1)
+_decoy_launch(b, r, M) = VgtkCore._row_kernel!(b)((VgtkCore._sampson_residual_row!, r, M, (r, r), r, NamedTuple()); ndrange = 1)
 _decoy_kw(x::Int; ndrange) = x
 _decoy_plain(x) = x + "a"
 

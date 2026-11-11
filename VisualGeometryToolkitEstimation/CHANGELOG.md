@@ -90,6 +90,35 @@ non-central one is a `NoncentralSplineModel`).
 - **Internal:** `_default_scoring`/`_default_scoring_at` and `_threshold_unit` are gone (`_class_scoring`,
   `_refuse_width_keywords`, `_width_unit`).
 
+- **Breaking: `fit_division_camera` runs on the stack's shared robust machinery** (the owner's ruling (4), one
+  schema). Its E-step is the posterior of the shared `StudentTUniformScoring` (keyword `scoring`, default
+  `[fit_division_camera] scoring` read by `scoring_from_toml` with `problem = DivisionCameraProblem`, absent keys
+  inheriting `[scoring.student_t_uniform]`); its loop is the posterior-weight iteration, `PosteriorIrlsMethod` /
+  `PosteriorIrlsState`, of a `MixtureEmConfig` (keyword `mixture_em`, default `[fit_division_camera] mixture_em`
+  read by `mixture_em_from_toml`, absent keys inheriting `[mixture_em]`), over the stack as the new public
+  `DivisionCameraProblem` (its `refine!` the weighted, whitened `division_camera_step`). The private IRLS
+  (`DivisionCameraIrls`, its state and its focal-change criterion) is removed. Removed keys and keywords: the
+  `[fit_division_camera]` keys `outlier_halfwidth` (now the scorer table's) and `max_iter` (now the EM table's);
+  the keywords `outlier_halfwidth` and `max_iter` are an `ArgumentError` naming the new form. The table keeps
+  `ncoef` and `branch_audit_scale_multiple`. The `max_iter = 0` form (iteration 0 alone) is gone: the EM runs at
+  least one iteration; the seeded step alone is `division_camera_step(N, radial_cameras, views; whiten_at =
+  focal_seed)`. Results: every test and golden fit, and every stack of the MC calibration item (e), within 5e-13
+  relative of before (4e-12 in the MC), the same iteration counts, branch decisions and gate statistics; the
+  difference is rounding (the shared residual block squares the whitened norms the solve returns squared).
+  Downstream: a caller's `outlier_halfwidth = h` becomes `scoring = scoring_from_toml(Dict("type" =>
+  "student_t_uniform", "outlier_halfwidth" => h); problem = DivisionCameraProblem)`.
+- **New: a selectable stop rule of the posterior-weight EM, `stop`** (`STOP_TAGS`, a required key of the EM table,
+  defaulted in configs/default.toml only): `"no_improvement"` (`NoImprovementStop`, the incumbent's cost —
+  under `keep_model` its NLL at `tol` — returning the incumbent; `[mixture_em]`'s and the RANSAC local
+  optimization's rule, unchanged bit for bit) or `{ type = "parameter_change", rtol = … }`
+  (`ParameterChangeStop`: the relative change of the problem's `change_parameters`, a contract generic,
+  returning the LAST iterate — for a fixed-point iteration that re-linearizes its residuals each iteration, where
+  no cost is comparable between iterations; `StopWhenParameterChangeLess`). `MixtureEmConfig` gains the field
+  (positional order `model_update, nuisance, stop, max_iter`) and `PosteriorIrlsMethod` a third, `stop`
+  (`PosteriorIrlsMethod(ws, config::MixtureEmConfig)` builds the EM's). The incumbent rule was measured on the
+  division camera and rejected: it stopped the contaminated stacks at their second iteration, f 2 % off, and
+  diverged 79 of 100 stacks at 8 % gross outliers (0 before).
+
 - **New: the Student-t scorer's table, its priors required keys** (the owner's ruling (c)). `scoring_from_toml` reads
   VisualGeometryToolkitCore's `StudentTUniformScoring` (moved there from RANSACScoringDoneRight):
   `{ type = "student_t_uniform", outlier_halfwidth = h, scale_prior = "jeffreys" | "ig" (alpha0, beta0),

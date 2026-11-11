@@ -329,7 +329,8 @@ public RansacMetadata, inlier_ratio, PosteriorLikelihood, LossPlainWeights,
 public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
     posterior_irls!, consensus_posterior, required_outlier_halfwidth, locally_optimize_rescored!,
     StopWhenNoImprovement, iterations_without_improvement,
-    MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata
+    MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata,
+    NoImprovementStop, ParameterChangeStop, StopWhenParameterChangeLess, change_parameters, STOP_TAGS
 # The local-optimization extension point: a strategy adds a `locally_optimize!`
 # method (downstream: LocalOptimizationDoneRight); a loss-parametric strategy
 # names its loss (`strategy_loss`) and deploys it through `lo_loss`, its
@@ -339,7 +340,7 @@ public lo_loss, strategy_loss, plain_scale_multiple, deployed_shape, lo_width_va
     ManifoldLiftProvider, LiftableProblem
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
-public division_camera_step, DivisionCameraState, board_sq_residuals,
+public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
@@ -413,7 +414,6 @@ include("fitting/radial_homography.jl")
 include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
-include("fitting/fit_division_camera.jl")       # iterated Sampson-whitened, Student-t re-weighted focal stack (IRLS under block_coordinate_descent!)
 include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, gcv_select; the weight's normalization is Core's)
 include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, or a SplineLens camera or non-central spline model, onto a source over a region
 include("fitting/essential.jl")
@@ -434,6 +434,7 @@ include("graphs/view_graph.jl")              # ViewGraph: frames and verified pa
 include("graphs/observation_graph.jl")       # ObservationGraph: frames and what they observe; covisibility → ViewGraph
 include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
 include("fitting/residual_mixture.jl")     # fit_residual_mixture: a held model's residuals → mixture EM → MAP labels
+include("fitting/fit_division_camera.jl")    # the focal stack on the shared posterior-weight iteration (after residual_mixture.jl: its MixtureEmConfig)
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.
 include("config_toml.jl")
@@ -451,12 +452,13 @@ and hooks (`lo_admits`, `lo_key`, `lo_field`, `lo_field_from_toml`,
 table carries a key beyond the generic one), a loss-parametric or fixed-loss strategy's
 identity (`strategy_loss`, `deployed_shape`), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
-counter (`iterations_without_improvement`) and the sampler / running-best
+counter (`iterations_without_improvement`), the parameter-change stop's measure of a
+problem (`change_parameters`) and the sampler / running-best
 protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
                            lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
                            config_dict, scoring_from_toml, strategy_loss, deployed_shape, lo_placement,
-                           iterations_without_improvement, reset!, draw!)
+                           iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

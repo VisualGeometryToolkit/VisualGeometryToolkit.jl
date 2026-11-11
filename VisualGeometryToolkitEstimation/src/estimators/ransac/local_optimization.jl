@@ -62,23 +62,92 @@ struct KeepModel
 end
 (::KeepModel)(_refine_ws, _problem, θ, _weights) = θ
 
+# The stop rule of a `PosteriorIrlsMethod` is a value of the method too, selected in
+# the EM's table (`stop`, [`STOP_TAGS`](@ref)): the incumbent's cost, or the change
+# of the parameters.
+
 """
-    PosteriorIrlsMethod(refine_ws, model_update = WeightedRefine())
+    NoImprovementStop()
+
+The stop rule of a [`PosteriorIrlsMethod`](@ref) that ends the iteration once
+an iteration fails to lower the INCUMBENT's cost
+([`StopWhenNoImprovement`](@ref): from the second iteration under
+[`WeightedRefine`](@ref), the cost Σ wᵢrᵢ²; from the first under
+[`KeepModel`](@ref), the mixture NLL at its `tol`), and returns the incumbent.
+The RANSAC local optimization's rule, and `[mixture_em]`'s. TOML tag
+`"no_improvement"`.
+"""
+struct NoImprovementStop end
+
+"""
+    ParameterChangeStop(rtol)
+
+The stop rule of a [`PosteriorIrlsMethod`](@ref) that ends the iteration once
+an iteration moves the parameters by less than `rtol` RELATIVE,
+`‖p − p_old‖ / ‖p_old‖ < rtol` with `p` the problem's
+[`change_parameters`](@ref) of the iterate, and returns the LAST iterate. For a
+fixed-point iteration with no fixed objective to track — one that re-linearizes
+its residuals at every iterate (`fit_division_camera`), where the cost of one
+iteration is not comparable to the next. TOML tag `"parameter_change"`.
+"""
+struct ParameterChangeStop
+    rtol::Float64
+    function ParameterChangeStop(rtol::Real)
+        (isfinite(rtol) && rtol >= 0) || throw(ArgumentError("ParameterChangeStop: rtol must be finite and ≥ 0, got $rtol"))
+        return new(Float64(rtol))
+    end
+end
+
+"""
+    change_parameters(problem, θ) -> AbstractVector
+
+The parameters of the model `θ` that [`ParameterChangeStop`](@ref) compares
+between iterations — a problem's own measure of how far an iteration moved its
+model (`fit_division_camera`'s: the focal length and the division coefficients,
+pixels). The default is the model's `parameter_vector`.
+"""
+change_parameters(_problem, θ) = parameter_vector(θ)
+
+"""
+    StopWhenParameterChangeLess(rtol)
+
+`:converged` once the last iteration moved the problem's
+[`change_parameters`](@ref) by less than `rtol` relative to their previous
+value. The criterion of [`ParameterChangeStop`](@ref).
+"""
+struct StopWhenParameterChangeLess <: StoppingCriterion
+    rtol::Float64
+end
+function stop_reason(c::StopWhenParameterChangeLess, state, method, prob, θ, θ_old, iter)
+    p, p_old = change_parameters(prob, θ), change_parameters(prob, θ_old)
+    Δ = sqrt(sum(abs2(a - b) for (a, b) in zip(p, p_old))) / max(sqrt(sum(abs2, p_old)), eps())
+    return Δ < c.rtol ? :converged : :continue
+end
+# A failed model block (θ = `nothing`) is `StopWhenSolveFailed`'s to end.
+stop_reason(::StopWhenParameterChangeLess, state, method, prob, ::Nothing, θ_old, iter) = :continue
+
+"""
+    PosteriorIrlsMethod(refine_ws, model_update = WeightedRefine(), stop = NoImprovementStop())
 
 The block-coordinate method of the posterior-weight iteration (VGC
 `block_coordinate_descent!`): the model block is `model_update(refine_ws, problem,
 θ, robust_weight(state.rws))` ([`WeightedRefine`](@ref) or
 [`KeepModel`](@ref)); the residuals, nuisance and weight blocks are the
-likelihood's. `refine_ws` is the workspace the model update hands `refine!`
+likelihood's; `stop` the stop rule and the result ([`NoImprovementStop`](@ref):
+the incumbent, the RANSAC local optimization's; [`ParameterChangeStop`](@ref):
+the last iterate). `refine_ws` is the workspace the model update hands `refine!`
 (`nothing` when the model is held). The state is a `PosteriorIrlsState` built
 from a seeded posterior and its residual buffers — by the consensus seed
-([`posterior_irls!`](@ref)) or by the caller.
+([`posterior_irls!`](@ref)) or by the caller. A [`MixtureEmConfig`](@ref)
+states `model_update` and `stop` in its table.
 """
-struct PosteriorIrlsMethod{W, U} <: AbstractBlockCoordinateMethod
+struct PosteriorIrlsMethod{W, U, S} <: AbstractBlockCoordinateMethod
     lo_ws::W
     model_update::U
+    stop::S
 end
 PosteriorIrlsMethod(refine_ws) = PosteriorIrlsMethod(refine_ws, WeightedRefine())
+PosteriorIrlsMethod(refine_ws, model_update) = PosteriorIrlsMethod(refine_ws, model_update, NoImprovementStop())
 
 mutable struct PosteriorIrlsState{M, T}
     rws::PosteriorWeightState
@@ -227,6 +296,13 @@ stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel}) = StopWhenNoImprovem
 function block_coordinate_result(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter) where {M, T}
     return lo_estimate(state.best.value, stop_reason; iterations = final_iter)
 end
+
+# The parameter-change rule: its criterion, and the LAST iterate as the result (on
+# `:solve_failed`, the last model the model block produced).
+stopping_criterion(m::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
+stopping_criterion(m::PosteriorIrlsMethod{<:Any, KeepModel, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
+block_coordinate_result(::PosteriorIrlsState, ::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter) =
+    lo_estimate(θ, stop_reason; iterations = final_iter)
 
 """
     posterior_irls!(likelihood, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,

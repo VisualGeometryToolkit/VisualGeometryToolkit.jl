@@ -115,9 +115,16 @@ motion_pairs       = "consecutive"
 local_optimization = { type = "irls", loss = "tls" }
 
 [fit_division_camera]
-ncoef             = 1
-max_iter          = 30
-outlier_halfwidth = 20.0         # px — the uniform outlier half-width, NOT the residual scale
+ncoef = 1
+# The E-step: the shared Student-t + uniform scorer's posterior (`scoring_from_toml`, problem
+# DivisionCameraProblem). Its outlier_halfwidth (px) is the uniform outlier half-width, NOT the
+# residual scale.
+scoring    = { type = "student_t_uniform", outlier_halfwidth = 20.0, scale_prior = "jeffreys", label_prior = "flat" }
+# The loop: the shared posterior-weight iteration (`mixture_em_from_toml`) — the stack refitted
+# each iteration, at most 30 of them (the branch audit included), stopped on the relative change of
+# (f, k) and returning the LAST iterate: every iteration re-whitens at the previous solution, so no
+# cost is comparable between iterations. The inlier prior is held at 1/2.
+mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop = { type = "parameter_change", rtol = 1.0e-9 }, nuisance = { scale = "estimated", nu = "estimated", inlier_prior = { type = "fixed_prior", inlier_prior = 0.5 } } }
 # The branch audit's trimmed depth refits (`_branch_residual`): each trim keeps
 # the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
 # lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
@@ -260,6 +267,10 @@ dg             = 1               # the residual codimension (χ² degrees of fre
 [mixture_em]
 max_iter = 200
 model_update = { type = "keep_model", tol = 1.0e-10 }
+# the stop rule: "no_improvement" (the incumbent's cost — under keep_model its NLL at `tol` —
+# returning the incumbent) or { type = "parameter_change", rtol = … } (the relative change of the
+# parameters, returning the last iterate)
+stop = "no_improvement"
 nuisance = { scale = "estimated", inlier_prior = "estimated", nu = "estimated" }
 
 # -----------------------------------------------------------------------------

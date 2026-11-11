@@ -22,7 +22,11 @@ The RANSAC LO refinement uses the loop via [`PosteriorIrlsMethod`](@ref)
 LocalOptimizationDoneRight's Student-t + uniform IRLS). Its model block is a bound, named update —
 [`WeightedRefine`](@ref) (the problem's weighted `refine!`, the default) or
 [`KeepModel`](@ref) (the model held: EM of the noise model on fixed residuals,
-stopping on the mixture NLL) — and its state a [`PosteriorIrlsState`](@ref)
+stopping on the mixture NLL) — its stop rule a value too —
+[`NoImprovementStop`](@ref) (the incumbent's cost, returning the incumbent: the
+RANSAC local optimization's) or [`ParameterChangeStop`](@ref) (the relative
+change of the problem's [`change_parameters`](@ref), returning the last iterate:
+`fit_division_camera`'s) — and its state a [`PosteriorIrlsState`](@ref)
 built from a seeded posterior and its residual buffers.
 
 ```@docs
@@ -33,6 +37,10 @@ KeepModel
 LossPlainWeights
 StopWhenNoImprovement
 iterations_without_improvement
+NoImprovementStop
+ParameterChangeStop
+StopWhenParameterChangeLess
+change_parameters
 ```
 
 ## Classifying a held model's residuals

@@ -28,10 +28,14 @@ fit_radial_camera
 
 `fit_division_camera` fits a camera with a division lens model to several
 board views at once. `division_camera_step` is the model update it repeats
-under its current weights.
+under its current weights. The robust loop is the stack's shared one: the
+posterior of a `StudentTUniformScoring` (the `scoring` keyword) on the
+posterior-weight iteration of a `MixtureEmConfig` (the `mixture_em` keyword),
+over the stack as a `DivisionCameraProblem`.
 
 ```@docs
 fit_division_camera
+DivisionCameraProblem
 division_camera_step
 DivisionCameraState
 DivisionCameraError

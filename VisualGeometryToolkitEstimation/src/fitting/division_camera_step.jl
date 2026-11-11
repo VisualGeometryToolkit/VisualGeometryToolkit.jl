@@ -937,9 +937,9 @@ The robust driver's iteration 0 is this step at its seed,
 
     N = CspondNormalization(DivisionCameraState, views; center)
     CameraModel(division_camera_step(N, radial_cameras, views; ncoef, whiten_at = focal_seed))
-    estimate(fit_division_camera(radial_cameras, views; ncoef, focal_seed, max_iter = 0))
 
-the same camera, bit for bit. For a converged estimate call the robust driver.
+(`fit_division_camera` builds the same normalization). For a converged estimate
+call the robust driver.
 
 Units: the board points are plain numbers. The radial cameras and the board
 poses carry the board plane's unit, which neither a matrix nor this result

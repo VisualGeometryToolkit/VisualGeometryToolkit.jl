@@ -14,7 +14,7 @@
 # =============================================================================
 
 """
-    MixtureEmConfig(; model_update, nuisance, max_iter)
+    MixtureEmConfig(; model_update, nuisance, stop, max_iter)
 
 The EM of the Student-t + uniform mixture: the model update
 ([`WeightedRefine`](@ref) or [`KeepModel`](@ref)`(tol)`, whose `tol` is the
@@ -22,28 +22,38 @@ relative mixture-NLL decrease below which the EM has converged), the nuisance
 parts' update policies `nuisance = (; scale, inlier_prior, nu)` (each
 `Estimated()`, or held: VisualGeometryToolkitCore's `FixedS2(s2)`,
 `FixedPrior(π)` and `FixedNu(ν)`, and for ν also `ConsensusDof()` — held at the consensus seed's
-posterior-predictive dof) and the iteration cap. Every default reads the `[mixture_em]`
-table of `configs/default.toml`; [`mixture_em_from_toml`](@ref) loads a
-caller's table and [`config_dict`](@ref) writes one back.
+posterior-predictive dof), the stop rule `stop` ([`NoImprovementStop`](@ref): the
+incumbent's cost, returning the incumbent; [`ParameterChangeStop`](@ref)`(rtol)`:
+the relative change of the parameters, returning the last iterate) and the
+iteration cap. Every default reads the `[mixture_em]` table of
+`configs/default.toml` (every key is required there: none is defaulted in code);
+[`mixture_em_from_toml`](@ref) loads a caller's table and [`config_dict`](@ref)
+writes one back.
 """
-struct MixtureEmConfig{U, S, P, N}
+struct MixtureEmConfig{U, S, P, N, T}
     model_update::U
     nuisance::@NamedTuple{scale::S, inlier_prior::P, nu::N}
+    stop::T
     max_iter::Int
     function MixtureEmConfig(model_update::U, nuisance::@NamedTuple{scale::S, inlier_prior::P, nu::N},
-                             max_iter::Integer) where {U, S, P, N}
+                             stop::T, max_iter::Integer) where {U, S, P, N, T}
         max_iter >= 1 || throw(ArgumentError("MixtureEmConfig: max_iter must be ≥ 1, got $max_iter"))
-        return new{U, S, P, N}(model_update, nuisance, Int(max_iter))
+        return new{U, S, P, N, T}(model_update, nuisance, stop, Int(max_iter))
     end
 end
-MixtureEmConfig(model_update, nuisance::NamedTuple, max_iter::Integer) =
+MixtureEmConfig(model_update, nuisance::NamedTuple, stop, max_iter::Integer) =
     MixtureEmConfig(model_update, (; scale = nuisance.scale, inlier_prior = nuisance.inlier_prior, nu = nuisance.nu),
-                    max_iter)
+                    stop, max_iter)
 MixtureEmConfig(;
     model_update = _model_update_from_toml(_dflt("mixture_em", "model_update"), "mixture_em.model_update"),
     nuisance = _nuisance_from_toml(_dflt("mixture_em", "nuisance"), "mixture_em.nuisance"),
+    stop = _stop_from_toml(_dflt("mixture_em", "stop"), "mixture_em.stop"),
     max_iter::Integer = _dflt("mixture_em", "max_iter"),
-) = MixtureEmConfig(model_update, nuisance, max_iter)
+) = MixtureEmConfig(model_update, nuisance, stop, max_iter)
+
+# The EM's block-coordinate method on the refit workspace `refine_ws` (`nothing`
+# when the model is held, or when the problem carries its own refit).
+PosteriorIrlsMethod(refine_ws, config::MixtureEmConfig) = PosteriorIrlsMethod(refine_ws, config.model_update, config.stop)
 
 # A held model's distances as a problem: the residual block of the iteration
 # re-reads them through the protocol's distance hook (`≥ 0`), and nothing
@@ -119,7 +129,7 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}, scoring::Abstra
     # The held "model" is the residual vector itself: the incumbent the loop
     # tracks, never moved (`KeepModel`).
     state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
-    res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config.model_update),
+    res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config),
                                     _FixedDistances(r), r; max_iter = config.max_iter)
     ss, k = 0.0, 0
     for i in 1:n

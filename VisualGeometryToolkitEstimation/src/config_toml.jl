@@ -452,6 +452,18 @@ const NUISANCE_TAGS = (
                      paths = [r"^(.*\.)?nuisance\.nu(\.type)?$"]),
 )
 
+"""
+    STOP_TAGS
+
+The stop-rule registry of the posterior-weight EM (VisualGeometryToolkitCore's
+`TagRegistry`): `"no_improvement"` ([`NoImprovementStop`](@ref): the incumbent's
+cost, returning the incumbent) and `"parameter_change"`
+([`ParameterChangeStop`](@ref), `{ type = "parameter_change", rtol = … }`: the
+relative change of the parameters, returning the last iterate).
+"""
+const STOP_TAGS = TagRegistry(:stop, "Stop", "no_improvement" => NoImprovementStop, "parameter_change" => ParameterChangeStop;
+                              paths = [r"^(.*\.)?mixture_em\.stop(\.type)?$"])
+
 function _tagged_from_toml(tags, v, section::AbstractString)
     known = sort(collect(keys(tags)))
     tag, d = v isa AbstractString ? (v, nothing) :
@@ -488,6 +500,7 @@ function _tagged_to_toml(tags, x)
 end
 
 _model_update_from_toml(v, section::AbstractString) = _tagged_from_toml(MODEL_UPDATE_TAGS, v, section)
+_stop_from_toml(v, section::AbstractString) = _tagged_from_toml(STOP_TAGS, v, section)
 
 function _nuisance_from_toml(d, section::AbstractString)
     d isa AbstractDict || throw(ArgumentError("[$section] must be a table of $(join(keys(NUISANCE_TAGS), ", "))"))
@@ -501,11 +514,13 @@ function _nuisance_from_toml(d, section::AbstractString)
 end
 
 toml_field(c::MixtureEmConfig, ::Val{:model_update}) = _tagged_to_toml(MODEL_UPDATE_TAGS, c.model_update)
+toml_field(c::MixtureEmConfig, ::Val{:stop}) = _tagged_to_toml(STOP_TAGS, c.stop)
 toml_field(c::MixtureEmConfig, ::Val{:nuisance}) =
     Dict{String, Any}(String(k) => _tagged_to_toml(NUISANCE_TAGS[k], c.nuisance[k]) for k in keys(NUISANCE_TAGS))
 
 _from_toml(::Type{<:MixtureEmConfig}, ::Val{:model_update}, v) = _model_update_from_toml(v, "mixture_em.model_update")
 _from_toml(::Type{<:MixtureEmConfig}, ::Val{:nuisance}, v) = _nuisance_from_toml(v, "mixture_em.nuisance")
+_from_toml(::Type{<:MixtureEmConfig}, ::Val{:stop}, v) = _stop_from_toml(v, "mixture_em.stop")
 _from_toml(::Type{<:MixtureEmConfig}, ::Val{:max_iter}, v) = convert(Int, v)
 
 """

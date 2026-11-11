@@ -319,9 +319,9 @@ end
     # the sensor's grid and its content where the sensor saw it: a 180° turn keeps H × W, so the
     # content is what tells it apart.
     H, W = 48, 64
-    data = UInt16[(i <= H ÷ 2 && j <= W ÷ 2) ? 2000 : 30000 for i in 1:H, j in 1:W]
-    buf = collect(reinterpret(UInt8, vec(permutedims(data))))
-    function demosaic_with_flip(flip)
+    quadrants(H, W) = collect(reinterpret(UInt8, vec(permutedims(UInt16[(i <= H ÷ 2 && j <= W ÷ 2) ? 2000 : 30000 for i in 1:H, j in 1:W]))))
+    function demosaic_with_flip(flip, H = H, W = W)
+        buf = quadrants(H, W)
         lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
         try
             rc = @ccall libraw.libraw_open_bayer(lr::Ptr{Cvoid}, buf::Ptr{UInt8}, length(buf)::Cuint, W::Cushort, H::Cushort,
@@ -344,11 +344,14 @@ end
             @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
         end
     end
-    # the demosaic copies the visible photosites only once, into its image: never the mosaic too (its checks read
-    # LibRaw's layout, `_mosaic_layout`); measured warm, on a second handle
-    let (m, rgb, _, _) = demosaic_with_flip(3), (_, _, _, a) = demosaic_with_flip(3)
-        @test a < sizeof(rgb) + sizeof(m.raw)
-    end
+    # the demosaic copies the visible photosites only once, into its image (6 bytes a pixel: 3 × UInt16), never the
+    # mosaic too (2 more: its checks read LibRaw's layout, `_mosaic_layout`). A call also allocates a fixed part that
+    # does not grow with the image — the per-channel black table (LibRaw's 4104 cblack entries, 33 kB), the metadata's
+    # strings and records — which dominates at 48 × 64 (measured on dgx01: 95 kB against an 18 kB image), so the
+    # copies are told apart by the growth: warm (the first call compiles), at 48 × 64 and at 4× the pixels
+    demosaic_with_flip(3)
+    small = demosaic_with_flip(3); large = demosaic_with_flip(3, 2H, 2W)
+    @test (large[4] - small[4]) / (3H * W) < 7                       # bytes per added pixel: the image's 6, not 6 + 2
     for flip in (3, 5, 6)
         m, rgb, md, _ = demosaic_with_flip(flip)
         L = VGF._demosaic_image(rgb, md, 1.0, nothing)

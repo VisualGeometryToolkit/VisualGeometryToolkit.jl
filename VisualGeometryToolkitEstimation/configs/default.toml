@@ -133,27 +133,27 @@ xtol = 1.0e-12
 # (fit_camera(SplineLens, …)): its held-out round-trip tolerance, pixels.
 forward_tolerance = 1.0e-3
 [fit_rotation]
-# The reweighted Kabsch of `fit_rotation`. The loss's width follows the robust
-# scale of the residual angles at every iteration (`scale_multiple` × σ̂, the
-# shape's efficiency constant at codimension 2 unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 50                    # reweight-and-solve iterations at most
-tol      = 1.0e-12               # rad: converged when an iteration moves the rotation by less
+# The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, width,
+# max_iter — the reweight-and-solve iterations at most), read by
+# local_optimization_from_toml. The loss's width follows the robust scale of the
+# residual angles at every iteration (no width key: the shape's efficiency
+# constant at codimension 2; `scale_multiple = m`: m × σ̂).
+local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
 [fit_rotation_averaging]
 # The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): the
 # loss's width follows the robust scale of the edges' residual angles
 # (`scale_multiple` × σ̂, the shape's efficiency constant at codimension 3
-# unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 100                   # reweight-and-solve iterations at most
-tol      = 1.0e-12               # rad: converged when an iteration moves every frame by less
+# unless the strategy gives one). An Irls strategy, read by local_optimization_from_toml.
+local_optimization = { type = "irls", loss = "huber", max_iter = 100 }
+tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
 # The reweighted least squares of `fit_linear`. The loss's width follows the
 # robust (MAD) scale of the residuals at every iteration (`scale_multiple` × σ̂,
-# the shape's efficiency constant at codimension 1 unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 50                    # reweight-and-solve iterations at most
-tol      = 1.0e-12               # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
+# the shape's efficiency constant at codimension 1 unless the strategy gives
+# one). An Irls strategy, read by local_optimization_from_toml.
+local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC

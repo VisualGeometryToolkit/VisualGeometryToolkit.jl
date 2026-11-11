@@ -5,6 +5,20 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: `fit_linear`, `fit_rotation` and `fit_rotation_averaging` take the stack's one robust-estimation schema,
+  an `Irls{K}` strategy** (`local_optimization = Irls{HuberShape}(…)`; owner policy, robust-schema audit). Their
+  private keywords `loss`, `scale_multiple` and `max_iter` are gone (a `MethodError`): the loss is the strategy's `K`,
+  the iteration cap its `max_iter`, the width its width mode — `scale_multiple = m` (m·σ̂ in the loss's currency,
+  `plain_scale_multiple`: a Geman–McClure or Cauchy multiple is now a half-weight depth, `m_old =
+  decision_width(shape, m_new)`), `loss_width = w` (new: an absolute width) or none (the shape's efficiency
+  constant at the fit's codimension, as before; a fit has no scorer to follow). The width resolves through
+  `lo_loss` (Core's `loss_at`) at the fit's σ̂. TOML: `[fit_linear]`, `[fit_rotation]` and
+  `[fit_rotation_averaging]` replace `loss = "huber"` and `max_iter` with `local_optimization = { type = "irls",
+  loss = "huber", max_iter = … }`, read by `local_optimization_from_toml`; `tol` stays. The private weight step
+  `_irls_weights!`/`_irls_loss` is replaced by one that resolves the strategy (`_fit_weights!`). Results are
+  bit-identical to the previous release (15 reference calls: every loss, width and iteration cap, the estimate,
+  the counters and the metadata compared with `isequal`).
+
 - **New: board poses in `refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views)`** (owner
   decision 20): several rigid boards, each board → world pose a variable of the same bundle (one more pose chart of the
   same NLLSsolver problem and assembler as the camera and the view poses), the correspondences keyed by

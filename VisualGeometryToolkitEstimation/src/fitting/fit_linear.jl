@@ -10,12 +10,12 @@
 #   repeat    the residuals rᵢ = yᵢ − aᵢᵀx; the noise scale σ̂ from their
 #             median absolute value (`median|r| / √chisq_median(1)`, the
 #             normal MAD scale 1.4826·median|r|) over the rows of positive
-#             prior weight; the loss at width `scale_multiple · σ̂` (`deploy`,
-#             default multiple the shape's efficiency constant at codimension
-#             1 — Huber's 1.345); its IRLS weights times the prior; the
-#             weighted least squares.
+#             prior weight; the loss of the `Irls{K}` strategy at σ̂ (its
+#             width mode, or with none the shape's efficiency constant at
+#             codimension 1 — Huber's 1.345; irls_weights.jl); its IRLS
+#             weights times the prior; the weighted least squares.
 #   stop      when an iteration moves x by less than `tol` (max-norm,
-#             relative to max(1, ‖x‖∞)), or at `max_iter`.
+#             relative to max(1, ‖x‖∞)), or at the strategy's `max_iter`.
 #
 # Hoisted from RadiometricCamera's rooftop vignetting fit
 # (experiments/vignetting/panorama_stitching/rotation_vignetting.py
@@ -39,7 +39,7 @@ struct LinearFitMetadata
 end
 
 """
-    fit_linear(A, y[, prior]; loss, scale_multiple = nothing, max_iter, tol)
+    fit_linear(A, y[, prior]; local_optimization, tol)
         -> FitResult{Vector{Float64}, LinearFitMetadata}
 
 The robust coefficients `x` of `y ≈ A·x` (`A` an `m × n` matrix, `y` an
@@ -47,21 +47,24 @@ The robust coefficients `x` of `y ≈ A·x` (`A` an `m × n` matrix, `y` an
 itself with the prior-weighted least squares — iterating a reweighted least
 squares: residuals `rᵢ = yᵢ − aᵢᵀx`, the robust scale
 `σ̂ = median|r| / √chisq_median(1)` (the normal MAD scale, over the rows of
-positive prior weight), the weights of `loss` (an `AbstractLossShape`, e.g.
-`HuberShape()`) at width `scale_multiple · σ̂`, times the prior, and the
-weighted least squares.
+positive prior weight), the weights of the strategy's loss at σ̂, times the
+prior, and the weighted least squares.
 
 - `prior` — fixed non-negative row weights (a bootstrap's resampling counts, a
   previous fit's weights); a zero weight drops its row. Default all ones.
-- `loss` — the robust loss shape (default the TOML's, Huber).
-- `scale_multiple` — the width as a multiple of σ̂; `nothing` takes the
-  shape's efficiency constant at codimension 1 (`deploy`'s default; Huber's
-  1.345), which only an M-estimator (`AbstractMEstimator`) has: any other
-  shape requires it (`ArgumentError`).
-- `max_iter`, `tol` — at most `max_iter` iterations after the seed; converged
-  when one moves `x` by less than `tol · max(1, ‖x‖∞)` in the max-norm
-  (defaults: configs/default.toml [fit_linear]). `max_iter = k` makes `k + 1`
-  weighted solves.
+- `local_optimization` — the stack's robust-estimation strategy, an
+  [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
+  configs/default.toml `[fit_linear] local_optimization`, Huber;
+  `local_optimization_from_toml` reads a table). `scale_multiple = m` puts
+  the width at `m · σ̂` (in the loss's currency, [`plain_scale_multiple`](@ref)),
+  `loss_width = w` at `w`; with no width — a fit has no scorer to follow — the
+  shape's efficiency constant at codimension 1 (Huber's 1.345), which only an
+  M-estimator (`AbstractMEstimator`) has: any other shape requires a width
+  (`ArgumentError`). At most `max_iter` iterations after the seed:
+  `Irls{HuberShape}(max_iter = k)` makes `k + 1` weighted solves.
+- `tol` — converged when an iteration moves `x` by less than
+  `tol · max(1, ‖x‖∞)` in the max-norm (default configs/default.toml
+  [fit_linear]).
 
 The least squares is a column-pivoted QR, so a column that no row with weight
 reaches (an unsupported basis function) gets a basic solution's value, not an
@@ -76,17 +79,13 @@ weights, the residuals and σ̂ at the returned coefficients.
 function fit_linear(
         A::AbstractMatrix{<:Real}, y::AbstractVector{<:Real},
         prior::AbstractVector{<:Real} = ones(length(y));
-        loss::VgtkCore.AbstractLossShape = LOSS_TAGS[_dflt("fit_linear", "loss")](),
-        scale_multiple::Union{Nothing, Real} = nothing,
-        max_iter::Integer = _dflt("fit_linear", "max_iter"),
+        local_optimization::Irls = _fit_local_optimization("fit_linear"),
         tol::Real = _dflt("fit_linear", "tol"),
     )
     m, n = size(A)
     length(y) == m || throw(DimensionMismatch("fit_linear: $m rows of A, $(length(y)) values of y"))
     length(prior) == m || throw(DimensionMismatch("fit_linear: $m rows, $(length(prior)) prior weights"))
-    loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(
-        ArgumentError("fit_linear: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`")
-    )
+    lo = _check_fit_width("fit_linear", local_optimization)
     p = Float64.(VgtkCore.check_weights(collect(prior)))
     Af = Matrix{Float64}(A); yf = Vector{Float64}(y)
     x = _weighted_lstsq(Af, yf, p)
@@ -95,9 +94,9 @@ function fit_linear(
     w = copy(p)
     retcode = :max_iterations
     iter = 0
-    while iter < max_iter
+    while iter < lo.max_iter
         iter += 1
-        σ = _irls_weights!(w, abs.(r), p, loss, scale_multiple, 1)
+        σ = _fit_weights!(w, abs.(r), p, lo, 1)
         if iszero(σ)                        # an exact fit: the weights are the prior's, x stands
             retcode = :converged
             break
@@ -112,7 +111,7 @@ function fit_linear(
             break
         end
     end
-    σ = _irls_weights!(w, abs.(r), p, loss, scale_multiple, 1)   # the metadata at the returned coefficients
+    σ = _fit_weights!(w, abs.(r), p, lo, 1)   # the metadata at the returned coefficients
     used = count(>(0), p)
     rms = sqrt(sum(abs2(r[i]) for i in eachindex(r) if p[i] > 0; init = 0.0) / max(used, 1))
     return FitResult(x, retcode, iter, rms, used, LinearFitMetadata(w, r, σ))

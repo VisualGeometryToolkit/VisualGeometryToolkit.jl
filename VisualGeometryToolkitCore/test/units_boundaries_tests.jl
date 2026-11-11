@@ -7,6 +7,7 @@
 # =============================================================================
 
 @testitem "units boundaries" begin
+    using VisualGeometryToolkitCore: thrown_message
     using Test
     using StaticArrays, Rotations, LinearAlgebra
     using FlexUnits: Quantity
@@ -122,19 +123,18 @@
     @testset "a plain camera of a non-central grid model is refused, naming the fix" begin
         g0 = VgtkCore.NoncentralSplineModel(CameraModel(CameraCalibrationMat(SMatrix{3, 3}(50.0, 0, 0, 0, 50.0, 0, 32.0, 24.0, 1.0))), (64, 48); grid_size = (5, 4))
         gn = VgtkCore.with_points(g0, [Vec3{Float64}(1.0e-4gx, -1.0e-4gy, 5.0e-5) for gy in 1:4, gx in 1:5])
-        msg(f) = (err = try f(); nothing catch e; e end; err isa ArgumentError ? sprint(showerror, err) : err)
         # the grid is metres; a plain map is "in the caller's unit": ambiguous, refused
         for f in (() -> PosedCamera(gn, EuclideanMap(R1, t1 .* 1000)), () -> PosedCamera(gn, pose(PosedCamera(gn, E1u)) |> X -> ustrip(m, X)))
-            s = msg(f)
-            @test s isa String && occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
+            s = thrown_message(f)
+            @test occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
         end
         # the physical camera is the plain-metres camera's call, and stripping it in another unit is refused
         Cu = PosedCamera(gn, E1u)
         @test has_units(Cu)
         @test ustrip(m, Cu).extrinsics === ustrip(m, E1u)
         @test has_units(with_unit(ustrip(m, Cu), m))
-        @test msg(() -> ustrip(mm, Cu)) isa String
-        @test msg(() -> with_unit(ustrip(m, Cu), mm)) isa String
+        @test_throws ArgumentError ustrip(mm, Cu)
+        @test_throws ArgumentError with_unit(ustrip(m, Cu), mm)
         @test with_unit(EuclideanMap(R1, t1), m) == E1u     # a plain map takes its unit
         @test with_unit(EuclideanMap(R1, t1 .* 1000), mm).R === R1
     end

@@ -1,4 +1,5 @@
 @testitem "target_homographies" begin
+    using VisualGeometryToolkitCore: thrown_message
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: radial_homography, homography, geom, relabel, unlabel
@@ -109,13 +110,12 @@
     end
 
     @testset "validation refuses what TargetPoses refuses, with its messages" begin
-        msg(f) = try; f(); nothing; catch e; e isa ArgumentError ? e.msg : rethrow(); end
         for (a, b) in (
                 (() -> TargetHomographies{PixelFrame{:colmap}}(frames; images = Dict(2 => "b.png")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); images = Dict(2 => "b.png"))),
                 (() -> TargetHomographies{PixelFrame{:colmap}}(frames; times = Dict(1 => 0.0)), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); times = Dict(1 => 0.0))),
                 (() -> TargetHomographies{PixelFrame{:colmap}}(frames; sensors = Dict(7 => "cam")), () -> TargetPoses{CameraFrame}(Dict(1 => Dict(:b => X)); sensors = Dict(7 => "cam"))),
             )
-            @test msg(a) !== nothing && msg(a) == msg(b)
+            @test !isempty(thrown_message(a)) && thrown_message(a) == thrown_message(b)
         end
         @test TargetHomographies{PixelFrame{:colmap}}(frames; times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00").times == Dict(1 => 0.5)
         @test isempty(TargetHomographies{PixelFrame{:colmap}}(Dict{Int, Dict{Symbol, Hu}}()))

@@ -1,4 +1,5 @@
 @testitem "rig" begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
@@ -121,13 +122,12 @@
             @test_throws ArgumentError StereoRig(u, u, E)   # checked: members must be posed
             @test_throws ArgumentError StereoRig(u, u)       # computed from the members
             # the frame-deducing Rig(members) refuses with the one check site's reasons
-            msg(f) = try f(); "" catch e; e isa ArgumentError ? e.msg : "" end
             unposed(i) = "Rig: sensor $i is an unposed camera (a BoundedCamera) — a rig member is posed: " *
                          "`PosedCamera(model, X)` with X labeled `F → ViewFrame{id}`"
             posed = PosedCamera(cm, relabel(WorldFrame, ViewFrame{:a}, E))
-            @test msg(() -> Rig(())) == "Rig: at least one sensor required"
-            @test msg(() -> Rig((u,))) == unposed(1)
-            @test msg(() -> Rig((posed, u))) == unposed(2)
+            @test thrown_message(() -> Rig(())) == "Rig: at least one sensor required"
+            @test thrown_message(() -> Rig((u,))) == unposed(1)
+            @test thrown_message(() -> Rig((posed, u))) == unposed(2)
             @test Rig((posed,)) isa Rig{WorldFrame}
         end
 

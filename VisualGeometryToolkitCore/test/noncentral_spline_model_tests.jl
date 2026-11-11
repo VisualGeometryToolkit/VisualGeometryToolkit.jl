@@ -1,4 +1,5 @@
 @testitem "NoncentralSplineModel: the non-central grid on ChartSpline" setup = [SplineAxis] begin
+    using VisualGeometryToolkitCore: thrown_message
     using Test
     using StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -239,16 +240,15 @@
         R1 = RotMatrix{3, Float64}(RotXYZ(0.01, -0.02, 0.005))
         t1 = SVector(0.012, -0.004, 0.0021)
         E1u = EuclideanMap(R1, t1 .* m)
-        msg(f) = (err = try f(); nothing catch e; e end; err isa ArgumentError ? sprint(showerror, err) : err)
-        s = msg(() -> PosedCamera(nc, EuclideanMap(R1, t1 .* 1000)))
-        @test s isa String && occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
-        @test msg(() -> PosedCamera(nc, RotationMap(R1))) isa String
+        s = thrown_message(() -> PosedCamera(nc, EuclideanMap(R1, t1 .* 1000)))
+        @test occursin("t .* m", s) && occursin("with_unit(extrinsics, mm)", s)
+        @test_throws ArgumentError PosedCamera(nc, RotationMap(R1))
         Cu = PosedCamera(nc, E1u)
         @test has_units(Cu)
         @test ustrip(m, Cu).extrinsics === ustrip(m, E1u)
         @test has_units(with_unit(ustrip(m, Cu), m))
-        @test msg(() -> ustrip(mm, Cu)) isa String
-        @test msg(() -> with_unit(ustrip(m, Cu), mm)) isa String
+        @test_throws ArgumentError ustrip(mm, Cu)
+        @test_throws ArgumentError with_unit(ustrip(m, Cu), mm)
         # the physical camera projects a point in metres as the plain model does
         Xw = SVector(0.05, -0.02, 1.2) .* m
         @test project(Cu, Xw) == project(nc, ustrip(m, E1u)(SVector(0.05, -0.02, 1.2)))

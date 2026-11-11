@@ -286,32 +286,32 @@ end
 end
 
 @testitem "downstream_hoists: convert_field with the key, intersects" begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: convert_field, intersects, Circle, Point2, Rect2
     using LinearAlgebra: dot, norm
     @test convert_field(NTuple{2, Float64}, [1, 2], "a.b") === (1.0, 2.0)
     @test convert_field(Vector{Int}, [1, 2.0], "a.v") == [1, 2]
-    msg(f) = try f(); "" catch e; e.msg end
-    @test occursin("`a.t` needs 2 values, got 3", msg(() -> convert_field(NTuple{2, Float64}, [1, 2, 3], "a.t")))
-    @test occursin("`a.v` = \"x\" is not a Vector{Float64} (an array)", msg(() -> convert_field(Vector{Float64}, "x", "a.v")))
-    @test occursin("`a.f` = \"x\" is not a Float64", msg(() -> convert_field(Float64, "x", "a.f")))
-    @test occursin("`a.d` is a value, not a table", msg(() -> convert_field(Float64, Dict("k" => 1), "a.d")))
-    @test occursin("`a.i`", msg(() -> convert_field(Int, 1.5, "a.i")))             # an InexactError, named
+    @test occursin("`a.t` needs 2 values, got 3", thrown_message(() -> convert_field(NTuple{2, Float64}, [1, 2, 3], "a.t")))
+    @test occursin("`a.v` = \"x\" is not a Vector{Float64} (an array)", thrown_message(() -> convert_field(Vector{Float64}, "x", "a.v")))
+    @test occursin("`a.f` = \"x\" is not a Float64", thrown_message(() -> convert_field(Float64, "x", "a.f")))
+    @test occursin("`a.d` is a value, not a table", thrown_message(() -> convert_field(Float64, Dict("k" => 1), "a.d")))
+    @test occursin("`a.i`", thrown_message(() -> convert_field(Int, 1.5, "a.i")))             # an InexactError, named
     # a static-vector field converts by its constructor, as the unkeyed form does
     using StaticArrays: SVector
     @test convert_field(SVector{2, Float64}, [1, 2], "a.s") === SVector(1.0, 2.0) === convert_field(SVector{2, Float64}, [1, 2])
     # (the type prints module-qualified where StaticArrays is not loaded in Main: match its two parts)
-    m3 = msg(() -> convert_field(SVector{2, Float64}, [1, 2, 3], "a.s"))
+    m3 = thrown_message(() -> convert_field(SVector{2, Float64}, [1, 2, 3], "a.s"))
     @test startswith(m3, "`a.s` = [1, 2, 3] is not a ") && endswith(m3, "SVector{2, Float64}")
-    mab = msg(() -> convert_field(SVector{2, Float64}, "ab", "a.s"))
+    mab = thrown_message(() -> convert_field(SVector{2, Float64}, "ab", "a.s"))
     @test startswith(mab, "`a.s` = \"ab\" is not a ") && endswith(mab, "SVector{2, Float64} (an array)")
     # a Vararg tuple takes any length, element by element; its errors name the key
     @test convert_field(Tuple{Vararg{Float64}}, [1, 2.5, 3], "a.u") === (1.0, 2.5, 3.0)
     @test convert_field(Tuple{Vararg{Float64}}, [], "a.u") === ()
     @test convert_field(Tuple{Int, Vararg{Float64}}, [1, 2], "a.u") === (1, 2.0)
-    @test occursin("`a.u` = \"x\" is not a Float64", msg(() -> convert_field(Tuple{Vararg{Float64}}, [1, "x"], "a.u")))
-    @test occursin("`a.u` = \"x\" is not a Tuple{Vararg{Float64}} (an array)", msg(() -> convert_field(Tuple{Vararg{Float64}}, "x", "a.u")))
-    @test occursin("`a.u`", msg(() -> convert_field(Tuple{Int, Vararg{Float64}}, [], "a.u")))  # too short, named
+    @test occursin("`a.u` = \"x\" is not a Float64", thrown_message(() -> convert_field(Tuple{Vararg{Float64}}, [1, "x"], "a.u")))
+    @test occursin("`a.u` = \"x\" is not a Tuple{Vararg{Float64}} (an array)", thrown_message(() -> convert_field(Tuple{Vararg{Float64}}, "x", "a.u")))
+    @test occursin("`a.u`", thrown_message(() -> convert_field(Tuple{Int, Vararg{Float64}}, [], "a.u")))  # too short, named
     # read_table's default converter on a struct with both
     struct _HoistFields
         s::SVector{2, Float64}

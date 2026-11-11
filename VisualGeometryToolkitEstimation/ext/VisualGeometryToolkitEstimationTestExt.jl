@@ -84,14 +84,40 @@ module TestScenes
     module EpipolarScenes
     using Random: AbstractRNG
     using LinearAlgebra: normalize
-    using StaticArrays: SA, SVector
-    using Rotations: RotZ
+    using StaticArrays: SA, SMatrix, SVector
+    using Rotations: RotXYZ, RotZ
     using VisualGeometryToolkitCore: CameraModel, EssentialMat, Pinhole, Point2, TLSShape, cost, csponds, project, px,
         sampson_residual
     using VisualGeometryToolkitEstimation: EssentialProblem
 
     export box_point, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, truncated_sampson_cost,
-        FPX, CX, CY, ECAM, topx, essential_problem, ecs
+        FPX, CX, CY, ECAM, topx, essential_problem, ecs, PIXEL_PAIRS_K, contaminated_pixel_pairs
+
+    # The pinhole of `contaminated_pixel_pairs` (fx = 800, fy = 820, a 640 × 480 frame).
+    const PIXEL_PAIRS_K = SA[800.0 0 320; 0 820.0 240; 0 0 1]
+
+    """
+        contaminated_pixel_pairs(rng, n; planar) -> Csponds
+
+    `n` pixel pairs of two `PIXEL_PAIRS_K` views, view 2 at `x₂ = R·x₁ + t` (a fixed
+    small rotation, `t = (1, 0.1, 0.05)`): points uniform in `[-1, 1] × [-0.75, 0.75]`
+    at depth 4 (`planar`, a homography scene) or uniform in `[3, 5]`; each view-2
+    pixel, with probability 0.4, replaced by a uniform one in the frame (a gross
+    outlier), else perturbed by 0.5 px. Every draw is made in this order per pair.
+    """
+    function contaminated_pixel_pairs(rng::AbstractRNG, n; planar)
+        K = PIXEL_PAIRS_K
+        Rm = SMatrix{3, 3, Float64, 9}(RotXYZ(0.05, -0.1, 0.03)); t = SA[1.0, 0.1, 0.05]
+        u1 = Point2{Float64}[]; u2 = Point2{Float64}[]
+        for _ in 1:n
+            X = SA[2 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), planar ? 4.0 : 3.0 + 2 * rand(rng)]
+            p1 = K * X; p2 = K * (Rm * X + t)
+            push!(u1, Point2{Float64}(p1[1] / p1[3], p1[2] / p1[3]))
+            push!(u2, rand(rng) < 0.4 ? Point2{Float64}(640 * rand(rng), 480 * rand(rng)) :
+                      Point2{Float64}(p2[1] / p2[3] + 0.5 * randn(rng), p2[2] / p2[3] + 0.5 * randn(rng)))
+        end
+        return csponds(u1, u2)
+    end
 
     """
         box_point(rng; width = 2, height = 1.5, near = 3, far = 5) -> SVector{3}

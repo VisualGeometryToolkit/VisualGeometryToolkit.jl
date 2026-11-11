@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New in `synthetic_scenes()`: `EpipolarScenes.contaminated_pixel_pairs(rng, n; planar)` and `PIXEL_PAIRS_K`**: the
+  contaminated two-view pixel scene of the block-coordinate-descent `Recorded` tests (a homography scene with
+  `planar = true`, else F/E; 40 % gross outliers), which LocalOptimizationDoneRight's recorded-BCD test restated as
+  `two_view`.
+
 - **New in `synthetic_scenes()`: the scene builders downstream tests restated** (LocalOptimizationDoneRight's
   accv2026 test_problem_arms.jl copied them from this package's tests): `PoseScenes.lens_board_scene(rng, camera, R,
   t; σ, n_out)` (the absolute-pose board through a distorting lens), `DivisionBoards.radial_board(rng; f, k, n_out, σ)`

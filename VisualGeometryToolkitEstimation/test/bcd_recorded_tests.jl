@@ -1,4 +1,4 @@
-@testitem "block_coordinate_descent: Recorded == bare, every state" setup = [DivisionBoards] begin
+@testitem "block_coordinate_descent: Recorded == bare, every state" setup = [DivisionBoards, EpipolarScenes] begin
 # =============================================================================
 # VGC's `Recorded` decorator on every block-coordinate state RVG runs: the
 # posterior IRLS (the frozen-loss likelihood of `Irls{K}`; the KeepModel EM of
@@ -17,19 +17,6 @@ using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation
 const VgtkCore = VisualGeometryToolkitCore
 
-K = SA[800.0 0 320; 0 820.0 240; 0 0 1]
-function two_view(rng, n; planar)
-    Rm = SMatrix{3, 3, Float64, 9}(RotXYZ(0.05, -0.1, 0.03)); t = SA[1.0, 0.1, 0.05]
-    u1 = Point2{Float64}[]; u2 = Point2{Float64}[]
-    for _ in 1:n
-        X = SA[2 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), planar ? 4.0 : 3.0 + 2 * rand(rng)]
-        p1 = K * X; p2 = K * (Rm * X + t)
-        push!(u1, Point2{Float64}(p1[1] / p1[3], p1[2] / p1[3]))
-        push!(u2, rand(rng) < 0.4 ? Point2{Float64}(640 * rand(rng), 480 * rand(rng)) :
-                  Point2{Float64}(p2[1] / p2[3] + 0.5 * randn(rng), p2[2] / p2[3] + 0.5 * randn(rng)))
-    end
-    return csponds(u1, u2)
-end
 
 # The consensus set of `model`, as `_locally_optimize_seed!` hands it to the
 # local optimizer (`_lo_on_partition!`), on a workspace composed for `lo`.
@@ -124,9 +111,9 @@ function check_recorded(mk)
 end
 
 problems = (
-    (:H, VgtkEstimation.HomographyProblem(two_view(Xoshiro(101), 300; planar = true))),
-    (:F, VgtkEstimation.FundMatProblem(two_view(Xoshiro(111), 300; planar = false))),
-    (:E, VgtkEstimation.EssentialProblem(CameraModel(K), CameraModel(K), two_view(Xoshiro(121), 300; planar = false))),
+    (:H, VgtkEstimation.HomographyProblem(contaminated_pixel_pairs(Xoshiro(101), 300; planar = true))),
+    (:F, VgtkEstimation.FundMatProblem(contaminated_pixel_pairs(Xoshiro(111), 300; planar = false))),
+    (:E, VgtkEstimation.EssentialProblem(CameraModel(PIXEL_PAIRS_K), CameraModel(PIXEL_PAIRS_K), contaminated_pixel_pairs(Xoshiro(121), 300; planar = false))),
 )
 # The moved strategies' states (the Student-t + uniform and Barron-adaptive
 # IRLS, StuTuBCD, the HQ lifts, GNC, the mixture lifts): LocalOptimizationDoneRight's suite.

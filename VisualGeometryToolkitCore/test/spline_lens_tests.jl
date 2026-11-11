@@ -1,4 +1,4 @@
-@testitem "SplineLens: backward lens equals the old central grid" begin
+@testitem "SplineLens: backward lens equals the old central grid" setup = [SplineAxis] begin
     using Test
     using StaticArrays
     using LinearAlgebra: norm
@@ -23,10 +23,12 @@
     pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2)]
 
     # The largest deviation from a golden 3 × N backprojection where it is finite, and
-    # whether the camera is NaN exactly where the golden value is.
+    # whether the camera is NaN exactly where the golden value is (off the image's far
+    # edge, which the old grid's half-open box did not image: `far_edge_probe`).
     function deviation(c, ref)
         worst, same_nan = 0.0, true
         for (i, u) in enumerate(pixels)
+            far_edge_probe(G, i) && continue
             b, r = backproject(c, u), SVector(ref[1, i], ref[2, i], ref[3, i])
             if any(isnan, r)
                 same_nan &= all(isnan, b)
@@ -46,6 +48,9 @@
         @test same_nan_m
         @test worst_m <= 1.0e-12
         @test count(i -> !isnan(G.masked.backproject[1, i]), axes(G.pixels, 2)) >= 100   # the masked comparison bites
+        far = filter(i -> far_edge_probe(G, i), axes(G.pixels, 2))
+        @test length(far) == 2 && all(i -> isnan(G.central.backproject[1, i]), far)   # (W, H/2) and (W/2, H): NaN in the old grid
+        @test all(i -> all(isfinite, backproject(cam, pixels[i])), far)                  # imaged by the closed box
     end
 
     @testset "a camera source keeps its K; skew is an ArgumentError" begin
@@ -719,6 +724,107 @@ end
                 a = rg_s.images[i].data; b = rp_s.images[i].data
                 @test size(a) == size(b)
                 @test maximum(abs.(a[8:(end - 8), 8:(end - 8)] .- b[8:(end - 8), 8:(end - 8)])) < 0.03
+            end
+        end
+    end
+end
+
+@testitem "SplineLens: the image's far edge is imaged (the backward box is closed)" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm, dot
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, NoncentralSplineModel, KannalaBrandt, DoubleSphere,
+        Lens, px, backproject, project, valid_domain, model
+    using GeometryBasics: origin, widths
+
+    # =============================================================================
+    # The image spans [0, W] × [0, H] (COLMAP: pixel corners on integers), and the
+    # default calibrated area is all of it, so the lens images the closed rectangle:
+    # its far edge x = W, y = H as its near edge x = 0, y = 0. A consumer that needs
+    # all four corners of a pixel's footprint reads both. The cameras: the RC golden
+    # scene's 32 × 32 double sphere on a 10 × 10 lattice (a camera source, and a
+    # function source re-gauged to the double sphere's K, whose K⁻¹ rounds x = W to
+    # 8.000000000000002 in lattice coordinates) and a 4256 × 2848 Kannala–Brandt on
+    # the default lattice (x = W ↦ 68.00000000000001).
+    # =============================================================================
+
+    ds = CameraModel(41.216px, SA[16.32px, 15.36px]; lens = Lens(DoubleSphere(0.25, 0.4)))
+    kb = CameraModel(1500.0px, SA[2128.0px, 1424.0px]; lens = KannalaBrandt(-0.03, 0.004, 0.0, 0.0))
+    ds_fn = p -> (d = backproject(ds, SVector{2, Float64}(p[1], p[2])); all(isfinite, d) ? d : nothing)
+    golden = CameraModel(SplineLens, ds, (32, 32); grid_size = (10, 10))
+    golden_fn = CameraModel(CameraModel(SplineLens, ds_fn, (32, 32); grid_size = (10, 10), init = :quasi_interpolate), model(ds).intrinsics.K)
+    big = CameraModel(SplineLens, kb, (4256, 2848))
+    cases = (("golden 32 × 32, 10 × 10", golden, ds, 32.0, 32.0),
+        ("golden 32 × 32, 10 × 10, function source re-gauged", golden_fn, ds, 32.0, 32.0),
+        ("4256 × 2848, default grid", big, kb, 4256.0, 2848.0))
+
+    # the four edges, 17 points each (the corners included)
+    edge(W, H) = (x = [SVector(0.0, t) for t in range(0, H; length = 17)], W = [SVector(W, t) for t in range(0, H; length = 17)],
+        y = [SVector(t, 0.0) for t in range(0, W; length = 17)], H = [SVector(t, H) for t in range(0, W; length = 17)])
+    angle(a, b) = atan(norm(a - dot(a, b) * b), dot(a, b))   # unit vectors
+    imaged(c, u) = all(isfinite, backproject(c, u))
+
+    for (name, c, src, W, H) in cases
+        @testset "$name" begin
+            e = edge(W, H)
+            @testset "backproject is finite at the four corners and along the four edges" begin
+                @test all(u -> imaged(c, u), (SVector(0.0, 0.0), SVector(W, 0.0), SVector(0.0, H), SVector(W, H)))
+                for side in e
+                    @test all(u -> imaged(c, u), side)
+                end
+            end
+            @testset "the far edge's ray is the source's to the near edge's tolerance" begin
+                err(side) = maximum(u -> angle(backproject(c, u), backproject(src, u)), side)
+                near = max(err(e.x), err(e.y))
+                @test err(e.W) <= 2 * near
+                @test err(e.H) <= 2 * near
+            end
+            @testset "valid_domain is where backproject is finite, its boundary included" begin
+                r = valid_domain(c)
+                o, w = origin(r), widths(r)
+                @test o[1] <= 0 + 1.0e-9 && o[2] <= 0 + 1.0e-9 && o[1] + w[1] >= W - 1.0e-9 && o[2] + w[2] >= H - 1.0e-9
+                lo, hi = o, o + w
+                δ = 1.0e-6 * max(W, H)
+                for t in range(0, 1; length = 9)
+                    p = lo + t * w
+                    for (u, out) in ((SVector(lo[1], p[2]), SVector(-δ, 0.0)), (SVector(hi[1], p[2]), SVector(δ, 0.0)),
+                            (SVector(p[1], lo[2]), SVector(0.0, -δ)), (SVector(p[1], hi[2]), SVector(0.0, δ)))
+                        @test imaged(c, u)              # on the boundary
+                        @test !imaged(c, u + out)       # just outside it
+                    end
+                end
+            end
+            @testset "project round-trips the far edge as the near edge" begin
+                for side in e
+                    @test maximum(u -> norm(project(c, backproject(c, u)) - u), side) <= 1.0e-6
+                end
+            end
+        end
+    end
+
+    @testset "the non-central model images the same closed rectangle" begin
+        for (name, c, _, W, H) in cases
+            b = c.lens.backward
+            nc = NoncentralSplineModel(c.intrinsics, b, ChartSpline(b.area, map(d -> 0.01 * d, b.controls)))
+            e = edge(W, H)
+            for side in e
+                @test all(u -> (r = backproject(nc, u); all(isfinite, r.origin) && all(isfinite, r.direction)), side)
+            end
+            r = valid_domain(nc)
+            hi = origin(r) + widths(r)
+            @test all(isfinite, backproject(nc, hi).direction)
+            @test all(isnan, backproject(nc, hi + SVector(1.0e-6 * W, 0.0)).direction)
+            # (the round trip on the 32 × 32 scenes only: on the wide 4256 × 2848 lens, whose
+            # lines all run through the origin, the tangent-plane LM from the area's centre
+            # reaches another pixel's line through X near the corners, interior points such
+            # as (100, 100) as the edge, the same before the box was closed)
+            W == 32 || continue
+            for side in e
+                @test maximum(side) do u
+                    ray = backproject(nc, u)
+                    return norm(project(nc, SVector{3}(ray.origin) + 1500.0 * SVector{3}(ray.direction)) - u)
+                end <= 1.0e-6
             end
         end
     end

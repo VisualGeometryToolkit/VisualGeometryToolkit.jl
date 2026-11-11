@@ -1,4 +1,4 @@
-@testitem "NoncentralSplineModel: the non-central grid on ChartSpline" begin
+@testitem "NoncentralSplineModel: the non-central grid on ChartSpline" setup = [SplineAxis] begin
     using Test
     using StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -35,6 +35,7 @@
     @testset "backproject: the golden lines, NaN where they are" begin
         worst_o, worst_d, same_nan = 0.0, 0.0, true
         for (i, u) in enumerate(pixels)
+            far_edge_probe(G, i) && continue   # the old grid's half-open box: the far-edge item checks these
             r = backproject(nc, u)
             @test r isa Ray3{Float64}
             o, d = col3(G.noncentral.origins, i), col3(G.central.backproject, i)
@@ -54,6 +55,7 @@
     @testset "backproject_with_jacobian: the direction and its pixel Jacobian" begin
         worst, tangent, same_nan = 0.0, 0.0, true
         for (i, u) in enumerate(pixels)
+            far_edge_probe(G, i) && continue
             f, M = backproject_with_jacobian(nc, u)
             Mg = SMatrix{3, 2}(G.central.jac_M[:, :, i])
             if any(isnan, Mg)
@@ -119,6 +121,7 @@
         @test calibration_matrix(c) == calibration_matrix(cam)
         worst, same_nan = 0.0, true
         for (i, u) in enumerate(pixels)
+            far_edge_probe(G, i) && continue
             d, ref = backproject(c, u), col3(G.central.backproject, i)
             if any(isnan, ref)
                 same_nan &= all(isnan, d)

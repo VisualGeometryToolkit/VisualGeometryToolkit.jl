@@ -52,7 +52,7 @@ end
     @test all(isnan, f) && all(isnan, M)
 end
 
-@testitem "spline LM Jacobians: analytic against ForwardDiff, the lower-edge slack included" begin
+@testitem "spline LM Jacobians: analytic against ForwardDiff, the edges' slack included" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using ForwardDiff: ForwardDiff
     using GeometryBasics: origin, widths
@@ -63,9 +63,10 @@ end
     # The analytic Jacobians of the two LMs' residuals (the central one's — the
     # normalized spline value, differentiated as `spline_value`, since the residual
     # itself is Float64 by design — and `_noncentral_residual`'s, itself) against ForwardDiff, at
-    # 1e-10 relative: at random points of the area, and at points on the lower
-    # edge's rounding slack (lattice coordinate in [1 − τ, 1), which `_in_backward`
-    # images), where the residuals and the Jacobians must read the same window. The
+    # 1e-10 relative: at random points of the area, and at points on the edges'
+    # rounding slack (lattice coordinate in [1 − τ, 1) or a few ulps past the far
+    # edge, which `_in_backward` images), where the residuals and the Jacobians must
+    # read the same window. The
     # residual each LM reads from its one evaluation per point is its definition's,
     # bit for bit: `normalize` of the spline value, and `_noncentral_residual`.
     src = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
@@ -85,10 +86,18 @@ end
     end
     @test all(x -> _in_backward(cam.lens, x), slack)                      # the lens images the band
     @test all(x -> any(<(1), _lattice_coords(area, size(dctrl), x)), slack)  # …which lies below the lattice's first cell
+    # the far edge and a few ulps past it, in x, in y, and in both
+    far = SVector{2, Float64}[]
+    e = o + w
+    for k in (0, 1, 2), t in range(0.05, 0.95; length = 7)
+        push!(far, SVector(nextfloat(e[1], k), o[2] + t * w[2]), SVector(o[1] + t * w[1], nextfloat(e[2], k)),
+              SVector(nextfloat(e[1], k), nextfloat(e[2], k)))
+    end
+    @test all(x -> _in_backward(cam.lens, x), far)                        # the lens images the far edge's band
     rel(A, B) = norm(A - B) / norm(B)
     Xs = (SVector(0.3, -0.2, 1.5), SVector(-0.6, 0.4, 0.9))
     worst_d, worst_r = 0.0, 0.0
-    for x in vcat(interior, slack)
+    for x in vcat(interior, slack, far)
         d, J = _spline_direction_and_jacobian(dctrl, area, x)
         d2, u, J2 = _spline_direction_differential(dctrl, area, x)
         @test (d2, J2) == (d, J)

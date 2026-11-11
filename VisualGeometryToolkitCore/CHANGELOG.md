@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Fixed: a SplineLens camera images its far edge.** The backward box is closed on both sides, `[min, max + 1]` per axis
+  with the same rounding slack at both edges, so `backproject` is finite on the image's right and bottom edges (`x = W`,
+  `y = H`) as on its left and top, where `valid_domain` already said it was; the non-central model shares the test.
+  Before, the upper bound was strict and carried no slack, so a consumer that needs a pixel's four footprint corners lost
+  the last column and row. The projection LM's box is the same closed rectangle (`ub = max + 1`, was `max + 0.999`), so
+  a ray imaged on the far edge projects onto it.
 - **New: `finite_linearization(cost, g, H)`** (public, not exported, beside `finite_cost`): a residual block's
   linearization as the stack's NLLSsolver fits read it, `(Inf, 0, 0)` when any part is not finite. NLLSsolver 5.3.2's
   Levenberg–Marquardt damping loop spins on a non-finite gradient or Hessian at an accepted point (NLLSsolver#68,

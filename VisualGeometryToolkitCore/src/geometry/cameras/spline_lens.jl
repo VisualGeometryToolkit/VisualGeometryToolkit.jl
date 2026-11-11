@@ -10,11 +10,12 @@
 # skew = 0, frozen in every fit, and chosen so that the principal point is the
 # pixel imaging ẑ (`_spline_gauge`); a camera source keeps its own K.
 #
-# The lattice is the Schöps lattice of a calibrated pixel area `[min, max + 1)`:
-# the backward area is K⁻¹ of that rectangle, and the lattice coordinate
-# `1 + (g − 3)/(max + 1 − min)·(u − min)` of the pixel grid is the same affine
-# map in x, so the uniform knots map exactly and the camera's `backproject` is
-# the pixel grid's to rounding.
+# The lattice is the Schöps lattice of a calibrated pixel area, the closed
+# rectangle `[min, max + 1]` (COLMAP: pixel corners on integers, so the area's far
+# edge is the last pixel's far side): the backward area is K⁻¹ of that
+# rectangle, and the lattice coordinate `1 + (g − 3)/(max + 1 − min)·(u − min)`
+# of the pixel grid is the same affine map in x, so the uniform knots map exactly
+# and the camera's `backproject` is the pixel grid's to rounding.
 #
 # This file also hosts the spline lattice's shared helpers (the 4 × 4 window,
 # the presence mask, the source sampling of the initialization, the chart a
@@ -117,7 +118,7 @@ end
 end
 
 # Shared validation of the calibrated-area rectangle (integer pixel indices,
-# inclusive, COLMAP frame: area spans [min_x, max_x + 1) × [min_y, max_y + 1)).
+# inclusive, COLMAP frame: the area is the closed [min_x, max_x + 1] × [min_y, max_y + 1]).
 function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
     (gsz[1] >= 4 && gsz[2] >= 4) || throw(
         ArgumentError(
@@ -358,8 +359,8 @@ a [`CameraModel`](@ref): the normalized image point `x = K⁻¹u` maps to the un
 direction `normalize(backward(x))`, `backward` a uniform cubic B-spline of
 3-vectors over the closed rectangle `backward.area` of the normalized plane
 ([`ChartSpline`](@ref); controls `[row = y, column = x]`, `size − 3` cells per
-axis). [`backproject`](@ref)`(lens, x)` is NaN outside the area's half-open box
-`[origin, origin + widths)` and where the point's 4 × 4 window holds an absent
+axis). [`backproject`](@ref)`(lens, x)` is NaN outside the area's closed box
+`[origin, origin + widths]` and where the point's 4 × 4 window holds an absent
 node; it never throws.
 
 `forward` (a `ChartSpline{2}` from the equidistant chart about ẑ to
@@ -415,25 +416,27 @@ end
 CameraModel(intrinsics::AbstractIntrinsics, lens::SplineLens) =
     CameraModel{typeof(intrinsics), typeof(lens)}(_check_spline_gauge(intrinsics), lens)
 
-# The rounding slack of the box's lower edge, in ulps of the point's magnitude
+# The rounding slack of the box's edges, in ulps of the point's magnitude
 # (see `_in_backward`).
 const _EDGE_ULPS = 4
 
 # Whether the lens images the normalized point `x`: inside the backward area's
-# half-open box, tested in lattice coordinates, `[1 − τ, g − 2)` per axis (a NaN
+# closed box, tested in lattice coordinates, `[1 − τ, g − 2 + τ]` per axis (a NaN
 # or Inf point fails it), and its 4 × 4 window present. Device-safe.
 #
-# The slack τ = c·ε·slope·(|x| + |o|) on the LOWER edge is the rounding of
-# `x = K⁻¹u` and of the lattice coordinate, so a pixel on the calibrated area's
-# own edge (u = min) is imaged in Float32 as in Float64: `K⁻¹u` rounds the two
+# The slack τ = c·ε·slope·(|x| + |o|) on both edges is the rounding of
+# `x = K⁻¹u` and of the lattice coordinate, so a point on the calibrated area's
+# own edges (u = min and u = max + 1, the image's near and far edges by default) is
+# imaged in Float32 as in Float64 (K⁻¹ rounds x = W of a 4256-px image to the
+# lattice coordinate 68.00000000000001 of a 70-node axis): `K⁻¹u` rounds the two
 # entries of K⁻¹'s row, their product and the sum, each ≤ ε/2 of a term bounded by
 # |x| + |o| (o the area's origin); the lattice coordinate rounds `o` and the
 # difference — at most 3ε(|x| + |o|) in x in all, so c = `_EDGE_ULPS` = 4 bounds
 # it with a margin. ε is the coarser of the point's and the controls' precision
-# (a Float32 camera's K⁻¹ is Float32 even for a Float64 pixel). The upper edge
-# needs none: the LM's `ub` keeps its point inside, and a pixel at max + 1 is not
-# in the area. A window at gx ∈ [1 − τ, 1) is `_continued_window`'s clamped one
-# (the first), as `backward(x)` evaluates it.
+# (a Float32 camera's K⁻¹ is Float32 even for a Float64 pixel). A window at
+# gx ∈ [1 − τ, 1) is `_continued_window`'s clamped one (the first), and one at
+# gx ∈ [g − 3, g − 2 + τ] the last (at its local coordinate 1 on the far edge), as
+# `backward(x)` evaluates them.
 @inline function _in_backward(l::SplineLens, x)
     cs = l.backward
     gsz = gh, gw = size(cs.controls)
@@ -443,20 +446,19 @@ const _EDGE_ULPS = 4
 end
 # The same test given the point's lattice coordinates `(gx, gy)` and its continued
 # window `(ix, iy)`, which `backproject` has already formed for the evaluation. The
-# slack is formed only for a point below the first cell (τ ≥ 0, so a coordinate ≥ 1
-# meets the lower bound whatever τ is).
+# slack is formed only for a point outside the exact box `[1, g − 2]` (τ ≥ 0, so a
+# coordinate inside it meets both bounds whatever τ is).
 @inline function _in_backward(l::SplineLens, x, gx, gy, ix, iy)
     cs = l.backward
     gsz = gh, gw = size(cs.controls)
     all(isfinite, x) || return false
-    (gx < gw - 2 && gy < gh - 2) || return false
-    if !(gx >= 1 && gy >= 1)
+    if !(1 <= gx <= gw - 2 && 1 <= gy <= gh - 2)
         o = GeometryBasics.origin(cs.area)
         sx, sy = _lattice_scales(Float64, cs.area, gsz)
         ε = max(eps(float(typeof(_primal(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
         τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
         τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
-        (1 - τx <= gx && 1 - τy <= gy) || return false
+        (1 - τx <= gx <= gw - 2 + τx && 1 - τy <= gy <= gh - 2 + τy) || return false
     end
     return _window_present(l.present, ix, iy)
 end
@@ -740,14 +742,14 @@ const _LM_AREA_UNITS = 1000
 # `_LM_AREA_UNITS` units per axis, `s = _LM_AREA_UNITS ./ widths` — the
 # reference's pixel constants exactly on its 1000-px calibrated area, and the same
 # relative tolerances on any other, so the solve depends on nothing but the area
-# (not on K). The box is the area's half-open one, `lb = origin`,
-# `ub = origin + widths·(1 − 0.001/_LM_AREA_UNITS)`: the reference's 0.001-px band
-# `[min, max + 0.999]`, one thousandth of an area unit.
+# (not on K). The box is the area's closed one, `lb = origin`,
+# `ub = origin + widths`, the rectangle `backproject` images (`_in_backward`), so a
+# ray imaged on the area's far edge projects onto it.
 @inline function _spline_lm_box(area::Rect2)
     o = GeometryBasics.origin(area); w = GeometryBasics.widths(area)
     lb = SVector{2, Float64}(o[1], o[2])
     ws = SVector{2, Float64}(w[1], w[2])
-    return lb, lb + ws .* (1 - 0.001 / _LM_AREA_UNITS), _LM_AREA_UNITS ./ ws
+    return lb, lb + ws, _LM_AREA_UNITS ./ ws
 end
 
 # THE central projection solve on a spline of direction controls `controls`
@@ -771,7 +773,7 @@ end
 # THE direction of a spline of direction controls over `area` at `x`, and its
 # Jacobian: `(d, n⁻¹S, ∂d/∂x, n)` (`n = ‖S‖`) from the value and partials of
 # `_spline_value_and_partials` (one evaluation of the basis weights, the continued
-# window: inside the area it is the point's own cell, and on the lower edge's rounding
+# window: inside the area it is the point's own cell, and on either edge's rounding
 # slack the value and partials still agree) through the normalize differential
 # `(I − d dᵀ)/‖S‖`. The direction in two roundings: `d = S/‖S‖`, `backproject`'s, and
 # `‖S‖⁻¹S`, `normalize`'s, the LM's residual. In the precision of `x` and the
@@ -1164,7 +1166,7 @@ by its direction controls, as the reference implementation (Schöps et al.'s
 `intrinsics0.yaml`) and the stored grid records state one: `controls` (`[gy, gx]`;
 an absent node's control is never read, not even by the gauge) laid over the
 calibrated pixel area `calib_area` (inclusive integer bounds
-`(min_x, min_y, max_x, max_y)` or a `Rect`, the rectangle `[min, max + 1)`;
+`(min_x, min_y, max_x, max_y)` or a `Rect`, the closed rectangle `[min, max + 1]`;
 default the whole image) of an image of `size`, the nodes `present` held
 (`nothing`: every node). Its `K` is `intrinsics` (skew 0, positive focal
 lengths, else an `ArgumentError`) or, without one, the lattice's gauge. Its

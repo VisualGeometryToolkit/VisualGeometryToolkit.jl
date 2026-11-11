@@ -117,9 +117,10 @@
             @test wq > 5 * worst_angle
             # calibrated-area contract
             @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
-            @test all(isnan, backproject(g, SVector(Float64(W), 10.0)))
+            @test all(isfinite, backproject(g, SVector(Float64(W), 10.0)))   # the far edge: the area is closed
+            @test all(isnan, backproject(g, SVector(W + 1.0, 10.0)))
             @test backproject(g, SVector(-1.0, 10.0)) isa StaticVector{3, Float64}   # one return type: kernel-lawful
-            @inferred backproject(g, SVector(Float64(W), 10.0))
+            @inferred backproject(g, SVector(W + 1.0, 10.0))
             # z-depth unproject (VGC convention)
             px = SVector(200.0, 150.0)
             X = unproject(g, px, 5.0)

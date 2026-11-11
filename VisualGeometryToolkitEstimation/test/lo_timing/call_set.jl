@@ -40,3 +40,34 @@ function pool_csponds(pr)
     return Csponds([P2(pr.x1[1, i], pr.x1[2, i]) for i in 1:pr.n], [P2(pr.x2[1, i], pr.x2[2, i]) for i in 1:pr.n])
 end
 problem_of(pr) = EssentialProblem(CameraModel(pr.Kc1), CameraModel(pr.Kc2), pool_csponds(pr))
+
+# The number of recorded calls: every pair's seeds.
+call_set_size(pairs) = sum(length(pr.seeds) for pr in pairs)
+
+# Every recorded call once: `call(i, seed)` for each pair `i` and each of its seeds.
+function run_call_set(call, pairs)
+    for i in eachindex(pairs), s in pairs[i].seeds
+        call(i, s)
+    end
+    return nothing
+end
+
+# The µs per call of one pass over the call set, each call timed on its own (`time_ns`).
+function time_call_set(call, pairs)
+    t = UInt64(0)
+    for i in eachindex(pairs), s in pairs[i].seeds
+        t0 = time_ns(); call(i, s); t += time_ns() - t0
+    end
+    return t / call_set_size(pairs) / 1.0e3
+end
+
+# A bench arm as VisualGeometryToolkitCore's record measures it (bench_record.jl's
+# `write_bench_record`): `make()` builds the arm's call `(i, seed) -> …`, its
+# workspaces outside the timing; two passes compile and warm it, then its bytes
+# per call and `reps` timed passes, sorted.
+call_set_arm(make, pairs, reps) = function ()
+    call = make()
+    run_call_set(call, pairs); run_call_set(call, pairs)
+    bytes = @allocated run_call_set(call, pairs)
+    return sort!([time_call_set(call, pairs) for _ in 1:reps]), bytes / call_set_size(pairs)
+end

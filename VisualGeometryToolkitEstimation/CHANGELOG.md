@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Tests: the call set's passes are call_set.jl's too** (`call_set_size`, `run_call_set(call, pairs)`,
+  `time_call_set(call, pairs)` and `call_set_arm(make, pairs, reps)`, an arm as the bench record measures it): the
+  timing benches of this package and LocalOptimizationDoneRight (whose accv2026 bench restated `run_set`/`time_set`)
+  build their arms on them.
+
 - **Tests: the recorded LO call set has one reader, test/lo_timing/call_set.jl** (`CALL_SET_FIXTURE`,
   `read_fixture`, `pool_csponds`, `problem_of`), which this package's timing bench and LocalOptimizationDoneRight's
   include from `pkgdir(VisualGeometryToolkitEstimation)` (the latter carried its own copy of the reader and of the

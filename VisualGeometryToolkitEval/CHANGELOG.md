@@ -12,8 +12,11 @@
   DEGRADED or UNCHANGED, CHANGED without a direction; every asset's verify verdict; changed PNGs side by side).
   `accept_results(dir, branch; replace_submitted)` deploys the assets into the base through `deploy_assets` as one
   merge commit and tags it `accepted/<stamp>`; `remove_results_worktree(dir, branch; delete_branch = false)` removes
-  the worktree. `add_number!` and `add_table_row!` take `better = :lower | :higher | :none`, recorded in the
-  provenance comment (`; better=…`). The paper-project template's driver takes `--results-branch`.
+  the worktree. A failure after the worktree is created removes the worktree and the branch; RUN.toml warns and
+  records `missing` when no tiers, GPUs or wall times are given (GPUs detected by nvidia-smi or CUDA.jl); the
+  acceptance tags before it moves the base and deletes the tag when the base cannot move, and warns when the base moved
+  since the run. `add_number!` and `add_table_row!` take `better = :lower | :higher | :none` (or its String),
+  recorded in the provenance comment (`; better=…`). The paper-project template's driver takes `--results-branch`.
 
 - **New: the one writer of a paper's number macros** (`Reproduce`, src/reproduce/number_macros.jl, Base only).
   `PaperNumbers(; driver, config, run_key, commit)` collects a driver's numbers; `add_number!(nums, name, value;

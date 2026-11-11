@@ -226,15 +226,19 @@ struct _NumberMacro
 end
 
 # The direction in which a number improves: `:lower` (an error, a time),
-# `:higher` (a rate, a score) or `:none` (a count, a setting); `nothing` states
-# none. The results comparison (results_branches.jl) reads it from the
-# provenance comment.
+# `:higher` (a rate, a score) or `:none` (a count, a setting), a Symbol or its
+# String; `nothing` states none. The results comparison (results_branches.jl)
+# reads it from the provenance comment.
 const _DIRECTIONS = (:lower, :higher, :none)
 
+const _Direction = Union{Nothing, Symbol, AbstractString}
+
 function _check_better(better)
-    better === nothing || better in _DIRECTIONS ||
+    better === nothing && return nothing
+    b = better isa AbstractString ? Symbol(better) : better
+    b isa Symbol && b in _DIRECTIONS ||
         throw(ArgumentError("better = $(repr(better)): a number improves to :lower, :higher or :none"))
-    return better
+    return b
 end
 
 """
@@ -286,7 +290,7 @@ prose: a figure's `fig:…` (its caption, its axis), a table's `tab:…`. It goe
 into the macro's provenance comment. `provenance` overrides fields of the
 driver's ([`PaperNumbers`](@ref)) for this number. `better` is the direction
 in which the number improves, `:lower` (an error, a time), `:higher` (a rate, a
-score) or `:none` (a count, a setting); it goes into the provenance comment
+score) or `:none` (a count, a setting), as a Symbol or a String; it goes into the provenance comment
 (`; better=lower`), from which a results comparison
 ([`results_branch`](@ref)) calls a change IMPROVED or DEGRADED. Without it a
 change is reported CHANGED, with no verdict.
@@ -298,8 +302,8 @@ trailing backslash), a `;` in the label or provenance (the comment's
 separator), a `Bool` and a NaN are each an `ArgumentError`.
 """
 function add_number!(nums::PaperNumbers, name::AbstractString, value::Union{Real, Tuple{Real, Real}, AbstractString};
-        label::AbstractString = "", provenance::NamedTuple = (;), better::Union{Nothing, Symbol} = nothing, format...)
-    return _add!(nums, name, _body(value; format...), label, provenance, better)
+        label::AbstractString = "", provenance::NamedTuple = (;), better::_Direction = nothing, format...)
+    return _add!(nums, name, _body(value; format...), label, provenance, _check_better(better))
 end
 
 """
@@ -330,7 +334,9 @@ function add_table_row!(nums::PaperNumbers, row::AbstractString, cells;
     isempty(cells) && throw(ArgumentError("table row $(repr(row)) has no cells"))
     _check_label(label)
     _provenance(merge(nums.provenance, provenance))
-    directions = better isa Union{Nothing, Symbol} ? nothing : Dict(string(c) => _check_better(b) for (c, b) in better)
+    directions = better isa _Direction ? nothing :
+        Dict(string(first(p)) => _check_better(last(p)) for p in better if p isa Pair || throw(ArgumentError(
+            "table row $(repr(row)): better is a direction or column => direction pairs, not $(repr(better))")))
     staged = map(collect(cells)) do (col, value)       # every cell checked before any is added
         column = string(col)
         occursin(r"^[A-Za-z]+$", column) || throw(ArgumentError("a table column is letters only: $(repr(column))"))

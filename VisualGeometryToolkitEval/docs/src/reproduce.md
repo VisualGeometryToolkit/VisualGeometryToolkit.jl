@@ -177,15 +177,21 @@ remove_results_worktree(projectdir(), run.branch)                    # after acc
   repository); the user's checkout is not touched. Its one commit holds the
   renders at the paper's paths (macros, tables, figures: nothing large),
   `RUN.toml` (the code commit, each data tier's hash, the run keys under which
-  the heavy results stay in the results root, the machine, GPUs, Slurm jobs and
-  wall times) and `COMPARISON.md`: every macro's base and new value, its delta
-  and its verdict, every asset's verify verdict, each changed PNG beside the
-  base's copy.
+  the heavy results stay in the results root, the machine, GPUs (detected by
+  nvidia-smi or CUDA.jl when not given), Slurm jobs and wall times; a run that
+  gives no tiers, GPUs or wall times is warned about and `missing` names them)
+  and `COMPARISON.md`: every macro's base and new value, its delta and its
+  verdict (a changed unit or percent sign is CHANGED), every asset's verify
+  verdict, each changed PNG beside the base's copy. A failure after the
+  worktree is created removes the worktree and the branch.
 - [`accept_results`](@ref) is never automatic. It deploys the branch's assets
   into the base through [`deploy_assets`](@ref) (a changed asset needs
   `replace_submitted`), as one merge commit made in a worktree of its own, then
-  moves the base to it (a checkout of the base fast-forwards) and tags it
-  `accepted/<stamp>`. The manifest and the comparison stay on the branch.
+  tags it `accepted/<stamp>`, then moves the base to it: a checkout of the base
+  fast-forwards (refused when an accepted asset has local changes: the tag is
+  deleted again and the base stays), a checkout on another branch is
+  untouched. A base that moved since the run is a warning naming the accepted
+  assets it changed. The manifest and the comparison stay on the branch.
 - [`remove_results_worktree`](@ref) removes the worktree and keeps the branch,
   or deletes it with `delete_branch = true`.
 

@@ -54,10 +54,22 @@ function _git(dir::AbstractString, args...; bytes::Bool = false)
     return bytes ? take!(out) : String(strip(String(take!(out))))
 end
 
-# git that commits (commit, merge): an identity of its own when the repository has none.
+# git that commits (commit, merge): an identity of its own when the repository lacks a name or an email.
+_has_config(dir, key) = success(pipeline(`git -C $dir config $key`; stdout = devnull, stderr = devnull))
 _git_commit(dir::AbstractString, args...) =
-    success(pipeline(`git -C $dir config user.email`; stdout = devnull, stderr = devnull)) ? _git(dir, args...) :
+    _has_config(dir, "user.name") && _has_config(dir, "user.email") ? _git(dir, args...) :
     _git(dir, "-c", "user.name=VisualGeometryToolkitEval", "-c", "user.email=vgtk@localhost", args...)
+
+# A cleanup step after a failure or at the end: its own failure is a warning,
+# never an error that would hide the one being handled.
+function _quietly(f, what::AbstractString)
+    try
+        f()
+    catch err
+        @warn "results branches: $what failed" exception = err
+    end
+    return nothing
+end
 
 # The worktree that has `branch` checked out, or nothing.
 function _branch_worktree(top::AbstractString, branch::AbstractString)
@@ -101,19 +113,44 @@ function _tier_hash(name::AbstractString, source::AbstractString)
     return Dict("hash" => open(sha256_hex, path), "of" => "$(basename(path)) sha256")
 end
 
+# The GPUs this process sees, by name: nvidia-smi's (restricted to
+# CUDA_VISIBLE_DEVICES when that lists indices), else CUDA.jl's when it is
+# loaded; none when neither is there. Never required.
+function _detected_gpus()
+    smi = Sys.which("nvidia-smi")
+    if smi !== nothing
+        out = try readchomp(pipeline(`$smi --query-gpu=name --format=csv,noheader`; stderr = devnull)) catch; "" end
+        names = String[strip(l) for l in split(out, '\n') if !isempty(strip(l))]
+        visible = split(get(ENV, "CUDA_VISIBLE_DEVICES", ""), ','; keepempty = false)
+        idx = tryparse.(Int, visible)
+        if !isempty(names)
+            (isempty(idx) || any(isnothing, idx) || !all(i -> 0 <= i < length(names), idx)) && return names
+            return names[idx .+ 1]
+        end
+    end
+    cuda = get(Base.loaded_modules, Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"), nothing)
+    cuda === nothing && return String[]
+    return try
+        String[string(Base.invokelatest(getfield(cuda, :name), d)) for d in Base.invokelatest(getfield(cuda, :devices))]
+    catch
+        String[]
+    end
+end
+
 # ---------------------------------------------------------------------------
 # The comparison
 # ---------------------------------------------------------------------------
 
 # A typeset number (tex_number's forms: a sign, thin-space thousands, decimals,
-# `\%`, a `\,unit`) as its exact value and its decimals; nothing for any other
-# body (a range, a label, a math expression).
+# `\%`, a `\,unit`) as its exact value, its decimals and its suffix (the
+# percent sign and the unit); nothing for any other body (a range, a label, a
+# math expression).
 function _typeset_value(body::AbstractString)
-    m = match(r"^(-?)(\d{1,3}(?:\\,\d{3})+|\d+)(?:\.(\d+))?(?:\\%)?(?:\\,(?!\d).*)?$", body)
+    m = match(r"^(-?)(\d{1,3}(?:\\,\d{3})+|\d+)(?:\.(\d+))?((?:\\%)?(?:\\,(?!\d).*)?)$", body)
     m === nothing && return nothing
     frac = _cap(m, 3)
     q = parse(BigInt, replace(_cap(m, 2), "\\," => "") * frac)
-    return ((isempty(_cap(m, 1)) ? q : -q) // big(10)^length(frac), length(frac))
+    return ((isempty(_cap(m, 1)) ? q : -q) // big(10)^length(frac), length(frac), _cap(m, 4))
 end
 
 # The direction each macro of a tex text records in its provenance comment (`; better=…`).
@@ -128,7 +165,7 @@ function _number_row(name, file, old, new, better)
     old === nothing && return row("", "NEW")
     new === nothing && return row("", "REMOVED")
     a, b = _typeset_value(old), _typeset_value(new)
-    if a === nothing || b === nothing
+    if a === nothing || b === nothing || a[3] != b[3]          # not numbers, or a unit or percent sign changed
         return row("", old == new ? "UNCHANGED" : "CHANGED")
     end
     d = b[1] - a[1]
@@ -141,12 +178,21 @@ function _number_row(name, file, old, new, better)
 end
 
 # Every macro of a numbers file, its base value against its new one. The
-# direction is the new file's provenance comment's, else the base's.
+# direction is the new file's provenance comment's, else the base's (reported
+# as the base's); one the comparison does not know (a hand-written
+# `better=up`) gives no verdict and is reported as unknown.
 function _compare_numbers(file::AbstractString, old_text::AbstractString, new_text::AbstractString)
     old, new = Dict(_macro_values(old_text)), Dict(_macro_values(new_text))
-    dirs = merge(_directions(old_text), _directions(new_text))
-    return [_number_row(n, file, get(old, n, nothing), get(new, n, nothing), get(dirs, n, ""))
-            for n in sort!(collect(union(keys(old), keys(new))))]
+    old_dirs, new_dirs = _directions(old_text), _directions(new_text)
+    return map(sort!(collect(union(keys(old), keys(new))))) do n
+        b = get(new_dirs, n, nothing)
+        from_base = b === nothing && haskey(old_dirs, n)
+        from_base && (b = old_dirs[n])
+        known = b in ("lower", "higher", "none")
+        shown = b === nothing ? "" : b * (known ? "" : " (unknown)") * (from_base ? " (the base's)" : "")
+        r = _number_row(n, file, get(old, n, nothing), get(new, n, nothing), known ? b : "")
+        merge(r, (; better = shown))
+    end
 end
 
 _md(s) = replace(s, "|" => "\\|")
@@ -155,7 +201,10 @@ _code(s) = isempty(s) ? "" : "`" * _md(s) * "`"
 function _write_comparison(path, run, rows, numbers, pngs)
     n_of(v) = count(r -> r.verdict == v, numbers)
     open(path, "w") do io
-        println(io, "# Results ", run.stamp, " of ", run.commit[1:7], " against ", run.base, " (", run.base_commit[1:7], ")")
+        println(io, "# Results ", run.stamp, " of ", run.commit[1:7], " against `", run.base, "` at ", run.base_commit[1:7])
+        println(io)
+        println(io, "Compared against `", run.base, "` at ", run.base_commit, ". If `", run.base, "` has moved on since,",
+                " this comparison is stale: `accept_results` warns and names the accepted assets the base changed.")
         println(io)
         println(io, "Branch `", run.branch, "`. Every number of the paper's number macros against the base branch;",
                 " a number states the direction in which it improves (`add_number!(…; better)`), else a change is CHANGED.",
@@ -208,14 +257,17 @@ _default_scratch(top) = get(ENV, "VGTK_RESULTS_WORKTREES", joinpath(dirname(top)
     results_branch(dir, assets; base = <the checked-out branch>, commit = <HEAD>,
                    scratch_root = ENV["VGTK_RESULTS_WORKTREES"] or "<repository>-results" beside it,
                    stamp = now(UTC), run_keys = String[], tiers = Pair[], machine = gethostname(),
-                   gpus = String[], slurm_jobs = [ENV["SLURM_JOB_ID"]] or String[],
+                   gpus = <the GPUs seen: nvidia-smi, else CUDA.jl>, slurm_jobs = [ENV["SLURM_JOB_ID"]] or String[],
                    wall_times = Pair[]) -> NamedTuple
 
 Make a full reproduction of the paper project at `dir` (a git repository or a
 directory inside one) a branch of its repository for review:
 `results/<UTC yyyymmdd_HHMMSS>-<short commit>`, `commit` the repository HEAD
-the run evaluated, created from `base` in a worktree of its own under
-`scratch_root`. The user's checkout is not touched.
+the run evaluated (or any revision, resolved; DrWatson's `<sha>-dirty` record
+marks the run dirty), created from `base` in a worktree of its own under
+`scratch_root`. The user's checkout is not touched. A failure after the
+worktree is created removes the worktree and the branch, and the error is
+rethrown.
 
 `assets` are the reproduction's paper-facing renders, `source => path` with
 `path` where the paper reads it, relative to `dir` (the number macro files
@@ -229,7 +281,8 @@ in the repository:
   data tier's hash (`tiers`, `name => source`: an artifact's git-tree-sha1, a
   tier directory's `TIER.toml`, `MANIFEST.tsv` or `MANIFEST` sha256, or a
   file's sha256), the `machine`, `gpus`, `slurm_jobs`, `wall_times`
-  (`name => seconds`) and the assets;
+  (`name => seconds`) and the assets, and `missing`: which of `tiers`, `gpus`
+  and `wall_times` the run did not give (each a warning);
 - [`RESULTS_COMPARISON`](@ref) (`COMPARISON.md`): every macro of every number
   file against the base branch's copy (read by [`tex_macro_values`](@ref)'s
   parser) with its delta and IMPROVED, DEGRADED or UNCHANGED by the direction
@@ -248,7 +301,7 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
         base::Union{Nothing, AbstractString} = nothing, commit::Union{Nothing, AbstractString} = nothing,
         scratch_root::Union{Nothing, AbstractString} = nothing, stamp::DateTime = now(UTC),
         run_keys::AbstractVector{<:AbstractString} = String[], tiers::AbstractVector{<:Pair} = Pair{String, String}[],
-        machine::AbstractString = gethostname(), gpus::AbstractVector{<:AbstractString} = String[],
+        machine::AbstractString = gethostname(), gpus::AbstractVector{<:AbstractString} = _detected_gpus(),
         slurm_jobs::AbstractVector{<:AbstractString} = haskey(ENV, "SLURM_JOB_ID") ? [ENV["SLURM_JOB_ID"]] : String[],
         wall_times::AbstractVector{<:Pair} = Pair{String, Float64}[])
     isempty(assets) && throw(ArgumentError("results_branch: no assets"))
@@ -259,20 +312,49 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
         (isabspath(q) || startswith(normpath(q), "..")) && throw(ArgumentError("results_branch: $q is not a path inside $dir"))
     end
     allunique(paths) || throw(ArgumentError("results_branch: an asset path is given twice"))
-    tier_hashes = Dict(String(n) => _tier_hash(String(n), String(s)) for (n, s) in tiers)    # before anything is created
+    # everything the manifest records is checked before anything is created
+    tier_hashes = Dict(String(n) => _tier_hash(String(n), String(s)) for (n, s) in tiers)
+    wall = Dict(String(k) => (v isa Real ? Float64(v) :
+                throw(ArgumentError("results_branch: wall time $k = $(repr(v)) is not a number of seconds"))) for (k, v) in wall_times)
+    lacking = [k for (k, given) in ("tiers" => tiers, "gpus" => gpus, "wall_times" => wall_times) if isempty(given)]
+    isempty(lacking) ||
+        @warn "results_branch: RUN.toml records no $(join(lacking, ", ")): the run cannot be tied to its data and machine later"
     base = something(base, _git(top, "symbolic-ref", "--short", "HEAD"))
     base_commit = _git(top, "rev-parse", "--verify", "refs/heads/" * base * "^{commit}")
-    dirty = commit === nothing && !isempty(_git(top, "status", "--porcelain", "--untracked-files=no"))
-    commit = something(commit, _git(top, "rev-parse", "HEAD"))
+    given = something(commit, "HEAD")
+    commit = _git(top, "rev-parse", "--verify", chopsuffix(given, "-dirty") * "^{commit}")
+    dirty = endswith(given, "-dirty") ||
+            (commit == _git(top, "rev-parse", "HEAD") && !isempty(_git(top, "status", "--porcelain", "--untracked-files=no")))
     stamp_s = Dates.format(stamp, "yyyymmdd_HHMMSS")
     branch = _RESULTS_PREFIX * stamp_s * "-" * commit[1:7]
     root = abspath(something(scratch_root, _default_scratch(top)))
     worktree = joinpath(mkpath(root), replace(branch, "/" => "-"))
     ispath(worktree) && throw(ArgumentError("results_branch: $worktree exists"))
-    _git(top, "worktree", "add", "-q", "-b", branch, worktree, base_commit)
-
-    proj = joinpath(worktree, prefix)
     staged = mktempdir()                             # the renders at the paper's paths, beside the base's copies
+    try
+        _git(top, "worktree", "add", "-q", "-b", branch, worktree, base_commit)
+    catch
+        rm(staged; recursive = true, force = true)
+        rethrow()
+    end
+    try
+        return _fill_results_branch(top, prefix, worktree, staged, assets, paths;
+            run = (; branch, stamp = stamp_s, commit, dirty, base, base_commit),
+            manifest = Dict{String, Any}("run_keys" => collect(String, run_keys), "tiers" => tier_hashes,
+                "machine" => String(machine), "gpus" => collect(String, gpus), "slurm_jobs" => collect(String, slurm_jobs),
+                "wall_times" => wall, "missing" => lacking, "assets" => [_in_project(prefix, p) for p in paths]))
+    catch
+        _quietly(() -> _git(top, "worktree", "remove", "--force", worktree), "removing the half-made worktree $worktree")
+        _quietly(() -> _git(top, "branch", "-q", "-D", branch), "deleting the half-made branch $branch")
+        rethrow()
+    finally
+        rm(staged; recursive = true, force = true)
+    end
+end
+
+# The branch's one commit: the renders, the manifest and the comparison.
+function _fill_results_branch(top, prefix, worktree, staged, assets, paths; run, manifest)
+    proj = joinpath(worktree, prefix)
     for (src, p) in zip(first.(assets), paths)
         cp(src, joinpath(mkpath(dirname(joinpath(staged, p))), basename(p)); force = true)
     end
@@ -292,14 +374,8 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
         end
         cp(new, joinpath(mkpath(dirname(old)), basename(p)); force = true)
     end
-    rm(staged; recursive = true)
 
-    run = (; branch, stamp = stamp_s, commit, dirty, base, base_commit)
-    manifest = Dict{String, Any}(String(k) => v for (k, v) in pairs(run))
-    merge!(manifest, Dict{String, Any}("run_keys" => collect(String, run_keys), "tiers" => tier_hashes,
-        "machine" => String(machine), "gpus" => collect(String, gpus), "slurm_jobs" => collect(String, slurm_jobs),
-        "wall_times" => Dict(String(k) => Float64(v) for (k, v) in wall_times),
-        "assets" => [_in_project(prefix, p) for p in paths]))
+    merge!(manifest, Dict{String, Any}(String(k) => v for (k, v) in pairs(run)))
     open(io -> TOML.print(io, manifest; sorted = true), joinpath(proj, RESULTS_MANIFEST), "w")
     _write_comparison(joinpath(proj, RESULTS_COMPARISON), run, rows, numbers, pngs)
 
@@ -307,9 +383,10 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
     _git(worktree, "add", "-f", "--", (_in_project(prefix, p) for p in [paths; RESULTS_MANIFEST; RESULTS_COMPARISON])...)
     isempty(pngs) || _git(worktree, "add", "-f", "--", _in_project(prefix, _BASE_FIGURES))
     _git_commit(worktree, "commit", "-q", "--no-verify", "-m",
-                "Results $stamp_s of $(commit[1:7]) against $base: $counts\n\nSee $(_in_project(prefix, RESULTS_COMPARISON)).")
-    println("results branch ", branch, " in ", worktree, " (", counts, ")")
-    return (; branch, worktree, commit = _git(worktree, "rev-parse", "HEAD"), numbers, assets = rows)
+                "Results $(run.stamp) of $(run.commit[1:7]) against $(run.base): $counts\n\n" *
+                "See $(_in_project(prefix, RESULTS_COMPARISON)).")
+    println("results branch ", run.branch, " in ", worktree, " (", counts, ")")
+    return (; run.branch, worktree, commit = _git(worktree, "rev-parse", "HEAD"), numbers, assets = rows)
 end
 
 # ---------------------------------------------------------------------------
@@ -317,7 +394,7 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    accept_results(dir, branch; replace_submitted) -> NamedTuple
+    accept_results(dir, branch; replace_submitted, scratch_root = <results_branch's>) -> NamedTuple
 
 Bring the assets of the results `branch` ([`results_branch`](@ref)) of the
 paper project at `dir` into its base branch as one merge commit, and tag it
@@ -325,16 +402,22 @@ paper project at `dir` into its base branch as one merge commit, and tag it
 the base holds a different copy of is replaced only with the sign-off
 `replace_submitted` (`true` for every asset, or a collection of the assets'
 paths relative to `dir`); without it the acceptance is refused and nothing
-changes. The merge is made in a worktree of its own; the base then moves to it,
-and a checkout of the base fast-forwards (one with local changes to an
-accepted asset refuses, and the base stays). Only the assets are merged, never
-the branch's manifest or comparison.
+changes. The merge is made in a worktree of its own under `scratch_root`
+(removed at the end, whatever happens); the tag is made on it, then the base
+moves to it: a checkout of the base fast-forwards (one with local changes to an
+accepted asset refuses: the tag is deleted again and the base stays; an
+unrelated local change survives), and a base no checkout holds moves by
+`update-ref`, so a checkout on another branch is untouched. Only the assets are
+merged, never the branch's manifest or comparison. A base that moved since the
+run (the manifest's `base_commit`) is a warning naming the accepted assets it
+changed: the branch's comparison is against the older base.
 
 Returns `(; commit, tag, deployed)`: the merge commit, the tag and the assets
 copied (repository paths).
 """
 function accept_results(dir::AbstractString, branch::AbstractString;
-        replace_submitted::Union{Bool, AbstractVector{<:AbstractString}, AbstractSet{<:AbstractString}})
+        replace_submitted::Union{Bool, AbstractVector{<:AbstractString}, AbstractSet{<:AbstractString}},
+        scratch_root::Union{Nothing, AbstractString} = nothing)
     _check_results_branch(branch)
     top, prefix = _repository(dir)
     manifest = TOML.parse(String(_git(top, "show", branch * ":" * _in_project(prefix, RESULTS_MANIFEST); bytes = true)))
@@ -342,16 +425,24 @@ function accept_results(dir::AbstractString, branch::AbstractString;
     isempty(_git(top, "tag", "--list", tag)) || error("accept_results: the tag $tag exists; $branch is accepted")
     old = _git(top, "rev-parse", "--verify", "refs/heads/" * base)
     assets = String.(manifest["assets"])
-
-    renders = mktempdir()                            # the branch's assets, by repository path
-    for a in assets
-        write(joinpath(mkpath(dirname(joinpath(renders, a))), basename(a)), _git(top, "show", branch * ":" * a; bytes = true))
+    if old != manifest["base_commit"]
+        changed = split(_git(top, "diff", "--name-only", manifest["base_commit"], old, "--", assets...), '\n'; keepempty = false)
+        @warn "accept_results: $base moved since the run ($(manifest["base_commit"][1:7]) to $(old[1:7])); the comparison " *
+              "on $branch is against the older base; the base changed " * (isempty(changed) ? "no accepted asset" : join(changed, ", "))
     end
     signed = replace_submitted isa Bool ? replace_submitted : Set(_in_project(prefix, p) for p in replace_submitted)
-    merging = joinpath(mktempdir(), "accept")
-    _git(top, "worktree", "add", "-q", "--detach", merging, old)
+    root = mkpath(abspath(something(scratch_root, _default_scratch(top))))
+    merging = joinpath(root, "accept-" * manifest["stamp"])
+    renders = merging * "-renders"                   # the branch's assets, by repository path
+    for p in (merging, renders)
+        ispath(p) && throw(ArgumentError("accept_results: $p exists (a previous acceptance's; remove it)"))
+    end
     deployed = String[]
     try
+        for a in assets
+            write(joinpath(mkpath(dirname(joinpath(renders, a))), basename(a)), _git(top, "show", branch * ":" * a; bytes = true))
+        end
+        _git(top, "worktree", "add", "-q", "--detach", merging, old)
         # a merge of the branch that keeps the base's tree; then the assets alone, through the sign-off
         _git_commit(merging, "merge", "-q", "--no-ff", "--no-commit", "-s", "ours", branch)
         for (d, group) in Iterators.map(d -> d => filter(a -> dirname(a) == d, assets), unique(dirname.(assets)))
@@ -366,15 +457,20 @@ function accept_results(dir::AbstractString, branch::AbstractString;
                     "Accept $branch into $base\n\nThe results of $(manifest["commit"][1:7]) at $(manifest["stamp"]) " *
                     "($(_in_project(prefix, RESULTS_COMPARISON)) on the branch).")
         merged = _git(merging, "rev-parse", "HEAD")
-        checkout = _branch_worktree(top, base)
-        checkout === nothing ? _git(top, "update-ref", "refs/heads/" * base, merged, old) :
-                               _git(checkout, "merge", "-q", "--ff-only", merged)
-        _git(top, "tag", tag, merged)
+        _git(top, "tag", tag, merged)                # the tag first: a base that cannot move takes it back
+        try
+            checkout = _branch_worktree(top, base)
+            checkout === nothing ? _git(top, "update-ref", "refs/heads/" * base, merged, old) :
+                                   _git(checkout, "merge", "-q", "--ff-only", merged)
+        catch
+            _quietly(() -> _git(top, "tag", "-d", tag), "deleting the tag $tag again")
+            rethrow()
+        end
         println("accepted ", branch, " into ", base, " as ", merged[1:7], " (", tag, ")")
         return (; commit = merged, tag, deployed)
     finally
-        _git(top, "worktree", "remove", "--force", merging)
-        rm(renders; recursive = true)
+        ispath(merging) && _quietly(() -> _git(top, "worktree", "remove", "--force", merging), "removing the worktree $merging")
+        _quietly(() -> rm(renders; recursive = true, force = true), "removing $renders")
     end
 end
 

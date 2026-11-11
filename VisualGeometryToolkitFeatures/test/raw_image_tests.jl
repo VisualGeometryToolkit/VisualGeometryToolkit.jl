@@ -334,18 +334,23 @@ end
                 X._store_flip!(sizes_p, flip)
             end
             m = X._mosaic(lr, "synthetic.raw")
-            rgb, md = GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
-            # the demosaic copies the visible photosites only once, into its image: never the mosaic too
-            # (its checks read LibRaw's layout, `_mosaic_layout`)
-            a = @allocated GC.@preserve buf X._demosaiced(lr, "synthetic.raw")
-            @test a < sizeof(rgb) + sizeof(m.raw)
-            return m, rgb, md
+            # one demosaic per handle: its processing rewrites the live sizes (the flip zeroed), so a second call's
+            # mirrored-layout check would refuse the handle
+            out = Ref{Any}()
+            a = @allocated (out[] = GC.@preserve buf X._demosaiced(lr, "synthetic.raw"))
+            rgb, md = out[]
+            return m, rgb, md, a
         finally
             @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
         end
     end
+    # the demosaic copies the visible photosites only once, into its image: never the mosaic too (its checks read
+    # LibRaw's layout, `_mosaic_layout`); measured warm, on a second handle
+    let (m, rgb, _, _) = demosaic_with_flip(3), (_, _, _, a) = demosaic_with_flip(3)
+        @test a < sizeof(rgb) + sizeof(m.raw)
+    end
     for flip in (3, 5, 6)
-        m, rgb, md = demosaic_with_flip(flip)
+        m, rgb, md, _ = demosaic_with_flip(flip)
         L = VGF._demosaic_image(rgb, md, 1.0, nothing)
         @test L isa LinearRaw && L.mode === :demosaic
         @test size(L.image) == (H, W, 3)          # the sensor's grid: the flip is never applied

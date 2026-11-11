@@ -118,7 +118,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, loss_at, width_scale_interface, check_composition,
     ScaleMultiple, LossWidth, TagRegistry, MsacScoring, RansacScoring, inlier_threshold,
-    StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, FlatLabelPrior, ProfiledLabelPrior, BetaLabelPrior,
+    StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
     median_seeded_posterior, Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, inlier_prior,
@@ -175,7 +175,6 @@ using VisualGeometryToolkitCore: AbstractLossShape, GaussianShape, WelschShape,
 # axis — whether a shape rejects at all — which decides whether a frozen width
 # is a consensus threshold or just a scale (scoring_glue.jl `is_inlier`).
 using VisualGeometryToolkitCore: deploy, DeployedLoss, sq_loss_width, bounded
-using VisualGeometryToolkitCore: partition_student_t, IGPrior   # a robust refine's scale: the least-squares rows' Student-t (refine_camera_and_poses.jl)
 using VisualGeometryToolkitCore: EssentialManifold5,
     HomographyManifold8, pose_action_jacobian,   # the relpose bundle's pose chart
     LeftRigidManifold6, recenter, retract, retract_jacobian, action_jacobian,

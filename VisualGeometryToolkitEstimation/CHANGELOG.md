@@ -5,6 +5,18 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Changed: `refine_camera_and_poses`' robust scale is anchored on a scorer's consensus partition** (the owner's
+  ruling (b)): with `robust` and no `scale`, ŝ is the Student-t scale of the consensus set a scorer selects among the
+  least-squares reprojection distances (codimension 2) — Core's consensus-anchored mechanism (`score!`, then
+  `consensus_set` at the local optimization's dof), as the RANSAC loop anchors its local optimization — and the width
+  `scale_multiple · ŝ`. New keyword `scoring` (a RANSAC scorer, e.g. read by `scoring_from_toml`); the default is the
+  stack's, `configs/default.toml` `[refine_camera_and_poses] scoring` (the Student-t + uniform scorer, outlier
+  half-width 20 px, its priors `[scoring.student_t_uniform]`'s), run at the bundle's own model dof. `scale = σ` stays
+  the override (with no `scoring`). The retired default, the frozen Student-t of all the least-squares rows, is gone:
+  on the 8 %-outlier fixture (5 views × 60, σ 0.2 px, outliers 20–60 px) it gave ŝ = 8.1 px and left ~1 px of
+  camera error; anchored, ŝ = 1.65 px (the biased least-squares fit's inliers) and the error is 0.23 px (Huber) /
+  0.20 px (Welsch), against 0.17 / 0.20 px at the caller's σ.
+
 - **New: the Student-t scorer's table, its priors required keys** (the owner's ruling (c)). `scoring_from_toml` reads
   VisualGeometryToolkitCore's `StudentTUniformScoring` (moved there from RANSACScoringDoneRight):
   `{ type = "student_t_uniform", outlier_halfwidth = h, scale_prior = "jeffreys" | "ig" (alpha0, beta0),

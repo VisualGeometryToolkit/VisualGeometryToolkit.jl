@@ -789,3 +789,31 @@ end
         end
     end
 end
+
+@testitem "board deformation: nested Duals (a Hessian) through a height field's ray hit" begin
+    using Test, StaticArrays, LinearAlgebra, ForwardDiff
+    using Rotations: RotMatrix, RotXYZ
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: intersection, grid_nodes
+
+    dir = joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "height_surface")
+    include(joinpath(dir, "dual_hit_surface.jl"))
+    include(joinpath(dir, "dual_hit.jl"))
+    REF = DUAL_HIT_REFERENCE
+    generic(s, o, d) = VisualGeometryToolkitCore.Cameras._mapped_intersection(s, o, d)
+    # the ray parameter as a function of three nodal heights (the rest at the fixture's), through `hit`
+    t_of(hit, o, d) = v -> (h = [i <= 3 ? REF.heights[i] + v[i] : oftype(v[1], REF.heights[i]) for i in eachindex(REF.heights)];
+                            hit(dual_hit_surface(h), o, d)[1])
+    for k in findall(isfinite, REF.t)[1:4]
+        o, d = SVector{3}(REF.origins[k]), SVector{3}(REF.directions[k])
+        # nested Duals: the fast path's fallback, the generic root seeded at the primal hit
+        H = ForwardDiff.hessian(t_of(intersection, o, d), zeros(3))
+        # the generic root from the plane hit, unseeded (the implicit function theorem layer by layer)
+        @test maximum(abs, H - ForwardDiff.hessian(t_of(generic, o, d), zeros(3))) <= 1.0e-12 * max(1.0, maximum(abs, H))
+        # central differences of the (first-order Dual) gradient, step 1e-5 m: truncation O(h²), well under 1e-6
+        g(v) = ForwardDiff.gradient(t_of(intersection, o, d), v)
+        Hfd = reduce(hcat, ((g(1.0e-5 .* (1:3 .== j)) - g(-1.0e-5 .* (1:3 .== j))) ./ 2.0e-5 for j in 1:3))
+        @test maximum(abs, H - Hfd) <= 1.0e-6 * max(1.0, maximum(abs, H))
+        @test H ≈ H' atol = 1.0e-12
+    end
+end

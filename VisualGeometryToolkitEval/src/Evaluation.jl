@@ -50,7 +50,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractLocalOptimiz
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,
     score!, external_workspace, prepare_external!, refine_external!, select_on_grid!, stage_selection,
-    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2
+    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2,
+    decision_width, GemanMcclureShape   # a format-6 sidecar's efficiency constant, plain (arms.jl)
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,

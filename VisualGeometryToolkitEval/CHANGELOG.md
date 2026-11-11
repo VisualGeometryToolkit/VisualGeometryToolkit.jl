@@ -5,6 +5,20 @@
 - **Breaking: the scale-multiple width axis is `EfficiencyConstant` (`:efficiency_constant`)** (VisualGeometryToolkitCore's
   rename): grids, arms and tuning keys read and write the new name. Sidecars persisted under the old axis name are
   migrated by the sidecar step (B6).
+- **Breaking: tuning artifact format 7, the efficiency-constant names** (the stack's robust-estimation contract,
+  2026-11-11). A tuning sidecar, checkpoint or bundle is written with the `efficiency_constant` names: the
+  `efficiency_constant` axis (grid spec and display axis), `efficiency_constant_window`, and boundary hits named
+  `efficiency_constant_lo`/`_hi`; its efficiency constant is the plain multiple (`width = c·ŝ`) for every loss.
+  `TuningArtifact` gains `format` (the format the file was written in) and `recorded_hash` (the file's own hash).
+- **A format-6 tuning sidecar is still read**, never rewritten: `load_tuning_artifact` carries it over in memory
+  through its version step (`VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v6")}, tree)`, run by
+  `migrate_record`), which checks its recorded hash against the stored table and renames the old keys of the spec,
+  the grid specs and the axis-named data (`boundary_hits`, `kinds`, a coarse-fine artifact's `axes`, `selected`,
+  `boundary_hit`, `record.param_name`). `deployed_budget_settings` converts a format-6 Geman–McClure arm's
+  efficiency constant (a half-weight depth) once, to the plain multiple its code deployed (`decision_width`), so the
+  deployed LO is unchanged; every other loss's constant was already plain. Formats 1–5 are refused as before.
+  The fixtures (test/data/tuning_v6/) were written by the format-6 code.
+
 - **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment
   the plan was made in, so a stage sees only the ones the backend sets (`SLURM_SUBMIT_DIR`, an array's
   `SLURM_ARRAY_TASK_ID`, the site's `SLURM_CPUS_PER_TASK`). Launched from inside a Slurm array task (the test suite's

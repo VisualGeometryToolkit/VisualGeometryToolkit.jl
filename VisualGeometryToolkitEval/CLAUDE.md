@@ -60,7 +60,9 @@ public name needs a docstring and a page that includes it.
   seeded by `Stats.stable_seed` from a spec seed and a NAME.
 - Persisted artifacts carry a format stamp (`ARTIFACT_FORMATS`,
   src/artifact_format.jl): one writer stamps each kind, one reader refuses any
-  other format. An older file is converted or regenerated, never shimmed.
+  other format. An older file is converted or regenerated, never shimmed;
+  the one exception is a version a kind reads through its version steps
+  (`read_from`: tuning format 6, via VisualGeometryToolkitIO's `migrate_record`).
 
 `src/render/axis_style.jl`, `src/evaluation/cv_probe.jl`,
 `src/experiments/stages.jl`, `src/reproduce/reproduce_index.jl` and

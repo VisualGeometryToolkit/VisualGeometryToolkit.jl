@@ -341,6 +341,21 @@ end
 
 _is_basin(tk) = String(tk["mode"]) == "basin"
 
+# The tuned efficiency constant of a format-6 sidecar (`tk.format < 7`), as the
+# PLAIN multiple (`width = c·ŝ`) its code deployed. Format 6 stored it in its
+# loss's currency: a Geman–McClure multiple was a half-weight depth, deployed as
+# `decision_width(GM, m)` (×1/√(√2 − 1)); Cauchy's conversion is the identity,
+# every other loss's multiple plain. The arm's loss says which: the roster's LO
+# at the stored value (`loss_family`). Every other arm and file: as it is.
+_plain_width(tk::TuningArtifact, arm::ComposedSpec, w::Float64) =
+    tk.format < 7 && arm.kind isa EfficiencyConstant ? _plain_efficiency_constant(arm, arm.ctor(w), w) : w
+function _plain_efficiency_constant(arm, lo, m::Float64)
+    hasmethod(loss_family, Tuple{typeof(lo)}) || throw(ArgumentError(
+        "deployed_budget_settings: arm $(arm.base) of a format-6 sidecar is an efficiency-constant arm whose LO " *
+            "($(nameof(typeof(lo)))) names no loss_family: its stored constant's currency is unknown"))
+    return loss_family(lo) === :gm ? decision_width(GemanMcclureShape(), m) : m
+end
+
 # -----------------------------------------------------------------------------
 # The deployed readers
 # -----------------------------------------------------------------------------
@@ -364,6 +379,11 @@ INTERIOR-ARGMIN INVARIANT: a HARD ERROR on any arm whose persisted
 re-run the tuning (a [`SelectionWidth`](@ref) arm has no width of its own to
 clip: its list carries the selection's axis alone, and its recorded width must
 be its selection's, [`operating_width`](@ref)). A basin sidecar is refused ([`deployed_basin_settings`](@ref) reads it).
+
+A format-6 sidecar (read through its version step, [`load_tuning_artifact`](@ref))
+stored an efficiency constant in its loss's currency: a Geman–McClure arm's is
+converted once, here, to the plain multiple its code deployed
+(`decision_width`), so the deployed LO is the one the sidecar was tuned with.
 """
 function deployed_budget_settings(roster::Roster, path::AbstractString;
                                   problem::Union{Nothing,Symbol} = nothing)
@@ -378,7 +398,7 @@ function deployed_budget_settings(roster::Roster, path::AbstractString;
         arm = by_base[b]
         _composed_kind(arm, "deployed_budget_settings")
         selection = Float64(tk["tuned_selection"][b])
-        width = operating_width(arm, selection, Float64(tk["tuned_width"][b]))
+        width = _plain_width(tk, arm, operating_width(arm, selection, Float64(tk["tuned_width"][b])))
         push!(out, b => (lo = arm.ctor(width), sel = selection,
                          ref = deployed_ref(arm.kind, selection, width), kind = arm.kind))
     end

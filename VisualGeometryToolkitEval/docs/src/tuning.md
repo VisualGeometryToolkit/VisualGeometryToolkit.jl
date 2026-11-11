@@ -368,6 +368,25 @@ tuning). The same mechanism stamps pools, with `pool_format`. The reader then
 refuses a stored spec whose hash does not match its table, and finally
 rebuilds every grid: `art.grids[:axis]` is the realized grid.
 
+**Format 6 is still read.** Format 7 (2026-11-11) names the efficiency
+constant `efficiency_constant` (the axis, its grid spec, the scheme's
+`efficiency_constant` axis and `efficiency_constant_window`) and stores it as
+the PLAIN multiple, `width = c·ŝ`, for every loss. A format-6 sidecar keeps
+its old keys on disk (a sidecar is immutable provenance, never rewritten): the
+reader carries it over in memory through its version step, registered with
+VisualGeometryToolkitIO's `migrate_schema` and run by its `migrate_record`. The
+step checks the file's recorded hash against its STORED table, renames the
+keys of the spec and the grid specs and the axis names in the data
+(`boundary_hits`, `kinds`, a coarse-fine artifact's `axes`, `selected`,
+`boundary_hit` and `record.param_name`), and records the renamed table's hash.
+`art.format` is the format the file was written in and `art.recorded_hash`
+its own hash. A format-6 efficiency constant is in its LOSS's currency (a
+Geman–McClure multiple was a half-weight depth); `deployed_budget_settings`
+converts a Geman–McClure arm's once, by the arm's `loss_family`, to the plain
+multiple the old code deployed (`decision_width`), so the deployed LO is the
+one the sidecar was tuned with. A caller that reads `art["tuned_width"]`
+directly from a format-6 sidecar converts it the same way.
+
 ## Provenance: from a deployed constant to the run
 
 1. A deployed cross-validated constant carries

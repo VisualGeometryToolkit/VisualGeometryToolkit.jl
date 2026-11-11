@@ -41,13 +41,14 @@ using TOML: TOML
 using JLD2: JLD2
 using LibGit2: LibGit2
 using DrWatson: isdirty                     # _git_identity (persist.jl)
+import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step: migrate_schema, migrate_record (persist.jl)
 using Statistics: median                      # MedianError's objective; RobustFit's prior scale
 using Distributions: Gamma, fit_mle, scale, shape   # fit_prior(::InverseGamma, ::MLE)
 using VisualGeometryToolkitCore: IGPrior
 using VisualGeometryToolkitCore.Synthetic: maa_score   # unit_statistics of the mAA criterion
 using ..Stats: finite_median, lower_median, scale_bounds, scene_mean, scene_mean_median, stable_seed,
     eligible_maa                              # the mAA rule (MeanAverageAccuracy's objective)
-import .._save_artifact, .._check_artifact_format, .._format_key   # artifact_format.jl
+import .._save_artifact, .._check_artifact_format, .._format_key, ..ARTIFACT_FORMATS   # artifact_format.jl
 
 export
     # spacing.jl — spacings and the grid constructor

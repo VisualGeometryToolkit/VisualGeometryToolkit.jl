@@ -158,10 +158,11 @@ end
     # the backward is the source's on its optical axis (2026-11-11, changed on purpose: a gauge-K source is gauged
     # first, `optical_axis` then Core's `axis_gauged`): its controls turned by the fit's rotation, exactly, its K's
     # principal point moved to the axis's pixel. GRID is the fisheye's own spline, so the turn is its approximation
-    # error alone (measured 2026-11-11: 6e-7 px of principal point)
+    # error alone. The axis is fitted over the source's bound, GRID_BOUNDED's whole 1000 × 1000 image (2026-11-11,
+    # owner: the bound, never the fit's region): its corners lie past the disc, so the turn measured 1.3e-7
     R = rotation(metadata(r).rotation)
     @test lens(cam).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
-    @test maximum(abs, R - one(R)) < 1.0e-8
+    @test maximum(abs, R - one(R)) < 1.0e-6
     K, KG = calibration_matrix(cam), calibration_matrix(GRID)
     @test K[1, 1] == KG[1, 1] && K[2, 2] == KG[2, 2] && maximum(abs, K[1:2, 3] - KG[1:2, 3]) < 1.0e-5
     fam = metadata(r).family

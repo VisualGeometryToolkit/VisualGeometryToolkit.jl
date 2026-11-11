@@ -307,7 +307,8 @@ trait, `GaugeIntrinsics`, selects it):
   every solve.
 - First, always, the optical axis. The camera is turned so ẑ is its optical axis and its principal point is that
   axis's pixel, and the guess poses are turned with it, so every image is kept:
-  [`optical_axis`](@ref), then Core's `axis_gauged`. The refine runs from there. `result.spline.axis_rotation` is the
+  [`optical_axis`](@ref), then Core's `axis_gauged`. The axis is fitted over the camera's own bound, so the camera
+  must be a `BoundedCamera`; a bare model is an `ArgumentError`. The refine runs from there. `result.spline.axis_rotation` is the
   turn, from the given camera's frame to the refined one's. The refined K is the gauged guess's.
 - The gauge: a rotation of every control together with every pose, and one
   common scale of every control, leave the cost unchanged. The solve fixes it

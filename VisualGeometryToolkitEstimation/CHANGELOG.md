@@ -21,15 +21,17 @@ non-central one is a `NoncentralSplineModel`).
     (px: the azimuthal misfit about the fitted principal point; `NaN` where not measured). The lens families' record
     gains `aspect`.
   - **A non-central source** of a lens-family fit is an `ArgumentError` (not supported yet).
-- **New: `optical_axis(camera, region)`** (exported), the one `fit_camera` call of the Fisheye624 family
-  (`Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6}`, its decentering held at zero) onto a camera: its axis,
-  principal point, rotation and symmetry residual. The family's manifold frees a composition's first radial stage
+- **New: `optical_axis(camera::BoundedCamera)`** (exported), the one `fit_camera` call of the Fisheye624 family
+  (`Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6}`, its decentering held at zero) onto a camera, over the
+  camera's own bound (`imaged_region`, never a default): its axis, principal point, rotation and symmetry residual.
+  A bare model is an `ArgumentError` naming the wrap. The family's manifold frees a composition's first radial stage
   (Core's `_bounding_radial`), so a composed target fits at all.
 - **`fit_camera(SplineLens, …)` gauges a gauge-K source onto its optical axis first** (`optical_axis`, then Core's
-  `axis_gauged`: every ray turned by R, exactly). Its forward is fitted there, and the metadata's `rotation` says by how
+  `axis_gauged`: every ray turned by R, exactly), the axis fitted over the source's bound. Its forward is fitted there, and the metadata's `rotation` says by how
   much. A physical source is unchanged.
 - **The SplineLens `refine_camera_and_poses` starts on the guess's optical axis.** The camera is turned and its
-  principal point moved to the axis's pixel, the poses turned with it.
+  principal point moved to the axis's pixel, the poses turned with it. Breaking: the camera must be a `BoundedCamera`
+  (its bound is the axis fit's region); a bare SplineLens model is an `ArgumentError`.
   - The refine holds that frame and K exactly. Its end step (the ray at x = 0 onto ẑ, the roll, the mean-length
     rescale: `_gauged`, `_gauge_rotation`, `_turned_variables`) is deleted; with it, `spline.gauge_angle` and
     `gauge_roll`.

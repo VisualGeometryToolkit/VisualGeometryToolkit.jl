@@ -385,12 +385,15 @@ function _symmetry_residual(::VgtkCore.Cameras.GaugeIntrinsics, e, offsets, w)
 end
 
 """
-    optical_axis(camera, region = <its domain>) -> FitResult{<:CameraModel, CameraFitMetadata}
+    optical_axis(camera::BoundedCamera) -> FitResult{<:CameraModel, CameraFitMetadata}
 
-The radially symmetric camera closest to `camera` over `region`: `fit_camera` of the stack's Fisheye624 family
-(COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6})`,
-its decentering held at zero) onto `camera`. The region defaults to the bounded camera's `imaged_region`, a bare
-model's `valid_domain`. It is that one call, nothing more.
+The radially symmetric camera closest to `camera` over the camera's own bound, its `imaged_region` (the sensor ∩ its
+lens coverage ∩ the model's valid domain). It is `fit_camera` of the stack's Fisheye624 family (COLMAP's
+`RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6})`, its
+decentering held at zero) onto `camera`, that one call, nothing more.
+- The region is the bound, never a default. A circular fisheye's lens coverage (its image circle) keeps the corners
+  out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
+- A bare model has no bound: an `ArgumentError`. Wrap it in `BoundedCamera(model, size; lens_coverage)`.
 - For a SplineLens camera (a gauge `K`), the principal point and the axis are free. Read them from the result.
   - The optical axis in the camera's frame is `rotation(metadata(r).rotation)' * ẑ`.
   - Its pixel is the fitted camera's principal point.
@@ -401,8 +404,13 @@ model's `valid_domain`. It is that one call, nothing more.
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), principal_point)` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` and the SplineLens `refine_camera_and_poses` do this first, always.
 """
-optical_axis(camera::CameraModel, region = VgtkCore.valid_domain(camera)) = fit_camera(_AXIS_FAMILY, camera, region)
-optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera)) = fit_camera(_AXIS_FAMILY, camera, region)
+optical_axis(camera::BoundedCamera) = fit_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera))
+optical_axis(camera::VgtkCore.AbstractCamera) = throw(
+    ArgumentError(
+        "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
+            "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"
+    )
+)
 # The radially symmetric family of the optical axis: Fisheye624 (COLMAP RAD_TAN_THIN_PRISM_FISHEYE), its six radial
 # coefficients fitted, its decentering held at zero (`_lens_family_manifold`).
 const _AXIS_FAMILY = typeof(
@@ -1097,7 +1105,7 @@ function fit_camera(
     )
     _check_tolerance(tolerance)
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
-    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, region)
+    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source)
     gauge.code === :converged || (code = gauge.code)
     cam = gauge.camera
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
@@ -1118,12 +1126,13 @@ end
 # The backward of a SplineLens target in the frame its forward is fitted in. A GAUGE-K source's ẑ is where its frame
 # put it: the camera is turned so ẑ is its optical axis and its principal point that axis's pixel (`optical_axis`,
 # Core's `axis_gauged`: exact, every ray turned by R), the fit's rotation the optical axis's. A physical source's
-# lattice takes its K and its ẑ, the axis already: the identity. The camera, the rotation, the symmetry residual and
-# the optical axis fit's retcode.
-_axis_gauge(::VgtkCore.Cameras.FreeIntrinsics, cam, region) =
+# lattice takes its K and its ẑ, the axis already: the identity. The axis is fitted over the source's bound (its
+# `imaged_region`), not the fit's region. The camera, the rotation, the symmetry residual and the optical axis fit's
+# retcode.
+_axis_gauge(::VgtkCore.Cameras.FreeIntrinsics, cam, source::BoundedCamera) =
     (; camera = cam, rotation = _source_to_fitted(nothing), symmetry_residual = NaN, code = :converged)
-function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, region)
-    r = optical_axis(cam, region)
+function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, source::BoundedCamera)
+    r = optical_axis(VgtkCore.with_model(source, cam))
     K = calibration_matrix(estimate(r))
     R = metadata(r).rotation
     camera = VgtkCore.axis_gauged(cam, rotation(R), SVector(K[1, 3], K[2, 3]))

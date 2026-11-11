@@ -93,8 +93,9 @@ spline targets' one penalized solve on a given lattice, `grid_size = (columns,
 rows)` in Core's order; `fit_camera` repeats it at each spacing it tries.
 
 A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
-`optical_axis(camera)` is the one `fit_camera` call that finds the lens's optical axis: the closest radially
-symmetric camera, with its principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
+`optical_axis(camera::BoundedCamera)` is the one `fit_camera` call that finds the lens's optical axis: the closest
+radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out), with its
+principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
 ```@docs

@@ -120,11 +120,19 @@
         Js = zeros(n, 6); sampson_jacobian_rows!(Js, M, dM, xs)
         @test Js == J1
         @test J ≈ sqrtw .* J1 rtol = 1.0e-13
-        # no allocation in the rows or the per-correspondence Jacobian
+        # no allocation per row: the one kernel launch allocates KernelAbstractions' launch
+        # objects (a few hundred bytes, whatever the row count) and nothing more. A kernel
+        # compiled for a widened signature (`args...` as `Vararg{Any}`) boxes every row
+        # (≈150 bytes a row, 2026-11-11), which this catches as growth with n.
         rows_allocs(f!, r, M, xs) = (f!(r, M, xs); @allocated f!(r, M, xs))
         jac_allocs(f!, J, M, dM, xs) = (f!(J, M, dM, xs); @allocated f!(J, M, dM, xs))
-        @test rows_allocs(sampson_residuals!, r, M, xs) == 0 && rows_allocs(wres!, r, M, xs) == 0
-        @test jac_allocs(sampson_jacobian_rows!, J, M, dM, xs) == 0 && jac_allocs(wjac!, J, M, dM, xs) == 0
+        k = 10; xk = withattrs(Csponds(u₁[1:k], u₂[1:k]); sqrt_weights = sqrtw[1:k]); rk1 = zeros(k); Jk1 = zeros(k, 6)
+        for f! in (sampson_residuals!, wres!)
+            @test rows_allocs(f!, r, M, xs) == rows_allocs(f!, rk1, M, xk)
+        end
+        for f! in (sampson_jacobian_rows!, wjac!)
+            @test jac_allocs(f!, J, M, dM, xs) == jac_allocs(f!, Jk1, M, dM, xk)
+        end
         f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
         allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
         @test allocs(M, u₁[1], u₂[1], A) == 0

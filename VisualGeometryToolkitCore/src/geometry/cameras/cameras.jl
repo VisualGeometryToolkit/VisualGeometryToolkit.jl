@@ -573,6 +573,23 @@ Adapt.adapt_structure(to, bc::BoundedCamera) = _rebound(bc, Adapt.adapt(to, bc.c
 Adapt.adapt_structure(to, c::PosedCamera) = _device_posed(Adapt.adapt(to, c.model), c.extrinsics)
 _device_posed(m::M, X::Rt) where {M, Rt} = PosedCamera{M, Rt}(m, X)   # the stored extrinsics as they are, no re-check
 
+"""
+    with_present(camera::BoundedCamera, present::AbstractMatrix{Bool}) -> BoundedCamera
+
+A bounded spline camera (a [`SplineLens`](@ref) camera or a
+[`NoncentralSplineModel`](@ref), posed or not) holding the nodes `present`: its
+model's `with_present`, the bound, the lens coverage and a pose kept.
+"""
+with_present(bc::BoundedCamera, present::AbstractMatrix{Bool}) = with_model(bc, with_present(model(bc), present))
+
+"""
+    with_directions(camera::BoundedCamera, D::AbstractMatrix{<:StaticVector{3}}) -> BoundedCamera
+
+A bounded spline camera (a [`SplineLens`](@ref) camera or a
+[`NoncentralSplineModel`](@ref), posed or not) with the direction controls `D`:
+its model's `with_directions`, the bound, the lens coverage and a pose kept.
+"""
+with_directions(bc::BoundedCamera, D::AbstractMatrix) = with_model(bc, with_directions(model(bc), D))
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()

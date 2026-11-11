@@ -138,15 +138,6 @@ infinity sees: the same `K`, direction spline and present nodes as a
 """
 central_model(m::NoncentralSplineModel) = CameraModel(m.intrinsics, _direction_lens(m))
 
-# The controls of a replaced spline: `SVector{3}`s over the model's area, kept as given.
-function _model_spline(m::NoncentralSplineModel, controls::AbstractMatrix, what)
-    size(controls) == size(m.directions.controls) || throw(
-        ArgumentError("$(what): a $(size(controls)) control grid for a $(size(m.directions.controls)) model")
-    )
-    T = eltype(eltype(m.directions.controls))
-    return ChartSpline(m.directions.area, Matrix{SVector{3, T}}(map(v -> SVector{3, T}(v[1], v[2], v[3]), controls)))
-end
-
 """
     with_points(m::NoncentralSplineModel, P::AbstractMatrix{<:StaticVector{3}}) -> NoncentralSplineModel
 
@@ -154,7 +145,7 @@ The model `m` with the line-point controls `P` (`[gy, gx]`, plain metres in the
 camera frame, kept exactly as given), every other part kept.
 """
 with_points(m::NoncentralSplineModel, P::AbstractMatrix) =
-    _noncentral_spline_model(m.intrinsics, m.directions, _model_spline(m, P, "with_points"), m.present)
+    _noncentral_spline_model(m.intrinsics, m.directions, _with_controls(m.points, P, "with_points"), m.present)
 
 """
     with_directions(m::NoncentralSplineModel, D::AbstractMatrix{<:StaticVector{3}}) -> NoncentralSplineModel
@@ -163,7 +154,7 @@ The model `m` with the direction controls `D` (`[gy, gx]`, kept exactly as
 given), every other part kept.
 """
 with_directions(m::NoncentralSplineModel, D::AbstractMatrix) =
-    _noncentral_spline_model(m.intrinsics, _model_spline(m, D, "with_directions"), m.points, m.present)
+    _noncentral_spline_model(m.intrinsics, _with_controls(m.directions, D, "with_directions"), m.points, m.present)
 
 """
     with_present(m::NoncentralSplineModel, present::AbstractMatrix{Bool}) -> NoncentralSplineModel

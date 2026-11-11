@@ -1205,6 +1205,26 @@ function with_present(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, pres
     return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _absent_nan(b.controls, present)); l.forward, present))
 end
 
+"""
+    with_directions(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, D::AbstractMatrix{<:StaticVector{3}}) -> CameraModel
+
+The [`SplineLens`](@ref) camera with the backward direction controls `D` (`[gy, gx]`,
+kept exactly as given, in the controls' element type): the same `K`, lattice and
+presence mask. The forward spline, which inverts the old directions, is dropped
+(`project` seeds without it).
+"""
+with_directions(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, D::AbstractMatrix) =
+    CameraModel(cam.intrinsics, SplineLens(_with_controls(cam.lens.backward, D, "with_directions"); present = cam.lens.present))
+
+# A spline's controls replaced: `SVector{3}`s over its area, in its element type, the lattice's size checked.
+function _with_controls(s::ChartSpline, controls::AbstractMatrix, what)
+    size(controls) == size(s.controls) ||
+        throw(ArgumentError("$(what): a $(size(controls)) control grid for a $(size(s.controls)) model"))
+    return ChartSpline(s.area, Matrix(_as_controls(eltype(eltype(s.controls)), controls)))
+end
+# Given controls as `SVector{3, T}`s, the numbers kept.
+_as_controls(::Type{T}, given::AbstractMatrix) where {T} = map(v -> SVector{3, T}(v[1], v[2], v[3]), given)
+
 # ------------------------------------------------------------------------------
 # A window: the camera of a block of the lattice's controls
 # ------------------------------------------------------------------------------
@@ -1220,8 +1240,7 @@ function _window_controls(controls::AbstractMatrix, rows, cols, given)
     given === nothing && return view(controls, rows, cols)
     size(given) == (length(rows), length(cols)) ||
         throw(DimensionMismatch("window: $(size(given)) controls for a $(length(rows)) × $(length(cols)) block"))
-    T = eltype(eltype(controls))
-    return map(v -> SVector{3, T}(v[1], v[2], v[3]), given)
+    return _as_controls(eltype(eltype(controls)), given)
 end
 
 # The rectangle the block `rows × cols` of a lattice over `area` spans: from the

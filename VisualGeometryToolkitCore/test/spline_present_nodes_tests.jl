@@ -120,3 +120,50 @@
         end
     end
 end
+
+# The rebuilders of a spline camera: `with_directions` of a SplineLens camera (the backward controls replaced, K, the lattice and
+# the presence mask kept, the forward spline dropped: it inverts the old directions), and `with_present`/`with_directions` of a
+# BoundedCamera (the wrapped model rebuilt, the bound, the lens coverage and a pose kept).
+@testitem "spline rebuilders: with_directions of a SplineLens camera; with_present and with_directions of a BoundedCamera" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: KannalaBrandt, NoncentralSplineModel, with_present, with_directions, node_mask,
+        present_nodes, lens_coverage, model
+    using StaticArrays
+    using LinearAlgebra: normalize
+    using Rotations: RotXYZ
+
+    W, H = 1280, 960
+    fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
+    disc = Circle(Point2(640.0, 480.0), 250π / 3)
+    m = CameraModel(SplineLens, fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    C = m.lens.backward.controls
+    turn = RotXYZ(0.0, 0.0, 0.05)
+    D = map(v -> SVector{3, Float64}(turn * v), C)
+    # a SplineLens camera: the backward controls replaced exactly, K, area and mask kept
+    md = with_directions(m, D)
+    @test md isa CameraModel && md.lens isa SplineLens
+    @test md.lens.backward.controls == D && md.lens.backward.area == m.lens.backward.area
+    @test md.intrinsics == m.intrinsics && md.lens.forward === nothing
+    p = SVector(600.0, 500.0)
+    @test backproject(md, p) ≈ normalize(turn * backproject(m, p)) rtol = 1.0e-12
+    @test_throws ArgumentError with_directions(m, D[1:(end - 1), :])
+    mask = node_mask(m, valid_domain(m) ∩ disc)
+    mp = with_present(m, mask)
+    @test present_nodes(with_directions(mp, D)) == mask
+    # a BoundedCamera, unposed and posed: the model rebuilt, the bound, the coverage and the pose kept
+    X = EuclideanMap(RotXYZ(0.1, -0.2, 0.3), SVector(0.5, -0.1, 2.0))
+    for bc in (BoundedCamera(m, Size2(W, H); lens_coverage = disc), BoundedCamera(PosedCamera(m, X), Sensor(Size2(W, H), 5.95μm); lens_coverage = disc))
+        b1 = with_present(bc, mask)
+        @test b1 isa BoundedCamera && b1.bound === bc.bound && lens_coverage(b1) === lens_coverage(bc)
+        @test present_nodes(model(b1)) == mask
+        b2 = with_directions(bc, D)
+        @test b2 isa BoundedCamera && b2.bound === bc.bound && lens_coverage(b2) === lens_coverage(bc)
+        @test model(b2).lens.backward.controls == D
+        bc.camera isa PosedCamera && @test b1.camera.extrinsics === X && b2.camera.extrinsics === X
+    end
+    # a bounded non-central model takes them too
+    nc = NoncentralSplineModel(fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    bn = BoundedCamera(nc, Size2(W, H); lens_coverage = disc)
+    @test with_directions(bn, D).camera.directions.controls == D && present_nodes(with_present(bn, mask).camera) == mask
+end

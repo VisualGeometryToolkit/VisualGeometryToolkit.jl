@@ -267,7 +267,10 @@ control matrix) and holds only those nodes; every pixel of the region reads
 them alone, so the camera evaluates the region as the full one.
 [`present_nodes`](@ref VisualGeometryToolkitCore.Cameras.present_nodes) is the
 mask; past the fully present windows `backproject` is NaN and `project` gives a
-NaN pixel, as outside the area.
+NaN pixel, as outside the area. `with_directions(cam, D)` replaces the direction
+controls (the same `K`, lattice and mask; the forward spline, which inverted the
+old directions, is dropped). Both rebuild a `BoundedCamera` too, keeping its
+bound, lens coverage and pose.
 
 ```julia
 cam = CameraModel(SplineLens, fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)

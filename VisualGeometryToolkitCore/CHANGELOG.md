@@ -20,6 +20,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **New: a bounded camera and a posed camera move to a device** (`Adapt.adapt(backend, bc)`): the wrapped camera's
   arrays move (a spline lens's controls and presence mask), the bound, the lens coverage and the pose travel as they are,
   so a kernel reads where the camera images (its lens coverage and its backprojection) without the bound being stripped.
+- **New: `with_directions` of a SplineLens camera**, the backward controls replaced (K, the lattice and the presence mask
+  kept; the forward spline, which inverts the old directions, dropped), and **`with_present`/`with_directions` of a
+  `BoundedCamera`**, which rebuild its spline model and keep the bound, the lens coverage and a pose. The non-central
+  model's rebuilders and these share one control replacement.
 - **The stack's dependency allow-list (`configs/stack_dependencies.toml`) gives RANSACScoringDoneRight
   VisualGeometryToolkitEstimation**: SIMFIT++ moved from RSDR into Estimation, and RSDR's grid family of it consumes
   Estimation's `SimFitPP`/`simfitpp_select`.

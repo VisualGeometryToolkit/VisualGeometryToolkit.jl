@@ -74,7 +74,7 @@ using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (pr
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
-using ..VisualGeometryToolkitCore: grid_golden_minimum   # the one grid-and-golden minimizer (numerics/minimize.jl): the azimuthal minimum
+using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
 using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, _ellipse_or_nothing, boundary_points

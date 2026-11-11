@@ -174,12 +174,32 @@ sensor — so every consumer asks the camera what it images instead of supplying
   so no ForwardDiff dual reaches the solve; and `_solved_projection`, THE solve it differentiates (from the area's
   centre: the LM returns a start within √eps unmoved, which would make x*(c) a step function). The direction
   differential also returns `‖S‖`; `_imaged_z` (the gauge's solve of ẑ) is `_solved_projection` too.
-- **New (public, not exported): `grid_golden_minimum(f, xs; iters, periodic = false, refine_ends = true)`**, the
-  stack's one 1-D minimizer (numerics/minimize.jl): the least value of `f` on an evenly spaced grid, refined by
-  golden-section steps between its neighbours; on a linear grid a least value at an end is refined on its one
-  neighbouring interval (or, `refine_ends = false`, returned as it is), and `at_end` says the result lies at the end.
-  `_azimuth_minimum` (the view-angle limit, the inscribed radius) reads it, unchanged bit for bit, and so does
-  Estimation's `gcv_select`.
+- **New (public, not exported): `grid_brent_minimum(f, xs; periodic = false)`**, the stack's one 1-D minimizer
+  (numerics/minimize.jl): the least value of `f` on an evenly spaced grid, refined by Brent's method (golden-section
+  steps with parabolic interpolation) between its neighbours to Brent's own floor (`√eps` relative: no tolerance to
+  supply); on a linear grid a least value at an end is refined on its one neighbouring interval, and `at_end` says the
+  result lies at the end; `Inf`/`NaN` values are never the minimum. `_azimuth_minimum` (the view-angle limit, the
+  inscribed radius) reads it (its values move at rounding level from the former 40 golden-section steps), and so does
+  Estimation's `gcv_select` (RadiometricCamera's scan-and-Brent search, whose `_brent_minimize` goes when it adopts it).
+- **New (public, not exported): the stack's one penalized least squares**, `min ‖Ax − b‖² + λ‖D(x − c)‖²`, each piece
+  with one owner (numerics/penalized_least_squares.jl):
+  - THE OPERATOR. `difference_rows(mask | dims, order; axes = (1, 2))` takes any order ≥ 1 along chosen lattice axes
+    (a full texel page `(TW, TH)` at order 1 is its gradient); `gradient_pairs(mask | dims)` is each node's isotropic
+    pair of order-1 rows (an L0 or total-variation step reads both); `bending_rows` also takes a
+    `ThinPlateSplineSystem` or a `SphericalSplineSystem` (the bending energy's rows, its null space without rows: the
+    second operator kind, the form RadiometricCamera's focus charts build); `row_stencils(D)` is a sparse operator's
+    rows as (nodes, coefficients), the form a nonlinear solve's residual blocks take (Estimation's SplineLens refine
+    builds its Δ³ blocks from it).
+  - THE NORMALIZATION. `mean_positive_eigenvalue(D)` / `mean_positive_eigenvalue(Symmetric(DᵀD))` (m̄) and
+    `penalty_scale(energy, N, m̄)` (`λ = β·energy/N/m̄`), moved from VisualGeometryToolkitEstimation (unreleased there), so
+    a linear solve calls them without Estimation.
+  - THE LINEAR SOLVE. `cgls(op, b; w, h, x0, rtol, max_iter)` → `(; x, iterations, converged, relres)`: CGLS for
+    `min ‖Ax − b‖² + ‖√w∘(Dx − h)‖²` on `PenalizedOperator(A, D; device)` (the stacked operators and their transposes
+    as `CSRMatrix`es, one KernelAbstractions work item per row, deterministic, no atomics; CPU and CUDA), a warm start
+    `x0`, a target `h`, and the stopping rule `‖Aᵀ(b − Ax) + DᵀW(h − Dx)‖ ≤ rtol·‖Aᵀb + DᵀWh‖` (relative to the
+    problem, not to the start: a warm start that is already close stops at once). The solver RadiometricCamera's
+    texture recovery and PanoramaStitching's vignetting call in place of their own CSR/CGLS and `_pcg`.
+  - No penalty fixes a gauge: a direction neither the data nor the penalty holds is held exactly by its caller.
 - **New: `field_of_view(camera, distance; dimension)`**: the size of the scene imaged at `distance`,
   `2·distance·tan(θ/2)` for the angle of view `θ`, in the distance's unit (180° or more: an `ArgumentError`).
 

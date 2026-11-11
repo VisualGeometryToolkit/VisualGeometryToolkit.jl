@@ -1,0 +1,193 @@
+# =============================================================================
+# Penalized least squares — the stack's one owner of each piece
+# =============================================================================
+#
+# Every penalized solve of the stack is
+#
+#   min_x ‖A x − b‖² + λ·‖D (x − c)‖²,   λ = β · penalty_scale(energy, N, m̄)
+#
+# differing only in the operator D, the target c and the solve:
+#
+# THE OPERATOR. `difference_rows` (numerics/bspline_energy.jl): forward differences
+#   of orders 1–3 on a masked lattice, a lattice of controls or a full texel page,
+#   along chosen axes; `gradient_pairs` groups its order-1 rows into each node's
+#   isotropic (∂₁, ∂₂) pair. `bending_rows`: the thin-plate bending energy's rows,
+#   the second operator kind. `row_stencils`: an operator's rows as the nodes and
+#   coefficients each reads, the form a nonlinear solve's residual blocks take (an
+#   NLLSsolver block per row on the variables holding its nodes).
+# THE NORMALIZATION. `mean_positive_eigenvalue` (m̄ of DᵀD) and `penalty_scale`
+#   (β relative to the data's energy per parameter and to m̄).
+# THE LINEAR SOLVE. `cgls` (min ‖Ax − b‖² + ‖√w∘(Dx − h)‖², warm start, target,
+#   KernelAbstractions on any backend) on sparse operators, `CSRMatrix` their device
+#   form. A dense or CHOLMOD-sized problem solves its normal equations directly.
+# THE WEIGHT'S CHOICE. VisualGeometryToolkitEstimation's `gcv_curve`/`gcv_select`
+#   (fitting/gcv.jl) — GCV is a fit's, not a numerical primitive.
+#
+# NO PENALTY FIXES A GAUGE. A direction neither the data nor the penalty holds is
+# held exactly by its caller (a parametrization, a held coordinate, a post-solve
+# transform), never by a ridge or a pull toward the start.
+# =============================================================================
+
+"""
+    mean_positive_eigenvalue(D) -> Float64
+    mean_positive_eigenvalue(Symmetric(DᵀD)) -> Float64
+
+The mean of the positive eigenvalues of a penalty operator's normal matrix `DᵀD`: the
+trace over the rank, from the operator `D` itself (`‖D‖²_F / rank D`; the rank by a
+sparse QR for a sparse `D`, so a lattice of 10⁴ nodes needs no dense eigendecomposition),
+or from the normal matrix given as `Symmetric` (`tr G / rank G`). The two forms agree; a
+plain matrix is read as the operator, so the normal matrix must come wrapped. The `m̄` of
+the penalty weight's normalization ([`penalty_scale`](@ref)).
+"""
+mean_positive_eigenvalue(D::AbstractMatrix) = sum(abs2, D) / _operator_rank(D)
+mean_positive_eigenvalue(G::LinearAlgebra.Symmetric) = LinearAlgebra.tr(G) / LinearAlgebra.rank(Matrix{Float64}(G))
+_operator_rank(D::SparseMatrixCSC) = LinearAlgebra.rank(LinearAlgebra.qr(SparseMatrixCSC{Float64, Int}(D)))
+_operator_rank(D::AbstractMatrix) = LinearAlgebra.rank(Matrix{Float64}(D))
+
+"""
+    penalty_scale(energy, N, m̄) -> Float64
+
+The unit of a penalty weight: `λ = β · energy / N / m̄`, β relative to the data's
+`energy` per parameter (`N` parameters) and to the penalty operator's mean positive
+eigenvalue `m̄` ([`mean_positive_eigenvalue`](@ref)), so β means the same for every
+operator, lattice and region; β = 1 weighs the penalty like the data. The energy is the
+caller's: a linear solve's data energy (`tr AᵀA`, or a radiometric Σϕ²), or a nonlinear
+refine's Gauss–Newton energy `tr JᵀJ` over its parameters (the residuals of exact data
+vanish, so they cannot set a scale).
+"""
+penalty_scale(energy::Real, N::Integer, m̄::Real) = Float64(energy) / N / Float64(m̄)
+
+"""
+    row_stencils(D::SparseMatrixCSC) -> Vector{Tuple{Vector{Int}, Vector{Float64}}}
+
+The rows of a sparse operator as the columns (nodes) each reads and its coefficients
+there, in row order, the nodes ascending: the form of a penalty as a nonlinear solve's
+residual blocks (one block per row on the variables holding its nodes, its residual
+`√λ·Σₘ sₘ xₙₘ`, a caller's chart and row weighting applied to it).
+"""
+function row_stencils(D::SparseMatrixCSC)
+    T = SparseMatrixCSC(transpose(D))                     # column m: row m of D
+    return [(T.rowval[T.colptr[m]:(T.colptr[m + 1] - 1)], T.nzval[T.colptr[m]:(T.colptr[m + 1] - 1)]) for m in 1:size(T, 2)]
+end
+
+# =============================================================================
+# The device form of a sparse operator, and the one CGLS
+# =============================================================================
+
+"""
+    CSRMatrix(A::SparseMatrixCSC; device = KernelAbstractions.CPU()) -> CSRMatrix
+
+A sparse operator in compressed sparse rows on a KernelAbstractions `device`: `mul!(y, C,
+x)` is one work item per row (each row's sum in its stored order: deterministic on every
+backend, no atomics). `Adapt.adapt(backend, C)` moves it. The operator a device solve
+([`cgls`](@ref)) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
+([`PenalizedOperator`](@ref) holds both).
+"""
+struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
+    m::Int
+    n::Int
+    rowptr::I
+    colval::I
+    nzval::V
+end
+function CSRMatrix(A::SparseMatrixCSC; device = KA.CPU())
+    T = SparseMatrixCSC{Float64, Int}(transpose(A))           # its columns are A's rows
+    return CSRMatrix(size(A, 1), size(A, 2), on_device(device, T.colptr), on_device(device, T.rowval), on_device(device, T.nzval))
+end
+Base.size(C::CSRMatrix) = (C.m, C.n)
+Base.size(C::CSRMatrix, d::Integer) = d == 1 ? C.m : d == 2 ? C.n : 1
+Adapt.adapt_structure(to, C::CSRMatrix) = CSRMatrix(C.m, C.n, Adapt.adapt(to, C.rowptr), Adapt.adapt(to, C.colval), Adapt.adapt(to, C.nzval))
+KA.get_backend(C::CSRMatrix) = get_backend(C.nzval)
+
+@kernel function _csr_mul_kernel!(y, @Const(rowptr), @Const(colval), @Const(nzval), @Const(x))
+    i = @index(Global)
+    s = zero(eltype(y))
+    @inbounds for k in rowptr[i]:(rowptr[i + 1] - 1)
+        s += nzval[k] * x[colval[k]]
+    end
+    @inbounds y[i] = s
+end
+function LinearAlgebra.mul!(y::AbstractVector, C::CSRMatrix, x::AbstractVector)
+    C.m == 0 && return y
+    _csr_mul_kernel!(get_backend(y))(y, C.rowptr, C.colval, C.nzval, x; ndrange = C.m)
+    return y
+end
+
+"""
+    PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = spzeros(0, size(A, 2)); device = default_device())
+
+The operators of a penalized least squares `min ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` on a
+KernelAbstractions `device`, built once for every solve on them ([`cgls`](@ref)): `A`,
+`D` and their transposes as [`CSRMatrix`](@ref)es. `D` is any of the stack's penalty
+operators ([`difference_rows`](@ref), [`bending_rows`](@ref) as a sparse matrix), its rows'
+weights `w` the solve's.
+"""
+struct PenalizedOperator{C <: CSRMatrix, B}
+    A::C
+    At::C
+    D::C
+    Dt::C
+    device::B
+end
+function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrixCSC{Float64, Int}(undef, 0, size(A, 2)); device = default_device())
+    size(D, 2) == size(A, 2) || throw(DimensionMismatch("PenalizedOperator: A has $(size(A, 2)) columns, D $(size(D, 2))"))
+    t(M) = SparseMatrixCSC{Float64, Int}(transpose(M))
+    return PenalizedOperator(CSRMatrix(A; device), CSRMatrix(t(A); device), CSRMatrix(D; device), CSRMatrix(t(D); device), device)
+end
+
+"""
+    cgls(op::PenalizedOperator, b; w = 1, h = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+        -> (; x, iterations, converged, relres)
+
+The least-squares solution of `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` (`op`'s `A` and `D`;
+`w` a weight per penalty row, or one for all; `h` the penalty's target, `nothing` for 0)
+by CGLS — conjugate gradients on the normal equations `(AᵀA + DᵀWD) x = Aᵀb + DᵀWh`
+applied as the stacked operator `[A; √W D]`, never formed — from `x0` (a warm start;
+`nothing`: 0), on `op`'s device (the vectors moved there; `x` returned on it).
+
+The stopping rule is relative to the normal equations' right-hand side, `‖sₖ‖ ≤ rtol ·
+‖Aᵀb + DᵀWh‖`, `sₖ = Aᵀ(b − A xₖ) + DᵀW(h − D xₖ)` the normal-equation residual: a
+reference fixed by the problem, not by the start, so a warm start that is already close
+needs few or no iterations (a rule relative to `‖s₀‖` asks a warm start for `rtol` more
+digits of improvement than a cold one). `converged` when the rule is met within
+`max_iter` iterations; `relres` is `‖sₖ‖ / ‖Aᵀb + DᵀWh‖`.
+"""
+function cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothing, AbstractVector} = nothing,
+        x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
+    dev = op.device
+    n = op.A.n; mD = op.D.m
+    length(b) == op.A.m || throw(DimensionMismatch("cgls: b has $(length(b)) entries, A $(op.A.m) rows"))
+    vec_on(v) = on_device(Float64, dev, v)
+    bd = vec_on(b)
+    sw = w isa Real ? fill!(KA.allocate(dev, Float64, mD), sqrt(Float64(w))) : sqrt.(vec_on(w))
+    hd = h === nothing ? KA.zeros(dev, Float64, mD) : vec_on(h)
+    x = x0 === nothing ? KA.zeros(dev, Float64, n) : copy(vec_on(x0))
+    r1 = similar(bd); r2 = similar(hd); s = similar(x); t = similar(x); q1 = similar(bd); q2 = similar(hd)
+    # the reference: Aᵀb + DᵀWh
+    LinearAlgebra.mul!(s, op.At, bd)
+    r2 .= sw .* sw .* hd
+    LinearAlgebra.mul!(t, op.Dt, r2); s .+= t
+    sref = norm(s)
+    # the residuals at x and the normal-equation residual
+    LinearAlgebra.mul!(r1, op.A, x); r1 .= bd .- r1
+    LinearAlgebra.mul!(r2, op.D, x); r2 .= sw .* (hd .- r2)
+    normal!(s) = (LinearAlgebra.mul!(s, op.At, r1); q2 .= sw .* r2; LinearAlgebra.mul!(t, op.Dt, q2); s .+= t; s)
+    normal!(s)
+    p = copy(s)
+    γ = dot(s, s)
+    it = 0
+    while it < max_iter && γ > (rtol * sref)^2
+        LinearAlgebra.mul!(q1, op.A, p)
+        LinearAlgebra.mul!(q2, op.D, p); q2 .= sw .* q2
+        qq = dot(q1, q1) + dot(q2, q2)
+        qq > 0 || break
+        α = γ / qq
+        x .+= α .* p; r1 .-= α .* q1; r2 .-= α .* q2
+        normal!(s)
+        γn = dot(s, s)
+        p .= s .+ (γn / γ) .* p
+        γ = γn
+        it += 1
+    end
+    return (; x, iterations = it, converged = γ <= (rtol * sref)^2, relres = sref > 0 ? sqrt(γ) / sref : 0.0)
+end

@@ -59,6 +59,27 @@ Private = false
 Pages = ["numerics/bspline_energy.jl"]
 ```
 
+## Penalized least squares
+
+Every penalized solve of the stack is `min ‖A x − b‖² + λ‖D (x − c)‖²`, one
+owner per piece. The operator `D`: [`difference_rows`](@ref) (orders 1–3 on a
+masked lattice or a texel page, along chosen axes; [`gradient_pairs`](@ref) its
+isotropic order-1 pairs) or [`bending_rows`](@ref) (the bending energy), and
+[`row_stencils`](@ref) its rows as a nonlinear solve's residual blocks. The
+weight's unit: [`penalty_scale`](@ref) with [`mean_positive_eigenvalue`](@ref)
+(m̄). The linear solve on sparse operators, on any KernelAbstractions device:
+[`cgls`](@ref) on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es. The
+weight's choice by generalized cross-validation is
+VisualGeometryToolkitEstimation's (`gcv_curve`, `gcv_select`). No penalty fixes a
+gauge: a direction neither the data nor the penalty holds is held exactly by
+its caller.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["numerics/penalized_least_squares.jl"]
+```
+
 ## Vignetting
 
 A camera's relative illumination V on the sensor as a B-spline in V on
@@ -201,8 +222,8 @@ Pages = ["numerics/quadrature.jl"]
 
 ## One-dimensional minimization
 
-[`VisualGeometryToolkitCore.grid_golden_minimum`](@ref) scans an evenly spaced
-grid and refines its least value by golden-section steps: the stack's one 1-D
+[`VisualGeometryToolkitCore.grid_brent_minimum`](@ref) scans an evenly spaced
+grid and refines its least value by Brent's method: the stack's one 1-D
 minimizer (public, not exported).
 
 ```@autodocs

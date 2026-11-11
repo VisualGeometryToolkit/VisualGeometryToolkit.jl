@@ -62,16 +62,17 @@ CameraPosesRefineMetadata
 ## Penalty weights: normalization and generalized cross-validation
 
 One convention for a penalty's weight across the stack: `λ = β · energy / N / m̄`
-(`penalty_scale`), β relative to the data's energy per parameter and to the
-penalty operator's mean positive eigenvalue `m̄` (`mean_positive_eigenvalue`),
-so β = 1 weighs the penalty like the data. `gcv_select` chooses β by
-generalized cross-validation from a score of λ: the closed-form curve of one
-Gauss–Newton system (`gcv_curve`), or a caller's own evaluation, as the
-SplineLens refine's (each β a nonlinear solve). Public, not exported.
+(VisualGeometryToolkitCore's `penalty_scale`), β relative to the data's energy
+per parameter and to the penalty operator's mean positive eigenvalue `m̄`
+(Core's `mean_positive_eigenvalue`), so β = 1 weighs the penalty like the data.
+`gcv_select` chooses β by generalized cross-validation from a score of λ — a
+coarse scan of log₁₀ β, then Brent's method — the score the closed-form curve
+of one penalized least squares (`gcv_curve`: every λ from one generalized
+eigendecomposition). A nonlinear fit evaluates it on its linearization, as the
+SplineLens refine does (one solve at β = 1, the curve, one final solve).
+Public, not exported.
 
 ```@docs
-VisualGeometryToolkitEstimation.penalty_scale
-VisualGeometryToolkitEstimation.mean_positive_eigenvalue
 VisualGeometryToolkitEstimation.gcv_curve
 VisualGeometryToolkitEstimation.gcv_select
 VisualGeometryToolkitEstimation.gcv_score

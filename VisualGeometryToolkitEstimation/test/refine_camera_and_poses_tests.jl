@@ -189,13 +189,14 @@ end
         sqrt(sum(sum(abs2, reprojection_error(camera, P, first(c), last(c))) for (P, cs) in zip(poses, views) for c in cs) / sum(length, views))
     # The views of the poses `E` (their perturbed starts `p0`), `n` detections each with known noise (σ = 0.3 px), of a
     # lattice rougher than the KB one (every control turned 0.02 rad, so the penalty's bias and the noise trade within
-    # the grid), refined with `penalty = :gcv`: the search's bookkeeping, and GCV's weight within a decade of the weight
-    # of `grid` (log₁₀ β) whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free),
+    # the grid), refined with `penalty = :gcv`: the search's bookkeeping, GCV's weight within 0.1 decade (the old search's
+    # final bracket) of `old_log10β`, the weight the per-weight nonlinear search chose (before 2026-11-11), and within a
+    # decade of the weight of `grid` (log₁₀ β) whose estimate predicts the clean pixels best (the reprojection rms against them: gauge-free),
     # predicting them as well to 2%. A fixed small weight on the noisy detections: the error names the cause and the
     # remedy, and the call returns within 3× `weak_seconds`, its time measured warm on one core (raptorlake,
     # 2026-11-11): its solves are bounded (the LM never sees a non-finite linearization, the rebuild rounds are capped),
     # so no machine spins in it (on dgx01 NLLSsolver 5.3.2's damping loop once did, > 60 min).
-    function check_gcv_choice(E, p0, n, grid, weak_seconds)
+    function check_gcv_choice(E, p0, n, grid, old_log10β, weak_seconds)
         rough = perturbed_controls(spline_truth(), 0.02)
         clean = spline_views(rough, E, 1.1; n)
         rng = Xoshiro(20261110)
@@ -204,9 +205,9 @@ end
         prediction(r) = spline_rms(estimate(r).camera, estimate(r).poses, clean)
         rg = refine_camera_and_poses(g0, p0, noisy)
         @test retcode(rg) === :converged && !rg.spline.gcv_at_bound
-        @test rg.spline.gcv_limit isa Float64 && rg.spline.β > rg.spline.gcv_limit              # the largest β that failed, below the choice
-        @test rg.spline.β == first(sort(filter(e -> isfinite(e.gcv), rg.spline.gcv); by = e -> e.gcv)).β
-        @test any(e -> e.gcv == Inf, rg.spline.gcv)                                   # the descent stopped at a weight that fails
+        @test rg.spline.β ≈ first(sort(rg.spline.gcv; by = e -> e.gcv)).β rtol = 1.0e-12    # the least of the weights evaluated
+        @test all(e -> isfinite(e.gcv), rg.spline.gcv) && issorted(rg.spline.gcv; by = e -> e.β)
+        @test abs(log10(rg.spline.β) - old_log10β) <= 0.1
         errors = [prediction(refine_camera_and_poses(g0, p0, noisy; penalty = 10.0^k)) for k in grid]
         @test abs(log10(rg.spline.β) - grid[argmin(errors)]) <= 1
         @test prediction(rg) <= 1.02 * minimum(errors)
@@ -406,7 +407,7 @@ end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using StaticArrays: SVector
-    using LinearAlgebra: norm, eigvals, Symmetric
+    using LinearAlgebra: norm, eigvals, Symmetric, tr
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, estimate, retcode, rms, lens,
         parameter_vector, spline_window, angle_between, backproject
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
@@ -455,9 +456,11 @@ end
                 any(j -> j != k && sh[j] isa VE._SplinePatch && VE._patch_scale(sh[j], 1) != VE._patch_scale(ph.variables[j], 1), 1:ph.nP)
         end
     end
-    # a normal matrix that is not positive definite (the anchors removed: the unread coordinates hold nothing) scores
-    # GCV = Inf, not an error
-    @test VE._gcv(merge(pf, (; anchors = empty(pf.anchors))), pf.variables).gcv == Inf
+    # the anchors hold only coordinates nothing else reads: without them those coordinates are dropped and the curve is
+    # the same; with the pins' held coordinates kept (the gauge open) the system is singular and refused, never ridged
+    c_all = VE._gcv_linearization(pf, pf.variables); c_free = VE._gcv_linearization(merge(pf, (; anchors = empty(pf.anchors))), pf.variables)
+    @test all(λ -> c_free(λ).gcv ≈ c_all(λ).gcv, pf.λ .* (1.0e-3, 1.0, 1.0e3))
+    @test_throws r"not positive definite" VE._gcv_linearization(merge(pf, (; held = Int[])), pf.variables)
 
     # tr H on the 3-view fixture: the exact trace and the 64-probe Hutchinson estimate (the switch lowered to 0) agree
     # within 3σ, σ ≤ √(2 tr H / 64); tr H well below the 720 data rows
@@ -465,11 +468,19 @@ end
     r8 = estimate(refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8))
     pt = VE._spline_problem(r8.camera, r8.poses, views, true, 1.0e-8)            # at the refined estimate
     solved = pt.variables
-    ex = VE._gcv(pt, solved; exact_max = typemax(Int)); hu = VE._gcv(pt, solved; exact_max = 0)
-    @test 0 < ex.trace < 0.6 * ex.n && ex.n == 720
-    @test abs(hu.trace - ex.trace) <= 3 * sqrt(2 * ex.trace / 64)
-    @test VE._gcv(pt, solved; exact_max = 0).trace == hu.trace                    # the probes' seed is fixed
-    @test ex.rss ≈ 2 * VE._spline_cost(solved, pt.costs) rtol = 1.0e-12
+    # (the linearized curve at the problem's own weight: the pencil, exact, and the per-weight sparse Cholesky with the probes)
+    ex = VE._gcv_linearization(pt, solved; exact_max = typemax(Int))(pt.λ); hu = VE._gcv_linearization(pt, solved; exact_max = 0)(pt.λ)
+    @test 0 < ex.dof < 0.6 * 720
+    @test abs(hu.dof - ex.dof) <= 3 * sqrt(2 * ex.dof / 64)
+    @test VE._gcv_linearization(pt, solved; exact_max = 0)(pt.λ).dof == hu.dof   # the probes' seed is fixed
+    @test hu.rss ≈ ex.rss rtol = 1.0e-8
+    # the curve is the Gauss–Newton step's: δ = argmin ‖J_d δ + r_d‖² + λ‖J_s δ + s‖² + ‖A δ‖² over the coordinates the
+    # solve moves (the problem's own rows; its Δ³ rows already carry √λ), solved directly
+    rr, Jt = VE._spline_problem_rows_and_jacobian(pt, solved)
+    kt = setdiff(axes(Jt, 2), pt.held); Jk = Jt[:, kt]; nd = 2length(pt.costs)
+    δ = -(Matrix(Jk' * Jk) \ (Jk' * rr))
+    @test ex.rss ≈ sum(abs2, rr[1:nd] + Jk[1:nd, :] * δ) rtol = 1.0e-8
+    @test ex.dof ≈ tr(Matrix(Jk[1:nd, :] * (Matrix(Jk' * Jk) \ Matrix(Jk[1:nd, :]')))) rtol = 1.0e-8
 
     # a numeric penalty: GCV off, the weight as given, the same result every time
     r1 = refine_camera_and_poses(cam0, poses0, views; penalty = 1.0e-8)
@@ -492,33 +503,26 @@ end
     @test rms(r0) < 1.0e-6                                                        # exact data, no penalty bias
 
     # detections with known noise (σ = 0.3 px), 3 views × 60: GCV's choice (`check_gcv_choice`, the scenes' setup).
-    # Measured: GCV β = 10^-2.24, prediction 0.2389 px; the grid 0.2573, 0.2385, 0.3726 px at β = 1e-3 … 1e-1 (at 1e-5
+    # Measured: GCV β = 10^-2.225 (the per-weight nonlinear search's 10^-2.24), prediction 0.2388 px (0.2389); the grid 0.2573, 0.2385, 0.3726 px at β = 1e-3 … 1e-1 (at 1e-5
     # and below the noisy estimate stops projecting a correspondence: GCV = Inf there). The same claim at 6 views × 200
     # is the benchmark-size item below (VGTK_BENCHMARK_TESTS=1).
-    check_gcv_choice(Es, poses0, 60, -3:-1, 0.96)
+    check_gcv_choice(Es, poses0, 60, -3:-1, -2.24, 0.96)
 end
 
 # Benchmark size, opt-in (VGTK_BENCHMARK_TESTS=1; otherwise the item is skipped): 7.8 s and 8.3 GB of allocation
 # warm on one core (2026-11-10, raptorlake), where the default item's 3 × 60 case above takes ≈ 3 s and 2.7 GB.
 @testitem "refine_camera_and_poses: GCV's weight on 6 views × 200 noisy detections (benchmark size, VGTK_BENCHMARK_TESTS=1)" setup = [CameraPoseScenes, SplineCameraPoseScenes] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
-    # Measured: GCV β = 10^-3.06, prediction 0.1214 px; the grid 0.1288, 0.1211, 0.1416 px at β = 1e-4 … 1e-2
+    # Measured: GCV β = 10^-2.99 (the per-weight nonlinear search's 10^-3.06), prediction 0.1211 px (0.1214); the grid 0.1288, 0.1211, 0.1416 px at β = 1e-4 … 1e-2
     E6 = truth_poses(6)
-    check_gcv_choice(E6, [perturbed_pose(E, v) for (v, E) in enumerate(E6)], 200, -4:-2, 2.35)
+    check_gcv_choice(E6, [perturbed_pose(E, v) for (v, E) in enumerate(E6)], 200, -4:-2, -3.06, 2.35)
 end
 
-@testitem "gcv_curve, gcv_select, penalty_scale, mean_positive_eigenvalue: the stack's one GCV of a penalty weight" begin
+@testitem "gcv_curve, gcv_select: the stack's one GCV of a penalty weight" begin
     using LinearAlgebra: I, Symmetric, eigvals, tr
     using Random: Xoshiro, randn
     using SparseArrays: sparse
     using VisualGeometryToolkitCore: difference_rows
-    using VisualGeometryToolkitEstimation: gcv_curve, gcv_select, gcv_score, penalty_scale, mean_positive_eigenvalue, check_penalty_weight
-    # m̄ from the operator (‖D‖²_F / rank) is the mean positive eigenvalue of DᵀD, sparse or dense
-    D = difference_rows(trues(10, 12), 3)
-    λs = eigvals(Symmetric(Matrix(D' * D))); pos = λs[λs .> 1.0e-10 * maximum(λs)]
-    @test mean_positive_eigenvalue(D) ≈ sum(pos) / length(pos) rtol = 1.0e-12
-    @test mean_positive_eigenvalue(Matrix(D)) ≈ mean_positive_eigenvalue(D) rtol = 1.0e-12
-    @test mean_positive_eigenvalue(Symmetric(Matrix(D' * D))) ≈ mean_positive_eigenvalue(D) rtol = 1.0e-12   # the normal-matrix form
-    @test penalty_scale(12.0, 3, 2.0) == 2.0
+    using VisualGeometryToolkitEstimation: gcv_curve, gcv_select, gcv_score, check_penalty_weight
     # the closed-form curve equals the direct solve at every λ: rss of the penalized fit and tr H
     rng = Xoshiro(3)
     J = randn(rng, 40, 8); r = randn(rng, 40); Dm = Matrix(difference_rows((1, 8), 3)); c = zeros(size(Dm, 1))
@@ -532,17 +536,42 @@ end
         @test e.dof ≈ tr(H) rtol = 1.0e-8
         @test e.gcv ≈ 40 * e.rss / (40 - e.dof)^2 rtol = 1.0e-12
     end
-    # the search: a minimum inside the bracket refined to xtol; one at an end reported, not refined
-    s = gcv_select(λ -> (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25, xtol = 1.0e-3)
-    @test abs(log10(s.β) + 2.3) < 2.0e-3 && !s.at_bracket_end && s.λ == s.β
+    # with a hold R (not data: in the system, not in tr H) and a target c, normal-equation and rows forms; the rows form
+    # past `exact_max` (a sparse Cholesky per λ, a Hutchinson trace) gives the same rss and tr H within 3σ
+    R = randn(rng, 3, 8); c2 = randn(rng, size(Dm, 1))
+    ch = gcv_curve(J' * J, J' * r, sum(abs2, r), Dm' * Dm, Dm' * c2, 40; hold = R' * R)
+    cr = gcv_curve(J, r, Dm, c2; hold = R); cs = gcv_curve(J, r, Dm, c2; hold = R, exact_max = 0, probes = 4000)
+    for λ in (1.0e-3, 0.1, 10.0)
+        A = J' * J + R' * R + λ * Dm' * Dm
+        y = A \ (J' * r + λ * Dm' * c2)
+        e = ch(λ)
+        @test e.rss ≈ sum(abs2, r - J * y) rtol = 1.0e-8
+        @test e.dof ≈ tr(J * (A \ J')) rtol = 1.0e-8
+        @test cr(λ).rss ≈ e.rss rtol = 1.0e-10
+        @test cr(λ).dof ≈ e.dof rtol = 1.0e-10
+        @test cs(λ).rss ≈ e.rss rtol = 1.0e-8
+        @test e.y ≈ y rtol = 1.0e-8                                                     # the solution at λ, every form
+        @test cr(λ).y ≈ y rtol = 1.0e-8
+        @test cs(λ).y ≈ y rtol = 1.0e-8
+        @test abs(cs(λ).dof - e.dof) <= 3 * sqrt(2 * e.dof / 4000)
+    end
+    # a direction neither term reads but the parameters share (two equal columns, the penalty blind to their difference):
+    # a gauge, refused — never ridged
+    Jg = hcat(J[:, 1:7], J[:, 7]); Dg = hcat(Dm[:, 1:6], zeros(size(Dm, 1), 2))
+    @test_throws r"not positive definite" gcv_curve(Jg, r, Dg, c)
+    # the search, a coarse scan and Brent's method: a minimum inside the bracket to Brent's floor (no tolerance to
+    # choose), in a handful of evaluations past the scan; one at an end reported there
+    calls = Ref(0)
+    s = gcv_select(λ -> (calls[] += 1; (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0)), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s.β) + 2.3) < 1.0e-7 && !s.at_bracket_end && s.λ == s.β && calls[] <= 25 + 12
     e = gcv_select(λ -> (; gcv = log10(λ), rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
     @test e.at_bracket_end && e.β == 1.0e-8
-    # a minimum inside the scan's first interval, sampled lowest at the scan's end: refined there and interior (RC's
-    # rule); `refine_ends = false` returns the end as it is
+    # a minimum inside the scan's first interval, sampled lowest at the scan's end: refined there and interior
     s1 = gcv_select(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test abs(log10(s1.β) - 3.8) < 2.0e-3 && !s1.at_bracket_end
-    s2 = gcv_select(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25, refine_ends = false)
-    @test s2.β == 1.0e4 && s2.at_bracket_end
+    @test abs(log10(s1.β) - 3.8) < 1.0e-7 && !s1.at_bracket_end
+    # a weight the caller cannot evaluate (Inf) is never the minimum, even beside the basin
+    s2 = gcv_select(λ -> (; gcv = log10(λ) < -3 ? Inf : (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s2.β) + 2.3) < 1.0e-7 && isfinite(s2.gcv)
     @test gcv_score(40, 2.0, 8.0) == 40 * 2.0 / 32^2
     @test check_penalty_weight(:gcv, "w") === :gcv && check_penalty_weight(0.5, "w") == 0.5
     @test_throws ArgumentError check_penalty_weight(nothing, "w")                              # RC's options: no `nothing`

@@ -51,11 +51,11 @@
 # makes the live controls' mean length the guess's. The anchored slots stay at their
 # guesses.
 #
-# THE WEIGHT. The stack's convention (gcv.jl): `λ = β·λ₁`, `λ₁ = penalty_scale(energy,
+# THE WEIGHT. The stack's convention (Core's `penalty_scale`): `λ = β·λ₁`, `λ₁ = penalty_scale(energy,
 # N, m̄)` with the data's Gauss–Newton energy per direction coordinate (the mean diagonal
 # of JᵀJ there, times the controls' squared mean length: scale-free, like the rows) and
 # m̄ the mean positive eigenvalue of the Δ³ operator's DᵀD. β is a number, 0 (no
-# smoothness), or chosen by generalized cross-validation (`_gcv`, `gcv_select`).
+# smoothness), or chosen by generalized cross-validation (`_gcv_linearization`, `gcv_select`).
 # =============================================================================
 
 const _SplineDirections = VgtkCore.ControlPatchManifold{2, 2, 4, Float64, Nothing, VgtkCore.Cameras.AdditivePoints}
@@ -432,11 +432,9 @@ function _spline_problem(
     if free && (λ === nothing ? penalty : λ) > 0                  # weight 0: no smoothness, no Δ³ rows
         Δ = difference_rows(present, 3)
         m̄ = mean_positive_eigenvalue(Δ)
-        D = sparse(transpose(Δ))                             # column m: Δ³ row m
         nodes = vec(CartesianIndices(gsz))
-        for m in 1:size(D, 2)
-            rg = D.colptr[m]:(D.colptr[m + 1] - 1)
-            push!(stencils, (ntuple(k -> nodes[D.rowval[rg[k]]], Val(4)), SVector{4, Float64}(ntuple(k -> D.nzval[rg[k]], Val(4)))))
+        for (cols, coef) in row_stencils(Δ)                  # Core's adapter: a Δ³ row's 4 nodes and stencil, one block each
+            push!(stencils, (ntuple(k -> nodes[cols[k]], Val(4)), SVector{4, Float64}(ntuple(k -> coef[k], Val(4)))))
         end
         foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
     end
@@ -548,7 +546,7 @@ function _spline_problem_rows_and_jacobian(p, variables)
         o = length(rows)
         append!(rows, rk)
         col = 0
-        for v in c.varind, q in (v <= nP ? ((W * (v - 1) + 1):(W * v)) : ((W * nP + 6(v - nP) - 5):(W * nP + 6(v - nP))))
+        for v in c.varind, q in _chart_columns(W, nP, v)
             col += 1
             for i in eachindex(rk)
                 Jk[i, col] == 0 && continue
@@ -558,6 +556,8 @@ function _spline_problem_rows_and_jacobian(p, variables)
     end
     return rows, sparse(Ii, Jj, Vv, length(rows), nc)
 end
+# Variable `v`'s chart columns: the `W` of a patch (the first `nP`), then the 6 of a pose.
+_chart_columns(W::Integer, nP::Integer, v::Integer) = v <= nP ? ((W * (v - 1) + 1):(W * v)) : ((W * nP + 6(v - nP) - 5):(W * nP + 6(v - nP)))
 
 # The controls of the patches at the lattice's live nodes (the guess's elsewhere: the
 # absent slots and the nodes no row reads).
@@ -710,93 +710,74 @@ function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offs
     error("unreachable: the last round returns")
 end
 
-# GCV's trace: exact (`F \ JᵀJ`) up to this many coordinates, else a Hutchinson
-# estimate with `_GCV_PROBES` Rademacher probes from a fixed seed (deterministic). The
-# probes read the symmetric `zᵀ J M⁻¹ Jᵀ z` (H's eigenvalues in [0, 1]), so the
-# estimate's standard deviation is ≤ √(2·tr H / _GCV_PROBES).
+# GCV's pencil (exact) up to this many coordinates, else per weight a sparse Cholesky and
+# a Hutchinson trace from `_GCV_PROBES` Rademacher probes of a fixed seed (`gcv_curve`).
 const _GCV_EXACT_MAX = 3000
 const _GCV_PROBES = 64
 const _GCV_SEED = 20261110
 
-# The generalized cross-validation score of the solved problem `p` at `solved`:
-# `GCV = n‖r‖² / (n − tr H)²`, `n` the data rows, `r` their residuals, and
-# `H = J (JᵀJ + λDᵀD + AᵀA)⁻¹ Jᵀ` with J the data rows' Jacobian, D the Δ³ rows' and A
-# the anchors' (a sparse Cholesky, SparseArrays' CHOLMOD: NLLSsolver's factorization is
-# internal to its iterate), over the coordinates the solve moves: the problem's held
-# gauge coordinates (`p.held`, the pins') are none of them. A normal matrix that is not
-# positive definite scores `Inf` (CHOLMOD's factorization fails; no ridge is added).
-# Returns `(; gcv, trace, rss, n)`.
-function _gcv(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
+# The GCV curve of the solved problem `p` linearized at `solved`, over the weight λ: the
+# Gauss–Newton step δ from there solves `min ‖J_d δ + r_d‖² + λ‖J_s δ + s‖² + ‖A δ‖²`, J_d
+# the data rows' Jacobian and r_d their residuals (n rows), J_s and s the Δ³ rows' at unit
+# weight (the problem's divided by √p.λ: the scale-free rows' Jacobian at the solution is
+# the weight times one of the weight's own), A the anchors' (a hold, zero there), over the
+# coordinates the solve moves (the pins' held ones, `p.held`, are none of them). Its GCV
+# is `n‖r_d + J_dδ‖² / (n − tr H_λ)²`, `H_λ = J_d M_λ⁻¹ J_dᵀ` (the stack's `gcv_curve`, gcv.jl: the
+# pencil of `(J_sᵀJ_s, J_dᵀJ_d + AᵀA + J_sᵀJ_s)`, every λ from one decomposition). Returns
+# the curve `λ -> (; gcv, rss, dof, y)`, `y` the step δ.
+function _gcv_linearization(p, solved::_SplineVars; exact_max::Integer = _GCV_EXACT_MAX)
     r, J = _spline_problem_rows_and_jacobian(p, solved)
-    n = 2length(p.costs)
-    keep = trues(size(J, 2))
-    keep[p.held] .= false
+    n = 2length(p.costs); m = 3length(p.smooth)
+    keep = trues(size(J, 2)); keep[p.held] .= false
     Jr = J[:, keep]
-    Jd = Jr[1:n, :]
-    rss = sum(abs2, view(r, 1:n))
-    F = cholesky(Symmetric(Jr' * Jr); check = false)
-    issuccess(F) || return (; gcv = Inf, trace = NaN, rss, n)   # not positive definite (a coordinate no row holds): this weight is not scored
-    trace = if size(Jr, 2) <= exact_max
-        LinearAlgebra.tr(F \ Matrix(Jd' * Jd))
-    else
-        Z = rand(Random.Xoshiro(_GCV_SEED), (-1.0, 1.0), n, _GCV_PROBES)
-        W = Jd' * Z
-        sum(W .* (F \ W)) / _GCV_PROBES
-    end
-    return (; gcv = gcv_score(n, rss, trace), trace, rss, n)
+    u = 1 / sqrt(p.λ)
+    d = 1:n; sm = (n + 1):(n + m); an = (n + m + 1):size(J, 1)
+    return gcv_curve(Jr[d, :], -r[d], u * Jr[sm, :], -u * r[sm]; hold = Jr[an, :], exact_max, probes = _GCV_PROBES, seed = _GCV_SEED)
 end
 
-# The GCV search over the weight β (λ = β·λ₁): the stack's `gcv_select` (gcv.jl) over
-# log₁₀ β ∈ `_GCV_LOG10_BRACKET`, one scan point a decade, solved from the largest weight
-# down, each solve warm-started from the last one's estimate, then golden-section steps
-# to `_GCV_XTOL` (a final bracket 0.1 decade wide), each warm-started from the estimate
-# of the nearest weight solved. A minimum at a scan end is not refined there
-# (`refine_ends = false`: each step is a nonlinear solve, ≈ 5 of them at an end). Each λ
-# is a nonlinear solve (with its rebuild rounds), not a linearization, so the curve is
-# that of the refine's own estimates. A weight whose estimate stops projecting a
-# correspondence (noisy detections fitted by a weakly held lattice: its extrapolated
-# nodes swing) scores `GCV = Inf`, and no smaller weight is solved (`limit`, the largest
-# such β); past the deadline nothing more is solved. The rules read β, not the order of
-# the calls. Returns the rounds of the chosen weight, the curve `[(; β, λ, gcv)]`
-# (ascending β), whether it is a scan end, the weight, its tr H, the limit (or
-# `nothing`) and the iterations of every solve, failed ones included.
+# The variables `solved` of the problem `p` moved by the chart step `δ` over the
+# coordinates the solve moves (`p.held` excluded, held at 0: the gauge stays exact), in
+# the Jacobian's column order [patches | poses] (`_spline_problem_rows_and_jacobian`).
+function _stepped(p, solved::_SplineVars, δ::AbstractVector)
+    W = _patch_width(_patch_type(p.smooth))
+    full = zeros(W * p.nP + 6 * (length(solved) - p.nP))
+    full[setdiff(eachindex(full), p.held)] = δ
+    return [NLLSsolver.update(x, full, first(_chart_columns(W, p.nP, v))) for (v, x) in enumerate(solved)]
+end
+
+# The GCV choice of the weight β (λ = β·λ₁): ONE nonlinear solve at the start weight
+# `p.λ` (the bracket's top, β = 1: the penalty weighs like the data, so no node the data
+# hold weakly swings and every correspondence keeps projecting; the stages' start aid
+# already solved there), the GCV curve of its linearization (`_gcv_linearization`: every
+# weight from one decomposition), its minimum over log₁₀ β ∈ `_GCV_LOG10_BRACKET` by the
+# stack's `gcv_select` (a scan one point a decade, then Brent's method to its own floor:
+# each evaluation is closed form), then ONE final solve at the chosen weight from the
+# linearization's own Gauss–Newton step there (the curve's solution `y`: the start the
+# linear model predicts; from the β = 1 estimate itself the solve to a weight decades
+# smaller can exhaust `max_iter`), or from the β = 1 estimate when that step stops
+# projecting a correspondence. Returns the final solve's rounds, the curve `[(; β, λ,
+# gcv)]` (every weight evaluated, ascending β), whether the choice is at a bracket end,
+# the weight, its tr H and the iterations of both solves.
 const _GCV_LOG10_BRACKET = (-12.0, 0.0)
-const _GCV_XTOL = 0.05
 function _gcv_search(p, λ₁::Float64, back::CameraModel, views, offset, max_iter, ftol, xtol, deadline::Float64)
     points = round(Int, _GCV_LOG10_BRACKET[2] - _GCV_LOG10_BRACKET[1]) + 1
-    function evaluate(β, start)
-        st = _spline_rounds(_with_λ(start, β * λ₁), true, back, views, β, offset, max_iter, ftol, xtol, deadline)
-        return (; β, st, g = _gcv(st.p, st.solved::_SplineVars), ok = true, iterations = st.iterations)
+    st₀ = _spline_rounds(p, true, back, views, 1.0, offset, max_iter, ftol, xtol, deadline)
+    curve = _gcv_linearization(st₀.p, st₀.solved::_SplineVars)
+    seen = Tuple{Float64, Float64}[]
+    score(λ) = (e = curve(λ); push!(seen, (λ, e.gcv)); e)
+    found = gcv_select(score, λ₁; log10_bracket = _GCV_LOG10_BRACKET, points)
+    evaluated = [(; β = λ / λ₁, λ, gcv) for (λ, gcv) in sort(unique(seen))]
+    st₀.timed_out && return st₀, evaluated, found.at_bracket_end, found.β, found.dof
+    start = try
+        _rebuilt(_with_λ(st₀.p, found.λ), _stepped(st₀.p, st₀.solved::_SplineVars, curve(found.λ).y), back, views, found.β, offset,
+            "at the Gauss–Newton step to the GCV weight")
+    catch e
+        e isa _NotProjected || rethrow()
+        _with_λ(st₀.next, found.λ)
     end
-    # a weight whose estimate does not project every correspondence: GCV = Inf (the start's rounds stand in)
-    function attempt(β, start, fallback)
-        try
-            return evaluate(β, start)
-        catch e
-            e isa _NotProjected || rethrow()
-            return (; β, st = fallback, g = (; gcv = Inf, trace = NaN, rss = NaN, n = 0), ok = false, iterations = e.iterations)
-        end
-    end
-    top = exp10(_GCV_LOG10_BRACKET[2])
-    first_eval = evaluate(top, p)
-    evals = [first_eval]
-    timed_out = Ref(first_eval.st.timed_out)
-    limit = Ref(0.0)                                          # the largest β that failed: no smaller β is solved
-    near(β) = argmin(e -> e.ok ? abs(log10(e.β / β)) : Inf, evals).st   # the nearest weight solved: the warm start
-    function score(λ)
-        β = λ / λ₁
-        isapprox(β, top; rtol = 1.0e-12) && return (; gcv = first_eval.g.gcv, rss = first_eval.g.rss, dof = first_eval.g.trace)   # solved above
-        (timed_out[] || β <= limit[]) && return (; gcv = Inf, rss = NaN, dof = NaN)   # not solved
-        e = attempt(β, near(β).next, near(β))
-        push!(evals, e)
-        timed_out[] |= e.st.timed_out
-        e.ok || (limit[] = max(limit[], β))
-        return (; gcv = e.g.gcv, rss = e.g.rss, dof = e.g.trace)
-    end
-    found = gcv_select(score, λ₁; log10_bracket = _GCV_LOG10_BRACKET, points, xtol = _GCV_XTOL, refine_ends = false)
-    chosen = argmin(e -> abs(log10(e.β / found.β)), evals)
-    curve = [(; e.β, λ = e.β * λ₁, gcv = e.g.gcv) for e in sort(evals; by = e -> e.β)]
-    return chosen.st, curve, found.at_bracket_end, found.β, found.dof, limit[] > 0 ? limit[] : nothing, sum(e -> e.iterations, evals)
+    st = _spline_rounds(start, true, back, views, found.β, offset, max_iter, ftol, xtol, deadline)
+    return merge(st, (; iterations = st.iterations + st₀.iterations, timed_out = st.timed_out)),
+        evaluated, found.at_bracket_end, found.β, found.dof
 end
 
 # The refinement with the patches laid `offset` nodes into the first (the estimate does
@@ -875,9 +856,9 @@ function _refine_spline_camera_and_poses(
     gcv = nothing
     gcv_at_bound = false
     effective_dof = nothing
-    gcv_limit = nothing
     if search && isfree
-        st, gcv, gcv_at_bound, w, effective_dof, gcv_limit, its = _gcv_search(p, p.λ / w, back, views, offset, max_iter, ftol, xtol, deadline)
+        st, gcv, gcv_at_bound, w, effective_dof = _gcv_search(p, p.λ / w, back, views, offset, max_iter, ftol, xtol, deadline)
+        its = st.iterations
     else
         st = _spline_rounds(p, isfree, back, views, w, offset, max_iter, ftol, xtol, deadline)
         its = st.iterations
@@ -910,7 +891,7 @@ function _refine_spline_camera_and_poses(
     end
     out = [relabel(_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
-    spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, gcv_limit, effective_dof, n_nodes_unrefined,
+    spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
         forward, forward_max_px, gauge_angle = θ, gauge_roll = roll,
         cost_start, cost_before_gauge = cost_before, cost_after_gauge = cost_after, anchor_cost)

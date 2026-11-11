@@ -56,17 +56,32 @@ bending_gram(Bx, By) =
 
 """
     bending_rows(G) -> Matrix{Float64}
+    bending_rows(tps::ThinPlateSplineSystem) -> Matrix{Float64}
+    bending_rows(sys::SphericalSplineSystem) -> Matrix{Float64}
 
-A factor `L` of a bending Gram matrix ([`bending_gram`](@ref)): `‖L c‖² =
-cᵀ G c` to rounding, so `√λ · L (c − c₀)` are a regularizer's residual rows
-(the chart LM's row protocol). `L = Λ₊^½ Vᵀ` from `G = V Λ Vᵀ`, one row per
-positive eigenvalue (the null space's rounding residue dropped); only `LᵀL`
-is defined.
+The bending energy's rows, the stack's second penalty operator kind beside
+[`difference_rows`](@ref): a factor `L` of a positive semidefinite bending form —
+a B-spline lattice's Gram matrix ([`bending_gram`](@ref)), or a thin-plate or
+spherical spline system's `Q` ([`bending_energy`](@ref)) — with `‖L c‖² = cᵀ G c`
+to rounding, so `√λ · L (c − c₀)` are a regularizer's residual rows (the chart LM's
+row protocol) and `L` a penalty operator for [`mean_positive_eigenvalue`](@ref) and
+[`cgls`](@ref). `L = Λ₊^½ Vᵀ` from `G = V Λ Vᵀ`, one row per positive eigenvalue (the
+null space — a system's affine or constant values — and its rounding residue have
+no row; [`bending_factor`](@ref) is the same factor with a row for every node, the
+fixed shape a target calibration kind stores); only `LᵀL` is defined.
 """
 function bending_rows(G::AbstractMatrix)
-    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(Matrix{Float64}(G)))
-    keep = F.values .> 1.0e-12 * max(maximum(F.values), eps())
-    return LinearAlgebra.Diagonal(sqrt.(F.values[keep])) * F.vectors[:, keep]'
+    L, λ = _eigen_factor(G)
+    return L[λ .> 1.0e-12 * max(maximum(λ), eps()), :]
+end
+
+# THE factor of a positive semidefinite form `G = V Λ Vᵀ`: `L = Λ₊^½ Vᵀ` (the eigenvalues
+# clamped at zero: the null space's rounding residue may come out negative), one row per
+# eigenvalue `λ` (ascending), `‖L c‖² = cᵀGc` to rounding — `bending_rows` and the
+# thin-plate kinds' `bending_factor` (numerics/thin_plate_spline.jl) read it.
+function _eigen_factor(G::AbstractMatrix)
+    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(float(Matrix(G))))
+    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, zero(eltype(F.values))))) * F.vectors', F.values
 end
 
 """
@@ -104,28 +119,36 @@ difference_stencil(order::Integer) =
     ntuple(k -> Float64((-1)^(k - 1) * binomial(Int(order), k - 1)), Int(order) + 1)
 
 """
-    difference_rows(mask::AbstractMatrix{Bool}, order) -> SparseMatrixCSC{Float64, Int}
-    difference_rows(dims::Dims{2}, order)
+    difference_rows(mask::AbstractMatrix{Bool}, order; axes = (1, 2)) -> SparseMatrixCSC{Float64, Int}
+    difference_rows(dims::Dims{2}, order; axes = (1, 2))
 
-The forward differences `Δᵒʳᵈᵉʳ` ([`difference_stencil`](@ref)) of a 2-D
-lattice of coefficients along both of its axes, as a sparse operator on the
-lattice's column-major vector: one row per window of `order + 1` consecutive
-nodes that lies wholly in `mask` (`true`: a node the rows may read), first
-the windows along the first axis (`(i, j) … (i + order, j)`, `j` outer), then
-those along the second. `dims` is the unmasked lattice (`trues(dims)`).
+The forward differences `Δᵒʳᵈᵉʳ` ([`difference_stencil`](@ref), any order ≥ 1: 1 a
+gradient, 2 the natural rule's, 3 the P-spline's) of a 2-D lattice of coefficients along
+the lattice `axes` (a subset of `(1, 2)`, in that order), as a sparse operator on the
+lattice's column-major vector: one row per window of `order + 1` consecutive nodes that
+lies wholly in `mask` (`true`: a node the rows may read), first the windows along the
+first axis (`(i, j) … (i + order, j)`, `j` outer), then those along the second. `dims` is
+the unmasked lattice (`trues(dims)`): a full texel page `(TW, TH)` at `order = 1` is its
+gradient, the horizontal differences first. A lattice of vector-valued controls applies
+it per component.
 
-`DᵀD` is the P-spline difference penalty (Eilers & Marx 1996): at `order = 3`
-it annihilates a quadratic along each axis, so only the variation beyond it is
-penalized. An `N × 1` mask is a profile (rows along its one axis only).
+`DᵀD` is the P-spline difference penalty (Eilers & Marx 1996): at `order = 3` it
+annihilates a quadratic along each axis, so only the variation beyond it is penalized.
+An `N × 1` mask is a profile (rows along its one axis only). The isotropic pairing of
+the order-1 rows is [`gradient_pairs`](@ref); a device solve takes the operator as a
+[`CSRMatrix`](@ref).
 """
-function difference_rows(mask::AbstractMatrix{Bool}, order::Integer)
+function difference_rows(mask::AbstractMatrix{Bool}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2))
     order >= 1 || throw(ArgumentError("difference_rows: order must be ≥ 1, got $order"))
+    (!isempty(axes) && issubset(axes, (1, 2)) && issorted(axes; lt = <=)) ||
+        throw(ArgumentError("difference_rows: axes is (1,), (2,) or (1, 2), got $axes"))
     s = difference_stencil(order)
     L = LinearIndices(mask)
     n1, n2 = size(mask)
     I, J, V = Int[], Int[], Float64[]
     row = 0
     for (axis, ni, nj) in ((1, n1 - order, n2), (2, n1, n2 - order)), j in 1:nj, i in 1:ni
+        axis in axes || continue
         δ = axis == 1 ? CartesianIndex(1, 0) : CartesianIndex(0, 1)
         all(k -> mask[CartesianIndex(i, j) + k * δ], 0:order) || continue
         row += 1
@@ -135,7 +158,34 @@ function difference_rows(mask::AbstractMatrix{Bool}, order::Integer)
     end
     return sparse(I, J, V, row, length(mask))
 end
-difference_rows(dims::Dims{2}, order::Integer) = difference_rows(trues(dims), order)
+difference_rows(dims::Dims{2}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2)) = difference_rows(trues(dims), order; axes)
+
+"""
+    gradient_pairs(mask::AbstractMatrix{Bool}) -> Matrix{NTuple{2, Int}}
+    gradient_pairs(dims::Dims{2})
+
+Each node's isotropic gradient pair among the rows of `difference_rows(mask, 1)`: at
+node `(i, j)`, `(r₁, r₂)` the rows of its forward differences along the first axis
+(`(i, j) → (i + 1, j)`) and along the second (`(i, j) → (i, j + 1)`), `0` where that
+difference is not a row (the lattice's last node on the axis, or a neighbour outside
+`mask`). A penalty on the gradient's magnitude (`(D x)[r₁]² + (D x)[r₂]²`, an
+L0 or total-variation step) reads both entries of a pair together.
+"""
+function gradient_pairs(mask::AbstractMatrix{Bool})
+    n1, n2 = size(mask)
+    P = fill((0, 0), n1, n2)
+    row = 0
+    for j in 1:n2, i in 1:(n1 - 1)
+        (mask[i, j] && mask[i + 1, j]) || continue
+        row += 1; P[i, j] = (row, 0)
+    end
+    for j in 1:(n2 - 1), i in 1:n1
+        (mask[i, j] && mask[i, j + 1]) || continue
+        row += 1; P[i, j] = (P[i, j][1], row)
+    end
+    return P
+end
+gradient_pairs(dims::Dims{2}) = gradient_pairs(trues(dims))
 
 """
     clamped_knots(n, p, lo, hi) -> SVector{n + p + 1, Float64}

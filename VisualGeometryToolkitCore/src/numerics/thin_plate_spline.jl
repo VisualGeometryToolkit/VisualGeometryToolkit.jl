@@ -334,12 +334,11 @@ regularizer's residual rows. `Q` is positive semidefinite with the affine
 values in its null space, so it has no Cholesky factor: `L = Λ₊^½ Vᵀ` from the
 eigendecomposition `Q = V Λ Vᵀ`, `Λ₊` the eigenvalues clamped at zero (the null
 space's rounding residue may come out negative). An eigenbasis is not unique,
-so only `LᵀL` is defined — never compare the rows one by one.
+so only `LᵀL` is defined — never compare the rows one by one. The null space's
+rows (zero) dropped, it is [`bending_rows`](@ref)`(tps)`, the penalty operator.
 """
-function bending_factor(tps::ThinPlateSplineSystem)
-    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(tps.Q))
-    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
-end
+bending_factor(tps::ThinPlateSplineSystem) = first(_eigen_factor(tps.Q))
+bending_rows(tps::ThinPlateSplineSystem) = bending_rows(tps.Q)
 
 # =============================================================================
 # Spherical spline on scattered directions (hoisted from RadiometricCamera
@@ -445,7 +444,5 @@ function nodal_weights(sys::SphericalSplineSystem{N}, d::StaticVector{3}) where 
 end
 
 bending_energy(sys::SphericalSplineSystem, t::AbstractVector) = dot(t, sys.Q * t)
-function bending_factor(sys::SphericalSplineSystem)
-    F = LinearAlgebra.eigen(LinearAlgebra.Symmetric(sys.Q))
-    return LinearAlgebra.Diagonal(sqrt.(max.(F.values, 0.0))) * F.vectors'
-end
+bending_factor(sys::SphericalSplineSystem) = first(_eigen_factor(sys.Q))
+bending_rows(sys::SphericalSplineSystem) = bending_rows(sys.Q)

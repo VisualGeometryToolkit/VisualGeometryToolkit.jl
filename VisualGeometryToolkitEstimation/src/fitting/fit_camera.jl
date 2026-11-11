@@ -32,7 +32,7 @@
 # until the normal equations lose conditioning — measured 2026-11-03 on the
 # FX3 + Sigma 8 mm grid (`λ = 1e-6` absolute held the edge to the interior's
 # accuracy at every lattice size; a larger λ only lost accuracy), here in the
-# stack's one weight convention (gcv.jl): `λ = β · penalty_scale(tr AᵀA, nodes, m̄)`,
+# stack's one weight convention (Core's penalty_scale): `λ = β · penalty_scale(tr AᵀA, nodes, m̄)`,
 # β = `_PSPLINE_BETA` = 3e-7 relative to the data's energy per node and the Δ³
 # operator's mean positive eigenvalue m̄ (≈ 31 on a 12 × 10 lattice, → 40 on large
 # ones): 3e-7 / m̄ ≈ the former 1e-8 · mean(diag(AᵀA)) relative weight.

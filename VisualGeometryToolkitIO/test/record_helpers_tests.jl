@@ -11,7 +11,10 @@
     @test !(Dict("a" => 1) isa Record)                    # no property access
     @test snap_integer(640.0) === 640 && snap_integer(0.5) === 0.5
     @test snap_integer(2.0^60) === 2.0^60                 # past the exact integers of a Float64: kept
-    @test snap_integer(Int32(3)) === 3
+    @test snap_integer(Int32(3)) === 3 && snap_integer(UInt8(7)) === 7 && snap_integer(big(5)) === 5
+    @test snap_integer(true) === true && snap_integer(false) === false   # a flag is not a number: as it is
+    @test snap_integer(typemax(UInt64)) === typemax(UInt64)              # past Int: kept, written exactly
+    @test snap_integer(big(2)^70) == big(2)^70
     @test snap_integer(6 // 2) === 3 && snap_integer(1 // 2) === 0.5
     @test snap_integer("rows") == "rows"                  # anything else as it is
     @test MATRIX_LAYOUT == "rows" && Base.ispublic(VisualGeometryToolkitIO, :MATRIX_LAYOUT)

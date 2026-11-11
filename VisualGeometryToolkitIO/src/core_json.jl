@@ -74,12 +74,14 @@ end
 
 A file number as a record writes it: an integral value as an `Int` (`640`,
 `300`: a pixel count or a density, as the legacy writer did), anything else as
-it is — a float that is not integral or lies past Float64's exact integers, a
-`Rational` that is not integral as its `Float64`. A length is the Float64
+it is — a float that is not integral or lies past Float64's exact integers, an
+integer past `Int`'s range, a `Bool` (a flag is not a number: `true` stays
+`true`), a `Rational` that is not integral as its `Float64`. A length is the Float64
 [`write_length`](@ref) returns and is not snapped.
 """
 snap_integer(v::AbstractFloat) = (isinteger(v) && abs(v) < maxintfloat(Float64)) ? Int(v) : v
-snap_integer(v::Integer) = Int(v)
+snap_integer(v::Integer) = typemin(Int) <= v <= typemax(Int) ? Int(v) : v
+snap_integer(v::Bool) = v   # a flag, not a number
 snap_integer(v::Rational) = isinteger(v) ? Int(v) : Float64(v)
 snap_integer(v) = v
 

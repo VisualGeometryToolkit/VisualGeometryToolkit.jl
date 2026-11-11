@@ -30,7 +30,9 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 - **New: `Record`, `snap_integer`, `MATRIX_LAYOUT`** (public, not exported): what a lift reads (a parsed JSON object
   or a NamedTuple, read by property access; was `_Record`), a file number as a record writes it (an integral value as
   an `Int`; `Integer` and `Rational` methods beside the float one; was `_snap_integer`) and the matrix layout a record
-  declares (`"rows"`; was `_MATRIX_LAYOUT`). BlobBoards' lifts and CaliBlobs' session record restated them.
+  declares (`"rows"`; was `_MATRIX_LAYOUT`). BlobBoards' lifts and CaliBlobs' session record restated them. A `Bool`
+  is not a number and passes as it is (`snap_integer(true) === true`, was `1`), and an integer past `Int`'s range
+  (a large `UInt64`, a `BigInt`) is kept as it is (was an `InexactError`).
 
 - **Internal: a stored grid's calibrated area is read as a `Rect`** (from its inclusive pixel bounds) and its size as a
   `Size2`, the one spelling each that Core's SplineLens constructors now take. Values unchanged.

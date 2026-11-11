@@ -9,7 +9,7 @@
 #
 #     α  = gain / (4K) · (1/d₁ + 1/d₂),     σ² = gain² σ_r² / 4 · (1/d₁² + 1/d₂²),
 #
-# d_k = white − black[c_k] the two greens' code spans (`LinearRaw.green_dn`).
+# d_k = white − black[c_k] the two greens' code spans (`L.geometry.green_dn`).
 # The generalized Anscombe transform (Starck, Murtagh and Bijaoui 1998; Mäkitalo
 # and Foi 2013)
 #
@@ -57,7 +57,7 @@ noise has σ ≈ 1 at every level, from a few electrons to the white level.
 Neither is in a RAW file's metadata (LibRaw reports neither): they are the
 camera's, at the frame's ISO, measured once (e.g. from the variance of the two
 greens' difference against their mean on a flat scene). The code spans are the
-photosites' own (`L.green_dn`, each green's `white − black`), and `L.gain`
+photosites' own (`L.geometry.green_dn`, each green's `white − black`), and `L.gain`
 scales the photon and the read noise alike. A green cell whose value is
 `x = (x₁ + x₂)/2` is `α·P + N` with
 `α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²σ_r²/4·(1/d₁² + 1/d₂²)`, and its
@@ -69,20 +69,25 @@ detections' positions are the cell grid's, as on any rendering of `L` (a
 display rendering for a descriptor among them).
 """
 function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Real)
-    L.mode in (:green_cells, :bin2) || throw(ArgumentError(
-        "variance_stabilize: the green cells of a :green_cells or :bin2 image, got :$(L.mode) (an interpolated display image)"))
     isfinite(electrons_per_dn) && electrons_per_dn > 0 ||
         throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
     isfinite(read_noise) && read_noise >= 0 ||
         throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    d1, d2 = L.green_dn
+    d1, d2 = L.geometry.green_dn
     g = L.gain
     α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)
     σ² = g^2 * read_noise^2 / 4 * (1 / d1^2 + 1 / d2^2)
     f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    G = view(L.image, :, :, L.mode === :bin2 ? 2 : 1)
+    G = view(L.image, :, :, _green_plane(L))
     return StabilizedImage(f.(G), L.saturated, f(g))
 end
+
+variance_stabilize(::LinearRaw{:demosaic}; kwargs...) = throw(ArgumentError(
+    "variance_stabilize: the green cells of a :green_cells or :bin2 image, got :demosaic (an interpolated display image)"))
+
+# The plane holding the green cells: bin2's second (R, G, B), the green-cell image's one.
+_green_plane(::LinearRaw{:bin2}) = 2
+_green_plane(::LinearRaw{:green_cells}) = 1
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search

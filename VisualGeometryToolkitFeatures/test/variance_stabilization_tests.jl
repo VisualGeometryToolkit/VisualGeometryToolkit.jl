@@ -46,7 +46,7 @@ end
     for gain in (1.0, 2.0), mode in (:green_cells, :bin2)
         m = noisy_mosaic(rng, (i, j) -> levels[cld(j, 128)], 128, 128 * length(levels); electrons_per_dn = K, read_dn = σr)
         L = LinearRaw(m; mode, gain)
-        @test sort(collect(L.green_dn)) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
+        @test sort(collect(L.geometry.green_dn)) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
         s = variance_stabilize(L; electrons_per_dn = K, read_noise)
         @test size(s.image) == (64, 64 * length(levels)) && s.saturated == L.saturated
         for (b, λ) in enumerate(levels)

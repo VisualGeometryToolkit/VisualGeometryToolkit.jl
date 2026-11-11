@@ -180,29 +180,40 @@ level) is kept.
   four photosites is, so a cell whose two greens straddle the white level is
   flagged rather than averaged into a plausible value; in `:green_cells` when
   either green is.
-- `plane_maps` — per plane, its map onto the visible raw
-  ([`bayer_plane_map`](@ref), which reads it); `nothing` for `:demosaic`,
-  whose pixels are interpolated, not samples.
-- `green_offsets` — the cell's two green photosites, `(Δx, Δy)` from the cell
-  centre in RAW pixels ([`green_cell_sites`](@ref)); `nothing` for `:demosaic`.
-- `green_dn` — the two green photosites' `white − black[c]`, the codes that span
-  `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
-  photon and read noise scale by ([`variance_stabilize`](@ref)); `nothing` for
-  `:demosaic`.
-- `mode`, `gain` and the mosaic's `metadata` (the decoder and LibRaw's version
-  among it). [`raw_provenance`](@ref) gives them, and the frame map, as plain
-  data for a result to record.
+- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn)`:
+  - `plane_maps`, per plane, its map onto the visible raw
+    ([`bayer_plane_map`](@ref), which reads it);
+  - `green_offsets`, the cell's two green photosites, `(Δx, Δy)` from the cell
+    centre in RAW pixels ([`green_cell_sites`](@ref));
+  - `green_dn`, the two green photosites' `white − black[c]`, the codes that span
+    `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
+    photon and read noise scale by ([`variance_stabilize`](@ref)).
+
+  `nothing` for `:demosaic`, whose pixels are interpolated, not samples.
+- `gain` and the mosaic's `metadata` (the decoder and LibRaw's version among it).
+
+The mode is the type's first parameter, `LinearRaw{:green_cells}`,
+`LinearRaw{:bin2}` or `LinearRaw{:demosaic}`: the geometric accessors are
+methods of the cell images, and the display image's are its refusals.
+[`raw_provenance`](@ref) gives the mode, the gain, the metadata and the frame
+map as plain data for a result to record.
 """
-struct LinearRaw{M <: NamedTuple, P <: Union{Nothing, Tuple}, G}
+struct LinearRaw{Mode, G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn)}}, M <: NamedTuple}
     image::Array{Float64, 3}
     saturated::BitMatrix
-    plane_maps::P
-    green_offsets::G
-    green_dn::Union{Nothing, NTuple{2, Float64}}
-    mode::Symbol
+    geometry::G
     gain::Float64
     metadata::M
+    # the display image alone holds no geometry
+    function LinearRaw{Mode}(image, saturated, geometry::G, gain, metadata::M) where {Mode, G, M}
+        Mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$Mode"))
+        (Mode === :demosaic) == (geometry === nothing) ||
+            throw(ArgumentError("LinearRaw: a :$Mode image $(Mode === :demosaic ? "holds no" : "needs its") sample geometry"))
+        return new{Mode, G, M}(image, saturated, geometry, gain, metadata)
+    end
 end
+
+_mode(::LinearRaw{Mode}) where {Mode} = Mode
 
 const RAW_MODES = (:green_cells, :bin2, :demosaic)
 
@@ -316,7 +327,8 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     # scale, the one place it is stated), as the plane's translation onto the grid
     offset(ks) = sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP))
     maps = map((C, ks) -> _plane_map(Val(C), offset(ks)), colours, used)
-    return LinearRaw(img, BitMatrix(sat), maps, green_offsets, (den[g[1]], den[g[2]]), mode, gain, m.metadata)
+    geometry = (plane_maps = maps, green_offsets, green_dn = (den[g[1]], den[g[2]]))
+    return LinearRaw{mode}(img, BitMatrix(sat), geometry, gain, m.metadata)
 end
 
 # The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
@@ -332,14 +344,15 @@ function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Floa
     end
     sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
     # no sample positions: every pixel is interpolated
-    return LinearRaw(img, sat, nothing, nothing, nothing, :demosaic, gain, metadata)
+    return LinearRaw{:demosaic}(img, sat, nothing, gain, metadata)
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.
 _display_only(what) = ArgumentError(
     "$what: a :demosaic image interpolates and is for display figures only; geometry and radiometry read `mode = :green_cells`"
 )
-_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(_display_only(what)) : L
+_geometry(L::LinearRaw, what) = L.geometry
+_geometry(::LinearRaw{:demosaic}, what) = throw(_display_only(what))
 
 """
     raw_frame_map(L::LinearRaw) -> SimilarityMap{2, …, BayerCellFrame{:G}, PixelFrame{:colmap}}
@@ -356,7 +369,7 @@ image's pixels (`BayerCellFrame{:G}`), giving K in the raw's pixels (and back
 with the inverse; K carries no frame label, so which frame it is in is the
 caller's statement). A `:demosaic` image is refused (`ArgumentError`): it is for display.
 """
-raw_frame_map(L::LinearRaw) = (_geometric(L, "raw_frame_map"); _CELL_FRAME_MAP)
+raw_frame_map(L::LinearRaw) = (_geometry(L, "raw_frame_map"); _CELL_FRAME_MAP)
 
 """
     bayer_plane_map(L::LinearRaw, c::Integer) -> SimilarityMap{2, …, BayerCellFrame{C}, PixelFrame{:colmap}}
@@ -379,11 +392,9 @@ A warp reads plane `c` of an image through `inv(bayer_plane_map(L, c)) ∘ math`
 joins two planes' frames is refused (`MethodError`). A plane past the image's,
 or a `:demosaic` image, is an `ArgumentError`.
 """
-bayer_plane_map(L::LinearRaw, c::Integer) = _nth_plane_map(L.plane_maps, L.mode, c)
-# the demosaic holds no maps (dispatch on what is held, so no path reads an absent tuple)
-_nth_plane_map(::Nothing, mode, c) = throw(_display_only("bayer_plane_map"))
-function _nth_plane_map(maps::Tuple, mode, c)
-    1 <= c <= length(maps) || throw(ArgumentError("bayer_plane_map: a :$mode image has $(length(maps)) plane(s), got plane $c"))
+function bayer_plane_map(L::LinearRaw, c::Integer)
+    maps = _geometry(L, "bayer_plane_map").plane_maps
+    1 <= c <= length(maps) || throw(ArgumentError("bayer_plane_map: a :$(_mode(L)) image has $(length(maps)) plane(s), got plane $c"))
     return maps[c]
 end
 
@@ -398,8 +409,9 @@ the mean of the two — what a renderer models to predict it exactly. A
 `:demosaic` image is refused (`ArgumentError`).
 """
 function green_cell_sites(L::LinearRaw, row::Integer, column::Integer)
-    c = raw_frame_map(L)(SVector(column - 0.5, row - 0.5))
-    return (c + L.green_offsets[1], c + L.green_offsets[2])
+    o = _geometry(L, "green_cell_sites").green_offsets
+    c = _CELL_FRAME_MAP(SVector(column - 0.5, row - 0.5))
+    return (c + o[1], c + o[2])
 end
 
 """
@@ -411,11 +423,13 @@ How the image was made, as plain data a result records: `decoder`,
 [`raw_frame_map`](@ref), `nothing` for `:demosaic`).
 """
 function raw_provenance(L::LinearRaw)
-    S = L.mode === :demosaic ? nothing : raw_frame_map(L)
-    fm = S === nothing ? nothing :
-        (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
     return (decoder = get(L.metadata, :decoder, nothing), libraw_version = get(L.metadata, :libraw_version, nothing),
-            mode = String(L.mode), gain = L.gain, frame_map = fm)
+            mode = String(_mode(L)), gain = L.gain, frame_map = _provenance_frame_map(L))
+end
+_provenance_frame_map(::LinearRaw{:demosaic}) = nothing
+function _provenance_frame_map(L::LinearRaw)
+    S = raw_frame_map(L)
+    return (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
 end
 
 # LibRaw::adjust_bl (as LibRaw's data_helper.h writes it), the black levels per

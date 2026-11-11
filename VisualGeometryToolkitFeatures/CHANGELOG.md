@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Breaking: a `LinearRaw`'s mode is its type, `LinearRaw{:green_cells}`, `LinearRaw{:bin2}` or `LinearRaw{:demosaic}`,
+  and its sample geometry one field.** The fields `plane_maps`, `green_offsets` and `green_dn` are
+  `L.geometry = (; plane_maps, green_offsets, green_dn)`, `nothing` for the display demosaic (and only for it); the
+  `mode` field is gone (`L isa LinearRaw{:bin2}`, or `raw_provenance(L).mode`). The geometric accessors
+  (`raw_frame_map`, `bayer_plane_map`, `green_cell_sites`, `variance_stabilize`) are methods of the cell images, the
+  display image's their refusals (the same `ArgumentError`), with no run-time mode test; the green-cell plane is
+  chosen by dispatch.
+
 - **New: `load_raw(path; …, cache)`, the decoded-RAW cache**: with `cache` a `FileCache` (`open_cache`, the JLD2
   extension), each RAW is decoded once per content and settings — the entry is keyed by the file's SHA-256, the mode,
   the gain, the white balance and the decoder's type (`cache_key`) — and a hit returns the `LinearRaw` as decoded,

@@ -1,15 +1,17 @@
 # =============================================================================
-# Triggs' second-order correction where ρ″ ≤ 0 (the robustified chart LM)
+# Triggs = NLLSsolver's robustified Hessian, where ρ″ ≤ 0 (owner ruling)
 # =============================================================================
 #
 # With s = ‖r‖², D = 1 + 2sρ″/ρ′ (Triggs et al., "Bundle Adjustment — A Modern
-# Synthesis", §4.3; Ceres' corrector.cc). A Triggs refine's datum Hessian is
-# NLLSsolver's (residual.jl): H = ρ′JᵀJ + max(2ρ″, −ρ′/(3s))·ggᵀ, g = Jᵀr — in
-# Triggs' α form, D floored at 2/3. These items pin that at the two points where
-# D ≤ 0: Huber's linear region (D = 0 exactly) and a redescending shape's tail
-# (Welsch, Geman–McClure past s = c²/2, D < 0). Ceres instead applies NO
-# correction wherever ρ″ ≤ 0 (α = 0): which one the stack's Triggs follows is
-# an open ruling, and these items move with it.
+# Synthesis", §4.3). A Triggs refine is NLLSsolver.jl's robustified LM as it
+# stands, and the stack hand-codes no robustifier Hessian of its own: the datum
+# Hessian is NLLSsolver's (residual.jl), H = ρ′JᵀJ + max(2ρ″, −ρ′/(3s))·ggᵀ,
+# g = Jᵀr — in Triggs' α form, D floored at 2/3 (a correction weight of 1/3).
+# (Ceres instead drops the correction wherever ρ″ ≤ 0; the owner chose
+# NLLSsolver's clamp.) These items PIN NLLSsolver's behaviour at the two points
+# where D ≤ 0 — Huber's linear region (D = 0 exactly) and a redescending
+# shape's tail (Welsch, Geman–McClure past s = c²/2, D < 0) — so a change
+# upstream shows here instead of as a silent move of every Triggs result.
 
 @testitem "triggs_correction" begin
     using VisualGeometryToolkitCore: loss_robustifier, HuberShape, WelschShape, GemanMcclureShape
@@ -53,7 +55,7 @@
         k = loss_robustifier(HuberShape(), 1.0)
         for s in (1.5, 4.0, 25.0)
             @test D(k, s) ≈ 0 atol = 1.0e-12
-            # today: the correction is clamped at −ρ′/(3s) (D floored at 2/3)
+            # NLLSsolver clamps the correction at −ρ′/(3s) (D floored at 2/3)
             @test correction_weight(k, s) ≈ 1 / 3 rtol = 1.0e-10
         end
         # the quadratic region: ρ″ = 0, D = 1, no correction

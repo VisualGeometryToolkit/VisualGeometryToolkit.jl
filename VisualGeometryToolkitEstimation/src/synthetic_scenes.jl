@@ -1,5 +1,5 @@
 """
-    test_scenes() -> Module
+    synthetic_scenes() -> Module
 
 The stack's shared synthetic test scenes: a module whose submodules are the
 scene families — `EpipolarScenes`, `HomographyScenes`, `PoseScenes`,
@@ -12,10 +12,10 @@ instead of copying them:
 
 ```julia
 using Test, VisualGeometryToolkitEstimation
-const EpipolarScenes = VisualGeometryToolkitEstimation.test_scenes().EpipolarScenes
+const EpipolarScenes = VisualGeometryToolkitEstimation.synthetic_scenes().EpipolarScenes
 u₁, u₂ = EpipolarScenes.calibrated_pairs(rng, R, t; n = 50, σ = 1.0e-3)
 ```
 
 Implemented by VisualGeometryToolkitEstimationTestExt: `using Test` loads it.
 """
-function test_scenes end
+function synthetic_scenes end

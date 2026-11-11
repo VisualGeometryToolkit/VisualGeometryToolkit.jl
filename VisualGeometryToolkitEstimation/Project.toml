@@ -24,7 +24,7 @@ VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [extensions]
-VisualGeometryToolkitEstimationTestExt = "Test"   # test_scenes: the shared synthetic test scenes
+VisualGeometryToolkitEstimationTestExt = "Test"   # synthetic_scenes: the shared synthetic test scenes
 
 [compat]
 CoordinateTransformations = "0.6.4"

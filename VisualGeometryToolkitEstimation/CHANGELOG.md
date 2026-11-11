@@ -5,7 +5,7 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
-- **New: `test_scenes()`** (public, not exported; a Test extension, `using Test` loads it): the stack's shared synthetic
+- **New: `synthetic_scenes()`** (public, not exported; a Test extension, `using Test` loads it): the stack's shared synthetic
   test scenes, the module whose families `EpipolarScenes`, `HomographyScenes`, `PoseScenes`, `DivisionBoards`,
   `P3PScenes`, `Cameras` and `Contamination` export their seeded builders (`calibrated_pairs`, `stereo_pixel_pairs`,
   `homography_pairs`, `frustum_point`, `board_camera`, `noisy_board_views`, `p3p_scene`, `contaminated_pairs`, …). They

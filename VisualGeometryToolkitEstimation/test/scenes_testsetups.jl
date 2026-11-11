@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # ONE definition of every scene more than one test item draws from: the
-# scenes are VisualGeometryToolkitEstimation's `test_scenes()` (its Test extension,
+# scenes are VisualGeometryToolkitEstimation's `synthetic_scenes()` (its Test extension,
 # ext/VisualGeometryToolkitEstimationTestExt.jl), which every stack package's tests
 # share. An item names the family it needs (`@testitem "x" setup = [EpipolarScenes]
 # begin`) and gets its exports; each setup below is that family, re-exported.
@@ -11,56 +11,56 @@
 
 @testsetup module EpipolarScenes
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().EpipolarScenes
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().EpipolarScenes
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:EpipolarScenes])...))
 end
 
 @testsetup module HomographyScenes
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().HomographyScenes
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().HomographyScenes
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:HomographyScenes])...))
 end
 
 @testsetup module PoseScenes
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().PoseScenes
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().PoseScenes
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:PoseScenes])...))
 end
 
 @testsetup module DivisionBoards
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().DivisionBoards
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().DivisionBoards
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:DivisionBoards])...))
 end
 
 @testsetup module P3PScenes
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().P3PScenes
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().P3PScenes
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:P3PScenes])...))
 end
 
 @testsetup module Cameras
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().Cameras
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().Cameras
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:Cameras])...))
 end
 
 @testsetup module Contamination
 using Test: Test                                       # loads the extension
-using VisualGeometryToolkitEstimation: test_scenes
-const _Family = test_scenes().Contamination
+using VisualGeometryToolkitEstimation: synthetic_scenes
+const _Family = synthetic_scenes().Contamination
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:Contamination])...))
 end
@@ -100,12 +100,12 @@ using Test: Test                                       # loads the extension
 using StaticArrays: SVector
 using Rotations: RotXYZ
 using StableRNGs: StableRNG
-using VisualGeometryToolkitEstimation: test_scenes
+using VisualGeometryToolkitEstimation: synthetic_scenes
 export radial_camera_pairs, RC_CENTER
 
 const RC_CENTER = SVector(2000.0, 1500.0)
 function radial_camera_pairs()
-    (; DivisionBoards, Contamination) = test_scenes()
+    (; DivisionBoards, Contamination) = synthetic_scenes()
     cam = DivisionBoards.board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = RC_CENTER)
     return Contamination.contaminated_pairs(
         StableRNG(19), DivisionBoards.board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,

@@ -287,7 +287,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
 export Irls, Triggs, NoLocalOptimization
-public test_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
+public synthetic_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
@@ -423,7 +423,7 @@ include("fitting/robot_world_hand_eye.jl")
 include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of a RobotWorldHandEyeCalibration (static-N chart LM; uses robot_world_hand_eye.jl's type)
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
-include("test_scenes.jl")                    # test_scenes: entry point (the scenes are the Test extension)
+include("synthetic_scenes.jl")                    # synthetic_scenes: entry point (the scenes are the Test extension)
 include("fitting/irls_weights.jl")           # the IRLS weight step of the three reweighted fits (σ̂ is Core's noise_sigma)
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)

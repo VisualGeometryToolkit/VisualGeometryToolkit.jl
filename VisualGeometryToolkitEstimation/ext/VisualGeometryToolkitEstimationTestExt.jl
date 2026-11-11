@@ -4,7 +4,7 @@
 #
 # ONE definition of every scene more than one test draws from, here and in every
 # stack package downstream (LocalOptimizationDoneRight's paper tests drew copies of
-# them): `test_scenes()` returns the module `TestScenes`, whose submodules are the
+# them): `synthetic_scenes()` returns the module `TestScenes`, whose submodules are the
 # scene families. VisualGeometryToolkitEstimation's own items reach them through
 # thin `@testsetup` modules (test/scenes_testsetups.jl).
 #
@@ -422,6 +422,6 @@ module TestScenes
 
 end # module TestScenes
 
-VisualGeometryToolkitEstimation.test_scenes() = TestScenes
+VisualGeometryToolkitEstimation.synthetic_scenes() = TestScenes
 
 end # module VisualGeometryToolkitEstimationTestExt

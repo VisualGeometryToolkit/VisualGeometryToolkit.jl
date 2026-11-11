@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: `onnx_session(path; execution_provider = :auto, threads, gpu_mem_limit)`, public**: the package's ONNX Runtime
+  session builder (formerly the internal `_onnx_session`), for another package's network: the provider resolved as
+  LoMa's is (`resolve_execution_provider`; on CUDA, conda-forge's ONNX Runtime build, which runs on the B200's sm_100),
+  ONNX Runtime's intra-op pool the caller's `threads`, and on CUDA the session's arena capped at the keyword
+  `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the sum of the CUDA sessions'
+  caps, each session's own, rather than 8 GiB per session. BlobBoards' descriptor network moves onto it.
 - **New: `load_raw(path; …, cache)`, the decoded-RAW cache**: with `cache` a `FileCache` (`open_cache`, the JLD2
   extension), each RAW is decoded once per content and settings — the entry is keyed by the file's SHA-256, the mode,
   the gain, the white balance and the decoder's type (`cache_key`) — and a hit returns the `LinearRaw` as decoded,

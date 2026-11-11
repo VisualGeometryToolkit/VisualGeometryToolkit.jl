@@ -99,6 +99,12 @@ allotment (start Julia with `--threads=$SLURM_CPUS_PER_TASK` in a Slurm job),
 never the machine's cores. [`loma_provenance`](@ref) records the provider
 used, the threads and the library versions.
 
+Another package's ONNX network runs on the same runtime through
+[`onnx_session`](@ref)`(path; execution_provider, threads, gpu_mem_limit)`:
+the provider resolved as above, the thread pool the caller's, and on CUDA the
+session's device arena capped at `gpu_mem_limit` bytes (8 GiB by default),
+which the ASIFT detector's device plans leave free.
+
 The package's `examples/loma.jl` runs this on a pair of downloaded images and
 draws the matches. Cite the LoMa and DeDoDe papers when you use these networks
 (their entries are on the [home page](../index.md#LoMa)).

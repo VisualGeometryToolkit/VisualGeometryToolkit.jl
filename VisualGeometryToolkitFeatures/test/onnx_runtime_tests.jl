@@ -54,6 +54,45 @@ end
     @test p.execution_provider === :cpu && p.threads == 3 && startswith(p.onnxruntime, "1.")
 end
 
+@testitem "onnx_session: the package's session builder is public, the provider resolved and the CUDA arena cap a keyword" begin
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitFeatures: onnx_session, onnx_cuda_status
+    @test Base.ispublic(VgtkFeatures, :onnx_session)
+    model = VgtkFeatures.ORT.testdatapath("increment2x3.onnx")
+    s = onnx_session(model; execution_provider = :cpu, threads = 2)
+    @test s.execution_provider === :cpu
+    @test only(values(s(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
+    # the CPU has no device arena: the cap is ignored there and reserves nothing
+    before = VgtkFeatures._onnx_cuda_reserve()
+    onnx_session(model; execution_provider = :cpu, gpu_mem_limit = 2^30)
+    @test VgtkFeatures._onnx_cuda_reserve() == before
+    @test_throws ArgumentError onnx_session(model; execution_provider = :tensorrt)
+    @test_throws ArgumentError onnx_session(model; execution_provider = :cpu, threads = 0)
+    @test_throws ArgumentError onnx_session(model; execution_provider = :cpu, gpu_mem_limit = 0)
+    status = onnx_cuda_status()
+    if !status.available
+        @test_skip "ONNX Runtime's CUDA provider: $(status.reason)"
+    else
+        # on the device: the arena capped at the caller's limit, which the detector's plans then leave free
+        before = VgtkFeatures._onnx_cuda_reserve()
+        g = onnx_session(model; execution_provider = :cuda, gpu_mem_limit = 3 * 2^20)
+        @test g.execution_provider === :cuda
+        @test VgtkFeatures._onnx_cuda_reserve() - before == 3 * 2^20
+        @test only(values(g(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
+        # the default cap is the LoMa sessions' 8 GiB
+        before = VgtkFeatures._onnx_cuda_reserve()
+        onnx_session(model; execution_provider = :cuda)
+        @test VgtkFeatures._onnx_cuda_reserve() - before == VgtkFeatures._ONNX_CUDA_ARENA_BYTES == 8 * 2^30
+        # a run that needs more than the cap is ONNX Runtime's out-of-memory error (the cap holds): a 4096² product
+        # (64 MiB per operand) in an arena of 16 MiB
+        mm = VgtkFeatures.ORT.testdatapath("matmul.onnx")
+        small = onnx_session(mm; execution_provider = :cuda, gpu_mem_limit = 16 * 2^20)
+        @test_throws Exception small(Dict("input1" => ones(Float32, 4096, 4096), "input2" => ones(Float32, 4096, 4096)))
+        big = onnx_session(mm; execution_provider = :cuda, gpu_mem_limit = 2^30)
+        @test only(values(big(Dict("input1" => ones(Float32, 64, 8), "input2" => ones(Float32, 8, 4))))) == fill(8.0f0, 64, 4)
+    end
+end
+
 # ONNX Runtime's CUDA build: conda-forge's files pinned by sha256 and their merged tree by Artifacts.toml. Nothing here
 # downloads or runs it (the probe in the first item and the device item below do, where a device is visible).
 @testitem "ONNX Runtime's CUDA build: conda-forge's files pinned, merged into one tree, checked" begin

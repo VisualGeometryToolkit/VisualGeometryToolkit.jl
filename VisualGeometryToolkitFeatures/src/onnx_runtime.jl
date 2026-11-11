@@ -2,7 +2,7 @@
 # ONNX Runtime sessions: the execution provider and the thread pool
 # =============================================================================
 #
-# One session builder for the package's networks (LoMa's, loma.jl). It picks the
+# One session builder for the package's networks (LoMa's, loma.jl) and any caller's (`onnx_session`). It picks the
 # execution provider (`:auto`, `:cpu` or `:cuda`) and sizes ONNX Runtime's thread
 # pools from the Julia process's threads.
 #
@@ -312,17 +312,48 @@ end
 
 # ONNX Runtime's CUDA provider allocates outside the ASIFT detector's device pool. Each CUDA session's arena is capped
 # (`gpu_mem_limit`, grown by what each run requests: ONNX Runtime's kSameAsRequested), and the detector's plans size their
-# resident warps from the free device memory less that cap for every CUDA session of the process (`_onnx_cuda_reserve`),
-# so the two never compete for the device and no plan is released for a session's run. The cap holds a LoMa session on
-# a panorama frame's green cells; a run that needs more is ONNX Runtime's out-of-memory error, naming the limit.
+# resident warps from the free device memory less the caps of every CUDA session of the process (`_onnx_cuda_reserve`),
+# so the two never compete for the device and no plan is released for a session's run. The default cap holds a LoMa
+# session on a panorama frame's green cells; a run that needs more is ONNX Runtime's out-of-memory error, naming the limit.
 const _ONNX_CUDA_ARENA_BYTES = 8 * 2^30
-const _ONNX_CUDA_SESSIONS = Threads.Atomic{Int}(0)
-_onnx_cuda_reserve() = _ONNX_CUDA_SESSIONS[] * _ONNX_CUDA_ARENA_BYTES
+const _ONNX_CUDA_RESERVED = Threads.Atomic{Int}(0)
+_onnx_cuda_reserve() = _ONNX_CUDA_RESERVED[]
 
-# ONNXRunTime's `load_inference`, with the session options it does not take: the provider resolved, the intra-op pool
-# `threads` (which also disables ONNX Runtime's core pinning), the inter-op pool 1; on CUDA the arena capped, and the
-# detector's plans cached before the session (sized without its reserve) released once.
-function _onnx_session(path::AbstractString, execution_provider::Symbol, threads::Integer)
+"""
+    onnx_session(path; execution_provider = :auto, threads = Threads.nthreads(), gpu_mem_limit = 8 * 2^30)
+        -> ONNXRunTime.InferenceSession
+
+An ONNX Runtime session of the model file `path`, built as this package builds
+its own networks' (LoMa's): ONNXRunTime's `load_inference` with the session
+options it does not take. `execution_provider` is resolved by
+[`resolve_execution_provider`](@ref) (`:auto` runs on CUDA when
+[`onnx_cuda_status`](@ref) finds a device, on the CPU with a warning naming why
+otherwise; `:cuda` is an error where CUDA is unavailable; `:cpu` is the CPU),
+so a CUDA session runs ONNX Runtime's CUDA build this package installs, which
+has device code for every device from sm_70 to sm_120, the B200's sm_100
+among them (Microsoft's GPU builds lack sm_100). The session's
+`execution_provider` field holds the resolved provider.
+
+ONNX Runtime's intra-op pool has `threads` threads (its core pinning off), its
+inter-op pool one. On CUDA, the session's device arena is capped at
+`gpu_mem_limit` bytes and grows by what each run requests; a run that needs
+more is ONNX Runtime's out-of-memory error. The ASIFT detector's device plans
+leave the caps of all of the process's CUDA sessions free, so a session and
+the detector share the device without either releasing the other's memory.
+The plans cached before a CUDA session is created are released once, then.
+On the CPU `gpu_mem_limit` is ignored.
+"""
+function onnx_session(path::AbstractString; execution_provider::Symbol = :auto, threads::Integer = Threads.nthreads(),
+                      gpu_mem_limit::Integer = _ONNX_CUDA_ARENA_BYTES)
+    gpu_mem_limit >= 1 || throw(ArgumentError("gpu_mem_limit must be at least 1 byte, got $gpu_mem_limit"))
+    return _onnx_session(path, resolve_execution_provider(execution_provider), threads, gpu_mem_limit)
+end
+
+# The session on a resolved provider (`onnx_session`; the CUDA probe builds its test session here, before a provider can
+# be resolved): the intra-op pool `threads`, the inter-op pool 1; on CUDA the arena capped at `gpu_mem_limit`, the cap
+# added to the plans' reserve, and the detector's plans cached before the session (sized without it) released once.
+function _onnx_session(path::AbstractString, execution_provider::Symbol, threads::Integer,
+                       gpu_mem_limit::Integer = _ONNX_CUDA_ARENA_BYTES)
     threads >= 1 || throw(ArgumentError("threads must be at least 1, got $threads"))
     capi = ORT.CAPI
     api = capi.GetApi(; execution_provider)
@@ -331,9 +362,9 @@ function _onnx_session(path::AbstractString, execution_provider::Symbol, threads
     capi.check_and_release(api, @ccall $(api.SetIntraOpNumThreads)(options::Ptr{Cvoid}, threads::Cint)::Ptr{Cvoid})
     capi.check_and_release(api, @ccall $(api.SetInterOpNumThreads)(options::Ptr{Cvoid}, 1::Cint)::Ptr{Cvoid})
     if execution_provider === :cuda
-        cuda = capi.OrtCUDAProviderOptions(; gpu_mem_limit = _ONNX_CUDA_ARENA_BYTES, arena_extend_strategy = 1)
+        cuda = capi.OrtCUDAProviderOptions(; gpu_mem_limit = Int(gpu_mem_limit), arena_extend_strategy = 1)
         capi.SessionOptionsAppendExecutionProvider_CUDA(api, options, cuda)
-        Threads.atomic_add!(_ONNX_CUDA_SESSIONS, 1)
+        Threads.atomic_add!(_ONNX_CUDA_RESERVED, Int(gpu_mem_limit))
         clear_asift_plans!()
     end
     session = capi.CreateSession(api, env, path, options)

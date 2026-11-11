@@ -47,8 +47,12 @@ end
         @test model(bc) isa NoncentralSplineModel && extent(bc) == Size2(g.size[1], g.size[2])
         @test lens_coverage(bc) == VisualGeometryToolkitCore.Rect2{Float64}(0, 0, g.size[1], g.size[2])
         R = [backproject(model(bc), p) for p in golden_pixels(g)]
-        @test all(j -> rays_match(collect(R[j].direction), g.directions[:, j]), eachindex(R))
-        @test all(j -> rays_match(collect(R[j].origin), g.origins[:, j]), eachindex(R))
+        # the far-edge probes (x = W or y = H) were NaN under the old reader's half-open box; the lattice's box is
+        # closed on both sides now (Core's SplineLens far edge), so they are imaged, and every other probe is the old one
+        far = [g.pixels[1, j] == g.size[1] || g.pixels[2, j] == g.size[2] for j in eachindex(R)]
+        @test all(j -> far[j] || rays_match(collect(R[j].direction), g.directions[:, j]), eachindex(R))
+        @test all(j -> far[j] || rays_match(collect(R[j].origin), g.origins[:, j]), eachindex(R))
+        @test any(far) && all(j -> !far[j] || (all(isfinite, R[j].direction) && all(isfinite, R[j].origin)), eachindex(R))
         @test count(j -> all(isfinite, g.directions[:, j]), eachindex(R)) > 250      # most of the lattice is imaged
     end
 

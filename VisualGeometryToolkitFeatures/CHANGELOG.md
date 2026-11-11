@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **New: the one display encoding, `srgb_image([T = N0f8], img; exposure, white_balance, background, tone)`**
+  (exported), and **`linear_to_srgb`** (public), the IEC 61966-2-1 OETF beside `srgb_to_linear`. A linear
+  `H × W × 3` image (or one plane) to `RGB{T}` (`Gray{T}`): exposure, a white-balance factor per plane, an optional
+  tone curve (default none), clamp, sRGB, `N0f8` or `N0f16`; a NaN value is the `background`. A broadcast, so a
+  device image is encoded on the device. The copies of the encoder in PanoramaStitching's `save_srgb`, RadiometricCamera's
+  `write_pngs` and `write_decoded`, and BlobBoards' hero script become calls to it.
+
 - **Breaking: each plane of a Bayer image is a frame-labelled map onto the raw, `bayer_plane_map(L, c)`; the bare
   offsets are gone.** `BayerCellFrame` is now `BayerCellFrame{C}`, the frame of plane `C` (`:R`, `:G`, `:B`): the
   planes are indexed alike but sampled at different points of the cell. `bayer_plane_map(L, c)` (exported) is plane

@@ -51,6 +51,77 @@ end
     @test issorted(srgb_to_linear.(range(0, 1; length = 1001)))
 end
 
+@testitem "linear image: the sRGB encode is IEC 61966-2-1's, the decode's inverse" begin
+    using VisualGeometryToolkitFeatures: srgb_to_linear, linear_to_srgb
+    # the standard's piecewise OETF, exactly at its breakpoint and on each segment
+    @test linear_to_srgb(0.0) == 0.0
+    @test linear_to_srgb(0.0031308) == 12.92 * 0.0031308                  # the linear segment, through its end
+    @test linear_to_srgb(nextfloat(0.0031308)) == 1.055 * nextfloat(0.0031308)^(1 / 2.4) - 0.055
+    @test linear_to_srgb(0.5) == 1.055 * 0.5^(1 / 2.4) - 0.055
+    @test abs(linear_to_srgb(nextfloat(0.0031308)) - linear_to_srgb(0.0031308)) < 1.0e-7   # the segments meet
+    @test linear_to_srgb(1.0) ≈ 1.0 atol = 1.0e-15
+    # the decode's breakpoint is the encode's image of it, to the standard's rounded constants (0.04045 / 12.92
+    # is 0.0031308049…, just past the encode's 0.0031308, so it is encoded on the power segment)
+    @test srgb_to_linear(0.04045) > 0.0031308
+    @test linear_to_srgb(srgb_to_linear(0.04045)) ≈ 0.04045 rtol = 1.0e-6
+    # OETF ∘ EOTF and EOTF ∘ OETF round-trip on both segments
+    x = range(0, 1; length = 2001)
+    @test maximum(abs.(linear_to_srgb.(srgb_to_linear.(x)) .- x)) < 1.0e-12
+    @test maximum(abs.(srgb_to_linear.(linear_to_srgb.(x)) .- x)) < 1.0e-12
+    # the value's precision is kept: a Float32 image encodes in Float32
+    @test linear_to_srgb(0.25f0) isa Float32 && linear_to_srgb(0.001f0) == 12.92f0 * 0.001f0
+end
+
+@testitem "linear image: srgb_image, the one display encoding" begin
+    using VisualGeometryToolkitFeatures: srgb_image, linear_to_srgb
+    using Colors: RGB, Gray, red, green, blue, gray
+    using FixedPointNumbers: N0f8, N0f16
+    img = zeros(2, 3, 3)
+    img[1, 1, :] .= (0.1, 0.2, 0.3)
+    img[1, 2, :] .= (2.0, -0.5, 0.05)            # over and under the display range: clamped
+    img[2, 1, 2] = NaN                           # no value: the background
+    img[2, 2, :] .= (0.02, 0.04, 0.08)
+    q8(x) = reinterpret(N0f8, round(UInt8, 255 * linear_to_srgb(clamp(x, 0, 1))))
+    # exposure, then each plane's white balance, NaN → background, clamp, sRGB, 8 bits
+    out = srgb_image(img; exposure = 2.0, white_balance = (0.5, 1.0, 2.0), background = 0.25)
+    @test out isa Matrix{RGB{N0f8}} && size(out) == (2, 3)
+    @test (red(out[1, 1]), green(out[1, 1]), blue(out[1, 1])) == (q8(0.1), q8(0.4), q8(1.2))
+    @test (red(out[1, 2]), green(out[1, 2]), blue(out[1, 2])) == (q8(2.0), q8(-1.0), q8(0.2))
+    @test green(out[2, 1]) == q8(0.25) && red(out[2, 1]) == q8(0.0)
+    # the defaults: exposure 1, no white balance, black background, no tone curve
+    d = srgb_image(img)
+    @test (red(d[2, 2]), green(d[2, 2]), blue(d[2, 2])) == (q8(0.02), q8(0.04), q8(0.08)) && green(d[2, 1]) == q8(0.0)
+    # 16 bits on request
+    h = srgb_image(N0f16, img)
+    @test h isa Matrix{RGB{N0f16}} && red(h[1, 1]) == reinterpret(N0f16, round(UInt16, 65535 * linear_to_srgb(0.1)))
+    # a tone curve, applied to the exposed, white-balanced value before the clamp
+    t = srgb_image(img; exposure = 2.0, tone = x -> x / (1 + x))
+    @test red(t[1, 2]) == q8(4.0 / 5.0) && green(t[1, 1]) == q8(0.4 / 1.4)
+    # one plane (a matrix or an H × W × 1 image) is gray
+    g = srgb_image(img[:, :, 2]; exposure = 2.0)
+    @test g isa Matrix{Gray{N0f8}} && gray(g[1, 1]) == q8(0.4)
+    @test srgb_image(img[:, :, 2:2]; exposure = 2.0) == g
+    # the white balance has a factor per plane; the exposure and the factors are positive and finite
+    @test_throws ArgumentError srgb_image(img; white_balance = (1.0, 1.0))
+    @test_throws ArgumentError srgb_image(img; exposure = 0)
+    @test_throws ArgumentError srgb_image(img; white_balance = (1.0, NaN, 1.0))
+    @test_throws ArgumentError srgb_image(zeros(2, 2, 2))
+    # GPU first: a device image encodes on the device
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        dimg = Base.invokelatest(getproperty(cuda, :CuArray), img)
+        dout = Base.invokelatest(srgb_image, dimg; exposure = 2.0, white_balance = (0.5, 1.0, 2.0), background = 0.25)
+        @test !(dout isa Array) && Base.invokelatest(Array, dout) == out
+    end
+end
+
 @testitem "linear image: the box downsample" begin
     using VisualGeometryToolkitFeatures: box_downsample
     A = reshape(Float64[1 2 3 4; 5 6 7 8; 9 10 11 12; 13 14 15 16], 4, 4, 1)

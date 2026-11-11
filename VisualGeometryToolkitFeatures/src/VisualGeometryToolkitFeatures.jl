@@ -27,7 +27,7 @@ module VisualGeometryToolkitFeatures
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray
-using FixedPointNumbers: N0f8
+using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using ImageMorphology: distance_transform, feature_transform   # the distance to the nearest masked pixel (asift_detect's mask)
@@ -151,7 +151,8 @@ export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
-public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
+export srgb_image               # the one display encoding: exposure, white balance, NaN → background, tone, clamp, sRGB, N0f8/N0f16
+public srgb_to_linear, linear_to_srgb, box_downsample, gaussian_blur   # the sRGB decode and encode; gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked

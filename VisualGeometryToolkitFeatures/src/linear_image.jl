@@ -33,6 +33,68 @@ The sRGB (IEC 61966-2-1) electro-optical transfer function: an encoded value
 @inline srgb_to_linear(x::Real) = x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055)^2.4
 
 """
+    linear_to_srgb(x) -> encoded value
+
+The sRGB (IEC 61966-2-1) opto-electronic transfer function, the inverse of
+[`srgb_to_linear`](@ref): a linear value `x ∈ [0, 1]` to its display encoding,
+`12.92x` for `x ≤ 0.0031308`, otherwise `1.055x^(1/2.4) − 0.055`, in `x`'s
+floating-point type (a `Float32` image encodes in `Float32`). The stack's one
+encoder: a display image is [`srgb_image`](@ref).
+"""
+@inline function linear_to_srgb(x::Real)
+    T = typeof(float(x))
+    return x <= T(0.0031308) ? T(12.92) * x : T(1.055) * x^(one(T) / T(2.4)) - T(0.055)
+end
+
+"""
+    srgb_image([T = N0f8], img; exposure = 1, white_balance = nothing, background = 0, tone = nothing)
+        -> Matrix{RGB{T}} or Matrix{Gray{T}}
+
+A linear image for display, the stack's one display encoding: an `H × W × 3`
+image to `RGB{T}`, an `H × W` (or `H × W × 1`) one to `Gray{T}`, `T` a
+fixed-point type (`N0f8`, `N0f16`). Each value is multiplied by the `exposure`
+and by its plane's `white_balance` factor (one per plane, `nothing`: none),
+then mapped by the `tone` curve (a function of a linear value, `nothing`:
+none), clamped to `[0, 1]`, encoded by [`linear_to_srgb`](@ref) and rounded
+to `T`. A NaN value (no measurement: a panorama pixel no frame sees) is the
+`background`, a display-linear value in `[0, 1]`, encoded alike. The exposure
+and the factors are positive and finite (`ArgumentError` otherwise).
+
+Runs where `img` lives (a broadcast: a device array is encoded on the device;
+`tone` must then be kernel-lawful).
+"""
+srgb_image(img::AbstractArray; kw...) = srgb_image(N0f8, img; kw...)
+srgb_image(::Type{T}, img::AbstractMatrix{<:Real}; kw...) where {T <: FixedPoint} = srgb_image(T, reshape(img, size(img)..., 1); kw...)
+function srgb_image(
+        ::Type{T}, img::AbstractArray{<:Real, 3}; exposure::Real = 1, white_balance = nothing, background::Real = 0, tone = nothing
+    ) where {T <: FixedPoint}
+    P = size(img, 3)
+    P in (1, 3) || throw(ArgumentError("srgb_image: an H × W × 3 colour image or one plane, got $P planes"))
+    wb = white_balance === nothing ? ntuple(_ -> 1.0, P) : Tuple(white_balance)
+    length(wb) == P || throw(ArgumentError("srgb_image: one white-balance factor per plane ($P), got $(length(wb))"))
+    all(w -> isfinite(w) && w > 0, (exposure, wb...)) ||
+        throw(ArgumentError("srgb_image: the exposure and the white balance must be positive and finite, got $exposure and $white_balance"))
+    E = float(eltype(img))
+    enc = _SrgbEncode{T, E, typeof(tone)}(E(exposure), E(background), tone)
+    plane(p) = enc.(view(img, :, :, p), E(wb[p]))
+    return P == 3 ? RGB{T}.(plane(1), plane(2), plane(3)) : Gray{T}.(plane(1))
+end
+
+# One value's display encoding, an isbits functor (it runs in a device broadcast).
+struct _SrgbEncode{T, E, F}
+    exposure::E
+    background::E
+    tone::F
+end
+_toned(::Nothing, x) = x
+_toned(f, x) = f(x)
+@inline function (e::_SrgbEncode{T, E})(v, w) where {T, E}
+    x = isnan(v) ? e.background : _toned(e.tone, E(v) * e.exposure * w)
+    # the unchecked conversion after the clamp: it cannot overflow, rounds as `convert` does, and compiles in a kernel
+    return linear_to_srgb(clamp(E(x), zero(E), one(E))) % T
+end
+
+"""
     box_downsample(img::AbstractMatrix, f::Integer) -> Matrix
     box_downsample(img::AbstractArray{T, 3}, f::Integer) -> Array{float(T), 3}
 

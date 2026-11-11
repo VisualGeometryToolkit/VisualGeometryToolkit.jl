@@ -70,7 +70,7 @@ declared. The original is never touched. Written to `out`:
   vector (the terms its length evaluates). The export's reprojection
   statistic is its `provenance` (`reprojection_error`, `error_statistic =
   "rms"`, `source = "opencv"`, `migrated_from`).
-- `<stem>_poses.json` — a `vgio/transforms/v2` file, one record per image the
+- `<stem>_poses.json` — a `vgio/transforms/v4` file, one record per image the
   solver posed, NAMED by that image: `from = "target:<target>"`, `to =
   "view:<image>"` — the target in the camera frame of that view, `x_view = R
   x_target + t`, in the export's tvec unit (declared as its `length_unit`). An image whose pose the export has as `null`
@@ -93,7 +93,7 @@ non-mutating call. Everything downstream carries the frame in
 its type: the camera read is canonical by construction, and the files
 declare what their types say.
 
-The conversion is verified before anything is written to `out`: the v2 files,
+The conversion is verified before anything is written to `out`: the files,
 written to a staging directory beside `out` (a dry run's: a temporary one) and
 renamed into place only once verified, must read back equal to the OpenCV read —
 the camera `==`, every pose's translation bit for bit (a file-born value; a

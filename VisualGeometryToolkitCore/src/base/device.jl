@@ -140,10 +140,16 @@ device_names() = (q = _DEVICE_MEMORY[]; q === nothing ? String[] : q.names())
 A copy of `A` with element type `T` on `device`: one `Array{T}` on the host
 (`Array{T}(A)`, which also downloads a device array), else a `KA.allocate`d
 array filled by one `copyto!` — from `A` itself when it is a dense array of `T`,
-else from `T.(A)` (a view, an adjoint, a reinterpret, another eltype).
+else from `T.(A)` (a view, an adjoint, a reinterpret, another eltype). An
+integer image (`UInt8`, `UInt16`, `N0f8`, `N0f16`: an integer or fixed-point
+eltype narrower than a float `T`) crosses as it is and is converted ON the
+device by one KernelAbstractions kernel, `T(x)` per element, on every backend
+(the CPU's included): bit for bit the host's `T.(A)`, at `sizeof(eltype(A))`
+bytes a pixel moved instead of `sizeof(T)`.
 """
-ka_upload(::Type{T}, ::KA.CPU, A::AbstractArray) where {T} = Array{T}(A)
+ka_upload(::Type{T}, dev::KA.CPU, A::AbstractArray) where {T} = _narrow_upload(T, eltype(A)) ? _convert_on(T, dev, A) : Array{T}(A)
 function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
+    _narrow_upload(T, eltype(A)) && return _convert_on(T, dev, A)
     d = KA.allocate(dev, T, size(A)...)
     # A dense array of `T` is copied as it is; anything else — another eltype, a view, an
     # adjoint, a reinterpret — is materialized first (`T.(A)`: a host wrapper becomes an
@@ -151,6 +157,24 @@ function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
     # takes a dense array only.
     copyto!(d, A isa DenseArray && eltype(A) === T ? A : T.(A))
     return d
+end
+
+# An integer image (UInt8, UInt16, a FixedPointNumbers `Normed`, any integer or fixed-point eltype narrower than the
+# target float) goes to the device as it is, `sizeof(S)` bytes a pixel instead of `sizeof(T)`, and becomes `T` there:
+# ONE KernelAbstractions kernel, `T(x)` per element (the host's `T.(A)` element for element, so bit for bit), on every
+# backend, the CPU's included (there the "upload" is the image itself, read in place).
+_narrow_upload(::Type{T}, ::Type{S}) where {T, S} =
+    T <: AbstractFloat && S !== T && (S <: Integer || S <: FixedPointNumbers.FixedPoint) && sizeof(S) < sizeof(T)
+@kernel function _convert_elements!(out, @Const(src))
+    i = @index(Global, Linear)
+    @inbounds out[i] = eltype(out)(src[i])
+end
+function _convert_on(::Type{T}, dev, A::AbstractArray{S}) where {T, S}
+    src = on_device(S, dev, A)                    # the narrow eltype crosses as it is (on the host: the image itself)
+    out = KA.allocate(dev, T, size(A)...)
+    _convert_elements!(dev)(out, src; ndrange = length(out))
+    KA.synchronize(dev)
+    return out
 end
 
 """

@@ -78,6 +78,46 @@ end
     end
 end
 
+# An integer image (UInt8, UInt16, N0f8, N0f16, a view of one) goes up as it is and becomes the target float type on the
+# device, through the one conversion kernel on every backend (the CPU's included): bit-identical to the host's `T.(A)`,
+# and on a GPU no host-side converted copy (the host allocates no 4 B/px array).
+@testitem "ka_upload: an integer image converted on the device, bit-identical to the host's conversion (CUDA availability-gated)" begin
+    using Test
+    import KernelAbstractions as KA
+    using FixedPointNumbers: N0f8, N0f16
+    using VisualGeometryToolkitCore: ka_upload, on_device
+    import VisualGeometryToolkitCore as VgtkCore
+    @test isdefined(VgtkCore, :_convert_elements!)                       # the one conversion kernel
+    raw8 = rand(UInt8, 300, 200); raw16 = rand(UInt16, 300, 200)
+    imgs = (raw8, raw16, reinterpret(N0f8, raw8), reinterpret(N0f16, raw16), view(raw8, 11:290, 21:180))
+    for A in imgs, T in (Float32, Float64)
+        h = ka_upload(T, KA.CPU(), A)
+        @test h isa Matrix{T} && h == T.(A) && reinterpret(UInt8, vec(h)) == reinterpret(UInt8, vec(T.(A)))
+    end
+    @test on_device(Float32, KA.CPU(), raw8) == Float32.(raw8)
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        for A in imgs, T in (Float32, Float64)
+            d = Base.invokelatest(ka_upload, T, gpu, A)
+            @test !(d isa Array) && eltype(d) === T
+            h = Base.invokelatest(Array, d)
+            @test reinterpret(UInt8, vec(h)) == reinterpret(UInt8, vec(T.(A)))      # bit for bit
+        end
+        big = rand(UInt8, 2000, 3000)
+        Base.invokelatest(ka_upload, Float32, gpu, big)                            # compiled
+        # the host moves the 1 B/px image only: no host-side Float32 copy (24 MB) is allocated
+        @test (@allocated Base.invokelatest(ka_upload, Float32, gpu, big)) < sizeof(big)
+    end
+end
+
 # The accelerator's memory and devices: the host's free memory, the CUDA extension's query for its backend, and a backend
 # no extension answers for warned once and left unchunked (typemax).
 @testitem "device_free_bytes, reclaim_device!, device_names: the accelerator extension's queries" begin

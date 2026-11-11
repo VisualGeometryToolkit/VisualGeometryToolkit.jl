@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
+  `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is
+  and becomes the target float type through one KernelAbstractions kernel on every backend, the CPU's included, bit for
+  bit the host's `T.(A)`; no host-converted copy. A 50 Mpx 8-bit image to Float32 on a B200: 113 ms → 3.2 ms (median
+  of 7; 87 ms of the old time was the host's conversion, and it moved 4 B/px instead of 1).
+
 - **New: the exact grid selection's kernels, `exact_pm_score_kernel!` and `argmax_models_kernel!`** (public, not
   exported; robust/pool_grid_kernels.jl), moved from RANSACScoringDoneRight (the twin audit's V1): per (pair, model) the
   sum of a family's per-residual quality at every width of a grid, then per (pair, width) the first strictly best model,

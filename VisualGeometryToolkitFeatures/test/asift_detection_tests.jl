@@ -110,6 +110,36 @@ end
     @test any(d -> near(d, (BLOBS[2][1], BLOBS[2][2])), both)
 end
 
+@testitem "ASIFT detection mask: the clearance is the exact Euclidean distance to the nearest masked pixel" begin
+    using VisualGeometryToolkitCore: centroid, characteristic_scale
+    using VisualGeometryToolkitFeatures: ImasFeatureKA
+    using Random: Xoshiro
+    const VGF = VisualGeometryToolkitFeatures
+    # the rule, by brute force: the pixel holding the centre is clear when its distance to every masked pixel,
+    # √(Δi² + Δj²) in pixels, exceeds three scales
+    function clear(f, mask)
+        fr = VGF._asift_frame(f)
+        H, W = size(mask)
+        c = centroid(fr)
+        i, j = clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)
+        d = minimum((sqrt(Float64((k - i)^2 + (l - j)^2)) for k in 1:H, l in 1:W if mask[k, l]); init = Inf)
+        return d > VGF._MASK_REACH * characteristic_scale(fr)
+    end
+    rng = Xoshiro(7)
+    for (H, W, density) in ((40, 60, 0.002), (37, 23, 0.05), (50, 50, 0.3), (16, 16, 1.0))
+        mask = rand(rng, H, W) .< density
+        # centres over the frame and a little past it, scales from sub-pixel to wider than the frame, isotropic and
+        # sheared shapes; a scale on a pixel distance exactly (a tie: not clear)
+        feats = [begin
+                     σ = rand(rng) < 0.1 ? Float32(rand(rng, 1:6) / 3) : Float32(exp(rand(rng) * 3 - 1.5))
+                     a, b = Float32(1 + rand(rng)), Float32(rand(rng) - 0.5)
+                     ImasFeatureKA(Float32(rand(rng) * (W + 4) - 2), Float32(rand(rng) * (H + 4) - 2), σ, 1.0f0,
+                                   σ^2 * a, σ^2 * b, σ^2 / a + σ^2 * b^2 / a, Int32(0))
+                 end for _ in 1:400]
+        @test VGF._clear_of_mask(feats, mask) == [clear(f, mask) for f in feats]
+    end
+end
+
 @testitem "ASIFT untilted: tilts = :untilted is the identity warp alone" setup = [Fixtures, TextureFixture] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
     # the untilted view (t = 1) localizes best; restricting ASIFT to it is a schedule of its own

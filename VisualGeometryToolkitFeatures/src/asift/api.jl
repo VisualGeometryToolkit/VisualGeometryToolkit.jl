@@ -335,11 +335,40 @@ end
 
 function _clear_of_mask(feats::Vector{ImasFeatureKA}, mask::AbstractMatrix{Bool})
     any(mask) || return trues(length(feats))
-    dist = distance_transform(feature_transform(BitMatrix(mask)))   # each pixel's distance to the nearest masked one
-    H, W = size(dist)
+    H, W = size(mask)
+    # the masked pixels' summed-area table: a disc's bounding box holding none is clear at once, in O(1); a box
+    # holding some is read chord by chord (the discs near the mask only, not the frame's distance transform)
+    S = zeros(Int32, H + 1, W + 1)
+    @inbounds for j in 1:W, i in 1:H
+        S[i + 1, j + 1] = S[i, j + 1] + S[i + 1, j] - S[i, j] + Int32(mask[i, j])
+    end
     return map(feats) do f
         fr = _asift_frame(f)
         c = centroid(fr)
-        dist[clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)] > _MASK_REACH * characteristic_scale(fr)
+        i, j = clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)
+        _clear_at(mask, S, i, j, _MASK_REACH * characteristic_scale(fr))
     end
 end
+
+# Whether pixel (i, j)'s Euclidean distance √(Δi² + Δj²) to every masked pixel exceeds `reach`: the rule of the
+# distance transform, read row by row over the disc (each row's chord counted in the table, O(1)).
+function _clear_at(mask, S, i, j, reach)
+    H, W = size(mask)
+    within(di, dj) = !(sqrt(Float64(di^2 + dj^2)) > reach)
+    r = isfinite(reach) ? floor(Int, max(reach, 0.0)) : max(H, W)
+    i0, i1, j0, j1 = max(i - r, 1), min(i + r, H), max(j - r, 1), min(j + r, W)
+    _masked_in(S, i0, i1, j0, j1) == 0 && return true
+    for k in i0:i1
+        di = k - i
+        within(di, 0) || continue
+        # the chord's half-width: the largest w with (di, w) within the disc, the float rule's own edge
+        w = isfinite(reach) ? min(floor(Int, sqrt(max(Float64(reach)^2 - di^2, 0.0))), r) : r
+        while w < r && within(di, w + 1); w += 1; end
+        while w > 0 && !within(di, w); w -= 1; end
+        _masked_in(S, k, k, max(j - w, 1), min(j + w, W)) == 0 || return false
+    end
+    return true
+end
+
+# The masked pixels in rows i0:i1, columns j0:j1, from the summed-area table `S` ((H + 1) × (W + 1)).
+@inline _masked_in(S, i0, i1, j0, j1) = @inbounds S[i1 + 1, j1 + 1] - S[i0, j1 + 1] - S[i1 + 1, j0] + S[i0, j0]

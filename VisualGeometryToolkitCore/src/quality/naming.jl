@@ -14,7 +14,7 @@
 
 One finding of [`check_naming`](@ref): the file (relative to the package
 directory), the line, the offending name or line of text, and the rule it
-breaks (`:R3` … `:R11`, or `:parse` for a file that does not parse).
+breaks (`:R3` … `:R12`, or `:parse` for a file that does not parse).
 """
 struct NamingViolation
     file::String
@@ -33,6 +33,7 @@ const _NAMING_RULE_TEXT = Dict{Symbol, String}(
     :R9 => "a retired name (the list lives in `check_naming`)",
     :R10 => "a width is bound by its full name — `scale_multiple`, `loss_width` or `outlier_halfwidth` — never an abbreviation or a letter (the lists live in `check_naming`)",
     :R11 => "unit parsing, unit tables and unit conversion live in VisualGeometryToolkitCore's units module (its registry StackUnits) and FlexUnits: `parse_unit`/`unit_string`, `quantity`, `base_quantity`, `ustrip`, `strip_or_bare` — never `uparse`/`qparse`/`register_unit` or a unit or registry built by hand (`Units`, `AffineTransform`, `PermanentDict`, `register_unit!`, `registry_defaults!`), a table of unit names, `convert(Quantity{…}, …)`, an `isa Quantity ? ustrip` branch, a bare `ubase` in src or a hand-written factor (25.4, 0.0254, 304.8, 0.3048, 127//5000) (the allow-list lives in `check_naming`)",
+    :R12 => "the Student-t + uniform scorer has no threshold: its width is `outlier_halfwidth`; a threshold is a threshold scorer's (the word is flagged within six tokens of the scorer's type name or TOML tag)",
     :parse => "the file does not parse",
 )
 

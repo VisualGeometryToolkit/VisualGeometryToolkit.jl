@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New naming rule R12: the Student-t + uniform scorer has no threshold** (the owner's ruling: every scorer takes its
+  own width keyword exactly). `check_naming` flags the word `threshold` within six tokens of the scorer's type name or
+  its TOML tag, in code, comments, docs and configuration (a changelog excepted); `inlier_threshold` and
+  `decision_threshold`, the contract's decision point, are other names. `conventions/naming.md` states the rule.
+  Downstream quality gates see it on their next Core: a refusal test spells the word apart (`"thres" * "hold"`).
+
 - **New: the Student-t + uniform marginal scorer, `StudentTUniformScoring`, moved here from RANSACScoringDoneRight**
   (the owner's ruling: hoisted with no duplication; RSDR deletes its copies and imports these). Moved, not rewritten
   (`robust/partition_sweep.jl`, `robust/student_t_uniform_scoring.jl`): the model-certain and `Predictive` scorer and

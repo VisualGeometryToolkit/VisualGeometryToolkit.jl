@@ -334,6 +334,10 @@ non-central one is a `NoncentralSplineModel`).
   (`_holds_minimal_sample(P, n) || return _too_few(P, n)` before its pipeline) is `_guarded_ransac` /
   `_guarded_refine`; the two pose refines, whose result is relabelled, keep the guard at their call. A view graph's
   loop and orientation angles are `Rotations.rotation_angle` (was `‖log R‖` by hand).
+- **Internal: one posterior support-and-rms rule.** The EM fits (`fit_residual_mixture`, `fit_division_camera`)
+  restated the `find_*` results' rule for posterior weights (a weight below eps stored as an exact 0; `n` the support,
+  `rms` the weighted root mean square over it); all three call `_posterior_support_rms!`. `n` and `rms` are unchanged
+  bit for bit on every fit of their tests.
 - **Internal: one IRLS weight step.** `fit_linear`, `fit_rotation` and `fit_rotation_averaging` each restated the same
   reweighting (σ̂ = median/√χ²_d-median, the loss deployed at σ̂², its weights times the prior) with only the
   codimension differing; they share `_irls_weights!`, whose σ̂ is Core's `noise_sigma`. The results are unchanged bit for

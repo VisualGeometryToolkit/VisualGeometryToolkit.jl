@@ -488,12 +488,13 @@ function fit_division_camera(
     for (i, sqi) in enumerate(best.sq_distances), (j, r²) in enumerate(sqi)
         l += 1
         took = isfinite(r²) && (prior === nothing || prior[i][j] > 0)
-        w[l] = took ? _stored_posterior(post[l]) : 0.0
+        w[l] = took ? Float64(post[l]) : 0.0
         sq[l] = took ? r² : 0.0
     end
+    support, wrms = _posterior_support_rms!(w, sq)        # a posterior below eps an exact 0; its support and weighted RMS
     return FitResult(
         camera, rc, niter,
-        _weighted_rms(w, sq), count(>(0), w),               # the posterior-weighted whitened-residual RMS (px), its support
+        wrms, support,               # the posterior-weighted whitened-residual RMS (px), its support
         DivisionCameraMetadata(
             state, radial_cameras, Dict(ids[i] => _with_weights(views[ids[i]], wpost[i]) for i in eachindex(ids)),
             w, sqrt(s_hat_sq(st.rws)), ScaleEstimated, Float64(student_t_dof(st.rws))

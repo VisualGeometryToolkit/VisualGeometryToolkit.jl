@@ -15,6 +15,10 @@
 # The chart of the regression
 # ------------------------------------------------------------------------------
 
+# Whether the refine frees a forward lens's radial DENOMINATOR (0.9: yes, from the linear fit's; 0.8 held it at zero).
+# Pending the owner's ruling: the one toggle.
+const _REFINE_FREES_DENOMINATOR = true
+
 # The coefficients the refine moves, as the family's manifold (`LensManifold`, Dual-safe) at the guess's lens
 # restricted to them: a forward lens's projection coefficients and its radial factor's numerator `k` and denominator
 # `d` (its decentering terms held at the guess's values: a radially symmetric objective does not determine them), a
@@ -24,7 +28,10 @@ function _lens_family_manifold(a::AbstractLensModel)
     a isa LiftLens && return ch
     r = VgtkCore.Cameras._bounding_radial(a)   # the radial factor: `radial`, or a composition's first radial stage (Fisheye624's)
     proj = VgtkCore.Cameras.coefficient_names(typeof(a.projection))
-    rad = r === nothing ? () : (ntuple(i -> Symbol(:k, i), Val(length(r.k)))..., ntuple(j -> Symbol(:d, j), Val(length(r.d)))...)
+    rad = r === nothing ? () : (
+        ntuple(i -> Symbol(:k, i), Val(length(r.k)))...,
+        (_REFINE_FREES_DENOMINATOR ? ntuple(j -> Symbol(:d, j), Val(length(r.d))) : ())...,
+    )
     free = (proj..., rad...)
     length(free) == tangent_size(ch) && return ch
     isempty(free) && return restrict(ch, SVector{tangent_size(ch), Bool}(ntuple(_ -> false, Val(tangent_size(ch)))))

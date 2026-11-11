@@ -10,9 +10,18 @@ using CUDA: CUDA, CUDABackend
 import KernelAbstractions as KA
 import VisualGeometryToolkitCore
 
+# CUDA's memory queries live in the package that defines the backend: `CUDA` (5.x) or `CUDACore` (6.x); the old
+# `available_memory` (gone in 6) returned typemax through a bare `catch`, so chunking switched off silently.
+_cuda_function(name::Symbol) = getfield(Base.moduleroot(parentmodule(CUDABackend)), name)
+
 function __init__()
     VgtkCore._DEVICE_RESOLVER[] =
         () -> CUDA.functional() ? CUDABackend() : KA.CPU()
+    VgtkCore._DEVICE_MEMORY[] = (;
+        free = dev -> dev isa CUDABackend ? Base.invokelatest(_cuda_function(:free_memory)) : nothing,
+        reclaim = dev -> (dev isa CUDABackend && Base.invokelatest(_cuda_function(:reclaim)); nothing),
+        names = () -> CUDA.functional() ? String[string(CUDA.name(d)) for d in CUDA.devices()] : String[],
+    )
     return nothing
 end
 

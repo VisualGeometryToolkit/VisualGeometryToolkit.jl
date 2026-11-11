@@ -70,6 +70,55 @@ first resolution.
 """
 reset_default_device!() = (_DEFAULT_DEVICE[] = nothing; nothing)
 
+"""
+    _DEVICE_MEMORY
+
+The accelerator extensions' device-memory queries, `(; free, reclaim, names)` or
+`nothing`: `free(dev)` the bytes free on a backend it defines (`nothing` for another),
+`reclaim(dev)` its pool handed back to the device, `names()` its devices' names.
+Assigned at load time, as `_DEVICE_RESOLVER` is (Core's CUDA extension).
+"""
+const _DEVICE_MEMORY = Ref{Any}(nothing)
+
+"""
+    device_free_bytes(dev) -> Int
+
+Free memory on the KernelAbstractions backend `dev`, in bytes: the host's for
+`KA.CPU()`, the accelerator extension's query for its backend (CUDA's
+`free_memory`), else `typemax(Int)` with a one-time warning (a caller sizing
+chunks from it then does not chunk).
+"""
+function device_free_bytes(dev)
+    dev isa KA.CPU && return Int(Sys.free_memory())
+    q = _DEVICE_MEMORY[]
+    f = q === nothing ? nothing : q.free(dev)
+    f === nothing || return Int(f)
+    @warn "no free-memory query for $(typeof(dev)): tilt and score chunking are disabled" maxlog = 1
+    return typemax(Int)
+end
+
+"""
+    reclaim_device!(dev) -> nothing
+
+Hand the memory `dev`'s backend pool holds back to the device (CUDA.jl's `reclaim`),
+so an allocator outside that pool (ONNX Runtime's) can use it; nothing for the host
+or a backend without a pool query.
+"""
+function reclaim_device!(dev)
+    dev isa KA.CPU && return nothing
+    q = _DEVICE_MEMORY[]
+    q === nothing || q.reclaim(dev)
+    return nothing
+end
+
+"""
+    device_names() -> Vector{String}
+
+The names of the accelerator devices this process sees (the extension's query: CUDA's
+devices when CUDA is functional); none without an accelerator extension.
+"""
+device_names() = (q = _DEVICE_MEMORY[]; q === nothing ? String[] : q.names())
+
 # =============================================================================
 # Moving arrays to a device and back — ONE upload for the package family
 # =============================================================================

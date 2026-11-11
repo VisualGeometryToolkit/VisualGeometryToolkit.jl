@@ -15,6 +15,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   run time (a SplineLens refine's patches on their live controls).
 - **Breaking: `spline_weights(cs, x)` loses its held-window argument** (no caller in the stack; a refinement holds its
   window by solving on the window's own cell). The projection Jacobians form the window's basis weights once.
+- **New: `device_free_bytes(dev)`, `reclaim_device!(dev)`, `device_names()`** (public): the accelerator's free memory,
+  its pool handed back to the device and its devices' names, answered by Core's CUDA extension (assigned at load, as the
+  device resolver is; CUDA 5's `CUDA` or 6's `CUDACore`). VisualGeometryToolkitFeatures' chunk sizing and plan release and
+  VisualGeometryToolkitEval's GPU record read them (each had its own name-sniffing lookup of the CUDA module).
 - **Internal: one implementation each.** A rectangle's centre is `centroid` (`_rect_centre` retired), the lens
   coverage's rectangle test is `_in_rect`, a rectangle mapped through K or K⁻¹ is one `_mapped_rect`, a 2 × 2
   determinant and identity are StaticArrays' `det` and `one`, and a lattice's node counts at a spacing are one

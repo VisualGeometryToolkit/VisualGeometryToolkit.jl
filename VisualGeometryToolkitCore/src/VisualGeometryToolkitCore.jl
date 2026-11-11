@@ -117,6 +117,7 @@ export bbox
 # Compute backend dispatch tags (shared across the package family)
 export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
+public device_free_bytes, reclaim_device!, device_names   # the accelerator's memory and devices, the extension's queries (base/device.jl)
 export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
 
 # Uncertainty types and accessors

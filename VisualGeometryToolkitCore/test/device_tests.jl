@@ -77,3 +77,21 @@ end
         end
     end
 end
+
+# The accelerator's memory and devices: the host's free memory, the CUDA extension's query for its backend, and a backend
+# no extension answers for warned once and left unchunked (typemax).
+@testitem "device_free_bytes, reclaim_device!, device_names: the accelerator extension's queries" begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!, device_names
+    struct UnknownGPU <: KA.GPU end
+    @test device_free_bytes(KA.CPU()) > 0
+    @test (@test_logs (:warn, r"no free-memory query") device_free_bytes(UnknownGPU())) == typemax(Int)
+    @test reclaim_device!(KA.CPU()) === nothing && reclaim_device!(UnknownGPU()) === nothing
+    @test device_names() isa Vector{String}
+    using CUDA: CUDA
+    if CUDA.functional()
+        @test 0 < device_free_bytes(CUDA.CUDABackend()) < typemax(Int)
+        @test reclaim_device!(CUDA.CUDABackend()) === nothing
+        @test length(device_names()) == length(CUDA.devices())
+    end
+end

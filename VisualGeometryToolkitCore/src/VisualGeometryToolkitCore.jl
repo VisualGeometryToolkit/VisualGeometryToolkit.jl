@@ -58,7 +58,7 @@ using CoordinateTransformations:
     transform_deriv_params
 using Rotations: Rotations, RotMatrix, RotationVec, Rotation, QuatRotation, Angle2d
 using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(w); the mixture's log-odds and softplus
-using SpecialFunctions: loggamma, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl)
+using SpecialFunctions: loggamma, logbeta, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl); the sweep's log Γ and Beta label-prior tables (robust/partition_sweep.jl)
 using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
 using Random: Random
 using SHA: sha256   # stable_seed's fixed hash, sha256_hex (base/utils.jl)
@@ -494,6 +494,16 @@ public scoring_workspace, score!, inlier_count, consensus_order, inlier_threshol
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
     with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality,
     SCORING_TAGS
+# The Student-t + uniform marginal scorer and its partition sweep (robust/partition_sweep.jl,
+# robust/student_t_uniform_scoring.jl; moved from RANSACScoringDoneRight, 2026-11-11). The
+# estimated-support hooks (`estimates_outlier_support`, `outlier_context!`, `outlier_cost`,
+# `scored_outlier_halfwidth`) are what another package's outlier model implements.
+public StudentTUniformScoring, Predictive, AbstractLabelPrior, FlatLabelPrior, ProfiledLabelPrior, BetaLabelPrior,
+    LABEL_PRIOR_TAGS, label_prior_table, AbstractOutlierModel, FixedHalfwidth, outlier_model, label_prior,
+    estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth, suffix_sums!,
+    ScoringWorkspace, alloc_scoring_workspace, default_scoring_workspace, sweep!, sweep_order, penalties, sort_key,
+    lg_table, log_gamma_table, partition_score, ig_sweep_kernel!, RadixPermBuffers, radix_key, radix_sortperm!,
+    score_residuals!, score_sq_residuals!
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     deployed_scale_multiple, width_scale_interface, width_s2, check_composition, width_value,
@@ -870,6 +880,8 @@ include("robust/posterior.jl")        # PosteriorWeightState, the nuisance polic
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, ScoreBuffers, score_model!
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring + their contract glue
+include("robust/partition_sweep.jl")  # label priors, FixedHalfwidth, ScoringWorkspace, partition_score, ig_sweep_kernel!, sweep! (needs scale.jl, the KA imports of base/device.jl)
+include("robust/student_t_uniform_scoring.jl") # StudentTUniformScoring + its scoring contract; SCORING_TAGS (needs baseline_scorers.jl, partition_sweep.jl)
 include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estimate, loss_at
 
 # Geometry Transforms (partial - matrices and rigid transforms only)

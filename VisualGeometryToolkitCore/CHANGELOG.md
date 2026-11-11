@@ -5,6 +5,27 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: the Student-t + uniform marginal scorer, `StudentTUniformScoring`, moved here from RANSACScoringDoneRight**
+  (the owner's ruling: hoisted with no duplication; RSDR deletes its copies and imports these). Moved, not rewritten
+  (`robust/partition_sweep.jl`, `robust/student_t_uniform_scoring.jl`): the model-certain and `Predictive` scorer and
+  its scoring contract, `score_residuals!`, `score_sq_residuals!`, `ScoringWorkspace` (`sweep_order`, `penalties`,
+  `sort_key`, `lg_table`, `resize!`), `alloc_scoring_workspace`, `default_scoring_workspace`, `sweep!` with the exact
+  parametric sweep, `partition_score`, the one prefix kernel `ig_sweep_kernel!` (a pool grid launches it per
+  (pair, model, width); `sweep!` as one work item on the CPU backend), the radix sort (`RadixPermBuffers`,
+  `radix_sortperm!`, `radix_key`), `log_gamma_table`, the label priors (`AbstractLabelPrior`, `FlatLabelPrior`,
+  `ProfiledLabelPrior`, `BetaLabelPrior`, `label_prior_table`, `LABEL_PRIOR_TAGS`), `AbstractOutlierModel` and the
+  supplied half-width `FixedHalfwidth`, and `suffix_sums!`. An outlier model that ESTIMATES the support (RSDR's
+  extreme-value and generalized Pareto models) implements the new contract generics `outlier_cost`,
+  `scored_outlier_halfwidth` and optionally `outlier_context!` (`estimates_outlier_support`) and is scored by Core's
+  estimated-support sweep. `SCORING_TAGS` gains `"student_t_uniform"`. The scorer's priors are REQUIRED keywords
+  (`scale_prior`, renamed from `prior`, and `label_prior`), as are `default_scoring_workspace`'s `scale_prior` and
+  `BetaLabelPrior`'s parameters: the stack's default is a configuration's (VisualGeometryToolkitEstimation's
+  `[scoring.student_t_uniform]`, the owner's ruling (c)). The supplied-width `score!` no longer allocates: the
+  one-work-item launch is a statically sized kernel instance on the CPU backend with its buffers on the workspace
+  (RSDR's dynamic launch allocated 3.9 kB per hypothesis, failing its allocation tests). Results are RSDR's bit for bit
+  (its tests, and 1026 scoring results plus a sample of neurips2026's pool selections, compared before and after).
+  The empty `GauScoring` supertype is not carried over (nothing dispatched on it): the scorer is an `AbstractScoring`.
+
 - **Breaking: `pointwise!` is one KernelAbstractions kernel on every backend; the host's execution policies are
   retired** (the owner's ruling on the twin audit's V4). `pointwise!(f, out, xs...)` and the lens batches (`project!`,
   `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the

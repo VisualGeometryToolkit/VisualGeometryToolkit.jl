@@ -5,6 +5,17 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `check_duplication(M)` / `check_duplication(dir)`** (public, not exported; Test extension, beside
+  `check_naming` and `check_raw_decoding`): the no-duplication rule, checked. (1) Name ownership: a binding the package
+  owns (not an import, not a method extension) whose name an upstream stack package owns, private names included;
+  upstream is every dependency that is Core or depends on it. (2) Function-body similarity: JuliaSyntax tokens, comments
+  dropped, identifiers and strings normalized, 8-token shingles, Jaccard ≥ 0.6 with ≥ 60 tokens or ≥ 0.85 with ≥ 25
+  (keyword `similarity`), within the repository (a monorepo's other packages included) and against the stack
+  repositories in `VGTK_STACK_PATHS` (keyword `stack`; absent ones skipped with a note). (3) Whole files whose code
+  tokens are equal. (4) Retired patterns, each naming its owner: `NLLSOptions(` (`nlls_options`), `acos(clamp((tr(`
+  (Rotations' `rotation_angle`), the sRGB transfer constants (Features' `linear_image.jl`), a `\newcommand` writer
+  (Eval's number macros). Exceptions, each with a reason, live in the repository root's `DUPLICATION.toml`; an entry
+  that matches nothing is itself a finding. The whole monorepo scans in about 1.5 s.
 - **Fixed: `check_raw_decoding`'s display-mode exemption is the call's own.** `mode = :demosaic` is taken out only
   inside a `load_raw(`/`LinearRaw(` call's parentheses, over every line the call spans: a call written over several lines
   is no longer flagged, and a demosaic by another route on the same line as such a call no longer goes unflagged. `allow`

@@ -624,6 +624,7 @@ public check_naming, NamingViolation, naming_scope
 # The stack's one RAW path (the same extension): a decoding library or a CFA interpolation outside
 # VisualGeometryToolkitFeatures' raw module is a finding.
 public check_raw_decoding, RawDecodingViolation
+public check_duplication, DuplicationViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
@@ -967,6 +968,7 @@ include("visualization_stubs.jl")
 # the Test extension, ext/VisualGeometryToolkitCoreTestExt).
 include("quality/naming.jl")
 include("quality/raw_decoding.jl")   # check_raw_decoding: the one RAW path (entry point; the scan is the Test extension)
+include("quality/duplication.jl")    # check_duplication: one implementation per concept (entry point; the scan is the Test extension)
 include("quality/test_helpers.jl")   # the rows checks, the quality gates (entry points)
 include("quality/contract_helpers.jl")   # the contract conformance helpers (entry points)
 # The stack's quality contracts: the tag registry's scans (the registry itself

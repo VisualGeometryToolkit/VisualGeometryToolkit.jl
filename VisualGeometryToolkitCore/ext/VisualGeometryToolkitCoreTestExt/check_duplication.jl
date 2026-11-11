@@ -1,0 +1,427 @@
+# =============================================================================
+# check_duplication — one implementation per concept, checked mechanically
+# =============================================================================
+#
+# Name ownership (a loaded module's bindings against its upstream stack
+# packages'), token-shingle similarity of function bodies, whole-file identity
+# and a retired-pattern table (the `check_raw_decoding` mechanism). The entry
+# point and its result type are in src/quality/duplication.jl. Like
+# `check_naming`, the retired patterns are BUILT from fragments, so this file
+# spells none of the code it flags.
+# =============================================================================
+
+const _DUPLICATION_FILE = "DUPLICATION.toml"
+const _STACK_PATHS_ENV = "VGTK_STACK_PATHS"
+const _DEFAULT_SIMILARITY = ((0.6, 60), (0.85, 25))
+const _MAX_POSTINGS = 40          # a shingle in more definitions than this is an idiom, not evidence
+
+# --- the retired patterns ----------------------------------------------------
+
+# Each `(use, pattern, owner, home)`: `home` is `(package, files)`, the files of
+# that package (relative paths, or a Regex over them) where the pattern is the owner's own.
+const _RETIRED_PATTERNS = (
+    (:nlls_options, Regex("\\b" * "NLLS" * "Options\\s*\\("),
+        "VisualGeometryToolkitCore's `nlls_options` (src/robust/lm_core.jl): the stack's DᵀD damping and its stall postcondition",
+        ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl",))),
+    (:rotation_angle, Regex("\\ba" * "cos\\s*\\(\\s*clamp\\s*\\(\\s*\\(\\s*(LinearAlgebra\\.)?(tr|sum)\\s*\\("),
+        "Rotations' `rotation_angle` (as VisualGeometryToolkitCore's stereo.jl): exact near 0 and π", ("", ())),
+    (:srgb_transfer, Regex("\\b0\\.00" * "31308\\b|\\b0\\.0" * "4045\\b"),
+        "VisualGeometryToolkitFeatures' sRGB transfer (src/linear_image.jl, `srgb_to_linear`)",
+        ("VisualGeometryToolkitFeatures", ("src/linear_image.jl", "test/linear_image_tests.jl"))),
+    (:tex_macro_writer, Regex("\\b(print|println|write)\\s*\\(.*\\\\{1,2}" * "new" * "command"),
+        "VisualGeometryToolkitEval's number macros (src/reproduce/number_macros.jl: `PaperNumbers`, `add_number!`, `write_numbers`)",
+        ("VisualGeometryToolkitEval", ("src/reproduce/number_macros.jl", r"^test/"))),
+)
+
+_in_home(f, home) = any(h -> h isa Regex ? occursin(h, f) : f == h, home)
+
+# --- the repository and the stack around a directory ----------------------------
+
+# The git checkout holding `dir` (its `.git` is a directory, or a file in a worktree), else `dir`.
+function _repo_root(dir::AbstractString)
+    d = abspath(dir)
+    while true
+        ispath(joinpath(d, ".git")) && return String(rstrip(d, '/'))
+        p = dirname(d)
+        p == d && return String(rstrip(abspath(dir), '/'))
+        d = p
+    end
+end
+
+# A repository's label in a finding: its root Project.toml name, else its directory's name.
+function _repo_label(root::AbstractString)
+    name = _package_name(root)
+    return isempty(name) ? basename(rstrip(root, '/')) : name
+end
+
+# Another repository's path in a finding or an exception: `<Repository>:<path>` (a `::` is a function's).
+const _EXTERNAL_ID = r"^([^/:]+:)(?!:)"
+
+# The trees of a repository, each `(directory, label prefix)`: a workspace root that is
+# not itself a package (a monorepo) is its member projects, each scanned in its own
+# scope as its own quality item scans it; any other repository is its root.
+function _repo_trees(root::AbstractString, prefix::AbstractString)
+    p = joinpath(root, "Project.toml")
+    project = isfile(p) ? TOML.parsefile(p) : Dict{String, Any}()
+    members = get(get(project, "workspace", Dict{String, Any}()), "projects", String[])
+    (haskey(project, "name") || isempty(members)) && return [(String(root), String(prefix))]
+    return [(joinpath(root, m), prefix * m * "/") for m in members if isdir(joinpath(root, m))]
+end
+
+_stack_from_env() = String[p for p in split(get(ENV, _STACK_PATHS_ENV, ""), Sys.iswindows() ? ';' : ':') if !isempty(p)]
+
+# --- tokens and definitions --------------------------------------------------------
+
+# A Julia source's code tokens (comments and whitespace dropped): their start bytes,
+# raw texts and normalized texts (every identifier `I`, every string piece `S`).
+function _code_tokens(src::AbstractString)
+    bytes = codeunits(src)
+    starts = Int[]; raw = String[]; normalized = String[]
+    for t in _JS.tokenize(src)
+        k = _JS.kind(t)
+        (k == _JS.K"Whitespace" || k == _JS.K"NewlineWs" || k == _JS.K"Comment") && continue
+        text = String(bytes[t.range])
+        push!(starts, first(t.range)); push!(raw, text)
+        push!(normalized, k == _JS.K"Identifier" ? "I" : (k == _JS.K"String" || k == _JS.K"CmdString") ? "S" : text)
+    end
+    return (; starts, raw, normalized)
+end
+
+# Every function and macro definition (outermost: a closure is its enclosing definition's).
+function _definitions!(out, node)
+    k = _JS.kind(node)
+    (k == _JS.K"function" || k == _JS.K"macro") && return push!(out, node)
+    cs = _JS.children(node)
+    cs === nothing || foreach(c -> _definitions!(out, c), cs)
+    return out
+end
+
+# A definition's name: its callee's source text (`f`, `Base.show`, `(::T)`).
+function _definition_name(node)
+    cs = _JS.children(node)
+    (cs === nothing || isempty(cs)) && return "?"
+    sig = cs[1]
+    while _JS.kind(sig) in (_JS.K"where", _JS.K"::") && !isempty(something(_JS.children(sig), ()))
+        sig = _JS.children(sig)[1]
+    end
+    target = _JS.kind(sig) == _JS.K"call" ? _JS.children(sig)[1] : sig
+    return replace(String(_JS.sourcetext(target)), r"\s+" => "")
+end
+
+# One definition: where it is, its token count and its shingle set (sorted hashes).
+struct _Definition
+    file::String       # the finding's path: repository-relative, `<Repository>:<path>` elsewhere
+    own::Bool          # in the package being checked
+    line::Int
+    name::String
+    ntokens::Int
+    shingles::Vector{UInt64}
+end
+
+function _shingles(ids::AbstractVector{Int}, k::Int)
+    length(ids) < k && return UInt64[]
+    out = Vector{UInt64}(undef, length(ids) - k + 1)
+    for i in eachindex(out)
+        h = UInt64(k)
+        for j in i:(i + k - 1)
+            h = hash(ids[j], h)
+        end
+        out[i] = h
+    end
+    return unique!(sort!(out))
+end
+
+# The definitions and the whole-file token hash of one Julia file.
+function _scan_julia!(defs, files, path, label, own, ids, k)
+    src = read(path, String)
+    toks = _code_tokens(src)
+    push!(files, (label, own, hash(toks.raw), length(toks.raw)))
+    tree = try
+        _JS.parseall(_JS.SyntaxNode, src; filename = path, ignore_errors = true)
+    catch
+        return
+    end
+    for node in _definitions!(Any[], tree)
+        lo = searchsortedfirst(toks.starts, _JS.first_byte(node))
+        hi = searchsortedlast(toks.starts, _JS.last_byte(node))
+        hi < lo && continue
+        norm = [get!(ids, toks.normalized[i], length(ids) + 1) for i in lo:hi]
+        push!(defs, _Definition(label, own, _JS.source_line(node), _definition_name(node), length(norm), _shingles(norm, k)))
+    end
+    return
+end
+
+# --- exceptions ---------------------------------------------------------------------
+
+const _EXCEPTION_KEYS = Dict(
+    "name" => ("module", "name", "reason"), "similar" => ("functions", "reason"),
+    "file" => ("files", "reason"), "pattern" => ("use", "file", "reason"),
+)
+
+# The entries of the root's DUPLICATION.toml, by kind (each a Dict); throws on a defect.
+function _duplication_exceptions(root::AbstractString)
+    out = Dict(kind => Dict{String, Any}[] for kind in keys(_EXCEPTION_KEYS))
+    file = joinpath(root, _DUPLICATION_FILE)
+    isfile(file) || return out
+    errors = String[]
+    decl = TOML.parsefile(file)
+    for (kind, entries) in decl
+        haskey(_EXCEPTION_KEYS, kind) && entries isa AbstractVector ||
+            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]] or [[pattern]] entry"); continue)
+        for e in entries
+            want = _EXCEPTION_KEYS[kind]
+            lacking = filter(k -> !haskey(e, k) || isempty(e[k]), collect(want))
+            unknown = setdiff(keys(e), want)
+            isempty(lacking) || push!(errors, "[[$kind]] $(repr(e)) lacks $(join(lacking, ", "))")
+            isempty(unknown) || push!(errors, "[[$kind]] $(repr(e)) has unknown keys $(join(sort!(collect(unknown)), ", "))")
+            kind in ("similar", "file") && haskey(e, want[1]) && !(e[want[1]] isa AbstractVector && length(e[want[1]]) == 2) &&
+                push!(errors, "[[$kind]] $(repr(e)): `$(want[1])` is a list of two")
+            isempty(lacking) && isempty(unknown) && push!(out[kind], e)
+        end
+    end
+    isempty(errors) || throw(ArgumentError("$_DUPLICATION_FILE:\n  " * join(errors, "\n  ")))
+    return out
+end
+
+_entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k in _EXCEPTION_KEYS[kind] if k != "reason"), ", ")
+
+# --- name ownership ---------------------------------------------------------------------
+
+# A module and its submodules (a submodule defined in it, not one it imports).
+function _module_tree(M::Module)
+    out = Module[M]
+    i = 1
+    while i <= length(out)
+        S = out[i]
+        for n in names(S; all = true)
+            isdefined(S, n) || continue
+            v = getfield(S, n)
+            v isa Module && v !== S && parentmodule(v) === S && !(v in out) && push!(out, v)
+        end
+        i += 1
+    end
+    return out
+end
+
+const _INFRASTRUCTURE_NAMES = (:eval, :include, :__init__)
+
+# A function, data type or module whose own module is not `S` (a Union has none: its binding decides).
+function _defined_elsewhere(v, S)
+    t = v isa Type ? Base.unwrap_unionall(v) : v
+    (t isa Function || t isa DataType || t isa Module) || return false
+    return parentmodule(t) !== S
+end
+
+# The names a module tree owns, each `name => the (sub)module that owns it`.
+function _owned_names(M::Module)
+    out = Dict{Symbol, Module}()
+    for S in _module_tree(M), n in names(S; all = true)
+        s = string(n)
+        (startswith(s, '#') || n in _INFRASTRUCTURE_NAMES || n === nameof(S)) && continue
+        isdefined(S, n) || continue
+        Base.binding_module(S, n) === S || continue          # imported or re-exported: its owner's
+        v = getfield(S, n)
+        _defined_elsewhere(v, S) && continue                  # an alias of another module's function or type
+        get!(out, n, S)
+    end
+    return out
+end
+
+# The loaded modules of a package's Project.toml `[deps]`.
+function _loaded_deps(M::Module)
+    dir = pkgdir(M)
+    dir === nothing && return Module[]
+    p = joinpath(dir, "Project.toml")
+    isfile(p) || return Module[]
+    deps = get(TOML.parsefile(p), "deps", Dict{String, Any}())
+    out = Module[]
+    for (name, uuid) in deps
+        id = Base.PkgId(Base.UUID(uuid), name)
+        haskey(Base.loaded_modules, id) && push!(out, Base.loaded_modules[id])
+    end
+    return out
+end
+
+function _dependency_closure(M::Module)
+    seen = Module[]
+    todo = _loaded_deps(M)
+    while !isempty(todo)
+        U = pop!(todo)
+        U in seen && continue
+        push!(seen, U)
+        append!(todo, _loaded_deps(U))
+    end
+    return seen
+end
+
+# The stack packages upstream of M: Core, and every dependency that depends on Core.
+function _stack_upstream(M::Module)
+    core = VisualGeometryToolkitCore
+    return [U for U in _dependency_closure(M) if U === core || core in _dependency_closure(U)]
+end
+
+function _name_location(v, root)
+    v isa Function || return ("", 0)
+    ms = collect(methods(v))
+    isempty(ms) && return ("", 0)
+    file, line = String(ms[1].file), ms[1].line
+    file = startswith(file, root * "/") ? relpath(file, root) : file
+    return (file, line)
+end
+
+function _name_violations(M::Module, upstream_modules, root, entries)
+    out = DuplicationViolation[]
+    upstream = Dict{Symbol, Module}()
+    for U in sort(upstream_modules; by = string), (n, S) in _owned_names(U)
+        get!(upstream, n, S)
+    end
+    used = falses(length(entries))
+    for (n, S) in sort!(collect(_owned_names(M)); by = first)
+        haskey(upstream, n) || continue
+        hit = findfirst(e -> e["module"] == string(nameof(M)) && e["name"] == string(n), entries)
+        hit === nothing || (used[hit] = true; continue)
+        file, line = _name_location(getfield(S, n), root)
+        push!(out, DuplicationViolation(:name, file, line, string(S === M ? "" : string(nameof(S), "."), n),
+            "owned by " * string(upstream[n])))
+    end
+    for (e, u) in zip(entries, used)
+        u || e["module"] != string(nameof(M)) || push!(out, DuplicationViolation(:stale_exception, _DUPLICATION_FILE, 0, _entry_text("name", e), "matches nothing"))
+    end
+    return out
+end
+
+# --- the static checks ----------------------------------------------------------------
+
+# `(label, path)` of every in-scope file of a tree, its label the prefix and its relative path.
+_scope_files(dir, prefix) = [(prefix * f, joinpath(dir, f)) for f in naming_scope(dir).files]
+
+function _similar_pairs(defs, similarity)
+    minimum_tokens = minimum(last, similarity)
+    keep = [i for (i, d) in enumerate(defs) if d.ntokens >= minimum_tokens && !isempty(d.shingles)]
+    postings = Dict{UInt64, Vector{Int}}()
+    for i in keep, h in defs[i].shingles
+        push!(get!(postings, h, Int[]), i)
+    end
+    pairs = Tuple{Int, Int, Float64}[]
+    count = zeros(Int, length(defs))
+    touched = Int[]
+    for a in keep
+        defs[a].own || continue
+        for h in defs[a].shingles
+            l = postings[h]
+            length(l) > _MAX_POSTINGS && continue
+            for b in l
+                (b == a || (defs[b].own && b < a)) && continue          # an own pair counted once
+                count[b] == 0 && push!(touched, b)
+                count[b] += 1
+            end
+        end
+        for b in touched
+            A, B = defs[a], defs[b]
+            c = count[b]; count[b] = 0
+            A.file == B.file && continue
+            j = c / (length(A.shingles) + length(B.shingles) - c)
+            n = min(A.ntokens, B.ntokens)
+            any(((jmin, nmin),) -> j >= jmin && n >= nmin, similarity) && push!(pairs, (a, b, j))
+        end
+        empty!(touched)
+    end
+    return pairs
+end
+
+function _static_violations(dir, root, stack, entries; similarity, shingle, min_file_tokens)
+    own_prefix = relpath(abspath(dir), root) == "." ? "" : relpath(abspath(dir), root) * "/"
+    defs = _Definition[]; files = Tuple{String, Bool, UInt64, Int}[]; ids = Dict{String, Int}()
+    scanned = Set{String}()               # the labels of the trees compared: `""` (this repository) and each `<Repository>:`
+    trees = Tuple{String, String, Bool}[(dir, own_prefix, true)]
+    for (tree, prefix) in _repo_trees(root, "")                       # a monorepo's other packages
+        prefix == own_prefix || rstrip(abspath(tree), '/') == rstrip(abspath(dir), '/') || push!(trees, (tree, prefix, false))
+    end
+    push!(scanned, "")
+    for s in stack
+        if !isdir(s)
+            @info "check_duplication: the stack repository $s is absent; its comparison is skipped"
+            continue
+        end
+        rstrip(abspath(s), '/') == root && continue
+        label = _repo_label(s) * ":"
+        push!(scanned, label)
+        append!(trees, [(t, p, false) for (t, p) in _repo_trees(rstrip(abspath(s), '/'), label)])
+    end
+    code = Tuple{String, String}[]          # the own files for the pattern table
+    for (tree, prefix, own) in trees, (label, path) in _scope_files(tree, prefix)
+        endswith(path, ".jl") && _scan_julia!(defs, files, path, label, own, ids, shingle)
+        own && any(e -> endswith(path, e), _RAW_CODE_EXTENSIONS) && push!(code, (label, path))
+    end
+    out = DuplicationViolation[]
+    side_scanned(id) = (m = match(_EXTERNAL_ID, id); m === nothing || m.captures[1] in scanned)
+    stale(kind, ids_of) = [DuplicationViolation(:stale_exception, _DUPLICATION_FILE, 0, _entry_text(kind, e), "matches nothing")
+        for (e, u) in ids_of if !u]
+
+    # similarity
+    sim_entries = [(Set(String.(e["functions"])), e) for e in entries["similar"]]
+    sim_used = falses(length(sim_entries))
+    for (a, b, j) in _similar_pairs(defs, similarity)
+        A, B = defs[a], defs[b]
+        key = Set([A.file * "::" * A.name, B.file * "::" * B.name])
+        hit = findfirst(((s, _),) -> s == key, sim_entries)
+        hit === nothing || (sim_used[hit] = true; continue)
+        push!(out, DuplicationViolation(:similar, A.file, A.line,
+            string(A.name, " (", A.ntokens, " tokens; Jaccard ", round(j; digits = 2), ")"),
+            string(B.file, ":", B.line, " ", B.name, " (", B.ntokens, " tokens)")))
+    end
+    # whole files
+    file_entries = [(Set(String.(e["files"])), e) for e in entries["file"]]
+    file_used = falses(length(file_entries))
+    by_hash = Dict{UInt64, Vector{Int}}()
+    for (i, (_, _, h, n)) in enumerate(files)
+        n >= min_file_tokens && push!(get!(by_hash, h, Int[]), i)
+    end
+    for group in values(by_hash), a in group, b in group
+        A, B = files[a], files[b]
+        (A[2] && (!B[2] || a < b)) || continue
+        hit = findfirst(((s, _),) -> s == Set([A[1], B[1]]), file_entries)
+        hit === nothing || (file_used[hit] = true; continue)
+        push!(out, DuplicationViolation(:file, A[1], 0, string(A[4], " tokens"), B[1]))
+    end
+    # retired patterns
+    pattern_used = falses(length(entries["pattern"]))
+    package = _package_name(dir)
+    for (label, path) in code
+        rel = label[(length(own_prefix) + 1):end]
+        src = read(path, String)
+        lines = endswith(path, ".jl") ? _julia_code_lines(src) : _hash_code_lines(src)
+        for (use, re, owner, (home_package, home)) in _RETIRED_PATTERNS
+            package == home_package && _in_home(rel, home) && continue
+            for (n, line) in enumerate(lines)
+                occursin(re, line) || continue
+                hit = findfirst(e -> e["use"] == string(use) && e["file"] == label, entries["pattern"])
+                hit === nothing || (pattern_used[hit] = true; continue)
+                push!(out, DuplicationViolation(:pattern, label, n, string("[", use, "] ", strip(line)), owner))
+            end
+        end
+    end
+    # stale entries: those about this package, every side of which was compared
+    about_own(ids) = any(id -> !occursin(_EXTERNAL_ID, id) && startswith(id, own_prefix), ids) && all(side_scanned, ids)
+    for (kind, list, used) in (("similar", sim_entries, sim_used), ("file", file_entries, file_used))
+        append!(out, stale(kind, [(e, u) for ((s, e), u) in zip(list, used) if about_own(s)]))
+    end
+    append!(out, stale("pattern", [(e, u) for (e, u) in zip(entries["pattern"], pattern_used) if startswith(e["file"], own_prefix)]))
+    return out
+end
+
+function check_duplication(dir::AbstractString; stack = _stack_from_env(), similarity = _DEFAULT_SIMILARITY,
+        shingle::Integer = 8, min_file_tokens::Integer = 25)
+    root = _repo_root(dir)
+    entries = _duplication_exceptions(root)
+    out = _static_violations(dir, root, stack, entries; similarity, shingle = Int(shingle), min_file_tokens)
+    return sort!(out; by = v -> (v.check, v.file, v.line, v.text))
+end
+
+function check_duplication(M::Module; kwargs...)
+    dir = pkgdir(M)
+    root = _repo_root(dir)
+    entries = _duplication_exceptions(root)
+    names_found = _name_violations(M, _stack_upstream(M), root, entries["name"])
+    return sort!(vcat(names_found, check_duplication(dir; kwargs...)); by = v -> (v.check, v.file, v.line, v.text))
+end

@@ -34,14 +34,16 @@ end
 
 @testitem "approximate_camera: the recorded perspective-polynomial stalls are refused (changed on purpose, 2026-11-11)" setup = [FitCameraLensCases] begin
     using Test
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: approximate_camera, fit_camera
     # OPENCV3 over a 155° field: the recorded LM never left its zero start (925 672 px at the edge). A perspective
     # gnomonic family applies its distortion on the perspective plane, which ends at 90°: the linear fit, and so the
     # approximation, refuse the field, naming the plane and the region's extent, instead of fitting a clipped field
     for name in MOVED
         L, m, _, region = Dict(LENS_CASES)[name]
+        @test_throws VgtkEstimation.ViewAngleLimitError fit_camera(L, m, region)
+        @test_throws VgtkEstimation.ViewAngleLimitError approximate_camera(L, m, region)
         @test_throws r"perspective plane" fit_camera(L, m, region)
-        @test_throws r"perspective plane" approximate_camera(L, m, region)
     end
 end
 
@@ -90,6 +92,11 @@ end
         # field with a warning)
         @test_throws r"perspective plane \(θ < 90°\), but the region reaches 154.9°" fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
         @test_throws r"its view-angle limit" fit_camera(typeof(Lens(Orthographic())), mdiv, disc(mdiv, rcorner))
+        # a typed refusal: its fields carry the measured angle and the family's limit (radians), read without the text
+        e = try fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner)); nothing catch err; err end
+        @test e isa VgtkEstimation.ViewAngleLimitError && e.family === OPENCV3
+        @test e.limit == view_angle_limit(Pinhole()) && round(rad2deg(e.field_angle); digits = 1) == 154.9
+        @test e.field_angle > e.limit
         @test !metadata(fit_camera(KB4, mdiv, disc(mdiv, rcorner))).family.clipped
     end
     @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin

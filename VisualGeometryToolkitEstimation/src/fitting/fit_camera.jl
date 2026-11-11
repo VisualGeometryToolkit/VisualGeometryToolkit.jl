@@ -186,7 +186,7 @@ over the region. The target type selects the family and the solve:
     limit — a region reaching past the radii the source images is `clipped` and warned (its
     domain is then the source's own). A region reaching past the TARGET family's view-angle
     limit (Core's `view_angle_limit`: a gnomonic family applies its distortion on the
-    perspective plane, which ends at 90°) is an `ArgumentError`: the family cannot represent
+    perspective plane, which ends at 90°) is a [`ViewAngleLimitError`](@ref) (the region's angle and the limit in its fields): the family cannot represent
     the source there, and it is never fitted over a clipped field. (The region's extent is measured along 720 azimuths: a corner between
     two of them is reached to within half an azimuth's arc.) `weight` is the density:
     `:image` (uniform on the image), `:solid_angle` (`sin θ`) or `:uniform` (in `θ`).
@@ -601,12 +601,46 @@ _target_anchor(::Type{L}) where {L <: Lens{<:DoubleSphere}} = (z = zero(L); Lens
 # is always `false` now (a field the region reaches past the source's own radii is `_profile_samples`' cut).
 function _family_domain(::Type{L}, θ_source) where {L}
     limit = _family_limit(L)
-    θ_source <= limit || throw(ArgumentError(_beyond_family_message(L, θ_source, limit)))
+    θ_source <= limit || throw(ViewAngleLimitError(L, Float64(θ_source), Float64(limit)))
     θ_max = θ_source
     θ_max > 0.02 || throw(ArgumentError("fit_camera: empty fit domain (θ_max = $θ_max)"))
     return θ_max, false
 end
-# The refusal: a gnomonic family applies its distortion on the perspective plane (x = X/Z), which ends at 90°; any other
+"""
+    ViewAngleLimitError <: Exception
+
+The refusal of a camera-from-camera regression ([`fit_camera`](@ref), [`refine_camera`](@ref),
+[`approximate_camera`](@ref)) whose region reaches past the target family's view-angle limit: the family cannot
+represent the source there, and it is never fitted over a clipped field. Its fields carry the measurement, so a caller
+can catch it and record the case (a fisheye × rational cell as not applicable, quoting the angle) without reading the
+message:
+
+- `family::Type`: the target lens family;
+- `field_angle::Float64`: the region's largest view angle off the source's axis, in RADIANS (the source's own limit
+  where the region reaches past the radii it images);
+- `limit::Float64`: the family's view-angle limit, in RADIANS (Core's `view_angle_limit` of the family: the
+  perspective plane's `π/2 − 10⁻³` for a gnomonic family, which applies its distortion on that plane).
+
+`showerror` prints the refusal: for a gnomonic family, "this target applies its distortion on the perspective plane
+(θ < 90°), but the region reaches <θ>°. Use a lift (division) model, or the same radial factor in an equidistant
+frame"; for any other, its limit and the region's angle.
+
+```julia
+try
+    fit_camera(L, camera, region)
+catch e
+    e isa ViewAngleLimitError || rethrow()
+    rad2deg(e.field_angle), rad2deg(e.limit)        # the measured field and the family's limit, degrees
+end
+```
+"""
+struct ViewAngleLimitError <: Exception
+    family::Type
+    field_angle::Float64
+    limit::Float64
+end
+Base.showerror(io::IO, e::ViewAngleLimitError) = print(io, "ViewAngleLimitError: ", _beyond_family_message(e.family, e.field_angle, e.limit))
+# The message: a gnomonic family applies its distortion on the perspective plane (x = X/Z), which ends at 90°; any other
 # family at its own view-angle limit.
 _beyond_family_message(::Type{L}, θ, limit) where {L <: Lens{Perspective}} =
     "$L: this target applies its distortion on the perspective plane (θ < 90°), but the region reaches " *

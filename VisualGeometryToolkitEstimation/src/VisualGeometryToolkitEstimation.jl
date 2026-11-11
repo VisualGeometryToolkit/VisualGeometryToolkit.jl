@@ -274,6 +274,7 @@ export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolk
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region (linear: no guess)
 export refine_camera          # a camera model polished onto a source over a region from a guess (the chart LM)
 export approximate_camera     # fit_camera's linear start, then refine_camera
+public ViewAngleLimitError    # the camera regressions' refusal of a region past the target family's view-angle limit (its fields: the measured angle, the limit)
 export pspline_grid           # the spline targets' one P-spline solve on a given lattice (fit_camera's inner step)
 
 # -----------------------------------------------------------------------------

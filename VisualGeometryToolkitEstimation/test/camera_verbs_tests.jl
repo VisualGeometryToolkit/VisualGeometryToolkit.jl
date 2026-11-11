@@ -7,7 +7,8 @@
     using Test
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, Perspective, Additive, Radial, Tangential, ThinPrism,
-        Rect, Ellipse, estimate, metadata, retcode, calibration_matrix, parameters, rms, lens
+        Rect, Ellipse, estimate, metadata, retcode, calibration_matrix, parameters, rms, lens, view_angle
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera, approximate_camera
     # The fisheye of icra2026's mocap captures (a 180° lens on a 4256 × 2848 sensor): its Kannala–Brandt calibration
     # from the blob capture (run `ncoef=2_subset=blob_mount_selfcal_train_cd9c4edf`, camera_mocap.json), and OpenCV's
@@ -32,8 +33,14 @@
     # on the perspective plane, which ends at 90°, so it is refused, naming the plane and the region's extent — never
     # fitted over a clipped field; an angle-parametrised family over the same region is fitted
     wide = Rect(0, 0, 4256, 2848) ∩ Ellipse(SVector(2138.8425928470033, 1436.604235274649), 1400.0, 1400.0, 0.0)
+    @test_throws VgtkEstimation.ViewAngleLimitError fit_camera(RAT, kb, wide)
     @test_throws r"perspective plane" fit_camera(RAT, kb, wide)
     @test_throws r"Use a lift \(division\) model" approximate_camera(RAT, kb, wide)
+    # the fields: the region's angle about the source's axis (the KB profile's at 1400 px, radians) and the limit
+    e = try approximate_camera(RAT, kb, wide); nothing catch err; err end
+    @test e isa VgtkEstimation.ViewAngleLimitError && e.family === RAT && e.limit == π / 2 - 1.0e-3
+    @test e.field_angle ≈ Float64(view_angle(lens(kb), 1400.0 / 927.4663595958699)) rtol = 1.0e-6
+    @test rad2deg(e.field_angle) > 90
     rk = fit_camera(KannalaBrandt{4}, kb, wide)
     @test retcode(rk) === :solved && metadata(rk).family.θ_source > π / 2 && metadata(rk).max_px < 1.0e-6
     # and the refine from it converges near it

@@ -57,8 +57,10 @@ non-central one is a `NoncentralSplineModel`).
     `refine_camera`): the limit is Core's `view_angle_limit` of the family (a gnomonic family — the OpenCV polynomial
     and rational models, Brown–Conrady, ± tangential and thin-prism terms — applies its distortion on the perspective
     plane, which ends at 90°; a fixed fisheye projection at its own edge). It was fitted over the clipped field with a
-    warning; it is now an `ArgumentError` naming the plane (or the limit) and the region's extent, and pointing to a
-    lift (division) model or the same radial factor in an equidistant frame. No margin angle: near the limit the fit is
+    warning; it is now a `ViewAngleLimitError` (public), whose fields carry the measurement — `family`,
+    `field_angle` (the region's largest view angle, radians) and `limit` (the family's, radians) — so a caller catches
+    it by type and quotes the angle; its message names the plane (or the limit) and the region's extent, and points
+    to a lift (division) model or the same radial factor in an equidistant frame. No margin angle: near the limit the fit is
     ill-conditioned, the caller's choice of region. The family record's `clipped` now says only that the region reached
     past the radii the SOURCE images.
   - **`optical_axis` is unchanged in meaning**: it is now `approximate_camera` of the Fisheye624 family.

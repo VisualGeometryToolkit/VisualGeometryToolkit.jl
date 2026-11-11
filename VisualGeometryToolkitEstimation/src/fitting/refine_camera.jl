@@ -251,7 +251,7 @@ converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where th
   result records no scale (`scale_source` `ScaleNone`, `scale` `NaN`; `noise_scale` refuses it).
 
 The domain is the region's farthest radius, capped by the source's own view-angle limit, as `fit_camera`'s; a region
-past the family's view-angle limit (the perspective plane's 90° for a gnomonic family) is an `ArgumentError`. At most `max_iter` accepted iterations (configs/default.toml
+past the family's view-angle limit (the perspective plane's 90° for a gnomonic family) is a [`ViewAngleLimitError`](@ref). At most `max_iter` accepted iterations (configs/default.toml
 `[refine_camera]`); the `retcode` is the LM's, and a refine that ends at a non-finite focal rescale is
 `:solve_failed`, never a throw. The metadata is [`CameraFitMetadata`](@ref): the round trip's errors per sample in
 `residuals` (px), their maximum and edge-band maximum, the result's `rms` their weighted root mean square.
@@ -278,7 +278,7 @@ function refine_camera(
         ArgumentError("refine_camera: the guess must carry a parametric lens (a Lens or a LiftLens), got a $(nameof(typeof(gl)))")
     )
     L = typeof(gl)
-    moving = _free_names(parameter_names(guess), fixed)
+    moving = VgtkCore.free_parameter_names(guess, fixed)   # Core's one resolution of `fixed` (names and groups; the skew held)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
@@ -306,21 +306,6 @@ refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = re
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
-
-# The parameters a refine moves: every one of the guess's (`parameter_names`) but the gauge's skew and the `fixed`
-# ones. A `fixed` entry is a parameter name (`:f`, `:cx`, `:k2`, `:d1`) or a GROUP, a coefficient family's stem naming
-# all of its numbered coefficients (`:k` the radial numerator `k1…`, `:d` its denominator `d1…`, `:p` the tangential
-# terms, `:sx`/`:sy` the thin prism's); one that names nothing of the guess is an `ArgumentError`.
-function _free_names(names::Tuple, fixed::Tuple{Vararg{Symbol}})
-    held = Symbol[]
-    for f in fixed
-        group = [n for n in names if n === f || match(Regex("^" * String(f) * "[0-9]+\$"), String(n)) !== nothing]
-        isempty(group) && throw(ArgumentError(
-            "refine_camera: `fixed` names $(repr(f)), which is no parameter or group of the guess; its parameters are $(join(String.(names), ", "))"))
-        append!(held, group)
-    end
-    return Tuple(n for n in names if n !== :skew && !(n in held))
-end
 
 # The retired names of the held-parameter keyword (refused, naming `fixed`: it names the exceptions, NLLSsolver's word).
 struct _RetiredHold end

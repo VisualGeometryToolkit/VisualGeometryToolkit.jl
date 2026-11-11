@@ -40,7 +40,27 @@ struct ImasFeatureKA
     warp_idx::Int32
 end
 
-function _imas_tilts_25()
+"""
+    tilt_schedule(name::Symbol) -> Vector{Tuple{Float64, Float64}}
+    tilt_schedule(tilts) -> Vector{Tuple{Float64, Float64}}
+
+The simulated camera tilts ASIFT detects under, as `(t, φ)` pairs (tilt and
+longitude in radians), by name or as given (`tilts`, any collection of pairs):
+
+- `:imas25` — IMAS-25 (the default of [`asift_detect`](@ref) and
+  [`AsiftPlan`](@ref)): the identity, 8 tilts of 2.62 and 16 of 5.18 at evenly
+  spaced longitudes. Affine invariance for wide-baseline views.
+- `:untilted` — the identity warp alone, `[(1.0, 0.0)]`: plain DoG-SIFT. Its
+  keypoints localize best: on real panorama frames a tilted warp's keypoints
+  land about 0.95 px rms from the untilted view's of the same structure, the
+  untilted's about 0.3 px from debiased SIFT, so for views that differ by a
+  rotation (a panorama) it is the better schedule.
+
+Any other name is an `ArgumentError`.
+"""
+function tilt_schedule(name::Symbol)
+    name === :untilted && return [(1.0, 0.0)]
+    name === :imas25 || throw(ArgumentError("tilt_schedule: the schedules are :imas25 and :untilted, got :$name"))
     ts = Tuple{Float64, Float64}[(1.0, 0.0)]
     for k in 0:7
         push!(ts, (2.62, π * k / 8))
@@ -50,3 +70,4 @@ function _imas_tilts_25()
     end
     return ts
 end
+tilt_schedule(tilts) = collect(Tuple{Float64, Float64}, tilts)

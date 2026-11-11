@@ -1,32 +1,5 @@
-# LoMa's model-free halves (src/loma.jl): the strongest-detection selection and the descriptor graph's input. The
+# LoMa's model-free half (src/loma.jl): the descriptor graph's input (the detection selection is spread_tests.jl's). The
 # networks themselves are downloaded on first use and are not run here.
-
-@testitem "strongest: the n largest |response|, in detector order, ties to the earlier" begin
-    using VisualGeometryToolkitFeatures: strongest, Detection
-    using VisualGeometryToolkitCore: Disc, Point2
-    det(r, k) = Detection(Disc(Point2(Float64(k), 0.0), 1.0), (response = r,))
-    rs = [0.1, -0.5, 0.3, 0.5, -0.05, 0.3, 0.2]
-    ds = [det(r, k) for (k, r) in enumerate(rs)]
-    @test getproperty.(strongest(ds, 3), :response) == [-0.5, 0.3, 0.5]           # signed: |−0.5| ties 0.5; detector order
-    @test getproperty.(strongest(ds, 4), :response) == [-0.5, 0.3, 0.5, 0.3]      # the tie at 0.3: both, in order
-    @test strongest(ds, 7) === ds && strongest(ds, 100) === ds && isempty(strongest(ds, 0))
-    @test_throws ArgumentError strongest(ds, -1)
-    # PanoramaStitching's copy (features.jl ≤ 0.6): a stable sort by |response|, the first n, back in detector order
-    ps(d, n) = d[sort!(sortperm(abs.(getproperty.(d, :response)); rev = true)[1:min(end, n)])]
-    for n in 0:7
-        @test strongest(ds, n) == ps(ds, n)
-    end
-    # the partial selection against the full stable sort, on many ties (signed, a few distinct magnitudes)
-    using Random: MersenneTwister
-    rng = MersenneTwister(7)
-    big = [det(rand(rng, (-3, -2, -1, 0, 1, 2, 3)) / 4, k) for k in 1:2000]
-    for n in (1, 2, 17, 285, 286, 1000, 1999)
-        @test strongest(big, n) == ps(big, n)
-    end
-    # all tied: the first n, in order
-    flat = [det(isodd(k) ? 0.5 : -0.5, k) for k in 1:50]
-    @test strongest(flat, 10) == flat[1:10]
-end
 
 @testitem "LoMaDescriptor's input: an image of any size, resampled to the graph's 784² as PanoramaStitching did" begin
     using VisualGeometryToolkitFeatures: LOMA_IMAGE_SIZE

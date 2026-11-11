@@ -120,6 +120,23 @@ The descriptors are [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt
 LoMa's code is MIT-licensed except its matcher, which inherits LightGlue's
 Apache-2.0; DeDoDe is MIT except the DINOv2 backbone of DeDoDe-G (Apache-2.0).
 
+`spread_strongest` is Suppression via Square Covering (SSC) by Oleksandr Bailo,
+Francois Rameau, Kyungdon Joo, Jinsun Park, Oleksandr Bogdan and In So Kweon,
+ported from the authors' code ([ANMS-Codes](https://github.com/BAILOOL/ANMS-Codes),
+MIT License, Copyright (c) 2018 Oleksandr Bailo) and parallelised on
+KernelAbstractions. If you use it in published work, cite:
+
+```bibtex
+@article{bailo2018efficient,
+  title   = {Efficient adaptive non-maximal suppression algorithms for homogeneous spatial keypoint distribution},
+  author  = {Bailo, Oleksandr and Rameau, Francois and Joo, Kyungdon and Park, Jinsun and Bogdan, Oleksandr and Kweon, In So},
+  journal = {Pattern Recognition Letters},
+  volume  = {106},
+  pages   = {53--60},
+  year    = {2018}
+}
+```
+
 ## License
 
 MIT

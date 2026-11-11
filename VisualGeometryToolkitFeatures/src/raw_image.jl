@@ -174,6 +174,10 @@ level) is kept.
   pixels are interpolated, not samples.
 - `green_offsets` — the cell's two green photosites, `(Δx, Δy)` from the cell
   centre in RAW pixels ([`green_cell_sites`](@ref)); `nothing` for `:demosaic`.
+- `green_dn` — the two green photosites' `white − black[c]`, the codes that span
+  `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
+  photon and read noise scale by ([`variance_stabilize`](@ref)); `nothing` for
+  `:demosaic`.
 - `mode`, `gain`, the mosaic's `metadata` (the decoder and LibRaw's version
   among it), and `frame_map` — [`raw_frame_map`](@ref)'s map of the image's
   pixel frame onto the visible raw, `nothing` for `:demosaic`.
@@ -184,6 +188,7 @@ struct LinearRaw{M <: NamedTuple, F, G}
     saturated::BitMatrix
     plane_offsets::Vector{SVector{2, Float64}}
     green_offsets::G
+    green_dn::Union{Nothing, NTuple{2, Float64}}
     mode::Symbol
     gain::Float64
     frame_map::F
@@ -299,7 +304,7 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     KA.synchronize(backend)
     # in cell pixels: the frame map's scale, the one place it is stated
     offsets = [sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP)) for ks in used]
-    return LinearRaw(img, BitMatrix(sat), offsets, green_offsets, mode, gain, _CELL_FRAME_MAP, m.metadata)
+    return LinearRaw(img, BitMatrix(sat), offsets, green_offsets, (den[g[1]], den[g[2]]), mode, gain, _CELL_FRAME_MAP, m.metadata)
 end
 
 # The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
@@ -315,7 +320,7 @@ function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Floa
     end
     sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
     # no sample positions: every pixel is interpolated
-    return LinearRaw(img, sat, SVector{2, Float64}[], nothing, :demosaic, gain, nothing, metadata)
+    return LinearRaw(img, sat, SVector{2, Float64}[], nothing, nothing, :demosaic, gain, nothing, metadata)
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.

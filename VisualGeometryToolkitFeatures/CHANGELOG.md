@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+- **ASIFT's result no longer depends on the threads: the same image gives the same keypoints, in the same order, run
+  to run.** The extrema pool fills through an atomic counter, in the order the threads (or a GPU's warps) reach it,
+  and the cross-warp NMS breaks ties in its quantized response by pool index, so on many threads both the order of the
+  detections and, at a tie, which of two survived varied between runs (a panorama's frames detected twice reproduced
+  on 12 of 38 frames with `spread_strongest` after, 36 of 38 with a top-n cut, in a 32-thread session). The pool is
+  now sorted into a canonical order before the NMS (by position, scale and response, then every other field, the
+  covariance's included: a total order), on the host, and the detections come back in it. `cross_warp_nms` sorts its
+  input the same way, so its survivors no longer depend on the order of the pool handed in, and on the pool
+  `asift_detect(…; nms = :none)` returns it keeps exactly what the in-pipeline NMS keeps (no longer "up to ties").
+  `spread_strongest` was already a function of its input's order; given the canonical detections it is reproducible
+  too. **Breaking (order):** a caller that relied on the pool's warp-by-warp order now gets the canonical order.
+- **New: a detection mask, `asift_detect(img; mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
+  (clipped highlights, a vignetted rim): a detection whose centre lies within three of its scales (the DoG's support)
+  of a masked pixel is dropped, on Detections, `raw` features and covariances alike. There was no way to exclude
+  clipped regions of an ordinary (tone-mapped) image, so keypoints landed on clipped window panes. The rule is the
+  one `asift_detect(::StabilizedImage)` applied to sensor saturation, now in one place: that method masks
+  `s.saturated` through `mask` (joined with a caller's `mask`), and takes `raw = true`, which it refused while the
+  masking read Detections.
+- **New: `tilt_schedule(name)`, ASIFT's tilts by name; `asift_detect(img; tilts = :untilted)` restricts ASIFT to the
+  untilted view (t = 1).** `:imas25` (the default of `asift_detect` and `AsiftPlan`) is IMAS-25; `:untilted` is the
+  identity warp alone, plain DoG-SIFT, exactly the identity warp's detections under `:imas25`. On real panorama
+  frames a tilted warp's keypoints localize at about 0.95 px rms, the untilted view's at about 0.3 px, and the
+  untilted schedule gave the best seams. `tilts` still takes a vector of `(t, φ)` pairs. **Breaking:** `tilts =
+  nothing` (the old spelling of the default) is gone: give `:imas25` or omit it. The private IMAS-25 helper is retired
+  (`tilt_schedule(:imas25)`).
+
+- **Every ASIFT detection is refined; an extremum whose refinement fails is dropped, never returned on the octave's
+  grid.** The extrema were searched on all S + 2 DoG slices of an octave, the two boundary slices included, whose
+  extrema have no slice above or below and were emitted unrefined (integer positions on the octave's grid, 2^octave
+  input pixels; `NaN` covariance), and an extremum whose sub-pixel refinement failed (a singular or non-finite step, a
+  walk off the interior) was emitted unrefined too. On a Tamron panorama frame 1451 of the 3077 detections (47 %) were
+  unrefined: 1382 from boundary slices, 69 failed refinements. Now only the interior slices are searched, as Lowe's
+  SIFT does (the boundary slices' scales are the adjacent octaves' interior slices), and a failed refinement is
+  dropped and counted (`plan.refine_dropped`). The same frame gives 2099 detections, all refined. On a synthetic field
+  of blobs at known sub-pixel centres (IMAS-25, every pooled detection): rms error 0.52 → 0.17 px (octave −1 0.46 →
+  0.08, octave 0 0.60 → 0.28, octave 1 0.65 → 0.39); two renders 1.4° apart, the matched detections' rms 0.30 →
+  0.16 px. The tilted views' back-projection carries no bias (every warp's mean error below 0.04 px).
+- **`clear_asift_plans!()` returns the memory to the device** (CUDA.jl's pool is reclaimed), and a `LoMaDescriptor`
+  or `LoMaMatcher` on ONNX Runtime's CUDA provider calls it before it runs: the cached plan (most of the device, sized
+  from what was free) stayed resident after detection, and ONNX Runtime, which allocates outside CUDA.jl's pool, then
+  failed to allocate in a long-lived process. The next detection rebuilds its plan (+0.04 s on a 2128 × 1424 frame on
+  the RTX 4090; the release itself 0.3 s: a full collection, since `unsafe_free!` frees a buffer only once the arrays
+  derived from it during a detection are collected, and they held a 10.6 GiB plan in use until then). A plan whose
+  pyramid buffers no longer fit (another allocator grew after the chunk was sized from the free memory) halves its
+  resident warps and retries instead of failing; an explicit `chunk` is never shrunk.
+
+- **New: `variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage`, the detection image of a
+  RAW.** The generalized Anscombe transform of the green cells (`:green_cells`, or `:bin2`'s G plane) for
+  Poisson–Gaussian noise, from the photosites' own code spans (`white − black` of each green), the gain, the conversion
+  gain (electrons per code) and the read noise (codes): after it the noise has σ ≈ 1 from a few electrons to the white
+  level. Neither noise parameter is in a RAW's metadata (LibRaw reports neither): they are stated per camera and ISO.
+  `LinearRaw` gains the field `green_dn` (the two greens' `white − black`; `nothing` for `:demosaic`).
+- **New: `asift_detect(s::StabilizedImage; noise_sigmas = 3.0, kwargs...)`**: the DoG contrast threshold in noise σ.
+  The DoG's noise σ for unit iid input is derived from the pyramid's own impulse response (the root energy per sample
+  phase) in its noisiest slice, the finest octave's finest (0.137 for the default upsampled pyramid, seed blur 1.6):
+  every coarser slice and tilted view is held to more than `noise_sigmas` of its own σ. A detection whose centre lies
+  within three of its scales of a saturated pixel is dropped (masked, not clamped). `intensity_thr` stays the threshold
+  of `asift_detect` on an arbitrary image, which has no noise model.
+
+- **New: `spread_strongest(detections, image_size, n; tolerance = 0.1, device)`, about `n` of the strongest
+  detections spread over the image** — Suppression via Square Covering (SSC) of Bailo et al. (Pattern Recognition
+  Letters 106, 2018), ported from the authors' code (https://github.com/BAILOOL/ANMS-Codes, MIT License, Copyright (c)
+  2018 Oleksandr Bailo; credited in the docstring and the README's Citing section) and parallelised on
+  KernelAbstractions: one implementation on the CPU and CUDA. The sequential covering is computed as per-cell maxima
+  (two atomic reductions, no sort) and synchronous rounds of the greedy independent set of the cells in score order, and
+  returns the authors' sequential result exactly, ties included (test/data/ssc_bailo.toml is their C++'s output). Where
+  the authors' integer width search misses the tolerance band, the width is bisected between the bracketing integers,
+  so the count lands in the band. It **replaces `strongest` (removed)**, the global top `n` by `|response|`, which on
+  a frame with a bright window and a dim interior kept nearly every detection in the window; `LoMaDescriptor` now
+  describes `spread_strongest(detections, size(img), max_detections)`. A caller of `strongest(d, n)` calls
+  `spread_strongest(d, image_size, n)`.
+
 - **LoMa runs on ONNX Runtime's CUDA provider wherever it can, with no CUDA setup.** `execution_provider = :auto` is the
   new default of `LoMaDescriptor` and `LoMaMatcher` (was `:cpu`): CUDA when a CUDA device is visible and the active
   environment holds `CUDA_Runtime_jll` and `CUDNN_jll`, otherwise the CPU with a warning naming why. `:cpu` and `:cuda`

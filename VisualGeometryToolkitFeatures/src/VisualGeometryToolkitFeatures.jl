@@ -30,6 +30,7 @@ using StructArrays: StructArray
 using FixedPointNumbers: N0f8
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
+using ImageMorphology: distance_transform, feature_transform   # the distance to the nearest masked pixel (asift_detect's mask)
 using Distributions: FDist, quantile   # the F-test of detect_foerstner
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
@@ -90,6 +91,7 @@ include("asift/crosswarp.jl")
 include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
 include("asift/driver.jl")
 include("asift/api.jl")
+include("variance_stabilization.jl")   # variance_stabilize — a RAW's green cells with noise σ = 1 everywhere; ASIFT on it at k noise σ, saturation masked
 include("matching.jl")
 include("nn_match.jl")
 include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
@@ -98,6 +100,7 @@ include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted fro
 include("described_feature.jl")
 include("onnx_runtime.jl")   # ONNX Runtime sessions: the execution provider (the CUDA 12 libraries) and the thread pools
 include("loma.jl")
+include("spread.jl")         # spread_strongest — SSC (Bailo et al. 2018): N detections spread over the image, on KernelAbstractions
 include("visualization_stubs.jl")
 
 include("cache.jl")
@@ -142,6 +145,7 @@ public HasPolarityTrait, HasPolarity, NoPolarity, polarity_trait
 # 2. ASIFT (IMAS-25) DETECTOR - KernelAbstractions, CPU or any GPU backend
 # -----------------------------------------------------------------------------
 export asift_detect, asift_detect!, asift_detections
+export tilt_schedule             # ASIFT's tilts by name: :imas25 (the default), :untilted (the identity alone)
 export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
@@ -150,6 +154,7 @@ export load_linear_image        # a PNG as linear radiance: no gamma re-encoding
 public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
+export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
 export BayerCellFrame, raw_frame_map, green_cell_sites   # the cell grid's frame, its exact map onto the raw, a green cell's footprint
 public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
@@ -182,7 +187,8 @@ export CspondSet                # N-way correspondence
 # -----------------------------------------------------------------------------
 export DescribedFeature, described_features, descriptor_matrix
 export LoMaDescriptor, LoMaMatcher   # LoMa (ONNX); models cached in the scratch space
-public LOMA_IMAGE_SIZE, strongest    # the descriptor graph's input side; the n strongest detections, in detector order
+public LOMA_IMAGE_SIZE              # the descriptor graph's input side
+export spread_strongest             # about n of the strongest detections spread over the image (SSC), in detector order
 public loma_provenance              # the model, the execution provider used and the threads, as plain data
 public onnx_cuda_status, OnnxCudaStatus, resolve_execution_provider   # whether ONNX Runtime's CUDA provider runs here (why not); :auto's answer
 

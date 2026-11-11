@@ -100,7 +100,7 @@ function fit_rotation(
     iter = 0
     while iter < max_iter
         iter += 1
-        σ = _rotation_weights!(w, r, prior, loss, scale_multiple)
+        σ = _irls_weights!(w, r, prior, loss, scale_multiple, 2)
         if iszero(σ)                       # an exact fit: every weight is the prior's, R stands
             retcode = :converged
             break
@@ -115,33 +115,9 @@ function fit_rotation(
             break
         end
     end
-    σ = _rotation_weights!(w, r, prior, loss, scale_multiple)   # the metadata at the returned rotation
+    σ = _irls_weights!(w, r, prior, loss, scale_multiple, 2)   # the metadata at the returned rotation
     return FitResult(R, retcode, iter, sqrt(sum(abs2, r) / n), n, RotationFitMetadata(w, r, σ))
 end
-
-# σ̂ at residuals `r` — the Rayleigh median over the pairs the caller weights
-# (prior > 0; an excluded pair's residual does not widen the loss) — and the
-# loss's IRLS weights times the prior into `w`; the prior itself on an exact
-# fit (σ̂ = 0). Returns σ̂.
-function _rotation_weights!(w, r, prior, loss, scale_multiple)
-    σ = Statistics.median(r[i] for i in eachindex(r) if prior[i] > 0) / sqrt(VgtkCore.chisq_median(2))
-    if iszero(σ)
-        w .= prior
-        return σ
-    end
-    c² = VgtkCore.sq_loss_width(_rotation_loss(loss, σ^2, scale_multiple))
-    @inbounds for i in eachindex(w, r, prior)
-        w[i] = prior[i] * weight(loss, r[i]^2, c²)
-    end
-    return σ
-end
-
-# The loss at the noise scale s2: an M-estimator's width from its efficiency at
-# codimension 2 (or the given multiple); any other shape at the given multiple
-# (it has no efficiency, so no codimension: `fit_rotation` requires the multiple).
-_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, ::Nothing) = deploy(loss, s2; codim = 2)
-_rotation_loss(loss::VgtkCore.AbstractMEstimator, s2, scale_multiple::Real) = deploy(loss, s2; codim = 2, scale_multiple)
-_rotation_loss(loss::VgtkCore.AbstractLossShape, s2, scale_multiple::Real) = deploy(loss, s2; scale_multiple)
 
 function _unit_direction(v, i)
     x = SVector{3, Float64}(v)

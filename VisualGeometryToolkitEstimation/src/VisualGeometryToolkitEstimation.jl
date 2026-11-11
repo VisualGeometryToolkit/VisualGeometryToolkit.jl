@@ -422,6 +422,7 @@ include("fitting/robot_world_hand_eye.jl")
 include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of a RobotWorldHandEyeCalibration (static-N chart LM; uses robot_world_hand_eye.jl's type)
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
+include("fitting/irls_weights.jl")           # the IRLS weight step of the three reweighted fits (σ̂ is Core's noise_sigma)
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
 include("graphs/view_graph.jl")              # ViewGraph: frames and verified pairs (Graphs.jl underneath)

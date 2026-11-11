@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Internal: one IRLS weight step.** `fit_linear`, `fit_rotation` and `fit_rotation_averaging` each restated the same
+  reweighting (σ̂ = median/√χ²_d-median, the loss deployed at σ̂², its weights times the prior) with only the
+  codimension differing; they share `_irls_weights!`, whose σ̂ is Core's `noise_sigma`. The results are unchanged bit for
+  bit.
 - **Docs: `Triggs`'s Huber second derivative.** ρ″ is zero inside the width only; in the tail it is `−w/(2s^{3/2})`,
   as Core's `loss_robustifier` gives it, so the Triggs term corrects the tail (the docstring said zero everywhere).
 - **New: SIMFIT++ loss-width estimation, moved from RANSACScoringDoneRight** (Edstedt, "Less Biased Noise Scale

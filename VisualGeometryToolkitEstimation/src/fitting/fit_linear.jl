@@ -97,7 +97,7 @@ function fit_linear(
     iter = 0
     while iter < max_iter
         iter += 1
-        σ = _linear_weights!(w, r, p, loss, scale_multiple)
+        σ = _irls_weights!(w, abs.(r), p, loss, scale_multiple, 1)
         if iszero(σ)                        # an exact fit: the weights are the prior's, x stands
             retcode = :converged
             break
@@ -112,31 +112,11 @@ function fit_linear(
             break
         end
     end
-    σ = _linear_weights!(w, r, p, loss, scale_multiple)   # the metadata at the returned coefficients
+    σ = _irls_weights!(w, abs.(r), p, loss, scale_multiple, 1)   # the metadata at the returned coefficients
     used = count(>(0), p)
     rms = sqrt(sum(abs2(r[i]) for i in eachindex(r) if p[i] > 0; init = 0.0) / max(used, 1))
     return FitResult(x, retcode, iter, rms, used, LinearFitMetadata(w, r, σ))
 end
-
-# σ̂ at residuals `r` — the MAD scale over the rows the caller weights (prior >
-# 0) — and the loss's IRLS weights times the prior into `w`; the prior itself
-# on an exact fit (σ̂ = 0). Returns σ̂.
-function _linear_weights!(w, r, prior, loss, scale_multiple)
-    σ = Statistics.median(abs(r[i]) for i in eachindex(r) if prior[i] > 0) / sqrt(VgtkCore.chisq_median(1))
-    if iszero(σ)
-        w .= prior
-        return σ
-    end
-    c² = VgtkCore.sq_loss_width(_linear_loss(loss, σ^2, scale_multiple))
-    @inbounds for i in eachindex(w, r, prior)
-        w[i] = prior[i] * weight(loss, r[i]^2, c²)
-    end
-    return σ
-end
-
-_linear_loss(loss::VgtkCore.AbstractMEstimator, s2, ::Nothing) = deploy(loss, s2; codim = 1)
-_linear_loss(loss::VgtkCore.AbstractMEstimator, s2, scale_multiple::Real) = deploy(loss, s2; codim = 1, scale_multiple)
-_linear_loss(loss::VgtkCore.AbstractLossShape, s2, scale_multiple::Real) = deploy(loss, s2; scale_multiple)
 
 # The weighted least squares on the rows of positive weight: the column-pivoted
 # QR of √w·A; `nothing` when fewer such rows than columns remain.

@@ -110,7 +110,7 @@ function fit_rotation_averaging(
     retcode = :max_iterations; iter = 0; σ = NaN
     while iter < max_iter
         iter += 1
-        σ = _averaging_weights!(w, r, p, loss, scale_multiple)
+        σ = _irls_weights!(w, norm.(r), p, loss, scale_multiple, 3)
         iszero(σ) && (retcode = :converged; break)                     # every edge agrees
         col, nunk = _averaging_columns(frames, edges, w)
         ω = _averaging_update(edges, col, r, w, nunk)
@@ -124,33 +124,12 @@ function fit_rotation_averaging(
         edge_residuals!()
         Δ < tol && (retcode = :converged; break)
     end
-    σ = _averaging_weights!(w, r, p, loss, scale_multiple)
+    σ = _irls_weights!(w, norm.(r), p, loss, scale_multiple, 3)
     out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K}(Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), Dict(e => w[q] for (q, e) in enumerate(edges)), σ)
     live = [q for q in 1:m if p[q] > 0]                                # a zero weight drops its edge
     return FitResult(out, retcode, iter, sqrt(sum(q -> norm(r[q])^2, live) / length(live)), length(live), meta)
 end
-
-# σ̂ from the residual angles of the edges of positive weight (the χ²₃
-# median), and the loss's IRLS weights times the edge weights `p` into `w`;
-# σ̂ = 0 leaves the edge weights. Returns σ̂.
-function _averaging_weights!(w, r, p, loss, scale_multiple)
-    σ = Statistics.median(norm(r[q]) for q in eachindex(r) if p[q] > 0) / sqrt(VgtkCore.chisq_median(3))
-    if iszero(σ)
-        w .= p
-        return σ
-    end
-    c² = VgtkCore.sq_loss_width(_averaging_loss(loss, σ^2, scale_multiple))
-    for q in eachindex(w)
-        w[q] = p[q] * weight(loss, norm(r[q])^2, c²)
-    end
-    return σ
-end
-
-# The loss at the noise scale s2 (codimension 3), as `fit_rotation`'s at 2.
-_averaging_loss(loss::VgtkCore.AbstractMEstimator, s2, ::Nothing) = deploy(loss, s2; codim = 3)
-_averaging_loss(loss::VgtkCore.AbstractMEstimator, s2, scale_multiple::Real) = deploy(loss, s2; codim = 3, scale_multiple)
-_averaging_loss(loss::VgtkCore.AbstractLossShape, s2, scale_multiple::Real) = deploy(loss, s2; scale_multiple)
 
 # The update's unknowns at the current weights: the column offset of each frame
 # (-1: no columns). The edges of weight > 0 split the frames into components;

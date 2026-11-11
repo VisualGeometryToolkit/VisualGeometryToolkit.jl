@@ -85,3 +85,37 @@
         RR.set_project_root!("")
     end
 end
+
+@testitem "run_records: config_of_record, keyed_cell_dir" begin
+    # The configs of record of a project (configs/<name>.toml, loaded as run
+    # configs) and the keyed directory of one cell under its experiment's
+    # results: accv2026's protocol_folds.jl defined both; every paper project
+    # spells a keyed run directory `<experiment_dir>/<experiment>/<kind>-<run_key>`.
+    using VisualGeometryToolkitEval.Experiments: config_of_record, keyed_cell_dir, experiment_dir, run_key,
+        set_project_root!
+    root = mktempdir()
+    mkpath(joinpath(root, "configs"))
+    write(joinpath(root, "configs", "cell.toml"), """
+        [experiment]
+        dataset = "d"
+        matcher = "m"
+        problem = "E"
+        pool_dir = "pools"
+        [render]
+        main = "x"
+        """)
+    cfg = config_of_record("cell"; root)
+    @test cfg["experiment"]["problem"] == "E"
+    @test_throws ErrorException config_of_record("absent"; root)
+    withenv("VGTK_RESULTS_ROOT" => joinpath(root, "results")) do
+        dir = keyed_cell_dir(cfg, "fig2", "budget")
+        @test dir == joinpath(experiment_dir(cfg), "fig2", "budget-" * run_key(cfg))
+        @test startswith(dir, joinpath(root, "results"))
+    end
+    set_project_root!(root)
+    try
+        @test config_of_record("cell") == cfg
+    finally
+        set_project_root!("")
+    end
+end

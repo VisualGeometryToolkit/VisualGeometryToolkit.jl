@@ -58,7 +58,7 @@ import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        fresher, contract_violations,
        # run records (experiments/run_records.jl): the configuration-of-record layer
-       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir,
+       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir, keyed_cell_dir, config_of_record,
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
        write_oracle_floor, oracle_floor_done,
        # the data/results binding (experiments/data.jl)

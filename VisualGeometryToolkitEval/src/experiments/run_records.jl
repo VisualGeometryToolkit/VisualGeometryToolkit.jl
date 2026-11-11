@@ -220,6 +220,27 @@ experiment_dir(cfg::AbstractDict) =
              cfg["experiment"]["matcher"], cfg["experiment"]["problem"])
 
 """
+    keyed_cell_dir(cfg, experiment, kind) -> String
+
+The keyed directory of one cell of `kind` under the results of `experiment`:
+`<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg)>`. A changed config is
+a new directory, never an overwrite; the config is keyed as given (fold the
+protocols of record into it first).
+"""
+keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString) =
+    joinpath(experiment_dir(cfg), experiment, kind * "-" * run_key(cfg))
+
+"""
+    config_of_record(name; root = project_root()) -> Dict
+
+The config of record `name` of the project at `root` (`configs/<name>.toml`),
+loaded as a run config ([`load_run_config`](@ref): its `[experiment]` checked,
+unknown keys of the sections this package owns refused), not yet folded.
+"""
+config_of_record(name::AbstractString; root::AbstractString = project_root()) =
+    load_run_config(joinpath(root, "configs", name * ".toml"))
+
+"""
     write_run_records(outdir, cfg; driver, config_source, key, inputs = String[], producer = false)
 
 Write the run's `_config.toml` (the effective config, its tuning specs

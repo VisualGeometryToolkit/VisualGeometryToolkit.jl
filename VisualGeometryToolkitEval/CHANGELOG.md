@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **New: `Experiments.config_of_record(name; root = project_root())` and `keyed_cell_dir(cfg, experiment, kind)`**:
+  a project's config of record `configs/<name>.toml` loaded as a run config (`load_run_config`), and the keyed
+  directory of one cell, `<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg)>`, beside `experiment_dir`. Every
+  paper project spells its keyed runs this way; LocalOptimizationDoneRight's accv2026 defined both.
+
 - **New: `DataArtifacts.project_catalog(root = project_root())`**: a paper project's catalog, its
   `configs/data_artifacts.toml` loaded by `load_catalog` (bound to its Artifacts.toml or the catalog's env override).
   RANSACScoringDoneRight's neurips2026 and LocalOptimizationDoneRight's accv2026 each defined it as

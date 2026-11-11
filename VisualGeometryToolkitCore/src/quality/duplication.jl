@@ -17,8 +17,8 @@ One finding of [`check_duplication`](@ref): the check that found it (`:name`,
 `:similar`, `:file`, `:pattern` or `:stale_exception`), the file (relative to
 the repository root) and line, the text found (a name, a function, a code line
 or an exception entry), and `other` — the upstream owner, the matching function
-or file elsewhere (`<repository>:<path>:<line>` outside this repository), or the
-owner a retired pattern names.
+or file elsewhere (`<Repository>:<path>:<line>` outside this repository, a
+monorepo's member as `<Member>:<path>:<line>`), or the owner a retired pattern names.
 """
 struct DuplicationViolation
     check::Symbol

@@ -59,13 +59,17 @@ const _EXTERNAL_ID = r"^([^/:]+:)(?!:)"
 
 # The trees of a repository, each `(directory, label prefix)`: a workspace root that is
 # not itself a package (a monorepo) is its member projects, each scanned in its own
-# scope as its own quality item scans it; any other repository is its root.
-function _repo_trees(root::AbstractString, prefix::AbstractString)
+# scope as its own quality item scans it; any other repository is its root. Another
+# repository's trees are labelled `<Repository>:`, a monorepo's members by their own
+# package names (`<Member>:`), so a label never depends on where it is checked out;
+# this repository's members are paths from its root (`<member>/`).
+function _repo_trees(root::AbstractString; external::Bool)
     p = joinpath(root, "Project.toml")
     project = isfile(p) ? TOML.parsefile(p) : Dict{String, Any}()
     members = get(get(project, "workspace", Dict{String, Any}()), "projects", String[])
-    (haskey(project, "name") || isempty(members)) && return [(String(root), String(prefix))]
-    return [(joinpath(root, m), prefix * m * "/") for m in members if isdir(joinpath(root, m))]
+    (haskey(project, "name") || isempty(members)) && return [(String(root), external ? _repo_label(root) * ":" : "")]
+    trees = [(joinpath(root, m), m) for m in members if isdir(joinpath(root, m))]
+    return [(d, external ? _repo_label(d) * ":" : m * "/") for (d, m) in trees]
 end
 
 _stack_from_env() = String[p for p in split(get(ENV, _STACK_PATHS_ENV, ""), Sys.iswindows() ? ';' : ':') if !isempty(p)]
@@ -336,7 +340,7 @@ function _static_violations(dir, root, stack, entries; similarity, shingle, min_
     defs = _Definition[]; files = Tuple{String, Bool, UInt64, Int}[]; ids = Dict{String, Int}()
     scanned = Set{String}()               # the labels of the trees compared: `""` (this repository) and each `<Repository>:`
     trees = Tuple{String, String, Bool}[(dir, own_prefix, true)]
-    for (tree, prefix) in _repo_trees(root, "")                       # a monorepo's other packages
+    for (tree, prefix) in _repo_trees(root; external = false)        # a monorepo's other packages
         prefix == own_prefix || rstrip(abspath(tree), '/') == rstrip(abspath(dir), '/') || push!(trees, (tree, prefix, false))
     end
     push!(scanned, "")
@@ -346,9 +350,10 @@ function _static_violations(dir, root, stack, entries; similarity, shingle, min_
             continue
         end
         rstrip(abspath(s), '/') == root && continue
-        label = _repo_label(s) * ":"
-        push!(scanned, label)
-        append!(trees, [(t, p, false) for (t, p) in _repo_trees(rstrip(abspath(s), '/'), label)])
+        for (t, p) in _repo_trees(rstrip(abspath(s), '/'); external = true)
+            push!(scanned, p)
+            push!(trees, (t, p, false))
+        end
     end
     code = Tuple{String, String}[]          # the own files for the pattern table
     for (tree, prefix, own) in trees, (label, path) in _scope_files(tree, prefix)

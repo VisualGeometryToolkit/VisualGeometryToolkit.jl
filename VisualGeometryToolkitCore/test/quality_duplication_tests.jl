@@ -106,6 +106,9 @@
         "PkgB/Project.toml" => "name = \"PkgB\"\n", "PkgB/test/b.jl" => body("residual_norm", "u", "v"))
     v = only(check_duplication(joinpath(mono, "PkgA"); stack = String[]))
     @test (v.file, startswith(v.other, "PkgB/test/b.jl:1")) == ("PkgA/src/a.jl", true)
+    # a monorepo in the stack: each member labelled by its package name, wherever it is checked out
+    found = check_duplication(repo("src/c.jl" => body("my_misfit", "p", "q")); stack = [mono])
+    @test sort!([first(split(v.other, ':'; limit = 3), 2) for v in found]) == [["PkgA", "src/a.jl"], ["PkgB", "test/b.jl"]]
 
     # name ownership: a binding the module owns whose name an upstream package owns (private names too);
     # a method added to the upstream function, and an imported name, are not the module's

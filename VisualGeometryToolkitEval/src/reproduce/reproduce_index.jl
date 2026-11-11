@@ -439,11 +439,22 @@ function _literal_candidate(v::AbstractString, min_integer_digits::Integer)
     return length(v) >= 2
 end
 
+# A TeX length: a number DIRECTLY followed by a TeX unit (`-0.3cm`, `0.3em`, anywhere), or a number, a space and a unit
+# where TeX reads a length: a whole braced argument (`\hspace{0.3 cm}`) or after a skip primitive (`\kern 0.3 pt`). In
+# prose, "1.23 mm" is a number with a physical unit, which the literal check is for. Not a unit when a letter follows
+# (`0.3cmx`).
+const _TEX_UNITS = "(?:pt|cm|mm|in|em|ex|bp|pc|sp|mu|dd|cc|nd|nc)"
+const _TEX_NUMBER = "[-+]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)"
+const _TEX_LENGTH = Regex(_TEX_NUMBER * _TEX_UNITS * "(?![A-Za-z])|" *
+                          "(?<=\\{)\\s*" * _TEX_NUMBER * "\\s+" * _TEX_UNITS * "\\s*(?=\\})|" *
+                          "(?:(?<=\\\\kern)|(?<=\\\\hskip)|(?<=\\\\vskip)|(?<=\\\\mkern)|(?<=\\\\mskip))\\s*" * _TEX_NUMBER * "\\s*" * _TEX_UNITS * "(?![A-Za-z])")
+
 # Prose text of a line: arguments that are never rendered numbers in prose
-# (cross references, citations, labels, graphics, options) removed.
+# (cross references, citations, labels, graphics, options) and TeX lengths removed.
 _prose(line) = replace(line,
     r"\\(?:c?ref|Cref|eqref|cite[tp]?|label|includegraphics|input|include|url|href|begin|end|externaldocument|suppref|Suppref)\*?(?:\[[^\]]*\])?\{[^}]*\}" => " ",
     r"[0-9.]+\\(?:line|text|column)width" => " ",
+    _TEX_LENGTH => " ",
     r"\[[^\]]*\]" => " ")
 
 function _literal_hits(norm_line::AbstractString, value::AbstractString)
@@ -461,8 +472,12 @@ whose rendered value carries a number is searched for in the comment-stripped
 prose of `prose_files`, with number boundaries. A bare integer value is
 searched only from `min_integer_digits` digits (the default 3 skips the
 two-digit counts and percentages that coincide everywhere; 2 is strict and
-needs `literal-ok` marks). A line holding `reproduce: literal-ok` (in a
-comment) is exempt, as is any macro named in `ignore`.
+needs `literal-ok` marks). A TeX length is no literal: a number directly
+followed by a TeX unit (`-0.3cm`), or with a space where TeX reads a length (a
+whole braced argument, `\\hspace{0.3 cm}`; after `\\kern`, `\\hskip`, …); in
+prose, "1.23 mm" is a number with a unit and is checked. A line holding
+`reproduce: literal-ok` (in a comment) is exempt, as is any macro named in
+`ignore`.
 """
 function macro_literal_violations(prose_files, macro_files; root::AbstractString, ignore = String[],
         min_integer_digits::Integer = 3)

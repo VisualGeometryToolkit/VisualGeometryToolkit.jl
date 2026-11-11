@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Fixed: a TeX length is not a re-typed number** (`macro_literal_violations`, and with it the reproduce index's
+  `:macro_literal`): a number directly followed by a TeX unit (pt, cm, mm, in, em, ex, bp, pc, sp, mu, dd, cc, nd, nc;
+  `\hspace{-0.3cm}`), or with a space where TeX reads a length (a whole braced argument, `\hspace{0.3 cm}`; after
+  `\kern`, `\hskip`, `\vskip`, `\mkern`, `\mskip`), is no literal. In prose "0.3 cm" is a number with a unit and is
+  still checked, as is "0.3cmx". RadiometricCamera's paper flagged `\hspace{-0.3cm}` against a macro of value 0.3.
 - **New: the number-macro writer takes macros with parameters and shared files.** `add_macro!(nums, name, body;
   arity, label, provenance)` adds `\newcommand{\<name>}[<arity>]{<body>}` (a figure's helper, `#1` … `#<arity>` its
   arguments; not a value, so `tex_macro_values` skips it; `gather_numbers` gathers it as written).

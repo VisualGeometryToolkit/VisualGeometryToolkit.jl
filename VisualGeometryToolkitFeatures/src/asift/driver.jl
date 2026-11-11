@@ -605,12 +605,18 @@ end
 # The error is raised before any work is scheduled, so retrying the launch is
 # safe. Both paths compute every work item identically: the results do not
 # depend on the scheduling.
-struct _CPUKernel{S, D}
+#
+# One launch path for every backend (the owner's one-kernel policy): each kernel
+# is built twice, on the device's static form and on the device itself, and
+# launched through `_ScheduledKernel`. Only KernelAbstractions' CPU backend has
+# a static form (`_static_form`); on any other backend the two are the same
+# kernel and the launch is that kernel's.
+struct _ScheduledKernel{S, D}
     static::S
     dynamic::D
 end
 
-function (k::_CPUKernel)(args...; kw...)
+function (k::_ScheduledKernel)(args...; kw...)
     if !_in_threaded_region()
         try
             return k.static(args...; kw...)
@@ -625,10 +631,10 @@ end
 _in_threaded_region() = ccall(:jl_in_threaded_region, Cint, ()) != 0
 _static_conflict(e) = e isa ErrorException && occursin("@threads :static", e.msg)
 
-# The kernels `build(dev)` returns, launched as above on a CPU device.
-_scheduled(build, dev::KA.Backend) = build(dev)
-_scheduled(build, ::KA.CPU) =
-    map(_CPUKernel, build(KA.CPU(static = true)), build(KA.CPU(static = false)))
+# The kernels `build(dev)` returns, launched as above: statically where the device has a static form, else as built.
+_scheduled(build, dev) = map(_ScheduledKernel, build(_static_form(dev)), build(dev))
+_static_form(dev) = dev
+_static_form(dev::KA.CPU) = KA.CPU(static = true)   # a backend parameter: the same kernels, spread by `@threads :static`
 
 # ----- plan ------------------------------------------------------------------
 

@@ -74,41 +74,7 @@ function mixture_arm()
         VgtkEstimation._FixedDistances(r), r, 30
 end
 
-# Everything a state holds that a run moves (numbers, arrays, incumbents, the
-# GNC ladder), not the shared workspaces it points into.
-snap(x::Union{Number, Symbol, Nothing}) = x
-snap(x::AbstractArray{<:Number}) = collect(x)
-snap(x::StaticArray) = Tuple(x)
-snap(x::Attributed{<:Any, @NamedTuple{cost::Float64}}) = (snap(x.value), x.cost)   # an incumbent
-snap(x) = isbits(x) ? x : nameof(typeof(x)) in (:PosteriorWeightState, :_PositionalDivisionState, :MuLadderState) ?
-    Tuple(snap(getfield(x, i)) for i in 1:fieldcount(typeof(x))) : :skipped
-snap_state(st) = Tuple(snap(getfield(st, i)) for i in 1:fieldcount(typeof(st)))
-fp(res) = (snap(estimate(res)), retcode(res), iterations(res))
-
-function check_recorded(mk)
-    # the full run, bare and recorded
-    st, lh, m, p, θ₀, max_iter = mk()
-    bare = block_coordinate_descent!(st, lh, m, p, θ₀; max_iter)
-    bare_state = snap_state(st)
-    st2, lh2, m2, p2, θ₀2, _ = mk()
-    rec = Recorded(st2)
-    @test isequal(fp(block_coordinate_descent!(rec, lh2, m2, p2, θ₀2; max_iter)), fp(bare))
-    @test isequal(snap_state(st2), bare_state)
-    @test rec.reason[] === retcode(bare)
-    k_run = iterations(bare)
-    k_rec = length(rec.iterates)
-    @test k_rec == (retcode(bare) === :solve_failed ? k_run - 1 : k_run)
-    @test length(rec.cost) == length(rec.s2) == k_rec
-    # iterate for iterate: the bare run truncated after k is the recorded run's k-th entry
-    for k in 1:k_rec
-        stk, lhk, mk_, pk, θk, _ = mk()
-        resk = block_coordinate_descent!(stk, lhk, mk_, pk, θk; max_iter = k)
-        @test isequal(current_cost(stk), rec.cost[k])
-        @test iterations(resk) == k
-        k == k_rec && @test isequal(snap_state(stk), bare_state)
-    end
-    return k_rec
-end
+# Recorded == bare, iterate for iterate: VisualGeometryToolkitCore's `test_recorded`.
 
 problems = (
     (:H, VgtkEstimation.HomographyProblem(contaminated_pixel_pairs(Xoshiro(101), 300; planar = true))),
@@ -121,12 +87,12 @@ arms(kind) = Any[VgtkEstimation.Irls{WelschShape}(scale_multiple = 1.5), VgtkEst
 @testset "Recorded == bare: $kind $(nameof(typeof(lo)))" for (kind, p) in problems, lo in arms(kind)
     sc = MsacScoring(p; threshold = 3.0)   # 6σ of the scenes' 0.5 px noise
     θ = estimate(VgtkEstimation.ransac(p, sc; rng = Xoshiro(1), config = VgtkEstimation.RansacConfig(max_trials = 200)))
-    @test check_recorded(() -> arm(p, sc, θ, lo)) >= 1
+    @test VgtkCore.test_recorded(() -> arm(p, sc, θ, lo)) >= 1
 end
 @testset "Recorded == bare: division camera IRLS" begin
-    @test check_recorded(division_arm) >= 1
+    @test VgtkCore.test_recorded(division_arm) >= 1
 end
 @testset "Recorded == bare: the KeepModel EM" begin
-    @test check_recorded(mixture_arm) >= 1
+    @test VgtkCore.test_recorded(mixture_arm) >= 1
 end
 end

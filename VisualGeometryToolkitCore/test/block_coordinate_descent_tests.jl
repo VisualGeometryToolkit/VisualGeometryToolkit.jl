@@ -55,19 +55,18 @@ end
 # the order the driver reads them in: a failed model block first, then the
 # method's own criterion, then the budget — so on the last iteration a method
 # reason wins over :max_iterations, and a non-positive budget runs nothing.
-@testitem "block_coordinate_descent: stopping criteria and the recorder" begin
+# A halving iteration θ ← θ/2 that fails at `fail_at` and converges at `conv_at`,
+# its result the bare `(; θ, reason, iter)` or, with `fit = true`, a FitResult.
+@testsetup module HalvingIteration
     import VisualGeometryToolkitCore as VgtkCore
-    using Test
-    using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, AbstractWeightPolicy, block_coordinate_descent!,
-        StoppingCriterion, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny, stop_reason,
-        stopping_criterion, Recorded, current_cost, current_s2
+    using VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, AbstractWeightPolicy, StoppingCriterion, FitResult
+    export Halve, HalveState, NoPolicy, StopAtIteration
 
-    # A halving iteration θ ← θ/2 that fails at `fail_at` and converges at `conv_at`.
-    struct Halve <: AbstractBlockCoordinateMethod
+    struct Halve{Fit} <: AbstractBlockCoordinateMethod
         fail_at::Int
         conv_at::Int
     end
+    Halve(fail_at, conv_at; fit = false) = Halve{fit}(fail_at, conv_at)
     mutable struct HalveState
         iter::Int
         cost::Float64
@@ -86,7 +85,18 @@ end
     VgtkCore.stop_reason(c::StopAtIteration, s::HalveState, m, prob, θ, θ_old, iter) =
         s.iter >= c.k ? :converged : :continue
     VgtkCore.stopping_criterion(m::Halve) = StopAtIteration(m.conv_at)
-    VgtkCore.block_coordinate_result(s::HalveState, ::Halve, prob, θ, reason, iter) = (; θ, reason, iter)
+    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{false}, prob, θ, reason, iter) = (; θ, reason, iter)
+    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{true}, prob, θ, reason, iter) =
+        FitResult(θ, reason, iter, sqrt(s.cost), 1, (;))
+end
+
+@testitem "block_coordinate_descent: stopping criteria and the recorder" setup = [HalvingIteration] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinate_descent!,
+        StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny, stop_reason,
+        stopping_criterion, Recorded, current_cost, current_s2
 
     run(m, max_iter) = block_coordinate_descent!(HalveState(0, NaN), NoPolicy(), m, nothing, 1.0; max_iter)
     @test run(Halve(0, 100), 5) == (; θ = 1 / 32, reason = :max_iterations, iter = 5)
@@ -129,4 +139,15 @@ end
     alloc(st, m, k) = @allocated block_coordinate_descent!(st, NoPolicy(), m, nothing, 1.0; max_iter = k)
     alloc(st, m, 50)
     @test alloc(st, m, 50) == 0
+end
+
+# The stack's one check that a `Recorded` run IS the bare run (LocalOptimizationDoneRight's
+# recorded-BCD test and VisualGeometryToolkitEstimation's restated it as `check_recorded`).
+@testitem "block_coordinate_descent: test_recorded" setup = [HalvingIteration] begin
+    using Test
+    using VisualGeometryToolkitCore: test_recorded
+    make(fail_at, conv_at, max_iter) = () -> (HalveState(0, NaN), NoPolicy(), Halve(fail_at, conv_at; fit = true), nothing, 1.0, max_iter)
+    @test test_recorded(make(0, 100, 5)) == 5          # the budget
+    @test test_recorded(make(0, 3, 5)) == 3            # converged
+    @test test_recorded(make(3, 100, 5)) == 2          # a failed solve records the good iterates only
 end

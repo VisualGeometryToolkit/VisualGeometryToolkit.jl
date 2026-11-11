@@ -60,6 +60,33 @@ keywords go to `check_duplication` (the stack repositories compared come from
 function test_duplication end
 
 """
+    test_recorded(make; nested = RECORDED_NESTED_STATES) -> Int
+
+That a [`Recorded`](@ref) run of [`block_coordinate_descent!`](@ref) IS the bare
+run, as tests: `make()` returns a fresh `(state, likelihood, method, problem, θ₀,
+max_iter)` each call (fresh workspaces too), whose result has `estimate`,
+`retcode` and `iterations`. The recorded run returns the bare run's estimate,
+retcode and iteration count and leaves the same state; it records one iterate
+per good iteration (a `:solve_failed` run one fewer), with as many costs and
+scales; and the bare run truncated after every `k` has the recorded run's `k`-th
+cost — iterate for iterate. A state is compared by what a run moves: its
+numbers, arrays and best iterates (`Attributed(θ, (; cost))`), and the fields
+of the nested state types whose names are in `nested`; anything else it points
+into is skipped. Returns the number of recorded iterates. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_recorded end
+
+"""
+    RECORDED_NESTED_STATES
+
+The names of the nested state types [`test_recorded`](@ref) compares field by
+field by default (the posterior weights, the division camera's IRLS state, the
+GNC ladder); every other non-bits field of a state is a workspace it points into.
+"""
+const RECORDED_NESTED_STATES = (:PosteriorWeightState, :_PositionalDivisionState, :MuLadderState)
+
+"""
     thrown_message(f; shown = false) -> String
 
 The message of the `ArgumentError` that `f()` throws, `""` when it throws

@@ -5,6 +5,13 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `test_recorded(make; nested = RECORDED_NESTED_STATES)`** (public, not exported; the Test extension): the
+  stack's one check that a `Recorded` run of `block_coordinate_descent!` is the bare run — the same estimate, retcode,
+  iteration count and final state, one recorded iterate per good iteration, and the bare run truncated after every
+  `k` at the recorded `k`-th cost. `make()` returns a fresh `(state, likelihood, method, problem, θ₀, max_iter)`.
+  VisualGeometryToolkitEstimation's and LocalOptimizationDoneRight's recorded-BCD tests each carried it as
+  `check_recorded` (with its `snap` helpers); both call this one.
+
 - **New: the stack's git hooks, `sync_manifest`, `install_githooks`, `githooks_dir`** (public, not exported;
   `githooks/` and src/quality/sync_manifest.jl). `githooks/sync-manifest` (with `post-checkout`, `post-merge` and
   `post-rewrite` linking to it) re-resolves a repository's untracked root Manifest when a checkout, merge or rebase

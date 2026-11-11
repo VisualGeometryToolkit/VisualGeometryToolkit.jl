@@ -14,8 +14,11 @@ module VisualGeometryToolkitCoreTestExt
 using Test: Test
 using TOML: TOML
 using ForwardDiff: ForwardDiff
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, residual_rows!, residual_jacobian_rows!
-import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication
+using StaticArrays: StaticArray
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, residual_rows!, residual_jacobian_rows!,
+    Attributed, Recorded, block_coordinate_descent!, current_cost, estimate, retcode, iterations, RECORDED_NESTED_STATES
+import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication,
+    test_recorded
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,
     test_manifold_contract
 

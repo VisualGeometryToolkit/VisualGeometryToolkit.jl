@@ -40,3 +40,40 @@ function thrown_message(f; shown::Bool = false)
     end
     return ""
 end
+
+# A recorded run is the bare run (block_coordinate_descent's `Recorded`).
+# Everything a state holds that a run moves (numbers, arrays, best iterates,
+# the nested states named in `nested`), not the shared workspaces it points into.
+_snap(x::Union{Number, Symbol, Nothing}, nested) = x
+_snap(x::AbstractArray{<:Number}, nested) = collect(x)
+_snap(x::StaticArray, nested) = Tuple(x)
+_snap(x::Attributed{<:Any, @NamedTuple{cost::Float64}}, nested) = (_snap(x.value, nested), x.cost)   # a best iterate
+_snap(x, nested) = isbits(x) ? x : nameof(typeof(x)) in nested ?
+    Tuple(_snap(getfield(x, i), nested) for i in 1:fieldcount(typeof(x))) : :skipped
+_snap_state(st, nested) = Tuple(_snap(getfield(st, i), nested) for i in 1:fieldcount(typeof(st)))
+_fingerprint(res, nested) = (_snap(estimate(res), nested), retcode(res), iterations(res))
+
+function test_recorded(make; nested = RECORDED_NESTED_STATES)
+    # the full run, bare and recorded
+    st, lh, m, p, θ₀, max_iter = make()
+    bare = block_coordinate_descent!(st, lh, m, p, θ₀; max_iter)
+    bare_state = _snap_state(st, nested)
+    st2, lh2, m2, p2, θ₀2, _ = make()
+    rec = Recorded(st2)
+    Test.@test isequal(_fingerprint(block_coordinate_descent!(rec, lh2, m2, p2, θ₀2; max_iter), nested), _fingerprint(bare, nested))
+    Test.@test isequal(_snap_state(st2, nested), bare_state)
+    Test.@test rec.reason[] === retcode(bare)
+    k_run = iterations(bare)
+    k_rec = length(rec.iterates)
+    Test.@test k_rec == (retcode(bare) === :solve_failed ? k_run - 1 : k_run)
+    Test.@test length(rec.cost) == length(rec.s2) == k_rec
+    # iterate for iterate: the bare run truncated after k is the recorded run's k-th entry
+    for k in 1:k_rec
+        stk, lhk, mk, pk, θk, _ = make()
+        resk = block_coordinate_descent!(stk, lhk, mk, pk, θk; max_iter = k)
+        Test.@test isequal(current_cost(stk), rec.cost[k])
+        Test.@test iterations(resk) == k
+        k == k_rec && Test.@test isequal(_snap_state(stk, nested), bare_state)
+    end
+    return k_rec
+end

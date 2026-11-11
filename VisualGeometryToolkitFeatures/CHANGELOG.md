@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: `load_raw(path; …, cache)`, the decoded-RAW cache**: with `cache` a `FileCache` (`open_cache`, the JLD2
+  extension), each RAW is decoded once per content and settings — the entry is keyed by the file's SHA-256, the mode,
+  the gain, the white balance and the decoder's type (`cache_key`) — and a hit returns the `LinearRaw` as decoded,
+  value for value. One cache for the stack's one RAW path: PanoramaStitching's example kept its own (code-sum PNGs
+  and a JSON index, `decoded_frames`), which goes for it. `cache = nothing` (the default) decodes every call.
+
 - **Fixed: the stabilized image's noise threshold** (`asift_detect(::StabilizedImage; noise_sigmas)`) read the noise σ of
   every DoG slice, the two boundary slices included, while the extremum search reads only the interior ones (2 … NS − 1,
   since the interior-slice search): the threshold was set by a slice no extremum comes from, so too high, and faint

@@ -481,7 +481,8 @@ function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecod
 end
 
 """
-    load_raw(path; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
+    load_raw(path; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder(),
+             cache = nothing) -> LinearRaw
 
 A camera RAW file as linear values, in the sensor's orientation (the EXIF
 flip is never applied, in any mode). `mode`:
@@ -507,10 +508,25 @@ flip is never applied, in any mode). `mode`:
 
 `white_balance` is accepted with `:demosaic` only: the exact modes are camera
 raw colour, white balance 1.
+
+`cache` (a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
+decoded once per content and settings — the entry is keyed by the file's
+SHA-256, `mode`, `gain`, `white_balance` and the decoder's type
+([`cache_key`](@ref)), so an edited file or another setting decodes again and
+a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
+default) decodes every call.
 """
-function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
+function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder(),
+                  cache = nothing)
     mode === :demosaic || white_balance === nothing ||
         throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
+    cache === nothing && return _load_raw(path, mode, gain, white_balance, decoder)
+    isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
+    key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)))
+    return get!(() -> _load_raw(path, mode, gain, white_balance, decoder), cache, key)
+end
+
+function _load_raw(path, mode, gain, white_balance, decoder)
     mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain)
     g = _checked_gain(gain)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))

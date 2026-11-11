@@ -498,3 +498,50 @@ end
         @test_skip "VGTK_RAW_TEST_FILE names no RAW file"
     end
 end
+
+@testitem "raw: a decode cache — each RAW decoded once per content and settings" setup = [RawFixtures] begin
+    # The decoded-RAW cache PanoramaStitching's example kept as code-sum PNGs is
+    # the package's one persistent cache (FileCache, JLD2): `load_raw(path; cache)`
+    # keys an entry by the file's SHA-256 and the decode settings.
+    using VisualGeometryToolkitFeatures
+    using VisualGeometryToolkitFeatures: RawDecoder, open_cache, close_cache
+    using JLD2: JLD2
+    struct CountingDecoder <: RawDecoder
+        calls::Base.RefValue{Int}
+    end
+    function VisualGeometryToolkitFeatures._decode_raw(d::CountingDecoder, path::AbstractString)
+        d.calls[] += 1
+        v = only(reinterpret(UInt16, read(path, 2)))           # the file's content sets the scene
+        return mosaic(fill(UInt16(1000 + v), 8, 8), LAYOUTS.RGGB)
+    end
+    dir = mktempdir()
+    raw = joinpath(dir, "a.raw"); write(raw, UInt16(7))
+    d = CountingDecoder(Ref(0))
+    cache = open_cache(joinpath(dir, "decoded.jld2"))
+    try
+        L1 = load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
+        L2 = load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
+        @test d.calls[] == 1                                    # the second is the cached value
+        @test L2.image == L1.image && L2.saturated == L1.saturated && L2.metadata == L1.metadata
+        @test L1.image == load_raw(raw; mode = :bin2, gain = 2, decoder = d).image   # no cache: the same values
+        @test d.calls[] == 2
+        load_raw(raw; mode = :bin2, gain = 1, decoder = d, cache)          # another setting: decoded
+        load_raw(raw; mode = :green_cells, gain = 2, decoder = d, cache)
+        @test d.calls[] == 4
+        write(raw, UInt16(9))                                              # another content: decoded
+        L3 = load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
+        @test d.calls[] == 5 && L3.image != L1.image
+        load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache = nothing)  # `nothing`: no cache
+        @test d.calls[] == 6
+    finally
+        close_cache(cache)
+    end
+    # it persists: a reopened cache still holds the entries
+    cache = open_cache(joinpath(dir, "decoded.jld2"))
+    try
+        load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
+        @test d.calls[] == 6
+    finally
+        close_cache(cache)
+    end
+end

@@ -76,7 +76,7 @@ function find_absolute_pose(
         kwargs...
     )
     plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
-    return _in_metres(find_absolute_pose(camera_model, plain; extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...))
+    return _attach_metres(find_absolute_pose(camera_model, plain; extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...))
 end
 
 """
@@ -150,7 +150,7 @@ function refine_absolute_pose(
     plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
     result = refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain;
         extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
-    return _in_metres(result)
+    return _attach_metres(result)
 end
 
 function refine_absolute_pose(
@@ -178,12 +178,12 @@ function refine_absolute_pose(
     if plain isa VgtkCore.Csponds && VgtkCore.hasattr(plain, :origins)
         plain = withattrs(plain; origins = map(_plain_metres, plain.origins))
     end
-    return _in_metres(refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, plain; kwargs...))
+    return _attach_metres(refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, plain; kwargs...))
 end
 
 # frames.md rule 1, frame in = frame out: the refined pose carries the guess's
 # frame labels (the problem's workspace labels its models `Extrinsics3`'s own).
 # A failed result (no estimate) stays failed.
 _with_frames(r::FitResult, pose::EuclideanMap{3}) = _map_estimate(
-    E -> relabel(_frames(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))), r
+    E -> relabel(_frame_labels(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))), r
 )

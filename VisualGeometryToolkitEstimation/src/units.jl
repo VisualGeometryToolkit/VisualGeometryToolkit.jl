@@ -37,7 +37,7 @@ _plain_metres(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
 
 # A plain pose read as metres: Core's `with_unit`, the one attachment — the
 # rotation (of any parameterization) and the frames kept exactly.
-_in_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
+_attach_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
 
 # A correspondence set with its endpoints mapped: a `Csponds` keeps its
 # attribute columns (a PROSAC `score`, `weights`), so the plain set samples and
@@ -59,7 +59,7 @@ function _map_estimate(f, r::FitResult{P, R}) where {P, R}
 end
 
 # A RANSAC (or any) result with its model read as metres: everything else as it was.
-_in_metres(r::FitResult) = _map_estimate(_in_metres, r)
+_attach_metres(r::FitResult) = _map_estimate(_attach_metres, r)
 
 # The plane-model estimators (homography, radial homography, radial camera, the
 # division camera) return a matrix model whose entries carry the unit of the

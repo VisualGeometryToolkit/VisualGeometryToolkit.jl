@@ -229,7 +229,7 @@ end
 # hoists the inverse: these loops run per point, and `_cheiral_relpose`'s runs
 # per point PER MOTION, so inverting inside would put a 3×3 inversion in the
 # hottest path in this file.
-@inline function _bearing(iK::SMatrix{3, 3, Float64, 9}, u)
+@inline function _pixel_bearing(iK::SMatrix{3, 3, Float64, 9}, u)
     return normalize(iK * SVector{3, Float64}(Float64(u[1]), Float64(u[2]), one(Float64)))
 end
 
@@ -267,10 +267,10 @@ end
 # an uncaught `ArgumentError` for a drifted pose before the solver's `try`.
 const _PARALLEL_DEPTH = 1.0e6
 @inline function _triangulate_rays(iK1, iK2, u1, u2, R, t)
-    f₁ = _bearing(iK1, u1)
+    f₁ = _pixel_bearing(iK1, u1)
     X, _, _ = triangulate(
         EuclideanMap(SMatrix{3, 3, Float64, 9}(R), SVector{3, Float64}(t); check = false),
-        f₁, _bearing(iK2, u2)
+        f₁, _pixel_bearing(iK2, u2)
     )
     all(isfinite, X) || (X = _PARALLEL_DEPTH * f₁)
     return Point3{Float64}(X[1], X[2], X[3])
@@ -450,7 +450,7 @@ end
 function RelposeBundleProblem(K1::K, K2::K, cs::C) where {C, K <: AbstractMatrix}
     iK1, iK2 = _inv3(K1), _inv3(K2)
     return RelposeBundleProblem{C, K}(K1, K2, iK1, iK2, cs,
-        [_bearing(iK1, u) for u in sources(cs)], [_bearing(iK2, u) for u in targets(cs)])
+        [_pixel_bearing(iK1, u) for u in sources(cs)], [_pixel_bearing(iK2, u) for u in targets(cs)])
 end
 
 data_size(p::RelposeBundleProblem) = length(p.cs)

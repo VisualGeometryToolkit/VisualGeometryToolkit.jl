@@ -134,7 +134,7 @@ function refine_robot_world_hand_eye(
     plain = Dict(id => _map_csponds(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
         K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
     }
-    return _in_metres(refine_robot_world_hand_eye(_plain_metres(guess), camera, plain; kwargs...))
+    return _attach_metres(refine_robot_world_hand_eye(_plain_metres(guess), camera, plain; kwargs...))
 end
 
 # One point's reprojection residual as a function of its 12 chart coordinates

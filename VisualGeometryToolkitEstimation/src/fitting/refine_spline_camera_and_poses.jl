@@ -145,7 +145,7 @@ NLLSsolver.getvars(r::_SplineReprojection{10, P}, vars::Vector{Union{P, _CameraP
 NLLSsolver.getvars(r::_SplineReprojection{1}, vars::Vector{_CameraPosePose}) = (vars[r.varind[1]],)
 Base.eltype(::_SplineReprojection) = Float64
 
-_window_controls(r::_SplineReprojection, patches::NTuple{9, _AnyPatch}) =
+_reprojection_controls(r::_SplineReprojection, patches::NTuple{9, _AnyPatch}) =
     SMatrix{4, 4, SVector{3, Float64}, 16}(ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(16)))
 
 # The block's projection: the camera-frame point, the solve's point and whether it
@@ -163,7 +163,7 @@ function _spline_rows(r::_SplineReprojection, C, pose)
     _, x, ok = _spline_solve(r, C, pose)
     return ok ? _spline_pixel(r, x) - r.u : SVector(NaN, NaN)
 end
-NLLSsolver.computeresidual(r::_SplineReprojection{10, <:_AnyPatch}, vars...) = _spline_rows(r, _window_controls(r, ntuple(k -> vars[k], Val(9))), vars[10])
+NLLSsolver.computeresidual(r::_SplineReprojection{10, <:_AnyPatch}, vars...) = _spline_rows(r, _reprojection_controls(r, ntuple(k -> vars[k], Val(9))), vars[10])
 NLLSsolver.computeresidual(r::_SplineReprojection{1}, pose) = _spline_rows(r, r.held, pose)
 NLLSsolver.computecost(vars::Vector{Union{P, _CameraPosePose}}, r::_SplineReprojection{10, P}) where {P} =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
@@ -236,7 +236,7 @@ end
 function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{10, <:_AnyPatch}, vars...)
     varflags == 2^10 - 1 || throw(ArgumentError("refine_camera_and_poses: every patch and pose is free (varflags = $varflags)"))
     patches = ntuple(k -> vars[k], Val(9))
-    return _spline_rows_and_jacobian(r, _window_controls(r, patches), patches, vars[10])
+    return _spline_rows_and_jacobian(r, _reprojection_controls(r, patches), patches, vars[10])
 end
 function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{1}, pose)
     varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the pose is free (varflags = $varflags)"))
@@ -665,7 +665,7 @@ end
 
 # The problem rebuilt at the solved variables of `p` (the camera of its patches, its
 # poses), keeping its λ; `at` names that point.
-function _rebuilt(p, solved::AbstractVector, cam::CameraModel, views, penalty, offset, at::AbstractString)
+function _rebuilt_problem(p, solved::AbstractVector, cam::CameraModel, views, penalty, offset, at::AbstractString)
     b = cam.lens.backward
     est = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, _patch_controls(b, p, solved)); present = cam.lens.present))
     return _spline_problem(est, _solved_poses(p, solved), views, true, penalty, offset; λ = p.λ, at)
@@ -698,7 +698,7 @@ function _spline_rounds(p, isfree::Bool, back::CameraModel, views, penalty, offs
         settled = true
         (isfree && !timed_out) || return (; p, solved, result, rounds, settled, iterations, timed_out, cost_start, next = p)
         q = try
-            _rebuilt(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
+            _rebuilt_problem(p, solved::_SplineVars, back, views, penalty, offset, "at the estimate of rebuild round $rounds")
         catch e
             e isa _NotProjected ? throw(_NotProjected(e.msg, e.iterations + iterations)) : rethrow()
         end
@@ -769,7 +769,7 @@ function _gcv_search(p, λ₁::Float64, back::CameraModel, views, offset, max_it
     evaluated = [(; β = λ / λ₁, λ, gcv) for (λ, gcv) in sort(unique(seen))]
     st₀.timed_out && return st₀, evaluated, found.at_bracket_end, found.β, found.dof
     start = try
-        _rebuilt(_with_λ(st₀.p, found.λ), _moved_along(st₀.p, st₀.solved::_SplineVars, curve(found.λ).y), back, views, found.β, offset,
+        _rebuilt_problem(_with_λ(st₀.p, found.λ), _moved_along(st₀.p, st₀.solved::_SplineVars, curve(found.λ).y), back, views, found.β, offset,
             "at the Gauss–Newton step to the GCV weight")
     catch e
         e isa _NotProjected || rethrow()
@@ -842,7 +842,7 @@ function _refine_spline_camera_and_poses(
             iterations += r₀.niterations
             timed_out |= _timed_out(r₀)
             p = timed_out ? _spline_problem(back, pre[1].poses, views, true, w, offset) :
-                _rebuilt(p₀, s₀, back, views, w, offset, "at the estimate of the directions-first stage")
+                _rebuilt_problem(p₀, s₀, back, views, w, offset, "at the estimate of the directions-first stage")
         end
     else
         p = _spline_problem(back, poses, views, isfree, w, offset)
@@ -889,7 +889,7 @@ function _refine_spline_camera_and_poses(
         out_camera, fcode, forward_max_px = _refit_forward(out_camera, forward_tolerance)
         fcode === :converged || code !== :converged || (code = fcode)
     end
-    out = [relabel(_frames(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
+    out = [relabel(_frame_labels(p0)..., _plain_pose(ch)) for (p0, ch) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
     spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,

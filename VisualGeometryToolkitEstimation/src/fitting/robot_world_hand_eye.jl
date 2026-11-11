@@ -81,15 +81,15 @@ function RobotWorldHandEyeCalibration(Y::PlainEuclideanMap{3}, X::AbstractDict{K
     )
 end
 RobotWorldHandEyeCalibration(Y::_PhysicalPose3, X::AbstractDict{K, <:_PhysicalPose3}) where {K} =
-    _in_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(_plain_metres(T))) for (id, T) in X)))
+    _attach_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(_plain_metres(T))) for (id, T) in X)))
 
 # A calibration's two forms, through its poses: the plain one in metres, and a
 # plain one read as metres (the boundary of `fit_`/`refine_robot_world_hand_eye`).
 _plain_metres(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K} =
     RobotWorldHandEyeCalibration{K, Rigid3}(_plain_metres(cal.Y), Dict{K, Rigid3}(id => _plain_metres(T) for (id, T) in cal.X), cal.ids)
-function _in_metres(cal::RobotWorldHandEyeCalibration{K, Rigid3}) where {K}
-    Y = _in_metres(cal.Y)
-    return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _in_metres(T) for (id, T) in cal.X), cal.ids)
+function _attach_metres(cal::RobotWorldHandEyeCalibration{K, Rigid3}) where {K}
+    Y = _attach_metres(cal.Y)
+    return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _attach_metres(T) for (id, T) in cal.X), cal.ids)
 end
 
 # The calibration's chart: VGC's product of `RigidExpManifold6` blocks
@@ -517,7 +517,7 @@ function fit_robot_world_hand_eye(
     ) where {K}
     plain = Dict(id => _map_csponds(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
         AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
-    return _in_metres(fit_robot_world_hand_eye(plain; σ_trans = _metres(σ_trans), kwargs...))
+    return _attach_metres(fit_robot_world_hand_eye(plain; σ_trans = _metres(σ_trans), kwargs...))
 end
 
 # The report at the staged estimate, in its chart `P` (a function barrier: P's

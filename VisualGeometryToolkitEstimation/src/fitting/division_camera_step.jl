@@ -547,7 +547,7 @@ function _division_camera_solve(
     # (board, rotation, t₁₂, whether it carries the previous iteration's pose)
     chosen = Tuple{Int, SMatrix{3, 3, Float64, 9}, SVector{2, Float64}, Bool}[]
     for i in 1:nb
-        Pn = Dm ∘ _radial_camera(Hs[i]) ∘ Sinv                      # the radial camera, normalized
+        Pn = Dm ∘ _as_radial_camera(Hs[i]) ∘ Sinv                      # the radial camera, normalized
         cands = _radial_pose_candidates(Pn)
         # The branch is a property of the radial camera alone: the candidate
         # solves are plain, unweighted rows, so a board the previous iteration placed
@@ -744,8 +744,8 @@ _model_center(::HomographyMat) = Point2(0.0, 0.0)
 # The ONE lift of an input to its radial camera (rows 1–2 of a homography about
 # its origin centre, VGC's `RadialCamera(H)`), so every map the solve composes
 # is a camera, never a bare matrix.
-_radial_camera(H::HomographyMat) = RadialCamera(H)
-_radial_camera(P::RadialCamera) = P
+_as_radial_camera(H::HomographyMat) = RadialCamera(H)
+_as_radial_camera(P::RadialCamera) = P
 
 # The stack's shared centre. One focal length implies one pencil, so every
 # model must agree on the centre.
@@ -984,7 +984,7 @@ _rescaled_coeffs(k, s) = [rescale_radial_coeff(k[p], s, p) for p in eachindex(k)
 # plane-side scales (σ, S).
 function _check_division_normalization(N::CspondNormalization, c)
     Dm, Sm = destination_map(N), source_map(N)
-    σ = _isotropic_scale(Dm, "image")
+    σ = _normalization_scale(Dm, "image")
     oc = Dm(SVector{2, Float64}(c[1], c[2]))
     abs(oc[1]) + abs(oc[2]) <= 1.0e-9 || throw(
         ArgumentError(
@@ -992,13 +992,13 @@ function _check_division_normalization(N::CspondNormalization, c)
                 "$(Tuple(c)) — build it with CspondNormalization(DivisionCameraState, views; center)"
         )
     )
-    return σ, _isotropic_scale(Sm, "plane")
+    return σ, _normalization_scale(Sm, "plane")
 end
 
 # A normalization side's scale: VGC's `similarity_scale` (the one isotropy test,
 # to rounding), and no rotation or reflection — the poses (the origin shift above)
 # and the lift are read off the normalized axes, which must be the data's.
-function _isotropic_scale(m, side::AbstractString)
+function _normalization_scale(m, side::AbstractString)
     σ = try
         similarity_scale(m)
     catch e

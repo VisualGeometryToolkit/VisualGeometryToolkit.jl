@@ -284,7 +284,7 @@ function refine_camera_and_poses(
         camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_csponds(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = Dict(k => _in_metres(p) for (k, p) in est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    return _camera_poses_result((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
@@ -292,7 +292,7 @@ function refine_camera_and_poses(
     )
     r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = map(_in_metres, est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    return _camera_poses_result((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
 end
 
 _camera_poses_result(est, code, iters, rms, n, meta) = FitResult(est, code, iters, rms, n, meta)
@@ -379,10 +379,10 @@ function _refine_camera_and_poses(
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     S = sum(abs2, r)
     ν = 2n - p
-    out = [relabel(_frames(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
+    out = [relabel(_frame_labels(p0)..., EuclideanMap(RotMatrix{3, Float64}(rotation(model(ch))), SVector{3, Float64}(translation(model(ch))))) for (p0, ch) in zip(poses, poses_out)]
     camera_out = camera_out === camera ? bounded : bounded isa BoundedCamera ? VgtkCore.with_model(bounded, camera_out) : camera_out
     return (; camera = camera_out, poses = out), code, result.niterations, sqrt(S / n), n, CameraPosesRefineMetadata(r, S / ν, ν, free, nothing)
 end
 
 # The frame labels of a pose, to put back on the refined one.
-_frames(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)
+_frame_labels(::EuclideanMap{3, T, R, V, S, D}) where {T, R, V, S, D} = (S, D)

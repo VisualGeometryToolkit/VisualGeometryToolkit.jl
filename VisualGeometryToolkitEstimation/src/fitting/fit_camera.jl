@@ -224,7 +224,7 @@ function fit_camera(
     sw = sqrt.(w)
     wsum = sum(w)
 
-    P = _regression_manifold(_target_manifold(L))
+    P = _regression_manifold(_lens_family_manifold(L))
     lm = _LensRegressionLm(P, L <: LiftLens, θs, rA, sw)
     p, code, iters = _regress_lens(lm, length(θs), Val(tangent_size(P)), max_iter)
 
@@ -372,7 +372,7 @@ _decentering(l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) - s
 # as the family's manifold (`LensManifold`, Dual-safe) restricted to them.
 _target_anchor(::Type{L}) where {L} = zero(L)
 _target_anchor(::Type{L}) where {L <: Lens{<:DoubleSphere}} = (z = zero(L); Lens(DoubleSphere(0.5, 0.5), z.distortion))
-function _target_manifold(::Type{L}) where {L <: AbstractLensModel}
+function _lens_family_manifold(::Type{L}) where {L <: AbstractLensModel}
     a = _target_anchor(L)
     ch = LensManifold(a)
     a isa LiftLens && return ch

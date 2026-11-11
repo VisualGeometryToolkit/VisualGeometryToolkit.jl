@@ -100,7 +100,7 @@ function find_hand_eye(
         threshold = nothing, char_length = nothing, kwargs...
     )
     plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
-    return _in_metres(find_hand_eye(plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
+    return _attach_metres(find_hand_eye(plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
 end
 
 """
@@ -141,5 +141,5 @@ function refine_hand_eye(
         threshold = nothing, char_length = nothing, kwargs...
     )
     plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
-    return _in_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
+    return _attach_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
 end

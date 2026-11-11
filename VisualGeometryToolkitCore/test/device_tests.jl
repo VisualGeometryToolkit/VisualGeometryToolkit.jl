@@ -95,3 +95,16 @@ end
         @test length(device_names()) == length(CUDA.devices())
     end
 end
+
+@testitem "device_zeros: a zero array on a backend (host)" begin
+    # KernelAbstractions' own `zeros` is not public, so a package cannot call it
+    # across the boundary; PanoramaStitching, Core's cgls and Features' spread
+    # each wrote `fill!(KA.allocate(dev, T, dims...), zero(T))`. One copy, here.
+    using Test
+    using VisualGeometryToolkitCore: device_zeros
+    import KernelAbstractions as KA
+    z = device_zeros(Float32, KA.CPU(), 3, 2)
+    @test z isa Matrix{Float32} && size(z) == (3, 2) && all(iszero, z)
+    @test device_zeros(UInt64, KA.CPU(), 0) == UInt64[]
+    @test device_zeros(Float64, KA.CPU(), (2, 2)) == zeros(2, 2)
+end

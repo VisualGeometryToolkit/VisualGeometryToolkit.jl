@@ -132,7 +132,7 @@ function _ssc_cover!(b::_SSCBuffers, dev, width::Real, cols::Int, rows::Int)
     reach = floor(Int, width / c)
     ncell = (ncols + 1) * (nrows + 1)
     if length(b.best) < ncell                  # a narrower square than any before: a larger grid, empty
-        b.best = KA.zeros(dev, UInt64, ncell)
+        b.best = device_zeros(UInt64, dev, ncell)
         b.first = KA.allocate(dev, Int32, ncell); fill!(b.first, _SSC_NO_POINT)
     end
     # each launch through `_launch!` (foerstner.jl), completed before the next: behind its untyped barrier the
@@ -171,7 +171,7 @@ function _ssc_select(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}, score
     kmin = round(Int, K - K * t, RoundNearestTiesAway); kmax = round(Int, K + K * t, RoundNearestTiesAway)
     b = _SSCBuffers(on_device(Float64, dev, x), on_device(Float64, dev, y), on_device(UInt64, dev, _ssc_key.(scores)),
                     KA.allocate(dev, Int32, M), KA.allocate(dev, UInt8, M), KA.allocate(dev, UInt8, M),
-                    KA.allocate(dev, Int32, 1), KA.allocate(dev, Int32, 1), KA.zeros(dev, UInt64, 0), KA.allocate(dev, Int32, 0))
+                    KA.allocate(dev, Int32, 1), KA.allocate(dev, Int32, 1), device_zeros(UInt64, dev, 0), KA.allocate(dev, Int32, 0))
     # the reference's search over integer widths; the coverings either side of the band are kept
     prev = -1
     more = less = nothing                       # (width, states) of the widest covering above the band, the narrowest below

@@ -163,6 +163,17 @@ the caller's array kind is `on_device(get_backend(input), result)`.
 on_device(::Type{T}, dev, A::AbstractArray) where {T} = get_backend(A) == dev && eltype(A) === T ? A : ka_upload(T, dev, A)
 on_device(dev, A::AbstractArray) = on_device(eltype(A), dev, A)
 
+"""
+    device_zeros(T, device, dims...) -> array
+
+A zero array of element type `T` and size `dims` on the KernelAbstractions
+backend `device` (an `Array` on `KA.CPU()`), as [`ka_upload`](@ref) puts one
+there: the stack's one spelling of it (KernelAbstractions' own `zeros` is not
+public).
+"""
+device_zeros(::Type{T}, dev, dims::Integer...) where {T} = fill!(KA.allocate(dev, T, dims...), zero(T))
+device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_zeros(T, dev, dims...)
+
 
 # =============================================================================
 # One row driver for every per-correspondence KernelAbstractions fill

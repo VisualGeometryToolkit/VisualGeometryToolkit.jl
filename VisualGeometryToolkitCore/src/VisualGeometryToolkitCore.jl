@@ -119,6 +119,7 @@ export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
 public device_free_bytes, reclaim_device!, device_names   # the accelerator's memory and devices, the extension's queries (base/device.jl)
 export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
+public device_zeros   # a zero array on a backend (base/device.jl; KernelAbstractions' `zeros` is not public)
 
 # Uncertainty types and accessors
 export Uncertain, PrecMat, CovMat

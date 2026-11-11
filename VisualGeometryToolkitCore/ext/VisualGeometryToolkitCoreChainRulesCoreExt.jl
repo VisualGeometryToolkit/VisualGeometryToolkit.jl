@@ -14,7 +14,7 @@ module VisualGeometryToolkitCoreChainRulesCoreExt
 
 using ChainRulesCore: ChainRulesCore, NoTangent, @non_differentiable
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: bspline_basis_iterative, evaluate_bspline_surface,
+using VisualGeometryToolkitCore: device_zeros, bspline_basis_iterative, evaluate_bspline_surface,
     bspline_surface_partial, evaluate_bspline_4d, bspline_4d_partial,
     contract_basis_4d_weighted
 using KernelAbstractions: KernelAbstractions, get_backend
@@ -63,7 +63,7 @@ function ChainRulesCore.rrule(::typeof(evaluate_bspline_surface), u::AbstractArr
         n_u = size(N_u, 1)
         n_v = size(N_v, 1)
 
-        grads = KernelAbstractions.zeros(get_backend(u), Float32, n_u * n_v, length(u))
+        grads = device_zeros(Float32, get_backend(u), n_u * n_v, length(u))
         for i in 1:n_u
             for j in 1:n_v
                 grads[(j - 1) * n_u + i, :] = N_u[i] .* N_v[j]

@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `device_zeros(T, device, dims...)`** (public, not exported; base/device.jl beside `ka_upload`): a zero array of
+  element type `T` on a KernelAbstractions backend, the stack's one spelling of it (KernelAbstractions' own `zeros` is
+  not public, so ExplicitImports refuses it across a package boundary). PanoramaStitching's vignetting fit wrote it as
+  `_device_zeros`; this package's cgls, B-spline evaluation and ChainRulesCore extension, and
+  VisualGeometryToolkitFeatures' spread selection call it instead of `KernelAbstractions.zeros`.
+
 - **Tests: the LO kernel benches' scene is the bench record's `essential_bench_scene(rng; n = 1000) -> (; u₁, u₂, K, R,
   t)`** (test/lo_timing/bench_record.jl, which every timing bench includes from `pkgdir(VisualGeometryToolkitCore)`):
   the seeded 1000-point pinhole E scene with 30 % outliers that this package's lo_timing bench and

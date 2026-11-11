@@ -153,7 +153,7 @@ function evaluate_bspline_surface(u::AbstractArray{Float32}, v::AbstractArray{Fl
 
     N_v = bspline_basis_iterative(v, degree_v, knots_v)
 
-    result = KernelAbstractions.zeros(get_backend(u), Float32, size(u)...)
+    result = device_zeros(Float32, get_backend(u), size(u)...)
 
 
     for i in 1:n_u
@@ -209,7 +209,7 @@ function _basis_pair_matrix(Na::Vector{<:AbstractArray{Float32}}, Nb::Vector{<:A
     na = length(Na)
     nb = length(Nb)
     N = length(Na[1])
-    M = KernelAbstractions.zeros(get_backend(Na[1]), Float32, N, na * nb)
+    M = device_zeros(Float32, get_backend(Na[1]), N, na * nb)
     for j in 1:nb, i in 1:na
         M[:, (j - 1) * na + i] = vec(Na[i] .* Nb[j])
     end

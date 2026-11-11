@@ -170,9 +170,10 @@ function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
     return d
 end
 # A host array whose elements are a dense array's memory in column-major order, with no gap: a strided wrapper (Base's
-# StridedArray: a reinterpret, a reshape, a view, of a dense array) on the host whose strides are the dense ones.
+# StridedArray: a reinterpret, a reshape, a view, of a dense array) whose memory is host memory (a `Ptr`; a device
+# array's is its own pointer type) and whose strides are the dense ones.
 _host_contiguous(A::StridedArray) =
-    get_backend(A) isa KA.CPU && isbitstype(eltype(A)) && strides(A) == Base.size_to_strides(1, size(A)...)
+    isbitstype(eltype(A)) && pointer(A) isa Ptr && strides(A) == Base.size_to_strides(1, size(A)...)
 _host_contiguous(::AbstractArray) = false
 
 # An integer image (UInt8, UInt16, a FixedPointNumbers `Normed`, any integer or fixed-point eltype narrower than the

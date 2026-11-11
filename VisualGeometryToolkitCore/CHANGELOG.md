@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
+  no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
+  in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are
+  unchanged bit for bit; a model with no device form now fails on an accelerator as every `pointwise!` kernel's does,
+  instead of running as a host map there.
+
 - **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
   block views (a residual block of a run-time size assembled without a per-block allocation).
 

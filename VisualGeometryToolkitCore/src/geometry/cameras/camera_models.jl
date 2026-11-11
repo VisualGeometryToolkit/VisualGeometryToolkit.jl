@@ -368,7 +368,7 @@ KernelAbstractions backend `device` ([`default_device`](@ref)`()` by default: an
 accelerator when one is functional, else `KA.CPU()`): the scalar map per pixel,
 one [`pointwise!`](@ref) over a device copy of the model and the pixels, each ray
 an `SVector{3}`, the result back in the pixels' array kind — bit for bit the
-scalar value on the CPU. A model with no device form (neither isbits nor adapted) runs as a host map.
+scalar value on the CPU. One kernel on every backend: the model goes in its device form (isbits, or its adapt rule); a model with neither fails on an accelerator.
 A SplineLens camera's batched `backproject` is its own kernel (spline_lens.jl).
 """
 backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
@@ -391,8 +391,10 @@ function _batched_backprojection(f::F, model::CameraModel, points::AbstractVecto
     g = _BatchedBackprojection(f, model)
     R = Base.promote_op(g, eltype(pts))
     dg = Adapt.adapt(device, g)
-    # a kernel needs a concrete datum, and on an accelerator a model that is isbits or has a device form (its adapt rule)
-    (isconcretetype(R) && (device isa KA.CPU || isbits(model) || dg.model !== model)) || return map(g, pts)
+    # ONE kernel on every backend (the one-kernel rule): the model in its device form (`Adapt`, the identity on the
+    # CPU), the datum concrete — a datum the compiler cannot type (an abstract `R`) is no device array's eltype and is
+    # the scalar map's; a model with no device form fails on an accelerator as every `pointwise!` kernel's does
+    isconcretetype(R) || return map(g, pts)
     out = KA.allocate(device, R, length(pts))
     isempty(pts) || (pointwise!(dg, out, on_device(device, pts)); KA.synchronize(device))
     return on_device(get_backend(points), out)

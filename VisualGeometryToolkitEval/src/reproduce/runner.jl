@@ -1001,6 +1001,9 @@ trap '_vgtk_signal=TERM; kill -TERM "$_vgtk_child" 2>/dev/null' TERM
 @@TRAPS@@
 wait "$_vgtk_child"; _vgtk_rc=$?
 while kill -0 "$_vgtk_child" 2>/dev/null; do wait "$_vgtk_child"; _vgtk_rc=$?; done
+# a trap interrupts wait (status 128 + the signal's number): when the stage exited before the loop looked again, its
+# own status is still to be collected (127: none left to collect, the status above is the stage's)
+wait "$_vgtk_child" 2>/dev/null; _vgtk_r=$?; [ "$_vgtk_r" -eq 127 ] || _vgtk_rc=$_vgtk_r
 if [ "$_vgtk_rc" -eq 0 ] && [ -z "$_vgtk_signal" ]; then
   _vgtk_marker completed 0 "$_vgtk_forwarded"
 else

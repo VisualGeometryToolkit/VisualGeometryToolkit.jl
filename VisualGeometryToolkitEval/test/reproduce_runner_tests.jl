@@ -347,7 +347,7 @@ end
         @test length(lines) == 4
         @test startswith(lines[1], "101 --parsable --partition=gpu --gres=gpu:1") && endswith(lines[1], "$(wrapper("setup")) EXP= CASES=")
         @test startswith(lines[2], "102 --parsable --dependency=afterok:101 ") && occursin("EXP=chrome", lines[2])
-        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 $(wrapper("chrome"))", lines[3]) &&
+        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 --job-name=paper-chrome $(wrapper("chrome"))", lines[3]) &&
               endswith(lines[3], "CASES=alpha,mid,zeta")
         @test startswith(lines[4], "104 --parsable --dependency=afterok:103 ")
         # the wrapper: the launcher's #SBATCH directives first, then a copy of the launcher as submitted
@@ -572,7 +572,7 @@ end
         while !isfile(joinpath(dir, "started")) && time() - t0 < 30
             sleep(0.1)
         end
-        kill(proc, Base.SIGUSR1); wait(proc)
+        run(`kill -USR1 $(getpid(proc))`); wait(proc)
         @test proc.exitcode == 0 && isfile(joinpath(dir, "got_usr1"))
         mk = get(stage_markers(dir), 0, Dict{String, Any}())
         @test get(mk, "state", "") == "completed" && get(mk, "signal", "") == "USR1"

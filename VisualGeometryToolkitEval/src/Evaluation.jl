@@ -106,7 +106,7 @@ export
     # live.jl
     live_runs, live_row,
     # arms.jl
-    ComposedSpec, SoloSpec, Roster, WidthSource, TunedWidth, SelectionWidth, is_tuned, operating_width,
+    ComposedSpec, SoloSpec, Roster, WidthSource, TunedWidth, SelectionWidth, is_tuned, operating_width, tuned_width,
     width_delivery, solo_refit_imc!, miscal_evaluation_refit, deployed_budget_settings,
     deployed_arm_settings, deployed_basin_settings, audit_operating_points,
     # selection_stream.jl

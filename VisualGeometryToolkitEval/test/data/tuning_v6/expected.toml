@@ -1,0 +1,18 @@
+tuning_hash = "b10acb4cc6425f70"
+written_by = "VisualGeometryToolkit.jl robust-core 3eabba46 (tuning format 6)"
+
+[arms."HW +Welsch(m)"]
+plain = 2.15
+stored = 2.15
+
+[arms."HW +GM(m)"]
+plain = 3.3406140441645795
+stored = 2.15
+
+[arms."HW +Cauchy(m)"]
+plain = 2.15
+stored = 2.15
+
+[arms."HW +Irls(m)"]
+plain = 2.15
+stored = 2.15

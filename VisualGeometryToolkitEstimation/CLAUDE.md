@@ -180,7 +180,8 @@ Include order in `src/VisualGeometryToolkitEstimation.jl` is dependency-aware:
    the per-problem chart/residual helpers)
 5. **fitting/*.jl** — _pipeline, then the pipelines and
    fits (depend on the RANSAC problems); `division_camera_step.jl` precedes
-   `fit_division_camera.jl`, `robot_world_hand_eye.jl` precedes `refine_robot_world_hand_eye.jl`
+   `fit_division_camera.jl`, which follows `residual_mixture.jl` (its `MixtureEmConfig`),
+   `robot_world_hand_eye.jl` precedes `refine_robot_world_hand_eye.jl`
 6. **config_toml.jl** — LAST: its loaders and writer dispatch on every config-carrying type
 
 `scoring_glue.jl` loads before the problem files. Problem-specific

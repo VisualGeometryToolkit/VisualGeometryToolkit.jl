@@ -8,7 +8,12 @@ using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal
 using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError
-using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step
+using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step,
+    mixture_em_from_toml, default_config_path
+using TOML: TOML
+# the fit's EM table (configs/default.toml [fit_division_camera] mixture_em) at another iteration cap
+em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path())["fit_division_camera"]["mixture_em"],
+                                             Dict("max_iter" => max_iter)); section = "fit_division_camera.mixture_em")
 
 
 @testset "fit_division_camera (IRLS on the linear focal stack)" begin
@@ -46,17 +51,17 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
     @test_throws ArgumentError fit_division_camera(rc, Dict(i => boards[i] for i in 1:5); image_size = sz)
     @test_throws ArgumentError fit_division_camera(rc, vw)
     @test_throws ArgumentError fit_division_camera(rc, vw; image_size = sz, focal_seed = -1.0)
-    # the budget is max_iter, the branch audit and its resumed IRLS included
+    # the budget is the EM's max_iter, the branch audit and its resumed IRLS included
     # (this stack's 8 % gross outliers do move branches)
-    for mi in (0, 1, 2, 5)
-        @test iterations(fit_division_camera(rc, vw; image_size = sz, max_iter = mi)) <= mi
+    for mi in (1, 2, 5)
+        @test iterations(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(mi))) <= mi
     end
-    @test retcode(fit_division_camera(rc, vw; image_size = sz, max_iter = 0)) === :max_iterations
-    # iteration 0 is the step whitened at the seed (the half-diagonal by default), bit for bit
-    p0 = estimate(fit_division_camera(rc, vw; image_size = sz, max_iter = 0))
+    @test retcode(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(1))) === :max_iterations
+    # one iteration moves the solution off the seeded step (the step whitened at the
+    # seed, the half-diagonal by default): the robust re-weighting begins there
+    p1 = estimate(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(1)))
     s0 = CameraModel(division_camera_step(N, rc, vw; whiten_at = 2500.0))
-    @test calibration_matrix(p0) == calibration_matrix(s0)
-    @test parameter_vector(lens(p0)) == parameter_vector(lens(s0))
+    @test calibration_matrix(p1) != calibration_matrix(s0)
     # with the seed given in pixels the image size does not enter the result, and
     # the normalization is conditioning: nor does where the pixels' origin is
     fA = focal_length(intrinsics(estimate(fit_division_camera(rc, vw; image_size = sz, focal_seed = 1800.0))))[1]

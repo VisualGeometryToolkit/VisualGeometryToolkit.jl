@@ -43,21 +43,18 @@ function arm(p, sc, model::M, lo::VgtkEstimation.Irls) where {M}
     return state, lh, VgtkEstimation.PosteriorIrlsMethod(ws.lo_ws.refine), p, model, lo.max_iter
 end
 
-# The division-camera IRLS, set up as `fit_division_camera` sets it up.
+# The division-camera IRLS, set up as `fit_division_camera` sets it up: the shared
+# posterior-weight iteration under its table's scorer and EM (`_division_irls`).
 function division_arm()
     cams = [board_camera(RotXYZ(a...), t) for (a, t) in zip(BOARD_ANGLES, BOARD_TS)]
     boards, _ = noisy_board_views(StableRNG(3), cams; σ = 0.4, ε = 0.08)
     ids, Hs, bs = VgtkEstimation._keyed_views(Dict(enumerate(VgtkEstimation.RadialCamera.(cams))), Dict(enumerate(boards)))
     prior = VgtkEstimation._point_weights(bs)
     N = VgtkEstimation._division_normalization(bs, VgtkEstimation._shared_center(Hs), prior)
-    state0 = VgtkEstimation._division_camera_step(N, Hs, bs; ncoef = 1, k = nothing, point_weights = prior,
-                                     whiten_at = 2500.0)
-    n = sum(length, bs)
-    rws = VgtkEstimation.median_seeded_posterior(VgtkEstimation._focal_sq!(Vector{Float64}(undef, n), state0), n;
-                                    outlier_halfwidth = 50.0, codimension = 2)
-    method = VgtkEstimation.DivisionCameraIrls(Hs, bs, prior, 1, nothing, N, false)
-    return VgtkEstimation.DivisionCameraIrlsState(state0, rws, n, Inf, 0), VgtkEstimation.PosteriorLikelihood(rws, n), method,
-        nothing, state0, 40
+    problem = VgtkEstimation.DivisionCameraProblem(Hs, bs, prior, 1, nothing, N, sum(length, bs), false)
+    state, lh, method, state0 = VgtkEstimation._division_irls(problem, VgtkEstimation._division_scoring_default(),
+                                                              VgtkEstimation._division_mixture_em_default(), 2500.0)
+    return state, lh, method, problem, state0, 40
 end
 
 # The KeepModel EM of `fit_residual_mixture`, its posterior seeded at the

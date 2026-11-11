@@ -33,12 +33,39 @@ const _DECODED_OUTPUT = r"(?i)linear|decoded|prepared|bin2|green|raw_|_raw\b"
 const _RAW_CODE_EXTENSIONS = (".jl", ".py", ".sh", ".sbatch", ".toml", ".yml", ".yaml")
 
 # The approved display path in every repository: the Features API asked for its display
-# mode, `load_raw(…; mode = :<display>)` or `LinearRaw(…; mode = :<display>)`. On a line
-# that calls either, that mode keyword is the API's, not a decoding path: it is taken out
-# before the line is matched (anything else on the line is still matched).
+# mode, `load_raw(…; mode = :<display>)` or `LinearRaw(…; mode = :<display>)`. Inside such a
+# call's own parentheses (over as many lines as it spans) that mode keyword is the API's,
+# not a decoding path: it is blanked before the lines are matched, its newlines kept.
+# Everything else, on the call's lines or outside its parentheses, is still matched.
 const _FEATURES_RAW_CALL = r"\b(load_raw|LinearRaw)\s*\("
 const _DISPLAY_MODE = Regex("\\bmode\\s*=\\s*:" * _DEMOSAIC * "\\b")
-_without_display_call(line) = occursin(_FEATURES_RAW_CALL, line) ? replace(line, _DISPLAY_MODE => "") : line
+
+# The byte index of the parenthesis closing the one at `open` (the text's end when unclosed).
+function _closing_paren(bytes, open)
+    depth = 0
+    for i in open:length(bytes)
+        bytes[i] == UInt8('(') && (depth += 1)
+        bytes[i] == UInt8(')') && (depth -= 1; depth == 0 && return i)
+    end
+    return length(bytes)
+end
+
+function _without_display_calls(lines)
+    text = join(lines, '\n')
+    bytes = codeunits(text)
+    out = IOBuffer()
+    pos = 1                                              # the next byte not yet written
+    for m in eachmatch(_FEATURES_RAW_CALL, text)
+        open = m.offset + ncodeunits(m.match) - 1        # the call's `(`: ASCII, a valid index
+        open < pos && continue                           # inside a call already blanked
+        close = _closing_paren(bytes, open)
+        write(out, view(bytes, pos:(open - 1)))
+        print(out, replace(String(bytes[open:close]), _DISPLAY_MODE => d -> replace(d, r"[^\n]" => "")))
+        pos = close + 1
+    end
+    write(out, view(bytes, pos:length(bytes)))
+    return split(String(take!(out)), '\n')
+end
 
 # A repository's genuine exception: a relative path, or a pattern over relative paths.
 _allowed(f, a::AbstractString) = f == a
@@ -88,6 +115,7 @@ function _hash_code_lines(src::AbstractString)
 end
 
 function check_raw_decoding(dir::AbstractString; allow = ())
+    allow isa Union{AbstractString, Regex} && (allow = (allow,))   # one exception, given bare
     (; files) = naming_scope(dir)
     # (`_package_name` is check_naming's reader of the Project.toml name)
     allowed = _package_name(dir) == _RAW_MODULE_PACKAGE ? Set(_RAW_MODULE_FILES) : Set{String}()
@@ -97,8 +125,7 @@ function check_raw_decoding(dir::AbstractString; allow = ())
         (f in allowed || any(a -> _allowed(f, a), allow)) && continue
         src = read(joinpath(dir, f), String)
         lines = endswith(f, ".jl") ? _julia_code_lines(src) : _hash_code_lines(src)
-        for (n, code) in enumerate(lines)
-            line = _without_display_call(code)
+        for (n, (code, line)) in enumerate(zip(lines, _without_display_calls(lines)))
             for (use, re) in _RAW_DECODING_USES
                 occursin(re, line) && push!(out, RawDecodingViolation(f, n, strip(code), use))
             end

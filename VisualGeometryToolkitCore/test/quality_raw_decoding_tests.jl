@@ -54,6 +54,11 @@
     @test isempty(findings("src/fig.jl" => "L = LinearRaw(m; mode = :$dm)\n"))
     @test uses("src/fig.jl" => "rgb = $(dm)(mosaic)\n") == [:demosaic]
     @test uses("src/fig.jl" => "img = my_decode(f; mode = :$dm)\n") == [:demosaic]
+    # the display mode is the API's only inside the call's own parentheses: on the same line
+    # outside them it is flagged, and a call spread over lines keeps its exemption
+    @test uses("src/fig.jl" => "a = load_raw(f); b = my_decode(g; mode = :$dm)\n") == [:demosaic]
+    @test isempty(findings("src/fig.jl" => "img = load_raw(f;\n    white_balance = wb,\n    mode = :$dm,\n).image\n"))
+    @test uses("src/fig.jl" => "img = load_raw(f;\n    mode = :green_cells)\nb = my_decode(g;\n    mode = :$dm)\n") == [:demosaic]
     # a conda environment file is code too
     @test uses("environment.yml" => "dependencies:\n  - $rp>=0.25\n") == [:rawpy]
     # a repository's genuine exception (rare): a path, or a pattern over paths
@@ -61,7 +66,8 @@
     @test uses(vendored) == [:rawpy]
     @test isempty(mktempdir() do dir
         mkpath(joinpath(dir, "scripts", "legacy")); write(joinpath(dir, first(vendored)), last(vendored))
-        (check_raw_decoding(dir; allow = ["scripts/legacy/a.py"]), check_raw_decoding(dir; allow = [r"^scripts/legacy/"]))
+        (check_raw_decoding(dir; allow = ["scripts/legacy/a.py"]), check_raw_decoding(dir; allow = [r"^scripts/legacy/"]),
+         check_raw_decoding(dir; allow = "scripts/legacy/a.py"), check_raw_decoding(dir; allow = r"^scripts/legacy/"))
     end |> x -> vcat(x...))
     # the raw module itself is the one place: allow-listed in VisualGeometryToolkitFeatures only
     mod = "src/raw_image.jl" => "f(h) = @ccall libraw.$(lr)dcraw_process(h::Ptr{Cvoid})::Cint  # $dm\n"

@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Fixed: `check_raw_decoding`'s display-mode exemption is the call's own.** `mode = :demosaic` is taken out only
+  inside a `load_raw(`/`LinearRaw(` call's parentheses, over every line the call spans: a call written over several lines
+  is no longer flagged, and a demosaic by another route on the same line as such a call no longer goes unflagged. `allow`
+  takes one exception given bare (a path or a Regex) as well as a collection.
 - **Fixed: a SplineLens camera images its far edge.** The backward box is closed on both sides, `[min, max + 1]` per axis
   with the same rounding slack at both edges, so `backproject` is finite on the image's right and bottom edges (`x = W`,
   `y = H`) as on its left and top, where `valid_domain` already said it was; the non-central model shares the test.

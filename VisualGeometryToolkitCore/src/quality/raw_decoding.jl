@@ -51,10 +51,12 @@ when `dir` is that package's directory, so scan each package of a monorepo
 from its own directory (from the repository root they are flagged). The
 Features API asked for its display demosaic, `load_raw(…; mode = :demosaic)`
 or `LinearRaw(…; mode = :demosaic)`, is the approved display path in every
-repository and is not flagged; a demosaic by any other route is.
+repository and is not flagged: the mode keyword inside that call's own
+parentheses, over every line the call spans; a demosaic by any other route,
+on the same line or not, is.
 
 `allow` lists a repository's genuine exceptions, each a path relative to
-`dir` or a `Regex` over such paths. They should be rare: a file is allowed
+`dir` or a `Regex` over such paths (one exception may be given bare). They should be rare: a file is allowed
 only when it cannot go through the Features raw module (say, a third-party
 script kept verbatim), never as a way to keep a second decoding path.
 

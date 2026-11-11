@@ -385,26 +385,22 @@ as the optical axis — `undistort` and `undistort!` onto the gauge pinhole,
 `horizon_radius` and `monotone_radius`, `image_circle(camera, sensor, d)`,
 `view_overlap` — then throw an `ArgumentError` naming the off-axis gauge.
 """
-struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}, C} <: AbstractLensModel
+struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractLensModel
     backward::B
     forward::F
     present::P
-    chart::C   # the forward's chart (`_forward_chart`: about ẑ), formed here, never given; `nothing` without a forward
     function SplineLens{B, F, P}(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
         _check_present(present, size(backward.controls))
-        chart = _forward_chart(forward)
-        return SplineLens{B, F, P, typeof(chart)}(backward, forward, present, chart, Val(:unchecked))
+        return new{B, F, P}(backward, forward, present)
     end
-    # A value already validated (its device form): no check, as `ChartSpline`'s.
-    SplineLens{B, F, P, C}(backward::B, forward::F, present::P, chart::C, ::Val{:unchecked}) where {B, F, P, C} =
-        new{B, F, P, C}(backward, forward, present, chart)
+    # A value already validated (its device form, or a mask through `_present_mask`): no check, as `ChartSpline`'s.
+    SplineLens{B, F, P}(backward::B, forward::F, present::P, ::Val{:unchecked}) where {B, F, P} = new{B, F, P}(backward, forward, present)
 end
 SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = nothing, present = nothing) =
-    _spline_lens(backward, forward, _present_mask(present, size(backward.controls)))
+    _spline_lens(backward, forward, _present_mask(present, size(backward.controls)), Val(:unchecked))
 # The lens of its parts' own types: a function barrier over the mask, `nothing` or a `Matrix{Bool}`
-# (already through `_present_mask`).
-_spline_lens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
-    SplineLens{B, F, P}(backward, forward, present)
+# (checked, or already through `_present_mask` with `Val(:unchecked)`).
+_spline_lens(backward::B, forward::F, present::P, v::Val...) where {B, F, P} = SplineLens{B, F, P}(backward, forward, present, v...)
 
 # THE check of a spline camera's K — a SplineLens camera's and a
 # NoncentralSplineModel's, built or read: a gauge of skew 0 and positive focal
@@ -542,7 +538,7 @@ end
 # exact up to rounding of the area, a principal-point move included — the
 # K of a gauge lens is a choice of the normalized plane, not data. The
 # forward's output moves by the same affinity (its controls do: a B-spline's
-# weights sum to one), and its chart is about ẑ (`_forward_chart`), which no K
+# weights sum to one), and its chart is about ẑ (`forward_chart`), which no K
 # moves: every projection is kept too.
 function _regauge_lens(l::SplineLens, K, K′)
     s = SVector{2, Float64}(K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2])
@@ -556,12 +552,9 @@ function _regauge_lens(l::SplineLens, K, K′)
 end
 
 # The device form (`Adapt.adapt(backend, lens)`): the splines' controls and the
-# presence mask move, the (isbits) chart travels as it is, nothing is re-validated.
+# presence mask move, nothing is re-validated.
 Adapt.adapt_structure(to, l::SplineLens) =
-    _device_spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present), l.chart)
-# The lens of its device parts' own types (a function barrier, as `_spline_lens`), unchecked.
-_device_spline_lens(backward::B, forward::F, present::P, chart::C) where {B, F, P, C} =
-    SplineLens{B, F, P, C}(backward, forward, present, chart, Val(:unchecked))
+    _spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present), Val(:unchecked))
 Adapt.adapt_structure(to, m::CameraModel{<:AbstractIntrinsics, <:SplineLens}) = CameraModel(m.intrinsics, Adapt.adapt(to, m.lens))
 
 # The controls convert as they are (no re-normalization); the areas and the mask stay.
@@ -844,16 +837,18 @@ end
     return _spline_direction_and_jacobian(l.backward.controls, l.backward.area, x)
 end
 
-# The forward spline's chart, the equidistant chart about ẑ (`nothing` without a
-# forward): fixed in the camera frame, so no K moves it — a re-gauge
-# (`CameraModel(cam, K′)`) maps the forward's output by the normalized plane's
-# affinity and keeps every projection exactly. Formed once, when the lens is built
-# (its `chart` field). THE derivation: the lens's field and a fit of a forward
-# (VisualGeometryToolkitEstimation's `fit_camera`, the one-argument form) both read
-# it, so the chart a forward is fitted on is the chart `project` evaluates it on.
-_forward_chart(::Nothing) = nothing
-_forward_chart(::ChartSpline{2}) = _forward_chart()
-_forward_chart() = equidistant_chart(SVector(0.0, 0.0, 1.0))
+const _FORWARD_CHART = equidistant_chart(SVector(0.0, 0.0, 1.0))
+
+"""
+    forward_chart(SplineLens) -> chart
+
+The chart of every [`SplineLens`](@ref)'s forward spline: the equidistant chart
+about ẑ ([`equidistant_chart`](@ref)`(ẑ)`), fixed in the camera frame, so no `K`
+moves it (a re-gauge maps the forward's output by the normalized plane's
+affinity and keeps every projection exactly). THE one derivation: `project`
+evaluates a forward on it and a fit of a forward is made on it.
+"""
+forward_chart(::Type{SplineLens}) = _FORWARD_CHART
 
 # Where a lattice images ẑ: THE solve of ẑ through `controls` over `area` (from the
 # area's centre, the scale-free box) and whether it converged there — the gauge's
@@ -893,7 +888,7 @@ end
 @inline function _project_lens(l::SplineLens, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
     nan = SVector(NaN, NaN)
     if l.forward !== nothing
-        c = l.chart(X)
+        c = _FORWARD_CHART(X)
         _in_fitted_chart(l.forward, c) || return nan, false
         y = l.forward(c)
         x = SVector{2, Float64}(y[1], y[2])

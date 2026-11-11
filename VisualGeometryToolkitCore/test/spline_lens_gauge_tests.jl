@@ -297,16 +297,15 @@ end
     # area, so every projection and backprojection is the same, a principal-point move included
     fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
     cf = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd))
-    @test cf.lens.chart == VisualGeometryToolkitCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
     @test count(X -> all(isfinite, project(cf, X)), rays) > length(rays) ÷ 2
     for K′ in (Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3], K[2, 3]), moved)
         cf′ = CameraModel(cf, K′)
-        @test calibration_matrix(cf′) == K′ && cf′.lens.chart == cf.lens.chart
+        @test calibration_matrix(cf′) == K′
         @test all(X -> same(project(cf′, X), project(cf, X); tol = 1.0e-12), rays)
         @test all(u -> same(backproject(cf′, u), backproject(cf, u); tol = 1.0e-12), pixels)
         # its Float32 form keeps the forward: the same chart, the same imaged rays, the pixel to its precision
         c32 = VisualGeometryToolkitCore.convert_eltype(Float32, cf′)
-        @test c32.lens.chart == cf.lens.chart && c32.lens.forward isa ChartSpline
+        @test c32.lens.forward isa ChartSpline
         # (k = 4, as the Float32 project test's: measured worst 0.25·f·eps(Float32), f = 300)
         @test all(X -> same(project(c32, X), project(cf, X); tol = 4 * K[1, 1] * eps(Float32)), rays)
     end

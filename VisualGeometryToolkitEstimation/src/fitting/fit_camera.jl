@@ -1024,7 +1024,7 @@ end
 # and the camera's x ↦ u.
 function _chart_quadrature(cam, region, device)
     q = _image_quadrature(cam, region; device)
-    chart = VgtkCore.Cameras._forward_chart()   # THE chart `project` evaluates the forward on (Core's one derivation)
+    chart = VgtkCore.forward_chart(SplineLens)   # THE chart `project` evaluates the forward on (Core's one derivation)
     fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
     held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
     lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))

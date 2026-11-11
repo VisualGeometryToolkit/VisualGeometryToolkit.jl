@@ -219,7 +219,7 @@ end
     @testset "with a forward: the old fitted forward map, its chart about ẑ" begin
         @test norm(principal_ray(cam) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
         @test norm(principal_ray(cam_fwd) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12      # turned: K′'s principal point images ẑ
-        @test cam_fwd.lens.chart == equidistant_chart(SVector(0.0, 0.0, 1.0))
+        @test VisualGeometryToolkitCore.forward_chart(SplineLens) == equidistant_chart(SVector(0.0, 0.0, 1.0))
         @test masked_fwd.lens.forward === forward
         worst, same_nan = deviation(cam_fwd, rays64, S.project)
         @test same_nan
@@ -236,7 +236,7 @@ end
         c = SVector(o[1] + w[1] + 2hx, o[2] + w[2] / 2)
         θ = norm(c)
         X_out = SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))              # in the turned frame
-        @test norm(cam_fwd.lens.chart(X_out) - c) <= 1.0e-9
+        @test norm(VisualGeometryToolkitCore.forward_chart(SplineLens)(X_out) - c) <= 1.0e-9
         @test all(isnan, project(cam_fwd, X_out))
     end
 

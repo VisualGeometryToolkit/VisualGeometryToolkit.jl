@@ -562,7 +562,7 @@ end
     using VisualGeometryToolkitEstimation: fit_camera
     cam = estimate(fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3))
     q = VgtkEstimation._chart_quadrature(cam, REGION, default_device())
-    @test q.chart == lens(cam).chart == VgtkCore.Cameras._forward_chart() == VgtkCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
+    @test q.chart == VgtkCore.forward_chart(SplineLens) == VgtkCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
 end
 
 @testitem "fit_camera(SplineLens), fit_camera(NoncentralSplineModel): the source's batched rays on `device`" setup = [FitCameraFisheye] begin

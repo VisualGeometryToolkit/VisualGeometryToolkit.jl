@@ -373,6 +373,7 @@ public spline_lattice   # a SplineLens camera's layout from a camera (its lattic
 export ChartSpline   # a uniform cubic B-spline on a 2-D chart (a SplineLens's backward and forward maps)
 public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
+public forward_chart   # the chart of every SplineLens forward spline: equidistant_chart(ẑ)
 export with_model          # same camera/rig, new model (validated rebuild)
 # `ids(rig)` (0.9): the rig's view-identity symbols, READ FROM the labeled
 # extrinsics' frame parameters (single source of truth — no stored duplicate).

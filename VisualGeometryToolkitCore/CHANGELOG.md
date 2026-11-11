@@ -33,6 +33,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   this copy, and each re-resolve moves it to the newly resolved VisualGeometryToolkitCore's. One copy for the stack:
   the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
   BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
+- **Breaking: `SplineLens` has no `chart` field** (and so no fourth type parameter, `SplineLens{B, F, P}`). The
+  forward spline's chart is the same constant for every lens, the equidistant chart about ẑ; it is the new public
+  `forward_chart(SplineLens)`, which `project` evaluates a forward on and VisualGeometryToolkitEstimation's
+  `fit_camera` fits one on (it read Core's private `_forward_chart`). The public constructor checks the presence mask
+  once (it did twice).
 - **Breaking: `finite_linearization` is removed.** NLLSsolver 5.3.3 (#68, the floor) stops on a non-finite step or
   gradient at an accepted point itself; no block wraps its linearization. Its termination bit 12 is decoded
   (`nlls_stop_reasons`: `:nonfinite_gradient`; `nlls_stop_code`: a failed solve).

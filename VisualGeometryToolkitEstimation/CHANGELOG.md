@@ -28,6 +28,11 @@ non-central one is a `NoncentralSplineModel`).
   retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
   deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
   `currency migration` test item lists every one, the ports' included), so results are bit-identical.
+- **`fit_rotation_averaging(…; optimization_strategy = nothing)` is the plain least squares** (the owner's ruling,
+  "nothing = L2"): the Lie-algebra iterations from the seed at unit loss weights, at most `[fit_rotation_averaging]
+  max_iter` (new key, 100), retcode `:converged`/`:max_iterations`. It no longer returns the seed alone; the seed is
+  VisualGeometryToolkitCore's `spectral_rotation_averaging`. The other fits' `nothing` was already their least squares
+  (one closed-form weighted solve: linear least squares, Kabsch, the staged hand-eye solve).
 - **Breaking (behaviour): the reweighted fits take one FIXED scale** (the robust-estimation contract, B2).
   `fit_linear`, `fit_rotation` and `fit_rotation_averaging` keep their objective; their only robustness is
   `optimization_strategy = Irls{K}(…)` (was `local_optimization`; `nothing` is the plain least squares, a refine's
@@ -68,9 +73,10 @@ non-central one is a `NoncentralSplineModel`).
   threshold and scale are Mahalanobis (whitened units). Plain pixels are unit isotropic noise, bit for bit as before.
   `RotationProblem` declares `provides_solver_covariance`: its `solver_covariance(problem, R, inliers)` is the existing
   constraint sandwich, the implicit-function covariance of the whitened Sampson LM its local optimization runs.
-  New public `uncertain_rotation(problem, result; scale)`: `Uncertain(R, CovMat(Σ_R))` with
-  `Σ_R = noise_scale² × solver_covariance` in the so(3) chart of `R` (left exp, radians²), `scale` the contract's scale
-  input (`σ` or an upstream result). An edge `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (or a bare
+  New public `uncertain_rotation(problem, result; scale = result)`: `Uncertain(R, CovMat(Σ_R))` with
+  `Σ_R = noise_scale² × solver_covariance` in the so(3) chart of `R` (left exp, radians²), by default at the result's
+  own scale — `find_rotation`'s scorer estimates it on the consensus set (`ScaleEstimated`, in whitened units) — or at
+  another scale input (`σ`, an upstream result). An edge `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (or a bare
   `Uncertain`; Σ 3×3 in that chart or 9×9 over vec(R)) is whitened by Core's `whitening_factor(R_j, Σ)` (the chart
   transported to the residual's) before the loss and in the update. The covariances are ABSOLUTE, so such a graph
   takes no `scale` (an `ArgumentError`; the result records scale 1, `ScaleUpstream`; a `width` is in whitened units),
@@ -83,6 +89,85 @@ non-central one is a `NoncentralSplineModel`).
   with an `Irls` strategy. `RigidAlignmentMetadata{L, W}`. A 150-frame walk (5 mm noise) with five centres 0.9–2.4 m
   wrong: tilt 1.20° / ATE 36.3 mm (least squares, the former Kabsch ATE) → 0.027° / 8.6 mm (Huber; the noise floor). `configs/default.toml` gains `[fit_rigid_alignment] tol` and
   `[robot_world_hand_eye] tol`.
+- **Breaking: the EM fits take a `weighting`, never a `scoring`, and record the robust-estimation contract's scale
+  and weights** (B3). The Student-t + uniform E-step of `fit_division_camera` and `fit_residual_mixture` is their
+  `weighting`: the keyword, and `[fit_division_camera] weighting` (was `scoring`; the same table schema, read by the
+  same `scoring_from_toml`). `fit_residual_mixture(distances; weighting, model_dof, config)` replaces
+  `fit_residual_mixture(distances, scoring; …)`. The old positional scorer and a `scoring` keyword are an
+  `ArgumentError` naming `weighting`. The fits run bit for bit as before (every golden, test and MC (e) fit
+  replayed). Both now ORIGINATE their scale: the metadata's `scale` = the E-step's ŝ with `scale_source`
+  `ScaleEstimated`, read by `noise_scale(result)`. `DivisionCameraMetadata.sigma` is gone (`noise_scale(result)`).
+  Their `weights(result)` are the E-step's posterior inlier probabilities (`PosteriorWeights`: `inlier_mask(result)`
+  is the MAP rule, > ½; a posterior below eps, and a datum the fit did not take, is an exact 0). For the division
+  camera these are flat in the views' key order; the views' `weights` column keeps the IRLS row weight the solve ran
+  with. `n` is now the support, `count(>(0), weights)`, and `rms` the posterior-weighted RMS `√(Σwᵢrᵢ²/Σwᵢ)`:
+  - fit_division_camera: `n` was the rows that entered the fit, `rms` their unweighted RMS;
+  - fit_residual_mixture: `n` was the MAP inlier count, `rms` theirs — that count is now `count(inlier_mask(result))`.
+- **Breaking: a RANSAC result carries per-point weights of its scorer's kind, and the scale the scorer originates**
+  (the robust-estimation contract, §2 and §12). `RansacMetadata{T}` becomes `RansacMetadata{T, S}`, `S` the scorer's
+  type (so `RansacEstimate{M, T}` is `RansacEstimate{M, T, S}`; a two-parameter `isa` still matches).
+  - **The `inlier_mask` field is removed.** The mask is `inlier_mask(result)` (VisualGeometryToolkitCore, public), cut
+    from `weights(result)` by the scorer's `weight_kind`: a threshold scorer's (MSAC, RANSAC) binary 1/0 weights at
+    `w > 0` — the same mask as before —, the Student-t + uniform scorer's posterior at the MAP rule `w > ½`.
+    `inlier_mask(result, cut)` takes an explicit cut. `result.inlier_mask` → `inlier_mask(result)`.
+  - **The `sigma` field is `scale`, with `scale_source`**: `noise_scale(result)` reads it (the hand-off a later stage
+    takes as `scale = result`), `scale_source(result)` is `ScaleEstimated`, or `ScaleNone` (scale `NaN`, which
+    `noise_scale` refuses) for a result with no model or a consensus set too thin to scale. `result.sigma` →
+    `noise_scale(result)`. Same values.
+  - **`n` and `rms` follow the weights**: `n = count(>(0), weights)`, `rms = √(Σwᵢrᵢ²/Σwᵢ)`. For a threshold scorer this
+    is the consensus set's size and rms, bit for bit as before. For the Student-t + uniform scorer it changes: before,
+    the rms over the scorer's consensus partition; now every point of non-negligible posterior, at its weight (a
+    posterior below `eps(T)` is stored as an exact 0 and is out of the support). Measured on 24 seeded scenes (homography,
+    160 correspondences of which 40 outliers, and circle, 80 rim points + 30 clutter; σ 0.3 and 1.0; 6 seeds each), the
+    same scenes under MSAC unchanged bit for bit: model, scale, `dof` and `inlier_mask` identical (the MAP mask equals
+    the old partition mask on every scene); `rms` moves by −2.1 % … +3.4 % (median −0.48 % homography, −0.57 % circle);
+    `n` by +0 (homography: every outlier's posterior is below `eps(Float32)`) to +4 (circle).
+  - `RansacResultBuffers` holds `residuals` and `weights` (no mask); `inlier_ratio(r)` is
+    `count(inlier_mask(r)) / length(weights(r))`.
+  - `locally_optimize` keeps its scorer: its result is the scorer's kind too.
+- **Breaking: the camera-from-camera regression follows the verbs** (owner ruling, 2026-11-11; contract §11).
+  - **`fit_camera(L, source, region)` is linear only** (a fit has no guess): ONE least-squares solve for the focal
+    rescale and the family's coefficients from the samples' radial relation, with its residual reported (the returned
+    camera's round-trip error per sample, `metadata.residuals`, `max_px`, `rms`; `retcode` `:solved`, 0 iterations).
+    A lift (`Division`, `Scaramuzza`, any `LiftLens`) and a fixed projection with an even radial factor and decentering
+    deltas (Kannala–Brandt, the polynomial and the RATIONAL OpenCV models, Fisheye624) are linear; the rational
+    factor's denominator is now fitted (one Steiglitz–McBride reweighting by the first solve's denominator). A family
+    with no linear form (`DoubleSphere`, `Unified`, `ExtendedUnified`, `Tilt`, `FieldOfView`) is an `ArgumentError`
+    naming `refine_camera` and `approximate_camera`. A gauge-K (SplineLens) source is read about its own principal
+    point and ẑ; the axis is the refine's. The `max_iter` and `device` keywords moved to the refine.
+  - **New: `refine_camera(guess::CameraModel, source, region; weight, max_iter, device, optimization_strategy = nothing)`**:
+    the former `fit_camera` chart LM, from the guess's lens and focal, to the exact pixel least-squares minimum; a
+    SplineLens source's principal point, aspect and axis are free. Every parameter moves but the gauge's skew and
+    `fixed`, the held ones by name or group (`fixed::Tuple{Vararg{Symbol}} = ()`; a group is a coefficient family's
+    stem: `:k`, `:d`, `:p`, `:sx`, `:sy`; `approximate_camera` forwards it); a held parameter keeps the guess's value.
+    The keywords `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`. A forward lens's radial
+    denominator is free by default (it was held at zero; `fixed = (:d,)` holds it). A physical source holds its
+    principal point, aspect and decentering terms (its radial profile does not see them); `optical_axis` holds
+    Fisheye624's decentering (`fixed = (:p, :sx, :sy)`). L2 only: a `scale`, `width` or robust
+    `optimization_strategy` is an `ArgumentError`. `configs/default.toml`'s `[fit_camera] max_iter` is
+    `[refine_camera] max_iter`.
+  - **New: `approximate_camera(L, source, region; …)`** = `refine_camera(estimate(fit_camera(L, source, region)), source, region)`;
+    a family with no linear form starts from its anchor (the former start). It reproduces 0.8's `fit_camera` goldens to
+    1e-6, except the perspective polynomial over a 155° field (`OPENCV3`), whose LM never left its zero start
+    (925 672 px at the edge): it is now refused (below).
+  - **A region past the target family's view-angle limit is refused** (`fit_camera`, `approximate_camera`,
+    `refine_camera`): the limit is Core's `view_angle_limit` of the family (a gnomonic family — the OpenCV polynomial
+    and rational models, Brown–Conrady, ± tangential and thin-prism terms — applies its distortion on the perspective
+    plane, which ends at 90°; a fixed fisheye projection at its own edge). It was fitted over the clipped field with a
+    warning; it is now a `ViewAngleLimitError` (public), whose fields carry the measurement — `family`,
+    `field_angle` (the region's largest view angle, radians) and `limit` (the family's, radians) — so a caller catches
+    it by type and quotes the angle; its message names the plane (or the limit) and the region's extent, and points
+    to a lift (division) model or the same radial factor in an equidistant frame. No margin angle: near the limit the fit is
+    ill-conditioned, the caller's choice of region. The family record's `clipped` now says only that the region reached
+    past the radii the SOURCE images.
+  - **`optical_axis` is unchanged in meaning**: it is now `approximate_camera` of the Fisheye624 family.
+  - **icra2026 failure A**: the rational OpenCV linear fit of the fisheye's Kannala–Brandt calibration (to 84° off
+    axis) lands at f 925.3 px against OpenCV's own rational calibration's 921.9 px, its coefficients OpenCV's in sign
+    and size; 0.8's LM from the zero start stalled at the pinhole (927.4 px, |k| < 1e-3, 6008 px at the edge).
+  - `CameraFitMetadata` gains `residuals` (px per sample; a spline target's held-out errors) and the robust stages'
+    scale record, `scale` (`NaN`) and `scale_source` (`ScaleNone`): no camera regression has a robust loss, so
+    `noise_scale` refuses to hand one on.
+
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

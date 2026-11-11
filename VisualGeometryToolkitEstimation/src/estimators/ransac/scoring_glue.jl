@@ -34,7 +34,7 @@ scorer, inside `ransac`'s wall time. The result is that seeded refine's:
   The refined model is kept even if it scores below the raw incumbent (there is
   no `score_guard` at the terminal placement);
 - `lo_retcode`: the inner strategy's (`:not_run` when the seed was kept);
-- `inlier_mask`, `residuals`, `weights`, `quality`, `sigma`, `dof`, `rms`:
+- `residuals`, `weights`, `quality`, `scale`, `dof`, `n`, `rms`:
   the reported model re-scored under the scorer;
 - `iterations` and `sample_acceptance_rate`: the raw race's.
 

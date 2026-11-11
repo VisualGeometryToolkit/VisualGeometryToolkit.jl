@@ -117,17 +117,24 @@ _width_unit(problem::HandEyeProblem) = Float64(problem.char_length)
 # sample-acceptance rate — rather than let the problem's constructor refuse them.
 # It is built from the problem TYPE (a constructor may throw on so few data), in
 # the storage eltype of the caller's `workspace`, else `RansacWorkspace`'s
-# default, so it is the type a search on the same data returns.
-_too_few(::Type{P}, n::Int; workspace = nothing, _...) where {P} =
-    _no_model_result(model_type(P), RansacResultBuffers{_storage_eltype(workspace)}(n), 0, NaN)
+# default, and under the scorer the search would run (the caller's, or the
+# class's scorer of record — its TYPE is all a result without a model reads, so
+# the problem-unit rescale of its width is not needed), so it is the type a
+# search on the same data returns.
+_too_few(::Type{P}, n::Int, class::Symbol; scoring = nothing, workspace = nothing, _...) where {P} =
+    _no_model_result(model_type(P), _too_few_scoring(P, class, scoring),
+                     RansacResultBuffers{_storage_eltype(workspace)}(n), 0, NaN)
+_too_few_scoring(::Type, ::Symbol, scoring::AbstractScoring) = scoring
+_too_few_scoring(::Type{P}, class::Symbol, ::Nothing) where {P} =
+    scoring_from_toml(_dflt("pipelines.$class", "scoring"); problem = P, section = "pipelines.$class.scoring")
 
 # The guarded entry of a `find_*` / `refine_*` on `n` data of the problem type `P`: the
 # `:no_model` result when they hold no minimal sample, else the shared pipeline on
 # `problem()`, built only then (a constructor may refuse so few data).
 _guarded_ransac(problem, ::Type{P}, n::Integer, class::Symbol; kwargs...) where {P} =
-    _holds_minimal_sample(P, n) ? _ransac_pipeline(problem(), class; kwargs...) : _too_few(P, n; kwargs...)
+    _holds_minimal_sample(P, n) ? _ransac_pipeline(problem(), class; kwargs...) : _too_few(P, n, class; kwargs...)
 _guarded_refine(problem, ::Type{P}, n::Integer, class::Symbol, θ₀; kwargs...) where {P} =
-    _holds_minimal_sample(P, n) ? _refine_pipeline(problem(), class, θ₀; kwargs...) : _too_few(P, n; kwargs...)
+    _holds_minimal_sample(P, n) ? _refine_pipeline(problem(), class, θ₀; kwargs...) : _too_few(P, n, class; kwargs...)
 _storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 

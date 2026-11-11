@@ -24,8 +24,8 @@ refine_hand_eye
 (`RansacEstimate{Rigid3}`, with [`Rigid3`](@ref) an unlabeled `EuclideanMap{3, Float64}`). The `.estimate` field is the recovered rigid
 transform `X = T_RP` (pattern in rig). The nuisance camera-in-world
 transform `Y = T_WC` is **not** returned — it drops out of the AX = XB
-formulation. The remaining attributes (`.inlier_mask`, `.residuals`,
-`.weights`, `.iterations` — for RANSAC the number of trials, hypotheses
+formulation. The remaining diagnostics (`inlier_mask(result)`, `.residuals`,
+`weights(result)`, `.iterations` — for RANSAC the number of trials, hypotheses
 drawn — `.converged`, …) match the standard `RansacEstimate` surface.
 
 ## Formulation

@@ -1,5 +1,6 @@
 @testitem "core_defaults" setup = [RadialCameraScene, EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
                                    ConicScenes, RotationScene] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessor
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -93,7 +94,7 @@ end
 function same_run(r_default, r_explicit)
     @test r_default !== nothing && converged(r_default)
     @test estimate(r_default) == estimate(r_explicit)
-    @test r_default.inlier_mask == r_explicit.inlier_mask
+    @test inlier_mask(r_default) == inlier_mask(r_explicit)
     @test r_default.quality == r_explicit.quality
 end
 
@@ -123,7 +124,7 @@ end
         p = HomographyProblem(cs)
         r = find_homography(cs; rng = StableRNG(1))
         same_run(r, find_homography(cs; scoring = MsacScoring(p; threshold = thr(:homography)), rng = StableRNG(1)))
-        @test count(r.inlier_mask[1:n_in]) > 0.9 * n_in && count(r.inlier_mask[(n_in + 1):end]) < 10
+        @test count(inlier_mask(r)[1:n_in]) > 0.9 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 10
         @test r.lo_retcode !== :not_run                                     # the default LO ran
     end
     @testset "fundmat" begin
@@ -131,7 +132,7 @@ end
         cs = StructArray(u₁ .=> u₂)
         r = find_fundmat(cs; rng = StableRNG(2))
         same_run(r, find_fundmat(cs; scoring = MsacScoring(FundMatProblem(cs); threshold = thr(:fundmat)), rng = StableRNG(2)))
-        @test count(r.inlier_mask[1:n_in]) > 0.75 * n_in && count(r.inlier_mask[(n_in + 1):end]) < 15
+        @test count(inlier_mask(r)[1:n_in]) > 0.75 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 15
     end
     @testset "essential" begin
         u₁, u₂, n_in = stereo_scene(ECAM; seed = 14)
@@ -139,14 +140,14 @@ end
         r = find_essential(ECAM, ECAM, cs; rng = StableRNG(3))
         p = EssentialProblem(ECAM, ECAM, cs)
         same_run(r, find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = thr(:essential)), rng = StableRNG(3)))
-        @test count(r.inlier_mask[1:n_in]) > 0.75 * n_in && count(r.inlier_mask[(n_in + 1):end]) < 15
+        @test count(inlier_mask(r)[1:n_in]) > 0.75 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 15
     end
     @testset "absolute pose" begin
         cs = pnp_scene()
         r = find_absolute_pose(PCAM, cs; rng = StableRNG(4))
         p = AbsolutePoseProblem(PCAM, cs)
         same_run(r, find_absolute_pose(PCAM, cs; scoring = MsacScoring(p; threshold = thr(:absolute_pose)), rng = StableRNG(4)))
-        @test count(r.inlier_mask[1:120]) > 100
+        @test count(inlier_mask(r)[1:120]) > 100
         @test rotation_error_deg(estimate(r), R_PNP) < 1.0 && translation_error(estimate(r), T_PNP) < 0.05
     end
     @testset "radial homography" begin
@@ -156,7 +157,7 @@ end
         p = RadialHomographyProblem(pairs; center = c)
         same_run(r, find_radial_homography(pairs; center = c, scoring = MsacScoring(p; threshold = thr(:radial_homography)),
                                            rng = StableRNG(5)))
-        @test count(r.inlier_mask .& gt) >= count(gt) - 3 && count(r.inlier_mask .& .!gt) <= 2
+        @test count(inlier_mask(r) .& gt) >= count(gt) - 3 && count(inlier_mask(r) .& .!gt) <= 2
     end
     @testset "radial camera" begin
         pairs, gt = radial_camera_pairs()
@@ -164,7 +165,7 @@ end
         p = RadialCameraProblem(pairs; center = RC_CENTER)
         same_run(r, find_radial_camera(pairs; center = RC_CENTER, scoring = MsacScoring(p; threshold = thr(:radial_camera)),
                                        rng = StableRNG(6)))
-        @test count(r.inlier_mask .& gt) >= count(gt) - 2 && count(r.inlier_mask .& .!gt) == 0
+        @test count(inlier_mask(r) .& gt) >= count(gt) - 2 && count(inlier_mask(r) .& .!gt) == 0
     end
     @testset "hand-eye (a fraction of the characteristic length)" begin
         cs, X = hand_eye_scene()
@@ -390,7 +391,7 @@ end
             f = find(; kws..., rng = StableRNG(3))
             r = refine(raw; (lo === nothing ? (;) : (; optimization_strategy = lo))...)
             @test converged(r) && r.lo_retcode !== :not_run
-            m = f.inlier_mask
+            m = inlier_mask(f)
             # Within 30% of the noise level (find_*'s rms), the consensus but for 3%
             # of it, the rms within 2%: a truncated refit from another start may
             # settle a few boundary points differently and land in a neighbouring
@@ -398,7 +399,7 @@ end
             # rms than find_*'s; GitHub's runner: 0.10 px at rms 0.405 vs 0.399).
             tol = 0.3 * f.rms
             @test maximum(abs, Float64.(r.residuals[m]) .- Float64.(f.residuals[m])) < tol
-            @test count(r.inlier_mask .!= m) <= max(3, round(Int, 0.03 * count(m)))
+            @test count(inlier_mask(r) .!= m) <= max(3, round(Int, 0.03 * count(m)))
             @test isapprox(r.rms, f.rms; rtol = 0.02)
         end
     end

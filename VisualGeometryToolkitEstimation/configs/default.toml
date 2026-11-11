@@ -115,10 +115,10 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [fit_division_camera]
 ncoef = 1
-# The E-step: the shared Student-t + uniform scorer's posterior (`scoring_from_toml`, problem
-# DivisionCameraProblem). Its outlier_halfwidth (px) is the uniform outlier half-width, NOT the
-# residual scale.
-scoring    = { type = "student_t_uniform", outlier_halfwidth = 20.0, scale_prior = "jeffreys", label_prior = "flat" }
+# The E-step, the fit's `weighting` (a fit takes no `scoring`): the shared Student-t + uniform
+# scorer's posterior (`scoring_from_toml`, problem DivisionCameraProblem). Its outlier_halfwidth
+# (px) is the uniform outlier half-width, NOT the residual scale.
+weighting  = { type = "student_t_uniform", outlier_halfwidth = 20.0, scale_prior = "jeffreys", label_prior = "flat" }
 # The loop: the shared posterior-weight iteration (`mixture_em_from_toml`) — the stack refitted
 # each iteration, at most 30 of them (the branch audit included), stopped on the relative change of
 # (f, k) and returning the LAST iterate: every iteration re-whitens at the previous solution, so no
@@ -168,6 +168,7 @@ tol                = 1.0e-12     # rad: converged when an iteration moves the ro
 # constant at codimension 3 unless the strategy gives one) or the call's
 # `width`. Read by the one strategy reader.
 optimization_strategy = { type = "irls", loss = "huber", max_iter = 100 }
+max_iter           = 100         # the least-squares fit's iterations at most (optimization_strategy = nothing: unit weights)
 tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
 # The reweighted least squares of `fit_linear`: an Irls strategy at ONE width,
@@ -209,7 +210,7 @@ ftol = 1.0e-10
 # without a tolerance (a non-finite trial, the consecutive-failure cap), is
 # `:converged` only when the cost is zero by the cost tolerance (F < ftol) or
 # max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point; `:stalled`
-# otherwise. Shared by every chart LM — the LO refits and `fit_camera`'s lens families — and by
+# otherwise. Shared by every chart LM — the LO refits and `refine_camera`'s lens families — and by
 # `refine_robot_world_hand_eye` (VGC
 # `nlls_retcode`). Measured 2026-10-01 (the cosine at every step-size stop):
 # genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM
@@ -239,8 +240,9 @@ stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its o
 # relative and the rotation within 1e-9 of the longer runs.
 ftol = 1.0e-10
 
-[fit_camera]
-# a lens family's regression (`fit_camera(L, source, region)`): the LM cap on
+[refine_camera]
+# a lens family's refine (`refine_camera(guess, source, region)`, and
+# `approximate_camera`'s, `optical_axis`'s): the LM cap on
 # ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
 # candidate steps; see [chart_lm])
 max_iter = 100

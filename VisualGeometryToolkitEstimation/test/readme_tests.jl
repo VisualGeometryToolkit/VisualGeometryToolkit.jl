@@ -23,9 +23,9 @@
     # The comments' claims: the 32 true correspondences are the inliers,
     # and the estimate is the true homography up to scale. The data are
     # noise-free, so the 2 px threshold keeps the same inliers.
-    @test count(readme.result.inlier_mask) == 32
-    @test !any(readme.result.inlier_mask[1:8])
+    @test count(readme.inlier_mask(readme.result)) == 32
+    @test !any(readme.inlier_mask(readme.result)[1:8])
     @test readme.H ./ readme.H[3, 3] ≈ Matrix(readme.H_true)
-    @test readme.result_2px.inlier_mask == readme.result.inlier_mask
+    @test readme.inlier_mask(readme.result_2px) == readme.inlier_mask(readme.result)
     """)
 end

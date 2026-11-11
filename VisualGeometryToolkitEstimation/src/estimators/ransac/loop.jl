@@ -89,7 +89,8 @@ A [`RansacEstimate`](@ref); `iterations(result)` is the number of trials
 both return `:converged`. Test it with VisualGeometryToolkitCore's `converged(result)`
 before reading the model: `retcode(result) === :no_model` (`converged` false)
 means NO hypothesis survived — there is no estimate: its `estimate` is `nothing`
-(with `quality = -Inf`, an all-false `inlier_mask`, `rms = sigma = NaN`).
+(with `quality = -Inf`, all-zero weights — an all-false `inlier_mask(result)` —,
+`rms` NaN and a `ScaleNone` scale).
 
 # Examples
 ```julia
@@ -127,8 +128,8 @@ end
 
 The zero-allocation form of [`ransac`](@ref): RANSAC on the preallocated
 workspace `ws` (trimmed to the problem's data size), its result written into the
-preallocated `result` buffers — the returned estimate's `inlier_mask`,
-`residuals` and `weights` ARE those buffers.
+preallocated `result` buffers — the returned estimate's `residuals` and
+`weights` ARE those buffers.
 """
 function ransac!(
         result::RansacResultBuffers, ws::RansacWorkspace, problem::AbstractRansacProblem,
@@ -654,50 +655,75 @@ end
 # =============================================================================
 
 # The result of a search with no model — every sample failed, or (with
-# `trials = 0`, `sar = NaN`) too few data for one sample: no estimate, an
-# all-false mask, zero residuals and weights.
-function _no_model_result(::Type{M}, result::RansacResultBuffers{T}, trials::Int, sar::Float64) where {M, T}
-    fill!(result.inlier_mask, false); fill!(result.residuals, zero(T)); fill!(result.weights, zero(T))
-    return RansacEstimate{M, T}(
+# `trials = 0`, `sar = NaN`) too few data for one sample: no estimate, zero
+# residuals and weights (an all-false inlier mask), no scale.
+function _no_model_result(::Type{M}, scoring::S, result::RansacResultBuffers{T}, trials::Int, sar::Float64) where {M, S, T}
+    fill!(result.residuals, zero(T)); fill!(result.weights, zero(T))
+    return RansacEstimate{M, T, S}(
         nothing, :no_model, trials, NaN, 0,
-        RansacMetadata{T}(result.inlier_mask, result.residuals, result.weights, -Inf, NaN, 0, sar, :not_run)
+        RansacMetadata{T, S}(result.residuals, result.weights, -Inf, NaN, ScaleNone, 0, sar, :not_run)
     )
 end
 
-function _finalize(scoring, ws, problem::AbstractRansacProblem, best::Tuple, sar, trial, result::RansacResultBuffers)
+function _finalize(scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, sar, trial, result::RansacResultBuffers) where {S}
     M = model_type(problem)
     T = eltype(ws.best_residuals)   # attributes come back in the workspace's storage precision
     p = minimal_sample_size(problem)
     best_score = best[2]
 
-    ws.has_best || return _no_model_result(M, result, trial, sar)
+    ws.has_best || return _no_model_result(M, scoring, result, trial, sar)
 
     model = ws.best_model
     d_g = codimension(problem)
     # The incumbent's consensus set is best_order[1:n_in] (its mask).
     n_in = ws.best_k
     nu = residual_dof(problem, n_in)       # (n_in − m)·d_g, 0 on a thin set
-    RSS = partition_rss(ws.best_order, ws.best_residuals, n_in)
-    # σ̂ is the consensus set's Student-t scale under the scorer's prior at the
-    # model's own dof (`consensus_s2` at m): √(RSS/ν) under Jeffreys, floored at
-    # √eps; there is no set to scale at ν ≤ 0.
+    # The scorer ORIGINATES the scale: the consensus set's Student-t scale under
+    # its prior at the model's own dof (`consensus_s2` at m): √(RSS/ν) under
+    # Jeffreys, floored at √eps. There is no set to scale at ν ≤ 0: ScaleNone.
     s2 = consensus_s2(scoring, ws.best_residuals, ws.best_order, n_in; model_dof = p, d_g)
-    sigma = nu > 0 ? sqrt(s2) : NaN
+    scale = nu > 0 ? sqrt(s2) : NaN
+    source = nu > 0 ? ScaleEstimated : ScaleNone
 
-    # Soft inlier probabilities wᵢ ∈ [0, 1] (the scorer's posterior, or 0/1).
+    # The weights wᵢ ∈ [0, 1], of the scorer's kind: its posterior, or 0/1.
     inlier_probabilities!(result.weights, scoring, ws.best_scores, ws.best_order, n_in; model_dof = p, d_g)
-    copyto!(result.inlier_mask, ws.best_mask)
     copyto!(result.residuals, ws.best_residuals)
-    rms_in = n_in > 0 ? sqrt(RSS / n_in) : NaN
+    n, rms = _support_rms!(VgtkCore.weight_kind(S), result.weights, result.residuals, ws.best_order, ws.best_residuals, n_in)
     # The explicit alias: the outer constructor would infer `P` from the model
     # and lose the union a failed search needs.
-    return RansacEstimate{M, T}(
-        model, :converged, trial, rms_in, n_in,
-        RansacMetadata{T}(
-            result.inlier_mask, result.residuals, result.weights,
-            best_score, sigma, nu, sar, ws.best_lo_retcode
+    return RansacEstimate{M, T, S}(
+        model, :converged, trial, rms, n,
+        RansacMetadata{T, S}(
+            result.residuals, result.weights,
+            best_score, scale, source, nu, sar, ws.best_lo_retcode
         )
     )
+end
+
+# The FitResult's `n` and `rms` from the weights (the contract, §12): `n` the
+# support `count(>(0), w)` and `rms = √(Σ wᵢ rᵢ² / Σ wᵢ)`. Binary weights are the
+# consensus membership, so these are the consensus set's size and rms — computed
+# over `order[1:k]` exactly as before the weights carried them (bit for bit).
+function _support_rms!(::BinaryWeights, _w, _r, order, residuals, k::Int)
+    return k, (k > 0 ? sqrt(partition_rss(order, residuals, k) / k) : NaN)
+end
+# Posterior weights: a weight below `eps(T)` is stored as an exact 0 (out of the
+# support), then the weighted sums run in Float64 over the support.
+function _support_rms!(::PosteriorWeights, w::AbstractVector{T}, r::AbstractVector, _order, _residuals, _k::Int) where {T}
+    n = 0
+    sw = 0.0
+    swr2 = 0.0
+    @inbounds for i in eachindex(w, r)
+        wi = w[i]
+        if wi < eps(T)
+            w[i] = zero(T)
+            continue
+        end
+        n += 1
+        sw += Float64(wi)
+        swr2 += Float64(wi) * abs2(Float64(r[i]))
+    end
+    return n, (sw > 0 ? sqrt(swr2 / sw) : NaN)
 end
 
 # =============================================================================

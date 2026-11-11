@@ -11,7 +11,10 @@ VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
 calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
 the inliers by default (least squares for most problems), and other scorers
-and local optimizers plug in by keyword.
+and local optimizers plug in by keyword. A camera model is regressed onto
+another camera by three verbs: `fit_camera` (one linear solve, no guess),
+`refine_camera` (the exact pixel least squares from a guess) and
+`approximate_camera` (the two).
 
 ## Installation
 
@@ -30,6 +33,7 @@ them with random points, and recovers the homography and the 32 inliers.
 
 ```julia
 using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation, Random
+using VisualGeometryToolkitCore: inlier_mask           # public, not exported
 
 H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0])
 
@@ -41,7 +45,7 @@ for i in 1:8                                                # replace 8 with out
 end
 
 result = find_homography(csponds(src, dst))   # MSAC at 3 px, the default
-count(result.inlier_mask)                     # 32, the true correspondences
+count(inlier_mask(result))                    # 32, the true correspondences
 
 H = Matrix(estimate(result))
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true

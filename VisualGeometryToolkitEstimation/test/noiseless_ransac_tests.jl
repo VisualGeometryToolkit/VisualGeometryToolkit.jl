@@ -1,4 +1,5 @@
 @testitem "noiseless_ransac" setup = [EpipolarScenes, HomographyScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
 using Test
 using Rotations: RotY
 using StaticArrays
@@ -80,7 +81,7 @@ end
             H_est_n = estimate(result) / estimate(result)[3, 3]
             H_ref = H_true / H_true[3, 3]
             @test norm(H_est_n - H_ref) / norm(H_ref) < 1.0e-8
-            @test sum(result.inlier_mask) >= n_in
+            @test sum(inlier_mask(result)) >= n_in
         end
     end
 end
@@ -104,11 +105,11 @@ end
 
             @test converged(result)
             F_est = estimate(result)
-            @test sum(result.inlier_mask) >= n_in
+            @test sum(inlier_mask(result)) >= n_in
 
             max_sampson = 0.0
             for i in eachindex(cs)
-                if result.inlier_mask[i]
+                if inlier_mask(result)[i]
                     max_sampson = max(
                         max_sampson,
                         sampson_distance(F_est, cs[i].first, cs[i].second)

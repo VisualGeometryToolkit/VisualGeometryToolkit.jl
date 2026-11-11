@@ -208,17 +208,25 @@ lo = optimization_strategy_from_toml(Dict("type" => "hq", "loss" => "welsch", "e
 `ransac` returns a `RansacEstimate`:
 
 ```julia
+using VisualGeometryToolkitCore: inlier_mask, weight_kind, noise_scale, scale_source
+
 converged(result)      # false ⇔ retcode(result) === :no_model: NO estimate
 estimate(result)       # estimated model (e.g., 3×3 matrix); `nothing` when !converged
-result.inlier_mask  # BitVector of inliers
-result.quality      # quality score
-iterations(result)  # for RANSAC, the number of trials (hypotheses drawn)
+weights(result)        # per-point weights in [0, 1]: 1/0 membership (MSAC/RANSAC), the posterior (Student-t)
+weight_kind(result)    # BinaryWeights() or PosteriorWeights(): the scorer's, from the result's type
+inlier_mask(result)    # BitVector of inliers, cut by the kind: w > 0, or the MAP rule w > ½
+result.n, rms(result)  # the weights' support count(w > 0), and the weighted rms √(Σwr²/Σw)
+result.quality         # quality score
+iterations(result)     # for RANSAC, the number of trials (hypotheses drawn)
 ```
 
-Additional fields available from `RansacMetadata` (all forward as properties of the result):
+The scale is the one the scorer ORIGINATES, from its consensus partition:
 
 ```julia
-result.sigma        # σ̂ of the consensus set (consensus_s2 at the model's dof; √(RSS/ν) under the
-                    # Jeffreys prior, floored at √eps); a LINEAR sigma
-result.dof          # ν = n_inliers - p
+noise_scale(result)    # ŝ of the consensus set (consensus_s2 at the model's dof; √(RSS/ν) under the
+                       # Jeffreys prior, floored at √eps); a LINEAR scale. The hand-off: a later
+                       # stage takes it as `scale = result`
+scale_source(result)   # ScaleEstimated; ScaleNone (no model, or a set too thin to scale) and
+                       # noise_scale refuses it
+result.dof             # ν = d_g·(n_partition − p)
 ```

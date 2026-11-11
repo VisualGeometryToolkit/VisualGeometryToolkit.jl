@@ -3,6 +3,7 @@
 # `Uncertain` point carries its covariance, an `exact` point none — through
 # scoring, the chart rows of the refit, the normalization and the maps.
 @testitem "measurement_noise" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test
@@ -104,7 +105,7 @@
         end
         res = find_homography(csponds(exact.(board), bad); rng = StableRNG(1))
         @test converged(res)
-        @test !any(res.inlier_mask[1:8])
+        @test !any(inlier_mask(res)[1:8])
         @test max_transfer_error(estimate(res), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
     end
 end

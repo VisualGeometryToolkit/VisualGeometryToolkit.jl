@@ -7,8 +7,10 @@ kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_camera`, `fit_robot_world_hand_eye`, `fit_line`,
 `fit_rotation`, `fit_linear`, `fit_rotation_averaging`, `fit_rigid_alignment`) — and
-`refine_*` for polishing a given model (one per `find_*`, and the bundles
-`refine_robot_world_hand_eye` and `refine_camera_and_poses`). One-step
+`refine_*` for polishing a given model (one per `find_*`, `refine_camera`, and the bundles
+`refine_robot_world_hand_eye` and `refine_camera_and_poses`). `fit_camera` is the
+linear camera-from-camera fit (no guess), `refine_camera` its chart LM from a guess,
+and `approximate_camera` the two in one call. One-step
 algebraic algorithms keep their algorithm's name and live in
 VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 
@@ -100,7 +102,7 @@ align = fit_rigid_alignment(centres .=> truth; optimization_strategy = Irls{Wels
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, estimate, MsacScoring
+using VisualGeometryToolkitCore: csponds, estimate, MsacScoring, inlier_mask
 using StaticArrays
 
 src = [SA[100.0, 200.0], ...]
@@ -108,7 +110,7 @@ dst = [SA[112.0, 195.0], ...]
 
 result = find_homography(csponds(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
 H       = estimate(result)         # 3×3 homography matrix
-inliers = result.inlier_mask
+inliers = inlier_mask(result)
 ```
 
 See [`find_homography`](@ref) on the [Homography](../api/homography.md) API page
@@ -169,14 +171,14 @@ two `EuclideanMap{3,Float64}` streams: `A_i = T_WR` (rig in world, from motion c
 and `B_i = T_CP` (pattern in camera, from PnP).
 
 ```julia
-using VisualGeometryToolkitCore: EuclideanMap, estimate
+using VisualGeometryToolkitCore: EuclideanMap, estimate, inlier_mask
 
 A = EuclideanMap{3,Float64}[ ... ]   # T_WR per frame (e.g. mocap)
 B = EuclideanMap{3,Float64}[ ... ]   # T_CP per frame (e.g. PnP)
 
 result = find_hand_eye(A .=> B)     # one A_i => B_i per frame, time order
 X       = estimate(result)         # T_RP, the rigid pattern-in-rig transform
-inliers = result.inlier_mask
+inliers = inlier_mask(result)
 ```
 
 Unlike the other `find_*` pipelines, its inputs are pose pairs rather than

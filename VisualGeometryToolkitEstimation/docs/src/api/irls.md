@@ -46,11 +46,14 @@ change_parameters
 ## Classifying a held model's residuals
 
 Regression and classification apart: whatever fitted the model, its residuals
-are FIXED here. The scorer's consensus set — any scorer with a uniform
-outlier model (`outlier_halfwidth`), e.g. RANSACScoringDoneRight's
-`StudentTUniformScoring` — seeds the Student-t + uniform mixture, EM fits it
-with the model held, and each residual's MAP label is VisualGeometryToolkitCore's
-`is_map_inlier` of its posterior.
+are FIXED here. The fit's `weighting` — its Student-t + uniform E-step, any
+scorer with a uniform outlier model (`outlier_halfwidth`), e.g.
+VisualGeometryToolkitCore's `StudentTUniformScoring`; a fit takes no `scoring` —
+seeds the mixture from its consensus set, EM fits it with the model held, and
+each residual's MAP label is VisualGeometryToolkitCore's `is_map_inlier` of its
+posterior. The result records the posteriors as its `weights`
+(`PosteriorWeights`, so `inlier_mask(result)` is the MAP labels) and the
+E-step's ŝ as its `noise_scale` (`ScaleEstimated`).
 
 ```@docs
 fit_residual_mixture

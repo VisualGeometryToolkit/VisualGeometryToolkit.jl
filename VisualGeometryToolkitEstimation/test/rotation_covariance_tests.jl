@@ -69,7 +69,8 @@ end
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: csponds, log_so3, estimate, value_of, MsacScoring, Uncertain, CovMat
+    using VisualGeometryToolkitCore: csponds, log_so3, estimate, value_of, MsacScoring, Uncertain, CovMat,
+        noise_scale, scale_source, ScaleEstimated
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, solver_covariance
     using StableRNGs: StableRNG
 
@@ -90,13 +91,23 @@ end
     # Monte Carlo of the pipeline: keypoints drawn from their covariances, find_rotation (its scorer's threshold in
     # whitened units; its LO the whitened chart LM), the error in the left chart log(R̂·Rᵀ)
     trials = 300
-    ω = map(1:trials) do t
+    runs = map(1:trials) do t
         cs = csponds(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
                      uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u2, Σ2)], Σ2))
-        res = find_rotation(cam, cam, cs; scoring = MsacScoring(RotationProblem(cam, cam, cs); threshold = 4.0), rng = StableRNG(t))
-        log_so3(SMatrix{3, 3}(estimate(res)) * SMatrix{3, 3}(R)')
+        p = RotationProblem(cam, cam, cs)
+        res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(t))
+        (log_so3(SMatrix{3, 3}(estimate(res)) * SMatrix{3, 3}(R)'), p, res)
     end
+    ω = first.(runs)
     C = cov(reduce(hcat, ω); dims = 2)
+    # find_rotation's scorer ORIGINATES the scale, in whitened units (B4's record): ≈ 1 when the covariances are the noise;
+    # uncertain_rotation reads it by default (scale = result)
+    @test all(r -> scale_source(r[3]) === ScaleEstimated, runs)
+    scales = [noise_scale(r[3]) for r in runs]
+    @test 0.6 < median(scales) < 1.4
+    _, p1, r1 = runs[1]
+    @test SMatrix{3, 3}(cov(uncertain_rotation(p1, r1))) == SMatrix{3, 3}(cov(uncertain_rotation(p1, r1; scale = noise_scale(r1))))
+    @test SMatrix{3, 3}(cov(uncertain_rotation(p1, r1))) ≈ noise_scale(r1)^2 * SMatrix{3, 3}(cov(uncertain_rotation(p1, r1; scale = 1.0))) rtol = 1.0e-12
     rel(A) = norm(C - A) / norm(A)
     # 300 trials: a sample covariance entry within ~3·√(2/300) ≈ 25 % of the diagonal scale
     @test rel(ΣR) < 0.25
@@ -109,7 +120,6 @@ end
     # the scale is the variance factor: Σ_R scales by its square; a width is no scale
     @test SMatrix{3, 3}(cov(uncertain_rotation(p0, exact_fit; scale = 2.0))) ≈ 4 * ΣR rtol = 1.0e-12
     @test_throws ArgumentError uncertain_rotation(p0, exact_fit; scale = 0.0)
-    @test_throws UndefKeywordError uncertain_rotation(p0, exact_fit)
 end
 
 @testitem "rotation edge: the chart of Σ_R is the averaging's (left perturbation, transported by R_j)" setup = [RotationEdgeScenes] begin
@@ -148,7 +158,7 @@ end
     using Rotations: RotMatrix, RotXYZ, QuatRotation, rotation_angle
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: csponds, estimate, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
-        noise_scale, scale_source, ScaleUpstream, ScaleGiven, ScaleNone
+        noise_scale, scale_source, ScaleUpstream, ScaleGiven, ScaleNone, ScaleEstimated
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, fit_rotation_averaging, Irls
     using StableRNGs: StableRNG
 
@@ -174,18 +184,20 @@ end
             res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(seed))
             (p, res)
         end
-        unc = Dict(e => uncertain_rotation(p, res; scale = 1.0) for (e, (p, res)) in zip(edges, fits))
+        unc = Dict(e => uncertain_rotation(p, res) for (e, (p, res)) in zip(edges, fits))   # at each fit's own scale
         plain = Dict(e => SMatrix{3, 3}(estimate(res)) for (e, (_, res)) in zip(edges, fits))
         a = fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}())
         b = fit_rotation_averaging(plain; optimization_strategy = Irls{HuberShape}(), scale = 1.0e-3)
-        return err(estimate(a), R), err(estimate(b), R), a, b, unc
+        return err(estimate(a), R), err(estimate(b), R), a, b, unc, fits
     end
     res = [trial(k) for k in 1:10]
     @test mean(r[1] for r in res) < mean(r[2] for r in res)                   # the covariance-weighted average is the better one
-    _, _, a, b, unc = res[1]
+    _, _, a, b, unc, fits = res[1]
     # the weak edge's covariance is the wider (8× noise: ~64× variance), so it weighs less
     @test tr(SMatrix{3, 3}(cov(unc[weak]))) > 20 * tr(SMatrix{3, 3}(cov(unc[(1, 2)])))
-    # scale_source at each stage: the edge's scale given (σ = 1 whitened unit) → the averaging's upstream
+    # scale_source at each stage: the pairwise scorer estimates it (whitened units) → the edges' absolute covariances →
+    # the averaging's upstream
+    @test all(f -> scale_source(f[2]) === ScaleEstimated, fits)
     @test noise_scale(a) == 1.0 && scale_source(a) == ScaleUpstream
     @test scale_source(b) == ScaleGiven
     w = fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}(), width = 2.0)

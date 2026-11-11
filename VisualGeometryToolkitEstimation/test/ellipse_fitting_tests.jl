@@ -3,6 +3,7 @@
 # maximum-likelihood ellipse, its covariance the one model covariance.
 
 @testitem "ellipse_fitting" begin
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test
@@ -57,7 +58,7 @@
             r = ls(direct_ellipse(pts), pts)
             @test r.lo_retcode === :converged
             @test _orms(estimate(r), pts) <= _orms(direct_ellipse(pts), pts) + 1.0e-12
-            @test count(r.inlier_mask) == 60
+            @test count(inlier_mask(r)) == 60
         end
         pts = _points(e0, 60; σ = 0.5, arc = π)
         @test _orms(estimate(ls(direct_ellipse(pts), pts)), pts) < 0.97 * _orms(direct_ellipse(pts), pts)
@@ -85,7 +86,7 @@
             pts = _points(e0, 60; σ = 0.5, rng = StableRNG(1000 + s))
             r = ls(direct_ellipse(pts), pts)
             e = estimate(r)
-            Σ = r.sigma^2 * VgtkEstimation.solver_covariance(EllipseProblem(pts), e, findall(r.inlier_mask))
+            Σ = noise_scale(r)^2 * VgtkEstimation.solver_covariance(EllipseProblem(pts), e, findall(inlier_mask(r)))
             δ = ambient_coordinates(e) - ambient_coordinates(e0)
             dot(δ, Matrix(Σ) \ δ)
         end

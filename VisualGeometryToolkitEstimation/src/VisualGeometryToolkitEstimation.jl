@@ -56,6 +56,9 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
+# The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
+# robust/weights.jl): RansacMetadata records the scorer's scale and its kind.
+using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, BinaryWeights, PosteriorWeights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
@@ -91,7 +94,8 @@ using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
 using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     Lens, LiftLens, DoubleSphere, Equidistant, Division, Perspective,
     Stereographic, Equisolid, Orthographic,
-    LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names,
+    LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names, with_parameters,
+    Radial, Even, Tangential, ThinPrism,   # fit_camera's linear forms: the radial factor and the decentering deltas
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
     RadialCamera, source_map, destination_map,
     projected_radius, view_angle, view_angle_limit, radial_part,
@@ -132,6 +136,10 @@ import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinat
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
     block_coordinate_result, current_cost, current_s2
 using VisualGeometryToolkitCore: StoppingCriterion
+# The robust-estimation contract's record of the EM fits (fit_division_camera, fit_residual_mixture): their
+# scale's source and their weights' kind (VGC base/scale_source.jl, robust/weights.jl).
+using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, PosteriorWeights
+import VisualGeometryToolkitCore: weight_kind
 # The chart-rows contract (VGC robust/rows.jl: the rows a lifted local
 # optimizer reads, and the one task-local reuse policy) — RVG's chart problems
 # provide it (`import`) — the chart-LM core and protocol (VGC
@@ -261,7 +269,7 @@ export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camer
 export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
 export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
 export fit_rotation           # the robust rotation between two sets of directions
-export optical_axis           # the radially symmetric camera closest to a camera: its axis and principal point (fit_camera)
+export optical_axis           # the radially symmetric camera closest to a camera: its axis and principal point (approximate_camera)
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rigid_alignment    # the robust rigid transform between two point sets (an ATE alignment)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
@@ -271,7 +279,10 @@ public views, edgelist, nedges, adjacent_views, components, label_components, re
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
     observers, observed, observed_in, observers_of, covisibility   # their queries and algorithms, public, not exported
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
-export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region
+export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region (linear: no guess)
+export refine_camera          # a camera model polished onto a source over a region from a guess (the chart LM)
+export approximate_camera     # fit_camera's linear start, then refine_camera
+public ViewAngleLimitError    # the camera regressions' refusal of a region past the target family's view-angle limit (its fields: the measured angle, the limit)
 export pspline_grid           # the spline targets' one P-spline solve on a given lattice (fit_camera's inner step)
 
 # -----------------------------------------------------------------------------
@@ -416,7 +427,8 @@ include("fitting/radial_camera.jl")
 include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
 include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
 include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, gcv_select; the weight's normalization is Core's)
-include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family, or a SplineLens camera or non-central spline model, onto a source over a region
+include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family (linear), or a SplineLens camera or non-central spline model, onto a source over a region
+include("fitting/refine_camera.jl")             # refine_camera (the chart LM from a guess), approximate_camera, optical_axis
 include("fitting/essential.jl")
 include("fitting/rotation.jl")
 include("fitting/circle.jl")

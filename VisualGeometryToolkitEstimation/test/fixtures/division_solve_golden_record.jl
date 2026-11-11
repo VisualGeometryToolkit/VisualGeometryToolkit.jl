@@ -7,7 +7,7 @@ using StableRNGs: StableRNG
 using StaticArrays: SVector
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: RadialCamera, CameraModel, CspondNormalization, Csponds, intrinsics, lens,
-    focal_length, parameter_vector, iterations, estimate, rotation, translation
+    focal_length, parameter_vector, iterations, estimate, rotation, translation, noise_scale
 using VisualGeometryToolkitEstimation: DivisionCameraState, fit_division_camera, division_camera_step
 
 # A state's f, k and every pose (rotation column-major, then translation), by view key.
@@ -26,7 +26,7 @@ function _golden_fit!(out, name, res)
     push!(out, "$name.focal" => collect(Float64, focal_length(intrinsics(cam))))
     push!(out, "$name.coefficients" => collect(Float64, parameter_vector(lens(cam))))
     _golden_state!(out, "$name.state", res.state)
-    push!(out, "$name.sigma" => [res.sigma])
+    push!(out, "$name.sigma" => [noise_scale(res)])   # the key predates `noise_scale`
     push!(out, "$name.nu" => [res.ν])
     push!(out, "$name.iterations" => [Float64(iterations(res))])
     for id in sort!(collect(keys(res.views)))

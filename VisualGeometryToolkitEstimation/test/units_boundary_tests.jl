@@ -1,4 +1,5 @@
 @testitem "units_boundary" setup = [PoseScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
 # The units layering at the public estimators (VGC conventions/units.md): a
 # physical input (lengths) is stripped in metres once at entry, the inner loop
 # runs plain, the model is reattached in metres once at exit. A physical input
@@ -32,7 +33,7 @@ phys(E::AbstractVector, u = m) = phys.(E, Ref(u))
 same_pose(a, b) = rotation(a) == rotation(b) && translation(a) == translation(b)
 # The parts of two RANSAC results that must agree bit for bit (the model apart).
 same_diagnostics(a, b) = retcode(a) === retcode(b) && iterations(a) == iterations(b) && rms(a) === rms(b) &&
-    a.inlier_mask == b.inlier_mask && a.residuals == b.residuals && a.sigma === b.sigma
+    inlier_mask(a) == inlier_mask(b) && a.residuals == b.residuals && a.scale === b.scale && a.weights == b.weights
 
 @testset "find_absolute_pose" begin
     rng = StableRNG(9)
@@ -62,7 +63,7 @@ same_diagnostics(a, b) = retcode(a) === retcode(b) && iterations(a) == iteration
     # metres; 1 μm for plain millimetres), which no sample of a fixture spread
     # over metres meets — the same samples, the same answer in either form
     plain_mm = find_absolute_pose(cam, [1000 .* x for x in X] .=> u; rng = StableRNG(1))
-    @test plain_mm.inlier_mask == from_mm.inlier_mask && iterations(plain_mm) == iterations(from_mm)
+    @test inlier_mask(plain_mm) == inlier_mask(from_mm) && iterations(plain_mm) == iterations(from_mm)
     @test isapprox(rotation(estimate(plain_mm)), rotation(estimate(from_mm)); atol = 1.0e-12)
     @test isapprox(translation(estimate(plain_mm)), 1000 .* translation(ustrip(m, estimate(from_mm))); rtol = 1.0e-9)
 

@@ -1685,8 +1685,10 @@ end
 const _R13_SPELLINGS = (:free, :fix, :fixed_params, :hold)
 const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$|^(LensSpec|LensTarget)$"
 const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
-_r13_callee(f) = f isa Symbol ? String(f) : (Meta.isexpr(f, :., 2) && f.args[2] isa QuoteNode ? String(f.args[2].value) :
-                 Meta.isexpr(f, :curly) ? _r13_callee(f.args[1]) : "")
+# A qualified callee's name is its QuoteNode's Symbol; an interpolated one (`@eval M.$f(…) = …`) has no name to read.
+_r13_callee(f) = f isa Symbol ? String(f) :
+                 (Meta.isexpr(f, :., 2) && f.args[2] isa QuoteNode ? (f.args[2].value isa Symbol ? String(f.args[2].value) : "") :
+                  Meta.isexpr(f, :curly) ? _r13_callee(f.args[1]) : "")
 _r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
 function _r13_keywords!(acc, ex, line::Int)
     ex isa Expr || return acc

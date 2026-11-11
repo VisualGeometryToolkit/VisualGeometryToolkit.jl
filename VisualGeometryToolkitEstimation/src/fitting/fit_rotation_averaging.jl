@@ -28,7 +28,7 @@
     RotationAveragingMetadata{K, L, W}
 
 `FitResult` metadata of [`fit_rotation_averaging`](@ref) at the returned
-rotations (`L` the `optimization_strategy`'s type, `Nothing` for the seed alone):
+rotations (`L` the `optimization_strategy`'s type, `Nothing` for least squares):
 
 - `edges::Vector{Tuple{K, K}}` — the edges, sorted; the order of `weights`.
 - `weights::W` — per edge, the loss weight `ρ′(r²)` normalized to a maximum
@@ -89,7 +89,10 @@ fixed by the caller's scale input.
   splits the graph), and all-zero weights are refused.
 - `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss,
   its efficiency constant and its `max_iter`; default configs/default.toml
-  `[fit_rotation_averaging] optimization_strategy`, Huber), or `nothing` for the seed alone.
+  `[fit_rotation_averaging] optimization_strategy`, Huber), or `nothing` for the plain least
+  squares: the same Lie-algebra iterations from the seed at unit loss weights (no robust loss), at most
+  `[fit_rotation_averaging] max_iter`. The seed alone is VisualGeometryToolkitCore's
+  `spectral_rotation_averaging`.
 - `scale` | `width` — with an `Irls` strategy and plain edges, EXACTLY ONE of: `scale = σ`
   (the edges' residual rotation noise scale per axis component, radians),
   `scale = result` (an upstream robust result's `noise_scale`, e.g. the
@@ -114,7 +117,7 @@ rather than left free in a singular solve; more generally, in each part of
 the graph that the edges of positive weight no longer tie to the gauge frame,
 the first sorted frame is held and the rest move with it.
 
-`retcode` is `:converged`, `:max_iterations` or `:solved` (`optimization_strategy = nothing`);
+`retcode` is `:converged` or `:max_iterations`;
 `n` the support (the edges of positive solve weight) and `rms` the
 weight-weighted root mean square residual angle over them. A disconnected
 graph is an `ArgumentError`, counting only the edges of positive weight; the
@@ -147,8 +150,8 @@ function fit_rotation_averaging(
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
     end
     edge_residuals!()
-    retcode = f === nothing ? :solved : :max_iterations; iter = 0
-    while iter < _fit_max_iter(optimization_strategy)
+    retcode = :max_iterations; iter = 0
+    while iter < _averaging_max_iter(optimization_strategy)
         iter += 1
         W = _edge_whitening(Σrel, edges, R)
         _irls_weights!(w, f, _whitened_norms(W, r))
@@ -173,6 +176,11 @@ function fit_rotation_averaging(
     rms = sqrt(sum(q -> sw[q] * norm(r[q])^2, live; init = 0.0) / max(sum(sw), eps()))
     return FitResult(out, retcode, iter, rms, length(live), meta)
 end
+
+# The iteration cap: an Irls strategy's own `max_iter`; least squares (`nothing`, unit loss weights) iterates too, at
+# most `[fit_rotation_averaging] max_iter` — the seed is not the least-squares solution.
+_averaging_max_iter(::Nothing) = _dflt("fit_rotation_averaging", "max_iter")::Int
+_averaging_max_iter(lo) = _fit_max_iter(lo)
 
 # The update's unknowns at the current weights: the column offset of each frame
 # (-1: no columns). The edges of weight > 0 split the frames into components;

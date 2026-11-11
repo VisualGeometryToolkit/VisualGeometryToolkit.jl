@@ -1,4 +1,5 @@
 @testitem "inhom_line" begin
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
 using LinearAlgebra
@@ -107,21 +108,21 @@ _g_of_y(pts, model, y, i) = constraint(
         @test attrs isa RansacMetadata
 
         # Inlier ratio should be reasonable
-        ir = sum(attrs.inlier_mask) / n
+        ir = sum(inlier_mask(result)) / n
         @test ir > 0.5
         @test ir < 0.95  # shouldn't include all outliers
 
         # Most inliers should be in the first n_inliers points
-        n_correct_inliers = sum(attrs.inlier_mask[1:n_inliers])
+        n_correct_inliers = sum(inlier_mask(result)[1:n_inliers])
         @test n_correct_inliers >= 0.8 * n_inliers
 
         # Few outliers should be classified as inliers
-        n_false_inliers = sum(attrs.inlier_mask[(n_inliers + 1):end])
+        n_false_inliers = sum(inlier_mask(result)[(n_inliers + 1):end])
         @test n_false_inliers <= 10
 
         # Scale estimate should be reasonable
-        @test attrs.sigma > 0
-        @test attrs.sigma < 2.0 * noise
+        @test noise_scale(result) > 0
+        @test noise_scale(result) < 2.0 * noise
     end
 
     @testset "Problem-aware constructors" begin

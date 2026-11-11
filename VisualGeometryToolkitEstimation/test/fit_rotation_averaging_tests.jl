@@ -35,7 +35,7 @@
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = nothing)   # the seed, unit weights
+        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = nothing)   # least squares, unit weights
         live = [e for e in keys(noisy) if e != bad]
         @test res.n == length(live)
         @test rms(res) ≈ sqrt(sum(e -> res.residuals[e]^2, live) / length(live))
@@ -75,4 +75,31 @@
     # the private keywords are gone: the strategy is the one schema
     @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape(), scale = 1.0e-3)
     @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3, scale = 1.0e-3)
+end
+
+@testitem "fit_rotation_averaging: optimization_strategy = nothing is the least squares, iterated from the seed" begin
+    using Test, Random, LinearAlgebra, StaticArrays, Rotations
+    using VisualGeometryToolkitEstimation: fit_rotation_averaging
+    using VisualGeometryToolkitCore: estimate, converged, iterations, spectral_rotation_averaging, Attributed, log_so3,
+        scale_source, ScaleNone, weight_kind, BinaryWeights
+
+    rng = Xoshiro(23)
+    n = 8
+    R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
+    edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
+    noisy = Dict(e => SMatrix{3, 3}(RotMatrix(RotationVec((0.02 .* randn(rng, 3))...)) * (R[e[2]]' * R[e[1]])) for e in edges)
+    # the seed: the spectral initializer, gauged as the fit gauges it (the first sorted frame the identity)
+    S = spectral_rotation_averaging(Dict(e => Attributed(noisy[e], (; weight = 1.0)) for e in edges))
+    G = SMatrix{3, 3}(S[1])'
+    seed = Dict(k => G * SMatrix{3, 3}(S[k]) for k in 1:n)
+    cost(X) = sum(e -> norm(log_so3(SMatrix{3, 3}(X[e[2]]) * noisy[e] * SMatrix{3, 3}(X[e[1]])'))^2, edges)
+    ls = fit_rotation_averaging(noisy; optimization_strategy = nothing)
+    @test iterations(ls) > 0 && converged(ls)                                  # it iterates, from the seed
+    @test maximum(k -> norm(SMatrix{3, 3}(estimate(ls)[k]) - seed[k]), 1:n) > 1.0e-6   # ... and moves off it
+    @test cost(estimate(ls)) < cost(seed)                                      # toward the least-squares minimum
+    # the seed supplied explicitly converges to the same least squares
+    ls2 = fit_rotation_averaging(noisy; optimization_strategy = nothing, seed = seed)
+    @test maximum(k -> norm(SMatrix{3, 3}(estimate(ls)[k]) - SMatrix{3, 3}(estimate(ls2)[k])), 1:n) < 1.0e-9
+    # unit loss weights, no scale: the contract's least-squares record
+    @test weight_kind(ls) === BinaryWeights() && all(==(1.0), ls.weights) && scale_source(ls) === ScaleNone
 end

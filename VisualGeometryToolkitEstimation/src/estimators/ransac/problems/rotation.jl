@@ -157,7 +157,7 @@ _rotation_chart_covariance(Σ, _R) = throw(ArgumentError(
 # absolute covariance, rad². The chart is fit_rotation_averaging's edge chart.
 
 """
-    uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale) -> Uncertain{RotMatrix{3, Float64}}
+    uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result) -> Uncertain{RotMatrix{3, Float64}}
 
 The relative rotation of a pairwise rotation fit (`find_rotation`, `refine_rotation` on `problem`) with its covariance, the edge
 [`fit_rotation_averaging`](@ref) reads: `Uncertain(R, CovMat(Σ_R))` with
@@ -172,9 +172,11 @@ whitened-constraint estimator over the result's inliers (`solver_covariance`),
 so it carries every keypoint's covariance when the pixels are `Uncertain`
 (`RotationProblem(camera1, camera2, pixel_cs)`), and is in whitened units:
 `scale` is the variance factor of those units — the scale input of the
-robust-estimation contract, `scale = σ` or `scale = <a result>` (its
-`noise_scale`; a `find_rotation` result's scorer scale). An edge covariance
-is absolute, so the averaging takes no further scale.
+robust-estimation contract: by default the result's own `noise_scale`, the
+scale its scorer estimated on the consensus set (`ScaleEstimated`, in whitened
+units: ≈ 1 when the keypoints' covariances are right); or `scale = σ`, or
+another upstream result. A result that recorded no scale (`ScaleNone`) is
+refused. An edge covariance is absolute, so the averaging takes no further scale.
 
 Pairs that share a keypoint across edges make their edges' errors correlated;
 the averaging treats the edges as independent, the first-order approximation.
@@ -182,12 +184,12 @@ the averaging treats the edges as independent, the first-order approximation.
 An `ArgumentError` for a result with no estimate, or a singular sandwich (too
 few inliers).
 """
-function uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale)
+function uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result)
     R = estimate(result)
     R === nothing && throw(ArgumentError("uncertain_rotation: the result has no estimate"))
     σ = VgtkCore.scale_input(scale, nothing).scale
     Rm = RotMatrix{3, Float64, 9}(R)
-    Σ9 = solver_covariance(problem, Rm, findall(result.inlier_mask))
+    Σ9 = solver_covariance(problem, Rm, findall(VgtkCore.inlier_mask(result)))
     Σ9 === nothing && throw(ArgumentError("uncertain_rotation: the inliers do not determine the rotation (a singular covariance)"))
     Σ = _rotation_chart_covariance(SMatrix{9, 9, Float64, 81}(Σ9), SMatrix{3, 3, Float64, 9}(Rm))
     return VgtkCore.Uncertain(Rm, VgtkCore.CovMat(Float64(σ)^2 * Σ))::_UncertainRotation

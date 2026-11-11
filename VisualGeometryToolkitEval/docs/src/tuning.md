@@ -368,6 +368,32 @@ tuning). The same mechanism stamps pools, with `pool_format`. The reader then
 refuses a stored spec whose hash does not match its table, and finally
 rebuilds every grid: `art.grids[:axis]` is the realized grid.
 
+**Format 6 is still read.** Format 7 (2026-11-11) names the efficiency
+constant `efficiency_constant` (the axis, its grid spec, the scheme's
+`efficiency_constant` axis and `efficiency_constant_window`) and stores it as
+the PLAIN multiple, `width = c·ŝ`, for every loss. A format-6 sidecar keeps
+its old keys on disk (a sidecar is immutable provenance, never rewritten): the
+reader carries it over in memory through its version step, registered with
+VisualGeometryToolkitIO's `migrate_schema` and run by its `migrate_record`. The
+step checks the file's recorded hash against its STORED table, renames the
+keys of the spec and the grid specs and the axis names in the data
+(`boundary_hits`, `kinds`, a coarse-fine artifact's `axes`, `selected`,
+`boundary_hit` and `record.param_name`), and records the renamed table's hash.
+`art.format` is the format the file was written in and `art.recorded_hash`
+its own hash. A format-6 efficiency constant is the value its arm's `ctor`
+took THEN, in whatever currency that `ctor` read it: a bare Geman–McClure
+`Irls` took a half-weight depth, while a roster whose own map composed the
+conversion (or a GNC schedule stated in the target width) took the plain
+value already. The loss shape cannot tell the two apart, so the ROSTER declares
+it, per arm: `ComposedSpec(…; format6_constant = f)`, the identity by default
+(`f = m -> decision_width(GemanMcclureShape(), m)` for a ctor that took the
+half-weight depth). The hook is applied once, in
+`Evaluation.tuned_width(art, arm)`, the one reader of a tuned width, so the
+deployed LO is the one the sidecar was tuned with: a caller
+that needs a width itself (to refit, render, or carry it into a resumed run's
+artifact) calls it, never `art["tuned_width"]`, so a format-6 width carried
+into a format-7 file is stored plain.
+
 ## Provenance: from a deployed constant to the run
 
 1. A deployed cross-validated constant carries

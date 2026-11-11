@@ -7,8 +7,10 @@
 # (`_check_artifact_format`) before anything else is read. A file without the
 # key is format 1. A change to what an artifact stores bumps its version here;
 # older files are then REFUSED with an `ArgumentError` naming the file and
-# saying what changed and what to do — never migrated, never read through a
-# shim.
+# saying what changed and what to do — never read through a shim. The one
+# exception is a version a kind declares `read_from`: a file from that version
+# on is read through its version steps (VisualGeometryToolkitIO `migrate_record`),
+# in memory, and never rewritten (a tuning sidecar is immutable provenance).
 #
 # History, per kind (the entry's `change` is what the CURRENT version
 # introduced, quoted in the refusal; `remedy` is what to do with an older file):
@@ -49,6 +51,17 @@
 #               label => the selection columns actually computed), so a resumed
 #               run knows what is filled (2026-10-03)
 #           6 — the tuned point as a NATIVE VALUE rather than a grid index
+#           7 — the efficiency-constant names (2026-11-11, the robust-estimation
+#               contract): the scale multiple's names → `efficiency_constant`
+#               and `efficiency_constant_window` in the spec, the grid specs
+#               and the axis-named data, and the efficiency
+#               constant always the PLAIN multiple (`width = c·ŝ`). A v6 file is
+#               read through its version step (`migrate_schema` of
+#               "vgtk_eval/tuning/v6", persist.jl): the keys renamed, its
+#               recorded hash checked against the stored table; its
+#               efficiency constants are read through each arm's own
+#               `format6_constant` hook (`tuned_width`, the identity unless
+#               the roster declares one)
 # =============================================================================
 
 """
@@ -56,8 +69,11 @@
 
 The format version this package writes and reads, per artifact kind
 (`:pool`, `:pool_residuals`, `:pool_samples`, `:pnp_pool`, `:tuning`), with the change the
-version introduced and the remedy for an older file. The file key is
-`"<kind>_format"`; an absent key is version 1.
+version introduced and the remedy for an older file. A kind that reads an
+earlier version through its version steps names the oldest it reads,
+`read_from`, and what that version introduced (`read_from_change`, quoted when
+an even older file is refused). The file key is `"<kind>_format"`; an absent
+key is version 1.
 """
 const ARTIFACT_FORMATS = (
     pool = (version = 5,
@@ -72,9 +88,11 @@ const ARTIFACT_FORMATS = (
     pnp_pool = (version = 2,
             change = "the per-query pseudo-GT gt_variance",
             remedy = "rebuild it with its accv2026 pool builder"),
-    tuning = (version = 6,
-            change = "the tuned point as a NATIVE VALUE (`tuned_selection`/`tuned_width`) rather than a grid index",
-            remedy = "regenerate it by re-running its tuning"),
+    tuning = (version = 7,
+            change = "the efficiency-constant names (`efficiency_constant`, `efficiency_constant_window`)",
+            remedy = "regenerate it by re-running its tuning",
+            read_from = 6,
+            read_from_change = "the tuned point as a NATIVE VALUE (`tuned_selection`/`tuned_width`) rather than a grid index"),
 )
 
 _format_key(kind::Symbol) = string(kind, "_format")
@@ -82,26 +100,33 @@ _format_key(kind::Symbol) = string(kind, "_format")
 "The format version an open JLD2 file `f` declares for `kind` (absent key = 1)."
 _artifact_format(f, kind::Symbol) = haskey(f, _format_key(kind)) ? Int(f[_format_key(kind)]) : 1
 
+# The oldest version a kind reads (through its version steps), and what it introduced.
+_oldest_read(kind::Symbol) = (k = ARTIFACT_FORMATS[kind];
+    haskey(k, :read_from) ? (k.read_from, k.read_from_change) : (k.version, k.change))
+
 function _artifact_format_error(path, kind::Symbol, v::Integer)
     cur = ARTIFACT_FORMATS[kind]
-    v < cur.version && throw(ArgumentError(
-        "$path: $kind format v$v predates $(cur.change) (v$(cur.version)) — $(cur.remedy)"))
+    oldest, change = _oldest_read(kind)
+    v < oldest && throw(ArgumentError(
+        "$path: $kind format v$v predates $change (v$oldest) — $(cur.remedy)"))
     throw(ArgumentError("$path: $kind format v$v is newer than this VisualGeometryToolkitEval " *
                         "reads (v$(cur.version))"))
 end
 
 """
-    _check_artifact_format(path, kind)
+    _check_artifact_format(path, kind) -> Int
 
-Refuse `path` unless it declares the current `kind` format
-([`ARTIFACT_FORMATS`](@ref)): an `ArgumentError` naming the file. Every reader
-of a `kind` artifact calls this before reading anything else.
+Refuse `path` unless it declares a `kind` format this package reads
+([`ARTIFACT_FORMATS`](@ref): the current one, or one from the kind's
+`read_from` on, which its reader carries over through its version steps): an
+`ArgumentError` naming the file. Returns the format the file declares. Every
+reader of a `kind` artifact calls this before reading anything else.
 """
 function _check_artifact_format(path::AbstractString, kind::Symbol)
     isfile(path) || throw(ArgumentError("$path: no such $kind artifact"))
     v = JLD2.jldopen(f -> _artifact_format(f, kind), path, "r")
-    v == ARTIFACT_FORMATS[kind].version || _artifact_format_error(path, kind, v)
-    return nothing
+    first(_oldest_read(kind)) <= v <= ARTIFACT_FORMATS[kind].version || _artifact_format_error(path, kind, v)
+    return v
 end
 
 """

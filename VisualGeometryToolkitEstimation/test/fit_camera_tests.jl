@@ -1,22 +1,25 @@
 # =============================================================================
-# fit_camera — one model-to-model regression over a region of the sensor
+# fit_camera, refine_camera, approximate_camera — one model-to-model regression
+# over a region of the sensor
 # =============================================================================
 #
-# A lens family reproduces the profile regression it replaced (recorded), with
-# the region's exact 1-D reduction; the forward spline of the synthetic fisheye's
-# SplineLens camera meets its tolerance on held-out points, edge band included,
-# its backward kept exactly, and its size bisection rests on a monotone error; a
-# SplineLens backward fitted from a parametric model beats node interpolation and
-# stays smooth outside the region.
+# A lens family's approximation (approximate_camera: fit_camera's linear start,
+# then refine_camera's chart LM) reproduces the profile regression it replaced
+# (recorded), with the region's exact 1-D reduction; fit_camera alone is one
+# linear least squares, its residual the returned camera's; the forward spline of
+# the synthetic fisheye's SplineLens camera meets its tolerance on held-out
+# points, edge band included, its backward kept exactly, and its size bisection
+# rests on a monotone error; a SplineLens backward fitted from a parametric model
+# beats node interpolation and stays smooth outside the region.
 
-@testitem "fit_camera: a lens family reproduces the recorded profile regressions" setup = [FitCameraLensCases] begin
+@testitem "approximate_camera: a lens family reproduces the recorded profile regressions" setup = [FitCameraLensCases] begin
     using Test
     using VisualGeometryToolkitCore: estimate, metadata, rms, lens, parameter_vector
-    using VisualGeometryToolkitEstimation: fit_camera, CameraFitMetadata
+    using VisualGeometryToolkitEstimation: approximate_camera, CameraFitMetadata
     worst = 0.0
     for (name, (L, m, _, region)) in LENS_CASES
-        r = name in ("OPENCV3", "OPENCV decentered") ?
-            (@test_logs (:warn, r"cannot represent") match_mode = :any fit_camera(L, m, region)) : fit_camera(L, m, region)
+        name in MOVED && continue
+        r = approximate_camera(L, m, region)
         @test metadata(r) isa CameraFitMetadata
         p, s, max_px = RECORDED[name]
         q = parameter_vector(lens(estimate(r)))
@@ -26,7 +29,22 @@
         @test 0 <= rms(r) <= metadata(r).max_px
         isempty(p) || (worst = max(worst, maximum(abs.(collect(q) .- collect(p)))))
     end
-    @test worst < 1.0e-8                          # measured 2026-11-04: 1.4e-9 (the double sphere past its image circle)
+    @test worst < 1.0e-6                          # the recorded LM from the zero anchor against the refine from the linear start
+end
+
+@testitem "approximate_camera: the recorded perspective-polynomial stalls are refused (changed on purpose, 2026-11-11)" setup = [FitCameraLensCases] begin
+    using Test
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: approximate_camera, fit_camera
+    # OPENCV3 over a 155° field: the recorded LM never left its zero start (925 672 px at the edge). A perspective
+    # gnomonic family applies its distortion on the perspective plane, which ends at 90°: the linear fit, and so the
+    # approximation, refuse the field, naming the plane and the region's extent, instead of fitting a clipped field
+    for name in MOVED
+        L, m, _, region = Dict(LENS_CASES)[name]
+        @test_throws VgtkEstimation.ViewAngleLimitError fit_camera(L, m, region)
+        @test_throws VgtkEstimation.ViewAngleLimitError approximate_camera(L, m, region)
+        @test_throws r"perspective plane" fit_camera(L, m, region)
+    end
 end
 
 @testitem "fit_camera: the :image density's dr/dθ is exact — the central difference it replaced to its truncation error" setup = [FitCameraLensCases] begin
@@ -69,17 +87,22 @@ end
         @test VgtkEstimation._family_limit(typeof(Lens(Orthographic()))) == view_angle_limit(Lens(Orthographic()))
         @test VgtkEstimation._family_limit(DSL) == π - 1.0e-3
     end
-    @testset "a clip by the target family is reported and warned" begin
-        r = @test_logs (:warn, r"cannot represent") match_mode = :any fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
-        @test metadata(r).family.clipped
-        @test metadata(r).family.θ_max < π / 2 < metadata(r).family.θ_source
-        @test lens(estimate(r)) isa OPENCV3
+    @testset "a region past the target family's view-angle limit is refused" begin
+        # refused: the perspective plane ends at 90° (changed on purpose, 2026-11-11: it was fitted over the clipped
+        # field with a warning)
+        @test_throws r"perspective plane \(θ < 90°\), but the region reaches 154.9°" fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
+        @test_throws r"its view-angle limit" fit_camera(typeof(Lens(Orthographic())), mdiv, disc(mdiv, rcorner))
+        # a typed refusal: its fields carry the measured angle and the family's limit (radians), read without the text
+        e = try fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner)); nothing catch err; err end
+        @test e isa VgtkEstimation.ViewAngleLimitError && e.family === OPENCV3
+        @test e.limit == view_angle_limit(Pinhole()) && round(rad2deg(e.field_angle); digits = 1) == 154.9
+        @test e.field_angle > e.limit
         @test !metadata(fit_camera(KB4, mdiv, disc(mdiv, rcorner))).family.clipped
     end
     @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin
-        rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, rcorner))
+        rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, 1000.0))
         cd = parameters(lens(estimate(rd)))
-        @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 == 0 && cd.d3 == 0
+        @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 != 0          # the rational factor's denominator is linear: fitted
         synthetic = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
         @test VgtkEstimation._decentering(VgtkEstimation.VgtkCore.Cameras.RadialSymmetry(synthetic), synthetic) ≈ hypot(1.0e-3, -5.0e-4, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
         @test radial_part(synthetic) === Lens(Perspective(), Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)))
@@ -138,7 +161,7 @@ end
     r = @test_logs (:warn, r"past the radii the source") match_mode = :any fit_camera(KannalaBrandt{4}, src, Rect(0, 0, 1000, 1000))
     fam = metadata(r).family
     @test fam.clipped && isfinite(fam.θ_max) && fam.θ_max == fam.θ_source > 3.1
-    @test retcode(r) === :converged && metadata(r).max_px < 1.0e-9                  # KB4 holds KB1 exactly
+    @test retcode(r) === :solved && metadata(r).max_px < 1.0e-6                     # KB4 holds KB1: the linear fit to its solve's rounding (θ⁹ to 180°)
 end
 
 
@@ -440,22 +463,23 @@ end
     @test lens(estimate(r)).backward.controls == map(c -> R * c, lens(cam).backward.controls)
 end
 
-@testitem "fit_camera: a lens refitted onto its own family has exactly zero residuals" begin
+@testitem "fit_camera, approximate_camera: a lens refitted onto its own family has zero residuals" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore, CameraModel, Lens, Perspective, Equidistant, Stereographic, Division,
         Scaramuzza, Ellipse, metadata, rms
-    using VisualGeometryToolkitEstimation: fit_camera
-    # the regression's targets are the source's plain radii, so a source at its
-    # family's anchor is reproduced exactly (a Dual radius differs in the last bits) — on the CPU backend, where the
-    # reduction kernel evaluates the lens with the host's own functions. On an accelerator its sin/cos/atan differ from
-    # the host's in the last bits (2026-11-11, the regression on the device): zero to rounding there
+    using VisualGeometryToolkitEstimation: fit_camera, approximate_camera
+    # the regression's targets are the source's plain radii, so a source at its family's anchor is reproduced: by the
+    # linear fit to its solve's rounding, and by the refine from it exactly or to the rounding of the reduction kernel
+    # (on an accelerator its sin/cos/atan differ from the host's in the last bits, 2026-11-11)
     region = Ellipse(SVector(320.0, 240.0), 200.0, 200.0, 0.0)
     for l in (Lens(Perspective()), Lens(Equidistant()), Lens(Stereographic()), zero(Division{2}), zero(Scaramuzza{3}))
         src = CameraModel(; pp = (320.0, 240.0), focal = 300.0, lens = l)
-        r = fit_camera(typeof(l), src, region; device = VisualGeometryToolkitCore.KA.CPU())
-        @test metadata(r).max_px == 0 && rms(r) == 0
-        rd = fit_camera(typeof(l), src, region)
-        @test metadata(rd).max_px < 1.0e-12 && rms(rd) < 1.0e-12
+        r = fit_camera(typeof(l), src, region)
+        @test metadata(r).max_px < 1.0e-9 && rms(r) < 1.0e-9
+        rc = approximate_camera(typeof(l), src, region; device = VisualGeometryToolkitCore.KA.CPU())
+        @test metadata(rc).max_px < 1.0e-9 && rms(rc) < 1.0e-9
+        rd = approximate_camera(typeof(l), src, region)
+        @test metadata(rd).max_px < 1.0e-9 && rms(rd) < 1.0e-9
     end
 end
 
@@ -558,17 +582,17 @@ end
     @test_throws ArgumentError fit_camera(NoncentralSplineModel, FISHEYE, REGION; tolerance = 0.01)
 end
 
-@testitem "fit_camera: a parametric lens from a SplineLens camera, through the camera's rays (the exporters' route)" setup = [FitCameraFisheye] begin
+@testitem "approximate_camera: a parametric lens from a SplineLens camera, through the camera's rays (the exporters' route)" setup = [FitCameraFisheye] begin
     using Test
     using VisualGeometryToolkitCore: estimate, metadata, lens, rms, parameter_vector, calibration_matrix, KannalaBrandt, rotation
     using LinearAlgebra: I
-    using VisualGeometryToolkitEstimation: fit_camera
+    using VisualGeometryToolkitEstimation: fit_camera, approximate_camera
     # A SplineLens camera has no OpenCV/COLMAP form: the exporters' refusal (VisualGeometryToolkitIO) says to fit a
-    # parametric lens to it first, `fit_camera(KannalaBrandt{4}, camera, region)` — the bounded camera or its model.
+    # parametric lens to it first, `approximate_camera(KannalaBrandt{4}, camera, region)` — the bounded camera or its model.
     # Its K is a gauge, so its lens has no radial profile of its own: the fit samples the camera's rays. GRID is the
     # 40 × 40 SplineLens camera of a Kannala–Brandt fisheye (k₁ = −0.02, f = 300 px, its K kept).
     for src in (GRID_BOUNDED, GRID)
-        r = fit_camera(KannalaBrandt{4}, src, REGION)
+        r = approximate_camera(KannalaBrandt{4}, src, REGION)
         kb = estimate(r)
         @test lens(kb) isa KannalaBrandt{4}
         @test maximum(abs.(collect(parameter_vector(lens(kb))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-3
@@ -579,8 +603,14 @@ end
         @test maximum(abs, calibration_matrix(kb)[1:2, 3] - calibration_matrix(GRID)[1:2, 3]) < 1.0e-5
         @test maximum(abs, rotation(metadata(r).rotation) - I) < 1.0e-8
     end
+    # the linear fit alone reads the radii about the gauge's own principal point and the angles about its ẑ: GRID's are
+    # the fisheye's, so it is already close; the refine frees the principal point, the aspect and the axis
+    rl = fit_camera(KannalaBrandt{4}, GRID, REGION)
+    @test maximum(abs.(collect(parameter_vector(lens(estimate(rl)))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-2
+    @test rotation(metadata(rl).rotation) == one(rotation(metadata(rl).rotation))
     # the image samples carry the :image density only
     @test_throws ArgumentError fit_camera(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)
+    @test_throws ArgumentError approximate_camera(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)
 end
 
 @testitem "fit_camera(SplineLens): the forward is fitted on the chart project evaluates it on" setup = [FitCameraFisheye] begin

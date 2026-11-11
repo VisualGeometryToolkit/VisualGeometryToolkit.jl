@@ -383,6 +383,9 @@ end
         @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
         @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = _RetiredKeyword()) end\n"))
         @test isempty(rules("test/a.jl" => "@test_throws ArgumentError refine_x(a; $(FR) = ())\n"))
+        # an interpolated qualified callee (`@eval M.$f(…) = …`, a port's generated methods) names nothing: no finding, no error
+        @test isempty(rules("src/a.jl" => "for f in (:lo_tag,)\n    @eval VgtkCore.\$f(::Int) = 1\nend\n"))
+        @test isempty(rules("src/a.jl" => "@eval VgtkCore.\$(f)(x; $(FR) = ()) = x\n"))
         # the word elsewhere: comments (BlobBoards' "CUDA-free", "free memory", "for free"), a local, a field,
         # an accessor, another function's keyword, another TOML table
         @test isempty(rules("src/a.jl" => "f(x) = x   # CUDA-$(FR): the kernels allocate no $(FR) memory, for $(FR)\n"))

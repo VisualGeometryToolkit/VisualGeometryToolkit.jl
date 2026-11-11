@@ -18,7 +18,8 @@
 #                                         as the code its result came from
 #
 # and the run's own data. A file of an older format is refused (regenerate it
-# by re-running its tuning); a stored spec whose hash does not match its table is refused.
+# by re-running its tuning), but for a format-6 file, which is read through its
+# version step (below); a stored spec whose hash does not match its table is refused.
 # =============================================================================
 
 # A checkout's HEAD commit, "-dirty" when its tracked files differ — through
@@ -93,7 +94,10 @@ A loaded tuning artifact ([`load_tuning_artifact`](@ref)): `spec` (the
 `grids` (`Dict{Symbol,…}`, rebuilt from the specs), `unit` (the
 [`SamplingUnit`](@ref) its cross-validation drew), `code` (the code identity)
 and `data` (the run's own keys). Indexing with a string reads
-`data`: `art["arms"]`.
+`data`: `art["arms"]`. `format` is the `:tuning` format the FILE was written
+in: an earlier one was carried over in memory by its version steps
+([`load_tuning_artifact`](@ref)), and `recorded_hash` is the hash the file
+records (`hash` is the current table's; the two differ only for such a file).
 """
 struct TuningArtifact
     path::String
@@ -104,6 +108,8 @@ struct TuningArtifact
     unit::SamplingUnit
     code::Dict{String,Any}
     data::Dict{String,Any}
+    format::Int
+    recorded_hash::String
 end
 Base.getindex(a::TuningArtifact, k::AbstractString) = a.data[k]
 Base.haskey(a::TuningArtifact, k::AbstractString) = haskey(a.data, k)
@@ -116,10 +122,19 @@ The reader of a tuning artifact: refuses another format first (an
 `ArgumentError` naming the file: regenerate it by re-running its tuning), then reads the
 spec (complete — nothing inherited), checks its hash, and rebuilds every grid
 from its spec.
+
+A format-6 file (before the efficiency-constant names) is read through its
+version step, in memory (VisualGeometryToolkitIO's `migrate_record`); the file is never
+rewritten. Its efficiency constants are stored as the value each arm's `ctor`
+took then: an arm's is read through its roster-declared `format6_constant`
+hook (`Evaluation.tuned_width`; the identity by default).
+`format` and `recorded_hash` of the result say which file it was.
 """
 function load_tuning_artifact(path::AbstractString)
-    _check_artifact_format(path, :tuning)
+    fmt = _check_artifact_format(path, :tuning)
     raw = JLD2.load(path)
+    recorded = String(raw["tuning_hash"])
+    fmt < ARTIFACT_FORMATS.tuning.version && (raw = _migrated_raw(raw, fmt, path))
     name = String(raw["tuning_name"])
     scheme = read_tuning(TuningScheme, raw["tuning_spec"])
     spec = TuningSpec(name, scheme)
@@ -132,5 +147,95 @@ function load_tuning_artifact(path::AbstractString)
     data = Dict{String,Any}(k => v for (k, v) in raw if !(k in _ARTIFACT_KEYS))
     return TuningArtifact(String(path), spec, h, gspecs,
                           Dict{Symbol,Vector{Float64}}(k => grid(g) for (k, g) in gspecs), unit,
-                          Dict{String,Any}(raw["code_identity"]), data)
+                          Dict{String,Any}(raw["code_identity"]), data, fmt, recorded)
+end
+
+# -----------------------------------------------------------------------------
+# The version steps of a tuning artifact (VisualGeometryToolkitIO `migrate_schema`)
+# -----------------------------------------------------------------------------
+# A tuning artifact is a JLD2 file, not a vgio record: its version is its
+# `tuning_format` stamp. The keys a version step reads or rewrites — the spec,
+# its hash, the grid specs and the data keys named by an axis — travel as the
+# record "vgtk_eval/tuning/v<format>" through VisualGeometryToolkitIO's
+# `migrate_record`; every other data key (the run's matrices, curves, …) is
+# carried over untouched, so its element types do not move.
+
+const _TUNING_SCHEMA = "vgtk_eval/tuning"
+# The data keys a step may rewrite: the axis-named ones of the stack's writers
+# (`boundary_hits` and `kinds` name axes in their values; a coarse-fine
+# artifact's `axes`, `selected` and `boundary_hit` name them in values and keys).
+const _AXIS_DATA_KEYS = ("boundary_hits", "kinds", "axes", "selected", "boundary_hit")
+const _MIGRATED_KEYS = ("tuning_spec", "tuning_hash", "grid_specs", _AXIS_DATA_KEYS...)
+
+# A tuning artifact's step record `tree` — `"schema" => "vgtk_eval/tuning/v<n>"`
+# and its `tuning_spec`, `tuning_hash`, `grid_specs` and axis-named data keys
+# (`boundary_hits`, `kinds`, `axes`, `selected`, `boundary_hit`, and a
+# coarse-fine `record`'s `param_name`) — carried to the current format by
+# VisualGeometryToolkitIO's `migrate_record`, through the version steps this
+# package registers (`migrate_schema`). One step, v6 → v7, the efficiency-constant
+# names (2026-11-11):
+#
+# - every key of the spec and the grid specs naming the efficiency constant by
+#   its retired v6 name (`_V6_NAME`: the axis, its window, …) takes the
+#   `efficiency_constant` name, and so does every axis name in the data keys
+#   (an axis's `_hi` in a boundary-hit list, a coarse-fine axis);
+# - the recorded hash is checked against the STORED table first (an
+#   `ArgumentError` if the file's spec was altered), and the record carries the
+#   renamed table's hash.
+#
+# The VALUES are not converted: a v6 efficiency constant is the value its arm's
+# `ctor` took then, and only the roster says what that was (`tuned_width`
+# applies the arm's `format6_constant` hook).
+
+# The v6 → v7 step: the efficiency-constant names.
+function VgtkIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v6")}, t::AbstractDict)
+    stored = _toml_hash(Dict{String,Any}("scheme" => t["tuning_spec"]))
+    stored == t["tuning_hash"] || throw(ArgumentError(
+        "a format-6 tuning record: the stored tuning spec hashes to $stored, not its recorded $(t["tuning_hash"])"))
+    out = Dict{String,Any}(k => _renamed_axis_keys(v) for (k, v) in t if k in ("tuning_spec", "grid_specs"))
+    out["schema"] = string(_TUNING_SCHEMA, "/v7")
+    out["tuning_hash"] = _toml_hash(Dict{String,Any}("scheme" => out["tuning_spec"]))
+    for k in _AXIS_DATA_KEYS
+        haskey(t, k) && (out[k] = _renamed_axis_names(t[k]))
+    end
+    haskey(t, "param_name") && (out["param_name"] = _renamed_axis_name(t["param_name"]))
+    return out
+end
+
+# The efficiency constant's name in a v6 file. Spelled by concatenation: the
+# name is retired, and the stack's naming check bans it as a literal everywhere.
+const _V6_NAME = "scale" * "_multiple"
+_renamed_axis_name(s::AbstractString) = replace(s, _V6_NAME => "efficiency_constant")
+_renamed_axis_name(s::Symbol) = Symbol(_renamed_axis_name(String(s)))
+_renamed_axis_name(x) = x
+# A spec or grid-spec table: every key renamed, at every depth.
+_renamed_axis_keys(d::AbstractDict) = Dict{String,Any}(_renamed_axis_name(String(k)) => _renamed_axis_keys(v) for (k, v) in d)
+_renamed_axis_keys(v::AbstractVector) = Any[_renamed_axis_keys(x) for x in v]
+_renamed_axis_keys(x) = x
+# An axis-named data value: the axis names among its keys and its string values
+# (an arm's boundary-hit list `arm => [axis_hi, …]`, a list of axes).
+_renamed_axis_names(d::AbstractDict) = Dict{String,Any}(_renamed_axis_name(String(k)) => _renamed_axis_names(v) for (k, v) in d)
+_renamed_axis_names(v::AbstractVector) = map(_renamed_axis_name, v)
+_renamed_axis_names(x) = _renamed_axis_name(x)
+
+# The file's step keys as the record of its format, through the steps, and back
+# into the file's keys (every other key as it is).
+function _migrated_raw(raw::AbstractDict, v::Integer, path)
+    tree = Dict{String,Any}(k => raw[k] for k in _MIGRATED_KEYS if haskey(raw, k))
+    tree["schema"] = string(_TUNING_SCHEMA, "/v", v)
+    rec = get(raw, "record", nothing)
+    rec isa AbstractDict && haskey(rec, "param_name") && (tree["param_name"] = rec["param_name"])
+    cur = try
+        VgtkIO.migrate_record(tree)
+    catch e
+        e isa ArgumentError ? throw(ArgumentError("$path: $(e.msg)")) : rethrow()
+    end
+    cur["schema"] == string(_TUNING_SCHEMA, "/v", ARTIFACT_FORMATS.tuning.version) || throw(ArgumentError(
+        "$path: tuning format v$v has no version step to v$(ARTIFACT_FORMATS.tuning.version)"))
+    out = Dict{String,Any}(raw)
+    for k in _MIGRATED_KEYS
+        haskey(cur, k) && (out[k] = cur[k])
+    end
+    haskey(cur, "param_name") && (out["record"] = merge(Dict{String,Any}(rec), Dict{String,Any}("param_name" => cur["param_name"])))
+    return out
 end

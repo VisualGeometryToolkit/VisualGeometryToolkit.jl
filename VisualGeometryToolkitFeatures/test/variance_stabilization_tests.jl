@@ -91,7 +91,8 @@ end
     b = asift_detect(Float32.(img ./ 200); nms = :none, intensity_thr = 2thr1 / 200, device = KA.CPU(), tilts = [(1.0, 0.0)])
     @test sort(map(d -> (d.center[1], d.center[2]), a)) == sort(map(d -> (d.center[1], d.center[2]), b))
     @test_throws ArgumentError asift_detect(s; intensity_thr = 0.04)
-    @test_throws ArgumentError asift_detect(s; raw = true)
+    # the raw features too: the masking (here none) works on either
+    @test asift_detections(asift_detect(s; noise_sigmas = 2, nms = :none, device = KA.CPU(), tilts = :untilted, raw = true)) == a
     @test_throws ArgumentError asift_detect(s; noise_sigmas = 0)
 end
 

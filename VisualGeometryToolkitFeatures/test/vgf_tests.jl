@@ -161,10 +161,7 @@ end
     import VisualGeometryToolkitFeatures as VgtkFeatures
     a = asift_detect(IMG; nms = :none, raw = true)
     b = asift_detect(IMG; nms = :none, raw = true)   # cached plan, same input
-    @test length(a) == length(b)
-    ka = sort([(f.x, f.y, f.σ) for f in a])
-    kb = sort([(f.x, f.y, f.σ) for f in b])
-    @test all(k1 == k2 for (k1, k2) in zip(ka, kb))
+    @test a == b                                     # the same features, in the same order
     clear_asift_plans!()
     @test isempty(VgtkFeatures._ASIFT_PLAN_CACHE)
 end
@@ -202,27 +199,7 @@ end
     @test ran == [:dynamic]
     # any other error propagates
     @test_throws ArgumentError _CPUKernel(() -> throw(ArgumentError("x")), () -> nothing)()
-    # the detector from inside a threaded loop and from concurrent tasks: the
-    # features and covariances of a plain call, bit for bit (pool order aside)
-    key(r) = sort(
-        [
-            (f.x, f.y, f.σ, f.intensity, f.s_xx, f.s_xy, f.s_yy, f.warp_idx, Tuple(c))
-                for (f, c) in zip(r.features, r.cov)
-        ]; by = x -> x[1:8]
-    )
-    det(nms) = asift_detect(
-        IMG; device = KA.CPU(), nms, raw = true, uncertainty = FeatureCovariance()
-    )
-    for nms in (:none, :mxm)
-        ref = key(det(nms))
-        nested = Vector{Any}(undef, 2)
-        Threads.@threads for i in 1:2
-            nested[i] = key(det(nms))
-        end
-        @test all(isequal(ref, x) for x in nested)
-        tasks = [Threads.@spawn key(det(nms)) for _ in 1:3]
-        @test all(isequal(ref, fetch(t)) for t in tasks)
-    end
+    # the detector launched both ways: asift_detection_tests.jl ("the same keypoints in the same order")
 end
 
 @testitem "pyramid tile lists: active and masked tiles partition each level" setup = [Fixtures] begin
@@ -550,7 +527,7 @@ end
     # `asift_detect!` takes the plan's input form: H×W bytes (`gray_u8`)
     img = gray_u8(synth_blobs(200, 260, blobs))
     key(f) = (round(f.x; digits = 3), round(f.y; digits = 3), round(f.σ; digits = 3), f.warp_idx)
-    tilts = VgtkFeatures._imas_tilts_25()[1:5]   # growth is schedule-independent
+    tilts = VgtkFeatures.tilt_schedule(:imas25)[1:5]   # growth is schedule-independent
     big = AsiftPlan(260, 200; device = KA.CPU(), tilts, capacity = 1 << 20)
     # two warps per chunk, so later chunks grow a pool that already holds features
     small = AsiftPlan(260, 200; device = KA.CPU(), tilts, capacity = 64, chunk = 2)
@@ -817,7 +794,7 @@ end
     # made dense by Core's upload (`on_device`, `ka_upload`'s `DenseArray` rule) — on the CPU and on CUDA when
     # it is functional — and detects exactly as the dense frame.
     key(f) = (round(f.x; digits = 3), round(f.y; digits = 3), round(f.σ; digits = 3), f.warp_idx)
-    tilts = VgtkFeatures._imas_tilts_25()[1:3]
+    tilts = VgtkFeatures.tilt_schedule(:imas25)[1:3]
     H, W = size(IMG)
     yx = Float32.(gray_f32(IMG))                         # H × W
     xy = permutedims(yx)                                 # the float input: W × H [x, y]

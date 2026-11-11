@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **ASIFT's result no longer depends on the threads: the same image gives the same keypoints, in the same order, run
+  to run.** The extrema pool fills through an atomic counter, in the order the threads (or a GPU's warps) reach it,
+  and the cross-warp NMS breaks ties in its quantized response by pool index, so on many threads both the order of the
+  detections and, at a tie, which of two survived varied between runs (a panorama's frames detected twice reproduced
+  on 12 of 38 frames with `spread_strongest` after, 36 of 38 with a top-n cut, in a 32-thread session). The pool is
+  now sorted into a canonical order before the NMS (by position, scale and response, then every other field, the
+  covariance's included: a total order), on the host, and the detections come back in it. `cross_warp_nms` sorts its
+  input the same way, so its survivors no longer depend on the order of the pool handed in, and on the pool
+  `asift_detect(…; nms = :none)` returns it keeps exactly what the in-pipeline NMS keeps (no longer "up to ties").
+  `spread_strongest` was already a function of its input's order; given the canonical detections it is reproducible
+  too. **Breaking (order):** a caller that relied on the pool's warp-by-warp order now gets the canonical order.
+- **New: a detection mask, `asift_detect(img; mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
+  (clipped highlights, a vignetted rim): a detection whose centre lies within three of its scales (the DoG's support)
+  of a masked pixel is dropped, on Detections, `raw` features and covariances alike. There was no way to exclude
+  clipped regions of an ordinary (tone-mapped) image, so keypoints landed on clipped window panes. The rule is the
+  one `asift_detect(::StabilizedImage)` applied to sensor saturation, now in one place: that method masks
+  `s.saturated` through `mask` (joined with a caller's `mask`), and takes `raw = true`, which it refused while the
+  masking read Detections.
+- **New: `tilt_schedule(name)`, ASIFT's tilts by name; `asift_detect(img; tilts = :untilted)` restricts ASIFT to the
+  untilted view (t = 1).** `:imas25` (the default of `asift_detect` and `AsiftPlan`) is IMAS-25; `:untilted` is the
+  identity warp alone, plain DoG-SIFT, exactly the identity warp's detections under `:imas25`. On real panorama
+  frames a tilted warp's keypoints localize at about 0.95 px rms, the untilted view's at about 0.3 px, and the
+  untilted schedule gave the best seams. `tilts` still takes a vector of `(t, φ)` pairs. **Breaking:** `tilts =
+  nothing` (the old spelling of the default) is gone: give `:imas25` or omit it. The private IMAS-25 helper is retired
+  (`tilt_schedule(:imas25)`).
+
 - **Every ASIFT detection is refined; an extremum whose refinement fails is dropped, never returned on the octave's
   grid.** The extrema were searched on all S + 2 DoG slices of an octave, the two boundary slices included, whose
   extrema have no slice above or below and were emitted unrefined (integer positions on the octave's grid, 2^octave

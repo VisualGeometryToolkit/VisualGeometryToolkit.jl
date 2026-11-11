@@ -219,6 +219,29 @@ function _pool_nms!(
     return nothing
 end
 
+# The pool in its canonical order: the columns of a host (9,·) pool `fh` (rows x, y, σ, I, s_xx, s_xy, s_yy, warp,
+# valid) and of the matching (6,·) covariance rows `ch` (or `nothing`), permuted alike so that they are sorted
+# lexicographically by fh's rows, then ch's, each by `isless` (a total order on the values). The extraction fills the
+# pool through an atomic counter, in the order the threads reach it, and the NMS breaks its ties by pool index, so
+# sorted, the survivors and their order are a function of the pool's contents alone: the same on one thread or many,
+# run to run. Columns equal in every row are interchangeable.
+function _canonical_order!(fh::AbstractMatrix{Float32}, ch::Union{Nothing, AbstractMatrix{Float32}} = nothing)
+    rows = ch === nothing ? (fh,) : (fh, ch)
+    function before(i, j)
+        for M in rows, r in axes(M, 1)
+            a = M[r, i]; b = M[r, j]
+            isless(a, b) && return true
+            isless(b, a) && return false
+        end
+        return false
+    end
+    perm = sort!(collect(axes(fh, 2)); lt = before)
+    for M in rows
+        M .= M[:, perm]
+    end
+    return nothing
+end
+
 # The features `i ≤ n` of a host (9,·) pool copy `fh` whose `flags[i] == on`.
 function _pool_features(fh::AbstractMatrix{Float32}, n::Int, flags, on)
     out = ImasFeatureKA[]
@@ -255,12 +278,12 @@ Cross-warp NMS over an aggregated feature pool (input-frame). `mode` is `:mxm`
 (centroid window `window_half`) or `:ellipse` (Mahalanobis footprint,
 cutoff `cutoff`). `band_octaves > 0` restricts suppression to features of
 comparable scale — band `⌊log2(√det S) / band_octaves⌋ ± band_reach`. It runs
-the kernels `asift_detect!` runs on its device pool, so on the pool
-`asift_detect(img; nms = :none, raw = true)` returns it keeps the features
-`asift_detect(img; nms = mode, raw = true)` keeps, given the same detection
-keywords — up to exact ties in the quantized response, which break toward the
-later pool index (and pool order varies between calls on a multithreaded or
-GPU backend). Returns the survivors.
+the kernels `asift_detect!` runs on its device pool, on the pool in the same
+canonical order (exact ties in the quantized response break toward the later
+feature in that order), so the survivors do not depend on the order of `feats`,
+and on the pool `asift_detect(img; nms = :none, raw = true)` returns it keeps
+exactly the features `asift_detect(img; nms = mode, raw = true)` keeps, given
+the same detection keywords. Returns the survivors in that canonical order.
 """
 function cross_warp_nms(
         feats::AbstractVector{ImasFeatureKA}, W::Integer, H::Integer;
@@ -276,6 +299,7 @@ function cross_warp_nms(
     for (i, f) in enumerate(feats)
         fh[:, i] .= (f.x, f.y, f.σ, f.intensity, f.s_xx, f.s_xy, f.s_yy, Float32(f.warp_idx), 1.0f0)
     end
+    _canonical_order!(fh)
     feat = ka_upload(Float32, device, fh)
     keep = KA.allocate(device, Int32, n)
     _pool_nms!(

@@ -81,6 +81,7 @@ const RETIRED_NAMES = String[
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `_forward_chart()` (2026-11)
     "fit" * "_height_field",                  # a one-step algorithm is no `fit_*` (the estimators guide): `HeightField(nodes, points .=> heights; smoothing)` (2026-11)
     "strong" * "est(", "VgtkFeatures" * ".strongest", "VisualGeometryToolkitFeatures" * ".strongest",   # the global top n by |response|: `spread_strongest(detections, image_size, n)` (SSC, VisualGeometryToolkitFeatures, 2026-11)
+    "_imas" * "_tilts_25",                    # ASIFT's schedules by name: `tilt_schedule(:imas25)`, `tilt_schedule(:untilted)` (VisualGeometryToolkitFeatures, 2026-11)
     "Raw" * "pyDecoder",                      # the stack's one RAW decoder: `LibRawDecoder()` (VisualGeometryToolkitFeatures, 2026-11)
     "VisualGeometryToolkitFeatures" * "PythonExt",   # its extension, removed with it: the LibRaw_jll extension decodes (2026-11)
     "tps" * "_bending_coefficients",          # a wrapper of two calls: `tps_pure_bending`, then `tps_coefficients` (or `with_parameters` on the kind) (2026-11)

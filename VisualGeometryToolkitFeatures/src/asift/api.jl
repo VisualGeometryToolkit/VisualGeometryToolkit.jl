@@ -210,8 +210,8 @@ _asift_meta(f::ImasFeatureKA) = (
     asift_detect(img; device=default_device(), nms=:mxm, window_half=3,
                  cutoff=3.0, intensity_thr=0.04, edge_thr=10.0,
                  polarity=:none, band_octaves=0.0, band_reach=1, boundary_K=3.0,
-                 tilts=nothing, upsample=true, seed_sigma=1.6, raw=false,
-                 uncertainty=nothing)
+                 tilts=:imas25, mask=nothing, upsample=true, seed_sigma=1.6,
+                 raw=false, uncertainty=nothing)
 
 Run the IMAS-25 ASIFT detector on `img` (H×W; `Gray`, `UInt8`, or real-valued
 in [0,1]) and return `Vector{Detection{EllipticFrame}}` in COLMAP coords.
@@ -248,7 +248,32 @@ within `band_reach` of its own, so board-sized extrema and tilted-warp streaks
 stop erasing the small blobs inside them (see `asift_detect!`).
 `raw=true` returns the `ImasFeatureKA` vector instead of Detections.
 `device`, `tilts`, `upsample` and `seed_sigma` pick the plan; the others but
-`raw` go to [`asift_detect!`](@ref), which refuses a keyword it does not take.
+`raw` and `mask` go to [`asift_detect!`](@ref), which refuses a keyword it does
+not take.
+
+**Tilts.** `tilts` is a [`tilt_schedule`](@ref) name or a vector of `(t, φ)`
+pairs: `:imas25` (the default) the 25 tilts of IMAS-25, `:untilted` the
+identity warp alone (plain DoG-SIFT), whose keypoints localize best (about
+0.3 px rms on real panorama frames, against about 0.95 px for a tilted warp's):
+the schedule for views that differ by a rotation, such as a panorama's. Under
+`:untilted` every detection has `warp_idx == 1`, and they are exactly the
+identity warp's detections under `:imas25`.
+
+**Detection mask.** `mask`, an H×W `AbstractMatrix{Bool}` (`true` where
+detection is not allowed: clipped or saturated pixels, a vignetted rim, an
+overlay), drops every detection whose centre lies within three of its scales
+(`characteristic_scale`, the DoG's support) of a masked pixel, so no keypoint
+is read off masked pixels. It applies after the cross-warp NMS, to `raw`
+features and covariances alike. The detector on a [`StabilizedImage`](@ref)
+masks its saturated pixels by this rule.
+
+**Determinism.** The result is a function of the image and the keywords: the
+same keypoints, in the same order, run to run, on one thread or many, launched
+statically or from inside a threaded region. The extrema pool fills in the order
+the threads reach it, so before the cross-warp NMS (which breaks ties in its
+quantized response by pool order) it is sorted into a canonical order: by
+position, scale and response, then every other field (the covariance's too). The
+detections come back in that order.
 
 **Keypoint uncertainty.** `uncertainty = FeatureCovariance()` returns each
 detection's frame as `Uncertain(frame, Σ̃)`, `Σ̃ = cov(d)` a 3×3 `CovMat` over
@@ -268,19 +293,53 @@ function asift_detect(
         img::AbstractMatrix;
         device::KA.Backend = default_device(),
         nms::Symbol = :mxm, polarity::Symbol = :none,
-        tilts = nothing, raw::Bool = false,
+        tilts = :imas25, raw::Bool = false,
         upsample::Bool = true, seed_sigma::Real = 1.6,
-        uncertainty::Union{Nothing, FeatureCovariance} = nothing, kwargs...
+        uncertainty::Union{Nothing, FeatureCovariance} = nothing,
+        mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...
     )
+    _check_mask(mask, size(img))
     inp = _asift_input(img)
     W, H = inp isa Matrix{UInt8} ? (size(inp, 2), size(inp, 1)) : size(inp)
-    ts = tilts === nothing ? _imas_tilts_25() : collect(tilts)
+    ts = tilt_schedule(tilts)
     feats = lock(_ASIFT_LOCK) do
         plan = _asift_plan(W, H, device, ts, upsample, seed_sigma)
         asift_detect!(plan, inp; nms, polarity, uncertainty, kwargs...)
     end
+    mask === nothing || (feats = _unmasked(feats, mask))
     return raw ? feats : _asift_detections(feats)
 end
 
 _asift_detections(feats::Vector{ImasFeatureKA}) = asift_detections(feats)
 _asift_detections(r::NamedTuple{(:features, :cov)}) = asift_detections(r.features, r.cov)
+
+# ----- the detection mask ------------------------------------------------------
+
+# A detection whose centre lies within this many of its scales (√det of its shape: the DoG's support) of a masked
+# pixel is dropped: its DoG read the masked pixels.
+const _MASK_REACH = 3
+
+_check_mask(::Nothing, sz) = nothing
+_check_mask(mask::AbstractMatrix{Bool}, sz) = size(mask) == sz ? nothing : throw(DimensionMismatch(
+    "asift_detect: the image is $(join(sz, '×')), the detection mask $(join(size(mask), '×'))"))
+
+# The features (and their covariances) clear of `mask` (H×W, `true` where detection is not allowed): the distance
+# from the pixel holding a feature's centre to the nearest masked pixel exceeds `_MASK_REACH` of its scales.
+function _unmasked(feats::Vector{ImasFeatureKA}, mask::AbstractMatrix{Bool})
+    return feats[_clear_of_mask(feats, mask)]
+end
+function _unmasked(r::NamedTuple{(:features, :cov)}, mask::AbstractMatrix{Bool})
+    keep = _clear_of_mask(r.features, mask)
+    return (features = r.features[keep], cov = r.cov[keep])
+end
+
+function _clear_of_mask(feats::Vector{ImasFeatureKA}, mask::AbstractMatrix{Bool})
+    any(mask) || return trues(length(feats))
+    dist = distance_transform(feature_transform(BitMatrix(mask)))   # each pixel's distance to the nearest masked one
+    H, W = size(dist)
+    return map(feats) do f
+        fr = _asift_frame(f)
+        c = centroid(fr)
+        dist[clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)] > _MASK_REACH * characteristic_scale(fr)
+    end
+end

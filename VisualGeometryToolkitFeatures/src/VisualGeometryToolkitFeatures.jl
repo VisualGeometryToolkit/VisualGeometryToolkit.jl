@@ -30,6 +30,7 @@ using StructArrays: StructArray
 using FixedPointNumbers: N0f8
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
+using ImageMorphology: distance_transform, feature_transform   # the distance to the nearest masked pixel (asift_detect's mask)
 using Distributions: FDist, quantile   # the F-test of detect_foerstner
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
@@ -144,6 +145,7 @@ public HasPolarityTrait, HasPolarity, NoPolarity, polarity_trait
 # 2. ASIFT (IMAS-25) DETECTOR - KernelAbstractions, CPU or any GPU backend
 # -----------------------------------------------------------------------------
 export asift_detect, asift_detect!, asift_detections
+export tilt_schedule             # ASIFT's tilts by name: :imas25 (the default), :untilted (the identity alone)
 export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())

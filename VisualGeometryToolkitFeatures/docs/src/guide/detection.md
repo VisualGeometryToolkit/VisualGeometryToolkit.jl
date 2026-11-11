@@ -15,18 +15,35 @@ merged across warps by a non-maximum suppression. The whole pipeline runs as
 KernelAbstractions kernels, so the same code runs on the CPU (the default) and
 on any GPU backend (`device = CUDABackend()`, for instance).
 
-The tilt schedule is a keyword. `tilts = [(1.0, 0.0)]`, the identity alone, is
-plain DoG-SIFT:
+The tilt schedule is a keyword, a [`tilt_schedule`](@ref) name or a vector of
+`(t, φ)` pairs. `tilts = :untilted`, the identity alone, is plain DoG-SIFT. Its
+keypoints localize best (about 0.3 px rms on real panorama frames, against
+about 0.95 px for a tilted warp's), so it is the schedule for views that differ
+by a rotation, such as a panorama's:
 
 ```julia
-dets = asift_detect(img)                          # IMAS-25
-sift = asift_detect(img; tilts = [(1.0, 0.0)])    # DoG-SIFT
+dets = asift_detect(img)                       # IMAS-25 (tilts = :imas25)
+sift = asift_detect(img; tilts = :untilted)    # DoG-SIFT: the identity warp alone
+```
+
+`mask`, an H×W `Bool` matrix, marks the pixels where detection is not allowed
+(clipped highlights, a vignetted rim): a detection whose centre lies within
+three of its scales of a masked pixel is dropped. The detector on a
+variance-stabilized RAW ([`variance_stabilize`](@ref)) masks the sensor's
+saturated pixels by the same rule.
+
+```julia
+clipped = Float32.(Gray.(img)) .>= 0.99f0
+dets = asift_detect(img; mask = clipped)
 ```
 
 The other keywords choose the non-maximum suppression (`nms = :mxm`,
 `:ellipse` or `:none`), gate by polarity (`polarity = :dark` or `:light`),
 restrict suppression to features of similar scale (`band_octaves`), and set
 the detection thresholds. The [`asift_detect`](@ref) docstring lists them.
+
+The result does not depend on the threads or the device's scheduling: the same
+image gives the same detections, in the same order, run to run.
 
 ### Plans and their cache
 

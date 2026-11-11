@@ -21,8 +21,6 @@
 # window.
 # =============================================================================
 
-using ImageMorphology: distance_transform, feature_transform   # the distance to the nearest saturated pixel
-
 """
     StabilizedImage(image, saturated, white)
 
@@ -98,7 +96,7 @@ function _noise_intensity_thr(seed_sigma::Real, upsample::Bool)
     return lock(_NOISE_THR_LOCK) do
         get!(_NOISE_THR, (Float64(seed_sigma), upsample)) do
             n = 64
-            plan = AsiftPlan(n, n; device = KA.CPU(), tilts = [(1.0, 0.0)], seed_sigma, upsample)
+            plan = AsiftPlan(n, n; device = KA.CPU(), tilts = :untilted, seed_sigma, upsample)
             impulse = zeros(Float32, n, n); impulse[n ÷ 2, n ÷ 2] = 1
             asift_detect!(plan, impulse; intensity_thr = Inf)
             dog = Array(plan.dogs[1])
@@ -122,26 +120,21 @@ coarser slice, and every tilted view, has less noise, so is held to more than
 `noise_sigmas` σ of its own. The default 3 is Lowe's three-sigma reading of a
 contrast: on pure noise, extrema above it are rare.
 
-A detection whose centre lies within three of its scales (the DoG's support) of
-a saturated pixel is dropped: a clipped value is no measurement. The image is
-scaled by `1 / s.white` into `[0, 1]` for the detector (the warps' fill is
-mid-grey), the threshold with it. `kwargs` are [`asift_detect`](@ref)'s but
-`intensity_thr` (the threshold is `noise_sigmas`) and `raw` (the masking reads
-detections).
+The saturated pixels are the detection `mask` ([`asift_detect`](@ref)'s rule: a
+detection whose centre lies within three of its scales, the DoG's support, of a
+masked pixel is dropped): a clipped value is no measurement. A caller's `mask`
+joins them. The image is scaled by `1 / s.white` into `[0, 1]` for the
+detector (the warps' fill is mid-grey), the threshold with it. `kwargs` are
+[`asift_detect`](@ref)'s but `intensity_thr` (the threshold is `noise_sigmas`).
 """
-function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::Real = 1.6, upsample::Bool = true, kwargs...)
+function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::Real = 1.6, upsample::Bool = true,
+                      mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...)
     haskey(kwargs, :intensity_thr) && throw(ArgumentError(
         "asift_detect: a StabilizedImage's threshold is `noise_sigmas` (noise σ), not `intensity_thr`"))
-    haskey(kwargs, :raw) && throw(ArgumentError("asift_detect: a StabilizedImage returns Detections (`raw` is not taken)"))
     isfinite(noise_sigmas) && noise_sigmas > 0 ||
         throw(ArgumentError("asift_detect: noise_sigmas must be positive and finite, got $noise_sigmas"))
+    _check_mask(mask, size(s.image))
     thr = noise_sigmas * _noise_intensity_thr(seed_sigma, upsample) / s.white
-    dets = asift_detect(Float32.(s.image ./ s.white); intensity_thr = thr, seed_sigma, upsample, kwargs...)
-    any(s.saturated) || return dets
-    # the distance of every pixel to the nearest saturated one
-    dist = distance_transform(feature_transform(s.saturated))
-    H, W = size(dist)
-    clear(d) = (c = centroid(d);
-                dist[clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)] > 3 * characteristic_scale(feature_frame(d)))
-    return filter(clear, dets)
+    return asift_detect(Float32.(s.image ./ s.white); intensity_thr = thr, seed_sigma, upsample,
+                        mask = mask === nothing ? s.saturated : mask .| s.saturated, kwargs...)
 end

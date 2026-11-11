@@ -633,7 +633,7 @@ _scheduled(build, ::KA.CPU) =
 # ----- plan ------------------------------------------------------------------
 
 """
-    AsiftPlan(W, H; device = default_device(), tilts = <IMAS-25>, seed_sigma = 1.6,
+    AsiftPlan(W, H; device = default_device(), tilts = :imas25, seed_sigma = 1.6,
               input_blur = 0.5, nb_scales = 3, capacity = 2^20, chunk = 0,
               upsample = true)
 
@@ -647,9 +647,9 @@ detector in them without allocating on the device.
 callers never construct one. Build one to own its lifetime, or to detect in a
 loop over same-size frames without the cache's lock.
 
-- `tilts`: the tilt schedule, a vector of `(t, φ)` pairs (tilt and longitude
-  in radians). The default is the 25 tilts of IMAS-25; `[(1.0, 0.0)]` alone is
-  plain DoG-SIFT.
+- `tilts`: the tilt schedule, a [`tilt_schedule`](@ref) name (`:imas25`, the
+  default, or `:untilted`, the identity alone: plain DoG-SIFT) or a vector of
+  `(t, φ)` pairs (tilt and longitude in radians).
 - `seed_sigma`, `input_blur`, `nb_scales`, `upsample`: the SIFT pyramid's seed
   blur, the input's assumed blur, the scales per octave and whether the first
   octave is the 2× upsampled image.
@@ -666,7 +666,7 @@ their sub-pixel refinement failed (no unrefined detection is returned).
 ```jldoctest
 julia> using VisualGeometryToolkitFeatures
 
-julia> plan = AsiftPlan(64, 48; tilts = [(1.0, 0.0)]);
+julia> plan = AsiftPlan(64, 48; tilts = :untilted);
 
 julia> img = zeros(Float32, 64, 48);   # (W, H): x along the first axis
 
@@ -817,12 +817,13 @@ end
 function AsiftPlan(
         W::Integer, H::Integer;
         device::KA.Backend = default_device(),
-        tilts = _imas_tilts_25(),
+        tilts = :imas25,
         seed_sigma::Real = 1.6, input_blur::Real = 0.5,
         nb_scales::Integer = 3, capacity::Integer = 1 << 20,
         chunk::Integer = 0, upsample::Bool = true
     )
     dev = device
+    tilts = tilt_schedule(tilts)
     nw = length(tilts)
     S = Int(nb_scales)
     no = sift_nb_octaves(W, H; upsample)
@@ -1062,7 +1063,10 @@ end
 
 Full batched IMAS-25 detection in the plan's preallocated buffers. With
 `nms = :mxm` or `:ellipse` the cross-warp NMS runs on-device and only the
-survivors are returned; `:none` returns the full boundary-filtered pool.
+survivors are returned; `:none` returns the full boundary-filtered pool. The
+pool is sorted into a canonical order first (position, scale, response, then
+every other field), so the features and their order do not depend on the
+threads or the device's scheduling.
 `polarity` (`:dark` → response > 0, `:light` → response < 0) gates the pool
 BEFORE the NMS splat, so a blob of the other sign can never suppress a kept one.
 `band_octaves > 0` restricts suppression to features of comparable scale: a
@@ -1240,23 +1244,26 @@ function asift_detect!(
     if polarity_sign != 0.0f0
         K.pol(plan.feat, Int32(n), polarity_sign; ndrange = n)
     end
+    # the pool in its canonical order (`_canonical_order!`), on the host, then back on the device for the NMS: the
+    # atomic counter filled it in thread order, and the NMS breaks ties by pool index
+    KA.synchronize(dev)
+    copyto!(plan.feath, 1, reshape(plan.feat, :), 1, 9n)
+    fh = reshape(view(plan.feath, 1:9n), 9, n)
+    ch = _host_covs(plan, uncertainty, n)
+    _canonical_order!(fh, ch)
 
     if nms !== :none
+        copyto!(reshape(plan.feat, :), 1, plan.feath, 1, 9n)
         _pool_nms!(
             dev, K, plan.nmskeep, plan.splat, plan.feat, plan.band, plan.bandh, n,
             nms, window_half, cutoff, band_octaves, band_reach
         )
         copyto!(plan.keeph, 1, plan.nmskeep, 1, n)
     end
-    KA.synchronize(dev)
-    copyto!(plan.feath, 1, reshape(plan.feat, :), 1, 9n)
-    fh = reshape(view(plan.feath, 1:9n), 9, n)
     # `:none` returns the valid pool (row 9), an NMS the survivors
     feats = nms === :none ? _pool_features(fh, n, view(fh, 9, :), 1.0f0) :
         _pool_features(fh, n, plan.keeph, Int32(1))
-    uncertainty === nothing && return feats
-    copyto!(plan.covh, 1, reshape(plan.featcov, :), 1, 6n)
-    ch = reshape(view(plan.covh, 1:6n), 6, n)
+    ch === nothing && return feats             # no covariances asked for
     cov = nms === :none ? _pool_covs(ch, n, view(fh, 9, :), 1.0f0) :
         _pool_covs(ch, n, plan.keeph, Int32(1))
     return (features = feats, cov = cov)
@@ -1296,6 +1303,13 @@ _bp_cov_args(plan, ::Nothing, sl) = (nothing, nothing)
 # `_bcov!` left the canvas-frame covariances in `featcov`; the back-projection
 # maps them in place
 _bp_cov_args(plan, ::FeatureCovariance, sl) = (view(plan.featcov, :, sl), view(plan.featcov, :, sl))
+
+# The host copy of the pool's `n` covariances, (6, n), or `nothing` without them.
+_host_covs(plan, ::Nothing, n) = nothing
+function _host_covs(plan, ::FeatureCovariance, n)
+    copyto!(plan.covh, 1, reshape(plan.featcov, :), 1, 6n)
+    return reshape(view(plan.covh, 1:6n), 6, n)
+end
 
 _no_features(::Nothing) = ImasFeatureKA[]
 _no_features(::FeatureCovariance) = (features = ImasFeatureKA[], cov = _FrameCov[])

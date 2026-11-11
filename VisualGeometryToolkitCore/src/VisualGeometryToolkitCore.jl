@@ -502,6 +502,7 @@ public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     refine_external!, external_workspace, prepare_external!
 # Selection over a benchmark pool record (robust/pool_selection.jl).
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
+public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)
 # The contract conformance helpers (ext/VisualGeometryToolkitCoreTestExt with Test).
 public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract
 # The MAP inlier rule on a posterior membership weight (posterior > ½), the one
@@ -970,6 +971,7 @@ include("synthetic/synthetic.jl")
 # layer (CspondNormalization, DiagonalNormalization). Not `using`'d here: its
 # accessor names (num_points, gt_pose, …) stay out of every `using VisualGeometryToolkitCore`.
 include("pools/pools.jl")
+include("robust/pool_grid_kernels.jl") # the exact selection kernels of a residual-quality family (KernelAbstractions, every backend)
 include("robust/pool_selection.jl")   # best_pool_model, select_on_grid! over a pool record (needs Pools)
 
 # Visualization stubs for GLMakie extension (LSP indexing support)

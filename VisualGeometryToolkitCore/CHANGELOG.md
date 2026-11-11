@@ -5,6 +5,16 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: the exact grid selection's kernels, `exact_pm_score_kernel!` and `argmax_models_kernel!`** (public, not
+  exported; robust/pool_grid_kernels.jl), moved from RANSACScoringDoneRight (the twin audit's V1): per (pair, model) the
+  sum of a family's per-residual quality at every width of a grid, then per (pair, width) the first strictly best model,
+  one KernelAbstractions kernel each for every backend. `select_on_grid!` on the `:pool` staging runs them on the CPU
+  backend for a scoring with `has_residual_quality` (RANSAC and MSAC here; RANSACScoringDoneRight's loss-width
+  families add theirs) on a loss-width axis, on `sorted_squared_residuals(pair, R)` (the squared residuals with the
+  minimal sample at zero, sorted: the staging of both); `support_sq_loss_width(scoring, max_loss_width)` is where a
+  compact family's quality ends. `best_pool_model` stays the selection of a scoring without a per-residual quality.
+  The selections are `best_pool_model`'s (a test checks every width).
+
 - **New: `RadialVignetting(…; chart = :projective)`, a radial profile on the projective chart** of its distance from the
   centre, `ρ = d / (radius + d)` (½ at the radius, → 1 at infinity), so no sensor point is beyond the knots whatever the
   centre; its knots are `projective_knots(n, degree)` (uniform in the distance up to the radius, one tail span beyond).

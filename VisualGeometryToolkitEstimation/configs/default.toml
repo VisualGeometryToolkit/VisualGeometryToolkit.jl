@@ -2,8 +2,8 @@
 # Default configuration — the config of record.
 #
 # `RansacConfig()`, every local-optimization strategy's keyword defaults and
-# every `find_*` pipeline's `outlier_halfwidth` and `local_optimization`
-# default read THIS file. There is no second set of Julia
+# every `find_*` pipeline's `scoring` and `local_optimization` default read
+# THIS file. There is no second set of Julia
 # literals to drift from it (src/config_defaults.jl explains the mechanism;
 # test/config_toml_tests.jl asserts the file names every key a config struct
 # emits, so the completeness cannot rot).
@@ -25,31 +25,40 @@ max_trials     = 10000
 min_trials     = 100
 
 # -----------------------------------------------------------------------------
-# Per-pipeline defaults for the find_* entry points. The local optimization is
-# the classical one: least squares on the inliers, `Irls{TLSShape}` with no
-# width, so its truncation follows the scorer's decision point (the same
-# truncated-quadratic objective in selection and refinement). The paper's
+# Per-pipeline defaults for the find_* and refine_* entry points: the scorer
+# (`scoring = { type = …, … }`, read by scoring_from_toml for the problem's
+# type) and the local optimization (`local_optimization = { type = …, … }`,
+# read by local_optimization_from_toml) — the one robust-estimation schema.
+# Each scorer takes its OWN width key and the other's is refused: MSAC and
+# RANSAC ("msac", "ransac") take `threshold`; the Student-t + uniform marginal
+# takes `outlier_halfwidth`, the half-width of its uniform outlier component,
+# with its priors inherited from [scoring.student_t_uniform]. Every class's scorer of record is MSAC. The local
+# optimization is the classical one: least squares on the inliers,
+# `Irls{TLSShape}` with no width, so its truncation follows the scorer's
+# decision point (a threshold scorer's threshold; the Student-t scorer's MAP
+# crossover at the consensus partition's scale) — the same truncated-quadratic
+# objective in selection and refinement. The paper's
 # optimizers (the half-quadratic lifts, GNC, the cross-validated operating
 # points) are LocalOptimizationDoneRight's: give one as `local_optimization`.
 # -----------------------------------------------------------------------------
 [pipelines.homography]
-threshold          = 3.0         # px — a convention (OpenCV findHomography's ransacReprojThreshold), not a tuned value
+scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findHomography's ransacReprojThreshold), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.fundmat]
-threshold          = 3.0         # px — a convention (OpenCV findFundamentalMat's ransacReprojThreshold), not a tuned value
+scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findFundamentalMat's ransacReprojThreshold), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.essential]
-threshold          = 1.0         # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
+scoring            = { type = "msac", threshold = 1.0 }   # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.rotation]
-threshold          = 1.0         # px — the essential problem's convention: both are bearing residuals whitened into pixels
+scoring            = { type = "msac", threshold = 1.0 }   # px — the essential problem's convention: both are bearing residuals whitened into pixels
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.circle]
-threshold          = 1.0         # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
+scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
 # The robustified LM (Triggs): one NLLSsolver LM under the Welsch loss,
 # Triggs-corrected, its width scale_multiple·ŝ at the hypothesis's Student-t
 # scale — the multiple read in Welsch's own currency (plain_scale_multiple: the
@@ -62,47 +71,46 @@ threshold          = 1.0         # px — the Sampson distance to the circle (�
 local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
 
 [pipelines.ellipse]
-threshold          = 1.0         # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
+scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
 # The circle's robustified LM (Triggs{WelschShape}). 2.5: owner-decided (2026-10-29), the
 # stack's operating multiple of a consensus-anchored LM width
 # (LocalOptimizationDoneRight's poselib_adapt).
 local_optimization = { type = "triggs", loss = "welsch", scale_multiple = 2.5 }
 
 [pipelines.absolute_pose]
-threshold          = 8.0         # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
+scoring            = { type = "msac", threshold = 8.0 }   # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.bearing_pose]
 # refine_absolute_pose on caller-supplied bearings (a BearingPoseProblem; refine
-# only — no find_*). threshold is UNIT-FREE here: a fraction of the residual's
+# only — no find_*). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
 # bound, π (the largest angle between two rays) times the largest pixel
 # whitening gain, so the default 1.0 admits every correspondence to the
 # consensus set. With Irls{GaussianShape} the default refine is least squares
 # over every correspondence at the caller's weights — the form's behaviour
 # since it was hoisted from RadiometricCamera (2026-10-27). A caller's
-# `threshold` keyword is in the residual's unit (radians, or pixels with an
-# `M` column).
-threshold          = 1.0         # × π·max‖(BᵀM)⁻¹‖ (dimensionless)
+# `scoring` is in the residual's unit (radians, or pixels with an `M` column).
+scoring            = { type = "msac", threshold = 1.0 }   # × π·max‖(BᵀM)⁻¹‖ (dimensionless)
 local_optimization = { type = "irls", loss = "gaussian" }
 
 [pipelines.radial_homography]
-threshold          = 3.0         # px — a convention (the homography class's), not a tuned value
+scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.radial_camera]
 # The 1-D radial camera of a board (distortion-free verification): the residual
 # is the pixel distance to the predicted radial line (codimension 1).
-threshold          = 3.0         # px — a convention (the homography class's), not a tuned value
+scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
 local_optimization = { type = "irls", loss = "tls" }
 
 [pipelines.hand_eye]
-# threshold is UNIT-FREE here: a fraction of the problem's characteristic
+# The MSAC threshold is UNIT-FREE here: a fraction of the problem's characteristic
 # length L (median rig translation per motion), so find_hand_eye's default
 # MSAC threshold of 0.01·L is the same whether the poses are in metres or
 # millimetres (a rotation error of 0.01 rad ≈ 0.57° reaches it). A caller's
-# `threshold` keyword is a length (the poses' unit). A convention of this
+# `scoring` is a length (the poses' unit; metres for physical poses). A convention of this
 # package (no external one exists), not a tuned value.
-threshold          = 0.01        # × L (dimensionless; rotation enters the residual as L·θ)
+scoring            = { type = "msac", threshold = 0.01 }   # × L (dimensionless; rotation enters the residual as L·θ)
 motion_pairs       = "consecutive"
 local_optimization = { type = "irls", loss = "tls" }
 

@@ -14,11 +14,10 @@
 # =============================================================================
 
 """
-    find_homography(correspondences; threshold=3.0,
+    find_homography(correspondences; scoring = MsacScoring(problem; threshold = 3.0),
         extent=nothing, workspace=nothing,
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(),
-        scoring=nothing, config=nothing)
+        local_optimization=Irls{TLSShape}(), config=nothing)
 
 Robust homography estimation via RANSAC with MSAC scoring and least-squares-on-the-inliers local optimization.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
@@ -39,7 +38,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   `find_homography(exact.(board) .=> pixels)` scores the transfer error in
   pixels whatever the board's units (a plain metre board would be scored in
   metres, its threshold silently scaled by the board→image scale).
-- `threshold`: the MSAC inlier threshold of the default scoring, **in PIXELS** — the unit of this problem's residuals (every pixel-data `find_*` pipeline states its threshold by reference to this paragraph). The file default is a convention (OpenCV's), not a tuned value. Builds the default scoring only; supplying it with `scoring` is an `ArgumentError`, and so is the retired `outlier_halfwidth` (a marginal scorer's half-width belongs to that scoring).
+- `scoring`: the RANSAC scorer, an object of VisualGeometryToolkitCore's scoring contract carrying its own width **in PIXELS** — the unit of this problem's residuals (every pixel-data `find_*` pipeline states its width by reference to this paragraph): a threshold scorer's `threshold` (`MsacScoring(HomographyProblem; threshold = 2.0)`, `RansacScoring`), the Student-t + uniform scorer's `outlier_halfwidth` (`StudentTUniformScoring(HomographyProblem, 5.0; scale_prior, label_prior)`), a paper's scorer (RANSACScoringDoneRight's families). Default: the class's scorer of record, `configs/default.toml` `[pipelines.homography] scoring` (`{ type = "msac", threshold = 3.0 }`: OpenCV's convention, not a tuned value), read by [`scoring_from_toml`](@ref). A bare `threshold` or `outlier_halfwidth` keyword is refused (`ArgumentError`): a width belongs to its scorer.
 - `extent`: optional `HyperRectangle{2}` world-plane region; when given the problem
   is wrapped in `BoundedProblem` so the fitted H is validated over the rectangle.
 - `workspace`: optional pre-allocated `RansacWorkspace` to reuse —
@@ -51,10 +50,11 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 - `max_trials`, `min_trials`: RANSAC trial bounds (`[ransac]`).
 - `local_optimization`: LO-RANSAC strategy (default: the class's
   `[pipelines.<class>]` strategy — here `Irls{TLSShape}()`, least squares on
-  the inliers with its truncation at the scorer's decision point; any other
+  the inliers with its truncation at the scorer's decision point: a threshold
+  scorer's threshold, the Student-t scorer's MAP crossover at the consensus
+  partition's scale; any other
   `AbstractLocalOptimization` changes mechanism — LocalOptimizationDoneRight's
   half-quadratic lifts among them).
-- `scoring`: Override scoring function (default: VisualGeometryToolkitCore's `MsacScoring(problem; threshold)`; a paper's scorer, e.g. RANSACScoringDoneRight's `StudentTUniformScoring`, plugs in here).
 - `config`: Override `RansacConfig` (ignores `max_trials`/`min_trials`).
 - `rng`: the sampler's random number generator.
 
@@ -88,8 +88,8 @@ function find_homography(
 end
 
 """
-    refine_homography(H, correspondences; threshold = 3.0, extent = nothing,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_homography(H, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The homography `H` refined against `correspondences`: [`find_homography`](@ref)'s
@@ -112,18 +112,16 @@ set, residuals and weights of the returned model under the scorer), the `:no_mod
 for fewer than 4 correspondences.
 
 # Keywords — shared by every `refine_*`
-- `threshold`: the MSAC inlier threshold of the default scoring, in the
-  problem's residual unit (here PIXELS), as [`find_homography`](@ref);
-  supplying it with `scoring` is an `ArgumentError`, and so is the retired
-  `outlier_halfwidth`.
+- `scoring`: any scorer of VisualGeometryToolkitCore's contract, its width in
+  the problem's residual unit (here PIXELS), as [`find_homography`](@ref);
+  default the class's (`[pipelines.<class>] scoring`). A bare `threshold` or
+  `outlier_halfwidth` keyword is refused.
 - `local_optimization`: any `AbstractLocalOptimization` the problem hosts —
   `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`, LocalOptimizationDoneRight's
   half-quadratic lifts and GNC; a strategy the problem cannot host fails as it
   would inside `find_*`. Default: the class's `[pipelines.<class>]` strategy.
   The strategy's own knobs are its own (`Irls`'s `max_iter`; the chart LM's
   cap is `[chart_lm]`): a `refine_*` has no `max_iter`.
-- `scoring`: any scorer of VisualGeometryToolkitCore's contract (default MSAC at
-  `threshold`).
 - `workspace`: a `RansacWorkspace` to reuse, as [`find_homography`](@ref).
 
 The sampling keywords of `find_*` (`max_trials`, `min_trials`, `config`, `rng`)

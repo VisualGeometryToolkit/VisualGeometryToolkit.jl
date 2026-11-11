@@ -272,10 +272,18 @@ function scoring_from_toml(d::AbstractDict; problem::Type, section::AbstractStri
     return scoring_from_toml(tags[d["type"]], d; problem, section = "$section.$(d["type"])")
 end
 function scoring_from_toml(::Type{T}, d::AbstractDict; problem::Type, section::AbstractString) where {T <: Union{RansacScoring, MsacScoring}}
+    _refuse_other_width(d, "outlier_halfwidth", "threshold", "a threshold scorer", "the Student-t + uniform scorer's", section)
     _check_keys(d, ("type", "threshold"), section)
     haskey(d, "threshold") || throw(ArgumentError("[$section] needs `threshold` (a scorer's width is its config's)"))
     return T(problem; threshold = Float64(d["threshold"]))
 end
+# Each scorer takes its OWN width key and never the other's: a value is never
+# read across the two meanings (a threshold scorer's threshold is not an outlier
+# half-width, and the Student-t scorer has no threshold).
+_refuse_other_width(d::AbstractDict, other, own, who, whose, section) =
+    haskey(d, other) && throw(ArgumentError(
+        "[$section] `$other` is $whose width, not $(who)'s: $who takes `$own`"))
+
 scoring_from_toml(::Type{T}, ::AbstractDict; problem::Type, section::AbstractString) where {T} =
     throw(ArgumentError("[$section] scorer $T has no TOML reader (its package adds a `scoring_from_toml` method)"))
 
@@ -319,6 +327,7 @@ function _label_prior_from_toml(d::AbstractDict, section::AbstractString)
 end
 
 function scoring_from_toml(::Type{<:StudentTUniformScoring}, d::AbstractDict; problem::Type, section::AbstractString)
+    _refuse_other_width(d, "threshold", "outlier_halfwidth", "the Student-t + uniform scorer", "a threshold scorer's", section)
     _check_keys(d, _STUDENT_T_KEYS, section)
     haskey(d, "outlier_halfwidth") || throw(ArgumentError("[$section] needs `outlier_halfwidth` (a scorer's width is its config's)"))
     return StudentTUniformScoring(problem, Float64(d["outlier_halfwidth"]);

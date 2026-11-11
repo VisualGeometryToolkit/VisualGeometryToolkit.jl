@@ -62,7 +62,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
 
         pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
             max_trials = 4000, min_trials = 200,
             rng = StableRNG(99), lokw...
         )
@@ -81,7 +81,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
     @testset "noise: recovers sign and magnitude of k" begin
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.5,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.5),
             max_trials = 4000, rng = StableRNG(7)
         )
         @test res !== nothing
@@ -123,7 +123,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         # RANSAC: the four-point search finds the board, the (H, k) local
         # optimization brings the distorted-away inliers in and recovers k
         est = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, threshold = 3.0,
+            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0),
             rng = StableRNG(5)
         )
         @test est !== nothing
@@ -164,7 +164,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         # end-to-end: the extent-bounded fit still converges and recovers k
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 60, n_out = 15)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
             extent = rect, max_trials = 3000, rng = StableRNG(21)
         )
         @test res !== nothing

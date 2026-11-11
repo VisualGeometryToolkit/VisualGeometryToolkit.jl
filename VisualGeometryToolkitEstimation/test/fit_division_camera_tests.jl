@@ -7,6 +7,7 @@ using Rotations: RotXYZ
 using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens
 using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
+using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError
 using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step
 
@@ -80,7 +81,8 @@ using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, 
     Ps = [
         find_radial_camera(
                 b; center = (0.0, 0.0),
-                threshold = 5.0, rng = StableRNG(9)
+                scoring = MsacScoring(RadialCameraProblem; threshold = 5.0),
+                rng = StableRNG(9)
             ).estimate for b in boards
     ]
     @test all(P -> P isa RadialCamera, Ps)

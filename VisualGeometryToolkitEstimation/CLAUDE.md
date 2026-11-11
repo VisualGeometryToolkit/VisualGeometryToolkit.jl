@@ -43,7 +43,7 @@ DOWN; a change that trips one is a defect in the change, not in the bound.
 
 `configs/default.toml` is the config of record, adopted from BlobBoards'
 mechanism (2026-09-03): `RansacConfig()`, every core local-optimization
-strategy's keyword defaults, every `find_*` pipeline's MSAC `threshold` (a
+strategy's keyword defaults, every `find_*` pipeline's `scoring` table (MSAC at a `threshold`: a
 per-class convention, not a tuned value) and `local_optimization`, and
 `fit_division_camera`/`fit_robot_world_hand_eye`'s knobs all READ that file. There is
 no second set of Julia literals — `src/config_defaults.jl` parses it at
@@ -51,7 +51,7 @@ precompile time (`include_dependency`, so an edit forces a recompile; restart a
 Revise session to see one) and exposes `_dflt(table, key)`, which every
 default expression calls. A default that is not in the file throws BY DESIGN.
 
-- **Override one value:** a keyword — `find_homography(p; threshold = 2.0)`,
+- **Override one value:** a keyword — `find_homography(p; scoring = MsacScoring(HomographyProblem; threshold = 2.0))`,
   `RansacConfig(max_trials = 500)`, `Irls{WelschShape}(scale_multiple = 1.2, max_iter = 40)`.
   `outlier_halfwidth` is no keyword of the core entries (`ArgumentError`): it
   belongs to a marginal scorer supplied as `scoring`.
@@ -88,8 +88,8 @@ Revise.jl caveats:
 VisualGeometryToolkitEstimation is the composable RANSAC: ONE generic loop on
 VisualGeometryToolkitCore's scoring and local-optimization contracts, the RANSAC
 problems of the stack, and the core local optimizations `NoLocalOptimization`
-and `Irls{K}`. Out of the box every `find_*` runs VGC's `MsacScoring(problem;
-threshold)` with `Irls{TLSShape}` following the scorer's threshold; per-class
+and `Irls{K}`. Out of the box every `find_*` runs its class's scorer (`[pipelines.<class>]
+scoring`: VGC's MSAC) with `Irls{TLSShape}` following the scorer's threshold; per-class
 thresholds are conventions (H/F/radial 3 px, E 1 px, PnP 8 px, hand-eye
 0.01·L). Paper scorers (RANSACScoringDoneRight's `StudentTUniformScoring`)
 and strategies (LocalOptimizationDoneRight's `HQ`, `Gnc`, `StudentTUniform`,

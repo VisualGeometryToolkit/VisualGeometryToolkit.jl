@@ -100,7 +100,6 @@ end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     p = CircleProblem(pts)
     supplied = Dict(
-        :threshold => 2.0,
         :local_optimization => NoLocalOptimization(),
         :max_trials => 500,
         :min_trials => 50,
@@ -109,13 +108,14 @@ end
         :workspace => RansacWorkspace(CircleProblem, 300),
         :rng => Xoshiro(1),
     )
-    @test Set(keys(supplied)) ∪ Set([:outlier_halfwidth]) == shared
+    @test Set(keys(supplied)) ∪ Set([:threshold, :outlier_halfwidth]) == shared   # the two widths: declared to be refused
     for (k, v) in supplied
         res = find_circle(pts; (; k => v)..., (k == :rng ? (;) : (; rng = Xoshiro(2)))...)
         @test converged(res)
     end
-    # the retired half-width and a threshold beside a scoring are refused, as for every find_*
+    # a bare width keyword is refused, alone or beside a scoring, as for every find_*
     @test_throws ArgumentError find_circle(pts; outlier_halfwidth = 5.0)
+    @test_throws ArgumentError find_circle(pts; threshold = 2.0)
     @test_throws ArgumentError find_circle(pts; threshold = 2.0, scoring = MsacScoring(p; threshold = 1.0))
     @test_throws MethodError find_circle(pts; extent = nothing)            # no circle-specific keyword
 end

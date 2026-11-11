@@ -3,10 +3,9 @@
 # =============================================================================
 
 """
-    find_fundmat(correspondences; threshold=3.0,
+    find_fundmat(correspondences; scoring = MsacScoring(problem; threshold = 3.0),
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(),
-        scoring=nothing, config=nothing)
+        local_optimization=Irls{TLSShape}(), config=nothing)
 
 Robust fundamental matrix estimation via 7-point RANSAC with MSAC
 scoring and least-squares-on-the-inliers local optimization. Every default shown is
@@ -19,7 +18,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 # Arguments
 - `correspondences`: as [`find_homography`](@ref); a `Csponds` `:score` column is the
   per-match prior (PROSAC; uniform otherwise).
-- `threshold`: **in PIXELS**, as [`find_homography`](@ref).
+- `scoring`: the scorer, its width **in PIXELS**, as [`find_homography`](@ref); default `[pipelines.fundmat] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] FundMatProblem{Float64}, n_data)`.
 - `local_optimization`: default `Irls{TLSShape}()`, as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
@@ -32,8 +31,8 @@ function find_fundmat(
 end
 
 """
-    refine_fundmat(F, correspondences; threshold = 3.0,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_fundmat(F, correspondences; scoring = MsacScoring(problem; threshold = 3.0),
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The fundamental matrix `F` refined against `correspondences`:

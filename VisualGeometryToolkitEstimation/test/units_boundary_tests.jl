@@ -104,12 +104,14 @@ end
     @test VgtkCore.has_units(estimate(phy))
     @test same_pose(ustrip(m, estimate(phy)), estimate(plain))
     @test same_diagnostics(phy, plain)
-    # lengths beside physical poses are lengths: the same search as the plain numbers in metres
+    # lengths beside physical poses are lengths, and a scorer's width is in metres: the same search as the plain
+    # numbers in metres
+    sc2mm = VgtkCore.MsacScoring(HandEyeProblem; threshold = ustrip(m, 2.0mm))
     @test same_pose(
-        ustrip(m, estimate(find_hand_eye(phys(A) .=> phys(B); threshold = 2.0mm, char_length = 0.4m, rng = StableRNG(6)))),
-        estimate(find_hand_eye(A .=> B; threshold = ustrip(m, 2.0mm), char_length = 0.4, rng = StableRNG(6)))
+        ustrip(m, estimate(find_hand_eye(phys(A) .=> phys(B); scoring = sc2mm, char_length = 0.4m, rng = StableRNG(6)))),
+        estimate(find_hand_eye(A .=> B; scoring = sc2mm, char_length = 0.4, rng = StableRNG(6)))
     )
-    @test_throws DimensionError find_hand_eye(phys(A) .=> phys(B); threshold = 0.002)
+    @test_throws ArgumentError find_hand_eye(phys(A) .=> phys(B); threshold = 2.0mm)   # a width is its scorer's
     @test_throws DimensionError find_hand_eye(phys(A) .=> phys(B); char_length = 0.4)
     # built in millimetres: the plain search on the stored metres
     Amm = phys([EuclideanMap(rotation(a), 1000 .* translation(a)) for a in A], mm)

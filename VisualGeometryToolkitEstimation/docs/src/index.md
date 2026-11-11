@@ -20,9 +20,9 @@ and local optimizers plug in by keyword.
   reused [`RansacWorkspace`](@ref). Two-level gating, adaptive trial counts,
   PROSAC ordered sampling. See [RANSAC](guide/ransac.md).
 - **Core defaults**: every `find_*` runs VisualGeometryToolkitCore's MSAC
-  (`MsacScoring(problem; threshold)`) and a local optimization read from
+  (`[pipelines.<class>] scoring`, MSAC at the class's threshold) and a local optimization read from
   `configs/default.toml`: least squares on the inliers
-  ([`Irls`](@ref)`{TLSShape}`, following the scorer's threshold) for most
+  ([`Irls`](@ref)`{TLSShape}`, following the scorer's decision point) for most
   problems, the robustified chart LM [`Triggs`](@ref) for the circle and the
   ellipse. The per-class thresholds are conventions (homography, fundamental
   matrix and the radial classes 3 px; essential matrix, rotation, circle and
@@ -87,7 +87,8 @@ count(result.inlier_mask)                     # 32, the true correspondences
 H = Matrix(estimate(result))
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true
 
-result_2px = find_homography(csponds(src, dst); threshold = 2.0)   # a keyword overrides a default
+result_2px = find_homography(csponds(src, dst);   # a scorer overrides the class's
+                           scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0))
 ```
 
 ## Documentation

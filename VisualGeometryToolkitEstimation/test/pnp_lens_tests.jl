@@ -51,7 +51,7 @@ const _SCENES = Dict(
         "Irls{Welsch}" => VgtkEstimation.Irls{VgtkEstimation.WelschShape}(scale_multiple = 1.5),
     )   # the Student-t + uniform IRLS and the Welsch HQ lift: LocalOptimizationDoneRight's suite
     @testset "$lo_name" for (lo_name, lo) in arms
-        est = find_absolute_pose(cam, src .=> dst; threshold = 5.0, local_optimization = lo, rng = StableRNG(3))
+        est = find_absolute_pose(cam, src .=> dst; scoring = VgtkCore.MsacScoring(AbsolutePoseProblem; threshold = 5.0), local_optimization = lo, rng = StableRNG(3))
         @test est !== nothing
         @test rotation_error_deg(estimate(est), R_gt) < 0.05
         @test translation_error(estimate(est), t_gt) < 1.0

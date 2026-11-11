@@ -265,7 +265,11 @@ tables depend on the scale prior and the profile flag only, not on the
 threshold): what a caller pre-allocates for the `find_*` pipelines.
 """
 RansacWorkspace(::Type{T}, ::Type{P}, n::Int) where {T <: AbstractFloat, P <: AbstractRansacProblem} =
-    RansacWorkspace(T, P, n, _default_scoring_at(P, 1.0))
+    RansacWorkspace(T, P, n, _threshold_workspace_scoring(P))
+# A threshold scorer whose workspace serves every threshold scorer of `P`: its
+# tables do not depend on the width, so the unit width here is never a decision
+# point (no score is taken with it).
+_threshold_workspace_scoring(::Type{P}) where {P} = MsacScoring(P; threshold = 1.0)
 RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
                 lo::AbstractLocalOptimization = NoLocalOptimization()) where {T <: AbstractFloat} =
     RansacWorkspace(T, typeof(problem), data_size(problem), scoring, lo)

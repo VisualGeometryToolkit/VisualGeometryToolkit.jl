@@ -185,11 +185,11 @@ end
 @inline mahalanobis_distance(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
     norm(whitened_residual(p, pose, i))
 
-# The unit of the class's file `threshold` (`[pipelines.bearing_pose]`): the
+# The unit of the class's file scorer width (`[pipelines.bearing_pose] scoring`): the
 # residual's BOUND — π (the largest angle between two rays) times the largest
 # whitening gain — so the file's 1.0 admits every correspondence to the
 # consensus set and the default refine is least squares over all of them.
-_threshold_unit(p::BearingPoseProblem) = π * maximum(W -> opnorm(W), p.context.W)
+_width_unit(p::BearingPoseProblem) = π * maximum(W -> opnorm(W), p.context.W)
 
 # P3P on the bearings for a central camera; nothing solves a generalized one.
 function solve(p::BearingPoseProblem, idx::AbstractVector{Int})

@@ -5,56 +5,59 @@
 # `_ransac_pipeline` is the shared body of every `find_*`. Each public wrapper
 # builds its problem and names its model CLASS once; the class selects the
 # wrapper's `configs/default.toml` `[pipelines.<class>]` table, which supplies
-# both defaults — the MSAC `threshold` and `local_optimization`. The shared
-# keywords are documented once, on [`find_homography`](@ref).
+# both defaults — the `scoring` table (read by `scoring_from_toml`) and the
+# `local_optimization` table (read by `local_optimization_from_toml`): the one
+# robust-estimation schema. The shared keywords are documented once, on
+# [`find_homography`](@ref).
 # =============================================================================
 
 """
-    _ransac_pipeline(problem, class::Symbol; threshold, local_optimization,
-                     max_trials, min_trials, scoring, config, workspace, rng)
+    _ransac_pipeline(problem, class::Symbol; scoring, local_optimization,
+                     max_trials, min_trials, config, workspace, rng)
         -> RansacEstimate
 
 Run RANSAC with the standard defaults shared by every `find_*` pipeline, read
 from `[pipelines.<class>]` for the class the wrapper names:
 
-- `scoring` resolves to MSAC at `threshold` (`MsacScoring(problem; threshold)`,
-  VisualGeometryToolkitCore) when omitted, the caller's `threshold` else the class's
-  file value — a convention, not a tuned value — in the problem's residual unit
-  (`_threshold_unit`: pixels for the pixel-data classes). A caller's `scoring`
-  carries its own width, so supplying `threshold` with it is an `ArgumentError`.
+- `scoring` defaults to the class's scorer (`_class_scoring`: its `scoring`
+  table, read by [`scoring_from_toml`](@ref) for the problem's type, its width
+  in the problem's residual unit). A scorer carries its own width — a threshold
+  scorer's `threshold`, the Student-t + uniform scorer's `outlier_halfwidth` —
+  so a bare `threshold` or `outlier_halfwidth` keyword is refused
+  (`ArgumentError`, naming `scoring`).
 - `local_optimization` defaults to the class's strategy (`_dflt_lo(class)`).
 - `config` resolves to `RansacConfig(; max_trials, min_trials)`.
 """
 function _ransac_pipeline(
         problem, class::Symbol;
-        threshold::Union{Real, Nothing} = nothing,
-        outlier_halfwidth::Union{Real, Nothing} = nothing,   # refused (`_default_scoring`), with the way to say it
+        scoring::Union{AbstractScoring, Nothing} = nothing,
         # The class's strategy of record (configs/default.toml [pipelines.<class>]).
         local_optimization::AbstractLocalOptimization = _dflt_lo(class),
         # Defaults are configs/default.toml [ransac] — the same authority
         # RansacConfig() reads, so there is no second "default" to disagree.
         max_trials::Int = _dflt("ransac", "max_trials"),
         min_trials::Int = _dflt("ransac", "min_trials"),
-        scoring::Union{AbstractScoring, Nothing} = nothing,
         config::Union{RansacConfig, Nothing} = nothing,
         workspace = nothing,
-        rng::Random.AbstractRNG = Random.default_rng()
+        rng::Random.AbstractRNG = Random.default_rng(),
+        threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
-    scoring = _class_scoring(problem, class, scoring, threshold, outlier_halfwidth)
+    _refuse_width_keywords(threshold, outlier_halfwidth)
+    scoring = _class_scoring(problem, class, scoring)
     config = something(config, RansacConfig(; max_trials, min_trials))
     return ransac(problem, scoring; config, local_optimization, workspace, rng)
 end
 
 """
-    _refine_pipeline(problem, class::Symbol, θ₀; threshold, local_optimization,
-                     scoring, workspace) -> RansacEstimate
+    _refine_pipeline(problem, class::Symbol, θ₀; scoring, local_optimization,
+                     workspace) -> RansacEstimate
 
 The shared body of every `refine_*`: the class's RANSAC local-optimization step
 run ONCE from the given model `θ₀` — what the loop runs on its hypothesis, with
 no sampling ([`locally_optimize`](@ref): score θ₀, take ITS consensus set under
 the scorer, `locally_optimize!` from θ₀, re-score, `test_consensus`; the seed
 comes back when the refined model is not kept). The defaults are the class's
-`find_*`'s, read from the same `[pipelines.<class>]` table (`threshold`,
+`find_*`'s, read from the same `[pipelines.<class>]` table (`scoring`,
 `local_optimization`); the keywords are `_ransac_pipeline`'s minus the
 sampling ones (`max_trials`, `min_trials`, `config` — a `RansacConfig` is the
 trial schedule and nothing else — and `rng`: no local optimization draws from
@@ -62,36 +65,40 @@ the loop's generator; `locally_optimize!` takes none).
 """
 function _refine_pipeline(
         problem, class::Symbol, θ₀;
-        threshold::Union{Real, Nothing} = nothing,
-        outlier_halfwidth::Union{Real, Nothing} = nothing,   # refused (`_default_scoring`), with the way to say it
-        local_optimization::AbstractLocalOptimization = _dflt_lo(class),
         scoring::Union{AbstractScoring, Nothing} = nothing,
-        workspace = nothing
+        local_optimization::AbstractLocalOptimization = _dflt_lo(class),
+        workspace = nothing,
+        threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
-    scoring = _class_scoring(problem, class, scoring, threshold, outlier_halfwidth)
+    _refuse_width_keywords(threshold, outlier_halfwidth)
+    scoring = _class_scoring(problem, class, scoring)
     return locally_optimize(problem, θ₀; local_optimization, scoring, workspace)
 end
 
-# The scoring both pipelines run: the caller's, or MSAC at the caller's
-# `threshold`, else at the class's file value in the problem's residual unit.
-function _class_scoring(problem, class::Symbol, scoring, threshold, outlier_halfwidth)
-    scoring === nothing && outlier_halfwidth === nothing && (
-        threshold = something(threshold, _dflt("pipelines.$class", "threshold") * _threshold_unit(problem))
-    )
-    return _default_scoring(problem, scoring, threshold, outlier_halfwidth)
-end
+# The scoring both pipelines run: the caller's, or the class's scorer of
+# record — configs/default.toml `[pipelines.<class>] scoring`, read by the one
+# scorer reader for the problem's type — its width in the problem's residual
+# unit (`_in_problem_unit`).
+_class_scoring(_problem, _class::Symbol, scoring::AbstractScoring) = scoring
+_class_scoring(problem, class::Symbol, ::Nothing) =
+    _in_problem_unit(scoring_from_toml(_dflt("pipelines.$class", "scoring"); problem = typeof(problem),
+                                       section = "pipelines.$class.scoring"), problem)
 
-# The unit of a class's file `threshold`: the problem's residual unit (pixels)
-# for every pixel-data class — E and PnP included, whose residuals are whitened
-# into pixels by the cameras. Hand-eye's file value is unit-free, a FRACTION of
-# the problem's characteristic length `L` (median rig translation per motion),
-# so its threshold is the same in metres or millimetres.
-_threshold_unit(_problem) = 1.0
-_threshold_unit(problem::HandEyeProblem) = problem.char_length
-
-# The default scorer of the core entries: MSAC at threshold `τ` — the same
-# truncated quadratic the default local optimization, `Irls{TLSShape}`, refits.
-_default_scoring_at(problem, τ::Float64) = MsacScoring(problem; threshold = τ)
+# The unit of a class's file width (`threshold` or `outlier_halfwidth`): the
+# problem's residual unit (pixels) for every pixel-data class — E and PnP
+# included, whose residuals are whitened into pixels by the cameras — where the
+# file value is the width itself. Two classes state a UNIT-FREE width:
+# hand-eye's is a FRACTION of the problem's characteristic length `L` (median
+# rig translation per motion), so the same in metres or millimetres; the
+# bearing pose's a fraction of its residual's bound (problems/bearing_pose.jl).
+# A caller's scorer is the caller's, in the residual's unit, never rescaled.
+_in_problem_unit(sc, problem) = _in_unit(sc, _width_unit(problem))
+_in_unit(sc, ::Nothing) = sc
+_in_unit(sc::StudentTUniformScoring, u::Float64) = VgtkCore.with_width(sc, VgtkCore.OutlierHalfwidth(outlier_halfwidth(sc) * u))
+_in_unit(sc::RansacScoring{DG}, u::Float64) where {DG} = RansacScoring(DG; threshold = sc.threshold * u)
+_in_unit(sc::MsacScoring{DG}, u::Float64) where {DG} = MsacScoring(DG; threshold = sc.threshold * u)
+_width_unit(_problem) = nothing
+_width_unit(problem::HandEyeProblem) = Float64(problem.char_length)
 
 # The too-little-data rule of the `find_*` and `refine_*` pipelines is
 # `_holds_minimal_sample` (estimators/ransac/interface.jl): fewer data than the

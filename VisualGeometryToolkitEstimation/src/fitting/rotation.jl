@@ -8,8 +8,8 @@
 # =============================================================================
 
 """
-    find_rotation(camera1, camera2, pixel_cs; threshold = 1.0, max_trials, min_trials,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, config = nothing, rng)
+    find_rotation(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0), max_trials, min_trials,
+        local_optimization = Irls{TLSShape}(), config = nothing, rng)
     find_rotation(bearings::Csponds; kwargs...)
 
 Robust estimation of the rotation `R` between two views of a camera that only
@@ -33,8 +33,8 @@ LocalOptimizationDoneRight's lifts selected by tag) plugs in through `scoring` a
   takes part, past 90°. A `:score` column is the PROSAC prior.
 - `bearings`: unit bearings with their `M₁`/`M₂` Jacobian columns (see
   [`RotationProblem`](@ref)).
-- `threshold`: the MSAC inlier threshold of the default scoring, in PIXELS (the
-  residual's unit, as [`find_essential`](@ref)'s). Values below
+- `scoring`: the scorer, its width in PIXELS (the residual's unit, as
+  [`find_essential`](@ref)'s); default `[pipelines.rotation] scoring`. Widths below
   VisualGeometryToolkitFeatures' 0.06 px refinement bound are refused.
 
 Returns a `RansacEstimate` (its `estimate` a `RotMatrix{3, Float64}`), or
@@ -49,8 +49,8 @@ function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
 end
 
 """
-    refine_rotation(R, camera1, camera2, pixel_cs; threshold = 1.0,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_rotation(R, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
     refine_rotation(R, bearings::Csponds; kwargs...)
         -> RansacEstimate
 

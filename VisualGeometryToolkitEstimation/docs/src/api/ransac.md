@@ -208,7 +208,7 @@ TrackVariance
 
 `configs/default.toml` is the config of record: `RansacConfig()`, every core
 local-optimization strategy's keyword defaults, and every `find_*` pipeline's
-`threshold` and `local_optimization` read it at precompile time, so there is
+`scoring` and `local_optimization` read it at precompile time, so there is
 no second set of Julia literals to drift from it. Single
 values are overridden by keyword. `RansacConfig(path)` loads another file's
 `[ransac]` table over the shipped one and `local_optimization_from_toml` builds
@@ -219,7 +219,7 @@ A strategy is selected in TOML by tag:
 
 ```toml
 [pipelines.homography]
-threshold          = 3.0                                 # px, the default MSAC scorer's
+scoring            = { type = "msac", threshold = 3.0 }  # px; a Student-t: { type = "student_t_uniform", outlier_halfwidth = 20.0 }
 local_optimization = { type = "irls", loss = "tls" }     # no width key: follow the scorer
 # explicit widths: { type = "irls", loss = "welsch", scale_multiple = 2.5 }
 #              or  { type = "irls", loss = "welsch", loss_width = 2.0 }   (both keys: ArgumentError)

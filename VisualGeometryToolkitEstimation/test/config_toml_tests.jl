@@ -126,8 +126,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
             end
         end
         for (class, tbl) in _TOML_DEFAULTS["pipelines"]
-            @test haskey(tbl, "threshold")            # the default MSAC scorer's
-            @test !haskey(tbl, "outlier_halfwidth")   # a marginal scorer's knob, not the core's
+            @test haskey(tbl, "scoring")              # the class's scorer table (scoring_from_toml)
+            @test !haskey(tbl, "threshold") && !haskey(tbl, "outlier_halfwidth")   # never a bare width: it is its scorer's
             @test haskey(tbl, "local_optimization")
         end
     end
@@ -239,20 +239,20 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         # `min_trials = 100` is the file's floor for the default run
         @test iterations(r_default) >= _dflt("ransac", "min_trials")
 
-        # `threshold` builds the DEFAULT scoring and nothing else: a caller's
-        # `scoring` carries its own width, so it needs none, and both is
-        # refused rather than one being silently ignored.
+        # A width is its scorer's: a bare `threshold` is refused, alone or
+        # beside a scorer; the default IS the class table's scorer.
         prob = HomographyProblem(pairs)
         sc = MsacScoring(prob; threshold = 5.0)
         @test_throws ArgumentError find_homography(pairs; threshold = 5.0, scoring = sc)
-        r_a = find_homography(pairs; threshold = 5.0, rng = StableRNG(285))
-        r_s = find_homography(pairs; scoring = sc, rng = StableRNG(285))
-        @test converged(r_s) && estimate(r_a) == estimate(r_s)      # the default IS MsacScoring(problem; threshold)
+        @test_throws ArgumentError find_homography(pairs; threshold = 5.0)
+        r_tbl = find_homography(pairs; rng = StableRNG(282),
+            scoring = VgtkEstimation.scoring_from_toml(_dflt("pipelines.homography", "scoring"); problem = HomographyProblem{Float64}))
+        @test estimate(r_tbl) == estimate(r_default) && r_tbl.inlier_mask == r_default.inlier_mask
         lo = NoLocalOptimization()
         θ₀ = estimate(r_default)
         @test converged(locally_optimize(prob, θ₀; local_optimization = lo, scoring = sc))
         @test_throws ArgumentError locally_optimize(prob, θ₀; local_optimization = lo, threshold = 5.0, scoring = sc)
-        @test_throws ArgumentError locally_optimize(prob, θ₀; local_optimization = lo)   # neither
+        @test_throws UndefKeywordError locally_optimize(prob, θ₀; local_optimization = lo)   # no scorer
     end
 
 end

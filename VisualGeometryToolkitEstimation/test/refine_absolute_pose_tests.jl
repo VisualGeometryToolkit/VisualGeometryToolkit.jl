@@ -49,10 +49,10 @@ end
 
 @testitem "refine_absolute_pose: pinhole and fisheye past 90°, any strategy" setup = [PixelPoseScenes] begin
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: CameraModel, Lens, Equidistant, GaussianShape, CauchyShape, estimate, converged, rms
+    using VisualGeometryToolkitCore: CameraModel, Lens, Equidistant, GaussianShape, CauchyShape, estimate, converged, rms, MsacScoring
     using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls, Triggs
     E = true_pose()
-    ls = (; local_optimization = Irls{GaussianShape}(), threshold = 1.0e4)   # plain least squares over every point
+    ls = (; local_optimization = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))   # plain least squares over every point
     pin = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     fish = CameraModel(; focal = 400.0, pp = (800.0, 800.0), lens = Lens(Equidistant()))
     for (cam, θmax) in ((pin, 0.5), (fish, deg2rad(110)))
@@ -73,12 +73,12 @@ end
 @testitem "refine_absolute_pose: frames, units, too few" setup = [PixelPoseScenes] begin
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, GaussianShape, estimate, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip,
-        retcode, iterations
+        retcode, iterations, MsacScoring
     using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls
     E = true_pose()
     cam = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     cs = pixel_pairs(cam, E, scene_points(E, 0.6; n = 12))
-    ls = (; local_optimization = Irls{GaussianShape}(), threshold = 1.0e4)
+    ls = (; local_optimization = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))
     # the guess's frames come back (frames.md rule 1), and an unlabeled guess comes back unlabeled
     El = relabel(WorldFrame, CameraFrame, perturbed(E))
     Pl = estimate(refine_absolute_pose(El, cam, cs; ls...))
@@ -182,7 +182,7 @@ end
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize
     using Random: Xoshiro, randperm
-    using VisualGeometryToolkitCore: Csponds, withattrs, estimate, converged, CauchyShape, WelschShape, s2_tangent_basis, EuclideanMap, exp_so3
+    using VisualGeometryToolkitCore: Csponds, withattrs, estimate, converged, CauchyShape, WelschShape, s2_tangent_basis, EuclideanMap, exp_so3, MsacScoring
     using Rotations: RotMatrix
     using VisualGeometryToolkitEstimation: refine_absolute_pose, Triggs
     E = true_pose(); rng = Xoshiro(3)
@@ -201,8 +201,13 @@ end
     guess = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015, 0.002)) * E.R), E.t + SVector(0.004, -0.003, 0.003))
     # least squares is ruined: over ten times the inliers' own least-squares error
     @test pose_errors(estimate(refine_absolute_pose(guess, cs)), E)[1] > 10 * pose_errors(ls, E)[1]
+    # the class's scorer of record: MSAC at the file's unit-free 1.0 × the residual's bound, bit for bit
+    pb = BearingPoseProblem(cs)
+    rd = refine_absolute_pose(guess, cs)
+    re = refine_absolute_pose(guess, cs; scoring = MsacScoring(pb; threshold = 1.0 * VisualGeometryToolkitEstimation._width_unit(pb)))
+    @test isequal(estimate(rd), estimate(re)) && rd.inlier_mask == re.inlier_mask && isequal(rd.quality, re.quality)
     for lo in (Triggs{CauchyShape}(scale_multiple = 2.5), Triggs{WelschShape}(scale_multiple = 2.5))
-        r = refine_absolute_pose(guess, cs; local_optimization = lo, threshold = 8.0)   # px
+        r = refine_absolute_pose(guess, cs; local_optimization = lo, scoring = MsacScoring(BearingPoseProblem; threshold = 8.0))   # px
         @test converged(r) && r.lo_retcode === :converged
         @test sort(findall(r.inlier_mask)) == sort(good)
         eR, et = pose_errors(estimate(r), ls)

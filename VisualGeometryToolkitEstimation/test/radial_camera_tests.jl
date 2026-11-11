@@ -59,14 +59,14 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     lm = VgtkEstimation.ChartLm(ch, p, sqrt.(w))
     @test VgtkCore.check_rows_jacobian(lm, SVector(0.01, -0.02, 0.005, 0.0, 0.015), data_size(p); atol = 1.0e-8)
     # RANSAC recovers the inlier set and the camera under distortion it never models
-    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = StableRNG(1))
+    est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(1))
     @test est !== nothing
     @test _pd(estimate(est), P_gt) < sqrt(2 * 1.0e-6)
     m = est.inlier_mask
     @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
     # with noise: still within the noise floor
     P_gt2, pairs2, gt2 = radial_board(StableRNG(3); σ = 0.3)
-    est2 = find_radial_camera(pairs2; center = _CC, threshold = 5.0, rng = StableRNG(2))
+    est2 = find_radial_camera(pairs2; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(2))
     @test est2 !== nothing
     r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
     @test median(abs.(r2[gt2])) < 0.5
@@ -105,7 +105,7 @@ end
     Jc = FiniteDiff.finite_difference_jacobian(lift_rows, zero(SVector{5, Float64}), Val(:central))
     @test maximum(abs.(J - Jc)) < 1.0e-5 * max(1.0, maximum(abs.(Jc)))
     # the deployed pipeline: RANSAC + the class default
-    est = find_radial_camera(pairs; center = _CC, threshold = 5.0, rng = StableRNG(4))
+    est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(4))
     @test est !== nothing
     @test est.lo_retcode != :not_run
     rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, estimate(est))

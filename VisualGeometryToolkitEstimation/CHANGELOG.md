@@ -5,6 +5,29 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: the RANSAC entries take a scorer, never a bare width** (the owner's ruling: the `find_*` pipelines follow
+  the one robust-estimation schema). Every `find_*` and `refine_*` (homography, fundmat, essential, rotation, circle,
+  ellipse, absolute_pose — the bearing form too — radial_homography, radial_camera, hand_eye) and both
+  `locally_optimize` methods take `scoring = <scorer>` beside `local_optimization`: `MsacScoring(problem; threshold)`,
+  `RansacScoring(problem; threshold)`, `StudentTUniformScoring(problem, outlier_halfwidth; scale_prior, label_prior)`,
+  a downstream family. The `threshold` keyword is removed, and so is the function-level `outlier_halfwidth`: each is
+  refused with an `ArgumentError` naming `scoring` (not a retired name: `threshold` is a threshold scorer's field and
+  keyword, and stays one). Write `find_homography(cs; scoring = MsacScoring(HomographyProblem; threshold = 2.0))` for
+  `find_homography(cs; threshold = 2.0)`. `locally_optimize` has no class to default from: its `scoring` is required
+  (`UndefKeywordError`). The physical `find_hand_eye`/`refine_hand_eye` forms no longer strip a `threshold` length: a
+  scorer's width is a plain number in metres.
+- **Breaking (TOML): `[pipelines.<class>]` states its scorer as a table**, `scoring = { type = "msac", threshold = … }`,
+  read by `scoring_from_toml` for the problem's type, in place of the bare `threshold` key (which a pipeline table now
+  never holds). The defaults are today's — MSAC at every class's convention, unchanged — and every `find_*`/`refine_*`
+  result is bit-identical (the 473 pipeline calls of the suite's 55 items that call one, replayed against the parent and compared field by field with `isequal`). Hand-eye's and
+  the bearing pose's file widths stay unit-free (a fraction of `L`, of the residual's bound), scaled by the problem
+  (`_width_unit`); a caller's scorer is never rescaled.
+- **Each scorer takes its own width key, and only it**: `scoring_from_toml` refuses `outlier_halfwidth` in a threshold
+  scorer's table and `threshold` in the Student-t + uniform scorer's (it has no threshold), naming the key the scorer
+  takes; a missing key is refused, the Student-t priors inheriting `[scoring.student_t_uniform]` as before.
+- **Internal:** `_default_scoring`/`_default_scoring_at` and `_threshold_unit` are gone (`_class_scoring`,
+  `_refuse_width_keywords`, `_width_unit`).
+
 - **New: the Student-t scorer's table, its priors required keys** (the owner's ruling (c)). `scoring_from_toml` reads
   VisualGeometryToolkitCore's `StudentTUniformScoring` (moved there from RANSACScoringDoneRight):
   `{ type = "student_t_uniform", outlier_halfwidth = h, scale_prior = "jeffreys" | "ig" (alpha0, beta0),

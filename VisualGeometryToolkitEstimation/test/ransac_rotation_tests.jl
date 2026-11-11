@@ -115,7 +115,7 @@ end
 @testitem "find_rotation: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
-        withattrs, sources, targets, estimate, converged, angle_between, retcode, iterations
+        withattrs, sources, targets, estimate, converged, angle_between, retcode, iterations, MsacScoring
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
     import VisualGeometryToolkitEstimation as VgtkEstimation
     rng = Xoshiro(23)
@@ -134,5 +134,5 @@ end
     @test let r = find_rotation(FISHEYE, FISHEYE, Csponds([SA[600.0, 600.0]], [SA[600.0, 600.0]]))
         retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
     end
-    @test_throws ArgumentError find_rotation(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1]; threshold = 0.01)
+    @test_throws ArgumentError find_rotation(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1]; scoring = MsacScoring(RotationProblem; threshold = 0.01))
 end

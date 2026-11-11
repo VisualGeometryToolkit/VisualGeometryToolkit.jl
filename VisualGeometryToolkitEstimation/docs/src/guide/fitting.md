@@ -14,21 +14,23 @@ VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 
 Every `find_*` shares one keyword surface (documented on
 [`find_homography`](@ref)) and the same core defaults, read from its class's
-`[pipelines.<class>]` table in `configs/default.toml`: VisualGeometryToolkitCore's
-`MsacScoring(problem; threshold)` and `Irls{TLSShape}()` local optimization
-following the scorer's threshold. The default thresholds are conventions, not
-tuned values:
+`[pipelines.<class>]` table in `configs/default.toml`: its `scoring` table
+(read by [`scoring_from_toml`](@ref) — every class's is MSAC,
+`{ type = "msac", threshold = … }`) and `Irls{TLSShape}()` local optimization
+following the scorer's decision point. The default MSAC thresholds are
+conventions, not tuned values:
 
-| pipeline | `threshold` |
+| pipeline | MSAC `threshold` |
 |:--|:--|
 | `find_homography`, `find_fundmat`, `find_radial_homography`, `find_radial_camera` | 3 px |
 | `find_essential` | 1 px |
 | `find_absolute_pose` | 8 px |
 | `find_hand_eye` | `0.01·L` (a fraction of the characteristic length) |
 
-`scoring = …` replaces the scorer (then `threshold` is an `ArgumentError`) and
-`local_optimization = …` the strategy; an `outlier_halfwidth` keyword is
-refused — it is a marginal scorer's parameter and goes into that scorer.
+`scoring = …` replaces the scorer and `local_optimization = …` the strategy. A
+bare `threshold` or `outlier_halfwidth` keyword is refused: a width is its
+scorer's (a threshold scorer's `threshold`, the Student-t + uniform scorer's
+`outlier_halfwidth`) and goes into that scorer.
 
 ## `find_*` and `refine_*`: the same local optimization, with or without the search
 
@@ -50,7 +52,7 @@ Its defaults (`[pipelines.bearing_pose]`) are least squares over every
 correspondence.
 
 Both read the same `[pipelines.<class>]` defaults and share the strategy
-keywords — `threshold`, `scoring`, `local_optimization`, `workspace` — so any
+keywords — `scoring`, `local_optimization`, `workspace` — so any
 strategy plugs into either: `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`,
 LocalOptimizationDoneRight's half-quadratic lifts and GNC. A strategy a
 problem cannot host (`Triggs` or a lift on the hand-eye problem, which has no
@@ -65,13 +67,13 @@ problems and keep their own non-robust LM and keywords.
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, estimate
+using VisualGeometryToolkitCore: csponds, estimate, MsacScoring
 using StaticArrays
 
 src = [SA[100.0, 200.0], ...]
 dst = [SA[112.0, 195.0], ...]
 
-result = find_homography(csponds(src, dst); threshold = 2.0)
+result = find_homography(csponds(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
 H       = estimate(result)         # 3×3 homography matrix
 inliers = result.inlier_mask
 ```
@@ -93,9 +95,9 @@ result = find_essential(cam1, cam2, csponds(src_pixels, dst_pixels))
 E = estimate(result)
 ```
 
-`threshold` is in PIXELS (default 1.0): the residual is whitened by the
-back-projection Jacobians. A threshold — or a supplied scorer's outlier
-half-width — below 0.06 px, VisualGeometryToolkitFeatures' sub-pixel refinement
+The scorer's width is in PIXELS (default MSAC at 1.0): the residual is whitened
+by the back-projection Jacobians. A threshold scorer's threshold — or the
+Student-t scorer's outlier half-width — below 0.06 px, VisualGeometryToolkitFeatures' sub-pixel refinement
 bound, is refused as a likely calibrated leftover, by `find_essential`,
 `ransac` and `locally_optimize` alike. See
 [`find_essential`](@ref) on the [Essential Matrix](../api/essential.md) API
@@ -104,7 +106,7 @@ page for the full keyword surface.
 ## Fundamental Matrix
 
 ```julia
-result = find_fundmat(csponds(src, dst); threshold = 2.0)
+result = find_fundmat(csponds(src, dst); scoring = MsacScoring(FundMatProblem; threshold = 2.0))
 F = estimate(result)
 ```
 
@@ -114,12 +116,12 @@ page for the full keyword surface.
 ## Absolute Pose (3D-2D)
 
 ```julia
-using VisualGeometryToolkitCore: CameraModel, csponds, estimate, px
+using VisualGeometryToolkitCore: CameraModel, csponds, estimate, px, MsacScoring
 using StaticArrays: SA
 
 camera = CameraModel(f * px, SA[cx * px, cy * px])
 result = find_absolute_pose(camera, csponds(world_points_3d, image_points_2d);
-                  threshold = 4.0)
+                  scoring = MsacScoring(AbsolutePoseProblem; threshold = 4.0))
 pose = estimate(result)    # EuclideanMap{3,Float64} (rotation + translation)
 ```
 
@@ -159,18 +161,18 @@ build the pieces directly. A scorer from RANSACScoringDoneRight and a strategy
 from LocalOptimizationDoneRight compose like the core ones:
 
 ```julia
-using RANSACScoringDoneRight: StudentTUniformScoring
+using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
 using LocalOptimizationDoneRight: HQ, WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
 cs       = csponds(src, dst)
 problem  = HomographyProblem(cs)
 result   = find_homography(cs;
-                  scoring = StudentTUniformScoring(problem, 20.0),
+                  scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
                   local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 
 # or the loop itself
-result   = ransac(problem, StudentTUniformScoring(problem, 20.0);
+result   = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior());
                   local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 ```
 

@@ -51,6 +51,7 @@
 # set to 1: no thread beyond the intra-op pool's.
 # =============================================================================
 
+import ONNXRunTime as ORT   # the sessions (here and loma.jl)
 using Libdl: Libdl
 using Artifacts: artifact_hash, load_artifacts_toml, unpack_platform
 using Base.BinaryPlatforms: HostPlatform, arch, os, libc, tags, triplet
@@ -177,8 +178,13 @@ function _probe_onnx_cuda(source::Function = _package_cuda_source)
     # on the device (ONNXRunTime's one-op test graph, x + 1): a device the build has no code for fails here, not in a run
     try
         ORT.CAPI.set_lib!(joinpath(src.ort, "libonnxruntime.so"), :cuda)
-        s = _onnx_session(ORT.testdatapath("increment2x3.onnx"), :cuda, 1)
-        only(values(s(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3) || error("x + 1 on the device is not 1")
+        # the probe's session reserves no arena room for the detector's plans and is released here, its arena with it
+        s = _onnx_session(ORT.testdatapath("increment2x3.onnx"), :cuda, 1; reserve = false)
+        try
+            only(values(s(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3) || error("x + 1 on the device is not 1")
+        finally
+            ORT.release(s)
+        end
     catch err
         return _cuda_unavailable("ONNX Runtime's CUDA build does not run here: $(sprint(showerror, err))", driver)
     end
@@ -312,12 +318,71 @@ end
 
 # ONNX Runtime's CUDA provider allocates outside the ASIFT detector's device pool. Each CUDA session's arena is capped
 # (`gpu_mem_limit`, grown by what each run requests: ONNX Runtime's kSameAsRequested), and the detector's plans size their
-# resident warps from the free device memory less the caps of every CUDA session of the process (`_onnx_cuda_reserve`),
-# so the two never compete for the device and no plan is released for a session's run. The default cap holds a LoMa
-# session on a panorama frame's green cells; a run that needs more is ONNX Runtime's out-of-memory error, naming the limit.
+# resident warps from the free device memory less the room the live CUDA sessions' arenas may still take
+# (`_onnx_cuda_reserve`), so the two never compete for the device and no plan is released for a session's run. The default
+# cap holds a LoMa session on a panorama frame's green cells; a run that needs more is ONNX Runtime's out-of-memory error,
+# naming the limit.
+#
+# The room of one session is its cap less what its arena already holds: the device's free memory already excludes the held
+# part, so reserving the whole cap would count it twice. What an arena holds is measured around each of the package's own
+# runs and at its creation (`_onnx_run`: the drop in the device's free memory across the run or the creation, the arena
+# only growing; it includes the CUDA context and library workspaces, which the budget's slack covers), so it assumes no other
+# allocation on the device during a run (the detector and LoMa run in turn) and that the session runs on the device the
+# default backend queries (device 0, ONNX Runtime's default); with no device query nothing is measured and the whole cap
+# stays reserved. An arena is the session's handle (its `OrtSession`), held weakly: a session collected or released
+# (`ONNXRunTime.release`) reserves nothing from then on.
 const _ONNX_CUDA_ARENA_BYTES = 8 * 2^30
-const _ONNX_CUDA_RESERVED = Threads.Atomic{Int}(0)
-_onnx_cuda_reserve() = _ONNX_CUDA_RESERVED[]
+
+mutable struct _CudaArena
+    const session::WeakRef   # the session's handle (an `OrtSession`)
+    const cap::Int
+    held::Int                # bytes the arena holds, measured; at most `cap`
+end
+const _ONNX_CUDA_ARENAS = _CudaArena[]
+const _ONNX_ARENA_LOCK = ReentrantLock()
+
+_session_alive(::Any) = true
+_session_alive(o::ORT.CAPI.OrtSession) = ORT.CAPI.isalive(o)
+_arena_alive(a::_CudaArena) = (o = a.session.value; o !== nothing && _session_alive(o))
+# The arenas still in use, the others dropped. Called under the lock.
+_live_arenas!() = filter!(_arena_alive, _ONNX_CUDA_ARENAS)
+
+# A new arena of `cap` bytes for the session `handle`, nothing held yet.
+function _reserve_arena!(handle, cap::Integer)
+    a = _CudaArena(WeakRef(handle), Int(cap), 0)
+    @lock _ONNX_ARENA_LOCK push!(_live_arenas!(), a)
+    return a
+end
+
+# The arena of `handle` grew by `bytes` (a drop in free memory; a rise is not a shrink); nothing for an untracked handle.
+function _arena_grew!(handle, bytes::Integer)
+    @lock _ONNX_ARENA_LOCK for a in _live_arenas!()
+        a.session.value === handle && (a.held = clamp(a.held + max(Int(bytes), 0), 0, a.cap))
+    end
+    return nothing
+end
+
+# The room the live CUDA sessions' arenas may still take: each cap less what that arena holds.
+_onnx_cuda_reserve() = @lock _ONNX_ARENA_LOCK sum(a -> a.cap - a.held, _live_arenas!(); init = 0)
+
+# The default backend's free device memory, or `nothing` on the host or without a query.
+function _onnx_device_free()
+    d = default_device()
+    d isa KA.CPU && return nothing
+    f = device_free_bytes(d)
+    return f == typemax(Int) ? nothing : f
+end
+
+# A run of the session `s` on `inputs`; on a tracked CUDA session the arena's growth is measured around it (`free`, the
+# device's free memory or nothing).
+function _onnx_run(s::ORT.InferenceSession, inputs, free::Function = _onnx_device_free)
+    s.execution_provider === :cuda || return s(inputs)
+    before = free()
+    out = s(inputs)
+    after = before === nothing ? nothing : free()
+    after === nothing || _arena_grew!(s.session, before - after)
+    return out
+end
 
 """
     onnx_session(path; execution_provider = :auto, threads = Threads.nthreads(), gpu_mem_limit = 8 * 2^30)
@@ -338,9 +403,11 @@ ONNX Runtime's intra-op pool has `threads` threads (its core pinning off), its
 inter-op pool one. On CUDA, the session's device arena is capped at
 `gpu_mem_limit` bytes and grows by what each run requests; a run that needs
 more is ONNX Runtime's out-of-memory error. The ASIFT detector's device plans
-leave the caps of all of the process's CUDA sessions free, so a session and
-the detector share the device without either releasing the other's memory.
-The plans cached before a CUDA session is created are released once, then.
+leave free the room the process's live CUDA sessions may still take (each cap
+less what its arena holds, measured around the package's own runs; a session
+released or collected reserves nothing), so a session and the detector share
+the device without either releasing the other's memory. The plans cached
+before a CUDA session is created are released once, then.
 On the CPU `gpu_mem_limit` is ignored.
 """
 function onnx_session(path::AbstractString; execution_provider::Symbol = :auto, threads::Integer = Threads.nthreads(),
@@ -350,10 +417,11 @@ function onnx_session(path::AbstractString; execution_provider::Symbol = :auto, 
 end
 
 # The session on a resolved provider (`onnx_session`; the CUDA probe builds its test session here, before a provider can
-# be resolved): the intra-op pool `threads`, the inter-op pool 1; on CUDA the arena capped at `gpu_mem_limit`, the cap
-# added to the plans' reserve, and the detector's plans cached before the session (sized without it) released once.
+# be resolved, with `reserve = false`): the intra-op pool `threads`, the inter-op pool 1; on CUDA the arena capped at
+# `gpu_mem_limit`, the arena tracked in the plans' reserve, and the detector's plans cached before the session (sized
+# without it) released once.
 function _onnx_session(path::AbstractString, execution_provider::Symbol, threads::Integer,
-                       gpu_mem_limit::Integer = _ONNX_CUDA_ARENA_BYTES)
+                       gpu_mem_limit::Integer = _ONNX_CUDA_ARENA_BYTES; reserve::Bool = true)
     threads >= 1 || throw(ArgumentError("threads must be at least 1, got $threads"))
     capi = ORT.CAPI
     api = capi.GetApi(; execution_provider)
@@ -364,10 +432,16 @@ function _onnx_session(path::AbstractString, execution_provider::Symbol, threads
     if execution_provider === :cuda
         cuda = capi.OrtCUDAProviderOptions(; gpu_mem_limit = Int(gpu_mem_limit), arena_extend_strategy = 1)
         capi.SessionOptionsAppendExecutionProvider_CUDA(api, options, cuda)
-        Threads.atomic_add!(_ONNX_CUDA_RESERVED, Int(gpu_mem_limit))
+    end
+    track = execution_provider === :cuda && reserve
+    before = track ? _onnx_device_free() : nothing
+    session = capi.CreateSession(api, env, path, options)
+    if track
+        _reserve_arena!(session, gpu_mem_limit)
+        after = before === nothing ? nothing : _onnx_device_free()
+        after === nothing || _arena_grew!(session, before - after)   # the initializers the arena took
         clear_asift_plans!()
     end
-    session = capi.CreateSession(api, env, path, options)
     meminfo = capi.CreateCpuMemoryInfo(api)
     allocator = capi.CreateAllocator(api, session, meminfo)
     return ORT.InferenceSession(api, execution_provider, session, meminfo, allocator,

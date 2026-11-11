@@ -33,8 +33,13 @@
   session builder (formerly the internal `_onnx_session`), for another package's network: the provider resolved as
   LoMa's is (`resolve_execution_provider`; on CUDA, conda-forge's ONNX Runtime build, which runs on the B200's sm_100),
   ONNX Runtime's intra-op pool the caller's `threads`, and on CUDA the session's arena capped at the keyword
-  `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the sum of the CUDA sessions'
-  caps, each session's own, rather than 8 GiB per session. BlobBoards' descriptor network moves onto it.
+  `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the room the live CUDA sessions'
+  arenas may still take, each session's cap less what its arena already holds (measured at its creation and around
+  LoMa's runs; the free memory the plans start from already excludes it), rather than 8 GiB per session ever created.
+  A session released or collected reserves nothing, and the CUDA probe's one-op session (built by `onnx_cuda_status`,
+  so by any `:auto` or `:cuda` resolution) reserves nothing and is released at once: before, the reserve only grew,
+  the probe alone added 8 GiB, and a descriptor and a matcher on a 24 GB device left the detector one warp per chunk
+  (slower ASIFT, the same detections). BlobBoards' descriptor network moves onto it.
 - **Breaking: `asift_detect`'s detection keyword `mask` is `exclusion_mask`** (the image and the `StabilizedImage`
   methods; the semantics are unchanged: a marked pixel excludes every detection whose centre lies within three of its
   scales, and a `StabilizedImage`'s saturation joins it). A call with `mask` is an `ArgumentError` naming

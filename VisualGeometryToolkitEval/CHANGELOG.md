@@ -14,9 +14,14 @@
   through its version step (`VisualGeometryToolkitIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v6")}, tree)`, run by
   `migrate_record`), which checks its recorded hash against the stored table and renames the old keys of the spec,
   the grid specs and the axis-named data (`boundary_hits`, `kinds`, a coarse-fine artifact's `axes`, `selected`,
-  `boundary_hit`, `record.param_name`). `deployed_budget_settings` converts a format-6 Geman–McClure arm's
-  efficiency constant (a half-weight depth) once, to the plain multiple its code deployed (`decision_width`), so the
-  deployed LO is unchanged; every other loss's constant was already plain. Formats 1–5 are refused as before.
+  `boundary_hit`, `record.param_name`). A format-6 efficiency constant is the value its arm's `ctor` took then;
+  it is read through the arm's own hook, `ComposedSpec(…; format6_constant)`, which the roster declares (the identity
+  by default; `m -> decision_width(GemanMcclureShape(), m)` for a ctor that took a Geman–McClure half-weight depth
+  directly), so the deployed LO is unchanged. Formats 1–5 are refused as before.
+- **New: `Evaluation.tuned_width(art, arm)`**, the one reader of an arm's tuned width (through `operating_width`), in
+  the current currency: a format-6 efficiency constant read through the arm's `format6_constant` hook, once.
+  `deployed_budget_settings` and `deployed_basin_settings` read through it; a caller that needs the width itself
+  (a renderer, a resumed run carrying it into a format-7 artifact) calls it instead of `art["tuned_width"]`.
   The fixtures (test/data/tuning_v6/) were written by the format-6 code.
 
 - **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment

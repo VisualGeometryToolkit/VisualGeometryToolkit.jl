@@ -58,9 +58,10 @@
 #               constant always the PLAIN multiple (`width = c·ŝ`). A v6 file is
 #               read through its version step (`migrate_schema` of
 #               "vgtk_eval/tuning/v6", persist.jl): the keys renamed, its
-#               recorded hash checked against the stored table, and its
-#               efficiency constants converted from their loss's currency where
-#               they are deployed (`deployed_budget_settings`)
+#               recorded hash checked against the stored table; its
+#               efficiency constants are read through each arm's own
+#               `format6_constant` hook (`tuned_width`, the identity unless
+#               the roster declares one)
 # =============================================================================
 
 """

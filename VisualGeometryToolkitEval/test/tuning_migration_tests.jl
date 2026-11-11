@@ -11,7 +11,7 @@
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitEval as VgtkEval
     using VisualGeometryToolkitEval.Tuning: load_tuning_artifact, tuning_hash, EfficiencyConstantWindow
-    using VisualGeometryToolkitEval.Evaluation: ComposedSpec, Roster, SoloSpec, deployed_budget_settings
+    using VisualGeometryToolkitEval.Evaluation: ComposedSpec, Roster, SoloSpec, deployed_budget_settings, tuned_width
     using VisualGeometryToolkitEstimation: Irls
 
     F = VgtkEval.engine_fixtures()
@@ -20,9 +20,13 @@
     old = "scale" * "_multiple"                     # the v6 name (retired: never a literal)
     shapes = Dict("HW +Irls(m)" => TLSShape(), "HW +GM(m)" => GemanMcclureShape(),
                   "HW +Welsch(m)" => WelschShape(), "HW +Cauchy(m)" => CauchyShape())
-    # the fixture's roster, under the current names
+    # the fixture's roster, under the current names. Its bare Irls{GM} ctor took the half-weight depth
+    # directly in format 6, so that arm declares its format-6 reading; every other arm keeps the identity.
+    half_weight = m -> decision_width(GemanMcclureShape(), m)
+    format6(b) = b == "HW +GM(m)" ? half_weight : identity
     arms = [ComposedSpec("HW +Irls", :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> Irls{TLSShape}());
-            [ComposedSpec(b, :hw, OutlierHalfwidth(), EfficiencyConstant(), c -> Irls{typeof(k)}(; efficiency_constant = c))
+            [ComposedSpec(b, :hw, OutlierHalfwidth(), EfficiencyConstant(), c -> Irls{typeof(k)}(; efficiency_constant = c);
+                          format6_constant = format6(b))
              for (b, k) in sort!(collect(shapes); by = first)]]
     roster = Roster(p -> arms, (p; role = :refinement) -> SoloSpec[], p -> ComposedSpec[])
     rt = F.roster_tuning()
@@ -56,6 +60,46 @@
         gm = expected["arms"]["HW +GM(m)"]
         @test gm["plain"] === decision_width(GemanMcclureShape(), gm["stored"]) != gm["stored"]   # the half-weight currency
         @test all(expected["arms"][b]["plain"] === expected["arms"][b]["stored"] for b in keys(shapes) if b != "HW +GM(m)")
+    end
+
+    @testset "tuned_width: the one reader of a tuned width, in the current currency" begin
+        art = load_tuning_artifact(v6)
+        by = Dict(a.base => a for a in arms)
+        for (b, k) in shapes
+            @test tuned_width(art, by[b]) === expected["arms"][b]["plain"]   # the GM arm's hook applied, the rest as stored
+        end
+        @test tuned_width(art, by["HW +Irls"]) === art["tuned_width"]["HW +Irls"]   # not an efficiency-constant arm
+        bud = Dict(deployed_budget_settings(roster, v6))
+        @test all(bud[b].lo == by[b].ctor(tuned_width(art, by[b])) for b in keys(shapes))   # the readers' one path
+        # the conversion is the ROSTER's, never inferred from the loss: a GM arm that declares no hook (its ctor
+        # reads the stored value as it is, LODR's GM arms) gets its stored value unchanged
+        gm = expected["arms"]["HW +GM(m)"]
+        plain_gm = ComposedSpec("HW +GM(m)", :hw, OutlierHalfwidth(), EfficiencyConstant(),
+                                c -> Irls{GemanMcclureShape}(; efficiency_constant = c))
+        @test plain_gm.format6_constant === identity
+        @test tuned_width(art, plain_gm) === gm["stored"] === art["tuned_width"]["HW +GM(m)"]
+        swapped = [a.base == "HW +GM(m)" ? plain_gm : a for a in arms]
+        @test Dict(deployed_budget_settings(Roster(p -> swapped, roster.solo, roster.basin), v6))["HW +GM(m)"].lo ==
+              Irls{GemanMcclureShape}(; efficiency_constant = gm["stored"])
+        # the hook is a format-6 reading only: a format-7 file is never converted
+        mktempdir() do tmp
+            p = joinpath(tmp, "v7.jld2")
+            F.write_roster_sidecar(p, rt, arms; code = (VgtkEval,), mode = "miscal")
+            @test tuned_width(load_tuning_artifact(p), by["HW +GM(m)"]) === rt.values[:efficiency_constant][3]
+        end
+        # a resumed run carries a format-6 width through tuned_width: the format-7 file holds the plain value,
+        # read back as it is stored
+        mktempdir() do tmp
+            p = joinpath(tmp, "resumed.jld2")
+            VgtkEval.Tuning.save_tuning_artifact(p, art.spec; grids = art.grid_specs, unit = art.unit, code = (VgtkEval,),
+                mode = "miscal", problem = "E", d_g = 1, arms = art["arms"],
+                tuned_selection = art["tuned_selection"],
+                tuned_width = Dict(a.base => tuned_width(art, a) for a in arms),
+                tuned_objective = art["tuned_objective"], boundary_hits = art["boundary_hits"])
+            new = load_tuning_artifact(p)
+            @test new.format == 7 && all(tuned_width(new, a) === tuned_width(art, a) for a in arms)
+            @test Dict(deployed_budget_settings(roster, p))["HW +GM(m)"].lo == bud["HW +GM(m)"].lo
+        end
     end
 
     @testset "axis names in the data are renamed too" begin

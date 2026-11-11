@@ -66,7 +66,8 @@ The arm's refit width IS its selection's tuned width, never tuned (see [`WidthSo
 struct SelectionWidth <: WidthSource end
 
 """
-    ComposedSpec(base, sel, selection::WidthAxis, kind::WidthAxis, ctor; source = TunedWidth())
+    ComposedSpec(base, sel, selection::WidthAxis, kind::WidthAxis, ctor; source = TunedWidth(),
+                 format6_constant = identity)
 
 One composed score+LO pipeline. `sel` is the key of its selection sweep (the
 selections `idxs_of[sel]` a refit seeds from); `selection` is that sweep's
@@ -78,6 +79,16 @@ kinds deliver it through their port, see [`width_delivery`](@ref)); `source`
 is where the width value comes from ([`WidthSource`](@ref)): a
 [`SelectionWidth`](@ref) arm requires `kind == selection`, and the tuning
 skips it.
+
+`format6_constant(m)` is the arm's own reading of an efficiency constant `m`
+stored by a format-6 tuning sidecar, as the PLAIN multiple `ctor` takes now
+(applied by [`tuned_width`](@ref), and only there). Format 6 stored the value
+the arm's `ctor` took then, in whatever currency that `ctor` read it, and only
+the roster that wrote the `ctor` knows it, so the roster declares it per arm.
+The default is the identity: a value the `ctor` already reads as the plain
+multiple, or one its own map converts. An arm whose `ctor` took a Geman–McClure
+half-weight depth directly (a bare `Irls{GemanMcclureShape}` at the stored
+value) declares `format6_constant = m -> decision_width(GemanMcclureShape(), m)`.
 """
 struct ComposedSpec
     base::String
@@ -86,15 +97,16 @@ struct ComposedSpec
     kind::WidthAxis
     ctor::Function
     source::WidthSource
+    format6_constant::Function
     function ComposedSpec(base::AbstractString, sel::Symbol, selection::WidthAxis, kind::WidthAxis,
-                          ctor::Function; source::WidthSource = TunedWidth())
+                          ctor::Function; source::WidthSource = TunedWidth(), format6_constant::Function = identity)
         selection isa NativeAxis || throw(ArgumentError(
             "ComposedSpec $base: the selection axis is a native axis (OutlierHalfwidth() or " *
                 "LossWidth()); got $selection"))
         source isa SelectionWidth && kind != selection && throw(ArgumentError(
             "ComposedSpec $base: a SelectionWidth() arm refits at its selection's width, so its width " *
                 "axis must be the selection axis $selection; got $kind"))
-        return new(String(base), sel, selection, kind, ctor, source)
+        return new(String(base), sel, selection, kind, ctor, source, format6_constant)
     end
 end
 
@@ -341,19 +353,31 @@ end
 
 _is_basin(tk) = String(tk["mode"]) == "basin"
 
-# The tuned efficiency constant of a format-6 sidecar (`tk.format < 7`), as the
-# PLAIN multiple (`width = c·ŝ`) its code deployed. Format 6 stored it in its
-# loss's currency: a Geman–McClure multiple was a half-weight depth, deployed as
-# `decision_width(GM, m)` (×1/√(√2 − 1)); Cauchy's conversion is the identity,
-# every other loss's multiple plain. The arm's loss says which: the roster's LO
-# at the stored value (`loss_family`). Every other arm and file: as it is.
-_plain_width(tk::TuningArtifact, arm::ComposedSpec, w::Float64) =
-    tk.format < 7 && arm.kind isa EfficiencyConstant ? _plain_efficiency_constant(arm, arm.ctor(w), w) : w
-function _plain_efficiency_constant(arm, lo, m::Float64)
-    hasmethod(loss_family, Tuple{typeof(lo)}) || throw(ArgumentError(
-        "deployed_budget_settings: arm $(arm.base) of a format-6 sidecar is an efficiency-constant arm whose LO " *
-            "($(nameof(typeof(lo)))) names no loss_family: its stored constant's currency is unknown"))
-    return loss_family(lo) === :gm ? decision_width(GemanMcclureShape(), m) : m
+"""
+    tuned_width(art::TuningArtifact, arm::ComposedSpec) -> Float64
+
+The refit width `arm` deploys from the tuning artifact `art`: its recorded
+`tuned_width` through [`operating_width`](@ref) (a [`SelectionWidth`](@ref)
+arm's is its `tuned_selection`, which the record must equal), in the CURRENT
+currency. The one reader of a tuned width; a caller that needs it raw (to
+refit, render or carry it into another artifact) calls this, never
+`art["tuned_width"]`.
+
+A format-7 file's width is returned as stored. A format-6 file
+(`art.format == 6`, read through its version step,
+[`load_tuning_artifact`](@ref)) stored an [`EfficiencyConstant`](@ref
+VisualGeometryToolkitCore.EfficiencyConstant) arm's constant as the value its
+`ctor` took then: this applies the arm's own `format6_constant` hook
+([`ComposedSpec`](@ref); the identity unless the roster declares one), once,
+so `arm.ctor(tuned_width(art, arm))` is the LO the sidecar was tuned with. No
+other arm and no format-7 file is converted.
+
+So a format-6 width carried into a new artifact (a resumed run) is carried
+through this, and the format-7 file holds the plain value.
+"""
+function tuned_width(art::TuningArtifact, arm::ComposedSpec)
+    w = operating_width(arm, Float64(art["tuned_selection"][arm.base]), Float64(art["tuned_width"][arm.base]))
+    return art.format < 7 && arm.kind isa EfficiencyConstant ? Float64(arm.format6_constant(w)) : w
 end
 
 # -----------------------------------------------------------------------------
@@ -381,9 +405,9 @@ clip: its list carries the selection's axis alone, and its recorded width must
 be its selection's, [`operating_width`](@ref)). A basin sidecar is refused ([`deployed_basin_settings`](@ref) reads it).
 
 A format-6 sidecar (read through its version step, [`load_tuning_artifact`](@ref))
-stored an efficiency constant in its loss's currency: a Geman–McClure arm's is
-converted once, here, to the plain multiple its code deployed
-(`decision_width`), so the deployed LO is the one the sidecar was tuned with.
+stored an efficiency constant as the value its arm's `ctor` took then: it is
+read through the arm's `format6_constant` hook ([`tuned_width`](@ref)), so the
+deployed LO is the one the sidecar was tuned with.
 """
 function deployed_budget_settings(roster::Roster, path::AbstractString;
                                   problem::Union{Nothing,Symbol} = nothing)
@@ -398,7 +422,7 @@ function deployed_budget_settings(roster::Roster, path::AbstractString;
         arm = by_base[b]
         _composed_kind(arm, "deployed_budget_settings")
         selection = Float64(tk["tuned_selection"][b])
-        width = _plain_width(tk, arm, operating_width(arm, selection, Float64(tk["tuned_width"][b])))
+        width = tuned_width(tk, arm)
         push!(out, b => (lo = arm.ctor(width), sel = selection,
                          ref = deployed_ref(arm.kind, selection, width), kind = arm.kind))
     end
@@ -436,8 +460,7 @@ function deployed_basin_settings(roster::Roster, path::AbstractString)
     for b in tk["arms"]
         arm = by_base[b]
         push!(out, b => (spec = SoloSpec(b, :refinement, arm.kind, arm.ctor),
-                         width = operating_width(arm, Float64(tk["tuned_selection"][b]),
-                                                 Float64(tk["tuned_width"][b]))))
+                         width = tuned_width(tk, arm)))
     end
     return out
 end

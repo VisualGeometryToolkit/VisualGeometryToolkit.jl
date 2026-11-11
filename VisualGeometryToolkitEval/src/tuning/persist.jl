@@ -125,9 +125,9 @@ from its spec.
 
 A format-6 file (before the efficiency-constant names) is read through its
 version step, in memory (VisualGeometryToolkitIO's `migrate_record`); the file is never
-rewritten. Its efficiency constants are in their loss's currency (a
-Geman–McClure or Cauchy multiple was a half-weight depth): the deployed readers
-convert an arm's once, by its loss shape ([`deployed_budget_settings`](@ref)).
+rewritten. Its efficiency constants are stored as the value each arm's `ctor`
+took then: an arm's is read through its roster-declared `format6_constant`
+hook (`Evaluation.tuned_width`; the identity by default).
 `format` and `recorded_hash` of the result say which file it was.
 """
 function load_tuning_artifact(path::AbstractString)
@@ -183,8 +183,9 @@ const _MIGRATED_KEYS = ("tuning_spec", "tuning_hash", "grid_specs", _AXIS_DATA_K
 #   `ArgumentError` if the file's spec was altered), and the record carries the
 #   renamed table's hash.
 #
-# The VALUES are not converted: a v6 efficiency constant is in its loss's
-# currency, and only the arm's loss says which (`deployed_budget_settings`).
+# The VALUES are not converted: a v6 efficiency constant is the value its arm's
+# `ctor` took then, and only the roster says what that was (`tuned_width`
+# applies the arm's `format6_constant` hook).
 
 # The v6 → v7 step: the efficiency-constant names.
 function VgtkIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v6")}, t::AbstractDict)

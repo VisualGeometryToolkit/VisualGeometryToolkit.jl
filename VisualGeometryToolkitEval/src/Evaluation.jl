@@ -50,8 +50,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractLocalOptimiz
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,
     score!, external_workspace, prepare_external!, refine_external!, select_on_grid!, stage_selection,
-    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2,
-    decision_width, GemanMcclureShape   # a format-6 sidecar's efficiency constant, plain (arms.jl)
+    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
@@ -107,7 +106,7 @@ export
     # live.jl
     live_runs, live_row,
     # arms.jl
-    ComposedSpec, SoloSpec, Roster, WidthSource, TunedWidth, SelectionWidth, is_tuned, operating_width,
+    ComposedSpec, SoloSpec, Roster, WidthSource, TunedWidth, SelectionWidth, is_tuned, operating_width, tuned_width,
     width_delivery, solo_refit_imc!, miscal_evaluation_refit, deployed_budget_settings,
     deployed_arm_settings, deployed_basin_settings, audit_operating_points,
     # selection_stream.jl

@@ -581,3 +581,38 @@ end
         @test_throws ArgumentError load(TargetPoints2D, tpath)
     end
 end
+
+@testitem "trajectory/v2: CaliBlobs' 2026-09 track segment reads as the current trajectory; saving writes v4" setup = [VGIoFixtures] begin
+    # An excerpt (its first 3 frames, as written) of a real track segment of
+    # CaliBlobs icra2026's motion-capture runs (2026-09): `track:<k> → camera`,
+    # the frames' images in its provenance, the segment's component there too.
+    # Its gauge is named by the component (`target:scene_<c>`, the name the
+    # same run's hand-eye record gives that component), the camera
+    # `camera_optical`; every pose as it stands, each frame joined to its image.
+    using VisualGeometryToolkitCore: Trajectory, TargetFrame, CameraFrame, geom, relabel
+    src = joinpath(@__DIR__, "fixtures", "old", "track_segment_trajectory_v2.json")
+    raw = JSON.parse(read(src, String); dicttype = Dict{String, Any})
+    @test raw["schema"] == "vgio/trajectory/v2" && (raw["from"], raw["to"]) == ("track:1", "camera")
+    by_hand = Dict(f["t"] => qpose(SVector{4, Float64}(f["pose"]["rotation"]...), SVector{3, Float64}(f["pose"]["translation"]...)) for f in raw["frames"])
+    images = Dict(i["t"] => i["image"] for i in raw["provenance"]["images"])
+    tr = load(Trajectory, src)
+    @test tr isa Trajectory{TargetFrame{:scene_1}, CameraFrame}
+    @test sort(collect(keys(tr))) == [1, 2, 3]
+    @test all(geom(tr[t]) == relabel(TargetFrame{:scene_1}, CameraFrame, by_hand[t]) for t in 1:3)   # every number bit for bit
+    @test tr.images == images
+    mktempdir() do dir
+        p = joinpath(dir, "track_segment_1.json")
+        save(p, tr)
+        d = parse_json(read(p, String))
+        @test d.schema == "vgio/trajectory/v4" && (d.from, d.to) == ("target:scene_1", "camera_optical")   # only the current version
+        @test load(Trajectory, p) == tr
+        # a v2 trajectory of any other layout keeps its free names: refused, as before
+        t2 = deepcopy(raw); t2["from"] = "room"
+        q = joinpath(dir, "other.json"); write(q, JSON.json(t2))
+        e = try load(Trajectory, q); nothing catch e; e end
+        @test e isa ArgumentError && occursin("free strings", e.msg)
+        t3 = deepcopy(raw); delete!(t3["provenance"], "component")            # the gauge's component is not stated
+        write(q, JSON.json(t3))
+        @test_throws ArgumentError load(Trajectory, q)
+    end
+end

@@ -214,7 +214,9 @@ Read a `vgio/trajectory/v4` file: its frames as types (`S`, `D` from
 `from`/`to`), each pose labeled `S → D`, lengths in metres — `Uncertain` where the
 file states a covariance — with the images, times and recovered flags it
 records. Type-unstable by nature (the frame types come from the file): load
-once, dispatch after.
+once, dispatch after. An earlier version reads through its version steps; of
+v2 (free frame names) only CaliBlobs' 2026-09 track segment (`track:<s>` →
+`camera`), read as `target:scene_<c>` → `camera_optical` (src/migrate.jl).
 """
 function load(::Type{Trajectory}, path::AbstractString)
     d = _read_store(path, "trajectory", _TRAJECTORY_SPEC)

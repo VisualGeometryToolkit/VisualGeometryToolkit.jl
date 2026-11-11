@@ -997,6 +997,48 @@ migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _gene
 migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_noncentral(t)
 migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
 migrate_schema(::Val{Symbol("vgio/transforms/v2")}, t::AbstractDict) = _hand_eye_transforms_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/trajectory/v2")}, t::AbstractDict) = _track_segment_trajectory_v2_to_v3(t)
+
+"""
+    _track_segment_trajectory_v2_to_v3(tree) -> Dict{String, Any}
+
+The version step `vgio/trajectory/v2` → v3 for CaliBlobs' track segment of 2026-09 (owner ruling
+2026-11-11, Option A), the one v2 trajectory layout read: the `track_segment_<s>.json` CaliBlobs
+icra2026's motion-capture runs wrote — `from = "track:<s>"`, `to = "camera"`, each frame `{t, pose}`,
+the frames' images and the segment's `component` in its provenance. Any other v2 trajectory is refused
+(its names are free strings), as before; saving writes only the current version.
+
+THE GAUGE. The current writer names a segment's gauge by its poses' destination frame
+(CaliBlobs icra2026/src/trajectory.jl:1172, `gauge = _dst_frame(first(sg.poses))`), which is the
+component's gauge board frame `target:<uid>` (trajectory.jl:304, `G = VgtkCore.reference_frame(comp.targets)`).
+The v2 file does not record that uid, so the gauge is named by its COMPONENT, as the same run's hand-eye
+record names the component's frame: `target:scene_<c>` (trajectory.jl:491, the hand-eye fit's marker
+`"scene_\$(s.component)"`; its mount file, trajectory.jl:1123; the v2 hand-eye step reads `scene_<c>`
+the same). `camera` is `camera_optical`; each frame takes its image from the provenance; every pose
+as it stands. (Line numbers at CaliBlobs 72a6dba.)
+"""
+function _track_segment_trajectory_v2_to_v3(old::AbstractDict)
+    free(why) = throw(ArgumentError("a vgio/trajectory/v2 file's frame names are free strings, which the frame grammar " *
+        "does not type; the one v2 layout read is CaliBlobs' 2026-09 track segment (`track:<s>` → `camera`, its " *
+        "`component` and the frames' images in its provenance): $(why). Re-export it from its producer"))
+    from, to = String(old["from"]), String(old["to"])
+    (occursin(r"^track:\d+$", from) && to == "camera") || free("its frames are $(repr(from)) → $(repr(to))")
+    prov = get(old, "provenance", nothing)
+    (prov isa AbstractDict && get(prov, "component", nothing) isa Integer) ||
+        free("its provenance states no integer `component`, which names its gauge")
+    images = Dict{Int, String}(Int(i["t"]) => String(i["image"]) for i in get(prov, "images", Any[]))
+    frames = Any[]
+    for f in old["frames"]
+        n = Dict{String, Any}(f)
+        haskey(images, Int(f["t"])) && (n["image"] = images[Int(f["t"])])
+        push!(frames, n)
+    end
+    t = Dict{String, Any}(old)
+    t["schema"] = "vgio/trajectory/v3"
+    t["from"], t["to"] = "target:scene_$(prov["component"])", "camera_optical"
+    t["frames"] = frames
+    return t
+end
 
 # vgio/transforms/v2 → v3: THE HAND-EYE RECORD OF 2026-09 (owner ruling 2026-11-11).
 # A v2 file names its frames by free strings, which v3 types through the frame

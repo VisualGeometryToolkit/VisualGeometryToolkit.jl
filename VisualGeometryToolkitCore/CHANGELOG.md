@@ -5,6 +5,11 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `image_warp!(dst, warps::Tuple, src)`, a multi-plane image warped plane by plane, each plane through its own
+  warp** (`dst`, `src` `H × W × P`, one `BoundedMap` per plane; the 2-D `image_warp!` of each plane, on the backend
+  that owns `dst`). For an image whose planes are sampled at different points — a Bayer image's R, G and B — each warp
+  composes its plane's frame map, `image_warp(T, inv(plane_map) ∘ math, rect)` (VisualGeometryToolkitFeatures'
+  `bayer_plane_map`). `plane_offsets` and `raw_scale` join the retired names.
 - **Fixed: a SplineLens camera images its far edge.** The backward box is closed on both sides, `[min, max + 1]` per axis
   with the same rounding slack at both edges, so `backproject` is finite on the image's right and bottom edges (`x = W`,
   `y = H`) as on its left and top, where `valid_domain` already said it was; the non-central model shares the test.

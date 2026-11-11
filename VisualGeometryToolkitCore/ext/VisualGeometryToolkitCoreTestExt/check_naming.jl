@@ -478,6 +478,11 @@ const RETIRED_NAMES = String[
     "_grid" * "_json", "_point_grid" * "_json", "_grid_from" * "_json",   # the held nodes' controls: `_controls_json`, `_controls_from_json`
     "_present" * "_count",                   # `_runs_count`
     "_refuse" * "_domain",                   # an old grid model's domain: the bound's lens coverage, any of its kinds (a camera store's form)
+    # a Bayer image's planes are frame-labelled maps (VisualGeometryToolkitFeatures 0.9): a plane's sample
+    # position and the cell grid's ×2 are read from `bayer_plane_map(L, c)` / `raw_frame_map(L)`, never
+    # carried as bare offsets or an integer scale beside the image
+    "plane" * "_offsets",                    # `bayer_plane_map(L, c)` (its translation onto the cell grid: `inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c)`)
+    "raw" * "_scale",                        # `raw_frame_map(L)` (PanoramaStitching's keyword: the frame's map onto the raw)
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

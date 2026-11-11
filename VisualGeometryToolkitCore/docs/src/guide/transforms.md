@@ -151,7 +151,11 @@ image_warp!(patch2, bm, img2)
 ```
 
 [`image_warp_batch_to!`](@ref) samples one image through a vector of warps
-into a 3D stack.
+into a 3D stack. A multi-plane image whose planes are sampled at different
+points (a Bayer image's R, G and B) is warped plane by plane, each through its
+own warp: `image_warp!(dst, warps, src)` with `dst` and `src` `H × W × P` and
+`warps` a tuple of `P` warps, each composing its plane's frame map,
+`image_warp(T, inv(plane_map) ∘ math, rect)`.
 
 ### Fillvalue Conventions
 

@@ -277,3 +277,39 @@ end
         end
     end
 end
+
+@testitem "image_warp! of a multi-plane image, each plane through its own warp (host and device)" begin
+    using Test, StaticArrays, Random
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: image_warp, image_warp!, Rect, LinearMap, Translation
+    # Plane p of dst is plane p of src read through warps[p] — exactly what three 2-D warps give —
+    # the planes' maps differing by a translation (a Bayer image's R, G and B sit at different
+    # points of the cell); a warp count other than the planes' is refused.
+    rng = Xoshiro(3)
+    src = rand(rng, 20, 24, 3)
+    math = LinearMap(SMatrix{2, 2}(0.9, 0.1, -0.05, 1.1))
+    warps = ntuple(p -> image_warp(Float64, Translation(SVector(0.25 * (p - 2), -0.25 * (p - 2))) ∘ math, Rect(0, 0, 16, 18)), 3)
+    dst = image_warp!(zeros(18, 16, 3), warps, src)
+    for p in 1:3
+        @test dst[:, :, p] == image_warp!(zeros(18, 16), warps[p], src[:, :, p])
+    end
+    @test dst[:, :, 1] != dst[:, :, 3]
+    @test_throws DimensionMismatch image_warp!(zeros(18, 16, 3), warps[1:2], src)
+    @test_throws DimensionMismatch image_warp!(zeros(18, 16, 2), warps, src)
+    @test_throws DimensionMismatch image_warp!(zeros(18, 16, 3), warps, src[:, :, 1:2])
+    # GPU first: the same call on device arrays runs each plane's warp on the device
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        cu = getproperty(cuda, :CuArray)
+        d = Base.invokelatest(image_warp!, Base.invokelatest(cu, zeros(18, 16, 3)), warps, Base.invokelatest(cu, src))
+        @test !(d isa Array)
+        @test Base.invokelatest(Array, d) ≈ dst rtol = 1e-12
+    end
+end

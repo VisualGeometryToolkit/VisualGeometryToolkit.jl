@@ -6,9 +6,13 @@
 # and its recipe copy yggdrasil/P/PoseLib/bundled/, is inside the scan.
 import VisualGeometryToolkitCore as VgtkCore
 @testset "quality: naming" begin
-    found = VgtkCore.check_naming(pkgdir(PoseLib))
-    isempty(found) || foreach(v -> println(stderr, v), found)
-    @test isempty(found)
+    VgtkCore.test_naming(PoseLib)
+end
+
+# One implementation per concept (VisualGeometryToolkitCore's check_duplication); the other
+# stack repositories in VGTK_STACK_PATHS are compared too.
+@testset "quality: no duplication" begin
+    VgtkCore.test_duplication(PoseLib)
 end
 
 @testset "quality: stack contracts" begin

@@ -203,7 +203,9 @@ function _module_tree(M::Module)
     return out
 end
 
-const _INFRASTRUCTURE_NAMES = (:eval, :include, :__init__)
+# Julia's per-module names, and the stack's per-package conventions: every package declares
+# its own `CONTRACT_GENERICS` (the functions others may add methods to; `contract_generic_violations`).
+const _INFRASTRUCTURE_NAMES = (:eval, :include, :__init__, :CONTRACT_GENERICS)
 
 # A function, data type or module whose own module is not `S` (a Union has none: its binding decides).
 function _defined_elsewhere(v, S)

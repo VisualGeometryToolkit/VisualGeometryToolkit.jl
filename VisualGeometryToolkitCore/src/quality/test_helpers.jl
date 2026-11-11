@@ -49,6 +49,27 @@ VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 function test_naming end
 
 """
+    test_duplication(M::Module; kwargs...)
+
+The stack's no-duplication rule ([`check_duplication`](@ref)) over package
+`M`, as a test: every finding printed, and `@test` that there is none. The
+keywords go to `check_duplication` (the stack repositories compared come from
+`VGTK_STACK_PATHS` by default). Implemented by VisualGeometryToolkitCoreTestExt
+(`using Test` loads it).
+"""
+function test_duplication end
+
+"""
+    thrown_message(f) -> String
+
+The message of the `ArgumentError` that `f()` throws, `""` when it throws
+nothing; any other exception is rethrown. For a test that reads what a refusal
+says: `@test occursin("frame", thrown_message(() -> load(T, path)))`.
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function thrown_message end
+
+"""
     test_docs(M::Module; exceptions = Dict{String,String}(), backlog = Set{String}(),
               signature_exceptions = Set{String}(), dirs = ("src",)) -> NamedTuple
 

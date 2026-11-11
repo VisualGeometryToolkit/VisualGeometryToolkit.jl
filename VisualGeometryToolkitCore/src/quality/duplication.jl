@@ -55,7 +55,9 @@ The stack's no-duplication rule, checked over a package (`M`, its directory
    submodule of it) owns — defined there, not imported, a function or type
    whose `parentmodule` is that module; method extensions of another package's
    function do not count — whose name an upstream stack package also owns,
-   private `_names` included. Upstream is every package in `M`'s dependency
+   private `_names` included (Julia's per-module `eval`, `include` and
+   `__init__`, and the per-package `CONTRACT_GENERICS`, are each package's
+   own). Upstream is every package in `M`'s dependency
    closure (its loaded `Project.toml` `[deps]`, transitively) that is
    VisualGeometryToolkitCore or depends on it: Core < IO, Features <
    Estimation < Eval < the downstream repositories.

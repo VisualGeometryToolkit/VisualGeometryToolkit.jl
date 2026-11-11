@@ -1,4 +1,5 @@
 @testitem "target detections" begin
+    using VisualGeometryToolkitCore: thrown_message
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: m, mm, sources, targets, withattrs, has_units, with_unit
@@ -120,15 +121,10 @@
     end
 
     @testset "conversion refusals name the frame, target and index" begin
-        msg(f) = try
-            f(); ""
-        catch e
-            e isa ArgumentError ? e.msg : rethrow()
-        end
         dup = TargetPoints2D{PixelFrame{:opencv}}(
             Dict(4 => [(target = :b, index = 2, xy = SVector(1.0, 2.0), weight = 1.0), (target = :b, index = 2, xy = SVector(3.0, 4.0), weight = 1.0)])
         )
-        s = msg(() -> TargetDetections(dup))
+        s = thrown_message(() -> TargetDetections(dup))
         @test occursin("frame 4, target b, index 2", s) && occursin("load(TargetPoints2D, path)", s)
         mixed = TargetPoints3D{WorldFrame}(
             Dict(
@@ -136,7 +132,7 @@
                 2 => [(target = :body, index = 3, xyz = Uncertain(SVector(1.0, 2.0, 3.0) .* m, Σ3))],
             )
         )
-        s = msg(() -> TargetDetections(mixed))
+        s = thrown_message(() -> TargetDetections(mixed))
         @test occursin("frame 2, target body, index 3 is Uncertain", s) && occursin("frame 1, target body, index 1 is plain", s)
         @test occursin("load(TargetPoints3D, path)", s)
     end

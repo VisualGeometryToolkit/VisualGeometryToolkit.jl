@@ -69,9 +69,9 @@ end
 end
 
 @testitem "target/v4: layout refusals" setup = [VGIoFixtures, LayoutFixtures] begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, AprilGrid
-    msg(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
     mktempdir() do dir
         p = joinpath(dir, "grid.json")
         save(p, PlanarTarget(april_grid()))
@@ -79,26 +79,26 @@ end
         edited(f) = (t = deepcopy(good); f(t); q = joinpath(dir, "edited.json"); write(q, JSON.json(t, 2)); q)
         # exactly one of reference, nominal and layout
         both = edited(t -> t["target"]["nominal"] = Any[Any[0.0, 0.0]])
-        @test occursin("exactly one of", msg(() -> load(AbstractTarget, both)))
-        @test occursin("exactly one of", msg(() -> load(AbstractTarget, edited(t -> t["target"]["reference"] = "b76e"))))
-        @test occursin("exactly one of", msg(() -> load(AbstractTarget, edited(t -> delete!(t["target"], "layout")))))
+        @test occursin("exactly one of", thrown_message(() -> load(AbstractTarget, both)))
+        @test occursin("exactly one of", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["reference"] = "b76e"))))
+        @test occursin("exactly one of", thrown_message(() -> load(AbstractTarget, edited(t -> delete!(t["target"], "layout")))))
         # an unknown layout type lists the known ones
-        m1 = msg(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["type"] = "aprilgrid")))
+        m1 = thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["type"] = "aprilgrid")))
         @test occursin("unknown layout type \"aprilgrid\"", m1) && occursin("april_grid", m1) && occursin("schoeps_pattern", m1)
         # a key missing, a key of the other layout, a bad value
-        @test occursin("states its `first_id`", msg(() -> load(AbstractTarget, edited(t -> delete!(t["target"]["layout"], "first_id")))))
-        @test occursin("has no `squares_x`", msg(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["squares_x"] = 3))))
-        @test occursin("positive integer", msg(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_rows"] = 0))))
-        @test occursin("not positive", msg(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_size"] = -1.0))))   # VGC's
+        @test occursin("states its `first_id`", thrown_message(() -> load(AbstractTarget, edited(t -> delete!(t["target"]["layout"], "first_id")))))
+        @test occursin("has no `squares_x`", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["squares_x"] = 3))))
+        @test occursin("positive integer", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_rows"] = 0))))
+        @test occursin("not positive", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_size"] = -1.0))))   # VGC's
         # a points target holds no layout
         pts = edited(t -> (t["target"]["type"] = "points"; t["target"]["points"] = Any[Any[0.0, 0.0, 0.0]]; delete!(t["target"], "calibration")))
-        @test occursin("points target has `points`", msg(() -> load(AbstractTarget, pts)))
+        @test occursin("points target has `points`", thrown_message(() -> load(AbstractTarget, pts)))
         # units: a plain layout is refused on write (attach the unit), a file unit that is not a length on read
-        @test occursin("plain numbers", msg(() -> save(joinpath(dir, "plain.json"), PlanarTarget(AprilGrid(; tag_rows = 2, tag_cols = 2, tag_size = 0.09, tag_spacing = 0.027)))))
+        @test occursin("plain numbers", thrown_message(() -> save(joinpath(dir, "plain.json"), PlanarTarget(AprilGrid(; tag_rows = 2, tag_cols = 2, tag_size = 0.09, tag_spacing = 0.027)))))
         @test !isfile(joinpath(dir, "plain.json"))
-        @test occursin("length unit", msg(() -> load(AbstractTarget, edited(t -> t["length_unit"] = "px"))))
+        @test occursin("length unit", thrown_message(() -> load(AbstractTarget, edited(t -> t["length_unit"] = "px"))))
         # a v3 record holds no layout: refused by its step, naming the version that does
-        @test occursin("target v4", msg(() -> load(AbstractTarget, edited(t -> t["schema"] = "vgio/target/v3"))))
+        @test occursin("target v4", thrown_message(() -> load(AbstractTarget, edited(t -> t["schema"] = "vgio/target/v3"))))
     end
 end
 
@@ -127,9 +127,9 @@ end
 end
 
 @testitem "layout YAML: Schöps' pattern and Kalibr's aprilgrid read as VGC's targets of the same parameters" setup = [VGIoFixtures, LayoutFixtures] begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, AprilGrid, SchoepsPattern, Canvas, layout, points, canvas, board
-    msg(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
     rl = VgtkIO.read_length
     # Schöps: the lab's 1 m, 30 × 30 pattern (create_calibration_pattern.py --num_star_segments 16 --apriltag_index 9)
     sp = layouts_fixture("pattern_1m_30x30_segments_16_apriltag_9.yaml")
@@ -156,12 +156,12 @@ end
         end
         # refusals: another Kalibr target, a key the reader does not know, a page that disagrees with the pattern, neither format
         y(name, text) = (p = joinpath(dir, name); write(p, text); p)
-        @test occursin("only an `aprilgrid`", msg(() -> load(PlanarTarget, y("cb.yaml", "target_type: 'checkerboard'\ntargetCols: 6\n"))))
-        @test occursin("`codeOffset`", msg(() -> load(PlanarTarget, y("k.yaml", read(kp, String) * "codeOffset: 5\n"))))
-        @test occursin("not an integer", msg(() -> load(PlanarTarget, y("k2.yaml", replace(read(kp, String), "tagCols: 8" => "tagCols: 8.5")))))
-        @test occursin("spans", msg(() -> load(PlanarTarget, y("s.yaml", replace(read(sp, String), "pattern_end_x_mm: 995.9999999999998" => "pattern_end_x_mm: 990.0")))))
-        @test occursin("no `squares_y`", msg(() -> load(PlanarTarget, y("s2.yaml", replace(read(sp, String), "squares_y: 30\n" => "")))))
-        @test occursin("neither a Kalibr", msg(() -> load(PlanarTarget, y("x.yaml", "foo: 1\n"))))
+        @test occursin("only an `aprilgrid`", thrown_message(() -> load(PlanarTarget, y("cb.yaml", "target_type: 'checkerboard'\ntargetCols: 6\n"))))
+        @test occursin("`codeOffset`", thrown_message(() -> load(PlanarTarget, y("k.yaml", read(kp, String) * "codeOffset: 5\n"))))
+        @test occursin("not an integer", thrown_message(() -> load(PlanarTarget, y("k2.yaml", replace(read(kp, String), "tagCols: 8" => "tagCols: 8.5")))))
+        @test occursin("spans", thrown_message(() -> load(PlanarTarget, y("s.yaml", replace(read(sp, String), "pattern_end_x_mm: 995.9999999999998" => "pattern_end_x_mm: 990.0")))))
+        @test occursin("no `squares_y`", thrown_message(() -> load(PlanarTarget, y("s2.yaml", replace(read(sp, String), "squares_y: 30\n" => "")))))
+        @test occursin("neither a Kalibr", thrown_message(() -> load(PlanarTarget, y("x.yaml", "foo: 1\n"))))
     end
 end
 

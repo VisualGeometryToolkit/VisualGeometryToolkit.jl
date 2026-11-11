@@ -164,6 +164,7 @@ end
 end
 
 @testitem "units: negative, ±0, integers, NaN and ±Inf" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: inch, ft, pt, cm, μm, WorldFrame, CameraFrame, relabel, translation
     # read_length / write_length are total: every Float64 comes back as itself
@@ -176,20 +177,15 @@ end
     # a vgio file holds finite numbers only: a non-finite one is refused by its field, reading and writing
     mktempdir() do dir
         X = relabel(WorldFrame, CameraFrame, EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, NaN, 3.0) .* mm))
-        msg(f) = try
-            f(); ""
-        catch e
-            e isa ArgumentError ? e.msg : rethrow()
-        end
         p = joinpath(dir, "nan.json")
-        @test occursin("transforms[1].translation[2]: expected a finite number", msg(() -> save(p, [X])))
+        @test occursin("transforms[1].translation[2]: expected a finite number", thrown_message(() -> save(p, [X])))
         @test !isfile(p)
         good = joinpath(dir, "good.json")
         save(good, [relabel(WorldFrame, CameraFrame, EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0) .* mm))])
         for (text, field) in (("NaN", "translation[2]"), ("Infinity", "translation[2]"), ("-Infinity", "translation[2]"), ("1e400", "translation[2]"))
             write(p, replace(read(good, String), r"2\.0" => text; count = 1))
-            @test occursin(field, msg(() -> load(Vector{EuclideanMap}, p)))
-            @test occursin(field, msg(() -> VgtkIO.validate(p)))
+            @test occursin(field, thrown_message(() -> load(Vector{EuclideanMap}, p)))
+            @test occursin(field, thrown_message(() -> VgtkIO.validate(p)))
         end
         # integers in a hand-written file are lengths like any other number
         write(p, replace(read(good, String), "2.0" => "-2"; count = 1))

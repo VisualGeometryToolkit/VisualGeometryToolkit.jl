@@ -15,7 +15,7 @@ using Test: Test
 using TOML: TOML
 using ForwardDiff: ForwardDiff
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, residual_rows!, residual_jacobian_rows!
-import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs
+import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,
     test_manifold_contract
 

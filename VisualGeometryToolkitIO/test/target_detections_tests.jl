@@ -73,9 +73,9 @@ end
 end
 
 @testitem "target detections: an old file with a duplicate or a form mix is refused by name, and loads as its own kind" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: thrown_message
     using LinearAlgebra: I
     using VisualGeometryToolkitCore: TargetDetections, TargetPoints2D, TargetPoints3D, WorldFrame, Uncertain, CovMat
-    msg(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
     h = repeat("cd", 32)
     mktempdir() do dir
         # a (target, index) twice in one frame: TargetPoints2D allows it
@@ -85,7 +85,7 @@ end
         )
         p = joinpath(dir, "dup_points2d.json")
         save(p, dup)
-        s = msg(() -> load(TargetDetections, p))
+        s = thrown_message(() -> load(TargetDetections, p))
         @test startswith(s, p) && occursin("frame 3, target b, index 2", s) && occursin("load(TargetPoints2D, path)", s)
         @test load(TargetPoints2D, p) == dup                                 # still loads as what it is
         # plain and Uncertain points in one file: TargetPoints3D allows it
@@ -99,7 +99,7 @@ end
         )
         p3 = joinpath(dir, "mixed_points3d.json")
         save(p3, mixed)
-        s = msg(() -> load(TargetDetections, p3))
+        s = thrown_message(() -> load(TargetDetections, p3))
         @test startswith(s, p3) && occursin("frame 2, target rig, index 2 is Uncertain", s) && occursin("frame 1, target rig, index 1 is plain", s)
         @test occursin("load(TargetPoints3D, path)", s)
         @test load(TargetPoints3D, p3) == mixed

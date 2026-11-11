@@ -1,0 +1,28 @@
+# The monorepo's exceptions to VisualGeometryToolkitCore's `check_duplication`, each
+# with its reason. An entry that stops matching anything is itself a finding: remove it.
+# Paths are relative to this file.
+
+[[similar]]
+functions = ["VisualGeometryToolkitCore/src/geometry/cameras/spline_lens.jl::_spline_lm_increment",
+             "VisualGeometryToolkitCore/test/fixtures/repro_o2_miscompile.jl::lm_increment"]
+reason = "the fixture is a frozen copy of the device-side LM step, kept to reproduce the -O2 miscompile it was reduced from; it must not follow the source"
+
+[[similar]]
+functions = ["VisualGeometryToolkitCore/src/geometry/cameras/cameras.jl::project",
+             "VisualGeometryToolkitCore/src/geometry/cameras/oriented_camera.jl::project"]
+reason = "two refusals of the same calls for two kinds of camera (a physical-unit camera, an oriented camera), each with its own reason; one-line methods of one function, not a second implementation"
+
+[[similar]]
+functions = ["VisualGeometryToolkitCore/src/geometry/cameras/lenses.jl::_fields",
+             "VisualGeometryToolkitCore/src/geometry/transforms/pointwise.jl::_fields"]
+reason = "the generated-tuple idiom over two different field sets: a lens leaf's parameter fields (its derived fields left out) and every field of a pointwise functor"
+
+[[similar]]
+functions = ["VisualGeometryToolkitEstimation/src/fitting/circle.jl::find_circle",
+             "VisualGeometryToolkitEstimation/src/fitting/ellipse.jl::find_ellipse"]
+reason = "two-line public entry points over the shared `_ransac_pipeline`, differing in the problem and its pipeline key; the minimal-sample guard they repeat is repeated by every find_*/refine_* (about 20), a follow-up for the pipeline itself"
+
+[[similar]]
+functions = ["VisualGeometryToolkitEstimation/src/fitting/circle.jl::refine_circle",
+             "VisualGeometryToolkitEstimation/src/fitting/ellipse.jl::refine_ellipse"]
+reason = "as find_circle/find_ellipse, over the shared `_refine_pipeline`"

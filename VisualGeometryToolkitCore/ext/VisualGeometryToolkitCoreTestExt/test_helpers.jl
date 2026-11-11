@@ -21,9 +21,21 @@ function check_rows_jacobian(
     return ok
 end
 
-function test_naming(M::Module)
-    found = check_naming(pkgdir(M))
+# A gate as a test: every finding printed, and `@test` that there is none.
+function _test_none(found)
     isempty(found) || foreach(v -> println(stderr, v), found)
     Test.@test isempty(found)
     return found
+end
+
+test_naming(M::Module) = _test_none(check_naming(pkgdir(M)))
+test_duplication(M::Module; kwargs...) = _test_none(check_duplication(M; kwargs...))
+
+function thrown_message(f)
+    try
+        f()
+    catch e
+        e isa ArgumentError ? (return e.msg) : rethrow()
+    end
+    return ""
 end

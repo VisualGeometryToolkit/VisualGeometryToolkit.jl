@@ -13,6 +13,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `ViewGraph` before seeding — so the hand-written breadth-first search that ran the check a second time is deleted. A
   direct call on a split graph (two components, or a zero-weight bridge) now returns meaningless rotations instead of
   an `ArgumentError`; check connectivity first.
+- **New: `test_duplication(M; kwargs...)` and `thrown_message(f)`** (public, not exported; Test extension).
+  `test_duplication` is `check_duplication` as a test, as `test_naming` is `check_naming`'s; every monorepo package's
+  quality item runs it, and the monorepo's few genuine exceptions are in the root `DUPLICATION.toml`. `thrown_message`
+  is the message of the `ArgumentError` a call throws (`""` when none), which four test files had each written for
+  themselves. The packages whose naming item restated `test_naming`'s body call it.
 - **New: `map_frames(X) -> (Src, Dst)`** (public, not exported): the source and destination frame types of a labeled
   `EuclideanMap`, `RotationMap` or `HomographyMap`, plain or `Uncertain` — the labels `relabel` sets. The one reader of
   them: Core's own `_em_frames`, `_rotation_frames`, `_homography_frames` and `_pose_frames`, Estimation's and IO's copies

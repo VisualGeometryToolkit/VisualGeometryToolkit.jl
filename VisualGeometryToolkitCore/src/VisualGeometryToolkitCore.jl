@@ -629,7 +629,7 @@ public check_duplication, DuplicationViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
-public rows_cost, check_rows_jacobian, test_naming, test_docs, test_quality_gates
+public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs, thrown_message, test_quality_gates
 public sqrt_weights   # its √weight buffer
 
 # -----------------------------------------------------------------------------

@@ -214,7 +214,7 @@ const _GAUGE_FIELDS = ("gauge" * "_names", "gauge" * "_directions")
 # a composition's parameter Jacobian (the outer member's is taken at the inner
 # one's output); the names, flags, bounds, length mask, a single kind's
 # parameter Jacobian (the nodal weights) and the manifold size do not move.
-const _PROJECTED_FIELDS = ("theta", "out", "out_physical", "jacobian_x", "regularizer", "with_parameters/theta",
+const _PROJECTED_FIELDS = ("theta", "out", "out_physical", "jacobian_theta", "jacobian_x", "regularizer", "with_parameters/theta",
     "with_parameters/out", "with_unit_mm/theta", "ustrip_mm/theta", "manifold/action", "manifold/retract")
 const _LENS_PARAMETER_FIELDS = ("names", "theta", "bounds_lo", "bounds_hi", "float32/theta", "with_parameters/theta", "manifold/retract")
 
@@ -240,7 +240,7 @@ function expected_core_value(key::AbstractString, g, V)
             any(in((:H, :T)), case_members(name)) && return :absent
         # (`:aside`: the code still has the value, and it moved on purpose)
         hasproperty(V, :projected) && name in V.projected &&
-            (field in _PROJECTED_FIELDS || (composed && field == "jacobian_theta")) && return :aside
+            field in _PROJECTED_FIELDS && return :aside
         p = block_permutation(target_blocks(name, 1), V.ct_order)
         q = block_permutation(target_blocks(name, 2), V.ct_order)
         r = block_permutation(target_blocks(name, 3), V.ct_order)

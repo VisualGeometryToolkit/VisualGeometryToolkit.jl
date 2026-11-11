@@ -42,7 +42,11 @@
         # the thin-plate kinds are pure bending (0.5.0: no affine term in the
         # interpolant): built from the goldens' parameters, whose interpolants
         # carry one, they are projected, so every value read
-        # off their nodal values moves (corpus.jl `_PROJECTED_FIELDS`)
+        # off their nodal values moves (corpus.jl `_PROJECTED_FIELDS`). Their
+        # parameter Jacobian is the projection's too (0.9.0: the derivative of
+        # the map the parameters actually build, checked against finite
+        # differences in mapped_surface_tests.jl), so `jacobian_theta` moves
+        # for the single kinds T and H as well as for T_H.
         projected = Set(["T", "H", "T_H"]),
         # a deformed target's surface is a MappedSurface (0.9.0): the surface of
         # its composed chart map, whose chart is the design's — no height-surface
@@ -119,9 +123,9 @@ end
     @test isempty(failures)
     @test n_compared + n_set_aside == length(G)
     # 52: the A and A_H goldens, set aside with the affine kind (0.5.0); 8: the
-    # gauge fields of R, T, H and T_H; 34: the projected fields of T, H and T_H;
+    # gauge fields of R, T, H and T_H; 36: the projected fields of T, H and T_H;
     # 5: the surface fields of T, H and T_H (MappedSurface, 0.9.0)
-    @test n_compared >= 250 - 52 - 8 - 34 - 5
+    @test n_compared >= 250 - 52 - 8 - 36 - 5
 end
 
 @testitem "chain equivalence: the retired compositions are refused" setup = [ChainEquivalenceCore] begin

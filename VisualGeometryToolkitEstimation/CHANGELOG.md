@@ -42,7 +42,7 @@ non-central one is a `NoncentralSplineModel`).
     the former `fit_camera` chart LM, from the guess's lens and focal, to the exact pixel least-squares minimum; a
     SplineLens source's principal point, aspect and axis are free. Every parameter moves but the gauge's skew and
     `fixed`, the held ones by name or group (`fixed::Tuple{Vararg{Symbol}} = ()`; a group is a coefficient family's
-    stem: `:k`, `:d`, `:p`, `:sx`, `:sy`; `approximate_camera` passes it on); a held parameter keeps the guess's value.
+    stem: `:k`, `:d`, `:p`, `:sx`, `:sy`; `approximate_camera` forwards it); a held parameter keeps the guess's value.
     The keywords `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`. A forward lens's radial
     denominator is free by default (it was held at zero; `fixed = (:d,)` holds it). A physical source holds its
     principal point, aspect and decentering terms (its radial profile does not see them); `optical_axis` holds

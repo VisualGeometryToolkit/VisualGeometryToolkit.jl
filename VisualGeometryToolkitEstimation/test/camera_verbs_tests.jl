@@ -146,7 +146,7 @@ end
     @test (ch.d1, ch.d2, ch.d3) === (cg.d1, cg.d2, cg.d3)
     @test ch.k1 != cg.k1 && calibration_matrix(estimate(rh))[1, 1] != calibration_matrix(g)[1, 1]
     @test lens(estimate(refine_camera(g, kb, region; fixed = (:d1, :d2, :d3)))) == lens(estimate(rh))
-    # the default (`fixed = ()`) frees it, to a lower minimum; approximate_camera passes `fixed` on
+    # the default (`fixed = ()`) frees it, to a lower minimum; approximate_camera forwards `fixed`
     rd = refine_camera(g, kb, region)
     cd = parameters(lens(estimate(rd)))
     @test cd.d1 != cg.d1 && rms(rd) < rms(rh)

@@ -6,17 +6,45 @@
 #                                                                 stack package the project's environment loads
 #   code_tree_changes(recorded, current) -> Vector{String}        what changed between two such records ("" = none):
 #                                                                 a stored result is reused only when it is empty
+#   file_sha256(path) -> String                                   a file's content hash, streamed and cached by
+#                                                                 (path, size, mtime): the inputs' `sha256` check
+#                                                                 and the files a run key folds in
 #
 # A result's run key names its CONFIGURATION only (DrWatson's savename / produce_or_load, the runner's stage key); the
 # code it ran is recorded beside it (DrWatson's `tag!`: gitcommit, and gitpatch when dirty) together with these trees.
 # A tree hash moves only when the files under it change, so a commit that touches the docs, the tests or the paper
 # leaves every tree, and with it every stored result, as it was.
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlib TOML): src/cli.jl includes it, so the package has it (the
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA): src/cli.jl includes it, so the package has it (the
 # Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl and
 # reproduce/runner.jl by path from a bare `julia` before the project's environment exists.
 # =============================================================================
 using TOML: TOML
+using SHA: sha256
+
+# (realpath, size, mtime) → sha256: a file is hashed once per process while it is unchanged.
+const _FILE_SHA256 = Dict{Tuple{String, Int64, Float64}, String}()
+const _FILE_SHA256_LOCK = ReentrantLock()
+
+"""
+    file_sha256(path) -> String
+
+The SHA-256 (64 hex digits) of the file at `path`, read in blocks (a file of any size costs its read, never its size
+in memory) and cached in this process by its real path, size and modification time: a second call on an unchanged
+file costs a `stat`. A file rewritten in place within the file system's mtime resolution with the same size keeps its
+cached hash; a check of record that must exclude that runs in a fresh process. An `ArgumentError` for a directory or a
+missing path.
+"""
+function file_sha256(path::AbstractString)
+    isfile(path) || throw(ArgumentError("file_sha256: $path is $(isdir(path) ? "a directory" : "not there"), not a file"))
+    st = stat(path)
+    k = (realpath(path), Int64(st.size), Float64(st.mtime))
+    hit = lock(() -> get(_FILE_SHA256, k, nothing), _FILE_SHA256_LOCK)
+    hit === nothing || return hit
+    h = bytes2hex(open(sha256, path))
+    lock(() -> (_FILE_SHA256[k] = h), _FILE_SHA256_LOCK)
+    return h
+end
 
 # The registered stack packages, identified by their Manifest `git-tree-sha1` when the environment loads a released
 # version (a package loaded from a path, `[sources]` or `Pkg.develop`, is identified by its own repository's trees,

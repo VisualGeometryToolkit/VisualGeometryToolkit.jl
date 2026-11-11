@@ -238,6 +238,45 @@ end
         @test !isfile(joinpath(f.results, "ran.txt")) && !isdir(joinpath(f.results, "_reproduce"))
     end
 
+    @testset "an input's sha256: verified when given (another content refused, with its id, expected and actual); absent, unchecked" begin
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        board = joinpath(f.data, "boards", "a4.toml")
+        mkpath(dirname(board)); write(board, "board of record\n")
+        actual = first(split(read(`sha256sum $board`, String)))
+        @test VisualGeometryToolkitEval.file_sha256(board) == actual
+        @test VisualGeometryToolkitEval.file_sha256(board) == actual                             # the cached hash: the same
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        text = read(cfg, String)
+        declare(h) = write(cfg, replace(text, "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$h\""))
+        # absent: unchecked, as before
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        # the content of record: passes
+        declare(actual)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        declare(uppercase(actual))                                                                # hex in either case
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        # another content: refused, naming the input, both hashes; the launch runs nothing (exit 2), the dry run neither
+        declare(actual)
+        write(board, "a board edited by hand\n")
+        other = first(split(read(`sha256sum $board`, String)))
+        @test_throws r"input board of configs/experiments/chrome.toml \(boards/a4.toml, used by chrome_prepare.*sha256 expected [0-9a-f]{64}, actual [0-9a-f]{64}" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        e = try missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0); nothing catch err; err end
+        @test e isa ArgumentError && occursin("expected $actual, actual $other", e.msg)
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare"]; env = env0)
+        @test code == 2 && occursin("refused: an input is not the data of record", out) && !isfile(joinpath(f.results, "ran.txt"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 2 && occursin("expected $actual", out)
+        # a sha256 names a file: on a directory, or not 64 hex digits, it is a config error
+        write(cfg, replace(text, "path = \"photos/chrome\"" => "path = \"photos/chrome\"\nsha256 = \"$actual\""))
+        @test_throws r"input photos .*a directory" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        declare("abc")
+        @test_throws r"is no SHA-256" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        # a missing input with a sha256 is reported missing, as any
+        declare(actual); rm(board)
+        @test [r.path for r in missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)] == ["boards/a4.toml"]
+    end
+
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
         f = runner_project()
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)

@@ -287,6 +287,54 @@
         E.set_project_root!("")
     end
 
+    @testset "run_key folds files, upstream keys and parts; keyed data dirs, promote_run, verify_inputs, require_input's sha256" begin
+        data = mktempdir(); res = mktempdir()
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res) do
+            E.set_project_root!(mktempdir())
+            cfg = Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d", "matcher" => "m", "problem" => "p"), "n" => 3)
+            k0 = E.run_key(cfg)
+            @test E.run_key(cfg; files = nothing, upstream = nothing, parts = nothing) == k0       # nothing folded: the config's key
+            f = joinpath(data, "board.toml"); write(f, "a\n")
+            kf = E.run_key(cfg; files = Dict("board" => f))
+            @test kf != k0 && E.run_key(cfg; files = Dict("board" => f)) == kf
+            write(f, "b, edited\n")
+            @test E.run_key(cfg; files = Dict("board" => f)) != kf                                 # the file's content keys it
+            ku = E.run_key(cfg; upstream = Dict("poses" => "0123456789abcdef"))
+            @test ku != k0 && ku != E.run_key(cfg; upstream = Dict("poses" => "fedcba9876543210"))
+            kp = E.run_key(cfg; parts = (; frame_limit = 10))
+            @test kp != k0 && kp == E.run_key(cfg; parts = Dict("frame_limit" => 10)) && kp != E.run_key(cfg; parts = (; frame_limit = 0))
+            @test_throws r"keyed_with" E.run_key(merge(cfg, Dict{String,Any}("keyed_with" => 1)))
+            @test basename(E.keyed_cell_dir(cfg, "e", "pose"; parts = (; frame_limit = 10))) == "pose-" * kp
+            # a producer's keyed directory under the data root
+            @test E.keyed_data_dir(cfg, "annotations", "train") == joinpath(data, "annotations", "train-" * k0)
+            # a run of record made an input of record
+            run = joinpath(res, "fig", "run-" * k0); mkpath(run); write(joinpath(run, "r.csv"), "1\n")
+            @test_throws r"no _provenance.toml" E.promote_run(run, "runs_of_record")
+            E.write_provenance(run, Dict("run_key" => k0); driver = "d")
+            dst = E.promote_run(run, "runs_of_record")
+            @test dst == joinpath(data, "runs_of_record", "run-" * k0) && read(joinpath(dst, "r.csv"), String) == "1\n"
+            @test E.promote_run(run, "runs_of_record") == dst                                       # the same run: left as it is
+            other = joinpath(res, "x", "run-" * k0); mkpath(other); E.write_provenance(other, Dict("run_key" => "other"); driver = "d")
+            @test_throws r"holds another run" E.promote_run(other, "runs_of_record")
+            # the inputs of a config, verified as the runner verifies them
+            h = first(split(read(`sha256sum $f`, String)))
+            c2 = merge(cfg, Dict{String,Any}("inputs" => Dict{String,Any}(
+                "board" => Dict{String,Any}("tier" => "boards", "path" => "board.toml", "sha256" => h),
+                "runs" => Dict{String,Any}("tier" => "runs_of_record", "path" => "runs_of_record/run-" * k0))))
+            @test E.verify_inputs(c2) == Dict("board" => f, "runs" => dst)
+            c2["inputs"]["board"]["sha256"] = "0"^64
+            @test_throws r"input board \(board.toml\): sha256 expected 0{64}, actual [0-9a-f]{64}" E.verify_inputs(c2)
+            c2["inputs"]["runs"]["path"] = "runs_of_record/gone"
+            @test_throws r"input runs \(runs_of_record\): runs_of_record/gone is not under" E.verify_inputs(c2)
+            # require_input: with a sha256, the content checked
+            @test E.require_input(f; what = "board", provenance = "p", sha256 = h) == f
+            @test E.require_input(f; what = "board", provenance = "p", sha256 = uppercase(h)) == f
+            @test_throws r"refused: input \[board\] .* sha256 expected 0{64}, actual" E.require_input(f; what = "board", provenance = "p", sha256 = "0"^64)
+            @test E.require_input(f; what = "board", provenance = "p") == f                         # absent: unchecked
+            E.set_project_root!("")
+        end
+    end
+
     @testset "keyed cache" begin
         repo = gitrepo()
         E.set_project_root!(repo)

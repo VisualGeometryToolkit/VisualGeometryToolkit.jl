@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **New: an input's content of record.** An `[inputs.<id>]` table may carry `sha256` (64 hex digits, of a file).
+  When it does, `missing_inputs` (the runner, before anything runs; the dry run too), the new
+  `Experiments.verify_inputs(cfg; root)` and `Experiments.require_input(path; …, sha256)` verify it, and another
+  content is REFUSED (`ArgumentError`: the input id, its config and path, the expected and the actual hash; the
+  runner exits 2). Without it the input is only checked to be there, as before. The hash is
+  `VisualGeometryToolkitEval.file_sha256(path)`: streamed in blocks, and cached in the process by real path, size and
+  modification time, so a large input is read once per process.
+- **New: `run_key(cfg; files, upstream, parts)`** folds into the key what a run depends on beyond its config: the
+  content hash of `files` (`name => path`), the run keys of the `upstream` runs it reads, and `parts` (a choice made
+  outside the config, e.g. a smoke run's frame limit), as the table `keyed_with` (refused in a config). Without them
+  the key is the config's, unchanged. `keyed_cell_dir` takes the same keywords. A project's private keys (file hashes,
+  upstream keys, version tags, date stamps) become this.
+- **New: `Experiments.keyed_data_dir(cfg, tier, kind; …)`**, the keyed directory of a run that produces data
+  (training annotations, a derived pool) under the data root, `<data root>/<tier>/<kind>-<run_key>`, written with
+  `producer = true`; and **`Experiments.promote_run(run_dir, tier; name)`**, a completed run of record (with its
+  `_provenance.toml`) copied into the data root as an input of record of `tier`, where an `[inputs.<id>]` names it
+  and a data artifact (an `ArtifactView` tier) publishes it; another run under the same name is refused.
+
 - **New: a result is reused only while the code it was computed with is unchanged, by its git trees.** The run key
   stays the configuration's (DrWatson's savename / produce_or_load, the runner's stage key: the stage key no longer
   hashes the code). Beside DrWatson's `tag!` record (`gitcommit`, `gitpatch` when dirty), every result now keeps

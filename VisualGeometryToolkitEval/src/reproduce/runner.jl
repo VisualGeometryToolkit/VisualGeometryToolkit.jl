@@ -373,17 +373,33 @@ Every input of the selected `stages` that is not there, as data, before anything
 configs of record (one per array item) and their `[inputs.<id>]` tables with a `path` (relative to `data_root`) and a
 `tier`; a missing config is a row of tier `"config of record"`. With no data root every data input is missing (tier
 as declared).
+
+An input with a `sha256` (64 hex digits, of a file) is verified: an input that is there with another content is
+REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
+nothing runs on data other than the data of record. An input without one is not checked. The hash is streamed and
+cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is
+read once per process, and a launch that checks the same input from several configs reads it once.
 """
 function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV)
     rows = Dict{String, Tuple{String, Vector{String}}}()
+    wrong = String[]
     add!(path, tier, user) = (r = get!(rows, path, (tier, String[])); user in r[2] || push!(r[2], user))
     function check!(cfg, user)
         p = joinpath(g.workdir, cfg)
         isfile(p) || (add!(cfg, "config of record", user); return)
-        for (_, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
+        for (id, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
             (t isa AbstractDict && haskey(t, "path")) || continue
-            (!isempty(data_root) && ispath(joinpath(data_root, t["path"]))) && continue
-            add!(t["path"], get(t, "tier", ""), user)
+            full = isempty(data_root) ? "" : joinpath(data_root, t["path"])
+            if isempty(full) || !ispath(full)
+                add!(t["path"], get(t, "tier", ""), user)
+                continue
+            end
+            haskey(t, "sha256") || continue
+            want = lowercase(string(t["sha256"]))
+            occursin(r"^[0-9a-f]{64}$", want) || throw(ArgumentError("input $id of $cfg: sha256 = \"$(t["sha256"])\" is no SHA-256 (64 hex digits)"))
+            isfile(full) || throw(ArgumentError("input $id of $cfg ($(t["path"])): a sha256 names a file's content, and it is a directory"))
+            got = file_sha256(full)
+            got == want || push!(wrong, "input $id of $cfg ($(t["path"]), used by $user): sha256 expected $want, actual $got")
         end
     end
     for n in stages
@@ -403,6 +419,7 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
             end
         end
     end
+    isempty(wrong) || throw(ArgumentError("refused: an input is not the data of record\n  " * join(unique!(wrong), "\n  ")))
     return [(; path, tier = r[1], used_by = r[2]) for (path, r) in sort(collect(rows); by = first)]
 end
 

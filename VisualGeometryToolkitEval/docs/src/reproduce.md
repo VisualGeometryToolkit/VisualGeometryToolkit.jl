@@ -269,7 +269,15 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
 - **Inputs first.** Every `[inputs.<id>]` (`tier`, `path` under the data root)
   of every selected stage's configs is checked before anything runs; a missing
   one is a row `path  tier  used by`, the launch runs nothing and exits 3
-  ([`missing_inputs`](@ref)).
+  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file) must
+  have that content: another one is refused, naming the input, the expected
+  and the actual hash (exit 2, the dry run too); without it the input is only
+  checked to be there. Hashing streams the file and is cached by path, size
+  and modification time
+  ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)), so a large
+  input is read once per process. A driver checks its config's inputs the same
+  way with
+  [`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs).
 - **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
   (an array over its items, sized from the config's cases or a list, `--time`
   from the cases' `max_time`), after the jobs of the stages it depends on

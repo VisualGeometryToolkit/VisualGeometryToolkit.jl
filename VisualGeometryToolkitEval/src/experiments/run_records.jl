@@ -194,7 +194,7 @@ end
 const RUN_KEY_EXCLUDED = ("render",)
 
 """
-    run_key(cfg) -> String
+    run_key(cfg; files = nothing, upstream = nothing, parts = nothing) -> String
 
 The run identity: the SHA-256 (hex, first 16) of the effective config printed
 as sorted TOML (Tuning `_toml_hash`, the one content hash behind
@@ -205,9 +205,32 @@ default of this package's configs/tuning.toml that the config inherits keys
 the run like a stated one). Key order does not move it, the Julia version does
 not move it, and a TOML round trip of the effective config reproduces it, so
 `run_key(TOML.parsefile("_config.toml"))` names the directory that holds it.
+
+What a run depends on beyond its config is folded in by name, so a project
+keys it here instead of in a private hash:
+
+- `files`: `name => path`, each file's content hash (`file_sha256`: streamed,
+  cached by path, size and mtime) — a calibration file, a board definition;
+- `upstream`: `name => key`, the run keys of the runs it reads (a pose run's
+  key in the key of the evaluation that reads its poses);
+- `parts`: `name => value` (a `Dict` or a `NamedTuple`, TOML values), a choice
+  of the run that is not in its config (a frame limit of a smoke run).
+
+They are keyed as the table `keyed_with` (`files`, `upstream`, `parts`, each
+present when given), which a config therefore may not hold; without them the
+key is the config's alone, as before. A value of record belongs in the config:
+`parts` is for a choice made on the command line of a driver.
 """
-run_key(cfg::AbstractDict) =
-    _toml_hash(Dict{String,Any}(k => v for (k, v) in resolve_tuning!(deepcopy(cfg)) if !(k in RUN_KEY_EXCLUDED)))
+function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts = nothing)
+    d = Dict{String,Any}(k => v for (k, v) in resolve_tuning!(deepcopy(cfg)) if !(k in RUN_KEY_EXCLUDED))
+    haskey(d, "keyed_with") && throw(ArgumentError("run_key: a config may not hold `keyed_with`, the table of what the key folds in"))
+    folded = Dict{String,Any}()
+    files === nothing || (folded["files"] = Dict{String,Any}(String(k) => file_sha256(String(p)) for (k, p) in pairs(files)))
+    upstream === nothing || (folded["upstream"] = Dict{String,Any}(String(k) => String(v) for (k, v) in pairs(upstream)))
+    parts === nothing || (folded["parts"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(parts)))
+    isempty(folded) || (d["keyed_with"] = folded)
+    return _toml_hash(d)
+end
 
 """
     experiment_dir(cfg) -> String
@@ -221,15 +244,84 @@ experiment_dir(cfg::AbstractDict) =
              cfg["experiment"]["matcher"], cfg["experiment"]["problem"])
 
 """
-    keyed_cell_dir(cfg, experiment, kind) -> String
+    keyed_cell_dir(cfg, experiment, kind; files, upstream, parts) -> String
 
 The keyed directory of one cell of `kind` under the results of `experiment`:
-`<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg)>`. A changed config is
+`<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg; files, upstream, parts)>`.
+A changed config (or a folded file, upstream key or part, [`run_key`](@ref)) is
 a new directory, never an overwrite; the config is keyed as given (fold the
 protocols of record into it first).
 """
-keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString) =
-    joinpath(experiment_dir(cfg), experiment, kind * "-" * run_key(cfg))
+keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
+    joinpath(experiment_dir(cfg), experiment, kind * "-" * run_key(cfg; files, upstream, parts))
+
+"""
+    keyed_data_dir(cfg, tier, kind; files, upstream, parts) -> String
+
+The keyed directory of a run that PRODUCES data of the tier `tier` (training
+annotations, a derived pool): `<data_root()>/<tier>/<kind>-<run_key(cfg; …)>`.
+The one place a producer writes under the data root; it writes its records
+with `producer = true` ([`write_run_records`](@ref), [`assert_not_input`](@ref)),
+and a later run reads the directory as an input of that tier. A changed config
+is a new directory, never a resumed or overwritten one.
+"""
+keyed_data_dir(cfg::AbstractDict, tier::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
+    joinpath(data_root(), tier, kind * "-" * run_key(cfg; files, upstream, parts))
+
+"""
+    promote_run(run_dir, tier; name = basename(run_dir)) -> String
+
+A completed run of record (a directory with its `_provenance.toml`, under the
+results root) made an INPUT of record: copied to `<data_root()>/<tier>/<name>`,
+where an `[inputs.<id>]` table names it (`tier`, `path = "<tier>/<name>"`) and
+a data artifact of that tier publishes it (an [`ArtifactView`](@ref) installs it
+like any tier). A run read by another run belongs there, not in the results
+root and not in a directory named by a date. Refuses a run without its record,
+and a destination that holds a different run (another `run_key` in its
+record); the same run again is left as it is. Returns the destination.
+"""
+function promote_run(run_dir::AbstractString, tier::AbstractString; name::AbstractString = basename(rstrip(run_dir, '/')))
+    isfile(joinpath(run_dir, PROVENANCE_FILE)) ||
+        throw(ArgumentError("promote_run: $run_dir holds no $PROVENANCE_FILE: only a recorded run is an input of record"))
+    key = get(read_provenance(run_dir), "run_key", "")
+    dst = joinpath(data_root(), tier, name)
+    if isdir(dst)
+        had = isfile(joinpath(dst, PROVENANCE_FILE)) ? get(read_provenance(dst), "run_key", "") : ""
+        had == key && return dst
+        throw(ArgumentError("promote_run: $dst holds another run (run_key \"$had\", this one \"$key\"): name it otherwise"))
+    end
+    assert_not_input(dst; producer = true)
+    mkpath(dirname(dst))
+    cp(run_dir, dst)
+    return dst
+end
+
+"""
+    verify_inputs(cfg; root = data_root()) -> Dict{String,String}
+
+The `[inputs.<id>]` of a config, checked as the runner checks them
+(`missing_inputs`): each `path` (relative to `root`) is there, and one with a
+`sha256` has that content (streamed, cached: `file_sha256`). Returns `id =>`
+absolute path; an `ArgumentError` names every missing input (id, tier, path)
+and every other content (id, path, expected and actual hash).
+"""
+function verify_inputs(cfg::AbstractDict; root::AbstractString = data_root())
+    out, bad = Dict{String,String}(), String[]
+    for (id, t) in get(cfg, "inputs", Dict{String,Any}())
+        (t isa AbstractDict && haskey(t, "path")) || continue
+        p = joinpath(root, t["path"])
+        if !ispath(p)
+            push!(bad, "input $id ($(get(t, "tier", "?"))): $(t["path"]) is not under $root")
+        elseif haskey(t, "sha256")
+            want = lowercase(string(t["sha256"]))
+            got = isfile(p) ? file_sha256(p) : "a directory"
+            got == want || push!(bad, "input $id ($(t["path"])): sha256 expected $want, actual $got")
+        end
+        out[String(id)] = p
+    end
+    isempty(bad) || throw(ArgumentError("refused: the inputs are not the data of record\n  " * join(sort!(bad), "\n  ")))
+    return out
+end
 
 """
     config_of_record(name; root = project_root()) -> Dict

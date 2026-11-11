@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- **The runner's reuse reads completion markers and the queue, never accounting** (`Reproduce`, src/reproduce/runner.jl).
+  Every task of a stage writes a completion marker, `task-<t>.toml` under `<manifest without .toml>/<stage>/`
+  (`stage_markers_dir`, `stage_markers`): its state (`completed`, `failed`), exit status, start and end, job id,
+  commit, run key, host, `restart_count` (Slurm's `SLURM_RESTART_COUNT`) and the signal it received, written
+  atomically. On a Slurm site the job writes it itself, through a wrapper the runner submits around the stage's
+  launcher (the launcher's `#SBATCH` directives, then a copy of the launcher as submitted); the local backend writes
+  it after every task. `stage_run_state` reads a recorded stage from its markers and the queue; the queue comes from
+  `squeue` (`slurm_queue_states`), which needs no accounting storage, instead of `sacct`, which dgx01 does not keep
+  (`slurm_job_states` remains, as information in `reproduce_status` only).
+- **Changed: `plan_reproduction`'s `job_states` keyword is now `queue_states`** (`ids -> Dict(id => Dict(task =>
+  state))`, what `slurm_queue_states` returns); a caller that passes `job_states` gets an unsupported-keyword error.
+  `reproduce_status` and `reproduce_main` take both (`job_states` there is the sacct extra).
+- **New: a launch's job-name prefix** (`job_name_prefix` in a site's `[slurm]` table, `plan_reproduction(…;
+  job_name_prefix)`, `--job-name-prefix`): every job is named `<prefix><name>`, the name the stage's `job_name`, else
+  its launcher's own `#SBATCH --job-name`, else `<project>-<stage>`. The run keys are taken without it.
+- **Behaviour change: a launch recorded before the completion markers existed reruns its completed Slurm stages
+  once.** Its manifest has no `markers` for a stage, so a stage whose job has left the queue reads as `unknown`, never
+  as completed; the next launch submits it again, and from then on its markers are read.
+- **Fixed: a requeued task is in flight, not failed.** Slurm requeues a task under the same job id (preemption with
+  `PreemptMode=REQUEUE`, `scontrol requeue`) after sending it TERM, which the wrapper records as a `failed` marker.
+  `stage_run_state` read that marker over the queue, so a stage pending or running again read as failed, and the next
+  launch submitted it a second time into the same results. A task the queue holds is now in flight whatever its
+  marker says (a `COMPLETING` task reads its marker).
+- **Fixed: a failing squeue is no empty queue.** `slurm_queue_states` read any non-zero exit as "the job left the
+  queue", so a slurmctld timeout or a controller restart made every in-flight stage `unknown` and the launch submitted
+  duplicates of all of them. Only squeue's "Invalid job id specified" is read as absent; any other failure is an
+  error that stops the launch (and `status`) before anything is submitted (exit 4, squeue's message).
+- **Fixed: `submit_slurm!` runs sbatch without the launching process's `SLURM_*` variables** (`SLURM_CONF` kept), as
+  `run_local!` already did. sbatch's default `--export=ALL` gave a stage's job the parent job's variables: launched
+  from inside an array task, a non-array stage inherited `SLURM_ARRAY_TASK_ID` and `SLURM_ARRAY_JOB_ID`, so its
+  marker was written for the wrong task under the wrong job id and the stage read as unknown on every launch.
+- **Fixed: a job without a name is named `<project>-<stage>`**, not `marker_wrapper.sbatch`: a launcher stage with no
+  `job_name` and no `#SBATCH --job-name` was submitted without `--job-name`, and Slurm named it after the submitted
+  script, now the wrapper. The name is added at submission; the run key is unchanged.
+- **Fixed: the wrapper forwards a launcher's `--signal` signals.** The copied `#SBATCH --signal=B:<sig>@<time>` now
+  signals the wrapper, which had no trap for it and was killed by it, leaving no marker and the launcher unsignalled.
+  The wrapper traps each such signal, forwards it to the launcher and records it in the marker (`signal`); the
+  state follows the launcher's exit status.
+- **Fixed: the launcher's copy runs from a `noexec` results root.** The wrapper executed the copy directly (mode
+  755); it now runs it through the interpreter of its `#!` line (bash without one), and the copy is mode 644.
+
 - **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment
   the plan was made in, so a stage sees only the ones the backend sets (`SLURM_SUBMIT_DIR`, an array's
   `SLURM_ARRAY_TASK_ID`, the site's `SLURM_CPUS_PER_TASK`). Launched from inside a Slurm array task (the test suite's

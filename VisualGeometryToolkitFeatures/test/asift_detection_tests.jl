@@ -140,6 +140,20 @@ end
     end
 end
 
+@testitem "ASIFT pool: the canonical order sorts the columns lexicographically, the covariances alike" begin
+    using Random: Xoshiro
+    const VGF = VisualGeometryToolkitFeatures
+    rng = Xoshiro(5)
+    for n in (1, 2, 7, 500), with_cov in (false, true)
+        # few distinct values, so that columns tie in their leading rows (and some in every row); signed zeros
+        fh = Float32.(rand(rng, -2:2, 9, n)) ./ 2; fh[rand(rng, 1:9n, n ÷ 3 + 1)] .= -0.0f0
+        ch = with_cov ? Float32.(rand(rng, 0:1, 6, n)) : nothing
+        cols = [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n]
+        VGF._canonical_order!(fh, ch)
+        @test [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n] == sort(cols)
+    end
+end
+
 @testitem "ASIFT untilted: tilts = :untilted is the identity warp alone" setup = [Fixtures, TextureFixture] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
     # the untilted view (t = 1) localizes best; restricting ASIFT to it is a schedule of its own

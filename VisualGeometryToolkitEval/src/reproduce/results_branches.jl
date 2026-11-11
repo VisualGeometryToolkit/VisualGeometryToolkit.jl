@@ -57,7 +57,7 @@ end
 # The bytes of each object `objects[k]` (a `rev:path`), from one `git cat-file --batch`: one git process
 # for all of them, not one per asset. An object that does not exist is an error naming it.
 function _git_blobs(dir::AbstractString, objects::AbstractVector{<:AbstractString})
-    out = IOBuffer(_git(dir, "cat-file", "--batch"; bytes = true, input = IOBuffer(join(string.(objects, '\n')))))
+    out = IOBuffer(_git(dir, "cat-file", "--batch"; bytes = true, input = IOBuffer(String(join(string.(objects, '\n'))))))
     return map(objects) do o
         header = readline(out)                       # "<oid> <type> <size>", or "<object> missing"
         endswith(header, " missing") && error("git cat-file --batch (in $dir): $o does not exist")

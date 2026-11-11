@@ -180,6 +180,39 @@ function retcode_symbol(code::ReturnCode.T, rule::StopRule)
     return :solve_failed                                 # InternalLinearSolveFailed
 end
 
+"""
+    retcode_from_symbol(retcode::Symbol, rule::StopRule) -> (ReturnCode.T, StopRule)
+
+The termination record of a loop that reports a legacy Symbol — the inverse of
+[`retcode_symbol`](@ref), so `retcode_symbol(retcode_from_symbol(s, rule)...) === s`.
+`rule` is the rule a SUCCESSFUL stop of that loop fired (its tolerance:
+`CostDecrease`, `IncrementSize`, `ParameterChange`, …), also the one whose
+postcondition a `:stalled` stop failed:
+
+| `retcode` | `ReturnCode` | `StopRule` |
+|:--|:--|:--|
+| `:converged` | `Success` | `rule` |
+| `:solved` | `Success` | `ClosedForm` |
+| `:stalled` | `Stalled` | `rule` |
+| `:max_iterations` | `MaxIters` | `IterationCap` |
+| `:max_time` | `MaxTime` | `TimeCap` |
+| `:solve_failed` | `Failure` | `NonFinite` |
+| `:degenerate` | `InitialFailure` | `NoRule` |
+
+Any other Symbol (a RANSAC's `:no_model`, a local optimization's acceptance
+status) is an `ArgumentError`: its producer states its record itself.
+"""
+function retcode_from_symbol(retcode::Symbol, rule::StopRule)
+    retcode === :converged && return (ReturnCode.Success, rule)
+    retcode === :solved && return (ReturnCode.Success, ClosedForm)
+    retcode === :stalled && return (ReturnCode.Stalled, rule)
+    retcode === :max_iterations && return (ReturnCode.MaxIters, IterationCap)
+    retcode === :max_time && return (ReturnCode.MaxTime, TimeCap)
+    retcode === :solve_failed && return (ReturnCode.Failure, NonFinite)
+    retcode === :degenerate && return (ReturnCode.InitialFailure, NoRule)
+    throw(ArgumentError("retcode_from_symbol: `:$retcode` is no iterative fit's retcode; its producer states its record"))
+end
+
 # The verdicts in increasing severity, for `worst_retcode`.
 _severity(c::ReturnCode.T) =
     c == ReturnCode.Success ? 0 : c == ReturnCode.Terminated ? 1 : c == ReturnCode.Stalled ? 2 :

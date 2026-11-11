@@ -555,7 +555,7 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
 # names and success rule, matched without the dependency), and the rule that fired, a `StopRule`.
 public ReturnCode, successful_retcode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
     ParameterChange, NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap,
-    NonFinite, Callback, TrialBudget, AdaptiveCount, return_code, stop_rule, found_model, retcode_symbol, worst_retcode
+    NonFinite, Callback, TrialBudget, AdaptiveCount, return_code, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
 public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights

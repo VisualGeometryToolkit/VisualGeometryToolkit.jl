@@ -42,6 +42,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
     yet, so no result's `converged` moves in this release of the interface.
   - `nlls_termination(result_or_bits, postcondition)` maps NLLSsolver's termination bits to `(ReturnCode, StopRule)`
     in `nlls_stop_code`'s one order. `lmsolve_chart!` returns it as a fifth value, under its own stall postcondition.
+    `retcode_from_symbol(s, rule)` is `retcode_symbol`'s inverse, for a loop that still reports a Symbol.
     `worst_retcode` combines the solves of a multi-solve fit (the most severe; the later on a tie).
 - **New: the robust stages' scale hand-off, `ScaleSource`, `noise_scale`, `scale_source` and `scale_input`**
   (public; the robust-estimation contract, owner rulings Q1/Q2). Every robust result will record ONE scale — the one it

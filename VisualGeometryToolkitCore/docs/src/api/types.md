@@ -82,6 +82,7 @@ return_code
 stop_rule
 found_model
 retcode_symbol
+retcode_from_symbol
 worst_retcode
 ```
 

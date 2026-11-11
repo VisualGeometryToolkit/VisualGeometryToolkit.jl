@@ -90,6 +90,18 @@
         @test retcode_symbol(ReturnCode.InternalLinearSolveFailed, NonFinite) === :solve_failed
     end
 
+    @testset "retcode_from_symbol: the inverse of retcode_symbol" begin
+        for s in (:converged, :solved, :stalled, :max_iterations, :max_time, :solve_failed, :degenerate),
+                rule in (CostDecrease, IncrementSize, ParameterChange, NoImprovement)
+            rec = @inferred VgtkCore.retcode_from_symbol(s, rule)
+            @test retcode_symbol(rec...) === s
+        end
+        @test VgtkCore.retcode_from_symbol(:converged, ParameterChange) === (ReturnCode.Success, ParameterChange)
+        @test VgtkCore.retcode_from_symbol(:max_iterations, ParameterChange) === (ReturnCode.MaxIters, IterationCap)
+        @test_throws ArgumentError VgtkCore.retcode_from_symbol(:no_model, NoRule)
+        @test_throws ArgumentError VgtkCore.retcode_from_symbol(:thin_partition, NoRule)
+    end
+
     @testset "worst_retcode: the most severe solve, the later on a tie" begin
         ok = (ReturnCode.Success, CostDecrease)
         @test @inferred(worst_retcode(ok)) === ok
@@ -146,7 +158,7 @@
 
     @testset "public" begin
         for n in (:ReturnCode, :successful_retcode, :StopRule, :return_code, :stop_rule, :found_model,
-                  :retcode_symbol, :worst_retcode, :nlls_termination, :test_termination_record, :LadderConverged)
+                  :retcode_symbol, :retcode_from_symbol, :worst_retcode, :nlls_termination, :test_termination_record, :LadderConverged)
             @test Base.ispublic(VgtkCore, n)
         end
         @test VgtkCore.return_code in VgtkCore.CONTRACT_GENERICS && VgtkCore.stop_rule in VgtkCore.CONTRACT_GENERICS

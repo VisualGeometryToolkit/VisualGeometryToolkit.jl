@@ -290,12 +290,10 @@ end
     θ = EssentialMat(R, t)
     lo = VgtkEstimation.NoLocalOptimization()
     # 0.02 is the OLD calibrated default; in pixels it is nothing — refused as
-    # the default MSAC's threshold and as a caller's threshold scorer's.
-    @test_throws ArgumentError find_essential(cam, cam, csponds(a, b); threshold = 0.02)
+    # a threshold scorer's threshold, the class default's or a caller's.
     @test_throws ArgumentError find_essential(cam, cam, csponds(a, b); scoring = MsacScoring(p; threshold = 0.02))
     @test_throws ArgumentError VgtkEstimation.ransac(p, MsacScoring(p; threshold = 0.02))
     @test_throws ArgumentError VgtkEstimation.ransac(p, RansacScoring(p; threshold = 0.02))
-    @test_throws ArgumentError locally_optimize(p, θ; threshold = 0.02, local_optimization = lo)
     @test_throws ArgumentError locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 0.02), local_optimization = lo)
     err = try
         VgtkEstimation.ransac(p, MsacScoring(p; threshold = 0.02)); nothing
@@ -304,11 +302,11 @@ end
     end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     # A pixel value is accepted on the same entries — the class default (1 px) included.
-    @test locally_optimize(p, θ; threshold = 1.0, local_optimization = lo) !== nothing
+    @test locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 1.0), local_optimization = lo) !== nothing
     @test converged(find_essential(cam, cam, csponds(a, b); rng = StableRNG(2035)))
     # A unit-focal camera's "pixel" IS a calibrated unit, so a calibrated
     # threshold is right there and is not refused.
     pc = EssentialProblem(IDCAM, IDCAM, csponds(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))
-    @test locally_optimize(pc, θ; threshold = 0.002, local_optimization = lo) !== nothing
+    @test locally_optimize(pc, θ; scoring = MsacScoring(pc; threshold = 0.002), local_optimization = lo) !== nothing
 end
 end

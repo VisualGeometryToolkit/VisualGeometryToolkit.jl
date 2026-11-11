@@ -90,9 +90,9 @@
         # the device kernels, launched on KA.CPU() (the public functions take the CPU fast path)
         KA = VgtkCore.KA
         rk = zeros(2n); Jk = zeros(2n, 8)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, TransferForm(Hv), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, TransferForm(Hv),
-            VgtkCore._direction_rows(retract_jacobian(ch, v)), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_residual_row!, rk, TransferForm(Hv), (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_jacobian_row!, Jk, TransferForm(Hv),
+            VgtkCore._direction_rows(retract_jacobian(ch, v)), (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
         KA.synchronize(KA.CPU())
         # the drivers inline the same row function at different sites, so muladd
         # fusion may differ within a row: bounded relative to max|r| (where fusion

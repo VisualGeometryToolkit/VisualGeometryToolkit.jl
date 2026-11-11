@@ -28,6 +28,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `inlier_count(scoring, W)` and `consensus_order(scoring, W)` on a workspace another scorer built are an
   `ArgumentError` naming the fix (was a `MethodError`); `check_workspace` ignores the fallback. A caller that holds a
   scorer of an abstract type (a refine's anchoring scorer) analyses clean under JET.
+- **New naming rule R12: the Student-t + uniform scorer has no threshold** (the owner's ruling: every scorer takes its
+  own width keyword exactly). `check_naming` flags the word `threshold` within six tokens of the scorer's type name or
+  its TOML tag, in code, comments, docs and configuration (a changelog excepted); `inlier_threshold` and
+  `decision_threshold`, the contract's decision point, are other names. `conventions/naming.md` states the rule.
+  Downstream quality gates see it on their next Core: a refusal test spells the word apart (`"thres" * "hold"`).
 
 - **New: the Student-t + uniform marginal scorer, `StudentTUniformScoring`, moved here from RANSACScoringDoneRight**
   (the owner's ruling: hoisted with no duplication; RSDR deletes its copies and imports these). Moved, not rewritten
@@ -70,11 +75,36 @@ sensor — so every consumer asks the camera what it images instead of supplying
   1e-14). The CPU launch is slower: Sampson residuals of 100 / 1000 correspondences took 0.18 / 1.6 µs as a loop and
   14 / 90 µs as a kernel (medians, in a 224-thread process: KernelAbstractions' CPU launch spawns a task per thread).
 
+- **Faster: the CPU launches of the row and pointwise kernels specialize** (fixing the V3/V4 slowdowns above).
+  `_row_kernel!` took `args...` and `pointwise!`'s field kernels a function field they only hand on; Julia compiled
+  both for a widened signature (`Vararg{Any}`, `Function`) and KernelAbstractions' CPU backend ran every row or point
+  through it as a dynamic call with boxed arguments (≈150 B a Sampson row, ≈380 B an undistorted point). Type
+  parameters on those arguments force the specialization; the device kernels are unchanged and the results are the
+  same bit for bit. Sampson residuals of 100 / 1000 rows: 8.4 / 83 µs → 0.25 / 1.4 µs (a plain loop: 0.13 / 1.3 µs);
+  the OpenCV undistortion of 256 / 1024 / 10⁶ points: 137 µs / 0.54 ms / 62 ms → 79 µs / 0.31 ms / 4.6 ms (minima,
+  224 threads; at 10⁶ points the kernel matches a hand-threaded host loop). KernelAbstractions' CPU default already
+  runs ≤ 1024 items as one workgroup with no task spawned.
+
+- **Fixed: an LM row fill allocates nothing on the host again.** KernelAbstractions' kernel call is itself a vararg
+  method, compiled for `Vararg{Any}` when it is given more than one argument, so every `_row_kernel!` launch boxed its
+  arguments and dispatched dynamically (≈290 B a launch on the CPU). `_row_kernel!` now takes one argument, the job
+  tuple `(row!, out, args...)`, and the launch allocates nothing. The allocation-free refits are allocation-free again:
+  Estimation's RotationProblem and CircleProblem refits and its whitened rows allocated 335664 / 149472 / 10816 B
+  before the specialization fix, 3056 / 2816 / 288 B after it, and now 0 B.
+
 - **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
   `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is
   and becomes the target float type through one KernelAbstractions kernel on every backend, the CPU's included, bit for
   bit the host's `T.(A)`; no host-converted copy. A 50 Mpx 8-bit image to Float32 on a B200: 113 ms → 3.2 ms (median
   of 7; 87 ms of the old time was the host's conversion, and it moved 4 B/px instead of 1).
+
+- **Faster: `ka_upload` / `on_device` of a reinterpreted or reshaped dense host image uploads its memory as it is.** A
+  host wrapper that is a dense array's memory in order (BlobBoards' `reinterpret(N0f8, ::Matrix{Gray{N0f8}})`, a
+  reshape of a reinterpret, a contiguous view) goes to the device by one `copyto!` from an `Array` over that memory,
+  with no host copy, and then through the one conversion kernel; a strided view or an adjoint is still materialized.
+  Bit for bit the host's `T.(A)`. A 50 Mpx 8-bit Gray{N0f8} image to Float32 on a B200: 46 → 5.1 ms (median; min
+  35 → 3.0 ms; the dense UInt8 array: 3.8 ms), host allocation 50 MB → 2.3 KB. An empty integer image no longer
+  launches the conversion over an empty range (a `DivideError` on CUDA).
 
 - **New: the exact grid selection's kernels, `exact_pm_score_kernel!` and `argmax_models_kernel!`** (public, not
   exported; robust/pool_grid_kernels.jl), moved from RANSACScoringDoneRight (the twin audit's V1): per (pair, model) the

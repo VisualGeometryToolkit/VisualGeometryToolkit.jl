@@ -357,6 +357,23 @@ end
         )
     end
 
+    @testset "R12: the Student-t + uniform scorer has no threshold" begin
+        TH = "thres" * "hold"     # the word, spelled so this file is no finding of its own
+        @test rules("src/a.jl" => "sc = StudentTUniformScoring(P; $(TH) = 3.0)\n") == [:R12]
+        @test rules("src/a.jl" => "sc = StudentTUniformScoring(P, $(TH))\n") == [:R12]
+        @test rules("configs/a.toml" => "[p]\nscoring = { type = \"student_t_uniform\", $(TH) = 3.0 }\n") == [:R12]
+        @test rules("docs/a.md" => "the $(TH) of the StudentTUniformScoring\n") == [:R12]
+        @test rules("src/a.jl" => "f(x) = x   # the student_t_uniform scorer's $(TH)\n") == [:R12]
+        # its width by its name, and the contract's decision point, are no finding
+        @test isempty(rules("src/a.jl" => "sc = StudentTUniformScoring(P, outlier_halfwidth)\n"))
+        @test isempty(rules("src/a.jl" => "w = inlier_$(TH)(sc::StudentTUniformScoring, buf)\n"))
+        # an MSAC width far from the Student-t's name is no finding
+        @test isempty(rules("src/a.jl" => "a = MsacScoring(P; $(TH) = 3.0)\n" * "x = 1\n"^4 *
+                                         "b = StudentTUniformScoring(P, outlier_halfwidth)\n"))
+        # a changelog records what was renamed
+        @test isempty(rules("CHANGELOG.md" => "the $(TH) of StudentTUniformScoring is outlier_halfwidth\n"))
+    end
+
     @testset "R11: units in one place" begin
         @test rules("src/a.jl" => "u = uparse(s)\n") == [:R11]
         @test rules("src/a.jl" => "q = VisualGeometryToolkitCore.qparse(s)\n") == [:R11]

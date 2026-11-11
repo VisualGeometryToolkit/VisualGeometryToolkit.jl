@@ -106,8 +106,9 @@ as a keyword:
 ```julia
 using VisualGeometryToolkitEstimation, LocalOptimizationDoneRight
 using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
-find_homography(cs)       # core default: MsacScoring + Irls{TLSShape} at the scorer's threshold
-find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),  # a scorer (Core's)
+find_homography(cs)       # core default: the class's scorer (MSAC) + Irls{TLSShape} at its decision point
+find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0;   # outlier half-width, pixels
+                        scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
                     local_optimization = HQ{WelschShape}())                     # an optimizer (LODR)
 ```
 

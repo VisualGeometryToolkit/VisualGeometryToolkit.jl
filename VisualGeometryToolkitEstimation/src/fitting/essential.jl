@@ -15,10 +15,9 @@
 # =============================================================================
 
 """
-    find_essential(camera1, camera2, pixel_cs; threshold=1.0,
+    find_essential(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(),
-        scoring=nothing, config=nothing)
+        local_optimization=Irls{TLSShape}(), config=nothing)
 
 Robust essential-matrix estimation via 5-point RANSAC with MSAC scoring. Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.essential]`); a keyword overrides.
@@ -50,19 +49,18 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   (`Csponds`, `StructArray{<:Pair}` or a Pair vector); a `Csponds` `:score`
   column is the per-match prior (PROSAC; uniform otherwise) and travels to the
   bearing problem with every other attribute column.
-- `threshold`: the MSAC inlier threshold, **in PIXELS**. `M` picks the unit and the call cannot: the residual is whitened by
-  the back-projection Jacobian, so the threshold it is compared against is in
+- `scoring`: the scorer, its width **in PIXELS** (default `[pipelines.essential] scoring`, MSAC at 1 px). `M` picks the unit and the call cannot: the residual is whitened by
+  the back-projection Jacobian, so the width it is compared against is in
   pixels; an orthonormal tangent basis would put the same number in radians.
   THE UNIT CHANGED — this was in calibrated coordinates until the bearing port,
   and no pixel value reproduces the old `0.02` across cameras because `0.02·f`
   is f-dependent (≈16 px at f = 800, ≈24 px at f = 1200). Values below
-  VisualGeometryToolkitFeatures' 0.06 px refinement bound — a threshold or a
-  scorer's outlier half-width — are REFUSED
+  VisualGeometryToolkitFeatures' 0.06 px refinement bound — a threshold
+  scorer's threshold or the Student-t scorer's outlier half-width — are REFUSED
   (`ArgumentError`) rather than silently honoured, since they are almost
   always a calibrated leftover — and refused by every entry that scores an
-  `EssentialProblem`, not only this keyword: a `scoring` supplied here, or
+  `EssentialProblem`: a `scoring` supplied here, the class default, or
   `ransac` / `locally_optimize` called directly.
-  Builds the default scoring only; supplying it with `scoring` is an `ArgumentError`.
 - `local_optimization`: LO-RANSAC strategy (default `Irls{TLSShape}()`, as
   [`find_homography`](@ref)).
 - the other keywords as [`find_homography`](@ref).
@@ -85,14 +83,14 @@ end
 
 
 """
-    refine_essential(E, camera1, camera2, pixel_cs; threshold = 1.0,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_essential(E, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The essential matrix `E` refined against the PIXEL correspondences `pixel_cs`
 of the cameras `camera1`, `camera2`: [`find_essential`](@ref)'s step without the
 sampling, on the same bearing problem (each view back-projected with its own
-camera; the threshold in pixels, sub-detector values refused).
+camera; the scorer's width in pixels, sub-detector values refused).
 `local_optimization` is the essential matrix's RANSAC local-optimization step,
 run here alone from the given model (no sampling). Every default is
 `find_essential`'s (`[pipelines.essential]`); the keywords are those of every

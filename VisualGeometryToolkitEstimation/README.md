@@ -46,7 +46,8 @@ count(result.inlier_mask)                     # 32, the true correspondences
 H = Matrix(estimate(result))
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true
 
-result_2px = find_homography(csponds(src, dst); threshold = 2.0)   # a keyword overrides a default
+result_2px = find_homography(csponds(src, dst);   # a scorer overrides the class's
+                           scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0))
 ```
 
 The [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/getting-started/)

@@ -92,6 +92,12 @@
         u = Vector{SVector{2, Float64}}(undef, length(rays))
         project!(u, cam, rays)
         @test isequal(u, [project(cam, X) for X in rays])
+        # nothing allocated per point: the launch's own objects only, whatever the batch size (both
+        # batches one workgroup, so one task: KernelAbstractions' CPU default is 1024 items a
+        # workgroup). A field kernel compiled for a widened signature (a function field taken as
+        # `Function`) boxed the functor at every point (≈380 bytes a point, 2026-11-11).
+        point_allocs(out, lens, xs) = (undistort_normalized!(out, lens, xs); @allocated undistort_normalized!(out, lens, xs))
+        @test point_allocs(similar(pts, 1000), OCV, pts[1:1000]) == point_allocs(similar(pts, 10), OCV, pts[1:10])
         # pointwise! itself: any per-point function, several inputs
         a, b = randn(rng, 100), randn(rng, 100)
         @test pointwise!(hypot, similar(a), a, b) == hypot.(a, b)

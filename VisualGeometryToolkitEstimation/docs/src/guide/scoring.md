@@ -46,9 +46,9 @@ scoring = RansacScoring(problem; threshold = 2.0)
 result  = ransac(problem, scoring)
 ```
 
-Every `find_*` builds `MsacScoring(problem; threshold)` when no `scoring` is
-given, at the caller's `threshold` or the class's `[pipelines.<class>]` value
-in `configs/default.toml`. The thresholds are in the problem's residual unit —
+Every `find_*` reads its class's scorer, `[pipelines.<class>] scoring` in
+`configs/default.toml` (read by [`scoring_from_toml`](@ref)), when no
+`scoring` is given; every class's is MSAC. The thresholds are in the problem's residual unit —
 pixels for every pixel-data class, E and PnP included, whose residuals are
 whitened into pixels by the cameras — and are conventions, not tuned values
 (H, F, radial homography, radial camera 3 px; E 1 px; PnP 8 px). Hand-eye's

@@ -30,7 +30,8 @@ replaced only with sign-off), [`gather_numbers`](@ref) (the numbers file) and
 [`uncited_macros`](@ref) (numbers the paper defines but never cites); and the
 one writer of a driver's number macros: [`PaperNumbers`](@ref),
 [`add_number!`](@ref), [`add_table_row!`](@ref), [`write_numbers`](@ref),
-[`tex_number`](@ref) and [`number_macro_name`](@ref); and a full
+[`tex_number`](@ref) and [`number_macro_name`](@ref), and where its numbers
+come from: [`checkout_commit`](@ref) and [`number_provenance`](@ref); and a full
 reproduction as a branch of the paper for review: [`results_branch`](@ref),
 [`accept_results`](@ref) and [`remove_results_worktree`](@ref); and the
 runner that reproduces a project with one command: a stage graph of record
@@ -47,10 +48,13 @@ using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
 using ..Tuning: _git_identity                  # results_branches.jl: a checkout's HEAD and its dirtiness, the package's one rule
 import ..cli_option                             # src/cli.jl: runner.jl reads its options through it
+using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
+using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
 
 include("reproduce/reproduce_index.jl")
 include("reproduce/number_macros.jl")
 include("reproduce/paper_assets.jl")
+include("reproduce/number_provenance.jl")
 include("reproduce/results_branches.jl")
 include("reproduce/runner.jl")
 include("reproduce/run_results_branch.jl")
@@ -61,6 +65,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     fragment_coordinates, compare_fragments, verify_assets, assets_deployed, deploy_assets,
     gather_numbers, uncited_macros,
     PaperNumbers, add_number!, add_table_row!, add_macro!, write_numbers, tex_number, number_macro_name,
+    checkout_commit, number_provenance,
     results_branch, accept_results, remove_results_worktree,
     Site, StageSpec, StageGraph, PlannedStage, ReproducePlan, load_site, shipped_sites, load_stage_graph, select_stages,
     stage_items, missing_inputs, resolve_roots, plan_reproduction, print_plan, print_missing, run_manifests,

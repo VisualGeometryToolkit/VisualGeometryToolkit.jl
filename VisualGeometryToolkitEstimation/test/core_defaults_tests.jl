@@ -4,13 +4,13 @@
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
 # The core's defaults (K+ phase 4): every `find_*` scores with
-# VisualGeometryToolkitCore's MSAC at its class's threshold convention
-# (configs/default.toml `[pipelines.<class>] threshold`, read through `_dflt`;
+# its class's scorer of record, MSAC at the class's threshold convention
+# (configs/default.toml `[pipelines.<class>] scoring`, read by scoring_from_toml;
 # hand-eye's a fraction of the characteristic length) and refines with
-# `Irls{TLSShape}()`, which follows MSAC's threshold. `threshold` is the one
-# width keyword; `outlier_halfwidth` (a marginal scorer's) is refused, naming
-# the way to say it; `threshold` with `scoring` is refused; the essential
-# problem refuses a sub-detector threshold. And each pipeline converges on its
+# `Irls{TLSShape}()`, which follows the scorer's decision point. A width is its
+# scorer's: no entry takes a bare `threshold` or `outlier_halfwidth` keyword
+# (each refused, naming `scoring`); the essential problem refuses a
+# sub-detector threshold. And each pipeline converges on its
 # synthetic scene under the defaults alone.
 #
 # Every `refine_*` is its `find_*`'s local-optimization step alone, from a given
@@ -24,14 +24,14 @@ using StableRNGs
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, csponds, radial_transfer, RadialHomography,
-    HomographyMat, inlier_threshold, rotation, translation
+    HomographyMat, inlier_threshold, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, Circle
-using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _default_scoring_at, _threshold_unit, RadialHomographyProblem,
+using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem,
     RadialCameraProblem, find_radial_homography, find_radial_camera, HandEyeProblem, NoLocalOptimization,
-    RansacConfig, RansacWorkspace
+    RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
 
-thr(class) = Float64(_dflt("pipelines.$class", "threshold"))
+thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
 
 # --- the scenes ---------------------------------------------------------------
 function h_scene()
@@ -97,7 +97,12 @@ function same_run(r_default, r_explicit)
     @test r_default.quality == r_explicit.quality
 end
 
-@testset "the class threshold conventions of record" begin
+@testset "the class scorers of record: MSAC at the threshold conventions" begin
+    for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
+                  :radial_homography, :radial_camera, :hand_eye)
+        @test _dflt("pipelines.$class", "scoring")["type"] == "msac"
+        @test !haskey(_dflt("pipelines.$class", "scoring"), "outlier_halfwidth")
+    end
     @test (thr(:homography), thr(:fundmat), thr(:essential), thr(:absolute_pose)) == (3.0, 3.0, 1.0, 8.0)
     @test (thr(:radial_homography), thr(:radial_camera), thr(:hand_eye)) == (3.0, 3.0, 0.01)
     for class in (:homography, :fundmat, :essential, :absolute_pose, :radial_homography, :radial_camera, :hand_eye)
@@ -106,8 +111,8 @@ end
     # the default scorer, and the workspace a problem type is pre-allocated for
     cs, _ = h_scene()
     p = HomographyProblem(cs)
-    @test _default_scoring_at(p, 3.0) === MsacScoring(p; threshold = 3.0)
-    @test _threshold_unit(p) == 1.0
+    @test _class_scoring(p, :homography, nothing) === MsacScoring(p; threshold = 3.0)
+    @test _width_unit(p) === nothing
     ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
     @test ws.buf.scoring_ws isa VgtkCore.ThresholdScoringWorkspace
 end
@@ -118,7 +123,6 @@ end
         p = HomographyProblem(cs)
         r = find_homography(cs; rng = StableRNG(1))
         same_run(r, find_homography(cs; scoring = MsacScoring(p; threshold = thr(:homography)), rng = StableRNG(1)))
-        same_run(r, find_homography(cs; threshold = thr(:homography), rng = StableRNG(1)))
         @test count(r.inlier_mask[1:n_in]) > 0.9 * n_in && count(r.inlier_mask[(n_in + 1):end]) < 10
         @test r.lo_retcode !== :not_run                                     # the default LO ran
     end
@@ -166,57 +170,129 @@ end
         cs, X = hand_eye_scene()
         r = find_hand_eye(cs; rng = StableRNG(7))
         p = HandEyeProblem(cs; min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")))
-        @test _threshold_unit(p) == p.char_length
+        @test _width_unit(p) == p.char_length
         same_run(r, find_hand_eye(cs; scoring = MsacScoring(p; threshold = thr(:hand_eye) * p.char_length), rng = StableRNG(7)))
         @test norm(translation(estimate(r)) - translation(X)) < 0.01
     end
 end
 
-@testset "the width keywords: threshold, never outlier_halfwidth" begin
+# One deep comparison of two RANSAC results: every field, `isequal` (NaN equal to NaN), arrays element by element.
+deq(a, b) = isequal(a, b)
+deq(a::AbstractArray, b::AbstractArray) = size(a) == size(b) && all(deq(x, y) for (x, y) in zip(a, b))
+function deq(a::T, b::T) where {T}
+    isbitstype(T) && return isequal(a, b)
+    fieldcount(T) == 0 && return isequal(a, b)
+    return all(deq(getfield(a, f), getfield(b, f)) for f in fieldnames(T))
+end
+
+# The find_* pipelines on the one robust-estimation schema: each class's scorer is its [pipelines.<class>] `scoring`
+# table, read by scoring_from_toml; the defaults are today's (MSAC at the class conventions), bit for bit; a Student-t +
+# uniform scorer built from a table reaches the pipeline with exactly its outlier half-width and runs as `ransac` on
+# the class's problem; each scorer takes its own width key, and a bare width keyword is refused.
+@testset "find_*: the one scorer schema, every class" begin
+    TODAY = Dict(:homography => 3.0, :fundmat => 3.0, :essential => 1.0, :rotation => 1.0, :circle => 1.0,
+                 :ellipse => 1.0, :absolute_pose => 8.0, :radial_homography => 3.0, :radial_camera => 3.0, :hand_eye => 0.01)
+    cs_h, _ = h_scene()
+    u₁, u₂, _ = stereo_scene(PCAM); cs_f = StructArray(u₁ .=> u₂)
+    v₁, v₂, _ = stereo_scene(ECAM; seed = 14); cs_e = csponds(v₁, v₂)
+    cs_p = pnp_scene()
+    rh, _ = radial_homography_scene(); c_rh = (RW / 2, RH / 2)
+    rc, _ = radial_camera_pairs()
+    he, _ = hand_eye_scene()
+    pts_c, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
+    pts_e, _ = ellipse_scene(Xoshiro(34), 300; outl = 0.3)
+    cs_r = rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120; outl = 0.3)[1]
+    min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
+    cases = (   # class, the find_* on its data, the class's problem
+        (:homography, kw -> find_homography(cs_h; kw...), HomographyProblem(cs_h)),
+        (:fundmat, kw -> find_fundmat(cs_f; kw...), FundMatProblem(cs_f)),
+        (:essential, kw -> find_essential(ECAM, ECAM, cs_e; kw...), EssentialProblem(ECAM, ECAM, cs_e)),
+        (:rotation, kw -> find_rotation(FISHEYE, FISHEYE, cs_r; kw...), RotationProblem(FISHEYE, FISHEYE, cs_r)),
+        (:circle, kw -> find_circle(pts_c; kw...), CircleProblem(pts_c)),
+        (:ellipse, kw -> find_ellipse(pts_e; kw...), EllipseProblem(pts_e)),
+        (:absolute_pose, kw -> find_absolute_pose(PCAM, cs_p; kw...), AbsolutePoseProblem(PCAM, cs_p)),
+        (:radial_homography, kw -> find_radial_homography(rh; center = c_rh, kw...), RadialHomographyProblem(rh; center = c_rh)),
+        (:radial_camera, kw -> find_radial_camera(rc; center = RC_CENTER, kw...), RadialCameraProblem(rc; center = RC_CENTER)),
+        (:hand_eye, kw -> find_hand_eye(he; kw...), HandEyeProblem(he; min_rel_angle)),
+    )
+    for (seed, (class, run, p)) in enumerate(cases)
+        @testset "$class" begin
+            P = typeof(p)
+            tbl = _dflt("pipelines.$class", "scoring")
+            # the class's scorer of record: today's MSAC at today's value, in the problem's unit
+            τ = TODAY[class] * (class === :hand_eye ? p.char_length : 1.0)
+            @test tbl == Dict("type" => "msac", "threshold" => TODAY[class])
+            @test _class_scoring(p, class, nothing) === MsacScoring(p; threshold = τ)
+            @test deq(run((; rng = StableRNG(seed))), run((; scoring = MsacScoring(p; threshold = τ), rng = StableRNG(seed))))
+            # a Student-t + uniform scorer from its table: exactly its outlier half-width, through the find_* unchanged
+            h = 7.25
+            st = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => h); problem = P)
+            @test st isa StudentTUniformScoring && VgtkCore.outlier_halfwidth(st) === h
+            @test deq(run((; scoring = st, rng = StableRNG(seed))),
+                      VgtkEstimation.ransac(p, st; local_optimization = _dflt_lo(class), rng = StableRNG(seed),
+                                            config = RansacConfig()))
+            # the LO follows the scorer: the class's strategy has no width of its own
+            @test VgtkCore.lo_width(_dflt_lo(class)) === nothing || class in (:circle, :ellipse)
+            # each scorer takes its own width key only (TOML), and a bare width keyword is refused (function level)
+            TH, OH = "thres" * "hold", "outlier_halfwidth"   # (spelled apart: no Student-t is called a threshold here)
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "student_t_uniform", TH => 3.0); problem = P)
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "student_t_uniform", OH => 3.0, TH => 3.0); problem = P)
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac", OH => 3.0); problem = P)
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac", TH => 3.0, OH => 3.0); problem = P)
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac"); problem = P)                  # missing
+            @test_throws ArgumentError scoring_from_toml(Dict("type" => "student_t_uniform"); problem = P)     # missing
+            @test_throws ArgumentError run((; scoring = st, Symbol(TH) => 3.0))
+            @test_throws ArgumentError run((; scoring = MsacScoring(p; threshold = τ), Symbol(OH) => 3.0))
+            @test_throws ArgumentError run((; Symbol(TH) => τ))
+            @test_throws MethodError MsacScoring(p; Symbol(OH) => 3.0)
+            @test_throws MethodError StudentTUniformScoring(p; Symbol(TH) => 3.0)
+        end
+    end
+    # the messages name each scorer's own key
+    err = try scoring_from_toml(Dict("type" => "student_t_uniform", "thres" * "hold" => 3.0); problem = HomographyProblem{Float64}) catch e; e end
+    @test occursin("takes `outlier_halfwidth`", err.msg)
+    err = try scoring_from_toml(Dict("type" => "msac", "outlier_halfwidth" => 3.0); problem = HomographyProblem{Float64}) catch e; e end
+    @test occursin("takes `threshold`", err.msg)
+    # a [pipelines.<class>] table holds the class's scorer and strategy (hand-eye its motion pairs, the radial
+    # homography the lift seed's table), never a bare width
+    for (class, t) in VgtkEstimation._TOML_DEFAULTS["pipelines"]
+        @test issubset(keys(t), ("scoring", "local_optimization", "motion_pairs", "lift_seed"))
+    end
+end
+
+@testset "the width keywords: refused, a width is its scorer's" begin
     cs, _ = h_scene()
     p = HomographyProblem(cs)
     θ = estimate(find_homography(cs; rng = StableRNG(1)))
     lo = NoLocalOptimization()
-    # `outlier_halfwidth` is refused on every core entry, naming the way to say it
-    for call in (
-            () -> find_homography(cs; outlier_halfwidth = 20.0),
-            () -> locally_optimize(p, θ; outlier_halfwidth = 20.0, local_optimization = lo),
-        )
-        err = try
-            call(); nothing
-        catch e
-            e
-        end
-        @test err isa ArgumentError
-        @test occursin("`outlier_halfwidth` is no keyword of the core entries", err.msg)
-        @test occursin("MSAC at `threshold`", err.msg)
-        @test occursin("StudentTUniformScoring", err.msg)               # the way to supply a marginal scorer
-    end
-    # `threshold` builds only the default scoring: with `scoring` it is refused
     sc = MsacScoring(p; threshold = 3.0)
-    for call in (
-            () -> find_homography(cs; threshold = 3.0, scoring = sc),
-            () -> locally_optimize(p, θ; threshold = 3.0, scoring = sc, local_optimization = lo),
-        )
-        err = try
-            call(); nothing
-        catch e
-            e
+    # a bare `threshold` and a bare `outlier_halfwidth` are refused on every entry, alone or beside a scorer,
+    # naming `scoring` and the scorer that takes the width
+    for (key, val, scorer) in ((:threshold, 3.0, "MsacScoring"), (:outlier_halfwidth, 20.0, "StudentTUniformScoring"))
+        for call in (
+                () -> find_homography(cs; (; key => val)...),
+                () -> find_homography(cs; scoring = sc, (; key => val)...),
+                () -> refine_homography(θ, cs; (; key => val)...),
+                () -> locally_optimize(p, θ; scoring = sc, local_optimization = lo, (; key => val)...),
+                () -> locally_optimize(p, VgtkCore.FixedModels(1, (θ, θ)); scoring = sc,
+                                       local_optimization = lo, (; key => val)...),
+            )
+            err = try
+                call(); nothing
+            catch e
+                e
+            end
+            @test err isa ArgumentError
+            @test occursin("`$(key)` is no keyword of the RANSAC entries", err.msg)
+            @test occursin("scoring = $(scorer)", err.msg)
         end
-        @test err isa ArgumentError && occursin("supply `threshold` or `scoring`, not both", err.msg)
     end
-    # `locally_optimize` takes no class: a threshold or a scoring is required
-    err = try
-        locally_optimize(p, θ; local_optimization = lo); nothing
-    catch e
-        e
-    end
-    @test err isa ArgumentError && occursin("`threshold` is required", err.msg)
-    r = locally_optimize(p, θ; threshold = 3.0, local_optimization = Irls{TLSShape}())
+    # `locally_optimize` takes no class: its scorer is required
+    @test_throws UndefKeywordError(:scoring) locally_optimize(p, θ; local_optimization = lo)
+    r = locally_optimize(p, θ; scoring = sc, local_optimization = Irls{TLSShape}())
     @test converged(r)
-    @test r.inlier_mask == locally_optimize(p, θ; scoring = sc, local_optimization = Irls{TLSShape}()).inlier_mask
     # a non-positive threshold is the scorer's refusal
-    @test_throws ArgumentError find_homography(cs; threshold = 0.0)
+    @test_throws ArgumentError find_homography(cs; scoring = MsacScoring(p; threshold = 0.0))
 end
 
 @testset "essential: a sub-detector threshold is refused" begin
@@ -224,20 +300,20 @@ end
     cs = csponds(u₁, u₂)
     p = EssentialProblem(ECAM, ECAM, cs)
     err = try
-        find_essential(ECAM, ECAM, cs; threshold = 0.02); nothing
+        find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.02)); nothing
     catch e
         e
     end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     @test_throws ArgumentError find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.05))
     @test inlier_threshold(MsacScoring(p; threshold = 0.06), nothing) == 0.06
-    @test find_essential(ECAM, ECAM, cs; threshold = 0.06, rng = StableRNG(8)) !== nothing   # at the floor: accepted
+    @test find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.06), rng = StableRNG(8)) !== nothing   # at the floor: accepted
 end
 
 @testset "refine_*: the keywords of the shared refine pipeline" begin
     kw(m) = Set(Base.kwarg_decl(m))
     shared = kw(only(methods(VgtkEstimation._refine_pipeline)))
-    @test shared == Set([:threshold, :outlier_halfwidth, :local_optimization, :scoring, :workspace])
+    @test shared == Set([:threshold, :outlier_halfwidth, :local_optimization, :scoring, :workspace])   # the two widths: declared to be refused
     @test shared == setdiff(kw(only(methods(VgtkEstimation._ransac_pipeline))), [:max_trials, :min_trials, :config, :rng])
     # each refine_* forwards the rest like its find_*, and declares only the
     # find_*'s model-specific keywords — minus those that choose hypotheses (the
@@ -258,12 +334,12 @@ end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     p = CircleProblem(pts)
     g = Circle(Point2(C₀ + SVector(1.0, -1.0)), R₀ + 1.0)
-    for (k, v) in (:threshold => 2.0, :local_optimization => Irls{TLSShape}(), :scoring => MsacScoring(p; threshold = 1.0),
+    for (k, v) in (:local_optimization => Irls{TLSShape}(), :scoring => MsacScoring(p; threshold = 1.0),
                    :workspace => RansacWorkspace(CircleProblem, 300))
         @test converged(refine_circle(g, pts; (; k => v)...))
     end
     @test_throws ArgumentError refine_circle(g, pts; outlier_halfwidth = 5.0)
-    @test_throws ArgumentError refine_circle(g, pts; threshold = 2.0, scoring = MsacScoring(p; threshold = 1.0))
+    @test_throws ArgumentError refine_circle(g, pts; threshold = 2.0)
     for (k, v) in (:max_trials => 10, :min_trials => 1, :config => RansacConfig(), :rng => StableRNG(1))
         @test_throws MethodError refine_circle(g, pts; (; k => v)...)        # no sampling to configure
     end
@@ -348,14 +424,14 @@ end
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
     for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; local_optimization = lo, threshold = 5.0)   # TLS: the truncation's basin is the threshold
+        kws = lo === nothing ? (;) : (; local_optimization = lo, scoring = MsacScoring(CircleProblem; threshold = 5.0))   # TLS: the truncation's basin is the threshold
         cr = estimate(refine_circle(g, pts; kws...))
         @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
     for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; local_optimization = lo, threshold = 8.0)
+        kws = lo === nothing ? (;) : (; local_optimization = lo, scoring = MsacScoring(EllipseProblem; threshold = 8.0))
         e = estimate(refine_ellipse(ge, epts; kws...))
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end

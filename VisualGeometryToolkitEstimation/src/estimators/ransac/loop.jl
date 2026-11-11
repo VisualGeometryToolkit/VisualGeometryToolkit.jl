@@ -445,48 +445,31 @@ _covariance_scored(scoring, p, θ, mask::BitVector) =
 # locally_optimize — seeded refine, no sampling
 # =============================================================================
 
-# `threshold` is a parameter of the DEFAULT scoring (MSAC at that threshold) and
-# nothing else: a caller that hands in its own `scoring` has already chosen its
-# width. Accepting both let the two disagree with one silently ignored, so both
-# is an error, and the threshold is required only when it is used. A marginal
-# scorer's outlier half-width is that scorer's: `outlier_halfwidth` is refused
-# with the way to say it.
-function _default_scoring(problem, scoring, threshold, outlier_halfwidth = nothing)
-    outlier_halfwidth === nothing || throw(
-        ArgumentError(
-            "`outlier_halfwidth` is no keyword of the core entries: the default scorer is MSAC at " *
-                "`threshold`. A Student-t + uniform marginal's outlier half-width belongs to that " *
-                "scoring — give `scoring = StudentTUniformScoring(problem, outlier_halfwidth)` " *
-                "(RANSACScoringDoneRight)"
-        )
-    )
-    if scoring !== nothing
-        threshold === nothing || throw(
-            ArgumentError(
-                "supply `threshold` or `scoring`, not both: the threshold only " *
-                    "builds the default scoring, and `scoring` carries its own width"
-            )
-        )
-        _check_scoring(problem, scoring)
-        return scoring
-    end
-    threshold === nothing && throw(
-        ArgumentError("`threshold` is required when no `scoring` is given")
-    )
-    sc = _default_scoring_at(problem, Float64(threshold))
-    _check_scoring(problem, sc)
-    return sc
+# A scorer carries its own width — a threshold scorer's `threshold`, the
+# Student-t + uniform scorer's `outlier_halfwidth` — so no RANSAC entry takes a
+# bare width keyword: each is refused with the way to say it, never read into a
+# default scorer (one schema: the scorer object, or its TOML table).
+function _refuse_width_keywords(threshold, outlier_halfwidth)
+    threshold === nothing || throw(ArgumentError(
+        "`threshold` is no keyword of the RANSAC entries: it is a threshold scorer's width — give " *
+            "`scoring = MsacScoring(problem; threshold)` (or `RansacScoring`); the `find_*` default is " *
+            "configs/default.toml [pipelines.<class>] `scoring`"))
+    outlier_halfwidth === nothing || throw(ArgumentError(
+        "`outlier_halfwidth` is no keyword of the RANSAC entries: it is the Student-t + uniform " *
+            "scorer's width — give `scoring = StudentTUniformScoring(problem, outlier_halfwidth; " *
+            "scale_prior, label_prior)`"))
+    return nothing
 end
 
 # A problem's refusal of a scoring it cannot mean — the ONE check every entry
-# (`ransac`, both `locally_optimize` methods, every `find_*` through
-# `_default_scoring`) runs on the scoring it is about to use, whoever built it.
+# (`ransac`, both `locally_optimize` methods, and so every `find_*` and
+# `refine_*`) runs on the scoring it is about to use, whoever built it.
 # No-op by default; the essential problem refuses a sub-detector half-width
 # (problems/essential.jl), the leftover of its calibrated-unit era.
 _check_scoring(_problem, _scoring) = nothing
 
 """
-    locally_optimize(problem, θ₀; local_optimization, threshold | scoring,
+    locally_optimize(problem, θ₀; local_optimization, scoring,
                      workspace=nothing, score_guard=false) -> RansacEstimate
 
 Refine a caller-supplied seed model `θ₀` with one local-optimization run — the
@@ -496,8 +479,12 @@ minimal sample (no `draw_sample!`, no consensus search). Generic over the
 problem type. `local_optimization` is REQUIRED (no default: the strategy is the
 experiment's decision; the settled formulations live in the `find_*` pipelines).
 If the refined model fails `test_consensus` the seed is returned.
-Give exactly one of `threshold` (the default scoring's: MSAC at that threshold,
-in the problem's residual unit) and `scoring`; both is an `ArgumentError`.
+`scoring` is REQUIRED too (a scorer object: MSAC or RANSAC at its threshold,
+`MsacScoring(problem; threshold)`; the Student-t + uniform scorer at its
+outlier half-width, `StudentTUniformScoring(problem, outlier_halfwidth; …)`;
+…): there is no class
+here to default it from, and a bare `threshold` or `outlier_halfwidth` keyword
+is refused (`ArgumentError`, naming `scoring`).
 When `score_guard=true` the refined model is only accepted if it does not lower
 the seed's score (the seed is kept otherwise).
 
@@ -510,14 +497,15 @@ with no width follows the scorer's `inlier_threshold`.
 """
 function locally_optimize(
         problem, θ₀;
-        threshold::Union{Real, Nothing} = nothing,
-        outlier_halfwidth::Union{Real, Nothing} = nothing,   # refused, with the way to say it
         local_optimization::AbstractLocalOptimization,   # REQUIRED — no default
-        scoring::Union{AbstractScoring, Nothing} = nothing,
+        scoring::AbstractScoring,                        # REQUIRED — no default
         workspace = nothing,
-        score_guard::Bool = false
+        score_guard::Bool = false,
+        threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
-    sc = _default_scoring(problem, scoring, threshold, outlier_halfwidth)
+    _refuse_width_keywords(threshold, outlier_halfwidth)
+    sc = scoring
+    _check_scoring(problem, sc)
     ws = _entry_workspace(workspace, problem, sc, local_optimization)
     # Storage-boundary labeling: the workspace model type M may be a labeled
     # alias (`Extrinsics3` for the absolute-pose family) while callers hand in
@@ -547,25 +535,26 @@ _seed_convert(::Type{M}, θ::Uncertain) where {M} = Uncertain(convert(M, geom(θ
 
 """
     locally_optimize(problem, models::FixedModels; local_optimization,
-                     threshold | scoring, workspace=nothing) -> RansacEstimate
+                     scoring, workspace=nothing) -> RansacEstimate
 
 Entry for solvers that return several candidate models (e.g. the two planar-pose
 ambiguity solutions). Each candidate is scored against the consensus set; the
 single highest-scoring one that succeeds at `test_consensus` is kept, and **only that
 one** is locally optimized. The candidates are never all optimized — selection
 is by consensus score, optimization is on the winner alone. Returns a `:no_model`
-result (`converged` false, no estimate) if no candidate clears consensus. `threshold` and `scoring`
-are exclusive, as in the single-seed method.
+result (`converged` false, no estimate) if no candidate clears consensus. `scoring` is
+required, as in the single-seed method.
 """
 function locally_optimize(
         problem, models::FixedModels;
-        threshold::Union{Real, Nothing} = nothing,
-        outlier_halfwidth::Union{Real, Nothing} = nothing,   # refused, with the way to say it
         local_optimization::AbstractLocalOptimization,   # REQUIRED — no default
-        scoring::Union{AbstractScoring, Nothing} = nothing,
-        workspace = nothing
+        scoring::AbstractScoring,                        # REQUIRED — no default
+        workspace = nothing,
+        threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
-    sc = _default_scoring(problem, scoring, threshold, outlier_halfwidth)
+    _refuse_width_keywords(threshold, outlier_halfwidth)
+    sc = scoring
+    _check_scoring(problem, sc)
     # The no-consensus exit of `_select_then_optimize!` relies on `has_best`
     # being false, which `_entry_workspace` guarantees for a reused workspace too.
     ws = _entry_workspace(workspace, problem, sc, local_optimization)

@@ -17,6 +17,31 @@
   launch's renders a `results_branch` from its manifest. runner.jl needs only the stdlibs and src/cli.jl, so a
   project's launcher runs it by path from a bare `julia` before the project's environment is instantiated.
 
+- **New: `Render.write_station_fan_colorbar(colormap, io_or_path; span, ticks, tick_labels, label, logarithmic,
+  reverse, colormap_name, orientation, length, comment)`**: the colorbar of a row of station fans, a pgfplots
+  colorbar-only axis, vertical beside the row or horizontal beneath it, the colormap sampled at 15 points and defined
+  with its reverse (`<colormap_name>`, `<colormap_name>rev`). Byte for byte the committed bars of BlobBoards' bmvc2026
+  (`write_floorplan_tikz`'s colorbar loop) and CaliBlobs' icra2026 (`write_floorplan_colorbar` and its `_fp_cmap`
+  colormap string); both restated it.
+- **New: `Render.write_station_fan(colormap, io_or_path, cells; value, span, logarithmic, reverse, comment,
+  ring_labels)`**: a floor plan's station fan as a bare TikZ picture, one annular wedge per `station_cells` cell
+  coloured by `colormap` at the cell's statistic `value` placed in `span` (log10 when `logarithmic`, `1 - t` when
+  `reverse`), a cell without a detection grey. Byte for byte what BlobBoards' bmvc2026 `write_floorplan_tikz` and
+  CaliBlobs' icra2026 `write_floorplan_fan` (its verbatim copy) wrote; both restated it. The colormap is the paper's
+  (`t -> get(cgrad(:RdYlGn), t)`), so the package takes no colour dependency; the tests take PlotUtils.
+- **New: `write_numbers(io::IO, nums; order = :name)`**: the number-macro fragment written to an IO, the same bytes
+  as the file form, which writes its section through it (one implementation). A figure that inlines its cell macro
+  writes `sprint(io -> write_numbers(io, nums; order = :added))`; CaliBlobs' icra2026 `numbers_text` wrote a
+  temporary file to read it back.
+- **New: `Reproduce.number_provenance(run_dir; root = project_root())`**: the provenance of numbers read from one
+  run, from its `_provenance.toml` (`Experiments.read_provenance`): `run_key`, `commit` (the recorded `gitcommit`) and
+  `config` (the recorded `config_source`, made relative to `root`), each only where recorded, for `add_number!`'s
+  `provenance` or splatted into `PaperNumbers`. CaliBlobs' icra2026 `run_provenance` and LocalOptimizationDoneRight's
+  accv2026 `scripts/paper_numbers.jl` restated it.
+- **New: `Reproduce.checkout_commit(root = project_root())`**: the checkout's commit as DrWatson describes it
+  (`gitdescribe(root)`, `"unknown"` outside a repository), a space or `;` made `_`: the `PaperNumbers` `commit` of
+  numbers a driver computes itself. BlobBoards' bmvc2026 `figure_numbers` and CaliBlobs' icra2026 `checkout_commit`
+  each restated the line.
 - **Fixed: a TeX length is not a re-typed number** (`macro_literal_violations`, and with it the reproduce index's
   `:macro_literal`): a number directly followed by a TeX unit (pt, cm, mm, in, em, ex, bp, pc, sp, mu, dd, cc, nd, nc;
   `\hspace{-0.3cm}`), or with a space where TeX reads a length (a whole braced argument, `\hspace{0.3 cm}`; after

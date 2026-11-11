@@ -1504,6 +1504,14 @@ letter bound as a positional argument or local with no noise scale beside it,
 or as a field of a type outside those roots, cannot be told from a loop index or
 another quantity by syntax and is not flagged; neither is a quoted single
 letter (`:k`) or a letter used as a dict key (a lens coefficient `"k"` is one).
+Rule R12: the Student-t + uniform scorer has no threshold. That word (the
+whole token: `inlier_threshold` and `decision_threshold`, the contract's
+decision point, are other names) within six tokens of the scorer's type name or
+its TOML tag (`_STUDENT_T_ANCHORS`) is flagged in every file but a
+changelog — code, comments, docs and configuration alike. Limits: a sentence
+that calls the half-width a threshold farther from the scorer's name is not
+seen, and a threshold scorer's threshold written next to the Student-t's name
+is a finding to reword (or to spell apart, as a test of the refusal does).
 """
 function check_naming(pkgdir::AbstractString)
     (; files) = naming_scope(pkgdir)
@@ -1585,6 +1593,7 @@ function check_naming(pkgdir::AbstractString)
                 end
             end
         end
+        _is_changelog(f) || _student_t_threshold_rules!(out, f, src)
         literals = Ref{Union{Nothing, Dict{Int, String}}}(nothing)   # the string literals by line, lexed at the first hit
         for (k, text) in enumerate(eachline(IOBuffer(src)))
             endswith(f, ".jl") || _prose_rules!(out, f, k, text)
@@ -1610,6 +1619,28 @@ function check_naming(pkgdir::AbstractString)
     end
     unique!(v -> (v.file, v.line, v.text, v.rule), out)
     sort!(out; by = v -> (v.file, v.line, v.rule))
+    return out
+end
+
+# -----------------------------------------------------------------------------
+# Rule 12: the Student-t + uniform scorer has no threshold
+# -----------------------------------------------------------------------------
+# Its one width is `outlier_halfwidth` (the half-width of the uniform outlier
+# component); a threshold is a threshold scorer's (RANSAC, MSAC, the loss-width
+# families). The word `threshold` — the whole token, not `inlier_threshold` or
+# `decision_threshold`, which are the scorer contract's decision point — within
+# `_STUDENT_T_WINDOW` tokens of the scorer's type or TOML tag, in code, comments,
+# docs or config alike, misnames that half-width.
+const _STUDENT_T_ANCHORS = ("StudentTUniformScoring", "student_t_uniform")
+const _STUDENT_T_WINDOW = 6
+function _student_t_threshold_rules!(out, f, src::AbstractString)
+    any(a -> occursin(a, src), _STUDENT_T_ANCHORS) || return out
+    toks = collect(eachmatch(r"[\p{L}\p{N}_!]+", src))
+    anchors = findall(m -> m.match in _STUDENT_T_ANCHORS, toks)
+    for (i, m) in enumerate(toks)
+        m.match == "threshold" && any(j -> abs(j - i) <= _STUDENT_T_WINDOW, anchors) || continue
+        push!(out, NamingViolation(f, count(==('\n'), SubString(src, 1, prevind(src, m.offset))) + 1, m.match, :R12))
+    end
     return out
 end
 

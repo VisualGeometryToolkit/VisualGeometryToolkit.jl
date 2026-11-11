@@ -14,10 +14,9 @@
 # =============================================================================
 
 """
-    find_absolute_pose(camera_model, correspondences; threshold=8.0,
+    find_absolute_pose(camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(),
-        scoring=nothing, config=nothing)
+        local_optimization=Irls{TLSShape}(), config=nothing)
 
 Robust absolute pose estimation via P3P + RANSAC with MSAC scoring.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
@@ -42,7 +41,7 @@ points (a plain one with plain points).
 - `correspondences`: `X => u` pairs (world point => raw pixel) — `Csponds`,
   `StructArray{<:Pair}` or a Pair vector; a `Csponds` `:score` column is the
   per-match prior (PROSAC; uniform otherwise).
-- `threshold`: **in PIXELS** (the reprojection residual's unit), as [`find_homography`](@ref).
+- `scoring`: the scorer, its width **in PIXELS** (the reprojection residual's unit), as [`find_homography`](@ref); default `[pipelines.absolute_pose] scoring`.
 - `extent`: as [`find_homography`](@ref); the pose's `_check_extent` rejects
   poses failing cheirality or yielding a non-simple / non-convex image quad.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] AbsolutePoseProblem, n_data)`.
@@ -53,7 +52,7 @@ points (a plain one with plain points).
 # Examples
 ```julia
 result = find_absolute_pose(camera_model, correspondences)
-result = find_absolute_pose(camera_model, correspondences; threshold=10.0)
+result = find_absolute_pose(camera_model, correspondences; scoring = MsacScoring(AbsolutePoseProblem; threshold = 10.0))
 ```
 """
 function find_absolute_pose(
@@ -78,11 +77,9 @@ function find_absolute_pose(
 end
 
 """
-    refine_absolute_pose(pose, camera_model, correspondences; threshold = 8.0,
-        extent = nothing, local_optimization = Irls{TLSShape}(),
-        scoring = nothing, workspace = nothing) -> RansacEstimate
-    refine_absolute_pose(pose, bearing_correspondences; threshold, local_optimization = Irls{GaussianShape}(),
-        scoring = nothing, workspace = nothing) -> RansacEstimate
+    refine_absolute_pose(pose, camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
+        extent = nothing, local_optimization = Irls{TLSShape}(), workspace = nothing) -> RansacEstimate
+    refine_absolute_pose(pose, bearing_correspondences; scoring = MsacScoring(problem; threshold = 1.0·bound), local_optimization = Irls{GaussianShape}(), workspace = nothing) -> RansacEstimate
 
 The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against
 `X => u` pairs (world point => raw pixel) of the camera `camera_model`:
@@ -93,8 +90,8 @@ included. `local_optimization` is the pose's RANSAC local-optimization step, run
 here alone from the given model (no sampling): `pose` is scored, its consensus
 set under the scorer is the one a consensus-anchored strategy reads its scale
 from, and the strategy runs once from it. Plain least squares over every
-correspondence is `local_optimization = Irls{GaussianShape}()` at a `threshold`
-above every residual. Every default is `find_absolute_pose`'s
+correspondence is `local_optimization = Irls{GaussianShape}()` under a scorer whose
+threshold is above every residual. Every default is `find_absolute_pose`'s
 (`[pipelines.absolute_pose]`), `extent` included; the other keywords are those
 of every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)
 for fewer than 3 correspondences.
@@ -110,10 +107,11 @@ a [`BearingPoseProblem`](@ref): the tangent-plane residual of bearings.md,
 whose norm is the angle between the rays, on the same `LeftRigidManifold6`
 chart; rays at and past 90° and behind the camera are data like any other.
 Its defaults (`[pipelines.bearing_pose]`) are least squares over every
-correspondence — `Irls{GaussianShape}()`, at a `threshold` (the residual's
-unit) that by default admits every correspondence: π times the largest
-whitening gain. A robust strategy (`Irls{K}`, `Triggs{K}`) and a `threshold`
-of the caller's are taken as in the camera form. It has no `find_*`: a
+correspondence — `Irls{GaussianShape}()`, under MSAC at a threshold (the
+residual's unit) that by default admits every correspondence: π times the
+largest whitening gain (`[pipelines.bearing_pose] scoring`, unit-free). A
+robust strategy (`Irls{K}`, `Triggs{K}`) and a scorer of the caller's (its
+width in the residual's unit) are taken as in the camera form. It has no `find_*`: a
 generalized camera has no minimal solver here. The guess's ray origins must
 not coincide with their points (`ArgumentError`). The keywords are the shared
 refine set; there is no `max_iter` (the cap is the strategy's).

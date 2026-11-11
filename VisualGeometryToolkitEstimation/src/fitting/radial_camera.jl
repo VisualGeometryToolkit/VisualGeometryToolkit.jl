@@ -1,6 +1,6 @@
 """
     find_radial_camera(correspondences; center,
-        threshold = 3.0, extent = nothing, workspace = nothing,
+        scoring = MsacScoring(problem; threshold = 3.0), extent = nothing, workspace = nothing,
         local_optimization, max_trials = 10000, min_trials = 100,
         config = nothing, rng = ...)
 
@@ -17,11 +17,10 @@ Returns a `RansacEstimate` whose model lives about the distortion centre
 The uncalibrated verification model for board correspondences: no distortion
 parameter is estimated per board (that is the focal stack's job, across
 boards), so the solve is closed form with no root to pick.
-`threshold` and `local_optimization` default to `configs/default.toml`
-`[pipelines.radial_camera]` — least squares on the inliers, `Irls{TLSShape}()` —
-and the trial bounds to its `[ransac]` table. `threshold` builds the
-default scoring only; supplying it with `scoring` is an `ArgumentError`. The
-other keywords as [`find_homography`](@ref).
+`scoring` (its width in pixels) and `local_optimization` default to
+`configs/default.toml` `[pipelines.radial_camera]` — MSAC, and least squares
+on the inliers, `Irls{TLSShape}()` — and the trial bounds to its `[ransac]`
+table. The other keywords as [`find_homography`](@ref).
 
 Units: the source points are plain numbers. A radial camera maps from the source
 plane, so its entries carry that plane's unit, which a matrix cannot record:
@@ -42,8 +41,8 @@ function find_radial_camera(
 end
 
 """
-    refine_radial_camera(model, correspondences; threshold = 3.0, extent = nothing,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_radial_camera(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The 1-D radial camera `model` (VisualGeometryToolkitCore `RadialCamera`, about its

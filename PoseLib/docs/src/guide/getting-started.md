@@ -51,7 +51,7 @@ fall within the width.
 ```jldoctest gs
 julia> seed = EuclideanMap(RotationVec(0.002, -0.001, 0.0), Vec3(0.005, 0.0, 0.01));
 
-julia> pose = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, loss_width = 2.0);
+julia> pose = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0);
 
 julia> maximum(abs, pose.t) < 1e-8
 true
@@ -63,7 +63,7 @@ camera frame. `unlabel` turns it into a `Rigid3` seed.
 ```jldoctest gs
 julia> best = poses[argmin([maximum(abs, p.t) for p in poses])];
 
-julia> refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss_width = 2.0) isa PoseLib.Rigid3
+julia> refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0) isa PoseLib.Rigid3
 true
 ```
 
@@ -81,7 +81,7 @@ julia> x2 = [pixel(K, truth(x)) for x in X];
 
 julia> seed = EuclideanMap(RotationVec(0.0, 0.101, 0.001), Vec3(0.99995, 0.01, 0.0));
 
-julia> rel = refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, loss_width = 2.0);
+julia> rel = refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, loss = TLSShape(), loss_width = 2.0);
 
 julia> maximum(abs, rel.R - truth.R) < 1e-6
 true
@@ -103,7 +103,7 @@ julia> b2 = backproject_with_jacobian.(Ref(camera), x2);
 
 julia> cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
 
-julia> maximum(abs, refine_relpose(seed, cs; max_iter = 50, loss_width = 2.0).R - rel.R) < 1e-12
+julia> maximum(abs, refine_relpose(seed, cs; max_iter = 50, loss = TLSShape(), loss_width = 2.0).R - rel.R) < 1e-12
 true
 ```
 
@@ -122,7 +122,7 @@ julia> y = [(h = H * [x; 1.0]; Point2(h[1] / h[3], h[2] / h[3])) for x in x1];
 
 julia> H0 = HomographyMat([1.1 0.02 6.0; -0.03 0.96 -3.0; 1e-4 2e-4 1.0]);
 
-julia> H1 = refine_homography(H0, Csponds(x1, y); max_iter = 25, loss_width = 2.0);
+julia> H1 = refine_homography(H0, Csponds(x1, y); max_iter = 25, loss = TLSShape(), loss_width = 2.0);
 
 julia> H1 / H1[3, 3] ≈ H
 true

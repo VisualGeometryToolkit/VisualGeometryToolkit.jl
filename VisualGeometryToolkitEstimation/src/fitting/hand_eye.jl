@@ -14,12 +14,12 @@
 # =============================================================================
 
 """
-    find_hand_eye(cs; threshold=0.01·L,
+    find_hand_eye(cs; scoring = MsacScoring(problem; threshold = 0.01·L),
                        max_trials=10000, min_trials=100,
                        local_optimization=Irls{TLSShape}(),
                        motion_pairs=:consecutive,
                        char_length=nothing, min_rel_angle,
-                       scoring=nothing, config=nothing) -> RansacEstimate
+                       config=nothing) -> RansacEstimate
 
 Robust hand-eye / robot-world calibration via RANSAC + IRLS. Every
 default shown is `configs/default.toml`'s (`[ransac]`, `[pipelines.hand_eye]`);
@@ -31,16 +31,16 @@ a keyword overrides.
   PnP; labeled `Extrinsics3` accepted — unlabeled at the problem boundary).
 
 # Keywords
-- `threshold::Real` — the MSAC inlier threshold of the default scoring, in
-  the TRANSLATION's length unit (the scene's, as the poses carry it): the
-  residual stacks the translation error with the rotation error scaled by the
-  characteristic length, `L·θ` (see [`HandEyeProblem`](@ref) for the unit
-  balance). A value you supply is that length. When omitted it is unit-free:
-  `configs/default.toml` `[pipelines.hand_eye]` `threshold` (0.01) is a
-  FRACTION of the problem's characteristic length `L`, so the default
-  threshold is `0.01·L` — the same whether the poses are in metres or
-  millimetres (a rotation error of 0.01 rad ≈ 0.57° reaches it).
-  Builds the default scoring only; supplying it with `scoring` is an `ArgumentError`.
+- `scoring` — the RANSAC scorer, its width in the TRANSLATION's length unit
+  (the scene's, as the poses carry it): the residual stacks the translation
+  error with the rotation error scaled by the characteristic length, `L·θ`
+  (see [`HandEyeProblem`](@ref) for the unit balance). A scorer you supply
+  carries that length (`MsacScoring(HandEyeProblem; threshold = 0.005)`).
+  When omitted it is the class's, unit-free: `configs/default.toml`
+  `[pipelines.hand_eye] scoring` (MSAC, `threshold = 0.01`) states a FRACTION
+  of the problem's characteristic length `L`, so the default threshold is
+  `0.01·L` — the same whether the poses are in metres or millimetres (a
+  rotation error of 0.01 rad ≈ 0.57° reaches it).
 - `motion_pairs::Symbol = :consecutive` — `:consecutive` uses `N-1`
   consecutive-frame relative motions; `:all` uses every pair `(i, j)`
   with `i < j`.
@@ -53,8 +53,8 @@ a keyword overrides.
 - `local_optimization` — default `Irls{TLSShape}()` — HandEyeProblem has no chart lift; its
   weighted refit (Levenberg–Marquardt on the so(3)⊕R³ chart of `Rigid3`) is
   selected by `refine!(lo_ws, ::HandEyeProblem, θ::Rigid3, weights)`.
-- `scoring`, `config` — override scoring / `RansacConfig`; the other keywords
-  as [`find_homography`](@ref).
+- `config` — override `RansacConfig`; the other keywords as
+  [`find_homography`](@ref).
 
 # Units
 The poses are plain or physical, all one form. Physical poses (translations
@@ -62,8 +62,9 @@ in lengths, e.g. `EuclideanMap(R, t .* m)`) are read in metres at entry —
 exactly, the stored value — the search runs on plain metres, and `X` comes
 back physical, its translation in metres, equal after `ustrip(m, ·)` to the
 plain search's on the poses' `ustrip(m, ·)` with the same `rng`. A supplied
-`threshold` or `char_length` is then a length too (`5mm`; a plain number
-beside physical poses is a `DimensionError`). The residuals, `rms` and `sigma`
+`char_length` is then a length too (`5mm`; a plain number beside physical
+poses is a `DimensionError`); a supplied scorer's width is a plain number in
+METRES (a scorer holds no unit). The residuals, `rms` and `sigma`
 are plain numbers in the translation's unit: metres for physical poses. Plain
 poses give a plain `X` in their own unit, as before.
 
@@ -97,16 +98,16 @@ end
 # plain search, `X` read back in metres once.
 function find_hand_eye(
         cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
-        threshold = nothing, char_length = nothing, kwargs...
+        char_length = nothing, kwargs...
     )
     plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
-    return _attach_metres(find_hand_eye(plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
+    return _attach_metres(find_hand_eye(plain; char_length = _metres(char_length), kwargs...))
 end
 
 """
-    refine_hand_eye(X, cs; threshold = 0.01·L, motion_pairs = :consecutive,
+    refine_hand_eye(X, cs; scoring = MsacScoring(problem; threshold = 0.01·L), motion_pairs = :consecutive,
         char_length = nothing, min_rel_angle, local_optimization = Irls{TLSShape}(),
-        scoring = nothing, workspace = nothing) -> RansacEstimate
+        workspace = nothing) -> RansacEstimate
 
 The hand-eye transform `X = T_RP` refined against the `A_i => B_i` pose
 correspondences `cs`: [`find_hand_eye`](@ref)'s step without the sampling, on the
@@ -121,7 +122,7 @@ those of every `refine_*`, documented on [`refine_homography`](@ref).
 # Units
 As [`find_hand_eye`](@ref): plain or physical poses, all one form (`X` too);
 physical ones are read in metres and `X` comes back in metres, a supplied
-`threshold` or `char_length` then a length.
+`char_length` then a length and a supplied scorer's width a plain number in metres.
 """
 function refine_hand_eye(
         X::PlainEuclideanMap{3}, cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
@@ -138,8 +139,8 @@ end
 # plain refinement, `X` read back in metres once.
 function refine_hand_eye(
         X::_PhysicalPose3, cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
-        threshold = nothing, char_length = nothing, kwargs...
+        char_length = nothing, kwargs...
     )
     plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
-    return _attach_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; threshold = _metres(threshold), char_length = _metres(char_length), kwargs...))
+    return _attach_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; char_length = _metres(char_length), kwargs...))
 end

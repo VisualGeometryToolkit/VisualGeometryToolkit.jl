@@ -62,7 +62,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
 
         pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
             max_trials = 4000, min_trials = 200,
             rng = StableRNG(99), lokw...
         )
@@ -81,7 +81,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
     @testset "noise: recovers sign and magnitude of k" begin
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.5,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.5),
             max_trials = 4000, rng = StableRNG(7)
         )
         @test res !== nothing
@@ -123,7 +123,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         # RANSAC: the four-point search finds the board, the (H, k) local
         # optimization brings the distorted-away inliers in and recovers k
         est = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, threshold = 3.0,
+            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0),
             rng = StableRNG(5)
         )
         @test est !== nothing
@@ -164,7 +164,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         # end-to-end: the extent-bounded fit still converges and recovers k
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 60, n_out = 15)
         res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), threshold = 2.0,
+            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
             extent = rect, max_trials = 3000, rng = StableRNG(21)
         )
         @test res !== nothing
@@ -187,4 +187,30 @@ end
     end
     @test err isa MethodError && err.f === VgtkEstimation.refine_radial_homography   # at dispatch, not deep in the pipeline
 end
+end
+
+@testitem "radial_homography: the lift's plain-H seed is a TLS loss at noise_sigma × the TOML multiple" setup = [RadialScenes] begin
+    using Test, StableRNGs, Statistics
+    using StaticArrays: SVector
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: RadialHomography, homography, center, division_coeff, rows_provider, lift_init, lift_model
+    using VisualGeometryToolkitEstimation: RadialHomographyProblem, _radial_seed_chart, _dflt
+    W, H = RADIAL_HOMOGRAPHY_FRAME
+    m_gt = radial_homography_truth(-0.25)
+    # The multiple is the file's (no literal in code): three medians of a 2-D norm.
+    m = _dflt("pipelines.radial_homography.lift_seed", "scale_multiple")
+    @test m ≈ 3 * sqrt(VgtkCore.chisq_median(2)) rtol = 1.0e-15
+    for seed in 1:5
+        pairs, _ = radial_homography_pairs(StableRNG(seed), m_gt; n_in = 70, n_out = 30, σ = 0.5)
+        p = RadialHomographyProblem(pairs; center = (W / 2, H / 2))
+        plain = RadialHomography{Float64}(homography(m_gt), 0.0, center(m_gt))   # a plain-homography hypothesis
+        prov = rows_provider(p)
+        k = division_coeff(lift_model(prov, lift_init(prov, plain)))
+        rn = prov.lws.rn[1:prov.n]                                     # the plain-H norms lift_init gated
+        σ = VgtkCore.noise_sigma(rn, 2)
+        inside = Float64.(rn .^ 2 .< (m * σ)^2)                         # TLS at m·σ̂
+        @test k == division_coeff(lift_model(prov, _radial_seed_chart(p, plain, inside)))
+        # the same partition as the former private gate, three medians of the norms
+        @test inside == Float64.(rn .<= 3 * median(rn))
+    end
 end

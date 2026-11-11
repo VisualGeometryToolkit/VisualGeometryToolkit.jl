@@ -608,7 +608,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
         p = HomographyProblem(cs)
         @test converged(find_homography(cs; workspace = ws, rng = StableRNG(132)))
-        @test converged(find_homography(cs; workspace = ws, threshold = 2.0, rng = StableRNG(133)))
+        @test converged(find_homography(cs; workspace = ws, scoring = MsacScoring(HomographyProblem; threshold = 2.0), rng = StableRNG(133)))
         @test converged(find_homography(cs; workspace = ws, scoring = RansacScoring(p; threshold = 3.0), rng = StableRNG(134)))
     end
 

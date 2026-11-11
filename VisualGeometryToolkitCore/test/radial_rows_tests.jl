@@ -95,8 +95,8 @@
         # the device kernels on KA.CPU(): the same row functions, the same rows
         KA = VgtkCore.KA
         rk = zeros(2n); Jk = zeros(2n, 9)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._radial_rows!, rk, mv, VgtkCore._projection_lens(mv), u₁, u₂, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._radial_jacobian_rows!, Jk, mv, VgtkCore._projection_lens(mv), dH, u₁, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._radial_rows!, rk, mv, VgtkCore._projection_lens(mv), u₁, u₂, sqrtw); ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._radial_jacobian_rows!, Jk, mv, VgtkCore._projection_lens(mv), dH, u₁, sqrtw); ndrange = n)
         KA.synchronize(KA.CPU())
         @test rk ≈ r rtol = 1.0e-14
         @test Jk ≈ J rtol = 1.0e-14

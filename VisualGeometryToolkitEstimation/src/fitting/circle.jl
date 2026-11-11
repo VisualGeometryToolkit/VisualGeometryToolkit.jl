@@ -9,10 +9,9 @@
 # =============================================================================
 
 """
-    find_circle(points; threshold = 1.0,
+    find_circle(points; scoring = MsacScoring(problem; threshold = 1.0),
         max_trials = 10000, min_trials = 100,
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
-        scoring = nothing, config = nothing)
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), config = nothing)
 
 Robust estimation of a 2D circle through points (a contour, edge points) by
 RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCore's
@@ -33,7 +32,7 @@ drawn); test `converged(result)` before reading the model (see
 # Arguments
 - `points`: 2D points, `AbstractVector` of `StaticVector{2}` (`Point2{Float64}`
   storage canonicalized internally), plain: unit isotropic noise.
-- `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
+- `scoring`: the scorer, its width **in PIXELS** (the points' unit), as [`find_homography`](@ref); default `[pipelines.circle] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] CircleProblem, n_data)`.
 - `local_optimization`: default `Triggs{WelschShape}(scale_multiple = 2.5)`; any
   other strategy as [`find_homography`](@ref).
@@ -44,9 +43,8 @@ function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Rea
 end
 
 """
-    refine_circle(circle, points; threshold = 1.0,
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
-        scoring = nothing, workspace = nothing) -> RansacEstimate
+    refine_circle(circle, points; scoring = MsacScoring(problem; threshold = 1.0),
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), workspace = nothing) -> RansacEstimate
 
 The 2D circle through `points` refined from the given `circle`:
 [`find_circle`](@ref)'s step without the sampling. `local_optimization` is the

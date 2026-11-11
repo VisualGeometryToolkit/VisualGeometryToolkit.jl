@@ -20,7 +20,7 @@ build runs it (a doctest):
 ```jldoctest homography
 julia> using VisualGeometryToolkitEstimation, Random
 
-julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean
+julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean, MsacScoring
 
 julia> H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0]);
 
@@ -40,7 +40,8 @@ julia> count(result.inlier_mask)                        # the 32 true correspond
 julia> H = Matrix(estimate(result)); H ./ H[3, 3] ≈ Matrix(H_true)
 true
 
-julia> result = find_homography(csponds(src, dst); threshold = 2.0);   # a keyword overrides a default
+julia> result = find_homography(csponds(src, dst);   # a scorer overrides the class's
+              scoring = MsacScoring(HomographyProblem; threshold = 2.0));
 ```
 
 `find_homography` constructs a [`HomographyProblem`](@ref), wires up the core
@@ -56,7 +57,7 @@ values.
 
 The loop runs on VisualGeometryToolkitCore's scoring and local-optimization
 contracts, so a scorer and a strategy from other packages plug in by keyword.
-The paper scorer is VisualGeometryToolkitCore's (moved from RANSACScoringDoneRight); the paper strategies are
+The Student-t + uniform scorer is VisualGeometryToolkitCore's; the paper strategies are
 LocalOptimizationDoneRight's:
 
 ```julia
@@ -68,13 +69,15 @@ cs = csponds(src, dst)
 problem = HomographyProblem(cs)
 
 result = find_homography(cs;
-    scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),   # outlier half-width, pixels
+    scoring = StudentTUniformScoring(problem, 20.0;    # outlier half-width, pixels
+                                     scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
     local_optimization = HQ{WelschShape}(scale_multiple = WELSCH_HQ_SCALE_MULTIPLE_HOMOGRAPHY))
 ```
 
-An `outlier_halfwidth` keyword is refused by the core entries: the half-width
-is the marginal scorer's parameter, so it goes into the scorer. Giving both
-`threshold` and `scoring` is an `ArgumentError` too.
+A bare `threshold` or `outlier_halfwidth` keyword is refused by every RANSAC
+entry (`ArgumentError`): a width is its scorer's — a threshold scorer's
+`threshold`, the Student-t + uniform scorer's `outlier_halfwidth` — so it goes
+into the scorer.
 
 ## RANSAC manually
 

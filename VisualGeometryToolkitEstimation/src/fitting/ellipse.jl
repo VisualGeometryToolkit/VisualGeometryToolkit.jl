@@ -18,10 +18,9 @@
 # =============================================================================
 
 """
-    find_ellipse(points; threshold = 1.0,
+    find_ellipse(points; scoring = MsacScoring(problem; threshold = 1.0),
         max_trials = 10000, min_trials = 100,
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
-        scoring = nothing, config = nothing)
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), config = nothing)
 
 Robust estimation of a 2D ellipse through points (a contour, edge points) by
 RANSAC on the [`EllipseProblem`](@ref): 5-point samples (VisualGeometryToolkitCore's
@@ -45,7 +44,7 @@ sampling: [`refine_ellipse`](@ref).
 # Arguments
 - `points`: 2D points, `AbstractVector` of `StaticVector{2}` (`Point2{Float64}`
   storage canonicalized internally), plain: unit isotropic noise.
-- `threshold`: **in PIXELS** (the points' unit), as [`find_homography`](@ref).
+- `scoring`: the scorer, its width **in PIXELS** (the points' unit), as [`find_homography`](@ref); default `[pipelines.ellipse] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] EllipseProblem, n_data)`.
 - `local_optimization`: default `Triggs{WelschShape}(scale_multiple = 2.5)`; any
   other strategy as [`find_homography`](@ref).
@@ -56,9 +55,8 @@ function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Re
 end
 
 """
-    refine_ellipse(ellipse, points; threshold = 1.0,
-        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5),
-        scoring = nothing, workspace = nothing) -> RansacEstimate
+    refine_ellipse(ellipse, points; scoring = MsacScoring(problem; threshold = 1.0),
+        local_optimization = Triggs{WelschShape}(scale_multiple = 2.5), workspace = nothing) -> RansacEstimate
 
 The 2D ellipse through `points` refined from the given `ellipse`:
 [`find_ellipse`](@ref)'s step without the sampling. `local_optimization` is the
@@ -74,7 +72,7 @@ on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewe
 
 The maximum-likelihood ellipse under isotropic Gaussian noise on outlier-free
 points is `refine_ellipse(direct_ellipse(points), points; local_optimization =
-Irls{GaussianShape}(), threshold = τ)`, τ above every residual: least squares over every point. Its
+Irls{GaussianShape}(), scoring = MsacScoring(EllipseProblem; threshold = τ))`, τ above every residual: least squares over every point. Its
 covariance is the one model covariance on the inliers,
 `s²·solver_covariance(EllipseProblem(points), e, findall(result.inlier_mask))`
 (in `ambient_coordinates(e)`), `s² = result.sigma²`.

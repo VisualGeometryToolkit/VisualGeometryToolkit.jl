@@ -95,7 +95,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
     # (The Student-t + uniform IRLS version is LocalOptimizationDoneRight's test.)
     @testset "Irls{Welsch} recovers the line through its soft weights" begin
         prob, θ₀ = contaminated_line(StableRNG(57))
-        r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), threshold = 0.1)   # 10σ; the outliers sit 0.475 off the seed
+        r = locally_optimize(prob, θ₀; local_optimization = Irls{WelschShape}(scale_multiple = 1.5), scoring = MsacScoring(prob; threshold = 0.1))   # 10σ; the outliers sit 0.475 off the seed
         line = estimate(r)
         @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
         @test abs(signed_distance(line, Point2(56.0, 0.0))) < 0.006

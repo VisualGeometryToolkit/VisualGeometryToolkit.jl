@@ -96,9 +96,9 @@
         # the CPU fast path there): the same per-row function, the same rows
         KA = VgtkCore.KA
         rk = zeros(n); Jk = zeros(n, 6)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_residual_row!, rk, M, (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
-        VgtkCore._row_kernel!(KA.CPU())(VgtkCore._sampson_jacobian_row!, Jk, M,
-            VgtkCore._direction_rows(dM), (u₁, u₂), NamedTuple(), nothing, sqrtw; ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_residual_row!, rk, M, (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
+        VgtkCore._row_kernel!(KA.CPU())((VgtkCore._sampson_jacobian_row!, Jk, M,
+            VgtkCore._direction_rows(dM), (u₁, u₂), NamedTuple(), nothing, sqrtw); ndrange = n)
         KA.synchronize(KA.CPU())
         # The CPU loop vectorizes across rows; its fma contraction differs from the kernel's.
         @test rk ≈ r rtol = 1.0e-14

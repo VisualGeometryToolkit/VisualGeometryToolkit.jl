@@ -8,14 +8,14 @@
 
 """
     find_radial_homography(correspondences; center,
-        threshold, extent=nothing,
+        scoring = MsacScoring(problem; threshold = 3.0), extent=nothing,
         workspace=nothing, extra_check=nothing, minimal=:radial,
         local_optimization, max_trials, min_trials, config=nothing, rng=...)
 
-`threshold` and `local_optimization` default to
+`scoring` (its width in pixels) and `local_optimization` default to
 `configs/default.toml` `[pipelines.radial_homography]`, `max_trials` and
-`min_trials` to its `[ransac]` table; a keyword overrides. `threshold`
-builds the default scoring only; supplying it with `scoring` is an `ArgumentError`. `extra_check`
+`min_trials` to its `[ransac]` table; a keyword overrides. A bare `threshold`
+or `outlier_halfwidth` keyword is refused, as [`find_homography`](@ref). `extra_check`
 is the radial 5-point kernel's root filter (see
 [`RadialHomographyProblem`](@ref)) and is refused with `minimal = :homography`.
 
@@ -67,8 +67,8 @@ function find_radial_homography(
 end
 
 """
-    refine_radial_homography(model, correspondences; threshold = 3.0, extent = nothing,
-        local_optimization = Irls{TLSShape}(), scoring = nothing, workspace = nothing)
+    refine_radial_homography(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
+        local_optimization = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The radially distorted homography `model` (VisualGeometryToolkitCore

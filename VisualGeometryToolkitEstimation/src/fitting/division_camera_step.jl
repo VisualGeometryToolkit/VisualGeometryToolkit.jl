@@ -268,7 +268,10 @@ end
 # ray-aligned took a branch 48–85° off; 0 of 558 clean ones). The SHARED
 # solution breaks that symmetry (f > 0 is held), so the audit, at convergence,
 # re-judges every admissible candidate there: f and λ held, the view's depth by
-# least squares trimmed twice (rows beyond 9 × the median residual² dropped), the
+# least squares trimmed twice (each trim keeps the rows inside a TLS loss at
+# `scale_multiple` × σ̂, σ̂ the noise scale of the lift's residual norms —
+# Core's `noise_sigma`, codimension 2 — and the multiple configs/default.toml's
+# [fit_division_camera] `branch_audit_scale_multiple`, three medians), the
 # candidate in front with the smallest TRIMMED MEAN residual² kept — a switch
 # only when the alternative's is below `_AUDIT_MARGIN` × the current one's. On
 # ALL the view's points, unweighted: a wrong branch can have driven the view's
@@ -281,6 +284,7 @@ end
 # posterior-weighted residual separates better but is blind exactly when the
 # posterior has rejected the view's inliers.
 const _AUDIT_MARGIN = 0.7
+const _AUDIT_SCALE_MULTIPLE = _dflt("fit_division_camera", "branch_audit_scale_multiple")::Float64
 function _branch_residual(R, t12, pts, f, λs::Tuple)
     n = length(pts)
     use = trues(n)
@@ -295,8 +299,9 @@ function _branch_residual(R, t12, pts, f, λs::Tuple)
             r²[j] = sum(abs2, VgtkCore.constraint(m, X, x))   # ‖g‖² of the lift
         end
         refit == 3 && break
-        cut = 9 * Statistics.median(r²)
-        use .= r² .<= cut
+        σ = VgtkCore.noise_sigma(sqrt.(r²), 2)                 # the lift's residual norms, codimension 2
+        c² = sq_loss_width(deploy(TLSShape(), max(σ^2, floatmin(Float64)); scale_multiple = _AUDIT_SCALE_MULTIPLE))
+        use .= weight.(Ref(TLSShape()), r², c²) .> 0       # inside the TLS loss
     end
     return Statistics.mean(view(r², use)), _front_fraction(R, t12, pts, t3)   # the TRIMMED mean residual²
 end

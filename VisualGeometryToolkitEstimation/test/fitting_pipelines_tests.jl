@@ -24,6 +24,7 @@ using StableRNGs
 using Rotations: RotMatrix, RotXYZ, RotY
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: converged, estimate, rotation, translation   # VGC accessors (public)
+using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation: RansacWorkspace   # public, not exported
 using VisualGeometryToolkitEstimation
 
@@ -107,7 +108,7 @@ using VisualGeometryToolkitEstimation
         # The noise is 0.002 calibrated = 1.6 px in ECAM, above the class's
         # 1 px convention: a threshold of ~3σ (the default itself is
         # core_defaults' test, on a 0.4 px scene).
-        r = find_essential(ECAM, ECAM, pxcs; threshold = 5.0, rng = StableRNG(139))
+        r = find_essential(ECAM, ECAM, pxcs; scoring = MsacScoring(EssentialProblem; threshold = 5.0), rng = StableRNG(139))
         @test r !== nothing
         @test converged(r)
         @test count(r.inlier_mask[1:n_in]) > 0.75 * n_in
@@ -121,7 +122,7 @@ using VisualGeometryToolkitEstimation
         end
         # The floor refusal: a threshold carried over in the OLD calibrated
         # units is rejected, not silently honoured 800x too tight.
-        @test_throws ArgumentError find_essential(ECAM, ECAM, pxcs; threshold = 0.02)
+        @test_throws ArgumentError find_essential(ECAM, ECAM, pxcs; scoring = MsacScoring(EssentialProblem; threshold = 0.02))
     end
 
     @testset "find_absolute_pose" begin

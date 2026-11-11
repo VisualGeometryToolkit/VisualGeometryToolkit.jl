@@ -66,7 +66,12 @@ reports it. It IS its photosite matrix: `size`, indexing and `parent` are the
 held array's, so an ordinary array or image function reads it unchanged, and
 what such a function makes (`similar`, `copy`, a broadcast, a reduction) is a
 plain array of the held array's kind — the colour pattern and the metadata stay
-with the mosaic. It is read-only (no `setindex!`): write to `parent(m)`. The held array may be a device array (`adapt(CuArray, m)`, or
+with the mosaic. `copy`, `==`, `isequal` and `isapprox` are the held array's
+own (no element read through the wrapper, so a device mosaic compares on the
+device), and equality is the photosite matrix's: two mosaics with the same
+photosites are `==` whatever their colour pattern, window origin or metadata
+(compare [`photosite_colors`](@ref), `window_origin` and `metadata` for those),
+and a mosaic is `==` to its held array. It is read-only (no `setindex!`): write to `parent(m)`. The held array may be a device array (`adapt(CuArray, m)`, or
 `adapt(backend, m)` with a KernelAbstractions backend, moves the photosites and
 keeps the rest); a kernel receives `parent(m)`, never the wrapper.
 
@@ -134,6 +139,18 @@ Base.@propagate_inbounds Base.getindex(m::RawMosaic, i::Int...) = m.raw[i...]
 Base.similar(m::RawMosaic, ::Type{T}, dims::Dims) where {T} = similar(m.raw, T, dims)
 Base.Broadcast.broadcastable(m::RawMosaic) = m.raw
 Base.mapreduce(f, op, m::RawMosaic; kw...) = mapreduce(f, op, m.raw; kw...)
+Base.copy(m::RawMosaic) = copy(m.raw)
+# Equality is the photosite matrix's (an AbstractMatrix's, so a mosaic is `==` to its held array and `hash` agrees), read
+# through the held array's own methods (a device array's, no scalar read; against a dense array, a device array's kind):
+# the colour pattern, window origin and metadata are not compared.
+for f in (:(==), :isequal)
+    @eval Base.$f(a::RawMosaic, b::RawMosaic) = $f(a.raw, b.raw)
+    @eval Base.$f(a::RawMosaic, b::DenseArray) = $f(a.raw, b)
+    @eval Base.$f(a::DenseArray, b::RawMosaic) = $f(a, b.raw)
+end
+Base.isapprox(a::RawMosaic, b::RawMosaic; kw...) = isapprox(a.raw, b.raw; kw...)
+Base.isapprox(a::RawMosaic, b::DenseArray; kw...) = isapprox(a.raw, b; kw...)
+Base.isapprox(a::DenseArray, b::RawMosaic; kw...) = isapprox(a, b.raw; kw...)
 Adapt.adapt_structure(to, m::RawMosaic) = _with_raw(m, adapt(to, m.raw), m.window_origin)
 
 # A window (unit ranges in both axes) is a mosaic of the same sensor: the photosites `raw` (the

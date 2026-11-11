@@ -200,24 +200,22 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 
 
 # =============================================================================
-# One row driver for every per-correspondence KernelAbstractions fill
+# One row kernel for every per-correspondence KernelAbstractions fill
 # =============================================================================
 #
 # The LM row fills (Sampson, tangent Sampson, homography transfer, radial
 # transfer) and the per-pair Sampson squares all have ONE shape: row `i` of
 # `out` is a pure function of `i` and a few arrays. Each supplies that function
-# in the uniform form `row!(out, i, args...)` and this driver runs it — a plain
-# loop on the CPU, one generic kernel on a device backend.
-#
-# The CPU fast path is not a nicety: KA's CPU launch costs 1.3× (1000 rows) to
-# 4.9× (100 rows) over a plain loop, and these rows run every iteration of an LM
-# refit. The loop and the kernel run the SAME per-row function; only the driver
-# differs.
+# in the uniform form `row!(out, i, args...)` and `_launch_rows!` runs it: one
+# generic kernel, `_row_kernel!`, on the backend that owns `out`, the CPU's
+# included (the owner's one-kernel policy, 2026-11-11: the plain CPU loop this
+# replaced was 1.3× to 4.9× faster at 1000 to 100 rows; the slower CPU launch is
+# accepted).
 #
 # Device safety: `row!` is a function SINGLETON and the state travels in `args`
 # (arrays, static matrices, tuples of them) — never a closure over non-isbits
 # state, which a device kernel cannot receive. Row functions are
-# `Base.@propagate_inbounds`, so the driver's `@inbounds` reaches their indexing.
+# `Base.@propagate_inbounds`, so the kernel's `@inbounds` reaches their indexing.
 
 @kernel function _row_kernel!(row!, out, args...)
     i = @index(Global)
@@ -225,20 +223,15 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 end
 
 """
-    _foreach_row!(row!, out, n, args...) -> out
+    _launch_rows!(row!, out, n, args...) -> out
 
-Run `row!(out, i, args...)` for `i in 1:n` on the backend that owns `out`: a
-plain `@inbounds` loop on `KA.CPU()`, else one `_row_kernel!` launch
-over `ndrange = n` followed by a synchronize.
+Run `row!(out, i, args...)` for `i in 1:n` as one `_row_kernel!` launch over
+`ndrange = n` on the backend that owns `out` (every backend, the CPU's
+included), followed by a synchronize. `n = 0` launches nothing.
 """
-function _foreach_row!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
+function _launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
+    n > 0 || return out
     backend = get_backend(out)
-    if backend isa KA.CPU
-        @inbounds for i in 1:n
-            row!(out, i, args...)
-        end
-        return out
-    end
     _row_kernel!(backend)(row!, out, args...; ndrange = n)
     KA.synchronize(backend)
     return out

@@ -70,6 +70,8 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # the owner's one-kernel policy (2026-11-11)
+    "_foreach" * "_row!",                     # every LM row fill launches `_row_kernel!` (`_launch_rows!`), the CPU's included
     # the 0.9 /simplify fixes: the spline refine's gauge by parametrization, one rows-and-Jacobian assembler
     "finite" * "_linearization",             # NLLSsolver ≥ 5.3.3 stops on a non-finite linearization itself (#68); no block wraps it
     "_Spline" * "Anchor", "_Spline" * "Pin",   # VisualGeometryToolkitEstimation: only live controls are variables, the gauges no coordinate (`restrict`)

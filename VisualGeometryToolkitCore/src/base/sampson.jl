@@ -370,8 +370,8 @@ end
 # isotropic), the columns a model's constraint takes as keywords (`M₁`/`M₂` of
 # bearings), and the rows' weights `sqrt_weights` (√w, absent = 1; read only
 # by the `weighted_*` rows, the LM's). Each
-# batched function is ONE body: a plain loop on the CPU, one KernelAbstractions
-# kernel on a device, over the same per-element function as the one-element
+# batched function is ONE body: one KernelAbstractions kernel on the backend
+# that owns its output (the CPU's included), over the same per-element function as the one-element
 # verb. Element i's residual takes rows dg(i−1)+1 … dg·i.
 
 @inline _measurement_columns(xs::AbstractVector{<:StaticVector}) = (_points_of(xs),)
@@ -423,7 +423,7 @@ end
     C, d, okc = _whitening_cholesky(propagate(_as_row(G_x), Σ))
     return C.L \ _as_vector(g), (ok & okc) | isnan(d)
 end
-# The rows, in the uniform `(out, i, args...)` form `_foreach_row!` runs. A
+# The rows, in the uniform `(out, i, args...)` form `_launch_rows!` runs. A
 # degenerate element is a zero residual and zero rows (LM-safe), NaN propagates.
 Base.@propagate_inbounds function _sampson_residual_row!(r, i, M, cols, kws, noise, sqrtw)
     s, ok = _element_residual(M, _noise_at(noise, i), _measurements_at(cols, i)...; _columns_at(kws, i)...)
@@ -457,14 +457,14 @@ GEOMETRIC: a noise column is not read. UNWEIGHTED, like
 (which, on a set without noise columns, are these rows times `√wᵢ`). The
 constraint's keyword columns ([`constraint_keywords`](@ref):
 `M₁`, `M₂` on bearings) are read per element. A degenerate element is ZERO (the
-row an LM can take; its distance is `±Inf` under the rule). One body: a plain
-loop on the CPU, one KernelAbstractions kernel on the backend that owns `r`.
+row an LM can take; its distance is `±Inf` under the rule). One body: one
+KernelAbstractions kernel on the backend that owns `r`, the CPU's included.
 Reductions compose: the residual sum of squares is `sum(abs2, r)`. The noise-
 whitened rows are [`whitened_residuals!`](@ref); the model rows
 [`sampson_jacobian_rows!`](@ref).
 """
 sampson_residuals!(r::AbstractVector, M, xs::AbstractVector) =
-    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), nothing,
+    _launch_rows!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), nothing,
         nothing)
 
 """
@@ -483,7 +483,7 @@ columns it is [`sampson_residuals!`](@ref) (both unweighted). GTSAM's
 the constraint); a degenerate element is zero.
 """
 whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
-    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
+    _launch_rows!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
         nothing)
 
 """
@@ -496,7 +496,7 @@ rows are √w-weighted, the RANSAC rows are not). Its model rows are
 [`weighted_whitened_jacobian_rows!`](@ref).
 """
 weighted_whitened_residuals!(r::AbstractVector, M, xs::AbstractVector) =
-    _foreach_row!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
+    _launch_rows!(_sampson_residual_row!, r, length(xs), M, _measurement_columns(xs), constraint_keywords(M, xs), _noise_columns(xs),
         attribute_column(xs, :sqrt_weights))
 
 """
@@ -510,11 +510,11 @@ GEOMETRIC and UNWEIGHTED, as its residuals: neither a noise nor a
 `sqrt_weights` column is read. The whitened rows are
 [`whitened_jacobian_rows!`](@ref), the √w-weighted ones
 [`weighted_whitened_jacobian_rows!`](@ref). A degenerate element has zero
-rows. One body: a plain loop on the CPU, one KernelAbstractions kernel on the
-backend that owns `J`.
+rows. One body: one KernelAbstractions kernel on the backend that owns `J`,
+the CPU's included.
 """
 sampson_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
-    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+    _launch_rows!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
         constraint_keywords(M, xs), nothing, nothing)
 """
     whitened_jacobian_rows!(J, M, directions, xs) -> J
@@ -526,7 +526,7 @@ residuals and as `sampson_jacobian_rows!`; [`weighted_whitened_jacobian_rows!`](
 is the √w form.
 """
 whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
-    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+    _launch_rows!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
         constraint_keywords(M, xs), _noise_columns(xs), nothing)
 
 """
@@ -538,7 +538,7 @@ column — the chart LM's `residual_jacobian_rows!` of a Sampson-constraint
 problem.
 """
 weighted_whitened_jacobian_rows!(J::AbstractMatrix, M, directions::Union{StaticMatrix, Tuple}, xs::AbstractVector) =
-    _foreach_row!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
+    _launch_rows!(_sampson_jacobian_row!, J, length(xs), M, _direction_rows(directions), _measurement_columns(xs),
         constraint_keywords(M, xs), _noise_columns(xs), attribute_column(xs, :sqrt_weights))
 
 """
@@ -549,7 +549,7 @@ The `length(xs) × length(models)` matrix of [`sampson_distance`](@ref)s, model
 matrix (Float32). `models` is iterated once and has a length; a model's
 [`constraint_keywords`](@ref) columns (`M₁`, `M₂` for an essential matrix on
 bearings) are read from `xs`. The distance of each element through the one path — one KernelAbstractions kernel per model
-column on the backend that owns `R`, a plain loop on the CPU; a buffer of
+column on the backend that owns `R`, the CPU's included; a buffer of
 another size is a `DimensionMismatch`.
 """
 function sampson_distances!(R::AbstractMatrix, models, xs::AbstractVector)
@@ -558,7 +558,7 @@ function sampson_distances!(R::AbstractMatrix, models, xs::AbstractVector)
     )
     cols = _measurement_columns(xs)
     for (j, M) in enumerate(models)
-        _foreach_row!(_distance_row!, view(R, :, j), length(xs), M, cols, constraint_keywords(M, xs))
+        _launch_rows!(_distance_row!, view(R, :, j), length(xs), M, cols, constraint_keywords(M, xs))
     end
     return R
 end

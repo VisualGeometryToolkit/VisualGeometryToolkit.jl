@@ -148,3 +148,24 @@ end
     @test device_zeros(UInt64, KA.CPU(), 0) == UInt64[]
     @test device_zeros(Float64, KA.CPU(), (2, 2)) == zeros(2, 2)
 end
+
+# The LM row fills are one kernel on every backend (the owner's one-kernel policy: the CPU's plain loop is retired):
+# the rows equal the per-row function run in a plain loop, to rounding (the kernel's compiled row may round an ulp apart).
+@testitem "LM rows: one kernel on the CPU, the per-row function to rounding" begin
+    using Test, StaticArrays, Random
+    import VisualGeometryToolkitCore as VgtkCore
+    @test !isdefined(VgtkCore, Symbol("_foreach" * "_row!"))
+    rng = Xoshiro(3)
+    F = VgtkCore.FundMat(SMatrix{3, 3, Float64}(randn(rng, 9)...))
+    for n in (1, 100, 1000)
+        xs = VgtkCore.csponds([SVector(rand(rng), rand(rng)) for _ in 1:n], [SVector(rand(rng), rand(rng)) for _ in 1:n])
+        r = VgtkCore.sampson_residuals!(zeros(n), F, xs)
+        ref = zeros(n)
+        cols = VgtkCore._measurement_columns(xs); kw = VgtkCore.constraint_keywords(F, xs)
+        for i in 1:n
+            VgtkCore._sampson_residual_row!(ref, i, F, cols, kw, nothing, nothing)
+        end
+        @test r ≈ ref rtol = 1.0e-14
+    end
+    @test VgtkCore.sampson_residuals!(Float64[], F, VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])) == Float64[]
+end

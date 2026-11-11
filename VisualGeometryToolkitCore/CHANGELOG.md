@@ -5,6 +5,14 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Changed: every LM row fill is one KernelAbstractions kernel on every backend** (the owner's ruling on the twin
+  audit's V3: one kernel per job, the slower CPU accepted). `_foreach_row!`, which ran the rows as a plain loop on the
+  CPU and as `_row_kernel!` elsewhere, is retired (RETIRED_NAMES): `_launch_rows!` launches `_row_kernel!` on the
+  output's backend, the CPU's included (Sampson, tangent Sampson, the homography and radial transfer rows, the per-pair
+  Sampson squares). The rows equal the plain loop's to rounding (1 ulp in 10 of 100 Sampson rows; a test checks
+  1e-14). The CPU launch is slower: Sampson residuals of 100 / 1000 correspondences took 0.18 / 1.6 µs as a loop and
+  14 / 90 µs as a kernel (medians, in a 224-thread process: KernelAbstractions' CPU launch spawns a task per thread).
+
 - **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
   `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is
   and becomes the target float type through one KernelAbstractions kernel on every backend, the CPU's included, bit for

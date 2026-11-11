@@ -209,10 +209,45 @@
         git!(repo, "checkout", "-q", "v0.1.0")
         @test E.commit_drift(Dict("gitcommit" => "v0.1.0")) === nothing
         git!(repo, "checkout", "-q", "-")
-        # a new commit: complete, but warned
+        # a new commit that changes no code tree (this repository has no src): the same code, complete, no warning
         write(joinpath(repo, "a.txt"), "c\n"); git!(repo, "commit", "-qam", "three")
         @test E.commit_drift(Dict("gitcommit" => rec)) isa Tuple
-        @test (@test_logs (:warn, r"DIFFERENT commit") E.run_complete(out; sidecar = "r.jld2"))
+        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
+        E.set_project_root!("")
+    end
+
+    @testset "run_complete and the keyed cache reuse a result only while its code trees are the current ones" begin
+        repo = gitrepo()
+        mkpath(joinpath(repo, "src")); mkpath(joinpath(repo, "docs"))
+        write(joinpath(repo, "src", "M.jl"), "module M end\n"); write(joinpath(repo, "docs", "x.md"), "x\n")
+        git!(repo, "add", "-A"); git!(repo, "commit", "-qm", "code")
+        E.set_project_root!(repo)
+        out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
+        E.write_provenance(out; driver = "d")
+        trees = E.read_provenance(out)["code_trees"]
+        @test trees == E.current_code_trees(repo) && collect(keys(trees)) == ["src"]
+        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
+        # a docs-only commit: no tree changed
+        write(joinpath(repo, "docs", "x.md"), "y\n"); git!(repo, "commit", "-qam", "docs")
+        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
+        # src changes: not complete, the tree named
+        write(joinpath(repo, "src", "M.jl"), "module M\nf() = 1\nend\n"); git!(repo, "commit", "-qam", "src")
+        @test !(@test_logs (:info, r"rerunning .*its code changed") E.run_complete(out; sidecar = "r.jld2"))
+        chg = VgtkEval.code_tree_changes(trees, E.current_code_trees(repo))
+        @test length(chg) == 1 && occursin(r"^src: [0-9a-f]{10} → [0-9a-f]{10}$", chg[1])
+        E.write_provenance(out; driver = "d")                         # the rerun records the new trees
+        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
+        # a record from before the trees were kept: runs once more
+        p = joinpath(out, "_provenance.toml"); d = TOML.parsefile(p); delete!(d, "code_trees"); open(io -> TOML.print(io, d), p, "w")
+        @test !(@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2"))
+        # the keyed cache: computed once, reused, computed again when src changes (the old version kept)
+        dir = mktempdir(); cfg = Dict{String,Any}("a" => 1)
+        d1, f1 = E.cached_result(c -> Dict{String,Any}("v" => 1), "r", cfg, dir)
+        @test d1["code_trees"] == E.current_code_trees(repo)
+        @test E.cached_result(c -> error("must not recompute"), "r", cfg, dir)[1]["v"] == 1
+        write(joinpath(repo, "src", "M.jl"), "module M\nf() = 2\nend\n"); git!(repo, "commit", "-qam", "src again")
+        d2, _ = @test_logs (:info, r"recomputing .*its code changed") match_mode = :any E.cached_result(c -> Dict{String,Any}("v" => 2), "r", cfg, dir)
+        @test d2["v"] == 2 && isfile(replace(f1, ".jld2" => "_#1.jld2"))
         E.set_project_root!("")
     end
 
@@ -222,10 +257,12 @@
         cfg = Dict{String,Any}("dataset" => "260527", "system" => "bb", "level" => "none", "pose_run" => "abc")
         @test E.legacy_hash_key(cfg) == string(hash(cfg))
         dir = mktempdir()
-        # the file DrWatson's produce_or_load(…; filename = hash, prefix) wrote is found, not recomputed
+        # the file DrWatson's produce_or_load(…; filename = hash, prefix) wrote is found; it keeps no code trees (it
+        # predates them), so it is computed once more (the old version kept), then reused
         _, f0 = produce_or_load(c -> Dict("v" => 1), cfg, dir; filename = hash, prefix = "pose", tag = false, verbose = false)
-        data, f1 = E.cached_result(c -> error("must not recompute"), "pose", cfg, dir)
-        @test f1 == f0 && data["v"] == 1
+        data, f1 = @test_logs (:info, r"recomputing") match_mode = :any E.cached_result(c -> Dict("v" => 1), "pose", cfg, dir)
+        @test f1 == f0 && data["v"] == 1 && isfile(replace(f0, ".jld2" => "_#1.jld2"))
+        @test E.cached_result(c -> error("must not recompute"), "pose", cfg, dir)[1]["v"] == 1
         # a new config computes, tags and saves; force keeps the previous version (DrWatson safesave's _#1)
         c2 = merge(cfg, Dict("level" => "o10"))
         d2, f2 = E.cached_result(c -> Dict("v" => 2), "pose", c2, dir)

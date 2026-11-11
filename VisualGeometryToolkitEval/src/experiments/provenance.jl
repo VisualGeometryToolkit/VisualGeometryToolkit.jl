@@ -10,7 +10,11 @@
 # DrWatson's `tag!` adds under its own names — `gitcommit` (`gitdescribe`,
 # "-dirty" on an uncommitted tree) and `gitpatch` (the `git diff HEAD` that
 # restores it) — and, beside a patch, `uncommitted_files`, the paths it
-# touches. Declared inputs are recorded RELATIVE to the roots they live under,
+# touches; and `code_trees`, the git trees of the code the run loaded
+# (`code_trees` of src/code_identity.jl: the project's src, every stack
+# package). A stored result is reused only while those trees are the current
+# ones (`code_tree_changes`, the one rule): the run key names the configuration
+# only, the trees the code. Declared inputs are recorded RELATIVE to the roots they live under,
 # with the roots beside them, so a record is machine-portable.
 # Justified extension: the file is TOML, written with TOML.print, because
 # DrWatson's `wsave` has no TOML writer and the record must stay readable
@@ -47,7 +51,21 @@ end
 const PROVENANCE_FILE = "_provenance.toml"
 
 # Keys the writer owns; a caller field of the same name is refused.
-const _PROVENANCE_RESERVED = ("driver", "timestamp", "hostname", "julia", "gitcommit", "gitpatch", "uncommitted_files", "inputs")
+const _PROVENANCE_RESERVED = ("driver", "timestamp", "hostname", "julia", "gitcommit", "gitpatch", "uncommitted_files", "inputs",
+                              "code_trees")
+
+"""
+    current_code_trees(gitpath = project_root()) -> Dict{String,String}
+
+The code trees a result computed now records (`code_trees` of the top module):
+the project's `src` (of `gitpath`) and every stack package its environment
+(`gitpath`'s, or the Manifest above it) loads. [`write_provenance`](@ref) and
+[`cached_result`](@ref) store them; [`run_complete`](@ref) and
+[`cached_result`](@ref) reuse a stored result only while they are unchanged
+(`code_tree_changes`).
+"""
+current_code_trees(gitpath::AbstractString = project_root()) =
+    isempty(gitpath) ? Dict{String,String}() : code_trees(gitpath; julia_project = gitpath).trees
 
 # The paths a `git diff` touches, in order: what a dirty tree changed, readable
 # without applying the patch (a "-dirty" commit alone does not say whether the
@@ -90,7 +108,8 @@ Write `<dir>/_provenance.toml`: `fields` (the caller's record — run key,
 config source, network hash, frame counts, …) plus `driver`, `timestamp`,
 `hostname`, `julia`, and DrWatson's `tag!` record of `gitpath` (`gitcommit`,
 `gitpatch` on a dirty tree, with `uncommitted_files` — the paths that patch
-touches). `inputs` (paths) are recorded relative to the
+touches) and `code_trees`, the git trees of the code the run loaded
+([`current_code_trees`](@ref)). `inputs` (paths) are recorded relative to the
 results or data root they live under, the roots beside them
 (`inputs = {data = […], data_root = …}`). Refuses to write into the data root
 unless `producer` ([`assert_not_input`](@ref)). Returns the record's path.
@@ -109,10 +128,11 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     inputs === nothing || (prov["inputs"] = _relative_inputs(inputs))
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
+    prov["code_trees"] = current_code_trees(gitpath)
     mkpath(dir)
     out = joinpath(dir, PROVENANCE_FILE)
     open(out, "w") do io
-        println(io, "# What actually ran (DrWatson's tagged dict: gitcommit, and gitpatch restores a dirty tree).")
+        println(io, "# What actually ran (DrWatson's tagged dict: gitcommit, and gitpatch restores a dirty tree; code_trees, the code's git trees).")
         TOML.print(io, prov; sorted = true)
     end
     return out
@@ -212,19 +232,25 @@ function warn_commit_drift(prov::AbstractDict, what; gitpath::AbstractString = p
 end
 
 """
-    run_complete(outdir; sidecar) -> Bool
+    run_complete(outdir; sidecar, gitpath = project_root()) -> Bool
 
 Keyed skip-if-complete: a run counts as done only when its result `sidecar`
-(a file name under `outdir`) AND its `_provenance.toml` exist; when skipping,
-WARN if the recorded commit differs from the project's current one
-([`warn_commit_drift`](@ref)).
+(a file name under `outdir`) AND its `_provenance.toml` exist, and the code
+trees that record keeps are the current ones (`code_tree_changes` of the
+recorded `code_trees` and [`current_code_trees`](@ref)`(gitpath)`). When a
+tree changed, the run is not complete: it runs again, and an `@info` names
+each tree that changed. A record from before the trees were kept has none and
+runs once more. Another commit with the same trees (docs, tests, the paper) is
+the same code: complete, without a warning.
 """
-function run_complete(outdir::AbstractString; sidecar::AbstractString)
+function run_complete(outdir::AbstractString; sidecar::AbstractString, gitpath::AbstractString = project_root())
     isfile(joinpath(outdir, sidecar)) || return false
     isfile(joinpath(outdir, PROVENANCE_FILE)) || return false
     prov = try read_provenance(outdir) catch; return false end
-    warn_commit_drift(prov, outdir)
-    return true
+    changes = code_tree_changes(get(prov, "code_trees", nothing), current_code_trees(gitpath))
+    isempty(changes) && return true
+    @info "rerunning $outdir: its code changed" changes = join(changes, "; ")
+    return false
 end
 
 """
@@ -243,8 +269,11 @@ legacy_hash_key(x) = string(hash(x))
                   gitpath = project_root()) -> (data, file)
 
 The keyed result cache: `<dir>/<prefix>_<key(cfg)>.jld2` is loaded (DrWatson
-`wload`) when present, else `f(cfg)` (a String-keyed Dict) is computed and saved
-tagged like DrWatson's `tagsave` (gitcommit + gitpatch ride along) and written
+`wload`) when present and its `code_trees` are the current ones
+([`current_code_trees`](@ref), `code_tree_changes`; a file without them, from
+before they were kept, is computed once more), else `f(cfg)` (a String-keyed
+Dict) is computed and saved tagged like DrWatson's `tagsave` (gitcommit +
+gitpatch ride along, and `code_trees`) and written
 with DrWatson's `safesave`, so a forced re-run keeps the previous version as
 `_#n`. The file name is
 exactly the one DrWatson's `produce_or_load(…; filename = hash, prefix)` builds,
@@ -257,10 +286,17 @@ function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
                        gitpath::AbstractString = project_root())
     assert_not_input(dir)
     file = joinpath(dir, string(prefix, "_", key(cfg), ".jld2"))
-    !force && isfile(file) && return wload(file), file
+    trees = current_code_trees(gitpath)
+    if !force && isfile(file)
+        stored = wload(file)
+        changes = code_tree_changes(get(stored, "code_trees", nothing), trees)
+        isempty(changes) && return stored, file
+        @info "recomputing $file: its code changed" changes = join(changes, "; ")
+    end
     data = f(cfg)
     mkpath(dir)
     data = _tag!(data; gitpath)
+    data["code_trees"] = trees
     safesave(file, copy(data))
     return data, file
 end

@@ -22,11 +22,12 @@
 #                            the run's DATA — `[render]`, the panel knobs of
 #                            record — are excluded so a cosmetic edit never
 #                            re-keys an experiment. CODE is not keyed: the
-#                            git record (+ dirty patch) covers it and
-#                            run_complete WARNS on commit drift.
+#                            record keeps it (DrWatson's tag!: gitcommit +
+#                            dirty patch; and the code's git trees), and
+#                            run_complete reruns a run whose trees changed.
 #   run_complete(outdir; sidecar)  keyed skip-if-complete: sidecar AND
-#                            records present; warns when the recorded commit
-#                            differs (experiments/provenance.jl)
+#                            records present, and the recorded code trees the
+#                            current ones (experiments/provenance.jl)
 #   experiment_dir(cfg)      <results root>/<dataset>/<matcher>/<problem>
 #   write_run_records(outdir, cfg; ...)  `_config.toml` (effective config) +
 #                            `_provenance.toml` (write_provenance: DrWatson's

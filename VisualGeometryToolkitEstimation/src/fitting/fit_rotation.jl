@@ -11,19 +11,20 @@
 #             tangent residual, so codimension 2); the noise scale σ̂ from
 #             their median (`median(r) / √chisq_median(2)`, the Rayleigh
 #             median — the scale of a 2-D residual's norm, VGC's
-#             `chisq_median`); the loss at width `scale_multiple · σ̂`
-#             (`deploy`, default multiple the shape's efficiency constant at
-#             codimension 2); the loss's IRLS weights; the weighted Kabsch.
+#             `chisq_median`); the loss of the `Irls{K}` strategy at σ̂ (its
+#             width mode, or with none the shape's efficiency constant at
+#             codimension 2; irls_weights.jl); the loss's IRLS weights; the
+#             weighted Kabsch.
 #   stop      when an iteration moves R by less than `tol` (radians), or at
-#             `max_iter`.
+#             the strategy's `max_iter`.
 #
 # Hoisted from RadiometricCamera's experiments/lib/stars.jl
 # (`fit_rotation_irls`, `wahba`), 2026-10-27, with two corrections: the scale
 # of a 2-D residual's norm is its median over 1.1774 (Rayleigh), not 1.4826 ×
 # median (a 1-D absolute deviation's, which reads 2-D norms 1.745× too wide);
-# and the loss and its width multiple are the stack's (`AbstractLossShape`,
-# `scale_multiple`) instead of a hard-wired Huber at 3 × that scale. RC's
-# exact width is `scale_multiple = 3 · 1.4826 · 1.1774 ≈ 5.237`.
+# and the loss and its width are the stack's (an `Irls{K}` strategy) instead
+# of a hard-wired Huber at 3 × that scale. RC's exact width is
+# `Irls{HuberShape}(scale_multiple = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
 # =============================================================================
 
 """
@@ -42,7 +43,7 @@ struct RotationFitMetadata
 end
 
 """
-    fit_rotation(cs; loss, scale_multiple = nothing, max_iter, tol)
+    fit_rotation(cs; local_optimization, tol)
         -> FitResult{RotMatrix{3, Float64}, RotationFitMetadata}
 
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
@@ -52,16 +53,19 @@ VisualGeometryToolkitCore's [`kabsch`](@extref VisualGeometryToolkitCore.kabsch)
 residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
 `σ̂ = median(r) / √chisq_median(2)` (the median of a 2-D residual norm, over
 the pairs of positive prior weight), the
-weights of `loss` (an `AbstractLossShape`, e.g. `HuberShape()`) at width
-`scale_multiple · σ̂`, and the weighted Kabsch.
+weights of the strategy's loss at σ̂, and the weighted Kabsch.
 
-- `loss` — the robust loss shape (default the TOML's, Huber).
-- `scale_multiple` — the width as a multiple of σ̂; `nothing` takes the shape's
-  efficiency constant at codimension 2 (`deploy`'s default), which only an
-  M-estimator (`AbstractMEstimator`) has: any other shape (`TLSShape()`)
-  requires it, an `ArgumentError` naming `scale_multiple` otherwise.
-- `max_iter`, `tol` — at most `max_iter` iterations; converged when one moves
-  `R` by less than `tol` radians (defaults: configs/default.toml [fit_rotation]).
+- `local_optimization` — the stack's robust-estimation strategy, an
+  [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
+  configs/default.toml `[fit_rotation] local_optimization`, Huber).
+  `scale_multiple = m` puts the width at `m · σ̂` (in the loss's currency,
+  [`plain_scale_multiple`](@ref)), `loss_width = w` at `w` radians; with no
+  width — a fit has no scorer to follow — the shape's efficiency constant at
+  codimension 2, which only an M-estimator (`AbstractMEstimator`) has: any
+  other shape (`Irls{TLSShape}()`) requires a width, an `ArgumentError`
+  naming `scale_multiple` otherwise.
+- `tol` — converged when an iteration moves `R` by less than `tol` radians
+  (default configs/default.toml [fit_rotation]).
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
   loss weight (fixed prior weights).
 
@@ -78,16 +82,12 @@ direction noise σ); the suite pins 20% random outliers among 200 pairs at
 """
 function fit_rotation(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
-        loss::VgtkCore.AbstractLossShape = LOSS_TAGS[_dflt("fit_rotation", "loss")](),
-        scale_multiple::Union{Nothing, Real} = nothing,
-        max_iter::Integer = _dflt("fit_rotation", "max_iter"),
+        local_optimization::Irls = _fit_local_optimization("fit_rotation"),
         tol::Real = _dflt("fit_rotation", "tol"),
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
-    loss isa VgtkCore.AbstractMEstimator || scale_multiple !== nothing || throw(
-        ArgumentError("fit_rotation: the loss $(nameof(typeof(loss))) has no efficiency default; give its width as `scale_multiple`")
-    )
+    lo = _check_fit_width("fit_rotation", local_optimization)
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]
     w_col = VgtkCore.weights_column(cs)
@@ -98,9 +98,9 @@ function fit_rotation(
     w = copy(prior)
     retcode = :max_iterations
     iter = 0
-    while iter < max_iter
+    while iter < lo.max_iter
         iter += 1
-        σ = _irls_weights!(w, r, prior, loss, scale_multiple, 2)
+        σ = _fit_weights!(w, r, prior, lo, 2)
         if iszero(σ)                       # an exact fit: every weight is the prior's, R stands
             retcode = :converged
             break
@@ -115,7 +115,7 @@ function fit_rotation(
             break
         end
     end
-    σ = _irls_weights!(w, r, prior, loss, scale_multiple, 2)   # the metadata at the returned rotation
+    σ = _fit_weights!(w, r, prior, lo, 2)   # the metadata at the returned rotation
     return FitResult(R, retcode, iter, sqrt(sum(abs2, r) / n), n, RotationFitMetadata(w, r, σ))
 end
 

@@ -535,9 +535,9 @@ function refine_relpose(::Rigid3,
             "$(eltype(sources(cs))) => $(eltype(targets(cs))). Calibrated 2-vectors " *
             "imply z = 1 — the gnomonic chart — which does not exist for a ray at " *
             "the horizon. Either back-project to bearings and attach the Jacobians, " *
-            "`refine_relpose(pose, withattrs(Csponds(f₁, f₂); M₁, M₂); max_iter, loss_width)` " *
+            "`refine_relpose(pose, withattrs(Csponds(f₁, f₂); M₁, M₂); max_iter, loss, loss_width)` " *
             "from `backproject_with_jacobian(camera, u)`, or hand over pixels and " *
-            "the intrinsics, `refine_relpose(pose, K1, K2, cs; max_iter, loss_width)`."
+            "the intrinsics, `refine_relpose(pose, K1, K2, cs; max_iter, loss, loss_width)`."
     ))
 end
 
@@ -566,7 +566,7 @@ calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, loss_width::Real) 
 public calibrated_loss_width
 
 """
-    refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
+    refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, loss, loss_width) -> Rigid3
 
 Robust Levenberg–Marquardt refinement of a relative pose from pixel
 correspondences and the two cameras' intrinsics.
@@ -592,7 +592,7 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                        max_iter::Integer, loss = TLSShape(),
+                        max_iter::Integer, loss,
                         loss_width::Union{Real, Nothing} = nothing)
     X1, X2 = _pack(cs)
     R0 = pose.R; t0 = pose.t
@@ -615,7 +615,7 @@ function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
 end
 
 """
-    refine_relpose(pose::Rigid3, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
+    refine_relpose(pose::Rigid3, cs; max_iter, loss, loss_width) -> Rigid3
 
 Robust Levenberg–Marquardt refinement of a relative pose from unit bearings,
 through PoseLib's tangent-Sampson refiner.
@@ -657,7 +657,7 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}};
-                        max_iter::Integer, loss = TLSShape(),
+                        max_iter::Integer, loss,
                         loss_width::Union{Real, Nothing} = nothing)
     (hasattr(cs, :M₁) && hasattr(cs, :M₂)) || throw(ArgumentError(
         "refine_relpose on bearings needs the backprojection Jacobians as attribute " *
@@ -696,7 +696,7 @@ end
 export refine_fundamental
 
 """
-    refine_fundamental(F, cs; max_iter, loss = TLSShape(), loss_width) -> FundMat
+    refine_fundamental(F, cs; max_iter, loss, loss_width) -> FundMat
 
 Robust Levenberg–Marquardt refinement of a fundamental matrix through
 PoseLib's `refine_fundamental`. It minimizes the Sampson error over the
@@ -712,7 +712,7 @@ local minimum its seed leads to, as described for
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                            max_iter::Integer, loss = TLSShape(),
+                            max_iter::Integer, loss,
                             loss_width::Union{Real, Nothing} = nothing)
     _require_3x3(F, "F")
     X1, X2 = _pack(cs)
@@ -763,12 +763,12 @@ function refine_absolute_pose(::Rigid3,
             "points on the z = 1 chart, which does not exist for a ray at the " *
             "horizon, with the loss width pre-divided by the focal length. Supply the same " *
             "correspondences as PIXELS with their intrinsics and a PIXEL loss width: " *
-            "`refine_absolute_pose(pose, K, cs; max_iter, loss_width)`."
+            "`refine_absolute_pose(pose, K, cs; max_iter, loss, loss_width)`."
     ))
 end
 
 """
-    refine_absolute_pose(pose::Rigid3, K, cs; max_iter, loss = TLSShape(), loss_width) -> Rigid3
+    refine_absolute_pose(pose::Rigid3, K, cs; max_iter, loss, loss_width) -> Rigid3
 
 Robust Levenberg–Marquardt refinement of an absolute pose from 3D-to-2D
 correspondences, through PoseLib's C++ absolute-pose bundle adjustment. The residual is the
@@ -794,7 +794,7 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
-                              max_iter::Integer, loss = TLSShape(),
+                              max_iter::Integer, loss,
                               loss_width::Union{Real, Nothing} = nothing)
     _require_3x3(K, "K")
     Xb, xb = _pack(cs)
@@ -833,7 +833,7 @@ const _PlainPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:Stati
 _metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_metres(X))
 
 """
-    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, loss = TLSShape(), loss_width)
+    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, loss, loss_width)
 
 The physical form of [`refine_absolute_pose`](@ref): `pose` a world→camera
 pose whose translation is a length (FlexUnits quantities) and `cs` the
@@ -863,7 +863,7 @@ refine_absolute_pose(::Rigid3, ::AbstractMatrix, ::_PhysicalPoints3; kwargs...) 
 ))
 
 """
-    refine_homography(H, cs; max_iter, loss = TLSShape(), loss_width) -> HomographyMat
+    refine_homography(H, cs; max_iter, loss, loss_width) -> HomographyMat
 
 Robust Levenberg–Marquardt refinement of a homography through PoseLib's
 `refine_homography`. It minimizes the symmetric transfer error: the forward
@@ -875,12 +875,13 @@ robustified per point, where `π` divides by the third coordinate.
 `H`). `loss_width` is the width of the loss on a one-sided transfer residual,
 in the same unit. Returns the refined `HomographyMat`.
 
-`loss` is one of VisualGeometryToolkitCore's loss shapes, or
-[`LeZachTruncation`](@ref)`()`:
+`loss` is required — one of VisualGeometryToolkitCore's loss shapes, or
+[`LeZachTruncation`](@ref)`()` — like `max_iter`: the robust estimate's loss is
+the caller's configuration (its strategy or TOML table), never a default here:
 
 | `loss` | `ρ(r)` | note |
 |---|---|---|
-| `TLSShape()` (default) | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
+| `TLSShape()` | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
 | `HuberShape()` | `r²` up to `w`, linear beyond | |
 | `CauchyShape()` | `w² log(1 + r²/w²)` | |
 | `GaussianShape()` | `r²` | plain least squares; takes no `loss_width` |
@@ -907,7 +908,7 @@ julia> x1 = [Point2(a, b) for a in 0.0:100.0:300.0 for b in 0.0:100.0:300.0];
 
 julia> x2 = [Point2(x[1] + 5.0, x[2] - 3.0) for x in x1];
 
-julia> H1 = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Csponds(x1, x2); max_iter = 25, loss_width = 2.0);
+julia> H1 = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Csponds(x1, x2); max_iter = 25, loss = TLSShape(), loss_width = 2.0);
 
 julia> H1 / H1[3, 3] ≈ H
 true
@@ -915,7 +916,7 @@ true
 """
 function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                           max_iter::Integer, loss = TLSShape(),
+                           max_iter::Integer, loss,
                            loss_width::Union{Real, Nothing} = nothing)
     _require_3x3(H, "H")
     X1, X2 = _pack(cs)

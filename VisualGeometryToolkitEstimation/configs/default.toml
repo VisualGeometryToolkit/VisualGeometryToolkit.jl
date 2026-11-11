@@ -110,6 +110,10 @@ local_optimization = { type = "irls", loss = "tls" }
 ncoef             = 1
 max_iter          = 30
 outlier_halfwidth = 20.0         # px — the uniform outlier half-width, NOT the residual scale
+# The branch audit's trimmed depth refits (`_branch_residual`): each trim keeps
+# the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
+# lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
+branch_audit_scale_multiple = 3.5322300675464233
 
 [robot_world_hand_eye]
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
@@ -133,27 +137,34 @@ xtol = 1.0e-12
 # (fit_camera(SplineLens, …)): its held-out round-trip tolerance, pixels.
 forward_tolerance = 1.0e-3
 [fit_rotation]
-# The reweighted Kabsch of `fit_rotation`. The loss's width follows the robust
-# scale of the residual angles at every iteration (`scale_multiple` × σ̂, the
-# shape's efficiency constant at codimension 2 unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 50                    # reweight-and-solve iterations at most
-tol      = 1.0e-12               # rad: converged when an iteration moves the rotation by less
+# The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, width,
+# max_iter — the reweight-and-solve iterations at most), read by
+# local_optimization_from_toml. The loss's width follows the robust scale of the
+# residual angles at every iteration (no width key: the shape's efficiency
+# constant at codimension 2; `scale_multiple = m`: m × σ̂).
+local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
 [fit_rotation_averaging]
 # The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): the
 # loss's width follows the robust scale of the edges' residual angles
 # (`scale_multiple` × σ̂, the shape's efficiency constant at codimension 3
-# unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 100                   # reweight-and-solve iterations at most
-tol      = 1.0e-12               # rad: converged when an iteration moves every frame by less
+# unless the strategy gives one). An Irls strategy, read by local_optimization_from_toml.
+local_optimization = { type = "irls", loss = "huber", max_iter = 100 }
+tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
 # The reweighted least squares of `fit_linear`. The loss's width follows the
 # robust (MAD) scale of the residuals at every iteration (`scale_multiple` × σ̂,
-# the shape's efficiency constant at codimension 1 unless a caller gives one).
-loss     = "huber"               # a LOSS_TAGS tag
-max_iter = 50                    # reweight-and-solve iterations at most
-tol      = 1.0e-12               # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
+# the shape's efficiency constant at codimension 1 unless the strategy gives
+# one). An Irls strategy, read by local_optimization_from_toml.
+local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
+[pipelines.radial_homography.lift_seed]
+# The plain-homography seed of the radial homography's lifted local optimization
+# (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the
+# correspondences inside a TLS loss at `scale_multiple` × σ̂, σ̂ the noise scale
+# of the plain-H reprojection norms (codimension 2). 3·√chisq_median(2): three
+# medians of the norms.
+scale_multiple = 3.5322300675464233
 [chart_lm]
 # The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
 # NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC
@@ -211,6 +222,17 @@ ftol = 1.0e-10
 # ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
 # candidate steps; see [chart_lm])
 max_iter = 100
+
+# SIMFIT++ (`SimFitPP`, Edstedt 2025): the reference implementation's constructor
+# defaults (github.com/Parskatt/simfitpp).
+[simfitpp]
+alpha          = 0.99            # the inlier coverage the loss width targets: loss_width² = ppf_{χ²_dg}(alpha)·σ²
+max_iter       = 4               # train/validation rounds at most
+ftol           = 0.01            # stop when an accepted proposal moves the loss width by less (absolute, residual unit)
+train_fraction = 0.5             # the share of the correspondences the geometry is fitted on
+min_loss_width = 0.25            # px (the residual unit; `with_residual_unit` rescales): smallest acceptable loss width
+max_loss_width = 8.0             # px: largest acceptable loss width
+dg             = 1               # the residual codimension (χ² degrees of freedom): the reference's scalar Sampson residual
 
 # The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under

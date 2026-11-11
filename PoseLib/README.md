@@ -46,7 +46,7 @@ poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25])
 # Keep the solution that reprojects all 25 points best, then refine it.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-pose = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss_width = 2.0)
+pose = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0)
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 

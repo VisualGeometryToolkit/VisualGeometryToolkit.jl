@@ -32,6 +32,41 @@ non-central one is a `NoncentralSplineModel`).
   scorer's threshold), or one that needs a RANSAC consensus set, is an `ArgumentError`. The metadata adds
   `residual_norms`, `weights` (ρ′), `scale` and `loss_width`. `robust = nothing` (the default) is the least-squares
   refine bit for bit. Both forms (one board, several boards); parametric cameras.
+
+- **`SimFitPP`'s defaults are the TOML's** (robust-schema audit): its keyword defaults (`alpha`, `max_iter`, `ftol`,
+  `train_fraction`, `min_loss_width`, `max_loss_width`, `dg`) read the new `[simfitpp]` table of
+  configs/default.toml through `_dflt` (the reference's values, unchanged); the completeness test holds the table to
+  the struct's fields.
+
+- **The division camera's branch audit trims through the stack's loss** (robust-schema audit): `_branch_residual`'s
+  two trimmed depth refits keep the rows inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's `noise_sigma` of the
+  lift's residual norms, codimension 2), the multiple the new `[fit_division_camera] branch_audit_scale_multiple`
+  (3·√chisq_median(2), three medians), in place of the private cut `9 × median(r²)`. The held posterior was not
+  taken: the audit exists for the views whose inliers the posterior has rejected. Every branch decision of the suite
+  is unchanged (91 audits replayed, 14 of them switches; 356 of 364 candidate scores bit-identical, the rest within
+  4e-15 relative). fit_division_camera's posterior EM is untouched.
+
+- **The radial homography's lifted seed reads its gate from the TOML** (robust-schema audit): `lift_init` of a
+  plain-homography hypothesis seeds k on the correspondences inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's
+  `noise_sigma` of the plain-H reprojection norms, codimension 2; the multiple the new table
+  `[pipelines.radial_homography.lift_seed]`, 3·√chisq_median(2) — three medians, the former private `3 * median`).
+  The scorer's decision point was not taken: the gate is relative to the hypothesis' own residuals, not an absolute
+  width. The partition equals the former one on the test scenes (to rounding of the multiple).
+
+- **Breaking: `fit_linear`, `fit_rotation` and `fit_rotation_averaging` take the stack's one robust-estimation schema,
+  an `Irls{K}` strategy** (`local_optimization = Irls{HuberShape}(…)`; owner policy, robust-schema audit). Their
+  private keywords `loss`, `scale_multiple` and `max_iter` are gone (a `MethodError`): the loss is the strategy's `K`,
+  the iteration cap its `max_iter`, the width its width mode — `scale_multiple = m` (m·σ̂ in the loss's currency,
+  `plain_scale_multiple`: a Geman–McClure or Cauchy multiple is now a half-weight depth, `m_old =
+  decision_width(shape, m_new)`), `loss_width = w` (new: an absolute width) or none (the shape's efficiency
+  constant at the fit's codimension, as before; a fit has no scorer to follow). The width resolves through
+  `lo_loss` (Core's `loss_at`) at the fit's σ̂. TOML: `[fit_linear]`, `[fit_rotation]` and
+  `[fit_rotation_averaging]` replace `loss = "huber"` and `max_iter` with `local_optimization = { type = "irls",
+  loss = "huber", max_iter = … }`, read by `local_optimization_from_toml`; `tol` stays. The private weight step
+  `_irls_weights!`/`_irls_loss` is replaced by one that resolves the strategy (`_fit_weights!`). Results are
+  bit-identical to the previous release (15 reference calls: every loss, width and iteration cap, the estimate,
+  the counters and the metadata compared with `isequal`).
+
 - **New: board poses in `refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views)`** (owner
   decision 20): several rigid boards, each board → world pose a variable of the same bundle (one more pose chart of the
   same NLLSsolver problem and assembler as the camera and the view poses), the correspondences keyed by

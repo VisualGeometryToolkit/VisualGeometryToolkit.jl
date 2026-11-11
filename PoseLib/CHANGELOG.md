@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking: every refiner's `loss` is required** (`refine_homography`, `refine_fundamental`, both
+  `refine_relpose` forms, both `refine_absolute_pose` forms; robust-schema audit): the `loss = TLSShape()` default is
+  gone, an omitted `loss` is an `UndefKeywordError`, like `max_iter`. A robust estimate's loss is configured through
+  the stack's one schema (a strategy, a TOML table) by the caller; PoseLib may depend on VisualGeometryToolkitCore
+  only (the stack's dependency allow-list), so it cannot read Estimation's `LOSS_TAGS` and holds no default of its
+  own. Write `loss = TLSShape()` for the former behaviour, unchanged.
+
 - **Breaking: the unexported alias `PoseLib.bundle_adjust` is removed.** It was a second name for
   `refine_absolute_pose`, under the name of PoseLib's C++ function. Call `refine_absolute_pose(pose, K, cs; …)`,
   with the same arguments. The C wrapper `poselib_bundle_adjust_cam` that the refinement calls is unchanged.

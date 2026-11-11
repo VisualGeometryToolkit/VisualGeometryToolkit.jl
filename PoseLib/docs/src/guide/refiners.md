@@ -18,7 +18,8 @@ optimization.
 Every refiner takes three keywords:
 
 - `max_iter`, the iteration budget. It has no default; the caller chooses it.
-- `loss`, the robust loss. The default is `TLSShape()`, a truncated quadratic.
+- `loss`, the robust loss (`TLSShape()`, a truncated quadratic, or another shape below). It has
+  no default either: the loss of a robust estimate is the caller's configuration.
 - `loss_width`, the width of the loss, in the unit of the residual.
 
 ## Losses
@@ -75,7 +76,7 @@ using VisualGeometryToolkitCore: backproject_with_jacobian
 b1 = backproject_with_jacobian.(Ref(camera1), u1)   # (bearing, Jacobian) per point
 b2 = backproject_with_jacobian.(Ref(camera2), u2)
 cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
-refine_relpose(pose, cs; max_iter = 25, loss_width = 2.0)
+refine_relpose(pose, cs; max_iter = 25, loss = TLSShape(), loss_width = 2.0)
 ```
 
 The residual is the tangent Sampson error

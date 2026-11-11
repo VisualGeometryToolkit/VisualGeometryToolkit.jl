@@ -18,7 +18,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   backend for a scoring with `has_residual_quality` (RANSAC and MSAC here; RANSACScoringDoneRight's loss-width
   families add theirs) on a loss-width axis, on `sorted_squared_residuals(pair, R)` (the squared residuals with the
   minimal sample at zero, sorted: the staging of both); `support_sq_loss_width(scoring, max_loss_width)` is where a
-  compact family's quality ends. `best_pool_model` stays the selection of a scoring without a per-residual quality.
+  compact family's quality ends (both in `CONTRACT_GENERICS`: another package's family adds its methods). `best_pool_model`
+  stays the selection of a scoring without a per-residual quality.
   The selections are `best_pool_model`'s (a test checks every width).
 
 - **New: `RadialVignetting(…; chart = :projective)`, a radial profile on the projective chart** of its distance from the

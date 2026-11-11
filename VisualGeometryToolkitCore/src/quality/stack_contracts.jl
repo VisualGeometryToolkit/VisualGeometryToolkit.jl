@@ -140,7 +140,7 @@ const CONTRACT_GENERICS = (
     lo_workspace, locally_optimize!, lo_width, deployed_scale_multiple,
     refine_external!, external_workspace, prepare_external!,
     # selection over a benchmark pool (robust/pool_selection.jl)
-    best_pool_model, selection_staging, stage_selection, select_on_grid!,
+    best_pool_model, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,
     # the chart-rows contract (robust/rows.jl)
     rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model,
     lift_valid, lift_rows, lift_residuals, lift_size,

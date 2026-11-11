@@ -227,7 +227,7 @@ using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall 
 using SparseArrays: SparseMatrixCSC, nzrange, rowvals, nonzeros   # (gcv.jl: the Hutchinson path's pattern)
 import SparseArrays
 import Graphs   # the view and observation graphs' algorithms (components, articulation, bridges, spanning trees)
-using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag, qr
+using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
     mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization and an operator's rows as blocks (Core)

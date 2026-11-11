@@ -3,8 +3,8 @@
 # none, a docstring detached from its definition by a blank or comment line
 # (Julia 1.12 makes it a bare string) and a signature line that drifted from
 # the methods all get through it. The General registration review asks for every
-# public name to be documented (#173032). docs_gates.jl is VisualGeometryToolkitCore's
-# copy (test/docs_gates.jl), until Core hosts the scans in src/quality.
+# public name to be documented (#173032). The scans are VisualGeometryToolkitCore's
+# `test_docs`, the one copy every stack package calls.
 #
 # Two lists, kept apart:
 # - EXCEPTIONS: a name that is not documented here ON PURPOSE, with its reason.
@@ -14,26 +14,6 @@
 
 @testitem "docs: every public name has a docstring, attached, and its signatures match the methods" begin
     using Test, VisualGeometryToolkitIO
-    include(joinpath(@__DIR__, "docs_gates.jl"))
-    M = VisualGeometryToolkitIO
-
-    EXCEPTIONS = Dict{String, String}()
-    BACKLOG = Set{String}()
-    # The signatures a docstring states for a contract's implementers, not for a
-    # method of this package.
-    SIGNATURE_EXCEPTIONS = Set{String}()
-
-    undocumented = Set(undocumented_public(M))
-    @test isempty(setdiff(undocumented, keys(EXCEPTIONS), BACKLOG))     # a new public name is documented
-    @test isempty(setdiff(BACKLOG, undocumented))                       # a documented name leaves the backlog
-    @test isempty(setdiff(keys(EXCEPTIONS), undocumented))              # a stale exception is removed
-
-    @test isempty(detached_docstrings(joinpath(pkgdir(M), "src")))
-
-    mismatches = Set(signature_mismatches(M))
-    @test isempty(setdiff(mismatches, SIGNATURE_EXCEPTIONS))
-    @test isempty(setdiff(SIGNATURE_EXCEPTIONS, mismatches))           # a stale exception is removed
-
-    # The report lists the exceptions, so they stay visible.
-    @info "docs gate exceptions" EXCEPTIONS SIGNATURE_EXCEPTIONS backlog = length(BACKLOG)
+    using VisualGeometryToolkitCore: test_docs
+    test_docs(VisualGeometryToolkitIO)     # every list empty: a new exception takes Core's docs_tests.jl form
 end

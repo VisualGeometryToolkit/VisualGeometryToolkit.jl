@@ -8,7 +8,7 @@
 # differences are FiniteDiff.jl's, a test dependency of each package using them.)
 #
 #   VisualGeometryToolkitCoreTestExt     (loads with `Test`)            check_rows_jacobian,
-#                                 rows_cost, test_naming
+#                                 rows_cost, test_naming, test_docs
 #   VisualGeometryToolkitCoreQualityExt  (loads with `Test`, `Aqua`,     test_quality_gates
 #                                  `ExplicitImports`, `JET`)
 # =============================================================================
@@ -47,6 +47,31 @@ as a test: every finding printed, and `@test` that there is none. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """
 function test_naming end
+
+"""
+    test_docs(M::Module; exceptions = Dict{String,String}(), backlog = Set{String}(),
+              signature_exceptions = Set{String}(), dirs = ("src",)) -> NamedTuple
+
+The docstring gates the Documenter build cannot run (its `checkdocs = :public`
+sees only docstrings that exist), over package `M`, as tests:
+
+- every public name of `M` and its submodules has a docstring, except the
+  `exceptions` (`name => reason`: undocumented on purpose) and the `backlog`
+  (names still to document; the list only shrinks — a name documented must
+  leave it); a stale exception is a failure;
+- no docstring under `M`'s `dirs` (relative to its package directory; a missing
+  one is skipped) is detached from its definition — a bare string statement
+  the parser did not attach, after a blank or comment line;
+- every signature line of a docstring is accepted by a method of its name
+  (methods a test item defined under `Main` are not the package's), and a
+  docstring that shows a sibling's signature leaves the sibling documented on
+  its own, except the `signature_exceptions` (stale ones fail).
+
+A name in a submodule is `Sub.name`. The exceptions are logged with `@info`.
+Returns the findings, `(; undocumented, detached, mismatches)`. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_docs end
 
 """
     test_quality_gates(M::Module; jet_bound, treat_as_own = [], stale_ignore = (),

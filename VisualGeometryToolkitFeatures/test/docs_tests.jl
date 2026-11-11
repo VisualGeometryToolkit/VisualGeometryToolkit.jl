@@ -5,8 +5,7 @@
 # the methods (a removed keyword) all get through it. The General registration
 # review asks for every public name to be documented (#173032).
 #
-# The scans are docs_gates.jl, VisualGeometryToolkitCore's test/docs_gates.jl
-# but for its header comment (check_naming bans a word the original's uses).
+# The scans are VisualGeometryToolkitCore's `test_docs`, the one copy every stack package calls.
 # Two lists, kept apart:
 # - EXCEPTIONS: a name that is not documented here ON PURPOSE, with its reason.
 # - BACKLOG: names still to document. The list only shrinks: a name documented
@@ -15,27 +14,6 @@
 
 @testitem "docs: every public name has a docstring, attached, and its signatures match the methods" begin
     using Test, VisualGeometryToolkitFeatures
-    include(joinpath(@__DIR__, "docs_gates.jl"))
-    M = VisualGeometryToolkitFeatures
-
-    EXCEPTIONS = Dict{String, String}()
-    BACKLOG = Set{String}()
-    # The signatures a docstring states for a contract's implementers, not for a
-    # method of this package.
-    SIGNATURE_EXCEPTIONS = Set{String}()
-
-    undocumented = Set(undocumented_public(M))
-    @test isempty(setdiff(undocumented, keys(EXCEPTIONS), BACKLOG))     # a new public name is documented
-    @test isempty(setdiff(BACKLOG, undocumented))                       # a documented name leaves the backlog
-    @test isempty(setdiff(keys(EXCEPTIONS), undocumented))              # a stale exception is removed
-
-    @test isempty(detached_docstrings(joinpath(pkgdir(M), "src")))
-    @test isempty(detached_docstrings(joinpath(pkgdir(M), "ext")))     # the extensions document methods too
-
-    mismatches = Set(signature_mismatches(M))
-    @test isempty(setdiff(mismatches, SIGNATURE_EXCEPTIONS))
-    @test isempty(setdiff(SIGNATURE_EXCEPTIONS, mismatches))           # a stale exception is removed
-
-    # The report lists the exceptions, so they stay visible.
-    @info "docs gate exceptions" EXCEPTIONS SIGNATURE_EXCEPTIONS backlog = length(BACKLOG)
+    using VisualGeometryToolkitCore: test_docs
+    test_docs(VisualGeometryToolkitFeatures; dirs = ("src", "ext"))     # the extensions document methods too; every list empty: a new exception takes Core's docs_tests.jl form
 end

@@ -11,27 +11,8 @@
 # - BACKLOG: names still to document. The list only shrinks: a name documented
 #   must leave it, and a new public name without a docstring fails.
 
-@testitem "docs" setup = [DocsGates] begin
+@testitem "docs" begin
     using Test, VisualGeometryToolkitEval
-    M = VisualGeometryToolkitEval
-
-    EXCEPTIONS = Dict{String, String}()
-    BACKLOG = Set{String}()
-    # The signatures a docstring states for a contract's implementers, not for
-    # a method of this package.
-    SIGNATURE_EXCEPTIONS = Set{String}()
-
-    undocumented = Set(undocumented_public(M))
-    @test isempty(setdiff(undocumented, keys(EXCEPTIONS), BACKLOG))     # a new public name is documented
-    @test isempty(setdiff(BACKLOG, undocumented))                       # a documented name leaves the backlog
-    @test isempty(setdiff(keys(EXCEPTIONS), undocumented))              # a stale exception is removed
-
-    @test isempty(detached_docstrings(joinpath(pkgdir(M), "src")))
-
-    mismatches = Set(signature_mismatches(M))
-    @test isempty(setdiff(mismatches, SIGNATURE_EXCEPTIONS))
-    @test isempty(setdiff(SIGNATURE_EXCEPTIONS, mismatches))           # a stale exception is removed
-
-    # The report lists the exceptions, so they stay visible.
-    @info "docs gate exceptions" EXCEPTIONS SIGNATURE_EXCEPTIONS backlog = length(BACKLOG)
+    using VisualGeometryToolkitCore: test_docs
+    test_docs(VisualGeometryToolkitEval)
 end

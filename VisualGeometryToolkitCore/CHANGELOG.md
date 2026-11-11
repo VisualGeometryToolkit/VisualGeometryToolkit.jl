@@ -13,6 +13,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `ViewGraph` before seeding — so the hand-written breadth-first search that ran the check a second time is deleted. A
   direct call on a split graph (two components, or a zero-weight bridge) now returns meaningless rotations instead of
   an `ArgumentError`; check connectivity first.
+- **New: `test_docs(M; exceptions, backlog, signature_exceptions, dirs)`** (public, not exported; Test extension): the
+  docstring gates every stack package's docs item runs — every public name documented, no docstring detached from its
+  definition, every docstring signature accepted by a method — once. They were copied into each package's
+  `test/docs_gates.jl` (seven drifted versions across the stack); the copies are deleted. Core's version is the one
+  kept: it ignores methods a test item defined under `Main` (the result no longer depends on which items shared the
+  docs item's worker), scans a documented module's body, and keeps a signature block across a blank line.
 - **New: `check_duplication(M)` / `check_duplication(dir)`** (public, not exported; Test extension, beside
   `check_naming` and `check_raw_decoding`): the no-duplication rule, checked. (1) Name ownership: a binding the package
   owns (not an import, not a method extension) whose name an upstream stack package owns, private names included;

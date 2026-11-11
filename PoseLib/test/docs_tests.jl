@@ -11,14 +11,9 @@
 # every entry carries its reason, kept apart from a BACKLOG that only shrinks,
 # and an @info that prints both.
 
-# At this file's top level, not inside the testset: each top-level statement of
-# an included file runs in the latest world, so the testset below sees these
-# methods. Inside a testset, function or `let` body the include would define
-# them in a world that body cannot see.
-include(joinpath(@__DIR__, "docs_gates.jl"))
+# The scans are VisualGeometryToolkitCore's `test_docs`, the one copy every stack package calls.
+using VisualGeometryToolkitCore: test_docs
 
 @testset "docs: every public name has a docstring, attached, and its signatures match the methods" begin
-    @test isempty(undocumented_public(PoseLib))
-    @test isempty(detached_docstrings(joinpath(pkgdir(PoseLib), "src")))
-    @test isempty(signature_mismatches(PoseLib))
+    test_docs(PoseLib)
 end

@@ -14,8 +14,7 @@
 
 @testitem "docs: every public name has a docstring, attached, and its signatures match the methods" begin
     using Test, VisualGeometryToolkitCore
-    include(joinpath(@__DIR__, "docs_gates.jl"))
-    M = VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: test_docs
 
     EXCEPTIONS = Dict(
         # FlexUnits' @generate_registry_exports writes these into StackUnits; they are
@@ -50,17 +49,5 @@
     SIGNATURE_EXCEPTIONS = Set([
         "score!: no method accepts: score!(W, scoring, scores, residuals, problem, θ::Uncertain, n; sample = nothing, bound = -Inf) -> Float64",
     ])
-    undocumented = Set(undocumented_public(M))
-    @test isempty(setdiff(undocumented, keys(EXCEPTIONS), BACKLOG))     # a new public name is documented
-    @test isempty(setdiff(BACKLOG, undocumented))                       # a documented name leaves the backlog
-    @test isempty(setdiff(keys(EXCEPTIONS), undocumented))              # a stale exception is removed
-
-    @test isempty(detached_docstrings(joinpath(pkgdir(M), "src")))
-
-    mismatches = Set(signature_mismatches(M))
-    @test isempty(setdiff(mismatches, SIGNATURE_EXCEPTIONS))
-    @test isempty(setdiff(SIGNATURE_EXCEPTIONS, mismatches))           # a stale exception is removed
-
-    # The report lists the exceptions, so they stay visible.
-    @info "docs gate exceptions" EXCEPTIONS SIGNATURE_EXCEPTIONS backlog = length(BACKLOG)
+    test_docs(VisualGeometryToolkitCore; exceptions = EXCEPTIONS, backlog = BACKLOG, signature_exceptions = SIGNATURE_EXCEPTIONS)
 end

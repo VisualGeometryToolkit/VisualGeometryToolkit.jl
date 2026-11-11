@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **New: `Reproduce.number_provenance(run_dir; root = project_root())`**: the provenance of numbers read from one
+  run, from its `_provenance.toml` (`Experiments.read_provenance`): `run_key`, `commit` (the recorded `gitcommit`) and
+  `config` (the recorded `config_source`, made relative to `root`), each only where recorded, for `add_number!`'s
+  `provenance` or splatted into `PaperNumbers`. CaliBlobs' icra2026 `run_provenance` and LocalOptimizationDoneRight's
+  accv2026 `scripts/paper_numbers.jl` restated it.
 - **New: `Reproduce.checkout_commit(root = project_root())`**: the checkout's commit as DrWatson describes it
   (`gitdescribe(root)`, `"unknown"` outside a repository), a space or `;` made `_`: the `PaperNumbers` `commit` of
   numbers a driver computes itself. BlobBoards' bmvc2026 `figure_numbers` and CaliBlobs' icra2026 `checkout_commit`

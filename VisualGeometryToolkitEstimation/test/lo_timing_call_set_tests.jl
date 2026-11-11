@@ -16,7 +16,7 @@
     bad = tempname(); write(bad, "NOTAFIXTURE")
     @test_throws ErrorException read_fixture(bad)
     @test occursin("call_set.jl", read(joinpath(dir, "bench.jl"), String))
-    # the arms' passes: every (pair, seed) once, timed per call, measured as the record reads it
+    # the arms' runs over the call set: every (pair, seed) once, timed per call, measured as the record reads it
     seen = Tuple{Int, Int}[]
     run_call_set((i, s) -> push!(seen, (i, length(seen))), pairs)
     @test length(seen) == call_set_size(pairs) == 24 && first.(seen) == repeat(1:8; inner = 3)

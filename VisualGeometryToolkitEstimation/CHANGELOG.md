@@ -8,7 +8,7 @@ non-central one is a `NoncentralSplineModel`).
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 
-- **Tests: the call set's passes are call_set.jl's too** (`call_set_size`, `run_call_set(call, pairs)`,
+- **Tests: the call set's timed runs are call_set.jl's too** (`call_set_size`, `run_call_set(call, pairs)`,
   `time_call_set(call, pairs)` and `call_set_arm(make, pairs, reps)`, an arm as the bench record measures it): the
   timing benches of this package and LocalOptimizationDoneRight (whose accv2026 bench restated `run_set`/`time_set`)
   build their arms on them.

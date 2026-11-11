@@ -52,7 +52,7 @@ function run_call_set(call, pairs)
     return nothing
 end
 
-# The µs per call of one pass over the call set, each call timed on its own (`time_ns`).
+# The µs per call of one run over the call set, each call timed on its own (`time_ns`).
 function time_call_set(call, pairs)
     t = UInt64(0)
     for i in eachindex(pairs), s in pairs[i].seeds
@@ -63,8 +63,8 @@ end
 
 # A bench arm as VisualGeometryToolkitCore's record measures it (bench_record.jl's
 # `write_bench_record`): `make()` builds the arm's call `(i, seed) -> …`, its
-# workspaces outside the timing; two passes compile and warm it, then its bytes
-# per call and `reps` timed passes, sorted.
+# workspaces outside the timing; two runs compile and warm it, then its bytes
+# per call and `reps` timed runs, sorted.
 call_set_arm(make, pairs, reps) = function ()
     call = make()
     run_call_set(call, pairs); run_call_set(call, pairs)

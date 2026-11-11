@@ -168,3 +168,54 @@ end
         @test_throws r"give `fixed`" refine_camera(g, kb, region; (kw => (:d,),)...)
     end
 end
+
+@testitem "camera_verbs: fit_camera's `fixed` drops the held columns from the one linear solve, at the target's values" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, LiftLens, Perspective, Radial, Even, Additive, Tangential,
+        Division, Ellipse, Rect, estimate, metadata, retcode, calibration_matrix, parameters, parameter_names,
+        parameter_vector, lens, rms
+    using VisualGeometryToolkitEstimation: fit_camera, approximate_camera
+    kb = CameraModel(; pp = (2138.8425928470033, 1436.604235274649), focal = 927.4663595958699,
+        lens = KannalaBrandt(-0.03371588391401308, 0.0013137235024557887, -0.0019529571546981683, 0.0001827493332399132))
+    region = Rect(0, 0, 4256, 2848) ∩ Ellipse(SVector(2138.8425928470033, 1436.604235274649), 1250.0, 1250.0, 0.0)
+    RAT = Lens{Perspective, Radial{Even, 3, 3, Float64}}
+    POLY = Lens{Perspective, Radial{Even, 3, 0, Float64}}
+    # the denominator held at the anchor's zeros IS the free subproblem: the polynomial family's fit
+    rh = fit_camera(RAT, kb, region; fixed = (:d,))
+    rp = fit_camera(POLY, kb, region)
+    ch, cp = parameters(lens(estimate(rh))), parameters(lens(estimate(rp)))
+    @test (ch.d1, ch.d2, ch.d3) === (0.0, 0.0, 0.0)
+    @test maximum(abs, (ch.k1 - cp.k1, ch.k2 - cp.k2, ch.k3 - cp.k3)) <= 1.0e-10
+    @test abs(calibration_matrix(estimate(rh))[1, 1] - calibration_matrix(estimate(rp))[1, 1]) <= 1.0e-8
+    @test abs(rms(rh) - rms(rp)) <= 1.0e-9
+    # CaliBlobs' pattern: an OpenCV target freeing k, holding the tangential terms and the denominator at the TARGET
+    # LENS's values; the source in the family's numerator: its k recovered, the held values exactly the target's
+    src = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = Lens(Perspective(), Radial((-0.12, 0.03, 0.004))))
+    target = Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(1.0e-4, -2.0e-4)))
+    disc = Ellipse(SVector(960.0, 540.0), 700.0, 700.0, 0.0)
+    r = fit_camera(target, src, disc; fixed = (:p, :d))
+    c = parameters(lens(estimate(r)))
+    @test retcode(r) === :solved
+    @test (c.p1, c.p2, c.d1, c.d2, c.d3) === (1.0e-4, -2.0e-4, 0.0, 0.0, 0.0)
+    @test maximum(abs, (c.k1 + 0.12, c.k2 - 0.03, c.k3 - 0.004)) < 1.0e-8
+    @test abs(calibration_matrix(estimate(r))[1, 1] - 900.0) < 1.0e-6
+    @test sort(metadata(r).residuals)[end ÷ 2] < 1.0e-6 && metadata(r).max_px < 1.0e-6          # px
+    # everything held: the target, unchanged, at the source's focal
+    r0 = fit_camera(target, src, disc; fixed = parameter_names(CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = target)))
+    @test lens(estimate(r0)) == target && calibration_matrix(estimate(r0)) == calibration_matrix(src)
+    # a lift holds a coefficient only with the focal: d2 held at the target's value recovers d1 exactly
+    mdiv = CameraModel(; pp = (2120.0, 1416.0), focal = 927.0, lens = Division(-0.3302, -0.0765))
+    ddisc = Ellipse(SVector(2120.0, 1416.0), 2000.0, 2000.0, 0.0)
+    @test_throws r"hold the focal too" fit_camera(Division(0.0, -0.0765), mdiv, ddisc; fixed = (:d2,))
+    rl = fit_camera(Division(0.0, -0.0765), mdiv, ddisc; fixed = (:f, :d2))
+    cl = parameters(lens(estimate(rl)))
+    @test cl.d2 === -0.0765 && abs(cl.d1 + 0.3302) < 1.0e-9 && metadata(rl).max_px < 1.0e-6
+    # the held spellings that are not the stack's are refused; approximate_camera forwards `fixed` to both stages
+    for kw in (:free, :fix, :fixed_params, :hold)
+        @test_throws r"give `fixed`" fit_camera(RAT, kb, region; (kw => (:d,),)...)
+    end
+    ra = approximate_camera(RAT, kb, region; fixed = (:d,))
+    ca = parameters(lens(estimate(ra)))
+    @test (ca.d1, ca.d2, ca.d3) === (0.0, 0.0, 0.0) && rms(ra) <= rms(rh) * (1 + 1.0e-9)
+end

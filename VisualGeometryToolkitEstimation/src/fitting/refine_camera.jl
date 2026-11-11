@@ -354,8 +354,8 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
 
 The camera of lens family `L` closest to `source` over `region`, from no guess:
 `refine_camera(estimate(fit_camera(L, source, region)), source, region)` — the linear fit's camera is the refine's
-start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` to both,
-`fixed`, `max_iter` and `device` to the refine. The result is the refine's.
+start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` and `fixed` to
+both (the held coefficients keep the family's anchor values through both), `max_iter` and `device` to the refine. The result is the refine's.
 
 A family with no linear form (a projection with a shape parameter — `DoubleSphere`, `Unified`, `ExtendedUnified` —
 or a `Tilt` or `FieldOfView` term) starts from its anchor instead: the family's zero lens (the double sphere at
@@ -366,8 +366,11 @@ or a `Tilt` or `FieldOfView` term) starts from its anchor instead: the family's 
 kb = approximate_camera(KannalaBrandt{4}, camera, region)     # a SplineLens camera's parametric lens (the exporters' route)
 ```
 """
-function approximate_camera(::Type{L}, source::CameraModel, region; weight::Symbol = :image, kwargs...) where {L <: AbstractLensModel}
-    return refine_camera(_approximation_start(_linear_form(L), L, source, region, weight), source, region; weight, kwargs...)
+function approximate_camera(
+        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), kwargs...
+    ) where {L <: AbstractLensModel}
+    start = _approximation_start(_linear_form(L), L, source, region, weight, fixed)
+    return refine_camera(start, source, region; weight, fixed, kwargs...)
 end
 approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = approximate_camera(L, model(source), region; kwargs...)
 approximate_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
@@ -377,12 +380,15 @@ approximate_camera(::Type{Division}, source::CameraModel, region; kwargs...) = a
 
 # The refine's start: the linear fit's camera, or the family's anchor at the source's K (no linear form, or a failed
 # linear fit).
-function _approximation_start(form, ::Type{L}, source, region, weight) where {L}
-    r = fit_camera(L, source, region; weight)
+function _approximation_start(form, ::Type{L}, source, region, weight, fixed) where {L}
+    r = fit_camera(L, source, region; weight, fixed)
     return retcode(r) === :solve_failed ? _anchor_camera(L, source) : estimate(r)
 end
-_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight) where {L} = _anchor_camera(L, source)
-_anchor_camera(::Type{L}, source) where {L} = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(calibration_matrix(source)); check = false)), _target_anchor(L))
+_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed) where {L} = _anchor_camera(L, source)
+# The camera of the source's K with the family's anchor lens, or with a given lens.
+_anchor_camera(::Type{L}, source) where {L} = _anchor_camera(_target_anchor(L), source)
+_anchor_camera(a::AbstractLensModel, source) =
+    CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(calibration_matrix(source)); check = false)), a)
 
 # ==============================================================================
 # optical_axis: the approximation of the Fisheye624 family

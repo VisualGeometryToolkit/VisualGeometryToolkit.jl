@@ -5,6 +5,15 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`fit_camera(L, source, region; fixed = ())` holds coefficients too** (found by the CaliBlobs port: its OpenCV target
+  held p and d while the linear start fitted them, and resetting them after the fit left a 19.7 px median). The names
+  and groups resolve through Core's `free_parameter_names`, as `refine_camera`'s. A held coefficient's column leaves the
+  ONE linear solve and keeps the target's value: the family's anchor for a type `L`, or a given lens's,
+  `fit_camera(target::AbstractLensModel, source, region; fixed)`. `:f` held is the source's focal, and `fixed`
+  covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
+  rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
+  `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
+
 - **Breaking: parameters are held by `fixed`, the stack's one parameter-holding keyword** (the owner's ruling;
   NLLSsolver's word, OpenCV's `CALIB_FIX_*`). `refine_camera_and_poses` takes `fixed = ()` (every parameter refined but
   the gauge, the skew, held by construction), naming the parameters held: the former `free = X` is `fixed =` its

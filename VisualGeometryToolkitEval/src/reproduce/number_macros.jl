@@ -491,18 +491,7 @@ function write_numbers(path::AbstractString, nums::PaperNumbers; shared::Bool = 
         push!(sections, nums.provenance.driver => mine)
         text = join(last.(sort!(sections; by = first)))
     end
-    dir = mkpath(dirname(abspath(path)))
-    tmp, io = mktemp(dir)                  # written whole, then renamed: never a truncated fragment
-    try
-        write(io, text)
-        close(io)
-        chmod(tmp, 0o644)                  # mktemp's file is private; a fragment is not
-        isdir(path) && throw(ArgumentError("write_numbers: $path is a directory"))   # mv(…; force) would delete it
-        mv(tmp, path; force = true)
-    catch
-        close(io)
-        rm(tmp; force = true)
-        rethrow()
-    end
+    isdir(path) && throw(ArgumentError("write_numbers: $path is a directory"))   # mv(…; force) would delete it
+    _write_atomic(io -> write(io, text), abspath(path))   # written whole, then renamed: never a fragment
     return path
 end

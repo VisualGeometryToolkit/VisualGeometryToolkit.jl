@@ -84,7 +84,8 @@ shipped_sites() = sort([first(splitext(f)) for f in readdir(SITES_DIR) if endswi
 
 # A job-name prefix: letters, digits and `_ . -` (a scheduler's label, matched by a watcher's pattern), or none.
 function _check_job_name_prefix(p, what)
-    occursin(r"^[A-Za-z0-9_.-]*$", p) || throw(ArgumentError("$what = $(repr(p)): letters, digits and _ . - only"))
+    p isa AbstractString && occursin(r"\A[A-Za-z0-9_.-]*\z", p) ||     # \z: `$` would admit a final newline
+        throw(ArgumentError("$what = $(repr(p)): letters, digits and _ . - only"))
     return String(p)
 end
 
@@ -698,6 +699,7 @@ function _write_atomic(f::Function, path::AbstractString)
     try
         f(io)
         close(io)
+        chmod(tmp, 0o644)                  # mktemp's file is private; a marker or manifest is read by others
         mv(tmp, path; force = true)
     catch
         close(io)
@@ -946,7 +948,7 @@ _vgtk_task=${SLURM_ARRAY_TASK_ID:-0}
 _vgtk_start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 _vgtk_marker() {
   local tmp
-  mkdir -p "$_vgtk_dir" && tmp=$(mktemp "$_vgtk_dir/.task-$_vgtk_task.XXXXXX") || return 1
+  mkdir -p "$_vgtk_dir" && tmp=$(mktemp "$_vgtk_dir/.task-$_vgtk_task.XXXXXX") && chmod 644 "$tmp" || return 1
   {
     printf 'stage = "%s"\n' @@STAGE@@
     printf 'task = %d\n' "$_vgtk_task"
@@ -1161,7 +1163,7 @@ function _slurm_log(g::StageGraph, s::StageSpec, id::AbstractString, task::Integ
         m = match(r"^#SBATCH\s+--output=(\S+)"m, read(joinpath(g.workdir, s.sbatch), String))
         m === nothing ? "slurm-%j.out" : m.captures[1]
     end
-    p = replace(pattern, "%A" => id, "%a" => string(task), "%x" => isempty(s.job_name) ? "*" : s.job_name,
+    p = replace(pattern, "%A" => id, "%a" => string(task), "%x" => "*" * s.job_name,   # a site's job-name prefix comes first
                 "%j" => s.is_array ? "*" : id)
     if occursin('*', p)
         dir = joinpath(g.workdir, dirname(p))

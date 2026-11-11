@@ -16,9 +16,11 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   named by its component, as the run's hand-eye record names it; v2 recorded no gauge board), each frame with its
   image, every pose as it stands. Saving writes `vgio/trajectory/v4`. Any other v2 trajectory is refused as before.
 
-- **A radial vignetting body states its chart**: `vgio/vignetting/v1`'s `radial` body carries `"chart": "linear"` or
-  `"projective"` (VisualGeometryToolkitCore's `RadialVignetting(…; chart)`), so a profile on the projective chart reads
-  back as itself; a body without `chart` (written before) is the linear chart's, as it was.
+- **A radial vignetting body states a non-linear chart**: `vgio/vignetting/v1`'s `radial` body carries
+  `"chart": "projective"` for a profile on the projective chart (VisualGeometryToolkitCore's
+  `RadialVignetting(…; chart)`), so it reads back as itself. A linear profile's body has no `chart`, byte for byte the
+  body IO 0.8 writes and reads (its validator refuses an unknown key under the same schema string), as the camera
+  body's `pitch` is absent for a bare extent; a body stating `"chart": "linear"` reads too.
 
 - **`load` and `save` are contract generics** (`CONTRACT_GENERICS = (migrate_schema, load, save)`): a package whose own
   kinds are files adds `load(::Type{<:T}, path)` and `save(path, x::T)` methods for its types (BlobBoards' boards and

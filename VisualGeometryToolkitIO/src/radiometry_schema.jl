@@ -5,13 +5,13 @@
 # {"schema": "vgio/vignetting/v1", "pixel_frame": "colmap",
 #  "vignetting": {"type": "tensor_product", "degree": [p, q], "knots_x": […], "knots_y": […],
 #                 "control_points": [[P₁₁, …, P₁ny], …, [Pnx1, …]]}            (row i: x index i)
-#              | {"type": "radial", "degree": p, "center": [cx, cy], "radius": r, "chart": "linear" | "projective",
-#                 "control_points": [P₁, …]}
+#              | {"type": "radial", "degree": p, "center": [cx, cy], "radius": r, "chart": "projective",
+#                 "control_points": [P₁, …]}                                    (`chart` absent: the linear chart)
 #              | {"type": "log", "spline": {a tensor_product or radial body}}}
 #      VGC's TensorProductVignetting, RadialVignetting, LogVignetting: positions in COLMAP pixels (the
 #      fields' own convention), V unitless; a tensor surface's knots are stated (rebuilt exactly); a
 #      radial profile's are its count's, degree's and chart's (VGC's `RADIAL_CHARTS`; a body without a
-#      `chart`, written before the chart existed, is the linear chart's).
+#      `chart` is the linear chart's, and a linear profile is written without one: IO 0.8's body, byte for byte).
 #
 # {"schema": "vgio/environment_light/v1", "length_unit": "mm", "center": [x, y, z], "radius": r,
 #  "map": {"type": "spherical_harmonics", "basis": "real_orthonormal_no_condon_shortley", "l_max": L,
@@ -100,10 +100,14 @@ JSON.lower(::VgioStyle, v::TensorProductVignetting) = (
     knots_x = Float64.(collect(knot_vectors(v)[1])), knots_y = Float64.(collect(knot_vectors(v)[2])),
     control_points = [Float64[control_points(v)[i, j] for j in axes(control_points(v), 2)] for i in axes(control_points(v), 1)],
 )
-JSON.lower(::VgioStyle, v::RadialVignetting) = (
-    type = tag_of(VIGNETTING_TAGS, v), degree = only(spline_degree(v)), center = Float64.(collect(VgtkCore.center(v))),
-    radius = Float64(field_radius(v)), chart = String(radial_chart(v)), control_points = Float64.(collect(vec(control_points(v)))),
-)
+# A linear profile's body has no `chart`: byte for byte the body IO 0.8 writes and reads (its validator refuses an unknown
+# key under the same schema string), as a camera body's `pitch` is absent for a bare extent.
+function JSON.lower(::VgioStyle, v::RadialVignetting)
+    b = (type = tag_of(VIGNETTING_TAGS, v), degree = only(spline_degree(v)), center = Float64.(collect(VgtkCore.center(v))),
+         radius = Float64(field_radius(v)))
+    p = (; control_points = Float64.(collect(vec(control_points(v)))))
+    return radial_chart(v) === :linear ? merge(b, p) : merge(b, (; chart = String(radial_chart(v))), p)
+end
 JSON.lower(s::VgioStyle, v::LogVignetting) = (type = tag_of(VIGNETTING_TAGS, v), spline = JSON.lower(s, log_spline(v)))
 JSON.lower(::VgioStyle, v::AbstractVignetting) = throw(ArgumentError("save: a $(typeof(v)) has no vgio/vignetting body ($(_vignetting_tags()))"))
 

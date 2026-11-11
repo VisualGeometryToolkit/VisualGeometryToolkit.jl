@@ -207,12 +207,13 @@ end
 # conda-forge's files, each downloaded, checked against its sha256 and its package tarball (a .conda is a zip holding
 # pkg-<name>.tar.zst and info-<name>.tar.zst) unpacked into `dir`, one tree. Julia's own 7z reads the zip and the zstd.
 function _install_conda_files!(dir, files = _ORT_CUDA_FILES, channel = _ORT_CUDA_CHANNEL)
+    z7 = p7zip()   # bound outside the commands: a name read only inside a backtick literal is invisible to static analysis
     mktempdir() do tmp
         for (name, digest) in files
             conda = _download_verified("$channel/$name.conda", digest, joinpath(tmp, "$name.conda"))
-            run(pipeline(`$(p7zip()) x -y -o$tmp $conda pkg-$name.tar.zst`; stdout = devnull))
+            run(pipeline(`$z7 x -y -o$tmp $conda pkg-$name.tar.zst`; stdout = devnull))
             pkg = joinpath(tmp, name)
-            open(io -> Tar.extract(io, pkg), `$(p7zip()) x -so $(joinpath(tmp, "pkg-$name.tar.zst"))`)
+            open(io -> Tar.extract(io, pkg), `$z7 x -so $(joinpath(tmp, "pkg-$name.tar.zst"))`)
             _merge_tree!(pkg, dir)
         end
     end

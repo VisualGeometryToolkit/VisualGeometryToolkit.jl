@@ -4,6 +4,7 @@
 # LoMa on it where a device is visible; their artifacts are lazy, never downloaded without one).
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 CUDA_Runtime_jll = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"
 CUDNN_jll = "62b44479-cb7b-5706-934f-f13b2eb2e645"
@@ -31,6 +32,7 @@ VisualGeometryToolkitFeatures = {path = ".."}
 
 [compat]
 Aqua = "0.8.18"
+Artifacts = "1"
 CUDA = "5.11"
 CUDA_Runtime_jll = "0.21 - 0.26"
 CUDNN_jll = "9.20 - 9"

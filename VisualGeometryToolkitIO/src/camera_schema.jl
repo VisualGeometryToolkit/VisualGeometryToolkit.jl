@@ -259,24 +259,84 @@ _extent_from_body(b) = Size2(Int(b.width::Integer), Int(b.height::Integer))
 
 """
     camera_json(model::CameraModel, extent, frame = CANONICAL_PIXEL_FRAME) -> NamedTuple
-    camera_from_json(body, frame) -> (model, extent)
+    camera_from_json(body, frame; length_unit = mm) -> (model, extent)
 
 The camera body every camera-carrying kind embeds — `width`, `height`, `K`
 (`fx, fy, cx, cy, skew`) and the `lens` record — written with its principal
 point in the pixel `frame` the enclosing file declares, and read back into
-VGC's canonical frame. Building blocks for a package serializing its own kind.
+VGC's canonical frame. Building blocks for a package serializing its own kind;
+a bounded camera's body (its pitch and lens coverage too) is
+`camera_json(camera::BoundedCamera, frame)`.
 """
 camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
     _camera_body(VgioStyle(; pixel_frame = frame), model, extent)
-"""
-    camera_from_json(body, frame) -> (model, extent)
 
-Read a camera body (the inverse of [`camera_json`](@ref)) whose principal
-point is in the pixel `frame` the enclosing file declares. The returned
-`CameraModel` is in VGC's canonical pixel frame.
 """
-camera_from_json(body, frame::Type{<:PixelFrame}) =
-    (JSON.lift(VgioStyle(; pixel_frame = frame), CameraModel, body::_Record), _extent_from_body(body))
+    camera_json(model::NoncentralSplineModel, extent, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
+
+A non-central grid camera's body, the `vgio/noncentral_spline/v1` record's and a
+rig sensor's: `type = "noncentral_spline"`, `width`, `height`, the gauge `K` in
+the pixel `frame` and the `spline` record (the held nodes, the directions, and the
+line points — plain metres in memory — in `length_unit`).
+[`camera_from_json`](@ref) reads it back (it tells the two bodies apart by `type`).
+"""
+camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
+    _noncentral_body(VgioStyle(; pixel_frame = frame, length_unit), model, extent)
+
+"""
+    camera_json(camera::BoundedCamera, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
+
+A bounded camera's body — the one a camera store's entry, a rig sensor and a
+non-central record embed: its model's body (a `CameraModel`'s of any lens, or a
+`NoncentralSplineModel`'s), the sensor's `pitch` in `length_unit` when it is
+bounded by a physical `Sensor`, and its `lens_coverage` in the pixel `frame` when
+the lens does not cover the whole sensor. `camera_from_json(BoundedCamera, body,
+frame; length_unit)` reads it back.
+"""
+camera_json(camera::BoundedCamera, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
+    _bounded_body(VgioStyle(; pixel_frame = frame, length_unit), camera)
+
+"""
+    camera_from_json(body, frame; length_unit = mm) -> (model, extent)
+
+Read a camera body (the inverse of [`camera_json`](@ref) of a model) whose
+principal point is in the pixel `frame` the enclosing file declares: a
+`CameraModel`, or a `NoncentralSplineModel` (a body with a `type`, its line
+points in `length_unit`), in VGC's canonical pixel frame, and its extent.
+"""
+camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =
+    _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::_Record)
+
+"""
+    camera_from_json(::Type{BoundedCamera}, body, frame; length_unit = mm) -> BoundedCamera
+
+Read a bounded camera's body (the inverse of [`camera_json`](@ref) of a
+`BoundedCamera`), a parsed JSON object: checked against the body's table first
+(an `ArgumentError` naming the field otherwise), then its model, its bound (a
+`pitch`, in `length_unit`: the physical `Sensor`; none: the pixel extent) and its
+lens coverage (none: the whole sensor), in VGC's canonical pixel frame.
+"""
+function camera_from_json(::Type{BoundedCamera}, body, frame::Type{<:PixelFrame}; length_unit::Units = mm)
+    _validate(_BOUNDED_CAMERA_BODY, body, "a camera body", "")
+    return _bounded_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::_Record)
+end
+
+# A bounded camera's body on IO's style, and back: the one form every kind that stores one embeds (a camera store's
+# entry, a rig sensor, the non-central record). The model's body, its sensor's pitch (the style's length form) and its
+# lens coverage; read back, a body with a `type` is a non-central one, posed by `pose` when given (a rig sensor's).
+function _bounded_body(s::VgioStyle, bc::BoundedCamera)
+    m, ext = model(bc), extent(bc)
+    body = m isa CameraModel ? _camera_body(s, m, ext) : _noncentral_body(s, m, ext)
+    return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
+end
+_model_from_body(s::VgioStyle, b::_Record) =
+    haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
+function _bounded_from_body(s::VgioStyle, b::_Record, pose = nothing)
+    m, ext = _model_from_body(s, b)
+    return BoundedCamera(_posed(m, pose), _bound_from_body(b, ext, s.length_unit); lens_coverage = _lens_coverage_from_json(s, get(b, :lens_coverage, nothing)))
+end
+_posed(m, ::Nothing) = m
+_posed(m, X) = PosedCamera(m, X)
 
 # -----------------------------------------------------------------------------
 # The calibration block — where a stored camera's numbers came from
@@ -444,8 +504,7 @@ const _CAMERAS_SPEC = _Checked(
 
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
     bc = value_of(c)
-    e = merge((name = String(name),), _with_pitch(_camera_body(s, bc.camera, extent(bc)), sensor(bc), s.length_unit),
-              _lens_coverage_json(s, lens_coverage(bc), extent(bc)))
+    e = merge((name = String(name),), _bounded_body(s, bc))
     return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
 end
 
@@ -506,12 +565,11 @@ load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Unio
 function _load_store(d, path::AbstractString)
     _is_central_grid(d) && (d = _central_grid_store(d, path))   # a vgio/generic_camera/v2 or v3 central file: a store of its camera
     d = _checked_store(d, path, "cameras", _CAMERAS_SPEC)
-    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
+    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String),
+                  length_unit = haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm)   # declared iff a camera carries a pitch
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
-        ext = _extent_from_body(c)
-        bc = BoundedCamera(JSON.lift(s, CameraModel, c::_Record), haskey(c, :pitch) ? _bound_from_body(c, ext, parse_unit(d.length_unit::String)) : ext;
-                           lens_coverage = _lens_coverage_from_json(s, get(c, :lens_coverage, nothing)))
+        bc = _bounded_from_body(s, c::_Record)
         out[Symbol(c.name::String)] = haskey(c, :calibration) ?
             Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
     end

@@ -120,11 +120,7 @@ function save(
     )
     s = VgioStyle(; length_unit)
     head = (schema = _schema("noncentral_spline"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME), length_unit = unit_string(length_unit))
-    ext = extent(camera)
-    body = merge(
-        head, _with_pitch(_noncentral_body(s, model(camera), ext), sensor(camera), length_unit),
-        _lens_coverage_json(s, lens_coverage(camera), ext),
-    )
+    body = merge(head, _bounded_body(s, camera))
     _write_store(path, _NONCENTRAL_SPLINE_SPEC, _with_provenance(body, provenance); style = s)
     return nothing
 end
@@ -140,6 +136,5 @@ function _load_noncentral(raw, path::AbstractString)
     d = _checked_store(raw, path, "noncentral_spline", _NONCENTRAL_SPLINE_SPEC)
     u = parse_unit(d.length_unit::String)
     s = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
-    m, ext = _noncentral_from_body(s, d)
-    return BoundedCamera(m, _bound_from_body(d, ext, u); lens_coverage = _lens_coverage_from_json(s, get(d, :lens_coverage, nothing)))
+    return _bounded_from_body(s, d)
 end

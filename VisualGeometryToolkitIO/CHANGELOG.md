@@ -4,6 +4,14 @@
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 
+- **New: the public camera bodies of a bounded camera and of a non-central grid camera.**
+  `camera_json(camera::BoundedCamera, frame; length_unit)` is the body a camera store's entry, a rig sensor and the
+  non-central record embed — the model's body, the sensor's pitch and the lens coverage (which `camera_json` of a
+  `CameraModel` does not carry) — and `camera_from_json(BoundedCamera, body, frame; length_unit)` reads it back,
+  checked against its table. `camera_json(model::NoncentralSplineModel, extent, frame; length_unit)` is the non-central
+  body, and `camera_from_json(body, frame; length_unit)` reads either kind's `(model, extent)`. The store, the rig and
+  the non-central record write and read through these one implementation.
+
 - A stored camera's `BoundedCamera` and a loaded target's geometry are read with Core's `value_of` (the private
   `_bounded` is gone); nothing a caller sees changes.
 

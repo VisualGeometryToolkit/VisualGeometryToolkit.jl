@@ -776,12 +776,14 @@ end
 # embeds the noncentral_spline/v1 body, told apart by its `type`.
 const _RIG_CAMERA_BODY = _Checked(
     _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]),
-    x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a rig sensor"),
+    x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body"),
 )
 
+# A bounded camera's body (`camera_json(::BoundedCamera)`, camera_schema.jl): a camera body or a non-central one.
+const _BOUNDED_CAMERA_BODY = _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _NONCENTRAL_BODY])
 const _SENSOR_RECORD = _Obj(
     :id => _NonEmpty(),
-    :camera => _Either(Pair{Symbol, _Spec}[:lens => _RIG_CAMERA_BODY, :type => _NONCENTRAL_BODY]),
+    :camera => _BOUNDED_CAMERA_BODY,
     :extrinsics => _POSE,
 )
 const _MEMBER_RECORD = _Obj(Pair{Symbol, _Spec}[:id => _NonEmpty(), :target => _TARGET_BODY, :pose => _UPOSE], Pair{Symbol, _Spec}[])
@@ -814,9 +816,7 @@ function _sensor_body(s::VgioStyle, c, i, id)
     c isa BoundedCamera || throw(
         ArgumentError("rig sensor $i ($(id)) carries no pixel extent — wrap it in BoundedCamera(camera, extent) before saving")
     )
-    m, ext = model(c), extent(c)
-    body = m isa CameraModel ? _camera_body(s, m, ext) : _noncentral_body(s, m, ext)
-    return merge(_with_pitch(body, sensor(c), s.length_unit), _lens_coverage_json(s, lens_coverage(c), ext))
+    return _bounded_body(s, c)
 end
 
 # a rig member's physical sensor, if it is bounded by one
@@ -902,9 +902,7 @@ function _load_sensors(d, ::Type{F}, u::Units) where {F}
     st = VgioStyle(; length_unit = u, pixel_frame = pixel_frame_from_name(d.pixel_frame::String))
     return map(d.sensors::Vector{Any}) do s
         Xl = relabel(F, ViewFrame{Symbol(s.id::String)}, JSON.lift(st, EuclideanMap{3}, s.extrinsics::_Record))
-        b = s.camera::_Record
-        mdl, ext = haskey(b, :type) ? _noncentral_from_body(st, b) : (JSON.lift(st, CameraModel, b), _extent_from_body(b))
-        BoundedCamera(PosedCamera(mdl, Xl), _bound_from_body(b, ext, u); lens_coverage = _lens_coverage_from_json(st, get(b, :lens_coverage, nothing)))
+        _bounded_from_body(st, s.camera::_Record, Xl)
     end
 end
 

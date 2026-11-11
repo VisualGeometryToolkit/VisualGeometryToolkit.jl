@@ -415,3 +415,41 @@ end
         end
     end
 end
+
+# The public camera bodies a package's own record embeds: a BoundedCamera's body (a CameraModel's of any lens, or a
+# non-central grid camera's) with its sensor's pitch and its lens coverage, and a non-central model's bare body, each
+# read back exactly through a parsed JSON round trip, in another pixel frame and length unit too.
+@testitem "camera_json / camera_from_json: a bounded camera's body carries its lens coverage; the non-central body" setup = [VGIoFixtures, SplineRecordFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: model, lens_coverage, Circle, Ellipse, Point2, Rect2, Sensor, sensor, μm, with_present, extent
+    c = corner_cut(spline_camera())
+    d = c.lens.backward
+    pts = [SVector(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]
+    nc = with_present(NoncentralSplineModel(c.intrinsics, d, ChartSpline(d.area, pts)), c.lens.present)
+    K = CameraCalibrationMat(SMatrix{3, 3, Float64}(500.0, 0, 0, 0, 500.0, 0, 32.0, 24.0, 1))
+    ext = Size2(64, 48)
+    circle = Circle(Point2(32.0, 24.0), 30.0)
+    ellipse = Ellipse(Point2(31.5, 24.5), 30.0, 26.0, 0.1)
+    parsed(x) = JSON.parse(JSON.json(x))
+    same(a, b) = typeof(a) == typeof(b) && VgtkIO.same_value(model(a), model(b)) && a.bound == b.bound && lens_coverage(a) == lens_coverage(b)
+    cams = (BoundedCamera(CameraModel(K), ext; lens_coverage = circle),
+            BoundedCamera(c, Sensor(ext, 3.45μm); lens_coverage = ellipse),
+            BoundedCamera(nc, ext; lens_coverage = circle),
+            BoundedCamera(nc, Sensor(ext, 3.45μm)))                     # the whole sensor: no coverage written
+    for bc in cams, frame in (VgtkIO.CANONICAL_PIXEL_FRAME, PixelFrame{:opencv}), u in (mm, μm)
+        body = VgtkIO.camera_json(bc, frame; length_unit = u)
+        @test haskey(body, :lens_coverage) == (lens_coverage(bc) != Rect2{Float64}(0, 0, 64, 48))
+        @test haskey(body, :pitch) == (sensor(bc) !== nothing)
+        back = VgtkIO.camera_from_json(BoundedCamera, parsed(body), frame; length_unit = u)
+        @test back isa BoundedCamera && same(back, bc)
+    end
+    # the non-central model's bare body, and the (model, extent) read of either kind
+    for frame in (VgtkIO.CANONICAL_PIXEL_FRAME, PixelFrame{:opencv})
+        body = VgtkIO.camera_json(nc, ext, frame; length_unit = μm)
+        m, e = VgtkIO.camera_from_json(parsed(body), frame; length_unit = μm)
+        @test m isa NoncentralSplineModel && e == ext && VgtkIO.same_value(m, nc)
+    end
+    # a body's own check: a malformed lens coverage is refused by name
+    bad = parsed(merge(VgtkIO.camera_json(cams[1]), (lens_coverage = (circle = [32.0, 24.0, -1.0],),)))
+    @test_throws ArgumentError VgtkIO.camera_from_json(BoundedCamera, bad, VgtkIO.CANONICAL_PIXEL_FRAME)
+end

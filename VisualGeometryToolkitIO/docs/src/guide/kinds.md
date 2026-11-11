@@ -355,7 +355,14 @@ written and read with `allownan = true`.
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json`,
 `target_json` / `target_from_json` and `pose_declarations` are the same
 records for a length unit or a pixel frame given directly. All of these are
-public and not exported.
+public and not exported. A camera's body comes in three forms:
+`camera_json(model::CameraModel, extent, frame)`, a non-central grid camera's
+`camera_json(model::NoncentralSplineModel, extent, frame; length_unit)`, and a
+bounded camera's `camera_json(camera::BoundedCamera, frame; length_unit)` — its
+model's body with the sensor's pitch and the lens coverage, the body a camera
+store, a rig sensor and the non-central record embed —, read back by
+`camera_from_json(body, frame; length_unit)` (the model and its extent) and
+`camera_from_json(BoundedCamera, body, frame; length_unit)`.
 
 ## Run logs
 

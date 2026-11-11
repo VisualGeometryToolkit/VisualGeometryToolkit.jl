@@ -140,6 +140,9 @@ end
     @test w == [x < eps() ? 0.0 : x for x in inlier_weight(p)] && weight_kind(fit) === PosteriorWeights()
     @test inlier_mask(fit) == truth
     @test noise_scale(fit) === sqrt(s_hat_sq(p)) && scale_source(fit) === ScaleEstimated
+    @test @inferred(noise_scale(fit)) isa Float64
+    md = metadata(fit)
+    @test @inferred(ResidualMixtureMetadata(md.nll, md.weights, md.scale, md.scale_source)) isa ResidualMixtureMetadata
     @test fit.n == count(>(0), w) && fit.n >= count(truth)
     @test rms(fit) ≈ sqrt(sum(w .* r .^ 2) / sum(w))
     @test isfinite(metadata(fit).nll)

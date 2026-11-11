@@ -8,7 +8,7 @@ using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal
 using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms, noise_scale   # VGC accessors (public)
 using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
 using VisualGeometryToolkitCore: MsacScoring
-using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError
+using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError, DivisionCameraMetadata
 using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step,
     mixture_em_from_toml, default_config_path
 using TOML: TOML
@@ -40,6 +40,10 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     @test abs(parameter_vector(lens(estimate(res)))[1] / f_irls^2 - k0) / abs(k0) < 0.05
     @test retcode(res) in (:converged, :max_iterations)
     @test 0.2 < noise_scale(res) < 1.0                                        # ŝ recovers the pixel noise scale
+    @test @inferred(noise_scale(res)) isa Float64
+    md = res.metadata
+    @test @inferred(DivisionCameraMetadata(md.state, md.radial_cameras, md.views, md.weights, md.scale, md.scale_source,
+                                           md.ν)) isa DivisionCameraMetadata
     @test sort!(collect(keys(res.views))) == 1:6
     w = reduce(vcat, [res.views[i].weights for i in 1:6])               # posterior weights, as the views' column
     @test count(<(0.2), w) >= 0.05 * length(w)                          # the outliers are down-weighted

@@ -49,7 +49,8 @@
         @test s isa ScaleInput{Float64}
         @test s.scale === 2.0 && isnan(s.width) && s.source === ScaleGiven
         w = @inferred scale_input(nothing, 3)
-        @test w.width === 3.0 && isnan(w.scale) && w.source === ScaleGiven
+        # D-w: a width-only stage records no scale (never w / c) and the width itself
+        @test w.width === 3.0 && isnan(w.scale) && w.source === ScaleNone
         u = @inferred scale_input(result(0.4, ScaleEstimated), nothing)
         @test u.scale === 0.4 && isnan(u.width) && u.source === ScaleUpstream
         f = @inferred scale_input(0.25f0, nothing)

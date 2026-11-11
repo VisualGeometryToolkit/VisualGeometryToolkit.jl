@@ -525,15 +525,14 @@ codimension_factor(K::Type{<:AbstractLossShape}, d::Integer) =
     efficiency_constant(K, d) / efficiency_constant(K)
 
 # =============================================================================
-# TWO convenience scale estimators — NOT part of the interface above
+# The convenience scale estimator — NOT part of the interface above
 # =============================================================================
 #
 # A loss width takes sigma as an input, and the choice of estimator is
 # the caller's: MAD, RMS, a median of norms, Qn/Sn, an IRLS-updated scale, or a
 # value carried in from calibration (`FixedScale`). `chisq_median` and
-# `noise_sigma` below are the median-of-norms option, provided because it is the
-# one that pairs with the chi lift in `codimension_factor`; `mad_scale` is the
-# centred MAD, for values that are not residuals of a model. They are
+# `mad_scale` below are the median-of-norms option, provided because it is the
+# one that pairs with the chi lift in `codimension_factor`. They are
 # deliberately UNEXPORTED — call them qualified — so that reaching for them is a
 # decision rather than a default.
 
@@ -545,62 +544,42 @@ at d = 2. Its square root is `0.6745` at d = 1 and `1.1774` (the Rayleigh
 median) at d = 2.
 
 `0.6745` is `Phi^-1(0.75)`, the SAME constant that scales a MAD — but sharing a
-constant is not being the same estimator; see `noise_sigma`.
+constant is not being the same estimator; see [`mad_scale`](@ref).
 
 Answers for every `d` on purpose — a hand-tabulated d ∈ {1, 2} would throw on
-the very call pattern this interface exists for, `noise_sigma(norms,
-codimension(problem))`, where a hand-eye problem reports d = 6.
+the very call pattern this interface exists for, `mad_scale(; norms,
+codimension = codimension(problem))`, where a hand-eye problem reports d = 6.
 """
 chisq_median(d::Integer) = Distributions.quantile(Distributions.Chisq(d), 0.5)
 
 """
-    noise_sigma(norms, codim::Integer) -> Float64
+    mad_scale(residuals) -> Float64
+    mad_scale(; norms, codimension::Integer) -> Float64
 
-Robust noise sigma from residual NORMS: `median(norms) / sqrt(chisq_median(d))`.
-If `r ~ N(0, sigma^2 I_d)` then `norm(r)/sigma ~ chi_d`, so dividing the median
-norm by that distribution's median inverts to `sigma`.
+The robust noise scale σ̂ of residual VECTORS `residuals` (`StaticVector{d}`s,
+`d` read from their type): the median of their norms over the median of `χ_d`,
+`median(‖rᵢ‖) / √chisq_median(d)`. If `r ~ N(0, σ²I_d)` then `‖r‖/σ ~ χ_d`, so
+dividing the median norm by that distribution's median inverts to `σ`; the
+median gives it 50% breakdown, so the gross errors a loss exists to reject do
+not inflate it as they would an RMS.
 
-NOT A MAD, though it shares MAD's `0.6745` at d = 1. A MAD centres first —
-`median(abs(x - median(x)))` — so a bias cancels; this takes the median of the
-norms THEMSELVES and has no centring step. That is the right choice for
-residuals, which are already deviations from a fitted model (and for d >= 2 a
-norm is non-negative, so there is no centre to subtract). The cost is that it
-measures BIAS AS NOISE: on residuals centred at 0.9 with sigma = 0.37 it
-returns 1.33 where a MAD still returns 0.37. Feed it residuals of a model that
-fits, not of one that is offset.
+It centres on ZERO — the model — not on the residuals' own median: residuals
+are already deviations from a fitted model, and a norm has no centre to
+subtract. So it measures a BIAS AS NOISE (residuals centred at 0.9 with
+σ = 0.37 give 1.33): feed it residuals of a model that fits.
 
-Robust to OUTLIERS, which is the point — the median has 50% breakdown, so an
-RMS would be inflated by exactly the gross errors the loss exists to reject.
+The codimension is part of the estimator: a 2-D residual's norm is Rayleigh,
+its median `1.1774σ`, a scalar residual's `0.6745σ`; reading 2-D norms as
+d = 1 returns 1.745× the true σ, and every downstream width inherits it. A
+scalar residual is a `StaticVector{1}`.
 
-The codimension is not optional. A 2-D residual's norm is Rayleigh, so its
-median is `1.1774 sigma`; a scalar residual's is `0.6745 sigma`. Reading 2-D
-norms as d = 1 returns 1.745x the true sigma, and every downstream width
-inherits it.
+The keyword form is for a kernel that holds only the NORMS: it names them, and
+their codimension, at the call (`mad_scale(norms = rn, codimension = 2)`), so a
+reader sees that nothing is re-centred. There is no positional norms form.
 """
-noise_sigma(norms, d::Integer) = Statistics.median(norms) / sqrt(chisq_median(d))
-
-"""
-    mad_scale(x) -> Float64
-
-The normal-consistent median absolute deviation of the scalars `x`:
-`median(|xᵢ − median(x)|) / Φ⁻¹(3/4)`, the familiar `1.4826·MAD` with its
-constant exact (`1 / Φ⁻¹(0.75) = 1.482602…`). If `x ~ N(μ, σ²)` it estimates
-`σ`, with 50% breakdown.
-
-It CENTRES first, so a bias cancels: the spread of values about their own
-median — a residual image's log-intensity misfit, a seam's photometric
-difference — where [`noise_sigma`](@ref) of residual norms would count the
-offset as noise. For the residuals of a fitted model, whose zero is the model
-and not their median, use `noise_sigma(abs.(r), 1)`. ArgumentError for an
-empty `x` (Statistics' `median`).
-"""
-function mad_scale(x)
-    y = collect(float(eltype(x)), x)     # the one working copy, of any iterable of reals (an SVector, a tuple)
-    m = Statistics.median!(y)
-    y .= abs.(y .- m)                    # median! reorders y; the deviations do not depend on the order
-    return Statistics.median!(y) / _NORMAL_Q75
-end
-const _NORMAL_Q75 = Distributions.quantile(Distributions.Normal(), 0.75)   # Φ⁻¹(3/4), the MAD's consistency constant
+mad_scale(residuals::AbstractVector{<:StaticVector{D}}) where {D} =
+    mad_scale(; norms = (LinearAlgebra.norm(r) for r in residuals), codimension = D)
+mad_scale(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(chisq_median(codimension))
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width
@@ -638,7 +617,7 @@ inputs.
 
 It is the CALLER's: this package does not estimate it (see `ScaleInterface` in
 robust/estimation.jl for the axis that decides how). From a linear sigma, square
-it at the call: `deploy(shape, noise_sigma(norms, 2)^2; codim = 2)`.
+it at the call: `deploy(shape, mad_scale(residuals)^2; codim = 2)`.
 
 `scale_multiple` is the width as a dimensionless multiple of the noise scale,
 defaulting to the shape's efficiency constant at `codim` and overridden by a

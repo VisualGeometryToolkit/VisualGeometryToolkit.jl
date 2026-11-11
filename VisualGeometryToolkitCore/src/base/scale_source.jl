@@ -25,7 +25,8 @@ Where a robust result's `scale` came from — one of:
 - `ScaleUpstream`: an earlier stage's result (`scale = result`, its [`noise_scale`](@ref));
 - `ScaleEstimated`: estimated by this stage — a RANSAC scorer's consensus
   partition, an EM fit's E-step;
-- `ScaleNone`: no scale (a plain least-squares stage given none); the scale is `NaN`.
+- `ScaleNone`: no scale — a plain least-squares stage given none, or a stage
+  given only a width (never backed out into a scale); the scale is `NaN`.
 
 An `@enum` (isbits): a metadata that carries it stays concretely typed.
 """
@@ -34,7 +35,7 @@ An `@enum` (isbits): a metadata that carries it stays concretely typed.
 @doc "`ScaleGiven`: a [`ScaleSource`](@ref) — the scale is a number the caller gave (`scale = σ`)." ScaleGiven
 @doc "`ScaleUpstream`: a [`ScaleSource`](@ref) — the scale is an earlier stage's [`noise_scale`](@ref) (`scale = result`)." ScaleUpstream
 @doc "`ScaleEstimated`: a [`ScaleSource`](@ref) — this stage estimated the scale (a scorer's consensus partition, an EM fit's E-step)." ScaleEstimated
-@doc "`ScaleNone`: a [`ScaleSource`](@ref) — no scale was recorded; the scale is `NaN` and [`noise_scale`](@ref) refuses it." ScaleNone
+@doc "`ScaleNone`: a [`ScaleSource`](@ref) — no scale was recorded (plain least squares, or a stage given only a width); the scale is `NaN` and [`noise_scale`](@ref) refuses it." ScaleNone
 
 """
     ScaleInput
@@ -59,7 +60,10 @@ The scale input of a robust estimator, from its two keywords — EXACTLY ONE of:
 - `scale = σ`: a positive, finite noise scale (`ScaleGiven`);
 - `scale = result`: an earlier robust result, read by [`noise_scale`](@ref)
   (`ScaleUpstream`; a result that recorded no scale is refused);
-- `width = w`: a positive, finite loss width (`ScaleGiven`; the scale is `NaN`).
+- `width = w`: a positive, finite loss width. The stage records `ScaleNone`
+  (its scale is `NaN`) and the width itself: a width may be cross-validated
+  rather than generative, so no scale is ever backed out of it (`w / c`), and a
+  downstream stage needs its own `scale` or `width`.
 
 Neither, or both, is an `ArgumentError` naming both keywords. A stage with no
 robust loss (plain least squares) takes neither, and refuses one it would
@@ -70,7 +74,7 @@ scale_input(::Nothing, ::Nothing) = throw(ArgumentError(
 scale_input(scale, width) = throw(ArgumentError(
     "give `scale` or `width`, not both (got scale = $(repr(scale)), width = $(repr(width)))"))
 scale_input(scale::Real, ::Nothing) = (v = _positive_scale(scale, "scale"); ScaleInput(v, oftype(v, NaN), ScaleGiven))
-scale_input(::Nothing, width::Real) = (v = _positive_scale(width, "width"); ScaleInput(oftype(v, NaN), v, ScaleGiven))
+scale_input(::Nothing, width::Real) = (v = _positive_scale(width, "width"); ScaleInput(oftype(v, NaN), v, ScaleNone))
 scale_input(r::FitResult, ::Nothing) = (v = noise_scale(r); ScaleInput(v, oftype(v, NaN), ScaleUpstream))
 
 function _positive_scale(x::Real, name::AbstractString)
@@ -86,7 +90,7 @@ The scale a robust result recorded — the one it ran with, or the one it
 estimated (its metadata's `scale`; [`scale_source`](@ref) says which). The
 hand-off: a downstream stage takes it as `scale = result`. An `ArgumentError`
 for a result whose source is `ScaleNone` (a plain least-squares stage given
-no scale), so its `NaN` is never handed on.
+no scale, or a stage given only a width), so its `NaN` is never handed on.
 
 A metadata type answers through its fields `scale` and `scale_source`; one that
 records the scale otherwise adds a method on its metadata type.
@@ -96,7 +100,7 @@ noise_scale(::Nothing) = throw(ArgumentError(
     "a result without metadata records no scale; give the next stage its own `scale` or `width`"))
 function noise_scale(m)
     scale_source(m) == ScaleNone && throw(ArgumentError(
-        "this $(nameof(typeof(m))) result recorded no scale (ScaleNone: a plain least-squares stage given none); " *
+        "this $(nameof(typeof(m))) result recorded no scale (ScaleNone: plain least squares, or a stage given only a width); " *
             "give the next stage its own `scale` or `width`"))
     return m.scale
 end

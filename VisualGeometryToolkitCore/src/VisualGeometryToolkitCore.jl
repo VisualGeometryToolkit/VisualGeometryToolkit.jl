@@ -550,8 +550,10 @@ public codimension_factor
 # scale and its ScaleSource; `scale_input` parses a stage's `scale`/`width` keywords.
 public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_scale, scale_source,
     ScaleInput, scale_input
-public noise_sigma   # the robust noise sigma of residual norms, median(norms) / √chisq_median(d)
-public mad_scale     # the normal-consistent MAD of scalars, median(|x − median(x)|) / Φ⁻¹(3/4) (1.4826·MAD)
+# Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
+# meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
+public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind
+public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √chisq_median(d), centred on the model
 # A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the
@@ -889,6 +891,7 @@ include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, Sco
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring + their contract glue
 include("robust/partition_sweep.jl")  # label priors, FixedHalfwidth, ScoringWorkspace, partition_score, ig_sweep_kernel!, sweep! (needs scale.jl, the KA imports of base/device.jl)
 include("robust/student_t_uniform_scoring.jl") # StudentTUniformScoring + its scoring contract; SCORING_TAGS (needs baseline_scorers.jl, partition_sweep.jl)
+include("robust/weights.jl")           # WeightKind traits, weight_kind, inlier_mask(result) (needs fit_result.jl and the scorer types)
 include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estimate, loss_at
 
 # Geometry Transforms (partial - matrices and rigid transforms only)

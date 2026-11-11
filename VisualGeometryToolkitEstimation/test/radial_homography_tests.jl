@@ -189,7 +189,7 @@ end
 end
 end
 
-@testitem "radial_homography: the lift's plain-H seed is a TLS loss at noise_sigma × the TOML multiple" setup = [RadialScenes] begin
+@testitem "radial_homography: the lift's plain-H seed is a TLS loss at mad_scale × the TOML multiple" setup = [RadialScenes] begin
     using Test, StableRNGs, Statistics
     using StaticArrays: SVector
     import VisualGeometryToolkitCore as VgtkCore
@@ -207,7 +207,7 @@ end
         prov = rows_provider(p)
         k = division_coeff(lift_model(prov, lift_init(prov, plain)))
         rn = prov.lws.rn[1:prov.n]                                     # the plain-H norms lift_init gated
-        σ = VgtkCore.noise_sigma(rn, 2)
+        σ = VgtkCore.mad_scale(; norms = rn, codimension = 2)
         inside = Float64.(rn .^ 2 .< (m * σ)^2)                         # TLS at m·σ̂
         @test k == division_coeff(lift_model(prov, _radial_seed_chart(p, plain, inside)))
         # the same partition as the former private gate, three medians of the norms

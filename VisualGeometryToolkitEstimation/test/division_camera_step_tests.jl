@@ -171,7 +171,7 @@
             λs = (k0 * f0,)                                               # at the shared (f, k), in these units
             @test RVG._audit_branch(cands, iwrong, b1, f0, λs) == itrue  # the wrong tilt is moved
             @test RVG._audit_branch(cands, itrue, b1, f0, λs) == itrue   # the right one is kept
-            # the trimmed refits keep the rows inside a TLS loss at scale_multiple × σ̂ (σ̂ Core's noise_sigma of
+            # the trimmed refits keep the rows inside a TLS loss at scale_multiple × σ̂ (σ̂ Core's mad_scale of
             # the lift's residual norms, codimension 2), the multiple the file's, three medians of the norms
             msm = RVG._dflt("fit_division_camera", "branch_audit_scale_multiple")
             @test msm ≈ 3 * sqrt(RVG.VgtkCore.chisq_median(2)) rtol = 1.0e-15
@@ -182,7 +182,7 @@
                 t3 = RVG._whitening_depth(cands[itrue]..., bo, f0, λs, use)
                 lm = RVG._lift_model(cands[itrue]..., f0, λs, t3)
                 r² .= [sum(abs2, RVG.VgtkCore.constraint(lm, X, x)) for (X, x) in bo]
-                σ = RVG.VgtkCore.noise_sigma(sqrt.(r²), 2)
+                σ = RVG.VgtkCore.mad_scale(; norms = sqrt.(r²), codimension = 2)
                 use .= r² .< (msm * σ)^2
             end
             t3 = RVG._whitening_depth(cands[itrue]..., bo, f0, λs, use)

@@ -24,7 +24,7 @@ CurrentModule = VisualGeometryToolkitCore
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["robust/estimation.jl"]
+Pages = ["robust/estimation.jl", "robust/weights.jl"]
 ```
 
 ## Problem Protocol

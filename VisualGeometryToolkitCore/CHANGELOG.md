@@ -31,8 +31,24 @@ sensor — so every consumer asks the camera what it images instead of supplying
     result without metadata, so a NaN is never handed to the next stage;
   - `scale_input(scale, width) -> ScaleInput{T}` parses a stage's keywords: exactly one of `scale = σ`,
     `scale = result` (`ScaleUpstream`) or `width = w`, each positive and finite; neither or both is an `ArgumentError`.
+    A width-only stage records `ScaleNone` and carries the width: a width may be cross-validated rather than
+    generative, so no scale is ever backed out of it.
 
   No estimator records a scale yet; the verbs adopt it in their own changes.
+- **Breaking: `mad_scale(residuals)` is the robust noise scale of residual VECTORS; `noise_sigma` is removed** (the
+  owner's ruling). `mad_scale(rs)` takes `StaticVector{d}` residuals, reads `d` from their type, and returns
+  `median(‖rᵢ‖) / √chisq_median(d)`: centred on zero (the model), never on the residuals' own median. A kernel that
+  holds only norms names them, `mad_scale(; norms, codimension)`; there is no positional norms form, so a reader
+  always sees that nothing is re-centred. The numbers are `noise_sigma(norms, d)`'s, bit for bit (Estimation's three
+  callers switched). The former centred, normal-consistent `mad_scale(x)` of scalars is gone (StatsBase's
+  `mad(x; normalize = true)` is that estimator); its scalar call shape is a `MethodError`, not silently re-meant.
+- **New: per-datum weights carry their kind as a trait** (public; the robust-estimation contract, Q3). `WeightKind` —
+  `BinaryWeights()` (a threshold scorer; an L2 result), `PosteriorWeights()` (the Student-t + uniform scorer, an EM
+  fit), `IrlsWeights()` (an M-estimator's loss weight) — is read by `weight_kind(result)` from the metadata's TYPE,
+  which answers from its producer's (a contract generic). `inlier_mask(result)` dispatches on it: `w > 0`, the MAP
+  rule `is_map_inlier`, or an `ArgumentError` for IRLS weights, which have no cut of their own;
+  `inlier_mask(result, cut)` takes an explicit cut for any kind. `RansacScoring`/`MsacScoring` answer binary and
+  `StudentTUniformScoring` posterior. No result type adopts it yet.
 - **The `efficiency_constant` table is re-derived by a test** (`test/efficiency_constant_tests.jl`): the
   quadrature solves eff(c, d) = 0.95 under χ_d for Huber, Cauchy, Welsch and Geman–McClure at d = 1…3 and matches
   the table to its 4 decimals, so the provenance lives in the repository rather than in a scratch script. No value

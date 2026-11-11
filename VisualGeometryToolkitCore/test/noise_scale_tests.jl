@@ -1,5 +1,5 @@
 # The robust layer's noise scale and loss width against Monte Carlo:
-# `noise_sigma` (the median-of-norms scale, Rayleigh-median at d = 2) through the
+# `mad_scale` (the median-of-norms scale, Rayleigh-median at d = 2) through the
 # calibration harness, and `efficiency_constant`'s defining claim — 95% Gaussian
 # efficiency of the loss's M-estimate — by paired simulation.
 @testitem "noise_scale" begin
@@ -11,17 +11,17 @@
     using Statistics
     using Distributions: Chi, Normal, pdf, quantile
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: noise_sigma, chisq_median, efficiency_constant, weight,
+    using VisualGeometryToolkitCore: mad_scale, chisq_median, efficiency_constant, weight,
         WelschShape, CauchyShape, GemanMcclureShape
     const CHar = VgtkCore.Synthetic
 
-    @testset "noise_sigma: calibrated against its asymptotic variance (d = 1, 2, 6)" begin
+    @testset "mad_scale: calibrated against its asymptotic variance (d = 1, 2, 6)" begin
         # σ̂ = median‖r‖/√q, q = chisq_median(d): the sample median of σ·χ_d norms has
         # asymptotic variance 1/(4n·f(m)²), so Var(σ̂) = σ²/(4n·q·f_χd(√q)²)
         predicted_var(σ, n, d) = (q = chisq_median(d); f = pdf(Chi(d), sqrt(q)); σ^2 / (4 * n * q * f^2))
         sigma_trial(d, n, σ) = rng -> begin
-            norms = [norm(σ * randn(rng, d)) for _ in 1:n]
-            ([noise_sigma(norms, d) - σ], fill(predicted_var(σ, n, d), 1, 1))
+            residuals = [SVector{d}(σ * randn(rng, d)) for _ in 1:n]
+            ([mad_scale(residuals) - σ], fill(predicted_var(σ, n, d), 1, 1))
         end
         for d in (1, 2, 6)
             r = CHar.run_calibration(sigma_trial(d, 200, 0.7), MersenneTwister(40 + d), 4000, 1)
@@ -29,7 +29,7 @@
         end
     end
 
-    @testset "noise_sigma: gross outliers move it to a predicted quantile" begin
+    @testset "mad_scale: gross outliers move it to a predicted quantile" begin
         # A fraction ε of gross errors (above every clean norm) puts the median at the
         # clean distribution's 0.5/(1 − ε) quantile: σ̂/σ = F⁻¹(0.5/(1 − ε))/F⁻¹(½).
         # Robust (50% breakdown), not unbiased — at ε = 0.2, d = 2 it reads 1.19σ.
@@ -40,27 +40,24 @@
                 norms = [norm(σ * randn(rng, d)) for _ in 1:n]
                 k = round(Int, ε * n)
                 norms[1:k] .= 10σ .+ 100σ .* rand(rng, k)
-                noise_sigma(norms, d)
+                mad_scale(; norms, codimension = d)
             end
             predicted = σ * quantile(Chi(d), 0.5 / (1 - ε)) / quantile(Chi(d), 0.5)
             @test abs(mean(est) - predicted) < 4 * std(est) / sqrt(N)
         end
     end
 
-    @testset "mad_scale: the centred, normal-consistent MAD" begin
-        @test VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0]) == 1.0 / quantile(Normal(), 0.75)   # median 3, |x − 3| median 1
-        @test VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0]) ≈ 1.4826 rtol = 2.0e-6               # the familiar constant
+    @testset "mad_scale: residual vectors, centred on the model" begin
+        rs = [SVector(3.0, 4.0), SVector(0.0, 1.0), SVector(6.0, 8.0)]          # norms 5, 1, 10
+        @test @inferred(mad_scale(rs)) == 5.0 / sqrt(chisq_median(2))
+        @test mad_scale(rs) === mad_scale(; norms = [5.0, 1.0, 10.0], codimension = 2)
+        @test mad_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(chisq_median(1))   # d = 1: |r|, no centring
+        @test mad_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(chisq_median(2))
         x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9
-        @test VgtkCore.mad_scale(x) ≈ 0.37 rtol = 0.02                  # a bias cancels
-        @test VgtkCore.mad_scale(x .+ 5) ≈ VgtkCore.mad_scale(x) rtol = 1.0e-12
-        @test VgtkCore.mad_scale(Float32[1, 2, 3, 4, 100]) ≈ 1.4826 rtol = 2.0e-6
-        @test VgtkCore.mad_scale(SVector(1.0, 2.0, 3.0, 4.0, 100.0)) == VgtkCore.mad_scale((1, 2, 3, 4, 100)) ==
-            VgtkCore.mad_scale([1.0, 2.0, 3.0, 4.0, 100.0])                 # any iterable of reals
-        y = [5.0, 1.0, 4.0]
-        VgtkCore.mad_scale(y)
-        @test y == [5.0, 1.0, 4.0]                                           # the input is not reordered
-        @test noise_sigma(abs.(x), 1) > 3 * 0.37                         # the uncentred scale counts the offset as noise
-        @test_throws ArgumentError VgtkCore.mad_scale(Float64[])
+        @test mad_scale(SVector{1}.(x)) > 3 * 0.37                                  # a bias counts as noise
+        # no scalar form: the retired centred MAD's call shape is refused, not silently re-meant
+        @test_throws MethodError mad_scale([1.0, 2.0, 3.0])
+        @test_throws MethodError mad_scale([5.0, 1.0, 10.0], 2)
     end
 
     @testset "efficiency_constant: 95% Gaussian efficiency of the M-estimate" begin

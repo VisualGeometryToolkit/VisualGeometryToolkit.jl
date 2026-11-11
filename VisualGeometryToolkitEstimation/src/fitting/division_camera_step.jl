@@ -270,7 +270,7 @@ end
 # re-judges every admissible candidate there: f and λ held, the view's depth by
 # least squares trimmed twice (each trim keeps the rows inside a TLS loss at
 # `scale_multiple` × σ̂, σ̂ the noise scale of the lift's residual norms —
-# Core's `noise_sigma`, codimension 2 — and the multiple configs/default.toml's
+# Core's `mad_scale` of the norms, codimension 2 — and the multiple configs/default.toml's
 # [fit_division_camera] `branch_audit_scale_multiple`, three medians), the
 # candidate in front with the smallest TRIMMED MEAN residual² kept — a switch
 # only when the alternative's is below `_AUDIT_MARGIN` × the current one's. On
@@ -299,7 +299,7 @@ function _branch_residual(R, t12, pts, f, λs::Tuple)
             r²[j] = sum(abs2, VgtkCore.constraint(m, X, x))   # ‖g‖² of the lift
         end
         refit == 3 && break
-        σ = VgtkCore.noise_sigma(sqrt.(r²), 2)                 # the lift's residual norms, codimension 2
+        σ = VgtkCore.mad_scale(; norms = sqrt.(r²), codimension = 2)                 # the lift's residual norms, codimension 2
         c² = sq_loss_width(deploy(TLSShape(), max(σ^2, floatmin(Float64)); scale_multiple = _AUDIT_SCALE_MULTIPLE))
         use .= weight.(Ref(TLSShape()), r², c²) .> 0       # inside the TLS loss
     end

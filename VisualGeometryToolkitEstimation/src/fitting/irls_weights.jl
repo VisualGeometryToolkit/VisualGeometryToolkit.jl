@@ -5,7 +5,7 @@
 # and its `max_iter`; TOML `[<fit>] local_optimization = { type = "irls", … }`,
 # read by `local_optimization_from_toml`), and only its model update and its
 # stop rule are its own. Per iteration: the noise scale σ̂ from the residual
-# norms (VisualGeometryToolkitCore's `noise_sigma`), the strategy's loss at σ̂²,
+# norms (VisualGeometryToolkitCore's `mad_scale`), the strategy's loss at σ̂²,
 # and the loss's weights times the caller's prior.
 # =============================================================================
 
@@ -37,11 +37,11 @@ function _check_fit_width(fit::AbstractString, lo::Irls)
 end
 
 # σ̂ of the residual `norms` over the entries of positive `prior` — Core's
-# `noise_sigma` at codimension `codim` (an excluded entry's residual does not
+# `mad_scale` of the norms at codimension `codim` (an excluded entry's residual does not
 # widen the loss) — and the IRLS weights of `lo`'s loss at σ̂² times the prior
 # into `w`; the prior itself on an exact fit (σ̂ = 0). Returns σ̂.
 function _fit_weights!(w, norms, prior, lo::Irls, codim::Integer)
-    σ = VgtkCore.noise_sigma((norms[i] for i in eachindex(norms) if prior[i] > 0), codim)
+    σ = VgtkCore.mad_scale(; norms = (norms[i] for i in eachindex(norms) if prior[i] > 0), codimension = codim)
     if iszero(σ)
         w .= prior
         return σ

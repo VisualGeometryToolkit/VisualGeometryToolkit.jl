@@ -67,6 +67,11 @@ ScaleInput
 scale_input
 ```
 
+Its per-datum weights in [0, 1] are [`weights`](@ref)`(result)`, a plain vector;
+what they mean — and so where [`inlier_mask`](@ref)`(result)` cuts them — is
+the producer type's [`WeightKind`](@ref), read by [`weight_kind`](@ref)
+(Estimation Interfaces).
+
 ## Index
 
 ```@index

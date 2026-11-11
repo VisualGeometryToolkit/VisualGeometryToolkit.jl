@@ -40,4 +40,19 @@ export cli_option, start_output_flush!
 
 public ARTIFACT_FORMATS, DEFAULTS_PATH
 
+"""
+    engine_fixtures() -> Module
+
+The evaluation engine's shared test fixtures, the module `EngineFixtures` of
+the Test extension (`using Test` loads it): `epair` (THE synthetic E pool pair,
+`EPAIR_GT_VARIANCE`), `starts_pool`, `subpair` (a pair restricted to some of
+its stored models), `engine_scene` (a scene of the selection stream),
+`roster_tuning` and `write_roster_sidecar` (the tuning record the roster
+readers are tested on). This package's engine tests and the paper projects'
+engine-integration tests build their fixtures from it.
+"""
+function engine_fixtures end
+
+public engine_fixtures   # the engine's shared test fixtures (the Test extension)
+
 end # module VisualGeometryToolkitEval

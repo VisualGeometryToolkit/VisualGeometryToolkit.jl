@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **New: `engine_fixtures()`** (public, not exported; a Test extension, `using Test` loads it): the evaluation engine's
+  shared test fixtures, the module `EngineFixtures` exporting `epair` (THE synthetic E pool pair, `EPAIR_GT_VARIANCE`),
+  `starts_pool`, `subpair(pair, cols)` (a pool pair restricted to some of its stored models, built through the
+  keyword constructor, not by field reflection), `engine_scene(pairs, residuals, r)` (a scene of the selection
+  stream), `roster_tuning()` and `write_roster_sidecar(path, tuning, arms; code, mode, hits)` (the tuning record the
+  roster readers are tested on). This package's engine test and LocalOptimizationDoneRight's accv2026
+  engine-integration test, which copied them, build on it.
+
 - **New: `Experiments.config_of_record(name; root = project_root())` and `keyed_cell_dir(cfg, experiment, kind)`**:
   a project's config of record `configs/<name>.toml` loaded as a run config (`load_run_config`), and the keyed
   directory of one cell, `<experiment_dir(cfg)>/<experiment>/<kind>-<run_key(cfg)>`, beside `experiment_dir`. Every

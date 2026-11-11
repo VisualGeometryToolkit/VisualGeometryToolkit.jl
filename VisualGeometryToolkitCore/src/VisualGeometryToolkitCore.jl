@@ -633,6 +633,9 @@ public check_duplication, DuplicationViolation
 # ExplicitImports and JET): every stack package's tests call them qualified.
 public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs, thrown_message, test_quality_gates,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
+# The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
+public ReadmeExample, readme_examples, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
+    test_readme_row, test_readme_example
 public sqrt_weights   # its √weight buffer
 
 # -----------------------------------------------------------------------------

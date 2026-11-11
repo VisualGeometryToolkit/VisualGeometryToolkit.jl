@@ -179,3 +179,111 @@ Implemented by VisualGeometryToolkitCoreQualityExt: `using Test, Aqua,
 ExplicitImports, JET` loads it.
 """
 function test_quality_gates end
+
+# -----------------------------------------------------------------------------
+# The README's examples, run as a reader runs them (the Test extension's readme.jl)
+# -----------------------------------------------------------------------------
+
+"""
+    ReadmeExample(page, lang, row, illustrative, code)
+
+One fenced code block of a documentation page ([`readme_examples`](@ref)):
+the `page` (relative to the package root), its `lang` (`"julia"`, `"python"`,
+`"bash"`), the install `row` its first line names (`# Install row: <row>`;
+`""` when it names none), whether it is `illustrative` (its first line
+`# Illustrative`, the row on the second: a block that cannot run as written)
+and its `code`.
+"""
+struct ReadmeExample
+    page::String
+    lang::String
+    row::String
+    illustrative::Bool
+    code::String
+end
+
+"""
+    readme_examples(root, pages; langs = ("julia", "python", "bash")) -> Vector{ReadmeExample}
+
+The fenced code blocks of `langs` in each of `pages` (paths relative to `root`),
+in page order, as [`ReadmeExample`](@ref)s. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function readme_examples end
+
+"""
+    install_table(path, tasks) -> Dict{String, String}
+
+The install table of the page at `path`: each row `| task | entry | … |` whose
+task is one of `tasks`, as `task => entry`. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function install_table end
+
+"""
+    install_packages(entry) -> Vector{String}
+
+The packages of the `` `pkg> add …` `` line in an install table's `entry`;
+empty when it holds none. Implemented by VisualGeometryToolkitCoreTestExt
+(`using Test` loads it).
+"""
+function install_packages end
+
+"""
+    loaded_packages(code) -> Set{String}
+
+The packages Julia `code` loads (`using`/`import` lines, a trailing comment
+ignored), the standard library left out: what an install line must add for the
+code to run. Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function loaded_packages end
+
+"""
+    readme_environment(root, packages; developed = Dict(), setup = "") -> String
+
+A fresh environment holding exactly `packages`, as a reader's install line
+builds it: the package at `root` and those named in `developed` (`name =>
+path`, the stack's unregistered checkouts) by path, the rest from the
+registries; `setup` runs after the adds (a runtime pin), then the environment
+is precompiled. Built in a child Julia ([`run_readme_child`](@ref)); `@test`
+that it builds. Returns its directory. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function readme_environment end
+
+"""
+    run_readme_child(env, script) -> Int
+
+Run the Julia file `script` in the environment `env` in a child Julia with the
+test run's flags (`Base.julia_cmd()`: `--depwarn=error`, coverage) and a load
+path of the project and the standard library only, so no default environment
+supplies a package the install line does not add. Returns its exit code.
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function run_readme_child end
+
+"""
+    test_readme_row(env, task, blocks; after = "")
+
+Run each Julia example of `blocks` (code strings) in the environment `env`,
+each in a module of its own, so each is shown complete on its own; a block
+whose last line ends `# true` must return `true`. `after` is code run in the
+same child after the examples, `mods` their modules in order (the row's
+assertions). `@test` that the child succeeds. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_readme_row end
+
+"""
+    test_readme_example(root; index = "docs/src/index.md", install_pages = (), developed = Dict(), checks = "")
+
+The README's one example, as tests: README.md holds one Julia block and one
+`pkg> add` line; the landing page `index` shows the same block, it and each of
+`install_pages` the same line; the line adds exactly the packages the block
+loads ([`loaded_packages`](@ref)); and the block runs in a fresh environment
+built from that line ([`readme_environment`](@ref)), expression by expression,
+every expression whose source ends `# true` returning `true`, then `checks` —
+code run with `readme` the example's module. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_readme_example end

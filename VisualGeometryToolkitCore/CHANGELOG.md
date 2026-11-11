@@ -5,6 +5,14 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: the README's examples, run as a reader runs them** (public, not exported; the Test extension):
+  `test_readme_example(root; index, install_pages, developed, checks)` — the README's one example, its install line
+  adding exactly what it loads, run expression by expression (each `# true` a claim) in an environment built from
+  that line — and the install-row toolkit `ReadmeExample`, `readme_examples`, `install_table`, `install_packages`,
+  `loaded_packages`, `readme_environment`, `run_readme_child`, `test_readme_row`. Every stack package's readme test
+  restated them (this monorepo's six, RANSACScoringDoneRight's, LocalOptimizationDoneRight's, PanoramaStitching's;
+  BlobBoards' and CaliBlobs' install-row runners); the monorepo's readme tests call them.
+
 - **New: `device_zeros(T, device, dims...)`** (public, not exported; base/device.jl beside `ka_upload`): a zero array of
   element type `T` on a KernelAbstractions backend, the stack's one spelling of it (KernelAbstractions' own `zeros` is
   not public, so ExplicitImports refuses it across a package boundary). PanoramaStitching's vignetting fit wrote it as

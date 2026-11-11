@@ -153,7 +153,7 @@ end
 @testsetup module SplineCameraPoseScenes
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, project, reprojection_error, backproject, angle_between
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Size2, project, reprojection_error, backproject, angle_between
     using Test: @test, @test_throws
     using Random: Xoshiro, randn
     using VisualGeometryToolkitCore: estimate, retcode, rms
@@ -162,7 +162,7 @@ end
 
     # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
     spline_truth() = CameraModel(SplineLens, CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002)),
-                                 (1280, 960); grid_size = (12, 10))
+                                 Size2(1280, 960); grid_size = (12, 10))
     # every present control turned by ≈ `ϵ` rad off its own direction, differently per node (its norm kept)
     function perturbed_controls(cam, ϵ)
         b = cam.lens.backward
@@ -289,7 +289,7 @@ end
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
     bk = BoundedCamera(kb, Size2(1280, 960))
     fitted = estimate(fit_camera(SplineLens, bk, imaged_region(bk); tolerance = 1.0e-2, forward = false))   # the P-spline's controls, 1.8e-2 off unit
-    quasi = CameraModel(SplineLens, u -> backproject(kb, u), (1280, 960); init = :quasi_interpolate)          # 7.7e-3 off unit
+    quasi = CameraModel(SplineLens, u -> backproject(kb, u), Size2(1280, 960); init = :quasi_interpolate)          # 7.7e-3 off unit
     t = spline_truth(); bt = lens(t).backward
     scaled = CameraModel(t.intrinsics, SplineLens(ChartSpline(bt.area, map(c -> 2.0 * c, bt.controls))))        # every norm 2
     Es = truth_poses(3); poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]

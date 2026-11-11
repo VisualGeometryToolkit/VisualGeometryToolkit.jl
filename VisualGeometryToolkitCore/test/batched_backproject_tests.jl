@@ -20,9 +20,9 @@
         @test maximum(i -> maximum(abs, last(j[i]) - last(backproject_with_jacobian(cam, pixels[i]))), eachindex(pixels)) <= 1.0e-9
     end
     # a SplineLens camera and the non-central model: the same forms
-    g = CameraModel(SplineLens, cam, (640, 480); grid_size = (14, 12))
+    g = CameraModel(SplineLens, cam, Size2(640, 480); grid_size = (14, 12))
     @test backproject(g, pixels; device = KA.CPU()) == [SVector{3}(backproject(g, u)) for u in pixels]
-    m = NoncentralSplineModel(cam, (640, 480); grid_size = (14, 12))
+    m = NoncentralSplineModel(cam, Size2(640, 480); grid_size = (14, 12))
     @test map(last, backproject_with_jacobian(m, pixels; device = KA.CPU())) == [last(backproject_with_jacobian(m, u)) for u in pixels]
     @test isempty(backproject(cam, SVector{2, Float64}[]; device = KA.CPU()))
 end

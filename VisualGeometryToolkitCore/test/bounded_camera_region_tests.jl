@@ -84,7 +84,7 @@ end
 
     @testset "a spline lens: lit but outside where its grid is defined is not imaged" begin
         # the grid calibrated over a band of the sensor (x from 500 to 3755): its valid domain is that area
-        g = CameraModel(SplineLens, m, (W, H); grid_size = (35, 25), init = :quasi_interpolate, calib_area = (500, 0, 3755, H - 1))
+        g = CameraModel(SplineLens, m, Size2(W, H); grid_size = (35, 25), init = :quasi_interpolate, calib_area = Rect(500, 0, 3755 - 500 + 1, H - 1 - 0 + 1))
         bc = BoundedCamera(g, Size2(W, H); lens_coverage = Circle(Point2(2140.8, 1375.8), 1742.2))
         @test Point2(450.0, 1423.7) ∉ imaged_region(bc)                 # lit, left of the grid's area
         @test Point2(550.0, 1423.7) ∈ imaged_region(bc)
@@ -141,7 +141,7 @@ end
     W, H = 1280, 960
     fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
     disc = Circle(Point2(640.0, 480.0), 250π / 3)
-    m = CameraModel(SplineLens, fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    m = CameraModel(SplineLens, fish, Size2(W, H); grid_size = (24, 19), init = :quasi_interpolate)
     m = with_present(m, node_mask(m, valid_domain(m) ∩ disc))
     X = EuclideanMap(RotXYZ(0.1, -0.2, 0.3), SVector(0.5, -0.1, 2.0))
     cams = (BoundedCamera(m, Size2(W, H); lens_coverage = disc), BoundedCamera(PosedCamera(m, X), Sensor(Size2(W, H), 5.95μm); lens_coverage = disc))

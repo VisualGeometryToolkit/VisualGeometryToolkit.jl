@@ -99,7 +99,7 @@ end
 # The model of its parts' own types: a function barrier over the mask, as `_spline_lens`.
 _noncentral_spline_model(K::I, d::S, p::S, present::P) where {I, S, P} = NoncentralSplineModel{I, S, P}(K, d, p, present)
 
-function NoncentralSplineModel(source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2}; kwargs...)
+function NoncentralSplineModel(source::_SplineSource, size::Size2; kwargs...)
     c = CameraModel(SplineLens, source, size; kwargs...)
     d = c.lens.backward
     return NoncentralSplineModel(c.intrinsics, d, ChartSpline(d.area, zero(d.controls)))

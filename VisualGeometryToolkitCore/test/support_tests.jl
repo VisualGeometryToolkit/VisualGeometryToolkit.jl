@@ -57,7 +57,7 @@
     @testset "the trait and its contract" begin
         @test support_trait(fold) === GlobalSupport() && support_trait(typeof(fold)) === GlobalSupport()
         @test support_trait(cam(800.0, Pinhole())) === GlobalSupport()
-        @test support_trait(CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (8, 6))) === LocalSupport()
+        @test support_trait(CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (8, 6))) === LocalSupport()
         @test support_trait(NoncentralSplineModel) === LocalSupport()
         @test all(f -> any(g -> g === f, CONTRACT_GENERICS), (support_trait, nodes, support, node_position))
         @test node_position(fold, 1) === nothing
@@ -72,7 +72,7 @@
     end
 
     @testset "a circular fisheye's spline lens: nodes frozen where the footprint misses the circle" begin
-        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+        g = CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16))
         R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); lens_coverage = lit))
         @test nodes(g) == CartesianIndices((16, 20))
         m = node_mask(g, R)
@@ -91,26 +91,26 @@
         i = CartesianIndex(8, 10)
         @test node_position(g, i) ≈ Point2((minimum(support(g, i)) .+ maximum(support(g, i))) ./ 2...)
         # the noncentral model has the same lattice
-        gn = NoncentralSplineModel(cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+        gn = NoncentralSplineModel(cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16))
         @test node_mask(gn, R) == m
         # a rectilinear lens images the whole extent: no node is frozen
-        gr = CameraModel(SplineLens, cam(800.0, Pinhole()), (1280, 960); grid_size = (20, 16))
+        gr = CameraModel(SplineLens, cam(800.0, Pinhole()), Size2(1280, 960); grid_size = (20, 16))
         @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)))))
     end
 
     @testset "the sampler clamps nodes inside the lens model's valid domain" begin
         # every node of the circular fisheye's grid backprojects finitely, outside the valid domain too
-        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+        g = CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16))
         @test all(v -> all(isfinite, v), g.lens.backward.controls)
         # the margin is a keyword (0.97 by default; 1 would sample the corner nodes AT the fold, which rings)
-        g1 = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16), sampling_margin = 0.9)
+        g1 = CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16), sampling_margin = 0.9)
         @test g1.lens.backward.controls != g.lens.backward.controls
     end
 
     @testset "a lift that never folds: sampled past 90°, finite and accurate" begin
         src = cam(300.0, Division(-0.3))                      # images the whole plane: no clamp
         @test valid_domain(src) === WholePlane()
-        g = CameraModel(SplineLens, src, (1280, 960); grid_size = (20, 16))
+        g = CameraModel(SplineLens, src, Size2(1280, 960); grid_size = (20, 16))
         @test all(v -> all(isfinite, v), g.lens.backward.controls)
         worst = 0.0                                           # angular error × f, in px
         for x in 5:20:1275, y in 5:20:955
@@ -125,7 +125,7 @@
         struct BlindLens <: AbstractLensModel end             # images nothing
         VisualGeometryToolkitCore.project(::BlindLens, X::StaticVector{3}) = SVector(NaN, NaN)
         e = try
-            CameraModel(SplineLens, cam(300.0, BlindLens()), (640, 480); grid_size = (8, 6)); nothing
+            CameraModel(SplineLens, cam(300.0, BlindLens()), Size2(640, 480); grid_size = (8, 6)); nothing
         catch err
             err
         end
@@ -138,8 +138,8 @@
         # node outside the window has the pixel strictly inside its support —
         # on the default calibrated area and on a non-default one
         for g in (
-                CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16)),
-                CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899)),
+                CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16)),
+                CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (9, 7), calib_area = Rect(100, 50, 1000, 850)),
             )
             missing_from_footprint = 0
             outside_window = 0
@@ -160,7 +160,7 @@
             @test outside_window == 0
         end
         # the clip matters on a smaller calibrated area: no support reaches outside it
-        g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (9, 7), calib_area = (100, 50, 1099, 899))
+        g = CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (9, 7), calib_area = Rect(100, 50, 1000, 850))
         @test all(I -> minimum(support(g, I))[1] >= 100 - 1.0e-9 && maximum(support(g, I))[1] <= 1100 + 1.0e-9, nodes(g))
     end
 end
@@ -177,7 +177,7 @@ end
     cam(f, l) = CameraModel(; focal = f, pp = (640.0, 480.0), lens = l)
     fold = KannalaBrandt(-4 / (3π^2))                      # a 180° fisheye: its image circle lies inside the sensor
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)   # that circle at f = 250, supplied
-    g = CameraModel(SplineLens, cam(250.0, fold), (1280, 960); grid_size = (20, 16))
+    g = CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16))
     b = g.lens.backward
     # the window a pixel reads: its index and the 4 × 4 weights w[r, c] = wy[r]·wx[c]
     function window_weights(p)
@@ -268,7 +268,7 @@ end
     fold = KannalaBrandt(-4 / (3π^2))
     c = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = fold)
     lit = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)
-    g = CameraModel(SplineLens, c, (1280, 960); grid_size = (20, 16))
+    g = CameraModel(SplineLens, c, Size2(1280, 960); grid_size = (20, 16))
     G = g.lens.backward.controls
     R = imaged_region(BoundedCamera(c, Size2(1280, 960); lens_coverage = lit))
     r3 = BoundaryRule(g, R; order = 3)

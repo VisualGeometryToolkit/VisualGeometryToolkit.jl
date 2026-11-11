@@ -185,7 +185,7 @@ end
         directions, grid_size, window_offset
     using StaticArrays: SA, SVector, StaticVector
     model = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
-    g = CameraModel(SplineLens, model, (640, 480); grid_size = (12, 10))
+    g = CameraModel(SplineLens, model, Size2(640, 480); grid_size = (12, 10))
     G = g.lens.backward.controls
     # RadiometricCamera's private-name copies: `_dirs`, `_full_size` / `grid_dims`, `_first_node`, `_lattice_spacing_px`
     @test directions(g) === G && size(G) == (10, 12)

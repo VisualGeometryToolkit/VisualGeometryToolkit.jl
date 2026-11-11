@@ -257,9 +257,9 @@ end
     @test gh == gw && 20 <= gh <= 40 && VgtkEstimation._lattice_grid_size(1000, 1000, gw - 3) == (gw, gh)
     # Core's full-image lattice, with the source's K
     @test size(G) == (gh, gw) && calibration_matrix(g) == calibration_matrix(FISHEYE)
-    @test lens(g).backward.area == lens(CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (gw, gh))).backward.area
+    @test lens(g).backward.area == lens(CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (gw, gh))).backward.area
     # the held-out direction error over the region: no worse than node interpolation on the same lattice
-    interpolated = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (gw, gh))
+    interpolated = CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (gw, gh))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
     held = VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics, VgtkCore.default_device())
     e_fit = VgtkEstimation._direction_errors(g, held)
@@ -418,7 +418,7 @@ end
     f = u -> backproject(FISHEYE, u)
     @test_throws r"no image" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)
     @test_throws r"CameraModel\(SplineLens, f, size" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)   # the refusal names the route
-    cam = CameraModel(SplineLens, f, (1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
+    cam = CameraModel(SplineLens, f, Size2(1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-2)
     @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-2
     @test lens(estimate(r)).backward.controls == lens(cam).backward.controls

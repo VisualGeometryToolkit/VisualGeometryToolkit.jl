@@ -41,7 +41,7 @@
 
     @testset "batched backproject of a SplineLens camera equals the scalar one, bit for bit" begin
         model = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-        grid = CameraModel(SplineLens, model, (1000, 1000); grid_size = (40, 40))
+        grid = CameraModel(SplineLens, model, Size2(1000, 1000); grid_size = (40, 40))
         pix = [SVector(1010 * rand(rng) - 5, 1010 * rand(rng) - 5) for _ in 1:2000]
         push!(pix, SVector(NaN, 3.0), SVector(0.0, 0.0), SVector(999.999, 999.999), SVector(1000.0, 10.0))
         rays = backproject(grid, pix; device = VisualGeometryToolkitCore.KernelAbstractions.CPU())
@@ -65,7 +65,7 @@
         else
             CuArray = getproperty(cuda, :CuArray)
             model = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-            grid = CameraModel(SplineLens, model, (1000, 1000); grid_size = (40, 40))
+            grid = CameraModel(SplineLens, model, Size2(1000, 1000); grid_size = (40, 40))
             pix = [SVector(1000 * rand(rng), 1000 * rand(rng)) for _ in 1:4096]
             dev = Base.invokelatest(Array, Base.invokelatest(backproject, grid, Base.invokelatest(CuArray, pix)))
             host = backproject(grid, pix)

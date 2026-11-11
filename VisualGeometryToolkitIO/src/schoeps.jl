@@ -142,7 +142,7 @@ function _load_schoeps_camera(path::AbstractString, file_unit)
         dimension(file_unit) == dimension(m) || throw(ArgumentError("$(path): `file_unit` must be a length unit, got $(file_unit)"))
     end
     dirs = _schoeps_grid(yml, central ? "grid" : "direction_grid", gw, gh, path)
-    cam = CameraModel(SplineLens, dirs, (w, h); calib_area = Tuple(bounds), unit_controls = true)
+    cam = CameraModel(SplineLens, dirs, Size2(w, h); calib_area = VgtkCore.Rect(bounds[1], bounds[2], bounds[3] - bounds[1] + 1, bounds[4] - bounds[2] + 1), unit_controls = true)
     central && return BoundedCamera(cam, Size2(w, h))
     pts = _schoeps_grid(yml, "point_grid", gw, gh, path; scale = x -> _read_power(x, file_unit, 1))   # plain metres
     d = cam.lens.backward

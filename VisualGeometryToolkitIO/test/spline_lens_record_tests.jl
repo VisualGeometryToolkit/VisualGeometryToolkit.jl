@@ -14,12 +14,12 @@
 
 @testsetup module SplineRecordFixtures
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, with_present
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Size2, with_present
     export spline_camera, corner_cut, with_forward, rays_match, golden_pixels
 
     # a SplineLens camera from a parametric one, over a 64 × 48 image
     spline_camera() = CameraModel(
-        SplineLens, CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2))), (64, 48); grid_size = (8, 7),
+        SplineLens, CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2))), Size2(64, 48); grid_size = (8, 7),
     )
     # its lattice with the two corner nodes of the first row absent
     corner_cut(cam) = (P = trues(size(cam.lens.backward.controls)); P[1, 1] = P[1, end] = false; with_present(cam, P))

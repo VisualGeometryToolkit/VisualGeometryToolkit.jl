@@ -24,7 +24,7 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-    image = (G.image[1], G.image[2])
+    image = Size2(G.image[1], G.image[2])
     grid = (G.grid_size[1], G.grid_size[2])
     cam = CameraModel(SplineLens, src, image; grid_size = grid)
     b = cam.lens.backward

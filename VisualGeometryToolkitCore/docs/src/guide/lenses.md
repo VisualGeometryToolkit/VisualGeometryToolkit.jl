@@ -208,7 +208,7 @@ and only the nodes whose footprint meets the lens coverage are free.
 
 ```@example imagecircle
 fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
-g = CameraModel(SplineLens, fish, (1280, 960); grid_size = (20, 16))
+g = CameraModel(SplineLens, fish, Size2(1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
 R = imaged_region(BoundedCamera(fish, Size2(1280, 960); lens_coverage = circle))
 mask = node_mask(g, R)                                  # in the grid's shape
@@ -273,7 +273,7 @@ old directions, is dropped). Both rebuild a `BoundedCamera` too, keeping its
 bound, lens coverage and pose.
 
 ```julia
-cam = CameraModel(SplineLens, fish, (1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
+cam = CameraModel(SplineLens, fish, Size2(1280, 960); grid_size = (35, 25), init = :quasi_interpolate)
 w = window(cam, 5:14, 15:24)                       # rows (y) × cols (x) of the grid
 backproject(w, SVector(700.0, 400.0)) ≈ backproject(cam, SVector(700.0, 400.0))
 ```

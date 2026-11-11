@@ -1084,10 +1084,11 @@ function _old_grid_camera(b::AbstractDict)
     (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
         throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
     P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh) : trues(gh, gw)
-    bounds = (Int(b["calibration_min_x"]), Int(b["calibration_min_y"]), Int(b["calibration_max_x"]), Int(b["calibration_max_y"]))
+    x0, y0 = Int(b["calibration_min_x"]), Int(b["calibration_min_y"])
+    bounds = VgtkCore.Rect(x0, y0, Int(b["calibration_max_x"]) - x0 + 1, Int(b["calibration_max_y"]) - y0 + 1)   # the inclusive pixel bounds
     nominal = haskey(b, _OLD_NOMINAL_KEY) ? LogicalIntrinsics(_k_from_values(b[_OLD_NOMINAL_KEY])) : nothing
     C = _controls_from_json(b["direction_grid"], P, Val(3))
-    sz, present = (Int(b["width"]), Int(b["height"])), all(P) ? nothing : P
+    sz, present = Size2(Int(b["width"]), Int(b["height"])), all(P) ? nothing : P
     # no nominal pinhole: K is the lattice's gauge, which a lattice without a complete window at its pixel lacks
     # (Core's `has_spline_gauge`) — name the reader's keyword that supplies it
     nominal === nothing && !VgtkCore.has_spline_gauge(C, sz; calib_area = bounds, present) && throw(

@@ -134,12 +134,10 @@ function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
     return nothing
 end
 
-# House-vocabulary acceptance: a size is a Size2, a calibrated area is a
-# Rect (origin + widths ↔ the inclusive integer bounds [min, max]); plain
-# tuples remain welcome.
+# The house vocabulary, one spelling each: a size is a `Size2` of whole pixels, a
+# calibrated area a `Rect` of whole pixels (origin + widths ↔ the inclusive integer
+# bounds [min, max] the lattice is checked and laid in).
 _spline_size(sz::Size2) = (Int(sz.width), Int(sz.height))
-_spline_size(sz::Tuple{Integer, Integer}) = (Int(sz[1]), Int(sz[2]))
-_area_bounds(a::NTuple{4, Integer}) = map(Int, a)
 function _area_bounds(r::GeometryBasics.HyperRectangle{2})
     o = GeometryBasics.origin(r); w = GeometryBasics.widths(r)
     return (Int(o[1]), Int(o[2]), Int(o[1] + w[1]) - 1, Int(o[2] + w[2]) - 1)
@@ -1128,9 +1126,8 @@ nodes. Where it does not, that constructor refuses to build without a supplied
 `intrinsics`; a reader that can supply one asks this first.
 """
 function has_spline_gauge(
-        controls::AbstractMatrix{<:StaticVector{3}}, size::Union{Tuple{Integer, Integer}, Size2};
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        controls::AbstractMatrix{<:StaticVector{3}}, size::Size2;
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
     )
     gh, gw = Base.size(controls)
@@ -1173,7 +1170,7 @@ end
     spline_lattice(SplineLens, source::CameraModel, size; grid_size, calib_area) -> CameraModel
 
 The layout a [`SplineLens`](@ref) camera built from the camera `source` over an
-image of `size` (`(width, height)` or a `Size2`) takes — the same `grid_size`,
+image of `size` (a `Size2`) takes — the same `grid_size`,
 `calib_area` and `K` (the source's own), with the same defaults, as
 `CameraModel(SplineLens, source, size)` — WITHOUT sampling the source: every
 control is the optical axis `(0, 0, 1)`. What a fit that solves for every
@@ -1181,10 +1178,9 @@ control needs (the lattice, the gauge), with none of the node interpolation.
 A function source has no `K` without its sampled spline: build the camera.
 """
 function spline_lattice(
-        ::Type{SplineLens}, source::CameraModel, size::Union{Tuple{Integer, Integer}, Size2};
+        ::Type{SplineLens}, source::CameraModel, size::Size2;
         grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
     )
     _, gsz = _spline_layout(size, grid_size, calib_area)
     return CameraModel(SplineLens, fill(SVector(0.0, 0.0, 1.0), gsz), size; calib_area, intrinsics = _source_intrinsics(source))
@@ -1196,11 +1192,10 @@ end
 
 The [`SplineLens`](@ref) camera initialized from `source` — a `CameraModel` (its
 backprojection) or a function `pixel -> direction` (`nothing` or a non-finite
-vector where it images nothing) — over an image of `size` (`(width, height)` or
-a `Size2`): a lattice of `grid_size = (columns, rows)` controls (default
+vector where it images nothing) — over an image of `size` (a `Size2`): a lattice of `grid_size = (columns, rows)` controls (default
 [`default_spline_grid`](@ref)) over the calibrated pixel area `calib_area`
-(inclusive integer bounds `(min_x, min_y, max_x, max_y)` or a `Rect`; default the
-whole image).
+(a `Rect` of whole pixels, the closed rectangle its pixels cover; default
+`Rect(size)`, the whole image).
 
 `init = :interpolate` (default) solves the cubic-prefilter tridiagonal system
 per axis so the spline INTERPOLATES the source's backprojection at the grid
@@ -1218,10 +1213,9 @@ imaging ẑ (the calibrated area's centre when ẑ is not imaged inside it) and
 `fx`, `fy` the inverse local scale of `d_xy/d_z` there, skew 0.
 """
 function CameraModel(
-        ::Type{SplineLens}, source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2};
+        ::Type{SplineLens}, source::_SplineSource, size::Size2;
         grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
     )
@@ -1240,9 +1234,8 @@ THE constructor of a [`SplineLens`](@ref) camera (the source constructor and
 by its direction controls, as the reference implementation (Schöps et al.'s
 `intrinsics0.yaml`) and the stored grid records state one: `controls` (`[gy, gx]`;
 an absent node's control is never read, not even by the gauge) laid over the
-calibrated pixel area `calib_area` (inclusive integer bounds
-`(min_x, min_y, max_x, max_y)` or a `Rect`, the closed rectangle `[min, max + 1]`;
-default the whole image) of an image of `size`, the nodes `present` held
+calibrated pixel area `calib_area` (a `Rect` of whole pixels, the closed rectangle
+of pixel corners `[min, max + 1]`; default `Rect(size)`, the whole image) of an image of `size`, the nodes `present` held
 (`nothing`: every node). Its `K` is `intrinsics` (skew 0, positive focal
 lengths, else an `ArgumentError`) or, without one, the lattice's gauge. Its
 backward area is K⁻¹ of the calibrated rectangle, so each pixel's lattice
@@ -1251,9 +1244,8 @@ does, whatever the K. The controls are kept as given (`unit_controls = true`
 normalizes each one unless it is unit to 1e-12, the reference reader's rule).
 """
 function CameraModel(
-        ::Type{SplineLens}, controls::AbstractMatrix{<:StaticVector{3}}, size::Union{Tuple{Integer, Integer}, Size2};
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        ::Type{SplineLens}, controls::AbstractMatrix{<:StaticVector{3}}, size::Size2;
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         intrinsics::Union{Nothing, LogicalIntrinsics} = nothing,
         present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
         unit_controls::Bool = false,

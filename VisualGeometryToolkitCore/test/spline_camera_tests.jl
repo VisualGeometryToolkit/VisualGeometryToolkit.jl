@@ -85,7 +85,7 @@
         src = CameraModel(CameraCalibrationMat(K); lens = Division(-0.1))
 
         @testset "round trip + parity with the source" begin
-            g = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16))
+            g = CameraModel(SplineLens, src, Size2(W, H); grid_size = (20, 16))
             @test g isa AbstractCamera && !is_posed(g)
             rng = MersenneTwister(3)
             worst_rt = 0.0
@@ -106,9 +106,9 @@
             @test worst_angle < 2.0e-4         # prefilter-init floor (measured 8.9e-5)
             # the node samples taken as controls (Schoenberg's approximation) is no init: the
             # prefilter interpolates them, quasi-interpolation is the local alternative
-            @test_throws "init must be :interpolate" CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), init = :sample)
+            @test_throws "init must be :interpolate" CameraModel(SplineLens, src, Size2(W, H); grid_size = (20, 16), init = :sample)
             # the source constructor's controls are re-normalized by its init (the prefilter's, not quasi-interpolation's): no keyword
-            @test_throws MethodError CameraModel(SplineLens, src, (W, H); grid_size = (20, 16), unit_controls = false)
+            @test_throws MethodError CameraModel(SplineLens, src, Size2(W, H); grid_size = (20, 16), unit_controls = false)
             # calibrated-area contract
             @test all(isnan, backproject(g, SVector(-1.0, 10.0)))
             @test all(isfinite, backproject(g, SVector(Float64(W), 10.0)))   # the far edge: the area is closed
@@ -131,7 +131,7 @@
             Ws, Hs = 160, 120
             Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
             msrc = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
-            gsrc = CameraModel(SplineLens, msrc, (Ws, Hs); grid_size = (10, 8))
+            gsrc = CameraModel(SplineLens, msrc, Size2(Ws, Hs); grid_size = (10, 8))
             @test calibration_matrix(gsrc) == Ks
             imgt = [
                 exp(-((x - 70)^2 + (y - 55)^2) / 400) + 0.2 * sin(x / 9) * cos(y / 7)
@@ -149,7 +149,7 @@
         end
 
         @testset "house-type acceptance (Size2 / Rect)" begin
-            gt = CameraModel(SplineLens, src, (W, H); grid_size = (8, 6))
+            gt = CameraModel(SplineLens, src, Size2(W, H); grid_size = (8, 6))
             gs = CameraModel(SplineLens, src, VgtkCore.Size2(W, H); grid_size = (8, 6))
             @test gs.lens.backward.controls == gt.lens.backward.controls && valid_domain(gs) == valid_domain(gt)
             gr = CameraModel(
@@ -161,7 +161,7 @@
         end
 
         @testset "_precision" begin
-            g = CameraModel(SplineLens, src, (W, H); grid_size = (8, 6))
+            g = CameraModel(SplineLens, src, Size2(W, H); grid_size = (8, 6))
             l32 = VgtkCore.Cameras._precision(Float32, g.lens)
             @test eltype(l32.backward.controls) == SVector{3, Float32}
             @test all(isfinite, backproject(CameraModel(g.intrinsics, l32), SVector(100.0, 100.0)))
@@ -173,7 +173,7 @@
         W, H = 160, 120
         Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
         msrc = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
-        g = CameraModel(SplineLens, msrc, (W, H); grid_size = (12, 9))
+        g = CameraModel(SplineLens, msrc, Size2(W, H); grid_size = (12, 9))
         pts = [SVector(10.0 + 140.0 * rand(rng), 8.0 + 104.0 * rand(rng)) for _ in 1:200]
         rays = [backproject(g, p) for p in pts]
         keep = findall(r -> all(isfinite, r), rays)
@@ -196,7 +196,7 @@
         using VisualGeometryToolkitCore: direction_tangents
         W, H = 1200, 800
         src = CameraModel(CameraCalibrationMat(500.0px, [600.0px, 400.0px]); lens = Division(-0.25, 0.02))
-        g = CameraModel(SplineLens, src, (W, H); grid_size = (20, 16))
+        g = CameraModel(SplineLens, src, Size2(W, H); grid_size = (20, 16))
         b = g.lens.backward
         for px in (SVector(613.7, 388.2), SVector(101.3, 702.9), SVector(1150.0, 40.0))
             x = _normalized_point(g.intrinsics, px)
@@ -242,7 +242,7 @@
     @testset "projection through a degenerate grid fails, never throws" begin
         W, H = 640, 480
         src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
-        g = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
+        g = CameraModel(SplineLens, src, Size2(W, H); grid_size = (12, 10))
         bad = copy(g.lens.backward.controls)
         bad[5, 6] = -bad[5, 6]                       # an antipodal control: blends near it cross zero
         gb = CameraModel(g.intrinsics, SplineLens(ChartSpline(g.lens.backward.area, bad)))
@@ -262,16 +262,24 @@
         @test default_spline_grid(10, 10) == (4, 4)
     end
 
+    @testset "one spelling each: the image size a Size2, the calibrated area a Rect" begin
+        src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
+        @test_throws MethodError CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10))
+        @test_throws TypeError CameraModel(SplineLens, src, VisualGeometryToolkitCore.Size2(640, 480); grid_size = (12, 10), calib_area = (0, 0, 599, 399))
+        a = CameraModel(SplineLens, src, VisualGeometryToolkitCore.Size2(640, 480); grid_size = (12, 10), calib_area = VisualGeometryToolkitCore.Rect(0, 0, 600, 400))
+        @test a.lens.backward.area == CameraModel(SplineLens, src, Size2(600, 400); grid_size = (12, 10)).lens.backward.area
+    end
+
     @testset "spline_lattice: the constructor's layout, unsampled" begin
         src = CameraModel(CameraCalibrationMat(300.0px, [320.0px, 240.0px]); lens = Division(-0.2))
-        built = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = (0, 0, 599, 399))
-        lat = spline_lattice(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = (0, 0, 599, 399))
+        built = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (12, 10), calib_area = Rect(0, 0, 600, 400))
+        lat = spline_lattice(SplineLens, src, Size2(640, 480); grid_size = (12, 10), calib_area = Rect(0, 0, 600, 400))
         @test lat isa CameraModel{<:Any, <:SplineLens}
         @test calibration_matrix(lat) == calibration_matrix(built) && lat.lens.backward.area == built.lens.backward.area
         @test size(lat.lens.backward.controls) == size(built.lens.backward.controls) == (10, 12)
         @test valid_domain(lat) == valid_domain(built)
         a, sz = built.lens.backward.area, size(built.lens.backward.controls)
         @test all(p -> spline_window(lat.lens.backward.area, sz, p) == spline_window(a, sz, p), (SVector(-0.9, -0.7), SVector(0.9, 0.5), SVector(2.0, -3.0)))
-        @test all(==(SVector(0.0, 0.0, 1.0)), spline_lattice(SplineLens, src, (640, 480)).lens.backward.controls)
+        @test all(==(SVector(0.0, 0.0, 1.0)), spline_lattice(SplineLens, src, Size2(640, 480)).lens.backward.controls)
     end
 end

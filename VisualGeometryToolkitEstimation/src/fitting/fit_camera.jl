@@ -734,7 +734,7 @@ function _backward_search(::Type{G}, g, grid_size, tolerance::Real) where {G}
         r = _pspline_grid(G, g, grid_size)
         return r, (r.errors.max <= tolerance ? :converged : :max_iterations), 0
     end
-    W, H = g.size
+    W, H = Int(g.size.width), Int(g.size.height)
     return _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
 end
 
@@ -799,7 +799,7 @@ _lattice_grid_size(W::Integer, H::Integer, cells::Integer) = last(_knot_counts(W
 
 # The image a spline target's lattice covers: a bounded camera's extent. A bare
 # camera model has none.
-_image_size(bc::BoundedCamera) = (e = extent(bc); (Int(e.width), Int(e.height)))
+_image_size(bc::BoundedCamera) = (e = extent(bc); VgtkCore.Size2(Int(e.width), Int(e.height)))
 _image_size(source) = _no_image(source)
 _no_image(source) = throw(
     ArgumentError(
@@ -812,7 +812,7 @@ _no_image(source) = throw(
 _no_image(::Function) = throw(
     ArgumentError(
         "fit_camera(<spline target>, …): a function of the pixel has no image and no K; fit the SplineLens camera of it, " *
-            "`fit_camera(SplineLens, BoundedCamera(CameraModel(SplineLens, f, size; init = :quasi_interpolate), Size2(size...)), region; tolerance)`"
+            "`fit_camera(SplineLens, BoundedCamera(CameraModel(SplineLens, f, size; init = :quasi_interpolate), size), region; tolerance)`"
     )
 )
 

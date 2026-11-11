@@ -5,6 +5,13 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: a SplineLens lattice's image size is a `Size2` and its calibrated area a `Rect`, one spelling each.**
+  `CameraModel(SplineLens, source | controls, size)`, `spline_lattice`, `has_spline_gauge` and
+  `NoncentralSplineModel(source, size)` take `size::Size2` (a `(width, height)` tuple is a `MethodError`) and
+  `calib_area::Rect` of whole pixels (default `Rect(size)`; the inclusive 4-tuple `(min_x, min_y, max_x, max_y)` is
+  gone: it is `Rect(min_x, min_y, max_x − min_x + 1, max_y − min_y + 1)`). The normalizers of the second spellings
+  and the default repeated in each signature are gone. VisualGeometryToolkitIO's readers build the `Rect` from a
+  record's inclusive bounds.
 - **Breaking: `ControlPointChart`, `AdditivePoints` and `RayNormalPoints` are removed**, and `ControlPatchManifold`
   loses its point-chart type parameter and field (`ControlPatchManifold{PX, PY, L, T, P}`; the three-argument
   constructor is gone). The ray-normal chart had no caller but its tests; a point control moves additively,

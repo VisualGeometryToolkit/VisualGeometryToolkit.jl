@@ -88,9 +88,16 @@ end
     T = isempty(params) ? F : F.name.wrapper{params...}
     return Expr(:new, T, (:(fields[$i]) for i in 1:fieldcount(F))...)
 end
+# Each field argument is annotated with its own type parameter (`a1::A1`): a field that is a function (`Fix1(project, lens)`'s
+# `project`) is otherwise only passed on to `_device_functor`, never called, and Julia compiles such an argument for `Function`;
+# KernelAbstractions' CPU backend calls the kernel through that widened instance, so every point paid a dynamic
+# `_device_functor` call and a boxed functor (≈380 bytes a point: OpenCV-5 undistort at 1024 points 1.8× the serial
+# broadcast in one task, at 10⁶ points over 224 threads 15× the threaded broadcast). A device compiler specializes on the
+# concrete types anyway: the device kernel is unchanged.
 for n in 0:_MAX_FIELDS
     as = [Symbol(:a, i) for i in 1:n]
-    @eval @kernel function $(Symbol(:_pointwise_fields_kernel_, n, :!))(out, xs, ::Type{F}, $(as...)) where {F}
+    Ts = [Symbol(:A, i) for i in 1:n]
+    @eval @kernel function $(Symbol(:_pointwise_fields_kernel_, n, :!))(out, xs, ::Type{F}, $((:($a::$T) for (a, T) in zip(as, Ts))...)) where {F, $(Ts...)}
         I = @index(Global, Cartesian)
         f = _device_functor(F, $(as...))
         @inbounds out[I] = f(map(x -> @inbounds(x[I]), xs)...)

@@ -343,7 +343,7 @@ public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMet
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, local_optimization_from_toml, lo_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
+public default_config_path, local_optimization_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
 # The local-optimization strategy machinery every package registers its
 # strategies with: the registry macro, the keyword constructor, the generic
@@ -454,7 +454,7 @@ protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml,
                            lo_absent, lo_validate, lo_concrete, lo_scale_multiple_shape, lo_resolve_scale_multiple,
-                           config_dict, strategy_loss, deployed_shape, lo_placement,
+                           config_dict, scoring_from_toml, strategy_loss, deployed_shape, lo_placement,
                            iterations_without_improvement, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

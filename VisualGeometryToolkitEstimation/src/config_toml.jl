@@ -243,6 +243,45 @@ function lo_from_toml(::Type{<:TerminalLO}, d::AbstractDict; class::Symbol,
     return TerminalLO(local_optimization_from_toml(inner; class, section = "$sec.inner", tags))
 end
 
+# -----------------------------------------------------------------------------
+# Scorers — the RANSAC scoring of the same schema
+# -----------------------------------------------------------------------------
+# A scorer is a TOML table `{ type = <tag>, … }` like a strategy's: `type` selects it from a scoring registry
+# (VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream package's merge of it, RANSACScoringDoneRight's
+# `ALL_SCORING_TAGS`), every other key is the scorer's, required (a scorer has no code default: its width is its
+# config's), an unknown key refused. The problem type gives what a table cannot state: the codimension and the
+# minimal sample size. One reader for every registered scorer (`scoring_from_toml`), a downstream scorer's
+# table read by its owner's method of the same generic.
+
+"""
+    scoring_from_toml(table; problem, section = "scoring", tags = SCORING_TAGS) -> AbstractScoring
+    scoring_from_toml(T, table; problem, section)
+
+The RANSAC scorer of its TOML table: `type` looked up in `tags`
+(VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge of it), then
+the entry `T` built from the table by its method of the second form, which a
+downstream scorer adds. `problem` is the problem type the scorer scores (its
+codimension). Core's threshold scorers take one key, `threshold` (required: a
+loss width in the residual's units, e.g. `{ type = "msac", threshold = 3.0 }`).
+Unknown `type` or keys, and a missing key, are an `ArgumentError`.
+[`config_dict`](@ref) writes the table back.
+"""
+function scoring_from_toml(d::AbstractDict; problem::Type, section::AbstractString = "scoring",
+                           tags::TagRegistry = VgtkCore.SCORING_TAGS)
+    haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
+    return scoring_from_toml(tags[d["type"]], d; problem, section = "$section.$(d["type"])")
+end
+function scoring_from_toml(::Type{T}, d::AbstractDict; problem::Type, section::AbstractString) where {T <: Union{RansacScoring, MsacScoring}}
+    _check_keys(d, ("type", "threshold"), section)
+    haskey(d, "threshold") || throw(ArgumentError("[$section] needs `threshold` (a scorer's width is its config's)"))
+    return T(problem; threshold = Float64(d["threshold"]))
+end
+scoring_from_toml(::Type{T}, ::AbstractDict; problem::Type, section::AbstractString) where {T} =
+    throw(ArgumentError("[$section] scorer $T has no TOML reader (its package adds a `scoring_from_toml` method)"))
+
+config_dict(sc::Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}) =
+    Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "threshold" => sc.threshold)
+
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
 _dflt_lo(class::Symbol) =

@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: `scoring_from_toml(table; problem, section, tags)`**, the scorers' TOML reader on the local optimization's
+  schema (the owner's one-schema policy): `{ type = "msac", threshold = 3.0 }` through a scoring registry
+  (VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge), every key required, unknown keys refused;
+  `config_dict` writes a scorer at its threshold back. A downstream scorer adds its method of
+  `scoring_from_toml(T, table; problem, section)` (a contract generic).
 - **New: a robust refine, `refine_camera_and_poses(…; robust, scale)`** (the owner's one-schema policy): `robust` takes
   the RANSAC local optimization's own strategies, `Irls{Shape}` and `Triggs{Shape}` with Core's loss shapes and a
   `scale_multiple` (or an absolute `loss_width`), read by the same TOML reader (`local_optimization_from_toml`). From the

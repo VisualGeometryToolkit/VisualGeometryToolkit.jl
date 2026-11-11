@@ -250,3 +250,21 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
 
 end
 end
+
+# The scorers on the same schema as the local optimization: a TOML table read by one reader through a tag registry,
+# every key required, unknown keys refused, written back by config_dict.
+@testitem "config_toml: scoring_from_toml, the scorers' tables (one schema with the local optimization)" begin
+    using Test
+    using VisualGeometryToolkitCore: RansacScoring, MsacScoring, SCORING_TAGS
+    using VisualGeometryToolkitEstimation: scoring_from_toml, config_dict, HomographyProblem, EssentialProblem
+    for (t, T) in (("msac", MsacScoring), ("ransac", RansacScoring)), P in (HomographyProblem, EssentialProblem)
+        d = Dict("type" => t, "threshold" => 2.5)
+        sc = scoring_from_toml(d; problem = P)
+        @test sc == T(P; threshold = 2.5) && config_dict(sc) == d
+        @test scoring_from_toml(config_dict(sc); problem = P) == sc
+    end
+    @test_throws r"needs `threshold`" scoring_from_toml(Dict("type" => "msac"); problem = HomographyProblem)
+    @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac", "threshold" => 1.0, "width" => 2.0); problem = HomographyProblem)
+    @test_throws ArgumentError scoring_from_toml(Dict("type" => "lmeds", "threshold" => 1.0); problem = HomographyProblem)
+    @test_throws r"needs a `type`" scoring_from_toml(Dict("threshold" => 1.0); problem = HomographyProblem)
+end

@@ -282,6 +282,67 @@ scoring_from_toml(::Type{T}, ::AbstractDict; problem::Type, section::AbstractStr
 config_dict(sc::Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}) =
     Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "threshold" => sc.threshold)
 
+# The Student-t + uniform marginal scorer (Core's `StudentTUniformScoring`): `{ type = "student_t_uniform",
+# outlier_halfwidth = h, scale_prior = …, label_prior = … }`. The width is the table's, required. The two priors are
+# REQUIRED keys of the resolved table, and the stack's default is configs/default.toml's [scoring.student_t_uniform]:
+# a key the table leaves out inherits it there, as a strategy's keys inherit [local_optimization.<type>]. Nothing is
+# defaulted in code (Core's constructor takes both priors as required keywords).
+#   scale_prior = "jeffreys"                               π(σ²) ∝ 1/σ²
+#   scale_prior = "ig", alpha0 = α₀, beta0 = β₀            IGPrior(α₀, β₀), both parameters required
+#   label_prior = "flat" | "profiled"
+#   label_prior = "beta", alpha = α, beta = β              BetaLabelPrior(α, β), both parameters required
+const _STUDENT_T_KEYS = ("type", "outlier_halfwidth", "scale_prior", "alpha0", "beta0", "label_prior", "alpha", "beta")
+const _STUDENT_T_DEFAULTS = "scoring.student_t_uniform"
+
+# A prior's parameters: required with the prior that takes them, refused with any other (a stray `alpha0` beside
+# `scale_prior = "jeffreys"` would otherwise be silently ignored).
+function _prior_parameters(d::AbstractDict, keys::Tuple, takes::Bool, what::AbstractString, section::AbstractString)
+    for key in keys
+        takes && !haskey(d, key) && throw(ArgumentError("[$section] $what needs `$key`"))
+        !takes && haskey(d, key) && throw(ArgumentError("[$section] `$key` is a parameter of another $(what): $what takes none"))
+    end
+    return takes ? map(key -> Float64(d[key]), keys) : ()
+end
+
+function _scale_prior_from_toml(d::AbstractDict, section::AbstractString)
+    tag = get(d, "scale_prior", _dflt(_STUDENT_T_DEFAULTS, "scale_prior"))
+    tag in ("jeffreys", "ig") || throw(ArgumentError("[$section] scale_prior = $(repr(tag)): one of \"jeffreys\", \"ig\""))
+    params = _prior_parameters(d, ("alpha0", "beta0"), tag == "ig", "scale_prior = $(repr(tag))", section)
+    return tag == "ig" ? IGPrior(params...) : JeffreysPrior()
+end
+
+function _label_prior_from_toml(d::AbstractDict, section::AbstractString)
+    tag = get(d, "label_prior", _dflt(_STUDENT_T_DEFAULTS, "label_prior"))
+    L = LABEL_PRIOR_TAGS[tag]
+    params = _prior_parameters(d, ("alpha", "beta"), L === BetaLabelPrior, "label_prior = $(repr(tag))", section)
+    return L(params...)
+end
+
+function scoring_from_toml(::Type{<:StudentTUniformScoring}, d::AbstractDict; problem::Type, section::AbstractString)
+    _check_keys(d, _STUDENT_T_KEYS, section)
+    haskey(d, "outlier_halfwidth") || throw(ArgumentError("[$section] needs `outlier_halfwidth` (a scorer's width is its config's)"))
+    return StudentTUniformScoring(problem, Float64(d["outlier_halfwidth"]);
+                                  scale_prior = _scale_prior_from_toml(d, section),
+                                  label_prior = _label_prior_from_toml(d, section))
+end
+
+# The writer states both priors (a written table reads back the same scorer whatever the defaults file says). The
+# model-certain scorer at a supplied width only: a predictive scorer, or an outlier model that estimates the support,
+# has no table of this schema.
+function config_dict(sc::StudentTUniformScoring{Nothing, DG, L, FixedHalfwidth}) where {DG, L}
+    d = Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "outlier_halfwidth" => VgtkCore.outlier_halfwidth(sc))
+    p = VgtkCore.scale_prior(sc)
+    if p == JeffreysPrior()
+        d["scale_prior"] = "jeffreys"
+    else
+        d["scale_prior"] = "ig"; d["alpha0"] = p.alpha0; d["beta0"] = p.beta0
+    end
+    lp = VgtkCore.label_prior(sc)
+    d["label_prior"] = VgtkCore.tag_of(LABEL_PRIOR_TAGS, lp)
+    lp isa BetaLabelPrior && (d["alpha"] = lp.alpha; d["beta"] = lp.beta)
+    return d
+end
+
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
 _dflt_lo(class::Symbol) =

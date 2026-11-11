@@ -5,6 +5,14 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: the Student-t scorer's table, its priors required keys** (the owner's ruling (c)). `scoring_from_toml` reads
+  VisualGeometryToolkitCore's `StudentTUniformScoring` (moved there from RANSACScoringDoneRight):
+  `{ type = "student_t_uniform", outlier_halfwidth = h, scale_prior = "jeffreys" | "ig" (alpha0, beta0),
+  label_prior = "flat" | "profiled" | "beta" (alpha, beta) }`. The stack's default priors (Jeffreys, flat) live in
+  `configs/default.toml`'s new `[scoring.student_t_uniform]`, the one defaults place: a key the table leaves out
+  inherits it there, as a strategy's keys inherit `[local_optimization.<type>]`; nothing is defaulted in code. A
+  prior's parameters are required with it and refused with another. `config_dict` writes both priors, and reads back.
+
 - **Faster: `refine_camera_and_poses`' residual blocks read their variables as concrete types** (the problem's
   variable vector holds a Union; each block asserts its camera chart's and pose charts' types), so the block's
   residual and ForwardDiff Jacobian no longer box every variable: a warm 3-board, 6-view refine (756

@@ -227,6 +227,19 @@ model_update = { type = "keep_model", tol = 1.0e-10 }
 nuisance = { scale = "estimated", inlier_prior = "estimated", nu = "estimated" }
 
 # -----------------------------------------------------------------------------
+# Scorer internals: the stack's defaults of a scorer table's keys (`scoring_from_toml`), as
+# [local_optimization.<type>] holds a strategy's. A key a scorer table leaves out inherits its value here.
+# A scorer's width (`threshold`, `outlier_halfwidth`) is deliberately absent: it is its config's.
+# -----------------------------------------------------------------------------
+[scoring.student_t_uniform]
+# The Student-t + uniform marginal scorer's priors, required keys of its table (the owner's ruling (c),
+# 2026-11-11): the scale σ² integrated out against Jeffreys' π(σ²) ∝ 1/σ² ("ig" takes alpha0 and beta0),
+# the inlier probability fixed at γ = ½ ("profiled"; "beta" takes alpha and beta) — the paper's
+# profile-marginal score, the scorer's configuration of record.
+scale_prior = "jeffreys"
+label_prior = "flat"
+
+# -----------------------------------------------------------------------------
 # Local-optimization strategy internals. The keyword defaults of each strategy
 # constructor read its table. A strategy's width (`scale_multiple` or
 # `loss_width`) is deliberately absent: given none it follows the scorer's

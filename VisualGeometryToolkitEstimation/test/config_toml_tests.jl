@@ -268,3 +268,47 @@ end
     @test_throws ArgumentError scoring_from_toml(Dict("type" => "lmeds", "threshold" => 1.0); problem = HomographyProblem)
     @test_throws r"needs a `type`" scoring_from_toml(Dict("threshold" => 1.0); problem = HomographyProblem)
 end
+
+# The owner's ruling (c): the Student-t scorer's scale prior and label prior are required keys of its table, the stack's
+# default (Jeffreys, flat) in configs/default.toml's [scoring.student_t_uniform] — a key the table leaves out inherits
+# it there, as a strategy's keys do — and nothing defaulted in code; config_dict states both, and reads back.
+@testitem "config_toml: the Student-t scorer's priors are its table's keys, defaulted in default.toml only" begin
+    using Test
+    using TOML: TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, IGPrior, FlatLabelPrior, ProfiledLabelPrior,
+        BetaLabelPrior, SCORING_TAGS, scale_prior, label_prior
+    using VisualGeometryToolkitEstimation: scoring_from_toml, config_dict, default_config_path, HomographyProblem, EssentialProblem
+    P = EssentialProblem
+    # the defaults file states them, and only there
+    dflt = TOML.parsefile(default_config_path())["scoring"]["student_t_uniform"]
+    @test dflt == Dict("scale_prior" => "jeffreys", "label_prior" => "flat")
+    @test_throws UndefKeywordError StudentTUniformScoring(P, 20.0)
+    # inherited: the stack default
+    sc = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => 20.0); problem = P)
+    @test sc == StudentTUniformScoring(P, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    @test config_dict(sc) == Dict("type" => "student_t_uniform", "outlier_halfwidth" => 20.0,
+                                  "scale_prior" => "jeffreys", "label_prior" => "flat")
+    # stated: every prior, written back and read back
+    for (t, sp, lp) in ((Dict("scale_prior" => "ig", "alpha0" => 2.0, "beta0" => 0.5), IGPrior(2.0, 0.5), FlatLabelPrior()),
+                        (Dict("label_prior" => "profiled"), JeffreysPrior(), ProfiledLabelPrior()),
+                        (Dict("scale_prior" => "jeffreys", "label_prior" => "beta", "alpha" => 0.5, "beta" => 2.0),
+                         JeffreysPrior(), BetaLabelPrior(0.5, 2.0)))
+        d = merge(Dict{String, Any}("type" => "student_t_uniform", "outlier_halfwidth" => 3.5), t)
+        sc = scoring_from_toml(d; problem = HomographyProblem)
+        @test scale_prior(sc) == sp && label_prior(sc) == lp && sc isa StudentTUniformScoring{Nothing, 2}
+        @test scoring_from_toml(config_dict(sc); problem = HomographyProblem) == sc
+        @test all(config_dict(sc)[k] == v for (k, v) in d)
+    end
+    # a prior's parameters: required with it, refused with another; unknown tags and keys refused
+    T(kw...) = merge(Dict{String, Any}("type" => "student_t_uniform", "outlier_halfwidth" => 1.0), Dict(kw...))
+    @test_throws r"needs `beta0`" scoring_from_toml(T("scale_prior" => "ig", "alpha0" => 1.0); problem = P)
+    @test_throws r"takes none" scoring_from_toml(T("alpha0" => 1.0, "beta0" => 1.0); problem = P)
+    @test_throws r"needs `alpha`" scoring_from_toml(T("label_prior" => "beta", "beta" => 1.0); problem = P)
+    @test_throws r"takes none" scoring_from_toml(T("label_prior" => "flat", "alpha" => 1.0); problem = P)
+    @test_throws ArgumentError scoring_from_toml(T("scale_prior" => "gamma"); problem = P)
+    @test_throws ArgumentError scoring_from_toml(T("label_prior" => "uniform"); problem = P)
+    @test_throws ArgumentError scoring_from_toml(T("prior" => "jeffreys"); problem = P)
+    @test_throws r"needs `outlier_halfwidth`" scoring_from_toml(Dict("type" => "student_t_uniform"); problem = P)
+    @test SCORING_TAGS["student_t_uniform"] === StudentTUniformScoring
+end

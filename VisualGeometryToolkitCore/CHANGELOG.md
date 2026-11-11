@@ -8,7 +8,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **New: `finite_linearization(cost, g, H)`** (public, not exported, beside `finite_cost`): a residual block's
   linearization as the stack's NLLSsolver fits read it, `(Inf, 0, 0)` when any part is not finite. NLLSsolver 5.3.2's
   Levenberg–Marquardt damping loop spins on a non-finite gradient or Hessian at an accepted point (NLLSsolver#68,
-  unreleased); the chart LM's rows return through it.
+  released in 5.3.3); the chart LM's rows return through it.
+- **Compat: NLLSsolver ≥ 5.3.3**, the release with #68: its damping loop stops at a non-finite step, so every stack LM
+  is covered, not only the rows that return through `finite_linearization`.
 - **New: `check_raw_decoding(dir)` and `RawDecodingViolation`** (public, the Test extension, beside `check_naming`):
   the stack's one RAW path. Flags, in code outside VisualGeometryToolkitFeatures' raw module, any use of rawpy, a
   LibRaw C call, dcraw, rawpy's `postprocess(`, a demosaic, a Bayer/CFA interpolation, or a decoded RAW output re-read

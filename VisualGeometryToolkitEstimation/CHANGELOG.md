@@ -10,6 +10,7 @@ non-central one is a `NoncentralSplineModel`).
   `penalty = 1e-9` on noisy detections ran > 60 min on dgx01), its rebuild rounds are a bounded loop, and a lattice
   that folds where a point projects (the backward's Jacobian exactly singular) raises the not-projected error, naming
   the fold, instead of being linearized.
+- **Compat: NLLSsolver ≥ 5.3.3** (NLLSsolver#68: the damping loop stops at a non-finite step).
 - **Breaking: a view-graph edge's weight and transform are Core's `weight_of` and `value_of`** (the private
   `_edge_weight`/`_relative` are gone; an edge without `:weight` still weighs 1). `fit_rotation_averaging`'s spectral
   seed hands Core's `spectral_rotation_averaging` the live (weight > 0) `Attributed` edges directly.

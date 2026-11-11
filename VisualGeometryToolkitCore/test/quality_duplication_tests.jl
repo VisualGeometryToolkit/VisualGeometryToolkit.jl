@@ -214,4 +214,12 @@ end
     @test isempty(found("function total(x)\n    x isa CuArray && return sum_kernel(x)\n    return sum(x)\nend\nsweep_host(x) = x\nsweep_device(x) = 2x\n"; extra = (toml,)))
     stale = found("f(x) = x\n"; extra = (toml,))
     @test length(stale) == 2 && all(v -> v.check === :stale_exception, stale)
+    # a backend entry about a file this run did not scan (another package's, in the monorepo's file) is not stale
+    other = "DUPLICATION.toml" => """
+        [[backend]]
+        file = "OtherPackage/ext/OtherCUDAExt.jl"
+        function = "__init__"
+        reason = "another package's file"
+        """
+    @test isempty(found("f(x) = x\n"; extra = (other,)))
 end

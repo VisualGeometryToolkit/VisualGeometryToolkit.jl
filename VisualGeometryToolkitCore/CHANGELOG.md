@@ -15,6 +15,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `[[backend]]` (file, function, reason) and `[[twin]]` (names, reason) entries. Breaking for a package's quality
   gate: this monorepo's own hits are open items (Core's `_foreach_row!` and pointwise policy, Features' ASIFT
   `_scheduled` pair and `_chunk_warps`).
+  A `[[backend]]` entry is stale only in a run that scanned its file (a package's own run reads the monorepo's
+  DUPLICATION.toml, whose entries about another package's files it cannot match). The rules' syntax-tree signature
+  test is `check_duplication`'s own (its first form replaced `check_naming`'s `_is_signature`, which every package's
+  naming gate then failed on).
 
 - **`free_names` is a contract generic** (`CONTRACT_GENERICS`): a calibrator's own lens target (CaliBlobs'
   `LensTarget`) adds its method to Core's function instead of a namesake.

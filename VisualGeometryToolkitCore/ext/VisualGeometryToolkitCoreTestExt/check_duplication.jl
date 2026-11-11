@@ -216,13 +216,13 @@ const _TWIN_PREFIXES = (("cpu_", "gpu_"),)
 function _all_definitions!(out, node)
     k = _JS.kind(node)
     cs = _JS.children(node)
-    if k == _JS.K"function" || (k == _JS.K"=" && cs !== nothing && !isempty(cs) && _is_signature(cs[1]))
+    if k == _JS.K"function" || (k == _JS.K"=" && cs !== nothing && !isempty(cs) && _is_syntax_signature(cs[1]))
         push!(out, node)
     end
     cs === nothing || foreach(c -> _all_definitions!(out, c), cs)
     return out
 end
-function _is_signature(sig)
+function _is_syntax_signature(sig)   # a JuliaSyntax node (check_naming's `_is_signature` reads an Expr)
     while _JS.kind(sig) in (_JS.K"where", _JS.K"::") && !isempty(something(_JS.children(sig), ()))
         sig = _JS.children(sig)[1]
     end
@@ -290,10 +290,13 @@ function _backend_violations(files, entries)
         (file, line) = names[a]
         push!(out, DuplicationViolation(:twin_name, file, line, a, b))
     end
-    stale(kind, list, used) = [DuplicationViolation(:stale_exception, _DUPLICATION_FILE, 0, _entry_text(kind, e), "matches nothing")
-        for (e, u) in zip(list, used) if !u]
-    append!(out, stale("backend", entries["backend"], backend_used))
-    append!(out, stale("twin", entries["twin"], twin_used))
+    # stale entries: a backend entry only when its file was scanned here (a package's own run reads the monorepo's
+    # file, whose entries about another package's files it cannot match)
+    scanned = Set(first.(files))
+    stale(kind, list, used, mine) = [DuplicationViolation(:stale_exception, _DUPLICATION_FILE, 0, _entry_text(kind, e), "matches nothing")
+        for (e, u) in zip(list, used) if !u && mine(e)]
+    append!(out, stale("backend", entries["backend"], backend_used, e -> e["file"] in scanned))
+    append!(out, stale("twin", entries["twin"], twin_used, _ -> true))
     return out
 end
 

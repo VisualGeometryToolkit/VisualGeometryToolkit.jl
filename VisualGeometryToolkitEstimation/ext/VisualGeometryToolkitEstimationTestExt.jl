@@ -90,7 +90,7 @@ module TestScenes
         sampson_residual
     using VisualGeometryToolkitEstimation: EssentialProblem
 
-    export box_point, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, truncated_sampson_cost,
+    export box_point, box_point_far, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, truncated_sampson_cost,
         FPX, CX, CY, ECAM, topx, essential_problem, ecs, PIXEL_PAIRS_K, contaminated_pixel_pairs
 
     # The pinhole of `contaminated_pixel_pairs` (fx = 800, fy = 820, a 640 × 480 frame).
@@ -127,6 +127,10 @@ module TestScenes
     """
     box_point(rng::AbstractRNG; width = 2.0, height = 1.5, near = 3.0, far = 5.0) =
         SA[width * (rand(rng) - 0.5), height * (rand(rng) - 0.5), near + (far - near) * rand(rng)]
+
+    # A point in the wider, farther box `[-2, 2] × [-1.5, 1.5] × [5, 8]` of the stereo
+    # pixel scenes (the F problems').
+    box_point_far(rng::AbstractRNG) = box_point(rng; width = 4.0, height = 3.0, near = 5.0, far = 8.0)
 
     """
         calibrated_pairs(rng, R, t; n, σ, outlier_every = 0) -> (u₁, u₂)

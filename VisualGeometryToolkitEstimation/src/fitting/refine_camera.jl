@@ -237,8 +237,8 @@ converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where th
   regression has no outliers. It takes no `scale` or `width` (one given would be ignored: an `ArgumentError`), and the
   result records no scale (`scale_source` `ScaleNone`, `scale` `NaN`; `noise_scale` refuses it).
 
-The domain is the region's farthest radius, capped by the source's and the family's own view-angle limits, as
-`fit_camera`'s (a cut is `clipped` and warned). At most `max_iter` accepted iterations (configs/default.toml
+The domain is the region's farthest radius, capped by the source's own view-angle limit, as `fit_camera`'s; a region
+past the family's view-angle limit (the perspective plane's 90° for a gnomonic family) is an `ArgumentError`. At most `max_iter` accepted iterations (configs/default.toml
 `[refine_camera]`); the `retcode` is the LM's, and a refine that ends at a non-finite focal rescale is
 `:solve_failed`, never a throw. The metadata is [`CameraFitMetadata`](@ref): the round trip's errors per sample in
 `residuals` (px), their maximum and edge-band maximum, the result's `rms` their weighted root mean square.
@@ -270,7 +270,8 @@ function refine_camera(
     P = _regression_manifold(role, _lens_family_manifold(gl), start)
     # a forward guess that folds before the domain's edge (a linear fit over a field its family cannot image) images
     # no radius past its fold: its residual there is capped at the fold, as the reported errors are
-    θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max ? t : Inf)
+    # (a guess at the source's own fold, to its rounding, is not capped: 1e-6 rad)
+    θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     p, code, iters = _regress_lens(lm, Val(tangent_size(P)), max_iter)
 
@@ -279,7 +280,7 @@ function refine_camera(
     isfinite(fit.s) || (code = :solve_failed)
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the refined lens's domain
     θend = isfinite(fit.s) ? Float64(view_angle_limit(fit.lens)) - 1.0e-9 : Inf
-    e = K0[1, 1] .* _sample_errors(lm, p, L <: LiftLens || θend < pr.θ_max ? θend : Inf)
+    e = K0[1, 1] .* _sample_errors(lm, p, L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, iters)
 end
 # A bounded camera's model is the source (its image does not enter: the region bounds the fit).

@@ -46,8 +46,16 @@ non-central one is a `NoncentralSplineModel`).
     `[refine_camera] max_iter`.
   - **New: `approximate_camera(L, source, region; …)`** = `refine_camera(estimate(fit_camera(L, source, region)), source, region)`;
     a family with no linear form starts from its anchor (the former start). It reproduces 0.8's `fit_camera` goldens to
-    1e-6, except the perspective polynomial over a 160° field (`OPENCV3`), whose LM never left its zero start
-    (925 672 px at the edge): it now starts from the linear fit.
+    1e-6, except the perspective polynomial over a 155° field (`OPENCV3`), whose LM never left its zero start
+    (925 672 px at the edge): it is now refused (below).
+  - **A region past the target family's view-angle limit is refused** (`fit_camera`, `approximate_camera`,
+    `refine_camera`): the limit is Core's `view_angle_limit` of the family (a gnomonic family — the OpenCV polynomial
+    and rational models, Brown–Conrady, ± tangential and thin-prism terms — applies its distortion on the perspective
+    plane, which ends at 90°; a fixed fisheye projection at its own edge). It was fitted over the clipped field with a
+    warning; it is now an `ArgumentError` naming the plane (or the limit) and the region's extent, and pointing to a
+    lift (division) model or the same radial factor in an equidistant frame. No margin angle: near the limit the fit is
+    ill-conditioned, the caller's choice of region. The family record's `clipped` now says only that the region reached
+    past the radii the SOURCE images.
   - **`optical_axis` is unchanged in meaning**: it is now `approximate_camera` of the Fisheye624 family.
   - **icra2026 failure A**: the rational OpenCV linear fit of the fisheye's Kannala–Brandt calibration (to 84° off
     axis) lands at f 925.3 px against OpenCV's own rational calibration's 921.9 px, its coefficients OpenCV's in sign

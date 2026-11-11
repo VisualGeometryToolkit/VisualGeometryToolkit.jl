@@ -73,9 +73,9 @@ const RECORDED = Dict(
     "Division" => ((-1.55598834216797,), 1.777876726213889, 320.92474843758316),
     "Division{3,F64} cam900" => ((-0.19999999999999993, -0.07999999999999997, -3.486244641673166e-18), 1.0, 3.9968028886505635e-13),
 )
-# The recorded cases the 0.9 verbs move on purpose: the perspective polynomial over a 160° field, whose LM never left
-# its zero start (925 672 px at the edge, icra2026's failure A in miniature); approximate_camera starts it from the
-# linear fit.
+# The recorded cases the 0.9 verbs move on purpose: the perspective polynomial over a 155° field, whose LM never left
+# its zero start (925 672 px at the edge, icra2026's failure A in miniature); a gnomonic family over a field past 90°
+# (the perspective plane's end) is now refused.
 const MOVED = ("OPENCV3", "OPENCV decentered")
 # Within the fit's tolerance: parameters and focal rescale to 1e-6, the node
 # maximum within 5 % (or both at rounding, below 1e-9 px).

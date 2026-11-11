@@ -89,7 +89,8 @@ The family records:
 - a lens family: `(; focal_scale, aspect, θ_max, θ_source, clipped)`. These are the
   joint focal rescale `s`, the aspect `fy′/fy` (1 for a physical `K` and for a
   linear fit), the fitted and the source's angular domains (radians), and whether
-  the target family cut the source's domain. The errors are at the quadrature's
+  the region reached past the radii the source images (its domain then the
+  source's own). The errors are at the quadrature's
   samples;
 - `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
   n_held_out_dropped, tolerance, forward)`, `forward` being `(; spacing, counts, λ,
@@ -181,10 +182,12 @@ over the region. The target type selects the family and the solve:
     region reduces exactly to one over `θ`, with the density weighted by the fraction of
     each radius's circle about the principal point that lies in the region (the region
     must be star-shaped about the principal point, as a convex one containing it is).
-    The domain is the region's farthest radius, capped by the source's and the target
-    family's own view-angle limits — a cut of the source's domain is `clipped` and warned,
-    and so is a region reaching past the radii the source images (its domain is then the
-    source's own). (The region's extent is measured along 720 azimuths: a corner between
+    The domain is the region's farthest radius, capped by the source's own view-angle
+    limit — a region reaching past the radii the source images is `clipped` and warned (its
+    domain is then the source's own). A region reaching past the TARGET family's view-angle
+    limit (Core's `view_angle_limit`: a gnomonic family applies its distortion on the
+    perspective plane, which ends at 90°) is an `ArgumentError`: the family cannot represent
+    the source there, and it is never fitted over a clipped field. (The region's extent is measured along 720 azimuths: a corner between
     two of them is reached to within half an azimuth's arc.) `weight` is the density:
     `:image` (uniform on the image), `:solid_angle` (`sin θ`) or `:uniform` (in `θ`).
   - A GAUGE `K` (a `SplineLens` camera source, a `CameraModel` or a `BoundedCamera` of one)
@@ -322,7 +325,8 @@ function fit_camera(::Type{L}, source::CameraModel, region; weight::Symbol = :im
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the fitted lens's domain
     # (a lift's, and a forward lens's whose linear fit folds before the source's domain ends), on the host
-    θcap = code === :solved ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
+    θend = code === :solved ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
+    θcap = L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf     # (a lens at the source's own fold, to its rounding: not capped)
     e = map((d, θ, y) -> K0[1, 1] * _pixel_offset(fit, M, d, θ, y, θcap), pr.rays, pr.angles, pr.points)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, 0)
 end
@@ -590,15 +594,26 @@ _decentering(_, l::AbstractLensModel) = sqrt(max(sum(abs2, parameter_vector(l)) 
 _target_anchor(::Type{L}) where {L} = zero(L)
 _target_anchor(::Type{L}) where {L <: Lens{<:DoubleSphere}} = (z = zero(L); Lens(DoubleSphere(0.5, 0.5), z.distortion))
 
-# The fitted domain of the target family `L` on a source's domain [0, θ_source]:
-# capped by the family's limit, and whether that cut it (warned).
+# The fitted domain of the target family `L` on a source's domain [0, θ_source]: the source's, which must lie inside
+# the family's own view-angle limit (`_family_limit`, Core's `view_angle_limit`). A region reaching past it is refused,
+# never fitted over a clipped field: no family represents the source where it images nothing. The hard limit only, no
+# margin (near a limit the fit is ill-conditioned: the caller's choice of region). Whether it cut the source's domain
+# is always `false` now (a field the region reaches past the source's own radii is `_profile_samples`' cut).
 function _family_domain(::Type{L}, θ_source) where {L}
-    θ_max = min(θ_source, _family_limit(L))
+    limit = _family_limit(L)
+    θ_source <= limit || throw(ArgumentError(_beyond_family_message(L, θ_source, limit)))
+    θ_max = θ_source
     θ_max > 0.02 || throw(ArgumentError("fit_camera: empty fit domain (θ_max = $θ_max)"))
-    cut = θ_max < θ_source * (1 - 1.0e-6)
-    cut && @warn "fit_camera: target family $(L) cannot represent the source's field — fitting θ ∈ [0, $(round(rad2deg(θ_max); digits = 1))°] of the source's $(round(rad2deg(θ_source); digits = 1))°"
-    return θ_max, cut
+    return θ_max, false
 end
+# The refusal: a gnomonic family applies its distortion on the perspective plane (x = X/Z), which ends at 90°; any other
+# family at its own view-angle limit.
+_beyond_family_message(::Type{L}, θ, limit) where {L <: Lens{Perspective}} =
+    "$L: this target applies its distortion on the perspective plane (θ < 90°), but the region reaches " *
+    "$(round(rad2deg(θ); digits = 1))°. Use a lift (division) model, or the same radial factor in an equidistant frame"
+_beyond_family_message(::Type{L}, θ, limit) where {L} =
+    "$L: the family images view angles up to its view-angle limit $(round(rad2deg(limit); digits = 1))°, but the region reaches " *
+    "$(round(rad2deg(θ); digits = 1))°. Fit over a region inside it, or choose a family that images the field"
 
 # The representable limit of a target FAMILY, before its parameters exist: a
 # family whose domain its parameters do not move (the perspective plane, the

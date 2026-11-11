@@ -32,24 +32,17 @@
     @test worst < 1.0e-6                          # the recorded LM from the zero anchor against the refine from the linear start
 end
 
-@testitem "approximate_camera: the recorded perspective-polynomial stalls are left (changed on purpose, 2026-11-11)" setup = [FitCameraLensCases] begin
+@testitem "approximate_camera: the recorded perspective-polynomial stalls are refused (changed on purpose, 2026-11-11)" setup = [FitCameraLensCases] begin
     using Test
-    using VisualGeometryToolkitCore: estimate, metadata, rms, lens, parameter_vector, parameters
     using VisualGeometryToolkitEstimation: approximate_camera, fit_camera
-    # OPENCV3 over a 160° field (clipped at 90°): the recorded LM never left its zero start (925 672 px at the edge).
-    # The linear start leaves it: a polynomial in tan θ still cannot image 90°, but its error is the least squares'
+    # OPENCV3 over a 155° field: the recorded LM never left its zero start (925 672 px at the edge). A perspective
+    # gnomonic family applies its distortion on the perspective plane, which ends at 90°: the linear fit, and so the
+    # approximation, refuse the field, naming the plane and the region's extent, instead of fitting a clipped field
     for name in MOVED
         L, m, _, region = Dict(LENS_CASES)[name]
-        rl = @test_logs (:warn, r"cannot represent") match_mode = :any fit_camera(L, m, region)
-        @test metadata(rl).max_px < 0.01 * RECORDED[name][3]
-        r = @test_logs (:warn, r"cannot represent") match_mode = :any approximate_camera(L, m, region)
-        @test metadata(r).max_px < 0.01 * RECORDED[name][3] && rms(r) <= rms(rl) * (1 + 1.0e-9)
-        @test any(!iszero, parameter_vector(lens(estimate(r))))
+        @test_throws r"perspective plane" fit_camera(L, m, region)
+        @test_throws r"perspective plane" approximate_camera(L, m, region)
     end
-    # the decentered target's tangential terms stay zero; its rational factor's denominator is fitted
-    rd = @test_logs (:warn, r"cannot represent") match_mode = :any approximate_camera(DECENTERED, mdiv, disc(mdiv, rcorner))
-    cd = parameters(lens(estimate(rd)))
-    @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 != 0
 end
 
 @testitem "fit_camera: the :image density's dr/dθ is exact — the central difference it replaced to its truncation error" setup = [FitCameraLensCases] begin
@@ -92,15 +85,15 @@ end
         @test VgtkEstimation._family_limit(typeof(Lens(Orthographic()))) == view_angle_limit(Lens(Orthographic()))
         @test VgtkEstimation._family_limit(DSL) == π - 1.0e-3
     end
-    @testset "a clip by the target family is reported and warned" begin
-        r = @test_logs (:warn, r"cannot represent") match_mode = :any fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
-        @test metadata(r).family.clipped
-        @test metadata(r).family.θ_max < π / 2 < metadata(r).family.θ_source
-        @test lens(estimate(r)) isa OPENCV3
+    @testset "a region past the target family's view-angle limit is refused" begin
+        # refused: the perspective plane ends at 90° (changed on purpose, 2026-11-11: it was fitted over the clipped
+        # field with a warning)
+        @test_throws r"perspective plane \(θ < 90°\), but the region reaches 154.9°" fit_camera(OPENCV3, mdiv, disc(mdiv, rcorner))
+        @test_throws r"its view-angle limit" fit_camera(typeof(Lens(Orthographic())), mdiv, disc(mdiv, rcorner))
         @test !metadata(fit_camera(KB4, mdiv, disc(mdiv, rcorner))).family.clipped
     end
     @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin
-        rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, rcorner))
+        rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, 1000.0))
         cd = parameters(lens(estimate(rd)))
         @test cd.p1 == 0 && cd.p2 == 0 && cd.d1 != 0          # the rational factor's denominator is linear: fitted
         synthetic = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))

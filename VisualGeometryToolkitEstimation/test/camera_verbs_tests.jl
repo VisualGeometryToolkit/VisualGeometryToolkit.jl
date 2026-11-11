@@ -28,6 +28,14 @@
     @test 0.2 < c.k1 < 0.6 && 0.4 < c.d1 < 1.0 && c.d2 > 0.01                           # far from zero, OpenCV's signs and sizes
     @test c.p1 == 0 && c.sx1 == 0                                                       # decentering: zero, not seen by the radial relation
     @test metadata(r).max_px < 1 && rms(r) < 0.25                                       # px
+    # a field past 90° off axis (1400 px; the lens images 90° at ≈ 1315 px): the rational target applies its distortion
+    # on the perspective plane, which ends at 90°, so it is refused, naming the plane and the region's extent — never
+    # fitted over a clipped field; an angle-parametrised family over the same region is fitted
+    wide = Rect(0, 0, 4256, 2848) ∩ Ellipse(SVector(2138.8425928470033, 1436.604235274649), 1400.0, 1400.0, 0.0)
+    @test_throws r"perspective plane" fit_camera(RAT, kb, wide)
+    @test_throws r"Use a lift \(division\) model" approximate_camera(RAT, kb, wide)
+    rk = fit_camera(KannalaBrandt{4}, kb, wide)
+    @test retcode(rk) === :solved && metadata(rk).family.θ_source > π / 2 && metadata(rk).max_px < 1.0e-6
     # and the refine from it converges near it
     ra = approximate_camera(RAT, kb, region)
     @test retcode(ra) === :converged && abs(calibration_matrix(estimate(ra))[1, 1] - 921.9) < 10 && rms(ra) <= rms(r)

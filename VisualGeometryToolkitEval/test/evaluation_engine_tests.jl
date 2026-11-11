@@ -44,10 +44,10 @@
     using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, sample_starts, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
         tuning_table, EfficiencyConstantWindow, PairUnit
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, NoLocalOptimization, EssentialProblem, FundMatProblem,
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, EssentialProblem, FundMatProblem,
         HomographyProblem, RelposeBundleProblem, fixed_width
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: AbstractScoring, AbstractLocalOptimization, ExternalRefit, NativeRefit, RefitFamily,
+    using VisualGeometryToolkitCore: AbstractScoring, AbstractOptimizationStrategy, ExternalRefit, NativeRefit, RefitFamily,
         MsacScoring, TLSShape, EfficiencyConstant, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
         width_axis_name, with_width, outlier_halfwidth, outlier_halfwidth_to_loss_width, loss_width,
         select_on_grid!, stage_selection, selection_staging, best_pool_model, scoring_workspace
@@ -77,7 +77,7 @@
     VgtkCore.width_axis(::ThresholdMsac) = LossWidth()
     VgtkCore.with_width(::ThresholdMsac{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = MsacScoring(DG; threshold = loss_width(w))
 
-    struct WidthRefit <: AbstractLocalOptimization
+    struct WidthRefit <: AbstractOptimizationStrategy
         max_iter::Int
     end
     mutable struct WidthRefitWs
@@ -96,12 +96,12 @@
                            MsacScoring(VgtkCore.codimension(problem); threshold = lw))
     end
 
-    struct RefusingRefit <: AbstractLocalOptimization end
+    struct RefusingRefit <: AbstractOptimizationStrategy end
     VgtkCore.RefitFamily(::RefusingRefit) = ExternalRefit()
     VgtkCore.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
     VgtkCore.refine_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
 
-    struct ThrowingRefit <: AbstractLocalOptimization end   # a native refiner with no locally_optimize!
+    struct ThrowingRefit <: AbstractOptimizationStrategy end   # a native refiner with no locally_optimize!
 
     # ------------------------------------------------------------------------
     # Fixtures
@@ -243,7 +243,7 @@
         s = LoRefitSpec("x", irls(), OutlierHalfwidth(), 1:3, idxs)
         @test s.grid == [1.0, 2.0, 3.0] && s.grid isa Vector{Float64} && s.idxs == idxs && s.axis === OutlierHalfwidth()
         @test s.seedcols === s.natives === s.widths === s.fixed_s2s === s.columns === nothing && !s.bundle
-        @test_throws "native axis" LoRefitSpec("x", NoLocalOptimization(), EfficiencyConstant(), [1.0, 2.0, 3.0], idxs)
+        @test_throws "native axis" LoRefitSpec("x", nothing, EfficiencyConstant(), [1.0, 2.0, 3.0], idxs)
         @test_throws "mutually exclusive" LoRefitSpec("x", irls(), LossWidth(), [1.0, 2.0, 3.0], idxs;
                                                       natives = [1.0, 1.0, 1.0], widths = [1.0, 1.0, 1.0])
         @test_throws "mutually exclusive" LoRefitSpec("x", irls(), LossWidth(), [1.0, 2.0, 3.0], idxs;
@@ -265,7 +265,7 @@
         ext = WidthRefit(25)
         specs = [LoRefitSpec("native", irls(), OutlierHalfwidth(), hw, idxs),
                  LoRefitSpec("external", ext, OutlierHalfwidth(), hw, idxs),
-                 LoRefitSpec("sel", NoLocalOptimization(), OutlierHalfwidth(), hw, idxs),
+                 LoRefitSpec("sel", nothing, OutlierHalfwidth(), hw, idxs),
                  LoRefitSpec("natives", irls(), OutlierHalfwidth(), hw, idxs; natives = 2 .* hw, seedcols = [5, 4, 3, 2, 1]),
                  LoRefitSpec("widths", irls_sm(1.0), OutlierHalfwidth(), hw, idxs; widths = hw ./ 5),
                  LoRefitSpec("widths_ext", ext, OutlierHalfwidth(), hw, idxs; widths = hw ./ 5),
@@ -336,7 +336,7 @@
         methods = [SampleBudgetMethodSpec(:narrow, template(0.01)), SampleBudgetMethodSpec(:wide, template(0.03))]
         msac = [LossWidthSpec(:msac, MsacScoring(1), 0.01, WidthRefit(25); refinement_loss_width = 0.02)]
         @test LossWidthSpec(:m, MsacScoring(1), 1, WidthRefit(2)).refinement_loss_width === nothing
-        @test LossWidthSpec(:m, MsacScoring(1), 1).lo === NoLocalOptimization()
+        @test LossWidthSpec(:m, MsacScoring(1), 1).lo === nothing
         @test_throws "not a loss-width family" LossWidthSpec(:m, template(0.01), 0.01)
         @testset "per pair: shapes, selections, refits, the MSAC and oracle columns" begin
             res = evaluate_sample_budget(P, methods, [pair], [R]; pair_ids = ["synth-1"], loss_width_specs = msac, cfg)
@@ -382,7 +382,7 @@
             @test both.best_idx_batch[2:2, :, :] == res.best_idx_batch && both.err_lo[2:2, :, :] == res.err_lo
             @test both.best_idx_batch[1, :, :] == both.best_idx_batch[3, :, :] && both.err_lo[1, :, :] == both.err_lo[3, :, :]
         end
-        @testset "a selection-only loss-width column (RSDR's families, NoLocalOptimization)" begin
+        @testset "a selection-only loss-width column (RSDR's families, no local optimization)" begin
             sel = [LossWidthSpec(:ransac, VgtkCore.RansacScoring(1), 0.02), msac[1]]
             res = evaluate_sample_budget(P, methods, [pair], [R]; loss_width_specs = sel, cfg)
             @test res.methods == [:narrow, :wide, :ransac, :msac, :oracle]
@@ -424,7 +424,7 @@
             # The oracle-best model closes a stream in which sample 1 (2
             # siblings) was drawn twice in a row: A A B C, 4 samples in 6 columns.
             full = SampleBudgetConfig(; sample_cap = 27, batch_size = 27, lo_every = 27, budget_unit = :models,
-                                      lo_strategy = NoLocalOptimization())
+                                      lo_strategy = nothing)
             ob = Int(evaluate_sample_budget(P, methods[1:1], [pair], [R]; cfg = full).best_idx_batch[1, end, 1])
             @test ob > 4                                            # a single-model sample (models 5:27)
             b = ob == 5 ? 6 : 5
@@ -434,7 +434,7 @@
             @test starts == [[1, 3, 5, 6]]
             run(cap, unit; kw...) = evaluate_sample_budget(P, methods[1:1], [q], [Rq];
                 cfg = SampleBudgetConfig(; sample_cap = cap, batch_size = cap, lo_every = cap, budget_unit = unit,
-                                         lo_strategy = NoLocalOptimization()), kw...).best_idx_batch[1, :, 1]
+                                         lo_strategy = nothing), kw...).best_idx_batch[1, :, 1]
             @test run(3, :samples; sample_starts = starts) == run(5, :models)   # 3 samples = columns 1:5
             @test run(3, :samples; sample_starts = starts)[end] != 6
             @test run(5, :models)[end] != run(6, :models)[end] == 6
@@ -596,8 +596,8 @@
         @test selection_staging(hwsc) === selection_staging(msac) === :pool
         @test selection_staging(MsacScoring(1; threshold = 1.0)) === :pool
         refits_of = (idxs_of, _) -> [
-            LoRefitSpec("HW sel", NoLocalOptimization(), OutlierHalfwidth(), halfwidths, idxs_of[:hw]),
-            LoRefitSpec("MSAC sel", NoLocalOptimization(), LossWidth(), loss_widths, idxs_of[:msac]),
+            LoRefitSpec("HW sel", nothing, OutlierHalfwidth(), halfwidths, idxs_of[:hw]),
+            LoRefitSpec("MSAC sel", nothing, LossWidth(), loss_widths, idxs_of[:msac]),
             LoRefitSpec("HW +Irls", irls(), OutlierHalfwidth(), halfwidths, idxs_of[:hw]; columns = [2, 5]),
         ]
         grids = [:hw => (halfwidths, hwsc), :msac => (loss_widths, msac)]

@@ -24,9 +24,9 @@
 The local optimizer's own scratch and per-call state for problems of type `P`
 with up to `n` points at storage precision `T`, built ONCE per composed
 workspace and reset by each call. Default `nothing` (an optimizer that needs
-none).
+none; also `nothing`, no local optimization).
 """
-lo_workspace(::Type, ::Type, ::AbstractLocalOptimization, ::Int) = nothing
+lo_workspace(::Type, ::Type, ::Union{Nothing, AbstractOptimizationStrategy}, ::Int) = nothing
 
 """
     locally_optimize!(L, lo, problem, θ, cs::ConsensusSet, buf::ScoreBuffers, scoring) -> FitResult
@@ -45,7 +45,7 @@ function locally_optimize! end
 # implemented method is strictly more specific and none is ambiguous with it.
 # The problem types the strategy DOES have a method for are read off the method
 # table — the implementations are the one list, so the message cannot drift.
-function _lo_problem_types(lo::AbstractLocalOptimization)
+function _lo_problem_types(lo::AbstractOptimizationStrategy)
     types = String[]
     for m in methods(locally_optimize!)
         sig = Base.unwrap_unionall(m.sig).parameters
@@ -57,7 +57,11 @@ function _lo_problem_types(lo::AbstractLocalOptimization)
     return isempty(types) ? "no problem type" : join(sort!(unique!(types)), ", ")
 end
 
-function locally_optimize!(_L, lo::AbstractLocalOptimization, problem, _model, _cs::ConsensusSet, _buf::ScoreBuffers, _scoring)
+# `nothing` — no local optimization: the hypothesis comes back unchanged (`:no_lo`).
+locally_optimize!(_L, ::Nothing, _problem, model, ::ConsensusSet, ::ScoreBuffers, _scoring) =
+    lo_estimate(model, :no_lo)
+
+function locally_optimize!(_L, lo::AbstractOptimizationStrategy, problem, _model, _cs::ConsensusSet, _buf::ScoreBuffers, _scoring)
     throw(ArgumentError(
         "$(typeof(lo)) has no local optimization for $(typeof(problem)); it is implemented for " *
             "$(_lo_problem_types(lo))."
@@ -99,7 +103,7 @@ width `m·ŝ` at the consensus scale) or [`LossWidth`](@ref) (an absolute width)
 The owner of the strategy implements it; a strategy with no width mode (the
 seed, a self-scaling optimizer) keeps the default `missing`.
 """
-lo_width(::AbstractLocalOptimization) = missing
+lo_width(::Union{Nothing, AbstractOptimizationStrategy}) = missing
 
 """
     width_scale_interface(w) -> ScaleInterface
@@ -129,7 +133,7 @@ dispatched on its width mode [`lo_width`](@ref):
   consensus-anchored width, `m` always the plain multiple (`loss_width = m·ŝ`) whatever the shape;
 - `LossWidth((m₀, s2))`: `deploy(shape, max(s2, eps()); efficiency_constant = m₀)` — the absolute width.
 """
-loss_at(lo::AbstractLocalOptimization, shape, cs::ConsensusSet, scoring, buf) =
+loss_at(lo::AbstractOptimizationStrategy, shape, cs::ConsensusSet, scoring, buf) =
     _loss_at(lo_width(lo), lo, shape, cs, scoring, buf)
 
 function _loss_at(::Nothing, lo, shape, cs, scoring, buf)
@@ -152,7 +156,7 @@ The squared scale a width-carrying strategy's mode runs at — the consensus
 scale under `EfficiencyConstant`, the absolute `s2` under `LossWidth`, both floored
 at eps; the INITIAL estimate of a self-scaling strategy is `scale_s2(cs)`.
 """
-width_s2(lo::AbstractLocalOptimization, cs::ConsensusSet) = _width_s2(lo_width(lo), cs)
+width_s2(lo::AbstractOptimizationStrategy, cs::ConsensusSet) = _width_s2(lo_width(lo), cs)
 _width_s2(::EfficiencyConstant, cs) = max(scale_s2(cs), eps())
 _width_s2(lw::LossWidth{NTuple{2, Float64}}, cs) = max(lw.value[2], eps())
 _width_s2(::Union{Nothing, Missing}, cs) = max(scale_s2(cs), eps())
@@ -164,7 +168,7 @@ Refuse, once at entry, a local optimizer that follows the scorer's decision
 boundary (`lo_width(lo) === nothing`) composed with a scorer that defines none
 ([`has_decision_boundary`](@ref)). A strategy without a width mode is accepted.
 """
-check_composition(scoring::AbstractScoring, lo::AbstractLocalOptimization) =
+check_composition(scoring::AbstractScoring, lo::Union{Nothing, AbstractOptimizationStrategy}) =
     _check_composition(scoring, lo, lo_width(lo))
 _check_composition(_scoring, _lo, _w) = nothing
 _check_composition(scoring::S, lo, ::Nothing) where {S} =
@@ -212,7 +216,7 @@ contract above) a point matrix, the solver's calibrations, a consensus
 workspace — built once and reused by every refit of that pair. Default
 `nothing`.
 """
-external_workspace(::AbstractLocalOptimization, _problem, _frame, _scoring) = nothing
+external_workspace(::Union{Nothing, AbstractOptimizationStrategy}, _problem, _frame, _scoring) = nothing
 
 """
     prepare_external!(ws, lo, problem, θ, width::LossWidth, scoring) -> Bool
@@ -221,10 +225,10 @@ The part of an external refit that runs OUTSIDE its timing bracket, before it
 (a consensus-scale bootstrap). `false` means no refit is made — the call is
 neither timed nor counted, and the refit falls back. Default `true`.
 """
-prepare_external!(_ws, ::AbstractLocalOptimization, _problem, _θ, _width, _scoring) = true
+prepare_external!(_ws, ::Union{Nothing, AbstractOptimizationStrategy}, _problem, _θ, _width, _scoring) = true
 
 # A fixed noise scale is, by default, the absolute loss width √s2.
-refine_external!(ws, lo::AbstractLocalOptimization, problem, θ, f::FixedS2, scoring) =
+refine_external!(ws, lo::Union{Nothing, AbstractOptimizationStrategy}, problem, θ, f::FixedS2, scoring) =
     refine_external!(ws, lo, problem, θ, LossWidth(1.0, scale_s2(f)), scoring)
 
 """
@@ -241,6 +245,6 @@ re-score. The owner of the strategy implements it.
 """
 function refine_external! end
 # The refusal: a local optimizer with no external refit at an absolute width.
-refine_external!(_ws, lo::AbstractLocalOptimization, _problem, _θ, ::LossWidth, _scoring) = throw(ArgumentError(
+refine_external!(_ws, lo::Union{Nothing, AbstractOptimizationStrategy}, _problem, _θ, ::LossWidth, _scoring) = throw(ArgumentError(
     "$(nameof(typeof(lo))) has no external refit (refine_external!) — it is not an ExternalRefit strategy"))
 

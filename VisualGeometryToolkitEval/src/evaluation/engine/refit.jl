@@ -23,7 +23,7 @@
 # =============================================================================
 
 """
-    ScoreGuarded(inner::AbstractLocalOptimization)
+    ScoreGuarded(inner::AbstractOptimizationStrategy)
 
 LO-RANSAC best-so-far monotonicity wrapper for IRLS-family arms.
 The inner LO runs unchanged, but the refined model is kept only if its SELECTION score (the
@@ -37,7 +37,7 @@ VisualGeometryToolkitEstimation's `CountedLO` and `TerminalLO`: a guarded extern
 arm is routed, prepared and refined as the bare arm. The guard is
 `score_guard` on the native path, so an external refit is forwarded unguarded.
 """
-struct ScoreGuarded{L<:AbstractLocalOptimization} <: AbstractLocalOptimization
+struct ScoreGuarded{L<:AbstractOptimizationStrategy} <: AbstractOptimizationStrategy
     inner::L
 end
 VgtkCore.RefitFamily(g::ScoreGuarded) = RefitFamily(g.inner)
@@ -54,9 +54,9 @@ VgtkCore.scale_interface(g::ScoreGuarded) = scale_interface(g.inner)
 VgtkCore.loss_family(g::ScoreGuarded) = loss_family(g.inner)
 VgtkCore.lo_label(g::ScoreGuarded) = lo_label(g.inner)
 VgtkCore.lo_marker(g::ScoreGuarded) = lo_marker(g.inner)
-_unwrap_lo(lo::AbstractLocalOptimization) = lo
+_unwrap_lo(lo::Union{Nothing, AbstractOptimizationStrategy}) = lo
 _unwrap_lo(lo::ScoreGuarded) = lo.inner
-_is_guarded(::AbstractLocalOptimization) = false
+_is_guarded(::Union{Nothing, AbstractOptimizationStrategy}) = false
 _is_guarded(::ScoreGuarded) = true
 
 """
@@ -75,7 +75,7 @@ The native axis refiner `lo` consumes, by its refit family: a native refiner
 its scoring outlier half-width (`OutlierHalfwidth()`), an external one its
 truncated loss's width (`LossWidth()`).
 """
-consumed_axis(lo::AbstractLocalOptimization) = consumed_axis(RefitFamily(lo), lo)
+consumed_axis(lo::Union{Nothing, AbstractOptimizationStrategy}) = consumed_axis(RefitFamily(lo), lo)   # `nothing` (no LO): the native loop's
 consumed_axis(::NativeRefit, lo) = OutlierHalfwidth()
 consumed_axis(::ExternalRefit, lo) = LossWidth()
 # VisualGeometryToolkitEstimation's wrappers and ScoreGuarded consume what their
@@ -160,7 +160,7 @@ plus the bracketed optimizer wall-clock.
   * ExternalRefit: the fixed scale `FixedS2(s2)` replaces `nat′` (by default
     the loss width `√s2`).
 """
-function refit_imc!(ctx::PairCtx, lo::AbstractLocalOptimization, seed, nat′::Float64;
+function refit_imc!(ctx::PairCtx, lo::Union{Nothing, AbstractOptimizationStrategy}, seed, nat′::Float64;
                     scoring = ctx.scoring, on_fail = nothing, bundle::Bool = false,
                     s2 = nothing)
     fallback = on_fail === nothing ? model_imc(seed, ctx) : Float64(on_fail)
@@ -222,11 +222,11 @@ own width mode. The refit layer's imc rows wrap exactly this in
 `guarded_refit`; a caller that needs the refined model itself (a polish warm
 start) calls it directly.
 """
-function refit_model(prob, seed, lo::AbstractLocalOptimization, sc;
+function refit_model(prob, seed, lo::Union{Nothing, AbstractOptimizationStrategy}, sc;
                      workspace = nothing, s2::Union{Nothing,Real} = nothing)
     lo_run = _unwrap_lo(lo)
-    lo_run = s2 === nothing ? lo_run : with_width(lo_run, fixed_width(lo_run, Float64(s2)))
-    r = locally_optimize(prob, seed; local_optimization = lo_run, scoring = sc,
+    lo_run = (s2 === nothing || lo_run === nothing) ? lo_run : with_width(lo_run, fixed_width(lo_run, Float64(s2)))   # no LO has no width to fix
+    r = locally_optimize(prob, seed; local_optimization_strategy = lo_run, scoring = sc,
                          workspace, score_guard = _is_guarded(lo))
     return converged(r) ? estimate(r) : nothing
 end
@@ -287,11 +287,11 @@ reproduces the bare arm exactly. The refined model goes back to the loop, which
 re-scores it under the SELECTION scoring and keeps it only if it beats the
 incumbent.
 """
-struct RefitHalfwidth{L <: AbstractLocalOptimization, F} <: AbstractLocalOptimization
+struct RefitHalfwidth{L <: AbstractOptimizationStrategy, F} <: AbstractOptimizationStrategy
     lo::L
     outlier_halfwidth::Float64
     scoring_of::F
-    function RefitHalfwidth(lo::L, outlier_halfwidth::Real, scoring_of::F) where {L <: AbstractLocalOptimization, F <: Function}
+    function RefitHalfwidth(lo::L, outlier_halfwidth::Real, scoring_of::F) where {L <: AbstractOptimizationStrategy, F <: Function}
         isfinite(outlier_halfwidth) && outlier_halfwidth > 0 ||
             throw(ArgumentError("RefitHalfwidth: the refit outlier half-width must be finite and positive, got $outlier_halfwidth"))
         return new{L,F}(lo, Float64(outlier_halfwidth), scoring_of)
@@ -299,7 +299,7 @@ struct RefitHalfwidth{L <: AbstractLocalOptimization, F} <: AbstractLocalOptimiz
 end
 # `template` is any scoring with an outlier half-width (`with_width(template,
 # OutlierHalfwidth(a))`); the function form above is more specific.
-function RefitHalfwidth(lo::AbstractLocalOptimization, outlier_halfwidth::Real, template)
+function RefitHalfwidth(lo::AbstractOptimizationStrategy, outlier_halfwidth::Real, template)
     a = OutlierHalfwidth(Float64(outlier_halfwidth))::OutlierHalfwidth{Float64}
     sc = with_width(template, a)
     return RefitHalfwidth(lo, outlier_halfwidth, _ -> sc)

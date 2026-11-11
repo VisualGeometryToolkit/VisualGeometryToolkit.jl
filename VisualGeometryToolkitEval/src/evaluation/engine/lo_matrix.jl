@@ -19,7 +19,7 @@ One post-LO refit of a selection sweep: refine the selected model
 `consumed_native(lo, axis, grid[t])`. `axis` is the SELECTOR grid's native axis
 (a [`NativeAxis`](@ref): `OutlierHalfwidth()` | `LossWidth()`) — cross-axis conversion happens per
 column inside the refit layer, so callers never pre-convert grids.
-`lo = NoLocalOptimization()` records the selection imc (no refit).
+`lo = nothing` records the selection imc (no refit).
 
 Column `t` refits the model selected at column `seedcols[t]` of `idxs` at the
 EXPLICIT native value `natives[t]` when those fields are set (no `consumed_native`
@@ -57,7 +57,7 @@ from it. Combines with `natives`; mutually exclusive with `widths`.
 """
 struct LoRefitSpec
     label::String
-    lo::AbstractLocalOptimization
+    lo::Union{Nothing, AbstractOptimizationStrategy}
     axis::NativeAxis
     grid::Vector{Float64}
     idxs::Matrix{Int32}
@@ -68,7 +68,7 @@ struct LoRefitSpec
     fixed_s2s::Union{Nothing,Vector{Float64}}
     columns::Union{Nothing,Vector{Int}}
 end
-function LoRefitSpec(label::AbstractString, lo::AbstractLocalOptimization, axis::WidthAxis,
+function LoRefitSpec(label::AbstractString, lo::Union{Nothing, AbstractOptimizationStrategy}, axis::WidthAxis,
                      grid::AbstractVector, idxs::AbstractMatrix; bundle::Bool = false,
                      seedcols::Union{Nothing,AbstractVector} = nothing,
                      natives::Union{Nothing,AbstractVector} = nothing,
@@ -137,7 +137,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
     #    ":dynamic ... assumes that the workload for each iteration is uniform"
     #    and "each task processes contiguous regions". Per-pair refit cost varies
     #    ~10x with #correspondences and per-spec cost by orders of magnitude (a
-    #    NoLocalOptimization selection row against an HQ or bundle refit), so the
+    #    no-LO (`nothing`) selection row against an HQ or bundle refit), so the
     #    uniformity assumption is false in both indices. :greedy is Base's answer
     #    for "workload ... not uniform/has a large spread" (Julia >= 1.11).
     #
@@ -189,7 +189,7 @@ end
 # 2026-09-21 this row always took the E/F metric: on an H pool VgtkCore's loose
 # `EssentialMat(::AbstractMatrix, K1, K2)` wrapped the homography as a
 # fundamental matrix and scored nonsense.
-function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::NoLocalOptimization,
+function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::Nothing,
                            spec::LoRefitSpec, p::Int, operating_efficiency_constant::Float64, on_fail)
     sc = spec.seedcols
     @inbounds for t in _refit_columns(spec)
@@ -199,7 +199,7 @@ function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::NoLocalOptimiza
     return nothing
 end
 
-function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::AbstractLocalOptimization,
+function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::AbstractOptimizationStrategy,
                            spec::LoRefitSpec, p::Int, operating_efficiency_constant::Float64, on_fail)
     sc = spec.seedcols; nv = spec.natives; wv = spec.widths; fv = spec.fixed_s2s
     @inbounds for t in _refit_columns(spec)

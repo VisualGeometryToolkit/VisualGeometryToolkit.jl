@@ -17,7 +17,7 @@
 # THE CHARTS. The camera block is VGC's `ParameterManifold` of the camera — its
 # `parameter_vector` (f, aspect, skew, cx, cy, then the lens's coefficients),
 # each moved by the chart that keeps it inside its `parameter_bounds` —
-# restricted to the free parameters (`free`, every parameter but the skew by
+# restricted to the refined parameters (every parameter but the `fixed` ones and the skew by
 # default), optionally with a solver box (`box`). Each pose is VGC's
 # `LeftRigidManifold6` (x ↦ exp([δω]×)(R·x + t) + δt). Each chart is one
 # NLLSsolver variable through VGC's NLLSsolver adapter, re-anchored at every
@@ -48,7 +48,7 @@ n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
 windows_settled, forward, forward_max_px, cost_start, axis_rotation, symmetry_residual,
 refined_axis_offset, refined_symmetry_residual)`:
 the third-difference
-penalty's normalized weight β and its `λ` (0 for none, and with `free = ()`;
+penalty's normalized weight β and its `λ` (0 for none, and with `fixed = (:controls,)`;
 `gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
 evaluated (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is
 an end of the bracket (the weight GCV wants lies at or past it), and tr H, the
@@ -151,13 +151,13 @@ NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
-    refine_camera_and_poses(camera, poses, views; free, box = nothing, local_optimization = nothing, scale = nothing,
+    refine_camera_and_poses(camera, poses, views; fixed = (), box = nothing, optimization_strategy = nothing, scale = nothing,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
-    refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = :gcv,
+    refine_camera_and_poses(spline_camera, poses, views; fixed = (), penalty = :gcv,
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
-    refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), free, box,
-                            local_optimization = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
+    refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), fixed = (), box,
+                            optimization_strategy = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses, :board_poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
@@ -184,14 +184,17 @@ scratch and the camera keeps its family (its lens type).
   that does not.
 
 # Keywords (configuration)
-- `free` — the camera parameters refined, by name (every parameter but the
-  skew by default); `()` holds the camera fixed and refines the poses alone.
+- `fixed` — the camera parameters HELD, by name (`()`, the default: every
+  parameter is refined but the gauge, the skew, which is held by construction);
+  naming every parameter holds the camera and refines the poses alone. The
+  stack's one parameter-holding keyword (NLLSsolver's word; OpenCV's
+  `CALIB_FIX_*`): `free`, `fix`, `fixed_params` and `hold` are refused, naming it.
 - `box` — a solver search box on the camera's parameters by name
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
-  with `free = ()` (nothing to bound) a box is an `ArgumentError`.
-- `local_optimization` — `nothing` (the default: plain least squares) or a
+  with every parameter `fixed` (nothing to bound) a box is an `ArgumentError`.
+- `optimization_strategy` — `nothing` (the default: plain least squares) or a
   robust strategy of the RANSAC local optimization's own types, under the same
-  keyword `find_*` takes it by, configured by the same TOML tables (`local_optimization_from_toml`, e.g. `{ type = "triggs", loss =
+  keyword every refine takes, configured by the same TOML tables (`optimization_strategy_from_toml`, e.g. `{ type = "triggs", loss =
   "welsch", efficiency_constant = 2.98 }`): `Triggs{Shape}`, one robustified LM
   (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
   `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
@@ -208,7 +211,7 @@ scratch and the camera keeps its family (its lens type).
   ρ′ at the estimate, `scale` and `loss_width` what the loss ran at.
   Parametric cameras (both forms).
 - `scale` — the detections' noise scale σ (pixels, per coordinate) a
-  `local_optimization` strategy's `efficiency_constant` multiplies.
+  `optimization_strategy` strategy's `efficiency_constant` multiplies.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -265,8 +268,8 @@ trait, `GaugeIntrinsics`, selects it):
   directions and the poses with every scale held exactly (the scales are no
   variable of that stage), then everything (a node's
   scale is weakly observed and nearly collinear with its direction, so a joint
-  solve from far off creeps, or lets the scales absorb the poses' error). `free` is `(:controls,)` (the default) or
-  `()` (the poses alone, the camera's lens held as the entry gauged it); a `box` is an
+  solve from far off creeps, or lets the scales absorb the poses' error). `fixed` is `()` (the default: the
+  controls refined) or `(:controls,)` (the poses alone, the camera's lens held as the entry gauged it); a `box` is an
   `ArgumentError`.
 - Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
   on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
@@ -337,7 +340,7 @@ trait, `GaugeIntrinsics`, selects it):
   (the default), refitted over `imaged_region(camera)` by
   `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which
   needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). It is
-  never kept, even with `free = ()`: the entry's turn of the frame leaves it stale.
+  never kept, even with `fixed = (:controls,)`: the entry's turn of the frame leaves it stale.
 - The model: the target is exact, so the estimate is the maximum-likelihood
   one under isotropic Gaussian detection noise (penalized by the
   smoothness prior; with `penalty = 0` the plain maximum-likelihood one). A board that departs from its
@@ -490,34 +493,34 @@ function _refine_camera_and_poses(
 end
 
 # The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables, under `find_*`'s
-# keyword `local_optimization`): Irls{K} and Triggs{K} at a width of their own (an efficiency constant of the caller's
+# keyword `optimization_strategy`): Irls{K} and Triggs{K} at a width of their own (an efficiency constant of the caller's
 # `scale`, or an absolute width), or the least-squares shape. A refine estimates no scale, so an efficiency constant needs
 # the caller's `scale`. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set,
 # has nothing to read here.
 function _check_local_optimization(lo, scale)
     lo === nothing && (scale === nothing || throw(ArgumentError(
-        "refine_camera_and_poses: a `scale` sets a `local_optimization` strategy's width; least squares " *
-        "(local_optimization = nothing) reads none")))
+        "refine_camera_and_poses: a `scale` sets a `optimization_strategy` strategy's width; least squares " *
+        "(optimization_strategy = nothing) reads none")))
     lo === nothing && return nothing
     scale === nothing || (isfinite(scale) && scale > 0) ||
         throw(ArgumentError("refine_camera_and_poses: scale = $scale is not a positive finite number of pixels"))
     lo isa Union{Irls, Triggs} || throw(ArgumentError(
-        "refine_camera_and_poses: local_optimization = $(nameof(typeof(lo))) needs a RANSAC consensus set, which a refine has " *
+        "refine_camera_and_poses: optimization_strategy = $(nameof(typeof(lo))) needs a RANSAC consensus set, which a refine has " *
         "none; a refine takes Irls{Shape} or Triggs{Shape}"))
     strategy_loss(lo) === GaussianShape || lo_width(lo) !== nothing || throw(ArgumentError(
-        "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) follows a RANSAC scorer's inlier threshold, " *
+        "refine_camera_and_poses: optimization_strategy = $(VgtkCore.lo_label(lo)) follows a RANSAC scorer's inlier threshold, " *
         "which a refine has none: give it a `efficiency_constant` (of the caller's `scale`) or a `loss_width`"))
     strategy_loss(lo) === GaussianShape || !(lo_width(lo) isa EfficiencyConstant) || scale !== nothing || throw(ArgumentError(
-        "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) is a multiple of the noise scale, and a refine " *
+        "refine_camera_and_poses: optimization_strategy = $(VgtkCore.lo_label(lo)) is a multiple of the noise scale, and a refine " *
         "estimates none: supply `scale` (the detections' noise σ, pixels), or give an Irls strategy a `loss_width`"))
     return nothing
 end
 
-# The retired keyword `robust` (refused, naming its successor: the strategy is `local_optimization`, as `find_*` takes it).
+# The retired keyword `robust` (refused, naming its successor: the strategy is `optimization_strategy`, as every refine takes it).
 struct _RetiredRobust end
 _check_retired_robust(::_RetiredRobust) = nothing
 _check_retired_robust(_) = throw(ArgumentError(
-    "refine_camera_and_poses: the keyword `robust` is retired: it is `local_optimization` (the strategy, as `find_*` takes it)"))
+    "refine_camera_and_poses: the keyword `robust` is retired: it is `optimization_strategy` (the strategy, as every refine takes it)"))
 
 # The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
 # (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
@@ -526,27 +529,33 @@ _check_retired_robust(_) = throw(ArgumentError(
 function _refine_bundle(
         bounded::_RefinedCamera, poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
         held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool};
-        free::Tuple{Vararg{Symbol}} = Tuple(p for p in parameter_names(_camera_model(bounded)) if p !== :skew),
+        fixed::Tuple{Vararg{Symbol}} = (),
+        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
-        local_optimization::Union{Nothing, AbstractLocalOptimization} = nothing,
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
         scale::Union{Nothing, Real} = nothing,
         robust = _RetiredRobust(),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
     )
     _check_retired_robust(robust)
-    lo = local_optimization
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    _refuse_held_spellings(free, fix, fixed_params, hold)
+    lo = optimization_strategy
     _check_local_optimization(lo, scale)
     camera = _camera_model(bounded)
     V, B = length(poses), length(boards)
     names = parameter_names(camera)
-    for p in free
-        p in names || throw(ArgumentError("refine_camera_and_poses: the camera has no parameter $(repr(p)); its parameters are $(join(String.(names), ", "))"))
+    for p in fixed
+        p in names || throw(ArgumentError("refine_camera_and_poses: the camera has no parameter $(repr(p)) to fix; its parameters are $(join(String.(names), ", "))"))
     end
+    # every parameter is refined but the `fixed` ones and the gauge (the skew, held by construction)
+    free = Tuple(p for p in names if p !== :skew && !(p in fixed))
     isempty(free) && box !== nothing &&
-        throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's free parameters, and `free = ()` frees none"))
+        throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's refined parameters, and `fixed` holds every one"))
     chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
     nd = chc === nothing ? 0 : tangent_size(chc)
     view_charts = _pose_charts(poses); board_charts = _pose_charts(boards)
@@ -590,7 +599,7 @@ function _refine_bundle(
         foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
         return pr, NLLSsolver.optimize!(pr, options)
     end
-    # Least squares is the whole solve when `local_optimization = nothing`. A robust refine has NO least-squares stage (the owner's
+    # Least squares is the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
     # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
     # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
     # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`

@@ -17,7 +17,7 @@
 """
     find_essential(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(), config=nothing)
+        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
 
 Robust essential-matrix estimation via 5-point RANSAC with MSAC scoring. Every default shown is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.essential]`); a keyword overrides.
@@ -61,7 +61,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   always a calibrated leftover — and refused by every entry that scores an
   `EssentialProblem`: a `scoring` supplied here, the class default, or
   `ransac` / `locally_optimize` called directly.
-- `local_optimization`: LO-RANSAC strategy (default `Irls{TLSShape}()`, as
+- `local_optimization_strategy`: LO-RANSAC strategy (default `Irls{TLSShape}()`, as
   [`find_homography`](@ref)).
 - the other keywords as [`find_homography`](@ref).
 
@@ -84,14 +84,14 @@ end
 
 """
     refine_essential(E, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
-        local_optimization = Irls{TLSShape}(), workspace = nothing)
+        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
         -> RansacEstimate
 
 The essential matrix `E` refined against the PIXEL correspondences `pixel_cs`
 of the cameras `camera1`, `camera2`: [`find_essential`](@ref)'s step without the
 sampling, on the same bearing problem (each view back-projected with its own
 camera; the scorer's width in pixels, sub-detector values refused).
-`local_optimization` is the essential matrix's RANSAC local-optimization step,
+`optimization_strategy` is the essential matrix's RANSAC local-optimization step,
 run here alone from the given model (no sampling). Every default is
 `find_essential`'s (`[pipelines.essential]`); the keywords are those of every
 `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer

@@ -138,17 +138,17 @@ end
 # -----------------------------------------------------------------------------
 
 """
-    AbstractLocalOptimization
+    AbstractOptimizationStrategy
 
 A local-optimization strategy: refines a seed model on the full measurement
 set. Strategies are routed by [`RefitFamily`](@ref); in-loop IRLS-family
 strategies additionally plug into the solver via a weight policy
 ([`AbstractWeightPolicy`](@ref)).
 """
-abstract type AbstractLocalOptimization end
+abstract type AbstractOptimizationStrategy end
 
 """
-    RefitFamily(lo::AbstractLocalOptimization) -> RefitFamily
+    RefitFamily(lo::AbstractOptimizationStrategy) -> RefitFamily
 
 Holy trait routing a strategy to its EXECUTION path (where the refit runs —
 an implementation concern, orthogonal to the paper's two classification axes
@@ -186,7 +186,8 @@ called at an absolute width, through [`external_workspace`](@ref),
 """
 struct ExternalRefit <: RefitFamily end
 
-RefitFamily(::AbstractLocalOptimization) = NativeRefit()   # default
+RefitFamily(::AbstractOptimizationStrategy) = NativeRefit()   # default
+RefitFamily(::Nothing) = NativeRefit()                       # no local optimization: the native loop, no refit
 
 # -----------------------------------------------------------------------------
 # The paper's two classification axes of a local optimizer
@@ -198,7 +199,7 @@ RefitFamily(::AbstractLocalOptimization) = NativeRefit()   # default
 # -----------------------------------------------------------------------------
 
 """
-    optimization_path(lo::AbstractLocalOptimization) -> Symbol
+    optimization_path(lo::AbstractOptimizationStrategy) -> Symbol
 
 The paper's optimization-path axis — the column of the design table:
 
@@ -224,7 +225,8 @@ Default `:unspecified`, so registries can detect a strategy that has not
 declared its identity. Drives [`lo_marker`](@ref) (marker shape = path) and
 the path half of a composed [`lo_label`](@ref).
 """
-optimization_path(::AbstractLocalOptimization) = :unspecified
+optimization_path(::AbstractOptimizationStrategy) = :unspecified
+optimization_path(::Nothing) = :seed   # no local optimization: the seed stands
 
 "The display suffix of an optimization path (the `-IRLS` / `-HQ` / `-GNC` / `-BCD` / `-LO` half of a method name)."
 path_suffix(path::Symbol) =
@@ -272,7 +274,7 @@ struct NoScale <: ScaleInterface end
 struct UnspecifiedScale <: ScaleInterface end
 
 """
-    scale_interface(lo::AbstractLocalOptimization) -> ScaleInterface
+    scale_interface(lo::AbstractOptimizationStrategy) -> ScaleInterface
 
 The strategy's [`ScaleInterface`](@ref) label. A width-carrying strategy's is
 DERIVED from its width mode ([`lo_width`](@ref)): `EfficiencyConstant` →
@@ -280,10 +282,11 @@ DERIVED from its width mode ([`lo_width`](@ref)): `EfficiencyConstant` →
 `FollowsScorer()`. Default `UnspecifiedScale()` so registries can detect an
 undeclared strategy.
 """
-scale_interface(::AbstractLocalOptimization) = UnspecifiedScale()
+scale_interface(::AbstractOptimizationStrategy) = UnspecifiedScale()
+scale_interface(::Nothing) = NoScale()
 
 """
-    lo_label(lo::AbstractLocalOptimization) -> String
+    lo_label(lo::AbstractOptimizationStrategy) -> String
 
 The single source of truth for a strategy's figure/table DISPLAY NAME: its
 LaTeX label string, read by every renderer instead of a hand-maintained
@@ -291,20 +294,21 @@ lookup table, so legends cannot drift. The marker companion is
 [`lo_marker`](@ref). A concrete `lo_label` returns the BASE name (e.g.
 `raw"Welsch-HQ"`, i.e. Loss-Path).
 """
-lo_label(::AbstractLocalOptimization) = "LO"
+lo_label(::AbstractOptimizationStrategy) = "LO"
+lo_label(::Nothing) = "seed"
 
 """
-    lo_marker(lo::AbstractLocalOptimization) -> Symbol
+    lo_marker(lo::AbstractOptimizationStrategy) -> Symbol
 
 The strategy's PGFPlots marker symbol — the figure grammar's `shape =
 optimization path` rule, derived from [`optimization_path`](@ref) through
 [`path_marker`](@ref). Override only for a strategy that must stand apart
 from its path (ℓ₂ uses `:x`).
 """
-lo_marker(lo::AbstractLocalOptimization) = path_marker(optimization_path(lo))
+lo_marker(lo::Union{Nothing, AbstractOptimizationStrategy}) = path_marker(optimization_path(lo))
 
 """
-    loss_family(lo::AbstractLocalOptimization) -> Symbol
+    loss_family(lo::AbstractOptimizationStrategy) -> Symbol
 
 The loss ROW of the design table an arm belongs to (`:welsch` | `:tls` |
 `:gm` | `:cauchy` | …; the Student-t/uniform mixture arms report `:tls` — they
@@ -312,7 +316,8 @@ share the "uniform mixtures" column). Determines the color HUE facet in the
 paper registry. Default `:unspecified` so registries can detect a strategy
 that has not declared its identity.
 """
-loss_family(::AbstractLocalOptimization) = :unspecified
+loss_family(::AbstractOptimizationStrategy) = :unspecified
+loss_family(::Nothing) = :none
 
 # -----------------------------------------------------------------------------
 # Weight policies — the nuisance and weight blocks of block_coordinate_descent!

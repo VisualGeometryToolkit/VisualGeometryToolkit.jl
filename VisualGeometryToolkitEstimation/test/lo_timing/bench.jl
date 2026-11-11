@@ -66,7 +66,7 @@ const WORKSPACES = [RansacWorkspace(PROBS[i], SCORINGS[i]) for i in eachindex(PR
 const NCALLS = call_set_size(PAIRS)
 
 lo_call(lo, i, seed) =
-    locally_optimize(PROBS[i], seed; local_optimization = lo, scoring = SCORINGS[i], workspace = WORKSPACES[i])
+    locally_optimize(PROBS[i], seed; local_optimization_strategy = lo, scoring = SCORINGS[i], workspace = WORKSPACES[i])
 
 # The noise probe: a fixed arithmetic loop timed REPS times; its relative spread
 # (second-fastest over fastest − 1) is the machine's jitter on this core.

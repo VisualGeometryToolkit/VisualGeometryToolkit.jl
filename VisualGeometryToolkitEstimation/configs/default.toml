@@ -2,7 +2,7 @@
 # Default configuration — the config of record.
 #
 # `RansacConfig()`, every local-optimization strategy's keyword defaults and
-# every `find_*` pipeline's `scoring` and `local_optimization` default read
+# every `find_*` pipeline's `scoring` and `local_optimization_strategy` default read
 # THIS file. There is no second set of Julia
 # literals to drift from it (src/config_defaults.jl explains the mechanism;
 # test/config_toml_tests.jl asserts the file names every key a config struct
@@ -11,7 +11,7 @@
 # POLICY (matches BlobBoards): this shipped file is not edited per run. Single
 # values are overridden by keyword at the call site; a different configuration
 # is a different TOML: `RansacConfig(path)` loads its [ransac] table and
-# `local_optimization_from_toml` a strategy table, and absent keys inherit this file. The values
+# `optimization_strategy_from_toml` a strategy table, and absent keys inherit this file. The values
 # here are baked in at precompile time (`include_dependency` makes an edit
 # trigger a recompile), so a Revise session needs a restart to see one.
 # =============================================================================
@@ -27,8 +27,8 @@ min_trials     = 100
 # -----------------------------------------------------------------------------
 # Per-pipeline defaults for the find_* and refine_* entry points: the scorer
 # (`scoring = { type = …, … }`, read by scoring_from_toml for the problem's
-# type) and the local optimization (`local_optimization = { type = …, … }`,
-# read by local_optimization_from_toml) — the one robust-estimation schema.
+# type) and the local optimization (`local_optimization_strategy = { type = …, … }`,
+# read by optimization_strategy_from_toml) — the one robust-estimation schema.
 # Each scorer takes its OWN width key and the other's is refused: MSAC and
 # RANSAC ("msac", "ransac") take `threshold`; the Student-t + uniform marginal
 # takes `outlier_halfwidth`, the half-width of its uniform outlier component,
@@ -39,23 +39,23 @@ min_trials     = 100
 # crossover at the consensus partition's scale) — the same truncated-quadratic
 # objective in selection and refinement. The paper's
 # optimizers (the half-quadratic lifts, GNC, the cross-validated operating
-# points) are LocalOptimizationDoneRight's: give one as `local_optimization`.
+# points) are LocalOptimizationDoneRight's: give one as `local_optimization_strategy`.
 # -----------------------------------------------------------------------------
 [pipelines.homography]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findHomography's ransacReprojThreshold), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.fundmat]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findFundamentalMat's ransacReprojThreshold), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.essential]
 scoring            = { type = "msac", threshold = 1.0 }   # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.rotation]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the essential problem's convention: both are bearing residuals whitened into pixels
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.circle]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
@@ -67,18 +67,18 @@ scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson d
 # circle's contour the Cauchy fit sat ~0.9 px from the inliers' least squares.
 # 2.5: owner-decided (2026-10-29), the stack's operating multiple of a
 # consensus-anchored LM width (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
+local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
 [pipelines.ellipse]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
 # The circle's robustified LM (Triggs{WelschShape}). 2.5: owner-decided (2026-10-29), the
 # stack's operating multiple of a consensus-anchored LM width
 # (LocalOptimizationDoneRight's poselib_adapt).
-local_optimization = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
+local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
 [pipelines.absolute_pose]
 scoring            = { type = "msac", threshold = 8.0 }   # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.bearing_pose]
 # refine_absolute_pose on caller-supplied bearings (a BearingPoseProblem; refine
@@ -90,17 +90,17 @@ local_optimization = { type = "irls", loss = "tls" }
 # since it was hoisted from RadiometricCamera (2026-10-27). A caller's
 # `scoring` is in the residual's unit (radians, or pixels with an `M` column).
 scoring            = { type = "msac", threshold = 1.0 }   # × π·max‖(BᵀM)⁻¹‖ (dimensionless)
-local_optimization = { type = "irls", loss = "gaussian" }
+local_optimization_strategy = { type = "irls", loss = "gaussian" }
 
 [pipelines.radial_homography]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.radial_camera]
 # The 1-D radial camera of a board (distortion-free verification): the residual
 # is the pixel distance to the predicted radial line (codimension 1).
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.hand_eye]
 # The MSAC threshold is UNIT-FREE here: a fraction of the problem's characteristic
@@ -111,7 +111,7 @@ local_optimization = { type = "irls", loss = "tls" }
 # package (no external one exists), not a tuned value.
 scoring            = { type = "msac", threshold = 0.01 }   # × L (dimensionless; rotation enters the residual as L·θ)
 motion_pairs       = "consecutive"
-local_optimization = { type = "irls", loss = "tls" }
+local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [fit_division_camera]
 ncoef = 1
@@ -153,24 +153,24 @@ forward_tolerance = 1.0e-3
 [fit_rotation]
 # The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, width,
 # max_iter — the reweight-and-solve iterations at most), read by
-# local_optimization_from_toml. The loss's width follows the robust scale of the
+# optimization_strategy_from_toml. The loss's width follows the robust scale of the
 # residual angles at every iteration (no width key: the shape's efficiency
 # constant at codimension 2; `efficiency_constant = m`: m × σ̂).
-local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
 [fit_rotation_averaging]
 # The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): the
 # loss's width follows the robust scale of the edges' residual angles
 # (`efficiency_constant` × σ̂, the shape's efficiency constant at codimension 3
-# unless the strategy gives one). An Irls strategy, read by local_optimization_from_toml.
-local_optimization = { type = "irls", loss = "huber", max_iter = 100 }
+# unless the strategy gives one). An Irls strategy, read by optimization_strategy_from_toml.
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 100 }
 tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
 # The reweighted least squares of `fit_linear`. The loss's width follows the
 # robust (MAD) scale of the residuals at every iteration (`efficiency_constant` × σ̂,
 # the shape's efficiency constant at codimension 1 unless the strategy gives
-# one). An Irls strategy, read by local_optimization_from_toml.
-local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+# one). An Irls strategy, read by optimization_strategy_from_toml.
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
 [pipelines.radial_homography.lift_seed]
 # The plain-homography seed of the radial homography's lifted local optimization
@@ -268,7 +268,7 @@ nuisance = { scale = "estimated", inlier_prior = "estimated", nu = "estimated" }
 
 # -----------------------------------------------------------------------------
 # Scorer internals: the stack's defaults of a scorer table's keys (`scoring_from_toml`), as
-# [local_optimization.<type>] holds a strategy's. A key a scorer table leaves out inherits its value here.
+# [optimization_strategy.<type>] holds a strategy's. A key a scorer table leaves out inherits its value here.
 # A scorer's width (`threshold`, `outlier_halfwidth`) is deliberately absent: it is its config's.
 # -----------------------------------------------------------------------------
 [scoring.student_t_uniform]
@@ -285,5 +285,5 @@ label_prior = "flat"
 # `loss_width`) is deliberately absent: given none it follows the scorer's
 # decision point.
 # -----------------------------------------------------------------------------
-[local_optimization.irls]
+[optimization_strategy.irls]
 max_iter = 25

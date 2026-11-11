@@ -173,7 +173,7 @@ end
     p, θ = h_scene()
     msac = MsacScoring(p; threshold = 3.0)
     for (lo, sc) in (
-            (NoLocalOptimization(), msac),
+            (nothing, msac),
             (Irls{WelschShape}(efficiency_constant = 1.5), msac),
             (Irls{TLSShape}(), msac),                              # follows the scorer's threshold
             (Irls{TLSShape}(), RansacScoring(p; threshold = 3.0)),
@@ -186,7 +186,7 @@ end
     (p, θ), _ = epipolar_scenes()
     msac = MsacScoring(p; threshold = 2.0)
     for (lo, sc) in (
-            (NoLocalOptimization(), msac),
+            (nothing, msac),
             (Irls{WelschShape}(efficiency_constant = 1.5), msac),
             (Irls{TLSShape}(), msac),
         )

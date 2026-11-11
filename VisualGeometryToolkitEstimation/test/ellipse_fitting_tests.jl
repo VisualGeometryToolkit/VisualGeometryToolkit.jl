@@ -24,7 +24,7 @@
         return sqrt(mean(p -> first(VgtkEstimation._ellipse_foot(SVector{2, Float64}(p), c, V, a, b))^2, pts))
     end
     # plain least squares over every point: Irls{GaussianShape} at a threshold above every residual
-    ls(e, pts) = refine_ellipse(e, pts; local_optimization = Irls{GaussianShape}(), scoring = VgtkCore.MsacScoring(EllipseProblem; threshold = 1.0e3))
+    ls(e, pts) = refine_ellipse(e, pts; optimization_strategy = Irls{GaussianShape}(), scoring = VgtkCore.MsacScoring(EllipseProblem; threshold = 1.0e3))
 
     e0 = Ellipse(Point2(120.0, 80.0), 30.0, 12.0, 0.6)
 

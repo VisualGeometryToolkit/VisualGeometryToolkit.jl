@@ -148,7 +148,7 @@ the score buffers (VisualGeometryToolkitCore's `ScoreBuffers{T, W}` — residual
 per-point scores, consensus mask and the scorer's workspace `W`), the local
 optimizer's workspace `L` (`lo_workspace(P, T, lo, n)`), the incumbent and the
 minimal sample. Build it from the scorer and the strategy it will run,
-`RansacWorkspace(problem, scoring, local_optimization)`; `RansacWorkspace(P,
+`RansacWorkspace(problem, scoring, local_optimization_strategy)`; `RansacWorkspace(P,
 n)` holds the default MSAC scorer's. The core strategies' workspace is
 [`LoBuffers`](@ref): the refit workspace `refine_workspace(P, n)` —
 VisualGeometryToolkitCore's `ManifoldLmWorkspace{N}` for the chart-LM refits (e.g.
@@ -208,10 +208,10 @@ TrackVariance
 
 `configs/default.toml` is the config of record: `RansacConfig()`, every core
 local-optimization strategy's keyword defaults, and every `find_*` pipeline's
-`scoring` and `local_optimization` read it at precompile time, so there is
+`scoring` and `local_optimization_strategy` read it at precompile time, so there is
 no second set of Julia literals to drift from it. Single
 values are overridden by keyword. `RansacConfig(path)` loads another file's
-`[ransac]` table over the shipped one and `local_optimization_from_toml` builds
+`[ransac]` table over the shipped one and `optimization_strategy_from_toml` builds
 a strategy from its table — absent keys inherit, present keys override,
 unknown keys or tags are refused.
 
@@ -220,7 +220,7 @@ A strategy is selected in TOML by tag:
 ```toml
 [pipelines.homography]
 scoring            = { type = "msac", threshold = 3.0 }  # px; a Student-t: { type = "student_t_uniform", outlier_halfwidth = 20.0 }
-local_optimization = { type = "irls", loss = "tls" }     # no width key: follow the scorer
+local_optimization_strategy = { type = "irls", loss = "tls" }     # no width key: follow the scorer
 # explicit widths: { type = "irls", loss = "welsch", efficiency_constant = 2.5 }
 #              or  { type = "irls", loss = "welsch", loss_width = 2.0 }   (both keys: ArgumentError)
 ```
@@ -233,10 +233,10 @@ successor's name. The paper strategies and their cross-validated operating
 points (`efficiency_constant = "cross_validated"`) are LocalOptimizationDoneRight's:
 
 ```julia
-using VisualGeometryToolkitEstimation: local_optimization_from_toml, LO_TAGS
+using VisualGeometryToolkitEstimation: optimization_strategy_from_toml, LO_TAGS
 import LocalOptimizationDoneRight
 
-lo = local_optimization_from_toml(table; class = :homography,
+lo = optimization_strategy_from_toml(table; class = :homography,
                                   tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
 ```
 
@@ -262,7 +262,7 @@ import VisualGeometryToolkitEstimation as VgtkEstimation
 
 #   type     tag        path   scale  family  label   shape  parametric
 const ROWS = ((MyArm, "my_arm", :irls, nothing, nothing, "Mine", nothing, false),)
-const MY_LO_TAGS = VgtkEstimation.@lo_registry ROWS defaults = MY_DEFAULTS["local_optimization"]
+const MY_LO_TAGS = VgtkEstimation.@lo_registry ROWS defaults = MY_DEFAULTS["optimization_strategy"]
 ```
 
 A strategy's exceptions are methods of the hooks — [`lo_admits`](@ref),
@@ -274,7 +274,7 @@ every strategy.
 
 ```@docs
 default_config_path
-local_optimization_from_toml
+optimization_strategy_from_toml
 lo_from_toml
 scoring_from_toml
 config_dict

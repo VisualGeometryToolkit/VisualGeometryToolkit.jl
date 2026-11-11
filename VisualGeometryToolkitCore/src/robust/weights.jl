@@ -70,7 +70,7 @@ weight_kind(r::FitResult) = weight_kind(typeof(r.metadata))
 weight_kind(::FitResult{<:Any, Nothing}) = throw(ArgumentError("a result without metadata has no weights"))
 weight_kind(::Type{<:AbstractThresholdScoring}) = BinaryWeights()
 weight_kind(::Type{<:StudentTUniformScoring}) = PosteriorWeights()
-# An L2 stage's producer is `nothing` (`local_optimization = nothing`): unit weights, binary.
+# An L2 stage's producer is `nothing` (`local_optimization_strategy = nothing`): unit weights, binary.
 weight_kind(::Type{Nothing}) = BinaryWeights()
 
 """

@@ -21,6 +21,16 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **`check_naming` rule R13: the one parameter-holding keyword is `fixed`.** `free`, `fix`, `fixed_params` and `hold`
+  are flagged as a KEYWORD of a `fit_*`/`refine_*` call or signature (and their `_`-prefixed internals) and as a key of a
+  refine or LM TOML table; the bare word (comments such as "CUDA-free", locals, fields, accessors such as `free_names`,
+  other functions) is not. A refusal slot (`free = _RetiredKeyword()`) and a `@test_throws` call are no finding.
+- **Breaking: one optimization-strategy family, `AbstractOptimizationStrategy`** (was `AbstractLocalOptimization`; the
+  owner's ruling): Irls, Triggs, the LO wrappers and the downstream strategies alike, the contract gate checking which
+  subset each verb accepts. No local optimization is `nothing` (TOML `"none"`): Core answers the LO contract for it
+  (`locally_optimize!` returns the seed, `:no_lo`; `lo_workspace`, `lo_width`, `RefitFamily`, `optimization_path`
+  `:seed`, `scale_interface` `NoScale()`, `lo_label` `"seed"`, `loss_family` `:none`). The retired names are in
+  `RETIRED_NAMES`.
 - **Breaking: a width multiple is the `efficiency_constant`, always the PLAIN multiple** (the owner's Q7 ruling). The
   keyword, field and TOML key `scale_multiple` is `efficiency_constant` (`deploy(shape, s2; codim,
   efficiency_constant)`, a `DeployedLoss`'s `efficiency_constant`), the width mode `ScaleMultiple` is

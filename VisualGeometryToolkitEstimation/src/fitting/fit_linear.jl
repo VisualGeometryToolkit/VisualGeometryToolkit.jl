@@ -39,7 +39,7 @@ struct LinearFitMetadata
 end
 
 """
-    fit_linear(A, y[, prior]; local_optimization, tol)
+    fit_linear(A, y[, prior]; optimization_strategy, tol)
         -> FitResult{Vector{Float64}, LinearFitMetadata}
 
 The robust coefficients `x` of `y ≈ A·x` (`A` an `m × n` matrix, `y` an
@@ -52,10 +52,10 @@ prior, and the weighted least squares.
 
 - `prior` — fixed non-negative row weights (a bootstrap's resampling counts, a
   previous fit's weights); a zero weight drops its row. Default all ones.
-- `local_optimization` — the stack's robust-estimation strategy, an
+- `optimization_strategy` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
-  configs/default.toml `[fit_linear] local_optimization`, Huber;
-  `local_optimization_from_toml` reads a table). `efficiency_constant = m` puts
+  configs/default.toml `[fit_linear] optimization_strategy`, Huber;
+  `optimization_strategy_from_toml` reads a table). `efficiency_constant = m` puts
   the width at `m · σ̂` (the plain multiple, for every loss),
   `loss_width = w` at `w`; with no width — a fit has no scorer to follow — the
   shape's efficiency constant at codimension 1 (Huber's 1.345), which only an
@@ -79,13 +79,15 @@ weights, the residuals and σ̂ at the returned coefficients.
 function fit_linear(
         A::AbstractMatrix{<:Real}, y::AbstractVector{<:Real},
         prior::AbstractVector{<:Real} = ones(length(y));
-        local_optimization::Irls = _fit_local_optimization("fit_linear"),
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_local_optimization("fit_linear"),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
         tol::Real = _dflt("fit_linear", "tol"),
     )
     m, n = size(A)
     length(y) == m || throw(DimensionMismatch("fit_linear: $m rows of A, $(length(y)) values of y"))
     length(prior) == m || throw(DimensionMismatch("fit_linear: $m rows, $(length(prior)) prior weights"))
-    lo = _check_fit_width("fit_linear", local_optimization)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    lo = _check_fit_width("fit_linear", optimization_strategy)
     p = Float64.(VgtkCore.check_weights(collect(prior)))
     Af = Matrix{Float64}(A); yf = Vector{Float64}(y)
     x = _weighted_lstsq(Af, yf, p)

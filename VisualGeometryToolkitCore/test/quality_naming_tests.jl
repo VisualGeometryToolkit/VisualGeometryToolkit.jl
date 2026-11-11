@@ -309,14 +309,14 @@ end
         @test rules("src/a.jl" => "struct D\n    c::Float64\n    s2::Float64\nend\n") == [:R10]
         # a letter that is a field, type parameter or constructor keyword of a
         # width-carrying type, resolved through the package's declarations
-        @test rules("src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    $L::Float64\nend\n") == [:R10]
+        @test rules("src/a.jl" => "struct HQ <: AbstractOptimizationStrategy\n    $L::Float64\nend\n") == [:R10]
         @test rules(
-            "src/t.jl" => "abstract type MyLO <: VisualGeometryToolkitCore.AbstractLocalOptimization end\n",
+            "src/t.jl" => "abstract type MyLO <: VisualGeometryToolkitCore.AbstractOptimizationStrategy end\n",
             "src/a.jl" => "struct X{T} <: MyLO\n    a::T\nend\n"
         ) == [:R10]
         @test rules("src/a.jl" => "struct Sel <: SampleSelector\n    τ::Float64\nend\n") == [:R10]
         @test rules(
-            "src/a.jl" => "struct HQ <: AbstractLocalOptimization\n    efficiency_constant::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
+            "src/a.jl" => "struct HQ <: AbstractOptimizationStrategy\n    efficiency_constant::Float64\nend\nHQ(; c = 1.0) = HQ(c)\n"
         ) == [:R10]
         # must NOT flag: loop indices, math locals, positional letters with no
         # noise scale, a letter that is another quantity's field or keyword or a
@@ -344,7 +344,7 @@ end
             v = lens["$L"]
             s = :$L
             deploy(shape, s2; efficiency_constant = 1.0) = (efficiency_constant = efficiency_constant, s2 = s2)
-            struct HQ <: AbstractLocalOptimization
+            struct HQ <: AbstractOptimizationStrategy
                 efficiency_constant::Float64
                 loss_width::Float64
                 outlier_halfwidth::Float64
@@ -365,6 +365,27 @@ end
         @test isempty(rules("src/a.jl" => "w = decision_boundary(sc, buf); has_decision_boundary(typeof(sc))\n"))
         # RansacLib's and SupeRANSAC's settings field, set by name in a string
         @test isempty(rules("src/a.jl" => "setproperty!(c, Symbol(\"inlier_$(TH)\"), w)\n"))
+    end
+
+    @testset "R13: the one parameter-holding keyword is `fixed`" begin
+        FR = "fr" * "ee"     # the spellings, built so this file is no finding of its own
+        for kw in (FR, "fix", "fixed_params", "hold")
+            @test rules("src/a.jl" => "r = refine_camera_and_poses(cam, P, v; $(kw) = (:k1,))\n") == [:R13]   # a call
+            @test rules("src/a.jl" => "fit_x(a; $(kw) = ()) = a\n") == [:R13]                                 # a signature
+            @test rules("configs/a.toml" => "[refine_camera_and_poses]\n$(kw) = [\"k1\"]\n") == [:R13]       # a refine table's key
+        end
+        @test rules("test/a.jl" => "VgtkEstimation.refine_x(a; $(FR) = ())\n") == [:R13]                 # qualified
+        @test rules("configs/a.toml" => "[pipeline.lm]\nfix = [\"cx\"]\n") == [:R13]
+        # the keyword itself, its refusal slot and the test of the refusal are no finding
+        @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
+        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = _RetiredKeyword()) end\n"))
+        @test isempty(rules("test/a.jl" => "@test_throws ArgumentError refine_x(a; $(FR) = ())\n"))
+        # the word elsewhere: comments (BlobBoards' "CUDA-free", "free memory", "for free"), a local, a field,
+        # an accessor, another function's keyword, another TOML table
+        @test isempty(rules("src/a.jl" => "f(x) = x   # CUDA-$(FR): the kernels allocate no $(FR) memory, for $(FR)\n"))
+        @test isempty(rules("src/a.jl" => "$(FR) = device_$(FR)_bytes(dev); r.$(FR) == (); $(FR)_names(spec)\n"))
+        @test isempty(rules("src/a.jl" => "struct M\n    $(FR)::Tuple\nend\nallocate(n; $(FR) = true)\n"))
+        @test isempty(rules("configs/a.toml" => "[slurm]\n$(FR) = 4\nhold = true\n"))
     end
 
     @testset "R12: the Student-t + uniform scorer has no threshold" begin

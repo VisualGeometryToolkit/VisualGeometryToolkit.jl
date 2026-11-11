@@ -96,7 +96,7 @@ using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     RadialCamera, source_map, destination_map,
     projected_radius, view_angle, view_angle_limit, radial_part,
     similarity_scale   # a normalization's length ratio: pixel tolerances inside (radial homography)
-import VisualGeometryToolkitCore: AbstractLocalOptimization,
+import VisualGeometryToolkitCore: AbstractOptimizationStrategy,
     optimization_path, path_suffix,
     NoScale,
     AbstractWeightPolicy, NormalizedWeightPolicy,
@@ -187,7 +187,6 @@ using VisualGeometryToolkitCore: EssentialManifold5,
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
 # `import`. (`import` advertises an extension point that does not exist.)
 using VisualGeometryToolkitCore: weight,
-    decision_width,
     loss_family, loss_label   # a shape's loss family and label prefix
 import VisualGeometryToolkitCore:
     SvdWorkspace, # used by RANSAC + solvers
@@ -289,7 +288,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # -----------------------------------------------------------------------------
 # 4. LOCAL-OPTIMIZATION strategies a user picks
 # -----------------------------------------------------------------------------
-export Irls, Triggs, NoLocalOptimization
+export Irls, Triggs
 public synthetic_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
@@ -346,7 +345,7 @@ public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMet
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, local_optimization_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
     LOSS_TAGS
 # The local-optimization strategy machinery every package registers its
 # strategies with: the registry macro, the keyword constructor, the generic

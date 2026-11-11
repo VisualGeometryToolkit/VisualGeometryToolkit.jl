@@ -6,12 +6,12 @@
 # config_defaults.jl). This file is the other half of the contract:
 #
 #   * LOADERS build config values from a TOML a caller supplies —
-#     `RansacConfig(path)` and `local_optimization_from_toml(table; class)`.
+#     `RansacConfig(path)` and `optimization_strategy_from_toml(table; class)`.
 #     Absent keys inherit the shipped file (the ONE default authority); present
 #     keys are typed overrides; UNKNOWN keys are refused, never ignored.
 #   * The WRITER (`config_dict`) is derived from the structs by walking
 #     `fieldnames`, so a new field appears in the table with no edit here and
-#     cannot be forgotten. `local_optimization_from_toml(config_dict(lo)) == lo`
+#     cannot be forgotten. `optimization_strategy_from_toml(config_dict(lo)) == lo`
 #     is asserted by the suite.
 #
 # Included LAST: it dispatches on every config-carrying type in the package.
@@ -95,7 +95,7 @@ end
 #
 # A strategy is spelled in TOML as an inline table:
 #
-#     local_optimization = { type = "irls", loss = "tls" }
+#     local_optimization_strategy = { type = "irls", loss = "tls" }
 #
 # `type` selects the strategy from a tag registry (LO_TAGS, or a merge of it
 # with a downstream package's); `loss` (Irls) selects the robust loss from
@@ -104,7 +104,7 @@ end
 # `loss_width` (an absolute width, `LossWidth`) — both is an error — and with
 # neither its width follows the scorer's decision point. Every other key is a
 # constructor keyword of that strategy and defaults to its
-# `[local_optimization.<type>]` table. One reader builds every registered
+# `[local_optimization_strategy.<type>]` table. One reader builds every registered
 # strategy ([`lo_from_toml`](@ref)), its exceptions stated by its owner's hook
 # methods: a downstream package's strategies load through this one entry once
 # their tags are merged in.
@@ -130,7 +130,7 @@ _width_keys(::Type{C}) where {C} = _lo_takes_width(C) ? ("efficiency_constant", 
 _width_keys(::Type{<:Union{Irls{GaussianShape}, Triggs{GaussianShape}}}) = ()
 
 # A strategy's TOML values convert through its hook.
-_from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractLocalOptimization, F} = lo_field_from_toml(T, Val(F), v)
+_from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractOptimizationStrategy, F} = lo_field_from_toml(T, Val(F), v)
 
 """
     lo_resolve_efficiency_constant(T, K, value; class::Symbol) -> Float64
@@ -157,7 +157,7 @@ function _loss_of(d::AbstractDict, section)
 end
 
 """
-    local_optimization_from_toml(table; class::Symbol, section = "local_optimization", tags = LO_TAGS) -> AbstractLocalOptimization
+    optimization_strategy_from_toml(table; class::Symbol, section = "optimization_strategy", tags = LO_TAGS) -> AbstractOptimizationStrategy
 
 Build a local-optimization strategy from its TOML table (see the registry
 comment above). `tags` is the strategy registry the `type` is looked up in —
@@ -167,10 +167,11 @@ built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
 downstream `efficiency_constant = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.
 """
-function local_optimization_from_toml(d::AbstractDict; class::Symbol, section::AbstractString = "local_optimization",
+function optimization_strategy_from_toml(d::AbstractDict; class::Symbol, section::AbstractString = "optimization_strategy",
                                       tags::TagRegistry = LO_TAGS)
     haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
     T = tags[d["type"]]     # an unknown or retired tag is refused here, a retired one naming its successor
+    T === nothing && (_check_keys(d, ("type",), section); return nothing)   # "none": no local optimization
     return lo_from_toml(T, d; class, section, tags)
 end
 
@@ -189,11 +190,11 @@ lo_concrete(::Type{T}, d::AbstractDict, sec::AbstractString; tags::TagRegistry =
     lo_parametric(T) ? (T{_loss_of(d, sec)}, ("type", "loss")) : (T, ("type",))
 
 """
-    lo_from_toml(T, table; class::Symbol, section = "local_optimization", tags = LO_TAGS) -> AbstractLocalOptimization
+    lo_from_toml(T, table; class::Symbol, section = "optimization_strategy", tags = LO_TAGS) -> AbstractOptimizationStrategy
 
 The strategy of registry entry `T` (a type or a loss-parametric family,
 registered by any package with [`@lo_registry`](@ref)) from its TOML table —
-the half of [`local_optimization_from_toml`](@ref) after the tag lookup.
+the half of [`optimization_strategy_from_toml`](@ref) after the tag lookup.
 The table's keys are the fields (Greek spelled ASCII), the width as
 `efficiency_constant` or `loss_width`, and [`lo_concrete`](@ref)'s extra keys; an
 unknown key is refused, a field the owner's defaults have no key for is
@@ -201,7 +202,7 @@ required, every other absent key inherits the defaults. A `efficiency_constant`
 goes through [`lo_resolve_efficiency_constant`](@ref) at
 [`lo_efficiency_constant_shape`](@ref).
 """
-function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "local_optimization",
+function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "optimization_strategy",
                       tags::TagRegistry = LO_TAGS)
     tag = d["type"]
     sec = "$section.$tag"
@@ -233,14 +234,14 @@ end
 # read through the same registry (so a downstream inner strategy loads when
 # its tags are merged in); `type` and `inner` are its only keys.
 function lo_from_toml(::Type{<:TerminalLO}, d::AbstractDict; class::Symbol,
-                      section::AbstractString = "local_optimization", tags::TagRegistry = LO_TAGS)
+                      section::AbstractString = "optimization_strategy", tags::TagRegistry = LO_TAGS)
     sec = "$section.$(d["type"])"
     _check_keys(d, ["type", "inner"], sec)
     haskey(d, "inner") || throw(ArgumentError("[$sec] needs an `inner` strategy table ({ type = …, … })"))
     inner = d["inner"]
     inner isa AbstractDict ||
         throw(ArgumentError("[$sec] `inner` must be a strategy table ({ type = …, … }), got $(repr(inner))"))
-    return TerminalLO(local_optimization_from_toml(inner; class, section = "$sec.inner", tags))
+    return TerminalLO(optimization_strategy_from_toml(inner; class, section = "$sec.inner", tags))
 end
 
 # -----------------------------------------------------------------------------
@@ -293,7 +294,7 @@ config_dict(sc::Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}
 # The Student-t + uniform marginal scorer (Core's `StudentTUniformScoring`): `{ type = "student_t_uniform",
 # outlier_halfwidth = h, scale_prior = …, label_prior = … }`. The width is the table's, required. The two priors are
 # REQUIRED keys of the resolved table, and the stack's default is configs/default.toml's [scoring.student_t_uniform]:
-# a key the table leaves out inherits it there, as a strategy's keys inherit [local_optimization.<type>]. Nothing is
+# a key the table leaves out inherits it there, as a strategy's keys inherit [local_optimization_strategy.<type>]. Nothing is
 # defaulted in code (Core's constructor takes both priors as required keywords).
 #   scale_prior = "jeffreys"                               π(σ²) ∝ 1/σ²
 #   scale_prior = "ig", alpha0 = α₀, beta0 = β₀            IGPrior(α₀, β₀), both parameters required
@@ -355,7 +356,7 @@ end
 # The default strategy of a pipeline — read from the shipped file's
 # [pipelines.<class>] table. This is what every find_* signature defaults to.
 _dflt_lo(class::Symbol) =
-    local_optimization_from_toml(_dflt("pipelines.$class", "local_optimization"); class, section = "pipelines.$class.local_optimization")
+    optimization_strategy_from_toml(_dflt("pipelines.$class", "local_optimization_strategy"); class, section = "pipelines.$class.local_optimization_strategy")
 
 # -----------------------------------------------------------------------------
 # The inverse: config → Dict, derived from fieldnames
@@ -368,11 +369,12 @@ The TOML table for a config value (a `RansacConfig`, a `MixtureEmConfig` or a
 local-optimization strategy — [`lo_config_dict`](@ref)), as a plain `Dict`.
 Derived from the structs by walking `fieldnames`, so it cannot fall out of
 sync with them; a strategy's table loads back through
-[`local_optimization_from_toml`](@ref) to an equal value. A strategy whose
+[`optimization_strategy_from_toml`](@ref) to an equal value. A strategy whose
 table carries a key beyond the generic writer's adds a method.
 """
 config_dict(c::RansacConfig) = toml_table(c)
-config_dict(lo::AbstractLocalOptimization) = lo_config_dict(lo)
+config_dict(lo::AbstractOptimizationStrategy) = lo_config_dict(lo)
+config_dict(::Nothing) = Dict{String, Any}("type" => "none")   # no local optimization
 
 """
     lo_config_dict(lo) -> Dict{String, Any}
@@ -383,7 +385,7 @@ own spelling through `toml_field`), its `type` ([`lo_tag`](@ref)), its `loss`
 for a loss-parametric family, and its width as `efficiency_constant` or
 `loss_width` (no width writes nothing).
 """
-function lo_config_dict(lo::AbstractLocalOptimization)
+function lo_config_dict(lo::AbstractOptimizationStrategy)
     T = typeof(lo)
     d = toml_table(lo)
     d["type"] = lo_tag(T)

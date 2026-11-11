@@ -12,7 +12,7 @@
             :LogPerDecade => "log_per_decade", :StuTuBCD => "stu_tu_bcd", :GmHqEps => "gm_hq_eps",
             :ExhaustiveSampling => "exhaustive_sampling", :StudentTUniform => "student_t_uniform",
             :GemanMcclureShape => "geman_mcclure_shape", :SimFitPP => "sim_fit_pp",
-            :NoLocalOptimization => "no_local_optimization",
+            :TerminalPlacement => "terminal_placement",
         )
         @test snake_case(name) == tag
     end

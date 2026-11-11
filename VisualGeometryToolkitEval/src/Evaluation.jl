@@ -44,7 +44,7 @@ using Rotations: RotMatrix, rotation_angle
 using StableRNGs: StableRNG
 
 # --- The core contracts (VisualGeometryToolkitCore) and the core loop (VisualGeometryToolkitEstimation)
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractLocalOptimization, NativeRefit,
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimizationStrategy, NativeRefit,
     ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Csponds, Point2, sources, targets,
     converged, estimate, iterations, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
@@ -54,7 +54,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractLocalOptimiz
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
-    locally_optimize, ransac, RansacConfig, RansacWorkspace, NoLocalOptimization, fixed_width,
+    locally_optimize, ransac, RansacConfig, RansacWorkspace, fixed_width,
     locally_optimize_rescored!, AbstractRansacProblem, CountedLO, TerminalLO
 import VisualGeometryToolkitEstimation: reset!   # the running-best selectors' reset
 

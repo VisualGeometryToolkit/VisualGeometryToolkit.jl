@@ -461,7 +461,7 @@ export canonical_basis
 # Abstract types and interfaces
 # Robust-estimation interfaces (robust/estimation.jl)
 public scale_s2   # the squared scale ŝ² of a ConsensusSet, DeployedLoss or FixedS2
-export AbstractScoring, AbstractLocalOptimization, RefitFamily, FixedScale,
+export AbstractScoring, AbstractOptimizationStrategy, RefitFamily, FixedScale,
     AbstractWeightPolicy, update_weights!, update_nuisance!, FrozenNuisance
 # The interface machinery behind them: public, reached qualified or imported by
 # name. ConsensusSet is read through its accessors (inlier_count, scale_s2, consensus_score,

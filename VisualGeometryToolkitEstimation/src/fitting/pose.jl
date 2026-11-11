@@ -16,7 +16,7 @@
 """
     find_absolute_pose(camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
         max_trials=10000, min_trials=100,
-        local_optimization=Irls{TLSShape}(), config=nothing)
+        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
 
 Robust absolute pose estimation via P3P + RANSAC with MSAC scoring.
 Every default shown is `configs/default.toml`'s (`[ransac]`,
@@ -45,7 +45,7 @@ points (a plain one with plain points).
 - `extent`: as [`find_homography`](@ref); the pose's `_check_extent` rejects
   poses failing cheirality or yielding a non-simple / non-convex image quad.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] AbsolutePoseProblem, n_data)`.
-- `local_optimization`: default `Irls{TLSShape}()` on the 6-dof pose chart, as
+- `local_optimization_strategy`: default `Irls{TLSShape}()` on the 6-dof pose chart, as
   [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 
@@ -78,19 +78,19 @@ end
 
 """
     refine_absolute_pose(pose, camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
-        extent = nothing, local_optimization = Irls{TLSShape}(), workspace = nothing) -> RansacEstimate
-    refine_absolute_pose(pose, bearing_correspondences; scoring = MsacScoring(problem; threshold = 1.0·bound), local_optimization = Irls{GaussianShape}(), workspace = nothing) -> RansacEstimate
+        extent = nothing, optimization_strategy = Irls{TLSShape}(), workspace = nothing) -> RansacEstimate
+    refine_absolute_pose(pose, bearing_correspondences; scoring = MsacScoring(problem; threshold = 1.0·bound), optimization_strategy = Irls{GaussianShape}(), workspace = nothing) -> RansacEstimate
 
 The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against
 `X => u` pairs (world point => raw pixel) of the camera `camera_model`:
 [`find_absolute_pose`](@ref)'s step without the sampling, on the same
 [`AbsolutePoseProblem`](@ref) — the raw-pixel reprojection error through the
 full camera, on the `LeftRigidManifold6` chart; any lens, rays at and past 90°
-included. `local_optimization` is the pose's RANSAC local-optimization step, run
+included. `optimization_strategy` is the pose's RANSAC local-optimization step, run
 here alone from the given model (no sampling): `pose` is scored, its consensus
 set under the scorer is the one a consensus-anchored strategy reads its scale
 from, and the strategy runs once from it. Plain least squares over every
-correspondence is `local_optimization = Irls{GaussianShape}()` under a scorer whose
+correspondence is `optimization_strategy = Irls{GaussianShape}()` under a scorer whose
 threshold is above every residual. Every default is `find_absolute_pose`'s
 (`[pipelines.absolute_pose]`), `extent` included; the other keywords are those
 of every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)

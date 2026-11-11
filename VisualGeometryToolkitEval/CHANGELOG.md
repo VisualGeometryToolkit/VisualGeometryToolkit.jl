@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Breaking: the strategy names follow VisualGeometryToolkitCore/Estimation**: arms, specs and runners take
+  `AbstractOptimizationStrategy` or `nothing` (no local optimization; was `NoLocalOptimization()`), and call
+  `ransac`/`locally_optimize` with `local_optimization_strategy`.
 - **Breaking: the scale-multiple width axis is `EfficiencyConstant` (`:efficiency_constant`)** (VisualGeometryToolkitCore's
   rename): grids, arms and tuning keys read and write the new name. Sidecars persisted under the old axis name are
   migrated by the sidecar step (B6).

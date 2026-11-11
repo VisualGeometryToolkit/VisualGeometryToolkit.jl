@@ -63,7 +63,7 @@ then the data as the `find_*` takes them): the guess is scored as a hypothesis
 is, a consensus-anchored strategy reads its scale off the guess's consensus
 set, and the refined model comes back as the same `RansacEstimate`. The two
 share the class's defaults and the strategy keywords — `threshold`, `scoring`,
-`local_optimization`, `workspace` — so any strategy of the local-optimization
+`local_optimization_strategy`, `workspace` — so any strategy of the local-optimization
 contract plugs into both; only the sampling keywords (`max_trials`,
 `min_trials`, `config`, `rng`) are the `find_*`'s alone.
 
@@ -109,7 +109,7 @@ using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabe
 find_homography(cs)       # core default: the class's scorer (MSAC) + Irls{TLSShape} at its decision point
 find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0;   # outlier half-width, pixels
                         scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                    local_optimization = HQ{WelschShape}())                     # an optimizer (LODR)
+                    local_optimization_strategy = HQ{WelschShape}())                     # an optimizer (LODR)
 ```
 
 Every dispatch is static: the composed workspace is typed on the scorer's and
@@ -156,7 +156,7 @@ supplies only its per-point `residual_quality` (and, where it is proven, its
 `score_bound`) and inherits the one threshold `score!` with its consensus set,
 so a downstream loss-width family shares the loop.
 
-**The local-optimization contract** (`AbstractLocalOptimization`):
+**The local-optimization contract** (`AbstractOptimizationStrategy`):
 
 ```julia
 lo_workspace(::Type{P}, ::Type{T}, lo, n) -> L     # built once; default nothing
@@ -222,7 +222,7 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
 ## Interfaces and loops
 
 - **Scoring/LO interface hierarchy** ([`AbstractScoring`](@ref),
-  [`AbstractLocalOptimization`](@ref), [`RefitFamily`](@ref),
+  [`AbstractOptimizationStrategy`](@ref), [`RefitFamily`](@ref),
   [`AbstractWeightPolicy`](@ref)) — the type hierarchy of the contracts above.
 - **Generic block-coordinate-descent loop** ([`block_coordinate_descent!`](@ref),
   [`AbstractBlockCoordinateMethod`](@ref) and its extension verbs) — the

@@ -43,7 +43,7 @@ struct RotationFitMetadata
 end
 
 """
-    fit_rotation(cs; local_optimization, tol)
+    fit_rotation(cs; optimization_strategy, tol)
         -> FitResult{RotMatrix{3, Float64}, RotationFitMetadata}
 
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
@@ -55,9 +55,9 @@ residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
 the pairs of positive prior weight), the
 weights of the strategy's loss at σ̂, and the weighted Kabsch.
 
-- `local_optimization` — the stack's robust-estimation strategy, an
+- `optimization_strategy` — the stack's robust-estimation strategy, an
   [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
-  configs/default.toml `[fit_rotation] local_optimization`, Huber).
+  configs/default.toml `[fit_rotation] optimization_strategy`, Huber).
   `efficiency_constant = m` puts the width at `m · σ̂` (the plain multiple, for
   every loss), `loss_width = w` at `w` radians; with no
   width — a fit has no scorer to follow — the shape's efficiency constant at
@@ -82,12 +82,14 @@ direction noise σ); the suite pins 20% random outliers among 200 pairs at
 """
 function fit_rotation(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
-        local_optimization::Irls = _fit_local_optimization("fit_rotation"),
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_local_optimization("fit_rotation"),
+        local_optimization = _RetiredKeyword(),   # refused, naming its successor
         tol::Real = _dflt("fit_rotation", "tol"),
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
-    lo = _check_fit_width("fit_rotation", local_optimization)
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    lo = _check_fit_width("fit_rotation", optimization_strategy)
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]
     w_col = VgtkCore.weights_column(cs)

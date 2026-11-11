@@ -39,7 +39,7 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
 # Local strategy for the constructor-extension routing test (the pattern the
 # eval refit layer uses: a foreign concrete type declares its family by
 # extending VGC's abstract-type constructor).
-struct _ContractTestLO <: AbstractLocalOptimization end
+struct _ContractTestLO <: AbstractOptimizationStrategy end
 VgtkCore.RefitFamily(::_ContractTestLO) = ExternalRefit()
 
 # Small clean-ish homography problem (the HomographyScenes scene).
@@ -138,7 +138,7 @@ end
 
 @testset "RefitFamily routing (VGC trait + constructor extension)" begin
     # VGC default: every strategy is NativeRefit unless it declares otherwise.
-    @test RefitFamily(NoLocalOptimization()) isa NativeRefit
+    @test RefitFamily(nothing) isa NativeRefit
     @test RefitFamily(Irls{WelschShape}(efficiency_constant = 1.5)) isa NativeRefit
     @test RefitFamily(Irls{VgtkCore.TLSShape}()) isa NativeRefit
     # Constructor-extension pattern (what eval's engines do): dispatches.
@@ -173,8 +173,8 @@ end
             @test with_width(out, lo_width(lo)) == lo
         end
         # A strategy with no width carries no width mode and implements no setter.
-        @test lo_width(NoLocalOptimization()) === missing
-        @test_throws MethodError with_width(NoLocalOptimization(), LossWidth(1.0))
+        @test lo_width(nothing) === missing
+        @test_throws MethodError with_width(nothing, LossWidth(1.0))
     end
 
 

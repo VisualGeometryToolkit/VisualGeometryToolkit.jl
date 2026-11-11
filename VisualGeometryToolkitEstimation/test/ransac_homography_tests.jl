@@ -29,7 +29,7 @@ end
 # An external strategy (the `ExternalRefit` family, as PoseLib's LM/LZ arms):
 # its bracket records each step in its workspace, so a wrapper that does not
 # forward a hook is visible.
-struct _ExternalArm <: VgtkCore.AbstractLocalOptimization end
+struct _ExternalArm <: VgtkCore.AbstractOptimizationStrategy end
 VgtkCore.RefitFamily(::_ExternalArm) = VgtkCore.ExternalRefit()
 VgtkCore.external_workspace(::_ExternalArm, _problem, _frame, _scoring) = Ref(0)
 VgtkCore.prepare_external!(ws, ::_ExternalArm, _problem, _θ, _width, _scoring) = (ws[] += 1; true)
@@ -232,7 +232,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
 
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
-            local_optimization = Irls{WelschShape}(efficiency_constant = 1.5),
+            local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5),
             config = RansacConfig(max_trials = 3000, min_trials = 200),
             rng = StableRNG(128)
         )
@@ -255,7 +255,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         counted = VgtkEstimation.CountedLO(inner)
         run(lo) = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
-            local_optimization = lo,
+            local_optimization_strategy = lo,
             config = RansacConfig(max_trials = 3000, min_trials = 200),
             rng = StableRNG(128)
         )
@@ -293,7 +293,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         run(lo, j) = ransac(
             problems[j], MsacScoring(problems[j]; threshold = 3.0);
-            local_optimization = lo,
+            local_optimization_strategy = lo,
             config = RansacConfig(max_trials = 500, min_trials = 200),
             rng = StableRNG(j)
         )
@@ -310,13 +310,13 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # with near-instant calls (a plain `Ref` loses increments here).
         sc = MsacScoring(problems[1]; threshold = 3.0)
         θ = estimate(run(inner, 1))
-        hammered = VgtkEstimation.CountedLO(NoLocalOptimization())
+        hammered = VgtkEstimation.CountedLO(nothing)
         n_calls = 20_000
         tasks = map(1:4) do _
             Threads.@spawn begin
                 ws = VgtkEstimation.RansacWorkspace(problems[1], sc, hammered)
                 for _ in 1:n_calls
-                    locally_optimize(problems[1], θ; local_optimization = hammered, scoring = sc, workspace = ws)
+                    locally_optimize(problems[1], θ; local_optimization_strategy = hammered, scoring = sc, workspace = ws)
                 end
             end
         end
@@ -334,14 +334,14 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode))
         run(lo, trace = []; kw...) = ransac(
-            problem, sc; local_optimization = lo, config = cfg, rng = StableRNG(128),
+            problem, sc; local_optimization_strategy = lo, config = cfg, rng = StableRNG(128),
             on_improvement = events(trace), kw...
         )
 
         # The recipe it standardizes: the race with no LO, then the seeded refine.
         trace0 = []
-        r0 = run(NoLocalOptimization(), trace0)
-        seeded = locally_optimize(problem, estimate(r0); local_optimization = inner, scoring = sc)
+        r0 = run(nothing, trace0)
+        seeded = locally_optimize(problem, estimate(r0); local_optimization_strategy = inner, scoring = sc)
         trace = []
         rt = run(VgtkEstimation.TerminalLO(inner), trace)
         @test converged(rt)
@@ -386,7 +386,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             VgtkEstimation.TerminalLO(VgtkCore.with_width(inner, VgtkCore.LossWidth(2.0)))
         @test VgtkEstimation.fixed_width(t, 4.0) == VgtkEstimation.fixed_width(inner, 4.0)
         # A seeded refine has no race: it runs the inner strategy.
-        @test estimate(locally_optimize(problem, estimate(r0); local_optimization = t, scoring = sc)) ==
+        @test estimate(locally_optimize(problem, estimate(r0); local_optimization_strategy = t, scoring = sc)) ==
             estimate(seeded)
     end
 
@@ -422,8 +422,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         problem = HomographyProblem(csponds(src, dst))
         sc = MsacScoring(problem; threshold = 0.5)
         cfg = RansacConfig(max_trials = 5000, min_trials = 3000)
-        r0 = ransac(problem, sc; local_optimization = NoLocalOptimization(), config = cfg, rng = StableRNG(1))
-        rt = ransac(problem, sc; local_optimization = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
+        r0 = ransac(problem, sc; local_optimization_strategy = nothing, config = cfg, rng = StableRNG(1))
+        rt = ransac(problem, sc; local_optimization_strategy = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
             config = cfg, rng = StableRNG(1))
         @test sum(rt.inlier_mask) == 5
         @test rt.lo_retcode === :thin_partition
@@ -525,8 +525,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         lo_default = VgtkEstimation._dflt_lo(:homography)
         for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
             cfg = RansacConfig(max_trials = 3000, min_trials = 200)
-            rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
-            ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
+            rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization_strategy = lo, config = cfg, rng = StableRNG(129))
+            ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization_strategy = lo, config = cfg, rng = StableRNG(129))
             @test converged(rm)
             @test estimate(rm) isa model_type(pm)
             @test sum(rm.inlier_mask[1:n_inliers]) >= 0.9 * n_inliers
@@ -539,7 +539,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # `locally_optimize` from a perturbed model-frame seed.
         Hs = _to_model(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H_true) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0)))))
         for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
-            r = VgtkEstimation.locally_optimize(pm, Hs; scoring = MsacScoring(pm; threshold = 3.0), local_optimization = lo)
+            r = VgtkEstimation.locally_optimize(pm, Hs; scoring = MsacScoring(pm; threshold = 3.0), local_optimization_strategy = lo)
             @test max_transfer_error(_to_px(estimate(r)), H_true, mapped_test_pts) < 1.0
         end
     end

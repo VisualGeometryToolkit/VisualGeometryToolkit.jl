@@ -16,7 +16,7 @@
 """
     find_hand_eye(cs; scoring = MsacScoring(problem; threshold = 0.01·L),
                        max_trials=10000, min_trials=100,
-                       local_optimization=Irls{TLSShape}(),
+                       local_optimization_strategy=Irls{TLSShape}(),
                        motion_pairs=:consecutive,
                        char_length=nothing, min_rel_angle,
                        config=nothing) -> RansacEstimate
@@ -50,7 +50,7 @@ a keyword overrides.
   motions below it are dropped at construction (default `[robot_world_hand_eye]`
   `min_rel_angle_deg` — see [`HandEyeProblem`](@ref)).
 - `max_trials`, `min_trials` — RANSAC trial bounds.
-- `local_optimization` — default `Irls{TLSShape}()` — HandEyeProblem has no chart lift; its
+- `local_optimization_strategy` — default `Irls{TLSShape}()` — HandEyeProblem has no chart lift; its
   weighted refit (Levenberg–Marquardt on the so(3)⊕R³ chart of `Rigid3`) is
   selected by `refine!(lo_ws, ::HandEyeProblem, θ::Rigid3, weights)`.
 - `config` — override `RansacConfig`; the other keywords as
@@ -106,13 +106,13 @@ end
 
 """
     refine_hand_eye(X, cs; scoring = MsacScoring(problem; threshold = 0.01·L), motion_pairs = :consecutive,
-        char_length = nothing, min_rel_angle, local_optimization = Irls{TLSShape}(),
+        char_length = nothing, min_rel_angle, optimization_strategy = Irls{TLSShape}(),
         workspace = nothing) -> RansacEstimate
 
 The hand-eye transform `X = T_RP` refined against the `A_i => B_i` pose
 correspondences `cs`: [`find_hand_eye`](@ref)'s step without the sampling, on the
 same [`HandEyeProblem`](@ref) (`motion_pairs`, `char_length` and `min_rel_angle`
-build it, as there). `local_optimization` is the hand-eye RANSAC
+build it, as there). `optimization_strategy` is the hand-eye RANSAC
 local-optimization step, run here alone from the given model (no sampling); the
 problem has no chart lift, so its weighted refit is the strategy's M-step
 (`Irls`; [`Triggs`](@ref) and the lifts are refused, as inside `find_hand_eye`).

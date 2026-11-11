@@ -4,7 +4,7 @@
 
 @testitem "fit_linear: exact, robust, prior weights" begin
     using Test, Random, LinearAlgebra, Statistics
-    using VisualGeometryToolkitEstimation: fit_linear, Irls, local_optimization_from_toml
+    using VisualGeometryToolkitEstimation: fit_linear, Irls, optimization_strategy_from_toml
     using VisualGeometryToolkitCore: HuberShape, TLSShape, GemanMcclureShape, estimate, converged, decision_width
 
     rng = Xoshiro(11)
@@ -47,18 +47,18 @@
             return x, w
         end
         xr, wr = reference(A, y, ones(m), 8)
-        r = fit_linear(A, y; local_optimization = Irls{HuberShape}(max_iter = 7), tol = 0)
+        r = fit_linear(A, y; optimization_strategy = Irls{HuberShape}(max_iter = 7), tol = 0)
         @test estimate(r) ≈ xr rtol = 1.0e-8     # column-pivoted QR and √chisq_median(1) against lstsq and 1.4826
         @test r.weights ≈ wr rtol = 1.0e-6
         cnt = Float64.(rand(rng, 0:2, m))
         xb, _ = reference(A, y, cnt .* r.weights, 3)
-        @test estimate(fit_linear(A, y, cnt .* r.weights; local_optimization = Irls{HuberShape}(max_iter = 2), tol = 0)) ≈ xb rtol = 1.0e-8
+        @test estimate(fit_linear(A, y, cnt .* r.weights; optimization_strategy = Irls{HuberShape}(max_iter = 2), tol = 0)) ≈ xb rtol = 1.0e-8
     end
     @testset "refusals and the degenerate case" begin
         @test_throws DimensionMismatch fit_linear(A, ones(m - 1))
         @test_throws DimensionMismatch fit_linear(A, ones(m), ones(3))
-        @test_throws ArgumentError fit_linear(A, A * x0; local_optimization = Irls{TLSShape}())
-        @test fit_linear(A, A * x0; local_optimization = Irls{TLSShape}(efficiency_constant = 3.0)).retcode in (:converged, :max_iterations)
+        @test_throws ArgumentError fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}())
+        @test fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0)).retcode in (:converged, :max_iterations)
         p = zeros(m); p[1:3] .= 1
         @test fit_linear(A, A * x0, p).retcode === :degenerate
         @test_throws ArgumentError fit_linear(A, A * x0, fill(-1.0, m))
@@ -67,7 +67,7 @@ end
 
 @testitem "fit_linear: the robust estimate is the stack's Irls strategy" begin
     using Test, Random, LinearAlgebra
-    using VisualGeometryToolkitEstimation: fit_linear, Irls, local_optimization_from_toml
+    using VisualGeometryToolkitEstimation: fit_linear, Irls, optimization_strategy_from_toml
     using VisualGeometryToolkitEstimation: _dflt
     using VisualGeometryToolkitCore: HuberShape, WelschShape, GemanMcclureShape, estimate, decision_width
     import VisualGeometryToolkitCore as VgtkCore
@@ -77,27 +77,27 @@ end
     A = randn(rng, m, n); x0 = randn(rng, n)
     y = A * x0 .+ 1.0e-3 .* randn(rng, m); y[1:60] .+= 3 .* randn(rng, 60)
     # The default IS the file's strategy table, read by the one strategy reader.
-    lo = local_optimization_from_toml(_dflt("fit_linear", "local_optimization"); class = :fit_linear)
+    lo = optimization_strategy_from_toml(_dflt("fit_linear", "optimization_strategy"); class = :fit_linear)
     @test lo == Irls{HuberShape}(max_iter = 50)
     @test VgtkCore.lo_width(lo) === nothing
     r = fit_linear(A, y)
-    @test estimate(r) == estimate(fit_linear(A, y; local_optimization = lo))
+    @test estimate(r) == estimate(fit_linear(A, y; optimization_strategy = lo))
     # The strategy's max_iter caps the iterations; no private keyword remains.
-    @test fit_linear(A, y; local_optimization = Irls{HuberShape}(max_iter = 3), tol = 0).iterations == 3
+    @test fit_linear(A, y; optimization_strategy = Irls{HuberShape}(max_iter = 3), tol = 0).iterations == 3
     @test_throws MethodError fit_linear(A, y; loss = HuberShape())
     @test_throws MethodError fit_linear(A, y; efficiency_constant = 2.0)
     @test_throws MethodError fit_linear(A, y; max_iter = 3)
     # A width mode resolves through Core's loss_at at the fit's σ̂: Welsch at 2.5·σ̂ ...
-    rw = fit_linear(A, y; local_optimization = Irls{WelschShape}(efficiency_constant = 2.5))
+    rw = fit_linear(A, y; optimization_strategy = Irls{WelschShape}(efficiency_constant = 2.5))
     c² = (2.5 * rw.sigma)^2
     @test rw.weights ≈ [exp(-x^2 / c²) for x in rw.residuals] rtol = 1.0e-12
     # ... the plain multiple for every loss: a Geman–McClure multiple m puts the
     # width at m·σ̂ (3.1075479480600743 = decision_width(GM, 2.0), the half-weight
     # depth 2.0 of the retired currency, at full precision).
-    rg = fit_linear(A, y; local_optimization = Irls{GemanMcclureShape}(efficiency_constant = 3.1075479480600743))
+    rg = fit_linear(A, y; optimization_strategy = Irls{GemanMcclureShape}(efficiency_constant = 3.1075479480600743))
     cg² = (3.1075479480600743 * rg.sigma)^2
     @test rg.weights ≈ [(cg² / (cg² + x^2))^2 for x in rg.residuals] rtol = 1.0e-12
     # An absolute width: the loss at w whatever σ̂.
-    rl = fit_linear(A, y; local_optimization = Irls{HuberShape}(loss_width = 0.004))
+    rl = fit_linear(A, y; optimization_strategy = Irls{HuberShape}(loss_width = 0.004))
     @test rl.weights ≈ [abs(x) <= 0.004 ? 1.0 : 0.004 / abs(x) for x in rl.residuals] rtol = 1.0e-12
 end

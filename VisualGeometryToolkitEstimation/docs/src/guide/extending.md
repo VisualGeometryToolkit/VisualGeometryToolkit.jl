@@ -92,7 +92,7 @@ using VisualGeometryToolkitCore: MsacScoring, TLSShape
 
 problem = MyProblem(data)
 result = ransac(problem, MsacScoring(problem; threshold = 2.0);
-                local_optimization = Irls{TLSShape}())   # needs refine!
+                local_optimization_strategy = Irls{TLSShape}())   # needs refine!
 ```
 
 The problem now composes with every scorer and strategy of the stack —

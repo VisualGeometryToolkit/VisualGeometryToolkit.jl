@@ -4,8 +4,8 @@
 #
 # The scoring contract, the local-optimization contract and the robust-
 # statistics toolkit are VisualGeometryToolkitCore's. This file holds the two
-# local-optimization strategies of the core — `NoLocalOptimization` and the
-# static M-estimator `Irls{K}` — with their width modes, the weight-policy
+# local-optimization strategies of the core — the static M-estimator `Irls{K}`
+# and the robustified LM `Triggs{K}` (no local optimization is `nothing`) — with their width modes, the weight-policy
 # adapters of the posterior-weight iteration (`PosteriorLikelihood`,
 # `LossPlainWeights`) and the strategy registry with its keyword constructor.
 # The paper's strategies (the half-quadratic lifts, GNC, the Student-t +
@@ -18,20 +18,12 @@
 # -----------------------------------------------------------------------------
 
 """
-    NoLocalOptimization <: AbstractLocalOptimization
-
-No local optimization — the candidate model is scored directly without refit.
-Default for all scoring functions (via `default_local_optimization`).
-"""
-struct NoLocalOptimization <: AbstractLocalOptimization end
-
-"""
-    TerminalLO(inner::AbstractLocalOptimization) <: AbstractLocalOptimization
+    TerminalLO(inner::AbstractOptimizationStrategy) <: AbstractOptimizationStrategy
     TerminalLO(; inner)
 
 The TERMINAL placement of a local optimization: `ransac` decides its incumbent
 race on raw-hypothesis scores alone, exactly as with
-[`NoLocalOptimization`](@ref) (same trials, scores and `on_improvement`
+no local optimization (`nothing`; same trials, scores and `on_improvement`
 events on the same rng), and after the loop runs `inner` ONCE on the final
 incumbent through the seeded path of [`locally_optimize`](@ref) — the same
 scorer, inside `ransac`'s wall time. The result is that seeded refine's:
@@ -63,7 +55,7 @@ table any registered strategy's. Counting: `CountedLO(TerminalLO(inner))` and
 keeps a hypothesis (no LO runs inside the race). A wrapper of `TerminalLO`
 must forward [`lo_placement`](@ref), or `ransac` runs it in the loop.
 """
-struct TerminalLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
+struct TerminalLO{L <: AbstractOptimizationStrategy} <: AbstractOptimizationStrategy
     inner::L
 end
 
@@ -92,7 +84,7 @@ Where `ransac` runs the strategy `lo`, dispatched statically in the loop:
 [`CountedLO`](@ref) does): a wrapper of a [`TerminalLO`](@ref) that does not
 runs it in the loop's placement.
 """
-lo_placement(::AbstractLocalOptimization) = InLoopPlacement()
+lo_placement(::Union{Nothing, AbstractOptimizationStrategy}) = InLoopPlacement()
 lo_placement(::TerminalLO) = TerminalPlacement()
 
 # -----------------------------------------------------------------------------
@@ -118,7 +110,7 @@ const _LOSS_TABLE = (
 )
 
 """
-    Irls{K<:AbstractLossShape} <: AbstractLocalOptimization
+    Irls{K<:AbstractLossShape} <: AbstractOptimizationStrategy
 
 STATIC IRLS at a frozen loss width — direct iteratively-reweighted least
 squares on loss `K`, no lift, no graduation. `Irls{K}` is an LO STRATEGY: one
@@ -155,13 +147,13 @@ The loss width is **frozen** at the start of the call, set by the width mode
 - `max_iter::Int=25`: max IRLS iterations per hypothesis
 - `width::W`: the width mode, `nothing` | `EfficiencyConstant{Float64}` | `LossWidth{NTuple{2,Float64}}`
 """
-struct Irls{K <: AbstractLossShape, W} <: AbstractLocalOptimization
+struct Irls{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     max_iter::Int
     width::W
 end
 Irls{K}(max_iter::Integer, width::W) where {K, W} = Irls{K, W}(Int(max_iter), width)
 """
-    Triggs{K<:AbstractLossShape} <: AbstractLocalOptimization
+    Triggs{K<:AbstractLossShape} <: AbstractOptimizationStrategy
 
 The ROBUSTIFIED LEVENBERG–MARQUARDT local optimization of every chart problem
 (the [`MinimalSolveProblem`](@ref) family): from the hypothesis θ, ONE chart LM
@@ -202,7 +194,7 @@ robust cost, measured to the noise level on a circle.
 - `width`: the width mode, set by `efficiency_constant = m` (`EfficiencyConstant`);
   `nothing` for `Triggs{GaussianShape}`
 """
-struct Triggs{K <: AbstractLossShape, W} <: AbstractLocalOptimization
+struct Triggs{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     width::W
 end
 Triggs{K}(width::W) where {K, W} = Triggs{K, W}(width)
@@ -266,7 +258,7 @@ off the TYPE, so a wrapper recurses into its inner strategy.
 """
 strategy_loss(::Type{<:Irls{K}}) where {K} = K
 strategy_loss(::Type{<:Triggs{K}}) where {K} = K
-strategy_loss(lo::AbstractLocalOptimization) = strategy_loss(typeof(lo))
+strategy_loss(lo::AbstractOptimizationStrategy) = strategy_loss(typeof(lo))
 
 # Loss-Path labels (Welsch-IRLS, Huber-IRLS, …); marker shape = optimization
 # path (VGC path_marker). Sole exception: the bare-L2 arm keeps its historical
@@ -292,7 +284,7 @@ absolute width, or the scorer's decision point). The
 least-squares arm has no scale and no width: it deploys at `s2 = Inf`,
 `efficiency_constant = 1` (its weights are unit whatever the width).
 """
-lo_loss(lo::AbstractLocalOptimization, cs::ConsensusSet, scoring, buf) = loss_at(lo, strategy_loss(lo)(), cs, scoring, buf)
+lo_loss(lo::AbstractOptimizationStrategy, cs::ConsensusSet, scoring, buf) = loss_at(lo, strategy_loss(lo)(), cs, scoring, buf)
 lo_loss(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}, ::ConsensusSet, _scoring, _buf) =
     deploy(GaussianShape(), Inf; efficiency_constant = 1.0)
 
@@ -304,17 +296,17 @@ consensus scale held at `s2`: `LossWidth(m, s2)` — so `with_width(lo, fixed_wi
 deploys exactly the loss the consensus-anchored strategy would at ŝ² = `s2`
 (the role-isolated controls: solo CV, oracle scale, the anchoring ablation).
 """
-fixed_width(lo::AbstractLocalOptimization, s2::Real) =
+fixed_width(lo::AbstractOptimizationStrategy, s2::Real) =
     LossWidth(_efficiency_constant_of(lo_width(lo)), Float64(s2))
 _efficiency_constant_of(w::EfficiencyConstant{Float64}) = w.value
 _efficiency_constant_of(w) = throw(ArgumentError("fixed_width: the strategy's width mode is $(w), not a EfficiencyConstant"))
 
 """
-    default_local_optimization(scoring::AbstractScoring) -> AbstractLocalOptimization
+    default_local_optimization(scoring::AbstractScoring) -> AbstractOptimizationStrategy
 
-Default local-optimization strategy for a scoring function: `NoLocalOptimization()`.
+Default local-optimization strategy for a scoring function: `nothing` (no local optimization).
 """
-default_local_optimization(::AbstractScoring) = NoLocalOptimization()
+default_local_optimization(::AbstractScoring) = nothing
 
 # -----------------------------------------------------------------------------
 # PosteriorLikelihood — AbstractWeightPolicy adapter for the `block_coordinate_descent!` loop
@@ -484,7 +476,7 @@ VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = 
 # =============================================================================
 #
 # A local-optimization strategy is ONE row of a registry (`@lo_registry`):
-# its TOML tag (the `[local_optimization.<tag>]` table of its owner's defaults
+# its TOML tag (the `[local_optimization_strategy.<tag>]` table of its owner's defaults
 # its keyword defaults read, and the `type` a config spells it by — the tag
 # rule: `snake_case` of the type's name), its optimization path, whether it is
 # a loss-parametric family (`Irls{K}`, which takes a `loss` key), and — for
@@ -499,7 +491,7 @@ VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = 
 # (LocalOptimizationDoneRight) registers its strategies with the same macro,
 # against its own defaults table, and states its exceptions as methods of the
 # hooks below — never a copy of the machinery. A caller loading both merges
-# the registries: `local_optimization_from_toml(d; class, tags = merge(LO_TAGS, Downstream.LO_TAGS))`.
+# the registries: `optimization_strategy_from_toml(d; class, tags = merge(LO_TAGS, Downstream.LO_TAGS))`.
 #
 # The keyword constructor is driven by `fieldnames` and the tag: a field's
 # keyword is the field's name; its default is the strategy's table key
@@ -524,15 +516,15 @@ VgtkCore.scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = 
 
 The TOML tag of a registered strategy type or loss-parametric family (its
 `@lo_registry` row): the `type` a config spells it by and the
-`[local_optimization.<tag>]` table its keyword defaults read.
+`[local_optimization_strategy.<tag>]` table its keyword defaults read.
 """
 function lo_tag end
-lo_tag(lo::AbstractLocalOptimization) = lo_tag(typeof(lo))
+lo_tag(lo::AbstractOptimizationStrategy) = lo_tag(typeof(lo))
 
 """
     lo_defaults(T) -> AbstractDict
 
-The `[local_optimization]` table of the defaults file of the package that
+The `[optimization_strategy]` table of the defaults file of the package that
 registered `T` (keyed by tag; `@lo_registry`'s `defaults`): what
 [`lo_construct`](@ref) reads an omitted field from.
 """
@@ -645,10 +637,10 @@ THE keyword constructor of every registered strategy (`@lo_registry` defines
 `defaults` value ([`lo_absent`](@ref)); the width is spelled `efficiency_constant`
 or `loss_width` (both is an `ArgumentError`; neither follows the scorer). The
 hooks [`lo_admits`](@ref), [`lo_field`](@ref) and [`lo_validate`](@ref) state
-the per-strategy exceptions. `defaults` is the `[local_optimization]` table,
+the per-strategy exceptions. `defaults` is the `[optimization_strategy]` table,
 keyed by tag. An unknown keyword is an `ArgumentError`.
 """
-function lo_construct(::Type{T}; defaults::AbstractDict = lo_defaults(T), kw...) where {T <: AbstractLocalOptimization}
+function lo_construct(::Type{T}; defaults::AbstractDict = lo_defaults(T), kw...) where {T <: AbstractOptimizationStrategy}
     lo_admits(T, lo_parametric(T) ? _family_parameter(T) : nothing)
     kw = _lo_width_keywords(T, kw)
     for f in keys(kw)
@@ -710,16 +702,17 @@ lo_efficiency_constant_shape(::Type{T}) where {T} =
     @lo_registry rows defaults = table [retired = (old => new, …)]
 
 Register the local-optimization strategies of `rows` and return their
-VisualGeometryToolkitCore `TagRegistry` (family `:local_optimization`, the TOML
-path `local_optimization.type`): `const LO_TAGS = @lo_registry ROWS defaults = …`.
+VisualGeometryToolkitCore `TagRegistry` (family `:optimization_strategy`, the TOML
+path `local_optimization_strategy.type`): `const LO_TAGS = @lo_registry ROWS defaults = …`.
 Each row is
 
     (T, tag, path, scale_interface, loss_family, label, shape, parametric)
 
 with `nothing` for a fact that is derived rather than stated. `defaults` is an
 expression evaluated, in the calling module, each time a default is read: the
-`[local_optimization]` table of the caller's defaults file, keyed by tag.
-`retired` lists retired tags with their successors.
+`[optimization_strategy]` table of the caller's defaults file, keyed by tag.
+`retired` lists retired tags with their successors; `none = true` adds the tag `"none"` → `nothing` (no local
+optimization; this package's registry holds it, so a merge with a downstream one holds it once).
 
 The expansion is one call, made at load time in the calling module. Per row it
 defines [`lo_tag`](@ref), [`lo_defaults`](@ref), VisualGeometryToolkitCore's
@@ -735,16 +728,16 @@ Every method it adds is on a declared contract generic.
 macro lo_registry(rows, options...)
     opts = Dict{Symbol, Any}()
     for o in options
-        Meta.isexpr(o, :(=), 2) && o.args[1] in (:defaults, :retired) ||
-            throw(ArgumentError("@lo_registry rows defaults = … [retired = …]; got `$o`"))
+        Meta.isexpr(o, :(=), 2) && o.args[1] in (:defaults, :retired, :none) ||
+            throw(ArgumentError("@lo_registry rows defaults = … [retired = …] [none = true]; got `$o`"))
         opts[o.args[1]] = o.args[2]
     end
-    haskey(opts, :defaults) || throw(ArgumentError("@lo_registry needs `defaults = …` (the [local_optimization] table)"))
+    haskey(opts, :defaults) || throw(ArgumentError("@lo_registry needs `defaults = …` (the [optimization_strategy] table)"))
     return :(_register_lo_rows($__module__, $(esc(rows)), $(QuoteNode(opts[:defaults]));
-                               retired = $(esc(get(opts, :retired, :(()))))))
+                               retired = $(esc(get(opts, :retired, :(())))), none = $(esc(get(opts, :none, false)))))
 end
 
-function _register_lo_rows(M::Module, rows, defaults; retired = ())
+function _register_lo_rows(M::Module, rows, defaults; retired = (), none::Bool = false)
     E, C = @__MODULE__, VisualGeometryToolkitCore
     for (T, tag, path, iface, family, label, shape, parametric) in rows
         Core.eval(M, quote
@@ -769,16 +762,16 @@ function _register_lo_rows(M::Module, rows, defaults; retired = ())
         end
     end
     return TagRegistry(
-        :local_optimization, "",
+        :optimization_strategy, "",
+        (none ? ("none" => nothing,) : ())...,   # no local optimization: `nothing` (this package's registry only)
         (tag => T for (T, tag) in rows)...;
-        retired, paths = [r"^(.*\.)?local_optimization(\.inner)*\.type$"]
+        retired, paths = [r"^(.*\.)?(local_)?optimization_strategy(\.inner)*\.type$"]
     )
 end
 
 # This package's strategies.
 #   type                 tag                      path   scale          family   label                     shape              parametric
 const _LO_REGISTRY = (
-    (NoLocalOptimization, "no_local_optimization", :seed, NoScale(),     :none,   raw"seed",                nothing,           false),
     (Irls,                "irls",                  :irls, nothing,       nothing, nothing,                  nothing,           true),
     (Triggs,            "triggs",             :triggs, nothing,       nothing, nothing,                  nothing,           true),
     # Every identity fact of the terminal placement is its inner strategy's
@@ -794,4 +787,4 @@ built by [`@lo_registry`](@ref)): TOML tag → strategy type or loss-parametric
 family, the tag `snake_case` of the type's name. Retired tags name their
 successor.
 """
-const LO_TAGS = @lo_registry _LO_REGISTRY defaults = _TOML_DEFAULTS["local_optimization"] retired = ("none" => "no_local_optimization",)
+const LO_TAGS = @lo_registry _LO_REGISTRY defaults = _TOML_DEFAULTS["optimization_strategy"] retired = ("no_local_optimization" => "none",) none = true

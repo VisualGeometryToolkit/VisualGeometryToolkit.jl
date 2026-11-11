@@ -232,7 +232,7 @@ statically dispatched.
 - `L`: the local optimizer's workspace type (`lo_workspace(P, T, lo, n)`)
 
 # Constructors
-`RansacWorkspace([T = Float32,] problem, scoring[, local_optimization])` and
+`RansacWorkspace([T = Float32,] problem, scoring[, local_optimization_strategy])` and
 its siblings, documented on the constructor.
 
 # Reuse

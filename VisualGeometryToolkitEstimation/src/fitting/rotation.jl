@@ -9,7 +9,7 @@
 
 """
     find_rotation(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0), max_trials, min_trials,
-        local_optimization = Irls{TLSShape}(), config = nothing, rng)
+        local_optimization_strategy = Irls{TLSShape}(), config = nothing, rng)
     find_rotation(bearings::Csponds; kwargs...)
 
 Robust estimation of the rotation `R` between two views of a camera that only
@@ -25,7 +25,7 @@ Every default shown is `configs/default.toml`'s (`[ransac]`,
 [`find_homography`](@ref)'s; a scorer or local optimization from another package
 (RANSACScoringDoneRight's `StudentTUniformScoring(RotationProblem, a)`,
 LocalOptimizationDoneRight's lifts selected by tag) plugs in through `scoring` and
-`local_optimization`.
+`local_optimization_strategy`.
 
 - `camera1`, `camera2`, `pixel_cs`: PIXEL correspondences `u₁ => u₂` and the
   cameras of the two views, each view back-projected with its own camera (a
@@ -50,13 +50,13 @@ end
 
 """
     refine_rotation(R, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
-        local_optimization = Irls{TLSShape}(), workspace = nothing)
+        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
     refine_rotation(R, bearings::Csponds; kwargs...)
         -> RansacEstimate
 
 The rotation `R` of a camera that only rotated, refined against its
 correspondences: [`find_rotation`](@ref)'s step without the sampling, on the
-same [`RotationProblem`](@ref) (the forms of `find_rotation`). `local_optimization`
+same [`RotationProblem`](@ref) (the forms of `find_rotation`). `optimization_strategy`
 is the rotation's RANSAC local-optimization step, run here alone from the given
 model (no sampling). Every default is `find_rotation`'s (`[pipelines.rotation]`);
 the keywords are those of every `refine_*`, documented on

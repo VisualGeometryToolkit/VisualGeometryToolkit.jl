@@ -71,7 +71,7 @@ problem = HomographyProblem(cs)
 result = find_homography(cs;
     scoring = StudentTUniformScoring(problem, 20.0;    # outlier half-width, pixels
                                      scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-    local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
+    local_optimization_strategy = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 ```
 
 A bare `threshold` or `outlier_halfwidth` keyword is refused by every RANSAC
@@ -90,19 +90,19 @@ problem = HomographyProblem(csponds(src, dst))
 
 # the core baseline
 result = ransac(problem, MsacScoring(problem; threshold = 2.0);
-                local_optimization = Irls{TLSShape}())
+                local_optimization_strategy = Irls{TLSShape}())
 
 # a Welsch IRLS anchored at the consensus set's scale
 result = ransac(problem, MsacScoring(problem; threshold = 2.0);
-                local_optimization = Irls{WelschShape}(efficiency_constant = 2.5))
+                local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 2.5))
 
 # the marginal scorer with a weakly-informative scale prior, or its predictive variant
 # scoring = StudentTUniformScoring(problem, 20.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())
 # scoring = StudentTUniformScoring{Predictive}(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
 ```
 
-`ransac(problem, scoring)` with no `local_optimization` runs none
-(`NoLocalOptimization()`). The two-level RANSAC loop gates entry into local
+`ransac(problem, scoring)` with no `local_optimization_strategy` runs none
+(`nothing`). The two-level RANSAC loop gates entry into local
 optimization on the scorer's score, then re-scores the locally refined
 hypothesis. See the [RANSAC](ransac.md) page for the full configuration
 surface.

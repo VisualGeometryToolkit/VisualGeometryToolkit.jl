@@ -57,7 +57,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
     @testset "find_radial_homography: exact data + outliers ($loname)" for
         (loname, lokw) in (
             ("default (Irls{TLS})", (;)),
-            ("Irls{Welsch}", (; local_optimization = Irls{WelschShape}(efficiency_constant = 1.5))),
+            ("Irls{Welsch}", (; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5))),
         )   # the old default (the Welsch HQ lift) and the Student-t + uniform IRLS: LocalOptimizationDoneRight's suite
 
         pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)

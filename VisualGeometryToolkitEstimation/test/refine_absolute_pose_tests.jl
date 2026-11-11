@@ -52,7 +52,7 @@ end
     using VisualGeometryToolkitCore: CameraModel, Lens, Equidistant, GaussianShape, CauchyShape, estimate, converged, rms, MsacScoring
     using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls, Triggs
     E = true_pose()
-    ls = (; local_optimization = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))   # plain least squares over every point
+    ls = (; optimization_strategy = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))   # plain least squares over every point
     pin = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     fish = CameraModel(; focal = 400.0, pp = (800.0, 800.0), lens = Lens(Equidistant()))
     for (cam, θmax) in ((pin, 0.5), (fish, deg2rad(110)))
@@ -78,7 +78,7 @@ end
     E = true_pose()
     cam = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     cs = pixel_pairs(cam, E, scene_points(E, 0.6; n = 12))
-    ls = (; local_optimization = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))
+    ls = (; optimization_strategy = Irls{GaussianShape}(), scoring = MsacScoring(AbsolutePoseProblem; threshold = 1.0e4))
     # the guess's frames come back (frames.md rule 1), and an unlabeled guess comes back unlabeled
     El = relabel(WorldFrame, CameraFrame, perturbed(E))
     Pl = estimate(refine_absolute_pose(El, cam, cs; ls...))
@@ -207,7 +207,7 @@ end
     re = refine_absolute_pose(guess, cs; scoring = MsacScoring(pb; threshold = 1.0 * VisualGeometryToolkitEstimation._width_unit(pb)))
     @test isequal(estimate(rd), estimate(re)) && rd.inlier_mask == re.inlier_mask && isequal(rd.quality, re.quality)
     for lo in (Triggs{CauchyShape}(efficiency_constant = 2.5), Triggs{WelschShape}(efficiency_constant = 2.5))
-        r = refine_absolute_pose(guess, cs; local_optimization = lo, scoring = MsacScoring(BearingPoseProblem; threshold = 8.0))   # px
+        r = refine_absolute_pose(guess, cs; optimization_strategy = lo, scoring = MsacScoring(BearingPoseProblem; threshold = 8.0))   # px
         @test converged(r) && r.lo_retcode === :converged
         @test sort(findall(r.inlier_mask)) == sort(good)
         eR, et = pose_errors(estimate(r), ls)

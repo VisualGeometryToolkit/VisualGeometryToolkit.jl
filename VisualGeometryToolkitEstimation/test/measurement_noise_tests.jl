@@ -52,7 +52,7 @@
         @test (@allocated mahalanobis_distances!(r, p, H)) == 0
         # the chart-LM refit and its lift descend the same pixel residual
         Hs = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0))))
-        lr = locally_optimize(p, Hs; scoring = MsacScoring(p; threshold = 3.0), local_optimization = Irls{TLSShape}())
+        lr = locally_optimize(p, Hs; scoring = MsacScoring(p; threshold = 3.0), local_optimization_strategy = Irls{TLSShape}())
         @test max_transfer_error(estimate(lr), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 0.3
         # the solver covariance takes the singular (exact-side) noise shape
         C = VgtkEstimation.solver_covariance(p, H, collect(1:n))

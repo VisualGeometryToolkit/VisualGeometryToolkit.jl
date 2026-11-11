@@ -32,7 +32,7 @@ tuned value. The paper's cross-validated operating points — the per-class
 efficiency constants of the Welsch half-quadratic lift, with their provenance — are
 LocalOptimizationDoneRight's tuning constants (`tuning_constant`,
 `WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL`, …) and are supplied with its strategy:
-`find_essential(cam1, cam2, cs; scoring = …, local_optimization =
+`find_essential(cam1, cam2, cs; scoring = …, local_optimization_strategy =
 HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL))`.
 
 ## The Pure Rotation

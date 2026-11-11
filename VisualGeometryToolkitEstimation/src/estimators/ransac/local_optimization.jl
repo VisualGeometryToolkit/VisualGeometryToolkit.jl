@@ -15,13 +15,8 @@
 # incumbent.
 # =============================================================================
 
-"""
-    locally_optimize!(L, ::NoLocalOptimization, problem, model, cs, buf, scoring) -> FitResult
-
-No-op: returns the model unchanged, wrapped by `lo_estimate` with `:no_lo`.
-"""
-locally_optimize!(_L, ::NoLocalOptimization, _problem, model, ::ConsensusSet, ::ScoreBuffers, _scoring) =
-    lo_estimate(model, :no_lo)
+# No local optimization is `nothing`: VisualGeometryToolkitCore's
+# `locally_optimize!(L, ::Nothing, …)` returns the model unchanged (`:no_lo`).
 
 # =============================================================================
 # The posterior-weight iteration via the generic block_coordinate_descent! loop
@@ -377,7 +372,7 @@ end
 # =============================================================================
 
 """
-    CountedLO(inner::AbstractLocalOptimization)
+    CountedLO(inner::AbstractOptimizationStrategy)
 
 Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
 and the iterations they report (`iterations[]`, the sum of
@@ -391,12 +386,12 @@ not configuration. A counter is shared by every run that is handed the same
 wrapper — the counters are `Threads.Atomic{Int}`, so runs on several threads
 (a threaded sweep over pairs) add up exactly; build a fresh one per measurement.
 """
-struct CountedLO{L <: AbstractLocalOptimization} <: AbstractLocalOptimization
+struct CountedLO{L <: Union{Nothing, AbstractOptimizationStrategy}} <: AbstractOptimizationStrategy
     inner::L
     calls::Threads.Atomic{Int}
     iterations::Threads.Atomic{Int}
 end
-CountedLO(inner::AbstractLocalOptimization) = CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0))
+CountedLO(inner::Union{Nothing, AbstractOptimizationStrategy}) = CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0))
 
 function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
@@ -415,7 +410,7 @@ lo_placement(lo::CountedLO) = lo_placement(lo.inner)
 # =============================================================================
 #
 # The loop never calls `locally_optimize!` with a `TerminalLO` (its race runs
-# `NoLocalOptimization`, its terminal call `inner`); a seeded `locally_optimize`
+# `nothing`, its terminal call `inner`); a seeded `locally_optimize`
 # does, and runs `inner`.
 
 locally_optimize!(L, lo::TerminalLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =

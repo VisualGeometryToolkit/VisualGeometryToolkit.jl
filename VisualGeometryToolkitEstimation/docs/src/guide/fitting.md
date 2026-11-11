@@ -27,7 +27,7 @@ conventions, not tuned values:
 | `find_absolute_pose` | 8 px |
 | `find_hand_eye` | `0.01·L` (a fraction of the characteristic length) |
 
-`scoring = …` replaces the scorer and `local_optimization = …` the strategy. A
+`scoring = …` replaces the scorer and `local_optimization_strategy = …` the strategy. A
 bare `threshold` or `outlier_halfwidth` keyword is refused: a width is its
 scorer's (a threshold scorer's `threshold`, the Student-t + uniform scorer's
 `outlier_halfwidth`) and goes into that scorer.
@@ -52,8 +52,8 @@ Its defaults (`[pipelines.bearing_pose]`) are least squares over every
 correspondence.
 
 Both read the same `[pipelines.<class>]` defaults and share the strategy
-keywords — `scoring`, `local_optimization`, `workspace` — so any
-strategy plugs into either: `Irls{K}`, `Triggs{K}`, `NoLocalOptimization()`,
+keywords — `scoring`, `local_optimization_strategy`, `workspace` — so any
+strategy plugs into either: `Irls{K}`, `Triggs{K}`, `nothing`,
 LocalOptimizationDoneRight's half-quadratic lifts and GNC. A strategy a
 problem cannot host (`Triggs` or a lift on the hand-eye problem, which has no
 chart) is refused by both with the same error. The `find_*` sampling keywords
@@ -62,7 +62,7 @@ neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
 `max_iter`; the chart LM's `[chart_lm]` cap). The bundles
 (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
 problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
-robust strategy under `find_*`'s keyword, `local_optimization` (`Irls{Shape}` or
+robust strategy under `find_*`'s keyword, `local_optimization_strategy` (`Irls{Shape}` or
 `Triggs{Shape}` at a `efficiency_constant`).
 
 ## Homography
@@ -171,11 +171,11 @@ cs       = csponds(src, dst)
 problem  = HomographyProblem(cs)
 result   = find_homography(cs;
                   scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                  local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
+                  local_optimization_strategy = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 
 # or the loop itself
 result   = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior());
-                  local_optimization = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
+                  local_optimization_strategy = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
 ```
 
 See the [RANSAC](ransac.md) page for the full configuration surface (samplers,

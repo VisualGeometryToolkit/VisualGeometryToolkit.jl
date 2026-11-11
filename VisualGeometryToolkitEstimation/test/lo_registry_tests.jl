@@ -7,7 +7,7 @@
 #
 # What this pins: this package's own strategies construct, write and read back
 # through the public names exactly as through their keyword constructors and
-# `local_optimization_from_toml`; a strategy family registered with
+# `optimization_strategy_from_toml`; a strategy family registered with
 # `@lo_registry` in ANOTHER module (this test item's) gets the same keyword
 # constructor, reader and writer, its hooks honoured, and every method it adds
 # lands on a declared contract; an unknown loss is an `ArgumentError` that
@@ -15,12 +15,12 @@
 # =============================================================================
 
 using Test
-using VisualGeometryToolkitCore: AbstractLocalOptimization, AbstractLossShape, TLSShape, WelschShape,
+using VisualGeometryToolkitCore: AbstractOptimizationStrategy, AbstractLossShape, TLSShape, WelschShape,
     GaussianShape, BarronShape, EfficiencyConstant, LossWidth, NoScale, optimization_path, lo_label,
     loss_family, scale_interface, contract_generic_violations
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: Irls, NoLocalOptimization, LO_TAGS, LOSS_TAGS, @lo_registry,
-    lo_construct, lo_from_toml, lo_config_dict, config_dict, local_optimization_from_toml, lo_tag,
+using VisualGeometryToolkitEstimation: Irls, LO_TAGS, LOSS_TAGS, @lo_registry,
+    lo_construct, lo_from_toml, lo_config_dict, config_dict, optimization_strategy_from_toml, lo_tag,
     lo_defaults, lo_admits_shape
 
 # --- a downstream strategy family, registered here --------------------------
@@ -28,12 +28,12 @@ using VisualGeometryToolkitEstimation: Irls, NoLocalOptimization, LO_TAGS, LOSS_
 # key (`lo_key`), a cross-field check (`lo_validate`) and a string scale
 # multiple it resolves itself (`lo_resolve_efficiency_constant`); and a
 # loss-parametric family with its own admission (`lo_admits`).
-struct ToyArm{W} <: AbstractLocalOptimization
+struct ToyArm{W} <: AbstractOptimizationStrategy
     max_iter::Int
     μ::Float64
     width::W
 end
-struct ToyFamily{K <: AbstractLossShape, W} <: AbstractLocalOptimization
+struct ToyFamily{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     max_iter::Int
     width::W
 end
@@ -41,14 +41,14 @@ ToyFamily{K}(max_iter::Integer, width::W) where {K, W} = ToyFamily{K, W}(Int(max
 VgtkEstimation.strategy_loss(::Type{<:ToyFamily{K}}) where {K} = K
 # A wrapper family whose parameter is a strategy, named in TOML by `inner` +
 # `loss` (the shape of LocalOptimizationDoneRight's `Gnc{Irls{K}}`).
-struct ToyWrap{S <: AbstractLocalOptimization, W} <: AbstractLocalOptimization
+struct ToyWrap{S <: AbstractOptimizationStrategy, W} <: AbstractOptimizationStrategy
     factor::Float64
     width::W
 end
 ToyWrap{S}(factor::Real, width::W) where {S, W} = ToyWrap{S, W}(Float64(factor), width)
 # A fixed-loss arm whose efficiency constant is a plain FIELD, not a `width` (the shape of
 # LocalOptimizationDoneRight's Welsch-HQ-ECM): a string value must reach the resolver.
-struct ToyEcm <: AbstractLocalOptimization
+struct ToyEcm <: AbstractOptimizationStrategy
     max_iter::Int
     efficiency_constant::Float64
 end
@@ -104,72 +104,72 @@ end
         @test lo_construct(Irls{WelschShape}; efficiency_constant = 2) == Irls{WelschShape}(efficiency_constant = 2.0)
         @test lo_construct(Irls{WelschShape}; defaults = Dict("irls" => Dict("max_iter" => 3))).max_iter == 3
         @test lo_tag(Irls{TLSShape}) == "irls"
-        @test lo_tag(NoLocalOptimization) == "no_local_optimization"
-        @test lo_defaults(Irls) === VgtkEstimation._TOML_DEFAULTS["local_optimization"]
+        @test LO_TAGS["none"] === nothing                                               # no local optimization
+        @test_throws r"renamed \"none\"" LO_TAGS["no_local_optimization"]             # the retired tag names its successor
+        @test lo_defaults(Irls) === VgtkEstimation._TOML_DEFAULTS["optimization_strategy"]
         # The writer, recorded before the machinery went public (byte-identical tables).
         @test lo_config_dict(Irls{TLSShape}()) == Dict{String, Any}("type" => "irls", "loss" => "tls", "max_iter" => 25)
         @test lo_config_dict(Irls{WelschShape}(efficiency_constant = 2.0)) ==
             Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "efficiency_constant" => 2.0)
         @test lo_config_dict(Irls{WelschShape}(loss_width = 2)) ==
             Dict{String, Any}("type" => "irls", "loss" => "welsch", "max_iter" => 25, "loss_width" => 2.0)
-        @test lo_config_dict(NoLocalOptimization()) == Dict{String, Any}("type" => "no_local_optimization")
+        @test config_dict(nothing) == Dict{String, Any}("type" => "none")
         @test config_dict(Irls{TLSShape}()) == lo_config_dict(Irls{TLSShape}())
 
         # The terminal placement: a nested `inner` table, read through the same registry.
         term = Dict{String, Any}("type" => "terminal_lo",
                                  "inner" => Dict{String, Any}("type" => "irls", "loss" => "welsch", "efficiency_constant" => 1.5))
-        t = local_optimization_from_toml(term; class = :essential)
+        t = optimization_strategy_from_toml(term; class = :essential)
         @test t == VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5))
         @test lo_tag(t) == "terminal_lo"
         @test lo_config_dict(t) == config_dict(t) ==
             Dict{String, Any}("type" => "terminal_lo", "inner" => lo_config_dict(Irls{WelschShape}(efficiency_constant = 1.5)))
-        @test local_optimization_from_toml(config_dict(t); class = :essential) == t
+        @test optimization_strategy_from_toml(config_dict(t); class = :essential) == t
         @test VgtkEstimation.TerminalLO(; inner = Irls{TLSShape}()) == VgtkEstimation.TerminalLO(Irls{TLSShape}())
         # The config-tag gate reads the nested strategy's tag too, at any depth.
         mktempdir() do dir
             write(joinpath(dir, "nested.toml"), """
-                [ransac.local_optimization]
+                [ransac.local_optimization_strategy]
                 type = "terminal_lo"
-                [ransac.local_optimization.inner]
-                type = "none"
-                [other.local_optimization]
+                [ransac.local_optimization_strategy.inner]
+                type = "no_local_optimization"
+                [other.local_optimization_strategy]
                 type = "terminal_lo"
-                [other.local_optimization.inner]
+                [other.local_optimization_strategy.inner]
                 type = "terminal_lo"
-                [other.local_optimization.inner.inner]
+                [other.local_optimization_strategy.inner.inner]
                 type = "irls_typo"
                 """)
             found = VgtkCore.config_tag_violations([LO_TAGS], [dir])
             @test length(found) == 2
-            @test any(f -> occursin("ransac.local_optimization.inner.type", f) && occursin("no_local_optimization", f), found)
-            @test any(f -> occursin("other.local_optimization.inner.inner.type", f) && occursin("irls_typo", f), found)
+            @test any(f -> occursin("ransac.local_optimization_strategy.inner.type", f) && occursin("no_local_optimization", f), found)
+            @test any(f -> occursin("other.local_optimization_strategy.inner.inner.type", f) && occursin("irls_typo", f), found)
         end
-        @test_throws ArgumentError local_optimization_from_toml(Dict("type" => "terminal_lo"); class = :essential)
-        @test_throws ArgumentError local_optimization_from_toml(
+        @test_throws ArgumentError optimization_strategy_from_toml(Dict("type" => "terminal_lo"); class = :essential)
+        @test_throws ArgumentError optimization_strategy_from_toml(
             Dict("type" => "terminal_lo", "inner" => "irls"); class = :essential)
-        @test_throws ArgumentError local_optimization_from_toml(
+        @test_throws ArgumentError optimization_strategy_from_toml(
             Dict("type" => "terminal_lo", "inner" => Dict("type" => "irls", "loss" => "tls"), "max_iter" => 3); class = :essential)
         # The reader, called on the registry entry directly.
         @test lo_from_toml(Irls, Dict("type" => "irls", "loss" => "huber", "max_iter" => 7); class = :homography) ==
             Irls{VgtkCore.HuberShape}(max_iter = 7)
-        @test lo_from_toml(NoLocalOptimization, Dict("type" => "no_local_optimization"); class = :homography) ==
-            NoLocalOptimization()
+        @test optimization_strategy_from_toml(Dict("type" => "none"); class = :homography) === nothing
         # The admission check the parametric families share.
         @test_throws ArgumentError Irls{BarronShape}()
         @test_throws ArgumentError lo_admits_shape(Irls{BarronShape}, BarronShape)
         @test lo_admits_shape(Irls{TLSShape}, TLSShape) === nothing
         # Least squares takes no efficiency constant, by keyword or by key.
         @test_throws ArgumentError Irls{GaussianShape}(efficiency_constant = 1.0)
-        @test_throws ArgumentError local_optimization_from_toml(
+        @test_throws ArgumentError optimization_strategy_from_toml(
             Dict("type" => "irls", "loss" => "gaussian", "efficiency_constant" => 1.0); class = :homography)
         # The core resolves no string efficiency constant.
-        @test_throws ArgumentError local_optimization_from_toml(
+        @test_throws ArgumentError optimization_strategy_from_toml(
             Dict("type" => "irls", "loss" => "tls", "efficiency_constant" => "cross_validated"); class = :homography)
     end
 
     @testset "an unknown loss is refused, naming every LOSS_TAGS key" begin
         msg = try
-            local_optimization_from_toml(Dict("type" => "irls", "loss" => "welch"); class = :homography)
+            optimization_strategy_from_toml(Dict("type" => "irls", "loss" => "welch"); class = :homography)
             ""
         catch e
             e isa ArgumentError ? sprint(showerror, e) : "not an ArgumentError: $e"
@@ -210,7 +210,11 @@ end
 
         # The reader through the merged registry, and the writer back.
         tags = merge(LO_TAGS, TOY_TAGS)
-        load(d; class = :homography) = local_optimization_from_toml(d; class, tags)
+        # a downstream registry holds no "none": the merge holds it once, from LO_TAGS (regression)
+        @test !haskey(TOY_TAGS, "none")
+        @test tags["none"] === nothing
+        load(d; class = :homography) = optimization_strategy_from_toml(d; class, tags)
+        @test load(Dict("type" => "none")) === nothing
         t = load(Dict("type" => "toy_arm", "mu" => 0.25, "efficiency_constant" => "tuned"))
         @test t == ToyArm(; μ = 0.25, efficiency_constant = 3.0)                   # lo_resolve_efficiency_constant at its shape
         @test load(Dict("type" => "toy_arm", "efficiency_constant" => "tuned"); class = :essential).width === EfficiencyConstant(4.0)
@@ -245,7 +249,6 @@ end
 
         # A wrapper family: its parameter is admitted, its table names the inner strategy.
         @test ToyWrap{Irls{WelschShape}}().factor == 1.4
-        @test_throws ArgumentError ToyWrap{NoLocalOptimization}()
         @test_throws ArgumentError ToyWrap{Irls{BarronShape}}()
         w = load(Dict("type" => "toy_wrap", "inner" => "irls", "loss" => "welsch", "factor" => 2.0, "efficiency_constant" => 1.5))
         @test w == ToyWrap{Irls{WelschShape}}(; factor = 2.0, efficiency_constant = 1.5)

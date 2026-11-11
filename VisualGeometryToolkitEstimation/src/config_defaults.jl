@@ -16,7 +16,7 @@
 #     deploys. Partial keyword construction inherits file values for everything
 #     it does not name (`RansacConfig(max_trials = 500)` means "the file,
 #     with max_trials overridden").
-#   * The loaders (`RansacConfig(path)`, `local_optimization_from_toml`)
+#   * The loaders (`RansacConfig(path)`, `optimization_strategy_from_toml`)
 #     override per key via `_table_kwargs`, so a run config that sets only
 #     some keys inherits the rest from THIS file rather than from a parallel
 #     set of literals.
@@ -47,7 +47,7 @@ const _TOML_DEFAULTS = parse_defaults(default_config_path())
     _dflt(table, key)
 
 Look a default up in `configs/default.toml`. `table` is a dotted path
-(`"ransac"`, `"local_optimization.hq"`, `"pipelines.homography"`). Throws on a
+(`"ransac"`, `"optimization_strategy.hq"`, `"pipelines.homography"`). Throws on a
 missing table or key BY DESIGN: a keyword default that is not in the file
 would be a silent second source of truth, which is what this mechanism exists
 to prevent. A strategy's width is deliberately NOT a default: with none it

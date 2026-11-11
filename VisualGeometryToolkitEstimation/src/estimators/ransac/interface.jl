@@ -245,18 +245,18 @@ refine_workspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} = _lm_wor
 
 # Every local-optimization strategy this package hosts runs on the same
 # workspace: the problem's refit workspace plus the posterior-weight buffers.
-lo_workspace(::Type{P}, ::Type{T}, ::AbstractLocalOptimization, n::Int) where {P <: AbstractRansacProblem, T} =
+lo_workspace(::Type{P}, ::Type{T}, ::Union{Nothing, AbstractOptimizationStrategy}, n::Int) where {P <: AbstractRansacProblem, T} =
     LoBuffers{T}(refine_workspace(P, n), n, model_type(P))
 
 """
-    RansacWorkspace([T = Float32,] problem, scoring[, local_optimization = NoLocalOptimization()])
-    RansacWorkspace([T = Float32,] P, n_max, scoring[, local_optimization = NoLocalOptimization()])
+    RansacWorkspace([T = Float32,] problem, scoring[, local_optimization_strategy = nothing])
+    RansacWorkspace([T = Float32,] P, n_max, scoring[, local_optimization_strategy = nothing])
     RansacWorkspace([T = Float32,] P, n_data)
 
 The composed workspace for `problem` (or problems of type `P` with up to
 `n_max` points): the scorer's workspace (`scoring_workspace(scoring, n,
 codimension)` — its tables built for this scoring) and the local optimizer's
-(`lo_workspace(P, T, local_optimization, n)`). `T` is the per-point storage
+(`lo_workspace(P, T, local_optimization_strategy, n)`). `T` is the per-point storage
 element type, an optional leading positional. `K` is the type parameter of
 `AbstractRansacProblem{K}` — compile-time constant, no runtime dispatch.
 
@@ -271,10 +271,10 @@ RansacWorkspace(::Type{T}, ::Type{P}, n::Int) where {T <: AbstractFloat, P <: Ab
 # point (no score is taken with it).
 _threshold_workspace_scoring(::Type{P}) where {P} = MsacScoring(P; threshold = 1.0)
 RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
-                lo::AbstractLocalOptimization = NoLocalOptimization()) where {T <: AbstractFloat} =
+                lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat} =
     RansacWorkspace(T, typeof(problem), data_size(problem), scoring, lo)
 function RansacWorkspace(::Type{T}, ::Type{P}, n::Int, scoring::AbstractScoring,
-                         lo::AbstractLocalOptimization = NoLocalOptimization()) where {T <: AbstractFloat, P <: AbstractRansacProblem}
+                         lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat, P <: AbstractRansacProblem}
     return RansacWorkspace(
         n, minimal_sample_size(P), model_type(P), T,
         scoring_workspace(scoring, n, codimension(P)), lo_workspace(P, T, lo, n)
@@ -286,10 +286,10 @@ const _DEFAULT_STORAGE_ELTYPE = Float32
 RansacWorkspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} =
     RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, P, n)
 RansacWorkspace(::Type{P}, n::Int, scoring::AbstractScoring,
-                lo::AbstractLocalOptimization = NoLocalOptimization()) where {P <: AbstractRansacProblem} =
+                lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {P <: AbstractRansacProblem} =
     RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, P, n, scoring, lo)
 RansacWorkspace(problem::AbstractRansacProblem, scoring,
-                lo::AbstractLocalOptimization = NoLocalOptimization()) =
+                lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) =
     RansacWorkspace(_DEFAULT_STORAGE_ELTYPE, problem, scoring, lo)
 
 """

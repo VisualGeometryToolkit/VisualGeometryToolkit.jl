@@ -254,8 +254,10 @@ A project's stage graph of record from its TOML (the project's `configs/reproduc
 `workdir`, relative to the graph file's directory, default `"."`; `julia_project`, relative to `workdir`;
 `data_env` and `results_env`, default `VGTK_DATA_ROOT` and `VGTK_RESULTS_ROOT`; `manifest_dir`, default
 `"_reproduce"`; `sites_dir`, the project's own site files; `code`, the paths, relative to `workdir`, of the code
-every stage runs — their committed trees and uncommitted changes key every stage, default the whole repository, so a
-change elsewhere, the paper's text, reuses the finished stages), `[sites.<site>]` (`data_root`, `results_root` and an `env`
+every stage runs, default `src` — their git trees, with those of every stack package the project's environment loads
+([`code_trees`](@ref VisualGeometryToolkitEval.code_trees)), are the code a launch records: a finished stage is
+reused only while they are unchanged, so a change elsewhere, the paper's text or the docs, reuses it, and a launch
+with uncommitted changes in them is refused), `[sites.<site>]` (`data_root`, `results_root` and an `env`
 table: where this project's data and results are on that machine), one `[[stage]]` per stage ([`StageSpec`](@ref)),
 and `[results_branch]` (`project`, the paper project's directory relative to `workdir`; `assets`, tables
 `{from, to, submitted_only}`: the renders matching the glob `from` go to the directory `to`, both relative to
@@ -411,13 +413,15 @@ end
 """
     PlannedStage
 
-One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (the commit and
-the code (the graph's `code` paths), every file and option the stage's jobs read: a stage of the same key that finished before is reused), the
+One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
+option the stage's jobs read, never the code: a stage of the same key that finished before is reused while the code
+trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
 dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
 `reuse` (`""`; `"completed"`, finished in an earlier launch; or the job id of an earlier launch's job still in
 flight, which this launch depends on instead of submitting again) and, for that job, `reuse_markers`, the directory
-its completion markers go to ([`stage_markers_dir`](@ref)).
+its completion markers go to ([`stage_markers_dir`](@ref)); and `rerun`, why an earlier run of the same key is
+not reused (`""` when there is none or it is: `"code changed: VisualGeometryToolkitCore: src 3fa29c01e2 → …"`).
 """
 mutable struct PlannedStage
     spec::StageSpec
@@ -429,14 +433,18 @@ mutable struct PlannedStage
     minutes::Int
     reuse::String
     reuse_markers::String
+    rerun::String
 end
 
 """
     ReproducePlan
 
-A launch of a stage graph on a site: the graph, the site, the code `commit` (and `dirty`), the `data_root` and
-`results_root`, the `stamp` of the launch, the path of its run `manifest`, its `stages` in dependency order, and the
-environment the launch was planned in (`base_env`: the stages' environment is it plus each stage's own).
+A launch of a stage graph on a site: the graph, the site, the code `commit` (and `dirty`: tracked files anywhere
+differ from it), the `data_root` and `results_root`, the `stamp` of the launch, the path of its run `manifest`, its
+`stages` in dependency order, the environment the launch was planned in (`base_env`: the stages' environment is it
+plus each stage's own), and the code it runs: `code_trees` (by name, the git trees of the graph's `code` paths and of
+every stack package the project's environment loads: [`code_trees`](@ref VisualGeometryToolkitEval.code_trees)) and
+`dirty_code`, those of them with uncommitted changes (a launch refuses to run them).
 """
 struct ReproducePlan
     graph::StageGraph
@@ -449,21 +457,19 @@ struct ReproducePlan
     manifest::String
     stages::Vector{PlannedStage}
     base_env::Dict{String, String}
+    code_trees::Dict{String, String}
+    dirty_code::Vector{String}
 end
 
 _sha_file(path) = bytes2hex(open(sha256, path))
 _sha_text(s) = bytes2hex(sha256(s))
 
-# The commit, whether tracked files changed, and the code's state: the committed trees of the `code` paths (the
-# whole tree when none) and their uncommitted changes.
-function _git_state(dir, code)
+# The commit and whether tracked files changed (anywhere: the code's own state is `code_trees`).
+function _git_state(dir)
     run_git(args...) = try readchomp(pipeline(`git -C $dir $args`; stderr = devnull)) catch; "" end
     commit = run_git("rev-parse", "HEAD")
-    isempty(commit) && return ("(not a git checkout)", false, "")
-    dirty = !isempty(run_git("status", "--porcelain", "--untracked-files=no"))
-    trees = isempty(code) ? [run_git("rev-parse", "HEAD^{tree}")] : [run_git("rev-parse", "HEAD:./" * c) for c in code]
-    diff = isempty(code) ? run_git("diff", "HEAD") : run_git("diff", "HEAD", "--", code...)
-    return (commit, dirty, _sha_text(join(trees, "\n") * "\n" * diff))
+    isempty(commit) && return ("(not a git checkout)", false)
+    return (commit, !isempty(run_git("status", "--porcelain", "--untracked-files=no")))
 end
 
 """
@@ -544,8 +550,10 @@ The launch of the selected stages ([`select_stages`](@ref)) of graph `g` on `sit
 stage's items, dependencies, environment, command and run key, and whether an earlier launch's run of the same key is
 reused ([`stage_run_state`](@ref): completed, by its completion markers; or in flight on a Slurm site, its job still
 in the queue, `queue_states(ids)`, by default [`slurm_queue_states`](@ref) on `env`'s PATH; the earlier launches are
-the manifests under `<results root>/<manifest_dir>`). `job_name_prefix` (default: the site's) is put before every
-job's name; the run keys are taken without it.
+the manifests under `<results root>/<manifest_dir>`), and only while the code trees that launch recorded are the
+current ones ([`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes): a stage whose code changed runs
+again, `rerun` naming the change; one still in flight under other code is an error). `job_name_prefix` (default: the
+site's) is put before every job's name; the run keys are taken without it.
 """
 function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:AbstractString} = String[], deps::Bool = true,
                            data_root = nothing, results_root = nothing, job_name_prefix = nothing, env = ENV,
@@ -554,7 +562,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     prefix = _check_job_name_prefix(something(job_name_prefix, site.job_name_prefix), "job_name_prefix")
     names = select_stages(g; only, deps)
     data, results = resolve_roots(g, site; data_root, results_root, env)
-    commit, dirty, code = _git_state(g.workdir, g.code)
+    commit, dirty = _git_state(g.workdir)
+    code = code_trees(g.workdir; code = isempty(g.code) ? nothing : g.code, julia_project = joinpath(g.workdir, g.julia_project))
     mdir = joinpath(isempty(results) ? "<results root>" : results, g.manifest_dir)
     manifest = joinpath(mdir, "$(stamp)-$(first(commit, 7))$(dirty ? "-dirty" : "").toml")
     n = 1
@@ -583,13 +592,14 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
             p = joinpath(g.workdir, f)
             files[f] = isfile(p) ? _sha_file(p) : "missing"
         end
-        keyed = Dict{String, Any}("stage" => name, "code" => code, "files" => files, "items" => items,
+        keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => e, "command" => cmd, "site" => site.name)
         key = first(_sha_text(sprint(io -> TOML.print(io, keyed; sorted = true))), 16)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
-        push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", ""))
+        push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
-    plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, Dict{String, String}(env))
+    plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, Dict{String, String}(env),
+                         code.trees, code.dirty)
     _mark_reuse!(plan, ids -> _queue_states(queue_states, ids, env))
     return plan
 end
@@ -797,7 +807,9 @@ end
 
 # A stage of the same key in an earlier launch: completed (every task's marker) → reused; in flight → depended on,
 # unless a stage it runs after is run again by this launch (the job waits on the old one); failed or unknown → run
-# again.
+# again. Reused or depended on only while the code trees it recorded are the current ones (`code_tree_changes`, the
+# one rule): a completed stage whose code changed runs again, the change named; one still in flight under other code
+# stops the launch (a second job would write the same results).
 function _mark_reuse!(plan::ReproducePlan, queue_states)
     isempty(plan.results_root) && return plan
     last = Dict{String, Dict{String, Any}}()
@@ -813,6 +825,15 @@ function _mark_reuse!(plan::ReproducePlan, queue_states)
         r = get(last, st.key, nothing)
         r === nothing && continue
         state = stage_run_state(r, queue).state
+        if state in ("completed", "in flight")
+            changes = code_tree_changes(get(r, "code_trees", nothing), plan.code_trees)
+            if !isempty(changes)
+                state == "in flight" && error("stage $(st.spec.name): job $(r["job_id"]) of an earlier launch is still in flight, ",
+                                              "under other code ($(join(changes, "; "))): wait for it to end, or scancel it, then launch again")
+                st.rerun = "code changed: " * join(changes, "; ")
+                continue
+            end
+        end
         if state == "completed"
             st.reuse = "completed"
         elseif state == "in flight"
@@ -841,7 +862,7 @@ function _manifest_dict(plan::ReproducePlan, records)
         "julia_project" => g.julia_project, "stamp" => plan.stamp, "commit" => plan.commit, "dirty" => plan.dirty,
         "site" => plan.site.name, "site_file" => plan.site.path, "backend" => String(plan.site.backend),
         "data_root" => plan.data_root, "results_root" => plan.results_root, "configs" => configs,
-        "graph_sha256" => _sha_file(g.path), "stages" => records)
+        "graph_sha256" => _sha_file(g.path), "code_trees" => plan.code_trees, "stages" => records)
 end
 
 # Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs).
@@ -850,8 +871,9 @@ function _write_manifest(plan::ReproducePlan, records)
     return plan.manifest
 end
 
-function _stage_record(st::PlannedStage; state, job_id = "", log = "", tasks = Dict{String, String}(), markers = "")
+function _stage_record(plan::ReproducePlan, st::PlannedStage; state, job_id = "", log = "", tasks = Dict{String, String}(), markers = "")
     return Dict{String, Any}("key" => st.key, "items" => st.items, "after" => st.after, "command" => _shell_line(st.command),
+                             "code_trees" => plan.code_trees,
                              "state" => state, "job_id" => job_id, "log" => log, "tasks" => tasks, "markers" => markers,
                              "config" => st.spec.config, "driver" => st.spec.driver, "sbatch" => st.spec.sbatch)
 end
@@ -888,6 +910,8 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing)
     println(io, "  results  $(isempty(plan.results_root) ? "<unset: $(g.results_env)>" : plan.results_root)  ($(g.results_env))")
     println(io, "  manifest $(plan.manifest)")
     println(io, "  markers  $(first(splitext(plan.manifest)))/<stage>/task-<t>.toml  (each task's completion marker: status and reuse read them)")
+    println(io, "  code     $(length(plan.code_trees)) tree(s): $(join(sort!(collect(keys(plan.code_trees))), ", "))",
+            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) (a launch is refused)")
     isempty(site.setup) || println(io, "  setup    $(site.setup)")
     for (i, st) in enumerate(plan.stages)
         s = st.spec
@@ -896,7 +920,8 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing)
         isempty(s.what) || println(io, "    what     $(s.what)")
         println(io, "    after    $(isempty(st.after) ? "—" : join(st.after, ", "))")
         println(io, "    key      $(st.key)", st.reuse == "completed" ? "  REUSED (completed in an earlier launch)" :
-                                            isempty(st.reuse) ? "" : "  IN FLIGHT (job $(st.reuse) of an earlier launch)")
+                                            !isempty(st.reuse) ? "  IN FLIGHT (job $(st.reuse) of an earlier launch)" :
+                                            isempty(st.rerun) ? "" : "  RERUN ($(st.rerun))")
         if !isempty(s.driver)
             cfg = isempty(s.config) ? "" : " --config=$(replace(s.config, "{item}" => "<item>"))"
             println(io, "    driver   julia --project=$(g.julia_project) $(s.driver)$cfg")
@@ -1082,6 +1107,16 @@ function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{Strin
     return c
 end
 
+# A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in.
+function _refuse_dirty_code(plan::ReproducePlan)
+    isempty(plan.dirty_code) && return nothing
+    throw(ArgumentError("a run of record runs committed code, and $(join(plan.dirty_code, ", ")) " *
+                        "$(length(plan.dirty_code) == 1 ? "has" : "have") uncommitted changes: commit them (or stash them), then launch again"))
+end
+
+# The line a backend prints before running a stage an earlier launch ran under other code.
+_print_rerun(io, st::PlannedStage) = isempty(st.rerun) || println(io, rpad(st.spec.name, 32), " rerun: ", st.rerun)
+
 """
     submit_slurm!(plan; io = stdout) -> Dict{String, Any}
 
@@ -1097,6 +1132,7 @@ Returns the manifest records; the manifest is written after every submission, so
 what was submitted.
 """
 function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
+    _refuse_dirty_code(plan)
     g, site = plan.graph, plan.site
     # The launching process's own job (a launcher or a test suite run under sbatch) is not the stage's: its SLURM_*
     # variables, exported to the job by sbatch's default --export=ALL, would give a non-array stage the parent's array
@@ -1109,15 +1145,16 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
     for st in plan.stages
         s = st.spec
         if st.reuse == "completed"
-            records[s.name] = _stage_record(st; state = "reused")
+            records[s.name] = _stage_record(plan, st; state = "reused")
             println(io, rpad(s.name, 32), " reused (completed earlier)")
             continue
         elseif !isempty(st.reuse)
             ids[s.name] = st.reuse
-            records[s.name] = _stage_record(st; state = "in flight", job_id = st.reuse, markers = st.reuse_markers)
+            records[s.name] = _stage_record(plan, st; state = "in flight", job_id = st.reuse, markers = st.reuse_markers)
             println(io, rpad(s.name, 32), " ", st.reuse, "  (in flight, an earlier launch)")
             continue
         end
+        _print_rerun(io, st)
         deps = _dependency(plan, st; ids)
         c = copy(st.command)
         dep = isempty(deps) ? "" : "afterok:" * join(deps, ":")
@@ -1137,14 +1174,14 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         end
         txt = strip(String(take!(out)))
         if !ok || isempty(txt)
-            records[s.name] = _stage_record(st; state = "submit failed", markers)
+            records[s.name] = _stage_record(plan, st; state = "submit failed", markers)
             _write_manifest(plan, records)
             error("sbatch of stage $(s.name) failed: $(strip(String(take!(err))))\n  $(_shell_line(c))")
         end
         id = String(first(split(txt, ';')))
         ids[s.name] = id
         s.gpu && s.is_array && (last_gpu = id)
-        records[s.name] = _stage_record(st; state = "submitted", job_id = id, markers)
+        records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers)
         _write_manifest(plan, records)
         println(io, rpad(s.name, 32), " ", id, s.is_array ? "  (array 0-$(length(st.items) - 1): $(join(st.items, " ")))" : "")
     end
@@ -1167,6 +1204,7 @@ plan was made in is dropped, and a stage sees only the ones this backend sets (`
 task), the job's own task id and submit directory would otherwise reach every stage.
 """
 function run_local!(plan::ReproducePlan; io::IO = stdout)
+    _refuse_dirty_code(plan)
     g, site = plan.graph, plan.site
     base_env = Dict(k => v for (k, v) in plan.base_env if !startswith(k, "SLURM_"))
     logs = mkpath(joinpath(g.workdir, "logs")); mkpath(plan.results_root)
@@ -1174,10 +1212,11 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
     for st in plan.stages
         s = st.spec
         if st.reuse == "completed"
-            records[s.name] = _stage_record(st; state = "reused")
+            records[s.name] = _stage_record(plan, st; state = "reused")
             println(io, rpad(s.name, 32), " reused (completed earlier)")
             continue
         end
+        _print_rerun(io, st)
         tasks = Dict{String, String}()
         markers = stage_markers_dir(plan.manifest, s.name)
         for (i, item) in enumerate(st.items)
@@ -1203,7 +1242,7 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
             _write_atomic(io -> TOML.print(io, marker; sorted = true), joinpath(markers, "task-$t.toml"))
             println(io, rpad(s.name, 32), " ", s.is_array ? "task $t ($item) " : "", ok ? "ok" : "FAILED",
                     "  $(round(time() - t0; digits = 1)) s  $(relpath(log, g.workdir))")
-            records[s.name] = _stage_record(st; state = ok ? (i == length(st.items) ? "completed" : "running") : "failed", log, tasks, markers)
+            records[s.name] = _stage_record(plan, st; state = ok ? (i == length(st.items) ? "completed" : "running") : "failed", log, tasks, markers)
             _write_manifest(plan, records)
             if !ok
                 err = _first_error(log)
@@ -1313,13 +1352,16 @@ usage: reproduce [run | status] --graph=<stage graph .toml> --site=<name | path 
                  [--only=<stage>,<stage>…] [--no-deps] [--dry-run] [--data-root=<dir>] [--results-root=<dir>]
                  [--allow-missing] [--manifest=<run manifest>] [--job-name-prefix=<prefix>]
   run (default)  every default stage of the graph (with --only the named stages and, without --no-deps, what they
-                 run after); finished stages are reused by their run keys and completion markers
+                 run after); finished stages are reused by their run keys and completion markers while their
+                 code trees are unchanged (a changed one is named and its stage reruns); uncommitted changes to the
+                 code refuse the launch
   --job-name-prefix  put before every Slurm job's name (default: the site's [slurm] job_name_prefix); no run key
                  changes
   --dry-run      the job graph (stages, items, dependencies, commands) and the missing inputs; nothing runs
   status         the last launch's stages (or --manifest's): state (from the completion markers and the queue),
                  log, first error line
-Exit codes: 0 done (or submitted), 2 usage or a config error, 3 missing inputs (nothing ran), 4 a stage failed."""
+Exit codes: 0 done (or submitted), 2 usage, a config error or uncommitted code, 3 missing inputs (nothing ran),
+4 a stage failed (or squeue failed, or a stage is in flight under other code)."""
 
 """
     reproduce_main(args = ARGS; io = stdout, env = ENV, queue_states = nothing, job_states = nothing) -> Int

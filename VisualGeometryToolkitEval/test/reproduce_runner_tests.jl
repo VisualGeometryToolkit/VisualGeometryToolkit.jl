@@ -578,6 +578,102 @@ end
         @test get(mk, "state", "") == "completed" && get(mk, "signal", "") == "USR1"
     end
 
+    @testset "code identity: a stage reruns when a code tree changed, naming it; docs reuse it; uncommitted code is refused" begin
+        f = runner_project()
+        gitin(dir) = (args...) -> run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+        g! = gitin(f.repo)
+        # a stack package loaded from a path, in a repository of its own, and a released one, in the project's environment
+        pkg = mktempdir(); p! = gitin(pkg)
+        p!("init", "-q")
+        mkpath(joinpath(pkg, "src")); mkpath(joinpath(pkg, "docs"))
+        write(joinpath(pkg, "Project.toml"), "name = \"StackPkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg end\n"); write(joinpath(pkg, "docs", "index.md"), "# StackPkg\n")
+        p!("add", "-A"); p!("commit", "-q", "-m", "pkg")
+        write(joinpath(f.proj, "Project.toml"), """
+            [deps]
+            StackPkg = "00000000-0000-0000-0000-000000000001"
+            VisualGeometryToolkitCore = "00000000-0000-0000-0000-000000000002"
+            """)
+        core_tree = "0123456789abcdef0123456789abcdef01234567"
+        write(joinpath(f.proj, "Manifest.toml"), """
+            manifest_format = "2.0"
+            [[deps.StackPkg]]
+            path = "$pkg"
+            uuid = "00000000-0000-0000-0000-000000000001"
+            [[deps.VisualGeometryToolkitCore]]
+            deps = ["Example"]
+            git-tree-sha1 = "$core_tree"
+            uuid = "00000000-0000-0000-0000-000000000002"
+            [[deps.Example]]
+            git-tree-sha1 = "fedcba9876543210fedcba9876543210fedcba98"
+            uuid = "00000000-0000-0000-0000-000000000003"
+            [[deps.NotLoaded]]
+            path = "/nowhere"
+            uuid = "00000000-0000-0000-0000-000000000004"
+            """)
+        g!("add", "-A"); g!("commit", "-q", "-m", "the environment")
+        ct = VisualGeometryToolkitEval.code_trees(f.proj; code = ["scripts", "slurm"])
+        @test sort(collect(keys(ct.trees))) == ["StackPkg", "VisualGeometryToolkitCore", "scripts", "slurm"] && isempty(ct.dirty)
+        @test ct.trees["VisualGeometryToolkitCore"] == core_tree                 # a released one: its Manifest tree
+        @test ct.trees["scripts"] == strip(read(`git -C $(f.proj) rev-parse HEAD:scripts`, String))
+        @test startswith(ct.trees["StackPkg"], "src:") && occursin(" Project.toml:", ct.trees["StackPkg"])
+        ran() = length(readlines(joinpath(f.results, "ran.txt")))
+        args = ["--graph=$(f.graph)", "--site=desktop", "--only=setup"]
+        code, out = run_main(args; env = env0)
+        @test code == 0 && ran() == 1
+        rec() = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test rec()["stages"]["setup"]["code_trees"] == ct.trees && rec()["code_trees"] == ct.trees
+        # a docs-only commit, in the project and in the package: no tree changed, the stage is reused
+        mkpath(joinpath(f.proj, "docs")); write(joinpath(f.proj, "docs", "x.md"), "x\n"); g!("add", "-A"); g!("commit", "-q", "-m", "docs")
+        write(joinpath(pkg, "docs", "index.md"), "# StackPkg, documented\n"); p!("commit", "-qam", "docs")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 1
+        # the package's src changes: the stage reruns, the package named
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 1\nend\n"); p!("commit", "-qam", "src")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+rerun: code changed: StackPkg: src [0-9a-f]{10} → [0-9a-f]{10}", out) && ran() == 2
+        @test !occursin("VisualGeometryToolkitCore", out)
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 2
+        # the project's own code changes: named by its path
+        write(joinpath(f.proj, "scripts", "chrome.jl"), "# the driver, changed\n"); g!("commit", "-qam", "driver")
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = env0)
+        @test code == 0 && occursin("RERUN (code changed: scripts: ", out)
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin("rerun: code changed: scripts: ", out) && ran() == 3
+        # uncommitted code is refused, in the project or in a package; the dry run shows it; a dirty paper is no code
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 2\nend\n")
+        code, out = run_main(args; env = env0)
+        @test code == 2 && occursin("a run of record runs committed code, and StackPkg has uncommitted changes", out) && ran() == 3
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = env0)
+        @test code == 0 && occursin("DIRTY: StackPkg (a launch is refused)", out)
+        p!("checkout", "-q", "--", "src/StackPkg.jl")
+        write(joinpath(f.proj, "slurm", "new.sbatch"), "#!/bin/bash\n")             # untracked, in a code path
+        code, out = run_main(args; env = env0)
+        @test code == 2 && occursin("slurm has uncommitted changes", out)
+        rm(joinpath(f.proj, "slurm", "new.sbatch"))
+        write(joinpath(f.proj, "docs", "x.md"), "y\n")                              # tracked, not code
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out)
+        g!("checkout", "-q", "--", "docs/x.md")
+        # a launch recorded before the trees were kept: its stage reruns once, then is reused
+        m = last(run_manifests(joinpath(f.results, "_reproduce"))); d = TOML.parsefile(m)
+        delete!(d["stages"]["setup"], "code_trees"); open(io -> TOML.print(io, d), m, "w")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin("rerun: code changed: no code trees recorded", out) && ran() == 4
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 4
+        # the rule itself
+        changes = VisualGeometryToolkitEval.code_tree_changes
+        @test isempty(changes(Dict("a" => "x"), Dict("a" => "x"))) && isempty(changes(Dict{String, Any}(), Dict{String, String}()))
+        @test changes(Dict("a" => "x", "b" => "y"), Dict("a" => "x", "c" => "z")) == ["b: no longer loaded", "c: new"]
+        @test changes(Dict("P" => "src:1 Project.toml:2"), Dict("P" => "src:1 Project.toml:3 ext:4")) ==
+              ["P: Project.toml 2 → 3", "P: ext none → 4"]
+        # the registered stack packages are the published rows of the stack's allow-list
+        allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
+        @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))
+    end
+
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
         f = runner_project()
         src = pkgdir(VisualGeometryToolkitEval, "src")

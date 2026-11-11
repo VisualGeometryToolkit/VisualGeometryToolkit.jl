@@ -27,8 +27,9 @@
 A detection image whose noise has σ = 1 at every pixel: `image` (a
 `Matrix{Float64}`, in noise σ), the `saturated` pixels (a `BitMatrix`, masked:
 [`asift_detect`](@ref) returns no detection over them) and `white`, the image's
-value at the white level (the scale that maps it into `[0, 1]`).
-[`variance_stabilize`](@ref) makes one of a RAW's green cells.
+value at the white level (the scale that maps it into `[0, 1]`). An `image` that
+is a `Matrix{Float64}` and a `saturated` that is a `BitMatrix` are held, not
+copied. [`variance_stabilize`](@ref) makes one of a RAW's green cells.
 """
 struct StabilizedImage
     image::Matrix{Float64}
@@ -38,7 +39,7 @@ struct StabilizedImage
         size(image) == size(saturated) ||
             throw(DimensionMismatch("StabilizedImage: the image is $(size(image)), the saturation mask $(size(saturated))"))
         isfinite(white) && white > 0 || throw(ArgumentError("StabilizedImage: the white level must be positive and finite, got $white"))
-        return new(Matrix{Float64}(image), BitMatrix(saturated), Float64(white))
+        return new(convert(Matrix{Float64}, image), convert(BitMatrix, saturated), Float64(white))
     end
 end
 

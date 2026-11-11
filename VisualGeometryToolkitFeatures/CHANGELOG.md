@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Changed: `StabilizedImage(image, saturated, white)` holds a `Matrix{Float64}` image and a `BitMatrix` mask as
+  given** (another element type is converted, once): `variance_stabilize` no longer copies the transformed frame and
+  the saturation mask a second time.
+
 - **Breaking: a `LinearRaw`'s mode is its type, `LinearRaw{:green_cells}`, `LinearRaw{:bin2}` or `LinearRaw{:demosaic}`,
   and its sample geometry one field.** The fields `plane_maps`, `green_offsets` and `green_dn` are
   `L.geometry = (; plane_maps, green_offsets, green_dn)`, `nothing` for the display demosaic (and only for it); the

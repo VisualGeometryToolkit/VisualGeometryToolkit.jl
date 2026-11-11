@@ -236,26 +236,15 @@ end
     @test stable_seed(-1, 2) != stable_seed(1, 2)
 end
 
-@testitem "lm_chart_fallback" begin
+@testitem "lm_chart_fallback" setup = [CircleLmScene] begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, lm_retcode, check_rows_jacobian
     using FiniteDiff: FiniteDiff
 
-    # A linearization state with rows only: the Jacobian is the ForwardDiff default.
-    struct _CircleLm
-        pts::Vector{SVector{2, Float64}}
-    end
-    function VgtkCore.residual_rows!(f, lm::_CircleLm, x)
-        c = SVector(1.0 + x[1], -2.0 + x[2]); ρ = 3.0 + x[3]
-        for (i, p) in enumerate(lm.pts)
-            f[i] = norm(p - c) - ρ
-        end
-        return f
-    end
-    pts = [SVector(1.5 + 2.5cos(θ), -1.8 + 2.5sin(θ)) for θ in range(0, 2π; length = 13)[1:12]]
-    lm = _CircleLm(pts)
+    pts = circle_points()
+    lm = CircleLm(pts)
     # the default is ForwardDiff, so the reference is AD-independent: central differences
     @test check_rows_jacobian(lm, SVector(0.1, 0.0, -0.2), 12; rtol = 1.0e-7, reference = (f, θ) -> FiniteDiff.finite_difference_jacobian(f, θ, Val(:central)))
     stationarity_tol = 0.05       # the caller's configuration owns it (VisualGeometryToolkitEstimation ships 0.05, [chart_lm])

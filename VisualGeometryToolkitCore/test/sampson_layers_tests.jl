@@ -98,7 +98,7 @@ end
 # ForwardDiff of their constraints' G_x, the exact residual Jacobian against
 # ForwardDiff of the residual, ForwardDiff Duals through the whole path, and no
 # allocation.
-@testitem "sampson_conic_ellipse_rows" begin
+@testitem "sampson_conic_ellipse_rows" setup = [EllipseConstraint] begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
@@ -113,7 +113,6 @@ end
     E = Ellipse(Point2(500.0, 400.0), 300.0, 180.0, 0.6)
     Q = VgtkCore._ellipse_form(E)
     θE = SVector(E.center[1], E.center[2], Q[1, 1], Q[1, 2], Q[2, 2])
-    ellipse_g(θ, x) = (d = x - SVector(θ[1], θ[2]); dot(d, SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]) * d) - 1)
     for u in (SVector(210.0, 180.0), SVector(820.0, 395.0), SVector(505.0, 120.0))
         # the conic: ∂G_x/∂θ and the residual's exact model row
         @test measurement_gradient_jacobian(conic(θ₀), u) ≈

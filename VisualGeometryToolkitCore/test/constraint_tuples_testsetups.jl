@@ -27,3 +27,15 @@
     rows_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.whitened_constraint_rows(_one(cd, Σ, ρ), nothing, 1)
     distance_of(cd; Σ = nothing, ρ = nothing) = VgtkCore.mahalanobis_distance(_one(cd, Σ, ρ), nothing, 1)
 end
+
+# The point-on-ellipse constraint written out, the reference the ellipse's own
+# `constraint_with_jacobians` is differentiated against (ellipse_tests.jl,
+# sampson_layers_tests.jl): g(θ, x) = (x − c)ᵀ Q (x − c) − 1 at the ambient
+# coordinates θ = (c₁, c₂, Q₁₁, Q₁₂, Q₂₂).
+@testsetup module EllipseConstraint
+    using LinearAlgebra: dot
+    using StaticArrays: SMatrix, SVector
+    export ellipse_g
+
+    ellipse_g(θ, x) = (d = x - SVector(θ[1], θ[2]); dot(d, SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]) * d) - 1)
+end

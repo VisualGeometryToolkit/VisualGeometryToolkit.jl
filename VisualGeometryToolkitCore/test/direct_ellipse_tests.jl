@@ -8,12 +8,8 @@
     using Random
     using VisualGeometryToolkitCore
 
-    function _boundary(e, φ)
-        s, c = sincos(e.θ)
-        return SVector(e.center...) + SMatrix{2, 2}(c, s, -s, c) * SVector(e.a * cos(φ), e.b * sin(φ))
-    end
     _points(e, n; σ = 0.0, arc = 2π, rng = MersenneTwister(1)) =
-        [_boundary(e, φ) + σ * randn(rng, SVector{2}) for φ in range(0, arc, n + 1)[1:(end - 1)]]
+        [boundary_point(e, φ) + σ * randn(rng, SVector{2}) for φ in range(0, arc, n + 1)[1:(end - 1)]]
     _close(e, f; atol) = norm(VgtkCore.ellipse_log_shape(e) - VgtkCore.ellipse_log_shape(f)) < atol
 
     e0 = Ellipse(Point2(120.0, 80.0), 30.0, 12.0, 0.6)

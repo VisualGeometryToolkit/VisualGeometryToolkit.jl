@@ -37,6 +37,7 @@ using VisualGeometryToolkitCore: MsacScoring
 const FIXTURE = joinpath(@__DIR__, "lo_calls_phototourism_e.bin")
 const OUT = ARGS[1]
 const REPS = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 7
+include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "lo_timing", "bench_record.jl"))   # calibration_spread, write_bench_record: the record the gate reads
 
 Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); got $(Threads.nthreads()) threads")
 
@@ -105,31 +106,7 @@ end
 
 # The noise probe: a fixed arithmetic loop timed REPS times; its relative spread
 # (second-fastest over fastest − 1) is the machine's jitter on this core.
-function calibration_spread(reps)
-    f() = (s = 0.0; x = 1.0; for k in 1:2_000_000; x = muladd(x, 1.0000001, 1.0e-9); s += x; end; s)
-    f(); ts = Float64[]
-    for _ in 1:reps
-        t0 = time_ns(); v = f(); push!(ts, time_ns() - t0); v > 0 || error()
-    end
-    sort!(ts)
-    return ts[2] / ts[1] - 1
-end
 
-io = IOBuffer()
-println(io, "# written by test/lo_timing/bench.jl")
-println(io, "[host]")
-println(io, "cpu = ", repr(Sys.cpu_info()[1].model))
-println(io, "julia = ", repr(string(VERSION)))
-println(io, "calibration_spread = ", calibration_spread(REPS))
-println(io, "ncalls = ", NCALLS)
-for (name, ctor) in ARMS
-    lo = ctor()
-    run_set(lo); run_set(lo)                                   # compile + warm the task-local buffers
-    bytes = @allocated run_set(lo)
-    us = sort!([time_set(lo) for _ in 1:REPS])
-    println(io, "[arms.", repr(name), "]")
-    println(io, "us_per_call = ", us[1])
-    println(io, "reps_us_per_call = [", join(us, ", "), "]")
-    println(io, "bytes_per_call = ", bytes / NCALLS)
-end
-write(OUT, take!(io))
+# each arm compiled and its task-local buffers warmed (two runs) before it is measured
+set_arm(ctor) = () -> (lo = ctor(); run_set(lo); run_set(lo); bytes = @allocated(run_set(lo)); (sort!([time_set(lo) for _ in 1:REPS]), bytes / NCALLS))
+write_bench_record(OUT, "test/lo_timing/bench.jl", NCALLS, REPS, [name => set_arm(ctor) for (name, ctor) in ARMS])

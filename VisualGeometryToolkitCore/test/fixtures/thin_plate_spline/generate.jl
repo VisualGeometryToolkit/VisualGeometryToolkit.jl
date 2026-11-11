@@ -47,12 +47,7 @@ const VALUES_3 = [1 / (1.5 + 0.1 * sin(3i)) for i in 1:9]
 const VALUES_5 = [0.2 * cos(0.7i) + 0.05i for i in 1:25]
 const HEIGHTS = SVector{HEIGHT_NC}([0.01 * sin(1.3i) for i in 1:HEIGHT_NC])
 
-lit(x::Float64) = repr(x)
-lit(x::Float32) = repr(x)
-lit(v::AbstractVector) = "[" * join(lit.(v), ", ") * "]"
-lit(v::SVector{2}) = "SVector(" * lit(v[1]) * ", " * lit(v[2]) * ")"
-lit(vs::AbstractVector{<:SVector{2}}) = "[\n        " * join(lit.(vs), ",\n        ") * ",\n    ]"
-rows(vs) = "[\n        " * join(lit.(vs), ",\n        ") * ",\n    ]"
+include(joinpath(@__DIR__, "..", "fixture_literals.jl"))   # lit, rows
 
 function grid_reference(io, name, n, values)
     tps = ThinPlateSpline(grid_nodes(n))

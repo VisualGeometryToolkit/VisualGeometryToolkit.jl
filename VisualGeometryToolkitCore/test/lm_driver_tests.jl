@@ -149,7 +149,7 @@ end
 end
 end
 
-@testitem "robust lmsolve_chart!: F is Σρ, the workspace keeps the rows at x" begin
+@testitem "robust lmsolve_chart!: F is Σρ, the workspace keeps the rows at x" setup = [CircleLmScene] begin
     # The robustified chart LM (Triggs): its cost is Σᵢ ρ(‖rᵢ‖²) (NLLSsolver's
     # ½ρ doubled), and neither the solve nor its stall postcondition leaves the
     # workspace's rows scaled by √ρ′ — they are the rows at the returned x. A
@@ -159,19 +159,9 @@ end
     using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, loss_robustifier, WelschShape, TLSShape
     import NLLSsolver
 
-    struct _RobustCircleLm
-        pts::Vector{SVector{2, Float64}}
-    end
-    function VgtkCore.residual_rows!(f, lm::_RobustCircleLm, x)
-        c = SVector(1.0 + x[1], -2.0 + x[2]); ρ = 3.0 + x[3]
-        for (i, p) in enumerate(lm.pts)
-            f[i] = norm(p - c) - ρ
-        end
-        return f
-    end
-    pts = [SVector(1.5 + 2.5cos(θ), -1.8 + 2.5sin(θ)) for θ in range(0, 2π; length = 13)[1:12]]
+    pts = circle_points()
     append!(pts, [SVector(9.0, 9.0), SVector(-8.0, 7.0), SVector(6.0, -9.0)])   # three gross outliers
-    lm = _RobustCircleLm(pts)
+    lm = CircleLm(pts)
     n = length(pts)
     rows_at(x) = VgtkCore.residual_rows!(zeros(n), lm, x)
     k = loss_robustifier(WelschShape(), 0.1)

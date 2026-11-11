@@ -37,7 +37,7 @@
     @test !test_sample(Ellipse, [good[1:4]; good[2:2]], 1:5)                                                                              # a repeated point
 end
 
-@testitem "EllipseManifold and the point-on-ellipse constraint" begin
+@testitem "EllipseManifold and the point-on-ellipse constraint" setup = [EllipseConstraint] begin
     using Test, StaticArrays, LinearAlgebra
     using ForwardDiff: ForwardDiff
     using VisualGeometryToolkitCore
@@ -63,8 +63,8 @@ end
     x = SVector(7.0, 1.0)
     g, G_x, G_θ = constraint_with_jacobians(e, x)
     θ = ambient_coordinates(e)
-    gθ(t) = (d = x - SVector(t[1], t[2]); dot(d, SMatrix{2, 2}(t[3], t[4], t[4], t[5]) * d) - 1)
-    gx(y) = (d = y - SVector(θ[1], θ[2]); dot(d, SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]) * d) - 1)
+    gθ(t) = ellipse_g(t, x)
+    gx(y) = ellipse_g(θ, y)
     @test g ≈ gθ(θ) && G_θ ≈ ForwardDiff.gradient(gθ, θ) && G_x ≈ ForwardDiff.gradient(gx, x)
     @test abs(gx(SVector(e.center...) + 5.0 * SVector(cos(0.7), sin(0.7)))) < 1.0e-14       # the major vertex is on it
     @test action_jacobian(ch, x) ≈ transpose(G_θ) * retract_jacobian(ch) atol = 1.0e-14

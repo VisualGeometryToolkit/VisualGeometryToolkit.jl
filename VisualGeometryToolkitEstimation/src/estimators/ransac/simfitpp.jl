@@ -36,24 +36,25 @@
 # =============================================================================
 
 """
-    SimFitPP(; alpha = 0.99, max_iter = 4, ftol = 0.01, train_fraction = 0.5,
-               min_loss_width = 0.25, max_loss_width = 8.0, dg = 1)
+    SimFitPP(; alpha, max_iter, ftol, train_fraction, min_loss_width, max_loss_width, dg)
 
-SIMFIT++ configuration ([Edstedt2025](@citet); the reference's constructor
-defaults; the reference calls the loss width its threshold). `alpha` is the
+SIMFIT++ configuration ([Edstedt2025](@citet); the reference calls the loss
+width its threshold). Every keyword defaults to configs/default.toml's
+`[simfitpp]` table, which holds the reference's constructor defaults.
+`alpha` is the
 inlier coverage the loss width targets (loss_width² = ppf_{χ²_dg}(alpha)·σ²);
 `min_loss_width` and `max_loss_width` bound an acceptable loss width in the
 residual unit of the residuals handed to the estimator (pixels in the
 reference); `dg` is the residual codimension (the χ² degrees of freedom).
 """
 Base.@kwdef struct SimFitPP
-    alpha::Float64          = 0.99
-    max_iter::Int           = 4
-    ftol::Float64           = 0.01
-    train_fraction::Float64 = 0.5
-    min_loss_width::Float64 = 0.25
-    max_loss_width::Float64 = 8.0
-    dg::Int                 = 1
+    alpha::Float64          = _dflt("simfitpp", "alpha")
+    max_iter::Int           = _dflt("simfitpp", "max_iter")
+    ftol::Float64           = _dflt("simfitpp", "ftol")
+    train_fraction::Float64 = _dflt("simfitpp", "train_fraction")
+    min_loss_width::Float64 = _dflt("simfitpp", "min_loss_width")
+    max_loss_width::Float64 = _dflt("simfitpp", "max_loss_width")
+    dg::Int                 = _dflt("simfitpp", "dg")
 end
 
 """

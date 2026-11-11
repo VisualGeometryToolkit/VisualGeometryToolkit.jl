@@ -91,6 +91,13 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo, NoLocalO
         for f in fieldnames(VgtkEstimation.MixtureEmConfig)
             @test haskey(_TOML_DEFAULTS["mixture_em"], toml_key(Any, f))
         end
+        # SIMFIT++'s constructor defaults are the file's [simfitpp] table, every field, and nothing else
+        @test Set(keys(_TOML_DEFAULTS["simfitpp"])) == Set(toml_key(Any, f) for f in fieldnames(VgtkEstimation.SimFitPP))
+        let cfg = VgtkEstimation.SimFitPP()
+            for f in fieldnames(VgtkEstimation.SimFitPP)
+                @test getfield(cfg, f) == _dflt("simfitpp", toml_key(Any, f))
+            end
+        end
         # Every strategy table names every keyword its constructor defaults —
         # `scale_multiple` / `alpha` are REQUIRED per call, deliberately absent.
         # `scale_multiple` is cross-validated per model class, never defaulted

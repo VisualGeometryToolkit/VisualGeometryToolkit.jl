@@ -5,6 +5,11 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`SimFitPP`'s defaults are the TOML's** (robust-schema audit): its keyword defaults (`alpha`, `max_iter`, `ftol`,
+  `train_fraction`, `min_loss_width`, `max_loss_width`, `dg`) read the new `[simfitpp]` table of
+  configs/default.toml through `_dflt` (the reference's values, unchanged); the completeness test holds the table to
+  the struct's fields.
+
 - **The division camera's branch audit trims through the stack's loss** (robust-schema audit): `_branch_residual`'s
   two trimmed depth refits keep the rows inside a TLS loss at `scale_multiple` × σ̂ (σ̂ Core's `noise_sigma` of the
   lift's residual norms, codimension 2), the multiple the new `[fit_division_camera] branch_audit_scale_multiple`

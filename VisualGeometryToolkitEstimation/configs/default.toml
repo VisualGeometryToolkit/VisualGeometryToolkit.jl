@@ -223,6 +223,17 @@ ftol = 1.0e-10
 # candidate steps; see [chart_lm])
 max_iter = 100
 
+# SIMFIT++ (`SimFitPP`, Edstedt 2025): the reference implementation's constructor
+# defaults (github.com/Parskatt/simfitpp).
+[simfitpp]
+alpha          = 0.99            # the inlier coverage the loss width targets: loss_width² = ppf_{χ²_dg}(alpha)·σ²
+max_iter       = 4               # train/validation rounds at most
+ftol           = 0.01            # stop when an accepted proposal moves the loss width by less (absolute, residual unit)
+train_fraction = 0.5             # the share of the correspondences the geometry is fitted on
+min_loss_width = 0.25            # px (the residual unit; `with_residual_unit` rescales): smallest acceptable loss width
+max_loss_width = 8.0             # px: largest acceptable loss width
+dg             = 1               # the residual codimension (χ² degrees of freedom): the reference's scalar Sampson residual
+
 # The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under
 # `fit_residual_mixture` the model is a held fit's, so the update is "keep_model";

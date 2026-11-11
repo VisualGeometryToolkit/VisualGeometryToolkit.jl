@@ -17,7 +17,7 @@ VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
 Every `find_*` shares one keyword surface (documented on
 [`find_homography`](@ref)) and the same core defaults, read from its class's
 `[pipelines.<class>]` table in `configs/default.toml`: its `scoring` table
-(read by [`scoring_from_toml`](@ref) — every class's is MSAC,
+(read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml) — every class's is MSAC,
 `{ type = "msac", threshold = … }`) and `Irls{TLSShape}()` local optimization
 following the scorer's decision point. The default MSAC thresholds are
 conventions, not tuned values:
@@ -53,10 +53,12 @@ per-ray origins (a non-central camera, for which there is no minimal solver).
 Its defaults (`[pipelines.bearing_pose]`) are least squares over every
 correspondence.
 
-Both read the same `[pipelines.<class>]` defaults and share the strategy
-keywords — `scoring`, `local_optimization_strategy`, `workspace` — so any
-strategy plugs into either: `Irls{K}`, `Triggs{K}`, `nothing`,
-LocalOptimizationDoneRight's half-quadratic lifts and GNC. A strategy a
+Both read the same `[pipelines.<class>]` defaults and take the same
+strategies — under `local_optimization_strategy` on a `find_*` and
+`optimization_strategy` on a `refine_*` (one family, two keywords; a `refine_*`
+refuses `local_optimization_strategy`, naming its own) — beside `scoring` and `workspace`, so any strategy plugs into
+either: `Irls{K}`, `Triggs{K}`, `nothing`, LocalOptimizationDoneRight's
+half-quadratic lifts and GNC. A strategy a
 problem cannot host (`Triggs` or a lift on the hand-eye problem, which has no
 chart) is refused by both with the same error. The `find_*` sampling keywords
 (`max_trials`, `min_trials`, `config`, `rng`) are not `refine_*` keywords, and
@@ -64,8 +66,10 @@ neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
 `max_iter`; the chart LM's `[chart_lm]` cap). The bundles
 (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
 problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
-robust strategy under `find_*`'s keyword, `local_optimization_strategy` (`Irls{Shape}` or
-`Triggs{Shape}` at a `efficiency_constant`).
+robust strategy as every refine does, `optimization_strategy` (`Irls{Shape}` or
+`Triggs{Shape}`, at an `efficiency_constant` times the given `scale`, or an
+`Irls` strategy's absolute `loss_width`), and holds
+parameters with `fixed`.
 
 ## Homography
 

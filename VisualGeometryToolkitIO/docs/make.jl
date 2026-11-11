@@ -25,6 +25,11 @@ makedocs(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/",
         edit_link = "main",
+        # The native-kinds API page is docstring-dense: api/native.html
+        # measured 118 KiB on 2026-11-11, over the 100 KiB default warning.
+        # The hard 200 KiB error threshold is kept; split the page before it
+        # reaches it.
+        size_threshold_warn = 150 * 2^10,
     ),
     # The docs gates (General review, #171997, #173031, #173032): every public
     # docstring is in the manual, the doctests run, every external link

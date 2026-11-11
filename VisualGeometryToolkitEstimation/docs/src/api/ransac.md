@@ -52,7 +52,7 @@ VisualGeometryToolkitCore's:
 ## Residual protocol
 
 The per-point protocol that `mahalanobis_distances!` runs is VisualGeometryToolkitCore's
-([`mahalanobis_distance`](@extref VisualGeometryToolkitCore.mahalanobis_distance),
+(`mahalanobis_distance(problem, ctx, i)`,
 the signed [`whitened_residual`](@extref VisualGeometryToolkitCore.whitened_residual),
 [`residual_context`](@extref VisualGeometryToolkitCore.residual_context)); the
 residual degrees of freedom are this package's.
@@ -226,7 +226,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }     # no width key
 ```
 
 `type` is a tag of the strategy registry — the core [`LO_TAGS`](@ref)
-(`"no_local_optimization"`, `"irls"`, `"terminal_lo"`), or its explicit merge with a downstream
+(`"none"` for `nothing`, `"irls"`, `"triggs"`, `"terminal_lo"`), or its explicit merge with a downstream
 package's — and `loss` a tag of [`LOSS_TAGS`](@ref). The registries are
 VisualGeometryToolkitCore `TagRegistry` values; a retired tag is refused with its
 successor's name. The paper strategies and their cross-validated operating
@@ -300,5 +300,14 @@ MODEL_UPDATE_TAGS
 NUISANCE_TAGS
 STOP_TAGS
 CONTRACT_GENERICS
+```
+
+## Synthetic test scenes
+
+The scenes every stack package's tests draw from (loaded with `Test`, the
+Test extension):
+
+```@docs
+synthetic_scenes
 ```
 

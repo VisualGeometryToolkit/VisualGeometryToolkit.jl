@@ -129,6 +129,19 @@ interval — and `restrict(ch, names)` frees a subset by name: a camera's
 aspect. An optimizer's search box is not a model fact; it stays the solver's
 option, keyed by `parameter_names`.
 
+A caller holds parameters with ONE keyword, `fixed`: the parameters held, by
+name or by group (`:k` for `k1, k2, …`), `()` by default (everything is
+refined; a camera's skew, the gauge, is held by construction, so naming it
+changes nothing).
+[`LensSpec`](@ref)`(family; fixed)` and VisualGeometryToolkitEstimation's
+`refine_camera_and_poses` take it, and [`free_parameter_names`](@ref) resolves
+it to the names that stay free —
+`free_parameter_names((:f, :aspect, :skew, :cx, :cy, :k1, :k2), (:aspect, :k))`
+is `(:f, :cx, :cy)`. A name or group that names nothing of the model, or a
+parameter named twice, is an `ArgumentError`, and so is the retired `free`
+(the complement), naming `fixed`; the refines refuse `fix`, `fixed_params`
+and `hold` alike.
+
 [`radial`](@ref)`(lens)` is the lens's radially symmetric factor — its folds and
 poles bound what the lens images ([`view_angle_limit`](@ref),
 `monotone_radius`) — and [`radial_part`](@ref) the lens with only that factor.

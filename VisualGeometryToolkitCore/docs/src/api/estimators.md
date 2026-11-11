@@ -5,8 +5,9 @@
     [VisualGeometryToolkitEstimation.jl](@extref VisualGeometryToolkitEstimation :doc:`index`).
     VisualGeometryToolkitCore provides the contracts and shared primitives
     documented here and on the pages beside it: the problem, scoring and
-    local-optimization contracts with the baseline scorers and pool
-    selection (this page); the robust-loss family and the width axes
+    local-optimization contracts with the baseline scorers (this page); the
+    Student-t + uniform scorer ([Student-t + Uniform Scoring API](student_t_scoring.md));
+    pool selection ([Pool Selection API](pool_selection.md)); the robust-loss family and the width axes
     ([Robust Losses API](robust_losses.md)); the robust-statistics toolkit,
     the generic block-coordinate-descent loop, the chart-rows contract and
     the chart LM ([Robust Statistics and Solvers API](robust_statistics.md));
@@ -43,15 +44,8 @@ Pages = ["robust/scoring_contract.jl", "robust/baseline_scorers.jl"]
 
 ## The Student-t + Uniform Marginal Scorer
 
-The scale-free marginal score of "RANSAC Scoring Done Right" (moved from
-RANSACScoringDoneRight, which keeps its research outlier models, grids and
-loss-width families on these types): the scorer, its label priors and outlier
-models, its workspace and the one partition sweep.
-
-```@autodocs
-Modules = [VisualGeometryToolkitCore]
-Pages = ["robust/partition_sweep.jl", "robust/student_t_uniform_scoring.jl"]
-```
+The scale-free marginal score of "RANSAC Scoring Done Right" is on the
+[Student-t + Uniform Scoring API](student_t_scoring.md) page.
 
 ## Local-Optimization and External-Refit Contracts
 
@@ -62,10 +56,8 @@ Pages = ["robust/lo_contract.jl"]
 
 ## Pool Selection
 
-```@autodocs
-Modules = [VisualGeometryToolkitCore]
-Pages = ["robust/pool_selection.jl"]
-```
+The pool-selection contract and its grid kernels are on the
+[Pool Selection API](pool_selection.md) page.
 
 ## Index
 

@@ -214,10 +214,8 @@ The paper's optimization-path axis — the column of the design table:
 - `:bcd`          — block-coordinate ascent on the scoring objective itself
                     over partition, scale and model (Stu-tU-BCD)
 - `:triggs`       — the fixed loss minimized DIRECTLY: one robust
-                    Levenberg–Marquardt solve whose Gauss–Newton Hessian carries
-                    Triggs' second-order (ρ″) curvature correction, no reweighting
-                    loop (Cauchy-Triggs). IRLS keeps only ρ′ (the weights); both
-                    stop where Σ ρ′Jᵀr = 0, they differ in the steps
+                    Levenberg–Marquardt solve on NLLSsolver's robustified
+                    Hessian, no reweighting loop (Cauchy-Triggs)
 - `:classical_lo` — classical LO-RANSAC inner refinement (TLS-LO, TLS-LO⁺)
 - `:seed`         — no local optimization (the seed hypothesis is returned)
 

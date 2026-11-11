@@ -178,7 +178,8 @@ result = ransac(problem, scoring; config=config)
 A local-optimization strategy can be selected by tag, for instance from a
 configuration file. `optimization_strategy_from_toml` reads one strategy table.
 The core registry `VisualGeometryToolkitEstimation.LO_TAGS` holds the tags
-`"no_local_optimization"`, `"irls"` and `"terminal_lo"` (the terminal placement,
+`"none"` (no local optimization, `nothing`), `"irls"`, `"triggs"` and
+`"terminal_lo"` (the terminal placement,
 `{ type = "terminal_lo", inner = { … } }`: the race on raw scores, then one LO of
 its incumbent by the inner strategy):
 

@@ -198,7 +198,7 @@ scratch and the camera keeps its family (its lens type).
   robust strategy of the RANSAC local optimization's own types, under the same
   keyword every refine takes, configured by the same TOML tables (`optimization_strategy_from_toml`, e.g. `{ type = "triggs", loss =
   "welsch", efficiency_constant = 2.98 }`): `Triggs{Shape}`, one robustified LM
-  (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
+  (Core's `loss_robustifier`, NLLSsolver's robustified Hessian), or
   `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
   `max_iter` cycles, until the robust cost decreases by less than `ftol`),
   each starting directly from the caller's start (`camera`, `poses`, board

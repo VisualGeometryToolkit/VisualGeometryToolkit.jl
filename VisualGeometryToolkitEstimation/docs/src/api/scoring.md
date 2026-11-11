@@ -19,9 +19,8 @@ VisualGeometryToolkitCore:
 [`score!`](@extref VisualGeometryToolkitCore.score!),
 [`consensus_order`](@extref VisualGeometryToolkitCore.consensus_order),
 [`is_predictive`](@extref VisualGeometryToolkitCore.is_predictive),
-[`scored_model`](@extref VisualGeometryToolkitCore.scored_model),
-[`scale_prior`](@extref VisualGeometryToolkitCore.scale_prior),
-[`outlier_halfwidth`](@extref VisualGeometryToolkitCore.outlier_halfwidth),
+`scored_model`, `scale_prior`, `outlier_halfwidth` (each with one method per
+scorer family: VisualGeometryToolkitCore's Robust Estimation API),
 [`decision_boundary`](@extref VisualGeometryToolkitCore.decision_boundary),
 [`has_decision_boundary`](@extref VisualGeometryToolkitCore.has_decision_boundary) and
 [`check_workspace`](@extref VisualGeometryToolkitCore.check_workspace).
@@ -89,7 +88,7 @@ A strategy implements VisualGeometryToolkitCore's local-optimization contract
 (`lo_workspace`, `locally_optimize!`, returning `lo_estimate`). The core
 strategies are `nothing` (no local optimization), [`Irls`](@ref) and
 [`Triggs`](@ref) — the robustified chart LM: one NLLSsolver solve under a
-loss with Triggs' second-order correction, its width `efficiency_constant·ŝ` at the
+loss, through NLLSsolver's robustified Hessian, its width `efficiency_constant·ŝ` at the
 hypothesis's Student-t scale, for every chart problem; every other strategy is
 LocalOptimizationDoneRight's. A width-carrying strategy's loss is
 resolved by `loss_at` from its width mode (`lo_width`, set by `with_width`):

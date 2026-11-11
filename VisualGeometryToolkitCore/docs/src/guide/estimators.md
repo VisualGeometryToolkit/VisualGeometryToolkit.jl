@@ -62,10 +62,13 @@ its `refine_*` is that step alone, run once from a given model (guess first,
 then the data as the `find_*` takes them): the guess is scored as a hypothesis
 is, a consensus-anchored strategy reads its scale off the guess's consensus
 set, and the refined model comes back as the same `RansacEstimate`. The two
-share the class's defaults and the strategy keywords — `threshold`, `scoring`,
-`local_optimization_strategy`, `workspace` — so any strategy of the local-optimization
-contract plugs into both; only the sampling keywords (`max_trials`,
-`min_trials`, `config`, `rng`) are the `find_*`'s alone.
+share the class's defaults, `scoring` and `workspace`, and take the same
+strategies — a `find_*` as `local_optimization_strategy`, a `refine_*` as
+`optimization_strategy` (one family of [`AbstractOptimizationStrategy`](@ref)
+types, two keywords) — so any strategy of the local-optimization contract plugs
+into both; only the sampling keywords (`max_trials`, `min_trials`, `config`,
+`rng`) are the `find_*`'s alone. A width is the scorer's: a bare `threshold`
+or `outlier_halfwidth` keyword is refused by both.
 
 ## The robust-loss family
 

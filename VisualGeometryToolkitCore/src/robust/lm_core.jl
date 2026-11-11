@@ -465,9 +465,9 @@ end
 # robust loss acts per datum — on the squared norm of that datum's `C` rows —
 # so the robustified LM hands NLLSsolver one residual per datum carrying the
 # loss as its robustifier (`loss_robustifier`). NLLSsolver then forms each
-# datum's cost ρ(‖rᵢ‖²), its gradient ρ′Jᵢᵀrᵢ and its Hessian with Triggs'
-# second-order correction from ρ″ (`computerescostgradhess`, NLLSsolver's
-# residual.jl): nothing of the robust Newton update is restated here.
+# datum's cost ρ(‖rᵢ‖²), its gradient ρ′Jᵢᵀrᵢ and its robustified Hessian
+# (`computerescostgradhess`, NLLSsolver's residual.jl): nothing of the robust
+# Newton update is restated here.
 #
 # The rows are still evaluated by the state's ONE `residual_rows!` /
 # `residual_jacobian_rows!` sweep: the first datum NLLSsolver asks for at a
@@ -528,10 +528,8 @@ The ROBUSTIFIED chart LM: NLLSsolver's Levenberg–Marquardt minimizing
 of the state's [`residual_rows!`](@ref) (`C` the codimension) and `ρ` the
 NLLSsolver `robustifier` — a stack loss through
 [`loss_robustifier`](@ref)`(shape, loss_width)`. NLLSsolver applies the
-robustifier per datum with Triggs' second-order correction (the ρ″ term of its
-Gauss–Newton Hessian; Ceres' `Corrector`, `internal/ceres/corrector.cc`), so
-one solve is the robust M-estimate — no reweighting
-loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
+robustifier per datum (its robustified Hessian), so one solve is the robust
+M-estimate — no reweighting loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
 returned code and its retcode ([`lm_retcode`](@ref)) are the plain chart LM's,
 its stall postcondition the cosine of the rows weighted by `ρ′` (the robust
 gradient's weights); its exact-fit test succeeds on the unweighted cost, or on

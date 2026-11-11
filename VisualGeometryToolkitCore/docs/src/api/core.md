@@ -32,7 +32,7 @@ VisualGeometryToolkitCore.StackUnits
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["base/utils.jl", "base/geometry_utils.jl", "base/device.jl"]
+Pages = ["base/utils.jl", "base/geometry_utils.jl", "base/device.jl", "base/duals.jl"]
 ```
 
 Drawing into an array without Makie (masks, debug frames; public, not

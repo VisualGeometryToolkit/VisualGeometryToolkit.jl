@@ -166,10 +166,12 @@ Key functions: `weight(shape, s, sq_loss_width)` (equivalently
 `lift_weight(loss, s)` on a deployed loss) and, for the half-quadratic lift,
 `lift_rho` / `lift_weight` / `lift_zblock` / `lift_cost` — each on a
 DEPLOYED loss, which carries the width, so no scale argument is supplied at
-the call site. `decision_width(shape, decision_boundary)` converts the
-residual at which a decision flips (for a lift arm, the half-weight radius
-`r_½ = efficiency_constant·ŝ`) into the shape's loss width, and takes the bare
-shape because that is the conversion that produces a width in the first place.
+the call site. An efficiency constant is always the plain multiple,
+`loss_width = efficiency_constant·ŝ`, for every shape.
+`decision_width(shape, decision_boundary)` converts the residual at which a
+decision flips (a scorer's decision boundary, which a strategy with no width
+of its own follows) into the shape's loss width, and takes the bare shape
+because that is the conversion that produces a width in the first place.
 
 !!! note "Retired API"
     The `AbstractLoss` family (`HuberLoss`, `CauchyLoss`, `TukeyLoss`,

@@ -49,9 +49,10 @@ module Pools
 
 using StaticArrays: SMatrix, SVector
 using CoordinateTransformations: AffineMap
-using ..VisualGeometryToolkitCore: HomographyMat, CspondNormalization, DiagonalNormalization,
+using Rotations: RotMatrix
+using ..VisualGeometryToolkitCore: HomographyMat, CspondNormalization, DiagonalNormalization, SimilarityMap,
     source_map, destination_map, to_homogeneous, affine_part,sampson_distances!, ImageFrame, NormalizedImageFrame, csponds, sources, targets
-using ..VisualGeometryToolkitCore.Cameras: FramedAffine, StereoRig, similarity_scale
+using ..VisualGeometryToolkitCore.Cameras: FramedAffine, StereoRig, similarity_scale, reframed_calibration, CameraCalibrationMat
 
 # =============================================================================
 # EXPORTS

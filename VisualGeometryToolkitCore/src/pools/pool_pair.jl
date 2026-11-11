@@ -375,14 +375,26 @@ end
     pool_frame_calibrations(pair::PoolPair) -> (Kc1, Kc2)
 
 The POOL-FRAME calibration matrices `Kc = T·K` of the source and target cameras:
-the pixel calibrations of [`calibration_matrices`](@ref) composed with the
-stored maps `source_map`, `destination_map`, which map pool-frame coordinates ↔ the
+the pixel calibrations of [`calibration_matrices`](@ref) moved into the pool
+frame by the stored maps `source_map`, `destination_map` through
+[`reframed_calibration`](@ref) (each map an isotropic scale and a translation;
+any other affine map is an `ArgumentError`), which map pool-frame coordinates ↔ the
 calibrated z = 1 chart (`GnomonicFrame`) exactly. What a problem built
 on the stored pool data takes as its `K`.
 """
 function pool_frame_calibrations(pair::PoolPair)
     K1, K2 = calibration_matrices(pair)
-    return (pair.source_map * K1, pair.destination_map * K2)
+    return (_pool_frame_calibration(pair.source_map, K1, :source_map), _pool_frame_calibration(pair.destination_map, K2, :destination_map))
+end
+
+# `T·K` through the one change of image frame of a calibration, `reframed_calibration`:
+# the stored map as the similarity it is (an isotropic scale and a translation, exactly;
+# any other affine map is refused), K as it was stored (not re-checked).
+function _pool_frame_calibration(T::SMatrix{3, 3, Float64, 9}, K, name::Symbol)
+    S = SimilarityMap(T[1, 1], one(RotMatrix{2, Float64}), SVector(T[1, 3], T[2, 3]))
+    SMatrix{3, 3, Float64, 9}(to_homogeneous(S)) == T || throw(ArgumentError(
+        "pool_frame_calibrations: the pool's $name is not an isotropic scale and a translation: $T"))
+    return SMatrix{3, 3, Float64, 9}(reframed_calibration(S, CameraCalibrationMat(K; check = false)))
 end
 
 """

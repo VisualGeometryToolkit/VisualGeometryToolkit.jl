@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Changed: `pool_frame_calibrations` moves K through `reframed_calibration`**, the one change of image frame of a
+  calibration, instead of multiplying by the stored map by hand. The values are the same bit for bit; a stored map
+  that is not an isotropic scale and a translation (the pool frame always is) is now an `ArgumentError`.
 - **Changed: `spectral_rotation_averaging` no longer checks that its pairs connect every frame.** The caller checks it on
   its graph — VisualGeometryToolkitEstimation's `fit_rotation_averaging`, its only stack caller, already refuses a split
   `ViewGraph` before seeding — so the hand-written breadth-first search that ran the check a second time is deleted. A

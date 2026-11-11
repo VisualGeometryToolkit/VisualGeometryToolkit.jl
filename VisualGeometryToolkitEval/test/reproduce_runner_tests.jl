@@ -581,7 +581,7 @@ end
     @testset "code identity: a stage reruns when a code tree changed, naming it; docs reuse it; uncommitted code is refused" begin
         f = runner_project()
         gitin(dir) = (args...) -> run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
-        g! = gitin(f.repo)
+        g! = gitin(f.proj)
         # a stack package loaded from a path, in a repository of its own, and a released one, in the project's environment
         pkg = mktempdir(); p! = gitin(pkg)
         p!("init", "-q")
@@ -615,7 +615,7 @@ end
         ct = VisualGeometryToolkitEval.code_trees(f.proj; code = ["scripts", "slurm"])
         @test sort(collect(keys(ct.trees))) == ["StackPkg", "VisualGeometryToolkitCore", "scripts", "slurm"] && isempty(ct.dirty)
         @test ct.trees["VisualGeometryToolkitCore"] == core_tree                 # a released one: its Manifest tree
-        @test ct.trees["scripts"] == strip(read(`git -C $(f.proj) rev-parse HEAD:scripts`, String))
+        @test ct.trees["scripts"] == strip(read(`git -C $(f.proj) rev-parse HEAD:./scripts`, String))
         @test startswith(ct.trees["StackPkg"], "src:") && occursin(" Project.toml:", ct.trees["StackPkg"])
         ran() = length(readlines(joinpath(f.results, "ran.txt")))
         args = ["--graph=$(f.graph)", "--site=desktop", "--only=setup"]

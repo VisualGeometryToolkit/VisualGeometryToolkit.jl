@@ -33,7 +33,7 @@
   `squeue` (`slurm_queue_states`), which needs no accounting storage, instead of `sacct`, which dgx01 does not keep
   (`slurm_job_states` remains, as information in `reproduce_status` only).
 - **Changed: `plan_reproduction`'s `job_states` keyword is now `queue_states`** (`ids -> Dict(id => Dict(task =>
-  state))`, what `slurm_queue_states` returns); a caller that passes `job_states` gets an unsupported-keyword error.
+  state))`, what `slurm_queue_states` returns); a caller that supplies `job_states` gets an unsupported-keyword error.
   `reproduce_status` and `reproduce_main` take both (`job_states` there is the sacct extra).
 - **New: a launch's job-name prefix** (`job_name_prefix` in a site's `[slurm]` table, `plan_reproduction(…;
   job_name_prefix)`, `--job-name-prefix`): every job is named `<prefix><name>`, the name the stage's `job_name`, else

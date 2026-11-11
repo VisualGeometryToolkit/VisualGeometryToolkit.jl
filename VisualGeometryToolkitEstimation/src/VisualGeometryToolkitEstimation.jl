@@ -263,6 +263,7 @@ export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per
 export fit_rotation           # the robust rotation between two sets of directions
 export optical_axis           # the radially symmetric camera closest to a camera: its axis and principal point (fit_camera)
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
+export fit_rigid_alignment    # the robust rigid transform between two point sets (an ATE alignment)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
 export filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
@@ -342,7 +343,7 @@ public lo_loss, strategy_loss, lo_width_value,
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata
+public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
@@ -426,9 +427,10 @@ include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
 include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
 include("synthetic_scenes.jl")                    # synthetic_scenes: entry point (the scenes are the Test extension)
-include("fitting/irls_weights.jl")           # the IRLS weight step of the three reweighted fits (σ̂ is Core's mad_scale)
+include("fitting/irls_weights.jl")           # the fixed-scale IRLS of the reweighted fits: scale input, loss width, weights
 include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
 include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
+include("fitting/fit_rigid_alignment.jl")    # the robust rigid transform between point sets (reweighted Kabsch; ATE alignment)
 include("graphs/view_graph.jl")              # ViewGraph: frames and verified pairs (Graphs.jl underneath)
 include("graphs/observation_graph.jl")       # ObservationGraph: frames and what they observe; covisibility → ViewGraph
 include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)

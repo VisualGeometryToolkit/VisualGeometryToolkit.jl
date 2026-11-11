@@ -118,11 +118,32 @@ the Monte Carlo gate holds calibrated (Y, each `X_m`, the joint vector,
 held-out reprojection, frame count, field of view, marker count and a poor
 seed).
 
+The staged fit takes the robust-estimation contract's fixed-scale IRLS:
+`optimization_strategy = Irls{K}()` with `σ_rot`, `σ_trans` (the whitening)
+and exactly one of `scale` or `width` on the whitened 6-residual. Each stage is
+reweighted (Kabsch pairs, chordal means, the translation least squares), so a
+handful of gross poses — sparse frames a registration placed tens of degrees
+wrong — get weight ≈ 0 instead of tilting `Y` and every `X_m`.
+
 ```@docs
 fit_robot_world_hand_eye
 refine_robot_world_hand_eye
 RobotWorldHandEyeCalibration
 RobotWorldHandEyeMetadata
+```
+
+## Rigid Alignment of Point Sets (ATE)
+
+`fit_rigid_alignment` is the rigid `T` with `b ≈ R·a + t` from point pairs: the
+alignment an absolute trajectory error is measured after. Least squares (the
+classical Kabsch on weighted centroids) by default; with
+`optimization_strategy = Irls{K}()` and a `scale` (the trajectory's noise per
+axis) or a `width`, the same at one fixed loss width, so a few gross centres do
+not tilt the alignment.
+
+```@docs
+fit_rigid_alignment
+RigidAlignmentMetadata
 ```
 
 ## Design Document

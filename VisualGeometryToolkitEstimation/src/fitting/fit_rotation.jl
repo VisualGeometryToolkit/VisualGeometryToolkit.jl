@@ -8,12 +8,11 @@
 #
 #   seed      VisualGeometryToolkitCore's `kabsch` of the pairs (prior weights, if any);
 #   repeat    the residuals rᵢ = ∠(R·aᵢ, bᵢ) (radians: the norm of a 2-D
-#             tangent residual, so codimension 2); the noise scale σ̂ from
-#             their median (`median(r) / √chisq_median(2)`, the Rayleigh
-#             median — the scale of a 2-D residual's norm, VGC's
-#             `chisq_median`); the loss of the `Irls{K}` strategy at σ̂ (its
-#             width mode, or with none the shape's efficiency constant at
-#             codimension 2; irls_weights.jl); the loss's IRLS weights; the
+#             tangent residual, so codimension 2); the IRLS weights of the
+#             `Irls{K}` strategy's loss at ONE loss width, set once from the
+#             caller's scale input (`scale = σ` or an upstream result: the
+#             efficiency constant × σ, Huber's 1.5011 at codimension 2; or
+#             `width = w`) and never re-estimated (irls_weights.jl); the
 #             weighted Kabsch.
 #   stop      when an iteration moves R by less than `tol` (radians), or at
 #             the strategy's `max_iter`.
@@ -23,92 +22,101 @@
 # of a 2-D residual's norm is its median over 1.1774 (Rayleigh), not 1.4826 ×
 # median (a 1-D absolute deviation's, which reads 2-D norms 1.745× too wide);
 # and the loss and its width are the stack's (an `Irls{K}` strategy) instead
-# of a hard-wired Huber at 3 × that scale. RC's exact width is
-# `Irls{HuberShape}(efficiency_constant = 3 · 1.4826 · 1.1774 ≈ 5.237)`.
+# of a hard-wired Huber at 3 × that scale. Since the robust-estimation
+# contract (0.9) the scale is the caller's and fixed (RC's width: Huber at
+# `width = 3 · 1.4826 · median(angles)` of its own scale estimate).
 # =============================================================================
 
 """
-    RotationFitMetadata
+    RotationFitMetadata{L, W}
 
-`FitResult` metadata of [`fit_rotation`](@ref), all at the returned rotation:
-`weights`, the loss's IRLS weight of every pair (times its prior weight);
-`residuals`, the angle `∠(R·aᵢ, bᵢ)` of every pair in radians; `sigma`, the
-robust noise scale σ̂ (radians) the final weights were computed at. They
-forward as properties: `result.weights`, `result.residuals`, `result.sigma`.
+`FitResult` metadata of [`fit_rotation`](@ref), all at the returned rotation
+(`L` the `optimization_strategy`'s type, `Nothing` for least squares): `weights::W`,
+the loss weight `ρ′(r²)` of every pair normalized to a maximum of 1
+(`IrlsWeights`; a lazy all-ones vector, `BinaryWeights`, for least squares —
+the solve's weight is the pair's prior times this); `residuals`, the angle
+`∠(R·aᵢ, bᵢ)` of every pair in radians; `scale`, `scale_source` (radians; the
+scale record, `noise_scale(result)`); `loss_width` (radians, `NaN` for least
+squares).
 """
-struct RotationFitMetadata
-    weights::Vector{Float64}
+struct RotationFitMetadata{L, W <: AbstractVector{Float64}}
+    weights::W
     residuals::Vector{Float64}
-    sigma::Float64
+    scale::Float64
+    scale_source::VgtkCore.ScaleSource
+    loss_width::Float64
 end
+RotationFitMetadata{L}(w::W, r, s, src, lw) where {L, W} = RotationFitMetadata{L, W}(w, r, s, src, lw)
+VgtkCore.weight_kind(::Type{<:RotationFitMetadata{L}}) where {L} = _strategy_weight_kind(L)
 
 """
-    fit_rotation(cs; optimization_strategy, tol)
+    fit_rotation(cs; optimization_strategy, scale | width, tol)
         -> FitResult{RotMatrix{3, Float64}, RotationFitMetadata}
 
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
 3-vectors; normalized at entry, so any nonzero length is a direction), with a
 fraction of the pairs gross outliers. A fit — it seeds itself with
-VisualGeometryToolkitCore's [`kabsch`](@extref VisualGeometryToolkitCore.kabsch) — iterating a reweighted Kabsch:
-residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the robust scale
-`σ̂ = median(r) / √chisq_median(2)` (the median of a 2-D residual norm, over
-the pairs of positive prior weight), the
-weights of the strategy's loss at σ̂, and the weighted Kabsch.
+VisualGeometryToolkitCore's [`kabsch`](@extref VisualGeometryToolkitCore.kabsch) — iterating a reweighted Kabsch
+at ONE loss width: residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the weights of the
+strategy's loss at that width, and the weighted Kabsch. The width is fixed by
+the caller's scale input and never re-estimated.
 
-- `optimization_strategy` — the stack's robust-estimation strategy, an
-  [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
-  configs/default.toml `[fit_rotation] optimization_strategy`, Huber).
-  `efficiency_constant = m` puts the width at `m · σ̂` (the plain multiple, for
-  every loss), `loss_width = w` at `w` radians; with no
-  width — a fit has no scorer to follow — the shape's efficiency constant at
-  codimension 2, which only an M-estimator (`AbstractMEstimator`) has: any
-  other shape (`Irls{TLSShape}()`) requires a width, an `ArgumentError`
-  naming `efficiency_constant` otherwise.
+- `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss
+  `K`, its efficiency constant and its `max_iter`; default
+  configs/default.toml `[fit_rotation] optimization_strategy`, Huber), or `nothing` for the
+  plain (prior-weighted) Kabsch.
+- `scale` | `width` — with an `Irls` strategy, EXACTLY ONE of: `scale = σ`
+  (the residual angles' noise scale per tangent component, radians),
+  `scale = result` (an upstream robust result's `noise_scale`), or
+  `width = w` (the loss width, radians). The width is `w`, or `c · σ` with `c`
+  the strategy's efficiency constant, by default the shape's at codimension 2
+  (`efficiency_constant(K, 2)`: Huber 1.5011); a shape with none
+  (`Irls{TLSShape}()`) needs the strategy's or a `width`. Neither, both, or
+  one given with `optimization_strategy = nothing` is an `ArgumentError`.
 - `tol` — converged when an iteration moves `R` by less than `tol` radians
   (default configs/default.toml [fit_rotation]).
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
   loss weight (fixed prior weights).
 
-`retcode` is `:converged`, `:max_iterations`, or `:degenerate` when fewer than
-two pairs keep a positive weight; on exact data (every residual zero) the seed
-is returned, `:converged` after one iteration. `rms` is the root mean square
-residual angle over the `n` pairs (outliers included); the metadata carries
-the weights, the residual angles and σ̂ at the returned rotation.
+`retcode` is `:converged`, `:max_iterations`, `:solved` (least squares), or
+`:degenerate` when fewer than two pairs keep a positive weight. `n` is the
+support (the pairs of positive solve weight), `rms` the weight-weighted root
+mean square residual angle. The metadata ([`RotationFitMetadata`](@ref))
+carries the weights, the residual angles, the scale record and the loss
+width.
 
-Accuracy: with a minority of gross outliers the estimate reaches the noise
-floor of the inliers' own least-squares rotation (≈ σ/√m for m inliers at
-direction noise σ); the suite pins 20% random outliers among 200 pairs at
-σ = 1e-3 rad to within 5e-4 rad, where the plain Kabsch is off by over 1e-2.
+Accuracy: with a minority of gross outliers and the inliers' scale given, the
+estimate reaches the noise floor of the inliers' own least-squares rotation
+(≈ σ/√m for m inliers at direction noise σ); the suite pins 20% random
+outliers among 200 pairs at σ = 1e-3 rad to within 5e-4 rad, where the plain
+Kabsch is off by over 1e-2.
 """
 function fit_rotation(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
-        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_local_optimization("fit_rotation"),
+        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_strategy_default("fit_rotation"),
         local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_rotation", "tol"),
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    lo = _check_fit_width("fit_rotation", optimization_strategy)
+    f = _fit_irls("fit_rotation", optimization_strategy, scale, width, 2)
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]
     w_col = VgtkCore.weights_column(cs)
     prior = w_col === nothing ? ones(n) : Float64.(VgtkCore.check_weights(w_col))
+    w = _fit_weights_storage(f, n)
     R = _weighted_kabsch(as, bs, prior)
-    R === nothing && return _rotation_degenerate(n, prior)
+    R === nothing && return _rotation_degenerate(optimization_strategy, f, n, w)
     r = _rotation_residuals(R, as, bs)
-    w = copy(prior)
-    retcode = :max_iterations
+    retcode = f === nothing ? :solved : :max_iterations
     iter = 0
-    while iter < lo.max_iter
+    while iter < _fit_max_iter(optimization_strategy)
         iter += 1
-        σ = _fit_weights!(w, r, prior, lo, 2)
-        if iszero(σ)                       # an exact fit: every weight is the prior's, R stands
-            retcode = :converged
-            break
-        end
-        R_new = _weighted_kabsch(as, bs, w)
-        R_new === nothing && return _rotation_degenerate(n, w)
+        _irls_weights!(w, f, r)
+        R_new = _weighted_kabsch(as, bs, _solve_weights(prior, w))
+        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w)
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
         r = _rotation_residuals(R, as, bs)
@@ -117,8 +125,10 @@ function fit_rotation(
             break
         end
     end
-    σ = _fit_weights!(w, r, prior, lo, 2)   # the metadata at the returned rotation
-    return FitResult(R, retcode, iter, sqrt(sum(abs2, r) / n), n, RotationFitMetadata(w, r, σ))
+    _irls_weights!(w, f, r)                    # the metadata at the returned rotation
+    sw = _solve_weights(prior, w)
+    rms = sqrt(sum(sw[i] * abs2(r[i]) for i in eachindex(r) if sw[i] > 0; init = 0.0) / max(sum(sw), eps()))
+    return FitResult(R, retcode, iter, rms, count(>(0), sw), RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 function _unit_direction(v, i)
@@ -137,5 +147,5 @@ end
 
 _rotation_residuals(R, as, bs) = [angle_between(R * a, b) for (a, b) in zip(as, bs)]   # VGC's atan(‖Ra × b‖, Ra · b)
 
-_rotation_degenerate(n, w) =
-    FitResult(one(RotMatrix{3, Float64}), :degenerate, 0, NaN, n, RotationFitMetadata(collect(Float64, w), fill(NaN, n), NaN))
+_rotation_degenerate(strategy, f, n, w) =
+    FitResult(one(RotMatrix{3, Float64}), :degenerate, 0, NaN, 0, RotationFitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))

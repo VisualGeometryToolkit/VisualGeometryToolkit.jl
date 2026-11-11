@@ -114,6 +114,16 @@ end
     return @invoke whitened_residual(p::AbstractConstraintProblem, R, i::Int)
 end
 
+# The model covariance: the one constraint sandwich (covariance.jl), on the rows
+# above — the implicit-function covariance of the whitened-constraint estimator
+# the problem's local optimization runs (its Sampson chart LM over the inliers),
+# in pixels of unit noise. In G_θ's coordinates, vec(R) (9×9, rank 3), as every
+# MinimalSolveProblem's, so predictive scoring contracts it with the same rows;
+# its so(3) chart form (left exp, `SO3Manifold`) is `Jᵀ·Σ·J/4`, `J` the chart's
+# `retract_jacobian` at R (orthogonal columns of norm √2) — what
+# `fit_rotation_averaging` reads from an `Uncertain` edge.
+provides_solver_covariance(::Type{<:RotationProblem}) = true
+
 # The sub-detector half-width refusal is the bearing problems' (essential.jl
 # `_check_scoring` on `_BearingProblem`), in the same pixel unit.
 

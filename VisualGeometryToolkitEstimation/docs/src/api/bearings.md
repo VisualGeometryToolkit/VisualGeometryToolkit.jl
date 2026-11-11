@@ -29,7 +29,8 @@ BearingPoseContext
 
 `fit_rotation` is the robust rotation `R` with `b ≈ R·a` from direction pairs
 with gross outliers: VisualGeometryToolkitCore's `kabsch`, reweighted by a stack
-loss shape at a width that follows the robust scale of the residual angles.
+loss shape at ONE width, `efficiency_constant × scale` from the caller's
+`scale` (or its `width`), never re-estimated.
 
 ```@docs
 fit_rotation
@@ -39,7 +40,8 @@ RotationFitMetadata
 `fit_rotation_averaging` is the absolute rotations of a set of frames from the
 relative rotations of a view graph, some of them wrong: VisualGeometryToolkitCore's
 spectral seed, then a reweighted first-order Lie-algebra least squares over
-every edge (Chatterjee & Govindu), each a sparse linear solve.
+every edge (Chatterjee & Govindu), each a sparse linear solve, at one fixed
+loss width.
 
 ```@docs
 fit_rotation_averaging

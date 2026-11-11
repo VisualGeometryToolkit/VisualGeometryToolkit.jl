@@ -8,8 +8,7 @@ using Random: Xoshiro, randn!
 using Statistics: mean, quantile
 import KernelAbstractions as KA
 using VisualGeometryToolkitFeatures
-using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _functional_matrix, _unpack_M,
-    _ift_cov_reference, asift_detections
+using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _functional_matrix, _unpack_M, asift_detections
 using VisualGeometryToolkitCore: cov
 
 export detect_on, blob_image, gauss_field, impulse_M, functionals_at, chi2_q, mc_run, mc_summary,

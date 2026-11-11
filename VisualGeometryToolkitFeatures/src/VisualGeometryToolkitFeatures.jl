@@ -46,7 +46,7 @@ using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # Lo
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, Translation, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
 using LinearAlgebra: UniformScaling
-using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
+using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse

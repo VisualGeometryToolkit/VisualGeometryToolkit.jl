@@ -114,8 +114,9 @@ function _tier_hash(name::AbstractString, source::AbstractString)
 end
 
 # The GPUs this process sees, by name: nvidia-smi's (restricted to
-# CUDA_VISIBLE_DEVICES when that lists indices), else CUDA.jl's when it is
-# loaded; none when neither is there. Never required.
+# CUDA_VISIBLE_DEVICES when that lists indices), else Core's `device_names`
+# (CUDA.jl's when it is loaded and functional); none when neither is there.
+# Never required.
 function _detected_gpus()
     smi = Sys.which("nvidia-smi")
     if smi !== nothing
@@ -128,13 +129,7 @@ function _detected_gpus()
             return names[idx .+ 1]
         end
     end
-    cuda = get(Base.loaded_modules, Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"), nothing)
-    cuda === nothing && return String[]
-    return try
-        String[string(Base.invokelatest(getfield(cuda, :name), d)) for d in Base.invokelatest(getfield(cuda, :devices))]
-    catch
-        String[]
-    end
+    return VisualGeometryToolkitCore.device_names()   # Core's accelerator query (its CUDA extension's devices)
 end
 
 # ---------------------------------------------------------------------------
@@ -323,8 +318,8 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
     base_commit = _git(top, "rev-parse", "--verify", "refs/heads/" * base * "^{commit}")
     given = something(commit, "HEAD")
     commit = _git(top, "rev-parse", "--verify", chopsuffix(given, "-dirty") * "^{commit}")
-    dirty = endswith(given, "-dirty") ||
-            (commit == _git(top, "rev-parse", "HEAD") && !isempty(_git(top, "status", "--porcelain", "--untracked-files=no")))
+    head = _git_identity(top)                         # the checkout's HEAD, "-dirty" when its tracked files differ (the package's one rule)
+    dirty = endswith(given, "-dirty") || (commit == chopsuffix(head, "-dirty") && endswith(head, "-dirty"))
     stamp_s = Dates.format(stamp, "yyyymmdd_HHMMSS")
     branch = _RESULTS_PREFIX * stamp_s * "-" * commit[1:7]
     root = abspath(something(scratch_root, _default_scratch(top)))

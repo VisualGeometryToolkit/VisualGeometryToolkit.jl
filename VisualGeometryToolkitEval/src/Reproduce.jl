@@ -33,7 +33,8 @@ module Reproduce
 
 using Dates: Dates, DateTime, UTC, now
 using TOML: TOML
-using VisualGeometryToolkitCore: sha256_hex     # results_branches.jl: a data tier's hash
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
+using ..Tuning: _git_identity                  # results_branches.jl: a checkout's HEAD and its dirtiness, the package's one rule
 
 include("reproduce/reproduce_index.jl")
 include("reproduce/number_macros.jl")

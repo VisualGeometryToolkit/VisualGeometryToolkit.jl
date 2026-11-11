@@ -27,12 +27,24 @@ using TOML: TOML
 using Pkg: Pkg
 using LibGit2: LibGit2
 using DrWatson: initialize_project
-using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations
+using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations, project_root
 using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
 using ..DataArtifacts: load_catalog, catalog_violations
 
 export PaperProjectViolation, PAPER_PROJECT_CHECKS, paper_project_violations,
-    PAPER_PROJECT_TEMPLATE, new_paper_project
+    PAPER_PROJECT_TEMPLATE, new_paper_project, paper_figures_dir
+
+"""
+    paper_figures_dir(paper = "paper/main.tex"; root = project_root()) -> String
+
+The directory the paper `paper` (its main .tex, relative to the project) reads
+its generated assets from: `figures/` beside it, under the project `root`
+(Experiments' `project_root()`, the bound project). Where a driver's
+deploy stage puts its renders (Reproduce's `deploy_assets`) and where the
+template's papers keep them; `root = ""` gives it relative to the project.
+"""
+paper_figures_dir(paper::AbstractString = joinpath("paper", "main.tex"); root::AbstractString = project_root()) =
+    joinpath(root, dirname(paper), "figures")
 
 include("paper_projects/violations.jl")
 include("paper_projects/template.jl")

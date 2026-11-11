@@ -196,3 +196,22 @@
         @test sprint(show, v) == "src/paths.jl:1: [data_policy/D1] const RAW = \"/mnt/data/x\""
     end
 end
+
+@testitem "paper_projects: paper_figures_dir" begin
+    # The directory a paper reads its generated assets from — `figures/` beside
+    # its main .tex, under the project root — once for every paper project
+    # (RANSACScoringDoneRight's neurips2026 and radiometric-camera's cvpr2027
+    # each defined `paper_figdir()`; the template wrote it out per driver).
+    using VisualGeometryToolkitEval.PaperProjects: paper_figures_dir
+    using VisualGeometryToolkitEval.Experiments: set_project_root!
+    root = mktempdir()
+    @test paper_figures_dir(; root) == joinpath(root, "paper", "figures")
+    @test paper_figures_dir(joinpath("papers", "icra", "main.tex"); root) == joinpath(root, "papers", "icra", "figures")
+    @test paper_figures_dir(joinpath("paper", "main.tex"); root = "") == joinpath("paper", "figures")
+    set_project_root!(root)
+    try
+        @test paper_figures_dir() == joinpath(root, "paper", "figures")
+    finally
+        set_project_root!("")
+    end
+end

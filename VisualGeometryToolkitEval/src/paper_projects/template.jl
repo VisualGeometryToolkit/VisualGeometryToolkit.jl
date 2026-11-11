@@ -52,7 +52,7 @@ function new_paper_project(path::AbstractString; name::AbstractString = basename
     occursin(r"^[A-Za-z_][A-Za-z0-9_]*$", name) ||
         throw(ArgumentError("new_paper_project: name $(repr(name)) is not a Julia identifier (it names src/<name>.jl and the DrWatson project)"))
     path = abspath(path)
-    figdirs = unique(joinpath(dirname(p), "figures") for p in papers)
+    figdirs = unique(paper_figures_dir(p; root = "") for p in papers)
     template = Any[PAPER_PROJECT_TEMPLATE..., figdirs...]
     prev = Base.active_project()
     try
@@ -94,11 +94,11 @@ end
 function _populate!(path::AbstractString; name::AbstractString,
                     papers::AbstractVector{<:AbstractString} = ["paper/main.tex"], authors = nothing)
     first_paper = first(papers)
-    figdir = joinpath(dirname(first_paper), "figures")
+    figdir = paper_figures_dir(first_paper; root = "")
     subst = [
         "{{NAME}}" => name,
         "{{FIGDIR}}" => figdir,
-        "{{FIGDIR_ARGS}}" => join(repr.(splitpath(figdir)), ", "),
+        "{{PAPER_JL}}" => repr(first_paper),
         "{{PAPERDIR}}" => dirname(first_paper),
         "{{PAPERS_JL}}" => "[" * join(repr.(papers), ", ") * "]",
     ]
@@ -120,7 +120,7 @@ function _populate!(path::AbstractString; name::AbstractString,
     for p in papers[2:end]
         put(p, render("paper/other.tex.tmpl"))
     end
-    for d in unique(joinpath(dirname(p), "figures") for p in papers)
+    for d in unique(paper_figures_dir(p; root = "") for p in papers)
         mkpath(joinpath(path, d))
     end
     for d in ("plots", "data/exp_raw", "data/exp_pro", "data/sims")

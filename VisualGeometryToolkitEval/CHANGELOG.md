@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New: `PaperProjects.paper_figures_dir(paper = "paper/main.tex"; root = project_root())`**: the directory a paper
+  reads its generated assets from, `figures/` beside its main .tex under the project root — where a driver's deploy
+  stage puts its renders. RANSACScoringDoneRight's neurips2026 and radiometric-camera's cvpr2027 each defined it as
+  `paper_figdir()`; the template's driver reads it (`paper_figures_dir(PAPER)`, the paper named once in the
+  project's `src/<Name>.jl`) and the template builder places each paper's `figures/` through it.
+
 - **Internal: one dirtiness rule, Core's GPU names.** `results_branch` reads a checkout's HEAD and its dirtiness through
   the package's `_git_identity` (LibGit2, as a tuning artifact records it; was `git status --porcelain` in a
   subprocess), and the GPUs of a run through Core's `device_names` when `nvidia-smi` is absent.

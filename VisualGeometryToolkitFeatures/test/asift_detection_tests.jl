@@ -81,7 +81,7 @@ end
     all_ = asift_detect(IMG; device = KA.CPU())
     @test any(d -> near(d, (cy, cx)), all_)
     for nms in (:mxm, :none)
-        m = asift_detect(IMG; device = KA.CPU(), nms, mask)
+        m = asift_detect(IMG; device = KA.CPU(), nms, exclusion_mask = mask)
         unmasked = asift_detect(IMG; device = KA.CPU(), nms)
         @test !isempty(m) && all(d -> gap(centroid(d)) > reach(d) - 1, m)
         @test !any(d -> near(d, (cy, cx)), m)
@@ -92,22 +92,35 @@ end
         @test length(m) < length(unmasked)
     end
     # the raw features and the covariances take the same mask
-    r = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance(), mask)
+    r = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance(), exclusion_mask = mask)
     full = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance())
     keep = [f in r.features for f in full.features]
     @test r.features == full.features[keep] && r.cov == full.cov[keep]
-    @test asift_detect(IMG; device = KA.CPU(), mask = falses(H, W)) == all_
-    @test_throws DimensionMismatch asift_detect(IMG; device = KA.CPU(), mask = falses(W, H))
+    @test asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(H, W)) == all_
+    @test_throws DimensionMismatch asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(W, H))
     # a StabilizedImage: its saturation is masked by the same rule, and a caller's mask joins it
     img = Float64.(IMG) .* 50
     sat = [hypot(i - BLOBS[3][1], j - BLOBS[3][2]) < 4 for i in 1:H, j in 1:W]
     s = StabilizedImage(img, sat, 50.0)
     open_ = StabilizedImage(img, falses(H, W), 50.0)
-    @test asift_detect(s; device = KA.CPU(), noise_sigmas = 1) == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, mask = sat)
-    both = asift_detect(s; device = KA.CPU(), noise_sigmas = 1, mask)
-    @test both == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, mask = mask .| sat)
+    @test asift_detect(s; device = KA.CPU(), noise_sigmas = 1) == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = sat)
+    both = asift_detect(s; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = mask)
+    @test both == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = mask .| sat)
     @test !any(d -> near(d, (cy, cx)) || near(d, (BLOBS[3][1], BLOBS[3][2])), both)
     @test any(d -> near(d, (BLOBS[2][1], BLOBS[2][2])), both)
+end
+
+@testitem "ASIFT exclusion mask: the retired keyword `mask` is refused, naming `exclusion_mask`" setup = [Fixtures] begin
+    using VisualGeometryToolkitFeatures: StabilizedImage
+    H, W = size(IMG)
+    refused(f) = try
+        f(); false
+    catch e
+        e isa ArgumentError && occursin("exclusion_mask", e.msg)
+    end
+    @test refused(() -> asift_detect(IMG; device = KA.CPU(), mask = falses(H, W)))
+    @test refused(() -> asift_detect(StabilizedImage(Float64.(IMG), falses(H, W), 1.0); device = KA.CPU(), mask = falses(H, W)))
+    @test asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(H, W)) == asift_detect(IMG; device = KA.CPU())
 end
 
 @testitem "ASIFT detection mask: the clearance is the exact Euclidean distance to the nearest masked pixel" begin

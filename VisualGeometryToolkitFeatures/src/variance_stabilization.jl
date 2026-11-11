@@ -127,21 +127,22 @@ coarser slice, and every tilted view, has less noise, so is held to more than
 `noise_sigmas` σ of its own. The default 3 is Lowe's three-sigma reading of a
 contrast: on pure noise, extrema above it are rare.
 
-The saturated pixels are the detection `mask` ([`asift_detect`](@ref)'s rule: a
+The saturated pixels are the `exclusion_mask` ([`asift_detect`](@ref)'s rule: a
 detection whose centre lies within three of its scales, the DoG's support, of a
-masked pixel is dropped): a clipped value is no measurement. A caller's `mask`
+masked pixel is dropped): a clipped value is no measurement. A caller's `exclusion_mask`
 joins them. The image is scaled by `1 / s.white` into `[0, 1]` for the
 detector (the warps' fill is mid-grey), the threshold with it. `kwargs` are
 [`asift_detect`](@ref)'s but `intensity_thr` (the threshold is `noise_sigmas`).
 """
 function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::Real = 1.6, upsample::Bool = true,
-                      mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...)
+                      exclusion_mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...)
+    _refuse_retired_mask(kwargs)
     haskey(kwargs, :intensity_thr) && throw(ArgumentError(
         "asift_detect: a StabilizedImage's threshold is `noise_sigmas` (noise σ), not `intensity_thr`"))
     isfinite(noise_sigmas) && noise_sigmas > 0 ||
         throw(ArgumentError("asift_detect: noise_sigmas must be positive and finite, got $noise_sigmas"))
-    _check_mask(mask, size(s.image))
+    _check_mask(exclusion_mask, size(s.image))
     thr = noise_sigmas * _noise_intensity_thr(seed_sigma, upsample) / s.white
     return asift_detect(Float32.(s.image ./ s.white); intensity_thr = thr, seed_sigma, upsample,
-                        mask = mask === nothing ? s.saturated : mask .| s.saturated, kwargs...)
+                        exclusion_mask = exclusion_mask === nothing ? s.saturated : exclusion_mask .| s.saturated, kwargs...)
 end

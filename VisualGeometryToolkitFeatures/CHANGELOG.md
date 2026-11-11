@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-- **Faster: `asift_detect(…; mask)`** decides each detection's clearance from a summed-area table of the mask, read
+- **Breaking: `asift_detect`'s detection keyword `mask` is `exclusion_mask`** (the image and the `StabilizedImage`
+  methods; the semantics are unchanged: a marked pixel excludes every detection whose centre lies within three of its
+  scales, and a `StabilizedImage`'s saturation joins it). Passing `mask` is an `ArgumentError` naming
+  `exclusion_mask`. `gaussian_blur(img, σ, mask)`'s positional weight map is another thing and keeps its name.
+
+- **Faster: `asift_detect(…; exclusion_mask)`** decides each detection's clearance from a summed-area table of the mask, read
   over the detection's disc, instead of a full-frame Euclidean distance transform per call: the same decisions (the
   same distance rule), ~6× faster and ~6.6× less memory on a 24 MP frame (also every `asift_detect(::StabilizedImage)`,
   whose saturation is its mask).
@@ -76,12 +81,12 @@
   `asift_detect(…; nms = :none)` returns it keeps exactly what the in-pipeline NMS keeps (no longer "up to ties").
   `spread_strongest` was already a function of its input's order; given the canonical detections it is reproducible
   too. **Breaking (order):** a caller that relied on the pool's warp-by-warp order now gets the canonical order.
-- **New: a detection mask, `asift_detect(img; mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
+- **New: an exclusion mask, `asift_detect(img; exclusion_mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
   (clipped highlights, a vignetted rim): a detection whose centre lies within three of its scales (the DoG's support)
   of a masked pixel is dropped, on Detections, `raw` features and covariances alike. There was no way to exclude
   clipped regions of an ordinary (tone-mapped) image, so keypoints landed on clipped window panes. The rule is the
   one `asift_detect(::StabilizedImage)` applied to sensor saturation, now in one place: that method masks
-  `s.saturated` through `mask` (joined with a caller's `mask`), and takes `raw = true`, which it refused while the
+  `s.saturated` through `exclusion_mask` (joined with a caller's `exclusion_mask`), and takes `raw = true`, which it refused while the
   masking read Detections.
 - **New: `tilt_schedule(name)`, ASIFT's tilts by name; `asift_detect(img; tilts = :untilted)` restricts ASIFT to the
   untilted view (t = 1).** `:imas25` (the default of `asift_detect` and `AsiftPlan`) is IMAS-25; `:untilted` is the

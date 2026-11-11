@@ -359,6 +359,29 @@ function image_warp!(
 end
 
 """
+    image_warp!(dst::AbstractArray{<:Any, 3}, warps::Tuple{Vararg{BoundedMap}}, src::AbstractArray{<:Any, 3}; fillvalue=0) -> dst
+
+A multi-plane image warped plane by plane, each plane through its own warp:
+plane `p` of `dst` is plane `p` of `src` sampled through `warps[p]` — the
+2-D [`image_warp!`](@ref) of each plane, on the backend that owns `dst`. For an
+image whose planes are sampled at different points (a Bayer image's R, G and
+B), each plane's warp composes that plane's own frame map:
+`image_warp(T, inv(plane_map_p) ∘ math, rect)`. One warp per plane
+(`DimensionMismatch` otherwise).
+"""
+function image_warp!(
+        dst::AbstractArray{<:Any, 3}, warps::Tuple{Vararg{BoundedMap}}, src::AbstractArray{<:Any, 3};
+        fillvalue = zero(_sample_type(eltype(dst)))
+    )
+    P = length(warps)
+    size(dst, 3) == P == size(src, 3) || throw(
+        DimensionMismatch("image_warp!: $P warps for a $(size(src, 3))-plane source and a $(size(dst, 3))-plane destination")
+    )
+    foreach(p -> image_warp!(view(dst, :, :, p), warps[p], view(src, :, :, p); fillvalue), 1:P)
+    return dst
+end
+
+"""
     image_warp_batch_to!(out, warps, src; fillvalue=0) -> out
 
 Sample `src` once per output pixel of every warp in `warps`, writing into

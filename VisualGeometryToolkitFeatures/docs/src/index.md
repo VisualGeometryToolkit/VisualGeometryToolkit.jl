@@ -32,7 +32,8 @@ them.
   authors' ONNX exports through ONNX Runtime on the CPU or CUDA
   ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
 - **Extensions.** JLD2 backs [`FileCache`](@ref), and Makie draws detections
-  and correspondences ([`detections!`](@ref)).
+  and correspondences ([`detections!`](@ref)) and holds the one image viewer,
+  linked axes over a menu of image pairs ([`compare_images`](@ref)).
 
 Detectors return pixel coordinates in the COLMAP convention (the top-left
 pixel's centre is (0.5, 0.5)); the matchers work in descriptor space and

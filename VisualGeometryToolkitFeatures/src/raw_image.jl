@@ -133,16 +133,22 @@ indices read through `"RGBG"`, as convert_raw.py records it.
 cfa_string(mosaic::RawMosaic) = join(("RGBG"[Int(c) + 1] for c in permutedims(mosaic.pattern)))
 
 """
-    BayerCellFrame <: Frame{2}
+    BayerCellFrame{C} <: Frame{2}
 
-The COLMAP pixel frame of the half-resolution grid of 2×2 Bayer cells — the
-`:green_cells` and `:bin2` images of [`LinearRaw`](@ref): cell `(row, column)`
-centred at `(column − ½, row − ½)`. [`raw_frame_map`](@ref) maps it to the
-visible raw's `PixelFrame{:colmap}`.
+The COLMAP pixel frame of one colour plane `C` (`:R`, `:G` or `:B`) of the
+half-resolution grid of 2×2 Bayer cells — the planes of the `:green_cells` and
+`:bin2` images of [`LinearRaw`](@ref): pixel `(row, column)` of the plane is
+centred at `(column − ½, row − ½)` of its frame. The planes are indexed alike
+but sampled at different points of the cell, so each is a frame of its own:
+[`bayer_plane_map`](@ref) maps plane `C`'s frame onto the visible raw's
+`PixelFrame{:colmap}`, and a composition that joins one plane's frame to
+another's is refused (`MethodError`), as at every frame junction of Core.
+`BayerCellFrame{:G}` is the cell grid itself (the greens' mean sits at the
+cell centre in every phase): [`raw_frame_map`](@ref) is its map.
 """
-struct BayerCellFrame <: Frame{2} end
+struct BayerCellFrame{C} <: Frame{2} end
 
-# THE map of the cell grid onto the visible raw, x ↦ 2x, exactly. Cell (i, j)
+# THE map of the cell grid (the green plane) onto the visible raw, x ↦ 2x, exactly. Cell (i, j)
 # holds photosites (2i − 1, 2j − 1) … (2i, 2j) of the visible area, whose
 # centres (2j − 1.5, 2i − 1.5) … (2j − 0.5, 2i − 0.5) average to (2j − 1, 2i − 1),
 # twice the cell centre (j − ½, i − ½). The cells start at the visible area's
@@ -151,7 +157,14 @@ struct BayerCellFrame <: Frame{2} end
 # GBRG from an odd one), which the colour lookup carries, not the geometry. In
 # the FULL raw frame (`raw_size`) the map would add `(left, top)`; nothing reads
 # that frame.
-const _CELL_FRAME_MAP = relabel(BayerCellFrame, PixelFrame{:colmap}, SimilarityMap(LinearMap(UniformScaling(2.0))))
+const _CELL_FRAME_MAP = relabel(BayerCellFrame{:G}, PixelFrame{:colmap}, SimilarityMap(LinearMap(UniformScaling(2.0))))
+
+# Plane C's map onto the raw: its translation onto the cell grid (`o`, where the
+# plane's samples sit from the cell centre, cell pixels) composed with the cell
+# grid's map, so the ×2 is stated once, in `_CELL_FRAME_MAP`. The green plane
+# IS the cell grid.
+_plane_map(::Val{:G}, o) = _CELL_FRAME_MAP
+_plane_map(::Val{C}, o) where {C} = _CELL_FRAME_MAP ∘ relabel(BayerCellFrame{C}, BayerCellFrame{:G}, SimilarityMap(Translation(o)))
 
 """
     LinearRaw
@@ -167,31 +180,27 @@ level) is kept.
   four photosites is, so a cell whose two greens straddle the white level is
   flagged rather than averaged into a plausible value; in `:green_cells` when
   either green is.
-- `plane_offsets::Vector{SVector{2, Float64}}` — per plane, where its sample
-  sits relative to the pixel centre, `(Δx, Δy)` in this image's pixels: the
-  sample of pixel `(row, column)`, plane `k`, is at the COLMAP point
-  `(column − ½, row − ½) + plane_offsets[k]`. Empty for `:demosaic`, whose
-  pixels are interpolated, not samples.
+- `plane_maps` — per plane, its map onto the visible raw
+  ([`bayer_plane_map`](@ref), which reads it); `nothing` for `:demosaic`,
+  whose pixels are interpolated, not samples.
 - `green_offsets` — the cell's two green photosites, `(Δx, Δy)` from the cell
   centre in RAW pixels ([`green_cell_sites`](@ref)); `nothing` for `:demosaic`.
 - `green_dn` — the two green photosites' `white − black[c]`, the codes that span
   `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
   photon and read noise scale by ([`variance_stabilize`](@ref)); `nothing` for
   `:demosaic`.
-- `mode`, `gain`, the mosaic's `metadata` (the decoder and LibRaw's version
-  among it), and `frame_map` — [`raw_frame_map`](@ref)'s map of the image's
-  pixel frame onto the visible raw, `nothing` for `:demosaic`.
-  [`raw_provenance`](@ref) gives them as plain data for a result to record.
+- `mode`, `gain` and the mosaic's `metadata` (the decoder and LibRaw's version
+  among it). [`raw_provenance`](@ref) gives them, and the frame map, as plain
+  data for a result to record.
 """
-struct LinearRaw{M <: NamedTuple, F, G}
+struct LinearRaw{M <: NamedTuple, P <: Union{Nothing, Tuple}, G}
     image::Array{Float64, 3}
     saturated::BitMatrix
-    plane_offsets::Vector{SVector{2, Float64}}
+    plane_maps::P
     green_offsets::G
     green_dn::Union{Nothing, NTuple{2, Float64}}
     mode::Symbol
     gain::Float64
-    frame_map::F
     metadata::M
 end
 
@@ -214,7 +223,8 @@ choice between them):
   BGGR cell, `(±½, ±½)` for GRBG or GBRG ([`green_cell_sites`](@ref)).
 - `:bin2` — the same cells with their red and blue, `× 3` planes: R, the mean
   of the two greens (the `:green_cells` image, bit for bit), B. R and B sit at
-  their photosites, `(±¼, ±¼)` cell pixels from the centre (`plane_offsets`).
+  their photosites, `(±¼, ±¼)` cell pixels from the centre: each plane's map
+  onto the raw is [`bayer_plane_map`](@ref).
 
 `:demosaic` (LibRaw's interpolation, for display figures) needs the file:
 [`load_raw`](@ref)`(path; mode = :demosaic)`.
@@ -295,16 +305,18 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     # (dj − ½, di − ½) raw pixels from the cell centre, half that in cell pixels
     site_offset(k) = SVector(_QUAD_SITES[k][2] - 0.5, _QUAD_SITES[k][1] - 0.5)
     green_offsets = (site_offset(g[1]), site_offset(g[2]))
-    used, sites = mode === :bin2 ? ((r, g, b), (1, 2, 3, 4)) : ((g,), g)
+    used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
     img = Array{Float64, 3}(undef, H2, W2, P)
     sat = Matrix{Bool}(undef, H2, W2)
     backend = KA.get_backend(img)
     _cells_kernel!(backend)(img, sat, m.raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
     KA.synchronize(backend)
-    # in cell pixels: the frame map's scale, the one place it is stated
-    offsets = [sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP)) for ks in used]
-    return LinearRaw(img, BitMatrix(sat), offsets, green_offsets, (den[g[1]], den[g[2]]), mode, gain, _CELL_FRAME_MAP, m.metadata)
+    # each plane's samples from the cell centre, in cell pixels (the frame map's
+    # scale, the one place it is stated), as the plane's translation onto the grid
+    offset(ks) = sum(site_offset, ks) / (length(ks) * scale(_CELL_FRAME_MAP))
+    maps = map((C, ks) -> _plane_map(Val(C), offset(ks)), colours, used)
+    return LinearRaw(img, BitMatrix(sat), maps, green_offsets, (den[g[1]], den[g[2]]), mode, gain, m.metadata)
 end
 
 # The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
@@ -320,29 +332,60 @@ function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Floa
     end
     sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
     # no sample positions: every pixel is interpolated
-    return LinearRaw(img, sat, SVector{2, Float64}[], nothing, nothing, :demosaic, gain, nothing, metadata)
+    return LinearRaw(img, sat, nothing, nothing, nothing, :demosaic, gain, metadata)
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.
-_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(ArgumentError(
+_display_only(what) = ArgumentError(
     "$what: a :demosaic image interpolates and is for display figures only; geometry and radiometry read `mode = :green_cells`"
-)) : L
+)
+_geometric(L::LinearRaw, what) = L.mode === :demosaic ? throw(_display_only(what)) : L
 
 """
-    raw_frame_map(L::LinearRaw) -> SimilarityMap{2, …, BayerCellFrame, PixelFrame{:colmap}}
+    raw_frame_map(L::LinearRaw) -> SimilarityMap{2, …, BayerCellFrame{:G}, PixelFrame{:colmap}}
 
-THE map of the image's pixel frame onto the visible raw's `PixelFrame{:colmap}`
+THE map of the image's pixel frame (the cell grid, which is its green plane's
+frame) onto the visible raw's `PixelFrame{:colmap}`
 (the frame of `RawMosaic.raw` and of every calibration of the raw): `x ↦ 2x`,
 exactly, for every Bayer phase and either parity of the visible origin (the
 cells start at the visible area's first photosite; an odd margin changes only
 the cell's colour phase). Its inverse is `inv(raw_frame_map(L))`, and a
 calibration matrix moves with it through Core,
 `reframed_calibration(raw_frame_map(L), K_cells)`, `K_cells` in the cell
-image's pixels (`BayerCellFrame`), giving K in the raw's pixels (and back
+image's pixels (`BayerCellFrame{:G}`), giving K in the raw's pixels (and back
 with the inverse; K carries no frame label, so which frame it is in is the
 caller's statement). A `:demosaic` image is refused (`ArgumentError`): it is for display.
 """
-raw_frame_map(L::LinearRaw) = _geometric(L, "raw_frame_map").frame_map
+raw_frame_map(L::LinearRaw) = (_geometric(L, "raw_frame_map"); _CELL_FRAME_MAP)
+
+"""
+    bayer_plane_map(L::LinearRaw, c::Integer) -> SimilarityMap{2, …, BayerCellFrame{C}, PixelFrame{:colmap}}
+
+The Bayer transform of plane `c` of the image: the map of the plane's own frame
+([`BayerCellFrame`](@ref)`{C}`, `C` its colour — `:R`, `:G`, `:B` for
+`:bin2`, `:G` for `:green_cells`) onto the visible raw's
+`PixelFrame{:colmap}`. It is the plane's translation onto the cell grid (where
+its samples sit from the cell centre: `(±¼, ±¼)` cell pixels for R and B, none
+for G) composed with [`raw_frame_map`](@ref)`(L)`, so pixel `(row, column)` of
+the plane, at `(column − ½, row − ½)` of its frame, goes onto the centre of the
+photosites its value is the mean of — R's or B's one, the two greens' midpoint —
+exactly, for every Bayer phase and either parity of the visible origin. The
+green plane's map IS `raw_frame_map(L)`.
+
+A warp reads plane `c` of an image through `inv(bayer_plane_map(L, c)) ∘ math`,
+`math` landing in the raw's pixels, like any other map
+(`VisualGeometryToolkitCore.image_warp`; one warp per plane:
+`image_warp!(dst, warps, L.image)` with a tuple of them). A composition that
+joins two planes' frames is refused (`MethodError`). A plane past the image's,
+or a `:demosaic` image, is an `ArgumentError`.
+"""
+bayer_plane_map(L::LinearRaw, c::Integer) = _nth_plane_map(L.plane_maps, L.mode, c)
+# the demosaic holds no maps (dispatch on what is held, so no path reads an absent tuple)
+_nth_plane_map(::Nothing, mode, c) = throw(_display_only("bayer_plane_map"))
+function _nth_plane_map(maps::Tuple, mode, c)
+    1 <= c <= length(maps) || throw(ArgumentError("bayer_plane_map: a :$mode image has $(length(maps)) plane(s), got plane $c"))
+    return maps[c]
+end
 
 """
     green_cell_sites(L::LinearRaw, row::Integer, column::Integer) -> NTuple{2, SVector{2, Float64}}
@@ -368,9 +411,9 @@ How the image was made, as plain data a result records: `decoder`,
 [`raw_frame_map`](@ref), `nothing` for `:demosaic`).
 """
 function raw_provenance(L::LinearRaw)
-    S = L.frame_map
+    S = L.mode === :demosaic ? nothing : raw_frame_map(L)
     fm = S === nothing ? nothing :
-        (from = "BayerCellFrame", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
+        (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
     return (decoder = get(L.metadata, :decoder, nothing), libraw_version = get(L.metadata, :libraw_version, nothing),
             mode = String(L.mode), gain = L.gain, frame_map = fm)
 end

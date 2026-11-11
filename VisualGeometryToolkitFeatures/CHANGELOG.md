@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **New: the stack's one image viewer, `compare_images(entries; titles, default, size)`** (exported; the Makie
+  extension): a menu over named entries, each a tuple of images (or a function returning one, loaded when chosen),
+  one axis per image, the axes linked, each image drawn by Core's orientation rule (`imshow!`). PanoramaStitching's
+  `compare_makie.jl` keeps only which renders form a pair.
+
+- **New: the one display encoding, `srgb_image([T = N0f8], img; exposure, white_balance, background, tone)`**
+  (exported), and **`linear_to_srgb`** (public), the IEC 61966-2-1 OETF beside `srgb_to_linear`. A linear
+  `H × W × 3` image (or one plane) to `RGB{T}` (`Gray{T}`): exposure, a white-balance factor per plane, an optional
+  tone curve (default none), clamp, sRGB, `N0f8` or `N0f16`; a NaN value is the `background`. A broadcast, so a
+  device image is encoded on the device. The copies of the encoder in PanoramaStitching's `save_srgb`, RadiometricCamera's
+  `write_pngs` and `write_decoded`, and BlobBoards' hero script become calls to it.
+
+- **Breaking: each plane of a Bayer image is a frame-labelled map onto the raw, `bayer_plane_map(L, c)`; the bare
+  offsets are gone.** `BayerCellFrame` is now `BayerCellFrame{C}`, the frame of plane `C` (`:R`, `:G`, `:B`): the
+  planes are indexed alike but sampled at different points of the cell. `bayer_plane_map(L, c)` (exported) is plane
+  `c`'s Core `SimilarityMap{…, BayerCellFrame{C}, PixelFrame{:colmap}}`, its translation onto the cell grid composed
+  with `raw_frame_map(L)`, so the ×2 is stated once; it sends every sample onto the centre of its photosites exactly,
+  for all four phases and both origin parities. The green plane's map IS `raw_frame_map(L)`, whose source is now
+  `BayerCellFrame{:G}` (the cell grid). A warp reads plane `c` through `inv(bayer_plane_map(L, c)) ∘ math`, like any
+  other map, all planes in one call through Core's `image_warp!(dst, warps, src)`; a composition that joins two
+  planes' frames is refused (`MethodError`). Removed: the `LinearRaw` fields `plane_offsets` (a plane's offset is
+  `translation(inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c))`) and `frame_map` (`raw_frame_map(L)`); the new field
+  `plane_maps` holds the maps. `raw_provenance(L).frame_map.from` reads `"BayerCellFrame{:G}"` (was
+  `"BayerCellFrame"`). `plane_offsets` and PanoramaStitching's `raw_scale` are retired names.
+
 - **ASIFT's result no longer depends on the threads: the same image gives the same keypoints, in the same order, run
   to run.** The extrema pool fills through an atomic counter, in the order the threads (or a GPU's warps) reach it,
   and the cross-warp NMS breaks ties in its quantized response by pool index, so on many threads both the order of the

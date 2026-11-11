@@ -181,4 +181,47 @@ function detections!(
     return ellipses!(ax, shapes; cutoff, color, colormap, strokecolor, kwargs...)
 end
 
+# =============================================================================
+# compare_images — the stack's one image viewer: linked axes over a menu of entries
+# =============================================================================
+
+import VisualGeometryToolkitFeatures: compare_images
+using Makie: Menu, Observable, on, linkaxes!, reset_limits!
+
+# An entry's images: the tuple itself, or what its loader returns (called when the entry is chosen).
+_entry_images(x::Tuple) = x
+function _entry_images(f)
+    x = f()
+    x isa Tuple || throw(ArgumentError("compare_images: an entry's loader returns a tuple of images, got a $(typeof(x))"))
+    return x
+end
+
+function compare_images(entries::AbstractVector{<:Pair}; titles = nothing, default = nothing, size = (1800, 1000))
+    isempty(entries) && throw(ArgumentError("compare_images: no entries"))
+    names = [String(first(e)) for e in entries]
+    shown = something(default, first(names))
+    shown in names || throw(ArgumentError("compare_images: the default $(repr(shown)) is not an entry ($(join(names, ", ")))"))
+    lookup = Dict(zip(names, last.(entries)))
+    images = _entry_images(lookup[shown])
+    n = length(images)
+    labels = titles === nothing ? ntuple(_ -> "", n) : Tuple(titles)
+    length(labels) == n || throw(ArgumentError("compare_images: $(length(labels)) titles for $n images an entry"))
+    fig = Figure(; size)
+    menu = Menu(fig[1, 1]; options = names, default = shown, tellwidth = false)
+    shown_images = [Observable{AbstractMatrix}(images[i]) for i in 1:n]
+    axes = [Axis(fig[i + 1, 1]; title = String(labels[i])) for i in 1:n]
+    for (ax, img) in zip(axes, shown_images)
+        hidedecorations!(ax)
+        VgtkCore.imshow!(ax, img)                 # Core's orientation rule
+    end
+    n > 1 && linkaxes!(axes...)
+    on(menu.selection) do name
+        next = _entry_images(lookup[name])
+        length(next) == n || throw(ArgumentError("compare_images: entry $(repr(name)) has $(length(next)) images, the others $n"))
+        foreach(i -> shown_images[i][] = next[i], 1:n)
+        reset_limits!(first(axes))
+    end
+    return fig
+end
+
 end # module VisualGeometryToolkitFeaturesMakieExt

@@ -27,7 +27,7 @@ module VisualGeometryToolkitFeatures
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray
-using FixedPointNumbers: N0f8
+using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using ImageMorphology: distance_transform, feature_transform   # the distance to the nearest masked pixel (asift_detect's mask)
@@ -44,7 +44,7 @@ using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, 
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
-using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
+using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, Translation, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
 using LinearAlgebra: UniformScaling
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
@@ -151,11 +151,12 @@ export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
-public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (masked) separable Gaussian of a linear image
+export srgb_image               # the one display encoding: exposure, white balance, NaN → background, tone, clamp, sRGB, N0f8/N0f16
+public srgb_to_linear, linear_to_srgb, box_downsample, gaussian_blur   # the sRGB decode and encode; gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
-export BayerCellFrame, raw_frame_map, green_cell_sites   # the cell grid's frame, its exact map onto the raw, a green cell's footprint
+export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the cell grid's and each plane's exact map onto the raw, a green cell's footprint
 public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)
@@ -201,7 +202,7 @@ export FileCache, open_cache, close_cache, cache_key
 # -----------------------------------------------------------------------------
 # 6. VISUALIZATION - stubs implemented in VisualGeometryToolkitFeaturesMakieExt
 # -----------------------------------------------------------------------------
-export detections!
+export detections!, compare_images   # detections over an image; the one image viewer (Makie extension)
 
 include("precompile.jl")   # last: the workload calls the API defined above
 

@@ -241,6 +241,7 @@ end
     using LinearAlgebra: norm, normalize
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, BoundedCamera, Size2, SplineLens,
         CameraModel, KannalaBrandt, Rect, Ellipse, angle_between, calibration_matrix, lens, grid_size, px
+    import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     bc = BoundedCamera(FISHEYE, Size2(1000, 1000))
@@ -260,7 +261,7 @@ end
     # the held-out direction error over the region: no worse than node interpolation on the same lattice
     interpolated = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (gw, gh))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
-    held = VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics)
+    held = VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics, VgtkCore.default_device())
     e_fit = VgtkEstimation._direction_errors(g, held)
     e_int = VgtkEstimation._direction_errors(interpolated, held)
     @test held.n_dropped == 0 && length(e_fit) == length(q.held_px) && md.family.n_held_out_dropped == 0
@@ -307,7 +308,7 @@ end
 
 @testitem "fit_camera: held-out pixels without a finite source Jacobian are dropped and counted" setup = [FitCameraFisheye] begin
     using Test
-    using StaticArrays: SMatrix
+    using StaticArrays: SMatrix, SVector
     using LinearAlgebra: normalize
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: estimate, BoundedCamera, Size2, SplineLens, backproject_with_jacobian
@@ -320,12 +321,13 @@ end
     end
     VgtkCore.backproject_with_jacobian(s::NaNJacobianSource, u) =
         u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
+    VgtkCore.backproject_with_jacobian(s::NaNJacobianSource, us::AbstractVector{<:SVector{2}}; device) = map(u -> backproject_with_jacobian(s, u), us)
     g = estimate(fit_camera(SplineLens, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION; tolerance = 1.0e-3, forward = false))
     q = VgtkEstimation._image_quadrature(FISHEYE, REGION)
     bad = [3, 10, 50]
     src = NaNJacobianSource(FISHEYE, Set{Any}(q.held_px[bad]))
-    held_all = VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics)
-    held = VgtkEstimation._held_out(SplineLens, src, q, g.intrinsics)
+    held_all = VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics, VgtkCore.default_device())
+    held = VgtkEstimation._held_out(SplineLens, src, q, g.intrinsics, VgtkCore.default_device())
     kept = setdiff(eachindex(q.held_px), bad)
     @test held_all.n_dropped == 0 && held.n_dropped == 3 && held.px == q.held_px[kept] && held.edge == q.edge[kept]
     e_all = VgtkEstimation._direction_errors(g, held_all)
@@ -334,7 +336,7 @@ end
     @test e ≈ e_all[kept] rtol = 1.0e-12     # (the wrapper's call compiles apart: the last bits may differ)
     errors, _ = VgtkEstimation._grid_errors(g, held, nothing)
     @test isfinite(errors.max) && errors.max == maximum(e)
-    @test_throws r"not finite at any held-out pixel" VgtkEstimation._held_out(SplineLens, NaNJacobianSource(FISHEYE, Set{Any}(q.held_px)), q, g.intrinsics)
+    @test_throws r"not finite at any held-out pixel" VgtkEstimation._held_out(SplineLens, NaNJacobianSource(FISHEYE, Set{Any}(q.held_px)), q, g.intrinsics, VgtkCore.default_device())
 end
 
 @testitem "fit_camera: a non-central model's line offsets drop the held-out pixels its direction errors drop" setup = [FitCameraNoncentral] begin
@@ -351,12 +353,13 @@ end
     end
     VgtkCore.backproject_with_jacobian(s::NaNJacobianLines, u) =
         u in s.bad ? (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64})) : backproject_with_jacobian(s.model, u)
+    VgtkCore.backproject_with_jacobian(s::NaNJacobianLines, us::AbstractVector{<:SVector{2}}; device) = map(u -> backproject_with_jacobian(s, u), us)
     fitted = estimate(fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3))
     q = VgtkEstimation._image_quadrature(VgtkEstimation._lines_on(VgtkEstimation.default_device()), MODEL, REGION)
     xs = VgtkEstimation._normalized_points(fitted.intrinsics, q.held_px)
     offset(i) = VgtkEstimation._line_offset(fitted, xs[i], first(q.held_rays[i]), last(q.held_rays[i]))   # the batch's own scalar offset
     worst = partialsortperm(map(offset, eachindex(q.held_px)), 1:3; rev = true)   # the three largest offsets
-    held = VgtkEstimation._held_out(NoncentralSplineModel, NaNJacobianLines(MODEL, Set{Any}(q.held_px[worst])), q, fitted.intrinsics)
+    held = VgtkEstimation._held_out(NoncentralSplineModel, NaNJacobianLines(MODEL, Set{Any}(q.held_px[worst])), q, fitted.intrinsics, VgtkCore.default_device())
     direction, offsets = VgtkEstimation._line_errors(fitted, held)
     kept = setdiff(eachindex(q.held_px), worst)
     @test held.n_dropped == 3 && offsets.max < maximum(offset, worst)
@@ -441,6 +444,7 @@ end
     using LinearAlgebra: norm, normalize, dot
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, NoncentralSplineModel, ChartSpline, backproject,
         nearest_point, calibration_matrix
+    import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     r = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3)
@@ -467,7 +471,7 @@ end
         g.intrinsics, ChartSpline(g.directions.area, [SVector{3, Float64}(l.direction) for l in lines]),
         ChartSpline(g.directions.area, [SVector{3, Float64}(l.origin) for l in lines])
     )
-    e_s, o_s = VgtkEstimation._line_errors(sampled, VgtkEstimation._held_out(NoncentralSplineModel, MODEL, q, g.intrinsics))
+    e_s, o_s = VgtkEstimation._line_errors(sampled, VgtkEstimation._held_out(NoncentralSplineModel, MODEL, q, g.intrinsics, VgtkCore.default_device()))
     @test md.max_px < e_s.max / 100 && md.family.max_offset < o_s.max / 100
     # the rays at and past 90° (to ~97°): the fitted lines stay on the source's
     # (measured 2.0e-6 rad, 7.2e-9 m)

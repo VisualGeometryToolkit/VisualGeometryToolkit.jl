@@ -5,6 +5,9 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Changed: `fit_camera` and `pspline_grid` read every camera source's quadrature rays and held-out Jacobians
+  through Core's batched `backproject` / `backproject_with_jacobian` on `device`** (a parametric source ran as a host
+  map, and its Jacobians always did). No per-lens-type branch; values unchanged on the CPU.
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 

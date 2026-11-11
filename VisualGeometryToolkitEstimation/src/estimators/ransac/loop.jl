@@ -707,13 +707,22 @@ end
 function _support_rms!(::BinaryWeights, _w, _r, order, residuals, k::Int)
     return k, (k > 0 ? sqrt(partition_rss(order, residuals, k) / k) : NaN)
 end
-# Posterior weights: a weight below `eps(T)` is stored as an exact 0 (out of the
-# support), then the weighted sums run in Float64 over the support.
-function _support_rms!(::PosteriorWeights, w::AbstractVector{T}, r::AbstractVector, _order, _residuals, _k::Int) where {T}
+# Posterior weights: the one support-and-rms rule of every posterior-weighted result.
+_support_rms!(::PosteriorWeights, w::AbstractVector, r::AbstractVector, _order, _residuals, _k::Int) =
+    _posterior_support_rms!(w, (abs2(Float64(x)) for x in r))
+
+# The `n` and `rms` of a result whose weights are posteriors (the contract, §12),
+# the one rule of the `find_*` results under a posterior scorer and of the EM fits
+# (`fit_residual_mixture`, `fit_division_camera`): a weight below `eps(T)` is stored
+# in `w` as an exact 0 (out of the support), then `n` is the support and
+# `rms = √(Σ wᵢ sqᵢ / Σ wᵢ)` over it, the sums in Float64; `sq` holds the squared
+# residuals (Float64), one per weight.
+function _posterior_support_rms!(w::AbstractVector{T}, sq) where {T}
+    length(sq) == length(w) || throw(DimensionMismatch("$(length(w)) weights, $(length(sq)) squared residuals"))
     n = 0
     sw = 0.0
     swr2 = 0.0
-    @inbounds for i in eachindex(w, r)
+    @inbounds for (i, s) in zip(eachindex(w), sq)
         wi = w[i]
         if wi < eps(T)
             w[i] = zero(T)
@@ -721,7 +730,7 @@ function _support_rms!(::PosteriorWeights, w::AbstractVector{T}, r::AbstractVect
         end
         n += 1
         sw += Float64(wi)
-        swr2 += Float64(wi) * abs2(Float64(r[i]))
+        swr2 += Float64(wi) * s
     end
     return n, (sw > 0 ? sqrt(swr2 / sw) : NaN)
 end

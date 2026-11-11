@@ -68,16 +68,8 @@ mahalanobis_distances!(d::AbstractVector, p::_FixedDistances, _held) = copyto!(d
 # weights are the E-step's posterior inlier probabilities (`PosteriorWeights`; a
 # posterior below eps stored as an exact 0, and a datum the fit did not take a
 # weight of 0), its scale the E-step's σ̂ (`ScaleEstimated`), `n` the support
-# (the data of positive weight) and `rms` the weight-weighted root mean square.
-_stored_posterior(p::Real) = p < eps(Float64) ? 0.0 : Float64(p)
-function _weighted_rms(w::AbstractVector, sq)
-    sw, swr = 0.0, 0.0
-    for (wi, s) in zip(w, sq)
-        wi > 0 || continue
-        sw += wi; swr += wi * s
-    end
-    return sw > 0 ? sqrt(swr / sw) : NaN
-end
+# (the data of positive weight) and `rms` the weight-weighted root mean square —
+# the find_* results' own rule, `_posterior_support_rms!`.
 
 """
     ResidualMixtureMetadata
@@ -163,8 +155,9 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}; weighting::Abst
     state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
     res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config),
                                     _FixedDistances(r), r; max_iter = config.max_iter)
-    w = Float64[_stored_posterior(p) for p in view(inlier_weight(rws), 1:n)]
-    return FitResult(rws, retcode(res), iterations(res), _weighted_rms(w, (x^2 for x in r)), count(>(0), w),
+    w = collect(Float64, view(inlier_weight(rws), 1:n))
+    support, wrms = _posterior_support_rms!(w, (abs2(x) for x in r))
+    return FitResult(rws, retcode(res), iterations(res), wrms, support,
                      ResidualMixtureMetadata(state.current_cost, w, sqrt(s_hat_sq(rws)), ScaleEstimated))
 end
 

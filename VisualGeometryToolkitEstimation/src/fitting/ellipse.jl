@@ -74,8 +74,8 @@ The maximum-likelihood ellipse under isotropic Gaussian noise on outlier-free
 points is `refine_ellipse(direct_ellipse(points), points; local_optimization =
 Irls{GaussianShape}(), scoring = MsacScoring(EllipseProblem; threshold = τ))`, τ above every residual: least squares over every point. Its
 covariance is the one model covariance on the inliers,
-`s²·solver_covariance(EllipseProblem(points), e, findall(result.inlier_mask))`
-(in `ambient_coordinates(e)`), `s² = result.sigma²`.
+`s²·solver_covariance(EllipseProblem(points), e, findall(inlier_mask(result)))`
+(in `ambient_coordinates(e)`), `s² = noise_scale(result)²`.
 """
 function refine_ellipse(ellipse::VgtkCore.Ellipse, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
     return _guarded_refine(() -> EllipseProblem(points), EllipseProblem, length(points), :ellipse, ellipse; kwargs...)

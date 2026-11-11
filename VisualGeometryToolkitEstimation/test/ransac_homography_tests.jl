@@ -1,4 +1,5 @@
 @testitem "ransac_homography" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -102,7 +103,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             rng = StableRNG(126)
         )
         @test converged(result)
-        @test sum(result.inlier_mask) == length(board)
+        @test sum(inlier_mask(result)) == length(board)
     end
 
     @testset "HomographyProblem construction" begin
@@ -191,7 +192,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         ]
         @test max_transfer_error(estimate(result), H_true, test_pts) < 2.0
         @test inlier_ratio(result) > 0.5
-        @test sum(result.inlier_mask) >= n_inliers * 0.7
+        @test sum(inlier_mask(result)) >= n_inliers * 0.7
     end
 
     @testset "fit — weighted DLT roundtrip" begin
@@ -243,7 +244,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             SA[200.0, 200.0], SA[700.0, 500.0],
         ]
         @test max_transfer_error(estimate(result), H_true, test_pts) < 2.0
-        @test sum(result.inlier_mask) >= n_inliers * 0.7
+        @test sum(inlier_mask(result)) >= n_inliers * 0.7
     end
 
     @testset "CountedLO — instrumentation wrapper answers as the wrapped strategy" begin
@@ -354,10 +355,10 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test rt.sample_acceptance_rate == r0.sample_acceptance_rate
         @test !isempty(trace0) && trace == trace0              # the raw incumbent's events
         @test rt.lo_retcode == seeded.lo_retcode
-        @test rt.inlier_mask == seeded.inlier_mask             # re-scored for the refined model
+        @test inlier_mask(rt) == inlier_mask(seeded)             # re-scored for the refined model
         @test rt.quality == seeded.quality
         @test rt.residuals == seeded.residuals
-        @test rt.sigma === seeded.sigma
+        @test noise_scale(rt) === noise_scale(seeded)
 
         # A reused workspace gives the same.
         ws = VgtkEstimation.RansacWorkspace(problem, sc, VgtkEstimation.TerminalLO(inner))
@@ -428,7 +429,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         r0 = ransac(problem, sc; local_optimization = NoLocalOptimization(), config = cfg, rng = StableRNG(1))
         rt = ransac(problem, sc; local_optimization = VgtkEstimation.TerminalLO(Irls{WelschShape}(scale_multiple = 1.5)),
             config = cfg, rng = StableRNG(1))
-        @test sum(rt.inlier_mask) == 5
+        @test sum(inlier_mask(rt)) == 5
         @test rt.lo_retcode === :thin_partition
         @test estimate(rt) == estimate(r0)
     end
@@ -532,8 +533,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization = lo, config = cfg, rng = StableRNG(129))
             @test converged(rm)
             @test estimate(rm) isa model_type(pm)
-            @test sum(rm.inlier_mask[1:n_inliers]) >= 0.9 * n_inliers
-            @test sum(rm.inlier_mask[(n_inliers + 1):end]) <= 3
+            @test sum(inlier_mask(rm)[1:n_inliers]) >= 0.9 * n_inliers
+            @test sum(inlier_mask(rm)[(n_inliers + 1):end]) <= 3
             @test max_transfer_error(_to_px(estimate(rm)), H_true, mapped_test_pts) < 1.0
             # The LO objective is the same pixel objective mapped or not, so
             # the two runs land on the same homography.
@@ -587,11 +588,11 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # mismatch, every one under 3 — and the fit lands ~40 px off.
         result = find_homography(csponds(exact.(board), pix))
         @test converged(result)
-        @test sum(result.inlier_mask[9:end]) >= 50
-        @test !any(result.inlier_mask[1:8])
+        @test sum(inlier_mask(result)[9:end]) >= 50
+        @test !any(inlier_mask(result)[1:8])
         @test max_transfer_error(estimate(result), H_true, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
         plain = find_homography(csponds(board, pix))
-        @test all(plain.inlier_mask[1:8])          # the unit error the rule removes
+        @test all(inlier_mask(plain)[1:8])          # the unit error the rule removes
         # A genuinely coincident pair is still refused.
         @test !VgtkEstimation.test_sample(
             HomographyProblem(csponds([board[1], board[1], board[8], board[57], board[64]], [pix[1], pix[1], pix[8], pix[57], pix[64]])),

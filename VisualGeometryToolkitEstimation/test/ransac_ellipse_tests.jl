@@ -67,6 +67,7 @@
 end
 
 @testitem "find_ellipse: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse, estimate, converged, retcode, iterations
     using VisualGeometryToolkitEstimation: find_ellipse
@@ -80,7 +81,7 @@ end
         @test e isa Ellipse{Float64}
         # σ = 0.5 px on 600 inliers: centre and axes σ/√300 ≈ 0.03 px, the angle ≈ 0.03/(a − b) rad
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
-        inl = res.inlier_mask
+        inl = inlier_mask(res)
         good = setdiff(1:1000, bad)
         @test count(inl[good]) > 0.9 * length(good)                       # 1 px MSAC on a 0.5 px normal residual: P(|z| < 2) = 0.95
         @test count(inl[bad]) < 0.05 * length(bad)
@@ -91,7 +92,7 @@ end
     # no sample gives an ellipse (collinear points): a :no_model result whose estimate is nothing,
     # not a MethodError (2026-11-03: `zero(::Type{Ellipse{Float64}})` did not exist)
     none = find_ellipse([Point2(Float64(i), 2.0 * i + 1) for i in 1:10]; rng = Xoshiro(1))
-    @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(none.inlier_mask)
+    @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(inlier_mask(none))
 end
 
 @testitem "find_ellipse: the keywords of every find_* pipeline" setup = [ConicScenes] begin

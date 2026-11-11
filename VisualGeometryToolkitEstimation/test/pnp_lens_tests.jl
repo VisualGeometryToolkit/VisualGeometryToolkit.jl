@@ -1,4 +1,5 @@
 @testitem "pnp_lens" setup = [PoseScenes, Contamination] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # pnp_lens_tests.jl — the absolute-pose problem on a DISTORTING camera: the
@@ -55,7 +56,7 @@ const _SCENES = Dict(
         @test est !== nothing
         @test rotation_error_deg(estimate(est), R_gt) < 0.05
         @test translation_error(estimate(est), t_gt) < 1.0
-        m = est.inlier_mask
+        m = inlier_mask(est)
         @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
         @test count(m .& gt .& (radius .> rim)) >= count(gt .& (radius .> rim)) - 1    # the rim is kept
     end

@@ -5,6 +5,25 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: a RANSAC result carries per-point weights of its scorer's kind, and the scale the scorer originates**
+  (the robust-estimation contract, §2 and §12). `RansacMetadata{T}` becomes `RansacMetadata{T, S}`, `S` the scorer's
+  type (so `RansacEstimate{M, T}` is `RansacEstimate{M, T, S}`; a two-parameter `isa` still matches).
+  - **The `inlier_mask` field is removed.** The mask is `inlier_mask(result)` (VisualGeometryToolkitCore, public), cut
+    from `weights(result)` by the scorer's `weight_kind`: a threshold scorer's (MSAC, RANSAC) binary 1/0 weights at
+    `w > 0` — the same mask as before —, the Student-t + uniform scorer's posterior at the MAP rule `w > ½`.
+    `inlier_mask(result, cut)` takes an explicit cut. `result.inlier_mask` → `inlier_mask(result)`.
+  - **The `sigma` field is `scale`, with `scale_source`**: `noise_scale(result)` reads it (the hand-off a later stage
+    takes as `scale = result`), `scale_source(result)` is `ScaleEstimated`, or `ScaleNone` (scale `NaN`, which
+    `noise_scale` refuses) for a result with no model or a consensus set too thin to scale. `result.sigma` →
+    `noise_scale(result)`. Same values.
+  - **`n` and `rms` follow the weights**: `n = count(>(0), weights)`, `rms = √(Σwᵢrᵢ²/Σwᵢ)`. For a threshold scorer this
+    is the consensus set's size and rms, bit for bit as before. For the Student-t + uniform scorer it changes: before,
+    the rms over the scorer's consensus partition; now every point of non-negligible posterior, at its weight (a
+    posterior below `eps(T)` is stored as an exact 0 and is out of the support). See the B4 measurements in the PR.
+  - `RansacResultBuffers` holds `residuals` and `weights` (no mask); `inlier_ratio(r)` is
+    `count(inlier_mask(r)) / length(weights(r))`.
+  - `locally_optimize` keeps its scorer: its result is the scorer's kind too.
+
 - **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
   takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
   is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming

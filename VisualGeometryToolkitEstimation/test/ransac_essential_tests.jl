@@ -1,4 +1,5 @@
 @testitem "ransac_essential" setup = [EpipolarScenes, Cameras] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -229,7 +230,7 @@ end
     @test count(<(3.0), r[1:150]) > 140              # true inliers score as inliers
     res = VgtkEstimation.ransac(p32, MsacScoring(p32; threshold = 3.0); rng = StableRNG(7))
     @test converged(res)
-    @test count(res.inlier_mask[1:150]) > 0.9 * 150
+    @test count(inlier_mask(res)[1:150]) > 0.9 * 150
 
     # T2: the two Jacobian columns of DIFFERENT types (here Float64 and
     # Float32); the LM state took one type parameter for both, a MethodError

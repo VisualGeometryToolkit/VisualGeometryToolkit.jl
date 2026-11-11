@@ -1,4 +1,5 @@
 @testitem "radial_camera" setup = [DivisionBoards, Contamination] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # RadialCameraProblem + find_radial_camera — the 1-D radial camera of one board
@@ -62,7 +63,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(1))
     @test est !== nothing
     @test _pd(estimate(est), P_gt) < sqrt(2 * 1.0e-6)
-    m = est.inlier_mask
+    m = inlier_mask(est)
     @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
     # with noise: still within the noise floor
     P_gt2, pairs2, gt2 = radial_board(StableRNG(3); σ = 0.3)
@@ -110,7 +111,7 @@ end
     @test est.lo_retcode != :not_run
     rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, estimate(est))
     @test median(abs.(rr[gt])) < 0.4
-    @test count(est.inlier_mask .& .!gt) == 0
+    @test count(inlier_mask(est) .& .!gt) == 0
     # the shipped default: the core's TLS IRLS, following the scorer
     @test VgtkEstimation._dflt_lo(:radial_camera) == Irls{TLSShape}()
 end

@@ -13,6 +13,7 @@
 # install line from the registries — with none of the test run's load path.
 
 @testitem "README: the install line names what the examples load; the examples run in a fresh environment" begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation
@@ -23,9 +24,9 @@
     # The comments' claims: the 32 true correspondences are the inliers,
     # and the estimate is the true homography up to scale. The data are
     # noise-free, so the 2 px threshold keeps the same inliers.
-    @test count(readme.result.inlier_mask) == 32
-    @test !any(readme.result.inlier_mask[1:8])
+    @test count(inlier_mask(readme.result)) == 32
+    @test !any(inlier_mask(readme.result)[1:8])
     @test readme.H ./ readme.H[3, 3] ≈ Matrix(readme.H_true)
-    @test readme.result_2px.inlier_mask == readme.result.inlier_mask
+    @test inlier_mask(readme.result_2px) == inlier_mask(readme.result)
     """)
 end

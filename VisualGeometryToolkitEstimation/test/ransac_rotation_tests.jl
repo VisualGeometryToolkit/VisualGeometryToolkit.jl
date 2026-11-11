@@ -113,6 +113,7 @@ end
 end
 
 @testitem "find_rotation: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
         withattrs, sources, targets, estimate, converged, angle_between, retcode, iterations, MsacScoring
@@ -125,7 +126,7 @@ end
         res = find_rotation(FISHEYE, FISHEYE, cs; rng = Xoshiro(trial))
         @test converged(res)
         @test rad2deg(Rotations.rotation_angle(RotMatrix{3}(estimate(res)' * R))) < 0.05
-        inl = res.inlier_mask
+        inl = inlier_mask(res)
         good = setdiff(1:300, bad)
         @test count(inl[good]) > 0.8 * length(good)      # 1 px MSAC on a 2-D residual of 0.5 px per coordinate in each view: P(χ²₂ < 4) = 0.86
         @test count(inl[bad]) < 0.05 * length(bad) + 2

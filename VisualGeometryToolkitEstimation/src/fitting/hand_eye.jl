@@ -64,8 +64,8 @@ back physical, its translation in metres, equal after `ustrip(m, ·)` to the
 plain search's on the poses' `ustrip(m, ·)` with the same `rng`. A supplied
 `char_length` is then a length too (`5mm`; a plain number beside physical
 poses is a `DimensionError`); a supplied scorer's width is a plain number in
-METRES (a scorer holds no unit). The residuals, `rms` and `sigma`
-are plain numbers in the translation's unit: metres for physical poses. Plain
+METRES (a scorer holds no unit). The residuals, `rms` and the scale
+(`noise_scale(result)`) are plain numbers in the translation's unit: metres for physical poses. Plain
 poses give a plain `X` in their own unit, as before.
 
 Returns an `FitResult{Rigid3, RansacMetadata}` whose `estimate` is

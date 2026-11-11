@@ -1,4 +1,5 @@
 @testitem "radial_homography" setup = [RadialScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # RadialHomographyProblem + find_radial_homography — one-sided division-model
@@ -127,7 +128,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
             rng = StableRNG(5)
         )
         @test est !== nothing
-        m = est.inlier_mask
+        m = inlier_mask(est)
         @test count(m .& gt) >= count(gt) - 3 && count(m .& .!gt) == 0
         @test abs(division_coeff(estimate(est)) - division_coeff(m_gt)) < 0.1 * abs(division_coeff(m_gt))
         @test sign(division_coeff(estimate(est))) == sign(division_coeff(m_gt))

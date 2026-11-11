@@ -20,7 +20,8 @@ build runs it (a doctest):
 ```jldoctest homography
 julia> using VisualGeometryToolkitEstimation, Random
 
-julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean, MsacScoring
+julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean, MsacScoring,
+           inlier_mask
 
 julia> H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0]);
 
@@ -34,7 +35,7 @@ julia> for i in 1:8; dst[i] = Point2(640rand(rng), 480rand(rng)); end   # 8 outl
 
 julia> result = find_homography(csponds(src, dst));    # MSAC at 3 px, the default
 
-julia> count(result.inlier_mask)                        # the 32 true correspondences
+julia> count(inlier_mask(result))                       # the 32 true correspondences
 32
 
 julia> H = Matrix(estimate(result)); H ./ H[3, 3] ≈ Matrix(H_true)

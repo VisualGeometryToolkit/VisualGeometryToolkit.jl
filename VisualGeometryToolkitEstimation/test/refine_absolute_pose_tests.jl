@@ -48,6 +48,7 @@
 end
 
 @testitem "refine_absolute_pose: pinhole and fisheye past 90°, any strategy" setup = [PixelPoseScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, Lens, Equidistant, GaussianShape, CauchyShape, estimate, converged, rms, MsacScoring
     using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls, Triggs
@@ -66,7 +67,7 @@ end
         # under the class default (Irls{TLSShape} at 8 px) from a near pose
         near = refine_absolute_pose(E, cam, [X => u + SVector(0.3 * sin(7i), 0.3 * cos(11i)) for (i, (X, u)) in enumerate(cs)])
         eR, et = pose_errors(estimate(near), E)
-        @test count(near.inlier_mask) == length(cs) && eR < 1.0e-3 && et < 1.0e-3
+        @test count(inlier_mask(near)) == length(cs) && eR < 1.0e-3 && et < 1.0e-3
     end
 end
 
@@ -179,6 +180,7 @@ end
 end
 
 @testitem "refine_absolute_pose bearings: Triggs on contaminated rays" setup = [PixelPoseScenes] begin
+    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize
     using Random: Xoshiro, randperm
@@ -205,11 +207,11 @@ end
     pb = BearingPoseProblem(cs)
     rd = refine_absolute_pose(guess, cs)
     re = refine_absolute_pose(guess, cs; scoring = MsacScoring(pb; threshold = 1.0 * VisualGeometryToolkitEstimation._width_unit(pb)))
-    @test isequal(estimate(rd), estimate(re)) && rd.inlier_mask == re.inlier_mask && isequal(rd.quality, re.quality)
+    @test isequal(estimate(rd), estimate(re)) && inlier_mask(rd) == inlier_mask(re) && isequal(rd.quality, re.quality)
     for lo in (Triggs{CauchyShape}(scale_multiple = 2.5), Triggs{WelschShape}(scale_multiple = 2.5))
         r = refine_absolute_pose(guess, cs; local_optimization = lo, scoring = MsacScoring(BearingPoseProblem; threshold = 8.0))   # px
         @test converged(r) && r.lo_retcode === :converged
-        @test sort(findall(r.inlier_mask)) == sort(good)
+        @test sort(findall(inlier_mask(r))) == sort(good)
         eR, et = pose_errors(estimate(r), ls)
         @test eR < 1.0e-4 && et < 1.0e-4                                   # the inliers' least squares
     end

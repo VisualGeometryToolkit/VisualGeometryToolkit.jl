@@ -1,4 +1,5 @@
 @testitem "ransac" begin
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -123,12 +124,12 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         r1 = run_seeded(7)
         r2 = run_seeded(7)
         @test estimate(r1) == estimate(r2)                    # bitwise-identical model
-        @test r1.inlier_mask == r2.inlier_mask
+        @test inlier_mask(r1) == inlier_mask(r2)
         # Ambient RNG state must be irrelevant when `rng` is supplied.
         Random.seed!(0xDEAD)
         r3 = run_seeded(7)
         @test estimate(r3) == estimate(r1)
-        @test r3.inlier_mask == r1.inlier_mask
+        @test inlier_mask(r3) == inlier_mask(r1)
         # Sampler protocol: rng-leading draw is deterministic per seed.
         s = VgtkEstimation.UniformSampler(50)
         i1 = Vector{Int}(undef, 5)
@@ -239,7 +240,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         @test model[2] ≈ true_model[2] atol = 0.1
         @test model[3] ≈ true_model[3] atol = 0.2
         @test inlier_ratio(result) > 0.5
-        @test sum(result.inlier_mask) >= n_inliers * 0.7
+        @test sum(inlier_mask(result)) >= n_inliers * 0.7
     end
 
     @testset "MSAC high outlier rate" begin
@@ -277,13 +278,13 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         @test estimate(result) isa Line2D{Float64}
         @test retcode(result) === :converged
         @test converged(result) == true
-        @test result.inlier_mask isa BitVector
+        @test inlier_mask(result) isa BitVector
         # Default workspace storage is Float32: per-point vectors come back
         # narrow; the scalar statistics (quality, scale) are always Float64.
         @test result.residuals isa Vector{Float32}
         @test result.weights isa Vector{Float32}
         @test result.quality isa Float64
-        @test result.sigma isa Float64
+        @test noise_scale(result) isa Float64 && scale_source(result) == ScaleEstimated
         @test iterations(result) isa Int
         @test iterations(result) > 0
     end
@@ -301,16 +302,16 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         )
         @test converged(result)
         @test result.dof > 0
-        @test result.dof == sum(result.inlier_mask) - p
+        @test result.dof == sum(inlier_mask(result)) - p
 
         # scale is s = √(RSS/ν), the unbiased estimate
-        n_in = sum(result.inlier_mask)
+        n_in = sum(inlier_mask(result))
         RSS = sum(
             result.residuals[i]^2 for i in 1:length(result.residuals)
-                if result.inlier_mask[i]
+                if inlier_mask(result)[i]
         )
         nu = n_in - p
-        @test result.sigma ≈ sqrt(RSS / nu)
+        @test noise_scale(result) ≈ sqrt(RSS / nu)
     end
 
     @testset "adaptive trial count at the edges" begin
@@ -352,7 +353,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         @test iterations(r) == binomial(7, 2)
         @test sort(p.seen) == [(i, j) for i in 1:7 for j in (i + 1):7]
         @test converged(r) && estimate(r) == 1.0
-        @test r.inlier_mask == (x .== 1.0)
+        @test inlier_mask(r) == (x .== 1.0)
     end
 
     @testset "a threshold scorer's workspace grows and shrinks with the problem" begin
@@ -366,7 +367,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         ws = RansacWorkspace(LineFittingProblem(small), sc, lo)
         r_ws = ransac(LineFittingProblem(large), sc; local_optimization = lo, workspace = ws, rng = StableRNG(149))
         r_fresh = ransac(LineFittingProblem(large), sc; local_optimization = lo, rng = StableRNG(149))
-        @test converged(r_ws) && estimate(r_ws) == estimate(r_fresh) && r_ws.inlier_mask == r_fresh.inlier_mask
+        @test converged(r_ws) && estimate(r_ws) == estimate(r_fresh) && inlier_mask(r_ws) == inlier_mask(r_fresh)
         wl = RansacWorkspace(LineFittingProblem(large), sc)
         @test converged(ransac(LineFittingProblem(small), sc; workspace = wl, rng = StableRNG(150)))
     end

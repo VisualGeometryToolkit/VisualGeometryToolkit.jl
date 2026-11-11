@@ -71,6 +71,7 @@ them with random points, and recovers the homography and the 32 inliers.
 
 ```julia
 using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation, Random
+using VisualGeometryToolkitCore: inlier_mask           # public, not exported
 
 H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0])
 
@@ -82,7 +83,7 @@ for i in 1:8                                                # replace 8 with out
 end
 
 result = find_homography(csponds(src, dst))   # MSAC at 3 px, the default
-count(result.inlier_mask)                     # 32, the true correspondences
+count(inlier_mask(result))                    # 32, the true correspondences
 
 H = Matrix(estimate(result))
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true

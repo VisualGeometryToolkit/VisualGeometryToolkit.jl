@@ -1,4 +1,4 @@
-@testitem "contract_conformance" setup = [HomographyScenes, EpipolarScenes, P3PScenes, PoseScenes, DivisionBoards, Contamination] begin
+@testitem "contract_conformance" setup = [RadialCameraScene, HomographyScenes, EpipolarScenes, P3PScenes, PoseScenes, DivisionBoards, Contamination] begin
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # The K+ contracts, checked by their owner's conformance helpers
@@ -73,13 +73,7 @@ function radial_homography_scene()
     return p, fitted(p, 3.0)
 end
 function radial_camera_scene()
-    c = SVector(2000.0, 1500.0)
-    cam = board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = c)
-    pairs, _ = contaminated_pairs(
-        StableRNG(19), board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(4000 * rand(rng), 3000 * rand(rng))
-    )
-    p = RadialCameraProblem(pairs; center = c)
+    p = RadialCameraProblem(first(radial_camera_pairs()); center = RC_CENTER)
     return p, fitted(p, 3.0)
 end
 function circle_scene()

@@ -4,29 +4,7 @@
 # orthogonal distances) against finite differences, the chart-LM refit, the recovery under 40% outliers (a straight
 # run and clutter), and the keyword set shared with the other `find_*` pipelines.
 
-@testsetup module EllipseScene
-using Random: randn, rand, randperm
-using StaticArrays: SVector
-using VisualGeometryToolkitCore: Point2, Ellipse, boundary_point
-export ellipse_scene, E₀
-
-# axes ratio 0.6, rotated
-const E₀ = Ellipse(Point2(512.3, 401.7), 300.0, 180.0, 0.6)
-
-# n points on E₀ with isotropic noise σ, then a fraction `outl` replaced: half by
-# a straight run (a floor edge), half by uniform clutter.
-function ellipse_scene(rng, n; σ = 0.5, outl = 0.4)
-    pts = [Point2{Float64}(SVector(boundary_point(E₀, t)...) + σ * randn(rng, SVector{2, Float64})) for t in 2π .* rand(rng, n)]
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for (k, i) in enumerate(bad)
-        pts[i] = isodd(k) ? Point2{Float64}(250.0 + 500 * rand(rng), 760.0 + randn(rng)) :
-            Point2{Float64}(1024 * rand(rng), 800 * rand(rng))
-    end
-    return pts, bad
-end
-end
-
-@testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [EllipseScene] begin
+@testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point,
         whitened_residuals!
@@ -88,7 +66,7 @@ end
     @test refit_allocs(ws, pp, e₀, ones(100)) == 0
 end
 
-@testitem "find_ellipse: 40% outliers (a straight run and clutter)" setup = [EllipseScene] begin
+@testitem "find_ellipse: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse, estimate, converged, retcode, iterations
     using VisualGeometryToolkitEstimation: find_ellipse
@@ -116,7 +94,7 @@ end
     @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(none.inlier_mask)
 end
 
-@testitem "find_ellipse: the keywords of every find_* pipeline" setup = [EllipseScene] begin
+@testitem "find_ellipse: the keywords of every find_* pipeline" setup = [ConicScenes] begin
     using Test, Random
     using VisualGeometryToolkitCore: MsacScoring, estimate, converged
     using VisualGeometryToolkitEstimation: find_ellipse, find_circle, EllipseProblem,

@@ -1,5 +1,5 @@
-@testitem "core_defaults" setup = [EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
-                                   CircleScene, EllipseScene, RotationScene] begin
+@testitem "core_defaults" setup = [RadialCameraScene, EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
+                                   ConicScenes, RotationScene] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -79,14 +79,6 @@ function radial_homography_scene()
         outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(RW * rand(rng), RH * rand(rng))
     )
 end
-const RC_CENTER = SVector(2000.0, 1500.0)
-function radial_camera_scene()
-    cam = board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = RC_CENTER)
-    return contaminated_pairs(
-        StableRNG(19), board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(4000 * rand(rng), 3000 * rand(rng))
-    )
-end
 function hand_eye_scene()
     rng = StableRNG(29)
     sc = robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
@@ -163,7 +155,7 @@ end
         @test count(r.inlier_mask .& gt) >= count(gt) - 3 && count(r.inlier_mask .& .!gt) <= 2
     end
     @testset "radial camera" begin
-        pairs, gt = radial_camera_scene()
+        pairs, gt = radial_camera_pairs()
         r = find_radial_camera(pairs; center = RC_CENTER, rng = StableRNG(6))
         p = RadialCameraProblem(pairs; center = RC_CENTER)
         same_run(r, find_radial_camera(pairs; center = RC_CENTER, scoring = MsacScoring(p; threshold = thr(:radial_camera)),
@@ -297,7 +289,7 @@ end
     pcs = pnp_scene()
     rcs, _, _ = rotation_scene(Xoshiro(8), RotMatrix(RotXYZ(0.2, -0.3, 0.4)), 300; outl = 0.3)
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)
-    rc, _ = radial_camera_scene()
+    rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
     triggs = Triggs{CauchyShape}(scale_multiple = 2.5)
     cases = (

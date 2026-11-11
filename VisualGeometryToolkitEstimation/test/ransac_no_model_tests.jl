@@ -2,7 +2,7 @@
 # `:no_model` RansacEstimate whose estimate is `nothing` — never a `zero(M)`
 # placeholder a forgotten `converged` test would read as a model.
 
-@testitem "ransac: no model" setup = [CircleScene] begin
+@testitem "ransac: no model" setup = [ConicScenes] begin
     using Test, Random, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, csponds,
         estimate, converged, retcode, iterations

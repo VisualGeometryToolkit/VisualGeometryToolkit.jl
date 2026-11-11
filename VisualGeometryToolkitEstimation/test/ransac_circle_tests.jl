@@ -4,29 +4,7 @@
 # the recovery under 40% outliers (a straight run and clutter), and the
 # keyword set shared with the other `find_*` pipelines.
 
-@testsetup module CircleScene
-using Random: randn, rand, randperm
-using StaticArrays: SVector
-using VisualGeometryToolkitCore: Point2
-export circle_scene, C₀, R₀
-
-const C₀ = SVector(512.3, 401.7)
-const R₀ = 300.0
-
-# n points on the circle (C₀, R₀) with isotropic noise σ, then a fraction `outl`
-# replaced: half by a straight run (a floor edge), half by uniform clutter.
-function circle_scene(rng, n; σ = 0.5, outl = 0.4)
-    pts = [Point2{Float64}(C₀ + R₀ * SVector(cos(t), sin(t)) + σ * randn(rng, SVector{2, Float64})) for t in 2π .* rand(rng, n)]
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for (k, i) in enumerate(bad)
-        pts[i] = isodd(k) ? Point2{Float64}(250.0 + 500 * rand(rng), 760.0 + randn(rng)) :
-            Point2{Float64}(1024 * rand(rng), 800 * rand(rng))
-    end
-    return pts, bad
-end
-end
-
-@testitem "CircleProblem: minimal solver, residual, chart rows, refit" setup = [CircleScene] begin
+@testitem "CircleProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays
     import ForwardDiff
     using VisualGeometryToolkitCore: Point2, Circle, residual_rows!, residual_jacobian_rows!, whitened_residuals!
@@ -76,7 +54,7 @@ end
     @test refit_allocs(ws, pp, c₀, ones(100)) == 0
 end
 
-@testitem "find_circle: 40% outliers (a straight run and clutter)" setup = [CircleScene] begin
+@testitem "find_circle: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, estimate, converged, retcode, iterations
     using VisualGeometryToolkitEstimation: find_circle
@@ -103,7 +81,7 @@ end
     @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(none.inlier_mask)
 end
 
-@testitem "find_circle: the keywords of every find_* pipeline" setup = [CircleScene] begin
+@testitem "find_circle: the keywords of every find_* pipeline" setup = [ConicScenes] begin
     using Test, Random
     using VisualGeometryToolkitCore: MsacScoring, estimate, converged
     using VisualGeometryToolkitEstimation: find_circle, find_fundmat, find_rotation, find_essential, CircleProblem,

@@ -15,12 +15,8 @@
     using VisualGeometryToolkitCore: estimate, converged, GaussianShape, ambient_coordinates
     using VisualGeometryToolkitEstimation
 
-    function _boundary(e, φ)
-        s, c = sincos(e.θ)
-        return SVector(e.center...) + SMatrix{2, 2}(c, s, -s, c) * SVector(e.a * cos(φ), e.b * sin(φ))
-    end
     _points(e, n; σ = 0.0, arc = 2π, rng = StableRNG(1)) =
-        [Point2{Float64}(_boundary(e, φ) + σ * randn(rng, SVector{2})) for φ in range(0, arc, n + 1)[1:(end - 1)]]
+        [Point2{Float64}(boundary_point(e, φ) + σ * randn(rng, SVector{2})) for φ in range(0, arc, n + 1)[1:(end - 1)]]
     _chart(e) = VgtkCore.ellipse_log_shape(e)
     # RMS orthogonal distance of `pts` to `e`, by the rows' own foot point
     function _orms(e, pts)
@@ -39,7 +35,7 @@
         for _ in 1:60
             p = SVector(120.0, 80.0) + 45 * (2 * rand(rng, SVector{2}) .- 1)    # inside, outside, near the centre
             d, n, u = VgtkEstimation._ellipse_foot(p, c, V, a, b)
-            @test abs(abs(d) - minimum(φ -> norm(p - _boundary(e0, φ)), grid)) < 1.0e-5
+            @test abs(abs(d) - minimum(φ -> norm(p - boundary_point(e0, φ)), grid)) < 1.0e-5
             @test norm(u) ≈ 1                                                  # a boundary parameter
             @test norm(n) ≈ 1
         end

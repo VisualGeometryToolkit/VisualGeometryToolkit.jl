@@ -57,8 +57,19 @@ end
     using ForwardDiff: ForwardDiff
     using GeometryBasics: origin, widths
     using VisualGeometryToolkitCore: SplineLens, CameraModel, KannalaBrandt, px, spline_value
-    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction_differential, _noncentral_residual,
-        _noncentral_residual_and_jacobian, _in_backward, _lattice_coords
+    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction_differential,
+        _noncentral_residual_and_jacobian, _in_backward, _lattice_coords, _continued_window, _eval_window, _tangent_residual
+
+    # The non-central residual's definition, generic in `p`'s element type (the oracle
+    # its analytic Jacobian is tested against): the two components of `origin(p) − X` in
+    # the tangent basis of `d̂(p)`, both splines read through the one continued window.
+    function _noncentral_residual(dctrl, pctrl, area, p, X)
+        gsz = gh, gw = size(dctrl)
+        ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)
+        d = _eval_window(dctrl, ix, iy, wx, wy)
+        o = _eval_window(pctrl, ix, iy, wx, wy)
+        return _tangent_residual(SVector{3}(d) / norm(d), SVector{3}(o), X)
+    end
 
     # The analytic Jacobians of the two LMs' residuals (the central one's — the
     # normalized spline value, differentiated as `spline_value`, since the residual

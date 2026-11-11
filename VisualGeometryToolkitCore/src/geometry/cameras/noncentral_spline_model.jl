@@ -227,20 +227,11 @@ transform_deriv(b::Backprojection{<:Union{CameraModel, NoncentralSplineModel}}, 
     last(backproject_with_jacobian(b.model, _float_static(q)))
 
 # The non-central projection's residual at the normalized point `p` against the
-# camera-frame point `X`: the two components of `origin(p) − X` in the tangent basis
-# of the line direction `d̂(p)` (the reference's tangent-plane point-to-line
-# residual), both splines read through ONE window of the lattice of `(rows, cols) =
-# size(dctrl)` over `area` (the continued window, as its Jacobian's). Generic in `p`'s
-# element type (ForwardDiff's duals): the residual's definition, which the analytic
-# Jacobian is tested against.
-@inline function _noncentral_residual(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
-    gsz = gh, gw = size(dctrl)
-    ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)   # its Jacobian's window
-    d = _eval_window(dctrl, ix, iy, wx, wy)
-    o = _eval_window(pctrl, ix, iy, wx, wy)
-    return _tangent_residual(SVector{3}(d) / norm(d), SVector{3}(o), X)
-end
-# The residual from the line's unit direction `d` and point `o` at `p`.
+# camera-frame point `X` is the two components of `origin(p) − X` in the tangent basis
+# of the line direction `d̂(p)` (the reference's tangent-plane point-to-line residual),
+# both splines read through ONE window of the lattice (the continued window);
+# `_noncentral_residual_and_jacobian` below forms it with its Jacobian. The residual
+# from the line's unit direction `d` and point `o` at `p`:
 @inline function _tangent_residual(d, o, X)
     t1, t2 = direction_tangents(d)
     pto = o - X

@@ -58,8 +58,11 @@ Raise it with any change to the layout of a cached type.
 - 2 (2026-11): VisualGeometryToolkitCore's `CovMat` / `PrecMat` hold a static
   matrix (`CovMat{N, T, M, C}`; was `CovMat{N, T, L, C}`), so cached uncertain
   detections of the earlier layout do not load.
+- 3 (2026-11): `LinearRaw{Mode, I, S, G, M}` holds its image and saturation
+  arrays as the mosaic's device made them (was `LinearRaw{Mode, G, M}`), so
+  cached decodes of the earlier layout do not load.
 """
-const CACHE_FORMAT = 2
+const CACHE_FORMAT = 3
 
 """
     cache_key(args...) -> String

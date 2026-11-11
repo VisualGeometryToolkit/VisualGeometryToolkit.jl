@@ -353,7 +353,8 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
 end
 
 # The branch's one commit: the renders, the manifest and the comparison.
-function _fill_results_branch(top, prefix, worktree, staged, assets, paths; run, manifest)
+function _fill_results_branch(top::AbstractString, prefix::AbstractString, worktree::AbstractString, staged::AbstractString,
+                              assets, paths; run, manifest)
     proj = joinpath(worktree, prefix)
     for (src, p) in zip(first.(assets), paths)
         cp(src, joinpath(mkpath(dirname(joinpath(staged, p))), basename(p)); force = true)

@@ -32,4 +32,9 @@ reason = "not a CPU/GPU twin of any code: the CUDA extension registers the devic
 [[backend]]
 file = "VisualGeometryToolkitFeatures/src/asift/driver.jl"
 function = "_chunk_warps"
-reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay resident (an allocation), and only the free memory differs by backend — the host's on the CPU, the device's less the ONNX Runtime CUDA sessions' arena caps on a GPU (those arenas are device memory; the CPU's warps share no device with them); the same kernels run on every backend"
+reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay resident (an allocation), and only the free memory differs by backend — the host's on the CPU, the device's less the room the ONNX Runtime CUDA sessions' arenas may still take on a GPU (those arenas are device memory; the CPU's warps share no device with them); the same kernels run on every backend"
+
+[[backend]]
+file = "VisualGeometryToolkitFeatures/src/onnx_runtime.jl"
+function = "_onnx_device_free"
+reason = "not a CPU/GPU twin of any computation: it reads the free device memory around an ONNX Runtime CUDA session's creation and runs, to measure what that session's arena took; on the host there is no device memory to read (an arena is device memory), so it reads nothing"

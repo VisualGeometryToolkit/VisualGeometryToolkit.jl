@@ -50,3 +50,34 @@ end
     @test mount isa Rig{BodyFrame{:board_rig}} && Set(String.(ids(mount))) == Set(["a", "b"])
     @test unlabel(geom(pose(mount, :a))).t ≈ Y["a"].t
 end
+
+@testitem "paper_support: load_hand_eye reads the 2026-09 one-file record; save_hand_eye writes the pair" begin
+    # icra2026's motion-capture runs of 2026-09 hold the hand-eye record as ONE
+    # vgio/transforms/v2 file (the camera mount and the marker mount together,
+    # no mount file). VisualGeometryToolkitIO reads it as the current transforms
+    # record; the mount is its target:<id> → body:board_rig poses.
+    using Test, StaticArrays, Rotations
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitEval.Experiments: save_hand_eye, load_hand_eye, hand_eye_mount_file
+    using VisualGeometryToolkitCore: EuclideanMap, BodyFrame, ViewFrame, Rig, ids, pose, geom, unlabel
+    src = joinpath(pkgdir(VgtkIO), "test", "fixtures", "old", "hand_eye_transforms_v2_printed_board.json")
+    raw = VgtkIO.read_record(src)                    # its numbers (the record's order and values)
+    q(r) = (v = Float64.(r["rotation"]); RotMatrix(QuatRotation(v[1], v[2], v[3], v[4])))
+    t(r) = SVector{3, Float64}(r["translation"]...)
+    dir = mktempdir()
+    file = joinpath(dir, "hand_eye.json")
+    cp(src, file)
+    X, mount = load_hand_eye(file)
+    @test geom(X) isa EuclideanMap{3, <:Any, <:Any, <:Any, BodyFrame{:camera_rig}, ViewFrame{:optical}}
+    @test unlabel(geom(X)).t ≈ t(raw["transforms"][1]) rtol = 1.0e-15
+    @test unlabel(geom(X)).R ≈ q(raw["transforms"][1]) atol = 1.0e-15
+    @test mount isa Rig{BodyFrame{:board_rig}} && ids(mount) == [:aprilgrid]
+    @test unlabel(geom(pose(mount, :aprilgrid))).t ≈ t(raw["transforms"][2]) rtol = 1.0e-15
+    out = joinpath(dir, "out", "hand_eye.json")
+    mkpath(dirname(out))
+    save_hand_eye(out, unlabel(geom(X)), Dict("aprilgrid" => unlabel(geom(pose(mount, :aprilgrid)))))
+    @test VgtkIO.read_record(out)["schema"] == "vgio/transforms/v4"          # only the current records
+    @test startswith(VgtkIO.read_record(hand_eye_mount_file(out))["schema"], "vgio/rig/")
+    X2, mount2 = load_hand_eye(out)
+    @test unlabel(geom(X2)).t ≈ unlabel(geom(X)).t && unlabel(geom(pose(mount2, :aprilgrid))).t ≈ unlabel(geom(pose(mount, :aprilgrid))).t
+end

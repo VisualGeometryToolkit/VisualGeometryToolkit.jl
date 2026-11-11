@@ -388,7 +388,9 @@ function _refuse_schema(path, kind::AbstractString, s)
             )
         )
     end
-    if s isa AbstractString && kind in ("transforms", "trajectory") && s in ("vgio/$(kind)/v1", "vgio/$(kind)/v2", "vgio/transform/v1")
+    # (a v2 transforms or trajectory file reaches its version step instead: the 2026-09 hand-eye
+    # record and CaliBlobs' 2026-09 track segment read, any other is refused there)
+    if s isa AbstractString && kind in ("transforms", "trajectory") && s in ("vgio/$(kind)/v1", "vgio/transform/v1")
         throw(
             ArgumentError(
                 "$(path) is a retired $(s) file: its frame names are free strings, which $(_schema(kind)) " *

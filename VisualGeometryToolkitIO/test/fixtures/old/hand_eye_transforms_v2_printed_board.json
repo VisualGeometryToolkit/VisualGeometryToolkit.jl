@@ -1,0 +1,38 @@
+{
+    "schema": "vgio/transforms/v2",
+    "length_unit": "mm",
+    "rotation_encoding": "quaternion_wxyz_hamilton",
+    "transform_convention": "x_to = R * x_from + t",
+    "transforms": [
+        {
+            "from": "camera_rig",
+            "to": "camera_optical",
+            "rotation": [
+                0.23505433327874267,
+                0.29649311853049426,
+                0.7234695020932159,
+                -0.5774367243360458
+            ],
+            "translation": [
+                -1.6373715051266728,
+                -36.64947791467451,
+                -44.18653831011439
+            ]
+        },
+        {
+            "from": "printed_board_aprilgrid",
+            "to": "board_rig",
+            "rotation": [
+                0.20218388096942272,
+                -0.6363866631235781,
+                -0.17136299313806738,
+                -0.7244090128217227
+            ],
+            "translation": [
+                -931.551862646405,
+                -347.0415968801251,
+                64.9874846150312
+            ]
+        }
+    ]
+}

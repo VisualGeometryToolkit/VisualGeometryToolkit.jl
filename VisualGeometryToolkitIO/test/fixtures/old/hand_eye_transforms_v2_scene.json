@@ -1,0 +1,38 @@
+{
+    "schema": "vgio/transforms/v2",
+    "length_unit": "mm",
+    "rotation_encoding": "quaternion_wxyz_hamilton",
+    "transform_convention": "x_to = R * x_from + t",
+    "transforms": [
+        {
+            "from": "camera_rig",
+            "to": "camera_optical",
+            "rotation": [
+                0.02369050124842834,
+                0.0926623056818182,
+                -0.7303275252720197,
+                0.6763683634576466
+            ],
+            "translation": [
+                5.487242768820913,
+                -271.1474164742847,
+                -105.50409082057725
+            ]
+        },
+        {
+            "from": "scene_1",
+            "to": "board_rig",
+            "rotation": [
+                0.7707419581242619,
+                0.5172690251408765,
+                -0.2016422935261228,
+                -0.3126179378700313
+            ],
+            "translation": [
+                3460.3660502556554,
+                642.5260432144871,
+                -92.51597215884091
+            ]
+        }
+    ]
+}

@@ -158,7 +158,11 @@ Read a `vgio/transforms/v4` file: each record a pose labeled with its
 `from`/`to` frames (`frame_from_name`), its translation lengths in metres
 (read in the file's `length_unit`), `Uncertain` iff the file states a
 covariance. Type-unstable by nature (the labels come from the
-file). A retired v2 (free-form names) or v1 file is refused.
+file). A v2 file names its frames by free strings and is refused, but for the
+2026-09 hand-eye record (`camera_rig → camera_optical`, then `printed_board_<id>`
+or `scene_<c>` → `board_rig`), read as the frames the current writer names
+(`body:camera_rig`, `target:<id>`, `target:scene_<c>`, `body:board_rig`); a v1
+file is refused.
 """
 function load(::Type{Vector{EuclideanMap}}, path::AbstractString)
     d = _read_store(path, "transforms", _TRANSFORMS_SPEC)

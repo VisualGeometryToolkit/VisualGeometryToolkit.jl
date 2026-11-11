@@ -216,8 +216,18 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 # (arrays, static matrices, tuples of them) — never a closure over non-isbits
 # state, which a device kernel cannot receive. Row functions are
 # `Base.@propagate_inbounds`, so the kernel's `@inbounds` reaches their indexing.
+#
+# CPU cost: the signature is `row!::R, args::Vararg{Any, N}` with `R` and `N`
+# type parameters, not a bare `args...`. Julia compiles a bare vararg method
+# (and a `Function` argument it only passes on) for a WIDENED signature,
+# `Vararg{Any}`: KernelAbstractions' CPU backend calls the kernel function
+# through that instance, so every row was a dynamic dispatch with its
+# arguments boxed (≈150 bytes and 80 ns a row: 1000 Sampson rows took 83 µs
+# against the plain loop's 1.3 µs). Type parameters force the specialization
+# on the call's concrete types; a device compiler specializes on them anyway,
+# so the device kernel is unchanged.
 
-@kernel function _row_kernel!(row!, out, args...)
+@kernel function _row_kernel!(row!::R, out, args::Vararg{Any, N}) where {R, N}
     i = @index(Global)
     @inbounds row!(out, i, args...)
 end

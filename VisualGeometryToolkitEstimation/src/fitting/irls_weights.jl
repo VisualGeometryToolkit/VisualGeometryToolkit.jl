@@ -82,14 +82,19 @@ function _fit_irls(fit::AbstractString, ::Nothing, scale, width, _codim::Integer
     return nothing
 end
 function _fit_irls(fit::AbstractString, strategy::AbstractOptimizationStrategy, scale, width, codim::Integer)
-    lo = _check_irls_strategy(fit, strategy)
-    K = strategy_loss(lo)
+    _check_irls_strategy(fit, strategy)
     input = try
         VgtkCore.scale_input(scale, width)
     catch e
         e isa ArgumentError || rethrow()
         throw(ArgumentError("$fit: $(e.msg) (or `optimization_strategy = nothing` for the plain least squares)"))
     end
+    return _fit_irls(fit, strategy, input, codim)
+end
+# ... at a parsed scale input (a fit whose data carry their scale supplies its own).
+function _fit_irls(fit::AbstractString, strategy::AbstractOptimizationStrategy, input::VgtkCore.ScaleInput, codim::Integer)
+    lo = _check_irls_strategy(fit, strategy)
+    K = strategy_loss(lo)
     shape = K()
     loss_width = isfinite(input.width) ? Float64(input.width) :
         Float64(_fit_efficiency_constant(fit, lo, codim)) * Float64(input.scale)

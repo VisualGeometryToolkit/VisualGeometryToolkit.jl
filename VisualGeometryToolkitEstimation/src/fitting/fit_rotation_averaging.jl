@@ -70,25 +70,27 @@ a reweighted first-order Lie-algebra least squares over every edge
 (Chatterjee & Govindu 2013), each a sparse linear solve, at ONE loss width
 fixed by the caller's scale input.
 
-- An edge may carry its rotation's covariance:
-  `Attributed(Uncertain(R_ij, Σ), (; weight))` (or a bare `Uncertain(R_ij, Σ)`),
-  Σ at unit scale — 3×3 in the so(3) chart of `R_ij` (left exp,
-  `R_ij → exp(δ)·R_ij`), or 9×9 over `vec(R_ij)` as
-  `solver_covariance(problem::RotationProblem, estimate(res), findall(inlier_mask(res)))`
-  returns it for a pairwise `find_rotation`. The noise is `σ₀²Σ` with σ₀ the
-  `scale` (the variance factor: with Σ from `solver_covariance`, which is in
-  unit pixel noise, σ₀ is the keypoints' pixel noise). Each edge residual is
-  whitened by its covariance (VisualGeometryToolkitCore's `whitening_factor`
-  of `R_j·Σ·R_jᵀ`, refreshed with `R_j`) before the loss and in the update, so a
-  weak edge (few inliers, a wide Σ) weighs less. A bare rotation is Σ = I; a
-  graph of bare rotations is solved exactly as before.
+- Every edge may instead carry its rotation's ABSOLUTE covariance (radians²):
+  `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (or a bare
+  `Uncertain(R_ij, CovMat(Σ))`), Σ 3×3 in the so(3) chart of `R_ij` (left exp,
+  `R_ij → exp(δ)·R_ij`) or 9×9 over `vec(R_ij)`. [`uncertain_rotation`](@ref)
+  makes one from a pairwise rotation fit: `noise_scale² × solver_covariance`, the
+  keypoints' own covariances included when its pixels are `Uncertain`. Each edge
+  residual is whitened by its covariance (VisualGeometryToolkitCore's
+  `whitening_factor` of `R_j·Σ·R_jᵀ`, the edge's chart transported to the
+  residual's, refreshed with `R_j`) before the loss and in the update, so a weak
+  edge (few inliers, noisy keypoints) weighs less. The covariances carry the
+  scale, so such a graph takes NO `scale` (the result records scale 1,
+  `ScaleUpstream`); a `width` is in whitened units. Edges that share a keypoint
+  are treated as independent (their correlation ignored: the first-order
+  approximation). A graph mixing Uncertain and plain edges is an `ArgumentError`.
 - The edge weights: a zero weight drops its edge. The edges of positive weight
   must connect every frame (an `ArgumentError` otherwise — a zero-weight bridge
   splits the graph), and all-zero weights are refused.
 - `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss,
   its efficiency constant and its `max_iter`; default configs/default.toml
   `[fit_rotation_averaging] optimization_strategy`, Huber), or `nothing` for the seed alone.
-- `scale` | `width` — with an `Irls` strategy, EXACTLY ONE of: `scale = σ`
+- `scale` | `width` — with an `Irls` strategy and plain edges, EXACTLY ONE of: `scale = σ`
   (the edges' residual rotation noise scale per axis component, radians),
   `scale = result` (an upstream robust result's `noise_scale`, e.g. the
   pairwise `find_rotation` results' scale), or `width = w` (the loss width,
@@ -127,17 +129,17 @@ function fit_rotation_averaging(
         seed::Union{Symbol, AbstractDict} = :spectral,
     ) where {K}
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    f = _fit_irls("fit_rotation_averaging", optimization_strategy, scale, width, 3)
     edges = sort!(collect(keys(relative)))
     meas = [_edge_measurement(relative[e]) for e in edges]
+    f = _averaging_irls(optimization_strategy, scale, width, [first(x) for x in meas])
     p = [last(x) for x in meas]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every edge weight is zero"))
     Rrel = [SMatrix{3, 3, Float64, 9}(_edge_rotation(first(x))) for x in meas]
     Σrel = _edge_covariances([first(x) for x in meas], Rrel)          # nothing: every edge plain (Σ = I), today's path
     start = _averaging_seed(seed, edges, Rrel, p)
-    frames = sort!(collect(keys(start)))
-    R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
+    frames = sort!(K[k for k in keys(start)])                         # the seeds' Dicts differ in type: K and SMatrix pin them
+    R = Dict{K, SMatrix{3, 3, Float64, 9}}(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
     gauge = R[first(frames)]'                                          # one rule for every seed: the first sorted frame is the identity
     foreach(k -> (R[k] = gauge * R[k]), frames)
     m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = _fit_weights_storage(f, m)
@@ -164,7 +166,7 @@ function fit_rotation_averaging(
         Δ < tol && (retcode = :converged; break)
     end
     _irls_weights!(w, f, _whitened_norms(_edge_whitening(Σrel, edges, R), r))   # the metadata at the returned rotations
-    out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
+    out = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
     sw = _solve_weights(p, w)
     live = [q for q in 1:m if sw[q] > 0]                               # a zero weight drops its edge
@@ -197,32 +199,46 @@ end
 # =============================================================================
 #
 # An edge `Attributed(Uncertain(R_ij, Σ), (; weight))` (or a bare
-# `Uncertain(R_ij, Σ)`) carries its rotation's covariance Σ, unit scale: the
-# noise is σ₀²Σ, σ₀ the call's `scale` (the variance factor). Σ is 3×3 in the
-# so(3) chart of R_ij (left exp, R_ij → exp(δ)·R_ij: VGC's `SO3Manifold`), or
-# 9×9 over vec(R_ij) as `solver_covariance(::RotationProblem, …)` returns it,
-# read into the chart as `Jᵀ·Σ·J/4` (`J` the chart's `retract_jacobian`, whose
-# columns are orthogonal of norm √2). To first order the edge residual
+# `Uncertain(R_ij, Σ)`) carries its rotation's ABSOLUTE covariance Σ (rad²;
+# `uncertain_rotation`: the pairwise fit's noise_scale² × solver_covariance), so
+# the whitened residual is at unit scale (`_averaging_irls`). Σ is 3×3 in the
+# so(3) chart of R_ij (left exp, R_ij → exp(δ)·R_ij: VGC's `SO3Manifold`, the
+# RotationProblem's chart), or 9×9 over vec(R_ij), read into the chart by
+# `_rotation_chart_covariance` (rotation.jl). To first order the edge residual
 # r_ij = log(R_j·R_ij·R_iᵀ) moves by R_j·δ, so its covariance is R_j·Σ·R_jᵀ and
 # its whitening VGC's `whitening_factor(R_j, Σ)` (the inverse Cholesky factor of
 # that propagated covariance), refreshed at every iteration's R_j. The loss reads
-# the whitened norm and the update solves the whitened rows. A plain edge is
-# Σ = I; when every edge is plain, nothing is whitened (today's path, bit for bit).
+# the whitened norm and the update solves the whitened rows. When every edge is
+# plain, nothing is whitened (today's path, bit for bit).
 _edge_measurement(e::VgtkCore.Uncertain) = (e, 1.0)
 _edge_measurement(e) = (VgtkCore.value_of(e), Float64(VgtkCore.weight_of(e)))
 _edge_rotation(x::VgtkCore.Uncertain) = VgtkCore.value_of(x)
 _edge_rotation(x) = x
 
-_edge_covariances(xs, Rrel) = any(x -> x isa VgtkCore.Uncertain, xs) ? [_edge_covariance(x, Rq) for (x, Rq) in zip(xs, Rrel)] : nothing
-_edge_covariance(_x, _R) = SMatrix{3, 3, Float64, 9}(LinearAlgebra.I)
-_edge_covariance(x::VgtkCore.Uncertain, R) = _chart_covariance(SMatrix{size(cov(x))..., Float64}(cov(x)), R)
-_chart_covariance(Σ::SMatrix{3, 3, Float64}, _R) = Σ
-function _chart_covariance(Σ::SMatrix{9, 9, Float64}, R)
-    J = VgtkCore.retract_jacobian(VgtkCore.SO3Manifold(R))
-    return SMatrix{3, 3, Float64, 9}(VgtkCore.propagate(J' / 2, Σ))
+_edge_covariances(xs, Rrel) = any(x -> x isa VgtkCore.Uncertain, xs) ? _edge_covariances(VgtkCore.Uncertain[x for x in xs], Rrel) : nothing
+_edge_covariances(xs::AbstractVector{<:VgtkCore.Uncertain}, Rrel) =
+    SMatrix{3, 3, Float64, 9}[_edge_covariance(x, Rq) for (x, Rq) in zip(xs, Rrel)]
+_edge_covariance(x::VgtkCore.Uncertain, R) = _rotation_chart_covariance(SMatrix{size(cov(x))..., Float64}(cov(x)), R)
+
+# The robust weighting at the edges' scale. Plain edges take the call's scale
+# input (`scale` | `width`, radians). Uncertain edges carry ABSOLUTE covariances
+# (rad², e.g. `uncertain_rotation`'s noise_scale² × solver_covariance): their
+# scale is the upstream fits', so the whitened residual is at unit scale — the
+# record is scale 1, `ScaleUpstream` — and a `scale` would count it twice
+# (refused); a `width` is in whitened units. A graph mixing the two is refused
+# (an edge with no covariance has no unit to whiten in).
+function _averaging_irls(strategy, scale, width, xs)
+    nu = count(x -> x isa VgtkCore.Uncertain, xs)
+    nu == 0 && return _fit_irls("fit_rotation_averaging", strategy, scale, width, 3)
+    nu == length(xs) || throw(ArgumentError(
+        "fit_rotation_averaging: $nu of $(length(xs)) edges carry a covariance (Uncertain): give every edge its covariance, or none"))
+    scale === nothing || throw(ArgumentError(
+        "fit_rotation_averaging: Uncertain edges carry absolute covariances (rad²: noise_scale² × solver_covariance, " *
+        "`uncertain_rotation`), so their scale is upstream; give no `scale` (a `width` is in whitened units)"))
+    strategy === nothing && return _fit_irls("fit_rotation_averaging", nothing, nothing, width, 3)
+    width === nothing || return _fit_irls("fit_rotation_averaging", strategy, nothing, width, 3)
+    return _fit_irls("fit_rotation_averaging", strategy, VgtkCore.ScaleInput(1.0, NaN, VgtkCore.ScaleUpstream), 3)
 end
-_chart_covariance(Σ, _R) = throw(ArgumentError(
-    "fit_rotation_averaging: an edge covariance is 3×3 (the so(3) chart) or 9×9 (vec(R), solver_covariance's), got $(size(Σ))"))
 
 _edge_whitening(::Nothing, _edges, _R) = nothing
 _edge_whitening(Σrel, edges, R) = [VgtkCore.whitening_factor(R[j], Σrel[q]) for (q, (_, j)) in enumerate(edges)]

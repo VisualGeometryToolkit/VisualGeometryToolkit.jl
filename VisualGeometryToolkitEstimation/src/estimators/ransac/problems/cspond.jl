@@ -260,12 +260,12 @@ end
 # rows of the refit and the lift, the solver covariance. A problem class whose
 # routes do not all read the `Σ₁`/`Σ₂` columns refuses them rather than
 # scoring one function and descending another.
-_check_noise_support(::Type{<:HomographyMat}, cs) = cs
+_check_noise_support(::Type{<:Union{HomographyMat, RotMatrix}}, cs) = cs
 function _check_noise_support(::Type{M}, cs) where {M}
     _has_noise_columns(cs) && throw(ArgumentError(
         "$(nameof(M)) problems take plain points (unit isotropic noise): their Sampson " *
             "LM rows do not read measurement covariances. `Uncertain`/`exact` endpoints are " *
-            "supported by HomographyProblem."
+            "supported by HomographyProblem and RotationProblem."
     ))
     return cs
 end
@@ -1079,8 +1079,10 @@ end
 # measurement-noise rule): `I` for plain points — the isotropic Sampson error as
 # always — and the endpoints' own from the problem's `Σ₁`/`Σ₂` columns, in the
 # data frame where the constraint lives. An `exact` source makes the residual the
-# transfer error in the target's units.
-@inline measurement_covariance(p::RelativeProblem, i::Int) = _noise(p.cs, i)
+# transfer error in the target's units. The rotation problem's columns are its
+# PIXELS' covariances (its bearings' `M₁`/`M₂` put the transfer form's `G_x` in
+# pixels), so the same block diagonal whitens it.
+@inline measurement_covariance(p::Union{RelativeProblem, RotationProblem}, i::Int) = _noise(p.cs, i)
 @inline _noise(::_PointCsponds, ::Int) = I
 @inline _noise(cs, i::Int) = VgtkCore.pair_covariance(cs, i)
 

@@ -5,28 +5,20 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
-- **Breaking (behaviour): a robust `refine_camera_and_poses` runs no least-squares stage** (the owner's ruling). With
-  `robust`, the Triggs or Irls solve starts directly from the caller's start (camera and poses); plain least squares
-  is only the whole solve when `robust = nothing` (unchanged, bit for bit). With no `scale`, ŝ is anchored on the
-  scorer's consensus partition of the START's residuals; when that partition is thin (at most the bundle's m + 1
-  points: the start is far from the data, its inlier residuals beyond the scorer's outlier half-width) the refine is an
-  `ArgumentError` naming the remedies (a `scale`, a closer start, a wider half-width) instead of running at a degenerate
-  width. On the 8 %-outlier fixture (start 20–80 px off): at the caller's σ, camera error 0.175 px (Irls{Huber}, as
-  before) and 0.30 px (Triggs{Welsch}, 0.20 before: one Welsch LM from 25 px off, where the least-squares stage had
-  brought it to the data first); without a scale the far start is refused (it was 0.23 / 0.20 px with the stage). From a
-  start near the data (residuals median 3.3 px), the anchored default gives 0.34 / 0.20 px (σ: 0.175 / 0.202).
+- **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
+  takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
+  is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming
+  `local_optimization`.
 
-- **Changed: `refine_camera_and_poses`' robust scale is anchored on a scorer's consensus partition** (the owner's
-  ruling (b)): with `robust` and no `scale`, ŝ is the Student-t scale of the consensus set a scorer selects among the
-  least-squares reprojection distances (codimension 2) — Core's consensus-anchored mechanism (`score!`, then
-  `consensus_set` at the local optimization's dof), as the RANSAC loop anchors its local optimization — and the width
-  `scale_multiple · ŝ`. New keyword `scoring` (a RANSAC scorer, e.g. read by `scoring_from_toml`); the default is the
-  stack's, `configs/default.toml` `[refine_camera_and_poses] scoring` (the Student-t + uniform scorer, outlier
-  half-width 20 px, its priors `[scoring.student_t_uniform]`'s), run at the bundle's own model dof. `scale = σ` stays
-  the override (with no `scoring`). The retired default, the frozen Student-t of all the least-squares rows, is gone:
-  on the 8 %-outlier fixture (5 views × 60, σ 0.2 px, outliers 20–60 px) it gave ŝ = 8.1 px and left ~1 px of
-  camera error; anchored, ŝ = 1.65 px (the biased least-squares fit's inliers) and the error is 0.23 px (Huber) /
-  0.20 px (Welsch), against 0.17 / 0.20 px at the caller's σ.
+- **Breaking (behaviour): a robust `refine_camera_and_poses` runs no least-squares stage and estimates no scale** (the
+  owner's rulings, 2026-11-11). The Triggs or Irls solve starts directly from the caller's start (camera and poses), at
+  the strategy's `scale_multiple` times the caller's `scale` (the detections' σ), or at its absolute `loss_width`; a
+  `scale_multiple` strategy without a `scale` is an `ArgumentError`. Gone: the frozen Student-t scale of the
+  least-squares rows, the scale anchored on a scorer's consensus partition (the `scoring` keyword and
+  `configs/default.toml`'s `[refine_camera_and_poses] scoring`) and its thin-partition refusal. On the 8 %-outlier
+  fixture (5 views × 60, σ 0.2 px, 8 % at 20–60 px, a start 20–80 px off), at σ: camera error 0.175 px (Irls{Huber},
+  as with the stage) and 0.30 px (Triggs{Welsch}, 0.20 with the stage: one Welsch LM from 25 px off); from a start
+  near the data, 0.175 / 0.202 px.
 
 - **New: the Student-t scorer's table, its priors required keys** (the owner's ruling (c)). `scoring_from_toml` reads
   VisualGeometryToolkitCore's `StudentTUniformScoring` (moved there from RANSACScoringDoneRight):

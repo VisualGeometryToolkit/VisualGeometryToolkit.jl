@@ -147,13 +147,13 @@ NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
-    refine_camera_and_poses(camera, poses, views; free, box = nothing, robust = nothing, scoring = nothing, scale = nothing,
+    refine_camera_and_poses(camera, poses, views; free, box = nothing, local_optimization = nothing, scale = nothing,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
     refine_camera_and_poses(spline_camera, poses, views; free = (:controls,), penalty = :gcv,
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
     refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), free, box,
-                            robust = nothing, scoring = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
+                            local_optimization = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses, :board_poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
@@ -185,39 +185,26 @@ scratch and the camera keeps its family (its lens type).
 - `box` — a solver search box on the camera's parameters by name
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
   with `free = ()` (nothing to bound) a box is an `ArgumentError`.
-- `robust` — `nothing` (the default: plain least squares) or a robust
-  strategy of the RANSAC local optimization's own types, configured by the same
-  TOML tables (`local_optimization_from_toml`, e.g. `{ type = "triggs", loss =
+- `local_optimization` — `nothing` (the default: plain least squares) or a
+  robust strategy of the RANSAC local optimization's own types, under the same
+  keyword `find_*` takes it by, configured by the same TOML tables (`local_optimization_from_toml`, e.g. `{ type = "triggs", loss =
   "welsch", scale_multiple = 2.98 }`): `Triggs{Shape}`, one robustified LM
   (Core's `loss_robustifier`, NLLSsolver's Triggs correction), or
   `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
   `max_iter` cycles, until the robust cost decreases by less than `ftol`),
   each starting directly from the caller's start (`camera`, `poses`, board
-  poses): a robust refine runs no least-squares stage, so gross outliers never
-  pull a warm-up fit. The loss width is the strategy's
-  `scale_multiple` (in its shape's currency) times the scale ŝ, frozen, or the
-  strategy's absolute `loss_width`. ŝ is ANCHORED on a consensus partition
-  (Core's consensus-anchored mechanism, the owner's ruling (b)): `scoring`
-  scores the start's residual distances (codimension 2) and its selected
-  consensus set gives ŝ (Core's `consensus_set`: the Student-t scale of the
-  set under the scorer's scale prior), so gross outliers do not inflate it.
-  The start's own residuals are scored: from a start far from the data
-  (inlier residuals beyond the scorer's outlier half-width) the partition is
-  thin (at most the bundle's m + 1 points, the RANSAC loop's rule) and the
-  refine is an `ArgumentError` — supply `scale` or a closer start. A
-  strategy that follows a scorer's inlier threshold (no width) or needs a
+  poses): it runs no least-squares stage, so gross outliers never pull a
+  warm-up fit. (The keyword was `robust`; that name is refused, an
+  `ArgumentError` naming this one.) The loss width is the strategy's
+  `scale_multiple` (in its shape's currency) times the caller's `scale`,
+  frozen, or an Irls strategy's absolute `loss_width`. A refine estimates no
+  scale: a `scale_multiple` strategy without a `scale` is an `ArgumentError`.
+  A strategy that follows a scorer's inlier threshold (no width) or needs a
   RANSAC consensus set is an `ArgumentError`. The metadata's `weights` are the
   ρ′ at the estimate, `scale` and `loss_width` what the loss ran at.
   Parametric cameras (both forms).
-- `scoring` — the scorer that anchors ŝ, a RANSAC scorer read by
-  `scoring_from_toml`; by default the stack's, `configs/default.toml`
-  `[refine_camera_and_poses] scoring` (the Student-t + uniform marginal scorer,
-  its priors `[scoring.student_t_uniform]`'s: Jeffreys, flat). A Student-t
-  scorer is run at the bundle's own model dof (`⌈p/2⌉` points of codimension
-  2 for `p` unknowns), its priors and outlier model the caller's.
-- `scale` — the override: the detections' noise scale σ (pixels, per
-  coordinate) a `robust` strategy's width multiplies, instead of the anchored
-  ŝ (with no `scoring`).
+- `scale` — the detections' noise scale σ (pixels, per coordinate) a
+  `local_optimization` strategy's `scale_multiple` multiplies.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -477,6 +464,9 @@ function _correspondence(v::Integer, j::Integer, c)
 end
 _finite_pose(P::PlainEuclideanMap{3}) = all(isfinite, rotation(P)) && all(isfinite, translation(P))
 _plain_pose(P::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
+# each refined pose under its input's frame labels
+_relabelled(inputs::AbstractVector, outs::AbstractVector{<:PlainEuclideanMap{3}}) =
+    [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(inputs, outs)]
 
 # Without boards: every correspondence's point in the world, one held identity board.
 function _refine_camera_and_poses(
@@ -490,28 +480,35 @@ function _refine_camera_and_poses(
     return (; camera = est.camera, poses = est.poses), rest...
 end
 
-# The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables): Irls{K} and
-# Triggs{K} at a width of their own (a scale multiple of the refine's scale, or an absolute width), or the least-squares
-# shape. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set, has nothing to
-# read here. Its scale is the caller's `scale` or the `scoring`'s consensus partition, not both.
-function _check_robust(robust, scale, scoring)
-    robust === nothing && (scale === nothing && scoring === nothing || throw(ArgumentError(
-        "refine_camera_and_poses: a `scale` or a `scoring` sets a `robust` strategy's width; least squares (robust = nothing) reads none")))
-    robust === nothing && return nothing
-    scale === nothing || scoring === nothing || throw(ArgumentError(
-        "refine_camera_and_poses: give either `scale` (the caller's σ) or `scoring` (the consensus partition that anchors ŝ), not both"))
-    scoring === nothing || codimension(scoring) == 2 || throw(ArgumentError(
-        "refine_camera_and_poses: `scoring` scores the reprojection distances, codimension 2; got codimension $(codimension(scoring))"))
+# The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables, under `find_*`'s
+# keyword `local_optimization`): Irls{K} and Triggs{K} at a width of their own (a scale multiple of the caller's
+# `scale`, or an absolute width), or the least-squares shape. A refine estimates no scale, so a scale multiple needs
+# the caller's `scale`. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set,
+# has nothing to read here.
+function _check_local_optimization(lo, scale)
+    lo === nothing && (scale === nothing || throw(ArgumentError(
+        "refine_camera_and_poses: a `scale` sets a `local_optimization` strategy's width; least squares " *
+        "(local_optimization = nothing) reads none")))
+    lo === nothing && return nothing
     scale === nothing || (isfinite(scale) && scale > 0) ||
         throw(ArgumentError("refine_camera_and_poses: scale = $scale is not a positive finite number of pixels"))
-    robust isa Union{Irls, Triggs} || throw(ArgumentError(
-        "refine_camera_and_poses: robust = $(nameof(typeof(robust))) needs a RANSAC consensus set, which a refine has none; " *
-        "a refine takes Irls{Shape} or Triggs{Shape}"))
-    strategy_loss(robust) === GaussianShape || lo_width(robust) !== nothing || throw(ArgumentError(
-        "refine_camera_and_poses: robust = $(VgtkCore.lo_label(robust)) follows a RANSAC scorer's inlier threshold, which a refine has " *
-        "none: give it a `scale_multiple` (of the refine's scale) or a `loss_width`"))
+    lo isa Union{Irls, Triggs} || throw(ArgumentError(
+        "refine_camera_and_poses: local_optimization = $(nameof(typeof(lo))) needs a RANSAC consensus set, which a refine has " *
+        "none; a refine takes Irls{Shape} or Triggs{Shape}"))
+    strategy_loss(lo) === GaussianShape || lo_width(lo) !== nothing || throw(ArgumentError(
+        "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) follows a RANSAC scorer's inlier threshold, " *
+        "which a refine has none: give it a `scale_multiple` (of the caller's `scale`) or a `loss_width`"))
+    strategy_loss(lo) === GaussianShape || !(lo_width(lo) isa ScaleMultiple) || scale !== nothing || throw(ArgumentError(
+        "refine_camera_and_poses: local_optimization = $(VgtkCore.lo_label(lo)) is a multiple of the noise scale, and a refine " *
+        "estimates none: supply `scale` (the detections' noise σ, pixels), or give an Irls strategy a `loss_width`"))
     return nothing
 end
+
+# The retired keyword `robust` (refused, naming its successor: the strategy is `local_optimization`, as `find_*` takes it).
+struct _RetiredRobust end
+_check_retired_robust(::_RetiredRobust) = nothing
+_check_retired_robust(_) = throw(ArgumentError(
+    "refine_camera_and_poses: the keyword `robust` is retired: it is `local_optimization` (the strategy, as `find_*` takes it)"))
 
 # The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
 # (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
@@ -526,11 +523,13 @@ function _refine_bundle(
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
-        robust::Union{Nothing, AbstractLocalOptimization} = nothing,
+        local_optimization::Union{Nothing, AbstractLocalOptimization} = nothing,
         scale::Union{Nothing, Real} = nothing,
-        scoring::Union{Nothing, AbstractScoring} = nothing,
+        robust = _RetiredRobust(),
     )
-    _check_robust(robust, scale, scoring)
+    _check_retired_robust(robust)
+    lo = local_optimization
+    _check_local_optimization(lo, scale)
     camera = _camera_model(bounded)
     V, B = length(poses), length(boards)
     names = parameter_names(camera)
@@ -582,43 +581,41 @@ function _refine_bundle(
         foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
         return pr, NLLSsolver.optimize!(pr, options)
     end
-    # Least squares is the whole solve when `robust = nothing`. A robust refine has NO least-squares stage (the owner's
+    # Least squares is the whole solve when `local_optimization = nothing`. A robust refine has NO least-squares stage (the owner's
     # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
-    # over a frozen scale ŝ — the caller's `scale`, else anchored on the consensus partition the scorer selects among the
-    # START's residual distances (Core's consensus-anchored mechanism: `score!`, then `consensus_set`, as the RANSAC
-    # loop anchors its local optimization) — or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
+    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
     # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
-    # (relative) or `max_iter` cycles.
+    # (relative) or `max_iter` cycles. A refine estimates no scale.
     weights = ones(n); used_scale = nothing; used_width = nothing; stationarity_blocks = costs
-    if robust === nothing
+    if lo === nothing
         problem, result = solve(costs, vars0)
         iters = result.niterations
     else
         iters = 0
-        r0, _ = nlls_rows_and_jacobian(costs, vars0)
-        cs = scale !== nothing ? ConsensusSet(; count = n, s2 = Float64(scale)^2, epoch = 0) :
-             _anchored_consensus(scoring, _row_norms(r0), cld(p, 2))
-        loss = lo_loss(robust, cs, nothing, nothing)
-        s2 = scale_s2(cs)
-        shape = strategy_loss(robust)(); sq = sq_loss_width(loss)
-        used_scale = sqrt(s2); used_width = sqrt(sq)
+        # the caller's scale (an absolute `loss_width` reads none: its consensus set is never read)
+        cs = ConsensusSet(; count = n, s2 = scale === nothing ? 1.0 : Float64(scale)^2, epoch = 0)
+        loss = lo_loss(lo, cs, nothing, nothing)
+        shape = strategy_loss(lo)(); sq = sq_loss_width(loss)
+        used_scale = scale === nothing ? nothing : Float64(scale); used_width = sqrt(sq)
         sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
-        if robust isa Triggs
+        if lo isa Triggs
             robustifier = loss_robustifier(shape, used_width)
             problem, result = solve([_with_robust(c, 1.0, robustifier) for c in costs], copy(vars0))
             iters += result.niterations
         else
-            vars = copy(vars0)
-            prev = Inf
-            for it in 1:max(robust.max_iter, 1)   # the first weighted solve always runs (no least-squares estimate)
-                q = sqnorms(vars)
+            weighted_solve(vars, q) = solve([_with_robust(c, sqrt(weight(shape, q[k], sq)), NLLSsolver.NoRobust())
+                                             for (k, c) in enumerate(costs)], copy(vars))
+            # the first weighted solve always runs (no least-squares estimate)
+            q = sqnorms(vars0)
+            prev = sum(x -> VgtkCore.ρ(shape, x, sq), q)
+            problem, result = weighted_solve(vars0, q)
+            iters += result.niterations
+            for _ in 2:lo.max_iter
+                q = sqnorms(problem.variables)
                 cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-                it > 1 && prev - cost <= ftol * abs(cost) && break
+                prev - cost <= ftol * abs(cost) && break
                 prev = cost
-                w = [weight(shape, x, sq) for x in q]
-                problem, result = solve([_with_robust(c, sqrt(w[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)],
-                                        copy(vars))
-                vars = problem.variables
+                problem, result = weighted_solve(problem.variables, q)
                 iters += result.niterations
             end
         end
@@ -635,47 +632,12 @@ function _refine_bundle(
 
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
     code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
-    robust === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
+    lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     ν = 2n - p
-    relabelled(inputs, outs) = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(inputs, outs)]
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
     meta = CameraPosesRefineMetadata(r, S / ν, ν, free, nothing, _row_norms(r), weights, used_scale, used_width)
-    return (; camera = camera_out, poses = relabelled(poses, poses_out), boards = relabelled(boards, boards_out)), code,
+    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), code,
         iters, sqrt(S / n), n, meta
 end
 
-# The bundle's reprojection rows as the scorer sees them: one distance per correspondence, codimension 2, the bundle's
-# `M = ⌈p/2⌉` points of model dof (`p` unknowns). The problem type a scorer table is read at (`scoring_from_toml`).
-struct _ReprojectionRows{M} <: AbstractConstraintProblem end
-codimension(::Type{<:_ReprojectionRows}) = 2
-minimal_sample_size(::Type{_ReprojectionRows{M}}) where {M} = M
-
-# A caller's Student-t scorer runs at the bundle's model dof (its priors and outlier model kept); any other scorer as it is.
-_at_rows(sc::StudentTUniformScoring{P}, m::Int) where {P} =
-    StudentTUniformScoring{P, 2}(m, VgtkCore.label_prior(sc), VgtkCore.scale_prior(sc), VgtkCore.outlier_model(sc))
-_at_rows(sc::AbstractScoring, ::Int) = sc
-
-# The consensus set the scorer selects among the start's residual distances `d` (the stack's default scorer when
-# none is given): `score!`, then Core's `consensus_set` at the local optimization's dof (m + 1), the RANSAC loop's rule.
-function _anchored_consensus(scoring, d::Vector{Float64}, m::Int)
-    sc = scoring === nothing ?
-         scoring_from_toml(_dflt("refine_camera_and_poses", "scoring"); problem = _ReprojectionRows{m},
-                           section = "refine_camera_and_poses.scoring") : _at_rows(scoring, m)
-    return _consensus_of(sc, d, m)
-end
-# (a function barrier: the scorer's concrete type from here on)
-function _consensus_of(sc::AbstractScoring, d::Vector{Float64}, m::Int)
-    n = length(d)
-    W = scoring_workspace(sc, n, 2)
-    score!(W, sc, Vector{Float64}(undef, n), d, n)
-    # The RANSAC loop's rule (`_holds_stable_partition`): a consensus set of at most m + 1 points has no residual dof, so
-    # no scale to anchor a loss at. From a start far from the data (every residual beyond the scorer's outlier
-    # half-width) that is what the scorer selects; refused, never run at the degenerate width.
-    k = inlier_count(sc, W)
-    k > m + 1 || throw(ArgumentError(
-        "refine_camera_and_poses: the scorer's consensus partition of the start's residuals holds $k of $n points, " *
-        "no more than the bundle's $(m + 1) (no residual dof): no scale to anchor the robust width at. Supply `scale` " *
-        "(the detections' noise σ), a start closer to the data, or a `scoring` with a wider outlier half-width"))
-    return consensus_set(sc, W, d; model_dof = m + 1, d_g = 2, epoch = 0)
-end

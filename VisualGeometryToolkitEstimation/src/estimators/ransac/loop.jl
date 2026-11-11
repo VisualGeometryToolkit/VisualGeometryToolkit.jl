@@ -652,7 +652,7 @@ function _no_model_result(::Type{M}, result::RansacResultBuffers{T}, trials::Int
     )
 end
 
-function _finalize(scoring, ws, problem, best::Tuple, sar, trial, result::RansacResultBuffers)
+function _finalize(scoring, ws, problem::AbstractRansacProblem, best::Tuple, sar, trial, result::RansacResultBuffers)
     M = model_type(problem)
     T = eltype(ws.best_residuals)   # attributes come back in the workspace's storage precision
     p = minimal_sample_size(problem)

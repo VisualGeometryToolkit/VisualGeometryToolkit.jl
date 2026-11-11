@@ -227,16 +227,15 @@ end
     end
 end
 
-# A robust refine (`robust`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
-# scale_multiple), read by its TOML reader, at the least-squares rows' frozen Student-t scale or the caller's; plain
-# least squares unchanged; the refusals.
-@testitem "refine_camera_and_poses: robust = Irls{Huber} / Triggs{Welsch} from the caller's start, no least-squares stage; the scale anchored on the start's consensus partition; least squares unchanged" setup = [CameraPoseScenes] begin
+# A robust refine (`local_optimization`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
+# scale_multiple of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
+# (no least-squares stage); a refine estimates no scale; plain least squares unchanged; the refusals.
+@testitem "refine_camera_and_poses: local_optimization = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, NoLocalOptimization, local_optimization_from_toml, config_dict,
-        scoring_from_toml, HomographyProblem
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, NoLocalOptimization, local_optimization_from_toml, config_dict
     using VisualGeometryToolkitCore: EuclideanMap, exp_so3
     using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)
@@ -251,51 +250,49 @@ end
     err(r) = maximum(abs.(parameter_vector(estimate(r).camera) - θ)[[1, 4, 5]])      # f, cx, cy, pixels
     ls = refine_camera_and_poses(cam0, poses0, noisy)
     @test err(ls) > 3.0 && ls.scale === nothing && ls.loss_width === nothing && all(==(1.0), ls.weights)
-    # least squares is the default: the same estimate, bit for bit (the robust keyword unused)
-    ls2 = refine_camera_and_poses(cam0, poses0, noisy; robust = nothing)
+    # least squares is the default: the same estimate, bit for bit
+    ls2 = refine_camera_and_poses(cam0, poses0, noisy; local_optimization = nothing)
     @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
     @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
-    sc = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => 20.0); problem = HomographyProblem)
-    # A robust refine runs NO least-squares stage (the owner's ruling): it starts from the caller's start, and the
-    # default scale is anchored on the consensus partition the stack's default scorer (configs/default.toml: the
-    # Student-t + uniform scorer at 20 px, Jeffreys) selects among the START's residuals. This start is far from the data
-    # (every residual 20–80 px, median 30, beyond the outlier half-width): the partition is thin (≤ m + 1 points, the
-    # RANSAC loop's rule) and the refine refuses rather than run at a degenerate width. (Before the ruling a least-squares
-    # stage came first and ŝ was its inliers' 1.65 px: 0.23 / 0.20 px camera error.)
-    for robust in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
-        @test_throws r"no scale to anchor" refine_camera_and_poses(cam0, poses0, noisy; robust)
-        # at the caller's scale (the detections' σ), from the same far start: the truth, to the noise; the outliers'
-        # weights low (Irls{Huber} 0.175 px, as before the ruling; Triggs{Welsch} 0.30 px, 0.20 before: one Welsch LM from
-        # a start 25 px off, where the least-squares stage had brought it to the data first)
-        rs = refine_camera_and_poses(cam0, poses0, noisy; robust, scale = 0.2)
+    # A robust refine runs NO least-squares stage (the owner's ruling) and estimates no scale: its width is the
+    # strategy's scale_multiple times the caller's `scale` (the detections' σ). From this far start (every residual
+    # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Irls{Huber} 0.175 px; Triggs{Welsch}
+    # 0.30 px, 0.20 with a least-squares stage: one Welsch LM from a start 25 px off)
+    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
+        @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo)
+        rs = refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo, scale = 0.2)
         @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
+        @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
     end
     # From a start near the data (f 0.5 %, 1 px, poses 2 mrad / 5 mm off: residuals median 3.3 px, a caller's linear
-    # calibration's), the anchored default works: ŝ is the start's inlier scale (2.49 px) and the estimate lands at the
-    # noise level (Irls{Huber} 0.34 px, Triggs{Welsch} 0.20 px; at σ 0.175 / 0.202)
+    # calibration's), at the caller's σ (Irls{Huber} 0.175 px, Triggs{Welsch} 0.202 px)
     near(E, v) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015v / 4, 0.002)) * E.R),
                               E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
     cam1 = with_parameters(cam, θ .* SVector(1.005, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 1.0, -1.0))
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
-    for robust in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
-        r = refine_camera_and_poses(cam1, poses1, noisy; robust)
-        @test retcode(r) === :converged && err(r) < 0.4
-        @test r.scale < 3.0 && r.loss_width ≈ (robust isa Irls ? 1.345 : 2.98) * r.scale
-        # a caller's scorer, the stack's reader: the same anchored refine
-        @test refine_camera_and_poses(cam1, poses1, noisy; robust, scoring = sc).scale == r.scale
+    for lo in (Irls{HuberShape}(scale_multiple = 1.345), Triggs{WelschShape}(scale_multiple = 2.98))
+        r = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2)
+        @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
+    # an absolute width needs no scale (Irls; Triggs takes a scale multiple only): Huber at loss_width 1.345 · 0.2 px
+    rw = refine_camera_and_poses(cam1, poses1, noisy; local_optimization = Irls{HuberShape}(loss_width = 1.345 * 0.2))
+    @test retcode(rw) === :converged && err(rw) < 0.4 && rw.scale === nothing && rw.loss_width ≈ 1.345 * 0.2
     # the strategy from the LO's own TOML reader, and back
     t = Dict("type" => "triggs", "loss" => "welsch", "scale_multiple" => 2.98)
-    robust = local_optimization_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.robust")
-    @test robust == Triggs{WelschShape}(scale_multiple = 2.98) && config_dict(robust) == t
-    # refusals: a strategy anchored on a RANSAC consensus set, one following a scorer's threshold, a scale without a loss
-    @test_throws r"RANSAC consensus" refine_camera_and_poses(cam0, poses0, noisy; robust = NoLocalOptimization())
-    @test_throws r"inlier threshold" refine_camera_and_poses(cam0, poses0, noisy; robust = Irls{WelschShape}())
+    lo = local_optimization_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization")
+    @test lo == Triggs{WelschShape}(scale_multiple = 2.98) && config_dict(lo) == t
+    # refusals: a strategy anchored on a RANSAC consensus set, one following a scorer's threshold, a scale without a
+    # loss, a scorer (a refine takes none)
+    @test_throws r"RANSAC consensus" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = NoLocalOptimization())
+    @test_throws r"inlier threshold" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = Irls{WelschShape}())
     @test_throws r"reads none" refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2)
-    @test_throws r"reads none" refine_camera_and_poses(cam0, poses0, noisy; scoring = sc)
-    @test_throws r"either" refine_camera_and_poses(cam0, poses0, noisy; robust, scale = 0.2, scoring = sc)
-    @test_throws r"positive finite" refine_camera_and_poses(cam0, poses0, noisy; robust, scale = -1.0)
+    @test_throws MethodError refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2, scoring = nothing)
+    @test_throws r"positive finite" refine_camera_and_poses(cam0, poses0, noisy; local_optimization = lo, scale = -1.0)
+    # the retired keyword `robust`, whatever its value: refused, naming `local_optimization`
+    @test_throws r"`robust` is retired: it is `local_optimization`" refine_camera_and_poses(cam1, poses1, noisy; robust = nothing)
+    @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo)
+    @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo, scale = 0.2)
 end
 
 # Several boards (owner decision 20): the board poses a block of the same bundle, each board → world a variable unless

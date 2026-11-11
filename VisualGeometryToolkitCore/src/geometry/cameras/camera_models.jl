@@ -358,10 +358,45 @@ ray = backproject(camera, u)  # Returns normalized Vec3 direction
     # BoundedCamera forwarders).
     Vec3(backproject(model.intrinsics, model.lens, u))
 
-# Batched version for multiple points. (It once handed the whole vector to the
-# scalar-only 3-arg method — a MethodError on every call, found by JET.)
-backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}) =
-    map(u -> backproject(model, u), points)
+"""
+    backproject(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = default_device()) -> rays
+    backproject_with_jacobian(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = default_device())
+        -> Vector{Tuple{SVector{3}, SMatrix{3, 2}}}
+
+The batched [`backproject`](@ref) (and [`backproject_with_jacobian`](@ref)) on the
+KernelAbstractions backend `device` ([`default_device`](@ref)`()` by default: an
+accelerator when one is functional, else `KA.CPU()`): the scalar map per pixel,
+one [`pointwise!`](@ref) over a device copy of the model and the pixels, each ray
+an `SVector{3}`, the result back in the pixels' array kind — bit for bit the
+scalar value on the CPU. A model with no device form (neither isbits nor adapted) runs as a host map.
+A SplineLens camera's batched `backproject` is its own kernel (spline_lens.jl).
+"""
+backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+    _batched_backprojection(backproject, model, points, device)
+"See [`backproject`](@ref)`(model, pixels)`."
+backproject_with_jacobian(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+    _batched_backprojection(backproject_with_jacobian, model, points, device)
+
+# One pixel's datum as the batched forms store it: the ray an `SVector{3}` (the scalar's `Vec3`), a Jacobian as it is.
+@inline _ray_form(r::StaticVector{3}) = SVector{3}(r)
+@inline _ray_form((r, M)::Tuple) = (SVector{3}(r), M)
+struct _BatchedBackprojection{F, M}
+    f::F
+    model::M
+end
+@inline (b::_BatchedBackprojection)(u) = _ray_form(b.f(b.model, u))
+Adapt.adapt_structure(to, b::_BatchedBackprojection) = _BatchedBackprojection(b.f, Adapt.adapt(to, b.model))
+function _batched_backprojection(f::F, model::CameraModel, points::AbstractVector, device::KA.Backend) where {F}
+    pts = _concrete_points(points)
+    g = _BatchedBackprojection(f, model)
+    R = Base.promote_op(g, eltype(pts))
+    dg = Adapt.adapt(device, g)
+    # a kernel needs a concrete datum, and on an accelerator a model that is isbits or has a device form (its adapt rule)
+    (isconcretetype(R) && (device isa KA.CPU || isbits(model) || dg.model !== model)) || return map(g, pts)
+    out = KA.allocate(device, R, length(pts))
+    isempty(pts) || (pointwise!(dg, out, on_device(device, pts)); KA.synchronize(device))
+    return on_device(get_backend(points), out)
+end
 
 """
     backproject_with_jacobian(model::CameraModel, u::StaticVector{2}) -> (f, M)

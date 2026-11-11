@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Changed: the batched `backproject(camera, pixels; device)` runs on a KernelAbstractions backend for every
+  `CameraModel`**, with the new batched `backproject_with_jacobian(camera, pixels; device)` beside it (and a
+  `NoncentralSplineModel`'s, its central model's): one `pointwise!` over a device copy of the model, each ray an
+  `SVector{3}` (was a host map returning `Vec3`s), back in the pixels' array kind, bit for bit the scalar map on the
+  CPU. `device` defaults to `default_device()`; a model with no device form runs as a host map. A SplineLens camera
+  keeps its own kernel.
 - **New: `device_zeros(T, device, dims...)`** (public, not exported; base/device.jl beside `ka_upload`): a zero array of
   element type `T` on a KernelAbstractions backend, the stack's one spelling of it (KernelAbstractions' own `zeros` is
   not public, so ExplicitImports refuses it across a package boundary). PanoramaStitching's vignetting fit wrote it as

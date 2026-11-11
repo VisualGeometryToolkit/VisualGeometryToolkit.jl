@@ -221,6 +221,8 @@ The unit DIRECTION `f` of the pixel `u`'s observation line and its Jacobian
 differentiated: `backproject` gives it.
 """
 backproject_with_jacobian(m::NoncentralSplineModel, u::StaticVector{2}) = backproject_with_jacobian(central_model(m), u)
+backproject_with_jacobian(m::NoncentralSplineModel, pixels::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+    backproject_with_jacobian(central_model(m), pixels; device)
 # The Backprojection of a model with its own back-projection Jacobian takes it
 # (equirectangular.jl): a CameraModel's, and this model's direction Jacobian.
 transform_deriv(b::Backprojection{<:Union{CameraModel, NoncentralSplineModel}}, q::StaticVector{2}) =

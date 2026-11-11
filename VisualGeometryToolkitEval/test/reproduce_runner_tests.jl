@@ -255,6 +255,24 @@ end
         @test occursin("--array=0-2%2", out)
     end
 
+    @testset "the local backend inherits no Slurm job: launched from inside one, a stage sees only its own variables" begin
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
+        job = Dict("SLURM_ARRAY_TASK_ID" => "4", "SLURM_SUBMIT_DIR" => "/elsewhere/submit", "SLURM_JOB_ID" => "7553",
+                   "SLURM_ARRAY_JOB_ID" => "7553", "SLURM_CPUS_PER_TASK" => "96", "SLURM_JOB_NAME" => "vgtk-suites")
+        code, out = withenv(job...) do
+            run_main(["--graph=$(f.graph)", "--site=desktop", "--only=texture"]; env = merge(env0, job))
+        end
+        @test code == 0
+        ran = readlines(joinpath(f.results, "ran.txt"))
+        @test startswith(ran[1], "setup.sbatch task= ")                                     # no job's task id
+        @test occursin("prepare.sbatch task= cases= sets= exp=chrome gpu= ", ran[2])
+        @test !any(l -> occursin("/elsewhere/submit", l) || occursin("task=4", l), ran)
+        @test occursin("submit=$(normpath(f.proj * "/"))", ran[2])                         # the project's, never the job's
+        @test occursin("chrome.sbatch task=2 cases=alpha,mid,zeta", ran[5])                  # an array's own task ids
+    end
+
     @testset "the local backend: runs the launchers, writes the manifest, reuses a finished stage" begin
         f = runner_project()
         mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")

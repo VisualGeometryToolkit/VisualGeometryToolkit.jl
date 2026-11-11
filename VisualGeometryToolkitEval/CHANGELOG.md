@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment
+  the plan was made in, so a stage sees only the ones the backend sets (`SLURM_SUBMIT_DIR`, an array's
+  `SLURM_ARRAY_TASK_ID`, the site's `SLURM_CPUS_PER_TASK`). Launched from inside a Slurm array task (the test suite's
+  own job), the job's task id and submit directory reached every stage.
+
 - **New: one command reproduces a paper project** (`Reproduce`, src/reproduce/runner.jl, src/reproduce/run_results_branch.jl).
   A project's stage graph of record (`load_stage_graph`: `[[stage]]` tables naming the project's own sbatch launcher, a
   command or the results branch, their `after` dependencies, the driver and config of record, an array over the config's

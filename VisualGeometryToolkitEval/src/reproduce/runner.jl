@@ -827,9 +827,15 @@ Runs the plan's stages in order on this machine, each item of an array in turn (
 project's sbatch launcher runs unchanged under `bash`), its output in `logs/<project>_<stage>[_<task>].log` under the
 workdir. A completed stage of an earlier launch is skipped, as is every task it completed; the first failing task
 stops the run (a later stage depends on it). The manifest is written after every task. Returns the records.
+
+A local run is no Slurm job, whatever the launching process is: every `SLURM_*` variable of the environment the
+plan was made in is dropped, and a stage sees only the ones this backend sets (`SLURM_SUBMIT_DIR`, an array's
+`SLURM_ARRAY_TASK_ID`, the site's `SLURM_CPUS_PER_TASK`) — launched from inside a Slurm job (a test suite's array
+task), the job's own task id and submit directory would otherwise reach every stage.
 """
 function run_local!(plan::ReproducePlan; io::IO = stdout)
     g, site = plan.graph, plan.site
+    base_env = Dict(k => v for (k, v) in plan.base_env if !startswith(k, "SLURM_"))
     logs = mkpath(joinpath(g.workdir, "logs")); mkpath(plan.results_root)
     records = Dict{String, Any}()
     for st in plan.stages
@@ -843,7 +849,7 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
         for (i, item) in enumerate(st.items)
             t = i - 1
             log = joinpath(logs, s.is_array ? "$(g.name)_$(s.name)_$t.log" : "$(g.name)_$(s.name).log")
-            e = merge(plan.base_env, st.env)
+            e = merge(base_env, st.env)
             s.is_array && (e["SLURM_ARRAY_TASK_ID"] = string(t))
             t0 = time()
             ok = open(log, "w") do f

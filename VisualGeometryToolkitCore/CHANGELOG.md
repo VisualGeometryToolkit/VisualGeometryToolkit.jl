@@ -10,7 +10,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the
   CPU's included; `exec` still takes `OnBackend(backend; workgroupsize)` (a backend value with its compiler options,
   a workgroup size), now a plain struct. `ExecutionPolicy`, `Auto`, `Serial`, `Threaded` and `THREADED_MIN_LENGTH`
-  are gone (RETIRED_NAMES); no stack package passed them. The inputs share the output's shape (no broadcasting, a
+  are gone (RETIRED_NAMES); no stack package used them. The inputs share the output's shape (no broadcasting, a
   `DimensionMismatch`); a device array now runs the KernelAbstractions kernel instead of a GPUArrays broadcast (a
   B200 undistortion agrees with the host's per-point map to 3e-16). On the CPU the results are the per-point map's bit
   for bit, as every policy's were. The CPU is slower: a 5-coefficient OpenCV undistortion of 256 / 1024 / 10⁶
@@ -24,6 +24,16 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Sampson squares). The rows equal the plain loop's to rounding (1 ulp in 10 of 100 Sampson rows; a test checks
   1e-14). The CPU launch is slower: Sampson residuals of 100 / 1000 correspondences took 0.18 / 1.6 µs as a loop and
   14 / 90 µs as a kernel (medians, in a 224-thread process: KernelAbstractions' CPU launch spawns a task per thread).
+
+- **Faster: the CPU launches of the row and pointwise kernels specialize** (fixing the V3/V4 slowdowns above).
+  `_row_kernel!` took `args...` and `pointwise!`'s field kernels a function field they only hand on; Julia compiled
+  both for a widened signature (`Vararg{Any}`, `Function`) and KernelAbstractions' CPU backend ran every row or point
+  through it as a dynamic call with boxed arguments (≈150 B a Sampson row, ≈380 B an undistorted point). Type
+  parameters on those arguments force the specialization; the device kernels are unchanged and the results are the
+  same bit for bit. Sampson residuals of 100 / 1000 rows: 8.4 / 83 µs → 0.25 / 1.4 µs (a plain loop: 0.13 / 1.3 µs);
+  the OpenCV undistortion of 256 / 1024 / 10⁶ points: 137 µs / 0.54 ms / 62 ms → 79 µs / 0.31 ms / 4.6 ms (minima,
+  224 threads; at 10⁶ points the kernel matches a hand-threaded host loop). KernelAbstractions' CPU default already
+  runs ≤ 1024 items as one workgroup with no task spawned.
 
 - **Faster: `ka_upload` / `on_device` of an integer image converts it on the device** (the GPU-first rule): a `UInt8`,
   `UInt16`, `N0f8` or `N0f16` image (any integer or fixed-point eltype narrower than the float target) crosses as it is

@@ -89,7 +89,7 @@ end
     return Expr(:new, T, (:(fields[$i]) for i in 1:fieldcount(F))...)
 end
 # Each field argument is annotated with its own type parameter (`a1::A1`): a field that is a function (`Fix1(project, lens)`'s
-# `project`) is otherwise only passed on to `_device_functor`, never called, and Julia compiles such an argument for `Function`;
+# `project`) is otherwise only handed to `_device_functor`, never called, and Julia compiles such an argument for `Function`;
 # KernelAbstractions' CPU backend calls the kernel through that widened instance, so every point paid a dynamic
 # `_device_functor` call and a boxed functor (≈380 bytes a point: OpenCV-5 undistort at 1024 points 1.8× the serial
 # broadcast in one task, at 10⁶ points over 224 threads 15× the threaded broadcast). A device compiler specializes on the

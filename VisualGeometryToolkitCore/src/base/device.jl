@@ -219,7 +219,7 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 #
 # CPU cost: the signature is `row!::R, args::Vararg{Any, N}` with `R` and `N`
 # type parameters, not a bare `args...`. Julia compiles a bare vararg method
-# (and a `Function` argument it only passes on) for a WIDENED signature,
+# (and a `Function` argument it only hands on) for a WIDENED signature,
 # `Vararg{Any}`: KernelAbstractions' CPU backend calls the kernel function
 # through that instance, so every row was a dynamic dispatch with its
 # arguments boxed (≈150 bytes and 80 ns a row: 1000 Sampson rows took 83 µs

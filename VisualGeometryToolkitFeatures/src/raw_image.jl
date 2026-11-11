@@ -57,6 +57,9 @@ _decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decode
 # The display demosaic: LibRaw's interpolated, linear, 16-bit camera-RGB image of
 # the visible area in the sensor's orientation, and the file's metadata.
 _decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
+# The decoder library's version, part of `load_raw`'s cache key (a library upgrade can move the black levels, the white
+# level or the crop): the extension's (LibRaw's `libraw_version()`); `nothing` for a decoder that states none.
+_decoder_version(::RawDecoder) = nothing
 
 """
     RawMosaic{A <: AbstractMatrix{UInt16}, M <: NamedTuple} <: AbstractMatrix{UInt16}
@@ -66,7 +69,12 @@ reports it. It IS its photosite matrix: `size`, indexing and `parent` are the
 held array's, so an ordinary array or image function reads it unchanged, and
 what such a function makes (`similar`, `copy`, a broadcast, a reduction) is a
 plain array of the held array's kind — the colour pattern and the metadata stay
-with the mosaic. It is read-only (no `setindex!`): write to `parent(m)`. The held array may be a device array (`adapt(CuArray, m)`, or
+with the mosaic. `copy`, `==`, `isequal` and `isapprox` are the held array's
+own (no element read through the wrapper, so a device mosaic compares on the
+device), and equality is the photosite matrix's: two mosaics with the same
+photosites are `==` whatever their colour pattern, window origin or metadata
+(compare [`photosite_colors`](@ref), `window_origin` and `metadata` for those),
+and a mosaic is `==` to its held array. It is read-only (no `setindex!`): write to `parent(m)`. The held array may be a device array (`adapt(CuArray, m)`, or
 `adapt(backend, m)` with a KernelAbstractions backend, moves the photosites and
 keeps the rest); a kernel receives `parent(m)`, never the wrapper.
 
@@ -134,6 +142,18 @@ Base.@propagate_inbounds Base.getindex(m::RawMosaic, i::Int...) = m.raw[i...]
 Base.similar(m::RawMosaic, ::Type{T}, dims::Dims) where {T} = similar(m.raw, T, dims)
 Base.Broadcast.broadcastable(m::RawMosaic) = m.raw
 Base.mapreduce(f, op, m::RawMosaic; kw...) = mapreduce(f, op, m.raw; kw...)
+Base.copy(m::RawMosaic) = copy(m.raw)
+# Equality is the photosite matrix's (an AbstractMatrix's, so a mosaic is `==` to its held array and `hash` agrees), read
+# through the held array's own methods (a device array's, no scalar read; against a dense array, a device array's kind):
+# the colour pattern, window origin and metadata are not compared.
+for f in (:(==), :isequal)
+    @eval Base.$f(a::RawMosaic, b::RawMosaic) = $f(a.raw, b.raw)
+    @eval Base.$f(a::RawMosaic, b::DenseArray) = $f(a.raw, b)
+    @eval Base.$f(a::DenseArray, b::RawMosaic) = $f(a, b.raw)
+end
+Base.isapprox(a::RawMosaic, b::RawMosaic; kw...) = isapprox(a.raw, b.raw; kw...)
+Base.isapprox(a::RawMosaic, b::DenseArray; kw...) = isapprox(a.raw, b; kw...)
+Base.isapprox(a::DenseArray, b::RawMosaic; kw...) = isapprox(a, b.raw; kw...)
 Adapt.adapt_structure(to, m::RawMosaic) = _with_raw(m, adapt(to, m.raw), m.window_origin)
 
 # A window (unit ranges in both axes) is a mosaic of the same sensor: the photosites `raw` (the
@@ -620,8 +640,9 @@ raw colour, white balance 1.
 
 `cache` (a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
 decoded once per content and settings — the entry is keyed by the file's
-SHA-256, `mode`, `gain`, `white_balance` and the decoder's type
-([`cache_key`](@ref)), so an edited file or another setting decodes again and
+SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
+version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
+another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
 default) decodes every call.
 """
@@ -631,7 +652,8 @@ function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_bala
         throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
     cache === nothing && return _load_raw(path, mode, gain, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
-    key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)))
+    key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
+                    _decoder_version(decoder))
     return get!(() -> _load_raw(path, mode, gain, white_balance, decoder), cache, key)
 end
 

@@ -60,6 +60,34 @@ end
     @test sum(m) == sum(raw) && extrema(m) == extrema(raw) && Float64.(m) == Float64.(raw)
     @test m[2, 3:5] == raw[2, 3:5] && m[2, 3:5] isa Vector{UInt16}       # a row is a plain vector
     @test occursin("RawMosaic", sprint(show, MIME"text/plain"(), m)) && occursin("GRBG", sprint(show, m))
+    # `==` and `isequal` are the photosite matrices' (an AbstractMatrix's equality): a mosaic of another colour
+    # phase, window or metadata with the same photosites is equal; the mosaic's own fields are compared by name
+    other = mosaic(raw, LAYOUTS.RGGB; origin = (0, 1))
+    @test m == other && isequal(m, other) && hash(m) == hash(other) && m.pattern != other.pattern
+    @test m == raw && raw == m && isequal(m, raw) && m != raw .+ 1 && m ≈ raw
+end
+
+@testitem "raw: copy and equality of a mosaic read its held array whole" setup = [RawFixtures] begin
+    # A held array that refuses element reads (as a device array refuses scalar indexing): copy, ==, isequal and ≈
+    # go to the held array's own methods, never element by element through the wrapper (against a bare dense array
+    # too: the device item compares a CuArray mosaic with its parent).
+    using VisualGeometryToolkitFeatures: RawMosaic
+    struct Whole <: AbstractMatrix{UInt16}
+        a::Matrix{UInt16}
+    end
+    Base.size(x::Whole) = size(x.a)
+    Base.getindex(::Whole, ::Int...) = error("an element read")
+    Base.copy(x::Whole) = Whole(copy(x.a))
+    Base.:(==)(x::Whole, y::Whole) = x.a == y.a
+    Base.isequal(x::Whole, y::Whole) = isequal(x.a, y.a)
+    Base.isapprox(x::Whole, y::Whole; kw...) = isapprox(x.a, y.a; kw...)
+    raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
+    wrap(a) = RawMosaic(Whole(a), LAYOUTS.RGGB, (512.0, 500.0, 520.0, 508.0), 16383.0, (0, 0), (6, 8), (; model = "synthetic"))
+    m = wrap(raw)
+    c = copy(m)
+    @test c isa Whole && c.a == raw && c.a !== raw                         # the held array's kind, a copy
+    @test m == wrap(copy(raw)) && isequal(m, wrap(copy(raw))) && m != wrap(raw .+ UInt16(1))
+    @test isapprox(m, wrap(copy(raw))) && !isapprox(m, wrap(raw .+ UInt16(100)))
 end
 
 @testitem "raw: a window of a mosaic keeps its colours and its frame" setup = [RawFixtures] begin
@@ -128,6 +156,9 @@ end
             @test adapt(Array, d) isa RawMosaic{Matrix{UInt16}} && adapt(Array, d) == m
             @test adapt(CUDA.CUDABackend(), m) isa RawMosaic{<:CUDA.CuArray} && adapt(KA.CPU(), d) isa RawMosaic{Matrix{UInt16}}   # by KA backend
             @test (d .+ 1) isa CUDA.CuArray && Array(d .+ 1) == raw .+ 1 && sum(d) == sum(raw)
+            # no scalar read (a test process refuses one): the held array's own copy, == and ≈
+            @test copy(d) isa CUDA.CuArray && Array(copy(d)) == raw
+            @test d == adapt(CUDA.CuArray, m) && d == parent(d) && isequal(d, parent(d)) && d ≈ parent(d)
             @test contains(sprint(show, MIME"text/plain"(), d), "RawMosaic")   # no scalar read
             for mode in (:green_cells, :bin2), w in (d, view(d, 2:11, 3:16))
                 Ld = LinearRaw(w; mode)
@@ -500,6 +531,8 @@ end
         e
     end
     @test err isa ErrorException && occursin("LibRaw cannot open", err.msg)
+    # load_raw's cache key names the library and its build
+    @test occursin(r"^LibRaw 0\.22\S*, LibRaw_jll 0\.22\.", VisualGeometryToolkitFeatures._decoder_version(LibRawDecoder()))
     path = get(ENV, "VGTK_RAW_TEST_FILE", "")
     if isfile(path)
         m = load_raw_mosaic(path; decoder = LibRawDecoder())
@@ -652,6 +685,27 @@ end
     try
         load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
         @test d.calls[] == 6
+    finally
+        close_cache(cache)
+    end
+    # the decoder library's version is in the key (`_decoder_version`, LibRaw's for LibRawDecoder): an upgraded
+    # library decodes again rather than returning the old library's black levels, white level or crop
+    struct VersionedDecoder <: RawDecoder
+        calls::Base.RefValue{Int}
+        version::Base.RefValue{String}
+    end
+    VisualGeometryToolkitFeatures._decoder_version(d::VersionedDecoder) = d.version[]
+    VisualGeometryToolkitFeatures._decode_raw(d::VersionedDecoder, path::AbstractString) =
+        (d.calls[] += 1; mosaic(fill(UInt16(3000), 8, 8), LAYOUTS.RGGB))
+    @test VisualGeometryToolkitFeatures._decoder_version(CountingDecoder(Ref(0))) === nothing   # a decoder stating none
+    v = VersionedDecoder(Ref(0), Ref("0.22.0-Release"))
+    cache = open_cache(joinpath(dir, "versioned.jld2"))
+    try
+        load_raw(raw; mode = :bin2, decoder = v, cache); load_raw(raw; mode = :bin2, decoder = v, cache)
+        @test v.calls[] == 1
+        v.version[] = "0.22.1-Release"
+        load_raw(raw; mode = :bin2, decoder = v, cache)
+        @test v.calls[] == 2
     finally
         close_cache(cache)
     end

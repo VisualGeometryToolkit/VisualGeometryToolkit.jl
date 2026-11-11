@@ -77,12 +77,16 @@ end
         before = VgtkFeatures._onnx_cuda_reserve()
         g = onnx_session(model; execution_provider = :cuda, gpu_mem_limit = 3 * 2^20)
         @test g.execution_provider === :cuda
-        @test VgtkFeatures._onnx_cuda_reserve() - before == 3 * 2^20
-        @test only(values(g(Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
-        # the default cap is the LoMa sessions' 8 GiB
+        @test 0 <= VgtkFeatures._onnx_cuda_reserve() - before <= 3 * 2^20  # the cap, less what its creation took
+        @test only(values(VgtkFeatures._onnx_run(g, Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
+        @test 0 <= VgtkFeatures._onnx_cuda_reserve() - before <= 3 * 2^20   # less what the arena now holds
+        VgtkFeatures.ORT.release(g)                                          # released: its room is free again
+        @test VgtkFeatures._onnx_cuda_reserve() == before
+        # the default cap is the LoMa sessions' 8 GiB, less the initializers it took (none to speak of here)
         before = VgtkFeatures._onnx_cuda_reserve()
-        onnx_session(model; execution_provider = :cuda)
-        @test VgtkFeatures._onnx_cuda_reserve() - before == VgtkFeatures._ONNX_CUDA_ARENA_BYTES == 8 * 2^30
+        d8 = onnx_session(model; execution_provider = :cuda)
+        @test 8 * 2^30 - 2^30 <= VgtkFeatures._onnx_cuda_reserve() - before <= VgtkFeatures._ONNX_CUDA_ARENA_BYTES == 8 * 2^30
+        VgtkFeatures.ORT.release(d8)
         # a run that needs more than the cap is ONNX Runtime's out-of-memory error (the cap holds): a 4096² product
         # (64 MiB per operand) in an arena of 16 MiB
         mm = VgtkFeatures.ORT.testdatapath("matmul.onnx")
@@ -91,6 +95,55 @@ end
         big = onnx_session(mm; execution_provider = :cuda, gpu_mem_limit = 2^30)
         @test only(values(big(Dict("input1" => ones(Float32, 64, 8), "input2" => ones(Float32, 8, 4))))) == fill(8.0f0, 64, 4)
     end
+end
+
+@testitem "onnx_session: the detector's reserve is the live CUDA arenas' room, each cap less what it holds" begin
+    # The bookkeeping, on the host: an arena reserves its cap until it is measured to hold part of it, and nothing once
+    # its session is released or collected; the CUDA probe's throwaway session reserves nothing (`reserve = false`).
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    reserve = VgtkFeatures._onnx_cuda_reserve
+    GC.gc(); before = reserve()                                   # an earlier item's collected sessions dropped first
+    h = Ref(1)                                                     # a session handle: any object, held weakly
+    VgtkFeatures._reserve_arena!(h, 1000)
+    @test reserve() - before == 1000
+    VgtkFeatures._arena_grew!(h, 300)                              # the arena took 300 bytes: they are no longer free
+    @test reserve() - before == 700
+    VgtkFeatures._arena_grew!(h, -50)                              # free memory rose (another allocator): no shrink
+    @test reserve() - before == 700
+    VgtkFeatures._arena_grew!(Ref(1), 300)                         # another handle's growth is not this arena's
+    @test reserve() - before == 700
+    h2 = Ref(2)
+    VgtkFeatures._reserve_arena!(h2, 500)
+    @test reserve() - before == 1200                               # the sum of the rooms, each session's own
+    VgtkFeatures._arena_grew!(h2, 10^9)                            # held at most the cap: no room left, never negative
+    @test reserve() - before == 700
+    # a collected session reserves nothing
+    @noinline collected() = (VgtkFeatures._reserve_arena!(Ref(3), 4000); nothing)
+    collected(); GC.gc(); GC.gc()
+    @test reserve() - before == 700
+    # a released session (ONNXRunTime.release) reserves nothing, before it is collected
+    model = VgtkFeatures.ORT.testdatapath("increment2x3.onnx")
+    s = VgtkFeatures._onnx_session(model, :cpu, 1)
+    VgtkFeatures._reserve_arena!(s.session, 64)
+    @test reserve() - before == 764
+    VgtkFeatures.ORT.release(s)
+    @test reserve() - before == 700
+    # a run on a tracked CUDA session measures the arena's growth: the drop in free memory across it
+    g = VgtkFeatures._onnx_session(model, :cpu, 1)
+    cuda = VgtkFeatures.ORT.InferenceSession(g.api, :cuda, g.session, g.meminfo, g.allocator, g.input_names,
+                                             g.output_names, g.reverse_dims)   # the CPU session, read as a CUDA one
+    VgtkFeatures._reserve_arena!(g.session, 1000)
+    frees = [5000, 4600]
+    out = VgtkFeatures._onnx_run(cuda, Dict("input" => zeros(Float32, 2, 3)), () -> popfirst!(frees))
+    @test only(values(out)) == ones(Float32, 2, 3) && isempty(frees)
+    @test reserve() - before == 700 + 600
+    VgtkFeatures._onnx_run(cuda, Dict("input" => zeros(Float32, 2, 3)), () -> nothing)   # no device query: no measure
+    @test reserve() - before == 700 + 600
+    @test only(values(VgtkFeatures._onnx_run(g, Dict("input" => zeros(Float32, 2, 3)), () -> error("a CPU run measures nothing")))) ==
+          ones(Float32, 2, 3)
+    VgtkFeatures.ORT.release(g)
+    @test reserve() - before == 700
+    @test h[] == 1 && h2[] == 2                                     # (h and h2 kept alive to here)
 end
 
 # ONNX Runtime's CUDA build: conda-forge's files pinned by sha256 and their merged tree by Artifacts.toml. Nothing here
@@ -198,7 +251,8 @@ end
         end
         d = LoMaDescriptor(:b; execution_provider = :cuda); m = LoMaMatcher(:b128; execution_provider = :cuda)
         img = permutedims(repeat(base, 1, 1, 3), (3, 1, 2))
-        @test VgtkFeatures._onnx_cuda_reserve() >= 2 * VgtkFeatures._ONNX_CUDA_ARENA_BYTES   # both sessions' arenas
+        # both sessions' arenas, each less what it took at creation (its weights, the CUDA context's share)
+        @test VgtkFeatures._onnx_cuda_reserve() >= 2 * (VgtkFeatures._ONNX_CUDA_ARENA_BYTES - 2^30)
         feats = map(1:2) do _                              # detect, describe, detect again: the loop of a registration
             dets = asift_detect(base; device = CUDA.CUDABackend())
             @test length(VgtkFeatures._ASIFT_PLAN_CACHE) == 1

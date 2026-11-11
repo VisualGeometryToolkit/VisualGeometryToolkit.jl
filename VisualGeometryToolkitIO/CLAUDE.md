@@ -30,8 +30,10 @@ uploaded again, so a published file keeps loading forever.
   `schema_versions_tests.jl`). Never delete a step whose version a published
   file holds, and never make a writer write an old version.
 - A version no published file holds, and one that lacks what the current
-  record needs (transforms v1/v2's free-form frame names), keeps a refusal by
-  name.
+  record needs (transforms v1's free-form frame names), keeps a refusal by
+  name. Transforms and trajectory v2 have a version step for the one layout a
+  published file holds (the 2026-09 hand-eye record, CaliBlobs' 2026-09 track
+  segment); any other v2 layout is refused in that step.
 - A schema owner (BlobBoards' boards) adds its own steps and calls
   `migrate_record` in its reader.
 

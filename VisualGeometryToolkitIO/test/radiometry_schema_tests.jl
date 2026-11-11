@@ -25,10 +25,23 @@
         # a radial profile states its chart; a body without one (written before the chart existed) is the linear chart's
         save(joinpath(dir, "p.json"), pv)
         @test JSON.parse(read(joinpath(dir, "p.json"), String))["vignetting"]["chart"] == "projective"
+        # the linear chart is the body as IO 0.8 wrote and reads it (its validator refuses an unknown key under the same
+        # schema string): no `chart`, its keys in their order, and re-saving what it reads rewrites it byte for byte
+        for (v, body) in ((rv, x -> x), (LogVignetting(rv), x -> x["spline"]))
+            save(joinpath(dir, "r.json"), v)
+            bytes = read(joinpath(dir, "r.json"))
+            lin = body(JSON.parse(String(copy(bytes)))["vignetting"])
+            @test !haskey(lin, "chart") && collect(keys(lin)) == ["type", "degree", "center", "radius", "control_points"]
+            b = load(AbstractVignetting, joinpath(dir, "r.json"))
+            @test typeof(b) == typeof(v) && control_points(b) == control_points(v)
+            save(joinpath(dir, "r2.json"), b)
+            @test read(joinpath(dir, "r2.json")) == bytes
+        end
         save(joinpath(dir, "r.json"), rv)
+        @test load(AbstractVignetting, joinpath(dir, "r.json")) == rv
+        # a stated linear chart reads too
         old = JSON.parse(read(joinpath(dir, "r.json"), String))
-        @test old["vignetting"]["chart"] == "linear"
-        delete!(old["vignetting"], "chart"); write(joinpath(dir, "r.json"), JSON.json(old))
+        old["vignetting"]["chart"] = "linear"; write(joinpath(dir, "r.json"), JSON.json(old))
         @test load(AbstractVignetting, joinpath(dir, "r.json")) == rv
         bad = JSON.parse(read(joinpath(dir, "p.json"), String)); bad["vignetting"]["chart"] = "polar"
         write(joinpath(dir, "bad.json"), JSON.json(bad))

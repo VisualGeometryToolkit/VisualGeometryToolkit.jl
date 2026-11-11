@@ -23,7 +23,6 @@
 # CUDA libraries are onnx_runtime.jl's.
 # =============================================================================
 
-import ONNXRunTime as ORT
 using Downloads: Downloads
 using Scratch: @get_scratch!
 using VisualGeometryToolkitCore: sha256_hex   # the stack's one hex digest: a model file's
@@ -246,7 +245,7 @@ function (l::LoMaDescriptor)(img::AbstractArray{<:Real, 3}, detections)
     detections = spread_strongest(detections, size(img), l.max_detections)
     descriptor_inputs = l.descriptor_model.input_names
 
-    descriptors = l.descriptor_model(Dict(
+    descriptors = _onnx_run(l.descriptor_model, Dict(
         descriptor_inputs[1] => insertdims(input, dims=1),
         descriptor_inputs[2] => _loma_keypoints(detections, size(img))
     ))["descriptions"]
@@ -312,7 +311,7 @@ function (l::LoMaMatcher)(features_a, features_b, size_a, size_b; min_score::Rea
     desc_a = insertdims(Float32.(stack(map(feat -> feat.descriptor, features_a), dims=1)), dims=1)
     desc_b = insertdims(Float32.(stack(map(feat -> feat.descriptor, features_b), dims=1)), dims=1)
 
-    out = l.matcher_model(Dict(
+    out = _onnx_run(l.matcher_model, Dict(
         matcher_inputs[1] => _loma_keypoints(features_a, size_a),
         matcher_inputs[2] => _loma_keypoints(features_b, size_b),
         matcher_inputs[3] => desc_a,

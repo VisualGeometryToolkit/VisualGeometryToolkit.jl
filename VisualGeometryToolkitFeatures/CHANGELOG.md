@@ -7,7 +7,13 @@
   any `AbstractMatrix{UInt16}`, a device array included), so an array or image function reads a mosaic unchanged;
   what one makes (`similar`, `copy`, a broadcast, a reduction) is a plain array of the held array's kind. A mosaic is
   now `==` to its photosite matrix, iterates over its photosites and prints one summary line. The type parameters are
-  `RawMosaic{A, M}` (was `RawMosaic{M}`).
+  `RawMosaic{A, M}` (was `RawMosaic{M}`). `copy`, `==`, `isequal` and `isapprox` are the held array's own (a device
+  mosaic's `copy(m)` is a device array, its comparison no scalar read). Equality is the photosite matrix's, by design:
+  two mosaics (or windows) with the same photosites and another colour phase, window origin or metadata are `==`
+  (and hash alike); compare `photosite_colors`, `window_origin` and `metadata` for the rest.
+- **`load_raw`'s cache key includes the decoder library's version** (`libraw_version()` for `LibRawDecoder`, the
+  `_decoder_version(decoder)` hook; `nothing` for a decoder that states none), so after a LibRaw_jll upgrade a cached
+  decode (its black levels, white level, crop) is a miss, not the old library's values.
 - **New: windows of a mosaic.** `m[rows, columns]` (unit ranges, a copy) and `view(m, rows, columns)` (no copy) are
   mosaics of the same sensor: the new field `window_origin` (the constructor's keyword, `(0, 0)` as decoded) is the
   window's offset into the visible area, so its colours are the parent's at those photosites for either parity of
@@ -33,8 +39,13 @@
   session builder (formerly the internal `_onnx_session`), for another package's network: the provider resolved as
   LoMa's is (`resolve_execution_provider`; on CUDA, conda-forge's ONNX Runtime build, which runs on the B200's sm_100),
   ONNX Runtime's intra-op pool the caller's `threads`, and on CUDA the session's arena capped at the keyword
-  `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the sum of the CUDA sessions'
-  caps, each session's own, rather than 8 GiB per session. BlobBoards' descriptor network moves onto it.
+  `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the room the live CUDA sessions'
+  arenas may still take, each session's cap less what its arena already holds (measured at its creation and around
+  LoMa's runs; the free memory the plans start from already excludes it), rather than 8 GiB per session ever created.
+  A session released or collected reserves nothing, and the CUDA probe's one-op session (built by `onnx_cuda_status`,
+  so by any `:auto` or `:cuda` resolution) reserves nothing and is released at once: before, the reserve only grew,
+  the probe alone added 8 GiB, and a descriptor and a matcher on a 24 GB device left the detector one warp per chunk
+  (slower ASIFT, the same detections). BlobBoards' descriptor network moves onto it.
 - **Breaking: `asift_detect`'s detection keyword `mask` is `exclusion_mask`** (the image and the `StabilizedImage`
   methods; the semantics are unchanged: a marked pixel excludes every detection whose centre lies within three of its
   scales, and a `StabilizedImage`'s saturation joins it). A call with `mask` is an `ArgumentError` naming

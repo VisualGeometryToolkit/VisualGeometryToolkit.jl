@@ -1,0 +1,36 @@
+# A site profile: one machine a paper project's reproduction runs on (VisualGeometryToolkitEval Reproduce,
+# `reproduce_main --site=<name | path>`). Copy this file to `<your machine>.toml`, keep the keys that apply and delete
+# the rest; name it by path (`--site=path/to/mine.toml`) or put it in a project's own sites directory (the stage
+# graph's `[project] sites_dir`). Every key below is optional except [site] backend. A site holds no project's paths:
+# where a project's data and results live on this machine goes in that project's stage graph, `[sites.<name>]`
+# data_root and results_root (or in the environment: VGTK_DATA_ROOT, VGTK_RESULTS_ROOT, or --data-root,
+# --results-root).
+
+[site]
+name = "mymachine"          # default: the file's name without .toml; a project's [sites.<name>] roots are found by it
+backend = "slurm"           # "slurm": every stage an sbatch job (an array per item), chained by --dependency=afterok
+                            # "local": every stage run here, in order, one item after another (no scheduler)
+description = "what the machine is: CPUs, memory, GPUs, the partition the runs use"
+setup = ""                  # a shell snippet run before every stage (and before sbatch, whose jobs inherit the
+                            # environment): e.g. "module load julia/1.12 cuda/12.6" or "source ~/venvs/x/bin/activate".
+                            # Empty: nothing.
+
+[slurm]                     # backend = "slurm" only: options given to every sbatch, over the launcher's #SBATCH lines
+partition = "gpu"           # --partition; empty: the cluster's default
+gres = "gpu:1"              # --gres of a GPU stage (one GPU per array task); e.g. "gpu:a100:1"; empty: the launcher's
+cpus_per_task = 28          # --cpus-per-task; 0: the launcher's. The drivers' thread count is the CPUs, and it keys
+                            # their runs: keep one count for every stage of a launch.
+mem_per_cpu = "8G"          # --mem-per-cpu; empty: the launcher's. Prefer the node's ratio (memory / CPUs).
+gpu_limit = 0               # at most this many GPU array tasks at a time (a shared node); each GPU array then also
+                            # starts after the one before it (afterany). 0: no limit.
+extra = []                  # any other sbatch options, e.g. ["--account=myproj", "--qos=normal"]
+
+[local]                     # backend = "local" only
+cuda_visible_devices = "0"  # CUDA_VISIBLE_DEVICES of a GPU stage (CPU stages get ""): the device indices to use, e.g.
+                            # "0" or "0,1"; one device runs the items one after another
+cpus_per_task = 0           # SLURM_CPUS_PER_TASK the launchers read (their thread count); 0: the launcher's default,
+                            # which keeps the run keys of a Slurm site's launch
+
+[env]                       # variables every stage gets, e.g.
+# JULIA = "/opt/julia-1.12/bin/julia"     # the julia binary (default: julia on PATH)
+# JULIA_DEPOT_PATH = "/scratch/me/depot"

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **New: one command reproduces a paper project** (`Reproduce`, src/reproduce/runner.jl, src/reproduce/run_results_branch.jl).
+  A project's stage graph of record (`load_stage_graph`: `[[stage]]` tables naming the project's own sbatch launcher, a
+  command or the results branch, their `after` dependencies, the driver and config of record, an array over the config's
+  cases or a list) runs on a site (`load_site`: `configs/sites/dgx01.toml`, a Slurm node, and `desktop.toml`, one GPU
+  and no scheduler, are shipped; `_template.toml` documents every key, and `--site` takes a path). `reproduce_main`
+  (`--graph`, `--site`, `--only` with or without `--no-deps`, `--dry-run`, `status`) checks every selected stage's
+  `[inputs]` first and reports the missing ones as data (`missing_inputs`: path, tier, used by; exit 3, nothing run),
+  submits the stages as sbatch arrays chained by `--dependency=afterok` (`submit_slurm!`; the site's options over the
+  launcher's, a GPU limit) or runs them in order under bash with the Slurm variables the launchers read (`run_local!`),
+  writes a run manifest per launch (commit, configs, roots, site, per stage its run key, command, job id and state) and
+  reuses a stage of the same run key that completed, or depends on one still in flight. `reproduce_status` reads a
+  launch back (task states, the first failed task's log and its first error line); `results_branch_of_run` makes the
+  launch's renders a `results_branch` from its manifest. runner.jl needs only the stdlibs and src/cli.jl, so a
+  project's launcher runs it by path from a bare `julia` before the project's environment is instantiated.
+
 - **Fixed: a TeX length is not a re-typed number** (`macro_literal_violations`, and with it the reproduce index's
   `:macro_literal`): a number directly followed by a TeX unit (pt, cm, mm, in, em, ex, bp, pc, sp, mu, dd, cc, nd, nc;
   `\hspace{-0.3cm}`), or with a space where TeX reads a length (a whole braced argument, `\hspace{0.3 cm}`; after

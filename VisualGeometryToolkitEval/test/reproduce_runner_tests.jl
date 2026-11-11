@@ -3,9 +3,11 @@
 # selects a subset with its prerequisites (or alone); array stages take their items from the config's cases or a
 # list, sized and timed from it; the inputs are checked first and reported as data; the dry run prints the job
 # graph for a Slurm and a local site; the local backend runs a project's sbatch launchers under bash, records a
-# manifest and reuses a finished stage by its run key; the Slurm backend chains its jobs with afterok (through a
-# stand-in sbatch) and reuses a completed or in-flight job; status reads a launch back; the results-branch stage
-# makes the paper's results branch from a manifest.
+# manifest and reuses a finished stage by its run key; the Slurm backend submits each stage through its marker
+# wrapper and chains its jobs with afterok (through a stand-in sbatch); reuse and status read the completion markers
+# and the queue (stand-in squeue), never accounting (a stand-in sacct that fails as on a cluster without it); the
+# job-name prefix labels every job and keys nothing; markers are written atomically; the results-branch stage makes
+# the paper's results branch from a manifest.
 
 @testsetup module RunnerFixture
     export runner_project, fake_bin
@@ -124,8 +126,9 @@
                 data = joinpath(repo, "data"), results = joinpath(repo, "results"))
     end
 
-    # A directory of stand-ins for sbatch and sacct: sbatch records its argv and prints the next job id; sacct prints
-    # the states in $FAKE_SACCT.
+    # A directory of stand-ins for sbatch, squeue and sacct: sbatch records its argv and prints the next job id;
+    # squeue prints the lines of $FAKE_SQUEUE (`<id>[_<task>]|<state>|<reason>`) of the job given by -j; sacct fails
+    # as it does on a cluster that keeps no accounting (dgx01).
     function fake_bin()
         bin = mktempdir()
         write(joinpath(bin, "sbatch"), raw"""#!/bin/bash
@@ -133,10 +136,15 @@
             echo "$n $* EXP=${EXPERIMENT:-} CASES=${CASES:-}" >> "$FAKE_SBATCH_LOG"
             echo "$n"
             """)
-        write(joinpath(bin, "sacct"), raw"""#!/bin/bash
-            cat "$FAKE_SACCT"
+        write(joinpath(bin, "squeue"), raw"""#!/bin/bash
+            while [ $# -gt 0 ]; do [ "$1" = -j ] && id=$2; shift; done
+            grep -E "^${id}(_|[|])" "$FAKE_SQUEUE" || { echo "slurm_load_jobs error: Invalid job id specified" >&2; exit 1; }
             """)
-        chmod(joinpath(bin, "sbatch"), 0o755); chmod(joinpath(bin, "sacct"), 0o755)
+        write(joinpath(bin, "sacct"), raw"""#!/bin/bash
+            echo "Slurm accounting storage is disabled" >&2
+            exit 1
+            """)
+        foreach(n -> chmod(joinpath(bin, n), 0o755), ("sbatch", "squeue", "sacct"))
         return bin
     end
 end
@@ -147,9 +155,12 @@ end
     using VisualGeometryToolkitEval.Reproduce
     using VisualGeometryToolkitEval.Reproduce: SITES_DIR
 
-    nojobs(ids) = Dict{String, Vector{String}}()
-    run_main(args; env = ENV, job_states = nojobs) = (io = IOBuffer(); code = reproduce_main(args; io, env, job_states); (code, String(take!(io))))
-    env0 = filter(p -> !(first(p) in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "CASES", "SETS")), Dict(ENV))
+    noqueue(ids) = Dict{String, Dict{Int, String}}()
+    run_main(args; env = ENV, queue_states = noqueue, job_states = nothing) =
+        (io = IOBuffer(); code = reproduce_main(args; io, env, queue_states, job_states); (code, String(take!(io))))
+    # the caller's environment without the roots, the selections and any Slurm job's variables (the suite may run
+    # inside one: its SLURM_ARRAY_JOB_ID would name every stand-in job's markers)
+    env0 = filter(p -> !(first(p) in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "CASES", "SETS")) && !startswith(first(p), "SLURM_"), Dict(ENV))
 
     @testset "the shipped sites and the template" begin
         @test shipped_sites() == ["desktop", "dgx01"]
@@ -158,7 +169,7 @@ end
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
-        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[]
+        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == ""
         @test_throws r"unknown site \"nowhere\".*desktop, dgx01" load_site("nowhere")
         d = mktempdir()
         write(joinpath(d, "mine.toml"), "[site]\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"1\"\n")
@@ -168,6 +179,8 @@ end
         @test_throws r"backend = \"pbs\"" load_site(joinpath(d, "bad.toml"))
         write(joinpath(d, "bad.toml"), "[site]\nbackend = \"local\"\n[slurm]\nqueue = \"x\"\n")
         @test_throws r"unknown key slurm.queue" load_site(joinpath(d, "bad.toml"))
+        write(joinpath(d, "bad.toml"), "[site]\nbackend = \"slurm\"\n[slurm]\njob_name_prefix = \"a b\"\n")
+        @test_throws r"job_name_prefix = \"a b\": letters, digits" load_site(joinpath(d, "bad.toml"))
     end
 
     @testset "the graph: validated, in dependency order; --only with and without prerequisites" begin
@@ -198,7 +211,7 @@ end
         @test stage_items(g, texture; env = env0) == ["small", "large"]
         @test stage_items(g, texture; env = merge(env0, Dict("SETS" => "large"))) == ["large"]
         @test stage_items(g, g.stages[1]; env = env0) == [""]
-        p = plan_reproduction(g, load_site("dgx01"); env = env0, job_states = nojobs)
+        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
         @test p.stages[3].minutes == cld(7200 + 600, 60)                         # the largest case's max_time + margin
         @test any(==("--time=130"), p.stages[3].command)
     end
@@ -293,6 +306,9 @@ end
         @test m["data_root"] == f.data && m["results_root"] == f.results
         @test sort(collect(keys(m["configs"]))) == ["configs/experiments/chrome.toml", "configs/experiments/texture_large.toml", "configs/experiments/texture_small.toml"]
         @test all(r -> r["state"] == "completed", values(m["stages"])) && m["stages"]["chrome"]["tasks"] == Dict("0" => "completed", "1" => "completed", "2" => "completed")
+        mk = stage_markers(m["stages"]["chrome"]["markers"])                     # each task's completion marker, too
+        @test sort(collect(keys(mk))) == [0, 1, 2] && all(d -> d["state"] == "completed" && d["exit_status"] == 0 && d["commit"] == m["commit"], values(mk))
+        @test m["stages"]["chrome"]["markers"] == stage_markers_dir(only(ms), "chrome")
         # again: every stage reused by its run key, nothing rerun
         code, out = run_main(args; env = env0)
         @test code == 0 && count("reused", out) == 4 && length(readlines(joinpath(f.results, "ran.txt"))) == 7
@@ -308,42 +324,165 @@ end
         @test occursin("logs/paper_broken.log", out)
     end
 
-    @testset "the Slurm backend: chained with afterok, reused when completed or in flight" begin
+    @testset "the Slurm backend: through the marker wrapper, chained with afterok; reuse and status from the markers, never sacct" begin
         f = runner_project()
         mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
         mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
         bin = fake_bin()
-        log, sacct = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "sacct.txt")
-        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SACCT" => sacct,
+        log, queue = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "squeue.txt")
+        write(queue, "")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
                                "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
-        args = ["--graph=$(f.graph)", "--site=dgx01", "--only=texture"]
-        code, out = run_main(args; env, job_states = nojobs)
+        launch(args) = run_main(args; env, queue_states = nothing, job_states = nothing)    # the stand-ins on PATH
+        status(args...; job_states = nothing) =
+            run_main(["status", "--graph=$(f.graph)", "--site=dgx01", args...]; env, queue_states = nothing, job_states)
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
         code == 0 || @info out
         @test code == 0
+        m1 = only(run_manifests(joinpath(f.results, "_reproduce")))
+        m = TOML.parsefile(m1)
+        @test [m["stages"][s]["job_id"] for s in ("setup", "chrome_prepare", "chrome", "texture")] == ["101", "102", "103", "104"]
+        wrapper(s, mf = m1) = joinpath(stage_markers_dir(mf, s), "marker_wrapper.sbatch")
         lines = readlines(log)
         @test length(lines) == 4
-        @test startswith(lines[1], "101 --parsable --partition=gpu --gres=gpu:1") && endswith(lines[1], "slurm/setup.sbatch EXP= CASES=")
+        @test startswith(lines[1], "101 --parsable --partition=gpu --gres=gpu:1") && endswith(lines[1], "$(wrapper("setup")) EXP= CASES=")
         @test startswith(lines[2], "102 --parsable --dependency=afterok:101 ") && occursin("EXP=chrome", lines[2])
-        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 slurm/chrome.sbatch", lines[3]) &&
+        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 $(wrapper("chrome"))", lines[3]) &&
               endswith(lines[3], "CASES=alpha,mid,zeta")
         @test startswith(lines[4], "104 --parsable --dependency=afterok:103 ")
-        m = TOML.parsefile(only(run_manifests(joinpath(f.results, "_reproduce"))))
-        @test [m["stages"][s]["job_id"] for s in ("setup", "chrome_prepare", "chrome", "texture")] == ["101", "102", "103", "104"]
-        # the next launch: setup and the prepare completed, the chrome array still running → texture is not resubmitted
-        # either (its key is the same and its job is pending); the pdf stage is new and waits on the in-flight job
-        write(sacct, "101|COMPLETED\n102|COMPLETED\n103_0|COMPLETED\n103_[1-2]|RUNNING\n104_[0-1]|PENDING\n")
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=pdf"]; env, job_states = nothing)
-        @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"chrome\s+103  \(in flight", out)
+        # the wrapper: the launcher's #SBATCH directives first, then a copy of the launcher as submitted
+        @test startswith(read(wrapper("chrome"), String), "#!/bin/bash\n#SBATCH --output=logs/x_chrome_%A_%a.log\n")
+        snap = joinpath(stage_markers_dir(m1, "chrome"), "chrome.sbatch")
+        @test read(snap, String) == read(joinpath(f.proj, "slurm", "chrome.sbatch"), String)
+
+        # the jobs, run as Slurm runs them (the wrapper under bash in the submit directory, the job's variables set)
+        function runjob(s, id; task = nothing, out = devnull)
+            e = merge(env, Dict("SLURM_JOB_ID" => task === nothing ? id : string(9000 + task), "SLURM_SUBMIT_DIR" => f.proj))
+            task === nothing || merge!(e, Dict("SLURM_ARRAY_JOB_ID" => id, "SLURM_ARRAY_TASK_ID" => string(task)))
+            return run(pipeline(Cmd(`bash $(wrapper(s))`; env = e, dir = f.proj, ignorestatus = true); stdout = out, stderr = out)).exitcode
+        end
+        @test runjob("setup", "101") == 0 && runjob("chrome_prepare", "102") == 0 && runjob("chrome", "103"; task = 0) == 0
+        mk = only(values(stage_markers(stage_markers_dir(m1, "setup"))))
+        @test mk["state"] == "completed" && mk["exit_status"] == 0 && mk["job_id"] == "101" && mk["commit"] == m["commit"] &&
+              mk["key"] == m["stages"]["setup"]["key"] && mk["stage"] == "setup" && !haskey(mk, "signal")
+        @test stage_markers(stage_markers_dir(m1, "chrome"))[0]["job_id"] == "103"            # an array's job id, not its task's
+        @test filter(startswith("."), readdir(stage_markers_dir(m1, "setup"))) == String[]     # no temporary file left
+
+        # the next launch: setup and the prepare completed (their markers), chrome's tasks 1 and 2 still queued and
+        # texture pending → not resubmitted; the pdf stage is new and waits on the in-flight texture job
+        write(queue, "103_1|RUNNING|None\n103_2|PENDING|Priority\n104_0|PENDING|Dependency\n104_1|PENDING|Dependency\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=pdf"])
+        @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"chrome_prepare\s+reused", out) && occursin(r"chrome\s+103  \(in flight", out)
         lines = readlines(log)
-        @test length(lines) == 5 && startswith(lines[5], "105 --parsable --dependency=afterok:104 ") && occursin("--wrap=make -C paper", lines[5])
-        # status: each job's task states and, for a failed task, its log and first error line
-        write(sacct, "101|COMPLETED\n102|COMPLETED\n103_0|COMPLETED\n103_1|FAILED\n103_2|COMPLETED\n104_[0-1]|CANCELLED by 0\n105|PENDING\n")
+        @test length(lines) == 5 && startswith(lines[5], "105 --parsable --dependency=afterok:104 ")
+        m2 = last(run_manifests(joinpath(f.results, "_reproduce")))
+        @test occursin("--output=logs/paper_pdf_%j.log $(wrapper("pdf", m2))", lines[5]) && !occursin("--wrap", lines[5])
+        @test occursin("\nmake -C paper &\n", read(wrapper("pdf", m2), String))
+        @test TOML.parsefile(m2)["stages"]["chrome"]["markers"] == stage_markers_dir(m1, "chrome")   # an in-flight job's own markers
+
+        # chrome task 1 fails (its marker says so); task 2 dies without a marker and leaves the queue (a node failure);
+        # texture stays pending; sacct fails, as without accounting
+        write(snap, "#!/bin/bash\necho start\necho 'ERROR: LoadError: out of memory'\nexit 3\n")
         mkpath(joinpath(f.proj, "logs"))
-        write(joinpath(f.proj, "logs", "x_chrome_103_1.log"), "start\nERROR: LoadError: out of memory\n")
-        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01"]; env, job_states = nothing)
-        @test code == 0 && occursin(r"chrome\s+103\s+COMPLETED 2, FAILED 1", out)
+        @test runjob("chrome", "103"; task = 1, out = joinpath(f.proj, "logs", "x_chrome_103_1.log")) == 3
+        @test stage_markers(stage_markers_dir(m1, "chrome"))[1]["exit_status"] == 3
+        write(queue, "104_0|PENDING|Dependency\n104_1|PENDING|Dependency\n105|PENDING|Dependency\n")
+        code, out = status("--manifest=$m1")
+        @test code == 0
+        @test occursin(r"setup\s+101\s+completed \(completed 1\)", out)
+        @test occursin(r"chrome\s+103\s+failed \(completed 1, failed 1, unknown 1\)", out)
         @test occursin("logs/x_chrome_103_1.log", out) && occursin("error ERROR: LoadError: out of memory", out)
-        @test occursin(r"pdf\s+105\s+PENDING 1", out)
+        @test occursin(r"texture\s+104\s+in flight \(PENDING 2\)", out)
+        @test !occursin("sacct", out)                                                    # no accounting: nothing from it
+        code, out = status()                                                             # the last launch
+        @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"pdf\s+105\s+in flight \(PENDING 1\)", out)
+        # a task that left no marker and the queue is unknown, never finished; where accounting exists its state is
+        # shown beside it, as information only
+        r = TOML.parsefile(m1)["stages"]["chrome"]
+        @test stage_run_state(r, Dict("103" => Dict(2 => "RUNNING"))).state == "failed"
+        rm(joinpath(stage_markers_dir(m1, "chrome"), "task-1.toml"))
+        @test stage_run_state(r).state == "unknown" && stage_run_state(r, Dict("103" => Dict(1 => "RUNNING", 2 => "PENDING"))).state == "in flight"
+        @test stage_run_state(r, Dict("103" => Dict(-1 => "PENDING"))).state == "in flight"     # a range squeue does not split
+        acct(ids) = Dict("103" => ["COMPLETED", "NODE_FAIL"])
+        code, out = status("--manifest=$m1"; job_states = acct)
+        @test occursin(r"chrome\s+103\s+unknown \(completed 1, unknown 2\) \[sacct: COMPLETED, NODE_FAIL\]", out)
+        write(snap, read(joinpath(f.proj, "slurm", "chrome.sbatch")))
+
+        # the launch after: chrome never completed → submitted again; texture, pending on a dependency that can never
+        # be satisfied, is not depended on but submitted after it; the finished stages are reused from their markers
+        # alone (sacct fails)
+        write(queue, "104_0|PENDING|DependencyNeverSatisfied\n104_1|PENDING|DependencyNeverSatisfied\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"chrome_prepare\s+reused", out)
+        lines = readlines(log)
+        @test length(lines) == 7 && startswith(lines[6], "106 --parsable --partition=gpu") && occursin("--array=0-2", lines[6])   # its prerequisites done
+        @test startswith(lines[7], "107 --parsable --dependency=afterok:106 ")
+        # a texture job genuinely pending behind an in-flight chrome is depended on, not resubmitted
+        write(queue, "106_0|RUNNING|None\n106_1|RUNNING|None\n106_2|RUNNING|None\n107_0|PENDING|Dependency\n107_1|PENDING|Dependency\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        @test code == 0 && occursin(r"chrome\s+106  \(in flight", out) && occursin(r"texture\s+107  \(in flight", out) && length(readlines(log)) == 7
+        # but not behind a stage this launch submits again
+        write(queue, "107_0|PENDING|Dependency\n107_1|PENDING|Dependency\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        lines = readlines(log)
+        @test code == 0 && length(lines) == 9 && startswith(lines[9], "109 --parsable --dependency=afterok:108 ")
+    end
+
+    @testset "the job-name prefix: every Slurm job named <prefix><name>, no run key changed" begin
+        f = runner_project()
+        write(joinpath(f.proj, "slurm", "chrome.sbatch"), "#!/bin/bash\n#SBATCH --job-name=paper-chrome\n#SBATCH --output=logs/x_chrome_%A_%a.log\nset -eu\n")
+        g = load_stage_graph(f.graph)
+        stamp = "20261111_000000_000"                       # one launch's (the results stage's command names its manifest)
+        plain = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, stamp)
+        marked = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, stamp, job_name_prefix = "leg-gate-")
+        @test [st.key for st in plain.stages] == [st.key for st in marked.stages]
+        name(p, s) = only(filter(startswith("--job-name="), p.stages[findfirst(st -> st.spec.name == s, p.stages)].command))
+        @test name(marked, "setup") == "--job-name=leg-gate-paper-setup"                  # no name anywhere: <project>-<stage>
+        @test name(marked, "chrome_prepare") == "--job-name=leg-gate-paper-prepare-chrome" # the stage's job_name
+        @test name(marked, "chrome") == "--job-name=leg-gate-paper-chrome"                # the launcher's own #SBATCH --job-name
+        @test name(marked, "pdf") == "--job-name=leg-gate-paper-pdf"
+        @test count(a -> startswith(a, "--job-name="), plain.stages[1].command) == 0      # no prefix: the names as they were
+        # from the site profile, and --job-name-prefix over it; the dry run shows it
+        d = mktempdir(); write(joinpath(d, "rel.toml"), "[site]\nbackend = \"slurm\"\n[slurm]\npartition = \"gpu\"\njob_name_prefix = \"release-\"\n")
+        site = load_site(joinpath(d, "rel.toml"))
+        @test site.job_name_prefix == "release-"
+        @test name(plan_reproduction(g, site; env = env0, queue_states = noqueue), "setup") == "--job-name=release-paper-setup"
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(joinpath(d, "rel.toml"))", "--dry-run", "--job-name-prefix=leg-gate-",
+                              "--results-root=$(f.results)"]; env = env0)
+        @test code == 0 && occursin("--job-name=leg-gate-paper-chrome", out) && !occursin("release-", out)
+        @test_throws r"letters, digits" plan_reproduction(g, site; env = env0, queue_states = noqueue, job_name_prefix = "a;b")
+    end
+
+    @testset "completion markers are written atomically" begin
+        f = runner_project()
+        d = mktempdir(); p = joinpath(d, "task-0.toml")
+        Reproduce._write_atomic(io -> print(io, "state = \"completed\"\n"), p)
+        @test TOML.parsefile(p)["state"] == "completed" && readdir(d) == ["task-0.toml"]
+        # a writer that fails part-way leaves the marker that was there, and no temporary file
+        @test_throws ErrorException Reproduce._write_atomic(io -> (print(io, "state = \"fai"); flush(io); error("disk full")), p)
+        @test read(p, String) == "state = \"completed\"\n" && readdir(d) == ["task-0.toml"]
+        # the job's wrapper: written to a temporary file in the marker directory, then renamed into place (a stand-in
+        # mv records its arguments); a TERM (scancel, the time limit) reaches the stage and is recorded as failed
+        g = load_stage_graph(f.graph)
+        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
+        dir = stage_markers_dir(plan.manifest, "setup")
+        w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
+        bin = mktempdir(); mvlog = joinpath(bin, "mv.log")
+        write(joinpath(bin, "mv"), "#!/bin/bash\necho \"\$@\" >> $mvlog\nexec /bin/mv \"\$@\"\n"); chmod(joinpath(bin, "mv"), 0o755)
+        e = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "VGTK_RESULTS_ROOT" => f.results, "SLURM_JOB_ID" => "7"))
+        @test run(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true)).exitcode == 0
+        src, dst = split(only(readlines(mvlog)))[end-1:end]
+        @test dirname(src) == dir && startswith(basename(src), ".task-0.") && dst == joinpath(dir, "task-0.toml")
+        @test stage_markers(dir; job_id = "7")[0]["state"] == "completed" && isempty(stage_markers(dir; job_id = "8"))
+        write(joinpath(dir, "setup.sbatch"), "#!/bin/bash\ntouch \"$dir/started\"\nexec sleep 60\n")
+        proc = run(pipeline(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while !isfile(joinpath(dir, "started")) && time() - t0 < 30
+            sleep(0.1)
+        end
+        kill(proc, Base.SIGTERM); wait(proc)
+        mk = stage_markers(dir)[0]
+        @test proc.exitcode == 143 && mk["state"] == "failed" && mk["exit_status"] == 143 && mk["signal"] == "TERM"
     end
 
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
@@ -364,7 +503,7 @@ end
         mkpath(joinpath(f.proj, "plots")); write(joinpath(f.proj, "plots", "a.png"), UInt8[1, 2, 4]); write(joinpath(f.proj, "plots", "a.txt"), "x")
         g = load_stage_graph(f.graph)
         @test results_branch_assets(g) == [joinpath(f.proj, "plots", "a.png") => "paper/fig/a.png"]
-        p = plan_reproduction(g, load_site("desktop"); env = env0, job_states = nojobs, only = ["setup"])
+        p = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
         recs = Dict{String, Any}("setup" => Dict{String, Any}("key" => p.stages[1].key, "job_id" => "", "state" => "completed"))
         mkpath(dirname(p.manifest))
         open(io -> TOML.print(io, Dict{String, Any}("workdir" => g.workdir, "graph" => relpath(g.path, g.workdir), "commit" => p.commit,

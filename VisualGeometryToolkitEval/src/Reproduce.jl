@@ -69,7 +69,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     results_branch, accept_results, remove_results_worktree,
     Site, StageSpec, StageGraph, PlannedStage, ReproducePlan, load_site, shipped_sites, load_stage_graph, select_stages,
     stage_items, missing_inputs, resolve_roots, plan_reproduction, print_plan, print_missing, run_manifests,
-    slurm_job_states, submit_slurm!, run_local!, reproduce_status, reproduce_main, results_branch_assets,
+    slurm_job_states, slurm_queue_states, stage_markers_dir, stage_markers, stage_run_state, submit_slurm!, run_local!, reproduce_status, reproduce_main, results_branch_assets,
     results_branch_of_run
 
 public VERIFY_REPORT, RESULTS_MANIFEST, RESULTS_COMPARISON, SITES_DIR, REPRODUCE_USAGE

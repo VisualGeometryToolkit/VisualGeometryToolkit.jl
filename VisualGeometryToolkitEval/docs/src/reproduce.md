@@ -274,7 +274,14 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   (an array over its items, sized from the config's cases or a list, `--time`
   from the cases' `max_time`), after the jobs of the stages it depends on
   (`--dependency=afterok`), with the site's options over the launcher's
-  `#SBATCH` lines; a `command` stage is wrapped (`sbatch --wrap`). `local`:
+  `#SBATCH` lines; a `command` stage is wrapped. Every Slurm stage is
+  submitted through a wrapper the runner writes (with the launcher's `#SBATCH`
+  directives and a copy of the launcher as submitted), which runs the stage and
+  then writes each task's completion marker (below). A site's `[slurm]
+  job_name_prefix`, or `--job-name-prefix=<prefix>` for one launch, is put
+  before every job's name (the stage's `job_name`, else the launcher's
+  `#SBATCH --job-name`, else `<project>-<stage>`): a label for the scheduler —
+  a release run marked for a priority watcher — that changes no run key. `local`:
   every stage here in order, the launcher under `bash` with the Slurm
   variables it reads (`SLURM_ARRAY_TASK_ID`, `SLURM_SUBMIT_DIR`,
   `SLURM_CPUS_PER_TASK`) and the site's `CUDA_VISIBLE_DEVICES`, its output in
@@ -286,9 +293,23 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   its launcher, driver and configs, its items, environment and command; a
   later launch reuses a stage of the same key that completed (and depends on
   one still in flight, by its job id) instead of running it again.
+- **Completion markers.** Each task writes
+  `<manifest without .toml>/<stage>/task-<t>.toml` when it ends — its state
+  (`completed` or `failed`), exit status, start and end, job id, commit and run
+  key — atomically: a temporary file in that directory renamed into place
+  ([`stage_markers_dir`](@ref)). Whether a stage finished is read from these
+  markers and the queue (`squeue`), never from Slurm accounting, which a
+  cluster may not keep ([`stage_run_state`](@ref)): completed when every
+  task's marker says so (reused), in flight while its job is queued (depended
+  on), failed by a marker (run again), and *unknown* when a task left no marker
+  and its job is gone — a node failure, a kill past the time limit's grace —
+  which is never taken as finished (run again). A `TERM` (scancel, the time
+  limit) reaches the stage and is recorded as a failed marker.
 - **Status.** `reproduce_main(["status", …])` reads the last manifest back:
-  per stage the job's task states (`sacct`), the log of its first failed task
-  and that log's first error line ([`reproduce_status`](@ref)).
+  per stage its state from the markers and the queue, with its tasks counted
+  by state, the log of its first failed or unknown task and that log's first
+  error line; where `sacct` works, a task without a marker gets its accounting
+  state beside it, as information only ([`reproduce_status`](@ref)).
 - **Results branch.** A `results_branch = true` stage runs
   [`results_branch_of_run`](@ref) in the project's environment: the renders of
   `[results_branch] assets` on a [`results_branch`](@ref), its RUN.toml
@@ -309,7 +330,8 @@ partition `gpu`, 28 CPUs and one GPU per task) and `configs/sites/desktop.toml`
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`
    `backend` (`slurm` or `local`) and a `setup` shell snippet (module loads,
    an activated environment); `[slurm]` `partition`, `gres` (a GPU stage's),
-   `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options; `[local]`
+   `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options,
+   `job_name_prefix`; `[local]`
    `cuda_visible_devices`, `cpus_per_task`; `[env]` variables every stage gets
    (`JULIA`, `JULIA_DEPOT_PATH`, …).
 2. Keep it with the project (the graph's `[project] sites_dir`) or anywhere,

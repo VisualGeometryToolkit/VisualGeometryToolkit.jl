@@ -1,10 +1,38 @@
 # =============================================================================
 # lo_timing/bench_record.jl — the record every timing bench writes and the gate
 # (gate.jl) reads: the host, the calibration loop's spread, and per arm its µs
-# per call over the reps and its bytes per call. Included by each bench —
-# VisualGeometryToolkitCore's lo_timing/ and spline_timing/, and
-# VisualGeometryToolkitEstimation's lo_timing/ (from `pkgdir(VisualGeometryToolkitCore)`).
+# per call over the reps and its bytes per call; and the seeded E scene the LO
+# kernel benches time on (`essential_bench_scene`). Included by each bench —
+# VisualGeometryToolkitCore's lo_timing/ and spline_timing/,
+# VisualGeometryToolkitEstimation's lo_timing/ and LocalOptimizationDoneRight's
+# (from `pkgdir(VisualGeometryToolkitCore)`).
 # =============================================================================
+using StaticArrays: SMatrix, SVector
+using LinearAlgebra: normalize
+using VisualGeometryToolkitCore: Point2
+
+# THE SCENE of the LO kernel benches: `n` correspondences of a fixed pinhole pair
+# (f = 800 px, principal point (640, 480), view 2 at x₂ = R·x₁ + t), 30 % gross
+# outliers uniform in the 1280 × 960 frame, the inliers perturbed by 0.5 px —
+# deterministic in `rng`, so no fixture file. Returns `(; u₁, u₂, K, R, t)`.
+function essential_bench_scene(rng; n = 1000)
+    K = SMatrix{3, 3, Float64, 9}(800, 0, 0, 0, 800, 0, 640, 480, 1)
+    R = SMatrix{3, 3, Float64, 9}(exp([0 -0.1 0.05; 0.1 0 -0.02; -0.05 0.02 0]))
+    t = normalize(SVector(1.0, 0.1, 0.05))
+    u₁ = Point2{Float64}[]; u₂ = Point2{Float64}[]
+    while length(u₁) < n
+        X = SVector(4 * rand(rng) - 2, 3 * rand(rng) - 1.5, 4 + 4 * rand(rng))
+        Y = R * X + t
+        p1 = K * X; p2 = K * Y
+        if rand(rng) < 0.3
+            push!(u₁, Point2(1280 * rand(rng), 960 * rand(rng))); push!(u₂, Point2(1280 * rand(rng), 960 * rand(rng)))
+        else
+            push!(u₁, Point2(p1[1] / p1[3], p1[2] / p1[3]) + Point2(0.5 * randn(rng), 0.5 * randn(rng)))
+            push!(u₂, Point2(p2[1] / p2[3], p2[2] / p2[3]) + Point2(0.5 * randn(rng), 0.5 * randn(rng)))
+        end
+    end
+    return (; u₁, u₂, K, R, t)
+end
 
 # How far the host's second-fastest run of a fixed arithmetic loop is above its
 # fastest, over `reps` runs: the gate's quietness test of the host.

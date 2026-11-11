@@ -5,6 +5,11 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Tests: the LO kernel benches' scene is the bench record's `essential_bench_scene(rng; n = 1000) -> (; u₁, u₂, K, R,
+  t)`** (test/lo_timing/bench_record.jl, which every timing bench includes from `pkgdir(VisualGeometryToolkitCore)`):
+  the seeded 1000-point pinhole E scene with 30 % outliers that this package's lo_timing bench and
+  LocalOptimizationDoneRight's each built as `scene()`. Its draws are the old ones, so the baselines hold.
+
 - **New: `test_recorded(make; nested = RECORDED_NESTED_STATES)`** (public, not exported; the Test extension): the
   stack's one check that a `Recorded` run of `block_coordinate_descent!` is the bare run — the same estimate, retcode,
   iteration count and final state, one recorded iterate per good iteration, and the bare run truncated after every

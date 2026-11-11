@@ -62,9 +62,13 @@ function score! end
 
 The order of the points after the most recent [`score!`](@ref): its first
 [`inlier_count`](@ref)`(scoring, W)` entries are the consensus set. A view of
-the scorer's buffer, valid until the next `score!`.
+the scorer's buffer, valid until the next `score!`. A workspace another
+scorer built is an `ArgumentError` (the contract's fallback; see
+[`check_workspace`](@ref)).
 """
 function consensus_order end
+consensus_order(scoring::AbstractScoring, W) = throw(ArgumentError(
+    "consensus_order: a $(nameof(typeof(W))) is not a workspace of $(nameof(typeof(scoring))); build it with scoring_workspace(scoring, n, d_g)"))
 
 """
     is_predictive(scoring) -> Bool

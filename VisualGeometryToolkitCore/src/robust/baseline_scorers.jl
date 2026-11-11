@@ -91,6 +91,10 @@ end
 
 const _ThresholdScoring{DG, T} = Union{RansacScoring{DG, T}, MsacScoring{DG, T}}
 
+# A scorer built for a problem TYPE reads its codimension here: the one call every problem-aware scorer constructor
+# shares (these and StudentTUniformScoring's), the problem protocol's `codimension` implemented by the problem type.
+_problem_codimension(::Type{P}) where {P <: AbstractConstraintProblem} = codimension(P)
+
 for S in (:RansacScoring, :MsacScoring)
     @eval begin
         $S{DG}() where {DG} = $S{DG, Nothing}(nothing)
@@ -99,7 +103,7 @@ for S in (:RansacScoring, :MsacScoring)
         $S(problem::AbstractConstraintProblem; threshold::Union{Nothing, Real} = nothing) =
             _at_threshold($S{codimension(problem)}, threshold)
         $S(::Type{P}; threshold::Union{Nothing, Real} = nothing) where {P <: AbstractConstraintProblem} =
-            _at_threshold($S{codimension(P)}, threshold)
+            _at_threshold($S{_problem_codimension(P)}, threshold)
     end
 end
 _at_threshold(::Type{S}, ::Nothing) where {S} = S{Nothing}(nothing)

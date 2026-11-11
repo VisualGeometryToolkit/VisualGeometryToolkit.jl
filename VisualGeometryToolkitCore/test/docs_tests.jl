@@ -45,9 +45,8 @@
         "zero_sample!",
     ])
     # The signatures a docstring states for a contract's implementers, not for a
-    # method of this package.
-    SIGNATURE_EXCEPTIONS = Set([
-        "score!: no method accepts: score!(W, scoring, scores, residuals, problem, θ::Uncertain, n; sample = nothing, bound = -Inf) -> Float64",
-    ])
+    # method of this package. (None since StudentTUniformScoring{Predictive}'s
+    # `score!(W, scoring, scores, residuals, problem, θ::Uncertain, n)` moved here.)
+    SIGNATURE_EXCEPTIONS = Set{String}()
     test_docs(VisualGeometryToolkitCore; exceptions = EXCEPTIONS, backlog = BACKLOG, signature_exceptions = SIGNATURE_EXCEPTIONS)
 end

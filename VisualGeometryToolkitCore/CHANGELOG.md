@@ -31,7 +31,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `backproject!`, `distort_normalized!`, `undistort_normalized!`) launch the one kernel on the output's backend, the
   CPU's included; `exec` still takes `OnBackend(backend; workgroupsize)` (a backend value with its compiler options,
   a workgroup size), now a plain struct. `ExecutionPolicy`, `Auto`, `Serial`, `Threaded` and `THREADED_MIN_LENGTH`
-  are gone (RETIRED_NAMES); no stack package passed them. The inputs share the output's shape (no broadcasting, a
+  are gone (RETIRED_NAMES); no stack package supplied them. The inputs share the output's shape (no broadcasting, a
   `DimensionMismatch`); a device array now runs the KernelAbstractions kernel instead of a GPUArrays broadcast (a
   B200 undistortion agrees with the host's per-point map to 3e-16). On the CPU the results are the per-point map's bit
   for bit, as every policy's were. The CPU is slower: a 5-coefficient OpenCV undistortion of 256 / 1024 / 10⁶

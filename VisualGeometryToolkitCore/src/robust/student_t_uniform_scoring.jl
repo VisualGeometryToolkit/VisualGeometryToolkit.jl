@@ -177,13 +177,14 @@ StudentTUniformScoring(model_dof::Int, outlier; codimension::Int = 1, kw...) =
     StudentTUniformScoring{Nothing, codimension}(model_dof, outlier; kw...)
 
 # Problem-aware: m and d_g from the problem (an instance or its type).
-StudentTUniformScoring(problem::Union{AbstractConstraintProblem, Type{<:AbstractConstraintProblem}},
-                       outlier; kw...) =
-    StudentTUniformScoring{Nothing, codimension(problem)}(minimal_sample_size(problem), outlier; kw...)
-StudentTUniformScoring{P}(problem::Union{AbstractConstraintProblem, Type{<:AbstractConstraintProblem}},
-                          outlier; kw...) where {P} =
-    (_check_provider(P, problem isa Type ? problem : typeof(problem));
-     StudentTUniformScoring{P, codimension(problem)}(minimal_sample_size(problem), outlier; kw...))
+StudentTUniformScoring{P}(::Type{Q}, outlier; kw...) where {P, Q <: AbstractConstraintProblem} =
+    (_check_provider(P, Q); StudentTUniformScoring{P, _problem_codimension(Q)}(minimal_sample_size(Q), outlier; kw...))
+StudentTUniformScoring(::Type{Q}, outlier; kw...) where {Q <: AbstractConstraintProblem} =
+    StudentTUniformScoring{Nothing}(Q, outlier; kw...)
+StudentTUniformScoring(problem::AbstractConstraintProblem, outlier; kw...) =
+    StudentTUniformScoring(typeof(problem), outlier; kw...)
+StudentTUniformScoring{P}(problem::AbstractConstraintProblem, outlier; kw...) where {P} =
+    StudentTUniformScoring{P}(typeof(problem), outlier; kw...)
 
 _check_provider(::Type, ::Type) = nothing
 _check_provider(::Type{Predictive}, ::Type{P}) where {P} =
@@ -365,8 +366,9 @@ function _outlier_sweep!(m::FixedHalfwidth, sws::ScoringWorkspace, s::StudentTUn
                   scratch=sws.scratch, prior_table=_maybe_prior(sws), scale_prior=s.scale_prior,
                   radix=sws.radix, launch=sws.launch)
 end
-sweep!(sws::ScoringWorkspace, s::StudentTUniformScoring{Predictive, DG},
-       scores::Vector{T}, n::Int) where {DG, T} =
+# The predictive score: a supplied half-width only (the constructor refuses an estimating model).
+sweep!(sws::ScoringWorkspace, s::StudentTUniformScoring{Predictive, DG, L, FixedHalfwidth},
+       scores::Vector{T}, n::Int) where {DG, L, T} =
     (sws.outlier_halfwidth = outlier_halfwidth(s);
      sweep!(sws.perm, sws.lg_table, s.model_dof, log(2 * outlier_halfwidth(s)), DG, scores, n;
            scratch=sws.scratch, penalties=sws.penalties,

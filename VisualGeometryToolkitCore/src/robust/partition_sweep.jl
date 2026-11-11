@@ -164,7 +164,7 @@ estimates_outlier_support(::FixedHalfwidth) = false
 What an outlier model that estimates the support precomputes once per
 hypothesis, from the sorted distances `z[1:n]` and their suffix sums
 ([`suffix_sums!`](@ref): `T1`, `T2`, each of length `n + 1`, `T1` free to be
-overwritten as scratch); passed to every [`outlier_cost`](@ref). `nothing` by
+overwritten as scratch); handed to every [`outlier_cost`](@ref). `nothing` by
 default.
 """
 outlier_context!(::AbstractOutlierModel, z, T1, T2, n) = nothing
@@ -174,8 +174,8 @@ outlier_context!(::AbstractOutlierModel, z, T1, T2, n) = nothing
 
 The complement's cost (`-log` density) of the partition of the `k` smallest of
 the sorted distances `z[1:n]` (`k < n`), under an outlier model that estimates
-the support: the hook the estimated-support sweep calls per prefix. No
-default: a model implements it.
+the support: the hook the estimated-support sweep calls per prefix. A model
+implements it (the fallback is an `ArgumentError`).
 """
 function outlier_cost end
 
@@ -184,9 +184,16 @@ function outlier_cost end
 
 The uniform-equivalent outlier half-width the selected partition (`k` of `n`)
 was scored with, recorded on the workspace (what the scorer's
-`inlier_threshold` reads); `NaN` for a model that states none. No default.
+`inlier_threshold` reads); `NaN` for a model that states none. A model
+implements it (the fallback is an `ArgumentError`).
 """
 function scored_outlier_halfwidth end
+# A model that states neither hook is not one the estimated-support sweep can score.
+outlier_cost(m::AbstractOutlierModel, _ctx, _z, _T1, _T2, _k, _n) = _no_hook(m, :outlier_cost)
+scored_outlier_halfwidth(m::AbstractOutlierModel, _ctx, _z, _T1, _T2, _k, _n) = _no_hook(m, :scored_outlier_halfwidth)
+_no_hook(m, f::Symbol) = throw(ArgumentError(
+    "$(nameof(typeof(m))) estimates the outlier support and implements no `$f`: an outlier model that estimates the " *
+    "support implements VisualGeometryToolkitCore.outlier_cost and scored_outlier_halfwidth"))
 
 """
     suffix_sums!(T1, T2, z) -> (T1, T2)
@@ -319,9 +326,10 @@ RadixPermBuffers{K}(n::Int) where {K<:Unsigned} = RadixPermBuffers{K}(
 RadixPermBuffers(n::Int) = RadixPermBuffers{UInt32}(n)
 
 """
-    radix_key(x, ::Type{K}) -> K
+    radix_key(K, x) -> K
+    radix_key(x) -> UInt64
 
-Monotone key: `radix_key(a, K) < radix_key(b, K)` ⟹ `isless(a, b)`.
+Monotone key: `radix_key(K, a) < radix_key(K, b)` ⟹ `isless(a, b)`.
 For `K = UInt64` the converse holds too — `radix_key(a) == radix_key(b)` ⟺
 neither `isless(a, b)` nor `isless(b, a)` (every NaN maps to the single
 maximum key). Total-order equivalent of `isless` on all Float64 values,
@@ -334,24 +342,24 @@ the emitted order is a valid ascending order, with ties broken by index
 through LSD stability. A Float32 at `UInt32` keys is the identity precision
 (exact `isless` order), at `UInt64` keys a lossless widening.
 """
-@inline function radix_key(x::Float64, ::Type{UInt64})
+@inline function radix_key(::Type{UInt64}, x::Float64)
     isnan(x) && return 0xffffffffffffffff
     u = reinterpret(UInt64, x)
     return (u & 0x8000000000000000) == zero(UInt64) ? (u | 0x8000000000000000) : ~u
 end
-@inline function radix_key(x::Float64, ::Type{UInt32})
+@inline function radix_key(::Type{UInt32}, x::Float64)
     f = Float32(x)
     isnan(f) && return 0xffffffff
     u = reinterpret(UInt32, f)
     return (u & 0x80000000) == zero(UInt32) ? (u | 0x80000000) : ~u
 end
-@inline radix_key(x::Float64) = radix_key(x, UInt64)
-@inline function radix_key(x::Float32, ::Type{UInt32})
+@inline radix_key(x::Float64) = radix_key(UInt64, x)
+@inline function radix_key(::Type{UInt32}, x::Float32)
     isnan(x) && return 0xffffffff
     u = reinterpret(UInt32, x)
     return (u & 0x80000000) == zero(UInt32) ? (u | 0x80000000) : ~u
 end
-@inline radix_key(x::Float32, ::Type{UInt64}) = radix_key(Float64(x), UInt64)
+@inline radix_key(::Type{UInt64}, x::Float32) = radix_key(UInt64, Float64(x))
 
 """
     radix_sortperm!(perm, target, rb::RadixPermBuffers, n) -> nothing
@@ -368,7 +376,7 @@ function radix_sortperm!(perm::Vector{Int}, target::AbstractVector{<:Union{Float
     keys = rb.keys; keys2 = rb.keys2; perm2 = rb.perm2; counts = rb.counts
     ndig = sizeof(K)                       # byte iterations: 4 for UInt32, 8 for UInt64
     @inbounds for i in 1:n
-        keys[i] = radix_key(target[i], K)
+        keys[i] = radix_key(K, target[i])
         perm[i] = i
     end
     fill!(counts, 0)

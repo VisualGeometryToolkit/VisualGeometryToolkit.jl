@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **New: `Reproduce.checkout_commit(root = project_root())`**: the checkout's commit as DrWatson describes it
+  (`gitdescribe(root)`, `"unknown"` outside a repository), a space or `;` made `_`: the `PaperNumbers` `commit` of
+  numbers a driver computes itself. BlobBoards' bmvc2026 `figure_numbers` and CaliBlobs' icra2026 `checkout_commit`
+  each restated the line.
 - **Fixed: a TeX length is not a re-typed number** (`macro_literal_violations`, and with it the reproduce index's
   `:macro_literal`): a number directly followed by a TeX unit (pt, cm, mm, in, em, ex, bp, pc, sp, mu, dd, cc, nd, nc;
   `\hspace{-0.3cm}`), or with a space where TeX reads a length (a whole braced argument, `\hspace{0.3 cm}`; after

@@ -24,10 +24,17 @@ Python). Everything after the decode is Julia code here.
 
 The cell modes are exact: `(raw − black[c]) / (white − black[c]) × gain`, with
 saturation flags and each plane's true sample position. Their pixel frame,
-[`BayerCellFrame`](@ref), maps onto the visible raw's `PixelFrame{:colmap}` by
-[`raw_frame_map`](@ref), `x ↦ 2x` exactly, for every Bayer phase and either
-parity of the visible origin. Its inverse is `inv`, and a calibration matrix
-moves with it through Core's `reframed_calibration(raw_frame_map(L), K)`. A
+the cell grid [`BayerCellFrame`](@ref)`{:G}`, maps onto the visible raw's
+`PixelFrame{:colmap}` by [`raw_frame_map`](@ref), `x ↦ 2x` exactly, for every
+Bayer phase and either parity of the visible origin. Its inverse is `inv`, and
+a calibration matrix moves with it through Core's
+`reframed_calibration(raw_frame_map(L), K)`. Each plane is a frame of its own,
+`BayerCellFrame{C}`, and [`bayer_plane_map`](@ref)`(L, c)` is its map onto the
+raw: the plane's translation onto the cell grid (`(±¼, ±¼)` cells for R and
+B, none for G) composed with `raw_frame_map(L)`. A warp reads plane `c`
+through `inv(bayer_plane_map(L, c)) ∘ math` like any other map, all planes in
+one call (`image_warp!(dst, warps, L.image)`, a tuple of one warp per plane);
+a composition that joins two planes' frames is refused. A
 green-cell value is the mean of two diagonal photosites, at `(±½, ∓½)` raw
 pixels from the cell centre for an RGGB or BGGR cell and `(±½, ±½)` for GRBG or
 GBRG; [`green_cell_sites`](@ref) gives them, so a renderer can model the

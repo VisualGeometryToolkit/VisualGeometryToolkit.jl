@@ -87,7 +87,8 @@ end
 end
 
 @testitem "raw: true sample positions for the four Bayer layouts" setup = [RawFixtures] begin
-    using VisualGeometryToolkitFeatures: LinearRaw
+    using VisualGeometryToolkitFeatures: LinearRaw, bayer_plane_map, raw_frame_map
+    using VisualGeometryToolkitCore: translation
     q = 0.25
     expected = Dict(                       # (R, G, B) offsets (Δx, Δy) from the binned pixel centre
         :RGGB => [(-q, -q), (0.0, 0.0), (q, q)],
@@ -98,9 +99,11 @@ end
     raw = UInt16[600 + 100 * (2 * (i - 1) + (j - 1)) for i in 1:2, j in 1:2]   # distinct per site
     for (name, cell) in pairs(LAYOUTS)
         L = LinearRaw(mosaic(raw, cell); mode = :bin2)
-        @test Tuple.(L.plane_offsets) == expected[name]
+        # a plane's offset is its map read in the cell grid: inv(raw_frame_map) ∘ bayer_plane_map, a translation
+        offset(c) = translation(inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c))
+        @test [Tuple(offset(c)) for c in 1:3] == expected[name]
         # the R plane is the photosite the offset points at: (Δy, Δx) = ((di − ½)/2, (dj − ½)/2)
-        o = L.plane_offsets[1]
+        o = offset(1)
         di, dj = Int(2o[2] + 0.5) + 1, Int(2o[1] + 0.5) + 1
         @test cell[di, dj] == 0
         @test L.image[1, 1, 1] == (raw[di, dj] - 512.0) / (16383.0 - 512.0)
@@ -110,8 +113,90 @@ end
     @test_throws ArgumentError LinearRaw(bad; mode = :bin2)
 end
 
+@testitem "raw: each plane's map sends its samples onto their photosites, exactly" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, BayerCellFrame, bayer_plane_map, raw_frame_map, photosite_colors
+    using VisualGeometryToolkitCore: SimilarityMap, PixelFrame
+    using StaticArrays: SVector
+    for cell in LAYOUTS, origin in ORIGINS
+        m = mosaic(UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8], cell; origin)
+        colors = photosite_colors(m)
+        L = LinearRaw(m; mode = :bin2)
+        G = LinearRaw(m; mode = :green_cells)
+        # one frame per plane; the green plane's map IS the image's frame map
+        for (c, C) in enumerate((:R, :G, :B))
+            @test bayer_plane_map(L, c) isa SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame{C}, PixelFrame{:colmap}}
+        end
+        @test bayer_plane_map(L, 2) === raw_frame_map(L)
+        @test bayer_plane_map(G, 1) === raw_frame_map(G)
+        # pixel (i, j) of plane c sits at its plane frame's (j − ½, i − ½): the map sends it onto the centre of its
+        # photosites in the cell, raw COLMAP (column − ½, row − ½) — R's one, B's one, the mean of the two greens
+        sites(i, j, want) = [SVector(c - 0.5, r - 0.5) for r in (2i - 1):(2i), c in (2j - 1):(2j) if colors[r, c] in want]
+        for i in 1:3, j in 1:4
+            p = SVector(j - 0.5, i - 0.5)
+            for (c, want) in enumerate(((0x00,), (0x01, 0x03), (0x02,)))
+                s = sites(i, j, want)
+                @test bayer_plane_map(L, c)(p) == sum(s) / length(s)
+                @test inv(bayer_plane_map(L, c))(sum(s) / length(s)) == p   # and back
+            end
+            @test bayer_plane_map(G, 1)(p) == bayer_plane_map(L, 2)(p)
+        end
+        # the inverses round-trip, exactly (the offsets are quarters, the scale 2)
+        x = SVector(3.375, 1.625)
+        @test all(c -> inv(bayer_plane_map(L, c))(bayer_plane_map(L, c)(x)) == x, 1:3)
+        @test all(c -> inv(bayer_plane_map(L, c)) ∘ bayer_plane_map(L, c) isa SimilarityMap, 1:3)
+        # composing across planes is refused at the junction, as everywhere in Core's frames
+        @test_throws MethodError bayer_plane_map(L, 1) ∘ inv(bayer_plane_map(L, 3))
+        @test_throws MethodError bayer_plane_map(L, 3) ∘ inv(bayer_plane_map(L, 2))
+        # one plane read through another's frame is a map between the two planes, stated as such
+        @test inv(bayer_plane_map(L, 1)) ∘ bayer_plane_map(L, 3) isa SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame{:B}, BayerCellFrame{:R}}
+        # no plane past the image's
+        @test_throws ArgumentError bayer_plane_map(L, 4)
+        @test_throws ArgumentError bayer_plane_map(G, 2)
+    end
+end
+
+@testitem "raw: a bin2 image warped through its plane maps registers its planes (host and device)" setup = [RawFixtures] begin
+    using VisualGeometryToolkitFeatures: LinearRaw, bayer_plane_map, raw_frame_map
+    using VisualGeometryToolkitCore: image_warp, image_warp!, Rect
+    # A scene affine in the raw's COLMAP frame, recorded by every photosite at its own centre. Each plane
+    # is read back onto the raw's grid through Core's warp of `inv(bayer_plane_map(L, c))`, one warp per
+    # plane in one call: bilinear sampling reproduces an affine scene exactly, so wherever a plane's taps
+    # are inside the image all three planes read the scene at the same raw point. Read through the cell
+    # grid's map alone, R and B are a quarter cell off.
+    H, W = 12, 16
+    f(x, y) = 4000 + 64 * x + 32 * y
+    lin(v) = (v - 500.0) / (16383.0 - 500.0)
+    truth = [lin(f(j - 0.5, i - 0.5)) for i in 1:H, j in 1:W]
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    for cell in LAYOUTS, origin in ORIGINS
+        L = LinearRaw(scene_mosaic(f, cell, origin; H, W, black = (500.0, 500.0, 500.0, 500.0)); mode = :bin2)
+        warps = ntuple(c -> image_warp(Float64, inv(bayer_plane_map(L, c)), Rect(0, 0, W, H)), 3)
+        out = image_warp!(fill(NaN, H, W, 3), warps, L.image; fillvalue = NaN)
+        seen = trues(H, W)
+        for c in 1:3
+            seen .&= .!isnan.(out[:, :, c])
+        end
+        @test count(seen) >= (H - 4) * (W - 4)              # all but a border of the taps' reach
+        @test all(c -> maximum(abs.(out[:, :, c][seen] .- truth[seen])) < 1e-14, 1:3)
+        cells = ntuple(_ -> image_warp(Float64, inv(raw_frame_map(L)), Rect(0, 0, W, H)), 3)
+        off = image_warp!(fill(NaN, H, W, 3), cells, L.image; fillvalue = NaN)
+        @test maximum(abs.(off[:, :, 1][seen] .- truth[seen])) > 1e-4
+        if cuda !== nothing
+            cu = getproperty(cuda, :CuArray)
+            d = Base.invokelatest(image_warp!, Base.invokelatest(cu, fill(NaN, H, W, 3)), warps, Base.invokelatest(cu, L.image); fillvalue = NaN)
+            @test isequal(Base.invokelatest(Array, d), out) || maximum(abs.(Base.invokelatest(Array, d)[seen, :] .- out[seen, :])) < 1e-12
+        end
+    end
+    cuda === nothing && @test_skip cuda !== nothing      # no functional GPU here: the device half recorded as Broken
+end
+
 @testitem "raw: the green-cell image is bin2's green plane" setup = [RawFixtures] begin
-    using VisualGeometryToolkitFeatures: LinearRaw
+    using VisualGeometryToolkitFeatures: LinearRaw, raw_frame_map
     for cell in LAYOUTS, origin in ORIGINS
         raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
         m = mosaic(raw, cell; origin)
@@ -119,8 +204,7 @@ end
         G = LinearRaw(m; mode = :green_cells, gain = 2)
         @test size(G.image) == (3, 4, 1) && G.mode === :green_cells && G.gain == 2.0
         @test G.image[:, :, 1] == B.image[:, :, 2]                    # the same bits: one kernel
-        @test G.plane_offsets == [zeros(2)]
-        @test G.frame_map === B.frame_map && G.green_offsets == B.green_offsets
+        @test raw_frame_map(G) === raw_frame_map(B) && G.green_offsets == B.green_offsets
     end
     # a green cell is saturated by its greens alone: a red or blue at the white level is not its sample
     raw = fill(UInt16(3000), 4, 4)
@@ -140,7 +224,7 @@ end
     using VisualGeometryToolkitCore: SimilarityMap, PixelFrame, scale, translation
     using StaticArrays: SVector
     S = raw_frame_map(LinearRaw(mosaic(fill(UInt16(3000), 4, 4), LAYOUTS.RGGB); mode = :green_cells))
-    @test S isa SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame, PixelFrame{:colmap}}
+    @test S isa SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame{:G}, PixelFrame{:colmap}}
     @test scale(S) == 2 && translation(S) == SVector(0.0, 0.0)
     @test inv(S)(S(SVector(3.25, 1.75))) == SVector(3.25, 1.75)
     # a scene point at a known sub-pixel raw position, (x0, y0): an affine ramp through it in x
@@ -225,7 +309,7 @@ end
 
 @testitem "raw: the display demosaic keeps the sensor orientation (LibRaw_jll)" begin
     using VisualGeometryToolkitFeatures
-    using VisualGeometryToolkitFeatures: LinearRaw, raw_frame_map, green_cell_sites, raw_provenance
+    using VisualGeometryToolkitFeatures: LinearRaw, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance
     using LibRaw_jll: LibRaw_jll, libraw
     VGF = VisualGeometryToolkitFeatures
     X = Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt)
@@ -274,7 +358,7 @@ end
     # display only: no frame map, no footprint, no sample positions
     @test_throws ArgumentError raw_frame_map(L)
     @test_throws ArgumentError green_cell_sites(L, 1, 1)
-    @test isempty(L.plane_offsets)
+    @test_throws ArgumentError bayer_plane_map(L, 1)
     @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
     @test startswith(raw_provenance(L).libraw_version, "0.22")
     # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
@@ -288,7 +372,7 @@ end
         (; model = "synthetic", decoder = "LibRaw_jll", libraw_version = "0.22.0-Release"))
     p = raw_provenance(LinearRaw(m; mode = :green_cells, gain = 3))
     @test p == (decoder = "LibRaw_jll", libraw_version = "0.22.0-Release", mode = "green_cells", gain = 3.0,
-                frame_map = (from = "BayerCellFrame", to = "PixelFrame{:colmap}", scale = 2.0, translation = [0.0, 0.0]))
+                frame_map = (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = 2.0, translation = [0.0, 0.0]))
 end
 
 @testitem "raw: LibRaw_jll decoder" begin

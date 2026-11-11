@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Breaking: each plane of a Bayer image is a frame-labelled map onto the raw, `bayer_plane_map(L, c)`; the bare
+  offsets are gone.** `BayerCellFrame` is now `BayerCellFrame{C}`, the frame of plane `C` (`:R`, `:G`, `:B`): the
+  planes are indexed alike but sampled at different points of the cell. `bayer_plane_map(L, c)` (exported) is plane
+  `c`'s Core `SimilarityMap{…, BayerCellFrame{C}, PixelFrame{:colmap}}`, its translation onto the cell grid composed
+  with `raw_frame_map(L)`, so the ×2 is stated once; it sends every sample onto the centre of its photosites exactly,
+  for all four phases and both origin parities. The green plane's map IS `raw_frame_map(L)`, whose source is now
+  `BayerCellFrame{:G}` (the cell grid). A warp reads plane `c` through `inv(bayer_plane_map(L, c)) ∘ math`, like any
+  other map, all planes in one call through Core's `image_warp!(dst, warps, src)`; a composition that joins two
+  planes' frames is refused (`MethodError`). Removed: the `LinearRaw` fields `plane_offsets` (a plane's offset is
+  `translation(inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c))`) and `frame_map` (`raw_frame_map(L)`); the new field
+  `plane_maps` holds the maps. `raw_provenance(L).frame_map.from` reads `"BayerCellFrame{:G}"` (was
+  `"BayerCellFrame"`). `plane_offsets` and PanoramaStitching's `raw_scale` are retired names.
+
 - **ASIFT's result no longer depends on the threads: the same image gives the same keypoints, in the same order, run
   to run.** The extrema pool fills through an atomic counter, in the order the threads (or a GPU's warps) reach it,
   and the cross-warp NMS breaks ties in its quantized response by pool index, so on many threads both the order of the

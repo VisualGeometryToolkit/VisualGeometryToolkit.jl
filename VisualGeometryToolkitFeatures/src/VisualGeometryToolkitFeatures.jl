@@ -44,7 +44,7 @@ using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, 
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
-using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
+using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, Translation, relabel, scale, translation   # the RAW cell grid's frame map (raw_image.jl)
 using LinearAlgebra: UniformScaling
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain, implicit_covariance, propagate   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
@@ -155,7 +155,7 @@ public srgb_to_linear, box_downsample, gaussian_blur   # gaussian_blur: the (mas
 export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
-export BayerCellFrame, raw_frame_map, green_cell_sites   # the cell grid's frame, its exact map onto the raw, a green cell's footprint
+export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the cell grid's and each plane's exact map onto the raw, a green cell's footprint
 public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)

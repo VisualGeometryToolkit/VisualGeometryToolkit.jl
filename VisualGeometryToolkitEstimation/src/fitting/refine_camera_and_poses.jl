@@ -317,7 +317,8 @@ function _correspondence(v::Integer, j::Integer, c)
     (all(isfinite, X) && all(isfinite, u)) || throw(ArgumentError("refine_camera_and_poses: view $v, correspondence $j: non-finite point or pixel"))
     return X, u
 end
-_plain_pose(P) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
+_finite_pose(P::PlainEuclideanMap{3}) = all(isfinite, rotation(P)) && all(isfinite, translation(P))
+_plain_pose(P::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
 
 function _refine_camera_and_poses(
         ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
@@ -361,9 +362,9 @@ function _refine_camera_and_poses(
     foreach(c -> NLLSsolver.addcost!(problem, c), costs)
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
     chc_out = chc === nothing ? nothing : problem.variables[1]
-    poses_out = [model(problem.variables[o + v]) for v in 1:V]
+    poses_out = PlainEuclideanMap{3, Float64}[model(problem.variables[o + v]::_CameraPosePose) for v in 1:V]
     camera_out = chc_out === nothing ? camera : model(chc_out)
-    all(P -> all(isfinite, rotation(P)) && all(isfinite, translation(P)), poses_out) && all(isfinite, parameter_vector(camera_out)) ||
+    all(_finite_pose, poses_out) && all(isfinite, parameter_vector(camera_out)) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = nlls_rows_and_jacobian(costs, problem.variables)

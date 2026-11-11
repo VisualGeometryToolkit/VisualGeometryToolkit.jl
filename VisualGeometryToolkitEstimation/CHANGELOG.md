@@ -39,7 +39,9 @@ non-central one is a `NoncentralSplineModel`).
 - **Breaking: a SplineLens refine's gauge is fixed by its parametrization, and only the live controls are variables.**
   `refine_camera_and_poses` on a SplineLens camera held its rotation and scale gauges with zero-cost pin blocks and its
   unread coordinates (pad slots, absent nodes, nodes no row reads) with anchor rows `coordinate − guess`. Now each patch
-  variable is Core's `restrict` of its chart to its live controls' coordinates (a patch with none is no variable), the
+  variable is Core's `restrict` of its chart to its live controls' coordinates (a static index: NLLSsolver assembles its
+  system from statically sized blocks; a block's patches are ordered and typed by their restriction, so the compiled
+  block types stay few; a patch with none is no variable), the
   view holding the rotation gauge has a translation-only pose chart and the scale node no log-scale coordinate; a block
   reads only the 2 × 2 to 3 × 3 patches its window lies in. The patch `offset` layout knob is gone. The spline metadata
   loses `cost_before_gauge`, `cost_after_gauge` and `anchor_cost` (each an invariant the parametrization now guarantees);

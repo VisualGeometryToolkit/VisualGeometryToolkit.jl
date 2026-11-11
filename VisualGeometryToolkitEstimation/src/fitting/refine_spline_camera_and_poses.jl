@@ -64,19 +64,25 @@ _patch_chart(D::SMatrix{2, 2, SVector{3, Float64}, 4}, ℓ::SVector{4, Float64} 
     ProductManifold(VgtkCore.ControlPatchManifold(D), EuclideanManifold(ℓ))
 # A patch variable: its chart on the coordinates of its live controls; a pose variable:
 # the pose's chart on its free coordinates (all 6, or the translation's 3 for the view
-# holding the rotation gauge). Each a restriction to a run-time index (Core's `restrict`
-# with a `Vector{Int}`): one variable type for every patch (a static size per restriction
-# would make every combination of a block's patch sizes its own compiled block type).
-const _SplinePatch = VgtkCore.SubsetManifold{_PatchChart, 12, Vector{Int}}
-const _SplinePose = VgtkCore.SubsetManifold{_CameraPosePose, 6, Vector{Int}}
-const _SplineVar = Union{_SplinePatch, _SplinePose}
+# holding the rotation gauge). Each a static restriction (Core's `restrict` with an
+# `SVector` index: NLLSsolver assembles its system from statically sized blocks, ×5 slower
+# at run-time sizes), so a problem holds a few variable types — a full patch, the scale
+# node's, a rim patch — and each block's patches are ordered by their type (`_by_type`) and
+# typed by them (`V`), so the combinations stay few and every block's variables are concrete.
+const _SplinePatch = VgtkCore.SubsetManifold{_PatchChart, 12}
+const _SplinePose = VgtkCore.SubsetManifold{_CameraPosePose, 6}
+const _SplineVar = VgtkCore.Manifold
 @inline _patch_direction(patch::_SplinePatch, n) = patch.manifold.charts[1].directions[n]
 @inline _patch_scale(patch::_SplinePatch, n) = patch.manifold.charts[2].x[n]
 # Control `n` of a patch, `e^ℓ·D`.
 @inline _patch_control(patch::_SplinePatch, n) = exp(_patch_scale(patch, n)) * _patch_direction(patch, n)
 # Whether control `n` of a patch is a variable (its direction coordinates are).
 _slot_live(patch::_SplinePatch, n) = (2n - 1) in patch.idx
-_pose_variable(ch::_CameraPosePose, rotation_free::Bool) = VgtkCore.restrict(ch, rotation_free ? collect(1:6) : [4, 5, 6])
+_pose_variable(ch::_CameraPosePose, rotation_free::Bool) =
+    rotation_free ? VgtkCore.restrict(ch, SVector(1, 2, 3, 4, 5, 6)) : VgtkCore.restrict(ch, SVector(4, 5, 6))
+# A block's variable indices with its patches ordered by their type (then index), the pose last: the
+# block's variable types a canonical tuple.
+_by_type(vars, patches) = sort(patches; by = k -> (-length(vars[k].idx), Tuple(vars[k].idx), k))
 
 # The rows' Jacobian in a patch's 12 chart coordinates from their Jacobian `Jc[n]` (`R × 3`)
 # in each of its 4 controls (zero for a control no row reads): control n's direction
@@ -120,7 +126,7 @@ const _WindowControls = SMatrix{4, 4, SVector{3, Float64}, 16}
 # `solve` the block's last projection solve, by its window controls and camera-frame point:
 # NLLSsolver evaluates an accepted trial point's cost and then linearizes at the same
 # point, and the solve (from the cell's centre) gives the same answer bit for bit.
-struct _SplineReprojection{N, H <: Union{Nothing, _WindowControls}} <: NLLSsolver.AbstractResidual
+struct _SplineReprojection{N, H <: Union{Nothing, _WindowControls}, V <: Tuple} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     slots::SMatrix{4, 4, NTuple{2, Int}, 16}
     held::H
@@ -131,21 +137,29 @@ struct _SplineReprojection{N, H <: Union{Nothing, _WindowControls}} <: NLLSsolve
     u::SVector{2, Float64}
     solve::Base.RefValue{Tuple{_WindowControls, SVector{3, Float64}, SVector{2, Float64}, Bool}}
 end
-_SplineReprojection{N, H}(varind, slots, held, cell, box, pixel, X, u) where {N, H} = _SplineReprojection{N, H}(
+_SplineReprojection{N, H, V}(varind, slots, held, cell, box, pixel, X, u) where {N, H, V} = _SplineReprojection{N, H, V}(
     varind, slots, held, cell, box, pixel, X, u, Ref((_WindowControls(ntuple(_ -> SVector(NaN, NaN, NaN), Val(16))), SVector(NaN, NaN, NaN), SVector(NaN, NaN), false))
 )
-const _SplineDataBlock = Union{_SplineReprojection{5, Nothing}, _SplineReprojection{7, Nothing}, _SplineReprojection{10, Nothing}}
-const _SplinePoseBlock = _SplineReprojection{1, _WindowControls}
+const _SplinePoseBlock = _SplineReprojection{1, _WindowControls, Tuple{VgtkCore.SubsetManifold{_CameraPosePose, 6, SVector{6, Int}}}}
 NLLSsolver.ndeps(::_SplineReprojection{N}) where {N} = NLLSsolver.static(N)
 NLLSsolver.nres(::_SplineReprojection) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_SplineReprojection) = r.varind
-NLLSsolver.getvars(r::_SplineReprojection{N, Nothing}, vars::AbstractVector) where {N} =
-    ntuple(k -> vars[r.varind[k]], Val(N))
-NLLSsolver.getvars(r::_SplinePoseBlock, vars::AbstractVector) = (vars[r.varind[1]]::_SplinePose,)
+NLLSsolver.getvars(r::_SplineReprojection{N, H, V}, vars::AbstractVector) where {N, H, V} = ntuple(k -> vars[r.varind[k]]::fieldtype(V, k), Val(N))
 Base.eltype(::_SplineReprojection) = Float64
 
 _reprojection_controls(r::_SplineReprojection, patches::Tuple) =
-    _WindowControls(ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(16)))
+    (c = _block_controls(patches); _WindowControls(ntuple(m -> (s = r.slots[m]; c[s[1]][s[2]]), Val(16))))
+# Every control of every patch of a block, `c[k][n]`: a homogeneous tuple (the patches' own tuple is
+# of their several restriction types, which a run-time index would not infer).
+_block_controls(patches::Tuple) = map(p -> ntuple(n -> _patch_control(p, n), Val(4)), patches)
+# A block's full-chart Jacobians `Js` (one per variable) written over the variables' free coordinates
+# from column 0 (unrolled over the tuple: the variables are of several types).
+function _pack_columns!(J::Matrix{Float64}, Js::Tuple, vars::Tuple)
+    widths = map(v -> length(v.idx), vars)
+    offsets = Base.front((0, cumsum(widths)...))
+    map((Jk, v, o) -> _free_columns!(J, o, Jk, v.idx), Js, vars, offsets)
+    return J
+end
 
 # The block's projection: the camera-frame point, the solve's point and whether it
 # converged — Core's solve for differentiation (from the cell's centre).
@@ -209,16 +223,12 @@ function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{N, Nothing}, 
     varflags == 2^N - 1 || throw(ArgumentError("refine_camera_and_poses: every patch and pose is free (varflags = $varflags)"))
     patches = ntuple(k -> vars[k], Val(N - 1))
     pose = vars[N]
-    width = sum(v -> length(v.idx), vars)
+    width = sum(map(v -> length(v.idx), vars))
     lin = _window_jacobians(r, _reprojection_controls(r, patches), patches, pose)
     lin === nothing && return SVector(NaN, NaN), fill(NaN, 2, width)
     res, Jpose, Jpatch = lin
     J = Matrix{Float64}(undef, 2, width)
-    col = 0
-    for k in 1:(N - 1)
-        col = _free_columns!(J, col, Jpatch[k], patches[k].idx)
-    end
-    _free_columns!(J, col, Jpose, pose.idx)
+    _pack_columns!(J, (Jpatch..., Jpose), (patches..., pose))
     return res, J
 end
 function NLLSsolver.computeresjac(varflags, r::_SplinePoseBlock, pose)
@@ -260,20 +270,20 @@ end
 # `√λ·Σₘ sₘcₘ / ρ` (3 rows), `ρ = ¼Σₘ‖cₘ‖` the mean length of its own 4 controls at their
 # current values, on the `N` (2 or 3) patches holding its 4 nodes, `slots[m] = (k, n)` node
 # m's patch and control, `coef = √λ·s` the stencil.
-struct _SplineSmoothness{N} <: NLLSsolver.AbstractResidual
+struct _SplineSmoothness{N, V <: Tuple} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     slots::SVector{4, NTuple{2, Int}}
     coef::SVector{4, Float64}
 end
-const _SplineSmoothBlock = Union{_SplineSmoothness{2}, _SplineSmoothness{3}}
 NLLSsolver.ndeps(::_SplineSmoothness{N}) where {N} = NLLSsolver.static(N)
 NLLSsolver.nres(::_SplineSmoothness) = NLLSsolver.static(3)
 NLLSsolver.varindices(r::_SplineSmoothness) = r.varind
-NLLSsolver.getvars(r::_SplineSmoothness{N}, vars::AbstractVector) where {N} = ntuple(k -> vars[r.varind[k]], Val(N))
+NLLSsolver.getvars(r::_SplineSmoothness{N, V}, vars::AbstractVector) where {N, V} = ntuple(k -> vars[r.varind[k]]::fieldtype(V, k), Val(N))
 Base.eltype(::_SplineSmoothness) = Float64
 # The row's 4 controls, its rows and their mean length `ρ`.
 function _smoothness_rows(r::_SplineSmoothness, patches)
-    c = ntuple(m -> (s = r.slots[m]; _patch_control(patches[s[1]], s[2])), Val(4))
+    pc = _block_controls(patches)
+    c = ntuple(m -> (s = r.slots[m]; pc[s[1]][s[2]]), Val(4))
     ρ = sum(norm, c) / 4
     return sum(m -> r.coef[m] * c[m], 1:4) / ρ, c, ρ
 end
@@ -285,12 +295,12 @@ function NLLSsolver.computeresjac(varflags, r::_SplineSmoothness{N}, patches...)
     row, c, ρ = _smoothness_rows(r, patches)
     I3 = SMatrix{3, 3, Float64}(LinearAlgebra.I)
     Jm = ntuple(m -> (r.coef[m] * I3 - row * (c[m] / norm(c[m]))' / 4) / ρ, Val(4))
-    J = Matrix{Float64}(undef, 3, sum(v -> length(v.idx), patches))
-    col = 0
-    for k in 1:N
+    J = Matrix{Float64}(undef, 3, sum(map(v -> length(v.idx), patches)))
+    Js = ntuple(Val(N)) do k
         Jc = ntuple(n -> (m = findfirst(==((k, n)), r.slots); m === nothing ? zero(SMatrix{3, 3, Float64}) : Jm[m]), Val(4))
-        col = _free_columns!(J, col, _in_patch_chart(Jc, patches[k]), patches[k].idx)
+        _in_patch_chart(Jc, patches[k])
     end
+    _pack_columns!(J, Js, patches)
     return row, J
 end
 
@@ -390,24 +400,17 @@ function _spline_problem(
         foreach(i -> live[i] = true, win)
         push!(found, (X, u, v, win, Rect2{Float64}(o[1], o[2], hx, hy)))
     end
-    stencils = Tuple{NTuple{4, CartesianIndex{2}}, SVector{4, Float64}}[]
-    Δ = nothing
-    if free && (λ === nothing ? penalty : λ) > 0                  # weight 0: no smoothness, no Δ³ rows
-        Δ = difference_rows(present, 3)
-        nodes = vec(CartesianIndices(gsz))
-        for (cols, coef) in row_stencils(Δ)                  # Core's adapter: a Δ³ row's 4 nodes and stencil, one block each
-            push!(stencils, (ntuple(k -> nodes[cols[k]], Val(4)), SVector{4, Float64}(ntuple(k -> coef[k], Val(4)))))
-        end
-        foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
-    end
+    Δ = difference_rows(present, 3)                           # the Δ³ operator of the present nodes
+    stencils = free && (λ === nothing ? penalty : λ) > 0 ? _stencils(Δ, gsz) : Tuple{NTuple{4, CartesianIndex{2}}, SVector{4, Float64}}[]   # weight 0: no Δ³ rows
+    foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
     windows = [(w[1][2], w[1][1]) for (_, _, _, w, _) in found]
     if !free
-        variables = [_pose_variable(ch, true) for ch in pose_charts]
+        pose_variables = [_pose_variable(ch, true) for ch in pose_charts]
         costs = _SplinePoseBlock[
             _SplinePoseBlock(SVector(v), map(i -> (0, 0), win), _WindowControls(map(i -> b.controls[i], win)), cell, box, pixel, X, u)
                 for (X, u, v, win, cell) in found
         ]
-        return (; variables, costs, smooth = _SplineSmoothBlock[], λ = 0.0, dropped, unprojected, live, slot = nothing,
+        return (; variables = pose_variables, costs, smooth = Any[], λ = 0.0, dropped, unprojected, live, slot = nothing,
             present, nP = 0, windows, xs)
     end
     # the scale gauge's held log-scale (with the scales free): the live node nearest x = 0; the rotation gauge's
@@ -415,37 +418,22 @@ function _spline_problem(
     scale_node = directions_only ? CartesianIndex(0, 0) :
         argmin(i -> norm(VgtkCore.Cameras._lattice_node(b.area, gsz, i[2], i[1])), filter(i -> live[i], vec(CartesianIndices(gsz))))
     pinned_view = isempty(found) ? 1 : minimum(f -> f[3], found)
-    # the patch variables: the patches holding a live node, on their live controls' coordinates
-    # (the guess's controls, scale 0; a unit stand-in ẑ in a pad or absent slot, no coordinate of it)
-    variables = _SplineVar[]
-    var_of = zeros(Int, L.ph, L.pw)
-    slot = fill((0, 0), gsz)
-    for Q in 1:L.pw, P in 1:L.ph
-        nodes = ntuple(n -> _slot_node(P, Q, n), Val(4))
-        on = ntuple(n -> 1 <= nodes[n][1] <= gsz[1] && 1 <= nodes[n][2] <= gsz[2], Val(4))
-        islive = ntuple(n -> on[n] && live[nodes[n]...], Val(4))
-        any(islive) || continue
-        D = SMatrix{2, 2, SVector{3, Float64}, 4}(ntuple(n -> on[n] && present[nodes[n]...] ? SVector{3, Float64}(b.controls[nodes[n]...]) : SVector(0.0, 0.0, 1.0), Val(4)))
-        idx = Int[]
-        foreach(n -> islive[n] && append!(idx, (2n - 1, 2n)), 1:4)
-        directions_only || foreach(n -> islive[n] && CartesianIndex(nodes[n]) != scale_node && push!(idx, 8 + n), 1:4)
-        push!(variables, VgtkCore.restrict(_patch_chart(D), idx))
-        var_of[P, Q] = length(variables)
-        foreach(n -> islive[n] && (slot[nodes[n]...] = (length(variables), n)), 1:4)
-    end
+    variables, var_of, slot = _patch_variables(L, gsz, live, present, b.controls, scale_node, directions_only)
     nP = length(variables)
     append!(variables, [_pose_variable(ch, v != pinned_view) for (v, ch) in enumerate(pose_charts)])
-    costs = _SplineDataBlock[]
+    costs = Any[]
     for (X, u, v, win, cell) in found
         Ps = _patch_of(win[1][1]):_patch_of(win[end][1]); Qs = _patch_of(win[1][2]):_patch_of(win[end][2])
         np = length(Ps) * length(Qs)
-        varind = SVector{np + 1, Int}(ntuple(k -> k <= np ? var_of[Ps[(k - 1) % length(Ps) + 1], Qs[(k - 1) ÷ length(Ps) + 1]] : nP + v, Val(np + 1)))
+        patches = _by_type(variables, [var_of[P, Q] for Q in Qs for P in Ps])
+        varind = SVector{np + 1, Int}(patches..., nP + v)
         slots = map(i -> (findfirst(==(slot[i][1]), varind), slot[i][2]), win)
-        push!(costs, _SplineReprojection{np + 1, Nothing}(varind, slots, nothing, cell, box, pixel, X, u))
+        V = Tuple{map(k -> typeof(variables[k]), varind)...}
+        push!(costs, _SplineReprojection{np + 1, Nothing, V}(varind, slots, nothing, cell, box, pixel, X, u))
     end
     λ₀ = λ
     λ = 0.0
-    smooth = _SplineSmoothBlock[]
+    smooth = Any[]
     if !isempty(stencils)
         if λ₀ === nothing        # the unit weight λ₁ (a rebuild keeps its λ: none formed)
             diagonal = zeros(gsz)                                   # the data's normal matrix: its diagonal per node, the 2 direction coordinates
@@ -464,12 +452,51 @@ function _spline_problem(
             λ = Float64(λ₀)
         end
         for (ns, s) in stencils
-            vs = unique([slot[i][1] for i in ns])
+            vs = _by_type(variables, unique([slot[i][1] for i in ns]))
             varind = SVector{length(vs), Int}(vs)
-            push!(smooth, _SplineSmoothness{length(vs)}(varind, SVector{4, NTuple{2, Int}}(ntuple(m -> (findfirst(==(slot[ns[m]][1]), varind), slot[ns[m]][2]), Val(4))), sqrt(λ) * s))
+            push!(smooth, _SplineSmoothness{length(vs), Tuple{map(k -> typeof(variables[k]), vs)...}}(varind, SVector{4, NTuple{2, Int}}(ntuple(m -> (findfirst(==(slot[ns[m]][1]), varind), slot[ns[m]][2]), Val(4))), sqrt(λ) * s))
         end
     end
     return (; variables, costs, smooth, λ, dropped, unprojected, live, slot, present, nP, windows, xs)
+end
+
+# A Δ³ operator's rows as `(nodes, stencil)`, one block each (Core's adapter `row_stencils`).
+function _stencils(Δ, gsz)
+    nodes = vec(CartesianIndices(gsz))
+    return Tuple{NTuple{4, CartesianIndex{2}}, SVector{4, Float64}}[
+        (ntuple(k -> nodes[cols[k]], Val(4)), SVector{4, Float64}(ntuple(k -> coef[k], Val(4)))) for (cols, coef) in row_stencils(Δ)
+    ]
+end
+
+# The patch variables: the patches holding a live node, on their live controls' coordinates (the guess's
+# `controls`, scale 0; a unit stand-in ẑ in a pad or absent slot, no coordinate of it; no log-scale coordinate
+# for `scale_node`, none at all with `directions_only`), column-major over the patch grid; each patch's variable
+# index (0: none), and each live node's `(variable, control)`.
+function _patch_variables(L::_PatchLayout, gsz, live, present, controls, scale_node, directions_only::Bool)
+    variables = _SplineVar[]
+    var_of = zeros(Int, L.ph, L.pw)
+    slot = fill((0, 0), gsz)
+    for Q in 1:L.pw, P in 1:L.ph
+        nodes = ntuple(n -> _slot_node(P, Q, n), Val(4))
+        on = map(ij -> 1 <= ij[1] <= gsz[1] && 1 <= ij[2] <= gsz[2], nodes)
+        islive = map((o, ij) -> o && live[ij...], on, nodes)
+        any(islive) || continue
+        D = SMatrix{2, 2, SVector{3, Float64}, 4}(map((o, ij) -> o && present[ij...] ? SVector{3, Float64}(controls[ij...]) : SVector(0.0, 0.0, 1.0), on, nodes))
+        idx = Int[]
+        for n in 1:4
+            islive[n] && append!(idx, (2n - 1, 2n))
+        end
+        for n in 1:4
+            !directions_only && islive[n] && CartesianIndex(nodes[n]) != scale_node && push!(idx, 8 + n)
+        end
+        push!(variables, VgtkCore.restrict(_patch_chart(D), SVector{length(idx), Int}(idx)))
+        k = length(variables)
+        var_of[P, Q] = k
+        for n in 1:4
+            islive[n] && (slot[nodes[n]...] = (k, n))
+        end
+    end
+    return variables, var_of, slot
 end
 
 # Whether a window within one cell of window `(ix, iy)` holds an absent node.
@@ -563,8 +590,7 @@ const _SPLINE_REFINE_ROUNDS = 5
 
 # One NLLSsolver solve of the problem `p` from its variables: the result and the solved variables.
 function _spline_solve!(p, max_iter, ftol, xtol, max_time)
-    problem = p.nP > 0 ? NLLSsolver.NLLSProblem(_SplineVar, Union{_SplineDataBlock, _SplineSmoothBlock}) :
-        NLLSsolver.NLLSProblem(eltype(p.variables), _SplinePoseBlock)
+    problem = p.nP > 0 ? NLLSsolver.NLLSProblem{Any, Any}() : NLLSsolver.NLLSProblem(eltype(p.variables), _SplinePoseBlock)
     foreach(v -> NLLSsolver.addvariable!(problem, v), p.variables)
     foreach(c -> NLLSsolver.addcost!(problem, c), _spline_blocks(p))
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
@@ -583,7 +609,7 @@ end
 _solved_poses(p, solved::AbstractVector) = [_plain_pose(model(solved[k]::_SplinePose)) for k in (p.nP + 1):length(solved)]
 
 # The problem `p` with its Δ³ rows reweighted to `λ` (`p.λ > 0`).
-_with_λ(p, λ::Float64) = merge(p, (; λ, smooth = _SplineSmoothBlock[typeof(s)(s.varind, s.slots, sqrt(λ / p.λ) * s.coef) for s in p.smooth]))
+_with_λ(p, λ::Float64) = merge(p, (; λ, smooth = Any[typeof(s)(s.varind, s.slots, sqrt(λ / p.λ) * s.coef) for s in p.smooth]))
 
 # Solve `p`, then rebuild the blocks at the estimate: a point whose x* moved to another
 # cell reads another window (the held one only extrapolates), so the blocks are rebuilt
@@ -637,7 +663,7 @@ _gcv_linearization(p, solved::AbstractVector) = gcv_curve(_gcv_rows(p, solved)..
 # (`nlls_rows_and_jacobian`: each variable's coordinates in turn).
 function _moved_along(solved::AbstractVector, δ::AbstractVector)
     offsets = cumsum([0; [length(v.idx) for v in solved]])
-    return _SplineVar[NLLSsolver.update(x, δ, offsets[v] + 1) for (v, x) in enumerate(solved)]
+    return Any[NLLSsolver.update(x, δ, offsets[v] + 1) for (v, x) in enumerate(solved)]
 end
 
 # The GCV choice of the weight β (λ = β·λ₁): ONE nonlinear solve at the start weight
@@ -767,7 +793,7 @@ function _refine_spline_camera_and_poses(
     # the gauge, one step: the live controls and the poses turned by ONE rotation (the axis onto ẑ, the roll), the live controls scaled to the guess's mean length
     vars, controls, θ, roll = _gauged(p, solved, b)
     poses_out = [model(vars[p.nP + v]::_SplinePose) for v in 1:V]
-    all(P -> all(isfinite, rotation(P)) && all(isfinite, translation(P)), poses_out) && all(c -> all(isfinite, c), controls[held]) ||
+    all(_finite_pose, poses_out) && all(c -> all(isfinite, c), controls[held]) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = nlls_rows_and_jacobian(_spline_blocks(p), vars)

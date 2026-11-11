@@ -50,7 +50,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
   BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
 - **Breaking: the SplineLens source constructor loses `unit_controls`** (`CameraModel(SplineLens, source, size)`,
-  `NoncentralSplineModel(source, size)`): no caller passed it, and its default followed `init`. The prefilter's
+  `NoncentralSplineModel(source, size)`): no caller supplied it, and its default followed `init`. The prefilter's
   controls are re-normalized and the quasi-interpolant's kept, as before. The controls constructor keeps its
   `unit_controls` (a reader's choice).
 - **Breaking: `init = :sample` is removed** from `CameraModel(SplineLens, source, size)` (and so from
@@ -60,7 +60,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Changed: a SplineLens lattice's absent nodes are read from its `present` mask alone.** The gauge
   (`CameraModel(SplineLens, controls, size; present)`) and the off-axis check of `angle_of_view`, `image_circle`,
   `undistort`, `valid_rect`, `view_overlap` and `horizon_radius` read the mask; they read NaN controls before, so a lens
-  built by `SplineLens(backward; present)` (which keeps the absent slots' values) passed the axis check with ẑ under a
+  built by `SplineLens(backward; present)` (which keeps the absent slots' values) succeeded in the axis check with ẑ under a
   hole. The NaN in absent slots that `with_present` and the controls constructor write is a debugging aid only. The
   gauge no longer maps the whole lattice to test one window.
 - **Breaking: `SplineLens` has no `chart` field** (and so no fourth type parameter, `SplineLens{B, F, P}`). The

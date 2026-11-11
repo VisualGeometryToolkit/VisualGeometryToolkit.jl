@@ -195,10 +195,12 @@ would deploy at ŝ² = `s2` (the role-isolated controls).
 Gaussian; Barron, whose shape carries its α, is refused by both.
 `Triggs{GaussianShape}` is the plain chart LM over every datum: like
 `Irls{GaussianShape}` it has no width and takes no `scale_multiple`. For TLS
-and Huber ρ″ is zero (TLS: everywhere but the cutoff), so the Triggs term
-vanishes there and the step is the Gauss–Newton one with the loss's weights
-(TLS: the data inside the width at that evaluation); the LM's acceptance test
-still descends the robust cost, measured to the noise level on a circle.
+ρ″ is zero everywhere but the cutoff, so the Triggs term vanishes and the step
+is the Gauss–Newton one with the loss's weights (the data inside the width at
+that evaluation); for Huber ρ″ is zero inside the width only, and in the tail
+`ρ″ = −w/(2s^{3/2})` (`w` the loss width, `s` the squared residual), so the
+Triggs term corrects the tail's data. The LM's acceptance test descends the
+robust cost, measured to the noise level on a circle.
 
 # Fields
 - `width`: the width mode, set by `scale_multiple = m` (`ScaleMultiple`);

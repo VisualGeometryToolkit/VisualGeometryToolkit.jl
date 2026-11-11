@@ -5,6 +5,8 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Docs: `Triggs`'s Huber second derivative.** ρ″ is zero inside the width only; in the tail it is `−w/(2s^{3/2})`,
+  as Core's `loss_robustifier` gives it, so the Triggs term corrects the tail (the docstring said zero everywhere).
 - **New: SIMFIT++ loss-width estimation, moved from RANSACScoringDoneRight** (Edstedt, "Less Biased Noise Scale
   Estimation for Threshold-Robust RANSAC", CVPRW 2025; a step-for-step port of github.com/Parskatt/simfitpp):
   `SimFitPP` (the reference's defaults), `simfitpp_loss_width(fit, residuals_sq, n, initial_loss_width, cfg; ...)`

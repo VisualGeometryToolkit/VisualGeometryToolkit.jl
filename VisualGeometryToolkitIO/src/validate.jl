@@ -66,7 +66,6 @@ _refuse(file, at, msg) = throw(ArgumentError("$(file): $(isempty(at) ? "top leve
 _at(at, k) = isempty(at) ? String(k) : "$(at).$(k)"
 
 # finite as the Float64 it is read as (JSON.jl parses 1e400 as a BigFloat)
-_isreal(x) = x isa Real && !(x isa Bool) && isfinite(x) && isfinite(Float64(x))
 
 # A key of a parsed object (a `JSON.Object`, read by Symbol) or of a plain
 # `Dict{String}` (a record built in memory, `_plain`'s), by its Symbol.
@@ -95,7 +94,7 @@ _validate(s::_Tok, x, file, at) =
 _validate(::_Int, x, file, at) = ((x isa Integer && !(x isa Bool)) || _refuse(file, at, "expected an integer"); nothing)
 _validate(::_PosInt, x, file, at) =
     ((x isa Integer && !(x isa Bool) && x > 0) || _refuse(file, at, "expected a positive integer"); nothing)
-_validate(::_Real, x, file, at) = (_isreal(x) || _refuse(file, at, "expected a finite number"); nothing)
+_validate(::_Real, x, file, at) = (VgtkCore.is_finite_real(x) || _refuse(file, at, "expected a finite number"); nothing)
 function _validate(s::_Vec, x, file, at)
     x isa AbstractVector || _refuse(file, at, "expected an array")
     (s.n < 0 || length(x) == s.n) || _refuse(file, at, "expected $(s.n) entries, got $(length(x))")
@@ -113,7 +112,7 @@ end
 function _validate(::_RealMap, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object of named numbers")
     for (k, v) in x
-        _isreal(v) || _refuse(file, _at(at, k), "expected a finite number")
+        VgtkCore.is_finite_real(v) || _refuse(file, _at(at, k), "expected a finite number")
     end
     return nothing
 end

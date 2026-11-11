@@ -111,6 +111,26 @@ function check_keys(d::AbstractDict, allowed, section::AbstractString; retired =
     return nothing
 end
 
+"""
+    required_key(d, key, where) -> value
+
+`d[key]`, or an `ArgumentError` naming `where` (the file and the table) and
+the missing key, rather than a `KeyError` from deep inside a parsed record.
+The one reader of a key a record or a config must hold.
+"""
+function required_key(d, key, where::AbstractString)
+    haskey(d, key) || throw(ArgumentError("$(where): missing `$(key)` (a required key)"))
+    return d[key]
+end
+
+"""
+    is_finite_real(x) -> Bool
+
+Whether `x` is a number a record may hold: a `Real`, not a `Bool`, finite, and
+finite as a `Float64`.
+"""
+is_finite_real(x) = x isa Real && !(x isa Bool) && isfinite(x) && isfinite(Float64(x))
+
 # -----------------------------------------------------------------------------
 # struct ⇄ table hooks — generic functions a package extends for its own types
 # -----------------------------------------------------------------------------

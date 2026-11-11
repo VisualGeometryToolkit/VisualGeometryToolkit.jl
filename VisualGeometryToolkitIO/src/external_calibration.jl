@@ -69,14 +69,8 @@ ExternalCalibration(source, camera, poses, reprojection_error, error_statistic, 
 
 const _CAMERA_OPTICAL = frame_name(CameraFrame)          # "camera_optical"
 
-# A required key, or a message naming the file and the key rather than a
-# KeyError from deep inside the parsed object.
-function _need(d, key::Symbol, path, what)
-    haskey(d, key) || throw(
-        ArgumentError("$(path): no `$(key)` — not a $(what) calibration export")
-    )
-    return d[key]
-end
+# A required key: Core's `required_key`, the file named as the export it must be.
+_need(d, key::Symbol, path, what) = VgtkCore.required_key(d, key, "$(path) (a $(what) calibration export)")
 
 # fx, fy, cx, cy → a camera in the COLMAP pixel frame, through `CameraModel`'s own
 # origin shift (the one place the half pixel is applied).

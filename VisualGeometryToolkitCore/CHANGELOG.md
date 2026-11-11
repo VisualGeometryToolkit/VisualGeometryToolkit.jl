@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `required_key(d, key, where)` and `is_finite_real(x)`** (public, not exported; base/config_toml.jl beside
+  `check_keys`): a key a record or a config must hold, refused by name (an `ArgumentError` naming `where` and the
+  key, never a `KeyError`), and a number a record may hold (a finite `Real`, not a `Bool`, finite as a Float64).
+  VisualGeometryToolkitIO's external-calibration readers and validator and CaliBlobs' session record restated them
+  (`_need`, `_isreal`, `_isnum`); IO calls these.
+
 - **New: the README's examples, run as a reader runs them** (public, not exported; the Test extension):
   `test_readme_example(root; index, install_pages, developed, checks)` — the README's one example, its install line
   adding exactly what it loads, run expression by expression (each `# true` a claim) in an environment built from

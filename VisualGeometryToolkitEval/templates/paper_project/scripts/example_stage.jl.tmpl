@@ -3,8 +3,10 @@
 # =============================================================================
 # scripts/example_stage.jl — the worked example of a paper-project driver: one
 # file per paper asset, its config of record in configs/, its results in a
-# directory keyed by that config's run key, its provenance beside them, and its
-# assets rendered into the paper. Replace it with the project's own drivers.
+# directory keyed by that config's run key, its provenance beside them, its
+# assets rendered under plots/ and deployed into the paper (Reproduce
+# deploy_assets: a changed submitted asset needs sign-off). Replace it with the
+# project's own drivers.
 #
 # reproduce: reads configs/example.toml
 # reproduce: writes {{FIGDIR}}/example_fit.tex
@@ -14,14 +16,16 @@
 # STAGES
 #   simulate  the samples [simulate] states → <results>/example/example-<run key>/samples.tsv
 #   fit       the least-squares line through them → fit.toml beside them
-#   figure    the samples and the line as a pgfplots panel + its caption snippet
-#   macros    the numbers the prose quotes, as \newcommand lines (Reproduce: write_numbers)
+#   figure    the samples and the line as a pgfplots panel + its caption snippet, under plots/example/
+#   macros    the numbers the prose quotes, as \newcommand lines (Reproduce: write_numbers), beside them
+#   deploy    the renders into the paper: a new asset is copied, a changed one only with --replace-submitted
 #
-#   julia --project=. scripts/example_stage.jl [--plan] [--stage=NAME] [--force] [--results-branch]
+#   julia --project=. scripts/example_stage.jl [--plan] [--stage=NAME] [--force] [--replace-submitted] [--results-branch]
 #
-# --results-branch: once the stages are done, this run's paper assets become a branch
-# results/<UTC stamp>-<commit> of the paper's repository for review, in a worktree of its own,
-# with RUN.toml and COMPARISON.md (Reproduce results_branch; README.md).
+# --results-branch: a full reproduction for review. The stages run but deploy; this run's
+# renders become a branch results/<UTC stamp>-<commit> of the paper's repository, in a
+# worktree of its own, with RUN.toml and COMPARISON.md against the paper as committed
+# (Reproduce results_branch; README.md). The paper itself is not touched.
 # =============================================================================
 using DrWatson
 @quickactivate "{{NAME}}"
@@ -33,9 +37,13 @@ const KEY = run_key(CFG)                      # [render] is excluded: a cosmetic
 const OUTDIR = joinpath(results_root(), "example", "example-" * KEY)
 const SAMPLES = joinpath(OUTDIR, "samples.tsv")
 const FIT = joinpath(OUTDIR, "fit.toml")
-const FIGURE = projectdir({{FIGDIR_ARGS}}, CFG["render"]["figure"])
-const CAPTION = projectdir({{FIGDIR_ARGS}}, CFG["render"]["caption"])
-const MACROS = projectdir({{FIGDIR_ARGS}}, CFG["render"]["macros"])
+const RENDERS = plotsdir("example")            # the renders; the deploy stage puts them into the paper
+const PAPER_FIGURES = projectdir({{FIGDIR_ARGS}})
+const ASSETS = [CFG["render"][k] for k in ("figure", "caption", "macros")]
+const FIGURE = joinpath(RENDERS, CFG["render"]["figure"])
+const CAPTION = joinpath(RENDERS, CFG["render"]["caption"])
+const MACROS = joinpath(RENDERS, CFG["render"]["macros"])
+const RESULTS_BRANCH = "--results-branch" in ARGS
 
 function simulate()
     s = CFG["simulate"]
@@ -101,12 +109,17 @@ const STAGES = [
     Stage(:fit, "the least-squares line", () -> fresher(FIT, SAMPLES), fit),
     Stage(:figure, "the panel and its caption", () -> fresher(FIGURE, FIT, CFG_PATH) && isfile(CAPTION), figure),
     Stage(:macros, "the numbers the prose quotes", () -> fresher(MACROS, FIT, CFG_PATH), macros),
+    Stage(:deploy, "the renders into the paper (a changed submitted asset needs --replace-submitted)",
+          () -> assets_deployed(RENDERS, PAPER_FIGURES, ASSETS),
+          () -> deploy_assets(RENDERS, PAPER_FIGURES, ASSETS; replace_submitted = "--replace-submitted" in ARGS)),
 ]
 
-run_stages("example_stage", STAGES)
+run_stages("example_stage", RESULTS_BRANCH ? filter(st -> st.name != :deploy, STAGES) : STAGES)
 
-# A full reproduction for review: the paper's assets of this run on a results branch, never on the
-# paper's own branch; accept_results brings them in, remove_results_worktree removes the worktree.
-if "--results-branch" in ARGS && !("--plan" in ARGS)
-    results_branch(projectdir(), [f => relpath(f, projectdir()) for f in (FIGURE, CAPTION, MACROS)]; run_keys = [KEY])
+# A full reproduction for review: this run's renders on a results branch, never on the paper's own
+# branch, compared with the paper as committed; the data tier is the synthetic draws the fit, the
+# figure and the numbers read. accept_results brings them in, remove_results_worktree removes the worktree.
+if RESULTS_BRANCH && !("--plan" in ARGS)
+    results_branch(projectdir(), [joinpath(RENDERS, a) => relpath(joinpath(PAPER_FIGURES, a), projectdir()) for a in ASSETS];
+                   run_keys = [KEY], tiers = ["example_samples" => SAMPLES])
 end

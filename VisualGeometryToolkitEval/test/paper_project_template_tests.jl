@@ -7,6 +7,7 @@
 @testitem "paper_project_template" timeout = 3600 begin
     using Test
     using Pkg
+    using SHA: sha256
     using VisualGeometryToolkitEval
     using VisualGeometryToolkitEval.PaperProjects
 
@@ -38,13 +39,24 @@
     own_deps = keys(Pkg.TOML.parsefile(joinpath(vgeval, "Project.toml"))["deps"])
     tracked = [d.source for d in values(Pkg.dependencies()) if d.is_tracking_path && d.name in own_deps]
     paths = [vgeval; tracked]
+    # The results branch of a real change: the first run deploys into the paper, which is then committed
+    # (a clean base); a second commit changes the config (n) and the driver (one number more), and the
+    # rerun with --results-branch compares its renders against that base.
     script = """
         using Pkg
         Pkg.develop([PackageSpec(path = p) for p in $(repr(paths))])
         Pkg.instantiate()
         include(joinpath($(repr(root)), "scripts", "example_stage.jl"))
         include(joinpath($(repr(root)), "test", "runtests.jl"))
-        empty!(ARGS); push!(ARGS, "--results-branch")             # the stages are done: the results branch alone
+        git(args...) = run(`git -C $(repr(root)) -c user.name=Demo -c user.email=demo@example.org \$args`)
+        git("add", "-A"); git("commit", "-q", "-m", "The paper with its example assets")
+        write_edit(f, p) = write(p, f(read(p, String)))
+        write_edit(s -> replace(s, "n = 40" => "n = 60"), joinpath($(repr(root)), "configs", "example.toml"))
+        write_edit(s -> replace(s, "    write_numbers(MACROS, nums)" =>
+            "    add_number!(nums, \\"ExampleIntercept\\", f[\\"intercept\\"]; digits = 2, better = :none)\\n    write_numbers(MACROS, nums)"),
+            joinpath($(repr(root)), "scripts", "example_stage.jl"))
+        git("commit", "-q", "-am", "More samples; the intercept as a number")
+        empty!(ARGS); push!(ARGS, "--results-branch")
         include(joinpath($(repr(root)), "scripts", "example_stage.jl"))
         """
     env = copy(ENV)
@@ -64,17 +76,39 @@
         @test isfile(joinpath(root, "paper", "figures", f))
     end
     runs = readdir(joinpath(root, "data", "exp_pro", "example"))
-    @test length(runs) == 1 && startswith(only(runs), "example-")
-    run_dir = joinpath(root, "data", "exp_pro", "example", only(runs))
-    @test isfile(joinpath(run_dir, "_provenance.toml")) && isfile(joinpath(run_dir, "_config.toml"))
+    @test length(runs) == 2 && all(startswith("example-"), runs)    # n = 40, then n = 60: two run keys
+    for r in runs
+        @test isfile(joinpath(root, "data", "exp_pro", "example", r, "_provenance.toml"))
+        @test isfile(joinpath(root, "data", "exp_pro", "example", r, "_config.toml"))
+    end
     @test isempty(paper_project_violations(root))
     # --results-branch: the run's paper assets on a results branch in a worktree beside the project
     branch = only(split(read(`git -C $root branch --list '--format=%(refname:short)' 'results/*'`, String)))
     worktree = joinpath(dirname(root), "DemoPaper-results", replace(branch, "/" => "-"))
     @test isfile(joinpath(worktree, "RUN.toml")) && isfile(joinpath(worktree, "COMPARISON.md"))
     @test isfile(joinpath(worktree, "paper", "figures", "example_numbers.tex"))
-    @test occursin("NEW", read(joinpath(worktree, "COMPARISON.md"), String))     # the setup commit has no assets
     @test strip(read(`git -C $root symbolic-ref --short HEAD`, String)) != branch
+    # the renders stay out of the paper: the checkout is clean and its paper still holds the base's numbers
+    @test isempty(read(`git -C $root status --porcelain`, String))
+    @test occursin("\\newcommand{\\ExampleN}{40}", read(joinpath(root, "paper", "figures", "example_numbers.tex"), String))
+    @test occursin("\\newcommand{\\ExampleN}{60}", read(joinpath(worktree, "paper", "figures", "example_numbers.tex"), String))
+    # RUN.toml: the evaluated commit, clean; the data tier of the example (its synthetic draws, by sha256)
+    manifest = Pkg.TOML.parsefile(joinpath(worktree, "RUN.toml"))
+    head = strip(read(`git -C $root rev-parse HEAD`, String))
+    @test manifest["commit"] == head && manifest["dirty"] == false
+    @test manifest["base_commit"] == head
+    key = only(manifest["run_keys"])
+    samples = joinpath(root, "data", "exp_pro", "example", "example-" * key, "samples.tsv")
+    @test manifest["tiers"] == Dict("example_samples" => Dict("hash" => bytes2hex(open(sha256, samples)),
+                                                              "of" => "samples.tsv sha256"))
+    @test !("tiers" in manifest["missing"])
+    # COMPARISON.md: a real change against a committed base
+    verdicts = Dict(r.captures[1] => (strip(r.captures[2]), strip(r.captures[3]), strip(r.captures[4]))
+                    for r in eachmatch(r"^\| `\\(\w+)` \|[^|]*\|([^|]*)\|([^|]*)\|[^|]*\|[^|]*\| (\w+) \|$"m,
+                                       read(joinpath(worktree, "COMPARISON.md"), String)))
+    @test verdicts["ExampleN"] == ("`40`", "`60`", "CHANGED")
+    @test verdicts["ExampleIntercept"][[1, 3]] == ("", "NEW")
+    @test verdicts["ExampleSlope"][3] == "CHANGED"                 # other draws, another fitted slope
 
     # One injected breach of each check, each detected under its check.
     function breach(f)

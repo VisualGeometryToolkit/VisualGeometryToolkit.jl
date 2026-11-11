@@ -118,6 +118,55 @@ end
     end
 end
 
+# A same-memory wrapper of a dense host array — a reinterpret (BlobBoards' N0f8 view of its Gray{N0f8} image, a UInt8 buffer
+# as N0f8), a reshape of one — IS the dense memory: it goes up as it is, with no host copy, then through the one conversion
+# kernel. Bit-identical to the host's `T.(A)`; the host allocates nothing proportional to the image (two sizes compared).
+@testitem "ka_upload: a reinterpreted or reshaped dense image goes up as its memory, no host copy (CUDA availability-gated)" begin
+    using Test
+    import KernelAbstractions as KA
+    using FixedPointNumbers: N0f8
+    using Colors: Gray
+    using VisualGeometryToolkitCore: ka_upload, on_device
+    import VisualGeometryToolkitCore as VgtkCore
+    views(raw) = (reinterpret(N0f8, Gray{N0f8}.(reinterpret(N0f8, raw))), reinterpret(N0f8, raw),
+        reshape(reinterpret(N0f8, vec(raw)), size(raw)), reinterpret(reshape, N0f8, Gray{N0f8}.(reinterpret(N0f8, raw))))
+    small, large = rand(UInt8, 200, 300), rand(UInt8, 800, 1200)
+    for W in views(small), T in (Float32, Float64)
+        h = ka_upload(T, KA.CPU(), W)
+        @test h isa Matrix{T} && reinterpret(UInt8, vec(h)) == reinterpret(UInt8, vec(T.(W)))
+    end
+    # the host: the converted array is the only allocation that grows with the image (the 1 B/px source is read in place)
+    host_extra(W) = (ka_upload(Float32, KA.CPU(), W); (@allocated ka_upload(Float32, KA.CPU(), W)) - sizeof(Float32) * length(W))
+    for (Ws, Wl) in zip(views(small), views(large))
+        @test host_extra(Wl) - host_extra(Ws) < length(Wl) - length(Ws)
+    end
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        for W in views(small), T in (Float32, Float64)
+            d = Base.invokelatest(ka_upload, T, gpu, W)
+            @test !(d isa Array) && eltype(d) === T
+            @test reinterpret(UInt8, vec(Base.invokelatest(Array, d))) == reinterpret(UInt8, vec(T.(W)))   # bit for bit
+            # the wrapper's own eltype goes up as it is too (the narrow source of the conversion above)
+            @test Base.invokelatest(Array, Base.invokelatest(on_device, N0f8, gpu, W)) == W
+        end
+        # an empty image: nothing to launch
+        @test size(Base.invokelatest(ka_upload, Float32, gpu, reinterpret(N0f8, UInt8[]))) == (0,)
+        # the device: the host allocates the same at 0.06 and 0.96 Mpx (before: an N0f8 host copy, 1 B/px)
+        dev_allocs(W) = (Base.invokelatest(ka_upload, Float32, gpu, W); @allocated Base.invokelatest(ka_upload, Float32, gpu, W))
+        for (Ws, Wl) in zip(views(small), views(large))
+            @test dev_allocs(Wl) - dev_allocs(Ws) < (length(Wl) - length(Ws)) ÷ 16
+        end
+    end
+end
+
 # The accelerator's memory and devices: the host's free memory, the CUDA extension's query for its backend, and a backend
 # no extension answers for warned once and left unchunked (typemax).
 @testitem "device_free_bytes, reclaim_device!, device_names: the accelerator extension's queries" begin

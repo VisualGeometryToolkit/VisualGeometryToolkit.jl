@@ -41,6 +41,14 @@ sensor — so every consumer asks the camera what it images instead of supplying
   bit the host's `T.(A)`; no host-converted copy. A 50 Mpx 8-bit image to Float32 on a B200: 113 ms → 3.2 ms (median
   of 7; 87 ms of the old time was the host's conversion, and it moved 4 B/px instead of 1).
 
+- **Faster: `ka_upload` / `on_device` of a reinterpreted or reshaped dense host image uploads its memory as it is.** A
+  host wrapper that is a dense array's memory in order (BlobBoards' `reinterpret(N0f8, ::Matrix{Gray{N0f8}})`, a
+  reshape of a reinterpret, a contiguous view) goes to the device by one `copyto!` from an `Array` over that memory,
+  with no host copy, and then through the one conversion kernel; a strided view or an adjoint is still materialized.
+  Bit for bit the host's `T.(A)`. A 50 Mpx 8-bit Gray{N0f8} image to Float32 on a B200: 46 → 5.1 ms (median; min
+  35 → 3.0 ms; the dense UInt8 array: 3.8 ms), host allocation 50 MB → 2.3 KB. An empty integer image no longer
+  launches the conversion over an empty range (a `DivideError` on CUDA).
+
 - **New: the exact grid selection's kernels, `exact_pm_score_kernel!` and `argmax_models_kernel!`** (public, not
   exported; robust/pool_grid_kernels.jl), moved from RANSACScoringDoneRight (the twin audit's V1): per (pair, model) the
   sum of a family's per-residual quality at every width of a grid, then per (pair, width) the first strictly best model,

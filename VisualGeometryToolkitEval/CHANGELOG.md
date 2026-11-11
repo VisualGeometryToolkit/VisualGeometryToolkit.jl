@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **New: `DataArtifacts.project_catalog(root = project_root())`**: a paper project's catalog, its
+  `configs/data_artifacts.toml` loaded by `load_catalog` (bound to its Artifacts.toml or the catalog's env override).
+  RANSACScoringDoneRight's neurips2026 and LocalOptimizationDoneRight's accv2026 each defined it as
+  `artifact_catalog()`; `paper_project_violations` defaults its `catalog` to the same path.
+
 - **New: `PaperProjects.paper_figures_dir(paper = "paper/main.tex"; root = project_root())`**: the directory a paper
   reads its generated assets from, `figures/` beside its main .tex under the project root — where a driver's deploy
   stage puts its renders. RANSACScoringDoneRight's neurips2026 and radiometric-camera's cvpr2027 each defined it as

@@ -82,7 +82,7 @@ using ..Experiments: data_root, results_root, project_root, load_run_config, ins
 using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
 
-export DataCatalog, load_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
+export DataCatalog, load_catalog, project_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
     fetch_artifacts!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
 
 const HOSTS = ("zenodo", "huggingface")
@@ -138,6 +138,19 @@ function load_catalog(path::AbstractString)
     return DataCatalog(path, toml, dirname(path), get(raw, "records", Dict{String,Any}()),
                        get(raw, "artifacts", Dict{String,Any}()))
 end
+
+# Where a paper project keeps its catalog, relative to the project root.
+const _PROJECT_CATALOG = joinpath("configs", "data_artifacts.toml")
+
+"""
+    project_catalog(root = project_root()) -> DataCatalog
+
+The catalog of the paper project at `root` (Experiments' `project_root()`, the
+bound project): its `configs/data_artifacts.toml`, loaded by
+[`load_catalog`](@ref), so bound to the project's `Artifacts.toml` or the copy
+the catalog's `artifacts_toml_env` variable names.
+"""
+project_catalog(root::AbstractString = project_root()) = load_catalog(joinpath(root, _PROJECT_CATALOG))
 
 "The names of the artifacts fetched by default (`required = true`), sorted."
 required_artifacts(cat::DataCatalog) = sort([n for (n, a) in cat.artifacts if get(a, "required", false)])

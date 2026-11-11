@@ -29,7 +29,7 @@ using LibGit2: LibGit2
 using DrWatson: initialize_project
 using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations, project_root
 using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
-using ..DataArtifacts: load_catalog, catalog_violations
+using ..DataArtifacts: load_catalog, catalog_violations, _PROJECT_CATALOG
 
 export PaperProjectViolation, PAPER_PROJECT_CHECKS, paper_project_violations,
     PAPER_PROJECT_TEMPLATE, new_paper_project, paper_figures_dir

@@ -417,3 +417,39 @@
         end
     end
 end
+
+@testitem "data_artifacts: project_catalog" begin
+    # A paper project's catalog is its configs/data_artifacts.toml, bound to its
+    # Artifacts.toml (or the catalog's env override): one reader for every
+    # project (neurips2026 and accv2026 each defined `artifact_catalog()`).
+    using VisualGeometryToolkitEval.DataArtifacts: project_catalog, DataCatalog
+    using VisualGeometryToolkitEval.Experiments: set_project_root!
+    root = mktempdir()
+    mkpath(joinpath(root, "configs"))
+    write(joinpath(root, "configs", "data_artifacts.toml"), """
+        [catalog]
+        artifacts_toml_env = "VGTK_TEST_PROJECT_CATALOG_TOML"
+        [artifacts.raw]
+        kind = "tree"
+        mount = "data"
+        record = "inputs"
+        required = true
+        what = "w"
+        provenance = "p"
+        dir = "raw"
+        """)
+    cat = project_catalog(root)
+    @test cat isa DataCatalog
+    @test cat.path == joinpath(root, "configs", "data_artifacts.toml")
+    @test cat.artifacts_toml == joinpath(root, "Artifacts.toml")
+    @test haskey(cat.artifacts, "raw")
+    withenv("VGTK_TEST_PROJECT_CATALOG_TOML" => "/elsewhere/Artifacts.toml") do
+        @test project_catalog(root).artifacts_toml == "/elsewhere/Artifacts.toml"
+    end
+    set_project_root!(root)
+    try
+        @test project_catalog().path == cat.path
+    finally
+        set_project_root!("")
+    end
+end

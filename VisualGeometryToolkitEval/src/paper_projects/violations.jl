@@ -291,7 +291,7 @@ function paper_project_violations(dir::AbstractString;
         index::AbstractString = "REPRODUCE.md",
         checks = PAPER_PROJECT_CHECKS,
         scripts::AbstractString = "scripts", configs::AbstractString = "configs",
-        catalog::AbstractString = joinpath("configs", "data_artifacts.toml"),
+        catalog::AbstractString = _PROJECT_CATALOG,
         catalog_kinds = String[], data_policy = (;), reproduce = (;),
         allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     root = String(abspath(dir))

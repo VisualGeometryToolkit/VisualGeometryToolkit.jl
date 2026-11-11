@@ -326,3 +326,23 @@ end
         @test sort([parse(Int, last(split(v.location, ':'))) for v in hits]) == [2, 4, 6]
     end
 end
+
+# The IO form of the writer: the same bytes the file form writes, in either order; a shared file is the file form's.
+@testitem "number_macros: written to an IO" begin
+    using VisualGeometryToolkitEval.Reproduce: PaperNumbers, add_number!, add_macro!, write_numbers
+    nums = PaperNumbers(; driver = "scripts/fig.jl", config = "configs/fig.toml", run_key = "3f2a", commit = "abc1234")
+    add_number!(nums, "zeta", 2.5; digits = 1)
+    add_macro!(nums, "panelCell", "\\parbox{#1}{#2}"; arity = 2)
+    add_number!(nums, "alpha", 3)
+    mktempdir() do dir
+        for order in (:name, :added)
+            io = IOBuffer()
+            @test write_numbers(io, nums; order) === io
+            @test String(take!(io)) == read(write_numbers(joinpath(dir, "n_$order.tex"), nums; order), String)
+        end
+    end
+    @test findfirst("zeta", sprint(io -> write_numbers(io, nums; order = :added))) <
+          findfirst("alpha", sprint(io -> write_numbers(io, nums; order = :added)))
+    @test_throws ArgumentError write_numbers(IOBuffer(), nums; order = :random)
+    @test_throws MethodError write_numbers(IOBuffer(), nums; shared = true)
+end

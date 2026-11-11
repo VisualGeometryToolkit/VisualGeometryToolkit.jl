@@ -17,8 +17,10 @@ the faceted-arm grammar ([`arm_style`](@ref)), the house axis style
 ([`HOUSE_AXIS_COMMON`](@ref)), the shared faceted group-plot emitter
 ([`open_faceted_groupplot`](@ref)) and the panel and table emitters
 ([`emit_miscal_faceted`](@ref), [`emit_basin_faceted`](@ref),
-[`emit_tuning_table`](@ref)), and the table-file helpers ([`fmt3`](@ref),
-[`write_tsv`](@ref), [`read_tsv`](@ref)).
+[`emit_tuning_table`](@ref)), the table-file helpers ([`fmt3`](@ref),
+[`write_tsv`](@ref), [`read_tsv`](@ref)), and a floor plan's station fan
+([`station_cells`](@ref), [`write_station_fan`](@ref),
+[`write_station_fan_colorbar`](@ref)).
 """
 module Render
 
@@ -57,7 +59,9 @@ export
     # tables.jl — number cell and tab-separated table files
     fmt3, write_tsv, read_tsv,
     # station_cells.jl — a floorplan fan's cells (the hand-eye rig's stations)
-    station_cells
+    station_cells,
+    # station_fan.jl — the fan itself and its colorbar, as TikZ
+    write_station_fan, write_station_fan_colorbar
 
 include("render/panel_spec.jl")
 include("render/axis_style.jl")
@@ -69,5 +73,6 @@ include("render/emitters.jl")
 include("render/tuning_table.jl")
 include("render/tables.jl")
 include("render/station_cells.jl")   # station_cells: a floorplan fan's cells
+include("render/station_fan.jl")     # write_station_fan, write_station_fan_colorbar: the fan and its colorbar as TikZ
 
 end # module Render

@@ -95,6 +95,29 @@ sensor — so every consumer asks the camera what it images instead of supplying
   restated them (this monorepo's six, RANSACScoringDoneRight's, LocalOptimizationDoneRight's, PanoramaStitching's;
   BlobBoards' and CaliBlobs' install-row runners); the monorepo's readme tests call them.
 
+- **Breaking: a SplineLens lattice's image size is a `Size2` and its calibrated area a `Rect`, one spelling each.**
+  `CameraModel(SplineLens, source | controls, size)`, `spline_lattice`, `has_spline_gauge` and
+  `NoncentralSplineModel(source, size)` take `size::Size2` (a `(width, height)` tuple is a `MethodError`) and
+  `calib_area::Rect` of whole pixels (default `Rect(size)`; the inclusive 4-tuple `(min_x, min_y, max_x, max_y)` is
+  gone: it is `Rect(min_x, min_y, max_x − min_x + 1, max_y − min_y + 1)`). The normalizers of the second spellings
+  and the default repeated in each signature are gone. VisualGeometryToolkitIO's readers build the `Rect` from a
+  record's inclusive bounds.
+- **Breaking: `ControlPointChart`, `AdditivePoints` and `RayNormalPoints` are removed**, and `ControlPatchManifold`
+  loses its point-chart type parameter and field (`ControlPatchManifold{PX, PY, L, T, P}`; the three-argument
+  constructor is gone). The ray-normal chart had no caller but its tests; a point control moves additively,
+  `p + (Δx, Δy, Δz)`, as before by default. Downstream port: RadiometricCamera's `_NoncentralPatch` alias
+  (src/calibration_pipeline/grid_tiles.jl, also in the rc-abc and rc-flat checkouts) drops its
+  `VgtkCore.AdditivePoints` parameter.
+- **New: `has_spline_gauge(controls, size; calib_area, present)`** (public): whether a SplineLens pixel lattice
+  gives its own gauge K (its 4 × 4 window at the gauge's pixel complete), the condition under which the controls
+  constructor refuses to build without `intrinsics`. VisualGeometryToolkitIO's old-grid reader asks it instead of
+  matching the refusal's text.
+- **Changed: the batched `backproject(camera, pixels; device)` runs on a KernelAbstractions backend for every
+  `CameraModel`**, with the new batched `backproject_with_jacobian(camera, pixels; device)` beside it (and a
+  `NoncentralSplineModel`'s, its central model's): one `pointwise!` over a device copy of the model, each ray an
+  `SVector{3}` (was a host map returning `Vec3`s), back in the pixels' array kind, bit for bit the scalar map on the
+  CPU. `device` defaults to `default_device()`; a model with no device form runs as a host map. A SplineLens camera
+  keeps its own kernel.
 - **New: `device_zeros(T, device, dims...)`** (public, not exported; base/device.jl beside `ka_upload`): a zero array of
   element type `T` on a KernelAbstractions backend, the stack's one spelling of it (KernelAbstractions' own `zeros` is
   not public, so ExplicitImports refuses it across a package boundary). PanoramaStitching's vignetting fit wrote it as
@@ -123,6 +146,25 @@ sensor — so every consumer asks the camera what it images instead of supplying
   this copy, and each re-resolve moves it to the newly resolved VisualGeometryToolkitCore's. One copy for the stack:
   the monorepo's `.githooks` is a link to `VisualGeometryToolkitCore/githooks`, and RANSACScoringDoneRight's and
   BlobBoards' byte-identical `.githooks/` (sync-manifest.jl and the shell hooks) are deleted for it.
+- **Breaking: the SplineLens source constructor loses `unit_controls`** (`CameraModel(SplineLens, source, size)`,
+  `NoncentralSplineModel(source, size)`): no caller supplied it, and its default followed `init`. The prefilter's
+  controls are re-normalized and the quasi-interpolant's kept, as before. The controls constructor keeps its
+  `unit_controls` (a reader's choice).
+- **Breaking: `init = :sample` is removed** from `CameraModel(SplineLens, source, size)` (and so from
+  `NoncentralSplineModel(source, size)`): the node samples taken as controls (Schoenberg's approximation) had one
+  test caller and no other in the stack or downstream. `init` is `:interpolate` (the cubic prefilter, default) or
+  `:quasi_interpolate`; anything else is an `ArgumentError` naming the two.
+- **Changed: a SplineLens lattice's absent nodes are read from its `present` mask alone.** The gauge
+  (`CameraModel(SplineLens, controls, size; present)`) and the off-axis check of `angle_of_view`, `image_circle`,
+  `undistort`, `valid_rect`, `view_overlap` and `horizon_radius` read the mask; they read NaN controls before, so a lens
+  built by `SplineLens(backward; present)` (which keeps the absent slots' values) succeeded in the axis check with ẑ under a
+  hole. The NaN in absent slots that `with_present` and the controls constructor write is a debugging aid only. The
+  gauge no longer maps the whole lattice to test one window.
+- **Breaking: `SplineLens` has no `chart` field** (and so no fourth type parameter, `SplineLens{B, F, P}`). The
+  forward spline's chart is the same constant for every lens, the equidistant chart about ẑ; it is the new public
+  `forward_chart(SplineLens)`, which `project` evaluates a forward on and VisualGeometryToolkitEstimation's
+  `fit_camera` fits one on (it read Core's private `_forward_chart`). The public constructor checks the presence mask
+  once (it did twice).
 - **Breaking: `finite_linearization` is removed.** NLLSsolver 5.3.3 (#68, the floor) stops on a non-finite step or
   gradient at an accepted point itself; no block wraps its linearization. Its termination bit 12 is decoded
   (`nlls_stop_reasons`: `:nonfinite_gradient`; `nlls_stop_code`: a failed solve).
@@ -282,6 +324,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   Dual layer at a time (nested Duals exact). A height field alone or over the affine factors keeps a 1-D Newton as
   the root's specialization for its map type (plain numbers): 1.1–1.8 µs a ray against the 2 × 2 root's 17 µs, the
   hits within 8.9e-16 and every hit and miss the same.
+- **Breaking: `ThinPlateSplineSystem` has no `affine` field.** It held `coeff`'s affine rows a second time; read them
+  as `coeff[N+1:N+3, :]` (the pure-bending rule and the target calibration's affine-row basis do).
 - **New: the thin-plate kinds on the device.** `ThinPlateSplineSystem{N, T, M}`, `HeightField` and `ThinPlateSpline`
   take `Adapt.adapt_structure` (their matrices become device arrays, nodes and values stay isbits) and
   `convert_eltype` (a Float32 device form). `tps_coefficients` is a loop (no BLAS: allocation-free, kernel-safe, any

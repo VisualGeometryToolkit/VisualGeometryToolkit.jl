@@ -78,7 +78,7 @@ end
     using VisualGeometryToolkitIO: content_id
     using Rotations: RotXYZ
 
-    gc = CameraModel(SplineLens, CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02)), (64, 48); grid_size = (5, 4))
+    gc = CameraModel(SplineLens, CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02)), Size2(64, 48); grid_size = (5, 4))
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
     s = Sensor(Size2(width = 64px, height = 48px), 3.45μm)
     pitched = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), s),))

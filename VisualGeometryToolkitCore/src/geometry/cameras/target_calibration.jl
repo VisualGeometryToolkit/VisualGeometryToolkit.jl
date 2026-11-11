@@ -784,7 +784,7 @@ Adapt.adapt_structure(to, c::HeightField{K, T}) where {K, T} =
 Adapt.adapt_structure(to, c::ThinPlateSpline{K, T}) where {K, T} =
     ThinPlateSpline{K, T}(Adapt.adapt(to, c.system), c.fx, c.fy, c.wx, c.ax, c.wy, c.ay, Adapt.adapt(to, c.bending), c.physical)
 convert_eltype(::Type{F}, s::ThinPlateSplineSystem{N}) where {F <: AbstractFloat, N} =
-    ThinPlateSplineSystem{N}(map(SVector{2, F}, s.nodes), _eltype_matrix(F, s.coeff), _eltype_matrix(F, s.Q), _eltype_matrix(F, s.affine))
+    ThinPlateSplineSystem{N}(map(SVector{2, F}, s.nodes), _eltype_matrix(F, s.coeff), _eltype_matrix(F, s.Q))
 _eltype_matrix(::Type{F}, A::AbstractMatrix{F}) where {F} = A
 _eltype_matrix(::Type{F}, A::AbstractMatrix) where {F} = F.(A)
 convert_eltype(::Type{F}, c::HeightField{K}) where {F <: AbstractFloat, K} =
@@ -1151,7 +1151,7 @@ _constraint_columns(c::ThinPlateSpline) = (P = _affine_row_basis(c.system); cat(
 _constraint_columns(c::HeightField) = _affine_row_basis(c.system)
 # An orthonormal basis (K × 3) of the affine-coefficient rows' span: the
 # values are pure bending iff orthogonal to it (thin Householder QR, LAPACK: reproducible).
-_affine_row_basis(system::ThinPlateSplineSystem) = Matrix(LinearAlgebra.qr(Matrix(system.affine')).Q)
+_affine_row_basis(system::ThinPlateSplineSystem) = Matrix(LinearAlgebra.qr(Matrix(system.coeff[(end - 2):end, :]')).Q)
 _constraint_columns(c::_CalibrationComposition) = cat(_constraint_columns(c.t1), _constraint_columns(c.t2); dims = (1, 2))
 
 # --- an uncertain calibration -------------------------------------------------------

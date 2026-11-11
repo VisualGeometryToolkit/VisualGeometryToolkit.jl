@@ -118,11 +118,11 @@
 
     @testset "spline lens: non-finite rays and bounded-domain lenses" begin
         mk(f, lens) = CameraModel(; focal = f, pp = (640, 480), lens = lens)
-        ge = CameraModel(SplineLens, mk(250.0, Lens(Equidistant())), (1280, 960))
+        ge = CameraModel(SplineLens, mk(250.0, Lens(Equidistant())), Size2(1280, 960))
         @test all(v -> all(isfinite, v), ge.lens.backward.controls)
         @test VgtkCore.project(ge, SVector(0.0, 0.0, 1.0)) ≈ SVector(640.0, 480.0) atol = 1.0e-6
 
-        gd = CameraModel(SplineLens, mk(300.0, Division(-0.3)), (1280, 960))
+        gd = CameraModel(SplineLens, mk(300.0, Division(-0.3)), Size2(1280, 960))
         d = normalize(SVector(0.1, 0.05, 1.0))
         p = VgtkCore.project(gd, d)
         @test all(isfinite, p)

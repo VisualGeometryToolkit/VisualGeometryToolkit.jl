@@ -88,7 +88,7 @@ end
     using Rotations: RotXYZ
 
     src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02))
-    gc = CameraModel(SplineLens, src, (64, 48); grid_size = (5, 4))
+    gc = CameraModel(SplineLens, src, Size2(64, 48); grid_size = (5, 4))
     d = gc.lens.backward
     gn = NoncentralSplineModel(gc.intrinsics, d, ChartSpline(d.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5]))
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))

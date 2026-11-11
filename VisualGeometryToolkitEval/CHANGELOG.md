@@ -48,6 +48,9 @@
   `paper_figdir()`; the template's driver reads it (`paper_figures_dir(PAPER)`, the paper named once in the
   project's `src/<Name>.jl`) and the template builder places each paper's `figures/` through it.
 
+- **Internal: one git process for an acceptance's assets.** `accept_results` reads every asset from the branch with one
+  `git cat-file --batch` (was one `git show` per asset), and reads the committer identity once per call with one
+  `git config --get-regexp` (was two `git config` processes before each commit). 40 assets: about 290 ms to 75–120 ms.
 - **Internal: one dirtiness rule, Core's GPU names.** `results_branch` reads a checkout's HEAD and its dirtiness through
   the package's `_git_identity` (LibGit2, as a tuning artifact records it; was `git status --porcelain` in a
   subprocess), and the GPUs of a run through Core's `device_names` when `nvidia-smi` is absent.

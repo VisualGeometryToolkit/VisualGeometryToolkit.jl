@@ -14,6 +14,28 @@
   ONNX Runtime's intra-op pool the caller's `threads`, and on CUDA the session's arena capped at the keyword
   `gpu_mem_limit` bytes (default 8 GiB, LoMa's). The detector's plans now leave free the sum of the CUDA sessions'
   caps, each session's own, rather than 8 GiB per session. BlobBoards' descriptor network moves onto it.
+- **Breaking: `asift_detect`'s detection keyword `mask` is `exclusion_mask`** (the image and the `StabilizedImage`
+  methods; the semantics are unchanged: a marked pixel excludes every detection whose centre lies within three of its
+  scales, and a `StabilizedImage`'s saturation joins it). A call with `mask` is an `ArgumentError` naming
+  `exclusion_mask`. `gaussian_blur(img, σ, mask)`'s positional weight map is another thing and keeps its name.
+
+- **Faster: `asift_detect(…; exclusion_mask)`** decides each detection's clearance from a summed-area table of the mask, read
+  over the detection's disc, instead of a full-frame Euclidean distance transform per call: the same decisions (the
+  same distance rule), ~6× faster and ~6.6× less memory on a 24 MP frame (also every `asift_detect(::StabilizedImage)`,
+  whose saturation is its mask).
+
+- **Changed: `StabilizedImage(image, saturated, white)` holds a `Matrix{Float64}` image and a `BitMatrix` mask as
+  given** (another element type is converted, once): `variance_stabilize` no longer copies the transformed frame and
+  the saturation mask a second time.
+
+- **Breaking: a `LinearRaw`'s mode is its type, `LinearRaw{:green_cells}`, `LinearRaw{:bin2}` or `LinearRaw{:demosaic}`,
+  and its sample geometry one field.** The fields `plane_maps`, `green_offsets` and `green_dn` are
+  `L.geometry = (; plane_maps, green_offsets, green_dn)`, `nothing` for the display demosaic (and only for it); the
+  `mode` field is gone (`L isa LinearRaw{:bin2}`, or `raw_provenance(L).mode`). The geometric accessors
+  (`raw_frame_map`, `bayer_plane_map`, `green_cell_sites`, `variance_stabilize`) are methods of the cell images, the
+  display image's their refusals (the same `ArgumentError`), with no run-time mode test; the green-cell plane is
+  chosen by dispatch.
+
 - **New: `load_raw(path; …, cache)`, the decoded-RAW cache**: with `cache` a `FileCache` (`open_cache`, the JLD2
   extension), each RAW is decoded once per content and settings — the entry is keyed by the file's SHA-256, the mode,
   the gain, the white balance and the decoder's type (`cache_key`) — and a hit returns the `LinearRaw` as decoded,
@@ -71,12 +93,12 @@
   `asift_detect(…; nms = :none)` returns it keeps exactly what the in-pipeline NMS keeps (no longer "up to ties").
   `spread_strongest` was already a function of its input's order; given the canonical detections it is reproducible
   too. **Breaking (order):** a caller that relied on the pool's warp-by-warp order now gets the canonical order.
-- **New: a detection mask, `asift_detect(img; mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
+- **New: an exclusion mask, `asift_detect(img; exclusion_mask)`** — an H×W `Bool` matrix, `true` where detection is not allowed
   (clipped highlights, a vignetted rim): a detection whose centre lies within three of its scales (the DoG's support)
   of a masked pixel is dropped, on Detections, `raw` features and covariances alike. There was no way to exclude
   clipped regions of an ordinary (tone-mapped) image, so keypoints landed on clipped window panes. The rule is the
   one `asift_detect(::StabilizedImage)` applied to sensor saturation, now in one place: that method masks
-  `s.saturated` through `mask` (joined with a caller's `mask`), and takes `raw = true`, which it refused while the
+  `s.saturated` through `exclusion_mask` (joined with a caller's `exclusion_mask`), and takes `raw = true`, which it refused while the
   masking read Detections.
 - **New: `tilt_schedule(name)`, ASIFT's tilts by name; `asift_detect(img; tilts = :untilted)` restricts ASIFT to the
   untilted view (t = 1).** `:imas25` (the default of `asift_detect` and `AsiftPlan`) is IMAS-25; `:untilted` is the

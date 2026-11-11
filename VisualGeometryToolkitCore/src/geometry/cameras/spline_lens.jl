@@ -82,9 +82,10 @@ _device_present(to, p::AbstractMatrix{Bool}) = Adapt.adapt(to, p)
     return true
 end
 
-# The controls with NaN in every absent slot (`present[i]` false): no evaluation
-# reads an absent slot (a point is evaluated only when its whole 4×4 window is
-# present), and one read anywhere shows as NaN.
+# The controls with NaN in every absent slot (`present[i]` false). A debugging aid
+# only: absence is the mask's (`present`), which every evaluation, the gauge and the
+# axis check read; no code reads an absent slot's value, and one read anywhere shows
+# as NaN.
 function _absent_nan(G::AbstractMatrix{V}, present::AbstractMatrix{Bool}) where {V}
     size(G) == size(present) || throw(DimensionMismatch("with_present: a $(size(present)) mask for a $(size(G)) grid"))
     return map((v, p) -> p ? v : V(NaN, NaN, NaN), G, present)
@@ -133,12 +134,10 @@ function _check_spline_area(width, height, cminx, cminy, cmaxx, cmaxy, gsz)
     return nothing
 end
 
-# House-vocabulary acceptance: a size is a Size2, a calibrated area is a
-# Rect (origin + widths ↔ the inclusive integer bounds [min, max]); plain
-# tuples remain welcome.
+# The house vocabulary, one spelling each: a size is a `Size2` of whole pixels, a
+# calibrated area a `Rect` of whole pixels (origin + widths ↔ the inclusive integer
+# bounds [min, max] the lattice is checked and laid in).
 _spline_size(sz::Size2) = (Int(sz.width), Int(sz.height))
-_spline_size(sz::Tuple{Integer, Integer}) = (Int(sz[1]), Int(sz[2]))
-_area_bounds(a::NTuple{4, Integer}) = map(Int, a)
 function _area_bounds(r::GeometryBasics.HyperRectangle{2})
     o = GeometryBasics.origin(r); w = GeometryBasics.widths(r)
     return (Int(o[1]), Int(o[2]), Int(o[1] + w[1]) - 1, Int(o[2] + w[2]) - 1)
@@ -167,7 +166,8 @@ _node_counts(w1::Real, w2::Real, h::Real) = (max(4, ceil(Int, w1 / h * (1 - 1.0e
 # Cubic B-spline interpolation ("prefilter") matrix along one axis: at an
 # interior node the spline reads (c[j−1] + 4c[j] + c[j+1])/6, so solving the
 # tridiagonal system per axis makes the spline INTERPOLATE the node samples
-# instead of smoothing them (quasi-interpolation, the :sample init). The two
+# instead of smoothing them (the node samples as controls would be Schoenberg's
+# variation-diminishing approximation, no init of the stack's). The two
 # boundary controls keep their samples — their own nodes lie outside the
 # evaluable domain, so no interpolation condition exists for them.
 function _prefilter_matrix(n::Int)
@@ -212,12 +212,12 @@ function _sampling_radius(model::CameraModel)
     return ρ === nothing ? Float64(_imaging_domain_radius(l)) : ρ
 end
 
-# The direction controls of `init = :interpolate` or `:sample` on the lattice of
-# `rect` and `gsz = (rows, cols)`, sampled from the camera `model`.
+# The direction controls of `init = :interpolate` on the lattice of `rect` and
+# `gsz = (rows, cols)`, sampled from the camera `model`.
 function _directions_from(
-        model::CameraModel, rect::Rect2, gsz, ::Type{T};
-        init::Symbol, sampling_margin::Real   # both callers supply both; the public defaults live on the constructors
-    ) where {T}
+        model::CameraModel, rect::Rect2, gsz;
+        sampling_margin::Real   # the caller supplies it; the public default lives on the constructors
+    )
     gh, gw = gsz
     Ki = inv(SMatrix{3, 3, Float64}(calibration_matrix(model)))
     pp = SVector{2, Float64}(_principal_point(model))
@@ -230,17 +230,10 @@ function _directions_from(
         return normalize(SVector{3, Float64}(backproject(model, px)))
     end
     S = [_node_sample(gx, gy) for gy in 1:gh, gx in 1:gw]
-    init === :sample && return [Vec3{T}(v) for v in S]
-    init === :interpolate || throw(
-        ArgumentError(
-            "spline grid init must be :interpolate (cubic prefilter) or :sample " *
-                "(quasi-interpolation), got :$init"
-        )
-    )
     Ay = _prefilter_matrix(gh)
     Ax = _prefilter_matrix(gw)
     C = ntuple(k -> Ay \ (([S[gy, gx][k] for gy in 1:gh, gx in 1:gw]) / transpose(Ax)), 3)
-    return [Vec3{T}(C[1][gy, gx], C[2][gy, gx], C[3][gy, gx]) for gy in 1:gh, gx in 1:gw]
+    return [SVector(C[1][gy, gx], C[2][gy, gx], C[3][gy, gx]) for gy in 1:gh, gx in 1:gw]
 end
 
 """
@@ -340,13 +333,18 @@ end
 # The direction controls of `source` on the lattice of `rect` and `gsz = (rows, cols)` by `init`.
 function _init_directions(source, rect::Rect2, gsz, init::Symbol, sampling_margin::Real)
     init === :quasi_interpolate && return _quasi_interpolation_directions(source, rect, gsz)
+    init === :interpolate || throw(
+        ArgumentError(
+            "spline grid init must be :interpolate (cubic prefilter) or :quasi_interpolate (the local quasi-interpolant), got :$init"
+        )
+    )
     source isa CameraModel || throw(
         ArgumentError(
             "spline grid init :$init samples a camera model inside its valid domain; a $(nameof(typeof(source))) source " *
                 "takes init = :quasi_interpolate"
         )
     )
-    return _directions_from(source, rect, gsz, Float64; init, sampling_margin)
+    return _directions_from(source, rect, gsz; sampling_margin)
 end
 
 # What a spline grid is initialized from: a camera (its backprojection) or a function `pixel -> direction`.
@@ -385,26 +383,22 @@ as the optical axis — `undistort` and `undistort!` onto the gauge pinhole,
 `horizon_radius` and `monotone_radius`, `image_circle(camera, sensor, d)`,
 `view_overlap` — then throw an `ArgumentError` naming the off-axis gauge.
 """
-struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}, C} <: AbstractLensModel
+struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} <: AbstractLensModel
     backward::B
     forward::F
     present::P
-    chart::C   # the forward's chart (`_forward_chart`: about ẑ), formed here, never given; `nothing` without a forward
     function SplineLens{B, F, P}(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
         _check_present(present, size(backward.controls))
-        chart = _forward_chart(forward)
-        return SplineLens{B, F, P, typeof(chart)}(backward, forward, present, chart, Val(:unchecked))
+        return new{B, F, P}(backward, forward, present)
     end
-    # A value already validated (its device form): no check, as `ChartSpline`'s.
-    SplineLens{B, F, P, C}(backward::B, forward::F, present::P, chart::C, ::Val{:unchecked}) where {B, F, P, C} =
-        new{B, F, P, C}(backward, forward, present, chart)
+    # A value already validated (its device form, or a mask through `_present_mask`): no check, as `ChartSpline`'s.
+    SplineLens{B, F, P}(backward::B, forward::F, present::P, ::Val{:unchecked}) where {B, F, P} = new{B, F, P}(backward, forward, present)
 end
 SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = nothing, present = nothing) =
-    _spline_lens(backward, forward, _present_mask(present, size(backward.controls)))
+    _spline_lens(backward, forward, _present_mask(present, size(backward.controls)), Val(:unchecked))
 # The lens of its parts' own types: a function barrier over the mask, `nothing` or a `Matrix{Bool}`
-# (already through `_present_mask`).
-_spline_lens(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}} =
-    SplineLens{B, F, P}(backward, forward, present)
+# (checked, or already through `_present_mask` with `Val(:unchecked)`).
+_spline_lens(backward::B, forward::F, present::P, v::Val...) where {B, F, P} = SplineLens{B, F, P}(backward, forward, present, v...)
 
 # THE check of a spline camera's K — a SplineLens camera's and a
 # NoncentralSplineModel's, built or read: a gauge of skew 0 and positive focal
@@ -542,7 +536,7 @@ end
 # exact up to rounding of the area, a principal-point move included — the
 # K of a gauge lens is a choice of the normalized plane, not data. The
 # forward's output moves by the same affinity (its controls do: a B-spline's
-# weights sum to one), and its chart is about ẑ (`_forward_chart`), which no K
+# weights sum to one), and its chart is about ẑ (`forward_chart`), which no K
 # moves: every projection is kept too.
 function _regauge_lens(l::SplineLens, K, K′)
     s = SVector{2, Float64}(K′[1, 1] / K[1, 1], K′[2, 2] / K[2, 2])
@@ -556,12 +550,9 @@ function _regauge_lens(l::SplineLens, K, K′)
 end
 
 # The device form (`Adapt.adapt(backend, lens)`): the splines' controls and the
-# presence mask move, the (isbits) chart travels as it is, nothing is re-validated.
+# presence mask move, nothing is re-validated.
 Adapt.adapt_structure(to, l::SplineLens) =
-    _device_spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present), l.chart)
-# The lens of its device parts' own types (a function barrier, as `_spline_lens`), unchecked.
-_device_spline_lens(backward::B, forward::F, present::P, chart::C) where {B, F, P, C} =
-    SplineLens{B, F, P, C}(backward, forward, present, chart, Val(:unchecked))
+    _spline_lens(Adapt.adapt(to, l.backward), Adapt.adapt(to, l.forward), _device_present(to, l.present), Val(:unchecked))
 Adapt.adapt_structure(to, m::CameraModel{<:AbstractIntrinsics, <:SplineLens}) = CameraModel(m.intrinsics, Adapt.adapt(to, m.lens))
 
 # The controls convert as they are (no re-normalization); the areas and the mask stay.
@@ -603,7 +594,9 @@ const _PROJECT_TOL = 1.0e-6
 # (the reference's: no limit), or a relative radius `b`, a step longer than
 # `b·max(‖x‖, 1)` shortened to it along its direction — COLMAP's
 # IterativeUndistortion clipping (`b = 0.1`), which the parametric lens inverse
-# reads (lens_rays.jl `_inverse_lm`). `cost_floor` is the absolute stops' floor, the
+# reads (lens_rays.jl `_inverse_lm`). It returns `(x, converged, J, e)`, `e` the
+# evaluation `fj(x)` itself (anything `fj` returns past `(r, J)` with it: the
+# board root's surface point). `cost_floor` is the absolute stops' floor, the
 # reference's `eps(Float64)` by default: a cost below it ends the solve, a residual
 # of order one resolved to √eps. A root that must be resolved to rounding (the lens
 # inverse: a seed whose residual is 1e-9 is not its root) gives 0, leaving the
@@ -638,11 +631,12 @@ const _PROJECT_TOL = 1.0e-6
     ϵG = max(cost_floor, (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
     λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
-    f, Jx = fj(x)
+    ex = fj(x)
+    f, Jx = ex[1], ex[2]
     F = sum(abs2, f)
-    F < ϵF && return x, F < tol2, Jx
+    F < ϵF && return x, F < tol2, Jx, ex
     g = Jx' * f
-    norm(g, Inf) < ϵG && return x, F < tol2, Jx
+    norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex
     JtJ = Jx' * Jx
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
@@ -654,6 +648,7 @@ const _PROJECT_TOL = 1.0e-6
         pr = zero(T)
         ρ = zero(T)
         xk = x
+        ek = ex
         fk = f
         Jk = Jx
         Fk = F
@@ -671,7 +666,8 @@ const _PROJECT_TOL = 1.0e-6
         end
         if info == 0 && !clipped
             xk = x .- p
-            fk, Jk = fj(xk)
+            ek = fj(xk)
+            fk, Jk = ek[1], ek[2]
             Fk = sum(abs2, fk)
             if Fk < F
                 ac = F - Fk
@@ -681,7 +677,7 @@ const _PROJECT_TOL = 1.0e-6
             end
             if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
                 if accepted
-                    x, f, F, Jx = xk, fk, Fk, Jk
+                    x, f, F, Jx, ex = xk, fk, Fk, Jk, ek
                 end
                 break
             end
@@ -692,6 +688,7 @@ const _PROJECT_TOL = 1.0e-6
             Fold = F
             F = Fk
             Jx = Jk
+            ex = ek
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
             g = Jx' * f
@@ -708,7 +705,7 @@ const _PROJECT_TOL = 1.0e-6
         end
         λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
-    return x, F < tol2, Jx
+    return x, F < tol2, Jx, ex
 end
 
 # The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.
@@ -844,25 +841,29 @@ end
     return _spline_direction_and_jacobian(l.backward.controls, l.backward.area, x)
 end
 
-# The forward spline's chart, the equidistant chart about ẑ (`nothing` without a
-# forward): fixed in the camera frame, so no K moves it — a re-gauge
-# (`CameraModel(cam, K′)`) maps the forward's output by the normalized plane's
-# affinity and keeps every projection exactly. Formed once, when the lens is built
-# (its `chart` field). THE derivation: the lens's field and a fit of a forward
-# (VisualGeometryToolkitEstimation's `fit_camera`, the one-argument form) both read
-# it, so the chart a forward is fitted on is the chart `project` evaluates it on.
-_forward_chart(::Nothing) = nothing
-_forward_chart(::ChartSpline{2}) = _forward_chart()
-_forward_chart() = equidistant_chart(SVector(0.0, 0.0, 1.0))
+const _FORWARD_CHART = equidistant_chart(SVector(0.0, 0.0, 1.0))
+
+"""
+    forward_chart(SplineLens) -> chart
+
+The chart of every [`SplineLens`](@ref)'s forward spline: the equidistant chart
+about ẑ ([`equidistant_chart`](@ref)`(ẑ)`), fixed in the camera frame, so no `K`
+moves it (a re-gauge maps the forward's output by the normalized plane's
+affinity and keeps every projection exactly). THE one derivation: `project`
+evaluates a forward on it and a fit of a forward is made on it.
+"""
+forward_chart(::Type{SplineLens}) = _FORWARD_CHART
 
 # Where a lattice images ẑ: THE solve of ẑ through `controls` over `area` (from the
-# area's centre, the scale-free box) and whether it converged there — the gauge's
-# choice of principal point (`_spline_gauge`: the pixel imaging ẑ, else the
-# rectangle's centre, the fallback) and the off-axis check's condition below, one
-# predicate for both.
-function _imaged_z(controls::AbstractMatrix, area::Rect2)
+# area's centre, the scale-free box) and whether it converged there onto a window
+# whose nodes `present` holds — the gauge's choice of principal point
+# (`_spline_gauge`: the pixel imaging ẑ, else the rectangle's centre, the fallback)
+# and the off-axis check's condition below, one predicate for both. Absence is read
+# from `present` alone, whatever the absent slots of `controls` hold.
+function _imaged_z(controls::AbstractMatrix, area::Rect2, present)
     p, ok = _solved_projection(controls, area, SVector(0.0, 0.0, 1.0), _spline_lm_box(area)...)
-    return ok && all(isfinite, p) ? (SVector{2, Float64}(p), true) : (SVector{2, Float64}(centroid(area)), false)
+    ok = ok && all(isfinite, p) && _window_present(present, spline_window(area, size(controls), p)[1:2]...)
+    return ok ? (SVector{2, Float64}(p), true) : (SVector{2, Float64}(centroid(area)), false)
 end
 
 # Whether a SplineLens camera's gauge is the off-axis fallback — ẑ not imaged inside
@@ -873,7 +874,7 @@ end
 # `ArgumentError` naming `what`. Every other lens has nothing to check.
 _check_lens_axis(::AbstractLensModel, what) = nothing
 function _check_lens_axis(l::SplineLens, what)
-    last(_imaged_z(l.backward.controls, l.backward.area)) || throw(
+    last(_imaged_z(l.backward.controls, l.backward.area, l.present)) || throw(
         ArgumentError(
             "$what: the SplineLens camera's lattice does not image ẑ inside its calibrated area, so its principal point " *
                 "is the off-axis gauge's fallback (the area's centre); the method reads the principal point as the " *
@@ -893,7 +894,7 @@ end
 @inline function _project_lens(l::SplineLens, X::StaticVector{3}, x₀::SVector{2, Float64}, maxiter::Int, tol2::Float64)
     nan = SVector(NaN, NaN)
     if l.forward !== nothing
-        c = l.chart(X)
+        c = _FORWARD_CHART(X)
         _in_fitted_chart(l.forward, c) || return nan, false
         y = l.forward(c)
         x = SVector{2, Float64}(y[1], y[2])
@@ -1082,18 +1083,16 @@ end
 # inside `rect` (the solve does not converge there), the principal point is the
 # rectangle's centre and the focal lengths the local scale there.
 #
-# The local scale needs a fully present 4 × 4 window at that pixel: a lattice holding
-# absent nodes (NaN controls) without one there has no scale to derive K from, an
+# The local scale needs a fully present 4 × 4 window at that pixel (`present`, the
+# lattice's mask, `nothing` for every node): a lattice without one there has no scale to derive K from, an
 # `ArgumentError` naming the pixel and saying to supply K. When ẑ's pixel is not found
 # and the centre's own window is incomplete, the search for it could not start there:
 # ẑ may be imaged under an incomplete window (a hole over ẑ) or not at all, so the
 # refusal says which pixel lacks a window, not that ẑ is not imaged. Any skew-0 K is an
 # exact gauge of the camera (a pixel's lattice coordinate does not depend on it).
-function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
-    pp, on_axis = _imaged_z(pixel_direction.controls, rect)    # the pixel imaging ẑ, else the centre (the fallback)
-    G = pixel_direction.controls
-    ix, iy, _, _ = spline_window(rect, size(G), pp)
-    _window_present(map(v -> all(isfinite, v), G), ix, iy) || throw(
+function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2, present)
+    pp, on_axis, complete = _gauge_pixel(pixel_direction, rect, present)
+    complete || throw(
         ArgumentError(
             "SplineLens gauge: the grid has no complete 4 × 4 window at " *
                 (on_axis ? "the pixel $pp imaging ẑ" : "the calibrated area's centre $pp, where the search for the pixel imaging ẑ starts (ẑ may lie under an incomplete window)") *
@@ -1106,6 +1105,35 @@ function _spline_gauge(pixel_direction::ChartSpline{3}, rect::Rect2)
         ArgumentError("SplineLens gauge: the grid's local scale at the pixel $pp is not a positive finite focal length ($fx, $fy)")
     )
     return LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0.0, 0.0, 0.0, fy, 0.0, pp[1], pp[2], 1.0)))
+end
+
+# The gauge's pixel of a pixel-lattice direction spline — the pixel imaging ẑ, else the
+# rectangle's centre (the fallback) — whether it images ẑ, and whether the lattice's
+# 4 × 4 window there is complete (`present`), which the local scale needs.
+function _gauge_pixel(pixel_direction::ChartSpline{3}, rect::Rect2, present)
+    pp, on_axis = _imaged_z(pixel_direction.controls, rect, present)
+    ix, iy, _, _ = spline_window(rect, size(pixel_direction.controls), pp)
+    return pp, on_axis, _window_present(present, ix, iy)
+end
+
+"""
+    has_spline_gauge(controls::AbstractMatrix{<:StaticVector{3}}, size; calib_area, present = nothing) -> Bool
+
+Whether the pixel lattice of `CameraModel(SplineLens, controls, size; calib_area,
+present)` gives its own gauge `K`: whether its 4 × 4 window at the gauge's pixel
+(the pixel imaging ẑ, else the calibrated area's centre) holds only present
+nodes. Where it does not, that constructor refuses to build without a supplied
+`intrinsics`; a reader that can supply one asks this first.
+"""
+function has_spline_gauge(
+        controls::AbstractMatrix{<:StaticVector{3}}, size::Size2;
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
+        present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
+    )
+    gh, gw = Base.size(controls)
+    rect, _ = _spline_layout(size, (gw, gh), calib_area)
+    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(v), controls))
+    return last(_gauge_pixel(ChartSpline(rect, C), rect, present))
 end
 
 # The K a SplineLens camera built from `source` keeps: a camera's own (checked by
@@ -1142,7 +1170,7 @@ end
     spline_lattice(SplineLens, source::CameraModel, size; grid_size, calib_area) -> CameraModel
 
 The layout a [`SplineLens`](@ref) camera built from the camera `source` over an
-image of `size` (`(width, height)` or a `Size2`) takes — the same `grid_size`,
+image of `size` (a `Size2`) takes — the same `grid_size`,
 `calib_area` and `K` (the source's own), with the same defaults, as
 `CameraModel(SplineLens, source, size)` — WITHOUT sampling the source: every
 control is the optical axis `(0, 0, 1)`. What a fit that solves for every
@@ -1150,37 +1178,34 @@ control needs (the lattice, the gauge), with none of the node interpolation.
 A function source has no `K` without its sampled spline: build the camera.
 """
 function spline_lattice(
-        ::Type{SplineLens}, source::CameraModel, size::Union{Tuple{Integer, Integer}, Size2};
+        ::Type{SplineLens}, source::CameraModel, size::Size2;
         grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
     )
     _, gsz = _spline_layout(size, grid_size, calib_area)
     return CameraModel(SplineLens, fill(SVector(0.0, 0.0, 1.0), gsz), size; calib_area, intrinsics = _source_intrinsics(source))
 end
 
 """
-    CameraModel(SplineLens, source, size; grid_size, calib_area, init = :interpolate,
-                sampling_margin = 0.97, unit_controls = init !== :quasi_interpolate)
+    CameraModel(SplineLens, source, size; grid_size, calib_area, init = :interpolate, sampling_margin = 0.97)
         -> CameraModel{<:LogicalIntrinsics, <:SplineLens}
 
 The [`SplineLens`](@ref) camera initialized from `source` — a `CameraModel` (its
 backprojection) or a function `pixel -> direction` (`nothing` or a non-finite
-vector where it images nothing) — over an image of `size` (`(width, height)` or
-a `Size2`): a lattice of `grid_size = (columns, rows)` controls (default
+vector where it images nothing) — over an image of `size` (a `Size2`): a lattice of `grid_size = (columns, rows)` controls (default
 [`default_spline_grid`](@ref)) over the calibrated pixel area `calib_area`
-(inclusive integer bounds `(min_x, min_y, max_x, max_y)` or a `Rect`; default the
-whole image).
+(a `Rect` of whole pixels, the closed rectangle its pixels cover; default
+`Rect(size)`, the whole image).
 
 `init = :interpolate` (default) solves the cubic-prefilter tridiagonal system
 per axis so the spline INTERPOLATES the source's backprojection at the grid
-nodes; `init = :sample` takes each node's sample as its control (Schoenberg's
-variation-diminishing approximation); both sample a camera inside
-`sampling_margin` times its lens's valid domain. `init = :quasi_interpolate` is
+nodes, sampling a camera inside `sampling_margin` times its lens's valid
+domain. `init = :quasi_interpolate` is
 the 4th-order local quasi-interpolant on a lattice extended one node past the
 area ([`quasi_interpolant`](@ref)), with its border rule for a source whose
-domain ends near or inside the area; a function source takes it.
-`unit_controls = true` re-normalizes every control.
+domain ends near or inside the area; a function source takes it. The prefilter's
+controls are re-normalized (each unit unless it is unit to 1e-12), the
+quasi-interpolant's kept as it forms them.
 
 A camera source keeps its own `K` (skew ≠ 0 is an `ArgumentError`); any other
 source takes the gauge of its sampled spline: the principal point is the pixel
@@ -1188,17 +1213,15 @@ imaging ẑ (the calibrated area's centre when ẑ is not imaged inside it) and
 `fx`, `fy` the inverse local scale of `d_xy/d_z` there, skew 0.
 """
 function CameraModel(
-        ::Type{SplineLens}, source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2};
+        ::Type{SplineLens}, source::_SplineSource, size::Size2;
         grid_size::Tuple{Integer, Integer} = default_spline_grid(_spline_size(size)...),
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         init::Symbol = :interpolate,
         sampling_margin::Real = 0.97,
-        unit_controls::Bool = init !== :quasi_interpolate,
     )
     rect, gsz = _spline_layout(size, grid_size, calib_area)
     C = _init_directions(source, rect, gsz, init, sampling_margin)
-    return CameraModel(SplineLens, C, size; calib_area, intrinsics = _source_intrinsics(source), unit_controls)
+    return CameraModel(SplineLens, C, size; calib_area, intrinsics = _source_intrinsics(source), unit_controls = init !== :quasi_interpolate)
 end
 
 """
@@ -1211,9 +1234,8 @@ THE constructor of a [`SplineLens`](@ref) camera (the source constructor and
 by its direction controls, as the reference implementation (Schöps et al.'s
 `intrinsics0.yaml`) and the stored grid records state one: `controls` (`[gy, gx]`;
 an absent node's control is never read, not even by the gauge) laid over the
-calibrated pixel area `calib_area` (inclusive integer bounds
-`(min_x, min_y, max_x, max_y)` or a `Rect`, the closed rectangle `[min, max + 1]`;
-default the whole image) of an image of `size`, the nodes `present` held
+calibrated pixel area `calib_area` (a `Rect` of whole pixels, the closed rectangle
+of pixel corners `[min, max + 1]`; default `Rect(size)`, the whole image) of an image of `size`, the nodes `present` held
 (`nothing`: every node). Its `K` is `intrinsics` (skew 0, positive focal
 lengths, else an `ArgumentError`) or, without one, the lattice's gauge. Its
 backward area is K⁻¹ of the calibrated rectangle, so each pixel's lattice
@@ -1222,9 +1244,8 @@ does, whatever the K. The controls are kept as given (`unit_controls = true`
 normalizes each one unless it is unit to 1e-12, the reference reader's rule).
 """
 function CameraModel(
-        ::Type{SplineLens}, controls::AbstractMatrix{<:StaticVector{3}}, size::Union{Tuple{Integer, Integer}, Size2};
-        calib_area::Union{NTuple{4, Integer}, GeometryBasics.HyperRectangle{2}} =
-            (0, 0, _spline_size(size)[1] - 1, _spline_size(size)[2] - 1),
+        ::Type{SplineLens}, controls::AbstractMatrix{<:StaticVector{3}}, size::Size2;
+        calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         intrinsics::Union{Nothing, LogicalIntrinsics} = nothing,
         present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
         unit_controls::Bool = false,
@@ -1232,9 +1253,9 @@ function CameraModel(
     gh, gw = Base.size(controls)
     rect, _ = _spline_layout(size, (gw, gh), calib_area)
     C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
-    present === nothing || (C = _absent_nan(C, present))   # the absent nodes hold no value: the gauge reads none
+    present === nothing || (C = _absent_nan(C, present))   # NaN in the absent slots: a debugging aid, read by nothing
     intrinsics === nothing || _check_spline_gauge(intrinsics)   # before the lattice is laid under it
-    K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect) : intrinsics
+    K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect, present) : intrinsics
     return _spline_camera(K, rect, C; present)
 end
 
@@ -1428,42 +1449,7 @@ end
 @inline _tangent_axis(v) = (o = one(eltype(v)); z = zero(eltype(v)); abs(v[1]) > 9 * o / 10 ? SVector(z, o, z) : SVector(o, z, z))
 
 """
-    ControlPointChart
-
-How a [`ControlPatchManifold`](@ref) moves its point controls:
-[`AdditivePoints`](@ref) (3 coordinates per point) or
-[`RayNormalPoints`](@ref) (2, across the point's own ray).
-"""
-abstract type ControlPointChart end
-
-"""
-    AdditivePoints() <: ControlPointChart
-
-A point control moves additively, `p + (Δx, Δy, Δz)`: 3 coordinates, the
-identity as its block of `retract_jacobian`. The default chart of a
-[`ControlPatchManifold`](@ref).
-"""
-struct AdditivePoints <: ControlPointChart end
-
-"""
-    RayNormalPoints() <: ControlPointChart
-
-A point control moves across its own ray, `p + a·t₁ + b·t₂` with
-`(t₁, t₂) = direction_tangents(normalize(d))` of the same node's direction
-control `d` at the anchor: 2 coordinates, `(t₁ t₂)` as its block of
-`retract_jacobian`, and `local_coordinates` the offset's dot products with
-`t₁` and `t₂`. A move along the ray leaves the node's line where it is, so this
-chart drops the one coordinate of [`AdditivePoints`](@ref) that does not move
-the line: `local_coordinates` of a point moved along its ray is the move's
-projection onto `(t₁, t₂)`, the component along the ray dropped. The tangents
-are off the z = 0 plane where the ray is off axis, so a pupil-plane model's
-points leave their plane under this chart; hold them on it with
-`AdditivePoints` and a `restrict` mask on `Δz`.
-"""
-struct RayNormalPoints <: ControlPointChart end
-
-"""
-    ControlPatchManifold(directions[, points[, point_chart = AdditivePoints()]]) <: Manifold
+    ControlPatchManifold(directions[, points]) <: Manifold
 
 A patch of a spline lattice's controls as a manifold (a [`SplineLens`](@ref)'s,
 a [`NoncentralSplineModel`](@ref)'s): a `PX × PY` block of its direction controls (an `SMatrix` of 3-vectors, in the caller's layout:
@@ -1477,39 +1463,28 @@ reference's chart,
 
 2 coordinates that keep its norm (the norm is a weight of the spline's blend,
 not a gauge) and whose derivative at δ = 0 is `(t₁, t₂)`. A point control moves
-by `point_chart` (a [`ControlPointChart`](@ref)): additively, 3 coordinates
-([`AdditivePoints`](@ref)), or across its own ray, 2 ([`RayNormalPoints`](@ref)).
-The coordinates are per control, column-major over the block: `(δ₁, δ₂)` each,
-`(δ₁, δ₂, Δx, Δy, Δz)` with additive points or `(δ₁, δ₂, a, b)` with ray-normal
-points — [`restrict`](@ref) them by mask to hold some fixed (a pupil-plane
-model's `Δz`, with additive points). `model(ch)` is `(; directions, points)` (`points` is `nothing`
-for a central patch, whose `point_chart` is unused); `retract_jacobian(ch)` is
-block diagonal, `(t₁ t₂)` per direction and the point chart's block per point.
+additively, `p + (Δx, Δy, Δz)`. The coordinates are per control, column-major
+over the block: `(δ₁, δ₂)` each, `(δ₁, δ₂, Δx, Δy, Δz)` with points —
+[`restrict`](@ref) them by mask to hold some fixed (a pupil-plane model's `Δz`).
+`model(ch)` is `(; directions, points)` (`points` is `nothing` for a central
+patch); `retract_jacobian(ch)` is block diagonal, `(t₁ t₂)` per direction and
+the identity per point.
 """
-struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}, C <: ControlPointChart} <: Manifold
+struct ControlPatchManifold{PX, PY, L, T <: Real, P <: Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}} <: Manifold
     directions::SMatrix{PX, PY, SVector{3, T}, L}
     points::P
-    point_chart::C
 end
 ControlPatchManifold(directions::SMatrix{PX, PY, <:StaticVector{3}}) where {PX, PY} =
     (T = float(eltype(eltype(directions))); ControlPatchManifold(SMatrix{PX, PY, SVector{3, T}}(directions), nothing))
-ControlPatchManifold(directions::SMatrix{PX, PY, SVector{3, T}, L}, points::Union{Nothing, SMatrix{PX, PY, SVector{3, T}, L}}) where {PX, PY, L, T <: Real} =
-    ControlPatchManifold(directions, points, AdditivePoints())
 
-_point_coordinates(::AdditivePoints) = 3
-_point_coordinates(::RayNormalPoints) = 2
 _control_coordinates(::ControlPatchManifold{PX, PY, L, T, Nothing}) where {PX, PY, L, T <: Real} = 2
-_control_coordinates(ch::ControlPatchManifold) = 2 + _point_coordinates(ch.point_chart)
+_control_coordinates(::ControlPatchManifold) = 5
 tangent_size(ch::ControlPatchManifold{PX, PY, L}) where {PX, PY, L} = _control_coordinates(ch) * L
 model(ch::ControlPatchManifold) = (; directions = ch.directions, points = ch.points)
 
 # One direction control stepped on its sphere (the reference's chart), its norm
 # kept; (t1, t2) = direction_tangents(normalize(d)).
 @inline _retracted_direction(d::SVector{3}, t1, t2, δ₁, δ₂) = norm(d) * normalize(d + δ₁ * t1 + δ₂ * t2)
-# One point control stepped by its chart from the coordinates v[j+1], v[j+2], …;
-# (t1, t2) are the same node's direction tangents.
-@inline _retracted_point(::AdditivePoints, p::SVector{3}, t1, t2, v, j) = p + SVector(v[j + 1], v[j + 2], v[j + 3])
-@inline _retracted_point(::RayNormalPoints, p::SVector{3}, t1, t2, v, j) = p + v[j + 1] * t1 + v[j + 2] * t2
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v) where {PX, PY, L, T <: Real}
     dirs = SMatrix{PX, PY}(ntuple(Val(L)) do n
         d = ch.directions[n]
@@ -1519,31 +1494,18 @@ function _retracted_controls(ch::ControlPatchManifold{PX, PY, L, T, Nothing}, v)
 end
 function _retracted_controls(ch::ControlPatchManifold{PX, PY, L}, v) where {PX, PY, L}
     k = _control_coordinates(ch)
-    nodes = ntuple(Val(L)) do n                      # each node's tangents once, for its direction and its point
+    nodes = ntuple(Val(L)) do n                      # a node's direction on its sphere, its point additively
         d = ch.directions[n]; j = k * (n - 1)
         t1, t2 = direction_tangents(normalize(d))
-        return _retracted_direction(d, t1, t2, v[j + 1], v[j + 2]), _retracted_point(ch.point_chart, ch.points[n], t1, t2, v, j + 2)
+        return _retracted_direction(d, t1, t2, v[j + 1], v[j + 2]), ch.points[n] + SVector(v[j + 3], v[j + 4], v[j + 5])
     end
     return SMatrix{PX, PY}(map(first, nodes)), SMatrix{PX, PY}(map(last, nodes))
 end
 retract(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); (; directions = s[1], points = s[2]))
-recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2], ch.point_chart))
+recenter(ch::ControlPatchManifold, v) = (s = _retracted_controls(ch, v); ControlPatchManifold(s[1], s[2]))
 # `retract_jacobian` is a static matrix (no heap): block diagonal over the nodes, rows
-# 3 (direction) [+ 3 (point)] per node, columns k = 2 [+ 2 or 3] per node. A node's block:
-# (t₁ t₂) in the direction rows' first two columns, the point chart's block below it.
-@inline function _point_jacobian!(J, ::AdditivePoints, r, c, t1, t2)
-    for i in 1:3
-        J[r + i, c + i] = one(eltype(J))
-    end
-    return J
-end
-@inline function _point_jacobian!(J, ::RayNormalPoints, r, c, t1, t2)
-    for i in 1:3
-        J[r + i, c + 1] = t1[i]
-        J[r + i, c + 2] = t2[i]
-    end
-    return J
-end
+# 3 (direction) [+ 3 (point)] per node, columns k = 2 [+ 3] per node. A node's block:
+# (t₁ t₂) in the direction rows' first two columns, the identity below it.
 @inline function retract_jacobian(ch::ControlPatchManifold{PX, PY, L, T}) where {PX, PY, L, T}
     k = _control_coordinates(ch)
     central = ch.points === nothing
@@ -1555,16 +1517,17 @@ end
             J[r + i, k * (n - 1) + 1] = t1[i]
             J[r + i, k * (n - 1) + 2] = t2[i]
         end
-        central || _point_jacobian!(J, ch.point_chart, r + 3, k * (n - 1) + 2, t1, t2)
+        if !central
+            for i in 1:3
+                J[r + 3 + i, k * (n - 1) + 2 + i] = one(T)
+            end
+        end
     end
     return SMatrix(J)
 end
-# A point chart's coordinates of the offset Δ, written to out[j+1], out[j+2], ….
-_point_local_coordinates!(out, ::AdditivePoints, j, Δ, t1, t2) = (out[(j + 1):(j + 3)] = Δ; out)
-_point_local_coordinates!(out, ::RayNormalPoints, j, Δ, t1, t2) = (out[j + 1] = dot(Δ, t1); out[j + 2] = dot(Δ, t2); out)
 # The coordinates of a block of controls: per direction, the step's tangent
 # coordinates (its sphere's chart inverted — the norm is the anchor's), per point
-# its chart's coordinates of the offset.
+# its offset.
 function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) where {PX, PY, L}
     k = _control_coordinates(ch)
     out = zeros(promote_type(eltype(eltype(ch.directions)), eltype(eltype(x.directions))), k * L)
@@ -1575,7 +1538,7 @@ function local_coordinates(ch::ControlPatchManifold{PX, PY, L}, x::NamedTuple) w
         s = norm(d) / dot(y, d̂)                     # s·y = d + δ₁t₁ + δ₂t₂, and t ⟂ d̂
         out[k * (n - 1) + 1] = s * dot(y, t1)
         out[k * (n - 1) + 2] = s * dot(y, t2)
-        ch.points === nothing || _point_local_coordinates!(out, ch.point_chart, k * (n - 1) + 2, x.points[n] - ch.points[n], t1, t2)
+        ch.points === nothing || (out[(k * (n - 1) + 3):(k * (n - 1) + 5)] = x.points[n] - ch.points[n])
     end
     return out
 end

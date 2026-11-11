@@ -32,7 +32,7 @@ end
 """
     NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3};
                           present = nothing) <: AbstractCamera
-    NoncentralSplineModel(source, size; grid_size, calib_area, init, sampling_margin, unit_controls)
+    NoncentralSplineModel(source, size; grid_size, calib_area, init, sampling_margin)
 
 The non-central grid camera (Schöps et al., CVPR 2020): the pixel `u` observes
 the LINE through `points(x)` along `normalize(directions(x))`, `x = K⁻¹u` the
@@ -99,7 +99,7 @@ end
 # The model of its parts' own types: a function barrier over the mask, as `_spline_lens`.
 _noncentral_spline_model(K::I, d::S, p::S, present::P) where {I, S, P} = NoncentralSplineModel{I, S, P}(K, d, p, present)
 
-function NoncentralSplineModel(source::_SplineSource, size::Union{Tuple{Integer, Integer}, Size2}; kwargs...)
+function NoncentralSplineModel(source::_SplineSource, size::Size2; kwargs...)
     c = CameraModel(SplineLens, source, size; kwargs...)
     d = c.lens.backward
     return NoncentralSplineModel(c.intrinsics, d, ChartSpline(d.area, zero(d.controls)))
@@ -221,26 +221,19 @@ The unit DIRECTION `f` of the pixel `u`'s observation line and its Jacobian
 differentiated: `backproject` gives it.
 """
 backproject_with_jacobian(m::NoncentralSplineModel, u::StaticVector{2}) = backproject_with_jacobian(central_model(m), u)
+backproject_with_jacobian(m::NoncentralSplineModel, pixels::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+    backproject_with_jacobian(central_model(m), pixels; device)
 # The Backprojection of a model with its own back-projection Jacobian takes it
 # (equirectangular.jl): a CameraModel's, and this model's direction Jacobian.
 transform_deriv(b::Backprojection{<:Union{CameraModel, NoncentralSplineModel}}, q::StaticVector{2}) =
     last(backproject_with_jacobian(b.model, _float_static(q)))
 
 # The non-central projection's residual at the normalized point `p` against the
-# camera-frame point `X`: the two components of `origin(p) − X` in the tangent basis
-# of the line direction `d̂(p)` (the reference's tangent-plane point-to-line
-# residual), both splines read through ONE window of the lattice of `(rows, cols) =
-# size(dctrl)` over `area` (the continued window, as its Jacobian's). Generic in `p`'s
-# element type (ForwardDiff's duals): the residual's definition, which the analytic
-# Jacobian is tested against.
-@inline function _noncentral_residual(dctrl::AbstractMatrix, pctrl::AbstractMatrix, area, p::SVector{2}, X::SVector{3})
-    gsz = gh, gw = size(dctrl)
-    ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)   # its Jacobian's window
-    d = _eval_window(dctrl, ix, iy, wx, wy)
-    o = _eval_window(pctrl, ix, iy, wx, wy)
-    return _tangent_residual(SVector{3}(d) / norm(d), SVector{3}(o), X)
-end
-# The residual from the line's unit direction `d` and point `o` at `p`.
+# camera-frame point `X` is the two components of `origin(p) − X` in the tangent basis
+# of the line direction `d̂(p)` (the reference's tangent-plane point-to-line residual),
+# both splines read through ONE window of the lattice (the continued window);
+# `_noncentral_residual_and_jacobian` below forms it with its Jacobian. The residual
+# from the line's unit direction `d` and point `o` at `p`:
 @inline function _tangent_residual(d, o, X)
     t1, t2 = direction_tangents(d)
     pto = o - X

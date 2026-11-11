@@ -54,7 +54,7 @@ end
     @test cfa_string(m) == "RGGB"
     lin(v, c) = (v - black[c + 1]) / (white - black[c + 1])
     L = LinearRaw(m; mode = :bin2)
-    @test size(L.image) == (2, 2, 3) && L.mode === :bin2 && L.gain == 1.0
+    @test size(L.image) == (2, 2, 3) && L isa LinearRaw{:bin2} && L.gain == 1.0
     # quad (1, 1): R = raw[1,1], G = mean of raw[1,2] (c 1) and raw[2,1] (c 3), B = raw[2,2]
     @test L.image[1, 1, 1] == lin(1000, 0)
     @test L.image[1, 1, 2] == (lin(2000, 1) + lin(3000, 3)) / 2
@@ -202,9 +202,9 @@ end
         m = mosaic(raw, cell; origin)
         B = LinearRaw(m; mode = :bin2, gain = 2)
         G = LinearRaw(m; mode = :green_cells, gain = 2)
-        @test size(G.image) == (3, 4, 1) && G.mode === :green_cells && G.gain == 2.0
+        @test size(G.image) == (3, 4, 1) && G isa LinearRaw{:green_cells} && G.gain == 2.0
         @test G.image[:, :, 1] == B.image[:, :, 2]                    # the same bits: one kernel
-        @test raw_frame_map(G) === raw_frame_map(B) && G.green_offsets == B.green_offsets
+        @test raw_frame_map(G) === raw_frame_map(B) && G.geometry.green_offsets == B.geometry.green_offsets
     end
     # a green cell is saturated by its greens alone: a red or blue at the white level is not its sample
     raw = fill(UInt16(3000), 4, 4)
@@ -279,7 +279,7 @@ end
         m = mosaic(raw, cell; origin)
         colors = photosite_colors(m)
         L = LinearRaw(m; mode = :green_cells)
-        @test Set(L.green_offsets) == Set(expected[phase[colors[1:2, 1:2]]])
+        @test Set(L.geometry.green_offsets) == Set(expected[phase[colors[1:2, 1:2]]])
         for i in 1:3, j in 1:4
             sites = green_cell_sites(L, i, j)
             @test sum(sites) / 2 == SVector(2j - 1.0, 2i - 1.0)     # the cell centre, raw COLMAP
@@ -355,7 +355,7 @@ end
     for flip in (3, 5, 6)
         m, rgb, md, _ = demosaic_with_flip(flip)
         L = VGF._demosaic_image(rgb, md, 1.0, nothing)
-        @test L isa LinearRaw && L.mode === :demosaic
+        @test L isa LinearRaw{:demosaic} && L.geometry === nothing
         @test size(L.image) == (H, W, 3)          # the sensor's grid: the flip is never applied
         g = L.image[:, :, 2]
         q = (1:20, 1:28)                          # well inside the dark quadrant
@@ -376,6 +376,12 @@ end
     # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
     Lw = VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5))
     @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
+end
+
+@testitem "raw: the display image has no green cells to stabilize" begin
+    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize
+    display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
+    @test_throws ArgumentError variance_stabilize(display_image; electrons_per_dn = 2.5, read_noise = 3.0)
 end
 
 @testitem "raw: provenance records the decoder, the mode, LibRaw and the frame map" setup = [RawFixtures] begin

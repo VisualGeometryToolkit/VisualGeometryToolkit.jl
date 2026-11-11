@@ -92,10 +92,10 @@ struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
     colval::I
     nzval::V
 end
-function CSRMatrix(A::SparseMatrixCSC; device = KA.CPU())
-    T = SparseMatrixCSC{Float64, Int}(transpose(A))           # its columns are A's rows
-    return CSRMatrix(size(A, 1), size(A, 2), on_device(device, T.colptr), on_device(device, T.rowval), on_device(device, T.nzval))
-end
+CSRMatrix(A::SparseMatrixCSC; device = KA.CPU()) = _transposed_csr(SparseMatrixCSC{Float64, Int}(transpose(A)); device)   # its columns are A's rows
+# The CSR form of `transpose(A)`: A's own compressed columns, copied to `device` (no transpose).
+_transposed_csr(A::SparseMatrixCSC; device = KA.CPU()) =
+    CSRMatrix(size(A, 2), size(A, 1), ka_upload(Int, device, A.colptr), ka_upload(Int, device, A.rowval), ka_upload(Float64, device, A.nzval))
 Base.size(C::CSRMatrix) = (C.m, C.n)
 Base.size(C::CSRMatrix, d::Integer) = d == 1 ? C.m : d == 2 ? C.n : 1
 Adapt.adapt_structure(to, C::CSRMatrix) = CSRMatrix(C.m, C.n, Adapt.adapt(to, C.rowptr), Adapt.adapt(to, C.colval), Adapt.adapt(to, C.nzval))
@@ -133,8 +133,8 @@ struct PenalizedOperator{C <: CSRMatrix, B}
 end
 function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrixCSC{Float64, Int}(undef, 0, size(A, 2)); device = default_device())
     size(D, 2) == size(A, 2) || throw(DimensionMismatch("PenalizedOperator: A has $(size(A, 2)) columns, D $(size(D, 2))"))
-    t(M) = SparseMatrixCSC{Float64, Int}(transpose(M))
-    return PenalizedOperator(CSRMatrix(A; device), CSRMatrix(t(A); device), CSRMatrix(D; device), CSRMatrix(t(D); device), device)
+    # a transpose's CSR form is the operator's own compressed columns
+    return PenalizedOperator(CSRMatrix(A; device), _transposed_csr(A; device), CSRMatrix(D; device), _transposed_csr(D; device), device)
 end
 
 """

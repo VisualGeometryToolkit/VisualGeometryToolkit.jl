@@ -1178,7 +1178,6 @@ export present_nodes, window, lattice_spacing   # the nodes a spline model holds
 export directions, grid_size, window_offset, spline_weights   # its control grid, (gx, gy), a window's corner in its model's grid; a point's window weights and their partials (likewise)
 export direction_tangents, default_spline_grid   # a direction's tangent basis; the reference's control grid of an area
 export ControlPatchManifold              # a block of a spline lattice's controls as a manifold (public, not exported, at the top level)
-export ControlPointChart, AdditivePoints, RayNormalPoints   # how its point controls move (public, not exported, at the top level)
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part (likewise)
@@ -1186,6 +1185,8 @@ export axis_gauged                      # a SplineLens camera (and its poses) in
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
+export forward_chart                     # the chart of every SplineLens forward spline (public, not exported, at the top level)
+export has_spline_gauge                  # whether a SplineLens pixel lattice gives its own K (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

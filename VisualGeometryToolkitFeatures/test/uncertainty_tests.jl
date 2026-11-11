@@ -1,6 +1,6 @@
 # Keypoint uncertainty (`asift_detect(img; uncertainty = FeatureCovariance())`):
-# the table's exactness against the real kernels, kernel ≡ host reference
-# (VisualGeometryToolkitCore's `implicit_covariance`), the API and its round trips, and
+# the table's exactness against the real kernels, the kernels' covariance against the refinement's Jacobian by
+# finite differences, the API and its round trips, and
 # a Monte Carlo calibration on synthetic blobs. The full study, many configs
 # and trials, is benchmark/mc/keypoint_uncertainty_mc.jl (not in the suite).
 
@@ -22,54 +22,83 @@
     end
 end
 
-@testitem "keypoint covariance: kernel ≡ host reference (implicit_covariance)" setup = [UncFixtures] begin
-    using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _ensure_cov!, _unpack_M,
-        _ift_cov_reference, _backproject_cov_reference
+@testitem "keypoint covariance: the kernels' covariance is J·M·Jᵀ of the refinement, J by finite differences" setup = [UncFixtures] begin
+    using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _unpack_M, _backproject_cov!
+    using CUDA: CUDA
     import KernelAbstractions as KA
-    # Blobs at sub-pixel positions; the identity warp's raw pool (before the
-    # back-projection: `plan.raw`; the identity back-projection leaves
-    # `plan.featcov` the canvas covariance) is matched to its integer
-    # extremum on the host copy of the DoG, whose patch the reference reads.
+    # The one implementation is the kernels'; the independent check differentiates the map they linearize. A converged
+    # extremum's refinement is the map f ↦ (x, y, log σ) of its nine DoG functionals f (gradient, then the Hessian's
+    # ss, xx, yy, sx, sy, xy): the offset −Ĥ(f)⁻¹ĝ(f) from the integer extremum, placed on the octave's grid. Its
+    # Jacobian, by central differences, carries the functionals' covariance M (the table's): Σ = J·M·Jᵀ.
+    function fd_jacobian(F, f)
+        y0 = F(f)
+        J = zeros(length(y0), length(f))
+        sc = maximum(abs, f)
+        for j in eachindex(f)
+            h = 1.0e-5 * max(abs(f[j]), 1.0e-3 * sc)
+            fp = collect(f); fm = collect(f); fp[j] += h; fm[j] -= h
+            J[:, j] = (F(fp) - F(fm)) / 2h
+        end
+        return J
+    end
+    hessian(f) = [f[4] f[7] f[8]; f[7] f[5] f[9]; f[8] f[9] f[6]]
+    offset(f) = -(hessian(f) \ [f[1], f[2], f[3]])
+    # Blobs at sub-pixel positions; the identity warp's pool (its back-projection the identity, so `plan.featcov` is
+    # the canvas covariance), each entry matched to its integer extremum on the host copy of the DoG.
     img = blob_image(128, 160, [(40.3, 50.6, 3.1, 0.3), (100.8, 70.2, 4.4, -0.3), (120.5, 30.5, 2.2, 0.25),
         (30.7, 100.2, 2.7, -0.2), (80.2, 25.9, 5.5, 0.3), (130.4, 95.3, 3.6, 0.25)])
-    plan = AsiftPlan(160, 128; device = KA.CPU(), tilts = [(1.0, 0.0)], upsample = true)
-    r = asift_detect!(plan, permutedims(Float32.(img)); uncertainty = FeatureCovariance())
-    n = Int(plan.counth[1])
-    raw = Array(plan.raw)[:, 1:n]; rc = Array(plan.featcov)[:, 1:n]
-    S = plan.nb_scales; σ0 = plan.seed_sigma
-    checked = 0
-    for oi in 1:plan.nb_octaves
-        o = oi - 1 + plan.o_first; sf = 2.0^o
-        d = Float64.(Array(plan.dogs[oi])[:, :, :, 1])
-        Wo, Ho, NS = size(d)
-        tab = Array(plan.ctab[oi])
-        for X in 2:(Wo - 1), Y in 2:(Ho - 1), sl in 2:(NS - 1)
-            f = functionals_at(d, X, Y, sl)
-            Hm = [f[4] f[7] f[8]; f[7] f[5] f[9]; f[8] f[9] f[6]]
-            abs(det(Hm)) > 0 || continue
-            off = -(Hm \ [f[1], f[2], f[3]])
-            all(abs.(off) .< 0.6) || continue
-            # the raw entry this converged extremum produced, if any
-            xo = ((X - 1) + off[2]) * sf + (sf - 1); yo = ((Y - 1) + off[3]) * sf + (sf - 1)
-            σo = σ0 * 2^(((sl - 1) + off[1] + 0.5) / S) * sf
-            k = findfirst(i -> abs(raw[1, i] - xo) < 1.0e-3 && abs(raw[2, i] - yo) < 1.0e-3 &&
-                abs(raw[3, i] - σo) < 1.0e-3 * σo, 1:n)
-            k === nothing && continue
-            M = _unpack_M(tab, sl, 1 + (X & 1) + 2 * (Y & 1), 1)
-            Σref = _ift_cov_reference(Hm, (off[1], off[2], off[3]), M, sf, S)
-            c = rc[:, k]
-            Σk = [c[1] c[2] c[3]; c[2] c[4] c[5]; c[3] c[5] c[6]]
-            @test isapprox(Σk, Σref; rtol = 1.0e-3)
-            checked += 1
+    devices = CUDA.functional() ? (KA.CPU(), CUDA.CUDABackend()) : (KA.CPU(),)
+    for dev in devices
+        plan = AsiftPlan(160, 128; device = dev, tilts = [(1.0, 0.0)], upsample = true)
+        asift_detect!(plan, permutedims(Float32.(img)); uncertainty = FeatureCovariance())
+        n = Int(Array(plan.counth)[1])
+        raw = Array(plan.raw)[:, 1:n]; rc = Array(plan.featcov)[:, 1:n]
+        S = plan.nb_scales; σ0 = plan.seed_sigma
+        checked = 0
+        for oi in 1:plan.nb_octaves
+            o = oi - 1 + plan.o_first; sf = 2.0^o
+            d = Float64.(Array(plan.dogs[oi])[:, :, :, 1])
+            Wo, Ho, NS = size(d)
+            tab = Array(plan.ctab[oi])
+            for X in 2:(Wo - 1), Y in 2:(Ho - 1), sl in 2:(NS - 1)
+                f = collect(functionals_at(d, X, Y, sl))
+                abs(det(hessian(f))) > 0 || continue
+                off = offset(f)
+                all(abs.(off) .< 0.6) || continue
+                xo = ((X - 1) + off[2]) * sf + (sf - 1); yo = ((Y - 1) + off[3]) * sf + (sf - 1)
+                σo = σ0 * 2^(((sl - 1) + off[1] + 0.5) / S) * sf
+                k = findfirst(i -> abs(raw[1, i] - xo) < 1.0e-3 && abs(raw[2, i] - yo) < 1.0e-3 &&
+                    abs(raw[3, i] - σo) < 1.0e-3 * σo, 1:n)
+                k === nothing && continue
+                # the refinement, f ↦ (x, y, log σ)
+                function refined(g)
+                    v = offset(g)
+                    return [((X - 1) + v[2]) * sf + (sf - 1), ((Y - 1) + v[3]) * sf + (sf - 1),
+                            log(σ0) + ((sl - 1) + v[1] + 0.5) / S * log(2) + log(sf)]
+                end
+                J = fd_jacobian(refined, f)
+                M = _unpack_M(tab, sl, 1 + (X & 1) + 2 * (Y & 1), 1)
+                Σfd = J * M * J'
+                c = rc[:, k]
+                Σk = [c[1] c[2] c[3]; c[2] c[4] c[5]; c[3] c[5] c[6]]
+                # entrywise, on the correlation scale (a matrix norm would hide the small log σ entries)
+                err = maximum(abs.(Σk - Σfd) ./ sqrt.(diag(Σfd) * diag(Σfd)'))
+                @test (dev, err < 1.0e-3) == (dev, true)
+                checked += 1
+            end
         end
+        @test checked >= 5
     end
-    @test checked >= 5
-    # back-projection: the identity warp's map is the identity
-    @test _backproject_cov_reference([1.0 0.2 0.1; 0.2 2.0 0.3; 0.1 0.3 0.5], [1.0 0.0; 0.0 1.0]) ≈
-        [1.0 0.2 0.1; 0.2 2.0 0.3; 0.1 0.3 0.5]
-    A = [0.8 -1.5; 0.6 2.0]; Σ = [1.0 0.2 0.1; 0.2 2.0 0.3; 0.1 0.3 0.5]
-    J = [A zeros(2); 0 0 1]
-    @test _backproject_cov_reference(Σ, A) ≈ J * Σ * J'
+    # back-projection: the back-warp's linear part A on (x, y), log σ kept; its Jacobian by central differences
+    A = [0.8 -1.5; 0.6 2.0]; t = [3.0, -7.0]
+    backwarp(v) = [A * v[1:2] + t; v[3]]
+    Jb = fd_jacobian(backwarp, [12.0, 30.0, 1.1])
+    Σ = [1.0 0.2 0.1; 0.2 2.0 0.3; 0.1 0.3 0.5]
+    packed = reshape([Σ[1, 1], Σ[1, 2], Σ[1, 3], Σ[2, 2], Σ[2, 3], Σ[3, 3]], 6, 1)
+    out = zeros(6, 1)
+    _backproject_cov!(out, packed, 1, A[1, 1], A[1, 2], A[2, 1], A[2, 2])
+    Σb = Jb * Σ * Jb'
+    @test out[:, 1] ≈ [Σb[1, 1], Σb[1, 2], Σb[1, 3], Σb[2, 2], Σb[2, 3], Σb[3, 3]]
 end
 
 @testitem "keypoint covariance: API, off path unchanged, round trips" setup = [Fixtures, UncFixtures] begin

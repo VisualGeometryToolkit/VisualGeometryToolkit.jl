@@ -26,7 +26,7 @@ dets = asift_detect(img)                       # IMAS-25 (tilts = :imas25)
 sift = asift_detect(img; tilts = :untilted)    # DoG-SIFT: the identity warp alone
 ```
 
-`mask`, an H×W `Bool` matrix, marks the pixels where detection is not allowed
+`exclusion_mask`, an H×W `Bool` matrix, marks the pixels where detection is not allowed
 (clipped highlights, a vignetted rim): a detection whose centre lies within
 three of its scales of a masked pixel is dropped. The detector on a
 variance-stabilized RAW ([`variance_stabilize`](@ref)) masks the sensor's
@@ -34,7 +34,7 @@ saturated pixels by the same rule.
 
 ```julia
 clipped = Float32.(Gray.(img)) .>= 0.99f0
-dets = asift_detect(img; mask = clipped)
+dets = asift_detect(img; exclusion_mask = clipped)
 ```
 
 The other keywords choose the non-maximum suppression (`nms = :mxm`,

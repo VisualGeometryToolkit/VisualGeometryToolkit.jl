@@ -35,7 +35,7 @@
         @test r.lens.backward.controls == G
         nc = NoncentralSplineModel(K, ChartSpline(area, G), ChartSpline(area, P))
         @test nc.directions.controls == G && nc.points.controls == P
-        @test all(v -> abs(norm(v) - 1) < 1e-12, CameraModel(SplineLens, cam(300.0, Pinhole()), (W, H); grid_size = (gw, gh)).lens.backward.controls)
+        @test all(v -> abs(norm(v) - 1) < 1e-12, CameraModel(SplineLens, cam(300.0, Pinhole()), Size2(W, H); grid_size = (gw, gh)).lens.backward.controls)
         # inside the area the raw spline normalized IS backproject
         @test all(p -> (d = raw(r, p); d / norm(d) == backproject(r, p)), inside)
         # a conversion converts the controls; it does not re-normalize them
@@ -95,8 +95,8 @@
         # a 20 × 16 grid, the 4 × 4 block 5:8 × 5:8 (one window index), a pixel far off it: not imaged — never a
         # read past the block
         Kp = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3}(300.0, 0, 0, 0, 300.0, 0, 320.0, 240.0, 1.0)))
-        m = CameraModel(SplineLens, CameraModel(Kp), (640, 480); grid_size = (20, 16))
-        nc = NoncentralSplineModel(CameraModel(Kp), (640, 480); grid_size = (20, 16))
+        m = CameraModel(SplineLens, CameraModel(Kp), Size2(640, 480); grid_size = (20, 16))
+        nc = NoncentralSplineModel(CameraModel(Kp), Size2(640, 480); grid_size = (20, 16))
         far = SVector(600.0, 400.0)
         for w in (window(m, 5:8, 5:8; directions = fill(SVector(0.0, 0.0, 1.0), 4, 4)), window(m, 5:8, 5:8))
             @test all(isnan, backproject(w, far))
@@ -138,7 +138,7 @@
 
     @testset "init = :quasi_interpolate and its border rule" begin
         pin = cam(300.0, Pinhole())
-        q = CameraModel(SplineLens, pin, (W, H); grid_size = (gw, gh), init = :quasi_interpolate)
+        q = CameraModel(SplineLens, pin, Size2(W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         Q = q.lens.backward.controls
         @test Q != map(normalize, Q)                                               # controls kept off the sphere by default
         @test calibration_matrix(q) == calibration_matrix(pin)                    # a camera source keeps its K
@@ -151,7 +151,7 @@
         # a source that images nothing outside the area: per axis, the linear extrapolation of the two samples inward
         inarea(p) = 0 <= p[1] <= W && 0 <= p[2] <= H
         f(p) = inarea(p) ? backproject(pin, p) : nothing
-        qf = CameraModel(SplineLens, f, (W, H); grid_size = (gw, gh), init = :quasi_interpolate)
+        qf = CameraModel(SplineLens, f, Size2(W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         @test all(v -> all(isfinite, v), qf.lens.backward.controls)
         dir(tx, ty) = normalize(SVector{3}(backproject(pin, SVector(tx * hx, ty * hy))))
         Se = copy(S)
@@ -169,7 +169,7 @@
         # circle) is the bound's, supplied, not the lens's
         fish = cam(150.0, KannalaBrandt(-4 / (3π^2)))
         circ = Ellipse(Point2(320.0, 240.0), 150π / 3, 150π / 3, 0.0)                  # its image circle, supplied
-        qk = CameraModel(SplineLens, fish, (W, H); grid_size = (20, 16), init = :quasi_interpolate)
+        qk = CameraModel(SplineLens, fish, Size2(W, H); grid_size = (20, 16), init = :quasi_interpolate)
         @test all(v -> all(isfinite, v), qk.lens.backward.controls)
         lit = [p for p in inside if norm(p - SVector(320.0, 240.0)) < 0.7 * circ.a]
         @test length(lit) > 200
@@ -177,11 +177,11 @@
         @test maximum(errs) < 2e-2 && median(errs) < 2e-3                             # measured 1.6e-2 / 9.4e-4
         @test 0 < length(free_nodes(qk, imaged_region(BoundedCamera(qk, Size2(W, H); lens_coverage = circ)))) < 20 * 16
         # a source that images nothing on a node's way to the centre: an ArgumentError naming it
-        @test_throws ArgumentError CameraModel(SplineLens, p -> nothing, (W, H); grid_size = (gw, gh), init = :quasi_interpolate)
+        @test_throws ArgumentError CameraModel(SplineLens, p -> nothing, Size2(W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         # the parametric-only modes refuse a function source
-        @test_throws ArgumentError CameraModel(SplineLens, f, (W, H); grid_size = (gw, gh), init = :interpolate)
+        @test_throws ArgumentError CameraModel(SplineLens, f, Size2(W, H); grid_size = (gw, gh), init = :interpolate)
         # non-central: directions as the central camera's, points zero
-        nq = NoncentralSplineModel(pin, (W, H); grid_size = (gw, gh), init = :quasi_interpolate)
+        nq = NoncentralSplineModel(pin, Size2(W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         @test nq.directions.controls == Q && all(iszero, nq.points.controls)
     end
 end

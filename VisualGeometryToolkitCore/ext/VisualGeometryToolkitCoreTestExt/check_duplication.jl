@@ -76,21 +76,6 @@ _stack_from_env() = String[p for p in split(get(ENV, _STACK_PATHS_ENV, ""), Sys.
 
 # --- tokens and definitions --------------------------------------------------------
 
-# A Julia source's code tokens (comments and whitespace dropped): their start bytes,
-# raw texts and normalized texts (every identifier `I`, every string piece `S`).
-function _code_tokens(src::AbstractString)
-    bytes = codeunits(src)
-    starts = Int[]; raw = String[]; normalized = String[]
-    for t in _JS.tokenize(src)
-        k = _JS.kind(t)
-        (k == _JS.K"Whitespace" || k == _JS.K"NewlineWs" || k == _JS.K"Comment") && continue
-        text = String(bytes[t.range])
-        push!(starts, first(t.range)); push!(raw, text)
-        push!(normalized, k == _JS.K"Identifier" ? "I" : (k == _JS.K"String" || k == _JS.K"CmdString") ? "S" : text)
-    end
-    return (; starts, raw, normalized)
-end
-
 # Every function and macro definition (outermost: a closure is its enclosing definition's).
 function _definitions!(out, node)
     k = _JS.kind(node)

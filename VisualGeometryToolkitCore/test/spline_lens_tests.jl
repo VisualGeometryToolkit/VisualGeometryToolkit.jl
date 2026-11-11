@@ -16,7 +16,7 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-    image = (G.image[1], G.image[2])
+    image = Size2(G.image[1], G.image[2])
     grid = (G.grid_size[1], G.grid_size[2])
     cam = CameraModel(SplineLens, src, image; grid_size = grid)
     masked = with_present(cam, G.masked.present)
@@ -76,19 +76,19 @@
         kb = CameraModel(f * px, SA[pp[1] * px, pp[2] * px]; lens = KannalaBrandt(0.2468, 0.1505, -0.0214, 0.1308))
         ray = u -> backproject(kb, u)
         for (gs, tol) in (((24, 16), 1.0e-3), ((70, 48), 1.0e-5))           # 70 × 48 is the default grid
-            c = CameraModel(SplineLens, ray, (4256, 2848); grid_size = gs, init = :quasi_interpolate)
+            c = CameraModel(SplineLens, ray, Size2(4256, 2848); grid_size = gs, init = :quasi_interpolate)
             K = calibration_matrix(c)
             @test norm(SVector(K[1, 3], K[2, 3]) - pp) <= tol
             @test abs(K[1, 1] / f - 1) <= tol
             @test abs(K[2, 2] / f - 1) <= tol
             @test K[1, 2] == 0
         end
-        @test CameraModel(SplineLens, ray, (4256, 2848); init = :quasi_interpolate).lens.backward.controls |> size == (48, 70)
+        @test CameraModel(SplineLens, ray, Size2(4256, 2848); init = :quasi_interpolate).lens.backward.controls |> size == (48, 70)
     end
 
     @testset "ẑ not imaged in the calibrated area: the gauge is the area's centre" begin
         ray = u -> backproject(src, u)
-        c = CameraModel(SplineLens, ray, image; calib_area = (600, 600, 999, 999), init = :quasi_interpolate)
+        c = CameraModel(SplineLens, ray, image; calib_area = Rect(600, 600, 400, 400), init = :quasi_interpolate)
         K = calibration_matrix(c)
         @test (K[1, 3], K[2, 3]) == (800.0, 800.0)
         @test K[1, 1] > 0 && K[2, 2] > 0
@@ -161,7 +161,7 @@ end
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-    image = (G.image[1], G.image[2])
+    image = Size2(G.image[1], G.image[2])
     cam = CameraModel(SplineLens, src, image; grid_size = (G.grid_size[1], G.grid_size[2]))
     masked = with_present(cam, G.masked.present)
     K = calibration_matrix(cam)
@@ -219,7 +219,7 @@ end
     @testset "with a forward: the old fitted forward map, its chart about ẑ" begin
         @test norm(principal_ray(cam) - S.chart_rotation[3, :]) > 1.0e-3            # the principal point's ray is not the golden chart's axis
         @test norm(principal_ray(cam_fwd) - SVector(0.0, 0.0, 1.0)) <= 1.0e-12      # turned: K′'s principal point images ẑ
-        @test cam_fwd.lens.chart == equidistant_chart(SVector(0.0, 0.0, 1.0))
+        @test VisualGeometryToolkitCore.forward_chart(SplineLens) == equidistant_chart(SVector(0.0, 0.0, 1.0))
         @test masked_fwd.lens.forward === forward
         worst, same_nan = deviation(cam_fwd, rays64, S.project)
         @test same_nan
@@ -236,7 +236,7 @@ end
         c = SVector(o[1] + w[1] + 2hx, o[2] + w[2] / 2)
         θ = norm(c)
         X_out = SVector(sin(θ) * c[1] / θ, sin(θ) * c[2] / θ, cos(θ))              # in the turned frame
-        @test norm(cam_fwd.lens.chart(X_out) - c) <= 1.0e-9
+        @test norm(VisualGeometryToolkitCore.forward_chart(SplineLens)(X_out) - c) <= 1.0e-9
         @test all(isnan, project(cam_fwd, X_out))
     end
 
@@ -358,7 +358,7 @@ end
         # alike; a fixed pixel bound would hold a long lens to a tighter relative precision than a short one.
         # The same lens at ten times the focal length and image (f = 3000)
         src10 = CameraModel(10 * G.f * px, SA[10 * G.pp[1] * px, 10 * G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-        cam10 = CameraModel(SplineLens, src10, (10 * G.image[1], 10 * G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+        cam10 = CameraModel(SplineLens, src10, Size2(10 * G.image[1], 10 * G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
         lattice10 = [10 .* u for u in lattice]
         for (c64, rays, seeds) in ((cam, rays_in, lattice), (masked, rays_in, lattice), (cam_fwd, rays64, fill(SVector(500.0, 500.0), length(rays64))),
                                    (cam10, [backproject(cam10, u) for u in lattice10], lattice10))
@@ -419,7 +419,7 @@ end
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-    cam = CameraModel(SplineLens, src, (G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+    cam = CameraModel(SplineLens, src, Size2(G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
     masked = with_present(cam, G.masked.present)
     K = calibration_matrix(cam)
     S = G.spline
@@ -517,7 +517,7 @@ end
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
     W, H = G.image[1], G.image[2]
-    cam = CameraModel(SplineLens, src, (W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
+    cam = CameraModel(SplineLens, src, Size2(W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
     K = calibration_matrix(cam)
     S = G.spline
     # the golden forward spline's controls on the camera's own gauge (its principal point images ẑ, which an
@@ -670,8 +670,8 @@ end
         Ws, Hs = 160, 120
         Ks = @SMatrix [80.0 0.0 80.0; 0.0 80.0 60.0; 0.0 0.0 1.0]
         mdiv = CameraModel(CameraCalibrationMat(Ks); lens = Division(-0.12))
-        g1 = CameraModel(SplineLens, mdiv, (Ws, Hs); grid_size = (10, 8))
-        g2 = CameraModel(SplineLens, mdiv, (Ws, Hs); grid_size = (10, 8))
+        g1 = CameraModel(SplineLens, mdiv, Size2(Ws, Hs); grid_size = (10, 8))
+        g2 = CameraModel(SplineLens, mdiv, Size2(Ws, Hs); grid_size = (10, 8))
         X = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.03, 0.0)), SVector(-40.0, 0.0, 0.0))
         I3 = EuclideanMap(one(RotMatrix{3, Float64}), zeros(SVector{3, Float64}))
         rig_par = StereoRig(PosedCamera(mdiv, I3), PosedCamera(mdiv, X); ids = (:l, :r))
@@ -752,9 +752,9 @@ end
     ds = CameraModel(41.216px, SA[16.32px, 15.36px]; lens = Lens(DoubleSphere(0.25, 0.4)))
     kb = CameraModel(1500.0px, SA[2128.0px, 1424.0px]; lens = KannalaBrandt(-0.03, 0.004, 0.0, 0.0))
     ds_fn = p -> (d = backproject(ds, SVector{2, Float64}(p[1], p[2])); all(isfinite, d) ? d : nothing)
-    golden = CameraModel(SplineLens, ds, (32, 32); grid_size = (10, 10))
-    golden_fn = CameraModel(CameraModel(SplineLens, ds_fn, (32, 32); grid_size = (10, 10), init = :quasi_interpolate), model(ds).intrinsics.K)
-    big = CameraModel(SplineLens, kb, (4256, 2848))
+    golden = CameraModel(SplineLens, ds, Size2(32, 32); grid_size = (10, 10))
+    golden_fn = CameraModel(CameraModel(SplineLens, ds_fn, Size2(32, 32); grid_size = (10, 10), init = :quasi_interpolate), model(ds).intrinsics.K)
+    big = CameraModel(SplineLens, kb, Size2(4256, 2848))
     cases = (("golden 32 × 32, 10 × 10", golden, ds, 32.0, 32.0),
         ("golden 32 × 32, 10 × 10, function source re-gauged", golden_fn, ds, 32.0, 32.0),
         ("4256 × 2848, default grid", big, kb, 4256.0, 2848.0))

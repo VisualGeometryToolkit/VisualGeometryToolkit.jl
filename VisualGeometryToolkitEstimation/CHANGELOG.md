@@ -54,6 +54,13 @@ non-central one is a `NoncentralSplineModel`).
   default its first board; `held_views` holds a view instead), no pin and no prior; a component without one is an
   `ArgumentError`. The single-board refine is the same bundle with one held identity board. CaliBlobs' own refine
   moves onto it.
+- **Breaking: `fit_camera(SplineLens, …)`'s forward fields are one nested `forward`** in its metadata family:
+  `family.forward` is `(; spacing, counts, λ, outer_iterations, max_px, max_px_edge, rms)`, or `nothing` with
+  `forward = false` (seven `nothing` fields before: `spacing`, `counts`, `forward_λ`, `forward_outer_iterations`,
+  `forward_max_px`, `forward_max_px_edge`, `forward_rms`). The refine's own `forward_max_px` metadata is unchanged.
+- **Changed: `fit_camera` and `pspline_grid` read every camera source's quadrature rays and held-out Jacobians
+  through Core's batched `backproject` / `backproject_with_jacobian` on `device`** (a parametric source ran as a host
+  map, and its Jacobians always did). No per-lens-type branch; values unchanged on the CPU.
 - **New in `synthetic_scenes()`: `EpipolarScenes.box_point_far(rng)`**, the wider, farther box of the stereo pixel
   scenes, which this package's F tests and LocalOptimizationDoneRight's problem arms each spelled as `_box`.
 

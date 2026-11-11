@@ -362,7 +362,6 @@ public directions, grid_size, window_offset, spline_weights   # its control grid
 export default_spline_grid  # the reference's control grid of an area
 public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
 public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable
-public ControlPointChart, AdditivePoints, RayNormalPoints   # a ControlPatchManifold's point chart: additive (Δx, Δy, Δz) or across the ray (a, b)
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part
@@ -373,6 +372,8 @@ public spline_lattice   # a SplineLens camera's layout from a camera (its lattic
 export ChartSpline   # a uniform cubic B-spline on a 2-D chart (a SplineLens's backward and forward maps)
 public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
+public forward_chart   # the chart of every SplineLens forward spline: equidistant_chart(ẑ)
+public has_spline_gauge   # whether a SplineLens pixel lattice gives its own K (its gauge pixel's window complete)
 export with_model          # same camera/rig, new model (validated rebuild)
 # `ids(rig)` (0.9): the rig's view-identity symbols, READ FROM the labeled
 # extrinsics' frame parameters (single source of truth — no stored duplicate).

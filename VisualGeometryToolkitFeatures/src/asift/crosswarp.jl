@@ -226,18 +226,26 @@ end
 # sorted, the survivors and their order are a function of the pool's contents alone: the same on one thread or many,
 # run to run. Columns equal in every row are interchangeable.
 function _canonical_order!(fh::AbstractMatrix{Float32}, ch::Union{Nothing, AbstractMatrix{Float32}} = nothing)
-    rows = ch === nothing ? (fh,) : (fh, ch)
-    function before(i, j)
-        for M in rows, r in axes(M, 1)
-            a = M[r, i]; b = M[r, j]
-            isless(a, b) && return true
-            isless(b, a) && return false
+    # each column as one tuple key (`isless` on tuples is the lexicographic order of `isless` on the entries), sorted,
+    # then written back over the columns: no comparison closure, no permutation, no permuted copy
+    keys = _column_keys(fh, ch)
+    sort!(keys; alg = QuickSort)        # in place: columns equal under `isless` are interchangeable, so no stability is needed
+    _write_columns!(fh, ch, keys)
+    return nothing
+end
+
+_column_keys(fh, ::Nothing) = [ntuple(r -> fh[r, i], Val(9)) for i in axes(fh, 2)]
+_column_keys(fh, ch) = [(ntuple(r -> fh[r, i], Val(9))..., ntuple(r -> ch[r, i], Val(6))...) for i in axes(fh, 2)]
+
+function _write_columns!(fh, ch, keys)
+    @inbounds for (i, k) in zip(axes(fh, 2), keys)
+        for r in 1:9
+            fh[r, i] = k[r]
         end
-        return false
-    end
-    perm = sort!(collect(axes(fh, 2)); lt = before)
-    for M in rows
-        M .= M[:, perm]
+        ch === nothing && continue
+        for r in 1:6
+            ch[r, i] = k[9 + r]
+        end
     end
     return nothing
 end

@@ -11,9 +11,9 @@ export FISHEYE, ON_AXIS, Q, OFF_AXIS, OFF_BOUNDED, REGION
 # a camera frame turned 5° about a tilted axis, gauged as a never-fitted spline is (its K's principal point the pixel
 # imaging the turned frame's ẑ, ~26 px from the axis's pixel)
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-const ON_AXIS = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (40, 40))
+const ON_AXIS = CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (40, 40))
 const Q = RotMatrix(AngleAxis(deg2rad(5.0), 0.6, 0.8, 0.0))
-const OFF_AXIS = CameraModel(SplineLens, map(c -> Q * c, ON_AXIS.lens.backward.controls), (1000, 1000))
+const OFF_AXIS = CameraModel(SplineLens, map(c -> Q * c, ON_AXIS.lens.backward.controls), Size2(1000, 1000))
 const OFF_BOUNDED = BoundedCamera(OFF_AXIS, Size2(1000, 1000))
 const REGION = Rect(0, 0, 1000, 1000) ∩ Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
 end
@@ -61,7 +61,7 @@ end
 
     # a fisheye with a tangential (decentring) term: no radially symmetric camera about any axis images it
     dec = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = Lens(Equidistant(), Additive(Radial((-0.02,)), Tangential(2.0e-3, -1.5e-3))))
-    spl = BoundedCamera(CameraModel(SplineLens, dec, (1000, 1000); grid_size = (40, 40)), Size2(1000, 1000))
+    spl = BoundedCamera(CameraModel(SplineLens, dec, Size2(1000, 1000); grid_size = (40, 40)), Size2(1000, 1000))
     rd = optical_axis(spl, REGION)
     rs = optical_axis(OFF_BOUNDED, REGION)
     @test metadata(rd).symmetry_residual > 0.1                                     # px: reported, not absorbed
@@ -98,7 +98,7 @@ end
     pix = [SVector(500.0 + ρ * cos(a), 500.0 + ρ * sin(a)) for ρ in (0.0, 150.0, 400.0) for a in range(0, 2π; length = 9)]
     @test all(u -> norm(backproject(cam, u) - R * backproject(OFF_AXIS, u)) < 1.0e-12, pix)
     @test all(u -> norm(project(cam, backproject(cam, u)) - u) < 1.0e-3, pix)
-    @test retcode(r) === :converged && metadata(r).family.forward_max_px <= 1.0e-3
+    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
     # a parametric source: its ẑ is the axis already — the identity, the source's K
     rp = fit_camera(SplineLens, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION; tolerance = 1.0e-2, forward = false)
     @test rotation(metadata(rp).rotation) == one(R) && isnan(metadata(rp).symmetry_residual)

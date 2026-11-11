@@ -179,8 +179,8 @@ end
     @test transform_deriv(Backprojection(bc), SVector(400, 100)) ≈ J rtol = 1.0e-10
     @test transform_deriv(Backprojection(cm), SVector(400, 100)) ≈ J rtol = 1.0e-10
     # a spline camera, and a non-central model, take their own (analytic) Jacobian
-    gen = CameraModel(SplineLens, cm, (640, 480); grid_size = (6, 5))
+    gen = CameraModel(SplineLens, cm, Size2(640, 480); grid_size = (6, 5))
     @test transform_deriv(Backprojection(gen), SVector(400, 100)) == last(backproject_with_jacobian(gen, u))
-    nc = NoncentralSplineModel(cm, (640, 480); grid_size = (6, 5))
+    nc = NoncentralSplineModel(cm, Size2(640, 480); grid_size = (6, 5))
     @test transform_deriv(Backprojection(nc), SVector(400, 100)) == last(backproject_with_jacobian(nc, u))
 end

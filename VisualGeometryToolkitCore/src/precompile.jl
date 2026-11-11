@@ -25,7 +25,7 @@
             retract(ch, zero(θ))
         end
         # a SplineLens camera resampled from a parametric one: evaluate, project, back-project with its Jacobian
-        g = CameraModel(SplineLens, CameraModel(K, KannalaBrandt(-0.02, 0.003, 0.0, 0.0)), (640, 480); grid_size = (16, 12))
+        g = CameraModel(SplineLens, CameraModel(K, KannalaBrandt(-0.02, 0.003, 0.0, 0.0)), Size2(640, 480); grid_size = (16, 12))
         backproject(g, u)
         backproject_with_jacobian(g, u)
         project(g, X)

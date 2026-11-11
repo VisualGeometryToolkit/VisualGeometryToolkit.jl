@@ -118,10 +118,14 @@ end
 # floats) plus one, so that 0 is the empty cell.
 _ssc_key(s::Real) = reinterpret(UInt64, Float64(abs(s))) + UInt64(1)
 
-# The device buffers of one selection, the grid grown as the search narrows the width.
+# The device buffers of one selection, the grid grown as the search narrows the width; `more` and `less` hold the
+# states of the coverings that bracket the band (on the device: only the one returned is downloaded), `flag` is the
+# host copy of `pending` or `count`.
 mutable struct _SSCBuffers{V, U, I, B}
     x::V; y::V; key::U; cell::I; s0::B; s1::B; pending::I; count::I
     best::U; first::I
+    more::B; less::B
+    flag::Vector{Int32}
 end
 
 # One covering at `width`: the kept count, the states (KEPT on the kept points) in `b.s0`.
@@ -145,12 +149,12 @@ function _ssc_cover!(b::_SSCBuffers, dev, width::Real, cols::Int, rows::Int)
         fill!(b.pending, Int32(0))
         _launch!(_ssc_round!, dev, b.s1, b.s0, b.pending, b.first, b.cell, b.key, Int32(ncols), Int32(nrows), Int32(reach); ndrange = M)
         b.s0, b.s1 = b.s1, b.s0
-        Array(b.pending)[1] == 0 && break
+        copyto!(b.flag, b.pending)[1] == 0 && break
     end
     _launch!(_ssc_clear!, dev, b.best, b.first, b.cell; ndrange = M)
     fill!(b.count, Int32(0))
     _launch!(_ssc_count!, dev, b.count, b.s0; ndrange = M)
-    return Int(Array(b.count)[1])
+    return Int(copyto!(b.flag, b.count)[1])
 end
 
 # The indices (into `x`, `y`, `scores`) SSC keeps, ascending.
@@ -171,36 +175,37 @@ function _ssc_select(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}, score
     kmin = round(Int, K - K * t, RoundNearestTiesAway); kmax = round(Int, K + K * t, RoundNearestTiesAway)
     b = _SSCBuffers(on_device(Float64, dev, x), on_device(Float64, dev, y), on_device(UInt64, dev, _ssc_key.(scores)),
                     KA.allocate(dev, Int32, M), KA.allocate(dev, UInt8, M), KA.allocate(dev, UInt8, M),
-                    KA.allocate(dev, Int32, 1), KA.allocate(dev, Int32, 1), device_zeros(UInt64, dev, 0), KA.allocate(dev, Int32, 0))
+                    KA.allocate(dev, Int32, 1), KA.allocate(dev, Int32, 1), device_zeros(UInt64, dev, 0), KA.allocate(dev, Int32, 0),
+                    KA.allocate(dev, UInt8, M), KA.allocate(dev, UInt8, M), Vector{Int32}(undef, 1))
     # the reference's search over integer widths; the coverings either side of the band are kept
     prev = -1
-    more = less = nothing                       # (width, states) of the widest covering above the band, the narrowest below
+    more = less = nothing                       # the width of the widest covering above the band, the narrowest below (states in b.more, b.less)
     while true
         width = low + (high - low) ÷ 2
         (width == prev || low > high) && break
         k = _ssc_cover!(b, dev, width, cols, rows)
         kmin <= k <= kmax && return findall(==(_SSC_KEPT), Array(b.s0))
         if k < kmin
-            high = width - 1; less = (width, Array(b.s0))
+            high = width - 1; less = width; copyto!(b.less, b.s0)
         else
-            low = width + 1; more = (width, Array(b.s0))
+            low = width + 1; more = width; copyto!(b.more, b.s0)
         end
         prev = width
     end
     # No integer width lands in the band (the reference would return its last covering): the width between the two
     # integers that bracket the band, by bisection (the count falls as the square widens)
     if more !== nothing && less !== nothing
-        lo, hi = Float64(more[1]), Float64(less[1])
+        lo, hi = Float64(more), Float64(less)
         for _ in 1:_SSC_BISECTIONS
             w = (lo + hi) / 2
             k = _ssc_cover!(b, dev, w, cols, rows)
             kmin <= k <= kmax && return findall(==(_SSC_KEPT), Array(b.s0))
-            k < kmin ? (hi = w) : (lo = w; more = (w, Array(b.s0)))
+            k < kmin ? (hi = w) : (lo = w; more = w; copyto!(b.more, b.s0))
         end
     end
     # still none: the covering above the band nearest it, less its weakest, down to the band's top; else the covering below it
-    more === nothing && return less === nothing ? Int[] : findall(==(_SSC_KEPT), less[2])
-    kept = findall(==(_SSC_KEPT), more[2])
+    more === nothing && return less === nothing ? Int[] : findall(==(_SSC_KEPT), Array(b.less))
+    kept = findall(==(_SSC_KEPT), Array(b.more))
     order = sortperm(kept; by = i -> (_ssc_key(scores[i]), -i), rev = true)
     return sort!(kept[order[1:kmax]])
 end

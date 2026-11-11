@@ -76,39 +76,11 @@ The frame labels of `vg`, in the order it was built with.
 views(vg::ViewGraph) = vg.views
 
 """
-    edgelist(vg::ViewGraph) -> Vector{Pair}
-
-The edges as `(i, j) => data` pairs, sorted by `(i, j)`: the persistence form a
-ViewGraph is rebuilt from.
-"""
-edgelist(vg::ViewGraph) = sort!([p => e for (p, e) in vg.edges]; by = first)
-
-Base.getindex(vg::ViewGraph, i, j) = vg.edges[(i, j)]
-Base.haskey(vg::ViewGraph, i, j) = haskey(vg.edges, (i, j))
-
-"""
-    nedges(g) -> Int
-
-The number of edges of a [`ViewGraph`](@ref) (its verified pairs) or an
-[`ObservationGraph`](@ref) (its observations).
-"""
-nedges(vg::ViewGraph) = length(vg.edges)
-
-"""
     adjacent_views(vg::ViewGraph, v) -> Vector
 
 The views paired with `v`, sorted.
 """
 adjacent_views(vg::ViewGraph, v) = sort!([vg.views[u] for u in Graphs.neighbors(vg.graph, vg.index[v])])
-
-"""
-    components(vg::ViewGraph) -> Vector{Vector}
-
-The connected components as sorted view labels, largest first (equal sizes by
-their smallest view). Poses are comparable only within one component.
-"""
-components(vg::ViewGraph) =
-    sort!([sort!(vg.views[comp]) for comp in Graphs.connected_components(vg.graph)]; by = c -> (-length(c), first(c)))
 
 """
     label_components(vg::ViewGraph) -> Dict
@@ -138,21 +110,8 @@ OpenCV's `leaveBiggestComponent`): the SfM policy.
 """
 keep_largest_component(vg::ViewGraph) = isempty(vg.views) ? vg : induced(vg, first(components(vg)))
 
-"""
-    articulation(vg::ViewGraph) -> Vector
-
-The cut views: views whose removal splits their component, sorted.
-"""
-articulation(vg::ViewGraph) = sort!([vg.views[c] for c in Graphs.articulation(vg.graph)])
-
-"""
-    bridges(vg::ViewGraph) -> Vector{Tuple}
-
-The bridge edges: pairs whose removal splits their component, sorted.
-"""
-bridges(vg::ViewGraph) = sort!([_pair(vg, Graphs.src(e), Graphs.dst(e)) for e in Graphs.bridges(vg.graph)])
-
-_pair(vg::ViewGraph, a::Int, b::Int) = (i = vg.views[a]; j = vg.views[b]; isless(i, j) ? (i, j) : (j, i))
+_pair(vg::ViewGraph, a::Int, b::Int) =                 # a graph edge as its label pair (the labelled-graph core, observation_graph.jl)
+    (i = vg.views[a]; j = vg.views[b]; isless(i, j) ? (i, j) : (j, i))
 
 # An edge's relative transform and its weight are VGC's `value_of` and `weight_of`: the value and the
 # `weight` attribute of an `Attributed` edge; a bare transform is its own value and weighs 1.
@@ -192,21 +151,15 @@ spanning-tree seed of rotation averaging (`d = R_k·f_k`).
 """
 function chain(vg::ViewGraph, root; compose = *, inverse = inv, identity)
     haskey(vg.index, root) || throw(ArgumentError("chain: the root $root is not a view of the graph"))
-    tree = spanning_tree(vg)
-    adj = Dict(v => eltype(vg.views)[] for v in vg.views)
-    for (i, j) in tree
-        push!(adj[i], j); push!(adj[j], i)
-    end
-    out = Dict{eltype(vg.views), Any}(root => identity)               # composed transforms need not share identity's type
-    queue = [root]
-    while !isempty(queue)
-        u = popfirst!(queue)
-        for v in sort!(adj[u])
-            haskey(out, v) && continue
-            out[v] = isless(u, v) ? compose(out[u], inverse(VgtkCore.value_of(vg[u, v]))) :
-                                    compose(out[u], VgtkCore.value_of(vg[v, u]))
-            push!(queue, v)
-        end
+    tree = Graphs.SimpleGraph(length(vg.views))
+    foreach(((i, j),) -> Graphs.add_edge!(tree, vg.index[i], vg.index[j]), spanning_tree(vg))
+    r = vg.index[root]
+    parent = Graphs.bfs_parents(tree, r)                               # 0: outside root's component
+    depth = Graphs.gdistances(tree, r)
+    out = Dict{eltype(vg.views), Any}(root => identity)               # untyped: `identity` (e.g. `I`) and the composed transforms may differ in type; narrowed once below
+    for v in sort!(filter(v -> v != r && parent[v] != 0, eachindex(parent)); by = v -> depth[v])   # a parent before its children
+        u, w = vg.views[parent[v]], vg.views[v]
+        out[w] = isless(u, w) ? compose(out[u], inverse(VgtkCore.value_of(vg[u, w]))) : compose(out[u], VgtkCore.value_of(vg[w, u]))
     end
     return Dict(k => T for (k, T) in out)                             # the narrowest value type the transforms share
 end

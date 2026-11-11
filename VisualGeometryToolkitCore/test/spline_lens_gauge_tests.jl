@@ -26,7 +26,7 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
     G = GOLDEN
     src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-    image = (G.image[1], G.image[2])
+    image = Size2(G.image[1], G.image[2])
     cam = CameraModel(SplineLens, src, image; grid_size = (G.grid_size[1], G.grid_size[2]))
     masked = with_present(cam, G.masked.present)
     gh, gw = size(cam.lens.backward.controls)
@@ -174,12 +174,12 @@ end
     # not depend on it), so a given K builds the same camera.
     W, H = 640, 480
     src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
-    cam = CameraModel(SplineLens, src, (W, H); grid_size = (12, 10))
+    cam = CameraModel(SplineLens, src, Size2(W, H); grid_size = (12, 10))
     C = cam.lens.backward.controls
     gh, gw = size(C)
     rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
     nan_absent(P) = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, P)
-    gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect)
+    gauge(P) = VgtkCore._spline_gauge(ChartSpline(rect, nan_absent(P)), rect, P)
     refusal(P) = try
         gauge(P); nothing
     catch err
@@ -196,14 +196,50 @@ end
     @test occursin("where the search for the pixel imaging ẑ starts", e.msg) && !occursin("not imaged", e.msg)
     for P in (hole, sparse, checker)
         @test refused(refusal(P))
+        @test !VisualGeometryToolkitCore.has_spline_gauge(nan_absent(P), Size2(W, H); present = P)   # the refusal's condition, asked first
         # the camera of the same lattice under a given K: built, its rays the lattice's
-        c = CameraModel(SplineLens, nan_absent(P), (W, H); intrinsics = src.intrinsics, present = P)
+        c = CameraModel(SplineLens, nan_absent(P), Size2(W, H); intrinsics = src.intrinsics, present = P)
         @test calibration_matrix(c) == calibration_matrix(src)
     end
-    @test count(u -> all(isfinite, backproject(CameraModel(SplineLens, nan_absent(hole), (W, H); intrinsics = src.intrinsics, present = hole), u)),
+    @test count(u -> all(isfinite, backproject(CameraModel(SplineLens, nan_absent(hole), Size2(W, H); intrinsics = src.intrinsics, present = hole), u)),
         [SVector(x, y) for y in 0.5:7.0:(H - 0.5) for x in 0.5:7.0:(W - 0.5)]) > 1000
     # every node present: gauged as before
     @test all(isfinite, gauge(trues(gh, gw)).K)
+    @test VisualGeometryToolkitCore.has_spline_gauge(C, Size2(W, H)) && VisualGeometryToolkitCore.has_spline_gauge(C, Size2(W, H); present = trues(gh, gw))
+end
+
+@testitem "SplineLens gauge and axis check: node absence is read from the presence mask, not from NaN controls" begin
+    using Test
+    using StaticArrays
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, with_present
+    import VisualGeometryToolkitCore.Cameras as VgtkCore
+
+    # Absence lives in one place, the lens's `present` mask. A lens built from controls that
+    # still hold their values in the absent slots (`SplineLens(backward; present)` does not
+    # NaN-fill) is gauged and axis-checked exactly as the NaN-filled one (`with_present`).
+    W, H = 640, 480
+    src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    cam = CameraModel(SplineLens, src, Size2(W, H); grid_size = (12, 10))
+    b = cam.lens.backward
+    gh, gw = size(b.controls)
+    hole = trues(gh, gw)
+    hole[(gh ÷ 2):(gh ÷ 2 + 1), (gw ÷ 2):(gw ÷ 2 + 1)] .= false   # over the window imaging ẑ
+    filled = with_present(cam, hole)
+    raw = CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, b.controls); present = hole))
+    @test all(v -> all(isfinite, v), raw.lens.backward.controls)    # the absent slots keep their values
+    refuses(c) = try
+        VgtkCore._check_lens_axis(c.lens, "the axis check"); false
+    catch e
+        e isa ArgumentError && occursin("does not image ẑ", e.msg)
+    end
+    @test refuses(filled)
+    @test refuses(raw)
+    # the gauge of the pixel lattice reads the mask: no complete window at ẑ's pixel, whatever the slots hold
+    rect = VgtkCore._bounds_rect(0, 0, W - 1, H - 1)
+    pix = cam.lens.backward.controls
+    @test_throws "no complete 4 × 4 window" VgtkCore._spline_gauge(ChartSpline(rect, pix), rect, hole)
+    @test all(isfinite, VgtkCore._spline_gauge(ChartSpline(rect, pix), rect, nothing).K)
 end
 
 @testitem "CameraModel(SplineLens, controls, size): the camera of a given pixel lattice" begin
@@ -216,30 +252,30 @@ end
     # grid record): direction controls over a calibrated pixel area. Its K is the
     # given one or the gauge; either way each pixel backprojects as the lattice does.
     src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
-    area = (8, 6, 631, 473)
-    cam = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10), calib_area = area)
+    area = Rect(8, 6, 624, 468)
+    cam = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (12, 10), calib_area = area)
     C = cam.lens.backward.controls
-    given = CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = cam.intrinsics)
+    given = CameraModel(SplineLens, C, Size2(640, 480); calib_area = area, intrinsics = cam.intrinsics)
     @test given.intrinsics.K == cam.intrinsics.K && given.lens.backward.area === cam.lens.backward.area && given.lens.backward.controls == C
-    gauged = CameraModel(SplineLens, C, (640, 480); calib_area = area)
+    gauged = CameraModel(SplineLens, C, Size2(640, 480); calib_area = area)
     @test iszero(gauged.intrinsics.K[1, 2]) && gauged.intrinsics.K != cam.intrinsics.K
     pixels = [SVector(x, y) for y in 6.5:9.0:473.5 for x in 8.5:9.0:631.5]   # inside the calibrated area
     @test all(u -> maximum(abs.(backproject(gauged, u) - backproject(cam, u))) <= 1.0e-12, pixels)
     # a mask, and the reference reader's normalization
     P = trues(size(C)); P[1, 1] = false
-    m = CameraModel(SplineLens, 2 .* C, (640, 480); calib_area = area, intrinsics = cam.intrinsics, present = P, unit_controls = true)
+    m = CameraModel(SplineLens, 2 .* C, Size2(640, 480); calib_area = area, intrinsics = cam.intrinsics, present = P, unit_controls = true)
     @test m.lens.present == P && all(v -> abs(sqrt(sum(abs2, v)) - 1) < 1.0e-12, m.lens.backward.controls[P])
     # the gauge reads no absent node: finite placeholders there gauge as NaN does (a hole off the gauge's window)
     H = trues(size(C)); H[1:2, 1:3] .= false
     nan_C = map((v, p) -> p ? v : SVector(NaN, NaN, NaN), C, H)
-    a, b = CameraModel(SplineLens, C, (640, 480); calib_area = area, present = H), CameraModel(SplineLens, nan_C, (640, 480); calib_area = area, present = H)
+    a, b = CameraModel(SplineLens, C, Size2(640, 480); calib_area = area, present = H), CameraModel(SplineLens, nan_C, Size2(640, 480); calib_area = area, present = H)
     @test a.intrinsics.K == b.intrinsics.K && all(v -> all(isnan, v), a.lens.backward.controls[.!H])
     # a skewed or flipped K has no SplineLens camera, given or a source's (one check, the one constructor's)
     flipped = CameraModel(-400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
-    @test_throws ArgumentError CameraModel(SplineLens, flipped, (640, 480); grid_size = (12, 10))
+    @test_throws ArgumentError CameraModel(SplineLens, flipped, Size2(640, 480); grid_size = (12, 10))
     skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(400.0, 0, 0, 0.5, 400.0, 0, 320.0, 240.0, 1)))
-    @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = area, intrinsics = skewed)
-    @test_throws ArgumentError CameraModel(SplineLens, C, (640, 480); calib_area = (0, 0, 700, 479))   # outside the image
+    @test_throws ArgumentError CameraModel(SplineLens, C, Size2(640, 480); calib_area = area, intrinsics = skewed)
+    @test_throws ArgumentError CameraModel(SplineLens, C, Size2(640, 480); calib_area = Rect(0, 0, 701, 480))   # outside the image
 end
 
 @testitem "SplineLens: every camera of the lens has a skew-0 gauge K, through one check" begin
@@ -250,7 +286,7 @@ end
         calibration_matrix, LogicalIntrinsics, CameraCalibrationMat
 
     src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-    cam = CameraModel(SplineLens, src, (1000, 1000); grid_size = (12, 12))
+    cam = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (12, 12))
     K = calibration_matrix(cam)
     skewed = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.25, K[2, 2], 0.0, K[1, 3], K[2, 3], 1.0)))
     message(f) = (e = try f(); nothing catch e; e end; e isa ArgumentError ? e.msg : e)
@@ -258,7 +294,7 @@ end
     m_plain = message(() -> CameraModel(skewed, cam.lens))
     @test m_plain isa String && occursin("skew", m_plain)
     # the controls constructor and the non-central model: the same check, the same message
-    m_controls = message(() -> CameraModel(SplineLens, cam.lens.backward.controls, (1000, 1000); intrinsics = skewed))
+    m_controls = message(() -> CameraModel(SplineLens, cam.lens.backward.controls, Size2(1000, 1000); intrinsics = skewed))
     d = cam.lens.backward
     m_noncentral = message(() -> NoncentralSplineModel(skewed, d, ChartSpline(d.area, fill(SVector(0.0, 0.0, 0.0), size(d.controls)))))
     @test m_controls == m_plain
@@ -276,7 +312,7 @@ end
         backproject, project, CameraCalibrationMat, Rect2, with_present
 
     src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-    cam = CameraModel(SplineLens, src, (1000, 1000); grid_size = (16, 14))
+    cam = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (16, 14))
     P = trues(size(cam.lens.backward.controls)); P[1, 1] = P[end, 3] = false
     masked = with_present(cam, P)
     K = calibration_matrix(cam)
@@ -297,16 +333,15 @@ end
     # area, so every projection and backprojection is the same, a principal-point move included
     fwd = ChartSpline(Rect2(-1.2, -1.2, 2.4, 2.4), [SVector(0.03 * gx - 0.4, -0.02 * gy + 0.3) for gy in 1:6, gx in 1:7])
     cf = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward = fwd))
-    @test cf.lens.chart == VisualGeometryToolkitCore.equidistant_chart(SVector(0.0, 0.0, 1.0))
     @test count(X -> all(isfinite, project(cf, X)), rays) > length(rays) ÷ 2
     for K′ in (Kat(0.8 * K[1, 1], 0.9 * K[2, 2], K[1, 3], K[2, 3]), moved)
         cf′ = CameraModel(cf, K′)
-        @test calibration_matrix(cf′) == K′ && cf′.lens.chart == cf.lens.chart
+        @test calibration_matrix(cf′) == K′
         @test all(X -> same(project(cf′, X), project(cf, X); tol = 1.0e-12), rays)
         @test all(u -> same(backproject(cf′, u), backproject(cf, u); tol = 1.0e-12), pixels)
         # its Float32 form keeps the forward: the same chart, the same imaged rays, the pixel to its precision
         c32 = VisualGeometryToolkitCore.convert_eltype(Float32, cf′)
-        @test c32.lens.chart == cf.lens.chart && c32.lens.forward isa ChartSpline
+        @test c32.lens.forward isa ChartSpline
         # (k = 4, as the Float32 project test's: measured worst 0.25·f·eps(Float32), f = 300)
         @test all(X -> same(project(c32, X), project(cf, X); tol = 4 * K[1, 1] * eps(Float32)), rays)
     end
@@ -329,8 +364,8 @@ end
     src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
     # Review Focus 1: ẑ (the pixel (500, 500)) is outside the calibrated area, so the gauge's principal point is
     # the area's centre, which images a ray off ẑ
-    off = CameraModel(SplineLens, u -> backproject(src, u), (1000, 1000); calib_area = (600, 600, 999, 999), init = :quasi_interpolate)
-    on = CameraModel(SplineLens, src, (1000, 1000); grid_size = (16, 16))
+    off = CameraModel(SplineLens, u -> backproject(src, u), Size2(1000, 1000); calib_area = Rect(600, 600, 400, 400), init = :quasi_interpolate)
+    on = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (16, 16))
     img = zeros(64, 64)
     sensor = Sensor(Size2(width = 1000px, height = 1000px), 3.45μm)
     refusals(c) = (
@@ -346,7 +381,7 @@ end
     # approximation error puts its axis off ẑ (IO's 8 × 7 test camera, 4e-4 rad; a 4 × 4 lattice, 1e-2 rad) images ẑ
     # inside its area, and answers
     io = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
-    coarse = (CameraModel(SplineLens, io, (64, 48); grid_size = (8, 7)), CameraModel(SplineLens, io, (64, 48); grid_size = (4, 4)))
+    coarse = (CameraModel(SplineLens, io, Size2(64, 48); grid_size = (8, 7)), CameraModel(SplineLens, io, Size2(64, 48); grid_size = (4, 4)))
     @test all(c -> principal_ray(c)[3] < cos(1.0e-4), coarse)   # off ẑ by approximation
     for c in (on, coarse...)
         @test isfinite(horizon_radius(c)) && monotone_radius(c.lens) > 0
@@ -399,9 +434,9 @@ end
     # a radially symmetric camera's spline (axis ẑ, the axis's pixel (500, 500)) whose frame is turned by Q, 5° about a
     # tilted axis: its ẑ is off the optical axis by 5°, and its gauge K (the pixel imaging ẑ) is off the axis's pixel
     src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-    on = CameraModel(SplineLens, src, (1000, 1000); grid_size = (20, 20))
+    on = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (20, 20))
     Q = RotMatrix(AngleAxis(deg2rad(5.0), 0.6, 0.8, 0.0))
-    off = CameraModel(SplineLens, map(c -> Q * c, on.lens.backward.controls), (1000, 1000))
+    off = CameraModel(SplineLens, map(c -> Q * c, on.lens.backward.controls), Size2(1000, 1000))
     Koff = calibration_matrix(off)
     @test norm(SVector(Koff[1, 3], Koff[2, 3]) - SVector(500.0, 500.0)) > 20      # the old gauge: ~26 px off the axis's pixel
     R = RotMatrix{3}(Q')                                                          # the axis Q·ẑ of the turned frame onto ẑ

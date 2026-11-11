@@ -8,7 +8,7 @@
     using VisualGeometryToolkitCore: SplineLens, CameraModel, KannalaBrandt, px, backproject, backproject_with_jacobian
 
     src = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
-    m = CameraModel(SplineLens, src, (640, 480); grid_size = (20, 16))
+    m = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (20, 16))
     rng = Xoshiro(2)
     for _ in 1:200
         u = SVector(40 + 560rand(rng), 40 + 400rand(rng))
@@ -30,11 +30,11 @@ end
         backproject, backproject_with_jacobian
 
     src = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
-    c = CameraModel(SplineLens, src, (640, 480); grid_size = (20, 16))
+    c = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (20, 16))
     gh, gw = size(c.lens.backward.controls)
     # a smooth non-central point field: the direction's Jacobian must not depend on it
     points = [SVector(1.0e-3 * sin(j / 3), 1.0e-3 * cos(i / 4), 2.0e-3 * (i + j) / (gh + gw)) for i in 1:gh, j in 1:gw]
-    m = with_points(NoncentralSplineModel(src, (640, 480); grid_size = (20, 16)), points)
+    m = with_points(NoncentralSplineModel(src, Size2(640, 480); grid_size = (20, 16)), points)
     d(u) = SVector{3, Float64}(backproject(m, u).direction)
     rng = Xoshiro(3)
     for _ in 1:200
@@ -57,8 +57,19 @@ end
     using ForwardDiff: ForwardDiff
     using GeometryBasics: origin, widths
     using VisualGeometryToolkitCore: SplineLens, CameraModel, KannalaBrandt, px, spline_value
-    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction_differential, _noncentral_residual,
-        _noncentral_residual_and_jacobian, _in_backward, _lattice_coords
+    using VisualGeometryToolkitCore.Cameras: _spline_direction_and_jacobian, _spline_direction_differential,
+        _noncentral_residual_and_jacobian, _in_backward, _lattice_coords, _continued_window, _eval_window, _tangent_residual
+
+    # The non-central residual's definition, generic in `p`'s element type (the oracle
+    # its analytic Jacobian is tested against): the two components of `origin(p) − X` in
+    # the tangent basis of `d̂(p)`, both splines read through the one continued window.
+    function _noncentral_residual(dctrl, pctrl, area, p, X)
+        gsz = gh, gw = size(dctrl)
+        ix, iy, wx, wy = _continued_window(_lattice_coords(area, gsz, p)..., gw, gh)
+        d = _eval_window(dctrl, ix, iy, wx, wy)
+        o = _eval_window(pctrl, ix, iy, wx, wy)
+        return _tangent_residual(SVector{3}(d) / norm(d), SVector{3}(o), X)
+    end
 
     # The analytic Jacobians of the two LMs' residuals (the central one's — the
     # normalized spline value, differentiated as `spline_value`, since the residual
@@ -70,7 +81,7 @@ end
     # residual each LM reads from its one evaluation per point is its definition's,
     # bit for bit: `normalize` of the spline value, and `_noncentral_residual`.
     src = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = KannalaBrandt(-0.02))
-    cam = CameraModel(SplineLens, src, (640, 480); grid_size = (20, 16))
+    cam = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (20, 16))
     b = cam.lens.backward
     dctrl, area = b.controls, b.area
     rng = Xoshiro(17)

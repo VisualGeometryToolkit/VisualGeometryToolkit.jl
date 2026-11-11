@@ -121,7 +121,7 @@
     end
 
     @testset "a plain camera of a non-central grid model is refused, naming the fix" begin
-        g0 = VgtkCore.NoncentralSplineModel(CameraModel(CameraCalibrationMat(SMatrix{3, 3}(50.0, 0, 0, 0, 50.0, 0, 32.0, 24.0, 1.0))), (64, 48); grid_size = (5, 4))
+        g0 = VgtkCore.NoncentralSplineModel(CameraModel(CameraCalibrationMat(SMatrix{3, 3}(50.0, 0, 0, 0, 50.0, 0, 32.0, 24.0, 1.0))), Size2(64, 48); grid_size = (5, 4))
         gn = VgtkCore.with_points(g0, [Vec3{Float64}(1.0e-4gx, -1.0e-4gy, 5.0e-5) for gy in 1:4, gx in 1:5])
         # the grid is metres; a plain map is "in the caller's unit": ambiguous, refused
         for f in (() -> PosedCamera(gn, EuclideanMap(R1, t1 .* 1000)), () -> PosedCamera(gn, pose(PosedCamera(gn, E1u)) |> X -> ustrip(m, X)))

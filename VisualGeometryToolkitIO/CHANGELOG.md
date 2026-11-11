@@ -18,6 +18,11 @@ On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
   an `Int`; `Integer` and `Rational` methods beside the float one; was `_snap_integer`) and the matrix layout a record
   declares (`"rows"`; was `_MATRIX_LAYOUT`). BlobBoards' lifts and CaliBlobs' session record restated them.
 
+- **Internal: a stored grid's calibrated area is read as a `Rect`** (from its inclusive pixel bounds) and its size as a
+  `Size2`, the one spelling each that Core's SplineLens constructors now take. Values unchanged.
+- **Internal: an old grid body's missing K is detected by Core's `has_spline_gauge`**, not by matching the text of
+  Core's refusal, and a K given to `load(…; intrinsics)` is written into the parsed record directly (the record was
+  re-serialized to JSON and parsed again). The refusal's wording is IO's own; behaviour unchanged.
 - **Internal: one lowering, one spline-lattice reader, a body by dispatch.** The lens record's `_plain` was `_lower`
   under another name (gone); both spline lens schemas read a record's grid size, present runs and area through one
   `_lattice_from_json`; a bounded camera's model body is `_model_body` by the model's type (was an `isa` branch over

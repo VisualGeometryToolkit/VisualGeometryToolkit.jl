@@ -75,18 +75,6 @@ The observed things (targets, boards, tracks), sorted.
 """
 observed(og::ObservationGraph) = og.observed
 
-"""
-    edgelist(og::ObservationGraph) -> Vector{Pair}
-
-The observations as `(a, b) => data` pairs, sorted by `(a, b)`: the persistence
-form the graph is rebuilt from.
-"""
-edgelist(og::ObservationGraph) = sort!([p => e for (p, e) in og.edges]; by = first)
-
-Base.getindex(og::ObservationGraph, a, b) = og.edges[(a, b)]
-Base.haskey(og::ObservationGraph, a, b) = haskey(og.edges, (a, b))
-nedges(og::ObservationGraph) = length(og.edges)
-
 # Graph vertices: the observers first, then the observed things.
 _vertex(og::ObservationGraph, b) = length(og.observers) + og.observed_index[b]
 _vertex_label(og::ObservationGraph, v::Int) =
@@ -106,7 +94,7 @@ The observers that observe `b`, sorted.
 """
 observers_of(og::ObservationGraph, b) = sort!([og.observers[v] for v in Graphs.neighbors(og.graph, _vertex(og, b))])
 
-function _split(og::ObservationGraph{A, B}, vs) where {A, B}
+function _vertex_labels(og::ObservationGraph{A, B}, vs) where {A, B}
     as = A[]; bs = B[]
     for v in vs
         side, l = _vertex_label(og, v)
@@ -114,18 +102,6 @@ function _split(og::ObservationGraph{A, B}, vs) where {A, B}
     end
     return (; observers = sort!(as), observed = sort!(bs))
 end
-
-"""
-    components(og::ObservationGraph) -> Vector{@NamedTuple{observers, observed}}
-
-The connected components, each its sorted observers and observed things,
-largest first by vertex count (equal sizes by their smallest observer, as a
-ViewGraph's by their smallest view). Poses are comparable only within one
-component: a calibration gives each its own gauge.
-"""
-components(og::ObservationGraph) =
-    sort!([_split(og, c) for c in Graphs.connected_components(og.graph)];
-          by = c -> (-(length(c.observers) + length(c.observed)), first(c.observers)))
 
 """
     label_components(og::ObservationGraph) -> @NamedTuple{observers::Dict, observed::Dict}
@@ -138,28 +114,6 @@ function label_components(og::ObservationGraph{A, B}) where {A, B}
         foreach(a -> (la[a] = k), c.observers); foreach(b -> (lb[b] = k), c.observed)
     end
     return (; observers = la, observed = lb)
-end
-
-"""
-    articulation(og::ObservationGraph) -> @NamedTuple{observers, observed}
-
-The cut vertices: observers and observed things whose removal splits their
-component, the fragile links of a session, sorted.
-"""
-articulation(og::ObservationGraph) = _split(og, Graphs.articulation(og.graph))
-
-"""
-    bridges(og::ObservationGraph) -> Vector{Tuple}
-
-The bridge observations: `(a, b)` pairs whose removal splits their component,
-sorted.
-"""
-function bridges(og::ObservationGraph)
-    pairs = map(Graphs.bridges(og.graph)) do e
-        s, d = minmax(Graphs.src(e), Graphs.dst(e))      # observers come first among the vertices
-        (_vertex_label(og, s)[2], _vertex_label(og, d)[2])
-    end
-    return sort!(pairs)
 end
 
 """
@@ -191,6 +145,77 @@ function covisibility(og::ObservationGraph; side::Symbol = :observers)
     return ViewGraph(labels, Dict(pair => VgtkCore.Attributed(xs, (; weight = length(xs))) for (pair, xs) in shared))   # xs is sorted: `through` is
 end
 
+# =============================================================================
+# The labelled-graph core: what a ViewGraph and an ObservationGraph share
+# =============================================================================
+#
+# Both hold a Graphs.SimpleGraph (`graph`) and the edge dictionary keyed by label pairs (`edges`), the
+# source of truth. Each type says only how a vertex set reads as labels (`_vertex_labels`: a ViewGraph's
+# sorted views, an ObservationGraph's sorted observers and observed things), how a graph edge reads as
+# its label pair (`_pair`), and a component's size and first labels (`_component_size`,
+# `_component_labels`); the queries below are written once over them.
+
+const _LabelledGraph = Union{ViewGraph, ObservationGraph}
+
+_vertex_labels(vg::ViewGraph, vs) = sort!(vg.views[vs])
+_pair(og::ObservationGraph, a::Int, b::Int) =
+    ((s, d) = minmax(a, b); (og.observers[s], og.observed[d - length(og.observers)]))   # observers come first among the vertices
+_component_size(c::AbstractVector) = length(c)
+_component_size(c::NamedTuple) = length(c.observers) + length(c.observed)
+_component_labels(c::AbstractVector) = c
+_component_labels(c::NamedTuple) = c.observers
+
+"""
+    edgelist(g) -> Vector{Pair}
+
+The edges of a [`ViewGraph`](@ref) (its verified pairs) or an
+[`ObservationGraph`](@ref) (its observations) as `(i, j) => data` pairs, sorted
+by `(i, j)`: the persistence form the graph is rebuilt from.
+"""
+edgelist(g::_LabelledGraph) = sort!([p => e for (p, e) in g.edges]; by = first)
+
+Base.getindex(g::_LabelledGraph, i, j) = g.edges[(i, j)]
+Base.haskey(g::_LabelledGraph, i, j) = haskey(g.edges, (i, j))
+
+"""
+    nedges(g) -> Int
+
+The number of edges of a [`ViewGraph`](@ref) (its verified pairs) or an
+[`ObservationGraph`](@ref) (its observations).
+"""
+nedges(g::_LabelledGraph) = length(g.edges)
+
+"""
+    components(g) -> Vector
+
+The connected components, largest first by vertex count, equal sizes by their
+smallest label (a [`ViewGraph`](@ref)'s view, an [`ObservationGraph`](@ref)'s
+observer). A ViewGraph's component is its sorted views; an ObservationGraph's
+is `(; observers, observed)`, each sorted. Poses are comparable only within one
+component: a calibration gives each its own gauge.
+"""
+components(g::_LabelledGraph) =
+    sort!([_vertex_labels(g, c) for c in Graphs.connected_components(g.graph)];
+          by = c -> (-_component_size(c), first(_component_labels(c))))
+
+"""
+    articulation(g)
+
+The cut vertices, whose removal splits their component: a [`ViewGraph`](@ref)'s
+sorted views, or an [`ObservationGraph`](@ref)'s `(; observers, observed)` (the
+fragile links of a session), each sorted.
+"""
+articulation(g::_LabelledGraph) = _vertex_labels(g, Graphs.articulation(g.graph))
+
+"""
+    bridges(g) -> Vector{Tuple}
+
+The bridge edges, whose removal splits their component, as sorted label pairs:
+a [`ViewGraph`](@ref)'s `(i, j)`, `i < j`, an [`ObservationGraph`](@ref)'s
+`(a, b)`.
+"""
+bridges(g::_LabelledGraph) = sort!([_pair(g, Graphs.src(e), Graphs.dst(e)) for e in Graphs.bridges(g.graph)])
+
 """
     require_connected(g; what = "graph") -> g
 
@@ -199,11 +224,9 @@ connected, otherwise an `ArgumentError` that names its components (an
 observation graph's by their observers): the policy of a method whose frames
 need one common gauge.
 """
-function require_connected(g::Union{ViewGraph, ObservationGraph}; what::AbstractString = "graph")
+function require_connected(g::_LabelledGraph; what::AbstractString = "graph")
     comps = components(g)
     length(comps) <= 1 && return g
     throw(ArgumentError("the $what is not connected; its components are " *
                         join(["[" * join(string.(_component_labels(c)), ", ") * "]" for c in comps], ", ")))
 end
-_component_labels(c::AbstractVector) = c
-_component_labels(c::NamedTuple) = c.observers

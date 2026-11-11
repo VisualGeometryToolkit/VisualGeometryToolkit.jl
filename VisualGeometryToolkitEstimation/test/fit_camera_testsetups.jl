@@ -91,7 +91,7 @@ using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, 
 export FISHEYE, GRID, GRID_BOUNDED, DISC, REGION
 
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-const GRID = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (40, 40))
+const GRID = CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (40, 40))
 const GRID_BOUNDED = BoundedCamera(GRID, Size2(1000, 1000))
 const DISC = Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
 const REGION = Rect(0, 0, 1000, 1000) ∩ DISC
@@ -113,7 +113,7 @@ export FISHEYE, REGION, SOURCE, MODEL, noncentral_source
 
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
 const REGION = Rect(0, 0, 1000, 1000) ∩ Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
-const CENTRAL = CameraModel(SplineLens, FISHEYE, (1000, 1000); grid_size = (53, 47))
+const CENTRAL = CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (53, 47))
 # the source with every line translated by `t` (metres), bounded by its image
 function noncentral_source(t = SVector(0.0, 0.0, 0.0))
     d = CENTRAL.lens.backward

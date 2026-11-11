@@ -78,8 +78,8 @@ The family records:
   and the source's angular domains (radians), and whether the target family cut
   the source's domain. The errors are at the quadrature's samples;
 - `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
-  n_held_out_dropped, tolerance, spacing, counts, forward_λ,
-  forward_outer_iterations, forward_max_px, forward_max_px_edge, forward_rms)` —
+  n_held_out_dropped, tolerance, forward)`, `forward` being `(; spacing, counts, λ,
+  outer_iterations, max_px, max_px_edge, rms)` or `nothing` —
   the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
   source's kept backward), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
   pixels, the spacing search's fits (0 for a given or kept lattice), the
@@ -87,7 +87,7 @@ The family records:
   spline's knot spacing `h` (radians in the chart), its control counts per chart
   axis, its `λ`, its search's fits and its held-out round trip
   `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
-  every forward field `nothing` with `forward = false`. The result's errors
+  `forward` is `nothing` with `forward = false`. The result's errors
   (`max_px`, `max_px_edge`, `rms`) are the backward's held-out direction error,
   as the non-central target's (below), over the held-out pixels where the
   source's back-projection Jacobian is finite — `n_held_out_dropped` counts the
@@ -683,17 +683,13 @@ function _image_quadrature(samples::F, source, region) where {F}
     return (; region, stride, extent, fit_px, fit_rays, held_px, held_rays, edge)
 end
 
-# The source's rays at `pixels`: its batched `backproject`, NaN where it images none
-# — a SplineLens camera's batched form on the backend `device` (its kernel; the
-# rays come back to the host), any other camera's a host map.
-_source_rays(source::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics, <:SplineLens}, pixels, device) =
-    _svectors(backproject(source, pixels; device))
-_source_rays(source, pixels, device) = _svectors(backproject(source, pixels))
+# The source's rays at `pixels`: Core's batched `backproject` on the backend `device`
+# (one kernel for any camera with a device form; the rays come back to the host as
+# `SVector{3}`s), NaN where it images none.
+_source_rays(source, pixels, device) = backproject(source, pixels; device)
 # the samples of the quadrature on `device`: the rays, or the lines (below)
 _rays_on(device) = (source, pixels) -> _source_rays(source, pixels, device)
 _lines_on(device) = (source, pixels) -> _source_lines(source, pixels, device)
-_svectors(r::AbstractVector{SVector{3, Float64}}) = r
-_svectors(r) = SVector{3, Float64}.(r)
 
 # The source's observation lines at `pixels`, `(origin, unit direction)`, NaN where
 # it images none: a non-central model's `Ray3`s (plain metres), and for a central
@@ -846,7 +842,7 @@ function _grid_data(::Type{G}, source, region, device) where {G}
     rhs, anchor = _grid_rhs(G, q)
     base = spline_lattice(SplineLens, _lattice_source(cam), size; grid_size = (4, 4))
     K = base.intrinsics
-    held = _held_out(G, cam, q, K)
+    held = _held_out(G, cam, q, K, device)
     return (;
         size, cam, q, K, area = base.lens.backward.area, xs = _normalized_points(K, q.fit_px), held,
         B = _rhs_matrix(rhs), anchor, region, ncomp = Val(length(eltype(rhs))),
@@ -876,7 +872,7 @@ function _backward_search(::Type{G}, g, grid_size, tolerance::Real) where {G}
         r = _pspline_grid(G, g, grid_size)
         return r, (r.errors.max <= tolerance ? :converged : :max_iterations), 0
     end
-    W, H = g.size
+    W, H = Int(g.size.width), Int(g.size.height)
     return _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
 end
 
@@ -942,7 +938,7 @@ _lattice_grid_size(W::Integer, H::Integer, cells::Integer) = last(_knot_counts(W
 
 # The image a spline target's lattice covers: a bounded camera's extent. A bare
 # camera model has none.
-_image_size(bc::BoundedCamera) = (e = extent(bc); (Int(e.width), Int(e.height)))
+_image_size(bc::BoundedCamera) = (e = extent(bc); VgtkCore.Size2(Int(e.width), Int(e.height)))
 _image_size(source) = _no_image(source)
 _no_image(source) = throw(
     ArgumentError(
@@ -955,7 +951,7 @@ _no_image(source) = throw(
 _no_image(::Function) = throw(
     ArgumentError(
         "fit_camera(<spline target>, …): a function of the pixel has no image and no K; fit the SplineLens camera of it, " *
-            "`fit_camera(SplineLens, BoundedCamera(CameraModel(SplineLens, f, size; init = :quasi_interpolate), Size2(size...)), region; tolerance)`"
+            "`fit_camera(SplineLens, BoundedCamera(CameraModel(SplineLens, f, size; init = :quasi_interpolate), size), region; tolerance)`"
     )
 )
 
@@ -964,7 +960,7 @@ _grid_rhs(::Type{SplineLens}, q) = (q.fit_rays, nothing)
 # The camera of the solved controls: Core's one SplineLens constructor, on the
 # image's lattice with the lattice's K (the controls kept as solved).
 _grid_model(::Type{SplineLens}, g, controls) = CameraModel(SplineLens, controls, g.size; intrinsics = g.K)
-_held_out(::Type{SplineLens}, source, q, K) = _held_out(source, q, K, normalize.(q.held_rays), nothing)
+_held_out(::Type{SplineLens}, source, q, K, device) = _held_out(source, q, K, normalize.(q.held_rays), nothing, device)
 _grid_errors(fitted::CameraModel, held, _) = (_held_out_errors(_direction_errors(fitted, held), held.edge), (;))
 
 # ------------------------------------------------------------------------------
@@ -1019,7 +1015,7 @@ _point_control(x::SVector{6}, center) = SVector{3, Float64}(x[4] + center[1], x[
 _grid_model(::Type{NoncentralSplineModel}, g, controls) = NoncentralSplineModel(
     g.K, ChartSpline(g.area, _direction_control.(controls)), ChartSpline(g.area, _point_control.(controls, Ref(g.anchor)))
 )
-_held_out(::Type{NoncentralSplineModel}, source, q, K) = _held_out(source, q, K, last.(q.held_rays), first.(q.held_rays))
+_held_out(::Type{NoncentralSplineModel}, source, q, K, device) = _held_out(source, q, K, last.(q.held_rays), first.(q.held_rays), device)
 function _grid_errors(fitted::NoncentralSplineModel, held, center)
     e, offsets = _line_errors(fitted, held)
     return e, (; center, max_offset = offsets.max, rms_offset = offsets.rms, max_offset_edge = offsets.max_edge)
@@ -1048,8 +1044,8 @@ _fitted_direction(m::NoncentralSplineModel, x) = m.directions(x)
 # the line offset's — as a non-finite sample is from the quadrature, and
 # counted (`n_dropped`). Each spacing then evaluates the fitted direction and
 # one 2 × 3 product per kept pixel (`pointwise!`).
-function _held_out(source, q, K, directions, origins)
-    J = map(u -> last(backproject_with_jacobian(source, u)), q.held_px)
+function _held_out(source, q, K, directions, origins, device)
+    J = map(last, backproject_with_jacobian(source, q.held_px; device))   # Core's batched form on `device`
     kept = map(j -> all(isfinite, j), J)
     any(kept) || throw(ArgumentError("fit_camera: the source's back-projection Jacobian is not finite at any held-out pixel"))
     pinv = map(j -> SMatrix{2, 3, Float64}((transpose(j) * j) \ transpose(j)), J[kept])
@@ -1107,14 +1103,13 @@ function fit_camera(
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
     fwd === nothing || fwd.code === :converged || (code = fwd.code)
     out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
-    ff = fwd === nothing ? (; spacing = nothing, counts = nothing, forward_λ = nothing, forward_outer_iterations = nothing,
-            forward_max_px = nothing, forward_max_px_edge = nothing, forward_rms = nothing) :
-        (; spacing = fwd.r.h, counts = fwd.r.counts, forward_λ = fwd.r.λ, forward_outer_iterations = fwd.n,
-            forward_max_px = fwd.r.errors.max, forward_max_px_edge = fwd.r.errors.max_edge, forward_rms = fwd.r.errors.rms)
+    ff = fwd === nothing ? nothing :
+        (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
+            max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
     return FitResult(
         out, code, 0, back.errors.rms, back.n,
         CameraFitMetadata(
-            region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), ff...),
+            region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), forward = ff),
             gauge.rotation, gauge.symmetry_residual,
         )
     )
@@ -1152,7 +1147,7 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     )
     cam = CameraModel(src.intrinsics, SplineLens(src.lens.backward; present = src.lens.present))
     q = _image_quadrature(cam, region; device)
-    held = _held_out(SplineLens, cam, q, cam.intrinsics)
+    held = _held_out(SplineLens, cam, q, cam.intrinsics, device)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)
     family = (; λ = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
     return (; camera = cam, errors, n = length(q.fit_px)), :converged, family
@@ -1187,7 +1182,7 @@ end
 # and the camera's x ↦ u.
 function _chart_quadrature(cam, region, device)
     q = _image_quadrature(cam, region; device)
-    chart = VgtkCore.Cameras._forward_chart()   # THE chart `project` evaluates the forward on (Core's one derivation)
+    chart = VgtkCore.forward_chart(SplineLens)   # THE chart `project` evaluates the forward on (Core's one derivation)
     fit_charts = pointwise!(chart, similar(q.fit_rays, SVector{2, Float64}), q.fit_rays)
     held_charts = pointwise!(chart, similar(q.held_rays, SVector{2, Float64}), q.held_rays)
     lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))

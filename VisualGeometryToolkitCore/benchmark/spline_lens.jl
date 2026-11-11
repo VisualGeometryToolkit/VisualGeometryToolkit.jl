@@ -47,7 +47,7 @@ include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_
 const G = GOLDEN
 const W, H = G.image[1], G.image[2]
 const SRC = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-const CAM = CameraModel(SplineLens, SRC, (W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
+const CAM = CameraModel(SplineLens, SRC, Size2(W, H); grid_size = (G.grid_size[1], G.grid_size[2]))
 # the lens with the golden's fitted forward spline (the test's construction, spline_lens_tests.jl)
 const CAM_FWD = let K = calibration_matrix(CAM), S = G.spline
     K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))

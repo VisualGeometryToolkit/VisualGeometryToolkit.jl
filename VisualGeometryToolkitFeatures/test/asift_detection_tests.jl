@@ -81,7 +81,7 @@ end
     all_ = asift_detect(IMG; device = KA.CPU())
     @test any(d -> near(d, (cy, cx)), all_)
     for nms in (:mxm, :none)
-        m = asift_detect(IMG; device = KA.CPU(), nms, mask)
+        m = asift_detect(IMG; device = KA.CPU(), nms, exclusion_mask = mask)
         unmasked = asift_detect(IMG; device = KA.CPU(), nms)
         @test !isempty(m) && all(d -> gap(centroid(d)) > reach(d) - 1, m)
         @test !any(d -> near(d, (cy, cx)), m)
@@ -92,22 +92,79 @@ end
         @test length(m) < length(unmasked)
     end
     # the raw features and the covariances take the same mask
-    r = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance(), mask)
+    r = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance(), exclusion_mask = mask)
     full = asift_detect(IMG; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance())
     keep = [f in r.features for f in full.features]
     @test r.features == full.features[keep] && r.cov == full.cov[keep]
-    @test asift_detect(IMG; device = KA.CPU(), mask = falses(H, W)) == all_
-    @test_throws DimensionMismatch asift_detect(IMG; device = KA.CPU(), mask = falses(W, H))
+    @test asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(H, W)) == all_
+    @test_throws DimensionMismatch asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(W, H))
     # a StabilizedImage: its saturation is masked by the same rule, and a caller's mask joins it
     img = Float64.(IMG) .* 50
     sat = [hypot(i - BLOBS[3][1], j - BLOBS[3][2]) < 4 for i in 1:H, j in 1:W]
     s = StabilizedImage(img, sat, 50.0)
     open_ = StabilizedImage(img, falses(H, W), 50.0)
-    @test asift_detect(s; device = KA.CPU(), noise_sigmas = 1) == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, mask = sat)
-    both = asift_detect(s; device = KA.CPU(), noise_sigmas = 1, mask)
-    @test both == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, mask = mask .| sat)
+    @test asift_detect(s; device = KA.CPU(), noise_sigmas = 1) == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = sat)
+    both = asift_detect(s; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = mask)
+    @test both == asift_detect(open_; device = KA.CPU(), noise_sigmas = 1, exclusion_mask = mask .| sat)
     @test !any(d -> near(d, (cy, cx)) || near(d, (BLOBS[3][1], BLOBS[3][2])), both)
     @test any(d -> near(d, (BLOBS[2][1], BLOBS[2][2])), both)
+end
+
+@testitem "ASIFT exclusion mask: the retired keyword `mask` is refused, naming `exclusion_mask`" setup = [Fixtures] begin
+    using VisualGeometryToolkitFeatures: StabilizedImage
+    H, W = size(IMG)
+    refused(f) = try
+        f(); false
+    catch e
+        e isa ArgumentError && occursin("exclusion_mask", e.msg)
+    end
+    @test refused(() -> asift_detect(IMG; device = KA.CPU(), mask = falses(H, W)))
+    @test refused(() -> asift_detect(StabilizedImage(Float64.(IMG), falses(H, W), 1.0); device = KA.CPU(), mask = falses(H, W)))
+    @test asift_detect(IMG; device = KA.CPU(), exclusion_mask = falses(H, W)) == asift_detect(IMG; device = KA.CPU())
+end
+
+@testitem "ASIFT detection mask: the clearance is the exact Euclidean distance to the nearest masked pixel" begin
+    using VisualGeometryToolkitCore: centroid, characteristic_scale
+    using VisualGeometryToolkitFeatures: ImasFeatureKA
+    using Random: Xoshiro
+    const VGF = VisualGeometryToolkitFeatures
+    # the rule, by brute force: the pixel holding the centre is clear when its distance to every masked pixel,
+    # √(Δi² + Δj²) in pixels, exceeds three scales
+    function clear(f, mask)
+        fr = VGF._asift_frame(f)
+        H, W = size(mask)
+        c = centroid(fr)
+        i, j = clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)
+        d = minimum((sqrt(Float64((k - i)^2 + (l - j)^2)) for k in 1:H, l in 1:W if mask[k, l]); init = Inf)
+        return d > VGF._MASK_REACH * characteristic_scale(fr)
+    end
+    rng = Xoshiro(7)
+    for (H, W, density) in ((40, 60, 0.002), (37, 23, 0.05), (50, 50, 0.3), (16, 16, 1.0))
+        mask = rand(rng, H, W) .< density
+        # centres over the frame and a little past it, scales from sub-pixel to wider than the frame, isotropic and
+        # sheared shapes; a scale on a pixel distance exactly (a tie: not clear)
+        feats = [begin
+                     σ = rand(rng) < 0.1 ? Float32(rand(rng, 1:6) / 3) : Float32(exp(rand(rng) * 3 - 1.5))
+                     a, b = Float32(1 + rand(rng)), Float32(rand(rng) - 0.5)
+                     ImasFeatureKA(Float32(rand(rng) * (W + 4) - 2), Float32(rand(rng) * (H + 4) - 2), σ, 1.0f0,
+                                   σ^2 * a, σ^2 * b, σ^2 / a + σ^2 * b^2 / a, Int32(0))
+                 end for _ in 1:400]
+        @test VGF._clear_of_mask(feats, mask) == [clear(f, mask) for f in feats]
+    end
+end
+
+@testitem "ASIFT pool: the canonical order sorts the columns lexicographically, the covariances alike" begin
+    using Random: Xoshiro
+    const VGF = VisualGeometryToolkitFeatures
+    rng = Xoshiro(5)
+    for n in (1, 2, 7, 500), with_cov in (false, true)
+        # few distinct values, so that columns tie in their leading rows (and some in every row); signed zeros
+        fh = Float32.(rand(rng, -2:2, 9, n)) ./ 2; fh[rand(rng, 1:9n, n ÷ 3 + 1)] .= -0.0f0
+        ch = with_cov ? Float32.(rand(rng, 0:1, 6, n)) : nothing
+        cols = [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n]
+        VGF._canonical_order!(fh, ch)
+        @test [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n] == sort(cols)
+    end
 end
 
 @testitem "ASIFT untilted: tilts = :untilted is the identity warp alone" setup = [Fixtures, TextureFixture] begin

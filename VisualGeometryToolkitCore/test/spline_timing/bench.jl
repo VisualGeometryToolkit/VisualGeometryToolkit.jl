@@ -38,7 +38,7 @@ Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); go
 include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
 const G = GOLDEN
 const SRC = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
-const CAM = CameraModel(SplineLens, SRC, (G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+const CAM = CameraModel(SplineLens, SRC, Size2(G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
 const CAM_FWD = let K = calibration_matrix(CAM), S = G.spline
     K′ = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0.0, 0.0, 0.0, K[2, 2], 0.0, 499.5, 499.5, 1.0)))
     c′ = _spline_camera(K′, Rect2(0.0, 0.0, 1000.0, 1000.0), CAM.lens.backward.controls)

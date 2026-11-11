@@ -351,13 +351,9 @@ end
     h = ω / 2
     return abs(h) <= _series_radius2(h) ? 1 + h * h / 3 : tan(h) / h            # a/ω = tan(ω/2)/(ω/2)
 end
-@inline function _fov_factor(t::FieldOfView, r2)
-    ω = t.omega
-    a = 2 * tan(ω / 2)
-    q = a * a * r2
-    g = q <= _series_radius2(q) ? 1 - q / 3 + q * q / 5 : atan(sqrt(q)) / sqrt(q)
-    return _fov_scale(ω) * g
-end
+@inline _fov_factor(t::FieldOfView, r2) = (ω = t.omega; a = 2 * tan(ω / 2); _fov_scale(ω) * _fov_g(a * a * r2))
+# g(q) = atan(√q)/√q, and its series where it is 0/0
+@inline _fov_g(q) = q <= _series_radius2(q) ? 1 - q / 3 + q * q / 5 : atan(sqrt(q)) / sqrt(q)
 @inline function _distort(t::FieldOfView, x::StaticVector{2})
     F = _fov_factor(t, x[1] * x[1] + x[2] * x[2])
     return Vec2(F * x[1], F * x[2])
@@ -444,13 +440,18 @@ end
 end
 # F = (a/ω)·g(q), q = a²u, g = atan(√q)/√q: dg/dq = (1/(1 + q) − g)/(2q), its
 # series −1/3 + 2q/5 where `_fov_factor` takes g's.
+# One tan(ω/2), one a/ω and one g for the map and its Jacobian (`_distort` and
+# `_fov_factor`'s numbers, the same operations).
 @inline function _map_and_jacobian(t::FieldOfView, x::StaticVector{2})
     u = x[1] * x[1] + x[2] * x[2]
     ω = t.omega
     a = 2 * tan(ω / 2)
     q = a * a * u
-    dg = q <= _series_radius2(q) ? -one(q) / 3 + 2 * q / 5 : (inv(1 + q) - atan(sqrt(q)) / sqrt(q)) / (2 * q)
-    return _distort(t, x), _radial_jacobian(_fov_factor(t, u), _fov_scale(ω) * a * a * dg, x)
+    g = _fov_g(q)
+    dg = q <= _series_radius2(q) ? -one(q) / 3 + 2 * q / 5 : (inv(1 + q) - g) / (2 * q)
+    sc = _fov_scale(ω)
+    F = sc * g
+    return Vec2(F * x[1], F * x[2]), _radial_jacobian(F, sc * a * a * dg, x)
 end
 @inline _delta_jacobian_sum(ds::Tuple, x) = _delta_jacobian_sum(_delta_jacobian(first(ds), x), Base.tail(ds), x)
 @inline _delta_jacobian_sum(acc, ::Tuple{}, x) = acc
@@ -671,8 +672,6 @@ end
 @inline _is_radial(_) = false
 @inline _any_radial(ds::Tuple) = any(_is_radial, ds)
 
-@inline _on_imaged_branch(d, x::SVector{2}) = _radial_ok(d, x) && det(_distort_jacobian(d, x)) > 0
-
 # A converged root on the branch stands as solved: the result is the solver's
 # own, unchanged. `dJ` is det J at the root. Otherwise (no convergence, or a
 # root past a fold) the root is continued from the axis.
@@ -744,7 +743,10 @@ _walk_trips(::Type{<:AbstractFloat}) = 24
             h /= 2
         end
     end
-    t == 1 && _residual_ok(_distort(d, x), xd) && _on_imaged_branch(d, x) && return x, true
+    if t == 1
+        y, Jy = _distort_and_jacobian(d, x)          # the residual and the branch test from one evaluation
+        _residual_ok(y, xd) && _radial_ok(d, x) && det(Jy) > 0 && return x, true
+    end
     seed, found = _radial_seed(d, cap, xd)
     found || return x, false                  # no seed but x_d itself, which the first solve had
     xs, ok, dJ = _inverse_lm(d, xd, seed)

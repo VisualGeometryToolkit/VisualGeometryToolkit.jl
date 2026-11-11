@@ -15,7 +15,7 @@
     fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
     disc = Ellipse(Point2(640.0, 480.0), 250π / 3, 250π / 3, 0.0)            # inside the frame
     cut = Ellipse(Point2(640.0, 480.0), 700.0, 420.0, 0.0)                    # cut by the frame's left and right
-    m = CameraModel(SplineLens, fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    m = CameraModel(SplineLens, fish, Size2(W, H); grid_size = (24, 19), init = :quasi_interpolate)
     region(dom) = valid_domain(m) ∩ dom
     masked(dom) = with_present(m, node_mask(m, region(dom)))                  # NaN in the absent slots: any read shows
     imaged(c, p) = all(isfinite, backproject(c, p))
@@ -136,7 +136,7 @@ end
     W, H = 1280, 960
     fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
     disc = Circle(Point2(640.0, 480.0), 250π / 3)
-    m = CameraModel(SplineLens, fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    m = CameraModel(SplineLens, fish, Size2(W, H); grid_size = (24, 19), init = :quasi_interpolate)
     C = m.lens.backward.controls
     turn = RotXYZ(0.0, 0.0, 0.05)
     D = map(v -> SVector{3, Float64}(turn * v), C)
@@ -163,7 +163,7 @@ end
         bc.camera isa PosedCamera && @test b1.camera.extrinsics === X && b2.camera.extrinsics === X
     end
     # a bounded non-central model takes them too
-    nc = NoncentralSplineModel(fish, (W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    nc = NoncentralSplineModel(fish, Size2(W, H); grid_size = (24, 19), init = :quasi_interpolate)
     bn = BoundedCamera(nc, Size2(W, H); lens_coverage = disc)
     @test with_directions(bn, D).camera.directions.controls == D && present_nodes(with_present(bn, mask).camera) == mask
 end

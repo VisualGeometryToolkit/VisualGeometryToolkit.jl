@@ -387,37 +387,6 @@ end
     )
 end
 
-"""
-    _ift_cov_reference(H, off, M, sf, S) -> SMatrix{3, 3} over (x, y, log σ)
-
-Host reference of the covariance `_bextract!` emits, through VisualGeometryToolkitCore's
-`implicit_covariance`: the square system `g(v, f) = ĝ + Ĥ·(v − v₀) = 0` with
-`A = ∂g/∂v = Ĥ` and `B = ∂g/∂f = P(off)` over the nine functionals `f`, whose
-covariance is `M`; then `propagate` by `J = diag(sf, sf, ln2/S)`, which also
-reorders (s, x, y) to (x, y, log σ).
-"""
-function _ift_cov_reference(H::AbstractMatrix, off, M::AbstractMatrix, sf::Real, S::Integer)
-    oS, oX, oY = off
-    P = zeros(3, _NFUN)
-    for i in 1:3
-        r = _PROW[i]
-        P[i, r[1]] += 1.0
-        P[i, r[2]] += oS; P[i, r[3]] += oX; P[i, r[4]] += oY
-    end
-    Σv = implicit_covariance(Matrix{Float64}(H), P; Σx = [Matrix{Float64}(M)])
-    Σv === nothing && return SMatrix{3, 3}(fill(NaN, 3, 3))
-    q = log(2) / S
-    J = SMatrix{3, 3, Float64}(0, 0, q, sf, 0, 0, 0, sf, 0)   # (s, x, y) → (x, y, log σ)
-    return propagate(J, SMatrix{3, 3, Float64}(Σv))
-end
-
-# Host reference of `_backproject_cov!`: the back-warp's linear part A on (x, y),
-# log σ fixed, by `propagate`.
-function _backproject_cov_reference(Σ::AbstractMatrix, A::AbstractMatrix)
-    J = SMatrix{3, 3, Float64}(A[1, 1], A[2, 1], 0, A[1, 2], A[2, 2], 0, 0, 0, 1)
-    return propagate(J, SMatrix{3, 3, Float64}(Σ))
-end
-
 # Host: the packed (xx, xy, xℓ, yy, yℓ, ℓℓ) column as a _FrameCov.
 @inline _keypoint_cov(c) = _FrameCov(
     Float64(c[1]), Float64(c[2]), Float64(c[3]),

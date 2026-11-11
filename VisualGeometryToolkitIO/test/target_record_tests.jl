@@ -424,7 +424,7 @@ end
     using Rotations: RotXYZ
     src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-4 / (3π^2)))
     circle = Ellipse(Point2(32.25, 23.875), 33.2, 33.2, 0.0)   # the image circle, supplied (a lens model's fold is not one)
-    gc = CameraModel(SplineLens, src, (64, 48); grid_size = (8, 7), init = :quasi_interpolate)
+    gc = CameraModel(SplineLens, src, Size2(64, 48); grid_size = (8, 7), init = :quasi_interpolate)
     gd = gc.lens.backward
     nc = NoncentralSplineModel(gc.intrinsics, gd, ChartSpline(gd.area, [SVector(1e-3 * gx, -2e-3 * gy, 0.0) for gy in 1:7, gx in 1:8]))
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))

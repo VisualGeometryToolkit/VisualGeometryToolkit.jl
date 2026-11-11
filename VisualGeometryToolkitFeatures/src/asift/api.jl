@@ -210,7 +210,7 @@ _asift_meta(f::ImasFeatureKA) = (
     asift_detect(img; device=default_device(), nms=:mxm, window_half=3,
                  cutoff=3.0, intensity_thr=0.04, edge_thr=10.0,
                  polarity=:none, band_octaves=0.0, band_reach=1, boundary_K=3.0,
-                 tilts=:imas25, mask=nothing, upsample=true, seed_sigma=1.6,
+                 tilts=:imas25, exclusion_mask=nothing, upsample=true, seed_sigma=1.6,
                  raw=false, uncertainty=nothing)
 
 Run the IMAS-25 ASIFT detector on `img` (H×W; `Gray`, `UInt8`, or real-valued
@@ -248,7 +248,7 @@ within `band_reach` of its own, so board-sized extrema and tilted-warp streaks
 stop erasing the small blobs inside them (see `asift_detect!`).
 `raw=true` returns the `ImasFeatureKA` vector instead of Detections.
 `device`, `tilts`, `upsample` and `seed_sigma` pick the plan; the others but
-`raw` and `mask` go to [`asift_detect!`](@ref), which refuses a keyword it does
+`raw` and `exclusion_mask` go to [`asift_detect!`](@ref), which refuses a keyword it does
 not take.
 
 **Tilts.** `tilts` is a [`tilt_schedule`](@ref) name or a vector of `(t, φ)`
@@ -259,7 +259,7 @@ the schedule for views that differ by a rotation, such as a panorama's. Under
 `:untilted` every detection has `warp_idx == 1`, and they are exactly the
 identity warp's detections under `:imas25`.
 
-**Detection mask.** `mask`, an H×W `AbstractMatrix{Bool}` (`true` where
+**Exclusion mask.** `exclusion_mask`, an H×W `AbstractMatrix{Bool}` (`true` where
 detection is not allowed: clipped or saturated pixels, a vignetted rim, an
 overlay), drops every detection whose centre lies within three of its scales
 (`characteristic_scale`, the DoG's support) of a masked pixel, so no keypoint
@@ -296,9 +296,10 @@ function asift_detect(
         tilts = :imas25, raw::Bool = false,
         upsample::Bool = true, seed_sigma::Real = 1.6,
         uncertainty::Union{Nothing, FeatureCovariance} = nothing,
-        mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...
+        exclusion_mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...
     )
-    _check_mask(mask, size(img))
+    _refuse_retired_mask(kwargs)
+    _check_mask(exclusion_mask, size(img))
     inp = _asift_input(img)
     W, H = inp isa Matrix{UInt8} ? (size(inp, 2), size(inp, 1)) : size(inp)
     ts = tilt_schedule(tilts)
@@ -306,22 +307,27 @@ function asift_detect(
         plan = _asift_plan(W, H, device, ts, upsample, seed_sigma)
         asift_detect!(plan, inp; nms, polarity, uncertainty, kwargs...)
     end
-    mask === nothing || (feats = _unmasked(feats, mask))
+    exclusion_mask === nothing || (feats = _unmasked(feats, exclusion_mask))
     return raw ? feats : _asift_detections(feats)
 end
 
 _asift_detections(feats::Vector{ImasFeatureKA}) = asift_detections(feats)
 _asift_detections(r::NamedTuple{(:features, :cov)}) = asift_detections(r.features, r.cov)
 
-# ----- the detection mask ------------------------------------------------------
+# ----- the exclusion mask ------------------------------------------------------
 
 # A detection whose centre lies within this many of its scales (√det of its shape: the DoG's support) of a masked
 # pixel is dropped: its DoG read the masked pixels.
 const _MASK_REACH = 3
 
+# `mask` was the keyword's name before 0.9: refused, naming the new one (it would otherwise reach `asift_detect!` as
+# an unknown keyword, or be dropped by a method that forwards `kwargs...`).
+_refuse_retired_mask(kwargs) = haskey(kwargs, :mask) && throw(ArgumentError(
+    "asift_detect: the keyword `mask` is retired: the pixels excluded from detection are `exclusion_mask`"))
+
 _check_mask(::Nothing, sz) = nothing
 _check_mask(mask::AbstractMatrix{Bool}, sz) = size(mask) == sz ? nothing : throw(DimensionMismatch(
-    "asift_detect: the image is $(join(sz, '×')), the detection mask $(join(size(mask), '×'))"))
+    "asift_detect: the image is $(join(sz, '×')), the exclusion mask $(join(size(mask), '×'))"))
 
 # The features (and their covariances) clear of `mask` (H×W, `true` where detection is not allowed): the distance
 # from the pixel holding a feature's centre to the nearest masked pixel exceeds `_MASK_REACH` of its scales.
@@ -335,11 +341,40 @@ end
 
 function _clear_of_mask(feats::Vector{ImasFeatureKA}, mask::AbstractMatrix{Bool})
     any(mask) || return trues(length(feats))
-    dist = distance_transform(feature_transform(BitMatrix(mask)))   # each pixel's distance to the nearest masked one
-    H, W = size(dist)
+    H, W = size(mask)
+    # the masked pixels' summed-area table: a disc's bounding box holding none is clear at once, in O(1); a box
+    # holding some is read chord by chord (the discs near the mask only, not the frame's distance transform)
+    S = zeros(Int32, H + 1, W + 1)
+    @inbounds for j in 1:W, i in 1:H
+        S[i + 1, j + 1] = S[i, j + 1] + S[i + 1, j] - S[i, j] + Int32(mask[i, j])
+    end
     return map(feats) do f
         fr = _asift_frame(f)
         c = centroid(fr)
-        dist[clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)] > _MASK_REACH * characteristic_scale(fr)
+        i, j = clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)
+        _clear_at(mask, S, i, j, _MASK_REACH * characteristic_scale(fr))
     end
 end
+
+# Whether pixel (i, j)'s Euclidean distance √(Δi² + Δj²) to every masked pixel exceeds `reach`: the rule of the
+# distance transform, read row by row over the disc (each row's chord counted in the table, O(1)).
+function _clear_at(mask, S, i, j, reach)
+    H, W = size(mask)
+    within(di, dj) = !(sqrt(Float64(di^2 + dj^2)) > reach)
+    r = isfinite(reach) ? floor(Int, max(reach, 0.0)) : max(H, W)
+    i0, i1, j0, j1 = max(i - r, 1), min(i + r, H), max(j - r, 1), min(j + r, W)
+    _masked_in(S, i0, i1, j0, j1) == 0 && return true
+    for k in i0:i1
+        di = k - i
+        within(di, 0) || continue
+        # the chord's half-width: the largest w with (di, w) within the disc, the float rule's own edge
+        w = isfinite(reach) ? min(floor(Int, sqrt(max(Float64(reach)^2 - di^2, 0.0))), r) : r
+        while w < r && within(di, w + 1); w += 1; end
+        while w > 0 && !within(di, w); w -= 1; end
+        _masked_in(S, k, k, max(j - w, 1), min(j + w, W)) == 0 || return false
+    end
+    return true
+end
+
+# The masked pixels in rows i0:i1, columns j0:j1, from the summed-area table `S` ((H + 1) × (W + 1)).
+@inline _masked_in(S, i0, i1, j0, j1) = @inbounds S[i1 + 1, j1 + 1] - S[i0, j1 + 1] - S[i1 + 1, j0] + S[i0, j0]

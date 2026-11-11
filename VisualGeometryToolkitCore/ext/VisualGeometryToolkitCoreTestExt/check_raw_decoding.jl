@@ -75,45 +75,6 @@ _allowed(f, a::Regex) = occursin(a, f)
 const _RAW_MODULE_PACKAGE = "VisualGeometryToolkitFeatures"
 const _RAW_MODULE_FILES = ("src/raw_image.jl", "ext/VisualGeometryToolkitFeaturesLibRawExt.jl", "test/raw_image_tests.jl")
 
-# The code text of a Julia source, line by line: comments and docstring (triple-quoted
-# string) contents blanked, the line structure kept.
-const _JS = Base.JuliaSyntax   # Julia's own tokenizer: comments and string pieces as tokens
-function _julia_code_lines(src::AbstractString)
-    out = IOBuffer()
-    in_triple = false
-    bytes = codeunits(src)
-    for t in _JS.tokenize(src)
-        k = _JS.kind(t)
-        text = String(bytes[t.range])                   # a token's byte range (its last character may be multi-byte)
-        if k == _JS.K"\"\"\"" || k == _JS.K"```"
-            in_triple = !in_triple
-            print(out, text)
-        elseif k == _JS.K"Comment" || (in_triple && k == _JS.K"String")
-            print(out, replace(text, r"[^\n]" => ""))   # its newlines kept: the line numbers stand
-        else
-            print(out, text)
-        end
-    end
-    return split(String(take!(out)), '\n')
-end
-
-# The code text of a `#`-commented file (Python, shell, TOML), line by line: a
-# comment starts at a `#` outside a quoted run (a line-level approximation).
-function _hash_code_lines(src::AbstractString)
-    return map(split(src, '\n')) do line
-        quote_char = nothing
-        for (i, c) in pairs(line)
-            if quote_char === nothing
-                c == '#' && return line[1:prevind(line, i)]
-                (c == '"' || c == '\'') && (quote_char = c)
-            elseif c == quote_char
-                quote_char = nothing
-            end
-        end
-        line
-    end
-end
-
 function check_raw_decoding(dir::AbstractString; allow = ())
     allow isa Union{AbstractString, Regex} && (allow = (allow,))   # one exception, given bare
     (; files) = naming_scope(dir)

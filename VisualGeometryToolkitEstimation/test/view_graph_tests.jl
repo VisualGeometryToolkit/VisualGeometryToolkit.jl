@@ -32,6 +32,10 @@
     # labels of any ordered type
     sg = ViewGraph(Dict(("a", "b") => 1, ("b", "c") => 2))
     @test components(sg) == [["a", "b", "c"]] && articulation(sg) == ["b"]
+    # equal sizes: by the smallest view; an isolated view is its own component; no cut, no bridge in a cycle
+    tie = ViewGraph([7, 5, 6, 1, 2, 9], Dict((5, 6) => :x, (1, 2) => :y, (2, 7) => :z, (1, 7) => :w))
+    @test components(tie) == [[1, 2, 7], [5, 6], [9]] && articulation(tie) == Int[] && bridges(tie) == [(5, 6)]
+    @test label_components(tie) == Dict(1 => 1, 2 => 1, 7 => 1, 5 => 2, 6 => 2, 9 => 3)
 end
 
 @testitem "ViewGraph: spanning tree, chain, loop and orientation filters" begin
@@ -138,6 +142,11 @@ end
     vg = ViewGraph(Dict((1, 2) => A, (2, 3) => A))
     out = chain(vg, 1; identity = I)                     # UniformScaling at the root, matrices elsewhere
     @test out[1] == I && out[2] ≈ inv(A) && out[3] ≈ inv(A) * inv(A)
+    # views outside the root's component get no entry; a branching tree composes along each view's own path
+    forest = ViewGraph(Dict((1, 2) => A, (1, 3) => 2A, (3, 4) => A, (7, 8) => A))
+    out = chain(forest, 3; identity = I)
+    @test sort!(collect(keys(out))) == [1, 2, 3, 4] && out[3] == I
+    @test out[1] == I * (2A) && out[2] == out[1] * inv(A) && out[4] == I * inv(A)
 end
 
 @testitem "ObservationGraph: frames × boards, components, covisibility" begin
@@ -158,7 +167,12 @@ end
     @test cs[2] == (; observers = [7, 8], observed = ["Z"])
     @test label_components(og).observed["Z"] == 2
     @test articulation(og) == (; observers = [1, 4], observed = ["A", "B", "Z"])
-    @test (4, "C") in bridges(og) && (2, "A") in bridges(og)
+    @test bridges(og) == [(1, "A"), (1, "B"), (2, "A"), (3, "B"), (4, "B"), (4, "C"), (7, "Z"), (8, "Z")]   # each component a tree
+    @test label_components(og) == (; observers = Dict(1 => 1, 2 => 1, 3 => 1, 4 => 1, 7 => 2, 8 => 2),
+                                     observed = Dict("A" => 1, "B" => 1, "C" => 1, "Z" => 2))
+    # equal vertex counts: by the smallest observer
+    two = ObservationGraph(Dict((5, "P") => 1, (2, "Q") => 2))
+    @test components(two) == [(; observers = [2], observed = ["Q"]), (; observers = [5], observed = ["P"])]
     @test_throws ArgumentError require_connected(og)
     # integer labels on both sides do not collide
     ints = ObservationGraph(Dict((1, 1) => :x, (2, 1) => :y))

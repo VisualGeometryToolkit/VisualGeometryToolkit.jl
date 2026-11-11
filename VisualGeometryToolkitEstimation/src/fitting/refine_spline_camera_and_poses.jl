@@ -54,7 +54,7 @@
 # smoothness), or chosen by generalized cross-validation (`_gcv_linearization`, `gcv_select`).
 # =============================================================================
 
-const _SplineDirections = VgtkCore.ControlPatchManifold{2, 2, 4, Float64, Nothing, VgtkCore.Cameras.AdditivePoints}
+const _SplineDirections = VgtkCore.ControlPatchManifold{2, 2, 4, Float64, Nothing}
 # A patch's full chart: 2 × 2 controls (`[row, col]` within the patch), their directions on
 # their spheres (coordinates 2n − 1, 2n of control n) and their log-scales (8 + n).
 const _PatchChart = ProductManifold{Tuple{_SplineDirections, EuclideanManifold{4, Float64}}, typeof(identity)}

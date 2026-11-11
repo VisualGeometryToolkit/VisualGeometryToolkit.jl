@@ -45,20 +45,38 @@ const _BASE_FIGURES = joinpath("comparison", "base")     # the base's copy of ea
 # Git
 # ---------------------------------------------------------------------------
 
-# git in `dir`; its stdout (raw bytes with `bytes = true`, else stripped text).
+# git in `dir`, reading `input`; its stdout (raw bytes with `bytes = true`, else stripped text).
 # A failure is an error naming the command and git's own message.
-function _git(dir::AbstractString, args...; bytes::Bool = false)
+function _git(dir::AbstractString, args...; bytes::Bool = false, input = devnull)
     out, err = IOBuffer(), IOBuffer()
-    ok = success(pipeline(`git -C $dir $args`; stdout = out, stderr = err))
+    ok = success(pipeline(`git -C $dir $args`; stdin = input, stdout = out, stderr = err))
     ok || error("git $(join(args, ' ')) (in $dir): $(strip(String(take!(err))))")
     return bytes ? take!(out) : String(strip(String(take!(out))))
 end
 
-# git that commits (commit, merge): an identity of its own when the repository lacks a name or an email.
-_has_config(dir, key) = success(pipeline(`git -C $dir config $key`; stdout = devnull, stderr = devnull))
-_git_commit(dir::AbstractString, args...) =
-    _has_config(dir, "user.name") && _has_config(dir, "user.email") ? _git(dir, args...) :
-    _git(dir, "-c", "user.name=VisualGeometryToolkitEval", "-c", "user.email=vgtk@localhost", args...)
+# The bytes of each object `objects[k]` (a `rev:path`), from one `git cat-file --batch`: one git process
+# for all of them, not one per asset. An object that does not exist is an error naming it.
+function _git_blobs(dir::AbstractString, objects::AbstractVector{<:AbstractString})
+    out = IOBuffer(_git(dir, "cat-file", "--batch"; bytes = true, input = IOBuffer(String(join(string.(objects, '\n'))))))
+    return map(objects) do o
+        header = readline(out)                       # "<oid> <type> <size>", or "<object> missing"
+        endswith(header, " missing") && error("git cat-file --batch (in $dir): $o does not exist")
+        b = read(out, parse(Int, last(split(header))))
+        read(out, UInt8)                             # the newline after the contents
+        b
+    end
+end
+
+# The options git runs with when it commits (commit, merge): an identity of its own when the repository
+# lacks a name or an email. One git process reads both keys; a caller reads them once for all its commits.
+function _commit_identity(dir::AbstractString)
+    out = IOBuffer()
+    pattern = raw"^user\.(name|email)$"
+    success(pipeline(`git -C $dir config --get-regexp $pattern`; stdout = out, stderr = devnull))   # exit 1: neither set
+    set = Set(first(split(l)) for l in eachsplit(String(take!(out)), '\n'; keepempty = false))
+    return "user.name" in set && "user.email" in set ? () :
+           ("-c", "user.name=VisualGeometryToolkitEval", "-c", "user.email=vgtk@localhost")
+end
 
 # A cleanup step after a failure or at the end: its own failure is a warning,
 # never an error that would hide the one being handled.
@@ -378,7 +396,7 @@ function _fill_results_branch(top::AbstractString, prefix::AbstractString, workt
     counts = join(("$(count(r -> r.verdict == v, numbers)) $(lowercase(v))" for v in _VERDICT_ORDER[1:3]), ", ")
     _git(worktree, "add", "-f", "--", (_in_project(prefix, p) for p in [paths; RESULTS_MANIFEST; RESULTS_COMPARISON])...)
     isempty(pngs) || _git(worktree, "add", "-f", "--", _in_project(prefix, _BASE_FIGURES))
-    _git_commit(worktree, "commit", "-q", "--no-verify", "-m",
+    _git(worktree, _commit_identity(worktree)..., "commit", "-q", "--no-verify", "-m",
                 "Results $(run.stamp) of $(run.commit[1:7]) against $(run.base): $counts\n\n" *
                 "See $(_in_project(prefix, RESULTS_COMPARISON)).")
     println("results branch ", run.branch, " in ", worktree, " (", counts, ")")
@@ -437,12 +455,13 @@ function accept_results(dir::AbstractString, branch::AbstractString;
     end
     deployed = String[]
     try
-        for a in assets
-            write(joinpath(mkpath(dirname(joinpath(renders, a))), basename(a)), _git(top, "show", branch * ":" * a; bytes = true))
+        for (a, b) in zip(assets, _git_blobs(top, [branch * ":" * a for a in assets]))
+            write(joinpath(mkpath(dirname(joinpath(renders, a))), basename(a)), b)
         end
         _git(top, "worktree", "add", "-q", "--detach", merging, old)
+        committer = _commit_identity(merging)
         # a merge of the branch that keeps the base's tree; then the assets alone, through the sign-off
-        _git_commit(merging, "merge", "-q", "--no-ff", "--no-commit", "-s", "ours", branch)
+        _git(merging, committer..., "merge", "-q", "--no-ff", "--no-commit", "-s", "ours", branch)
         for (d, group) in Iterators.map(d -> d => filter(a -> dirname(a) == d, assets), unique(dirname.(assets)))
             names = basename.(group)
             sign = signed isa Bool ? signed : [basename(a) for a in group if a in signed]
@@ -451,7 +470,7 @@ function accept_results(dir::AbstractString, branch::AbstractString;
             end
         end
         _git(merging, "add", "-f", "--", assets...)
-        _git_commit(merging, "commit", "-q", "--no-verify", "-m",
+        _git(merging, committer..., "commit", "-q", "--no-verify", "-m",
                     "Accept $branch into $base\n\nThe results of $(manifest["commit"][1:7]) at $(manifest["stamp"]) " *
                     "($(_in_project(prefix, RESULTS_COMPARISON)) on the branch).")
         merged = _git(merging, "rev-parse", "HEAD")

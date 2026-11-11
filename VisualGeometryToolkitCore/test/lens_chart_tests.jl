@@ -336,12 +336,12 @@ end
 
     K = @SMatrix [300.0 0.0 320.0; 0.0 300.0 240.0; 0.0 0.0 1.0]
     src = CameraModel(CameraCalibrationMat(K); lens = Division(-0.1))
-    g = CameraModel(SplineLens, src, (640, 480); grid_size = (12, 10))
+    g = CameraModel(SplineLens, src, Size2(640, 480); grid_size = (12, 10))
     g32 = convert_eltype(Float32, g)
     @test g32 isa CameraModel{LogicalIntrinsics{Float32}, <:SplineLens} && eltype(g32.lens.backward.controls) === SVector{3, Float32}
     g64 = convert_eltype(Float64, g32)
     @test typeof(g64) === typeof(g) && all(near(a, b) for (a, b) in zip(g64.lens.backward.controls, g.lens.backward.controls))
-    n = NoncentralSplineModel(src, (640, 480); grid_size = (12, 10))
+    n = NoncentralSplineModel(src, Size2(640, 480); grid_size = (12, 10))
     n32 = convert_eltype(Float32, n)
     @test eltype(n32.directions.controls) === SVector{3, Float32} && eltype(n32.points.controls) === SVector{3, Float32}
     @test all(near(a, b) for (a, b) in zip(convert_eltype(Float64, n32).directions.controls, n.directions.controls))

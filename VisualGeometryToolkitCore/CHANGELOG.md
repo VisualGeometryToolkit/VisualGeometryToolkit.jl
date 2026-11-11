@@ -21,6 +21,23 @@ sensor — so every consumer asks the camera what it images instead of supplying
   renamed). The old names are retired (`RETIRED_NAMES`); `CONTRACT_GENERICS`, the LO contract's "follow the scorer"
   width and `check_composition`'s message say "decision boundary". Behaviour is unchanged, bit for bit.
 
+- **New: the robust stages' scale hand-off, `ScaleSource`, `noise_scale`, `scale_source` and `scale_input`**
+  (public; the robust-estimation contract, owner rulings Q1/Q2). Every robust result will record ONE scale — the one it
+  ran with, or the one it estimated — and where it came from:
+  - `@enum ScaleSource ScaleGiven ScaleUpstream ScaleEstimated ScaleNone` (isbits, so a metadata that carries it stays
+    concrete; the prefix keeps clear of the update-policy type `Estimated`);
+  - `noise_scale(result)` / `scale_source(result)` read the metadata's `scale` and `scale_source` (contract generics,
+    for a metadata that records them otherwise); `noise_scale` refuses a `ScaleNone` result (its scale is `NaN`) and a
+    result without metadata, so a NaN is never handed to the next stage;
+  - `scale_input(scale, width) -> ScaleInput{T}` parses a stage's keywords: exactly one of `scale = σ`,
+    `scale = result` (`ScaleUpstream`) or `width = w`, each positive and finite; neither or both is an `ArgumentError`.
+
+  No estimator records a scale yet; the verbs adopt it in their own changes.
+- **The `efficiency_constant` table is re-derived by a test** (`test/efficiency_constant_tests.jl`): the
+  quadrature solves eff(c, d) = 0.95 under χ_d for Huber, Cauchy, Welsch and Geman–McClure at d = 1…3 and matches
+  the table to its 4 decimals, so the provenance lives in the repository rather than in a scratch script. No value
+  changed.
+
 - **NLLSsolver ≥ 5.3.4** (`[compat]` floor, the package and its tests): 5.3.4 adds our pull request #69, the run-time
   block views (a residual block of a run-time size assembled without a per-block allocation).
 

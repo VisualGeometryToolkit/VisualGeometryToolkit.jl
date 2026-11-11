@@ -49,6 +49,24 @@ dof
 nested_metadata
 ```
 
+A robust result records ONE scale — the one it ran with, or the one it
+estimated — and where it came from: its metadata's `scale` and
+`scale_source`, read by [`noise_scale`](@ref) and [`scale_source`](@ref). A
+downstream stage takes the hand-off as `scale = result`; [`scale_input`](@ref)
+parses a stage's `scale`/`width` keywords, exactly one of which it requires.
+
+```@docs
+ScaleSource
+ScaleGiven
+ScaleUpstream
+ScaleEstimated
+ScaleNone
+noise_scale
+scale_source
+ScaleInput
+scale_input
+```
+
 ## Index
 
 ```@index

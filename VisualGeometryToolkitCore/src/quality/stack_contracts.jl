@@ -136,6 +136,9 @@ const CONTRACT_GENERICS = (
     scoring_workspace, score!, inlier_count, consensus_order, decision_boundary, has_decision_boundary,
     is_predictive, scored_model, scale_prior, outlier_halfwidth, score_bound, check_workspace,
     with_width, width_axis, residual_quality,
+    # the robust stages' scale hand-off, answered by a metadata type that records its scale otherwise
+    # (base/scale_source.jl)
+    noise_scale, scale_source,
     # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model
     # (robust/partition_sweep.jl)
     estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth,

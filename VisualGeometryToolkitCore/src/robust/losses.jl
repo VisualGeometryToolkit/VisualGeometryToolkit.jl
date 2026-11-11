@@ -412,12 +412,12 @@ the Geman–Reynolds literature also calls ψ — that one takes a WEIGHT.
 # are for THIS FILE'S parameterisation (`lift_weight` above) and must be
 # re-derived if a loss's form ever changes.
 #
-# PROVENANCE: solved numerically from the integral above. Cauchy (2.3849) and
-# Welsch (2.9846) reproduce the published constants to four figures, which is
-# what validates the machinery; Huber carries its published 1.345 rather than
-# the solver's 1.3371, the 0.6% being quadrature error at psi's kink.
-# Geman-McClure has no widely published constant — 3.7874 is derived here and
-# cross-checks against nothing, so treat it as the weakest entry.
+# PROVENANCE: solved numerically from the integral above, and re-solved to four
+# decimals for d = 1…3 by test/efficiency_constant_tests.jl. Huber (1.345),
+# Cauchy (2.3849) and Welsch (2.9846) reproduce the published constants to four
+# figures, which is what validates the machinery (Huber only with a breakpoint at
+# psi's kink: without one the quadrature gives 1.3371). Geman-McClure has no
+# widely published constant; 3.7874 rests on that test alone.
 
 """
     efficiency_constant(K::Type{<:AbstractMEstimator}) -> Float64
@@ -455,7 +455,8 @@ function efficiency_constant end
 # PROVENANCE (2026-09-20): eff(m, d) = 0.95 solved by bisection on adaptive
 # Gauss-Kronrod quadrature (QuadGK, rtol 1e-12, order 15) over r ~ chi_d, with
 # an explicit breakpoint at the solved multiple so the kink in Huber's and smooth-TLS's psi is not
-# integrated across. The derivation script is scratch, not a package dep.
+# integrated across. test/efficiency_constant_tests.jl is the derivation: it
+# re-solves the table for d = 1…3 to these four decimals.
 #
 # VALIDATION: at d = 1 it returns Huber 1.3450, Cauchy 2.3849, Welsch 2.9846 and
 # GM 3.7874 — the published constants to four figures, which is what validates

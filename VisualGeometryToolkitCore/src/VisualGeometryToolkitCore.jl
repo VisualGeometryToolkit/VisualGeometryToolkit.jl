@@ -546,6 +546,10 @@ public RowsWorkspace, rows_workspace, task_buffers, point_norms!,
 # natural keyword and variable names at every call site; call them qualified.
 export AbstractMEstimator, efficiency_constant
 public codimension_factor
+# The robust stages' scale hand-off (base/scale_source.jl): each robust result records ONE
+# scale and its ScaleSource; `scale_input` parses a stage's `scale`/`width` keywords.
+public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_scale, scale_source,
+    ScaleInput, scale_input
 public noise_sigma   # the robust noise sigma of residual norms, median(norms) / √chisq_median(d)
 public mad_scale     # the normal-consistent MAD of scalars, median(|x − median(x)|) / Φ⁻¹(3/4) (1.4826·MAD)
 # A DEPLOYED loss carries the width it runs at as `scale_multiple` (the multiple
@@ -849,6 +853,7 @@ include("base/types.jl")    # Loads interface.jl, defines AbstractDetection, con
 include("base/cspond_set.jl") # Csponds columnar container + sources/targets protocol + lift
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
 include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
+include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)

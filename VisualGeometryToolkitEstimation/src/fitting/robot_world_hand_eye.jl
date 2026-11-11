@@ -277,7 +277,8 @@ end
 # their rig-motion axes, so the covariance differentiates the same stage.
 function _robot_world_hand_eye_init(
         RA, tA, obs_marker, RB, tB, by_marker;
-        min_rel_angle::Float64    # required: the caller holds the [robot_world_hand_eye] default
+        min_rel_angle::Float64,   # required: the caller holds the [robot_world_hand_eye] default
+        wobs = nothing            # the robust fit's per-observation weights (nothing: least squares)
     )
     M = length(by_marker)
 
@@ -303,10 +304,29 @@ function _robot_world_hand_eye_init(
                 "$(round(rad2deg(min_rel_angle); digits = 1))° — calibration motion is degenerate"
         )
     )
-    R_Y = RotMatrix{3, Float64}(kabsch(as .=> bs)')                   # b = R_Yᵀ a  ⇒  Kabsch gives R_Yᵀ
+    R_Y = if wobs === nothing
+        RotMatrix{3, Float64}(kabsch(as .=> bs)')                     # b = R_Yᵀ a  ⇒  Kabsch gives R_Yᵀ
+    else                                                              # a pair weighs its two observations' weights
+        pw = [wobs[k1] * wobs[k2] for (k1, k2) in pairs]
+        count(>(0), pw) >= 2 || throw(ArgumentError(
+            "fit_robot_world_hand_eye: the loss leaves fewer than 2 relative motions of positive weight; a " *
+            "redescending loss needs a seed inside its width: use a monotone one (Irls{HuberShape}) or a wider `width`"))
+        RotMatrix{3, Float64}(kabsch([pw[q] * as[q] => bs[q] for q in eachindex(pw) if pw[q] > 0])')
+    end
 
-    # 2. R_X per marker: R_B = R_Yᵀ R_A R_X  ⇒  R_X = R_Aᵀ R_Y R_B, chordal mean
-    R_X = [chordal_mean([RotMatrix{3, Float64}(RA[k]' * R_Y * RB[k]) for k in by_marker[m]]) for m in 1:M]
+    # 2. R_X per marker: R_B = R_Yᵀ R_A R_X  ⇒  R_X = R_Aᵀ R_Y R_B, chordal mean (weighted: Σ wₖRₖ projected)
+    R_X = if wobs === nothing
+        [chordal_mean([RotMatrix{3, Float64}(RA[k]' * R_Y * RB[k]) for k in by_marker[m]]) for m in 1:M]
+    else
+        map(1:M) do m
+            ks = [k for k in by_marker[m] if wobs[k] > 0]
+            isempty(ks) && throw(ArgumentError(
+                "fit_robot_world_hand_eye: the loss gives every observation of marker $m (in sorted id order) zero weight " *
+                "at the least-squares seed; a redescending loss needs a seed inside its width: use a monotone one " *
+                "(Irls{HuberShape}), a wider `width`, or gate the gross poses first"))
+            RotMatrix{3, Float64}(chordal_mean([wobs[k] * SMatrix{3, 3, Float64, 9}(RA[k]' * R_Y * RB[k]) for k in ks]))
+        end
+    end
 
     # 3. All translations jointly:  t_B = R_Yᵀ R_A t_X − R_Yᵀ t_Y + R_Yᵀ t_A
     #    unknown u = [t_Y ; t_X₁ … t_X_M] — exactly optimal given the rotations
@@ -320,6 +340,11 @@ function _robot_world_hand_eye_init(
         Amat[rows, 1:3] .= -RYt
         Amat[rows, (3m + 1):(3m + 3)] .= RYt * SMatrix{3, 3, Float64, 9}(RA[k])
         rhs[rows] .= tB[k] - RYt * tA[k]
+        if wobs !== nothing                                            # the weighted least squares: rows × √wₖ
+            sk = sqrt(wobs[k])
+            Amat[rows, :] .*= sk
+            rhs[rows] .*= sk
+        end
     end
     u = Amat \ rhs
     t_Y = SVector{3, Float64}(u[1], u[2], u[3])
@@ -391,7 +416,7 @@ end
 # By the implicit function theorem ∂θ̂/∂ε = −F_θ⁻¹ F_ε. Eltype-generic: one of
 # θ, ε carries the ForwardDiff Duals, the other is zeros.
 function _robot_world_hand_eye_stage_conditions(θ, ε, P::ProductManifold, st)
-    (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker) = st
+    (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker, wobs) = st
     T = promote_type(eltype(θ), eltype(ε))
     M = length(by_marker)
     n = length(obs_marker)
@@ -403,18 +428,19 @@ function _robot_world_hand_eye_stage_conditions(θ, ε, P::ProductManifold, st)
 
     F = Vector{T}(undef, 6 * (M + 1))
     F[1:3] .= kabsch_stationarity(
-        R_Y', [axes_A[p] => log_so3(SMatrix{3, 3}(RBε(k1) * RBε(k2)')) for (p, (k1, k2)) in enumerate(pairs)]
+        R_Y', [(_obs_weight(wobs, k1) * _obs_weight(wobs, k2)) * axes_A[p] => log_so3(SMatrix{3, 3}(RBε(k1) * RBε(k2)'))
+               for (p, (k1, k2)) in enumerate(pairs)]
     )
     nY = zero(SVector{3, T})
     for m in 1:M
         X = poses[m + 1]
         R_X = rotation(X); t_X = translation(X)
-        F[(3m + 1):(3m + 3)] .= chordal_mean_stationarity(R_X, [RA[k]' * R_Y * RBε(k) for k in by_marker[m]])
+        F[(3m + 1):(3m + 3)] .= chordal_mean_stationarity(R_X, [_obs_weight(wobs, k) * (RA[k]' * R_Y * RBε(k)) for k in by_marker[m]])
         nX = zero(SVector{3, T})
         for k in by_marker[m]
             R_A = RA[k]
             e = R_Y' * (R_A * t_X + tA[k] - t_Y) - translation(Bε[k])   # row block k of (A u − rhs)
-            RYe = R_Y * e
+            RYe = _obs_weight(wobs, k) * (R_Y * e)
             nY -= RYe
             nX += R_A' * RYe
         end
@@ -424,12 +450,18 @@ function _robot_world_hand_eye_stage_conditions(θ, ε, P::ProductManifold, st)
     return F
 end
 
+# An observation's weight in the stage conditions: `true` (an exact ×1) for
+# least squares, the robust fit's fixed weight otherwise.
+_obs_weight(::Nothing, _k) = true
+_obs_weight(w::AbstractVector, k) = w[k]
+
 # -----------------------------------------------------------------------------
 # fit_robot_world_hand_eye
 # -----------------------------------------------------------------------------
 
 """
-    fit_robot_world_hand_eye(markers; σ_rot=nothing, σ_trans=nothing, min_rel_angle)
+    fit_robot_world_hand_eye(markers; σ_rot=nothing, σ_trans=nothing, min_rel_angle,
+                             optimization_strategy = nothing, scale | width, tol)
         -> FitResult{RobotWorldHandEyeCalibration{K}, RobotWorldHandEyeMetadata{K, Float64}}
 
 `min_rel_angle` defaults to `configs/default.toml` `[robot_world_hand_eye]`
@@ -437,8 +469,10 @@ end
 
 Staged linear robot-world / multi-marker hand-eye calibration
 `A_i X_m = Y B_i^m`: one shared `Y = T_WC` and per-marker `X_m = T_RPm`,
-fit from per-(frame, marker) pose observations. No RANSAC — with a pose
-prior (mocap) contamination is pre-gateable at the call site.
+fit from per-(frame, marker) pose observations. No RANSAC: with a pose
+prior (mocap) contamination is pre-gateable at the call site, or the fit
+downweights it itself with a fixed-scale IRLS (`optimization_strategy`,
+below).
 
 Robot-world/hand-eye calibration is the literature's name for `AX = YB`
 (Zhuang, Roth & Shah 1994; Dornaika & Horaud 1998). Ours is the EYE-TO-HAND
@@ -477,6 +511,29 @@ refinement is the sound upgrade path.
   only when both its rig and its marker motion rotate at least this angle
   (near-identity motions are uninformative) — the same predicate as
   [`find_hand_eye`](@ref)'s.
+- `optimization_strategy` — `nothing` (the default: the staged linear solve
+  above, least squares), or an [`Irls`](@ref)`{K}` strategy: the staged solve
+  reweighted per observation at ONE loss width on the whitened 6-vector
+  residual (codimension 6), iterated to `tol` or the strategy's `max_iter`.
+  Each stage takes the weights: a Kabsch pair weighs `wₖ₁·wₖ₂`, the chordal
+  means and the translation least squares `wₖ`. A gross observation (a pose a
+  registration placed tens of degrees and metres wrong) then gets weight ≈ 0
+  instead of tilting `Y` and every `X`. The robust fit REQUIRES `σ_rot` and
+  `σ_trans`: they are the whitening, the units of its scale, and profiling them
+  from the contaminated residuals would re-estimate a scale the fit holds
+  fixed (`ArgumentError` without them). A Triggs strategy is refused (a
+  refine's: [`refine_robot_world_hand_eye`](@ref)).
+- `scale` | `width` — with an `Irls` strategy, EXACTLY ONE of: `scale = σ`
+  (the whitened residual's noise scale per component, dimensionless: 1 when
+  `σ_rot`/`σ_trans` are the true noise), `scale = result` (an upstream robust
+  result's `noise_scale`), or `width = w` (the loss width on the whitened
+  residual norm). The width is `w`, or `c · σ` with `c` the strategy's
+  efficiency constant, by default the shape's at codimension 6
+  (`efficiency_constant(K, 6)`: Huber 1.8693, Welsch 3.9646). Neither, both,
+  or one given to the least-squares fit is an `ArgumentError`.
+- `tol` — the robust fit's convergence: an iteration moves every transform by
+  less than `tol` in the whitened units (rotation angle / `σ_rot`, translation
+  / `σ_trans`); default configs/default.toml `[robot_world_hand_eye] tol`.
 
 The covariance is that of the staged estimate itself, first order in the
 observation noise `ŝ²·diag(σ_rot², σ_trans²)` of the pose residual above
@@ -486,7 +543,13 @@ Gauss–Newton `ŝ²(JᵀJ)⁻¹` would understate the scatter; instead the impl
 function theorem on the stages' own stationarity conditions (Kabsch, chordal
 means, translation normal equations) carries the noise through. It is
 reported with the observability diagnostics (`min_eigval`/`min_eigvec` of the
-residual's `JᵀJ`), and is `Inf` when `JᵀJ` is rank-deficient.
+residual's `JᵀJ`), and is `Inf` when `JᵀJ` is rank-deficient. A robust fit
+reports the same at its final weights, held fixed: the weighted stage
+conditions, `√w`-scaled residual rows, `ŝ²` the weighted RSS over the weighted
+dof; `rms` is weighted and `n` the support (observations of positive weight).
+The metadata's `weights` (one per observation, marker by marker in `ids`
+order), `scale`, `scale_source` and `loss_width` are the robust-estimation
+contract's record; least squares carries unit weights and `ScaleNone`.
 
 # Units
 The poses are plain or physical, all one form. Physical poses (translations
@@ -499,9 +562,10 @@ whose length is the translation's unit — metres for physical poses: the
 residuals, the covariance's translation entries, `σ_trans`. Plain poses give
 a plain calibration in their own unit, as before.
 
-Inputs must be finite valid rigid transforms (`ArgumentError` otherwise);
-domain-specific gross-outlier gates (depth windows, cheirality) belong at
-the call site, upstream of this fit.
+Inputs must be finite valid rigid transforms (`ArgumentError` otherwise).
+Domain-specific gates (depth windows, cheirality) still belong at the call
+site; a robust `optimization_strategy` handles the gross poses no gate
+catches (a sparse, badly registered frame).
 
 See also [`find_hand_eye`](@ref) for the ratio form `A_ij X = X B_ij` (no
 pose prior, RANSAC) which eliminates `Y` instead of estimating it.
@@ -510,8 +574,15 @@ function fit_robot_world_hand_eye(
         markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
         σ_rot::Union{Nothing, Real} = nothing,
         σ_trans::Union{Nothing, Real} = nothing,
-        min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
+        min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
+        optimization_strategy::Union{AbstractLocalOptimization, Nothing} = nothing,
+        scale = nothing, width::Union{Nothing, Real} = nothing,
+        tol::Real = _dflt("robot_world_hand_eye", "tol"),
     ) where {K}
+    f = _fit_irls("fit_robot_world_hand_eye", optimization_strategy, scale, width, 6)
+    f === nothing || (σ_rot !== nothing && σ_trans !== nothing) || throw(ArgumentError(
+        "fit_robot_world_hand_eye: a robust fit needs `σ_rot` and `σ_trans` — the whitening its scale is in; " *
+        "profiling them from contaminated residuals would re-estimate the scale the fit holds fixed"))
     ids = block_order(markers)
     M = length(ids)
     n = sum(id -> length(markers[id]), ids; init = 0)
@@ -546,8 +617,51 @@ function fit_robot_world_hand_eye(
         EuclideanMap(RY, tY; check = false),
         Dict(ids[m] => EuclideanMap(RX[m], tX[m]; check = false) for m in 1:M)
     )
-    obs = (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker)
-    return _fit_robot_world_hand_eye_report(cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans)
+    obs = (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker, wobs = nothing)
+    f === nothing && return _fit_robot_world_hand_eye_report(
+        cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans)
+
+    # ---- the fixed-scale IRLS: weights at the current estimate, the weighted staged solve
+    σr, σt = Float64(σ_rot), Float64(σ_trans)
+    (σr > 0 && σt > 0) || throw(ArgumentError("provided σ must be positive"))
+    wobs = ones(n)
+    retcode = :max_iterations; iter = 0
+    while iter < _fit_max_iter(optimization_strategy)
+        iter += 1
+        _robot_world_hand_eye_weights!(wobs, f, cal, Val(M + 1), obs, σr, σt)
+        RY, tY, RX, tX, pairs, axes_A = _robot_world_hand_eye_init(
+            RA, tA, obs_marker, RB, tB, by_marker; min_rel_angle = Float64(min_rel_angle), wobs
+        )
+        new = RobotWorldHandEyeCalibration(
+            EuclideanMap(RY, tY; check = false),
+            Dict(ids[m] => EuclideanMap(RX[m], tX[m]; check = false) for m in 1:M)
+        )
+        Δ = _robot_world_hand_eye_move(new, cal, σr, σt)
+        cal = new
+        obs = (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker, wobs = nothing)
+        Δ < tol && (retcode = :converged; break)
+    end
+    return _fit_robot_world_hand_eye_report(
+        cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans;
+        f, strategy = optimization_strategy, retcode, iterations = iter
+    )
+end
+
+# The robust fit's weights at `cal`: the loss weight of each observation's
+# whitened 6-residual norm (a function barrier: the chart's type carries B blocks).
+function _robot_world_hand_eye_weights!(wobs, f, cal, ::Val{B}, obs, σr, σt) where {B}
+    P = _robot_world_hand_eye_manifold(cal, Val(B))
+    r = _robot_world_hand_eye_residuals(zeros(tangent_size(P)), P, obs, 1 / σr, 1 / σt)
+    n = length(wobs)
+    return _irls_weights!(wobs, f, point_norms!(Vector{Float64}(undef, n), r, n, 6))
+end
+
+# The largest move of any transform between two calibrations, in the whitened
+# units: rotation angle / σ_rot, translation / σ_trans.
+function _robot_world_hand_eye_move(a::RobotWorldHandEyeCalibration, b::RobotWorldHandEyeCalibration, σr, σt)
+    d(T, U) = max(Rotations.rotation_angle(RotMatrix{3, Float64}(rotation(T) * rotation(U)')) / σr,
+                  norm(translation(T) - translation(U)) / σt)
+    return max(d(a.Y, b.Y), maximum(id -> d(a.X[id], b.X[id]), a.ids))
 end
 
 # Physical poses: stripped in metres once (with σ_trans), the plain fit, the
@@ -564,7 +678,8 @@ end
 # The report at the staged estimate, in its chart `P` (a function barrier: P's
 # type carries the M + 1 blocks): noise-scale profiling, the diagnostic
 # residual and its Jacobian, and the stage-condition covariance.
-function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::ProductManifold, obs, counts, σ_rot, σ_trans)
+function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::ProductManifold, obs, counts, σ_rot, σ_trans;
+                                          f = nothing, strategy = nothing, retcode::Symbol = :solved, iterations::Int = 0)
     p = tangent_size(P)
     n = length(obs.obs_marker)
     r0 = _robot_world_hand_eye_residuals(zeros(p), P, obs, 1.0, 1.0)
@@ -574,6 +689,12 @@ function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::
 
     r = _robot_world_hand_eye_residuals(zeros(p), P, obs, 1 / σr, 1 / σt)
     J = ForwardDiff.jacobian(z -> _robot_world_hand_eye_residuals(z, P, obs, 1 / σr, 1 / σt), zeros(p))
+    wts = _fit_weights_storage(f, n)
+    if f !== nothing                                   # the final weights, held fixed in the report
+        _irls_weights!(wts, f, point_norms!(Vector{Float64}(undef, n), r, n, 6))
+        obs = merge(obs, (; wobs = wts))
+        J = repeat(sqrt.(wts); inner = 6) .* J
+    end
     # The staged estimate's covariance, first order (see the header): VGC's
     # square-system form F_θ⁻¹·F_ε·Σ_ε·F_εᵀ·F_θ⁻ᵀ, one 6×6 Σ_ε = ŝ²·diag(σr², σt²)
     # per observation.
@@ -584,9 +705,12 @@ function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::
         return implicit_covariance(Fθ, Fε; Σx = fill(Σε, n))
     end
     return _robot_world_hand_eye_result(
-        cal, r, J, 6, counts, covariance, σr, σt; retcode = :solved, iterations = 0, rms_rows = length(r)
+        cal, r, J, 6, counts, covariance, σr, σt; retcode, iterations, rms_rows = length(r),
+        strategy, weights = wts, (_robot_world_hand_eye_scale_record(f))...
     )
 end
+
+_robot_world_hand_eye_scale_record(f) = NamedTuple{(:scale, :scale_source, :loss_width)}(_fit_scale_record(f))
 
 _block_rms(r, offset) = begin
     n6 = length(r) ÷ 6

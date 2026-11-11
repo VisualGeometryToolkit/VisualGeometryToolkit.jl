@@ -21,9 +21,10 @@ inhomogeneous `y = a + b·x` form with errors only in `y`.
 ## Robust Linear Least Squares
 
 `fit_linear` is the robust coefficient vector `x` of `y ≈ A·x` (rows with
-gross outliers): a reweighted least squares under a loss shape at a multiple
-of the residuals' MAD scale, with optional fixed prior row weights — the
-scalar-residual sibling of `fit_rotation`.
+gross outliers): a reweighted least squares under a loss shape at one fixed
+width, `efficiency_constant × scale` from the caller's `scale` (or its
+`width`), with optional fixed prior row weights — the scalar-residual sibling
+of `fit_rotation`.
 
 ```@docs
 fit_linear

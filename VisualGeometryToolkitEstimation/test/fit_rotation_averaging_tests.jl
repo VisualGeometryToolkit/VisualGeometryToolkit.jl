@@ -15,7 +15,7 @@
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     weighted(d, p) = Dict(e => Attributed(d[e], (; weight = p[e])) for e in keys(d))   # Attributed edges, weight p
     @testset "consistent edges: exact" begin
-        res = fit_rotation_averaging(Dict(e => rel(e...) for e in edges))
+        res = fit_rotation_averaging(Dict(e => rel(e...) for e in edges); scale = 2.0e-3)
         @test converged(res)
         @test err(estimate(res)) < 1.0e-10
         @test estimate(res)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
@@ -23,26 +23,26 @@
     @testset "noise and one outlier edge: down-weighted" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
-        res = fit_rotation_averaging(noisy; local_optimization = Irls{CauchyShape}())
+        res = fit_rotation_averaging(noisy; optimization_strategy = Irls{CauchyShape}(), scale = 2.0e-3)
         @test err(estimate(res)) < 5.0e-3
-        @test res.irls_weights[bad] < 0.01
+        @test res.weights[findfirst(==(bad), res.edges)] < 0.01
         @test res.residuals[bad] > 0.3
         # a zero edge weight drops the edge outright
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        @test err(estimate(fit_rotation_averaging(weighted(noisy, p)))) < 5.0e-3
+        @test err(estimate(fit_rotation_averaging(weighted(noisy, p); scale = 2.0e-3))) < 5.0e-3
     end
     @testset "zero weight: rms and n over the live edges, bridges and all-zero refused" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p))
+        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = nothing)   # the seed, unit weights
         live = [e for e in keys(noisy) if e != bad]
         @test res.n == length(live)
         @test rms(res) ≈ sqrt(sum(e -> res.residuals[e]^2, live) / length(live))
         @test rms(res) < 0.01                                          # the dropped edge's 0.6 rad is not in it
         chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
-        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain))))
-        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => 0.0 for e in keys(chain))))
+        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain))); scale = 1.0e-3)
+        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => 0.0 for e in keys(chain))); scale = 1.0e-3)
     end
     @testset "a frame whose every edge the loss drops is held, not singular" begin
         # frame 9 hangs on two mutually inconsistent edges: the seed splits the
@@ -55,9 +55,10 @@
         noisy[(7, 9)] = RotMatrix(RotationVec(0.6, 0.0, 0.0)) * rel(7, 9)
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); local_optimization = Irls{TLSShape}(scale_multiple = 3.0))
+        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = Irls{TLSShape}(scale_multiple = 5.0), scale = 2.0e-3)
         seed = spectral_rotation_averaging(weighted(noisy, p))
-        @test res.irls_weights[(7, 9)] == 0 && res.irls_weights[(8, 9)] == 0
+        wq(e) = res.weights[findfirst(==(e), res.edges)]
+        @test wq((7, 9)) == 0 && wq((8, 9)) == 0
         @test all(isfinite, estimate(res)[9])
         @test SMatrix{3, 3}(estimate(res)[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9
         @test err(estimate(res)) < 1.0e-2                              # frames 1..8, at the noise level
@@ -69,9 +70,9 @@
         col, nunk = _averaging_columns([1, 2, 3, 4], [(1, 2), (2, 3), (3, 4)], [1.0, 0.0, 1.0])
         @test col[1] == -1 && col[3] == -1 && col[2] >= 0 && col[4] >= 0 && nunk == 6
     end
-    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)))
-    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); local_optimization = Irls{TLSShape}())
+    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)); scale = 1.0e-3)
+    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); optimization_strategy = Irls{TLSShape}(), scale = 1.0e-3)
     # the private keywords are gone: the strategy is the one schema
-    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape())
-    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3)
+    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape(), scale = 1.0e-3)
+    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3, scale = 1.0e-3)
 end

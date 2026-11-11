@@ -9,33 +9,51 @@
 #   seed      VisualGeometryToolkitCore's `spectral_rotation_averaging` (every edge).
 #   repeat    per edge (i, j) the residual rotation E_ij = R_j·R_ij·R_iᵀ (the
 #             identity when the edge agrees) and its log r_ij (radians, a
-#             3-vector, codimension 3); the robust scale σ̂ = median‖r‖ /
-#             √chisq_median(3); the IRLS weights of the `Irls{K}` strategy's
-#             loss at σ̂ (irls_weights.jl); the weighted sparse linear least squares
+#             3-vector, codimension 3); the IRLS weights of the `Irls{K}`
+#             strategy's loss at ONE loss width, set once from the caller's
+#             scale input (`scale = σ` or an upstream result: the efficiency
+#             constant × σ, Huber's 1.628 at codimension 3; or `width = w`)
+#             and never re-estimated (irls_weights.jl); the weighted sparse linear least squares
 #             of the first-order update ω_j − ω_i = −r_ij over every edge,
 #             the gauge frame's ω = 0, and every frame the edges of positive
 #             weight no longer tie to the gauge held where it is (one anchor
 #             per such component); R_k ← exp(ω_k)·R_k.
 #   stop      when an update moves every frame by less than `tol` radians, or at
 #             the strategy's `max_iter`.
+#   optimization_strategy = nothing: the seed itself (spectral, spanning tree or the caller's),
+#             no update.
 # =============================================================================
 
 """
-    RotationAveragingMetadata{K}
+    RotationAveragingMetadata{K, L, W}
 
 `FitResult` metadata of [`fit_rotation_averaging`](@ref) at the returned
-rotations: per edge `(i, j)`, `residuals` the angle (radians) of the residual
-rotation `R_j·R_ij·R_iᵀ` and `irls_weights` the loss's IRLS weight times the
-edge's weight; `sigma` the robust scale σ̂ (radians). They forward as properties.
+rotations (`L` the `optimization_strategy`'s type, `Nothing` for the seed alone):
+
+- `edges::Vector{Tuple{K, K}}` — the edges, sorted; the order of `weights`.
+- `weights::W` — per edge, the loss weight `ρ′(r²)` normalized to a maximum
+  of 1 (`IrlsWeights`; a lazy all-ones vector, `BinaryWeights`, for
+  `optimization_strategy = nothing`). The solve's weight of an edge is its own weight times
+  this.
+- `residuals::Dict{Tuple{K, K}, Float64}` — per edge `(i, j)`, the angle
+  (radians) of the residual rotation `R_j·R_ij·R_iᵀ`.
+- `scale`, `scale_source` — the scale record (radians; `noise_scale(result)`),
+  `NaN` and `ScaleNone` for `optimization_strategy = nothing` or a `width`-only fit.
+- `loss_width` — radians, `NaN` for `optimization_strategy = nothing`.
 """
-struct RotationAveragingMetadata{K}
+struct RotationAveragingMetadata{K, L, W <: AbstractVector{Float64}}
+    edges::Vector{Tuple{K, K}}
+    weights::W
     residuals::Dict{Tuple{K, K}, Float64}
-    irls_weights::Dict{Tuple{K, K}, Float64}
-    sigma::Float64
+    scale::Float64
+    scale_source::VgtkCore.ScaleSource
+    loss_width::Float64
 end
+RotationAveragingMetadata{K, L}(e, w::W, r, s, src, lw) where {K, L, W} = RotationAveragingMetadata{K, L, W}(e, w, r, s, src, lw)
+VgtkCore.weight_kind(::Type{<:RotationAveragingMetadata{K, L}}) where {K, L} = _strategy_weight_kind(L)
 
 """
-    fit_rotation_averaging(relative; local_optimization, tol, seed = :spectral)
+    fit_rotation_averaging(relative; optimization_strategy, scale | width, tol, seed = :spectral)
     fit_rotation_averaging(vg::ViewGraph; kwargs...)
         -> FitResult{Dict{K, RotMatrix{3, Float64}}, RotationAveragingMetadata{K}}
 
@@ -47,22 +65,25 @@ edges of a [`ViewGraph`](@ref)) whose value `R_ij` takes frame `i`'s directions
 into frame `j`'s (`f_j = R_ij·f_i`, so `R_i = R_j·R_ij`), some of them wrong.
 Each value is the rotation, or VisualGeometryToolkitCore's
 `Attributed(R_ij, (; weight))` with a fixed non-negative edge weight (an inlier
-count); a bare rotation weighs 1. A fit: it seeds itself with
-VisualGeometryToolkitCore's `spectral_rotation_averaging` and iterates a reweighted
-first-order Lie-algebra least squares over every edge (Chatterjee & Govindu
-2013), each a sparse linear solve.
+count); a bare rotation weighs 1. A fit: it seeds itself (below) and iterates
+a reweighted first-order Lie-algebra least squares over every edge
+(Chatterjee & Govindu 2013), each a sparse linear solve, at ONE loss width
+fixed by the caller's scale input.
 
 - The edge weights: a zero weight drops its edge. The edges of positive weight
   must connect every frame (an `ArgumentError` otherwise — a zero-weight bridge
   splits the graph), and all-zero weights are refused.
-- `local_optimization` — the stack's robust-estimation strategy, an
-  [`Irls`](@ref)`{K}`: its loss `K`, its width and its `max_iter` (default
-  configs/default.toml `[fit_rotation_averaging] local_optimization`, Huber).
-  `scale_multiple = m` puts the width at `m · σ̂` (σ̂ the median of the
-  residual angles over `√chisq_median(3)`; `m` in the loss's currency,
-  [`plain_scale_multiple`](@ref)), `loss_width = w` at `w` radians; with no
-  width — a fit has no scorer to follow — the shape's efficiency constant at
-  codimension 3, which only an M-estimator has.
+- `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss,
+  its efficiency constant and its `max_iter`; default configs/default.toml
+  `[fit_rotation_averaging] optimization_strategy`, Huber), or `nothing` for the seed alone.
+- `scale` | `width` — with an `Irls` strategy, EXACTLY ONE of: `scale = σ`
+  (the edges' residual rotation noise scale per axis component, radians),
+  `scale = result` (an upstream robust result's `noise_scale`, e.g. the
+  pairwise `find_rotation` results' scale), or `width = w` (the loss width,
+  radians). The width is `w`, or `c · σ` with `c` the strategy's efficiency
+  constant, by default the shape's at codimension 3
+  (`efficiency_constant(K, 3)`: Huber 1.628). Neither, both, or one given with
+  `optimization_strategy = nothing` is an `ArgumentError`.
 - `tol` — converged when an iteration moves every frame by less than `tol`
   radians (configs/default.toml [fit_rotation_averaging]).
 - `seed` — where the iteration starts: `:spectral` (the default,
@@ -79,19 +100,20 @@ rather than left free in a singular solve; more generally, in each part of
 the graph that the edges of positive weight no longer tie to the gauge frame,
 the first sorted frame is held and the rest move with it.
 
-`retcode` is `:converged` or `:max_iterations`; `rms` the root mean square
-residual angle, and `n` the count, over the edges of positive weight. A
-disconnected graph is an `ArgumentError`, counting only the edges of positive
-weight; the `ViewGraph` form also refuses a view in no edge
-([`require_connected`](@ref)).
+`retcode` is `:converged`, `:max_iterations` or `:solved` (`optimization_strategy = nothing`);
+`n` the support (the edges of positive solve weight) and `rms` the
+weight-weighted root mean square residual angle over them. A disconnected
+graph is an `ArgumentError`, counting only the edges of positive weight; the
+`ViewGraph` form also refuses a view in no edge ([`require_connected`](@ref)).
 """
 function fit_rotation_averaging(
         relative::AbstractDict{<:Tuple{K, K}};
-        local_optimization::Irls = _fit_local_optimization("fit_rotation_averaging"),
+        optimization_strategy::Union{AbstractLocalOptimization, Nothing} = _fit_strategy_default("fit_rotation_averaging"),
+        scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_rotation_averaging", "tol"),
         seed::Union{Symbol, AbstractDict} = :spectral,
     ) where {K}
-    lo = _check_fit_width("fit_rotation_averaging", local_optimization)
+    f = _fit_irls("fit_rotation_averaging", optimization_strategy, scale, width, 3)
     edges = sort!(collect(keys(relative)))
     p = [VgtkCore.weight_of(relative[e]) for e in edges]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
@@ -102,18 +124,18 @@ function fit_rotation_averaging(
     R = Dict(k => SMatrix{3, 3, Float64, 9}(start[k]) for k in frames)
     gauge = R[first(frames)]'                                          # one rule for every seed: the first sorted frame is the identity
     foreach(k -> (R[k] = gauge * R[k]), frames)
-    m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = copy(p)
+    m = length(edges); r = Vector{SVector{3, Float64}}(undef, m); w = _fit_weights_storage(f, m)
     edge_residuals!() = for (q, (i, j)) in enumerate(edges)
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
     end
     edge_residuals!()
-    retcode = :max_iterations; iter = 0; σ = NaN
-    while iter < lo.max_iter
+    retcode = f === nothing ? :solved : :max_iterations; iter = 0
+    while iter < _fit_max_iter(optimization_strategy)
         iter += 1
-        σ = _fit_weights!(w, norm.(r), p, lo, 3)
-        iszero(σ) && (retcode = :converged; break)                     # every edge agrees
-        col, nunk = _averaging_columns(frames, edges, w)
-        ω = _averaging_update(edges, col, r, w, nunk)
+        _irls_weights!(w, f, norm.(r))
+        sw = _solve_weights(p, w)
+        col, nunk = _averaging_columns(frames, edges, sw)
+        ω = _averaging_update(edges, col, r, sw, nunk)
         Δ = 0.0
         for k in frames
             c = col[k]; c < 0 && continue                              # the gauge, or held
@@ -124,11 +146,13 @@ function fit_rotation_averaging(
         edge_residuals!()
         Δ < tol && (retcode = :converged; break)
     end
-    σ = _fit_weights!(w, norm.(r), p, lo, 3)
+    _irls_weights!(w, f, norm.(r))                                     # the metadata at the returned rotations
     out = Dict(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
-    meta = RotationAveragingMetadata{K}(Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), Dict(e => w[q] for (q, e) in enumerate(edges)), σ)
-    live = [q for q in 1:m if p[q] > 0]                                # a zero weight drops its edge
-    return FitResult(out, retcode, iter, sqrt(sum(q -> norm(r[q])^2, live) / length(live)), length(live), meta)
+    meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
+    sw = _solve_weights(p, w)
+    live = [q for q in 1:m if sw[q] > 0]                               # a zero weight drops its edge
+    rms = sqrt(sum(q -> sw[q] * norm(r[q])^2, live; init = 0.0) / max(sum(sw), eps()))
+    return FitResult(out, retcode, iter, rms, length(live), meta)
 end
 
 # The update's unknowns at the current weights: the column offset of each frame
@@ -201,7 +225,8 @@ pipeline runs them: [`filter_cycles`](@ref) at `cycle_tol` before the
 averaging, then [`filter_by_orientation`](@ref) at `orientation_tol` against
 the averaged rotations and, when it dropped an edge, the averaging again on
 what is left. Both tolerances are radians; `nothing` skips that filter.
-`kwargs` go to every [`fit_rotation_averaging`](@ref). Returns the fit and the
+`kwargs` go to every [`fit_rotation_averaging`](@ref) (its `optimization_strategy` and its
+`scale` or `width` among them). Returns the fit and the
 view graph it was fitted on (`graph`: a caller drops whatever it keyed by a
 removed edge, a sequence's tracks). A graph a filter disconnects is an
 `ArgumentError` naming that filter ([`require_connected`](@ref)).

@@ -101,38 +101,38 @@ end
     weighted = Dict(e => Attributed(noisy[e], (; weight = 50.0 + e[1])) for e in edges)
     err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
 
-    spectral = fit_rotation_averaging(weighted)
-    tree = fit_rotation_averaging(weighted; seed = :spanning_tree)
+    spectral = fit_rotation_averaging(weighted; scale = 1.0e-3)
+    tree = fit_rotation_averaging(weighted; seed = :spanning_tree, scale = 1.0e-3)
     @test converged(spectral) && converged(tree)
     @test err(estimate(tree)) < 5.0e-3
     @test maximum(k -> norm(Matrix(estimate(tree)[k]) - Matrix(estimate(spectral)[k])), 1:n) < 1.0e-8   # same optimum
     @test estimate(tree)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12                                  # re-gauged
     # an explicit seed: the truth itself, any gauge
     G = RotMatrix(RotationVec(0.3, 0.1, -0.2))
-    given = fit_rotation_averaging(weighted; seed = Dict(k => G * R[k] for k in 1:n))
+    given = fit_rotation_averaging(weighted; seed = Dict(k => G * R[k] for k in 1:n), scale = 1.0e-3)
     @test maximum(k -> norm(Matrix(estimate(given)[k]) - Matrix(estimate(spectral)[k])), 1:n) < 1.0e-8
-    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = Dict(1 => R[1]))
-    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = :nonsense)
+    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = Dict(1 => R[1]), scale = 1.0e-3)
+    @test_throws ArgumentError fit_rotation_averaging(weighted; seed = :nonsense, scale = 1.0e-3)
     @test estimate(spectral)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12                              # one gauge rule
     # the ViewGraph method is the dictionary form
-    @test estimate(fit_rotation_averaging(ViewGraph(weighted))) == estimate(spectral)
+    @test estimate(fit_rotation_averaging(ViewGraph(weighted); scale = 1.0e-3)) == estimate(spectral)
     # the weights matter: unit weights give another (close) optimum
-    @test estimate(fit_rotation_averaging(noisy)) != estimate(spectral)
+    @test estimate(fit_rotation_averaging(noisy; scale = 1.0e-3)) != estimate(spectral)
 
     # every seed refuses a disconnected graph, as the spectral one does
     split = Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4))
-    @test_throws ArgumentError fit_rotation_averaging(split; seed = Dict(k => R[k] for k in 1:4))
-    @test_throws ArgumentError fit_rotation_averaging(split; seed = :spanning_tree)
+    @test_throws ArgumentError fit_rotation_averaging(split; seed = Dict(k => R[k] for k in 1:4), scale = 1.0e-3)
+    @test_throws ArgumentError fit_rotation_averaging(split; seed = :spanning_tree, scale = 1.0e-3)
     # a seed's extra frames are not the averaging's: the gauge is the first frame of the edges
     sub = Dict(e => noisy[e] for e in edges if e[1] >= 2)
-    res = fit_rotation_averaging(sub; seed = Dict(k => R[k] for k in 1:n))
+    res = fit_rotation_averaging(sub; seed = Dict(k => R[k] for k in 1:n), scale = 1.0e-3)
     @test sort!(collect(keys(estimate(res)))) == collect(2:n)
     @test estimate(res)[2] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
     # a pair given as (j, i) is accepted by the spanning-tree seed, as by the spectral one
     flipped = Dict(((j, i) => noisy[(i, j)]' for (i, j) in edges if i == 1)..., (e => noisy[e] for e in edges if e[1] != 1)...)
-    @test err(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree))) < 5.0e-3
+    @test err(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree, scale = 1.0e-3))) < 5.0e-3
     # a view in no edge is a disconnected ViewGraph
-    @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => noisy[e] for e in edges)))
+    @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => noisy[e] for e in edges)); scale = 1.0e-3)
 end
 
 @testitem "chain: transforms of another type than the identity" begin
@@ -204,15 +204,15 @@ end
     err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
 
     # no filter: the plain fit on the whole graph
-    plain = filtered_rotation_averaging(vg)
-    @test plain.graph === vg && estimate(plain.fit) == estimate(fit_rotation_averaging(vg))
+    plain = filtered_rotation_averaging(vg; scale = 1.0e-3)
+    @test plain.graph === vg && estimate(plain.fit) == estimate(fit_rotation_averaging(vg; scale = 1.0e-3))
     # the orientation filter removes the wrong pair and refits on the rest
-    o = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
+    o = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0), scale = 1.0e-3)
     @test !haskey(o.graph, 4, 6) && nedges(o.graph) == length(pairs) - 1
     @test err(estimate(o.fit)) < 5.0e-3
     # the cycle filter removes it before averaging
-    c = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0))
+    c = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), scale = 1.0e-3)
     @test !haskey(c.graph, 4, 6) && err(estimate(c.fit)) < 5.0e-3
-    @test_throws ArgumentError filtered_rotation_averaging(vg; cycle_tol = -1.0)
-    @test_throws ArgumentError filtered_rotation_averaging(vg; orientation_tol = 0.0)
+    @test_throws ArgumentError filtered_rotation_averaging(vg; cycle_tol = -1.0, scale = 1.0e-3)
+    @test_throws ArgumentError filtered_rotation_averaging(vg; orientation_tol = 0.0, scale = 1.0e-3)
 end

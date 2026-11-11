@@ -132,6 +132,10 @@ branch_audit_scale_multiple = 3.5322300675464233
 
 [robot_world_hand_eye]
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
+# The robust fit's (optimization_strategy = Irls{K}): converged when an
+# iteration moves every transform by less than `tol` in the whitened units
+# (rotation / σ_rot, translation / σ_trans).
+tol = 1.0e-10
 
 [refine_robot_world_hand_eye]
 max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
@@ -152,27 +156,31 @@ xtol = 1.0e-12
 # (fit_camera(SplineLens, …)): its held-out round-trip tolerance, pixels.
 forward_tolerance = 1.0e-3
 [fit_rotation]
-# The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, width,
-# max_iter — the reweight-and-solve iterations at most), read by
-# local_optimization_from_toml. The loss's width follows the robust scale of the
-# residual angles at every iteration (no width key: the shape's efficiency
-# constant at codimension 2; `scale_multiple = m`: m × σ̂).
-local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+# The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, max_iter —
+# the reweight-and-solve iterations at most), read by the one strategy reader.
+# The loss runs at ONE width, `efficiency_constant × scale` (the shape's
+# constant at codimension 2 unless the strategy gives one) or the call's
+# `width`: the scale is data, never a TOML default.
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
 [fit_rotation_averaging]
-# The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): the
-# loss's width follows the robust scale of the edges' residual angles
-# (`scale_multiple` × σ̂, the shape's efficiency constant at codimension 3
-# unless the strategy gives one). An Irls strategy, read by local_optimization_from_toml.
-local_optimization = { type = "irls", loss = "huber", max_iter = 100 }
+# The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): an
+# Irls strategy at ONE width, `efficiency_constant × scale` (the shape's
+# constant at codimension 3 unless the strategy gives one) or the call's
+# `width`. Read by the one strategy reader.
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 100 }
 tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
 [fit_linear]
-# The reweighted least squares of `fit_linear`. The loss's width follows the
-# robust (MAD) scale of the residuals at every iteration (`scale_multiple` × σ̂,
-# the shape's efficiency constant at codimension 1 unless the strategy gives
-# one). An Irls strategy, read by local_optimization_from_toml.
-local_optimization = { type = "irls", loss = "huber", max_iter = 50 }
+# The reweighted least squares of `fit_linear`: an Irls strategy at ONE width,
+# `efficiency_constant × scale` (the shape's constant at codimension 1 unless
+# the strategy gives one) or the call's `width`. Read by the one strategy reader.
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
+[fit_rigid_alignment]
+# The reweighted Kabsch of `fit_rigid_alignment` (the ATE alignment). Its
+# default is the classical least-squares alignment (optimization_strategy =
+# nothing, in code); a robust call gives an Irls strategy and its scale.
+tol                = 1.0e-12     # rad, and × the loss width: converged when an iteration moves the transform by less
 [pipelines.radial_homography.lift_seed]
 # The plain-homography seed of the radial homography's lifted local optimization
 # (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the

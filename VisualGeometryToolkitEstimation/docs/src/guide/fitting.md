@@ -6,7 +6,7 @@ problem, wire up scoring and local optimization, and return a
 kept for fits that are not a RANSAC search — iterative, reweighted or
 repeated (`fit_division_camera` and its model-block update `division_camera_step`,
 `fit_radial_camera`, `fit_camera`, `fit_robot_world_hand_eye`, `fit_line`,
-`fit_rotation`, `fit_linear`) — and
+`fit_rotation`, `fit_linear`, `fit_rotation_averaging`, `fit_rigid_alignment`) — and
 `refine_*` for polishing a given model (one per `find_*`, and the bundles
 `refine_robot_world_hand_eye` and `refine_camera_and_poses`). One-step
 algebraic algorithms keep their algorithm's name and live in
@@ -64,6 +64,37 @@ neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
 problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
 robust strategy under `find_*`'s keyword, `local_optimization` (`Irls{Shape}` or
 `Triggs{Shape}` at a `scale_multiple`).
+
+## Robust fits: one strategy, one fixed scale
+
+The reweighted fits — `fit_linear`, `fit_rotation`, `fit_rotation_averaging`,
+`fit_rigid_alignment` and `fit_robot_world_hand_eye` — keep their own
+objective (a least squares, a Kabsch, the staged hand-eye solve). Their only
+robustness is `optimization_strategy = Irls{K}(…)`, an M-estimator weighting
+at ONE loss width, set from the call's scale input and never re-estimated;
+`optimization_strategy = nothing` is the plain least squares. The scale input
+is exactly one of:
+
+- `scale = σ` — the residuals' noise scale (`ScaleGiven`);
+- `scale = result` — an upstream robust result's `noise_scale(result)`
+  (`ScaleUpstream`), e.g. a `find_*`'s consensus scale handed down;
+- `width = w` — the loss width itself (the result then records `ScaleNone`).
+
+The width is `w`, or `c · σ` with `c` the strategy's efficiency constant, by
+default `efficiency_constant(K, d)` at the fit's residual codimension `d`
+(`fit_linear` 1, `fit_rotation` 2, `fit_rotation_averaging` and
+`fit_rigid_alignment` 3, the hand-eye's whitened 6-vector 6). Neither, both,
+a scale given to a least-squares fit, a refine's `Triggs`, or a shape with no
+efficiency constant and no width is an `ArgumentError`. The result records
+`scale`/`scale_source` (`noise_scale(result)` hands it on), its `loss_width`,
+and per-datum `weights(result)`: the loss weights `ρ′` normalized to 1
+(`IrlsWeights`; `inlier_mask(result, cut)` needs a cut), or lazy unit weights
+(`BinaryWeights`) for least squares.
+
+```julia
+R     = fit_rotation(cs; scale = find_rotation(cs))               # Huber (the default) at 1.5011 × the consensus scale
+align = fit_rigid_alignment(centres .=> truth; optimization_strategy = Irls{WelschShape}(), scale = 0.005)
+```
 
 ## Homography
 

@@ -2,12 +2,26 @@
 
 ## Unreleased
 
-- **Breaking: every refiner's `loss` is required** (`refine_homography`, `refine_fundamental`, both
-  `refine_relpose` forms, both `refine_absolute_pose` forms; robust-schema audit): the `loss = TLSShape()` default is
-  gone, an omitted `loss` is an `UndefKeywordError`, like `max_iter`. A robust estimate's loss is configured through
-  the stack's one schema (a strategy, a TOML table) by the caller; PoseLib may depend on VisualGeometryToolkitCore
-  only (the stack's dependency allow-list), so it cannot read Estimation's `LOSS_TAGS` and holds no default of its
-  own. Write `loss = TLSShape()` for the former behaviour, unchanged.
+- **Breaking: the refiners speak the stack's robust-estimation contract** (`refine_homography`,
+  `refine_fundamental`, both `refine_relpose` forms, both `refine_absolute_pose` forms). A renaming: every
+  refinement is bit-identical to the one it replaces (test/test_contract.jl pins the stack's PoseLib baselines).
+  - The strategy is `optimization_strategy` and is required: VisualGeometryToolkitCore's `Irls{TLSShape}()`,
+    `Irls{HuberShape}()`, `Irls{CauchyShape}()`, PoseLib's `LeZach()`, or `nothing` for least squares. The `loss`
+    and `loss_width` keywords are retired and refused with an `ArgumentError` naming their replacements.
+    `loss = TLSShape(), loss_width = w` is now `optimization_strategy = Irls{TLSShape}(), width = w`;
+    `loss = GaussianShape()` is `optimization_strategy = nothing`. The keyword is the stack's refine name,
+    `optimization_strategy`; `local_optimization` is refused, naming it.
+  - `LeZachTruncation()` is renamed `LeZach()`, PoseLib's own optimizer marker.
+  - A `Triggs{K}` strategy, any other loss shape and `Irls{GaussianShape}` are refused: PoseLib's
+    Levenberg–Marquardt weighs residuals by `ρ′` alone, and it runs only the losses above.
+  - The width is exactly one of `width = w` (unchanged from `loss_width`) and `scale = σ` (or an upstream robust
+    result): the loss then runs at `c·σ`, `c` the strategy's efficiency constant, else
+    `efficiency_constant(shape, d)` at the residual's codimension. TLS and Le–Zach have none, so take `width`.
+  - Each refiner returns a `FitResult` (its `estimate` the model returned before): PoseLib's `iterations`, which
+    were discarded, and a `retcode` (`:converged`, or `:max_iterations` when the budget was used up), with the
+    scale record `PoseLibRefineMetadata` (`scale`, `scale_source`, `width`; `noise_scale(result)`). PoseLib
+    reports no residuals or weights: `rms` is `NaN`, `n` the number of correspondences. Read the model with
+    `estimate(result)`.
 
 - **Breaking: the unexported alias `PoseLib.bundle_adjust` is removed.** It was a second name for
   `refine_absolute_pose`, under the name of PoseLib's C++ function. Call `refine_absolute_pose(pose, K, cs; …)`,

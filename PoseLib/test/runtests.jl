@@ -52,6 +52,9 @@ using Rotations: RotMatrix
     # Truncated-loss refinement wrappers + essential_dlt: Cspond input.
     include("test_refine.jl")
 
+    # The robust-estimation contract (optimization_strategy, scale/width, FitResult) and the bit-identical baselines.
+    include("test_contract.jl")
+
     # The stack's naming rules (VisualGeometryToolkitCore.check_naming).
     include("test_quality_naming.jl")
 end

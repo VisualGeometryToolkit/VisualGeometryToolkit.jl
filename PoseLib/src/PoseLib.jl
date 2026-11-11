@@ -31,6 +31,7 @@ using FlexUnits: Quantity
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractLossShape, GaussianShape, TLSShape, HuberShape, CauchyShape,
+    Irls, Triggs, EfficiencyConstant, FitResult,
     HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
     EuclideanMap, UnlabeledFrame, UnitfulEuclideanMap, ustrip,
     PoseLibSolver, Vec3, Point3, Cspond, sources, targets, hasattr,
@@ -381,7 +382,7 @@ _require_3x3(A::AbstractMatrix, name::String) =
 
 export refine_relpose
 public is_available
-export LeZachTruncation
+export LeZach
 
 # Relative-pose currency: a cam1→cam2 motion is NOT a world-to-camera
 # extrinsics, so `Extrinsics3`'s WorldFrame→CameraFrame labels would be
@@ -409,57 +410,158 @@ const Rigid3 = EuclideanMap{
 }
 
 # -----------------------------------------------------------------------------
-# The loss, typed: a VisualGeometryToolkitCore loss shape (or the Le–Zach marker),
-# mapped to PoseLib's `BundleOptions::LossType` enum (PoseLib/types.h) ONLY at
-# the ccall boundary. The integer enum never leaves this file.
+# The strategy, typed: the stack's robust-estimation contract names a refiner's
+# loss as its strategy, `optimization_strategy`, and its width by `scale` or `width`.
+# Each strategy PoseLib runs maps to PoseLib's `BundleOptions::LossType` enum
+# (PoseLib/types.h) ONLY at the ccall boundary; the integer enum never leaves
+# this file.
+#
+# PoseLib's Levenberg–Marquardt weighs each residual by its loss weight ρ′ alone
+# (robust/optim/jacobian_accumulator.h: J'WJ with W = loss.weight(r²), no ρ″
+# term), so its strategy is `Irls{K}`. A `Triggs{K}` strategy (the ρ″-corrected
+# LM) is refused: PoseLib does not run it.
 #
 # THE WIDTH. Each PoseLib loss is built from one scalar `loss_scale`
 # (PoseLib/robust/robust_loss.h), and for every loss bound here that scalar IS
-# the `loss_width` w of VisualGeometryToolkitCore's loss-shape closed forms,
-# s = r²:
+# the width w of VisualGeometryToolkitCore's loss-shape closed forms, s = r²:
 #
 #   TruncatedLoss(w)        ρ = min(s, w²),  weight = s < w²         ≡ ρ(TLSShape(), s, w²)
 #   TruncatedLossLeZach(w)  ρ = min(s, w²)  (TR-IRLS weights, μ = ½) — the TLS width
 #   HuberLoss(w)            ρ = s ≤ w² ? s : w(2r − w), weight = min(1, w/r)  ≡ ρ(HuberShape(), s, w²)
 #   CauchyLoss(w)           ρ = w²·log1p(s/w²), weight = 1/(1 + s/w²)          ≡ ρ(CauchyShape(), s, w²)
-#   TrivialLoss             ρ = s, no width                                    ≡ ρ(GaussianShape(), s, ·)
+#   TrivialLoss             ρ = s, no width                                    ≡ least squares (`nothing`)
 #
-# So no factor, square or ½ is applied: `_poselib_loss_scale` is the identity
-# on the width, and test/test_refine.jl pins it behaviourally (a truncation at
-# w, not w² or w/2; Huber's elbow at w). PoseLib's TruncatedCauchyLoss is not
-# bound: no stack caller uses it.
+# So no factor, square or ½ is applied: `width = w` reaches PoseLib unchanged,
+# and test/test_refine.jl pins it behaviourally (a truncation at w, not w² or
+# w/2; Huber's elbow at w). `scale = σ` runs at `efficiency_constant · σ`.
+# PoseLib's TruncatedCauchyLoss is not bound: no stack caller uses it.
 # -----------------------------------------------------------------------------
 
 """
-    LeZachTruncation()
+    LeZach()
 
-The truncated loss `ρ = min(r², w²)`, optimized by the iteratively reweighted
-least-squares scheme of Le and Zach (International Conference on 3D Vision,
-2021). This is PoseLib's `TRUNCATED_LE_ZACH` loss.
-
-The loss itself is VisualGeometryToolkitCore's `TLSShape()` at `loss_width = w`.
-`LeZachTruncation()` is a marker, not a loss shape: it selects how the same
-loss is optimized. Any refiner takes it as its `loss` keyword.
+PoseLib's own optimizer marker, given as `optimization_strategy = LeZach()`: the
+truncated loss `ρ = min(r², w²)` (VisualGeometryToolkitCore's `TLSShape()`),
+optimized by the iteratively reweighted least-squares scheme of Le and Zach
+(International Conference on 3D Vision, 2021). This is PoseLib's
+`TRUNCATED_LE_ZACH` loss. It selects how the truncated loss is optimized, so it
+takes the same `width` as `Irls{TLSShape}`. Like TLS it has no efficiency
+constant, so it takes `width`, not `scale`.
 """
-struct LeZachTruncation end
+struct LeZach end
 
-# PoseLib `BundleOptions::LossType` enum values (PoseLib/types.h).
-_poselib_loss_type(::GaussianShape)    = Int32(0)   # TRIVIAL
-_poselib_loss_type(::TLSShape)         = Int32(1)   # TRUNCATED
-_poselib_loss_type(::HuberShape)       = Int32(2)   # HUBER
-_poselib_loss_type(::CauchyShape)      = Int32(3)   # CAUCHY
-_poselib_loss_type(::LeZachTruncation) = Int32(5)   # TRUNCATED_LE_ZACH
+# THE strategy table: the one place a ruling on which strategies PoseLib runs is
+# a one-line change. A strategy → PoseLib's `BundleOptions::LossType`.
+_poselib_loss_type(::Nothing) = Int32(0)                      # TRIVIAL: least squares
+_poselib_loss_type(::Irls{TLSShape}) = Int32(1)               # TRUNCATED
+_poselib_loss_type(::Irls{HuberShape}) = Int32(2)             # HUBER
+_poselib_loss_type(::Irls{CauchyShape}) = Int32(3)            # CAUCHY
+_poselib_loss_type(::LeZach) = Int32(5)                       # TRUNCATED_LE_ZACH
+_poselib_loss_type(::Irls{GaussianShape}) = throw(ArgumentError(
+    "Irls{GaussianShape}: least squares is `optimization_strategy = nothing`, which takes no `scale` or `width`"))
+_poselib_loss_type(::Irls{K}) where {K} = throw(ArgumentError(
+    "PoseLib has no $(nameof(K)) loss; its refiners run Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, " *
+        "LeZach(), or `nothing` (least squares)"))
+_poselib_loss_type(::Triggs) = throw(ArgumentError(
+    "PoseLib's refiners take no Triggs strategy: their Levenberg–Marquardt weighs each residual by ρ′ alone " *
+        "(no ρ″ term), so give Irls{K} (K = TLSShape, HuberShape or CauchyShape)"))
+_poselib_loss_type(lo) = throw(ArgumentError(
+    "`optimization_strategy` must be Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, LeZach() or `nothing` " *
+        "(least squares); got $(repr(lo))"))
 
-# PoseLib's `loss_scale` from the stack's `loss_width` — the identity (header
-# above). The Gaussian loss has no width: it takes none, and PoseLib ignores
-# the scale it is handed.
-_poselib_loss_scale(::GaussianShape, ::Nothing) = 1.0
-_poselib_loss_scale(::GaussianShape, loss_width::Real) = throw(ArgumentError(
-    "GaussianShape() has no loss width; omit `loss_width`"))
-_poselib_loss_scale(loss, ::Nothing) = throw(ArgumentError(
-    "$(loss) needs a `loss_width` (in the unit of the residual)"))
-_poselib_loss_scale(::Union{TLSShape, HuberShape, CauchyShape, LeZachTruncation}, loss_width::Real) =
-    Float64(loss_width)
+# The loss shape a strategy deploys, whose efficiency constant converts a scale to a width.
+_strategy_shape(::Irls{K}) where {K} = K()
+_strategy_shape(::LeZach) = TLSShape()
+
+# The efficiency constant of a strategy at the residual's codimension `d`: the
+# strategy's own (`Irls{K}`'s width mode, `EfficiencyConstant(c)`), else the shape's
+# default, `efficiency_constant(shape, d)`. An absolute width in the strategy
+# is refused: it is the `width` keyword's.
+_strategy_constant(lo::Irls, d::Int) = _strategy_constant(lo.width, _strategy_shape(lo), d)
+_strategy_constant(lo::LeZach, d::Int) = _strategy_constant(nothing, _strategy_shape(lo), d)
+_strategy_constant(c::EfficiencyConstant{Float64}, _shape, _d::Int) = c.value
+_strategy_constant(::Nothing, shape, d::Int) =
+    hasmethod(VgtkCore.efficiency_constant, Tuple{Type{typeof(shape)}}) ? Float64(VgtkCore.efficiency_constant(shape, d)) :
+        throw(ArgumentError("$(nameof(typeof(shape))) has no efficiency constant (a truncation): give `width = w`, " *
+            "or the strategy's own efficiency constant"))
+_strategy_constant(w, _shape, _d::Int) = throw(ArgumentError(
+    "PoseLib takes an absolute width as the `width` keyword, not in the strategy (got $(repr(w)))"))
+
+# Whether a strategy carries its own efficiency constant (then a `width` would
+# silently override it).
+_carries_constant(lo::Irls) = lo.width !== nothing
+_carries_constant(::LeZach) = false
+
+"""
+    PoseLibRefineMetadata
+
+The metadata of a PoseLib refiner's [`FitResult`](@ref VisualGeometryToolkitCore.FitResult):
+the robust-estimation contract's scale record. `scale` is the noise scale the
+refiner was given and `scale_source` where it came from (`ScaleGiven` for
+`scale = σ`, `ScaleUpstream` for `scale = result`; `ScaleNone`, `scale = NaN`,
+for `width = w` and for least squares); `width` is the loss width PoseLib ran
+at (`NaN` for least squares). `noise_scale(result)` hands the scale on.
+"""
+struct PoseLibRefineMetadata
+    scale::Float64
+    scale_source::VgtkCore.ScaleSource
+    width::Float64
+end
+
+public PoseLibRefineMetadata
+
+# A placeholder for a keyword that must be given: an `ArgumentError` naming it,
+# rather than an `UndefKeywordError` (a caller of the retired `loss` keyword is
+# told to give `optimization_strategy`).
+struct _Required end
+
+# The keywords a refiner refuses, by name, and the required strategy.
+function _check_refine_keywords(fname::Symbol, lo, kw)
+    for k in keys(kw)
+        k === :loss && throw(ArgumentError(
+            "$fname: the `loss` keyword is retired; give the strategy as `optimization_strategy` " *
+                "(Irls{TLSShape}(), Irls{HuberShape}(), Irls{CauchyShape}(), LeZach(), or `nothing` for least squares)"))
+        k === :local_optimization && throw(ArgumentError(
+            "$fname: the `local_optimization` keyword is renamed; give the strategy as `optimization_strategy`"))
+        k === :loss_width && throw(ArgumentError(
+            "$fname: the `loss_width` keyword is retired; give `width = w` (or `scale = σ`)"))
+        throw(ArgumentError("$fname: unsupported keyword `$k`"))
+    end
+    lo isa _Required && throw(ArgumentError(
+        "$fname needs `optimization_strategy`: Irls{TLSShape}(), Irls{HuberShape}(), Irls{CauchyShape}(), LeZach(), " *
+            "or `nothing` for least squares"))
+    return nothing
+end
+
+# The width PoseLib runs at, and the metadata recording it, from the strategy
+# and the scale input; `d` is the codimension of the refiner's residual.
+function _refine_width(::Nothing, scale, width, ::Int)
+    (scale === nothing && width === nothing) || throw(ArgumentError(
+        "`optimization_strategy = nothing` is least squares, which has no width: omit `scale` and `width`"))
+    # PoseLib ignores the scale of its trivial loss; 1.0 is what it has always been handed.
+    return 1.0, PoseLibRefineMetadata(NaN, VgtkCore.ScaleNone, NaN)
+end
+function _refine_width(lo, scale, width, d::Int)
+    _poselib_loss_type(lo)                                   # the strategy is admitted first
+    si = VgtkCore.scale_input(scale, width)
+    if isnan(si.scale)                                       # `width = w`
+        _carries_constant(lo) && throw(ArgumentError(
+            "the strategy carries its own efficiency constant, which `width` would override; give `scale` instead, " *
+                "or a strategy without one"))
+        w = Float64(si.width)
+        return w, PoseLibRefineMetadata(NaN, si.source, w)
+    end
+    s = Float64(si.scale)
+    w = _strategy_constant(lo, d) * s
+    return w, PoseLibRefineMetadata(s, si.source, w)
+end
+
+# The refined model as a FitResult: PoseLib's iteration count and why it
+# stopped (it exhausts the budget only at `iterations == max_iter`). PoseLib
+# reports no residual summary, so `rms` is `NaN`; `n` is the number of
+# correspondences refined over.
+_refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::PoseLibRefineMetadata) =
+    FitResult(model, iterations < max_iter ? :converged : :max_iterations, iterations, NaN, n, meta)
 
 # Unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
 # `_assert_unit_bearings` (`problems/cspond.jl`) in tolerance and in what the
@@ -507,7 +609,7 @@ refine_relpose(::UnitfulEuclideanMap{3}, args...; kw...) = throw(ArgumentError(
 ))
 
 """
-    refine_relpose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, loss, loss_width)
+    refine_relpose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, optimization_strategy, width)
 
 This form is refused with an `ArgumentError`. Calibrated 2-vectors are
 coordinates on the z = 1 plane (`GnomonicFrame`). That plane has no point for a
@@ -535,9 +637,9 @@ function refine_relpose(::Rigid3,
             "$(eltype(sources(cs))) => $(eltype(targets(cs))). Calibrated 2-vectors " *
             "imply z = 1 — the gnomonic chart — which does not exist for a ray at " *
             "the horizon. Either back-project to bearings and attach the Jacobians, " *
-            "`refine_relpose(pose, withattrs(Csponds(f₁, f₂); M₁, M₂); max_iter, loss, loss_width)` " *
+            "`refine_relpose(pose, withattrs(Csponds(f₁, f₂); M₁, M₂); max_iter, optimization_strategy, width)` " *
             "from `backproject_with_jacobian(camera, u)`, or hand over pixels and " *
-            "the intrinsics, `refine_relpose(pose, K1, K2, cs; max_iter, loss, loss_width)`."
+            "the intrinsics, `refine_relpose(pose, K1, K2, cs; max_iter, optimization_strategy, width)`."
     ))
 end
 
@@ -547,26 +649,26 @@ _pinhole_focal(K::AbstractMatrix) = (K[1, 1] + K[2, 2]) / 2
 _simple_pinhole(K::AbstractMatrix) = Float64[_pinhole_focal(K), K[1, 3], K[2, 3]]
 
 """
-    calibrated_loss_width(K1, K2, loss_width) -> Float64
+    calibrated_loss_width(K1, K2, width) -> Float64
 
 The calibrated (bearing-unit) loss width that PoseLib's relative-pose refiner
-works at when it is handed `loss_width` in the unit of the points together
-with the intrinsics `K1` and `K2` ([`refine_relpose`](@ref)`(pose, K1, K2, cs;
-loss_width)`): `loss_width · ½(1/f₁ + 1/f₂)`, PoseLib's camera-aware rule
-(`robust.cc`), with each `fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2`, the focal length of the
-`SIMPLE_PINHOLE` camera the binding hands over.
+works at when it is handed `width` in the unit of the points together with the
+intrinsics `K1` and `K2` ([`refine_relpose`](@ref)`(pose, K1, K2, cs; width)`):
+`width · ½(1/f₁ + 1/f₂)`, PoseLib's camera-aware rule (`robust.cc`), with each
+`fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2`, the focal length of the `SIMPLE_PINHOLE` camera the
+binding hands over.
 
 A refiner on calibrated data that must deploy at the same operating point as
 PoseLib's pixel refiner converts its width with this, so the two cannot drift
 apart when the camera mapping changes.
 """
-calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, loss_width::Real) =
-    loss_width * (0.5 * (1.0 / _pinhole_focal(K1) + 1.0 / _pinhole_focal(K2)))
+calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, width::Real) =
+    width * (0.5 * (1.0 / _pinhole_focal(K1) + 1.0 / _pinhole_focal(K2)))
 
 public calibrated_loss_width
 
 """
-    refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, loss, loss_width) -> Rigid3
+    refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
 
 Robust Levenberg–Marquardt refinement of a relative pose from pixel
 correspondences and the two cameras' intrinsics.
@@ -575,12 +677,12 @@ correspondences and the two cameras' intrinsics.
 second's. `cs` holds the correspondences `x1 => x2`, each point in its own
 image's frame. `K1` and `K2` are the intrinsic matrices of those frames: pixel
 matrices for pixel points, or matrices in whatever frame the points are in.
-Returns the refined `Rigid3`.
+Returns a `FitResult` whose `estimate` is the refined `Rigid3`, as a `FitResult`.
 
-`loss_width` is in the unit of the points. PoseLib back-projects through each
+The width is in the unit of the points. PoseLib back-projects through each
 camera, so one width serves both images even when their focal lengths differ.
-`loss` and `loss_width` are as in [`refine_homography`](@ref). `max_iter`, the
-iteration budget, has no default.
+`max_iter`, `optimization_strategy`, `scale` and `width`, and the result, are as
+in [`refine_homography`](@ref); the residual's codimension is 1.
 
 Each `K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal
 length `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any
@@ -592,8 +694,10 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                        max_iter::Integer, loss,
-                        loss_width::Union{Real, Nothing} = nothing)
+                        max_iter::Integer, optimization_strategy = _Required(),
+                        scale = nothing, width = nothing, kw...)
+    _check_refine_keywords(:refine_relpose, optimization_strategy, kw)
+    w, meta = _refine_width(optimization_strategy, scale, width, 1)
     X1, X2 = _pack(cs)
     R0 = pose.R; t0 = pose.t
     Rin = Vector{Float64}(undef, 9)
@@ -605,17 +709,18 @@ function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
     cam2 = _simple_pinhole(K2)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
-    ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
+    iterations = ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
-          X1, X2, length(cs), Rin, tin, cam1, cam2, _poselib_loss_scale(loss, loss_width), max_iter, _poselib_loss_type(loss),
+          X1, X2, length(cs), Rin, tin, cam1, cam2, w, max_iter, _poselib_loss_type(optimization_strategy),
           pointer(R_out), pointer(t_out))
-    return Rigid3(_read_mat33_from_buf(R_out, 0),
-                 Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    model = Rigid3(_read_mat33_from_buf(R_out, 0),
+                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    return _refine_result(model, iterations, max_iter, length(cs), meta)
 end
 
 """
-    refine_relpose(pose::Rigid3, cs; max_iter, loss, loss_width) -> Rigid3
+    refine_relpose(pose::Rigid3, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
 
 Robust Levenberg–Marquardt refinement of a relative pose from unit bearings,
 through PoseLib's tangent-Sampson refiner.
@@ -625,25 +730,25 @@ second's. `cs` holds the correspondences `f₁ => f₂` of unit bearings
 (`StaticVector{3}`). They carry their 3×2 back-projection Jacobians as the
 attribute columns `M₁` and `M₂`, attached with `withattrs(cs; M₁, M₂)`.
 VisualGeometryToolkitCore's `backproject_with_jacobian(camera, u)` returns
-each bearing together with its Jacobian. Returns the refined `Rigid3`.
+each bearing together with its Jacobian. Returns a `FitResult` whose `estimate` is the refined `Rigid3`, as a `FitResult`.
 
 No image plane is involved, so a ray at or beyond 90° from the optical axis is
 an ordinary input. A 3-vector that is not of unit length is refused with an
 `ArgumentError`: a point on the z = 1 plane lifted to `(x, y, 1)` has the right
 type but is not a bearing.
 
-# The unit of `loss_width`
+# The unit of the width
 
-`loss_width` is the width `w` of the loss on the tangent-Sampson residual
+`width` is the width `w` of the loss on the tangent-Sampson residual
 
     r = (f₂ᵀ E f₁) / √(‖M₂ᵀ E f₁‖² + ‖M₁ᵀ Eᵀ f₂‖²)
 
 The denominator is the gradient norm of the epipolar constraint with respect
 to the coordinates that `M` differentiates against. The residual `r` is in the
-unit of those coordinates, and `loss_width` must be given in the same unit.
+unit of those coordinates, and `width` (or `scale`) must be given in the same unit.
 The Jacobians set the unit; the call cannot.
 
-| `M` is | `r` and `loss_width` are in |
+| `M` is | `r` and `width` are in |
 |---|---|
 | `∂f/∂u` from `backproject_with_jacobian` | pixels of `u` |
 | an orthonormal basis of the tangent plane of the sphere at `f` | radians |
@@ -657,12 +762,14 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{3}}};
-                        max_iter::Integer, loss,
-                        loss_width::Union{Real, Nothing} = nothing)
+                        max_iter::Integer, optimization_strategy = _Required(),
+                        scale = nothing, width = nothing, kw...)
+    _check_refine_keywords(:refine_relpose, optimization_strategy, kw)
+    w, meta = _refine_width(optimization_strategy, scale, width, 1)
     (hasattr(cs, :M₁) && hasattr(cs, :M₂)) || throw(ArgumentError(
         "refine_relpose on bearings needs the backprojection Jacobians as attribute " *
         "columns: withattrs(cs; M₁, M₂), from backproject_with_jacobian. They set " *
-        "the unit of `loss_width`, so there is no defensible default for them."))
+        "the unit of the width, so there is no defensible default for them."))
     # The 3-vector signature is a NECESSARY condition, not a guarantee: without
     # this the chart would slip through in 3-vector clothing and the 90° exclusion would
     # survive, just invisibly.
@@ -678,15 +785,16 @@ function refine_relpose(pose::Rigid3,
     tin = Float64[t0[1], t0[2], t0[3]]
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
-    ccall((:poselib_refine_relpose_bearing, libposelib_jl), Cint,
+    iterations = ccall((:poselib_refine_relpose_bearing, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Cint,
            Ptr{Float64}, Ptr{Float64},
            Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
           D1, D2, J1, J2, length(cs), Rin, tin,
-          _poselib_loss_scale(loss, loss_width), max_iter, _poselib_loss_type(loss),
+          w, max_iter, _poselib_loss_type(optimization_strategy),
           pointer(R_out), pointer(t_out))
-    return Rigid3(_read_mat33_from_buf(R_out, 0),
-                 Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    model = Rigid3(_read_mat33_from_buf(R_out, 0),
+                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    return _refine_result(model, iterations, max_iter, length(cs), meta)
 end
 
 # =============================================================================
@@ -696,7 +804,7 @@ end
 export refine_fundamental
 
 """
-    refine_fundamental(F, cs; max_iter, loss, loss_width) -> FundMat
+    refine_fundamental(F, cs; max_iter, optimization_strategy, scale | width) -> FitResult{FundMat}
 
 Robust Levenberg–Marquardt refinement of a fundamental matrix through
 PoseLib's `refine_fundamental`. It minimizes the Sampson error over the
@@ -704,16 +812,19 @@ Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
 
 `F` is the seed 3×3 fundamental matrix. `cs` holds the correspondences
 `x1 => x2` of 2D image points, in the frame `F` is expressed in (pixels for a
-pixel-frame `F`). `loss_width` is the width of the loss on the Sampson
-residual, in the same unit. `loss` and `loss_width` are as in
-[`refine_homography`](@ref). Returns the refined `FundMat`. It ends in the
+pixel-frame `F`). The width is that of the loss on the Sampson residual, in
+the same unit (codimension 1). `max_iter`, `optimization_strategy`, `scale` and
+`width`, and the result, are as in [`refine_homography`](@ref). Returns a
+`FitResult` whose `estimate` is the refined `FundMat`. It ends in the
 local minimum its seed leads to, as described for
 [`refine_homography`](@ref).
 """
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                            max_iter::Integer, loss,
-                            loss_width::Union{Real, Nothing} = nothing)
+                            max_iter::Integer, optimization_strategy = _Required(),
+                            scale = nothing, width = nothing, kw...)
+    _check_refine_keywords(:refine_fundamental, optimization_strategy, kw)
+    w, meta = _refine_width(optimization_strategy, scale, width, 1)
     _require_3x3(F, "F")
     X1, X2 = _pack(cs)
     Fin = Vector{Float64}(undef, 9)
@@ -722,12 +833,13 @@ function refine_fundamental(F::AbstractMatrix,
     end
     F_out = MVector{9, Float64}(undef)
     _require_library()
-    ccall((:poselib_refine_fundamental, libposelib_jl), Cint,
+    iterations = ccall((:poselib_refine_fundamental, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
            Float64, Cint, Cint, Ptr{Float64}),
-          X1, X2, length(cs), Fin, _poselib_loss_scale(loss, loss_width), max_iter, _poselib_loss_type(loss),
+          X1, X2, length(cs), Fin, w, max_iter, _poselib_loss_type(optimization_strategy),
           pointer(F_out))
-    return FundMat{Float64}(Tuple(_read_mat33_from_buf(F_out, 0)))
+    model = FundMat{Float64}(Tuple(_read_mat33_from_buf(F_out, 0)))
+    return _refine_result(model, iterations, max_iter, length(cs), meta)
 end
 
 # =============================================================================
@@ -738,7 +850,7 @@ export refine_homography
 export refine_absolute_pose
 
 """
-    refine_absolute_pose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, loss, loss_width)
+    refine_absolute_pose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, optimization_strategy, width)
 
 This form is refused with an `ArgumentError`. Its targets would be calibrated
 points on the z = 1 plane (`GnomonicFrame`), with a loss width divided by the
@@ -746,7 +858,7 @@ focal length. That plane has no point for a ray at or beyond 90° from the
 optical axis.
 
 Use `refine_absolute_pose(pose, K, cs)` instead: the same correspondences in
-pixels, the intrinsic matrix `K`, and `loss_width` in pixels.
+pixels, the intrinsic matrix `K`, and the width in pixels.
 
 PoseLib has no absolute-pose refiner on bearings. Its residual is a
 reprojection error in the image, so the pixel form is the only one, and it
@@ -763,12 +875,12 @@ function refine_absolute_pose(::Rigid3,
             "points on the z = 1 chart, which does not exist for a ray at the " *
             "horizon, with the loss width pre-divided by the focal length. Supply the same " *
             "correspondences as PIXELS with their intrinsics and a PIXEL loss width: " *
-            "`refine_absolute_pose(pose, K, cs; max_iter, loss, loss_width)`."
+            "`refine_absolute_pose(pose, K, cs; max_iter, optimization_strategy, width)`."
     ))
 end
 
 """
-    refine_absolute_pose(pose::Rigid3, K, cs; max_iter, loss, loss_width) -> Rigid3
+    refine_absolute_pose(pose::Rigid3, K, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
 
 Robust Levenberg–Marquardt refinement of an absolute pose from 3D-to-2D
 correspondences, through PoseLib's C++ absolute-pose bundle adjustment. The residual is the
@@ -777,10 +889,11 @@ reprojection error `project(camera, R X + t) − u`.
 `pose` is the seed [`Rigid3`](@ref), mapping the world frame to the camera's.
 `K` is the intrinsic matrix of the frame the image points are in. `cs` holds
 the correspondences `X => u` of 3D points to 2D image points. Returns the
-refined `Rigid3`.
+refined `Rigid3`, as a `FitResult`.
 
-`loss_width` is the width of the loss on the reprojection residual, in the
-unit of `u` and `K` (pixels for a pixel-frame `K`). `loss` and `loss_width`
+The width is that of the loss on the reprojection residual, in the unit of
+`u` and `K` (pixels for a pixel-frame `K`; codimension 2). `max_iter`,
+`optimization_strategy`, `scale` and `width`, and the result,
 are as in [`refine_homography`](@ref). Only the six degrees of freedom of the
 pose are refined; `K` stays fixed.
 
@@ -794,8 +907,10 @@ It ends in the local minimum its seed leads to, as described for
 """
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Cspond{<:StaticVector{3}, <:StaticVector{2}}};
-                              max_iter::Integer, loss,
-                              loss_width::Union{Real, Nothing} = nothing)
+                              max_iter::Integer, optimization_strategy = _Required(),
+                              scale = nothing, width = nothing, kw...)
+    _check_refine_keywords(:refine_absolute_pose, optimization_strategy, kw)
+    w, meta = _refine_width(optimization_strategy, scale, width, 2)
     _require_3x3(K, "K")
     Xb, xb = _pack(cs)
     R0 = pose.R; t0 = pose.t
@@ -807,14 +922,15 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
     cam = _simple_pinhole(K)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
-    ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,
+    iterations = ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
           xb, Xb, length(cs), Rin, tin, cam,
-          _poselib_loss_scale(loss, loss_width), max_iter, _poselib_loss_type(loss),
+          w, max_iter, _poselib_loss_type(optimization_strategy),
           pointer(R_out), pointer(t_out))
-    return Rigid3(_read_mat33_from_buf(R_out, 0),
-                 Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    model = Rigid3(_read_mat33_from_buf(R_out, 0),
+                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
+    return _refine_result(model, iterations, max_iter, length(cs), meta)
 end
 
 # -----------------------------------------------------------------------------
@@ -833,14 +949,15 @@ const _PlainPoints3 = AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:Stati
 _metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_metres(X))
 
 """
-    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, loss, loss_width)
+    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, optimization_strategy, width)
 
 The physical form of [`refine_absolute_pose`](@ref): `pose` a world→camera
 pose whose translation is a length (FlexUnits quantities) and `cs` the
 correspondences `X => u` with the world points `X` lengths. Both are stripped in
 metres once, the plain refinement runs, and the refined pose comes back with its
-translation in metres: equal, after `ustrip(m, ·)`, to the plain refinement's
-on the inputs' `ustrip(m, ·)`. `u`, `K` and `loss_width` stay in pixels. A
+translation in metres, as a `FitResult`: equal, after `ustrip(m, ·)`, to the plain refinement's
+on the inputs' `ustrip(m, ·)`, with the plain refinement's `retcode`,
+`iterations` and scale record. `u`, `K` and the width stay in pixels. A
 labeled seed (an estimate's `CameraExtrinsics`, world → camera) is read
 unlabeled; the refined pose comes back unlabeled. A physical seed with plain
 points, or the reverse, is an `ArgumentError`.
@@ -848,10 +965,12 @@ points, or the reverse, is an `ArgumentError`.
 function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, cs::_PhysicalPoints3; kwargs...)
     seed = convert(Rigid3, VgtkCore.unlabel(ustrip(VgtkCore.m, pose)))   # a labeled pose (an estimate's CameraExtrinsics) too
     plain = [_metres_point(first(c)) => last(c) for c in cs]
-    refined = refine_absolute_pose(seed, K, plain; kwargs...)
+    r = refine_absolute_pose(seed, K, plain; kwargs...)
+    refined = r.estimate
     # rebuilt through the checked constructor (the refined rotation is verified, as
-    # before), then read in metres
-    return VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m)
+    # before), then read in metres; the rest of the result is the plain refinement's
+    pose_m = VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m)
+    return FitResult(pose_m, r.retcode, r.iterations, r.rms, r.n, r.metadata)
 end
 
 refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(
@@ -863,7 +982,7 @@ refine_absolute_pose(::Rigid3, ::AbstractMatrix, ::_PhysicalPoints3; kwargs...) 
 ))
 
 """
-    refine_homography(H, cs; max_iter, loss, loss_width) -> HomographyMat
+    refine_homography(H, cs; max_iter, optimization_strategy, scale | width) -> FitResult{HomographyMat}
 
 Robust Levenberg–Marquardt refinement of a homography through PoseLib's
 `refine_homography`. It minimizes the symmetric transfer error: the forward
@@ -872,29 +991,50 @@ robustified per point, where `π` divides by the third coordinate.
 
 `H` is the seed 3×3 homography. `cs` holds the correspondences `x1 => x2` of
 2D image points, in the frame `H` is expressed in (pixels for a pixel-frame
-`H`). `loss_width` is the width of the loss on a one-sided transfer residual,
-in the same unit. Returns the refined `HomographyMat`.
+`H`). The width is that of the loss on a one-sided transfer residual, in the
+same unit. Returns a `FitResult` whose `estimate` is the refined
+`HomographyMat`.
 
-`loss` is required — one of VisualGeometryToolkitCore's loss shapes, or
-[`LeZachTruncation`](@ref)`()` — like `max_iter`: the robust estimate's loss is
-the caller's configuration (its strategy or TOML table), never a default here:
+`optimization_strategy` is required, like `max_iter`: the robust estimate's
+strategy is the caller's configuration (its strategy or TOML table), never a
+default here. PoseLib's Levenberg–Marquardt weighs each residual by its loss
+weight `ρ′` alone, so its strategies are `Irls{K}` (VisualGeometryToolkitCore's);
+a `Triggs{K}` (the `ρ″`-corrected LM) is refused, as is any other shape:
 
-| `loss` | `ρ(r)` | note |
+| `optimization_strategy` | `ρ(r)` | note |
 |---|---|---|
-| `TLSShape()` | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
-| `HuberShape()` | `r²` up to `w`, linear beyond | |
-| `CauchyShape()` | `w² log(1 + r²/w²)` | |
-| `GaussianShape()` | `r²` | plain least squares; takes no `loss_width` |
-| `LeZachTruncation()` | `min(r², w²)` | the truncated loss under Le and Zach's scheme |
+| `Irls{TLSShape}()` | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
+| `Irls{HuberShape}()` | `r²` up to `w`, linear beyond | |
+| `Irls{CauchyShape}()` | `w² log(1 + r²/w²)` | |
+| [`LeZach`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's scheme |
+| `nothing` | `r²` | plain least squares; takes no `scale` or `width` |
 
-`loss_width` is the width `w` of VisualGeometryToolkitCore's closed form for
-that shape. PoseLib's own `loss_scale` equals it for every loss bound here, so
-it reaches PoseLib unchanged. `max_iter`, the iteration budget, has no default.
+A robust strategy takes exactly one of:
+
+- `width = w`, the width `w` of VisualGeometryToolkitCore's closed form for
+  that shape. PoseLib's own `loss_scale` equals it for every loss bound here,
+  so it reaches PoseLib unchanged;
+- `scale = σ` (or an earlier robust result, read by `noise_scale`): the loss
+  runs at `w = c·σ`, with `c` the strategy's efficiency constant, else
+  VisualGeometryToolkitCore's `efficiency_constant(shape, d)` at the
+  residual's codimension `d` (2 here). TLS and Le–Zach have no efficiency
+  constant (a truncation), so they take `width`.
+
+The retired `loss` and `loss_width` keywords are refused with an
+`ArgumentError` naming their replacements. `max_iter` is PoseLib's
+Levenberg–Marquardt iteration budget; it has no default (an `Irls` strategy's
+own `max_iter`, its reweighting count, is not read by PoseLib).
+
+The result records PoseLib's `iterations` and its `retcode`: `:converged` when
+PoseLib stopped on its own tolerances, `:max_iterations` when it used the whole
+budget. Its metadata ([`PoseLibRefineMetadata`](@ref)) is the scale record:
+`noise_scale(result)` hands a given scale on to the next stage. PoseLib reports
+no residuals, weights or cost, so `rms` is `NaN` and `n` is the number of
+correspondences.
 
 A refiner ends in the local minimum its seed leads to: under a truncated loss,
-a correspondence whose residual at the seed exceeds `loss_width` gets no
-weight, so a seed must be close enough that its inliers fall within the width.
-No convergence status comes back (PoseLib's iteration count is discarded).
+a correspondence whose residual at the seed exceeds the width gets no weight,
+so a seed must be close enough that its inliers fall within the width.
 Without the library on this platform ([`is_available`](@ref) false), a call
 that reaches it raises an error that says so; a refused form (calibrated
 2-vectors, mixed units, non-unit bearings) raises its own `ArgumentError` first.
@@ -908,16 +1048,22 @@ julia> x1 = [Point2(a, b) for a in 0.0:100.0:300.0 for b in 0.0:100.0:300.0];
 
 julia> x2 = [Point2(x[1] + 5.0, x[2] - 3.0) for x in x1];
 
-julia> H1 = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Csponds(x1, x2); max_iter = 25, loss = TLSShape(), loss_width = 2.0);
+julia> r = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Csponds(x1, x2);
+                              max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0);
 
-julia> H1 / H1[3, 3] ≈ H
+julia> H1 = estimate(r); H1 / H1[3, 3] ≈ H
 true
+
+julia> retcode(r), iterations(r) < 25
+(:converged, true)
 ```
 """
 function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
-                           max_iter::Integer, loss,
-                           loss_width::Union{Real, Nothing} = nothing)
+                           max_iter::Integer, optimization_strategy = _Required(),
+                           scale = nothing, width = nothing, kw...)
+    _check_refine_keywords(:refine_homography, optimization_strategy, kw)
+    w, meta = _refine_width(optimization_strategy, scale, width, 2)
     _require_3x3(H, "H")
     X1, X2 = _pack(cs)
     Hin = Vector{Float64}(undef, 9)
@@ -926,12 +1072,13 @@ function refine_homography(H::AbstractMatrix,
     end
     H_out = MVector{9, Float64}(undef)
     _require_library()
-    ccall((:poselib_refine_homography, libposelib_jl), Cint,
+    iterations = ccall((:poselib_refine_homography, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
            Float64, Cint, Cint, Ptr{Float64}),
-          X1, X2, length(cs), Hin, _poselib_loss_scale(loss, loss_width), max_iter, _poselib_loss_type(loss),
+          X1, X2, length(cs), Hin, w, max_iter, _poselib_loss_type(optimization_strategy),
           pointer(H_out))
-    return HomographyMat{Float64}(Tuple(_read_mat33_from_buf(H_out, 0)))
+    model = HomographyMat{Float64}(Tuple(_read_mat33_from_buf(H_out, 0)))
+    return _refine_result(model, iterations, max_iter, length(cs), meta)
 end
 
 # =============================================================================

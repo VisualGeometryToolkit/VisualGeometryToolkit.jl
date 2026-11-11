@@ -46,7 +46,9 @@ poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25])
 # Keep the solution that reprojects all 25 points best, then refine it.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-pose = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0)
+result = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50,
+                              optimization_strategy = Irls{TLSShape}(), width = 2.0)
+pose = estimate(result)
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 
@@ -59,7 +61,7 @@ continues with the relative-pose and homography refiners.
   a P3P solve and each refiner.
 - [Minimal solvers](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/solvers/)
   and [Refiners](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/refiners/):
-  selecting the PoseLib backend, the losses and the unit of `loss_width`.
+  selecting the PoseLib backend, the strategies and the unit of the width.
 - [Platforms and binaries](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/binaries/):
   what is downloaded, for which platforms, under which licenses.
 - [API reference](https://visualgeometrytoolkit.github.io/PoseLib/stable/api/).

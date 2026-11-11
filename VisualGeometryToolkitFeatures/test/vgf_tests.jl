@@ -787,6 +787,36 @@ end
     @test_throws ArgumentError matches!(a2, b2, scs; max_display = 0)
 end
 
+@testitem "Makie extension: compare_images, linked axes over a menu of image pairs" begin
+    # The stack's one image viewer: a menu over named pairs (a pair loaded when it is chosen), one axis per image,
+    # the axes linked, each image drawn by Core's orientation rule (`imshow!`: x right, y down, COLMAP pixels).
+    # No backend is needed: the figure is a scene graph.
+    using VisualGeometryToolkitFeatures: compare_images
+    using Makie: Makie
+    a = Float32[10i + j for i in 1:3, j in 1:4]           # 3 rows × 4 columns
+    b = reverse(a; dims = 1)
+    c = fill(0.5f0, 5, 6)
+    loaded = Ref(0)
+    fig = compare_images(["one" => (a, b), "two" => () -> (loaded[] += 1; (c, 2c))]; titles = ("before", "after"))
+    @test fig isa Makie.Figure && loaded[] == 0             # a lazy pair is not loaded before it is chosen
+    axs = filter(x -> x isa Makie.Axis, fig.content)
+    @test length(axs) == 2 && [ax.title[] for ax in axs] == ["before", "after"]
+    @test axs[2] in axs[1].xaxislinks && axs[2] in axs[1].yaxislinks
+    menu = only(filter(x -> x isa Makie.Menu, fig.content))
+    @test menu.options[] == ["one", "two"] && menu.selection[] == "one"
+    drawn(ax) = collect(only(filter(p -> p isa Makie.Image, ax.scene.plots))[3][])
+    # Core's rule: the image transposed (Makie's x is the column), the y axis reversed (row 1 at the top)
+    @test drawn(axs[1]) == permutedims(a) && drawn(axs[2]) == permutedims(b) && all(ax -> ax.yreversed[], axs)
+    menu.selection[] = "two"
+    @test loaded[] == 1 && drawn(axs[1]) == permutedims(c) && drawn(axs[2]) == permutedims(2c)
+    # the first pair shown can be chosen; any number of images per entry, the same in each
+    @test only(filter(x -> x isa Makie.Menu, compare_images(["one" => (a, b), "two" => (c, c)]; default = "two").content)).selection[] == "two"
+    @test count(x -> x isa Makie.Axis, compare_images(["three" => (a, b, a)]).content) == 3
+    @test_throws ArgumentError compare_images(Pair{String, Any}[])
+    @test_throws ArgumentError compare_images(["one" => (a, b)]; default = "none")
+    @test_throws ArgumentError compare_images(["one" => (a, b)]; titles = ("only one",))
+end
+
 @testitem "asift_detect!: a view or an adjoint input uploads as a dense frame (Core's on_device)" setup = [Fixtures] begin
     using CUDA: CUDA
     import VisualGeometryToolkitFeatures as VgtkFeatures

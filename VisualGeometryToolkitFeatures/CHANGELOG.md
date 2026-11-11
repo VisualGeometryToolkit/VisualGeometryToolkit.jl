@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **New: the stack's one image viewer, `compare_images(entries; titles, default, size)`** (exported; the Makie
+  extension): a menu over named entries, each a tuple of images (or a function returning one, loaded when chosen),
+  one axis per image, the axes linked, each image drawn by Core's orientation rule (`imshow!`). PanoramaStitching's
+  `compare_makie.jl` keeps only which renders form a pair.
+
 - **New: the one display encoding, `srgb_image([T = N0f8], img; exposure, white_balance, background, tone)`**
   (exported), and **`linear_to_srgb`** (public), the IEC 61966-2-1 OETF beside `srgb_to_linear`. A linear
   `H × W × 3` image (or one plane) to `RGB{T}` (`Gray{T}`): exposure, a white-balance factor per plane, an optional

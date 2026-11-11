@@ -69,7 +69,12 @@ Modules = [VisualGeometryToolkitFeatures]
 Pages = ["variance_stabilization.jl"]
 ```
 
-## Image input and the linear PNG reader
+## Image input, the linear PNG reader and the display encoding
+
+A linear image is shown through one encoding, [`srgb_image`](@ref): exposure,
+a white balance per plane, an optional tone curve, clamp, the sRGB transfer
+curve ([`linear_to_srgb`](@ref), the inverse of [`srgb_to_linear`](@ref)) and
+8 or 16 bits, a NaN pixel the background.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]

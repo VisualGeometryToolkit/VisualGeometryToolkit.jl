@@ -4,8 +4,8 @@
 CurrentModule = VisualGeometryToolkitFeatures
 ```
 
-`FileCache` needs the JLD2 extension (`using JLD2`), and `detections!` needs a
-Makie backend.
+`FileCache` needs the JLD2 extension (`using JLD2`), and `detections!` and the
+image viewer `compare_images` need a Makie backend.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]

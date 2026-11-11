@@ -202,7 +202,7 @@ export FileCache, open_cache, close_cache, cache_key
 # -----------------------------------------------------------------------------
 # 6. VISUALIZATION - stubs implemented in VisualGeometryToolkitFeaturesMakieExt
 # -----------------------------------------------------------------------------
-export detections!
+export detections!, compare_images   # detections over an image; the one image viewer (Makie extension)
 
 include("precompile.jl")   # last: the workload calls the API defined above
 

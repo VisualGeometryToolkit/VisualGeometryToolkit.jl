@@ -57,6 +57,9 @@ _decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decode
 # The display demosaic: LibRaw's interpolated, linear, 16-bit camera-RGB image of
 # the visible area in the sensor's orientation, and the file's metadata.
 _decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
+# The decoder library's version, part of `load_raw`'s cache key (a library upgrade can move the black levels, the white
+# level or the crop): the extension's (LibRaw's `libraw_version()`); `nothing` for a decoder that states none.
+_decoder_version(::RawDecoder) = nothing
 
 """
     RawMosaic{A <: AbstractMatrix{UInt16}, M <: NamedTuple} <: AbstractMatrix{UInt16}
@@ -637,8 +640,9 @@ raw colour, white balance 1.
 
 `cache` (a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
 decoded once per content and settings — the entry is keyed by the file's
-SHA-256, `mode`, `gain`, `white_balance` and the decoder's type
-([`cache_key`](@ref)), so an edited file or another setting decodes again and
+SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
+version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
+another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
 default) decodes every call.
 """
@@ -648,7 +652,8 @@ function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_bala
         throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
     cache === nothing && return _load_raw(path, mode, gain, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
-    key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)))
+    key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
+                    _decoder_version(decoder))
     return get!(() -> _load_raw(path, mode, gain, white_balance, decoder), cache, key)
 end
 

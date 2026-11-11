@@ -531,6 +531,8 @@ end
         e
     end
     @test err isa ErrorException && occursin("LibRaw cannot open", err.msg)
+    # load_raw's cache key names the library and its build
+    @test occursin(r"^LibRaw 0\.22\S*, LibRaw_jll 0\.22\.", VisualGeometryToolkitFeatures._decoder_version(LibRawDecoder()))
     path = get(ENV, "VGTK_RAW_TEST_FILE", "")
     if isfile(path)
         m = load_raw_mosaic(path; decoder = LibRawDecoder())
@@ -683,6 +685,27 @@ end
     try
         load_raw(raw; mode = :bin2, gain = 2, decoder = d, cache)
         @test d.calls[] == 6
+    finally
+        close_cache(cache)
+    end
+    # the decoder library's version is in the key (`_decoder_version`, LibRaw's for LibRawDecoder): an upgraded
+    # library decodes again rather than returning the old library's black levels, white level or crop
+    struct VersionedDecoder <: RawDecoder
+        calls::Base.RefValue{Int}
+        version::Base.RefValue{String}
+    end
+    VisualGeometryToolkitFeatures._decoder_version(d::VersionedDecoder) = d.version[]
+    VisualGeometryToolkitFeatures._decode_raw(d::VersionedDecoder, path::AbstractString) =
+        (d.calls[] += 1; mosaic(fill(UInt16(3000), 8, 8), LAYOUTS.RGGB))
+    @test VisualGeometryToolkitFeatures._decoder_version(CountingDecoder(Ref(0))) === nothing   # a decoder stating none
+    v = VersionedDecoder(Ref(0), Ref("0.22.0-Release"))
+    cache = open_cache(joinpath(dir, "versioned.jld2"))
+    try
+        load_raw(raw; mode = :bin2, decoder = v, cache); load_raw(raw; mode = :bin2, decoder = v, cache)
+        @test v.calls[] == 1
+        v.version[] = "0.22.1-Release"
+        load_raw(raw; mode = :bin2, decoder = v, cache)
+        @test v.calls[] == 2
     finally
         close_cache(cache)
     end

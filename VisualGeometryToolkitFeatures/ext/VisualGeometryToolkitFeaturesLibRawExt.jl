@@ -44,7 +44,7 @@
 
 module VisualGeometryToolkitFeaturesLibRawExt
 
-using LibRaw_jll: libraw
+using LibRaw_jll: LibRaw_jll, libraw
 using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, LibRawDecoder, RawMosaic
 
 # ---- mirrored structures (libraw_types.h, LibRaw 0.22) ----------------------
@@ -243,6 +243,8 @@ _cstring(t::NTuple{N, UInt8}) where {N} = (k = findfirst(iszero, t); String(UInt
 
 libraw_version() = unsafe_string(@ccall libraw.libraw_version()::Cstring)
 libraw_version_number() = @ccall libraw.libraw_versionNumber()::Cint
+# load_raw's cache key: the library's own version and the JLL build that ships it (a rebuild can carry patches)
+VisualGeometryToolkitFeatures._decoder_version(::LibRawDecoder) = "LibRaw $(libraw_version()), LibRaw_jll $(pkgversion(LibRaw_jll))"
 
 function __init__()
     v = libraw_version_number()

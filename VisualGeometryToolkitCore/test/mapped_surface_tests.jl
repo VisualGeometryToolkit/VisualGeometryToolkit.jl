@@ -464,7 +464,11 @@ end
                 Base.invokelatest(hits!(gpu, 64), t, x, Base.invokelatest(CuArray, oF), Base.invokelatest(CuArray, dF),
                                   Base.invokelatest(adapt, gpu, sF); ndrange = length(os))
                 tg = Base.invokelatest(Array, t)
-                @test isequal(tg, ref)   # the device's hits bit for bit the host's (explicit fused products, Core 0.9.3)
+                # the device's misses exactly, its hits to a few ulps: not bit for bit, though the root's fused products are
+                # explicit — the thin-plate spline's `log` is libdevice's `__nv_log` on the device (the host's is Julia's),
+                # and NVPTX contracts a plain `a*b + c` into an fma where the host does not (measured: Core 0.9.3, B200)
+                @test isequal(isnan.(tg), isnan.(ref))
+                @test maximum(abs, filter(isfinite, tg - ref)) <= 4 * eps(F) * 2
             end
         end
     end

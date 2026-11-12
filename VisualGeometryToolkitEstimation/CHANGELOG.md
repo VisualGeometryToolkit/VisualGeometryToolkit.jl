@@ -2,7 +2,7 @@
 
 ## 0.9.1 (unreleased)
 
-Additive patch, on VisualGeometryToolkitCore's next patch (its public `normalized_point`).
+Additive patch, on VisualGeometryToolkitCore 0.9.2 (its public `normalized_point`): `[compat]` VisualGeometryToolkitCore = "0.9.2".
 
 - **`image_size(camera::BoundedCamera)`, public** (was `_image_size`): a bounded camera's image in whole pixels
   (`Size2{Int}` of its extent), the image a spline target's lattice covers; any other source an `ArgumentError`. A

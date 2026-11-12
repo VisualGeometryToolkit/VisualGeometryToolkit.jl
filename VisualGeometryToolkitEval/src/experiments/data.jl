@@ -133,8 +133,9 @@ machine (`tier_data_root`, the runner's order): `ENV["VGTK_DATA_ROOT_<TIER>"]`
 → the project's stage graph (`configs/reproduce.toml`) `[sites.<site>.tiers]`,
 `<site>` from `ENV["VGTK_SITE"]` (the runner sets both for its jobs) → the one
 data root above, through the same resolver as `tiers`: an artifact view that
-publishes the tier installs it (a tier the view does not hold is only looked
-up). An `[inputs.<id>]` path is relative to its tier's root, so
+publishes the tier installs it, and the tier's root is then where the view
+mounts it (`<data root>/<mount(tier)>`, a catalog's `mount_dir`); a tier the
+view does not hold is only looked up. An `[inputs.<id>]` path is relative to its tier's root, so
 [`input_path`](@ref) fetches what it reads.
 """
 function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union{Nothing,AbstractString} = nothing)
@@ -142,9 +143,14 @@ function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union
         site_tiers, workdir = _site_tiers()
         r, from = tier_data_root(tier, ""; env = ENV, tiers = site_tiers, workdir)     # the one order (src/code_identity.jl)
         from == "data root" || return r
-        # under the data root: the one resolver below, which installs the tier when an artifact view publishes it
+        # under the data root: the one resolver below, which installs the tier when an artifact view publishes it;
+        # such a tier's root is where the view mounts it (its `mount`, the catalog's `mount_dir`)
         av = _BINDING.artifacts
-        av !== nothing && _view_has(av, tier) && (tiers = String[tier])
+        if av !== nothing && _view_has(av, tier)
+            r = data_root(; tiers = String[tier])
+            m = String(av.mount(tier))
+            return isempty(m) ? r : joinpath(r, m)
+        end
     end
     r = _bound_data_root()
     av = _BINDING.artifacts

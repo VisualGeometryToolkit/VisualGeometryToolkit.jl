@@ -91,6 +91,11 @@
         # a config named by its name (a project builder loads it) is a config of record
         root = good(); add(root, "scripts/byname.jl", stage("cfg = builder(\"example\")"))
         @test isempty(check(root))
+        # the config path from the command line, cli_option(ARGS, "config"), is a config of record
+        root = good(); add(root, "scripts/cliopt.jl", stage("cfg = load_mine(cli_option(ARGS, \"config\"))"))
+        @test isempty(check(root))
+        root = good(); add(root, "scripts/cliopt2.jl", stage("cfg = load_mine(cli_option(args, \"config\", \"x\"))"))
+        @test isempty(check(root))
         root = good(); add(root, "scripts/missing.jl", stage("cfg = TOML.parsefile(projectdir(\"configs\", \"nope.toml\"))"))
         @test rules(check(root)) == ["C3"]
         for (line, what) in (("rng = StableRNG(42)", "seed"), ("const SEED = 7", "seed"),

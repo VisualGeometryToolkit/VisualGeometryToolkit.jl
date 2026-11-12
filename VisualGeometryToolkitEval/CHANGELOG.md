@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **New: a directory input's `sha256`.** `VisualGeometryToolkitEval.tree_sha256(dir; exclude)` is the one directory
+  digest: the SHA-256 of the sorted lines `<relative path>\t<file sha256>\n` of every regular file under it (links
+  to files followed), the paths matching an `exclude` glob left out; each file hashed by `file_sha256` (streamed,
+  cached by path, size, mtime). An `[inputs.<id>]` that is a directory takes it as `sha256`, with
+  `sha256_exclude = [globs]`; `inspect_input` (the runner, `verify_inputs`, `input_path`) verifies it.
+- **Changed: a producer writes through its tier's root.** `keyed_data_dir(cfg, tier, kind)` and `promote_run` are
+  `<data_root(; tier)>/<tier>/<…>`, the tier's root resolved as a consumer's, so a producer and a consumer
+  (`[inputs.<id>] tier, path = "<tier>/<kind>-<key>"`) agree wherever `VGTK_DATA_ROOT_<TIER>` or the site's tier
+  table puts it. **New: `Experiments.tier_path(tier, parts...)`**, the one reader of a path in a tier that a config
+  does not declare (a capture set: `tier_path(tier, set)`); a declared input is `input_path`'s.
+- **New: a catalog entry's `mount_dir`** (DataArtifacts): the directory under its mount root a tier mounts at, its
+  paths relative to it (`mount_dir(cat, name)`); `pack_artifacts`/`artifact_files` and `fetch_artifacts!` honour it,
+  and `catalog_view(cat; dir, default)` is the project's `ArtifactView` mounting each tier there. A view tier's root
+  (`data_root(; tier)`, so `input_path`) is where the view mounts it. A project's own tier-mount helper becomes this.
+- **Fixed: paper-project rule C1 recognises `cli_option(ARGS, "config")`** (and `cli_option(args, "config", default)`)
+  as reading a config of record.
+
 - **Scratch isolation, tightened.** `write_provenance` refuses a directory that holds the record of the other kind
   (a scratch run's into a run of record's, or the reverse); `scratch_record` finds the run a path belongs to at any
   depth (`run/sub/x.csv`, the nearest record above it); the runner's stage key folds `VGTK_SCRATCH=1`. Data-policy

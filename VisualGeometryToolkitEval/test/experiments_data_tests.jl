@@ -66,10 +66,10 @@
             h5 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
             bind_artifact!(toml, "tier_e", h5; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
             @test !ispath(joinpath(root, "sub", "run1", "e.json"))
-            @test E.data_root(; tier = "tier_e") == root && isfile(joinpath(root, "sub", "run1", "e.json"))
+            @test E.data_root(; tier = "tier_e") == joinpath(root, "sub") && isfile(joinpath(root, "sub", "run1", "e.json"))   # where the view mounts it
             h6 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "f.json"), "2")))
             bind_artifact!(toml, "tier_f", h6; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_f.tar.gz", "0"^64)])
-            cf = Dict{String,Any}("inputs" => Dict{String,Any}("f" => Dict{String,Any}("tier" => "tier_f", "path" => "sub/run1/f.json")))
+            cf = Dict{String,Any}("inputs" => Dict{String,Any}("f" => Dict{String,Any}("tier" => "tier_f", "path" => "run1/f.json")))
             @test E.input_path(cf, "f") == joinpath(root, "sub", "run1", "f.json")
             @test E.data_root(; tier = "no_such_artifact") == root                 # not the view's: only looked up
             @test_throws ErrorException E.assert_primary_copy("a producer")
@@ -334,6 +334,17 @@
             @test_throws r"lacks `matcher` \(or a `layout`\)" E.load_run_config(p)
             # a producer's keyed directory under the data root
             @test E.keyed_data_dir(cfg, "annotations", "train") == joinpath(data, "annotations", "train-" * k0)
+            # producer and consumer agree under a tier root set elsewhere: one path of record, `<tier>/<kind>-<key>`
+            derived = mktempdir()
+            withenv("VGTK_DATA_ROOT_DERIVED" => derived) do
+                out = E.keyed_data_dir(cfg, "derived", "pool")
+                @test out == joinpath(derived, "derived", "pool-" * k0)
+                mkpath(out); write(joinpath(out, "pool.jld2"), "p")
+                c = Dict{String,Any}("inputs" => Dict{String,Any}("pool" => Dict{String,Any}("tier" => "derived", "path" => "derived/pool-" * k0)))
+                @test E.input_path(c, "pool") == out
+                @test E.tier_path("derived", "derived", "pool-" * k0, "pool.jld2") == joinpath(out, "pool.jld2")
+            end
+            @test E.tier_path("boards", "a4.toml") == joinpath(data, "a4.toml")                    # no tier root: the data root
             # a run of record made an input of record
             run = joinpath(res, "fig", "run-" * k0); mkpath(run); write(joinpath(run, "r.csv"), "1\n")
             @test_throws r"no _provenance.toml" E.promote_run(run, "runs_of_record")

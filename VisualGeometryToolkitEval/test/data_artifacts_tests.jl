@@ -141,6 +141,17 @@
             @test D.artifact_files(fcat, "t_root").files == ["extra/notes.txt", "tiers/a/b.png", "tiers/a/deep/e.png"]   # dir "." is the root
             @test D.artifact_files(fcat, "t_excl").files == ["tiers/a/b.png", "tiers/a/deep/e.png", "tiers/skip/d.png"]  # no include: every file
             @test isempty(D.artifact_files(fcat, "t_none").files)
+            # a per-entry mount_dir: the tree mounts there, its paths relative to it; the view mounts it there too
+            md = merge(tree("."), Dict{String,Any}("mount_dir" => "extra"))
+            mcat = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records, Dict{String,Any}(cat.artifacts..., "t_md" => md))
+            a = D.artifact_files(mcat, "t_md")
+            @test a.root == joinpath(author_data, "extra") && a.files == ["notes.txt"]
+            @test D.mount_dir(mcat, "t_md") == "extra" && D.mount_dir(mcat, "t_extra") == ""
+            v = D.catalog_view(mcat)
+            @test v.mount("t_md") == "extra" && v.mount("t_extra") == "" && v.default == D.required_artifacts(mcat)
+            bad = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records,
+                                Dict{String,Any}(cat.artifacts..., "t_md" => merge(md, Dict{String,Any}("mount_dir" => "../up"))))
+            @test any(contains("t_md: mount_dir \"../up\" is not a relative directory"), D.catalog_violations(bad))
         end
 
         @testset "pack, bind, check" begin

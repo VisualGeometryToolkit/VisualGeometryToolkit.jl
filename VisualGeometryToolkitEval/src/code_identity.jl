@@ -218,6 +218,46 @@ function code_tree_changes(recorded, current::AbstractDict)
     return out
 end
 
+# A glob over a relative path: `*` within a segment, `**` across segments, `?` one character.
+function _path_glob(g::AbstractString)
+    out = IOBuffer(); i = firstindex(g)
+    while i <= lastindex(g)
+        c = g[i]
+        if c == '*' && i < lastindex(g) && g[nextind(g, i)] == '*'
+            print(out, ".*"); i = nextind(g, nextind(g, i))
+            continue
+        end
+        print(out, c == '*' ? "[^/]*" : c == '?' ? "[^/]" : occursin(c, ".+()[]{}^\$|\\") ? "\\" * c : string(c))
+        i = nextind(g, i)
+    end
+    return Regex("^" * String(take!(out)) * "\$")
+end
+
+"""
+    tree_sha256(dir; exclude = String[]) -> String
+
+THE content digest of a directory, for an input that is one: the SHA-256 of the lines `<relative path>\t<file
+sha256>\n`, one per regular file under `dir` (links followed to their files, not into linked directories), sorted
+by relative path (`/`-separated). A relative path matching a glob of `exclude` (`*` within a segment, `**` across,
+`?`) is left out, so a declared scratch file (a log, an index the reader rebuilds) does not move it. Empty
+directories do not count. Each file's hash is [`file_sha256`](@ref)'s: streamed, and cached by path, size and
+mtime, so a second digest of an unchanged tree costs a `stat` per file.
+"""
+function tree_sha256(dir::AbstractString; exclude = String[])
+    isdir(dir) || throw(ArgumentError("tree_sha256: $dir is not a directory"))
+    pats = [_path_glob(g) for g in exclude]
+    rows = Tuple{String, String}[]
+    for (root, _, files) in walkdir(dir), f in files
+        p = joinpath(root, f)
+        isfile(p) || continue
+        rel = join(splitpath(relpath(p, dir)), "/")
+        any(r -> occursin(r, rel), pats) && continue
+        push!(rows, (rel, file_sha256(p)))
+    end
+    sort!(rows; by = first)
+    return bytes2hex(sha256(join(("$r\t$h\n" for (r, h) in rows))))
+end
+
 # -----------------------------------------------------------------------------
 # Inputs: the root of each tier
 # -----------------------------------------------------------------------------
@@ -277,7 +317,8 @@ end
 THE check of one `[inputs.<id>]` table under its tier's `root` ([`tier_data_root`](@ref)), for the runner's
 `missing_inputs` and a driver's `verify_inputs` alike. `state` is `:present`; `:root_missing` (a tier root other
 than the data root, named by `root_name`, that is not there); `:missing` (no `path` under `root`); or `:refused`
-(another content than its `sha256`, or a scratch run's output, [`scratch_record`](@ref), unless `allow_scratch`).
+(another content than its `sha256` — a file's [`file_sha256`](@ref), a directory's [`tree_sha256`](@ref) with
+the table's `sha256_exclude` globs — or a scratch run's output, [`scratch_record`](@ref), unless `allow_scratch`).
 `problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or one on a directory, is an
 `ArgumentError` (a config error).
 """
@@ -292,8 +333,9 @@ function inspect_input(id::AbstractString, t::AbstractDict, root::AbstractString
     if haskey(t, "sha256")
         want = lowercase(string(t["sha256"]))
         occursin(r"^[0-9a-f]{64}$", want) || throw(ArgumentError("input $id: sha256 = \"$(t["sha256"])\" is no SHA-256 (64 hex digits)"))
-        isfile(full) || throw(ArgumentError("input $id ($rel): a sha256 names a file's content, and it is a directory"))
-        got = file_sha256(full)
+        exclude = String.(get(t, "sha256_exclude", String[]))
+        !isempty(exclude) && isfile(full) && throw(ArgumentError("input $id ($rel): sha256_exclude is for a directory, and it is a file"))
+        got = isdir(full) ? tree_sha256(full; exclude) : file_sha256(full)
         got == want || return (; state = :refused, path = full, problem = "sha256 expected $want, actual $got")
     end
     !allow_scratch && scratch_record(full) &&

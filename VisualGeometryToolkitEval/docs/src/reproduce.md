@@ -296,6 +296,15 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `VGTK_SITE`), and a driver resolves one with
   [`data_root(; tier)`](@ref VisualGeometryToolkitEval.Experiments.data_root).
   A tier root that is named but missing is reported as such.
+- **Directory inputs.** A directory's `sha256` is its tree digest,
+  [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256): the SHA-256 of
+  its sorted `(relative path, file sha256)` lines, with `sha256_exclude`
+  globs left out; it is streamed and cached per file.
+- **Producers.** A run that produces input data writes it to
+  `keyed_data_dir(cfg, tier, kind)`, `<tier root>/<tier>/<kind>-<key>`, so
+  its consumers' `[inputs.<id>] path = "<tier>/<kind>-<key>"` finds it on
+  every machine. A path in a tier that no config declares is
+  `tier_path(tier, parts...)`.
 - **Unpublished inputs.** Data of record that no artifact publishes (a
   capture kept on one machine) takes the reserved tier `unpublished`
   ([`UNPUBLISHED_TIER`](@ref VisualGeometryToolkitEval.Reproduce.UNPUBLISHED_TIER)):

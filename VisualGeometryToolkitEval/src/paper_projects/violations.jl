@@ -235,7 +235,7 @@ function _named_configs(code::AbstractString, configs::AbstractString)
     return out
 end
 
-_takes_config(configs) = Regex("\"$(configs)\"|\\b$(configs)/|\\bload_run_config\\(|\\bTOML\\.parsefile\\(|\\bparsefile\\(|--config|cli_option\\(\\s*\"config\"")
+_takes_config(configs) = Regex("\"$(configs)\"|\\b$(configs)/|\\bload_run_config\\(|\\bTOML\\.parsefile\\(|\\bparsefile\\(|--config|cli_option\\(\\s*(?:[A-Za-z_][A-Za-z0-9_.]*\\s*,\\s*)?\"config\"")
 
 # A string literal that is the name of a config of record (`"pt_e_budget"` for
 # configs/pt_e_budget.toml): the driver hands it to a project builder that loads it.

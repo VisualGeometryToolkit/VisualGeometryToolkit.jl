@@ -295,20 +295,36 @@ end
     keyed_data_dir(cfg, tier, kind; files, upstream, parts) -> String
 
 The keyed directory of a run that PRODUCES data of the tier `tier` (training
-annotations, a derived pool): `<data_root()>/<tier>/<kind>-<run_key(cfg; …)>`.
-The one place a producer writes under the data root; it writes its records
-with `producer = true` ([`write_run_records`](@ref), [`assert_not_input`](@ref)),
-and a later run reads the directory as an input of that tier. A changed config
-is a new directory, never a resumed or overwritten one.
+annotations, a derived pool): `<the tier's root>/<tier>/<kind>-<run_key(cfg; …)>`,
+the tier's root resolved as a consumer's ([`data_root`](@ref)`(; tier)`:
+`VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the data root). A
+consumer declares it as `[inputs.<id>] tier = "<tier>", path =
+"<tier>/<kind>-<key>"`, the same path on every machine: producer and consumer
+agree wherever the tier's root is. The one place a producer writes input data;
+it writes its records with `producer = true` ([`write_run_records`](@ref),
+[`assert_not_input`](@ref)). A changed config is a new directory, never a
+resumed or overwritten one.
 """
 keyed_data_dir(cfg::AbstractDict, tier::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
-    joinpath(data_root(), tier, kind * "-" * run_key(cfg; files, upstream, parts))
+    joinpath(data_root(; tier), tier, kind * "-" * run_key(cfg; files, upstream, parts))
+
+"""
+    tier_path(tier, parts...) -> String
+
+A path in the input tier `tier`: `joinpath(data_root(; tier), parts...)`, the
+tier's root resolved (and installed from an artifact view) as for an input. The
+one reader of a dataset's own layout (a capture set, `tier_path(tier, set)`)
+where a config does not name the path; a config's declared input is
+[`input_path`](@ref)'s, which also checks its `sha256`.
+"""
+tier_path(tier::AbstractString, parts::AbstractString...) = joinpath(data_root(; tier), parts...)
 
 """
     promote_run(run_dir, tier; name = basename(run_dir)) -> String
 
 A completed run of record (a directory with its `_provenance.toml`, under the
-results root) made an INPUT of record: copied to `<data_root()>/<tier>/<name>`,
+results root) made an INPUT of record: copied to
+`<data_root(; tier)>/<tier>/<name>` (the tier's root resolved as a consumer's),
 where an `[inputs.<id>]` table names it (`tier`, `path = "<tier>/<name>"`) and
 a data artifact of that tier publishes it (an [`ArtifactView`](@ref) installs it
 like any tier). A run read by another run belongs there, not in the results
@@ -323,7 +339,7 @@ function promote_run(run_dir::AbstractString, tier::AbstractString; name::Abstra
     scratch_record(run_dir) &&
         throw(ArgumentError("promote_run: $run_dir is a scratch run's output (scratch = true): only a run of record is an input of record"))
     key = get(read_provenance(run_dir), "run_key", "")
-    dst = joinpath(data_root(), tier, name)
+    dst = joinpath(data_root(; tier), tier, name)
     if isdir(dst)
         had = isfile(joinpath(dst, PROVENANCE_FILE)) ? get(read_provenance(dst), "run_key", "") : ""
         had == key && return dst

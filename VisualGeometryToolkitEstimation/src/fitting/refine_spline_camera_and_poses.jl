@@ -711,7 +711,7 @@ end
 function _refine_spline_axis_gauged(
         camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector, had_forward::Bool;
         fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
         penalty::Union{Symbol, Real, Nothing} = :gcv,
         refit_forward::Bool = true,

@@ -86,7 +86,7 @@ using ..Datasets: PtRawTrees, pt_scene_files
 using ..VisualGeometryToolkitEval: cli_option
 
 export DataCatalog, load_catalog, project_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
-    mount_dir, catalog_view, fetch_artifacts!, fetch_data, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
+    mount_dir, catalog_view, fetch_artifacts!, fetch_data!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
 
 const HOSTS = ("zenodo", "huggingface")
 
@@ -488,7 +488,7 @@ function fetch_artifacts!(cat::DataCatalog, names::AbstractVector = required_art
 end
 
 """
-    fetch_data(cat = project_catalog(); argv = ARGS, io = stdout) -> Union{Vector{NamedTuple}, Nothing}
+    fetch_data!(cat = project_catalog(); argv = ARGS, io = stdout) -> Union{Vector{NamedTuple}, Nothing}
 
 A paper project's `scripts/fetch_data.jl`, the new-machine setup step: the
 command line `argv` read as
@@ -506,9 +506,9 @@ file reassembled), one line per artifact to `io` (its new links and where, or
 that its root is already bound), the two roots (`data_root()`,
 `results_root()`), and the line `FETCH_DATA_DONE`. Returns `fetch_artifacts!`'s
 rows (`nothing` for `--list`). A script is the one call
-`fetch_data(project_catalog())` after `@quickactivate`.
+`fetch_data!(project_catalog())` after `@quickactivate`.
 """
-function fetch_data(cat::DataCatalog = project_catalog(); argv::AbstractVector{<:AbstractString} = ARGS, io::IO = stdout)
+function fetch_data!(cat::DataCatalog = project_catalog(); argv::AbstractVector{<:AbstractString} = ARGS, io::IO = stdout)
     if "--list" in argv
         meta = isfile(cat.artifacts_toml) ? TOML.parsefile(cat.artifacts_toml) : Dict{String, Any}()
         for (n, a) in sort(collect(cat.artifacts); by = first)

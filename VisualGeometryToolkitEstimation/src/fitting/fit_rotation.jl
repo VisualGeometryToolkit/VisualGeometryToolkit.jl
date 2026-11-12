@@ -94,13 +94,13 @@ Kabsch is off by over 1e-2.
 function fit_rotation(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_strategy_default("fit_rotation"),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_rotation", "tol"),
     )
     n = length(cs)
     n >= 2 || throw(ArgumentError("fit_rotation needs at least 2 direction pairs, got $n"))
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     f = _fit_irls("fit_rotation", optimization_strategy, scale, width, 2)
     as = SVector{3, Float64}[_unit_direction(a, i) for (i, a) in enumerate(sources(cs))]
     bs = SVector{3, Float64}[_unit_direction(b, i) for (i, b) in enumerate(targets(cs))]

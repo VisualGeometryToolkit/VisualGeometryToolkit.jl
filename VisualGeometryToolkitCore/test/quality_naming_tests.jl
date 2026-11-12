@@ -381,7 +381,7 @@ end
         @test isempty(rules("src/a.jl" => "LensSpec(family::Symbol; fixed = (), $(FR) = _NoFree(), kw...) = nothing\n"))
         # the keyword itself, its refusal slot and the test of the refusal are no finding
         @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
-        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = _RetiredKeyword()) end\n"))
+        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = RetiredKeyword()) end\n"))
         @test isempty(rules("test/a.jl" => "@test_throws ArgumentError refine_x(a; $(FR) = ())\n"))
         # an interpolated qualified callee (`@eval M.$f(…) = …`, a port's generated methods) names nothing: no finding, no error
         @test isempty(rules("src/a.jl" => "for f in (:lo_tag,)\n    @eval VgtkCore.\$f(::Int) = 1\nend\n"))

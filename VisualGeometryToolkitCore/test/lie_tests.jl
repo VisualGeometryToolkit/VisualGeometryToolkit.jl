@@ -270,3 +270,42 @@ end
     E = exp_se3(SVector(0.1, 0.2, 0.3), SVector(1.0, 2.0, 3.0))
     @test SVector{3}(translation(E)) == left_jacobian(SO3, SVector(0.1, 0.2, 0.3)) * SVector(1.0, 2.0, 3.0)
 end
+
+# The one re-projection of a drifted rotation matrix onto SO(3) (public since 0.9: the charts' re-anchoring and a
+# caller's, before an EuclideanMap's rotation check).
+@testitem "reproject_so3: a drifted rotation back on SO(3), an orthonormal one unchanged to rounding" begin
+    using Test
+    using LinearAlgebra: I, norm, det
+    using StaticArrays: SMatrix
+    using Rotations: RotXYZ, RotMatrix
+    using VisualGeometryToolkitCore: reproject_so3, EuclideanMap
+    R = SMatrix{3, 3, Float64, 9}(RotXYZ(0.3, -0.7, 1.1))
+    @test norm(reproject_so3(R) - R) < 1.0e-15
+    D = R + 1.0e-6 * SMatrix{3, 3, Float64, 9}(0.3, -0.2, 0.5, 0.1, 0.4, -0.6, 0.2, 0.7, -0.1)   # past √eps off orthonormal
+    P = reproject_so3(D)
+    @test P isa SMatrix{3, 3, Float64, 9} && norm(P' * P - I) < 1.0e-14 && det(P) ≈ 1 && norm(P - R) < 1.0e-5
+    @test EuclideanMap(RotMatrix{3, Float64}(P), zeros(3)) isa EuclideanMap
+    @test reproject_so3(SMatrix{3, 3, Float32, 9}(R)) isa SMatrix{3, 3, Float32, 9}
+end
+
+# The inverse of an uncertain rigid pose (hoisted from BlobBoards' bmvc2026 inv_pose_covariance): Σ′ = J Σ Jᵀ in the
+# RigidExpManifold6 chart, checked against a finite-difference Jacobian of the chart's inverse map.
+@testitem "inv(::Uncertain{EuclideanMap}): the covariance of the inverse pose in the RigidExpManifold6 chart" begin
+    using Test
+    using LinearAlgebra: norm, I
+    using StaticArrays: SMatrix, SVector
+    using Rotations: RotXYZ, RotMatrix
+    using VisualGeometryToolkitCore: Uncertain, CovMat, EuclideanMap, RigidExpManifold6, retract, local_coordinates, geom, cov
+    Y = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.4, -0.2, 0.9)), SVector(0.3, -1.2, 2.5))
+    A = SMatrix{6, 6, Float64, 36}([sin(3i + j) for i in 1:6, j in 1:6])
+    Σ = A * A' + 0.1 * SMatrix{6, 6, Float64, 36}(I)
+    X = inv(Uncertain(Y, CovMat(Σ)))
+    @test geom(X) ≈ inv(Y)
+    # J by central differences: δ ↦ local_coordinates at inv(Y) of inv(retract at Y by δ)
+    chY, chX = RigidExpManifold6(Y), RigidExpManifold6(inv(Y))
+    h = 1.0e-6
+    J = reduce(hcat, [(local_coordinates(chX, inv(retract(chY, h * e))) - local_coordinates(chX, inv(retract(chY, -h * e)))) / 2h
+                      for e in (SVector{6, Float64}(ntuple(k -> k == j ? 1.0 : 0.0, 6)) for j in 1:6)])
+    @test norm(SMatrix{6, 6}(cov(X)) - J * Σ * J') < 1.0e-6 * norm(Σ)
+    @test SMatrix{6, 6}(cov(X)) == SMatrix{6, 6}(cov(X))'
+end

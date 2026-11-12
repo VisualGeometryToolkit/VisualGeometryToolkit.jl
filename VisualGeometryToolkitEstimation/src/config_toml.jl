@@ -333,6 +333,20 @@ function scoring_from_toml(::Type{<:StudentTUniformScoring}, d::AbstractDict; pr
                                   label_prior = _label_prior_from_toml(d, section))
 end
 
+"""
+    default_student_t_uniform_scoring(P, outlier_halfwidth) -> StudentTUniformScoring
+
+The Student-t + uniform scorer of record for problem type `P` at the uniform
+outlier half-width `outlier_halfwidth` (in `P`'s residual units): the table
+`{ type = "student_t_uniform", outlier_halfwidth = h }` read by
+[`scoring_from_toml`](@ref), so its scale and label priors are the stack's
+configuration of record (`configs/default.toml` `[scoring.student_t_uniform]`),
+never restated by a caller. Core's `StudentTUniformScoring(P, h; scale_prior,
+label_prior)` takes both priors explicitly; this is the one place they default.
+"""
+default_student_t_uniform_scoring(::Type{P}, outlier_halfwidth::Real) where {P} = scoring_from_toml(
+    Dict{String, Any}("type" => "student_t_uniform", "outlier_halfwidth" => Float64(outlier_halfwidth)); problem = P)
+
 # The writer states both priors (a written table reads back the same scorer whatever the defaults file says). The
 # model-certain scorer at a supplied width only: a predictive scorer, or an outlier model that estimates the support,
 # has no table of this schema.

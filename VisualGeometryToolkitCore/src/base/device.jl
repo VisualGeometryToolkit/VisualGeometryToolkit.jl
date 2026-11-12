@@ -112,7 +112,7 @@ function reclaim_device!(dev)
 end
 
 """
-    free_device_buffers!(xs::AbstractArray...) -> nothing
+    free_device_buffers!(x::AbstractArray, xs::AbstractArray...) -> nothing
 
 Release each device array's memory NOW (GPUArrays' `unsafe_free!`), rather
 than when the collector finalizes its few-byte host wrapper — which, with no
@@ -123,7 +123,7 @@ array derived from another (a `reshape`) shares its memory, which is released
 when the last of them is freed. KernelAbstractions' `unsafe_free!` is not used:
 CUDA.jl does not extend it, so it freed nothing on the GPU.
 """
-free_device_buffers!(xs::AbstractArray...) = (foreach(_free_device_buffer!, xs); nothing)
+free_device_buffers!(x::AbstractArray, xs::AbstractArray...) = (_free_device_buffer!(x); foreach(_free_device_buffer!, xs); nothing)
 @inline _free_device_buffer!(x::GPUArrays.AbstractGPUArray) = GPUArrays.unsafe_free!(x)
 @inline _free_device_buffer!(::AbstractArray) = nothing
 

@@ -52,7 +52,7 @@ Local coordinate system anchored at a model iterate. Contract:
 - `retract(ch, v)` — ambient model at local coordinates `v::SVector{D}`;
 - `recenter(ch, v)` — the same manifold family re-anchored at `retract(ch, v)`,
   with ONE normalization policy: a rotation part re-projected onto SO(3)
-  (`_reproject_so3`), the homography chart's anchor its unit-Frobenius
+  (`reproject_so3`), the homography chart's anchor its unit-Frobenius
   representative of the same model (a first-order retraction lets the scale
   drift); `retract` itself never normalizes. Its element type is
   `promote_type` of the manifold's and `v`'s, as arithmetic's is: a step of

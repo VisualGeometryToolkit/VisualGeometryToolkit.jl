@@ -96,14 +96,14 @@ function fit_linear(
         A::AbstractMatrix{<:Real}, y::AbstractVector{<:Real},
         prior::AbstractVector{<:Real} = ones(length(y));
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_strategy_default("fit_linear"),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_linear", "tol"),
     )
     m, n = size(A)
     length(y) == m || throw(DimensionMismatch("fit_linear: $m rows of A, $(length(y)) values of y"))
     length(prior) == m || throw(DimensionMismatch("fit_linear: $m rows, $(length(prior)) prior weights"))
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     f = _fit_irls("fit_linear", optimization_strategy, scale, width, 1)
     p = Float64.(VgtkCore.check_weights(collect(prior)))
     Af = Matrix{Float64}(A); yf = Vector{Float64}(y)

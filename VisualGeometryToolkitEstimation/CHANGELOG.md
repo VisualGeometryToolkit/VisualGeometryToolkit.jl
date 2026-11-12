@@ -5,6 +5,12 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`RetiredKeyword` and `refuse_retired_keyword(value, old, new)`, public** (were `_RetiredKeyword` and
+  `_refuse_retired_keyword`): the stack's one refusal of a retired keyword, for a downstream package's own too.
+- **`default_student_t_uniform_scoring(P, outlier_halfwidth)`, public**: the Student-t + uniform scorer of record at a
+  half-width, its priors the defaults table's (hoisted from BlobBoards' `_scoring` and CaliBlobs' copy);
+  `fit_division_camera`'s refusal of `outlier_halfwidth` names it.
+
 - **The threshold-scorer TOML table is every `AbstractThresholdScoring`'s**: `scoring_from_toml` builds any threshold
   family as `T(problem; threshold)`, and `config_dict(scoring; tags = SCORING_TAGS)` writes its tag from the registry it
   is given (a downstream merge for a downstream family), so a package's loss-width families need no reader or writer.

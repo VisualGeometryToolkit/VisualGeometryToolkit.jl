@@ -231,14 +231,14 @@
                         # the paper projects' fetch_data.jl, one call: --list fetches nothing; --only, the default and
                         # --all are fetch_artifacts! of those names, reported line by line
                         out = IOBuffer()
-                        @test D.fetch_data(fcat; argv = ["--list"], io = out) === nothing
+                        @test D.fetch_data!(fcat; argv = ["--list"], io = out) === nothing
                         listed = String(take!(out))
                         @test all(n -> contains(listed, n), keys(fcat.artifacts)) && contains(listed, " required ")
-                        @test [x.name for x in D.fetch_data(fcat; argv = String[], io = out)] == ["t_heb_val", "t_stored"]
+                        @test [x.name for x in D.fetch_data!(fcat; argv = String[], io = out)] == ["t_heb_val", "t_stored"]
                         printed = String(take!(out))
                         @test contains(printed, "t_stored") && contains(printed, "0 new link(s)") && endswith(printed, "FETCH_DATA_DONE\n")
-                        @test [x.name for x in D.fetch_data(fcat; argv = ["--only=t_extra"], io = out)] == ["t_extra"]
-                        @test sort([x.name for x in D.fetch_data(fcat; argv = ["--all"], io = out)]) ==
+                        @test [x.name for x in D.fetch_data!(fcat; argv = ["--only=t_extra"], io = out)] == ["t_extra"]
+                        @test sort([x.name for x in D.fetch_data!(fcat; argv = ["--all"], io = out)]) ==
                               sort(D._bound_names(fcat, sort(collect(keys(fcat.artifacts)))))
                         # an author's own data/exp_raw is never written
                         own = mktempdir()

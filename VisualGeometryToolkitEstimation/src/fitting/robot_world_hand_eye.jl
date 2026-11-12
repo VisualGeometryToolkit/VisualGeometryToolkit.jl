@@ -585,11 +585,11 @@ function fit_robot_world_hand_eye(
         σ_trans::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("robot_world_hand_eye", "tol"),
     ) where {K}
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     f = _fit_irls("fit_robot_world_hand_eye", optimization_strategy, scale, width, 6)
     f === nothing || (σ_rot !== nothing && σ_trans !== nothing) || throw(ArgumentError(
         "fit_robot_world_hand_eye: a robust fit needs `σ_rot` and `σ_trans` — the whitening its scale is in; " *

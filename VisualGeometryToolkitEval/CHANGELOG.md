@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **`DataArtifacts.fetch_data(cat; argv = ARGS, io = stdout)`**: a paper project's `scripts/fetch_data.jl` as one call
+- **`DataArtifacts.fetch_data!(cat; argv = ARGS, io = stdout)`**: a paper project's `scripts/fetch_data.jl` as one call
   (`--list`, `--all`, `--only=…`, the required artifacts by default; a split entry's parts listed and fetched, a chunked
   file reassembled), hoisted from LocalOptimizationDoneRight's accv2026 script; RANSACScoringDoneRight's neurips2026
   script was its copy.

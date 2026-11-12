@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`reproject_so3(R)`, public** (was the private `_reproject_so3`): a drifted rotation matrix back on SO(3) by its
+  unit quaternion, the charts' one re-anchoring and a caller's before an `EuclideanMap`'s rotation check.
+- **`inv(pose::Uncertain{<:EuclideanMap{3}, <:CovMat{6}})`**: the inverse of an uncertain rigid pose with its
+  covariance carried through in the `RigidExpManifold6` chart (hoisted from BlobBoards' bmvc2026
+  `inv_pose_covariance`).
+
 - **New dependency: GPUArrays** (11.5), for `free_device_buffers!(xs...)` (public): the ONE eager release of a device
   buffer (GPUArrays' `unsafe_free!`; a host array untouched), hoisted from RANSACScoringDoneRight. KernelAbstractions'
   `unsafe_free!`, which VisualGeometryToolkitFeatures called, is not extended by CUDA.jl 5.11 and freed nothing on the GPU.

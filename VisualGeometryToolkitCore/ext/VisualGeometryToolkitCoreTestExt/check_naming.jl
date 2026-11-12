@@ -1679,7 +1679,7 @@ end
 #   - Julia: a keyword argument so named in a CALL or a SIGNATURE of a
 #     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*`, their
 #     `_`-prefixed internals, `LensSpec` and CaliBlobs' `LensTarget`). A signature's refusal
-#     slot (`free = _RetiredKeyword()`) and a call inside `@test_throws` (the
+#     slot (`free = RetiredKeyword()`) and a call inside `@test_throws` (the
 #     test of the refusal) are the refusal itself, not a use. Comments
 #     ("CUDA-free", "free memory", "for free"), a local `free`, a struct field
 #     (a result's record of what was refined) and Base's or a package's own
@@ -1696,7 +1696,8 @@ const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
 _r13_callee(f) = f isa Symbol ? String(f) :
                  (Meta.isexpr(f, :., 2) && f.args[2] isa QuoteNode ? (f.args[2].value isa Symbol ? String(f.args[2].value) : "") :
                   Meta.isexpr(f, :curly) ? _r13_callee(f.args[1]) : "")
-_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
+_r13_refusal(v) = Meta.isexpr(v, :call) && (v.args[1] in (:RetiredKeyword, :_NoFree) ||
+    (Meta.isexpr(v.args[1], :.) && v.args[1].args[end] == QuoteNode(:RetiredKeyword)))   # qualified, as a downstream package writes it
 function _r13_keywords!(acc, ex, line::Int)
     ex isa Expr || return acc
     if Meta.isexpr(ex, :macrocall) && ex.args[1] in (Symbol("@test_throws"),)

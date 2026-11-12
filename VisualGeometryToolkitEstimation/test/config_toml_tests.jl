@@ -343,3 +343,23 @@ end
     @test_throws r"needs `outlier_halfwidth`" scoring_from_toml(Dict("type" => "student_t_uniform"); problem = P)
     @test SCORING_TAGS["student_t_uniform"] === StudentTUniformScoring
 end
+
+# The scorer of record at a half-width (hoisted from BlobBoards' and CaliBlobs' copies): the Student-t table read with
+# the stack's priors, the same scorer as the table read by hand.
+@testitem "config_toml: default_student_t_uniform_scoring is the Student-t table of record at a half-width" begin
+    using Test
+    using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
+    using VisualGeometryToolkitEstimation: default_student_t_uniform_scoring, scoring_from_toml, HomographyProblem
+    sc = default_student_t_uniform_scoring(HomographyProblem{Float64}, 5)
+    @test sc == scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => 5.0); problem = HomographyProblem{Float64})
+    @test sc == StudentTUniformScoring(HomographyProblem{Float64}, 5.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+end
+
+# The one refusal of a retired keyword (public since 0.9, so a downstream package refuses its own the same way).
+@testitem "RetiredKeyword: a retired keyword refused by name, the default passing" begin
+    using Test
+    using VisualGeometryToolkitEstimation: RetiredKeyword, refuse_retired_keyword
+    f(; image_size = RetiredKeyword()) = (refuse_retired_keyword(image_size, :image_size, "the BoundedCamera's extent"); :ok)
+    @test f() === :ok
+    @test_throws r"the keyword `image_size` is retired: give `the BoundedCamera's extent`" f(; image_size = (640, 480))
+end

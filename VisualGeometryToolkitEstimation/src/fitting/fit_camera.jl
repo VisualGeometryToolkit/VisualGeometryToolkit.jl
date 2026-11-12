@@ -315,7 +315,7 @@ _linear_form(::Type) = _NoLinearForm()
 
 function fit_camera(
         ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
     _refuse_held_spellings(free, fix, fixed_params, hold)
     return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed)
@@ -323,7 +323,7 @@ end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function fit_camera(
         target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
     return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed)

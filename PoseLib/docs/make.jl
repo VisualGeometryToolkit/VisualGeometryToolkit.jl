@@ -2,10 +2,16 @@
 #
 #   julia --project=docs --startup-file=no docs/make.jl     # → docs/build/index.html
 
-using Documenter
+using Documenter, DocumenterInterLinks
 using PoseLib
 
+# VisualGeometryToolkitCore's docs: `[text](@extref VisualGeometryToolkitCore.<name>)` resolves against the inventory its
+# published `dev` docs carry; with VGTK_DOCS_LOCAL=1 (ci/slurm/submit_docs.sh) against this checkout's own build of it.
+include(joinpath(@__DIR__, "..", "..", "ci", "docs_inventory.jl"))   # vgtk_inventory(p)
+const LINKS = InterLinks("VisualGeometryToolkitCore" => vgtk_inventory("VisualGeometryToolkitCore"))
+
 makedocs(;
+    plugins = [LINKS],
     modules = [PoseLib],
     authors = "James Pritts <jbpritts@gmail.com>",
     sitename = "PoseLib.jl",
@@ -26,7 +32,8 @@ makedocs(;
     # github.com rate-limits a crawler (429 on CITATION.cff in
     # VisualGeometryToolkitCore's build, 2026-11-04); lychee
     # (.github/workflows/Links.yml) checks its links with a token.
-    linkcheck_ignore = [r"^https://github\.com/"],
+    # VGTK_DOCS_LOCAL=1: an @extref into a sibling package built here points at anchors not yet published
+    linkcheck_ignore = [(get(ENV, "VGTK_DOCS_LOCAL", "") == "1" ? [r"^https://visualgeometrytoolkit\.github\.io/"] : Regex[])..., r"^https://github\.com/"],
     pages = [
         "Home" => "index.md",
         "Getting started" => "guide/getting-started.md",

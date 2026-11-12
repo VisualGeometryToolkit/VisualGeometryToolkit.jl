@@ -1,5 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+DocumenterInterLinks = "d12716ef-a0f6-4df4-a9f1-a5a34e75c656"
 PoseLib = "a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 
@@ -9,4 +10,5 @@ PoseLib = {path = ".."}
 [compat]
 julia = "1.12"
 Documenter = "1"
+DocumenterInterLinks = "1"
 VisualGeometryToolkitCore = "0.9"

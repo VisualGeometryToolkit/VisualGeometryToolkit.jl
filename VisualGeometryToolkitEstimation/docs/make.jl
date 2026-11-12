@@ -7,9 +7,11 @@ using DocumenterCitations, DocumenterInterLinks
 # Literature: `[Key](@cite)` / `@citet` / `@citep` against docs/src/refs.bib,
 # listed on the References page.
 const BIB = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :authoryear)
-# The other stack packages' docs: `[text](@extref <Package> ...)` resolves
-# against the inventory (objects.inv) their published `dev` docs carry.
-const LINKS = InterLinks((p => "https://visualgeometrytoolkit.github.io/$p/dev/" for p in (
+# The other stack packages' docs: `[text](@extref <Package> ...)` resolves against the inventory (objects.inv) their
+# published `dev` docs carry; with VGTK_DOCS_LOCAL=1 (ci/slurm/submit_docs.sh) against this checkout's own build of
+# that package where one exists, so a release's docs build before its dependencies' docs are published.
+include(joinpath(@__DIR__, "..", "..", "ci", "docs_inventory.jl"))   # vgtk_inventory(p)
+const LINKS = InterLinks((p => vgtk_inventory(p) for p in (
     "VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitFeatures",
     "VisualGeometryToolkitEstimation", "VisualGeometryToolkitEval", "PoseLib"))...)
 
@@ -49,7 +51,8 @@ makedocs(;
     # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
     # (github.com gave 429 on Core's build, 2026-11-04); lychee
     # (.github/workflows/Links.yml) checks them with a token.
-    linkcheck_ignore = [r"^https://github\.com/", r"^https://doi\.org/", r"^https://(www\.)?sciencedirect\.com/", r"^https://ieeexplore\.ieee\.org/", r"^https://dl\.acm\.org/"],
+    # VGTK_DOCS_LOCAL=1: an @extref into a sibling package built here points at anchors not yet published
+    linkcheck_ignore = [(get(ENV, "VGTK_DOCS_LOCAL", "") == "1" ? [r"^https://visualgeometrytoolkit\.github\.io/"] : Regex[])..., r"^https://github\.com/", r"^https://doi\.org/", r"^https://(www\.)?sciencedirect\.com/", r"^https://ieeexplore\.ieee\.org/", r"^https://dl\.acm\.org/"],
     pages=[
         "Home" => "index.md",
         "Getting Started" => "guide/getting-started.md",

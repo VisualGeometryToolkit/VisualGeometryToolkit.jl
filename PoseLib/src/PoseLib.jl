@@ -521,7 +521,7 @@ _carries_constant(::LeZach) = false
 """
     PoseLibRefineMetadata
 
-The metadata of a PoseLib refiner's [`FitResult`](@ref VisualGeometryToolkitCore.FitResult):
+The metadata of a PoseLib refiner's [`FitResult`](@extref VisualGeometryToolkitCore.FitResult):
 the robust-estimation contract's scale record. `scale` is the noise scale the
 refiner was given and `scale_source` where it came from (`ScaleGiven` for
 `scale = σ`, `ScaleUpstream` for `scale = result`; `ScaleNone`, `scale = NaN`,

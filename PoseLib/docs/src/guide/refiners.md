@@ -71,7 +71,7 @@ Every refiner returns a VisualGeometryToolkitCore `FitResult`:
 - `retcode(result)`, `:converged` when PoseLib stopped on its own tolerances,
   `:max_iterations` when it used the whole budget, and `iterations(result)`,
   the iterations PoseLib took;
-- the scale record in its metadata ([`PoseLibRefineMetadata`](@ref)): the
+- the scale record in its metadata ([`PoseLibRefineMetadata`](@ref PoseLib.PoseLibRefineMetadata)): the
   `scale` it was given and its `scale_source`, and the `width` PoseLib ran at.
   `noise_scale(result)` hands a given scale to the next stage; a result run at
   a width or by least squares records none (`ScaleNone`) and refuses it.

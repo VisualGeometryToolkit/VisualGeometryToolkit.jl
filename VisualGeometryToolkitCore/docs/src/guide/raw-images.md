@@ -173,6 +173,7 @@ raw is in. It is `raw_frame_map(img)(x)`:
 | a `RawMosaic` as decoded | the identity | `x` |
 | a window of a mosaic | its offset | `x + (columns, rows)` of `window_origin` |
 | a `LinearRaw` cell image (`:green_cells`, `:bin2`) | the cell grid's map | `2x` (then a window's offset) |
+| a cell mode alone, no image: `LinearRaw{:green_cells}`, `LinearRaw{:bin2}` | the cell grid's map (every whole-mosaic image's, bit for bit) | `2x` |
 | a `:demosaic` image | refused (`ArgumentError`) | refused |
 | a plain matrix | no method | no method: it states no frame |
 

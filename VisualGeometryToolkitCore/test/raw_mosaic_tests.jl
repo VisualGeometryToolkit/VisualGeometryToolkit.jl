@@ -539,6 +539,28 @@ end
     end
 end
 
+@testitem "raw: the mode's frame map without an image is every image's, bit for bit" setup = [RawFixtures] begin
+    using VisualGeometryToolkitCore: LinearRaw, BayerCellFrame, PixelFrame, raw_frame_map, scale, translation
+    raw = UInt16[1000 + 37 * i + 11 * j for i in 1:10, j in 1:14]
+    for mode in (:green_cells, :bin2)
+        S = raw_frame_map(LinearRaw{mode})
+        @test S isa VisualGeometryToolkitCore.SimilarityMap{2, Float64, Float64, <:Any, <:Any, BayerCellFrame{:G}, PixelFrame{:colmap}}
+        @test scale(S) === 2.0 && translation(S) === zero(translation(S))
+        for cell in LAYOUTS, origin in ORIGINS
+            m = mosaic(raw, cell; origin)
+            L = LinearRaw(m; mode)
+            @test raw_frame_map(L) === S                                   # a whole mosaic: the mode's map itself
+            @test raw_frame_map(typeof(L)) === S
+            for r0 in (1, 2), c0 in (1, 2)                                 # a window: the mosaic's offset after it
+                w = view(m, r0:(r0 + 7), c0:(c0 + 11))
+                @test raw_frame_map(LinearRaw(w; mode)) === raw_frame_map(w) ∘ S
+            end
+        end
+    end
+    @test raw_frame_map(LinearRaw{:green_cells}) === raw_frame_map(LinearRaw{:bin2})
+    @test_throws ArgumentError raw_frame_map(LinearRaw{:demosaic})
+end
+
 @testitem "raw: the green cells are the mean of the linearised view's two green channels, bit for bit" setup = [RawFixtures] begin
     # ONE linearisation: the private `_linear_value` over `channelview` with `_bayer_levels` (linearview's own). The cell kernel's green-cell value is
     # the mean of the two G channels of that view times the gain, and bin2's R and B are its R and B channels.

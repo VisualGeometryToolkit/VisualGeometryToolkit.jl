@@ -251,8 +251,10 @@ const _QUAD_SITES = ((0, 0), (1, 0), (0, 1), (1, 1))
 # (dj − ½, di − ½) raw pixels from the cell centre — the 0-based site's pixel centre (Core's conversion).
 @inline _site_offset(k) = pixel_centre(CartesianIndex(_QUAD_SITES[k]))
 
-# The cell grid's map onto the visible raw: x ↦ 2x, then the mosaic's own map (a window's offset).
-_cell_grid_map(m::RawMosaic) = raw_frame_map(m) ∘ _CELL_FRAME_MAP
+# The cell grid's map onto the visible raw: the mode's map (`raw_frame_map(LinearRaw{mode})`, linear_raw.jl:
+# x ↦ 2x, `_CELL_FRAME_MAP`, the same for both cell modes), then the mosaic's own map (a window's offset).
+# The one composition: a LinearRaw's planes and a mosaic's channel maps both read it.
+_cell_grid_map(m::RawMosaic, mode::Symbol = :green_cells) = raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})
 
 # THE map of a lattice of samples on the cell grid onto the raw: the samples at `o` raw pixels from
 # every cell centre (o / 2 in cell pixels: the ×2 stated once, in `_CELL_FRAME_MAP`), as frame

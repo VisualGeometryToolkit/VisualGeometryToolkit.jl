@@ -174,7 +174,7 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol)
     KA.synchronize(backend)
     # each plane's samples sit at the mean of its photosites' offsets from the cell centre: the one
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
-    grid = _cell_grid_map(m)
+    grid = _cell_grid_map(m, mode)
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
     geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]))
     return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
@@ -204,6 +204,25 @@ with the inverse; K carries no frame label, so which frame it is in is the
 caller's statement). A `:demosaic` image is refused (`ArgumentError`): it is for display.
 """
 raw_frame_map(L::LinearRaw) = _geometry(L, "raw_frame_map").plane_maps[_green_plane(L)]
+
+"""
+    raw_frame_map(::Type{LinearRaw{mode}}) -> SimilarityMap{2, …, BayerCellFrame{:G}, PixelFrame{:colmap}}
+
+The frame map of a `mode` image made from a whole mosaic (no window), without
+an image: `x ↦ 2x`, exactly, for `:green_cells` and `:bin2` alike (the cell
+grid; a map that depends on the mode alone, not on the photograph, its Bayer
+phase or its visible origin). THE source of the cell images' map: every
+[`LinearRaw`](@ref) is made with this map after its mosaic's own
+([`raw_frame_map`](@ref)`(mosaic)`, a window's offset), so
+`raw_frame_map(LinearRaw(m; mode)) == raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})`
+bit for bit, and for an unwindowed mosaic the two are equal. For a frame with no
+RAW behind it (a decoded image on the cell grid) whose map is needed, e.g.
+`scale(raw_frame_map(LinearRaw{:green_cells})) == 2`. `LinearRaw{:demosaic}` is
+refused (`ArgumentError`), as its images are.
+"""
+raw_frame_map(::Type{<:LinearRaw{:green_cells}}) = _CELL_FRAME_MAP
+raw_frame_map(::Type{<:LinearRaw{:bin2}}) = _CELL_FRAME_MAP      # the green plane IS the cell grid in both modes
+raw_frame_map(::Type{<:LinearRaw{:demosaic}}) = throw(_display_only("raw_frame_map"))
 
 # The plane holding the green cells (the cell grid): bin2's second (R, G, B), the green-cell image's one.
 _green_plane(::LinearRaw{:bin2}) = 2

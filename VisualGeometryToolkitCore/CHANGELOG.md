@@ -2,13 +2,19 @@
 
 ## 0.9.4 (unreleased)
 
-A patch. Additive: `is_inside_texel_centres`; otherwise no API change.
+A patch. Additive: `is_inside_texel_centres` and the mode method of `raw_frame_map`; otherwise no API change.
 
 - **New: `is_inside_texel_centres(uv, (W, H))`** (public): whether `uv` lies in the closed rectangle of the texel
   centres of `bilinear_sample`'s half-texel chart, exactly the positions where `bilinear_weights` interpolates
   without extending the edge. It reads the same private chart (size check, centre coordinates, clamp) as
   `bilinear_weights`, whose arithmetic is unchanged; RadiometricCamera's `texel_weights` restated the chart beside
   its `bilinear_weights` call.
+- **New: `raw_frame_map(::Type{LinearRaw{mode}})`**, a method of the exported `raw_frame_map`: a cell mode's frame map
+  without an image (`x ↦ 2x`, `BayerCellFrame{:G}` → `PixelFrame{:colmap}`, for `:green_cells` and `:bin2`; `:demosaic`
+  refused, as its images are). It is the one source of the cell images' map: every `LinearRaw` (and every channel map of
+  a mosaic) is built as `raw_frame_map(mosaic) ∘ raw_frame_map(LinearRaw{mode})`, so a whole mosaic's image has the mode's
+  map bit for bit (tested over every Bayer phase, visible-origin parity and window parity). RadiometricCamera read the
+  map off a hand-made one-cell mosaic for frames with no RAW behind them.
 
 ## 0.9.3 (unreleased)
 

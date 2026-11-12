@@ -26,11 +26,14 @@
     fallback(args...) = require_extension(missing_msg, fallback, args, VgtkCore, absent)
     @test_throws missing_msg() fallback(1, "two")
     loaded_fallback(args...) = require_extension(missing_msg, loaded_fallback, args, VgtkCore, loaded)
-    w = Base.tls_world_age()          # the world this caller runs in
-    m = try
-        loaded_fallback(1, "two")
-    catch err
-        err
+    # the world this caller runs in, read in the same top-level statement as the call (each statement of a test item
+    # runs in the world its predecessors left)
+    w, m = let w = Base.tls_world_age()
+        (w, try
+            loaded_fallback(1, "two")
+        catch err
+            err
+        end)
     end
     @test m isa MethodError && m.f === loaded_fallback && m.args === (1, "two")
     @test m.world == w                # the caller's world age, so a call compiled before the load keeps Julia's hint

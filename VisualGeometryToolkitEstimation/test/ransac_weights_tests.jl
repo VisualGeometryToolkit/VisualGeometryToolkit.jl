@@ -146,4 +146,12 @@ end
     d = pooled_noise_scale([failed])
     @test retcode_symbol(d) === :degenerate && isnan(estimate(d)) && scale_source(d) === ScaleNone
     @test_throws ArgumentError noise_scale(d)
+    # the same pool from the recorded numbers (each result's scale and dof, as a record on disk holds them): the one body,
+    # bit-identical; a NaN scale (none recorded) or a dof ≤ 0 is left out and counted
+    @test @inferred(pooled_noise_scale(s, ν)) isa VgtkCore.FitResult{Float64, PooledScaleMetadata}
+    @test estimate(pooled_noise_scale(s, ν)) === estimate(p) && metadata(pooled_noise_scale(s, ν)) == metadata(p)
+    r = pooled_noise_scale([s; NaN; 0.7], [ν; 12; 0])
+    @test estimate(r) === estimate(p) && metadata(r).left_out == 2 && metadata(r).pooled == 3
+    @test retcode_symbol(pooled_noise_scale([NaN], [5])) === :degenerate
+    @test_throws DimensionMismatch pooled_noise_scale(s, ν[1:2])
 end

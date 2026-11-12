@@ -215,15 +215,31 @@ records `ScaleUpstream`. Its termination record is a closed form's
 (`ReturnCode.Success`, `ClosedForm`), or `(ReturnCode.InitialFailure, NoRule)`
 (estimate and scale `NaN`, `ScaleNone`) when no result enters the pool.
 """
-function pooled_noise_scale(results)
+pooled_noise_scale(results) =
+    pooled_noise_scale([VgtkCore.scale_source(r) == ScaleNone ? NaN : Float64(VgtkCore.noise_scale(r)) for r in results],
+                       [r.dof for r in results])
+
+"""
+    pooled_noise_scale(scales::AbstractVector{<:Real}, dofs::AbstractVector{<:Integer}) -> FitResult{Float64, PooledScaleMetadata}
+
+The same pool from the numbers a result records — each one's noise scale `ŝᵢ`
+and its degrees of freedom `νᵢ`, index-aligned (a record read back from disk,
+say, rather than the results themselves): `σ̂ = √(Σᵢ νᵢ ŝᵢ² / Σᵢ νᵢ)`, an entry
+whose scale is not finite (no scale recorded: `NaN`) or whose `νᵢ ≤ 0` left out
+and counted. The results method above is this one on `noise_scale(rᵢ)` (`NaN`
+for a `ScaleNone` result) and `rᵢ.dof`. A `DimensionMismatch` when the two
+lengths differ.
+"""
+function pooled_noise_scale(scales::AbstractVector, dofs::AbstractVector)
+    length(scales) == length(dofs) ||
+        throw(DimensionMismatch("pooled_noise_scale: $(length(scales)) scales, $(length(dofs)) degrees of freedom"))
     num, den, pooled, left_out = 0.0, 0, 0, 0
-    for r in results
-        if VgtkCore.scale_source(r) == ScaleNone || r.dof <= 0 || !isfinite(VgtkCore.noise_scale(r))
+    for (s, ν) in zip(scales, dofs)
+        if ν <= 0 || !isfinite(s)
             left_out += 1
             continue
         end
-        ν = r.dof
-        num += ν * Float64(VgtkCore.noise_scale(r))^2; den += ν; pooled += 1
+        num += ν * Float64(s)^2; den += ν; pooled += 1
     end
     pooled == 0 && return FitResult(NaN, ReturnCode.InitialFailure, NoRule, 0, NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
     σ = sqrt(num / den)

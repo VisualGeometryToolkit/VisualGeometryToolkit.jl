@@ -129,7 +129,7 @@ _refine_constant(lo, d::Integer) = _refine_constant(lo_width(lo), strategy_loss(
 _refine_constant(w::EfficiencyConstant{Float64}, _K, _d) = w.value
 function _refine_constant(::Nothing, K, d)
     hasmethod(VgtkCore.efficiency_constant, Tuple{Type{K}}) || throw(ArgumentError(
-        "$(VgtkCore.loss_label(K)) has no efficiency constant (it is a truncation): state one on the strategy, or give `width = w`"))
+        "$(VgtkCore.loss_label(K)) ($(nameof(K))) has no efficiency constant (it is a truncation): state one on the strategy, or give `width = w`"))
     return VgtkCore.efficiency_constant(K, d)
 end
 

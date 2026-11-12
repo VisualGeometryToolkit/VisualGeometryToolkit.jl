@@ -49,7 +49,7 @@ end
 """
     scratch_run(env = ENV) -> Bool
 
-Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment (`env`: the runner passes the launch's). A run of
+Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment (`env`: the runner gives its launch's environment). A run of
 record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
 refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
 committed code.

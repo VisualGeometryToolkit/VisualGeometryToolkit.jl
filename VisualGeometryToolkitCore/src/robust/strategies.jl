@@ -212,9 +212,12 @@ _efficiency_constant_of(w) = throw(ArgumentError("fixed_width: the strategy's wi
 
 
 # The width mode of `Irls{K}` and `Triggs{K}` (VisualGeometryToolkitCore's `lo_width`), its
-# derived scale-interface label, and the one setter each: the width mode is a type
+# derived scale-interface label, and the one setter of each: the width mode is a type
 # parameter, so `with_width` rebuilds the strategy at a new mode.
-lo_width(lo::Union{Irls, Triggs}) = lo.width
+# (`lo_width` keeps one method per type: with one Union method the generic has three, and inference splits a
+# call on an unknown strategy over all of them, which JET reads as a `nothing` reaching `strategy_loss`.)
+lo_width(lo::Irls) = lo.width
+lo_width(lo::Triggs) = lo.width
 scale_interface(lo::Union{Irls, Triggs}) = width_scale_interface(lo.width)
 
 """

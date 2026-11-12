@@ -197,7 +197,7 @@ end
         @test_throws r"dependency cycle" load_stage_graph(bad("[[stage]]\nname = \"a\"\nafter = [\"b\"]\ncommand = [\"true\"]\n[[stage]]\nname = \"b\"\nafter = [\"a\"]\ncommand = [\"true\"]\n"))
         @test_throws r"no such stage" load_stage_graph(bad("[[stage]]\nname = \"a\"\nafter = [\"z\"]\ncommand = [\"true\"]\n"))
         @test_throws r"exactly one of" load_stage_graph(bad("[[stage]]\nname = \"a\"\nsbatch = \"x\"\ncommand = [\"true\"]\n"))
-        @test_throws r"unknown key nodes" load_stage_graph(bad("[[stage]]\nname = \"a\"\ncommand = [\"true\"]\nnodes = 2\n"))
+        @test_throws r"unknown key qos" load_stage_graph(bad("[[stage]]\nname = \"a\"\ncommand = [\"true\"]\nqos = \"high\"\n"))
         @test_throws r"needs \[results_branch\] assets" load_stage_graph(bad("[[stage]]\nname = \"a\"\nresults_branch = true\n"))
     end
 

@@ -23,7 +23,19 @@ grid camera body is now read (a fix).
 
 ## 3. Executed on the final RC
 
-To be filled from the final gate (Julia 1.13 and 1.12; GPU six, CPU six, docs).
+The final RC is 1c7581ec. The gate ran on two fresh clones, one per Julia version: a `git clone` with no Manifest, its
+workspace resolved from scratch. Counts are pass / fail / error / broken.
+
+| Package | 1.13.3 GPU (10494) | 1.13.3 CPU (10495) | 1.12.7 GPU (10498) | 1.12.7 CPU (10499) | docs 1.13 / 1.12 |
+|---|---|---|---|---|---|
+| Core 0.9.3 | 396965 / 0 / 0 / 2 | 395387 / 0 / 0 / 30 | 396962 / 0 / 0 / 2 | 395384 / 0 / 0 / 30 | exit 0 / exit 0 |
+| IO 0.9.2 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | exit 0 / exit 0 |
+| Estimation 0.9.1 | 20961 / 0 / 0 / 3 | 20951 / 0 / 0 / 3 | 20949 / 0 / 0 / 3 | 20939 / 0 / 0 / 3 | exit 0 / exit 0 |
+| Features 0.8.1 | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | exit 0 / exit 0 |
+| Eval 0.7.0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | exit 0 / exit 0 |
+| PoseLib 0.2.0 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | exit 0 / exit 0 |
+
+There are no failures or errors anywhere, the README items included.
 
 ---
 

@@ -16,6 +16,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   unchanged, on a device `select_on_grid!`'s exact selection and RANSACScoringDoneRight's grids no longer run one
   thread per workgroup (its Student-t grid on a B200 went 1.54 → 30.6 ms at one item per workgroup). Every other
   launch keeps its workgroup. Results bit for bit (every launch site, CPU and CUDA, before and after).
+  Open after the release (a performance item, nothing slower than the last released behaviour): on a B200 the
+  Welsch and mixture marginals of RANSACScoringDoneRight run as at its last release (86.6 / 90.4 ms at the
+  backend's choice) but slower than at one item per workgroup (67.7 / 62.1 ms); one warp per workgroup for a
+  one-item kernel measured faster than both on all five of its grids (Student-t 1.35, MSAC 6.5, MAGSAC++ 15.6,
+  Welsch 30.6, mixture 17.7 ms; 64, 128 and 256 within 15 % of it).
 
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),

@@ -1,5 +1,16 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased
+
+Test-only (no version bump: the registered 0.9.0 tree is unchanged outside `test/`).
+
+- **Tests hardened for Julia 1.12** (CI runs 1.12.7): the rotation-centre refine's noisy and clean sets draw from a
+  `StableRNG` in sorted view order (were `Xoshiro` and `randn` over a `Dict`'s order, both of which change with the
+  Julia version). Their references are re-measured on the new draws: the old pixel residual's estimates at 125d80dc
+  (the bearing residual still agrees to 0.09 mm robust, 2.7 mm least squares), and the robust error bounds at this
+  draw's errors with the same 1.6× margin (9 mm, so 1.4e-2; over 20 draws the robust error spreads 0.5–12 mm). The P3P
+  LM refit's agreement with NLLSsolver's own layout is gated at 1e-8 (was 1e-9, missed by ~6e-10 on some runners).
+
 ## 0.9.0 (unreleased)
 
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the

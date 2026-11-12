@@ -851,24 +851,26 @@ end
 # noise and records ScaleUpstream; a one-axis set, two views, a free camera and mismatched keys are refused.
 @testsetup module RotationCenterScenes
     using StaticArrays: SVector, SMatrix
-    using Random: Xoshiro
+    using StableRNGs: StableRNG
     using VisualGeometryToolkitCore: exp_so3, project
     export center_truth, center_views
     # a 9 × 7 board at 4 cm (z = 0); the camera ≈ 0.6 m in front, its projection centre 5 cm off the rotation centre
     const R0 = SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, -1, 0, 0, 0, -1)
     center_truth(axes) = (c = R0' * (SVector(0.004, -0.06, 0.05) - SVector(0.0, 0.0, 0.6)), d = SVector(0.004, -0.06, 0.05),
                           R = Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(ω)) * R0 for (k, ω) in enumerate(axes)))
-    function center_views(camera, t; σ = 0.0, outliers = 0.0, rng = Xoshiro(2))
+    # The noise is drawn from a StableRNG, view by view in key order: the same draw on every Julia version (`Xoshiro`'s
+    # `randn` stream and a `Dict`'s iteration order both may change with it, and Julia 1.12 drew differently from 1.13).
+    function center_views(camera, t; σ = 0.0, outliers = 0.0, rng = StableRNG(2))
         X = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
-        return Dict(k => [x => SVector{2, Float64}(project(camera, R * (x - t.c) + t.d)) + σ * SVector(randn(rng), randn(rng)) +
+        return Dict(k => [x => SVector{2, Float64}(project(camera, t.R[k] * (x - t.c) + t.d)) + σ * SVector(randn(rng), randn(rng)) +
                               (rand(rng) < outliers ? SVector(25.0, -30.0) : zero(SVector{2, Float64})) for x in X]
-                    for (k, R) in t.R)
+                    for k in sort!(collect(keys(t.R))))
     end
 end
 
 @testitem "refine_camera_and_poses: rotation-centre views — the centre, the offset and the rotations recovered" setup = [CameraPoseScenes, RotationCenterScenes] begin
     using StaticArrays: SVector, SMatrix
-    using Random: Xoshiro
+    using StableRNGs: StableRNG
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
         ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs, ReturnCode, ClosedForm
@@ -904,48 +906,49 @@ end
                                     scale = upstream)
         @test converged(r) && scale_source(r) === ScaleUpstream && noise_scale(r) == 0.3 && r.loss_width ≈ 0.9
         est = estimate(r)
-        @test norm(est.views.center - t.c) < 2.0e-3 && norm(est.views.offset - t.d) < 2.0e-3
+        @test norm(est.views.center - t.c) < 1.4e-2 && norm(est.views.offset - t.d) < 1.4e-2
         @test count(<(1), r.weights) >= 10                                           # the outliers down-weighted
         ls = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = nothing)   # least squares: pulled by them
         @test norm(estimate(ls).views.center - t.c) > norm(est.views.center - t.c)
         # Triggs{Huber} at 1.345σ given (ScaleGiven), and a strategy at an absolute width (ScaleNone, the width recorded): the
         # same views. (`ri`'s references were an Irls{Huber}'s at the same width until 0.9: one robustified LM lands within
-        # 6e-8 m of it, the rms within 2e-8 relative.)
+        # 2e-8 m of it, the rms within 3e-8 relative.)
         ri = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(efficiency_constant = 1.345), scale = 0.3)
         @test converged(ri) && scale_source(ri) === ScaleGiven && noise_scale(ri) == 0.3 && ri.loss_width ≈ 1.345 * 0.3
-        # The bound is this draw's (Xoshiro(2): Huber at 1.345σ 2.9 mm, at 3σ 0.34 mm, least squares 128 mm), with a 1.6× margin. The centre
+        # The bound is this draw's (StableRNG(2): Huber at 1.345σ 9.0 mm, at 3σ 8.7 mm, least squares 118 mm), with a 1.6× margin. The centre
         # is weakly fixed here: it slides with the offset (their errors equal) under rotations of at most 0.1 rad, so over 20
-        # draws of this set (σ = 0.3 px, 6 × 63 points, 5% outliers at 39 px) both robust fits spread 0.3–13 mm while least
-        # squares spreads 25–168 mm (at least 4.9× a robust error). What holds over draws is the second clause: closer than least squares.
-        @test norm(estimate(ri).views.center - t.c) < min(5.0e-3, norm(estimate(ls).views.center - t.c))
-        @test norm(estimate(ri).views.offset - t.d) < 5.0e-3
+        # draws of this set (σ = 0.3 px, 6 × 63 points, 5% outliers at 39 px; StableRNG(101:120)) both robust fits spread 0.5–12 mm
+        # while least squares spreads 16–128 mm (at least 2.8× a robust error). What holds over draws is the second clause: closer
+        # than least squares.
+        @test norm(estimate(ri).views.center - t.c) < min(1.4e-2, norm(estimate(ls).views.center - t.c))
+        @test norm(estimate(ri).views.offset - t.d) < 1.4e-2
         rw = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(), width = 0.9)
         @test converged(rw) && scale_source(rw) === ScaleNone && rw.loss_width ≈ 0.9
-        @test norm(estimate(rw).views.center - t.c) < 2.0e-3 && norm(estimate(rw).views.offset - t.d) < 2.0e-3
+        @test norm(estimate(rw).views.center - t.c) < 1.4e-2 && norm(estimate(rw).views.offset - t.d) < 1.4e-2
         # Against the pixel residual this refine had until 2026-11-12 (125d80dc, measured on this draw): the bearing residual
         # (the tangent angle whitened into pixels by the back-projection Jacobian) agrees with it to first order, so the robust
-        # estimates move by at most 0.15 mm (Huber at 3σ 0.14 mm, at 1.345σ 0.10 mm; their errors from the truth ~ 1–3 mm), held here to
-        # 0.3 mm, and the rms by under 0.2%; least squares, pulled by the 39 px outliers where the two whitenings differ at second
-        # order, moves 4.7 mm of its 128 mm error, held to 6 mm.
-        pixel = (; triggs = (SVector(0.004072459394970187, 0.05969235118380859, 0.550116422376878), SVector(0.0039358994868110035, -0.06000631028468068, 0.04992637853293849), 1.3127269696967419),
-                   narrow = (SVector(0.0047630306346337584, 0.0604612519022046, 0.552897911548909), SVector(0.0045601818109889, -0.060655537831177345, 0.04710058584120184), 0.9567499158517401),
-                   ls = (SVector(-0.018633388942561075, 0.021148500989788353, 0.4300183992280283), SVector(-0.016167986091148567, -0.023189031771895668, 0.17070093401990608), 7.7416495908487235))
+        # estimates move by at most 0.09 mm (Huber at 3σ 0.09 mm, at 1.345σ 0.06 mm; their errors from the truth ~ 9 mm), held here to
+        # 0.3 mm, and the rms by under 0.02% (held to 0.2%); least squares, pulled by the 39 px outliers where the two whitenings
+        # differ at second order, moves 2.7 mm of its 118 mm error, held to 6 mm.
+        pixel = (; triggs = (SVector(0.004542457182526425, 0.05992413930977435, 0.5412536292628963), SVector(0.004441893165669695, -0.060187182358688224, 0.0587542470305566), 1.6222332631675085),
+                   narrow = (SVector(0.004159982519303803, 0.0603976193754511, 0.540992910097172), SVector(0.004160219288152445, -0.06039753472075275, 0.058968691998531116), 1.1572328472850872),
+                   ls = (SVector(0.046913821623391486, 0.03285096285063938, 0.44088480955963727), SVector(0.041888728477604775, -0.04349052504441306, 0.16042921368413593), 9.541040680183073))
         for (res, ref, tol) in ((r, pixel.triggs, 3.0e-4), (rw, pixel.triggs, 3.0e-4), (ri, pixel.narrow, 3.0e-4), (ls, pixel.ls, 6.0e-3))
             @test norm(estimate(res).views.center - ref[1]) < tol && norm(estimate(res).views.offset - ref[2]) < tol
         end
         @test abs(r.rms - pixel.triggs[3]) < 2.0e-3 * pixel.triggs[3] && abs(ri.rms - pixel.narrow[3]) < 2.0e-3 * pixel.narrow[3]
     end
     @testset "least squares on outlier-free, low-noise pixels: the bearing residual's estimate is the pixel residual's" begin
-        # σ = 0.1 px, no outliers (Xoshiro(7)): the two whitenings differ only at second order in the residual, so the least-
-        # squares estimates agree far below a millimetre — measured 0.25 µm in c and 0.27 µm in d against the pixel residual's
-        # (125d80dc), held here to 10 µm; the rms to 1e-4 relative (measured 1.7e-6). The 4.7 mm of the contaminated set above is
+        # σ = 0.1 px, no outliers (StableRNG(7)): the two whitenings differ only at second order in the residual, so the least-
+        # squares estimates agree far below a millimetre — measured 0.03 µm in c and 0.06 µm in d against the pixel residual's
+        # (125d80dc), held here to 10 µm; the rms to 1e-4 relative (measured 1.8e-6). The 2.7 mm of the contaminated set above is
         # the 39 px outliers' full influence under least squares, not a disagreement of the residuals.
-        clean = center_views(cam, t; σ = 0.1, rng = Xoshiro(7))
+        clean = center_views(cam, t; σ = 0.1, rng = StableRNG(7))
         r = refine_camera_and_poses(cam, start, clean; fixed = held, optimization_strategy = nothing)
-        c_px = SVector(0.0042235228666873915, 0.05965448096833881, 0.5499675920672018)
-        d_px = SVector(0.004393079564646457, -0.05981001254314642, 0.0500520758028424)
+        c_px = SVector(0.003972430523787387, 0.060992540771253746, 0.5521073428426978)
+        d_px = SVector(0.003969954547206083, -0.061055755407834915, 0.047875584955742075)
         @test converged(r) && norm(estimate(r).views.center - c_px) < 1.0e-5 && norm(estimate(r).views.offset - d_px) < 1.0e-5
-        @test abs(r.rms - 0.13627333865447266) < 1.0e-4 * 0.13627333865447266
+        @test abs(r.rms - 0.13664940184183744) < 1.0e-4 * 0.13664940184183744
         # the record is in pixels (the bearing rows whitened into px): at σ = 0.1 px a dot's 2-vector residual has rms
         # σ√2 ≈ 0.14 px, so the rms, √s² and the per-dot norms read in pixels (a tangent angle would read ~1e-4)
         md = r.metadata
@@ -968,7 +971,7 @@ end
 @testitem "refine_camera_and_poses: rotation-centre views of a held SplineLens camera — the bearing residual, no projection in the solve" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm, normalize
-    using Random: Xoshiro
+    using StableRNGs: StableRNG
     import NLLSsolver
     using VisualGeometryToolkitCore: estimate, converged, metadata, exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs,
         lens, with_present, spline_window, backproject, project, retcode, stop_rule, ReturnCode, NoRule, retcode_symbol, successful_retcode,
@@ -1020,7 +1023,7 @@ end
         @test norm(est.views.center - t.c) < 1.0e-6 && norm(est.views.offset - t.d) < 1.0e-6 && rot_err(est) < 1.0e-6 && r.rms < 1.0e-4
     end
     @testset "noisy pixels: Triggs{Huber} at two given scales' widths, and an absolute width" begin
-        noisy = center_views(cam, t; σ = 0.3, rng = Xoshiro(5))
+        noisy = center_views(cam, t; σ = 0.3, rng = StableRNG(5))
         for (strategy, input) in ((Triggs{HuberShape}(efficiency_constant = 3.0), (; scale = 0.3)),
                                   (Triggs{HuberShape}(efficiency_constant = 1.345), (; scale = 0.3)),
                                   (Triggs{HuberShape}(), (; width = 0.9)))
@@ -1033,7 +1036,7 @@ end
         end
     end
     @testset "5% outliers: Triggs{Huber} down-weights them, least squares is pulled" begin
-        bad = center_views(cam, t; σ = 0.3, outliers = 0.05, rng = Xoshiro(3))
+        bad = center_views(cam, t; σ = 0.3, outliers = 0.05, rng = StableRNG(3))
         r = refine_camera_and_poses(cam, start, bad; fixed = (:controls,), optimization_strategy = Triggs{HuberShape}(efficiency_constant = 3.0), scale = 0.3)
         ls = refine_camera_and_poses(cam, start, bad; fixed = (:controls,), optimization_strategy = nothing)
         @test converged(r) && count(<(1), r.weights) >= 10

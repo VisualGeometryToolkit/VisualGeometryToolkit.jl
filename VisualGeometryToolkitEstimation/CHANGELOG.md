@@ -93,6 +93,14 @@ non-central one is a `NoncentralSplineModel`).
   3.1e-6 px (rms 0.97964947 → 0.97964944), the rotation-centre bundle's centre within 6.1e-8 m, the robot-world bundle's
   poses within 3.5e-10, `refine_circle` within 7.9e-7 px (Welsch) and 3.2e-10 px (TLS), `refine_ellipse` within 1.6e-10
   — and the iteration counts fall (the sum over an Irls run's LMs was 28–58; one LM takes 12–15).
+- **Breaking: one metadata record for the reweighted fits** (the owner's ruling on the duplication audit's item 11,
+  2026-11-12). `fit_linear`, `fit_rotation` and `fit_rigid_alignment` return `FitMetadata{L, W}` (public), with the
+  fields the three twins had (`weights`, `residuals`, `scale`, `scale_source`, `loss_width`) and the same `weight_kind`
+  trait; values are unchanged. `LinearFitMetadata`, `RotationFitMetadata` and `RigidAlignmentMetadata` are deleted, no
+  alias (retired in `check_naming`'s `RETIRED_NAMES`): a dispatch on one of them dispatches on `FitMetadata`.
+  `RotationCenterRefineMetadata` stays apart from `CameraPosesRefineMetadata`: they share eight fields, but the
+  camera-and-poses record carries `free` and `spline` where the rotation-centre one carries `n_without_bearing` and
+  `without_bearing`.
 
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer

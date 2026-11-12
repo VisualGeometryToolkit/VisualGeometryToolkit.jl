@@ -63,7 +63,10 @@
             @test E.data_root(; tiers = ["tier_b"]) == root             # installed already: no download
             @test isfile(joinpath(root, "sub", "run1", "b.json"))
             @test E.link_tree!(E.install_artifact("tier_a", toml), joinpath(root, "sub")) == 0   # idempotent
-            # one tier, as data_root(; tier) and input_path ask for it: installed through the same resolver
+            # one tier, as data_root(; tier) and input_path ask for it: installed through the same resolver, a view tier
+            # being one the project's catalog lists (the runner's gate, `catalog_view_mount`)
+            mkpath(joinpath(dir, "configs"))
+            write(joinpath(dir, "configs", "data_artifacts.toml"), "[artifacts.tier_e]\nmount_dir = \"sub\"\n[artifacts.tier_f]\nmount_dir = \"sub\"\n")
             h5 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
             bind_artifact!(toml, "tier_e", h5; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
             @test !ispath(joinpath(root, "sub", "run1", "e.json"))
@@ -154,6 +157,14 @@
                     @test E.data_root(; tier = "tier_e") == envdir && E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(envdir, "tier_e", "k-" * k)
                 end
             end
+            # the graph's data_env names the tier variables, for the drivers as for the runner (its own reader, load_stage_graph)
+            g_text = read(joinpath(dir, "configs", "reproduce.toml"), String)
+            write(joinpath(dir, "configs", "reproduce.toml"), replace(g_text, "name = \"p\"" => "name = \"p\"\ndata_env = \"P_DATA\""; count = 1))
+            withenv("VGTK_SITE" => "m", "P_DATA_TIER_E" => envdir) do
+                @test E.data_root(; tier = "tier_e") == envdir
+                @test_throws r"refusing to write .*P_DATA_TIER_E" E.assert_not_input(joinpath(envdir, "x"))
+            end
+            write(joinpath(dir, "configs", "reproduce.toml"), g_text)
             @test E.data_root(; tier = "tier_e") == joinpath(root, "sub")
             # S2: the mount applies only under the view: a VGTK_DATA_ROOT, an author's own data/exp_raw, a fallback
             flat = mktempdir(); mkpath(joinpath(flat, "run1")); write(joinpath(flat, "run1", "e.json"), "1")
@@ -470,6 +481,9 @@
             @test E.require_input(f; what = "board", provenance = "p", sha256 = uppercase(h)) == f
             @test_throws r"refused: input \[board\] .* sha256 expected 0{64}, actual" E.require_input(f; what = "board", provenance = "p", sha256 = "0"^64)
             @test E.require_input(f; what = "board", provenance = "p") == f                         # absent: unchecked
+            # the runner's check (inspect_input): a sha256 that is no SHA-256 is a config error; absent, the provenance recipe
+            @test_throws r"is no SHA-256" E.require_input(f; what = "board", provenance = "p", sha256 = "abc")
+            @test_throws r"MISSING INPUT \[board\]: .*gone\n  provenance: p" E.require_input(joinpath(dirname(f), "gone"); what = "board", provenance = "p")
             E.set_project_root!("")
         end
     end
@@ -483,6 +497,9 @@
             workdir = ".."
             [sites.m]
             tiers = { mocap = "rel/mocap", abs = "$mocap" }
+            [[stage]]
+            name = "s"
+            command = ["true"]
             """)
         withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SITE" => nothing, "VGTK_DATA_ROOT_MOCAP" => nothing) do
             E.set_project_root!(proj)
@@ -567,6 +584,9 @@
         @test E.cached_result(c -> error("cached"), "he", cfg, dir; codec...)[1]["pose"] == [1.0, 2.0]
         d3, _ = E.cached_result(c -> Dict{String,Any}("pose" => [3.0]), "he", cfg, dir; force = true, codec...)
         @test d3["pose"] == [3.0] && isfile(replace(f1, ".toml" => "_#1.toml"))                   # the previous version kept
+        E.cached_result(c -> Dict{String,Any}("pose" => [4.0]), "he", cfg, dir; force = true, codec...)
+        # DrWatson safesave's numbering: the newest previous version is _#1, the older renumbered up
+        @test TOML.parsefile(replace(f1, ".toml" => "_#1.toml"))["pose"] == [3.0] && TOML.parsefile(replace(f1, ".toml" => "_#2.toml"))["pose"] == [1.0, 2.0]
         out = joinpath(mktempdir(), "run")
         E.write_run_records(out, Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d")); driver = "d",
                             config_source = "c.toml", key = "k", fields = Dict("folds" => 5, "replayed" => "detection_cv"))

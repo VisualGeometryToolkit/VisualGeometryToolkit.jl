@@ -26,34 +26,8 @@
 # =============================================================================
 
 """
-    LinearFitMetadata{L, W}
-
-`FitResult` metadata of [`fit_linear`](@ref), all at the returned
-coefficients (`L` the `optimization_strategy`'s type, `Nothing` for least squares):
-
-- `weights::W` — the loss weight `ρ′(r²)` of every row, normalized to a
-  maximum of 1 (`IrlsWeights`); a lazy all-ones vector for least squares
-  (`BinaryWeights`). The solve's weight of a row is its prior times this.
-- `residuals` — `y − A·x`.
-- `scale`, `scale_source` — the scale record (`noise_scale(result)`,
-  `scale_source(result)`): the scale given (`ScaleGiven`, `ScaleUpstream`),
-  or `NaN` and `ScaleNone` for least squares or a `width`-only fit.
-- `loss_width` — the loss width the weights were computed at (`NaN` for
-  least squares).
-"""
-struct LinearFitMetadata{L, W <: AbstractVector{Float64}}
-    weights::W
-    residuals::Vector{Float64}
-    scale::Float64
-    scale_source::VgtkCore.ScaleSource
-    loss_width::Float64
-end
-LinearFitMetadata{L}(w::W, r, s, src, lw) where {L, W} = LinearFitMetadata{L, W}(w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:LinearFitMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
-
-"""
     fit_linear(A, y[, prior]; optimization_strategy, scale | width, tol)
-        -> FitResult{Vector{Float64}, LinearFitMetadata}
+        -> FitResult{Vector{Float64}, FitMetadata}
 
 The robust coefficients `x` of `y ≈ A·x` (`A` an `m × n` matrix, `y` an
 `m`-vector), with a fraction of the rows gross outliers. A fit — it seeds
@@ -89,7 +63,7 @@ error; drop such columns before the call when their value matters.
 `:degenerate` when fewer rows keep a positive weight than there are columns.
 `n` is the support (the rows of positive solve weight) and `rms` the
 weight-weighted root mean square residual over the rows,
-`√(Σ pᵢwᵢrᵢ² / Σ pᵢwᵢ)`. The metadata ([`LinearFitMetadata`](@ref)) carries
+`√(Σ pᵢwᵢrᵢ² / Σ pᵢwᵢ)`. The metadata ([`FitMetadata`](@ref)) carries
 the weights, the residuals, the scale record and the loss width.
 """
 function fit_linear(
@@ -129,7 +103,7 @@ function fit_linear(
     _irls_weights!(w, f, r)                   # the metadata at the returned coefficients
     sw = _solve_weights(p, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(x, irls_termination(tol_met, f === nothing)..., iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(x, irls_termination(tol_met, f === nothing)..., iter, rms, used, FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 # The weighted least squares on the rows of positive weight: the column-pivoted
@@ -144,4 +118,4 @@ end
 # A solve that failed: before the loop, a degenerate start `(InitialFailure, NoRule)`; inside it, a weighted
 # solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
 _linear_degenerate(strategy, f, n, m, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
-    FitResult(fill(NaN, n), record..., 0, NaN, 0, LinearFitMetadata{typeof(strategy)}(w, fill(NaN, m), _fit_scale_record(f)...))
+    FitResult(fill(NaN, n), record..., 0, NaN, 0, FitMetadata{typeof(strategy)}(w, fill(NaN, m), _fit_scale_record(f)...))

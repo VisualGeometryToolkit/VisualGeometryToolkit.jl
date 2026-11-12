@@ -126,13 +126,16 @@ RELATIVE to it; nothing under it is written except by a declared producer
 ([`assert_not_input`](@ref)).
 
 With `tier`, the root of that input tier, which may live elsewhere on a
-machine (`tier_data_root`, the runner's order): `ENV["VGTK_DATA_ROOT_<TIER>"]`
-→ the project's stage graph (`configs/reproduce.toml`) `[sites.<site>.tiers]`,
-`<site>` from `ENV["VGTK_SITE"]` (the runner sets both for its jobs) → the one
-data root above, through the same resolver as `tiers`: an artifact view that
-publishes the tier installs it, and the tier's root is then where the view
-mounts it (`<data root>/<mount(tier)>`, a catalog's `mount_dir`); a tier the
-view does not hold is only looked up. An `[inputs.<id>]` path is relative to its tier's root, so
+machine (`tier_data_root`, the runner's order): `ENV["<data_env>_<TIER>"]`
+(the graph's `data_env`, default `VGTK_DATA_ROOT`) → the project's stage graph
+(`configs/reproduce.toml`, read by the runner's `load_stage_graph`)
+`[sites.<site>.tiers]`, `<site>` from `ENV["VGTK_SITE"]` (the runner sets both
+for its jobs) → the one data root above, through the same resolver and the
+runner's view gate (`catalog_view_mount`): a tier the project's catalog
+(`configs/data_artifacts.toml`) lists is the view's, its root where the view
+mounts it (`<data root>/<mount_dir>`, a split entry's parts included), installed
+when the view's Artifacts.toml binds it; a tier the catalog does not list is
+only looked up. An `[inputs.<id>]` path is relative to its tier's root, so
 [`input_path`](@ref) fetches what it reads.
 """
 function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union{Nothing,AbstractString} = nothing)
@@ -272,39 +275,43 @@ end
 # artifact view when the data root is one (installing the tier to read it; refused to a producer), the data root.
 # `write = true` is a producer's root: it never installs an artifact.
 function _tier_root(tier::AbstractString; write::Bool)
-    site_tiers, workdir = _site_tiers()
+    site_tiers, workdir, prefix = _site_tiers()
     bound = _bound_data_root()
     av = _BINDING.artifacts
     from_view = av !== nothing && (bound === nothing || is_artifact_view(bound))
-    main = bound !== nothing ? bound : av !== nothing ? _view_dir(av) : ""
-    view_mount = from_view ? (t -> _view_has(av, t) ? String(av.mount(t)) : nothing) : nothing
-    r, source = tier_data_root(tier, main; env = ENV, tiers = site_tiers, workdir, view_mount, write)
+    # a reader's view is in place before its tiers are looked up (the gate reads its marker); a producer's never made
+    main = bound !== nothing ? bound : av === nothing ? "" : write ? _view_dir(av) : artifact_view!(av, String[])
+    # the runner's view gate (src/code_identity.jl): a tier the project's catalog lists mounts at its `mount_dir`
+    view_mount = from_view ? catalog_view_mount(main, joinpath(project_root(), "configs", "data_artifacts.toml")) : nothing
+    r, source = tier_data_root(tier, main; env = ENV, tiers = site_tiers, workdir, prefix, view_mount, write)
     if write
-        isempty(r) && error("no data root to produce tier $tier into: set VGTK_DATA_ROOT, $(tier_variable(tier)) or a site tier")
+        isempty(r) && error("no data root to produce tier $tier into: set VGTK_DATA_ROOT, $(tier_variable(tier; prefix)) or a site tier")
         # a producer never writes into an artifact view, whatever named its root (the view's own directory, a
         # VGTK_DATA_ROOT or a tier root that is one, or a directory inside one)
         if (from_view && source == "data root") || _inside_view(r)
             throw(ArgumentError("the data root is an artifact view (read-only); bind VGTK_DATA_ROOT or " *
-                                "$(tier_variable(tier)) to a writable root to produce tier $tier"))
+                                "$(tier_variable(tier; prefix)) to a writable root to produce tier $tier"))
         end
         return r
     end
     source in ("env", "site") && return r
-    source == "view" && (data_root(; tiers = String[tier]); return r)      # installed, then its mount
+    # installed (an entry the view's Artifacts.toml binds; a split entry's parts are fetched by `fetch_artifacts!`), then its mount
+    source == "view" && (av !== nothing && _view_has(av, tier) && data_root(; tiers = String[tier]); return r)
     return data_root()
 end
 
-# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, and the graph's workdir (a
-# relative root's base); `(nothing, "")` without one.
+# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, the graph's workdir (a relative
+# root's base) and its `data_env` (the prefix of a tier's variable), read by the runner's own reader
+# (`Reproduce.load_stage_graph`, included after this module: resolved at the call); `(nothing, "", "VGTK_DATA_ROOT")`
+# without one.
 function _site_tiers()
     site = get(ENV, "VGTK_SITE", "")
     root = project_root()
-    (isempty(site) || isempty(root)) && return (nothing, "")
-    g = joinpath(root, "configs", "reproduce.toml")
-    isfile(g) || return (nothing, "")
-    d = TOML.parsefile(g)
-    tiers = get(get(get(d, "sites", Dict{String,Any}()), site, Dict{String,Any}()), "tiers", nothing)
-    return (tiers, normpath(joinpath(dirname(g), get(get(d, "project", Dict{String,Any}()), "workdir", "."))))
+    (isempty(site) || isempty(root)) && return (nothing, "", "VGTK_DATA_ROOT")
+    path = joinpath(root, "configs", "reproduce.toml")
+    isfile(path) || return (nothing, "", "VGTK_DATA_ROOT")
+    g = parentmodule(@__MODULE__).Reproduce.load_stage_graph(path)
+    return (get(get(g.site_roots, site, Dict{String,Any}()), "tiers", nothing), g.workdir, g.data_env)
 end
 
 """
@@ -320,11 +327,11 @@ bound. A tier root set elsewhere (`VGTK_DATA_ROOT_<TIER>`, [`data_root`](@ref)'s
 """
 function assert_not_input(path::AbstractString; producer::Bool = false)
     producer && return nothing
+    site_tiers, workdir, prefix = _site_tiers()        # the resolver's table: the site's tier roots are input too
     for (k, v) in ENV
-        (startswith(k, "VGTK_DATA_ROOT_") && !isempty(v) && _is_under(path, v)) &&
+        (startswith(k, prefix * "_") && !isempty(v) && _is_under(path, v)) &&
             error("refusing to write $path: it is under the root of an input tier ($k = $v), read-only input")
     end
-    site_tiers, workdir = _site_tiers()                # the resolver's table: the site's tier roots are input too
     if site_tiers !== nothing
         for (t, _) in site_tiers
             r = first(tier_data_root(String(t), ""; env = Dict{String,String}(), tiers = site_tiers, workdir))

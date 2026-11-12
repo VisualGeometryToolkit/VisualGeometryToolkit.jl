@@ -39,8 +39,6 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # the T
 import .._toml_hash    # src/code_identity.jl: the content hash behind tuning_hash (toml.jl) and the v6 step (persist.jl)
 using TOML: TOML
 using JLD2: JLD2
-using LibGit2: LibGit2
-using DrWatson: isdirty                     # _git_identity (persist.jl)
 import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step: migrate_schema, migrate_record (persist.jl)
 using Statistics: median                      # MedianError's objective; RobustFit's prior scale
 using Distributions: Gamma, fit_mle, scale, shape   # fit_prior(::InverseGamma, ::MLE)

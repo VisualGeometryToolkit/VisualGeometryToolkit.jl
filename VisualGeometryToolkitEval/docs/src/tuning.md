@@ -359,7 +359,7 @@ tune-phase checkpoint, a probe CV artifact, a bundle of validation matrices);
 | `tuning_hash` | `tuning_hash(spec)`: SHA-256 (16 hex) of the sorted TOML of the scheme table; names and spelling do not move it, any parameter does |
 | `grid_specs` | axis → `GridSpec` table; the realized grids are rebuilt from these |
 | `sampling_unit` | `"pair"` or `"query"`: the data's `sampling_unit` (`art.unit`) |
-| `code_identity` | version and git commit (`-dirty` when uncommitted) of this package and of every module the caller names as the code its result came from; `julia`: its `version` and the `rng` algorithms |
+| `code_identity` | the version of this package and of every module the caller names as the code its result came from; `julia`: its `version` and the `rng` algorithms. The code's git state is the run's `code_trees` (its run records and `_provenance.toml`) |
 | … | the run's own data (the arms, their tuned points as native values, the boundary hits, `d_g`, …) |
 
 The reader refuses a file of another format first, with an `ArgumentError`

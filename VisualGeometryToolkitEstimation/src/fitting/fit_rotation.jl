@@ -28,30 +28,8 @@
 # =============================================================================
 
 """
-    RotationFitMetadata{L, W}
-
-`FitResult` metadata of [`fit_rotation`](@ref), all at the returned rotation
-(`L` the `optimization_strategy`'s type, `Nothing` for least squares): `weights::W`,
-the loss weight `ρ′(r²)` of every pair normalized to a maximum of 1
-(`IrlsWeights`; a lazy all-ones vector, `BinaryWeights`, for least squares —
-the solve's weight is the pair's prior times this); `residuals`, the angle
-`∠(R·aᵢ, bᵢ)` of every pair in radians; `scale`, `scale_source` (radians; the
-scale record, `noise_scale(result)`); `loss_width` (radians, `NaN` for least
-squares).
-"""
-struct RotationFitMetadata{L, W <: AbstractVector{Float64}}
-    weights::W
-    residuals::Vector{Float64}
-    scale::Float64
-    scale_source::VgtkCore.ScaleSource
-    loss_width::Float64
-end
-RotationFitMetadata{L}(w::W, r, s, src, lw) where {L, W} = RotationFitMetadata{L, W}(w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:RotationFitMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
-
-"""
     fit_rotation(cs; optimization_strategy, scale | width, tol)
-        -> FitResult{RotMatrix{3, Float64}, RotationFitMetadata}
+        -> FitResult{RotMatrix{3, Float64}, FitMetadata}
 
 The robust rotation `R` with `bᵢ ≈ R·aᵢ` from direction pairs `cs` (`aᵢ => bᵢ`,
 3-vectors; normalized at entry, so any nonzero length is a direction), with a
@@ -81,7 +59,7 @@ the caller's scale input and never re-estimated.
 `retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least squares), or
 `:degenerate` when fewer than two pairs keep a positive weight. `n` is the
 support (the pairs of positive solve weight), `rms` the weight-weighted root
-mean square residual angle. The metadata ([`RotationFitMetadata`](@ref))
+mean square residual angle. The metadata ([`FitMetadata`](@ref))
 carries the weights, the residual angles, the scale record and the loss
 width.
 
@@ -130,7 +108,7 @@ function fit_rotation(
     _irls_weights!(w, f, r)                    # the metadata at the returned rotation
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(R, irls_termination(tol_met, f === nothing)..., iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(R, irls_termination(tol_met, f === nothing)..., iter, rms, used, FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 function _unit_direction(v, i)
@@ -145,4 +123,4 @@ _rotation_residuals(R, as, bs) = [angle_between(R * a, b) for (a, b) in zip(as, 
 # A solve that failed: before the loop, a degenerate start `(InitialFailure, NoRule)`; inside it, a weighted
 # solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
 _rotation_degenerate(strategy, f, n, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
-    FitResult(one(RotMatrix{3, Float64}), record..., 0, NaN, 0, RotationFitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))
+    FitResult(one(RotMatrix{3, Float64}), record..., 0, NaN, 0, FitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))

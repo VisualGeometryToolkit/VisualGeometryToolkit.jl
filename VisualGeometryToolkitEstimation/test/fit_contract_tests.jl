@@ -98,12 +98,10 @@ end
 
 @testitem "fit contract: the scale record, the width rule, the weights and their kind" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: LinearFitMetadata, RotationFitMetadata, RigidAlignmentMetadata, RotationAveragingMetadata
+    using VisualGeometryToolkitEstimation: FitMetadata, RotationAveragingMetadata
     using VisualGeometryToolkitCore: Irls
     # each metadata through its outer constructor (the strategy type given, the weights' type inferred)
-    _remade(m::LinearFitMetadata{L}) where {L} = LinearFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
-    _remade(m::RotationFitMetadata{L}) where {L} = RotationFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
-    _remade(m::RigidAlignmentMetadata{L}) where {L} = RigidAlignmentMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
+    _remade(m::FitMetadata{L}) where {L} = FitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
     _remade(m::RotationAveragingMetadata{K, L}) where {K, L} =
         RotationAveragingMetadata{K, L}(m.edges, m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
     using VisualGeometryToolkitCore: HuberShape, WelschShape, TLSShape, noise_scale, scale_source, weights, weight_kind,

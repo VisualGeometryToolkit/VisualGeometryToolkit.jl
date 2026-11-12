@@ -98,20 +98,21 @@ end
 
 Declared data input of an experiment: hard error (with the provenance recipe)
 when absent. Inputs are declared at the top of each experiment file so the
-dependency graph is readable without running anything. With `sha256` (the
-input's content hash of record, 64 hex digits), a file with another content is
-refused (`ArgumentError`: what, the path, expected and actual); the hash is
-streamed and cached by path, size and modification time (`file_sha256`, src/cli.jl).
+dependency graph is readable without running anything. The check is the
+runner's and `verify_inputs`' one, `inspect_input` (src/code_identity.jl): with
+`sha256` (the input's content hash of record, 64 hex digits) another content is
+refused (`ArgumentError`: what, the path, expected and actual) — a file's
+`file_sha256`, a directory's `tree_sha256` — and so is a scratch run's output,
+unless this run is one ([`scratch_run`](@ref)).
 """
 function require_input(path::AbstractString; what::AbstractString,
                        provenance::AbstractString, sha256 = nothing)
-    isfile(path) || isdir(path) ||
-        error("MISSING INPUT [$what]: $path\n  provenance: $provenance")
-    if sha256 !== nothing
-        got = file_sha256(path)
-        got == lowercase(String(sha256)) ||
-            throw(ArgumentError("refused: input [$what] $path is not the data of record: sha256 expected $(lowercase(String(sha256))), actual $got"))
-    end
+    p = rstrip(abspath(path), '/')
+    t = Dict{String, Any}("path" => basename(p))
+    sha256 === nothing || (t["sha256"] = String(sha256))
+    x = inspect_input(what, t, dirname(p); allow_scratch = scratch_run())          # the one check (src/code_identity.jl)
+    x.state === :missing && error("MISSING INPUT [$what]: $path\n  provenance: $provenance")
+    x.state === :refused && throw(ArgumentError("refused: input [$what] $path is not the data of record: $(x.problem)"))
     return path
 end
 

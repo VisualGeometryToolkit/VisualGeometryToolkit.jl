@@ -145,8 +145,9 @@ not tilt the alignment.
 
 ```@docs
 fit_rigid_alignment
-RigidAlignmentMetadata
 ```
+
+Its metadata is the reweighted fits' [`FitMetadata`](@ref).
 
 ## Design Document
 

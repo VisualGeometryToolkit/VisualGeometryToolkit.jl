@@ -25,7 +25,7 @@
 # `[config]` payload table); [`read_provenance`](@ref) returns every layout as
 # the one flat dict.
 # =============================================================================
-using DrWatson: tag!, safesave, gitdescribe, wload
+using DrWatson: DrWatson, tag!, safesave, gitdescribe, wload
 using LibGit2: LibGit2
 
 # DrWatson's `tag!(d; storepatch = true)` — except inside a git WORKTREE, where
@@ -329,7 +329,8 @@ the data as if cached) and forces `safe = false`; here a save error propagates.
 Another format (a vgio record) is cached through a codec: `ext` names the file's
 extension, `load(file) -> Dict` reads it back and `save(file, data)` writes the
 String-keyed Dict (code trees and DrWatson's tag included); the previous version
-is kept as safesave keeps it (`<name>_#<n><ext>`). A [`scratch_run`](@ref)
+is kept as safesave keeps it (DrWatson's own `recursively_clear_path`: the newest
+previous version is `<name>_#1<ext>`, older ones renumbered up). A [`scratch_run`](@ref)
 caches as `<prefix>-scratch_<key><ext>`, never in a run of record's file, and
 its data say `scratch = true`.
 """
@@ -357,18 +358,8 @@ function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
     if save === nothing
         safesave(file, copy(data))
     else
-        isfile(file) && mv(file, _backup_name(file))                  # safesave's versioning, for any codec
+        DrWatson.recursively_clear_path(file)                         # safesave's own versioning (newest `_#1`), for any codec
         save(file, copy(data))
     end
     return data, file
-end
-
-# DrWatson safesave's name for the previous version of `file`: `<name>_#<n><ext>`, the first n free.
-function _backup_name(file::AbstractString)
-    base, ext = splitext(file)
-    n = 1
-    while isfile("$(base)_#$(n)$(ext)")
-        n += 1
-    end
-    return "$(base)_#$(n)$(ext)"
 end

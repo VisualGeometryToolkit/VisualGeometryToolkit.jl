@@ -34,8 +34,9 @@ loss shape at ONE width, `efficiency_constant × scale` from the caller's
 
 ```@docs
 fit_rotation
-RotationFitMetadata
 ```
+
+Its metadata is the reweighted fits' [`FitMetadata`](@ref).
 
 `fit_rotation_averaging` is the absolute rotations of a set of frames from the
 relative rotations of a view graph, some of them wrong: VisualGeometryToolkitCore's

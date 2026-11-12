@@ -9,6 +9,28 @@
   (`--list`, `--all`, `--only=…`, the required artifacts by default; a split entry's parts listed and fetched, a chunked
   file reassembled), hoisted from LocalOptimizationDoneRight's accv2026 script; RANSACScoringDoneRight's neurips2026
   script was its copy.
+- **Breaking: one copy each of Eval's partial overlaps** (the owner's ruling on the duplication audit's item 14,
+  2026-11-12):
+  - a codec-cached result's previous versions are numbered by DrWatson's own `recursively_clear_path`, as `safesave`
+    numbers a JLD2 one: the newest previous version is `_#1`, older ones renumbered up (was: the first free number,
+    so the oldest was `_#1`). `_backup_name` is deleted.
+  - a driver reads the site's tier roots through the runner's `load_stage_graph` (was a TOML re-parse), so it honours the
+    graph's `data_env`: a tier's variable is `<data_env>_<TIER>` for `data_root(; tier)`, `keyed_data_dir`,
+    `promote_run` and `assert_not_input`, as for the runner (was always `VGTK_DATA_ROOT_<TIER>`). A malformed
+    `configs/reproduce.toml` is now refused there too when `VGTK_SITE` is set.
+  - a driver's view tier is the runner's (`catalog_view_mount`): a tier the project's `configs/data_artifacts.toml`
+    lists mounts at its `mount_dir`, so a split entry's tier resolves where its parts are linked (was the view's root:
+    the gate asked whether the view's Artifacts.toml binds the entry's own name, which a split entry never is). A view
+    bound without a catalog, or a bound artifact the catalog does not list, is only looked up. The view is installed
+    into only for a name its Artifacts.toml binds.
+  - one HEAD-and-dirty reader, the runner's (`git rev-parse HEAD`, `git status --porcelain --untracked-files=no`):
+    `results_branch` reads it; `Tuning._git_identity` (LibGit2 and DrWatson's `isdirty`) is deleted.
+  - one record of the code a result came from, `code_trees`: `code_identity(code)` (a tuning sidecar's
+    `code_identity`) keeps each module's `version` and the `julia` table and no longer records a `git` commit; the
+    code's state is the run's `code_trees` (its run records and `_provenance.toml`).
+  - `require_input` checks through `inspect_input`, the runner's and `verify_inputs`' one check: a directory's
+    `sha256` is its `tree_sha256` (was a refusal from `file_sha256`), a `sha256` that is no SHA-256 is an
+    `ArgumentError`, and a scratch run's output is refused unless the run is a scratch run.
 
 - **The live and refit runs read a model when the search found one (`found_model`)**, not when it `converged`:
   VisualGeometryToolkitCore's `converged` is strict (a run that drew its trial budget without reaching the confidence

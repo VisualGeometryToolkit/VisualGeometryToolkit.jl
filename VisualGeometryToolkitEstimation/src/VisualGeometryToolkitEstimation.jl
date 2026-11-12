@@ -364,7 +364,7 @@ public ManifoldLiftProvider, LiftableProblem
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
 public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
+public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
 public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones

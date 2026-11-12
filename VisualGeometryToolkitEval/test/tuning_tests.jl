@@ -530,7 +530,7 @@
             @test art["mode"] == "miscal" && art["note"] == "x" && !haskey(art, "tuning_spec")
             # this package always, plus the caller's code
             @test Set(keys(art.code)) == Set(["VisualGeometryToolkitEval", "VisualGeometryToolkitCore", "julia"])
-            @test all(haskey(v, "version") && haskey(v, "git") for (k, v) in art.code if k != "julia")
+            @test all(haskey(v, "version") && !haskey(v, "git") for (k, v) in art.code if k != "julia")
             # the Julia version and the RNG algorithms the draws used (a bootstrap CI depends on Julia's own stream)
             @test art.code["julia"]["version"] == string(VERSION) && art.code["julia"]["rng"] == ["StableRNG"]
             @test_throws ArgumentError save_tuning_artifact(joinpath(dir, "bad.jld2"), spec; grids = gs, unit = PairUnit(),

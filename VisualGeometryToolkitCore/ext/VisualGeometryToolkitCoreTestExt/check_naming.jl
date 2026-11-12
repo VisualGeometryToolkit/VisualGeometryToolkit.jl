@@ -72,6 +72,9 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 const RETIRED_NAMES = String[
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
+    # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):
+    # fit_linear, fit_rotation and fit_rigid_alignment return `FitMetadata{L, W}` (VisualGeometryToolkitEstimation)
+    "LinearFit" * "Metadata", "RotationFit" * "Metadata", "RigidAlignment" * "Metadata",
     # one optimization-strategy family (the owner's ruling, 2026-11-11): `find_*`/`ransac`/`locally_optimize` take
     # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",

@@ -98,6 +98,18 @@ required_outlier_halfwidth
 consensus_s2!
 ```
 
+## The reweighted fits' termination record
+
+Every reweighted fit (`fit_linear`, `fit_rotation`, `fit_rigid_alignment`,
+`fit_rotation_averaging`, `fit_robot_world_hand_eye`) records its stop through
+one function, as an LM does through VisualGeometryToolkitCore's
+[`nlls_termination`](@extref VisualGeometryToolkitCore.nlls_termination); a
+downstream reweighted loop calls it too.
+
+```@docs
+irls_termination
+```
+
 ## Posterior Weighting
 
 Lower-level posterior weighting utilities used by both the RANSAC inner loop

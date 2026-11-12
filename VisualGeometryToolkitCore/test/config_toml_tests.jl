@@ -73,6 +73,20 @@
             @test_logs (:warn, r"retired") check_keys(Dict("init" => 1), ["scale"], "inner"; retired = Set([("inner", "init")]))
             @test_throws ArgumentError check_keys(Dict("init" => 1), ["scale"], "other"; retired = Set([("inner", "init")]))
         end
+        # The one refusal of a renamed key (BlobBoards' copy deleted, its duplication audit ask 7): it names the new
+        # key, even where the old one would otherwise be allowed or retired; other sections are unaffected.
+        @testset "check_keys refuses a renamed key with its new name (no alias)" begin
+            ren = Dict(("inner", "lo") => "local_optimization_strategy")
+            err = try
+                check_keys(Dict("lo" => 1, "scale" => 2), ["scale", "lo"], "inner"; renamed = ren); nothing
+            catch e
+                e
+            end
+            @test err isa ArgumentError &&
+                  sprint(showerror, err) == "ArgumentError: [inner] `lo` was renamed `local_optimization_strategy` (no alias)"
+            @test check_keys(Dict("lo" => 1), ["lo"], "other"; renamed = ren) === nothing
+            @test check_keys(Dict("scale" => 1), ["scale"], "inner"; renamed = ren, retired = Set([("inner", "init")])) === nothing
+        end
         @testset "toml_default — dotted path, loud on a missing key" begin
             defaults = Dict("ransac" => Dict("k" => 3, "lo" => Dict("iters" => 5)), "top" => 1)
             @test toml_default(defaults, "ransac", "k") == 3

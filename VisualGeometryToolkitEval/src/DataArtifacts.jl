@@ -455,7 +455,7 @@ end
 """
     fetch_artifacts!(cat, names = required_artifacts(cat)) -> Vector{NamedTuple}
 
-Install `names` ([`Experiments.install_artifact`](@ref VisualGeometryToolkitEval.Experiments.install_artifact): download, verify,
+Install `names` (VisualGeometryToolkitCore's `install_artifact`: download, verify,
 unpack into the depot; a placeholder URL is refused with the way out) and link
 each tree into its mount root, at the entry's [`mount_dir`](@ref): `data` artifacts into the project's
 `data/exp_raw` as an artifact view — skipped when a data root is already bound

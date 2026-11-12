@@ -117,7 +117,7 @@ function fit_linear(
         iter += 1
         _irls_weights!(w, f, r)
         x_new = _weighted_lstsq(Af, yf, _solve_weights(p, w))
-        x_new === nothing && return _linear_degenerate(optimization_strategy, f, n, m, w, _irls_record(false, false; solve_failed = true))
+        x_new === nothing && return _linear_degenerate(optimization_strategy, f, n, m, w, irls_termination(false, false; solve_failed = true))
         Δ = maximum(abs, x_new .- x; init = 0.0)
         x = x_new
         r = yf .- Af * x
@@ -129,7 +129,7 @@ function fit_linear(
     _irls_weights!(w, f, r)                   # the metadata at the returned coefficients
     sw = _solve_weights(p, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(x, _irls_record(tol_met, f === nothing)..., iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(x, irls_termination(tol_met, f === nothing)..., iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 # The weighted least squares on the rows of positive weight: the column-pivoted

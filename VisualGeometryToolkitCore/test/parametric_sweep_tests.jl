@@ -321,3 +321,71 @@ end
                                      Int32(0), nothing, nothing, k; ndrange = (1, 1, 1))
     @test (best[1], Int(k[1])) === scan(lg, 7, log(9.0), 1, s, 50, nothing, nothing, IGPrior())
 end
+
+# The prefix sweep's loop body is device-callable (the owner's ruling on the BlobBoards duplication audit, ask 5): a
+# kernel that holds its sorted column in local memory (BlobBoards' per-blob sweep: one workgroup per blob, the column
+# sorted in `@localmem`) calls `prefix_sweep` itself. In Float64 it is the grid kernel's and `sweep!`'s (S*, k*), bit for
+# bit; in Float32 it sweeps in the kernel's own precision; the same kernel runs on the CPU backend and on a GPU.
+@testitem "prefix_sweep: the one sweep's loop body inside a kernel, on every backend" begin
+    using Test, Random
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @localmem, @synchronize, @Const
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: prefix_sweep, sweep!, IGPrior, log_gamma_table
+    @kernel function local_sweep!(S_out, k_out, @Const(sq), @Const(cnt), @Const(lg), @Const(l2h), model_dof::Int32)
+        blob = @index(Group, Linear)
+        tid = @index(Local, Linear)
+        smem = @localmem eltype(S_out) (64,)
+        n = Int(cnt[blob])
+        tid <= n && (smem[tid] = sq[tid, blob])
+        @synchronize()
+        if tid == 1
+            S, k = prefix_sweep(eltype(S_out), smem, 0, n, lg, model_dof, 1, IGPrior(0.0, 0.0), l2h[blob], nothing, nothing)
+            S_out[blob] = S
+            k_out[blob] = Int32(k)
+        end
+    end
+    rng = Xoshiro(5)
+    nb = 6; cnt = Int32[64, 40, 17, 9, 3, 2]; m = 2
+    sq = zeros(Float64, 64, nb)
+    for b in 1:nb
+        n = cnt[b]
+        sq[1:n, b] = sort(abs2.(randn(rng, n) .* ifelse.(rand(rng, n) .< 0.7, 0.5, 9.0)))
+    end
+    l2h = log.(2 .* (1.0 .+ rand(rng, nb)))
+    lg = log_gamma_table(64, 1; alpha0 = 0.0)
+    function launch(backend, T)
+        up(x) = (d = KA.allocate(backend, eltype(x), size(x)); copyto!(d, x); d)
+        S = KA.allocate(backend, T, nb); k = KA.allocate(backend, Int32, nb)
+        local_sweep!(backend, 64)(S, k, up(T.(sq)), up(cnt), up(T.(lg)), up(T.(l2h)), Int32(m); ndrange = 64nb)
+        KA.synchronize(backend)
+        return Array(S), Int.(Array(k))
+    end
+    S64, k64 = launch(KA.CPU(), Float64)
+    for b in 1:nb
+        n = Int(cnt[b])
+        if n > m
+            @test (S64[b], k64[b]) === sweep!(Vector{Int}(undef, n), lg[1:n], m, l2h[b], 1, sq[1:n, b], n; scale_prior = IGPrior(0.0, 0.0))
+        else
+            @test (S64[b], k64[b]) === (-Inf, 0)              # no partition above the model's dof
+        end
+    end
+    S32, k32 = launch(KA.CPU(), Float32)
+    @test eltype(S32) === Float32
+    @test k32 == k64 && isapprox(S32, S64; rtol = 1.0e-4)
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        Sg, kg = Base.invokelatest(launch, gpu, Float32)
+        @test kg == k32 && isapprox(Sg, S32; rtol = 1.0e-5)
+        Sg64, kg64 = Base.invokelatest(launch, gpu, Float64)
+        @test kg64 == k64 && isapprox(Sg64, S64; rtol = 1.0e-12)
+    end
+end

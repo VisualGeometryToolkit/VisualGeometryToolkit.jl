@@ -507,7 +507,7 @@ public StudentTUniformScoring, Predictive, AbstractLabelPrior, FlatLabelPrior, P
     LABEL_PRIOR_TAGS, label_prior_table, AbstractOutlierModel, FixedHalfwidth, outlier_model, label_prior,
     estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth, suffix_sums!,
     ScoringWorkspace, alloc_scoring_workspace, default_scoring_workspace, sweep!, sweep_order, penalties, sort_key,
-    lg_table, log_gamma_table, partition_score, ig_sweep_kernel!, RadixPermBuffers, radix_key, radix_sortperm!,
+    lg_table, log_gamma_table, partition_score, prefix_sweep, ig_sweep_kernel!, RadixPermBuffers, radix_key, radix_sortperm!,
     score_residuals!, score_sq_residuals!
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
@@ -848,6 +848,7 @@ public sync_manifest, install_githooks, githooks_dir
 public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
+public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, dilog, lu_solve!, tree_sum!,
     bilinear_sample_clamped, bilinear_sample
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
@@ -874,6 +875,7 @@ include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale
 include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
+include("base/artifacts.jl")    # install_artifact, huggingface_token: the one artifact install (uses config_toml.jl's TOML)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
 include("base/duals.jl")    # ForwardDiff value helpers: _primal (every layer), _outer_value / _with_value (one layer)

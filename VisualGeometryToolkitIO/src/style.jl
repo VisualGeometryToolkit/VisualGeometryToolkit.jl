@@ -116,7 +116,7 @@ function _parameters_from_json(p, mask, u, kind::AbstractString)
     length(p) == length(mask) || throw(
         ArgumentError("a \"$kind\" record takes $(length(mask)) parameters (its kind's parameter_vector); got $(length(p))")
     )
-    return Float64[mask[i] ? _metres(p[i], u) : Float64(p[i]::Real) for i in eachindex(mask)]
+    return Float64[mask[i] ? metres(p[i], u) : Float64(p[i]::Real) for i in eachindex(mask)]
 end
 
 # The record of a parametric value `x` of tag `tag`: its structure (`structure`,

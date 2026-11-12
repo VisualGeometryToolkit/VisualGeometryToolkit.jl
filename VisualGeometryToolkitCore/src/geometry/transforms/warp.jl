@@ -491,8 +491,8 @@ end
 
 # -----------------------------------------------------------------------------
 # A texture lookup: bilinear in the half-texel chart, extended at the edges
-# (hoisted from RadiometricCamera src/board/board.jl, `bilinear` and
-# `_bilinear_setup`, its arithmetic unchanged)
+# (hoisted from RadiometricCamera src/board/board.jl, its arithmetic
+# unchanged; the texel and weights choice is the public `bilinear_weights`)
 # -----------------------------------------------------------------------------
 #
 # Not `bilinear_sample_clamped`'s policy: that one addresses 1-based array
@@ -510,7 +510,26 @@ end
 # The message is a literal: the lookup runs inside GPU kernels (RadiometricCamera's printed-edge albedo), where an interpolated
 # string is a dynamic call the compiler rejects.
 @noinline _too_small_texture() = throw(ArgumentError("bilinear_sample: the image needs at least 2 × 2 texels"))
-@inline function _bilinear_setup(H::Int, W::Int, uv::StaticVector{2})
+"""
+    bilinear_weights(uv::StaticVector{2}, (W, H)) -> (i, j, fx, fy)
+
+The texel block and blend fractions [`bilinear_sample`](@ref) reads at `uv`
+on a `W × H` texture (`W` columns, `H` rows) in its unit-square, half-texel
+chart: the 1-based column `i` and row `j` of the block's first texel
+(`img[j, i]`; its four texels are `img[j, i]`, `img[j, i + 1]`,
+`img[j + 1, i]`, `img[j + 1, i + 1]`) and the fractions `fx`, `fy` ∈ [0, 1]
+along x and y, so the four weights are `(1 − fx)(1 − fy)`, `fx (1 − fy)`,
+`(1 − fx) fy` and `fx fy`. The same policy as the lookup: a position off the
+centres' rectangle extends the edge (its block clamped to the edge, its
+fraction to 0 or 1), a non-finite coordinate reads the corner, and the
+texture needs at least 2 × 2 texels (an `ArgumentError` otherwise; its
+message is a literal, so it compiles in a GPU kernel). The block is chosen on
+the position's value under every ForwardDiff `Dual` layer and the fractions
+carry the partials. For a caller that spreads one position over the four
+texels itself (a footprint's rows, a scatter) instead of reading values.
+"""
+@inline function bilinear_weights(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
+    W = Int(dims[1]); H = Int(dims[2])
     (H >= 2 && W >= 2) || _too_small_texture()
     h = one(eltype(uv)) / 2
     x = uv[1] * W - h; y = uv[2] * H - h
@@ -549,13 +568,13 @@ The other bilinear lookup, [`bilinear_sample_clamped`](@ref), addresses
 """
 @inline function bilinear_sample(img::AbstractMatrix, uv::StaticVector{2})
     H, W = size(img)
-    i, j, fx, fy = _bilinear_setup(H, W, uv)
+    i, j, fx, fy = bilinear_weights(uv, (W, H))
     @inbounds return (1 - fx) * (1 - fy) * img[j, i] + fx * (1 - fy) * img[j, i + 1] +
         (1 - fx) * fy * img[j + 1, i] + fx * fy * img[j + 1, i + 1]
 end
 @inline function bilinear_sample(img::AbstractArray{T, 3}, ::Val{C}, uv::StaticVector{2}) where {T, C}
     H, W = size(img, 1), size(img, 2)
-    i, j, fx, fy = _bilinear_setup(H, W, uv)
+    i, j, fx, fy = bilinear_weights(uv, (W, H))
     w00 = (1 - fx) * (1 - fy); w10 = fx * (1 - fy); w01 = (1 - fx) * fy; w11 = fx * fy
     @inbounds return SVector{C}(
         ntuple(c -> w00 * img[j, i, c] + w10 * img[j, i + 1, c] + w01 * img[j + 1, i, c] + w11 * img[j + 1, i + 1, c], Val(C))

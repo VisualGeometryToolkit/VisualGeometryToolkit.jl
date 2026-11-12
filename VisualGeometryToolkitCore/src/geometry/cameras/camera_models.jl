@@ -505,7 +505,7 @@ IntrinsicsRole(l::AbstractLensModel) = IntrinsicsRole(typeof(l))
 @inline _backward_value_and_jacobian(lens::AbstractLensModel, x::StaticVector{2}) = _backproject_value_and_jacobian(lens, x)
 
 @inline function _backproject_with_jacobian(::BackwardLens, model::CameraModel, u::StaticVector{2})
-    f, Jx = _backward_value_and_jacobian(model.lens, _normalized_point(model.intrinsics, u))
+    f, Jx = _backward_value_and_jacobian(model.lens, normalized_point(model.intrinsics, u))
     T = eltype(f)
     all(isfinite, f) || return f, SMatrix{3, 2, T, 6}(ntuple(_ -> T(NaN), Val(6)))
     Ki = SMatrix{3, 3, T}(_K_inv(model.intrinsics))       # x = K⁻¹u: ∂x/∂u is its linear part
@@ -606,12 +606,23 @@ family extends.
     # The ONLY thing this layer owns is the pixel frame. The bearing itself is
     # the lens's, and it is already a unit `Vec` — a DIRECTION, not the position
     # at unit depth, which is `unproject`'s answer rather than this one.
-    return backproject(lens, _normalized_point(intrinsics, u))
+    return backproject(lens, normalized_point(intrinsics, u))
 end
 
-# The pixel → normalized image point map, `K⁻¹u`: the one spelling of the
-# scalar backprojection and the batched kernels.
-@inline _normalized_point(intrinsics::AbstractIntrinsics, u::StaticVector{2}) =
+"""
+    normalized_point(intrinsics::AbstractIntrinsics, 𝐩::StaticVector{2}) -> SVector{2}
+
+The normalized (distorted) image point `x = K⁻¹𝐩` of the pixel `𝐩`: the first
+two coordinates of `K⁻¹ (𝐩, 1)`, `K` the intrinsics' pixel matrix (skew
+included). It is the pixel-frame half of [`backproject`](@ref) — a lens's
+`backproject(lens, x)` takes it to the bearing — and the point a spline
+model's lattice is laid over (`spline_window(area, grid, normalized_point(K, 𝐩))`).
+The one spelling of that map: the scalar back-projection, the batched kernels
+and a caller reading a spline lattice at a pixel all call it. Allocation-free,
+in the element type of `K⁻¹` and `𝐩` (Float32, ForwardDiff `Dual`s), callable
+in a device kernel.
+"""
+@inline normalized_point(intrinsics::AbstractIntrinsics, u::StaticVector{2}) =
     (xd = _K_inv(intrinsics) * to_affine(u); SVector(xd[1], xd[2]))
 
 # The IsPhysical branches that used to double this dispatch table scaled the

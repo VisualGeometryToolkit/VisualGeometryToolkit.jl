@@ -1043,7 +1043,7 @@ function project(
     if N > 0
         intr = cam.intrinsics
         OnBackend(device; workgroupsize = 64)(_spline_project_kernel!)(
-            px, ok, Adapt.adapt(device, cam.lens), _pixel_affine(intr), p -> _normalized_point(intr, p), on_device(device, rs),
+            px, ok, Adapt.adapt(device, cam.lens), _pixel_affine(intr), p -> normalized_point(intr, p), on_device(device, rs),
             on_device(device, ss), iters, Float64(tol)^2; ndrange = N
         )
         KA.synchronize(device)
@@ -1064,7 +1064,7 @@ end
 
 @kernel function _spline_backproject_kernel!(rays, lens, intrinsics, s, @Const(pixels))
     i = @index(Global)
-    @inbounds rays[i] = _backproject_lens(lens, _normalized_point(intrinsics, pixels[i]), s)
+    @inbounds rays[i] = _backproject_lens(lens, normalized_point(intrinsics, pixels[i]), s)
 end
 
 """
@@ -1084,7 +1084,7 @@ function backproject(
     l = Adapt.adapt(device, cam.lens)
     intr = cam.intrinsics
     pts = _concrete_points(pixels)
-    Tx = eltype(_normalized_point(intr, zero(eltype(pts))))
+    Tx = eltype(normalized_point(intr, zero(eltype(pts))))
     rays = KA.allocate(device, SVector{3, promote_type(Tx, eltype(eltype(l.backward.controls)))}, length(pixels))
     if !isempty(pixels)
         s = _lattice_scales(Tx, l.backward.area, size(l.backward.controls))

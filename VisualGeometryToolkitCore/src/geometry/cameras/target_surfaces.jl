@@ -94,6 +94,29 @@ end
 @inline transform_deriv(f::_PlainCalibration, q::StaticVector{2}) = _point_jacobian(f.c, q)
 # (the chart map's traversal descends into it: Adapt, convert_eltype, a Dual layer's values)
 _map_members(f, c::_PlainCalibration) = _PlainCalibration(_map_members(f, c.c))
+
+"""
+    with_parameters(s::MappedSurface, θ::AbstractVector) -> MappedSurface
+
+The surface `s` with its calibration rebuilt from the parameters `θ`: the chart
+map's calibration member `C` (a [`HeightField`](@ref), a
+[`ThinPlateSpline`](@ref), or a composition with the affine factors) replaced by
+[`with_parameters`](@ref)`(C, θ)` — `θ` in `C`'s [`parameter_names`](@ref)
+order, in the numbers the surface was built in (plain metres for a physical
+target; a thin-plate kind projects them onto its pure-bending subspace) — and
+every other member (the pose, the placement, the lift) and the frame kept as
+they are. A surface on the device stays on the device (the kind's
+`with_parameters` on its adapted solver), and `θ` may be of any element type
+(`Float32`, ForwardDiff `Dual`s): a warped board's surface at new nodal heights
+inside a kernel, with no rebuild from the target's parts (the checked
+[`MappedSurface`](@ref)`(pose, calibration, placement, rect)`).
+"""
+@inline with_parameters(s::MappedSurface, θ::AbstractVector) = MappedSurface(_with_calibration_parameters(s.map, θ), s.frame)
+# the calibration member found in the chart map (`_target_map`'s `_PlainCalibration`) and rebuilt; every other member kept
+@inline _with_calibration_parameters(c::ComposedTransformation, θ) =
+    ComposedTransformation(_with_calibration_parameters(c.t1, θ), _with_calibration_parameters(c.t2, θ))
+@inline _with_calibration_parameters(c::_PlainCalibration, θ) = _PlainCalibration(with_parameters(c.c, θ))
+@inline _with_calibration_parameters(c, θ) = c
 Base.:(==)(a::_PlainCalibration, b::_PlainCalibration) = a.c == b.c
 Base.hash(f::_PlainCalibration, h::UInt) = hash(f.c, hash(:_PlainCalibration, h))
 # the chart plane in its 3-D frame: (c, 0) — Bool entries, so the lift keeps

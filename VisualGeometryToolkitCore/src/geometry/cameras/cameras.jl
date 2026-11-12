@@ -1247,6 +1247,7 @@ export FramedLensProjection
 # -----------------------------------------------------------------------------
 export project, backproject, unproject, transfer
 export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibrated geometry entry point
+export normalized_point   # a pixel's normalized image point K⁻¹𝐩, the pixel-frame half of backproject (public, not exported, at the top level)
 export bearing_csponds   # pixel pairs → bearing csponds with their M₁/M₂ pixel Jacobians
 
 # -----------------------------------------------------------------------------

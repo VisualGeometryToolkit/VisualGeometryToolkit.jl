@@ -146,6 +146,7 @@ refine_camera
 approximate_camera
 optical_axis
 pspline_grid
+image_size
 CameraFitMetadata
 ViewAngleLimitError
 ```

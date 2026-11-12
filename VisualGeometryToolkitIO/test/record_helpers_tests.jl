@@ -29,3 +29,24 @@ end
     @test VgtkIO.save in VgtkIO.CONTRACT_GENERICS
     @test VgtkIO.migrate_schema in VgtkIO.CONTRACT_GENERICS
 end
+
+@testitem "with_provenance and metres: a writer's provenance and a file length as plain metres, for another package's kind" begin
+    # RadiometricCamera's session records called both by their former private names.
+    using Test
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: mm, m, μm, inch, ustrip
+    @test Base.ispublic(VgtkIO, :with_provenance) && Base.ispublic(VgtkIO, :metres)
+
+    body = (schema = "vgio/x/v1", length_unit = "mm", value = 1)
+    @test VgtkIO.with_provenance(body, (;)) === body                    # empty: the body as it is
+    p = (tool = "rc", commit = "abc")
+    b = VgtkIO.with_provenance(body, p)
+    @test b == merge(body, (provenance = p,)) && last(keys(b)) === :provenance
+
+    # read_length stripped: decimal-exact for a power-of-ten unit, a Float64
+    @test VgtkIO.metres(13.9, mm) === 0.0139 && VgtkIO.metres(62.8, mm) === 0.0628
+    @test VgtkIO.metres(5, μm) === 5.0e-6 && VgtkIO.metres(2, m) === 2.0
+    for (x, u) in ((13.9, mm), (1.3, mm), (0.25, inch), (7, m))
+        @test VgtkIO.metres(x, u) === Float64(ustrip(m, VgtkIO.read_length(x, u)))
+    end
+end

@@ -191,7 +191,7 @@ trajectory of plain poses is an `ArgumentError` (attach the unit, `t .* m`).
 """
 function save(path::AbstractString, tr::Trajectory; length_unit::Units = mm, provenance::NamedTuple = (;))
     body = merge((schema = _schema("trajectory"),), pose_declarations(length_unit), JSON.lower(VgioStyle(; length_unit), tr))
-    _write_store(path, _TRAJECTORY_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_store(path, _TRAJECTORY_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -283,7 +283,7 @@ function save(path::AbstractString, tp::TargetPoses{F}; length_unit::Units = mm,
         (schema = _schema("target_poses"),), pose_declarations(length_unit), (to = frame_name(F),),
         _time_origin_json(tp), (frames = frames,),
     )
-    _write_store(path, _TARGET_POSES_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _TARGET_POSES_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -420,7 +420,7 @@ function save(path::AbstractString, th::TargetHomographies{F}; provenance::Named
         (schema = _schema("target_homographies"), pixel_frame = pixel_frame_name(F), targets = copy(th.targets)),
         _time_origin_json(th), (frames = frames,),
     )
-    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _TARGET_HOMOGRAPHIES_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -518,7 +518,7 @@ function save(path::AbstractString, obs::TargetPoints2D{F}; provenance::NamedTup
         ),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS2D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; pixel_frame = F))
+    _write_store(path, _TARGET_POINTS2D_SPEC, with_provenance(body, provenance); style = VgioStyle(; pixel_frame = F))
     return nothing
 end
 
@@ -632,7 +632,7 @@ function save(path::AbstractString, obs::TargetPoints3D{F}; length_unit::Units =
         isempty(obs.targets) ? (;) : (targets = obs.targets,),
         _time_origin_json(obs), (frames = frames,),
     )
-    _write_store(path, _TARGET_POINTS3D_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_store(path, _TARGET_POINTS3D_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 
@@ -782,7 +782,7 @@ function save(path::AbstractString, td::TargetDetections{F}; length_unit::Units 
         (F <: PixelFrame || !isempty(td.targets)) ? (targets = td.targets,) : (;),
         _time_origin_json(td), (frames = frames,),
     )
-    _write_store(path, _TARGET_DETECTIONS_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_store(path, _TARGET_DETECTIONS_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 

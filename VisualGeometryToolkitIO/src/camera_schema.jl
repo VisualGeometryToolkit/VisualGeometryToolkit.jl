@@ -529,7 +529,7 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::
         pitched ? (length_unit = unit_string(length_unit),) : (;),
         (cameras = [_camera_entry(s, k, cameras[k]) for k in sort!(collect(keys(cameras)))],),
     )
-    _write_store(path, _CAMERAS_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _CAMERAS_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 

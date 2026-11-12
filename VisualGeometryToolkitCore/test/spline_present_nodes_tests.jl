@@ -7,7 +7,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, WholePlane, SplineLens, ChartSpline, NoncentralSplineModel, window,
         present_nodes, with_present, convert_eltype, backproject_with_jacobian
-    using VisualGeometryToolkitCore.Cameras: _normalized_point
+    using VisualGeometryToolkitCore: normalized_point
     using StaticArrays
     using LinearAlgebra: normalize
 
@@ -19,7 +19,7 @@
     region(dom) = valid_domain(m) ∩ dom
     masked(dom) = with_present(m, node_mask(m, region(dom)))                  # NaN in the absent slots: any read shows
     imaged(c, p) = all(isfinite, backproject(c, p))
-    raw(c, p) = c.lens.backward(_normalized_point(c.intrinsics, p))           # the backward spline, continued
+    raw(c, p) = c.lens.backward(normalized_point(c.intrinsics, p))           # the backward spline, continued
     pixels = [SVector(x, y) for x in 0.25:9.5:(W - 0.25), y in 0.25:9.5:(H - 0.25)]
 
     @testset "footprint presence: a disc, an ellipse cut by the frame, the whole plane" begin

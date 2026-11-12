@@ -137,7 +137,7 @@ back, bit for bit.
 function save(path::AbstractString, v::AbstractVignetting; provenance::NamedTuple = (;))
     s = VgioStyle()   # (no length declared)
     body = (schema = _schema("vignetting"), pixel_frame = "colmap", vignetting = JSON.lower(s, v))
-    _write_store(path, _VIGNETTING_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _VIGNETTING_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -163,7 +163,7 @@ convention stated. [`load`](@ref) gives the same light back.
 function save(path::AbstractString, light::EnvironmentLight{<:SphericalHarmonicMap}; length_unit::Units = mm, provenance::NamedTuple = (;))
     s = VgioStyle(; length_unit)
     body = merge((schema = _schema("environment_light"), length_unit = unit_string(length_unit)), JSON.lower(s, light))
-    _write_store(path, _ENVIRONMENT_LIGHT_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _ENVIRONMENT_LIGHT_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 
@@ -217,7 +217,7 @@ length (units.md).
 function save(path::AbstractString, blurs::AbstractDict{Symbol, <:GaussianBlur}; length_unit::Units = mm, provenance::NamedTuple = (;))
     s = VgioStyle(; length_unit)
     body = (schema = _schema("blur"), blurs = JSON.lower(s, blurs))
-    _write_store(path, _BLUR_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _BLUR_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 

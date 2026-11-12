@@ -879,9 +879,9 @@ _in_edge_band(region, p) = any(e -> Point2{Float64}((p + _EDGE_BAND_PX * e)...) 
 const _EDGE_DIRECTIONS = ntuple(k -> SVector(cospi((k - 1) / 8), sinpi((k - 1) / 8)), 16)
 
 # The normalized points `x = K⁻¹u` of the pixels `pixels`: Core's one pixel →
-# normalized map (`_normalized_point`, what a camera's `backproject` applies), so a
+# normalized map (`normalized_point`, what a camera's `backproject` applies), so a
 # pixel's lattice coordinate in the fit is the one the fitted camera evaluates.
-_normalized_points(K, pixels::AbstractVector) = map(u -> SVector{2, Float64}(VgtkCore.Cameras._normalized_point(K, SVector{2, Float64}(u))), pixels)
+_normalized_points(K, pixels::AbstractVector) = map(u -> SVector{2, Float64}(VgtkCore.normalized_point(K, SVector{2, Float64}(u))), pixels)
 
 # One sample's design row: the 16 controls of its spline window and their
 # weights, at their nodes' linear indices in a `ny`-row control matrix — the
@@ -1003,7 +1003,7 @@ end
 # K are), the quadrature and its normalized points, the right-hand side and its
 # anchor, and the held-out check's source side (`_held_out`).
 function _grid_data(::Type{G}, source, region, device) where {G}
-    size = _image_size(source)
+    size = image_size(source)
     cam = model(source)
     q = _image_quadrature(_grid_samples(G, device), cam, region)
     rhs, anchor = _grid_rhs(G, q)
@@ -1103,10 +1103,17 @@ end
 # `grid_size` (columns, rows).
 _lattice_grid_size(W::Integer, H::Integer, cells::Integer) = last(_knot_counts(W, H, cells))
 
-# The image a spline target's lattice covers: a bounded camera's extent. A bare
-# camera model has none.
-_image_size(bc::BoundedCamera) = (e = extent(bc); VgtkCore.Size2(Int(e.width), Int(e.height)))
-_image_size(source) = _no_image(source)
+"""
+    image_size(camera::BoundedCamera) -> Size2{Int}
+
+The image of a bounded camera in whole pixels: its `extent`'s width and height as `Int`s — the image a
+spline target's lattice covers in [`fit_camera`](@ref) and
+[`pspline_grid`](@ref). Any other source has no image: an `ArgumentError`
+asking for a `BoundedCamera(model, sensor)`. Another package's bounded lens
+type adds its method (a declared extension point, `CONTRACT_GENERICS`).
+"""
+image_size(bc::BoundedCamera) = (e = extent(bc); VgtkCore.Size2(Int(e.width), Int(e.height)))
+image_size(source) = _no_image(source)
 _no_image(source) = throw(
     ArgumentError(
         "fit_camera(<spline target>, …): a $(nameof(typeof(source))) source has no image for the lattice's full-image layout; " *

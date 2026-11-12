@@ -554,9 +554,17 @@ function _read_record_text(text::AbstractString, where_::AbstractString; allowna
     return parse(JSON.json(t; allownan = true))   # what a current file parses as
 end
 
-# `provenance` as the writer stores it: the caller's free-form object, omitted
-# when empty — never read back by VGIo.
-_with_provenance(body::NamedTuple, provenance::NamedTuple) =
+"""
+    with_provenance(body::NamedTuple, provenance::NamedTuple) -> NamedTuple
+
+A record's `body` with the writer's free-form `provenance` (the `provenance`
+keyword of every `save`), as the writers store it: `body` itself when
+`provenance` is empty, else `body` with the field `provenance` appended (the
+last key). Provenance is about the file, never part of the value, and no
+reader reads it back. A package writing a kind of its own through
+[`write_record`](@ref) stores its provenance the same way.
+"""
+with_provenance(body::NamedTuple, provenance::NamedTuple) =
     isempty(provenance) ? body : merge(body, (provenance = provenance,))
 
 # The spec of every v2 kind, by the name its schema carries (the tables live

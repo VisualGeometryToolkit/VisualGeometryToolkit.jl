@@ -165,7 +165,7 @@ function save_manifest(dir::AbstractString, files::AbstractVector; kind::Abstrac
     body = (schema = _schema("calibration"), kind = String(kind), files = entries)
     model === nothing || (body = merge(body, (model = model::VgtkCore.CameraModelSpec,)))   # lowered on the style
     metrics === nothing || (body = merge(body, (metrics = metrics,)))
-    body = _with_provenance(body, provenance)
+    body = with_provenance(body, provenance)
     # The kind's writer and reader, staged: the very bytes `_write_store` writes are
     # read back by `_read_store` and checked against the directory before the one
     # rename puts them at `path`; a refusal leaves nothing written.

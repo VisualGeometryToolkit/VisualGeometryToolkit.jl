@@ -107,13 +107,14 @@ function test_readme_row(env::AbstractString, task::AbstractString, blocks; prea
     return nothing
 end
 
+julia_blocks(path::AbstractString) = [String(m[1]) for m in eachmatch(r"^```julia\n(.*?)^```"ms, read(path, String))]
+
 function test_readme_example(root::AbstractString; index::AbstractString = joinpath("docs", "src", "index.md"),
                              install_pages = (), developed = Dict{String, String}(), checks::AbstractString = "")
-    julia_blocks(text) = [String(m[1]) for m in eachmatch(r"^```julia\n(.*?)^```"ms, text)]
     readme = read(joinpath(root, "README.md"), String)
-    example = julia_blocks(readme)
+    example = julia_blocks(joinpath(root, "README.md"))
     Test.@test length(example) == 1
-    Test.@test julia_blocks(read(joinpath(root, index), String)) == example       # one example, shown twice
+    Test.@test julia_blocks(joinpath(root, index)) == example       # one example, shown twice
     install = [String(m[1]) for m in eachmatch(r"^pkg> add (.+)$"m, readme)]
     Test.@test length(install) == 1
     (length(example) == 1 && length(install) == 1) || return nothing

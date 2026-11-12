@@ -8,7 +8,7 @@
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, SplineLens, ChartSpline, NoncentralSplineModel, window,
         spline_window, spline_value, quasi_interpolant, convert_eltype, LogicalIntrinsics, CameraCalibrationMat, calibration_matrix,
         window_offset, directions, grid_size
-    using VisualGeometryToolkitCore.Cameras: _normalized_point
+    using VisualGeometryToolkitCore: normalized_point
     using StaticArrays
     using LinearAlgebra: normalize, norm, dot
     using Statistics: median
@@ -26,7 +26,7 @@
     P = [SVector{3, Float64}(1e-3 * randn(rng), 1e-3 * randn(rng), 0.0) for gy in 1:gh, gx in 1:gw]
     inside = [SVector(W * rand(rng), H * rand(rng)) for _ in 1:2000]
     lensed(G) = CameraModel(K, SplineLens(ChartSpline(area, G)))
-    raw(c, p) = c.lens.backward(_normalized_point(c.intrinsics, p))           # the backward spline, continued
+    raw(c, p) = c.lens.backward(normalized_point(c.intrinsics, p))           # the backward spline, continued
     imaged(c, p) = all(isfinite, backproject(c, p))
     imaged(m::NoncentralSplineModel, p) = all(isfinite, backproject(m, p).direction)
 
@@ -58,7 +58,7 @@
         @test_throws ArgumentError window_offset(m, w)
         n = 0
         for p in inside
-            x = _normalized_point(m.intrinsics, p)
+            x = normalized_point(m.intrinsics, p)
             ix, iy, _, _ = spline_window(area, size(G), x)
             (first(rows) <= iy - 2 && iy + 1 <= last(rows) && first(cols) <= ix - 2 && ix + 1 <= last(cols)) || continue
             n += 1
@@ -78,7 +78,7 @@
         m2 = lensed(G2)
         w2 = window(m, rows, cols; directions = D)
         for p in inside
-            ix, iy, _, _ = spline_window(area, size(G), _normalized_point(m.intrinsics, p))
+            ix, iy, _, _ = spline_window(area, size(G), normalized_point(m.intrinsics, p))
             (first(rows) <= iy - 2 && iy + 1 <= last(rows) && first(cols) <= ix - 2 && ix + 1 <= last(cols)) || continue
             @test raw(w2, p) ≈ raw(m2, p) atol = 1.0e-12
         end

@@ -147,7 +147,7 @@ function save(path::AbstractString, poses::AbstractVector; length_unit::Units = 
         merge((from = from, to = to), JSON.lower(s, X))
     end
     body = merge((schema = _schema("transforms"),), pose_declarations(length_unit), (transforms = records,))
-    _write_store(path, _TRANSFORMS_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _TRANSFORMS_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 

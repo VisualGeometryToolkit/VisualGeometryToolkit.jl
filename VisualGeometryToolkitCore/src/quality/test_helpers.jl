@@ -230,6 +230,17 @@ empty when it holds none. Implemented by VisualGeometryToolkitCoreTestExt
 function install_packages end
 
 """
+    julia_blocks(path) -> Vector{String}
+
+The code of every ```` ```julia ```` fenced block of the page at `path`, in page
+order (a block's opening fence exactly ```` ```julia ````, so a `julia-repl`
+block — an install line — is not one; the code without its fences). What a
+README test compares between the README and the landing page, and runs.
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function julia_blocks end
+
+"""
     loaded_packages(code) -> Set{String}
 
 The packages Julia `code` loads (`using`/`import` lines, a trailing comment

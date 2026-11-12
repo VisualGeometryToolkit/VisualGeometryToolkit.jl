@@ -1,5 +1,22 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased (next patch)
+
+Additive: public names for private functions a downstream package (RadiometricCamera) copied or reached by their
+private names. Each is the function Core's own callers use, unchanged; the private name is gone (no alias).
+
+- **New: `with_parameters(s::MappedSurface, θ)`**: the surface with its calibration member rebuilt by the
+  calibration's `with_parameters` (`θ` in its `parameter_names` order), the pose, placement, lift and frame kept; on
+  the device and in any element type (Duals). RadiometricCamera rebuilt its warped board this way through the private
+  `_map_members`.
+- **`normalized_point(intrinsics, 𝐩)`, public** (was `_normalized_point`, Cameras): `K⁻¹𝐩`, the pixel-frame half of
+  `backproject` and the point a spline lattice is read at. VisualGeometryToolkitEstimation's callers use the public name.
+- **`bilinear_weights(uv, (W, H))`, public** (was `_bilinear_setup(H, W, uv)`; the size now follows the position, as
+  `(W, H)`): the texel block and blend fractions `bilinear_sample` reads, for a caller that spreads a position over
+  the four texels itself.
+- **`julia_blocks(path)`, public** (the Test extension; was a closure of `test_readme_example`, over a page's text):
+  the code of a page's `julia` fenced blocks, in order.
+
 ## 0.9.1
 
 A patch: the test extension's naming checker, and tests hardened for Julia 1.12. No API change.

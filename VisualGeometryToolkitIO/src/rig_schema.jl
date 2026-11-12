@@ -490,11 +490,20 @@ function _reads_back(nodes, p, u::_ReadUnit)
     file = ThinPlateSplineSystem([SVector(Float64(q[1]), Float64(q[2])) for q in nodes])
     pure_in_file = _pure_blocks(file, [Float64(v) for v in p])
     u isa _Chart && return pure_in_file ? file : nothing        # a placed target's chart numbers are its values'
-    metres = ThinPlateSplineSystem([SVector(_metres(q[1], u), _metres(q[2], u)) for q in nodes])
-    return pure_in_file || _pure_blocks(metres, [_metres(v, u) for v in p]) ? metres : nothing
+    in_metres = ThinPlateSplineSystem([SVector(metres(q[1], u), metres(q[2], u)) for q in nodes])
+    return pure_in_file || _pure_blocks(in_metres, [metres(v, u) for v in p]) ? in_metres : nothing
 end
-_metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
-_metres(x, ::_Chart) = Float64(x::Real)
+"""
+    metres(x::Real, u::Units) -> Float64
+
+The file number `x`, a length in the unit `u`, as plain metres:
+[`read_length`](@ref)`(x, u)` stripped (decimal-exact for a power-of-ten
+unit), what a record's reader hands a kind built on plain numbers (a
+thin-plate kind's nodes and values, a non-central aperture's radii). A
+number of a placed target's chart (no unit) is returned as it is.
+"""
+metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
+metres(x, ::_Chart) = Float64(x::Real)
 _pure_blocks(system::ThinPlateSplineSystem{K}, v) where {K} =
     length(v) == K ? is_pure_bending(system, v) : is_pure_bending(system, v[1:K]) && is_pure_bending(system, v[(K + 1):end])
 function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
@@ -695,7 +704,7 @@ obtained.
 """
 save(path::AbstractString, t::AbstractTarget; length_unit::Units = mm, provenance::NamedTuple = (;)) = (
     _write_store(
-        path, _TARGET_SPEC, _with_provenance((schema = _schema("target"), length_unit = unit_string(length_unit), target = t), provenance);
+        path, _TARGET_SPEC, with_provenance((schema = _schema("target"), length_unit = unit_string(length_unit), target = t), provenance);
         style = VgioStyle(; length_unit),   # the target itself, lowered on the file's style
     ); nothing
 )
@@ -707,7 +716,7 @@ function save(
         schema = _schema("target"), length_unit = unit_string(length_unit), target = t.value,
         calibration_record = _calibration_json(t.calibration_record, "a target's calibration record"),
     )
-    _write_store(path, _TARGET_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_store(path, _TARGET_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 # A `vgio/target/v5` file holds an UNPOSED target: a posed one is refused here,
@@ -863,7 +872,7 @@ translations or points is an `ArgumentError` (attach the unit, `t .* m`). A
 rig's name, if it has one worth keeping, belongs in `provenance`.
 """
 save(path::AbstractString, rig::Rig; length_unit::Units = mm, provenance::NamedTuple = (;)) =
-    (_write_store(path, _RIG_SPEC, _with_provenance(_rig_body(rig, length_unit), provenance); style = VgioStyle(; length_unit)); nothing)
+    (_write_store(path, _RIG_SPEC, with_provenance(_rig_body(rig, length_unit), provenance); style = VgioStyle(; length_unit)); nothing)
 
 """
     load(Rig, path; resolve = nothing, intrinsics = nothing) -> Rig

@@ -4,7 +4,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: SplineLens, ChartSpline, Division, is_posed, cubic_bspline_weights, spline_window,
         spline_lattice, calibration_matrix, Rect2, spline_weights, directions, grid_size
-    using VisualGeometryToolkitCore.Cameras: _cubic_bspline_weights_deriv, _continued_window, _eval_window, _normalized_point
+    using VisualGeometryToolkitCore.Cameras: _cubic_bspline_weights_deriv, _continued_window, _eval_window, normalized_point
     using StaticArrays
     using FiniteDiff: FiniteDiff
     using GeometryBasics: Vec3
@@ -199,7 +199,7 @@
         g = CameraModel(SplineLens, src, Size2(W, H); grid_size = (20, 16))
         b = g.lens.backward
         for px in (SVector(613.7, 388.2), SVector(101.3, 702.9), SVector(1150.0, 40.0))
-            x = _normalized_point(g.intrinsics, px)
+            x = normalized_point(g.intrinsics, px)
             ix, iy, wx, wy = spline_window(b.area, size(b.controls), x)
             w = SMatrix{4, 4}([wy[r] * wx[c] for r in 1:4, c in 1:4])
             C = SMatrix{4, 4}([b.controls[iy - 3 + r, ix - 3 + c] for r in 1:4, c in 1:4])

@@ -1,5 +1,15 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.9.1 (unreleased)
+
+Additive patch, on VisualGeometryToolkitCore's next patch (its public `normalized_point`).
+
+- **`image_size(camera::BoundedCamera)`, public** (was `_image_size`): a bounded camera's image in whole pixels
+  (`Size2{Int}` of its extent), the image a spline target's lattice covers; any other source an `ArgumentError`. A
+  declared extension point (`CONTRACT_GENERICS`): RadiometricCamera adds its bounded lens type's method.
+- The spline fits read a pixel's lattice point through Core's public `normalized_point` (was its private
+  `Cameras._normalized_point`); values unchanged.
+
 ## Unreleased
 
 Test-only (no version bump: the registered 0.9.0 tree is unchanged outside `test/`).

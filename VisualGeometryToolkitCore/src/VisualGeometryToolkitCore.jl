@@ -298,6 +298,7 @@ export CameraCalibrationMat
 export project, backproject, unproject, transfer
 public bearing_csponds   # pixel pairs → bearing csponds carrying their pixel Jacobians (M₁, M₂)
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
+public normalized_point   # a pixel's normalized image point K⁻¹𝐩: the pixel-frame half of backproject, where a spline lattice is read
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
 export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance
 export intrinsics, lens, model  # Camera component accessors
@@ -670,7 +671,7 @@ public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
 public ReadmeExample, readme_examples, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
-    test_readme_row, test_readme_example
+    test_readme_row, test_readme_example, julia_blocks
 public sqrt_weights   # its √weight buffer
 
 # -----------------------------------------------------------------------------
@@ -855,7 +856,7 @@ public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_field
     toml_field_name, parse_defaults
 public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, dilog, lu_solve!, tree_sum!,
-    bilinear_sample_clamped, bilinear_sample
+    bilinear_sample_clamped, bilinear_sample, bilinear_weights
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages
 # (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RANSACScoringDoneRight, BlobBoards,

@@ -207,7 +207,7 @@ does not image `u` (outside the area, or a window holding an absent node): the
 lens contract's form, never `nothing`.
 """
 function backproject(m::NoncentralSplineModel, u::StaticVector{2})
-    x = _normalized_point(m.intrinsics, u)
+    x = normalized_point(m.intrinsics, u)
     d = backproject(_direction_lens(m), x)
     o = isnan(d[1]) ? SVector(NaN, NaN, NaN) : m.points(x)
     return Ray3{Float64}(Vec3{Float64}(o[1], o[2], o[3]), Vec3{Float64}(d[1], d[2], d[3]))
@@ -299,4 +299,4 @@ converge onto a point the model images (inside the area, its window present).
 """
 project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_direction_lens(m), SVector{3}(X[1], X[2], X[3])))
 project(m::NoncentralSplineModel, X, p₀) =
-    _noncentral_project(m, X, SVector{2, Float64}(_normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))
+    _noncentral_project(m, X, SVector{2, Float64}(normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

@@ -609,7 +609,7 @@ end
     present = trues(10, 12); present[1:3, 9:12] .= false
     masked = with_present(cam0, present)
     b = lens(masked).backward
-    absent(u) = (w = spline_window(b.area, size(b.controls), VC.Cameras._normalized_point(masked.intrinsics, u)); !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
+    absent(u) = (w = spline_window(b.area, size(b.controls), VC.normalized_point(masked.intrinsics, u)); !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
     n_absent = count(absent(last(x)) for cs in views for x in cs)
     @test n_absent > 0
     rm = refine_camera_and_poses(bounded(masked), poses0, views)
@@ -751,7 +751,7 @@ end
     g0 = first(entry_gauge(cam0))
     read = falses(size(b.controls))
     for cs in views, x in cs
-        w = spline_window(lens(g0).backward.area, size(b.controls), VC.Cameras._normalized_point(g0.intrinsics, last(x)))
+        w = spline_window(lens(g0).backward.area, size(b.controls), VC.normalized_point(g0.intrinsics, last(x)))
         read[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)] .= true
     end
     @test count(!, read) > 0 && r0.spline.n_nodes_unrefined == count(!, read)

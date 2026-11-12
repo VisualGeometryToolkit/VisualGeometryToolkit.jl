@@ -9,7 +9,7 @@
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, lens_coverage, with_lens_coverage, SupportTrait,
         GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS,
         Division, AbstractLensModel, SplineLens, NoncentralSplineModel, spline_window
-    using VisualGeometryToolkitCore.Cameras: _normalized_point
+    using VisualGeometryToolkitCore: normalized_point
     using StaticArrays
     using LinearAlgebra: normalize, dot
 
@@ -146,7 +146,7 @@
             b = g.lens.backward
             for x in 0.5:37.3:1279.0, y in 0.5:29.1:959.0
                 all(isfinite, backproject(g, SVector(x, y))) || continue
-                ix, iy, _, _ = spline_window(b.area, size(b.controls), _normalized_point(g.intrinsics, SVector(x, y)))
+                ix, iy, _, _ = spline_window(b.area, size(b.controls), normalized_point(g.intrinsics, SVector(x, y)))
                 win = Set(CartesianIndex(iy - 3 + r, ix - 3 + c) for r in 1:4, c in 1:4)
                 for I in nodes(g)
                     s = support(g, I)
@@ -170,7 +170,7 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes,
         SplineLens, ChartSpline, spline_window
-    using VisualGeometryToolkitCore.Cameras: _normalized_point
+    using VisualGeometryToolkitCore: normalized_point
     using StaticArrays, ForwardDiff
     using Random: Xoshiro
 
@@ -181,7 +181,7 @@ end
     b = g.lens.backward
     # the window a pixel reads: its index and the 4 × 4 weights w[r, c] = wy[r]·wx[c]
     function window_weights(p)
-        ix, iy, wx, wy = spline_window(b.area, size(b.controls), _normalized_point(g.intrinsics, p))
+        ix, iy, wx, wy = spline_window(b.area, size(b.controls), normalized_point(g.intrinsics, p))
         return ix, iy, SMatrix{4, 4}([wy[r] * wx[c] for r in 1:4, c in 1:4])
     end
     R = imaged_region(BoundedCamera(cam(250.0, fold), Size2(1280, 960); lens_coverage = lit))
@@ -204,7 +204,7 @@ end
     full = extend_controls(rule, θ, ref)
     junk = [rule.interior[i] ? θ[i] : SVector(5.0, -3.0, 1.0) for i in nodes(g)]
     gm(grid) = CameraModel(g.intrinsics, SplineLens(ChartSpline(b.area, grid)))
-    raw(c, p) = c.lens.backward(_normalized_point(c.intrinsics, p))
+    raw(c, p) = c.lens.backward(normalized_point(c.intrinsics, p))
     mf, mj = gm(full), gm(junk)
     q = lit
     rim = [SVector{2, Float64}(q.center + 0.9999 * (SVector{2, Float64}(boundary_point(q, t)) - q.center)) for t in range(0, 2π; length = 721)]

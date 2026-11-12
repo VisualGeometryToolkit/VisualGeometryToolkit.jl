@@ -1,5 +1,16 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.9.1 (unreleased)
+
+Additive patch: public names for two private functions a downstream package (RadiometricCamera) called by their
+private names; behaviour unchanged, the private names gone (no alias).
+
+- **`with_provenance(body, provenance)`, public** (was `_with_provenance`): a record body with the writer's
+  free-form provenance appended (the body itself when it is empty), as every `save` stores it; for a kind of another
+  package written through `write_record`.
+- **`metres(x, u::Units)`, public** (was `_metres`): a file number in the unit `u` as plain metres, `read_length`
+  stripped (decimal-exact for a power-of-ten unit).
+
 ## 0.9.0 (unreleased)
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).

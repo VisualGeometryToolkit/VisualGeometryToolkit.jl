@@ -366,7 +366,7 @@ function _spline_problem(
     for (v, cs) in enumerate(views), (j, c) in enumerate(cs)
         k += 1
         X, u = _correspondence(v, j, c)
-        ox, oy, _, _ = spline_window(b.area, gsz, VgtkCore.Cameras._normalized_point(cam.intrinsics, u))
+        ox, oy, _, _ = spline_window(b.area, gsz, VgtkCore.normalized_point(cam.intrinsics, u))
         if !VgtkCore.Cameras._window_present(l.present, ox, oy)   # detected on an absent window: the lens does not image it
             dropped += 1
             continue

@@ -119,7 +119,7 @@ function save(
     s = VgioStyle(; length_unit)
     head = (schema = _schema("noncentral_spline"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME), length_unit = unit_string(length_unit))
     body = merge(head, _bounded_body(s, camera))
-    _write_store(path, _NONCENTRAL_SPLINE_SPEC, _with_provenance(body, provenance); style = s)
+    _write_store(path, _NONCENTRAL_SPLINE_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 

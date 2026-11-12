@@ -91,7 +91,7 @@ function save(path::AbstractString, x::_CaptureSettingsRecord; length_unit::Unit
         schema = _schema("capture_settings"), length_unit = unit_string(length_unit), time_unit = _TIME_UNIT,
         body = merge(_identity_json(cs.body), (source = src.body,)), lens = lens, frames = frames,
     )
-    _write_store(path, _CAPTURE_SETTINGS_SPEC, _with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_store(path, _CAPTURE_SETTINGS_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
     return nothing
 end
 save(::AbstractString, ::CaptureSettings; kwargs...) = throw(

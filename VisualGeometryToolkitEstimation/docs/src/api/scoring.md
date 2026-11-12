@@ -117,7 +117,8 @@ A strategy runs inside the loop, on every candidate that enters the
 local-optimization gate, unless it is placed at the end: [`TerminalLO`](@ref)
 runs its inner strategy once on the final incumbent of a race decided on raw
 hypothesis scores. [`CountedLO`](@ref) counts a strategy's calls in either
-placement.
+placement, and records each call's iterations, `ReturnCode` and `StopRule`
+(`call_records`).
 
 ```@docs
 TerminalLO

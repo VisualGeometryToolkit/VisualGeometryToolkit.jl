@@ -16,6 +16,11 @@ non-central one is a `NoncentralSplineModel`).
   so(3) chart by Core's `transform_covariance` (`J⁺·Σ·J⁺ᵀ`, an SVD pseudo-inverse) instead of `Jᵀ·Σ·J/4`: last-ulp
   changes. `refine_camera_and_poses`' and the rotation-centre refine's `residual_norms` are Core's `point_norms!`
   (`√(x² + y²)`) instead of `hypot`: last-ulp changes, recorded metadata only.
+- **`CountedLO` records each call:** beside its `calls[]` and `iterations[]` counters (unchanged), the field
+  `call_records` holds one `(; iterations, retcode, stop_rule)` per `locally_optimize!` call (appended under a lock, so a
+  threaded sweep loses none), for a consumer that reports each LO call's termination rather than the totals. It
+  replaces a consumer-side `locally_optimize!` method on `CountedLO` that kept the same per-call record (RadiometricCamera's
+  chrome index grid).
 - **Refusal messages:** a refine's least-squares refusal names its class (`refine (<class>): …`), `refine_camera`'s is
   `bundle_loss`'s ("plain least squares … reads no scale"), and a TLS refusal names the strategy type, since one reader
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.

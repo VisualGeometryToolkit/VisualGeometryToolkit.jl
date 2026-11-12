@@ -386,31 +386,42 @@ end
 
 Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
 and the iterations they report (`iterations[]`, the sum of
-`iterations(result)`), and answers every hook the RANSAC loop, the scorer
+`iterations(result)`), and records each invocation's termination in
+`call_records`, a `Vector` of `(; iterations, retcode, stop_rule)` (the call's
+`iterations(result)`, its `ReturnCode` and its `StopRule`), one entry per call.
+It answers every hook the RANSAC loop, the scorer
 composition check, the reporting and an external refit read on a strategy
 exactly as `inner` does — its `RefitFamily`, placement and external-refit
 bracket included — so a run with `CountedLO(inner)` returns the model a run
 with `inner` returns. An external refit (`refine_external!`) is forwarded
 uncounted. It is not a registered strategy (no TOML tag): it carries counters,
 not configuration. A counter is shared by every run that is handed the same
-wrapper — the counters are `Threads.Atomic{Int}`, so runs on several threads
-(a threaded sweep over pairs) add up exactly; build a fresh one per measurement.
+wrapper — the counters are `Threads.Atomic{Int}` and `call_records` is appended
+under a lock, so runs on several threads (a threaded sweep over pairs) add up
+exactly (the records then in the threads' order); build a fresh one per
+measurement, and read `call_records` once its runs have returned.
 """
 struct CountedLO{L <: Union{Nothing, AbstractOptimizationStrategy}} <: AbstractOptimizationStrategy
     inner::L
     calls::Threads.Atomic{Int}
     iterations::Threads.Atomic{Int}
+    call_records::Vector{@NamedTuple{iterations::Int, retcode::ReturnCode.T, stop_rule::StopRule}}
+    call_records_lock::ReentrantLock
 end
-CountedLO(inner::Union{Nothing, AbstractOptimizationStrategy}) = CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0))
+CountedLO(inner::Union{Nothing, AbstractOptimizationStrategy}) =
+    CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0),
+              @NamedTuple{iterations::Int, retcode::ReturnCode.T, stop_rule::StopRule}[], ReentrantLock())
 
 function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
     Threads.atomic_add!(lo.calls, 1)
     Threads.atomic_add!(lo.iterations, VgtkCore.iterations(r))
+    @lock lo.call_records_lock push!(lo.call_records, (; iterations = VgtkCore.iterations(r), retcode = VgtkCore.retcode(r), stop_rule = stop_rule(r)))
     return r
 end
 
-VgtkCore.with_width(lo::CountedLO, w) = CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations)
+VgtkCore.with_width(lo::CountedLO, w) =
+    CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations, lo.call_records, lo.call_records_lock)
 VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
 # A counter around a terminal placement is terminal, and counts the terminal call (its `locally_optimize!` counts, then forwards).
 lo_placement(lo::CountedLO) = lo_placement(lo.inner)

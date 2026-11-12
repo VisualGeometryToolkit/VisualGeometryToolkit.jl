@@ -879,4 +879,18 @@ end
         Hffd = reduce(hcat, [(ForwardDiff.jacobian(s -> project(lf, s), X + h * e)[:, 1] - ForwardDiff.jacobian(s -> project(lf, s), X - h * e)[:, 1]) / 2h for e in E3])
         @test norm(Hf - Hffd) <= 1.0e-4 * max(norm(Hf), 1.0)
     end
+    # with a forward spline, a ray the lens does not image: the plain projection decides it, so the value is NaN, as
+    # `project`'s, with zero partials (the same map's answer: no forward evaluation of a ray behind the camera), no throw
+    @test all(isnan, project(lf, Xb))
+    @test all(iszero, ForwardDiff.jacobian(t -> project(lf, t), Xb))
+    @test all(isnan, ForwardDiff.value.(project(lf, ForwardDiff.Dual{Nothing}.(Xb, 1.0))))
+    # with a forward spline, the ray on the optical axis (the chart's series branch at r = 0): a finite value, `project`'s
+    # bit for bit, and finite partials, the forward's own derivative against finite differences across the axis
+    Xa = SVector(0.0, 0.0, 1.0)
+    Da = ForwardDiff.Dual{Nothing}.(Xa, (ForwardDiff.Partials((1.0,)), ForwardDiff.Partials((0.0,)), ForwardDiff.Partials((0.0,))))
+    @test all(isfinite, project(lf, Xa))
+    @test ForwardDiff.value.(@inferred(project(lf, Da))) == project(lf, Xa)
+    Ja = ForwardDiff.jacobian(t -> project(lf, t), Xa)
+    Jafd = reduce(hcat, [(project(lf, Xa + h * e) - project(lf, Xa - h * e)) / 2h for e in E3])
+    @test all(isfinite, Ja) && norm(Ja - Jafd) <= 1.0e-6 * norm(Ja)
 end

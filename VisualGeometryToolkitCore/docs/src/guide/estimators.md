@@ -61,8 +61,9 @@ Every RVG `find_*` is RANSAC's sampling around one local-optimization step: it
 scores hypotheses and ORIGINATES a scale (its result's `noise_scale`). Its
 `refine_*` starts from a given model (guess first, then the data as the
 `find_*` takes them) and estimates no scale: it runs no scorer, and its robust
-loss — `optimization_strategy = Triggs{Shape}` (the default, Welsch),
-`Irls{Shape}`, or `nothing` for least squares — runs at the caller's `scale`
+loss — `optimization_strategy = Triggs{Shape}` (the default, Welsch: one
+robustified LM, no reweighting cycles; an `Irls{Shape}` is refused) or
+`nothing` for least squares — runs at the caller's `scale`
 (a number, or an upstream result such as the `find_*`'s) times the loss's
 [`efficiency_constant`](@ref), or at a given `width`. It returns the refined
 model with per-datum loss weights and the scale it ran with. The two take one

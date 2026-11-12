@@ -5,6 +5,25 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking (Changed): ONE fixed-scale robust refine path — `Triggs{Shape}`, one robustified NLLSsolver LM — and an
+  `Irls{Shape}` refine is refused** (dup-audit item 6, the owner's ruling, 2026-11-12). The three reweighting loops a
+  refine ran with `optimization_strategy = Irls{K}` are deleted — the camera-and-poses bundle's (`_solve_bundle`: it
+  stopped on a relative robust-cost decrease `≤ ftol`), `refine_robot_world_hand_eye`'s (on `!(cost < prev)`) and every
+  RANSAC-class `refine_*`'s (`_irls_cycles`: on `cost′ < cost`, keeping the better model, its Symbol stop mapped through
+  `retcode_from_symbol`). Each kept its result and stopped by its own rule; now every robust refine is the strategy's
+  ONE robustified LM at the caller's frozen scale or width (Core's `loss_robustifier`), its termination record
+  NLLSsolver's bits through Core's `nlls_termination` (a `StopRule`). `refine_homography`, `refine_fundmat`,
+  `refine_essential`, `refine_rotation`, `refine_circle`, `refine_ellipse`, `refine_absolute_pose` (both forms),
+  `refine_radial_homography`, `refine_radial_camera`, `refine_hand_eye`, `refine_camera_and_poses` (every
+  parametrization) and `refine_robot_world_hand_eye` given an `Irls{K}` (and `bundle_loss`, so a downstream bundle on it)
+  throw an `ArgumentError` naming `Triggs{K}` — the same loss at the same efficiency constant; the `(MaxIters,
+  IterationCap)` record of an Irls run capped at its cycles is gone (the LM's own `max_iter` cap still records it).
+  Defaults (`Triggs{Welsch}`) and least squares are bit-identical. Moving numbers, Irls → Triggs of the same loss and
+  width on the existing test fixtures: the estimates agree to the LM's tolerance — the parametric bundle's camera within
+  3.1e-6 px (rms 0.97964947 → 0.97964944), the rotation-centre bundle's centre within 6.1e-8 m, the robot-world bundle's
+  poses within 3.5e-10, `refine_circle` within 7.9e-7 px (Welsch) and 3.2e-10 px (TLS), `refine_ellipse` within 1.6e-10
+  — and the iteration counts fall (the sum over an Irls run's LMs was 28–58; one LM takes 12–15).
+
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
   `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and
@@ -32,8 +51,7 @@ non-central one is a `NoncentralSplineModel`).
     `pspline_grid` and `fit_camera`'s linear fit are closed forms (`converged` now true, as for every `:solved`);
   - the NLLSsolver bundles (`refine_camera_and_poses`, its SplineLens form, `refine_robot_world_hand_eye`) and the
     chart LMs (`refine_*`, `refine_camera`, the `Triggs` local optimization) record `nlls_termination`'s
-    `(code, rule)`; an Irls run capped at its cycles `(MaxIters, IterationCap)`; an Irls `refine_*` stops on its robust
-    cost (`CostDecrease`); `refine_camera` with nothing free a closed form, `(Success, ClosedForm)` (was `:converged`, now `:solved`; the owner's
+    `(code, rule)` (an `Irls` refine is refused, below); `refine_camera` with nothing free a closed form, `(Success, ClosedForm)` (was `:converged`, now `:solved`; the owner's
     ruling);
   - the EM fits (`fit_division_camera`, `fit_residual_mixture`, the posterior-IRLS local optimization) record the
     configured stop's rule (`ParameterChange`; `NoImprovement` under `WeightedRefine`, `CostDecrease` under

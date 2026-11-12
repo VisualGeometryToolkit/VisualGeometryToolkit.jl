@@ -66,10 +66,10 @@ camera at frame i). Function names do not encode frames.
 # Keywords
 - `optimization_strategy` — the refine contract's strategy, as every `refine_*`
   takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`), ONE
-  robustified LM (Core's `loss_robustifier`); `Irls{Shape}`, LMs at the loss
-  weights ρ′ until the robust cost stops decreasing or its `max_iter` cycles;
-  or `nothing`, plain least squares. Both robust strategies start from `guess`
-  with no least-squares stage. (`local_optimization` is refused, naming this.)
+  robustified LM (Core's `loss_robustifier`) from `guess` with no
+  least-squares stage; or `nothing`, plain least squares. An `Irls{Shape}` is
+  an `ArgumentError` naming `Triggs{Shape}` (a refine runs one LM, no
+  reweighting cycles). (`local_optimization` is refused, naming this.)
 - `scale` or `width` — EXACTLY ONE for a robust strategy, neither for least
   squares (`ArgumentError` otherwise): `scale = σ`, the features' noise scale in
   pixels, or an upstream result whose `noise_scale` it is (the loss width is
@@ -79,14 +79,13 @@ camera at frame i). Function names do not encode frames.
   `loss_width`) and the weights ρ′ at the estimate; `n` is their support and
   `rms` the weighted one, `√(Σ wᵢ‖rᵢ‖² / Σ wᵢ)`.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count; one
-  may hide ~8–10 rejected candidate steps); `iterations` sums them over an
-  Irls run's LMs.
+  may hide ~8–10 rejected candidate steps).
 
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
 residual block per point, with nothing compiled per marker count. Its termination
 record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's `nlls_termination`) is
 `ReturnCode.Success` only when the estimate is stationary, `MaxIters` at the
-iteration cap (an Irls run capped at its cycles), `MaxTime` at the solver's time
+iteration cap, `MaxTime` at the solver's time
 cap, `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
 failed (the estimate is then the last accepted one) and `Stalled` otherwise
 (under a robust strategy the stationarity of the robust cost). Rig poses, points and pixels must
@@ -177,8 +176,9 @@ end
 # block normal equations; nothing is static in M.
 const _RwPose = RigidExpManifold6{Float64}
 
-# A robust refine scales the block by `sqrt_weight` (an Irls cycle's √ρ′; 1 otherwise) or robustifies its squared
-# norm by `robust` (Triggs: Core's `loss_robustifier`; `NoRobust()` otherwise), as the camera-and-poses bundle does.
+# A robust refine robustifies the block's squared norm by `robust` (Triggs: Core's `loss_robustifier`; `NoRobust()`
+# otherwise), and its stationarity and covariance rows scale the block by `sqrt_weight` (√ρ′ at the estimate; 1
+# otherwise), as the camera-and-poses bundle does.
 struct _RwPointResidual{C, R} <: NLLSsolver.AbstractResidual
     varind::SVector{2, Int}           # (Y, X_m) = variables (1, m + 1)
     RA::SMatrix{3, 3, Float64, 9}     # the point's frame's rig pose
@@ -248,37 +248,17 @@ function _refine_robot_world_hand_eye(
         foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
         return pr, NLLSsolver.optimize!(pr, options)
     end
-    # Least squares (`optimization_strategy = nothing`), or the refine contract's robust strategy from the guess with
-    # no least-squares stage: Triggs, one robustified LM; Irls, weighted LMs at the loss weights ρ′ until the robust
-    # cost stops decreasing or `max_iter` cycles. The loss runs at the caller's frozen scale or width.
+    # Least squares (`optimization_strategy = nothing`), or the refine contract's one fixed-scale robust path from the
+    # guess with no least-squares stage: Triggs, ONE robustified LM at the caller's frozen scale or width (an Irls is
+    # refused by `bundle_loss`).
     stationarity_blocks = costs
-    irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
         problem, result = solve(costs, copy(poses0))
-        iters = result.niterations
         weights = unit_weights(Float64, n)
     else
         shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
         sqnorms(vars) = [sum(abs2, _rw_residual(c, vars[1], vars[c.varind[2]])) for c in costs]
-        if lo isa Triggs
-            problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(poses0))
-            iters = result.niterations
-        else
-            weighted(q) = [_with_robust(c, sqrt(weight(shape, q[k], sq)), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
-            q = sqnorms(poses0)
-            prev = sum(x -> ρ(shape, x, sq), q)
-            problem, result = solve(weighted(q), copy(poses0))
-            iters = result.niterations
-            irls_capped = true          # until a cycle's robust cost stops decreasing
-            for _ in 2:lo.max_iter
-                q = sqnorms(problem.variables)
-                cost = sum(x -> ρ(shape, x, sq), q)
-                cost < prev || (irls_capped = false; break)
-                prev = cost
-                problem, result = solve(weighted(q), collect(problem.variables))
-                iters += result.niterations
-            end
-        end
+        problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(poses0))
         weights = _loss_weights(shape, sq, sqnorms(problem.variables))
         # the stationarity of the robust cost and its covariance: the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
@@ -293,10 +273,8 @@ function _refine_robot_world_hand_eye(
     # robust strategy: the stall postcondition, the eigen-diagnostics and the covariance are the weighted problem's
     r, Js = nlls_rows_and_jacobian(stationarity_blocks, charts)
     J = Matrix(Js)
-    # the termination record: an Irls run capped at its cycles, else the last solve's (NLLSsolver's bits under the
-    # stall postcondition at the returned point)
-    termination = irls_capped ? (ReturnCode.MaxIters, IterationCap) :
-        nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL))
+    # the termination record: NLLSsolver's bits under the stall postcondition at the returned point
+    termination = nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL))
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -313,7 +291,7 @@ function _refine_robot_world_hand_eye(
     r_raw = lo === nothing ? r : first(nlls_rows_and_jacobian(costs, charts))   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
-        termination, iterations = iters, rms_rows = n, strategy = lo, weights,
+        termination, iterations = result.niterations, rms_rows = n, strategy = lo, weights,
         scale = _recorded_scale(input), scale_source = VgtkCore.scale_source(input),
         loss_width = sqrt(_sq_loss_width(loss))
     )

@@ -355,15 +355,14 @@ end
     centre(e) = SVector(e.center[1], e.center[2])
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
-    # the default Triggs{Welsch} and Irls at the scene's σ; TLS (no efficiency constant) at a width: 3σ
-    for kws in ((; scale = 0.5), (; optimization_strategy = Irls{WelschShape}(), scale = 0.5),
-                (; optimization_strategy = Irls{TLSShape}(), width = 1.5))
+    # the default Triggs{Welsch} at the scene's σ; TLS (no efficiency constant) at a width: 3σ
+    for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
         cr = estimate(refine_circle(g, pts; kws...))
         @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
-    for kws in ((; scale = 0.5), (; optimization_strategy = Irls{TLSShape}(), width = 1.5))
+    for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
         e = estimate(refine_ellipse(ge, epts; kws...))
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end
@@ -382,7 +381,7 @@ end
     H = SMatrix{3, 3, Float64, 9}(H_PX)
     for kws in ((; optimization_strategy = nothing), (; scale = 1.0),
                 (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = 1.0),
-                (; optimization_strategy = Irls{HuberShape}(), scale = 1.0))
+                (; optimization_strategy = Triggs{HuberShape}(), scale = 1.0))
         Ĥ = SMatrix{3, 3, Float64, 9}(estimate(refine_homography(HomographyMat{Float64}(Tuple(H)), StructArray(src .=> dst); kws...)))
         @test norm(Ĥ / Ĥ[3, 3] - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-8
     end

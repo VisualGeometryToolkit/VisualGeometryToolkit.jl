@@ -208,13 +208,13 @@ scratch and the camera keeps its family (its lens type).
 - `optimization_strategy` — the refine contract's strategy, as every
   `refine_*` takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`,
   `configs/default.toml [refine_camera_and_poses]`), one robustified LM
-  (Core's `loss_robustifier`), or `Irls{Shape}`, weighted solves at the loss's
-  weights ρ′ (up to its `max_iter` cycles, until the robust cost decreases by
-  less than `ftol`), each starting directly from the caller's start (`camera`,
-  `poses`, board poses): it runs no least-squares stage, so gross outliers never
-  pull a warm-up fit; or `nothing`, plain least squares (it reads no scale).
-  TOML: `{ type = "triggs", loss = "welsch" }`. Any other strategy is an
-  `ArgumentError` (it needs a RANSAC consensus set). (The keyword was `robust`,
+  (Core's `loss_robustifier`), starting directly from the caller's start
+  (`camera`, `poses`, board poses): it runs no least-squares stage, so gross
+  outliers never pull a warm-up fit; or `nothing`, plain least squares (it
+  reads no scale). TOML: `{ type = "triggs", loss = "welsch" }`. An
+  `Irls{Shape}` is an `ArgumentError` naming `Triggs{Shape}` (a refine runs one
+  LM, no reweighting cycles); any other strategy is one too (it needs a RANSAC
+  consensus set). (The keyword was `robust`,
   then `local_optimization`; both are refused, an `ArgumentError` naming this
   one.)
 - `scale` or `width` — EXACTLY ONE for a robust strategy (so for the default),
@@ -237,7 +237,7 @@ The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
 each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
 VisualGeometryToolkitCore's `nlls_termination`: `ReturnCode.Success` only at a stationary point, else `MaxIters`
-(the iteration cap; an Irls run capped at its cycles), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
+(the iteration cap), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
 `Stalled`; `rms` is
 `√(Σ‖rᵢ‖² / n)` over the `n` correspondences (pixels). The metadata
 ([`CameraPosesRefineMetadata`](@ref)) carries the residual rows, `s²`, `ν` and
@@ -601,9 +601,8 @@ end
 # answering `_with_robust`) on the variables `vars0` (`p` unknowns), under the parsed keywords `kw`. Least squares is
 # the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
 # ruling, 2026-11-11): the strategy's solve starts from the caller's start, its loss at its width over the caller's
-# frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's `loss_robustifier`); Irls, weighted
-# solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol` (relative) or `max_iter` cycles. A
-# refine estimates no scale. Returns the variables at the estimate, the termination record (`code`, `rule`), the iterations, the reprojection rows,
+# frozen `scale` or at its absolute width: Triggs, ONE robustified LM (Core's `loss_robustifier`), the refine
+# contract's one fixed-scale robust path (an Irls is refused by `bundle_loss`). A refine estimates no scale. Returns the variables at the estimate, the termination record (`code`, `rule`), the iterations, the reprojection rows,
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
 # loop.jl: under least squares every correspondence and √(S/n)).
 function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer, kw)
@@ -621,51 +620,24 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
         return pr, NLLSsolver.optimize!(pr, options)
     end
     stationarity_blocks = costs
-    irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
         problem, result = solve(costs, vars0)
-        iters = result.niterations
         weights = unit_weights(Float64, n)
     else
-        iters = 0
         shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
-        used_width = sqrt(sq)
         sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
-        if lo isa Triggs
-            robustifier = loss_robustifier(shape, used_width)
-            problem, result = solve([_with_robust(c, 1.0, robustifier) for c in costs], copy(vars0))
-            iters += result.niterations
-        else
-            weighted_solve(vars, q) = solve([_with_robust(c, sqrt(weight(shape, q[k], sq)), NLLSsolver.NoRobust())
-                                             for (k, c) in enumerate(costs)], copy(vars))
-            # the first weighted solve always runs (no least-squares estimate)
-            q = sqnorms(vars0)
-            prev = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-            problem, result = weighted_solve(vars0, q)
-            iters += result.niterations
-            irls_capped = true          # until a cycle's robust cost stops decreasing
-            for _ in 2:lo.max_iter
-                q = sqnorms(problem.variables)
-                cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-                prev - cost <= ftol * abs(cost) && (irls_capped = false; break)
-                prev = cost
-                problem, result = weighted_solve(problem.variables, q)
-                iters += result.niterations
-            end
-        end
+        problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(vars0))
         weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′ (exactly as the stationarity rows read it)
         # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    # the termination record: an Irls run capped at its cycles, else the last solve's (NLLSsolver's bits under the
-    # stall postcondition at the returned point)
-    code, rule = irls_capped ? (ReturnCode.MaxIters, IterationCap) :
-        nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
+    # the termination record: NLLSsolver's bits under the stall postcondition at the returned point
+    code, rule = nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
     lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
-    return (; variables = problem.variables, code, rule, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
+    return (; variables = problem.variables, code, rule, iterations = result.niterations, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
 _bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
     _row_norms(sol.residuals), sol.weights, _recorded_scale(kw.input), VgtkCore.scale_source(kw.input),

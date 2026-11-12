@@ -130,7 +130,11 @@
         rl = @inferred refine_homography(H0, cs; optimization_strategy = nothing)
         @test weight_kind(rl) === BinaryWeights() && all(==(1), weights(rl)) && sizeof(weights(rl)) < 64
         @test rl.n == length(cs) && all(inlier_mask(rl))
-        @test (@inferred weight_kind(refine_homography(H0, cs; optimization_strategy = Irls{HuberShape}(), scale = σ))) === IrlsWeights()
+        @test (@inferred weight_kind(refine_homography(H0, cs; optimization_strategy = Triggs{HuberShape}(), scale = σ))) === IrlsWeights()
+        # a refine's one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming the
+        # Triggs of its loss
+        e = try refine_homography(H0, cs; optimization_strategy = Irls{HuberShape}(), scale = σ); nothing; catch err; err; end
+        @test e isa ArgumentError && occursin("Triggs{HuberShape}", e.msg) && occursin("ONE robustified LM", e.msg)
         @test isconcretetype(typeof(VgtkCore.metadata(r)))
         # too few data: the guess, unrefined, of the same type
         rf = refine_homography(H0, cs[1:3]; scale = σ)
@@ -141,8 +145,7 @@
     @testset "every strategy recovers the truth from a perturbed guess on contaminated data" begin
         pts, _ = circle_scene(Xoshiro(41), 800)
         g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
-        for (lo, kw) in ((Triggs{WelschShape}(), (; scale = 0.5)), (Irls{WelschShape}(), (; scale = 0.5)),
-                         (Triggs{TLSShape}(), (; width = 1.5)))
+        for (lo, kw) in ((Triggs{WelschShape}(), (; scale = 0.5)), (Triggs{TLSShape}(), (; width = 1.5)))
             cr = estimate(refine_circle(g, pts; optimization_strategy = lo, kw...))
             @test norm(SVector(cr.center[1], cr.center[2]) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
         end
@@ -224,6 +227,7 @@ end
         @test err(() -> f(; scale = 1.0, width = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = nothing, scale = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = Irls{VgtkCore.GaussianShape}(), scale = 1.0)) isa ArgumentError
+        @test occursin("Triggs{HuberShape}", err(() -> f(; optimization_strategy = Irls{VgtkCore.HuberShape}(), scale = 1.0)).msg)
         # the result: a refine's, of a concrete type, its accessors inferred; least squares records no scale, a robust
         # strategy the given one
         r = f(; scale = 1.0)

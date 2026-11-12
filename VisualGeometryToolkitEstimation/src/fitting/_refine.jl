@@ -10,10 +10,13 @@
 # or `ScaleNone` for a width alone and for plain least squares). The strategies:
 #
 #   Triggs{K}  ONE robustified chart LM (Core's `loss_robustifier` handed to
-#              NLLSsolver) — the default, `[refine.<class>]`
-#   Irls{K}    reweighted chart LMs at the loss weights ρ′, until the robust
-#              cost stops decreasing or `max_iter` cycles
+#              NLLSsolver) — the default, `[refine.<class>]`, and the ONE
+#              fixed-scale robust path: no reweighting loop, the termination
+#              record NLLSsolver's (Core's `nlls_termination`)
 #   nothing    plain least squares over every datum (one chart LM), no scale
+#
+# An `Irls{K}` is refused, naming `Triggs{K}`: a refine runs one LM, and an
+# Irls's cycles are a fit's (`fit_*`) and a RANSAC local optimization's.
 #
 # The result is `FitResult{M, RefineMetadata}`: the refined model, the
 # per-datum weights and residuals at it, and the scale record. No inlier mask:
@@ -33,8 +36,8 @@ read through the accessors — [`weights`](@extref VisualGeometryToolkitCore.wei
 [`scale_source`](@extref VisualGeometryToolkitCore.scale_source) — or as
 properties of the result:
 
-- `weights::W`: one per datum at the estimate. For a robust refine (`L` an
-  `Irls` or `Triggs` strategy) the loss weight `ρ′(r²)`, maximum 1, exactly 0
+- `weights::W`: one per datum at the estimate. For a robust refine (`L` a
+  `Triggs` strategy) the loss weight `ρ′(r²)`, maximum 1, exactly 0
   below `eps` ([`IrlsWeights`](@extref VisualGeometryToolkitCore.IrlsWeights):
   no cut of its own, `inlier_mask(result, cut)`); for plain least squares
   (`L === Nothing`) a lazy all-ones vector
@@ -67,7 +70,7 @@ RefineMetadata{L}(weights::W, residuals::Vector{T}, scale::Real, source::ScaleSo
 
 # The weight kind is the producer's: a robust strategy's loss weights, or (L2,
 # `Nothing`, Core's method) all ones.
-VgtkCore.weight_kind(::Type{<:RefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's for Irls, Triggs, nothing
+VgtkCore.weight_kind(::Type{<:RefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's for Triggs, nothing
 
 # -----------------------------------------------------------------------------
 # The keywords: the strategy, the scale input, the workspace — and the refusals
@@ -88,10 +91,10 @@ function _refine_refusal(key::Symbol)
             "(`optimization_strategy = Triggs{Shape}(efficiency_constant = c)`), always the plain multiple of `scale`"
     elseif key in (:loss, :loss_width, :efficiency_constant)
         "`$key` is no keyword of a refine_*: the loss is the strategy, `optimization_strategy = Triggs{Shape}(…)` " *
-            "or `Irls{Shape}(…)` (its efficiency constant a field of the strategy), and its width `width = w` or " *
+            "(its efficiency constant a field of the strategy), and its width `width = w` or " *
             "the efficiency constant times `scale = σ`"
     elseif key in (:robust, :local_optimization, :local_optimization_strategy)
-        "the keyword `$key` is retired: give `optimization_strategy` (a refine's strategy: Triggs{Shape}, Irls{Shape} " *
+        "the keyword `$key` is retired: give `optimization_strategy` (a refine's strategy: Triggs{Shape} " *
             "or nothing)"
     elseif key === :extent
         "`extent` is no keyword of a refine_*: the extent check validates a consensus set, and a refine forms " *
@@ -105,18 +108,23 @@ function _refine_refusal(key::Symbol)
 end
 _refuse_refine_keywords(rest) = (isempty(rest) || throw(_refine_refusal(first(keys(rest)))); nothing)
 
-# A refine runs `Triggs{K}`, `Irls{K}` or `nothing` — nothing else hosts a
-# refine without a consensus set.
+# A refine runs `Triggs{K}` or `nothing` — nothing else hosts a refine without
+# a consensus set. An `Irls{K}` is refused, naming the Triggs it becomes (its
+# shape and width mode kept): a refine's one fixed-scale robust path is ONE
+# robustified LM, with no reweighting cycles to count.
 _refine_strategy(lo::Nothing) = lo
 function _refine_strategy(lo::Union{Irls, Triggs})
     strategy_loss(lo) === GaussianShape && throw(ArgumentError(
         "$(VgtkCore.lo_label(lo)) is plain least squares: a refine spells it `optimization_strategy = nothing`"))
     lo_width(lo) isa LossWidth && throw(ArgumentError(
         "a refine's loss width is its keyword `width = w`, not the strategy's `loss_width`"))
+    lo isa Irls && throw(ArgumentError(
+        "$(VgtkCore.lo_label(lo)) reweights in cycles, and a refine runs ONE robustified LM: give " *
+            "`optimization_strategy = Triggs{$(nameof(strategy_loss(lo)))}(…)`, the same loss at the same efficiency constant"))
     return lo
 end
 _refine_strategy(lo) = throw(ArgumentError(
-    "a refine_* takes `optimization_strategy = Triggs{Shape}(…)`, `Irls{Shape}(…)` or `nothing` (plain least " *
+    "a refine_* takes `optimization_strategy = Triggs{Shape}(…)` or `nothing` (plain least " *
         "squares), got $(nameof(typeof(lo))): it needs a scorer's consensus set, which a refine has none — " *
         "run it from the seed with `locally_optimize(problem, θ₀; scoring, local_optimization_strategy)`"))
 
@@ -176,8 +184,9 @@ end
 
 The robust loss a bundle adjustment deploys, from its keywords, by the refine contract
 every `refine_*` follows: `optimization_strategy` a `Triggs{K}` (a bundle's default,
-its TOML table's), an `Irls{K}`, or `nothing` (plain least squares), refused otherwise
-— as is a `GaussianShape` strategy (least squares is `nothing`) and a strategy holding
+its TOML table's: the one fixed-scale robust path, one robustified LM) or `nothing`
+(plain least squares), refused otherwise — an `Irls{K}` naming its `Triggs{K}`, a
+`GaussianShape` strategy (least squares is `nothing`) and a strategy holding
 an absolute `loss_width` (that is the `width` keyword); and EXACTLY ONE of `scale = σ`
 (the observations' noise scale, or an upstream result; VisualGeometryToolkitCore's
 `scale_input`) or `width = w` for a robust strategy, NEITHER for least squares (a
@@ -292,7 +301,7 @@ _refine_lm_ws(L::LoBuffers) = L.refine
 _refine_lm_ws(ws) = ws
 
 # -----------------------------------------------------------------------------
-# The three strategies — (model, (code, rule), iterations): the termination record
+# The two strategies — (model, (code, rule), iterations): the termination record
 # -----------------------------------------------------------------------------
 
 # Plain least squares: ONE chart LM from θ over every datum at unit weight.
@@ -313,32 +322,4 @@ end
 function _refine_run(lo::Triggs, problem, θ, spec::_RefineSpec)
     r = _triggs_lm(_refine_lm_ws(spec.workspace), strategy_loss(lo)(), problem, θ, spec.loss)
     return estimate(r), (retcode(r), stop_rule(r)), iterations(r)
-end
-
-# Irls: the weights ρ′ at the current model, one weighted chart LM (`refine!`),
-# repeated while the robust cost Σρ(r²) decreases, at most `max_iter` cycles.
-# `iterations` counts the cycles. Its Symbol stop is its record through `retcode_from_symbol`, the
-# rule the robust cost's (`CostDecrease`).
-function _refine_run(lo::Irls, problem, θ, spec::_RefineSpec)
-    θ̂, stop, k = _irls_cycles(lo, problem, θ, spec)
-    return θ̂, retcode_from_symbol(stop, CostDecrease), k
-end
-function _irls_cycles(lo::Irls, problem, θ, spec::_RefineSpec)
-    shape = strategy_loss(lo)()
-    c² = sq_loss_width(spec.loss)
-    n = data_size(problem)
-    ws = _refine_lm_ws(spec.workspace)
-    r = Vector{Float64}(undef, n)
-    w = Vector{Float64}(undef, n)
-    cost_at!(θ) = (mahalanobis_distances!(r, problem, θ); sum(x -> ρ(shape, x^2, c²), r))
-    cost = cost_at!(θ)
-    for k in 1:lo.max_iter
-        w .= weight.(Ref(shape), r .^ 2, c²)
-        θ′ = refine!(ws, problem, θ, w)
-        θ′ === nothing && return θ, :solve_failed, k
-        cost′ = cost_at!(θ′)
-        cost′ < cost || return θ, :converged, k
-        θ, cost = θ′, cost′
-    end
-    return θ, :max_iterations, lo.max_iter
 end

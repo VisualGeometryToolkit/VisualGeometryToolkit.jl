@@ -169,12 +169,14 @@ end
         @test rt.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.5
         @test length(weights(rt)) == sum(length, values(rt.residuals)) && rt.n == count(>(0), weights(rt))
         @test count(<(0.1), weights(rt)) >= 1
-        ri = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(), scale = 0.5)
-        @test retcode_symbol(ri) === :converged && err(ri) < err(ls) / 2
+        rh = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Triggs{HuberShape}(), scale = 0.5)
+        @test retcode_symbol(rh) === :converged && err(rh) < err(ls) / 2
         @test weight_kind(ls) === BinaryWeights() && scale_source(ls) === ScaleNone && all(==(1), weights(ls))
-        # an Irls run that reaches its `max_iter` cycles is capped, never `:converged`
-        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(max_iter = 1),
-                                                  scale = 0.5)) === :max_iterations
+        # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs
+        @test_throws r"Triggs\{HuberShape\}" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(),
+                                                                     scale = 0.5)
+        # the LM's own iteration cap is the record's (NLLSsolver's bits, Core's nlls_termination)
+        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5, max_iter = 1)) === :max_iterations
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword
         @test_throws r"reads no scale" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = nothing, scale = 0.5)

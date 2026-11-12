@@ -159,7 +159,7 @@ _triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
 # refine_*'s Triggs (fitting/_refine.jl): `shape` at the deployed `loss`, one
 # `lmsolve_chart!` from `model` over every datum at unit weight, on the refit's
 # chart and state, in the chart-LM workspace `refine_ws` (the one reuse policy).
-function _triggs_lm(refine_ws, shape::AbstractLossShape, problem, model, loss::DeployedLoss)
+function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss)
     ch = _chart(problem, _as_model(problem, model))
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(refine_ws, rows, dof)

@@ -173,7 +173,8 @@ _hit_numbers(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTra
 const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
-@inline function intersection(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}) where {C, M <: _HeightOnlyMap{C}}
+# never inlined, as the generic method (mapped_surface.jl): one compiled root per argument types, so the same bits at every call site
+@noinline function intersection(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}) where {C, M <: _HeightOnlyMap{C}}
     _plain_fast(M, typeof(o), typeof(d)) && return _height_fast(s, s.map.t2.t1.t1, _field_and_affine(s.map.t2.t1.t2.c)..., o, d)
     _height_over_affine(C) || return _mapped_intersection(s, o, d)
     # Duals in the field, the placement, the pose or the ray (heights, a board pose): the 1-D Newton's hit of the surface and

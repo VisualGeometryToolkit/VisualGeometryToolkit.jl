@@ -121,7 +121,13 @@ end
 @inline _value_residual(::typeof(_hit_residual)) = _hit_value
 @inline _value_residual(::typeof(_chart_residual)) = _chart_value
 
-@inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
+# ONE compiled root per argument types: `intersection`, `chart` and `normal` of a MappedSurface are never inlined. Their
+# arithmetic is full of operations LLVM may contract into FMAs as it sees fit — StaticArrays' small products (`muladd`),
+# its `dot` (`@simd`), the LM increment's own `muladd`s — and it decides per compiled copy. Inlined, every caller compiled
+# its own copy, so one surface and one ray had hits 2–3 ulp apart between two call sites (two hits in one function: 1 ray
+# in 200 of a composed calibration, Julia 1.12 and 1.13, --check-bounds=yes). Behind the barrier the bits depend on the
+# arguments' types only (test/mapped_surface_determinism_tests.jl); the call costs nanoseconds against a µs root.
+@noinline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
 # (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
 # `seed`: a chart point to start the root at instead of the plane hit's when `use_seed` (a fast path's hit of the primal
 # surface, `intersection` of a height field with Duals).
@@ -139,7 +145,8 @@ end
     return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
 end
 
-@inline function chart(s::MappedSurface, x::StaticVector{3})
+# one compiled root, never inlined (see `intersection` above)
+@noinline function chart(s::MappedSurface, x::StaticVector{3})
     p0 = map(_primal, _plane_coordinates(s.frame, x))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     p, ok, _ = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
@@ -147,7 +154,8 @@ end
     return ifelse(ok, p, SVector(nan, nan))
 end
 
-@inline function normal(s::MappedSurface, x::StaticVector{3})
+# one compiled root, never inlined (see `intersection` above)
+@noinline function normal(s::MappedSurface, x::StaticVector{3})
     J = transform_deriv(s.map, chart(s, x))
     return LinearAlgebra.normalize(cross(J[:, 1], J[:, 2]))
 end

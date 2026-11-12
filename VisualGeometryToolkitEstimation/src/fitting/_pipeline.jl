@@ -2,7 +2,8 @@
 # Shared RANSAC fitting pipeline
 # =============================================================================
 #
-# `_ransac_pipeline` is the shared body of every `find_*`. Each public wrapper
+# `_ransac_pipeline` is the shared body of every `find_*` (every `refine_*`'s is
+# `_guarded_refine`, _refine.jl). Each public wrapper
 # builds its problem and names its model CLASS once; the class selects the
 # wrapper's `configs/default.toml` `[pipelines.<class>]` table, which supplies
 # both defaults — the `scoring` table (read by `scoring_from_toml`) and the
@@ -51,39 +52,7 @@ function _ransac_pipeline(
     return ransac(problem, scoring; config, local_optimization_strategy, workspace, rng)
 end
 
-"""
-    _refine_pipeline(problem, class::Symbol, θ₀; scoring, optimization_strategy,
-                     workspace) -> RansacEstimate
-
-The shared body of every `refine_*`: the class's RANSAC local-optimization step
-run ONCE from the given model `θ₀` — what the loop runs on its hypothesis, with
-no sampling ([`locally_optimize`](@ref): score θ₀, take ITS consensus set under
-the scorer, `locally_optimize!` from θ₀, re-score, `test_consensus`; the seed
-comes back when the refined model is not kept). The defaults are the class's
-`find_*`'s, read from the same `[pipelines.<class>]` table (`scoring`,
-`optimization_strategy`); the keywords are `_ransac_pipeline`'s minus the
-sampling ones (`max_trials`, `min_trials`, `config` — a `RansacConfig` is the
-trial schedule and nothing else — and `rng`: no local optimization draws from
-the loop's generator; `locally_optimize!` takes none).
-"""
-function _refine_pipeline(
-        problem, class::Symbol, θ₀;
-        scoring::Union{AbstractScoring, Nothing} = nothing,
-        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _dflt_lo(class),
-        local_optimization = _RetiredKeyword(),            # refused, naming the refine's keyword
-        local_optimization_strategy = _RetiredKeyword(),   # (find_*'s keyword)
-        workspace = nothing,
-        threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
-    )
-    _refuse_width_keywords(threshold, outlier_halfwidth)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    _refuse_retired_keyword(local_optimization_strategy, :local_optimization_strategy, :optimization_strategy)
-    scoring = _class_scoring(problem, class, scoring)
-    problem isa _TooFew && return _too_few(problem, scoring, workspace)
-    return locally_optimize(problem, θ₀; local_optimization_strategy = optimization_strategy, scoring, workspace)
-end
-
-# The scoring both pipelines run: the caller's, or the class's scorer of
+# The scoring `_ransac_pipeline` runs: the caller's, or the class's scorer of
 # record — configs/default.toml `[pipelines.<class>] scoring`, read by the one
 # scorer reader for the problem's type — its width in the problem's residual
 # unit (`_in_problem_unit`).
@@ -112,7 +81,7 @@ _in_unit(sc::MsacScoring{DG}, u::Float64) where {DG} = MsacScoring(DG; threshold
 _width_unit(_problem) = nothing
 _width_unit(problem::HandEyeProblem) = Float64(problem.char_length)
 
-# The too-little-data rule of the `find_*` and `refine_*` pipelines is
+# The too-little-data rule of the `find_*` pipelines is
 # `_holds_minimal_sample` (estimators/ransac/interface.jl): fewer data than the
 # problem type's minimal sample hold no hypothesis, so the pipeline returns the
 # `:no_model` result of a search that drew no trial — `iterations` 0, no
@@ -133,13 +102,12 @@ _too_few(t::_TooFew{P}, scoring::AbstractScoring, workspace) where {P} =
 _class_scoring(::_TooFew{P}, class::Symbol, ::Nothing) where {P} =
     scoring_from_toml(_dflt("pipelines.$class", "scoring"); problem = P, section = "pipelines.$class.scoring")
 
-# The guarded entry of a `find_*` / `refine_*` on `n` data of the problem type `P`: the
-# shared pipeline on `problem()`, built only when they hold a minimal sample (a
-# constructor may refuse so few data), else on `_TooFew{P}(n)`.
+# The guarded entry of a `find_*` on `n` data of the problem type `P`: the shared
+# pipeline on `problem()`, built only when they hold a minimal sample (a
+# constructor may refuse so few data), else on `_TooFew{P}(n)`. The refine_*
+# entry is `_guarded_refine` (_refine.jl).
 _guarded_ransac(problem, ::Type{P}, n::Integer, class::Symbol; kwargs...) where {P} =
     _holds_minimal_sample(P, n) ? _ransac_pipeline(problem(), class; kwargs...) : _ransac_pipeline(_TooFew{P}(n), class; kwargs...)
-_guarded_refine(problem, ::Type{P}, n::Integer, class::Symbol, θ₀; kwargs...) where {P} =
-    _holds_minimal_sample(P, n) ? _refine_pipeline(problem(), class, θ₀; kwargs...) : _refine_pipeline(_TooFew{P}(n), class, θ₀; kwargs...)
 _storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 

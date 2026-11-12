@@ -97,7 +97,7 @@ end
     @test VgtkEstimation._map_estimate(identity, r).metadata === r.metadata
 end
 
-@testitem "ransac: too few points is the no-model result" begin
+@testitem "ransac: too few points is the no-model result" setup = [TooFewData] begin
     using VisualGeometryToolkitCore: inlier_mask, scale_source, ScaleNone   # the robust contract's accessors
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
@@ -109,8 +109,18 @@ end
         find_homography, refine_homography, find_fundmat, refine_fundmat, find_essential, refine_essential,
         find_rotation, refine_rotation, find_circle, refine_circle, find_ellipse, refine_ellipse,
         find_radial_homography, refine_radial_homography, find_radial_camera, refine_radial_camera,
-        find_absolute_pose, refine_absolute_pose
+        find_absolute_pose, refine_absolute_pose, RefineMetadata
 
+    # a refine_* on too few data: the guess back unrefined, its result type a refine's (the refine contract)
+    function too_few_refine(r, guess, n)
+        @test r isa VgtkCore.FitResult{<:Any, <:RefineMetadata}
+        @test retcode(r) === :degenerate && iterations(r) == 0 && r.n == 0 && isnan(r.rms)
+        θ = estimate(r)
+        @test guess isa VgtkCore.EuclideanMap ?
+            (VgtkCore.rotation(θ) == VgtkCore.rotation(guess) && VgtkCore.translation(θ) == VgtkCore.translation(guess)) : θ == guess
+        @test length(r.residuals) == n && all(isnan, r.residuals)
+        return r
+    end
     function too_few(r, n)
         @test r isa RansacEstimate
         @test retcode(r) === :no_model
@@ -123,45 +133,44 @@ end
         return r
     end
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    pts, cs = few_points, few_csponds
     I3 = SMatrix{3, 3, Float64}(I)
     H = HomographyMat{Float64}(Tuple(I3))
     X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
 
     too_few(find_homography(cs(3)), 3)
-    too_few(refine_homography(H, cs(3)), 3)
+    too_few_refine(refine_homography(H, cs(3); scale = 1.0), H, 3)
     too_few(find_fundmat(cs(6)), 6)
-    too_few(refine_fundmat(FundMat{Float64}(Tuple(X3)), cs(6)), 6)
+    too_few_refine(refine_fundmat(FundMat{Float64}(Tuple(X3)), cs(6); scale = 1.0), FundMat{Float64}(Tuple(X3)), 6)
     too_few(find_essential(cam, cam, cs(4)), 4)
-    too_few(refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4)), 4)
+    too_few_refine(refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4); scale = 1.0), EssentialMat{Float64}(Tuple(X3)), 4)
     too_few(find_rotation(cam, cam, cs(1)), 1)
-    too_few(refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1)), 1)
+    too_few_refine(refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1); scale = 1.0), one(RotMatrix{3, Float64}), 1)
     b = Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])
     too_few(find_rotation(b), 1)
-    too_few(refine_rotation(one(RotMatrix{3, Float64}), b), 1)
+    too_few_refine(refine_rotation(one(RotMatrix{3, Float64}), b; scale = 1.0), one(RotMatrix{3, Float64}), 1)
     too_few(find_circle(pts(2)), 2)
-    too_few(refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(2)), 2)
+    too_few_refine(refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(2); scale = 1.0), Circle(Point2(0.0, 0.0), 1.0), 2)
     too_few(find_ellipse(pts(4)), 4)
-    too_few(refine_ellipse(Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), pts(4)), 4)
+    too_few_refine(refine_ellipse(Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), pts(4); scale = 1.0), Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), 4)
     c = Point2(500.0, 400.0)
     too_few(find_radial_homography(cs(4); center = c), 4)
     too_few(find_radial_homography(cs(3); center = c, minimal = :homography), 3)
-    too_few(refine_radial_homography(RadialHomography{Float64}(H, 0.0), cs(4)), 4)
+    too_few_refine(refine_radial_homography(RadialHomography{Float64}(H, 0.0), cs(4); scale = 1.0), RadialHomography{Float64}(H, 0.0), 4)
     too_few(find_radial_camera(cs(4); center = c), 4)
-    too_few(refine_radial_camera(RadialCamera(H, c), cs(4)), 4)
+    too_few_refine(refine_radial_camera(RadialCamera(H, c), cs(4); scale = 1.0), RadialCamera(H, c), 4)
 
     X = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
     u = [SA[400.0, 300.0], SA[500.0, 350.0]]
     pose = Extrinsics3(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0))
     too_few(find_absolute_pose(cam, X .=> u), 2)
     too_few(find_absolute_pose(cam, [x .* m for x in X] .=> u), 2)
-    too_few(refine_absolute_pose(pose, cam, X .=> u), 2)
-    too_few(refine_absolute_pose(VgtkCore.with_unit(pose, m), cam, [x .* m for x in X] .=> u), 2)
+    too_few_refine(refine_absolute_pose(pose, cam, X .=> u; scale = 1.0), pose, 2)
+    too_few_refine(refine_absolute_pose(VgtkCore.with_unit(pose, m), cam, [x .* m for x in X] .=> u; scale = 1.0), VgtkCore.with_unit(pose, m), 2)
     f = [normalize(x) for x in X]
-    too_few(refine_absolute_pose(pose, Csponds(X, f)), 2)
-    too_few(refine_absolute_pose(VgtkCore.with_unit(pose, m), Csponds([x .* m for x in X], f)), 2)
+    too_few_refine(refine_absolute_pose(pose, Csponds(X, f); scale = 1.0), pose, 2)
+    too_few_refine(refine_absolute_pose(VgtkCore.with_unit(pose, m), Csponds([x .* m for x in X], f); scale = 1.0), VgtkCore.with_unit(pose, m), 2)
 
     # the supplied workspace's storage eltype
     r = too_few(find_circle(pts(2); workspace = RansacWorkspace(Float64, CircleProblem, 2)), 2)
@@ -171,7 +180,7 @@ end
     @test typeof(find_homography(cs(3))) === typeof(find_homography(cs(8)))
 end
 
-@testitem "ransac: too few points refuses the keywords enough points refuse" begin
+@testitem "ransac: too few points refuses the keywords enough points refuse" setup = [TooFewData] begin
     # The too-few path is the pipeline's: a retired, a width or an unknown keyword
     # raises the same error below the minimal sample as above it, never a :no_model.
     using Test, StaticArrays, LinearAlgebra
@@ -185,8 +194,7 @@ end
     # the same refusal: the same exception type and, for an ArgumentError, the same message
     same(a, b) = a !== nothing && typeof(a) === typeof(b) && (!(a isa ArgumentError) || a.msg == b.msg)
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    pts, cs = few_points, few_csponds
     H = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     Xs(n) = [SA[0.1i, 0.2 - 0.05i^2, 2.0 + 0.1i] for i in 1:n]

@@ -146,17 +146,26 @@ correction carries the loss; nothing is reweighted here and no inlier set is
 formed. The model comes back through the chart's `recenter` and `_model_at`,
 as from `refine!`.
 """
-function locally_optimize!(
-        L::LoBuffers, lo::Triggs, problem::LiftableProblem, model,
-        cs::ConsensusSet, buf::ScoreBuffers, scoring
-    )
-    loss = lo_loss(lo, cs, scoring, buf)
+locally_optimize!(L::LoBuffers, lo::Triggs, problem::LiftableProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
+    _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, lo_loss(lo, cs, scoring, buf))
+
+# The rows the robustified LM robustifies: the refit's (`_refit_state`), whose
+# per-datum norm must be the residual's own unit — the unit the loss width is in
+# (the problem's `mahalanobis_distance`). A problem whose refit rows are in
+# another unit (PnP's pinhole rows, calibrated) states its pixel rows here.
+_triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
+
+# THE robustified chart LM — the RANSAC local optimization's (above) and every
+# refine_*'s Triggs (fitting/_refine.jl): `shape` at the deployed `loss`, one
+# `lmsolve_chart!` from `model` over every datum at unit weight, on the refit's
+# chart and state, in the chart-LM workspace `refine_ws` (the one reuse policy).
+function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss)
     ch = _chart(problem, _as_model(problem, model))
     rows, dof = _lm_size(problem)
-    ews = _lm_workspace(L.refine, rows, dof)
+    ews = _lm_workspace(refine_ws, rows, dof)
     fill!(sqrt_weights(ews), 1.0)
-    lm = _refit_state(problem, ch, sqrt_weights(ews))
-    robustifier = loss_robustifier(strategy_loss(lo)(), sqrt(sq_loss_width(loss)))
+    lm = _triggs_state(problem, ch, sqrt_weights(ews))
+    robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
     x, _, code, n_iter = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
         maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
     any(isnan, x) && return lo_estimate(model, :solve_failed)

@@ -188,16 +188,51 @@ non-central one is a `NoncentralSplineModel`).
   - `CameraFitMetadata` gains `residuals` (px per sample; a spline target's held-out errors) and the robust stages'
     scale record, `scale` (`NaN`) and `scale_source` (`ScaleNone`): no camera regression has a robust loss, so
     `noise_scale` refuses to hand one on.
-
-- **Breaking: `refine_camera_and_poses`'s robust strategy is `local_optimization`** (was `robust`; the keyword `find_*`
-  takes it by): the same `Irls{Shape}`/`Triggs{Shape}`, read by `local_optimization_from_toml`; `nothing`, the default,
-  is plain least squares, bit for bit. The keyword `robust`, whatever its value, is an `ArgumentError` naming
-  `local_optimization`.
-
+- **Breaking: the refine contract — every `refine_*` runs no scorer, estimates no scale and returns
+  `FitResult{M, RefineMetadata}`** (the robust-estimation contract, §1, §2, §12; owner rulings 2026-11-11).
+  - The keywords are `optimization_strategy`, `scale` | `width` and `workspace`. The strategy is `Triggs{Shape}` (the
+    DEFAULT, `Triggs{WelschShape}()`, read from the new `configs/default.toml [refine.<class>] optimization_strategy`),
+    `Irls{Shape}` or `nothing` (plain least squares, one chart LM). A robust strategy needs EXACTLY ONE of `scale = σ`
+    (a number, or an upstream result whose `noise_scale` it takes) and `width = w`; least squares takes neither. Anything
+    else is an `ArgumentError` (Core's `scale_input`).
+  - The loss width is `efficiency_constant × scale`: Core's `efficiency_constant(Shape, d)` at the problem's
+    codimension, or the constant the strategy states (always the plain multiple). TLS has none: state one, or give a width.
+  - The result: the refined model, `retcode`/`iterations` the LM's (an Irls run's cycles), `n` the weights' support
+    and `rms` the weighted one, and `RefineMetadata` (public): per-datum `weights` (the loss's ρ′, `IrlsWeights`; all ones
+    as a lazy `unit_weights` under least squares, `BinaryWeights`), `residuals`, `scale`/`scale_source` (`ScaleGiven`,
+    `ScaleUpstream`; `NaN`/`ScaleNone` for a width alone and for least squares), `loss_width` and the diagnostic
+    `residual_scale`. No `inlier_mask`: `inlier_mask(result, cut)`.
+  - Refused, each naming its replacement: `scoring`, `threshold`, `outlier_halfwidth`, `loss`, `loss_width`,
+    `scale_multiple`, `local_optimization`, `robust`, `extent` (an extent check validates a consensus set) and the
+    sampling keywords; a strategy other than Triggs/Irls/`nothing` (it needs a consensus set) names
+    `locally_optimize`, which stays the RANSAC-family seeded refine with its scorer.
+  - Too few data for a minimal sample: the guess back unrefined, `retcode` `:degenerate`, `n` 0 (was the
+    `:no_model` RansacEstimate).
+  - `refine_hand_eye` now hosts Triggs (every refine class is a chart problem).
+  - `Triggs{K}()` is constructible with no multiple (in a RANSAC it then follows the scorer's `decision_boundary`, as
+    `Irls{K}()` does).
+- **Breaking: the bundles take the refine contract's strategy and scale.** `refine_camera_and_poses` and
+  `refine_robot_world_hand_eye`: `optimization_strategy` (default `Triggs{WelschShape}()`, their tables'
+  `optimization_strategy`), EXACTLY ONE of `scale`/`width` for a robust strategy, `nothing` for least squares (the
+  former default, bit for bit). `local_optimization` and `robust` are refused naming `optimization_strategy`.
+  `CameraPosesRefineMetadata{L, W}` and `RobotWorldHandEyeMetadata{K, S, L, W}` carry `weights` (lazy unit weights
+  under least squares), `scale::Float64`, `scale_source`, `loss_width::Float64` (`NaN` under least squares; was
+  `nothing`). `refine_robot_world_hand_eye` gains Triggs/Irls (it was least squares only). A SplineLens camera's
+  bundle stays least squares only (`optimization_strategy = nothing`, its default; a robust one is refused).
+  - **Before/after, measured** (the core_defaults scenes, 2026-11-11): from each class's raw RANSAC incumbent (no
+    local optimization), the old default refine (the class scorer + `Irls{TLS}`; Triggs{Welsch} 2.5·ŝ for the conics)
+    against the new default `Triggs{Welsch}` at `scale` = that search's ŝ. The rms over find_*'s inliers moves by at most
+    0.006 px (F 0.301 → 0.307, its LM at its 1000-iteration cap from the raw start; 0.302 and `:converged` from
+    find_*'s model); errors to truth: circle centre 0.028 → 0.024 px, ellipse centre 0.034 → 0.031 px, H 0.00406 →
+    0.00409 (relative), PnP 0.035° / 3.6 mm → 0.032° / 3.4 mm, rotation 0.010° → 0.016°, radial H 5.8e-4 → 5.2e-4
+    (H) and 2.9 % → 2.8 % (k), hand-eye 0.047° / 1.08 mm → 0.035° / 1.06 mm. The API alone is bit-identical: `width = w`
+    reproduces the old Triggs at an absolute width (every class where the old path kept the refined model).
+  - **Fixed: Triggs on a pinhole PnP robustified calibrated rows** (its refit rows are calibrated, the width pixels),
+    so `Triggs{K}` on `AbsolutePoseProblem` ran least squares over every datum (from the raw incumbent: 6.3° off).
+    Its rows are now whitened into pixels (`_triggs_state`); a `find_absolute_pose` with a Triggs strategy changes too.
 - **Breaking (behaviour): a robust `refine_camera_and_poses` runs no least-squares stage and estimates no scale** (the
   owner's rulings, 2026-11-11). The Triggs or Irls solve starts directly from the caller's start (camera and poses), at
-  the strategy's `scale_multiple` times the caller's `scale` (the detections' σ), or at its absolute `loss_width`; a
-  `scale_multiple` strategy without a `scale` is an `ArgumentError`. Gone: the frozen Student-t scale of the
+  the strategy's efficiency constant times the caller's `scale` (the detections' σ), or at the caller's `width`. Gone: the frozen Student-t scale of the
   least-squares rows, the scale anchored on a scorer's consensus partition (the `scoring` keyword and
   `configs/default.toml`'s `[refine_camera_and_poses] scoring`) and its thin-partition refusal. On the 8 %-outlier
   fixture (5 views × 60, σ 0.2 px, 8 % at 20–60 px, a start 20–80 px off), at σ: camera error 0.175 px (Irls{Huber},

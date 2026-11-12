@@ -482,8 +482,8 @@ function _refuse_width_keywords(threshold, outlier_halfwidth)
 end
 
 # A problem's refusal of a scoring it cannot mean — the ONE check every entry
-# (`ransac`, both `locally_optimize` methods, and so every `find_*` and
-# `refine_*`) runs on the scoring it is about to use, whoever built it.
+# (`ransac`, both `locally_optimize` methods, and so every `find_*`) runs on the
+# scoring it is about to use, whoever built it. (A `refine_*` runs no scorer.)
 # No-op by default; the essential problem refuses a sub-detector half-width
 # (problems/essential.jl), the leftover of its calibrated-unit era.
 _check_scoring(_problem, _scoring) = nothing

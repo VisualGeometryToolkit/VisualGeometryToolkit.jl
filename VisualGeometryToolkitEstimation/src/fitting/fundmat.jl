@@ -31,20 +31,18 @@ function find_fundmat(
 end
 
 """
-    refine_fundmat(F, correspondences; scoring = MsacScoring(problem; threshold = 3.0),
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
-        -> RansacEstimate
+    refine_fundmat(F, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
-The fundamental matrix `F` refined against `correspondences`:
-[`find_fundmat`](@ref)'s step without the sampling. `optimization_strategy` is the
-fundamental matrix's RANSAC local-optimization step, run here alone from the
-given model (no sampling). Every default is `find_fundmat`'s
-(`[pipelines.fundmat]`); the keywords are those of every `refine_*`, documented
-on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 7 correspondences.
+The fundamental matrix `F` refined against `correspondences` from `F` itself
+(the Sampson residual, pixels; codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.fundmat] optimization_strategy`). Fewer than 7 correspondences: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_fundmat(
         F, pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
         kwargs...
     )
-    return _guarded_refine(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), :fundmat, F; kwargs...)
+    return _guarded_refine(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), Val(:fundmat), F; kwargs...)
 end

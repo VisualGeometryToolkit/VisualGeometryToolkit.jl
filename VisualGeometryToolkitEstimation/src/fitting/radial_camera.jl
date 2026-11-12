@@ -41,24 +41,22 @@ function find_radial_camera(
 end
 
 """
-    refine_radial_camera(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
-        -> RansacEstimate
+    refine_radial_camera(model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
 The 1-D radial camera `model` (VisualGeometryToolkitCore `RadialCamera`, about its
-distortion centre) refined against `plane_point => raw_pixel` correspondences:
-[`find_radial_camera`](@ref)'s step without the sampling. The problem's centre
-is the model's own (`center(model)`). `optimization_strategy` is the radial
-camera's RANSAC local-optimization step, run here alone from the given model (no
-sampling). Every default is `find_radial_camera`'s (`[pipelines.radial_camera]`),
-`extent` included; the keywords are those of every `refine_*`, documented on
-[`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
+distortion centre) refined against `plane_point => raw_pixel` correspondences
+from `model` itself (the pixel distance to the predicted radial line;
+codimension 1). The problem's centre is the model's own (`center(model)`):
+the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.radial_camera] optimization_strategy`). Fewer than 5 correspondences: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_radial_camera(
         model::VgtkCore.RadialCamera, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
-        extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_radial_camera")
-    return _guarded_refine(() -> _with_extent(RadialCameraProblem(pairs; center = center(model)), extent), RadialCameraProblem{Float64}, length(pairs), :radial_camera, model; kwargs...)
+    return _guarded_refine(() -> RadialCameraProblem(pairs; center = center(model)), RadialCameraProblem{Float64}, length(pairs), Val(:radial_camera), model; kwargs...)
 end

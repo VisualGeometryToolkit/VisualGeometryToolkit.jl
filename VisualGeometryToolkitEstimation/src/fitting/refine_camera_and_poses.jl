@@ -73,24 +73,35 @@ a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
 6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
-unknowns). All forward as properties:
+unknowns). Then the robust record: `residual_norms` (one per correspondence,
+pixels), `weights` (the loss's ρ′ at the estimate under a robust strategy, all
+ones — lazily — under least squares), and the scale the loss ran at, `scale` and
+`scale_source` (`ScaleGiven`/`ScaleUpstream`, or `NaN`/`ScaleNone` under least
+squares and for a width given alone; [`noise_scale`](@extref VisualGeometryToolkitCore.noise_scale)
+reads it) and `loss_width` (`NaN` under least squares). All forward as properties:
 `result.residuals`, `result.spline`, ….
 """
-struct CameraPosesRefineMetadata
+struct CameraPosesRefineMetadata{L, W <: AbstractVector{Float64}}
     residuals::Vector{Float64}
     s²::Float64
     ν::Int
     free::Tuple{Vararg{Symbol}}
     spline::Union{Nothing, NamedTuple}
     residual_norms::Vector{Float64}
-    weights::Vector{Float64}
-    scale::Union{Nothing, Float64}
-    loss_width::Union{Nothing, Float64}
+    weights::W
+    scale::Float64
+    scale_source::ScaleSource
+    loss_width::Float64
 end
-# A least-squares refine: unit weights, no scale and no loss width; the norms from the rows.
+CameraPosesRefineMetadata{L}(residuals, s², ν, free, spline, norms, weights::W, scale, source, loss_width) where {L, W} =
+    CameraPosesRefineMetadata{L, W}(residuals, Float64(s²), Int(ν), free, spline, norms, weights, Float64(scale), source,
+                                    Float64(loss_width))
+# A least-squares refine: unit weights, no scale (ScaleNone) and no loss width; the norms from the rows.
 CameraPosesRefineMetadata(residuals::Vector{Float64}, s²::Real, ν::Integer, free, spline) =
-    CameraPosesRefineMetadata(residuals, Float64(s²), Int(ν), free, spline, _row_norms(residuals),
-                              ones(length(residuals) ÷ 2), nothing, nothing)
+    CameraPosesRefineMetadata{Nothing}(residuals, s², ν, free, spline, _row_norms(residuals),
+                                       unit_weights(Float64, length(residuals) ÷ 2), NaN, ScaleNone, NaN)
+# The weights' kind is the strategy's: a robust loss's ρ′, or L2's unit weights.
+VgtkCore.weight_kind(::Type{<:CameraPosesRefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)
 _row_norms(r) = [hypot(r[2k - 1], r[2k]) for k in 1:(length(r) ÷ 2)]
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
@@ -151,13 +162,13 @@ NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 """
-    refine_camera_and_poses(camera, poses, views; fixed = (), box = nothing, optimization_strategy = nothing, scale = nothing,
+    refine_camera_and_poses(camera, poses, views; fixed = (), box = nothing, optimization_strategy, scale | width,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
     refine_camera_and_poses(spline_camera, poses, views; fixed = (), penalty = :gcv,
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
     refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), fixed = (), box,
-                            optimization_strategy = nothing, scale = nothing, max_iter, ftol, xtol, max_time = nothing)
+                            optimization_strategy, scale | width, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses, :board_poses)}, CameraPosesRefineMetadata}
 
 Refine a camera and one pose per view jointly against the reprojection error of
@@ -194,26 +205,28 @@ scratch and the camera keeps its family (its lens type).
 - `box` — a solver search box on the camera's parameters by name
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
   with every parameter `fixed` (nothing to bound) a box is an `ArgumentError`.
-- `optimization_strategy` — `nothing` (the default: plain least squares) or a
-  robust strategy of the RANSAC local optimization's own types, under the same
-  keyword every refine takes, configured by the same TOML tables (`optimization_strategy_from_toml`, e.g. `{ type = "triggs", loss =
-  "welsch", efficiency_constant = 2.98 }`): `Triggs{Shape}`, one robustified LM
-  (Core's `loss_robustifier`, NLLSsolver's robustified Hessian), or
-  `Irls{Shape}`, weighted solves at the loss's weights ρ′ (up to its
-  `max_iter` cycles, until the robust cost decreases by less than `ftol`),
-  each starting directly from the caller's start (`camera`, `poses`, board
-  poses): it runs no least-squares stage, so gross outliers never pull a
-  warm-up fit. (The keyword was `robust`; that name is refused, an
-  `ArgumentError` naming this one.) The loss width is the strategy's
-  `efficiency_constant` (the plain multiple) times the caller's `scale`,
-  frozen, or an Irls strategy's absolute `loss_width`. A refine estimates no
-  scale: a `efficiency_constant` strategy without a `scale` is an `ArgumentError`.
-  A strategy that follows a scorer's inlier threshold (no width) or needs a
-  RANSAC consensus set is an `ArgumentError`. The metadata's `weights` are the
-  ρ′ at the estimate, `scale` and `loss_width` what the loss ran at.
-  Parametric cameras (both forms).
-- `scale` — the detections' noise scale σ (pixels, per coordinate) a
-  `optimization_strategy` strategy's `efficiency_constant` multiplies.
+- `optimization_strategy` — the refine contract's strategy, as every
+  `refine_*` takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`,
+  `configs/default.toml [refine_camera_and_poses]`), one robustified LM
+  (Core's `loss_robustifier`), or `Irls{Shape}`, weighted solves at the loss's
+  weights ρ′ (up to its `max_iter` cycles, until the robust cost decreases by
+  less than `ftol`), each starting directly from the caller's start (`camera`,
+  `poses`, board poses): it runs no least-squares stage, so gross outliers never
+  pull a warm-up fit; or `nothing`, plain least squares (it reads no scale).
+  TOML: `{ type = "triggs", loss = "welsch" }`. Any other strategy is an
+  `ArgumentError` (it needs a RANSAC consensus set). (The keyword was `robust`,
+  then `local_optimization`; both are refused, an `ArgumentError` naming this
+  one.)
+- `scale` or `width` — EXACTLY ONE for a robust strategy (so for the default),
+  neither for least
+  squares (`ArgumentError` otherwise; Core's `scale_input`): `scale = σ`, the
+  detections' noise scale (pixels, per coordinate), or an upstream result whose
+  [`noise_scale`](@extref VisualGeometryToolkitCore.noise_scale) it is; the loss
+  width is then the strategy's efficiency constant times σ (Core's
+  `efficiency_constant(Shape, 2)` unless the strategy states one). `width = w`:
+  the loss width itself (pixels). A refine estimates no scale; the metadata
+  records the one it ran with (`scale`, `scale_source`, `loss_width`) and the
+  weights ρ′ at the estimate.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -494,35 +507,6 @@ function _refine_camera_and_poses(
     return (; camera = est.camera, poses = est.poses), rest...
 end
 
-# The strategies a refine runs (the RANSAC local optimization's own types, from the same TOML tables, under `find_*`'s
-# keyword `optimization_strategy`): Irls{K} and Triggs{K} at a width of their own (an efficiency constant of the caller's
-# `scale`, or an absolute width), or the least-squares shape. A refine estimates no scale, so an efficiency constant needs
-# the caller's `scale`. A strategy that follows a scorer's inlier threshold, or one anchored on a RANSAC consensus set,
-# has nothing to read here.
-function _check_local_optimization(lo, scale)
-    lo === nothing && (scale === nothing || throw(ArgumentError(
-        "refine_camera_and_poses: a `scale` sets a `optimization_strategy` strategy's width; least squares " *
-        "(optimization_strategy = nothing) reads none")))
-    lo === nothing && return nothing
-    scale === nothing || (isfinite(scale) && scale > 0) ||
-        throw(ArgumentError("refine_camera_and_poses: scale = $scale is not a positive finite number of pixels"))
-    lo isa Union{Irls, Triggs} || throw(ArgumentError(
-        "refine_camera_and_poses: optimization_strategy = $(nameof(typeof(lo))) needs a RANSAC consensus set, which a refine has " *
-        "none; a refine takes Irls{Shape} or Triggs{Shape}"))
-    strategy_loss(lo) === GaussianShape || lo_width(lo) !== nothing || throw(ArgumentError(
-        "refine_camera_and_poses: optimization_strategy = $(VgtkCore.lo_label(lo)) follows a RANSAC scorer's inlier threshold, " *
-        "which a refine has none: give it a `efficiency_constant` (of the caller's `scale`) or a `loss_width`"))
-    strategy_loss(lo) === GaussianShape || !(lo_width(lo) isa EfficiencyConstant) || scale !== nothing || throw(ArgumentError(
-        "refine_camera_and_poses: optimization_strategy = $(VgtkCore.lo_label(lo)) is a multiple of the noise scale, and a refine " *
-        "estimates none: supply `scale` (the detections' noise σ, pixels), or give an Irls strategy a `loss_width`"))
-    return nothing
-end
-
-# The retired keyword `robust` (refused, naming its successor: the strategy is `optimization_strategy`, as every refine takes it).
-struct _RetiredRobust end
-_check_retired_robust(::_RetiredRobust) = nothing
-_check_retired_robust(_) = throw(ArgumentError(
-    "refine_camera_and_poses: the keyword `robust` is retired: it is `optimization_strategy` (the strategy, as every refine takes it)"))
 
 # The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
 # (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
@@ -538,16 +522,15 @@ function _refine_bundle(
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
         xtol::Real = _dflt("refine_camera_and_poses", "xtol"),
         max_time::Union{Nothing, Real} = nothing,
-        optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
-        scale::Union{Nothing, Real} = nothing,
-        robust = _RetiredRobust(),
+        optimization_strategy = _refine_default(Val(:refine_camera_and_poses)),
+        scale = nothing, width = nothing,
+        robust = _RetiredKeyword(),
         local_optimization = _RetiredKeyword(),   # refused, naming its successor
     )
-    _check_retired_robust(robust)
+    _refuse_retired_keyword(robust, :robust, :optimization_strategy)
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    lo = optimization_strategy
-    _check_local_optimization(lo, scale)
+    lo, input, loss = _bundle_loss("refine_camera_and_poses", optimization_strategy, scale, width)
     camera = _camera_model(bounded)
     V, B = length(poses), length(boards)
     names = parameter_names(camera)
@@ -601,20 +584,19 @@ function _refine_bundle(
     end
     # Least squares is the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
     # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
-    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
-    # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
+    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's
+    # `loss_robustifier`); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
     # (relative) or `max_iter` cycles. A refine estimates no scale.
-    weights = ones(n); used_scale = nothing; used_width = nothing; stationarity_blocks = costs
+    stationarity_blocks = costs
+    irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
         problem, result = solve(costs, vars0)
         iters = result.niterations
+        weights = unit_weights(Float64, n)
     else
         iters = 0
-        # the caller's scale (an absolute `loss_width` reads none: its consensus set is never read)
-        cs = ConsensusSet(; count = n, s2 = scale === nothing ? 1.0 : Float64(scale)^2, epoch = 0)
-        loss = lo_loss(lo, cs, nothing, nothing)
-        shape = strategy_loss(lo)(); sq = sq_loss_width(loss)
-        used_scale = scale === nothing ? nothing : Float64(scale); used_width = sqrt(sq)
+        shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
+        used_width = sqrt(sq)
         sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
         if lo isa Triggs
             robustifier = loss_robustifier(shape, used_width)
@@ -628,16 +610,17 @@ function _refine_bundle(
             prev = sum(x -> VgtkCore.ρ(shape, x, sq), q)
             problem, result = weighted_solve(vars0, q)
             iters += result.niterations
+            irls_capped = true          # until a cycle's robust cost stops decreasing
             for _ in 2:lo.max_iter
                 q = sqnorms(problem.variables)
                 cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-                prev - cost <= ftol * abs(cost) && break
+                prev - cost <= ftol * abs(cost) && (irls_capped = false; break)
                 prev = cost
                 problem, result = weighted_solve(problem.variables, q)
                 iters += result.niterations
             end
         end
-        weights = [weight(shape, x, sq) for x in sqnorms(problem.variables)]
+        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′ (exactly as the stationarity rows read it)
         # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end
@@ -649,13 +632,17 @@ function _refine_bundle(
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
+    code = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     ν = 2n - p
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
-    meta = CameraPosesRefineMetadata(r, S / ν, ν, free, nothing, _row_norms(r), weights, used_scale, used_width)
+    meta = CameraPosesRefineMetadata{typeof(lo)}(r, S / ν, ν, free, nothing, _row_norms(r), weights,
+        input === nothing ? NaN : input.scale, input === nothing ? ScaleNone : input.source, sqrt(_sq_loss_width(loss)))
+    # `n` the weights' support and `rms` the weighted one (the stack's one rule, loop.jl): under least squares every
+    # correspondence and √(S/n)
+    support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
     return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), code,
-        iters, sqrt(S / n), n, meta
+        iters, rms, support, meta
 end
 

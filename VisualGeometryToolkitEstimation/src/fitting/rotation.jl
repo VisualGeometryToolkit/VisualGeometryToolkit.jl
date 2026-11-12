@@ -49,22 +49,20 @@ function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
 end
 
 """
-    refine_rotation(R, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
+    refine_rotation(R, camera1, camera2, pixel_cs; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
     refine_rotation(R, bearings::Csponds; kwargs...)
-        -> RansacEstimate
+        -> FitResult{M, RefineMetadata}
 
 The rotation `R` of a camera that only rotated, refined against its
-correspondences: [`find_rotation`](@ref)'s step without the sampling, on the
-same [`RotationProblem`](@ref) (the forms of `find_rotation`). `optimization_strategy`
-is the rotation's RANSAC local-optimization step, run here alone from the given
-model (no sampling). Every default is `find_rotation`'s (`[pipelines.rotation]`);
-the keywords are those of every `refine_*`, documented on
-[`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 2 correspondences.
+correspondences from `R` itself, on [`find_rotation`](@ref)'s
+[`RotationProblem`](@ref) (its forms; codimension 2): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.rotation] optimization_strategy`). Fewer than 2 correspondences: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
-    return _guarded_refine(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), :rotation, R; kwargs...)
+    return _guarded_refine(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), Val(:rotation), R; kwargs...)
 end
 function refine_rotation(R, bearings::VgtkCore.Csponds; kwargs...)
-    return _guarded_refine(() -> RotationProblem(bearings), RotationProblem, length(bearings), :rotation, R; kwargs...)
+    return _guarded_refine(() -> RotationProblem(bearings), RotationProblem, length(bearings), Val(:rotation), R; kwargs...)
 end

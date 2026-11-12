@@ -74,6 +74,7 @@ const RETIRED_NAMES = String[
     # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",
     "NoLocal" * "Optimization",   # no local optimization is `nothing` (TOML "none")
+    "_check_local" * "_optimization",   # refine_camera_and_poses' strategy check is the refine contract's (`_bundle_loss`)
     # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
     # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
     "scale" * "_multiple", "Scale" * "Multiple", "plain_scale" * "_multiple", "deployed_scale" * "_multiple", "deployed" * "_shape",

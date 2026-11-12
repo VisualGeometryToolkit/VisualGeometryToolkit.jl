@@ -7,6 +7,10 @@
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: FitResult, weights, weight_kind, inlier_mask,
         WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, RansacScoring, MsacScoring, StudentTUniformScoring
+    using VisualGeometryToolkitCore: Irls, Triggs, WelschShape, HuberShape
+    # a robust strategy's stage reports loss weights (no cut of their own); least squares (`nothing`) binary ones
+    @test weight_kind(Triggs{WelschShape, Nothing}) === IrlsWeights() && weight_kind(typeof(Irls{HuberShape}())) === IrlsWeights()
+    @test weight_kind(Nothing) === BinaryWeights()
 
     # A metadata whose kind is its producer's type parameter, as RansacMetadata{T, S}.
     struct _Meta{P, T}

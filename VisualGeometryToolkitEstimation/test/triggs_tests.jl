@@ -14,7 +14,9 @@
     @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
                                        class = :circle) == lo
     @test optimization_strategy_from_toml(config_dict(lo); class = :circle) == lo
-    # the width is always an efficiency constant, at the TOML boundary too
+    # a table with no constant reads the strategy with none (a refine's efficiency_constant(K, d))
+    @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy"); class = :circle) ==
+        Triggs{CauchyShape}()
     @test_throws ArgumentError optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "loss_width" => 2.0);
                                                             class = :circle)
 end
@@ -84,9 +86,10 @@ end
         @test optimization_strategy_from_toml(toml; class = :circle) == lo
         @test optimization_strategy_from_toml(config_dict(lo); class = :circle) == lo
         # outlier-free points at σ = 0.3 px: to the noise level (σ/√100 ≈ 0.03 px)
-        r = refine_circle(g, pts; optimization_strategy = lo)
+        r = K === GaussianShape ? nothing : refine_circle(g, pts; optimization_strategy = lo, scale = 0.3)
+        r === nothing && continue          # (least squares is spelled `nothing` on a refine: refine_contract_tests.jl)
         c = estimate(r)
-        @test converged(r) && r.lo_retcode === :converged
+        @test converged(r)
         @test norm(SVector(c.center...) - C₀) < 0.1 && abs(c.r - R₀) < 0.1
     end
     @test n_admitted == 7

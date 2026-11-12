@@ -5,6 +5,15 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
+  `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
+  ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,
+  Geman–McClure, Cauchy, smooth TLS, TLS, Barron) follow the scorer's decision point as before; a shape with neither is an `ArgumentError`
+  naming it and the remedy.
+- `Triggs{K}()` is constructible with no efficiency constant (`width === nothing`): a refine
+  (VisualGeometryToolkitEstimation's `refine_*`, whose default it is) runs it at `efficiency_constant(K, d)` times the
+  caller's `scale`, and a RANSAC local optimization follows the scorer's `decision_boundary`, as `Irls{K}()` does.
+  It was an `UndefKeywordError`.
 - **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
   no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are

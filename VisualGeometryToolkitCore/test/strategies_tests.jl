@@ -76,8 +76,9 @@
         # its own path: the Loss-Path label and the path's marker, beside IRLS's
         @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
         @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)
-        # the multiple is required, and the width is always an efficiency constant
-        @test_throws UndefKeywordError Triggs{CauchyShape}()
+        # the width is always an efficiency constant; none stated (a refine's efficiency_constant(K, d), a RANSAC's
+        # scorer boundary) is `nothing`
+        @test Triggs{CauchyShape}().width === nothing
         @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
         @test Triggs{GaussianShape}().width === nothing                      # the plain chart LM: no width
         # fixed_width's freeze is the one absolute width it takes: the consensus
@@ -88,4 +89,55 @@
         @test with_width(frozen, lo_width(lo)) == lo
         @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(efficiency_constant = 2.5), 4.0))
     end
+end
+
+# A strategy with no width follows the scorer (`loss_at`): a shape with a decision width at the scorer's decision point,
+# unchanged; one without (Huber) at the table's efficiency_constant(K, d) times the consensus scale (the owner's
+# ruling, 2026-11-12); a shape with neither is refused by name, never a MethodError.
+@testitem "strategies: a no-width strategy follows the scorer" begin
+    using Test
+    struct NeitherShape <: VisualGeometryToolkitCore.AbstractLossShape end   # no decision width, no efficiency constant
+    # A no-width strategy of a shape that carries a parameter (LODR's BarronHQ, whose lift arm calls
+    # `loss_at(lo, BarronShape(lo.α), cs, scoring, buf)`): Irls/Triggs take zero-argument shape tags only.
+    struct ScorerFollowing <: VisualGeometryToolkitCore.AbstractOptimizationStrategy end
+    VisualGeometryToolkitCore.lo_width(::ScorerFollowing) = nothing
+    using VisualGeometryToolkitCore: Irls, Triggs, loss_at, ConsensusSet, MsacScoring, HuberShape, WelschShape, TLSShape,
+        CauchyShape, BarronShape, sq_loss_width, efficiency_constant, decision_width, decision_boundary
+    cs = ConsensusSet(; count = 50, s2 = 0.25, epoch = 0)          # ŝ = 0.5
+    sc = MsacScoring(2; threshold = 3.0)                            # codimension 2, a 3 px threshold
+    for lo in (Irls{HuberShape}(), Triggs{HuberShape}())
+        loss = @inferred loss_at(lo, HuberShape(), cs, sc, nothing)
+        @test sqrt(sq_loss_width(loss)) ≈ efficiency_constant(HuberShape, 2) * 0.5
+    end
+    # the decision-width shapes: the scorer's decision point, as before
+    for K in (WelschShape, CauchyShape, TLSShape)
+        loss = loss_at(Irls{K}(), K(), cs, sc, nothing)
+        @test sqrt(sq_loss_width(loss)) ≈ decision_width(K(), decision_boundary(sc, nothing))
+    end
+    # Barron has a decision width (its half-weight point): followed as before, at every α, from a no-width strategy
+    # called as LODR's Barron lift arms call it
+    for α in (-2.0, 0.0, 1.0)
+        loss = @inferred loss_at(ScorerFollowing(), BarronShape(α), cs, sc, nothing)
+        @test sqrt(sq_loss_width(loss)) ≈ decision_width(BarronShape(α), decision_boundary(sc, nothing))
+        @test decision_boundary(BarronShape(α), sqrt(sq_loss_width(loss))) ≈ 3.0
+    end
+    # every concrete shape with a decision_width method follows the scorer — the trait is read off the methods, so no
+    # hand-kept list can drop one; Huber (none) runs at its efficiency constant
+    shapes = (WelschShape(), VisualGeometryToolkitCore.GemanMcclureShape(), CauchyShape(), VisualGeometryToolkitCore.SmoothTLSShape(),
+              TLSShape(), BarronShape(0.5), HuberShape())
+    for sh in shapes
+        has = hasmethod(decision_width, Tuple{typeof(sh), Float64})
+        @test VisualGeometryToolkitCore._has_decision_width(sh) == has
+        has && @test sqrt(sq_loss_width(loss_at(ScorerFollowing(), sh, cs, sc, nothing))) ≈
+                     decision_width(sh, decision_boundary(sc, nothing))
+    end
+    @test count(sh -> VisualGeometryToolkitCore._has_decision_width(sh), shapes) == 6
+    # a shape with neither a decision width nor an efficiency constant (a test-local one): refused, naming it and the
+    # remedy, never a MethodError
+    e = try
+        loss_at(ScorerFollowing(), NeitherShape(), cs, sc, nothing); nothing
+    catch err
+        err
+    end
+    @test e isa ArgumentError && occursin("NeitherShape", e.msg) && occursin("efficiency_constant", e.msg)
 end

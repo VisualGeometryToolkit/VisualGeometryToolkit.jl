@@ -135,6 +135,13 @@ RansacEstimate
 RansacMetadata
 ```
 
+Every RANSAC-class `refine_*` returns a `FitResult` with [`RefineMetadata`](@ref)
+(the refine contract: no scorer, the caller's scale or width):
+
+```@docs
+RefineMetadata
+```
+
 ## Inlier Ratio
 
 ```@docs

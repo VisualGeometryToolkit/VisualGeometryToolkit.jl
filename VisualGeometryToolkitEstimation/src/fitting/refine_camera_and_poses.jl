@@ -73,24 +73,35 @@ a SplineLens camera `s²` reads the whole cost, the
 third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
 6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
-unknowns). All forward as properties:
+unknowns). Then the robust record: `residual_norms` (one per correspondence,
+pixels), `weights` (the loss's ρ′ at the estimate under a robust strategy, all
+ones — lazily — under least squares), and the scale the loss ran at, `scale` and
+`scale_source` (`ScaleGiven`, or `NaN`/`ScaleNone` under least squares;
+[`noise_scale`](@extref VisualGeometryToolkitCore.noise_scale) reads it) and
+`loss_width` (`NaN` under least squares). All forward as properties:
 `result.residuals`, `result.spline`, ….
 """
-struct CameraPosesRefineMetadata
+struct CameraPosesRefineMetadata{L, W <: AbstractVector{Float64}}
     residuals::Vector{Float64}
     s²::Float64
     ν::Int
     free::Tuple{Vararg{Symbol}}
     spline::Union{Nothing, NamedTuple}
     residual_norms::Vector{Float64}
-    weights::Vector{Float64}
-    scale::Union{Nothing, Float64}
-    loss_width::Union{Nothing, Float64}
+    weights::W
+    scale::Float64
+    scale_source::ScaleSource
+    loss_width::Float64
 end
-# A least-squares refine: unit weights, no scale and no loss width; the norms from the rows.
+CameraPosesRefineMetadata{L}(residuals, s², ν, free, spline, norms, weights::W, scale, source, loss_width) where {L, W} =
+    CameraPosesRefineMetadata{L, W}(residuals, Float64(s²), Int(ν), free, spline, norms, weights, Float64(scale), source,
+                                    Float64(loss_width))
+# A least-squares refine: unit weights, no scale (ScaleNone) and no loss width; the norms from the rows.
 CameraPosesRefineMetadata(residuals::Vector{Float64}, s²::Real, ν::Integer, free, spline) =
-    CameraPosesRefineMetadata(residuals, Float64(s²), Int(ν), free, spline, _row_norms(residuals),
-                              ones(length(residuals) ÷ 2), nothing, nothing)
+    CameraPosesRefineMetadata{Nothing}(residuals, s², ν, free, spline, _row_norms(residuals),
+                                       unit_weights(Float64, length(residuals) ÷ 2), NaN, ScaleNone, NaN)
+# The weights' kind is the strategy's: a robust loss's ρ′, or L2's unit weights.
+VgtkCore.weight_kind(::Type{<:CameraPosesRefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)
 _row_norms(r) = [hypot(r[2k - 1], r[2k]) for k in 1:(length(r) ÷ 2)]
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
@@ -604,7 +615,7 @@ function _refine_bundle(
     # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
     # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
     # (relative) or `max_iter` cycles. A refine estimates no scale.
-    weights = ones(n); used_scale = nothing; used_width = nothing; stationarity_blocks = costs
+    weights = unit_weights(Float64, n); used_scale = NaN; used_width = NaN; stationarity_blocks = costs
     if lo === nothing
         problem, result = solve(costs, vars0)
         iters = result.niterations
@@ -614,7 +625,7 @@ function _refine_bundle(
         cs = ConsensusSet(; count = n, s2 = scale === nothing ? 1.0 : Float64(scale)^2, epoch = 0)
         loss = lo_loss(lo, cs, nothing, nothing)
         shape = strategy_loss(lo)(); sq = sq_loss_width(loss)
-        used_scale = scale === nothing ? nothing : Float64(scale); used_width = sqrt(sq)
+        used_scale = scale === nothing ? NaN : Float64(scale); used_width = sqrt(sq)
         sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
         if lo isa Triggs
             robustifier = loss_robustifier(shape, used_width)
@@ -654,7 +665,8 @@ function _refine_bundle(
     S = sum(abs2, r)
     ν = 2n - p
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
-    meta = CameraPosesRefineMetadata(r, S / ν, ν, free, nothing, _row_norms(r), weights, used_scale, used_width)
+    meta = CameraPosesRefineMetadata{typeof(lo)}(r, S / ν, ν, free, nothing, _row_norms(r), weights, used_scale,
+        isnan(used_scale) ? ScaleNone : ScaleGiven, used_width)
     return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), code,
         iters, sqrt(S / n), n, meta
 end

@@ -276,7 +276,7 @@ end
     using Random: Xoshiro
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, optimization_strategy_from_toml, config_dict
-    using VisualGeometryToolkitCore: EuclideanMap, exp_so3
+    using VisualGeometryToolkitCore: EuclideanMap, exp_so3, ScaleNone, ScaleGiven
     using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
@@ -289,7 +289,8 @@ end
               for (X, u) in cs] for cs in views]
     err(r) = maximum(abs.(parameter_vector(estimate(r).camera) - θ)[[1, 4, 5]])      # f, cx, cy, pixels
     ls = refine_camera_and_poses(cam0, poses0, noisy)
-    @test err(ls) > 3.0 && ls.scale === nothing && ls.loss_width === nothing && all(==(1.0), ls.weights)
+    @test err(ls) > 3.0 && isnan(ls.scale) && ls.scale_source === ScaleNone && isnan(ls.loss_width) &&
+        all(==(1.0), ls.weights)
     # least squares is the default: the same estimate, bit for bit
     ls2 = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = nothing)
     @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
@@ -301,7 +302,7 @@ end
     for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo)
         rs = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = 0.2)
-        @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
+        @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2 && rs.scale_source === ScaleGiven
         @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
     end
@@ -317,7 +318,7 @@ end
     end
     # an absolute width needs no scale (Irls; Triggs takes an efficiency constant only): Huber at loss_width 1.345 · 0.2 px
     rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(loss_width = 1.345 * 0.2))
-    @test retcode(rw) === :converged && err(rw) < 0.4 && rw.scale === nothing && rw.loss_width ≈ 1.345 * 0.2
+    @test retcode(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.scale_source === ScaleNone && rw.loss_width ≈ 1.345 * 0.2
     # the strategy from the LO's own TOML reader, and back
     t = Dict("type" => "triggs", "loss" => "welsch", "efficiency_constant" => 2.98)
     lo = optimization_strategy_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization_strategy")

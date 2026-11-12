@@ -172,7 +172,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **`check_naming` rule R13: the one parameter-holding keyword is `fixed`.** `free`, `fix`, `fixed_params` and `hold`
   are flagged as a KEYWORD of a `fit_*`/`refine_*` call or signature (and their `_`-prefixed internals) and as a key of a
   refine or LM TOML table; the bare word (comments such as "CUDA-free", locals, fields, accessors such as `free_names`,
-  other functions) is not. A refusal slot (`free = _RetiredKeyword()`) and a `@test_throws` call are no finding.
+  other functions) is not. A refusal slot (`free = RetiredKeyword()`) and a `@test_throws` call are no finding.
 - **New: the core optimization strategies `Irls{K}` and `Triggs{K}` are VisualGeometryToolkitCore's** (moved from
   VisualGeometryToolkitEstimation, so PoseLib and every estimator take the same configuration types), with `LOSS_TAGS`,
   their width modes and identity (`strategy_loss`, `lo_loss`, `fixed_width`, `lo_width_value`, `lo_admits_shape`), the

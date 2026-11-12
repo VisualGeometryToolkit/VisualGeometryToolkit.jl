@@ -127,3 +127,6 @@ Downstream copies, outside this release (listed for their owners; not release it
   composition `_cell_grid_map(m, mode) = raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})` builds every `LinearRaw`'s
   plane maps and every mosaic channel map from it. RadiometricCamera's probe mosaic (`_CELL_PROBE`, and the cvpr2027
   `_FRAME_PROBE` alias of it), built only to read that map, goes on RC's own branch.
+- [x] ONE record of that map: the private `_frame_map_record(S)`, which writes both `raw_provenance(LinearRaw{mode}).frame_map`
+  and an image's `raw_provenance(L).frame_map`; an image's `mode` is the mode record's. With `raw_frame_map(LinearRaw{mode})`
+  it lets RC delete `_CELL_PROBE` and `_FRAME_PROBE` entirely.

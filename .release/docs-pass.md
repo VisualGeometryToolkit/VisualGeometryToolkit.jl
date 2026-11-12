@@ -9,27 +9,25 @@ Core adds the one public name `is_inside_texel_centres` (transforms/warp.jl, doc
 `@autodocs`): whether a position lies in the closed rectangle of the texel centres of `bilinear_sample`'s half-texel
 chart, exactly where `bilinear_weights` does not extend the edge. And one method of the exported `raw_frame_map`,
 `raw_frame_map(::Type{LinearRaw{mode}})` (raw/linear_raw.jl, on api/raw.md through its `@autodocs`): a cell mode's frame
-map without an image. No new exported name; nothing removed or renamed in any package. `bilinear_weights` and the cell
-images' maps are unchanged bit for bit (they now read the private chart `_texel_chart`/`_clamp_to_centres` and the mode
-method respectively).
+map without an image. And one method of the public `raw_provenance`, `raw_provenance(::Type{LinearRaw{mode}})`
+(raw/linear_raw.jl, on api/raw.md): the `(; mode, frame_map)` an image's provenance holds, by mode. No new exported name; nothing removed or renamed in any package. `bilinear_weights` and the cell
+images' maps and records are unchanged bit for bit (they now read the private chart `_texel_chart`/`_clamp_to_centres`, the
+mode method and `_frame_map_record` respectively).
 
 ## 2. Static findings
 
 | check | result |
 |---|---|
-| docstrings and pages | `is_inside_texel_centres`: a docstring, on api/warping.md, and a line in that page's prose beside `bilinear_weights`. `raw_frame_map(::Type{LinearRaw{mode}})`: a docstring, on api/raw.md, a line in that page's intro and a row in the guide's raw_frame_map table (guide/raw-images.md) |
+| docstrings and pages | `is_inside_texel_centres`: a docstring, on api/warping.md, and a line in that page's prose beside `bilinear_weights`. `raw_frame_map(::Type{LinearRaw{mode}})`: a docstring, on api/raw.md, a line in that page's intro and a row in the guide's raw_frame_map table (guide/raw-images.md). `raw_provenance(::Type{LinearRaw{mode}})`: a docstring, on api/raw.md, and the same intro line |
 | CHANGELOG | a Core 0.9.4 section above 0.9.3 |
 | versions | Core 0.9.4; no other package moves |
 | in-repo compat | none needs moving: every Core compat in the repo ("0.9", "0.9.2", "0.9.3") admits 0.9.4, and no in-repo package uses either addition |
 
 ## 3. Executed on the final RC
 
-The final RC is eff6ff34 (0.9.4 on 1c7581ec). Rebased onto the pushed 0.9.3 main, b7ad736e, it is ebc41b49, with the same tree
-outside `.release/` (`git diff eff6ff34 ebc41b49 -- ':!.release'` is empty). The gate ran on two fresh clones, one per Julia
-version: a `git clone` with no Manifest, its workspace resolved from scratch. Counts are pass / fail / error / broken.
+To be filled from the fresh-clone gate on the head with the provenance method.
 
-| Package | 1.13.3 GPU (10511) | 1.13.3 CPU (10512) | 1.12.7 GPU (10515) | 1.12.7 CPU (10516) | docs 1.13 / 1.12 |
-|---|---|---|---|---|---|
+---|---|---|---|---|---|
 | VisualGeometryToolkitCore | 410869 / 0 / 0 / 2 | 409291 / 0 / 0 / 30 | 410866 / 0 / 0 / 2 | 409288 / 0 / 0 / 30 | 0 / 0 (10513, 10517) |
 | VisualGeometryToolkitIO | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 0 / 0 (10514, 10518) |
 | VisualGeometryToolkitEstimation | 20961 / 0 / 0 / 3 | 20951 / 0 / 0 / 3 | 20949 / 0 / 0 / 3 | 20939 / 0 / 0 / 3 | 0 / 0 |

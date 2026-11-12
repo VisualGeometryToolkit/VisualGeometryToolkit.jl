@@ -14,11 +14,9 @@
     @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
                                        class = :circle) == lo
     @test optimization_strategy_from_toml(config_dict(lo); class = :circle) == lo
-    @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)
-    # the width is always an efficiency constant; with none stated, a refine's efficiency_constant(K, d), a RANSAC's
-    # scorer boundary
-    @test lo_width(Triggs{CauchyShape}()) === nothing
-    @test_throws ArgumentError Triggs{CauchyShape}(loss_width = 2.0)
+    # a table with no constant reads the strategy with none (a refine's efficiency_constant(K, d))
+    @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy"); class = :circle) ==
+        Triggs{CauchyShape}()
     @test_throws ArgumentError optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "loss_width" => 2.0);
                                                             class = :circle)
 end

@@ -48,27 +48,28 @@ per-correspondence weights as its `weights` column.
 | Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
 | A camera model re-expressed in another family (a lens family, a `SplineLens` and its forward spline) over a region | `fit_camera` | fit | RVG |
 | Line through points carrying covariances | `fit_line` | fit | RVG |
-| A `find_*`'s model refined from a given one (its local optimization alone) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
+| A model refined from a given one (no scorer: the caller's scale or width) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
 | Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |
 
 The kind fixes how a call can fail: an algorithm is one deterministic computation
 and can only be degenerate; a fit can fail to converge; a find is randomized;
 a refine can end in a local minimum.
 
-### `find_*` = sampling + `refine_*`
+### `find_*` and `refine_*`
 
-Every RVG `find_*` is RANSAC's sampling around one local-optimization step, and
-its `refine_*` is that step alone, run once from a given model (guess first,
-then the data as the `find_*` takes them): the guess is scored as a hypothesis
-is, a consensus-anchored strategy reads its scale off the guess's consensus
-set, and the refined model comes back as the same `RansacEstimate`. The two
-share the class's defaults, `scoring` and `workspace`, and take the same
-strategies — a `find_*` as `local_optimization_strategy`, a `refine_*` as
-`optimization_strategy` (one family of [`AbstractOptimizationStrategy`](@ref)
-types, two keywords) — so any strategy of the local-optimization contract plugs
-into both; only the sampling keywords (`max_trials`, `min_trials`, `config`,
-`rng`) are the `find_*`'s alone. A width is the scorer's: a bare `threshold`
-or `outlier_halfwidth` keyword is refused by both.
+Every RVG `find_*` is RANSAC's sampling around one local-optimization step: it
+scores hypotheses and ORIGINATES a scale (its result's `noise_scale`). Its
+`refine_*` starts from a given model (guess first, then the data as the
+`find_*` takes them) and estimates no scale: it runs no scorer, and its robust
+loss — `optimization_strategy = Triggs{Shape}` (the default, Welsch),
+`Irls{Shape}`, or `nothing` for least squares — runs at the caller's `scale`
+(a number, or an upstream result such as the `find_*`'s) times the loss's
+[`efficiency_constant`](@ref), or at a given `width`. It returns the refined
+model with per-datum loss weights and the scale it ran with. The two take one
+family of [`AbstractOptimizationStrategy`](@ref) types under two keywords
+(`local_optimization_strategy` on a `find_*`); the RANSAC-family seeded step,
+with a scorer and its consensus set, is VisualGeometryToolkitEstimation's
+`locally_optimize`.
 
 ## The robust-loss family
 

@@ -912,3 +912,70 @@ end
                                                            fixed = held, optimization_strategy = nothing)
     end
 end
+
+@testitem "refine_camera_and_poses: rotation-centre views of a held SplineLens camera — the spline route's block, its implicit Jacobian" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: norm
+    using Random: Xoshiro
+    import NLLSsolver
+    using VisualGeometryToolkitCore: estimate, converged, metadata, exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    cam = spline_truth()
+    # rotations to 0.4 rad (the parametric item's axes × 4): the centre is held well against the offset (at × 1 it slides with
+    # it, 6.6 mm least-squares error at this noise)
+    axes = 4 .* [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04)]
+    t = center_truth(axes)
+    start = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),
+                                t.c + SVector(0.01, -0.008, 0.012), t.d + SVector(-0.005, 0.004, 0.006))
+    rot_err(est) = maximum(norm(est.views.rotations[k] - R) for (k, R) in t.R)
+    exact = center_views(cam, t)
+    @testset "exact pixels: the truth, the camera held as given, no correspondence dropped" begin
+        r = refine_camera_and_poses(cam, start, exact; fixed = (:controls,), optimization_strategy = nothing)
+        @test converged(r) && scale_source(r) === ScaleNone
+        est = estimate(r)
+        @test est.camera === cam
+        # the floor is the two projection solves' (the pixels `project`'s, from the pinhole point; the block's from its cell's
+        # centre), each converged below its tolerance: measured rms 1.4e-5 px, c and d 1.7e-7 m, R 3.1e-7
+        @test norm(est.views.center - t.c) < 2.0e-6 && norm(est.views.offset - t.d) < 2.0e-6 && rot_err(est) < 3.0e-6
+        @test r.n == 5 * 63 && r.ν == 2 * 5 * 63 - (6 + 3 * 5) && r.rms < 1.0e-4
+        @test metadata(r).spline == (; n_dropped_window = 0, n_dropped_unprojected = 0)
+    end
+    @testset "noisy pixels: Triggs{Huber} at a given scale, Irls{Huber}, and an absolute width" begin
+        noisy = center_views(cam, t; σ = 0.3, rng = Xoshiro(5))
+        for (strategy, input) in ((Triggs{HuberShape}(efficiency_constant = 3.0), (; scale = 0.3)),
+                                  (Irls{HuberShape}(efficiency_constant = 1.345), (; scale = 0.3)),
+                                  (Triggs{HuberShape}(), (; width = 0.9)))
+            r = refine_camera_and_poses(cam, start, noisy; fixed = (:controls,), optimization_strategy = strategy, input...)
+            @test converged(r)
+            @test haskey(input, :scale) ? (scale_source(r) === ScaleGiven && noise_scale(r) == 0.3) : (scale_source(r) === ScaleNone && r.loss_width ≈ 0.9)
+            # σ = 0.3 px on 5 × 63 dots, no outliers: measured c, d errors 2.5–3.6 mm (least squares 2.8 mm), R 3.8–5.0e-3
+            est = estimate(r)
+            @test norm(est.views.center - t.c) < 6.0e-3 && norm(est.views.offset - t.d) < 6.0e-3 && rot_err(est) < 8.0e-3
+        end
+    end
+    @testset "the block: its Jacobian matches finite differences of its residual; type-stable" begin
+        ids = sort(collect(keys(t.R)))
+        poses = [VE._rotation_center_pose(VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k])), start.center, start.offset) for k in ids]
+        blocks, counts = VE._spline_center_blocks(cam, poses, [exact[k] for k in ids])
+        @test length(blocks) == 5 * 63 && counts == (; n_dropped_window = 0, n_dropped_unprojected = 0)
+        vars = Union{SVector{3, Float64}, VE._ViewRotationChart}[start.center, start.offset]
+        foreach(k -> push!(vars, VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)
+        h = 1.0e-6
+        for b in blocks[1:9:end]
+            vs = NLLSsolver.getvars(b, vars)
+            @test (@inferred NLLSsolver.getvars(b, vars)) isa Tuple{VE._ViewRotationChart, SVector{3, Float64}, SVector{3, Float64}}
+            @test (@inferred NLLSsolver.computeresidual(b, vs...)) isa SVector{2, Float64}
+            res, J = @inferred NLLSsolver.computeresjac(7, b, vs...)
+            @test res ≈ NLLSsolver.computeresidual(b, vs...) && size(J) == (2, 9)
+            col = 0
+            for k in 1:3, j in 1:3
+                col += 1
+                e = zeros(3); e[j] = h
+                f(δ) = NLLSsolver.computeresidual(b, ntuple(i -> i == k ? NLLSsolver.update(vs[i], δ) : vs[i], 3)...)
+                fd = (f(e) - f(-e)) / 2h
+                @test norm(J[:, col] - fd) <= 1.0e-6 * max(norm(fd), maximum(abs, J))
+            end
+        end
+    end
+end

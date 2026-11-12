@@ -23,7 +23,9 @@
 # one-parameter gauge. It is not pinned: such a set is refused (`ArgumentError`),
 # measured by the second singular value of the stacked rotation vectors
 # vanishing to rounding. The camera is held: a free camera's gauges are not the
-# views'.
+# views'. A SplineLens camera's correspondence is the held spline route's block on
+# the same three variables (refine_spline_camera_and_poses.jl), its projection
+# Jacobian the route's implicit one.
 # =============================================================================
 
 const _ViewRotationChart = VgtkCore.SO3Manifold{Float64}
@@ -93,8 +95,13 @@ keywords, the solve, the retcode, rms, `n` and the metadata are the bundle's
 
 The gauge: none when the views' relative rotations span two axes. Every
 relative rotation about one axis (or fewer than three views) leaves the centre
-free along it against the offset, and is an `ArgumentError`. Every point must
-project at the guess.
+free along it against the offset, and is an `ArgumentError`. Every point of a
+parametric camera must project at the guess. A SplineLens camera's
+correspondences are the held spline route's rows (its implicit projection
+Jacobian): one detected on an absent window, or one not projected within a cell
+of one, makes no row and is counted in the metadata's `spline`
+(`n_dropped_window`, `n_dropped_unprojected`); any other that does not project
+is an `ArgumentError`. Every strategy the bundle takes applies to both.
 
 The estimate is `(; camera, views)`: the camera as given, and the refined
 `RotationCenterViews` keyed like the input.
@@ -116,18 +123,8 @@ function refine_camera_and_poses(
     # the variables: the centre, the offset, then each view's rotation chart, in block order
     vars0 = Union{SVector{3, Float64}, _ViewRotationChart}[views.center, views.offset]
     foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
-    world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))   # the held board
-    F = (false, :rotation_center, false)
-    blocks = NLLSsolver.AbstractResidual[]
-    for (v, k) in enumerate(ids)
-        pose = _rotation_center_pose(_ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k])), views.center, views.offset)
-        for (j, c) in enumerate(csponds[k])
-            X, u = _correspondence(v, j, c)
-            all(isfinite, VgtkCore.reprojection_error(cm, pose, X, u)) || throw(ArgumentError(
-                "refine_camera_and_poses: view $(repr(k)), correspondence $j: the point $(X) does not project at the guess (behind the camera or outside the lens's domain)"))
-            push!(blocks, _BoardViewResidual{3, F, typeof(cm)}(SVector(2 + v, 1, 2), cm, world, world, X, u; chart = Nothing))
-        end
-    end
+    poses = [_rotation_center_pose(_ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k])), views.center, views.offset) for k in ids]
+    blocks, spline = _rotation_center_blocks(VgtkCore.Cameras.IntrinsicsRole(cm.lens), cm, poses, ids, csponds)
     p = 6 + 3N
     n = length(blocks)
     2n > p || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
@@ -138,5 +135,24 @@ function refine_camera_and_poses(
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
     return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.iterations, sol.rms, n,
-                     _bundle_metadata(sol, free, kw))
+                     _bundle_metadata(sol, free, kw; spline))
 end
+
+# The blocks of the rotation-centre views at their guess `poses` (block order `ids`), and what the metadata's `spline`
+# reports. A parametric camera: the bundle's own residual block per correspondence (the view `:rotation_center`, the held
+# identity board), every point projected at the guess; `nothing`. A SplineLens camera: the held spline route's block
+# per correspondence on the same three variables (`_spline_center_blocks`, refine_spline_camera_and_poses.jl: its
+# implicit projection Jacobian), and that route's counts of the correspondences it does not make a row.
+function _rotation_center_blocks(::VgtkCore.Cameras.FreeIntrinsics, cm, poses, ids, csponds)
+    world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))   # the held board
+    F = (false, :rotation_center, false)
+    blocks = _BoardViewResidual{3, F, typeof(cm), NLLSsolver.NoRobust, Nothing}[]
+    for (v, k) in enumerate(ids), (j, c) in enumerate(csponds[k])
+        X, u = _correspondence(v, j, c)
+        all(isfinite, VgtkCore.reprojection_error(cm, poses[v], X, u)) || throw(ArgumentError(
+            "refine_camera_and_poses: view $(repr(k)), correspondence $j: the point $(X) does not project at the guess (behind the camera or outside the lens's domain)"))
+        push!(blocks, _BoardViewResidual{3, F, typeof(cm)}(SVector(2 + v, 1, 2), cm, world, world, X, u; chart = Nothing))
+    end
+    return blocks, nothing
+end
+_rotation_center_blocks(_role, cm, poses, ids, csponds) = _spline_center_blocks(cm, poses, [csponds[k] for k in ids])

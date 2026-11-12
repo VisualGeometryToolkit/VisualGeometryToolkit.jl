@@ -675,7 +675,7 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
     return (; variables = problem.variables, code, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
-_bundle_metadata(sol, free, kw) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, nothing,
+_bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
     _row_norms(sol.residuals), sol.weights, kw.input === nothing ? NaN : kw.input.scale, kw.input === nothing ? ScaleNone : kw.input.source,
     sqrt(_sq_loss_width(kw.loss)))
 

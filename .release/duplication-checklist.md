@@ -117,3 +117,13 @@ Downstream copies, outside this release (listed for their owners; not release it
   v8 → v9 step. ONE test of the old grid type: `_is_old_grid_type`, used by the migration, the rig intrinsics supply and
   the Schöps reader.
 
+## 0.9.4 (Core alone)
+
+- [x] ONE half-texel chart: the private `_texel_chart` (the size check and a position's 0-based texel-centre
+  coordinates) and `_clamp_to_centres` (the clamp onto the centres' rectangle), read by `bilinear_weights` and the new
+  public `is_inside_texel_centres`. RadiometricCamera's `texel_weights` restated the chart beside its `bilinear_weights`
+  call (RC final audit item 9); it moves onto the predicate on RC's own branch.
+- [x] ONE cell-grid frame map: `raw_frame_map(::Type{LinearRaw{mode}})` returns `_CELL_FRAME_MAP`, and the one
+  composition `_cell_grid_map(m, mode) = raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})` builds every `LinearRaw`'s
+  plane maps and every mosaic channel map from it. RadiometricCamera's probe mosaic (`_CELL_PROBE`, and the cvpr2027
+  `_FRAME_PROBE` alias of it), built only to read that map, goes on RC's own branch.

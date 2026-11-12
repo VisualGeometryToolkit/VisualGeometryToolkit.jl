@@ -1,3 +1,33 @@
+# 0.9.4 docs pass (julia-docs-pass) — release-0.9.4
+
+The package released: VisualGeometryToolkitCore 0.9.4 alone, a patch (RadiometricCamera 0.8.0 waits for it). The others
+are unchanged. The baseline is 1c7581ec (release-0.9.3's head; 8ae2ea67 plus a test-only fix); the earlier passes are below.
+
+## 1. Public API since 1c7581ec
+
+Core adds the one public name `is_inside_texel_centres` (transforms/warp.jl, docstring on api/warping.md through its
+`@autodocs`): whether a position lies in the closed rectangle of the texel centres of `bilinear_sample`'s half-texel
+chart, exactly where `bilinear_weights` does not extend the edge. And one method of the exported `raw_frame_map`,
+`raw_frame_map(::Type{LinearRaw{mode}})` (raw/linear_raw.jl, on api/raw.md through its `@autodocs`): a cell mode's frame
+map without an image. No new exported name; nothing removed or renamed in any package. `bilinear_weights` and the cell
+images' maps are unchanged bit for bit (they now read the private chart `_texel_chart`/`_clamp_to_centres` and the mode
+method respectively).
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `is_inside_texel_centres`: a docstring, on api/warping.md, and a line in that page's prose beside `bilinear_weights`. `raw_frame_map(::Type{LinearRaw{mode}})`: a docstring, on api/raw.md, a line in that page's intro and a row in the guide's raw_frame_map table (guide/raw-images.md) |
+| CHANGELOG | a Core 0.9.4 section above 0.9.3 |
+| versions | Core 0.9.4; no other package moves |
+| in-repo compat | none needs moving: every Core compat in the repo ("0.9", "0.9.2", "0.9.3") admits 0.9.4, and no in-repo package uses either addition |
+
+## 3. Executed on the RC
+
+To be filled from the gate (Julia 1.13 and 1.12; Core GPU, CPU, docs), then the fresh-clone final gate after 0.9.3 is pushed.
+
+---
+
 # 0.9.3 docs pass (julia-docs-pass) — release-0.9.3
 
 The packages released: VisualGeometryToolkitCore 0.9.3 (one public name added), VisualGeometryToolkitIO 0.9.2 and

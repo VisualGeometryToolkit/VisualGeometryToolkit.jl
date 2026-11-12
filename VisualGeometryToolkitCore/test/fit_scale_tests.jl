@@ -161,9 +161,17 @@
         @test_throws UndefKeywordError PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0)
         let pws = PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0, prior = IGPrior(2.0, 0.1))
             @test pws.prior === IGPrior(2.0, 0.1)
-            @test_throws UndefKeywordError VisualGeometryToolkitCore.reset_posterior!(pws; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0)
             @test VisualGeometryToolkitCore.reset_posterior!(pws; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0,
                                                             prior = JeffreysPrior()).prior === JeffreysPrior()
+            # the in-place form: a keyword left out keeps the state's current value (the owner's ruling, 2026-11-12)
+            VisualGeometryToolkitCore.reset_posterior!(pws; ν = 6.0, s_hat_sq = 2.5, log_two_outlier_halfwidth = 3.0,
+                                                      prior = IGPrior(2.0, 0.1), codimension = 2, inlier_prior = 0.7)
+            VisualGeometryToolkitCore.reset_posterior!(pws; inlier_prior = 0.9999)       # only π, clamped
+            @test (pws.ν, pws.s_hat_sq, pws.log_two_outlier_halfwidth, pws.prior, pws.d_g) === (6.0, 2.5, 3.0, IGPrior(2.0, 0.1), 2)
+            @test pws.inlier_prior == 1 - 1.0e-3
+            VisualGeometryToolkitCore.reset_posterior!(pws)                                # nothing given: nothing moves
+            @test (pws.ν, pws.s_hat_sq, pws.log_two_outlier_halfwidth, pws.prior, pws.d_g, pws.inlier_prior) ===
+                  (6.0, 2.5, 3.0, IGPrior(2.0, 0.1), 2, 1 - 1.0e-3)
         end
     end
 end

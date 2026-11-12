@@ -187,16 +187,19 @@ function PosteriorWeightState(n::Int; ν::Real, s_hat_sq::Real, log_two_outlier_
 end
 
 """
-    reset_posterior!(pws; ν, s_hat_sq, log_two_outlier_halfwidth, prior, codimension = 1,
-                     inlier_prior = 0.5) -> pws
+    reset_posterior!(pws; ν, s_hat_sq, log_two_outlier_halfwidth, prior, codimension, inlier_prior) -> pws
 
 [`PosteriorWeightState`](@ref)`(n; …)` IN PLACE: the same parameters (ŝ² floored
 at eps, π clamped) on `pws`'s existing buffers, whose contents are left as
 they are — that constructor's buffers are uninitialized, so nothing may read
-them before writing. `prior` is required, as there.
+them before writing. A keyword left out keeps the state's CURRENT value (its
+`ν`, `ŝ²`, outlier support, scale prior, codimension and inlier prior), so a
+caller re-seeding one parameter states only that one (the floor and the clamp,
+idempotent, are applied as to a given value).
 """
-function reset_posterior!(pws::PosteriorWeightState; ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real,
-                          prior::IGPrior, codimension::Int = 1, inlier_prior::Real = 0.5)
+function reset_posterior!(pws::PosteriorWeightState; ν::Real = pws.ν, s_hat_sq::Real = pws.s_hat_sq,
+                          log_two_outlier_halfwidth::Real = pws.log_two_outlier_halfwidth,
+                          prior::IGPrior = pws.prior, codimension::Int = pws.d_g, inlier_prior::Real = pws.inlier_prior)
     pws.ν = Float64(ν); pws.s_hat_sq = max(Float64(s_hat_sq), eps())
     pws.log_two_outlier_halfwidth = Float64(log_two_outlier_halfwidth); pws.d_g = codimension
     pws.prior = prior; pws.inlier_prior = _clamp_inlier_prior(inlier_prior)

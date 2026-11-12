@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`reset_posterior!(pws; …)`: a keyword left out keeps the state's current value** (the owner's ruling, 2026-11-12;
+  `prior` was required and `codimension`, `inlier_prior` defaulted to 1 and ½), so a caller re-seeding one parameter
+  states only that one. A call that gives every keyword is unchanged.
+
 - **`rms(residuals, n = length(residuals))`**: the fits' root-mean-square residual `√(Σ r² / n)`, the one computation
   (a method of the `rms` accessor); VisualGeometryToolkitEstimation's `fit_camera`, `refine_camera_and_poses` (spline),
   and `fit_division_camera`'s step use it.

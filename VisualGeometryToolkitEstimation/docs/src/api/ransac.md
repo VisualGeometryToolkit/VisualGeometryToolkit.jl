@@ -269,7 +269,7 @@ import VisualGeometryToolkitCore as VgtkCore   # the machinery is VisualGeometry
 
 #   type     tag        path   scale  family  label   shape  parametric
 const ROWS = ((MyArm, "my_arm", :irls, nothing, nothing, "Mine", nothing, false),)
-const MY_LO_TAGS = VgtkCore.@lo_registry ROWS defaults = MY_DEFAULTS["optimization_strategy"]
+const MY_STRATEGY_TAGS = VgtkCore.@lo_registry ROWS defaults = MY_DEFAULTS["optimization_strategy"]
 ```
 
 The machinery is VisualGeometryToolkitCore's —

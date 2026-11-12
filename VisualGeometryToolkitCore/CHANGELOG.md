@@ -44,8 +44,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   reported as a whole-file copy of itself (`X ⇔ X`). Each file is now scanned once, by its real path, on its own side.
 - **`HartleyNormalization` applies to 3-D points**: `AffineMap(HartleyNormalization(), points3d[, weights])` maps
   `StaticVector{3}`s about their (weighted) centroid to mean distance √3 (Hartley & Zisserman), the normalization of a
-  least squares over lengths; a known centre stays 2-D (`ArgumentError`). One body serves both dimensions; the 2-D map
-  is unchanged, bit for bit.
+  least squares over lengths; a known centre stays 2-D (`ArgumentError`). Two bodies (`_hartley_map`, `_hartley_map_3d`)
+  share one acceptance rule (`_hartley_accept`) and degeneracy guard; the 2-D map is unchanged, bit for bit.
 - **`check_naming` retires `bundle_refine_relpose` and `filtered_rotation_averaging`** (VisualGeometryToolkitEstimation's
   `refine_relative_pose` and `fit_filtered_rotation_averaging`); conventions/units.md names the new one.
 - **`check_naming` retires `default_local_optimization` and `_fit_local_optimization`** (VisualGeometryToolkitEstimation's
@@ -61,7 +61,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.
   The two agree for an odd count up to rounding; for an even count the median of the norms averages the two middle
   norms, not their squares, so the seed moves slightly (the EM it starts converges to the same fixed point).
-- **`CSRMatrix` and the `:pool` grid selection default to `default_device()`** (the stack's GPU-first rule):
+- **Breaking: `CSRMatrix` and the `:pool` grid selection default to `default_device()`, and the `:pool` result gains a
+  `backend` field** (a caller comparing a whole `stage_selection(:pool, …)` result with `==` changes) (the stack's GPU-first rule):
   `CSRMatrix(A; device = default_device())` (was `KA.CPU()`), and `stage_selection(:pool, pairs, residuals; backend)`
   carries its backend (`default_device()` when none is supplied), on which `select_on_grid!` runs the exact kernels
   of a residual-quality family (they were hard-wired to `KA.CPU()`). On the host the selections are unchanged, bit for

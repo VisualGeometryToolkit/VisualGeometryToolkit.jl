@@ -10,7 +10,7 @@ non-central one is a `NoncentralSplineModel`).
   downstream merges `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`
   and `merge(…, PoseLib.POSELIB_STRATEGY_TAGS)`. No alias: the old name is retired in VisualGeometryToolkitCore's `check_naming`.
 - **The view-graph filters take Uncertain edges**: `rotation_loop_angle` (`filter_cycles`' residual),
-  `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
+  `filter_by_orientation` and so `fit_filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
   rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the
   edges `fit_rotation_averaging` accepts) and an `Uncertain` absolute rotation no longer throw `DimensionMismatch`.
 - **A RANSAC result's estimated scale is finite.** `_finalize` records `ScaleEstimated` only for a finite scale; a
@@ -47,7 +47,7 @@ non-central one is a `NoncentralSplineModel`).
   `ransac`/`locally_optimize` keyword's default) is `default_local_optimization_strategy`, and the fits' private
   default reader (B2's `_fit_strategy_default`) no longer spells `_fit_local_optimization`. Both old names are retired in VisualGeometryToolkitCore's
   `check_naming`.
-- **`[fit_division_camera] seed_nu = 1.0e4`**: the median-seeded posterior's start ν, which VisualGeometryToolkitCore's
+- **Config: a new key `[fit_division_camera] seed_nu = 1.0e4`** (a config table that names its keys gains it): the median-seeded posterior's start ν, which VisualGeometryToolkitCore's
   `median_seeded_posterior` no longer defaults (its priors are required). Unchanged in value.
 - **Breaking: parameters are held by `fixed`, the stack's one parameter-holding keyword** (the owner's ruling;
   NLLSsolver's word, OpenCV's `CALIB_FIX_*`). `refine_camera_and_poses` takes `fixed = ()` (every parameter refined but

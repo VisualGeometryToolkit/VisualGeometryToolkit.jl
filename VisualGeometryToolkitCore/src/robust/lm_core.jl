@@ -718,6 +718,51 @@ function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Re
 end
 
 """
+    is_stationary(blocks, variables, free::AbstractVector{Bool}; tol, ftol) -> Bool
+
+The same stall postcondition for an NLLSsolver problem's residual `blocks` at
+its `variables`, in the chart coordinates of the variables `free` marks (a held
+variable's columns are left out, as the solver held them): the cost
+NLLSsolver minimizes, `F = Σₖ ρ(‖rₖ‖²)` (`ρ` each block's `robustkernel`,
+the identity for a plain block), is stationary when `Σₖ ρ′ₖ‖rₖ‖² < ftol`, or
+when every free column of the √ρ′-weighted system is numerically orthogonal to
+its rows, `max_j |gⱼ| / (√wⱼ ‖√ρ′ r‖) ≤ tol` with `gⱼ = Σₖ ρ′ₖ Jₖⱼᵀ rₖ` and
+`wⱼ = Σₖ ρ′ₖ ‖Jₖⱼ‖²` — the test the matrix method above makes of the stacked
+rows `√ρ′ₖ rₖ` and Jacobian `√ρ′ₖ Jₖ`. The rows and their Jacobian
+(`NLLSsolver.computeresjac` of each block's free variables, as
+[`nlls_rows_and_jacobian`](@ref) evaluates them) are accumulated block by block
+into `g`, `w` and `F`: the problem's Jacobian is never held.
+"""
+function is_stationary(blocks, variables::AbstractVector, free::AbstractVector{Bool}; tol::Real, ftol::Real)
+    length(free) == length(variables) ||
+        throw(DimensionMismatch("is_stationary: $(length(variables)) variables, $(length(free)) free flags"))
+    offsets = cumsum([0; [free[v] ? Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v]))) : 0 for v in eachindex(variables)]])
+    g = zeros(offsets[end]); w = zeros(offsets[end]); F = 0.0
+    for c in blocks
+        vi = NLLSsolver.varindices(c); vs = NLLSsolver.getvars(c, variables)
+        flags = 0; cols = Int[]
+        for (k, v) in enumerate(vi)
+            free[v] || continue
+            flags |= 1 << (k - 1); append!(cols, (offsets[v] + 1):offsets[v + 1])
+        end
+        if flags == 0
+            r = NLLSsolver.computeresidual(c, vs...)
+            s = sum(abs2, r)
+            F += NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), s)[2] * s
+        else
+            r, J = NLLSsolver.computeresjac(flags, c, vs...)
+            s = sum(abs2, r)
+            ρ′ = NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), s)[2]
+            F += ρ′ * s
+            g[cols] .+= ρ′ .* (J' * r)
+            w[cols] .+= ρ′ .* vec(sum(abs2, J; dims = 1))
+        end
+    end
+    F < ftol && return true
+    return _column_cosine(g, w, sqrt(F)) <= tol
+end
+
+"""
     lm_retcode(converged::Int) -> Symbol
 
 The retcode of a chart-LM refit from the code [`lmsolve_chart!`](@ref)

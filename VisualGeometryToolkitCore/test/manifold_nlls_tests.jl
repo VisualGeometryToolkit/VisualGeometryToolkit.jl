@@ -180,6 +180,31 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test !is_stationary(J, [NaN, 0.0, 1.0]; tol = 1.0e-3, ftol = eps())     # a NaN fails
     end
 
+    @testset "is_stationary on residual blocks (the gradient accumulated, the Jacobian never held)" begin
+        truth = pose((0.2, -0.1, 0.3), (0.5, -0.4, 2.0))
+        xs = [SVector(cos(k), sin(2k), 0.3k) for k in 1:12]
+        noise = [0.01 * SVector(sin(3k), cos(5k), sin(7k)) for k in 1:12]
+        blocks = [_PointResidual(x, truth(x) + e) for (x, e) in zip(xs, noise)]
+        problem = NLLSsolver.NLLSProblem(RigidExpManifold6{Float64}, _PointResidual)
+        NLLSsolver.addvariable!(problem, RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8))))
+        foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
+        start = copy(problem.variables)
+        NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
+        # the cosine the matrix method reads, of the stacked rows and Jacobian (Core's assembler)
+        cosine(vars) = ((r, J) = VgtkCore.nlls_rows_and_jacobian(blocks, vars); VgtkCore._residual_cosine!(zeros(6), zeros(6), Matrix(J), r))
+        for vars in (problem.variables, start)
+            c = cosine(vars)
+            @test is_stationary(blocks, vars, [true]; tol = c * (1 + 1.0e-9), ftol = eps())   # the same quantity
+            @test !is_stationary(blocks, vars, [true]; tol = c * (1 - 1.0e-9), ftol = eps())
+        end
+        @test is_stationary(blocks, problem.variables, [true]; tol = 1.0e-6, ftol = eps())     # the LM's optimum
+        @test !is_stationary(blocks, start, [true]; tol = 1.0e-6, ftol = eps())                # its start
+        @test is_stationary(blocks, start, [false]; tol = 1.0e-6, ftol = eps())                # held: no column to test
+        exact_blocks = [_PointResidual(x, truth(x)) for x in xs]
+        @test is_stationary(exact_blocks, [RigidExpManifold6(truth)], [true]; tol = 0.0, ftol = 1.0e-20)   # an exact fit
+        @test_throws DimensionMismatch is_stationary(blocks, start, [true, false]; tol = 1.0e-6, ftol = eps())
+    end
+
     @testset "nlls_termination (its legacy Symbol) and loss_robustifier" begin
         J = [1.0 0.0; 0.0 2.0; 1.0 1.0]
         y = [1.0, 2.0, 4.0]

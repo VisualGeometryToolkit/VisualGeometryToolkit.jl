@@ -47,7 +47,7 @@ gpu_label() {
 
 # sbatch_site_options: the site's sbatch options of every launch, appended to the caller's array OPTS (--partition and
 # --account from VGTK_SLURM_PARTITION and VGTK_SLURM_ACCOUNT), and SBATCH_EXTRA's words into the array EXTRA, which the
-# caller passes last
+# caller gives last
 sbatch_site_options() {
   [ -n "${VGTK_SLURM_PARTITION:-}" ] && OPTS+=(--partition="$VGTK_SLURM_PARTITION")
   [ -n "${VGTK_SLURM_ACCOUNT:-}" ] && OPTS+=(--account="$VGTK_SLURM_ACCOUNT")

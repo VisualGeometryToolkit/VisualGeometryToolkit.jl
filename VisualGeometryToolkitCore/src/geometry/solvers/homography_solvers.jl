@@ -59,7 +59,7 @@ end
 @inline _selection(idx, u₁, u₂) = idx
 
 # Σᵢ wᵢ·f(ptsᵢ) from `s₀` and Σᵢ wᵢ over the accepted indices of `sel`
-# (`_hartley_accept`): the one weighted pass of both Hartley maps, left to right.
+# (`_hartley_accept`): the one weighted sum of both Hartley maps, left to right.
 function _hartley_sum(f, s₀, pts, sel, w, ::Type{T}) where {T}
     s = s₀; sw = zero(T)
     for i in sel
@@ -93,7 +93,7 @@ end
 
 # The 3-D Hartley map (a least squares over lengths): translation to the weighted
 # centroid, scale √3 over the weighted mean distance from it (Hartley & Zisserman
-# §4.9.2); the same weighted pass and degenerate guard as the 2-D map above.
+# §4.9.2); the same weighted sums and degenerate guard as the 2-D map above.
 function _hartley_map_3d(pts::AbstractVector{<:StaticVector{3, T}}, w::Union{Nothing, AbstractVector}) where {T}
     c, sw = _hartley_sum(p -> SVector{3, T}(p), zero(SVector{3, T}), pts, eachindex(pts), w, T)
     sw < eps(T) && return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))

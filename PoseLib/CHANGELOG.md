@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **`refine_relpose` refuses a non-finite bearing** by name (a pixel past a fisheye's fold back-projects to NaN), as
-  VisualGeometryToolkitEstimation's bearing gate does; before, `NaN` passed the unit-norm test. The strategy constant is
+  VisualGeometryToolkitEstimation's bearing gate does; before, `NaN` got through the unit-norm test. The strategy constant is
   VisualGeometryToolkitCore's `efficiency_constant(lo, d)` (the private copy deleted; the refusal of a truncation's
   missing constant now reads "TLS (TLSShape) has no efficiency constant (it is a truncation): …").
 

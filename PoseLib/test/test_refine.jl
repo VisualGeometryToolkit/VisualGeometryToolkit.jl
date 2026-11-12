@@ -197,7 +197,7 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         chart2 = [SVector(f[1] / f[3], f[2] / f[3], 1.0) for f in f2]
         @test_throws ArgumentError refine_relpose(
             seed, withattrs(Csponds(f1, chart2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
-        # A NaN bearing (a pixel past a fisheye's fold) is refused by name: `NaN > worst` would pass the norm test.
+        # A NaN bearing (a pixel past a fisheye's fold) is refused by name: `NaN > worst` would get through the norm test.
         nan1 = copy(f1); nan1[3] = SVector(NaN, NaN, NaN)
         nmsg = try
             refine_relpose(seed, withattrs(Csponds(nan1, f2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)

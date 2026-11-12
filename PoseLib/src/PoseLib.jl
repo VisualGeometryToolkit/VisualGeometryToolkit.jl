@@ -594,7 +594,7 @@ function _assert_unit_bearings(fs, which::AbstractString)
     worst = 0.0; at = 0
     @inbounds for i in eachindex(fs)
         # FINITE first, as cspond.jl's: `NaN > worst` is false, so a NaN bearing (a pixel the camera cannot
-        # back-project, e.g. past a fisheye's fold) would pass the norm test below.
+        # back-project, e.g. past a fisheye's fold) would get through the norm test below.
         all(isfinite, fs[i]) || throw(ArgumentError(
             "refine_relpose needs finite bearings; the $which at index $i is $(Tuple(fs[i])). A camera returns NaN " *
                 "for a pixel it cannot back-project (e.g. past a fisheye's fold) — drop that correspondence."

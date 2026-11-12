@@ -345,3 +345,18 @@ end
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.SeedKept)
 end
+
+# The reweighted fits' termination record is public (the owner's ruling on the BlobBoards duplication audit, ask 6):
+# a downstream reweighted loop (BlobBoards' per-blob IRLS) records its stops through it, an increment below its
+# tolerance as `IncrementSize`, a solve that failed as SciMLBase's `InternalLinearSolveFailed`.
+@testitem "irls_termination: the reweighted fits' one termination record, public" begin
+    using Test
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitCore: ReturnCode, IncrementSize, ClosedForm, IterationCap, NoRule
+    @test Base.ispublic(VgtkEstimation, :irls_termination)
+    @test !isdefined(VgtkEstimation, Symbol("_irls" * "_record"))
+    @test VgtkEstimation.irls_termination(true, false) === (ReturnCode.Success, IncrementSize)
+    @test VgtkEstimation.irls_termination(false, true) === (ReturnCode.Success, ClosedForm)
+    @test VgtkEstimation.irls_termination(false, false) === (ReturnCode.MaxIters, IterationCap)
+    @test VgtkEstimation.irls_termination(true, false; solve_failed = true) === (ReturnCode.InternalLinearSolveFailed, NoRule)
+end

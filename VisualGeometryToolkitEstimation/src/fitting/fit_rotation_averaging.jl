@@ -173,7 +173,7 @@ function fit_rotation_averaging(
     meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
     sw = _solve_weights(p, w)
     used, rms = _weighted_support_rms(sw, (norm(x)^2 for x in r))                # a zero weight drops its edge
-    return FitResult(out, _irls_record(tol_met, false)..., iter, rms, used, meta)
+    return FitResult(out, irls_termination(tol_met, false)..., iter, rms, used, meta)
 end
 
 # The iteration cap: an Irls strategy's own `max_iter`; least squares (`nothing`, unit loss weights) iterates too, at

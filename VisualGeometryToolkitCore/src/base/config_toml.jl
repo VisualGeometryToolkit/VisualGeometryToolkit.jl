@@ -82,7 +82,7 @@ function present_kwargs(d::AbstractDict, spec::Pair{String}...; fallback = nothi
 end
 
 """
-    check_keys(d::AbstractDict, allowed, section::AbstractString; retired = ())
+    check_keys(d::AbstractDict, allowed, section::AbstractString; retired = (), renamed = ())
 
 Refuse unknown keys in table `d` with an `ArgumentError` naming the section,
 the offending keys and the allowed set. A typo'd knob that silently does
@@ -95,8 +95,16 @@ because nothing read them, which recorded run sidecars (immutable provenance)
 legitimately still contain. Those load with a one-time warning; every other
 unknown key throws. Retirement is section-scoped on purpose — the same key in
 another table is a typo and must still fail.
+
+`renamed` is a collection of `(section, key) => new_key` pairs: keys whose knob
+lives on under a new name. Each is refused with an `ArgumentError` naming its
+new key (there is no alias: the old spelling never loads), before the unknown
+keys are checked; section-scoped like `retired`.
 """
-function check_keys(d::AbstractDict, allowed, section::AbstractString; retired = ())
+function check_keys(d::AbstractDict, allowed, section::AbstractString; retired = (), renamed = ())
+    for k in keys(d), ((sec, old), new) in renamed
+        sec == section && old == k && throw(ArgumentError("[$section] `$k` was renamed `$new` (no alias)"))
+    end
     unknown = setdiff(collect(String, keys(d)), allowed)
     ret = [k for k in unknown if (section, k) in retired]
     for k in ret

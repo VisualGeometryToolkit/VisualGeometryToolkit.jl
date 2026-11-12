@@ -111,7 +111,7 @@ function fit_rigid_alignment(
         iter += 1
         _irls_weights!(w, f, r)
         T_new = _weighted_rigid(as, bs, _solve_weights(prior, w))
-        T_new === nothing && return _rigid_degenerate(optimization_strategy, f, n, w, _irls_record(false, false; solve_failed = true))
+        T_new === nothing && return _rigid_degenerate(optimization_strategy, f, n, w, irls_termination(false, false; solve_failed = true))
         ΔR = Rotations.rotation_angle(RotMatrix{3, Float64}(rotation(T_new) * rotation(T)'))
         Δt = norm(translation(T_new) - translation(T))
         T = T_new
@@ -124,7 +124,7 @@ function fit_rigid_alignment(
     _irls_weights!(w, f, r)                           # the metadata at the returned transform
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(T, _irls_record(tol_met, f === nothing)..., iter, rms, used,
+    return FitResult(T, irls_termination(tol_met, f === nothing)..., iter, rms, used,
                      RigidAlignmentMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 

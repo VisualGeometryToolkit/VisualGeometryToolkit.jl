@@ -654,7 +654,7 @@ function fit_robot_world_hand_eye(
     end
     return _fit_robot_world_hand_eye_report(
         cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans;
-        f, strategy = optimization_strategy, termination = _irls_record(tol_met, false), iterations = iter
+        f, strategy = optimization_strategy, termination = irls_termination(tol_met, false), iterations = iter
     )
 end
 

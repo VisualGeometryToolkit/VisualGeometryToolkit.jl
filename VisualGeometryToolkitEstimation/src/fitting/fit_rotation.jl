@@ -116,7 +116,7 @@ function fit_rotation(
         iter += 1
         _irls_weights!(w, f, r)
         R_new = _weighted_kabsch(as, bs, _solve_weights(prior, w))
-        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w, _irls_record(false, false; solve_failed = true))
+        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w, irls_termination(false, false; solve_failed = true))
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
         r = _rotation_residuals(R, as, bs)
@@ -128,7 +128,7 @@ function fit_rotation(
     _irls_weights!(w, f, r)                    # the metadata at the returned rotation
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(R, _irls_record(tol_met, f === nothing)..., iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(R, irls_termination(tol_met, f === nothing)..., iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 function _unit_direction(v, i)

@@ -3,6 +3,7 @@
 
 @testitem "experiments_data" setup = [GitFixture] begin
     import VisualGeometryToolkitEval as VgtkEval
+    import VisualGeometryToolkitCore as VgtkCore
     using Test, TOML
     using DrWatson: gitdescribe, produce_or_load
     using Pkg.Artifacts: create_artifact, bind_artifact!
@@ -82,16 +83,17 @@
                            download_info = [("https://huggingface.co/datasets/lab/data/resolve/HF_REVISION_X/d.tar.gz", "0"^64)])
             err = try E.install_artifact("tier_d", toml); nothing catch e; e end
             @test err isa ErrorException && occursin("not published", err.msg)
-            @test E._published("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
-                  E._published("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
+            @test VgtkCore._published("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
+                  VgtkCore._published("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
             @test_throws ErrorException E.install_artifact("tier_zz", toml)
+            @test E.install_artifact === VgtkCore.install_artifact   # one implementation, Core's (hoisted for BlobBoards)
             # the Hugging Face token: HF_TOKEN first, else the file `hf auth login` writes under HF_HOME
             hf_home = mktempdir()
             withenv("HF_TOKEN" => nothing, "HF_HOME" => hf_home) do
-                @test E.huggingface_token() === nothing
+                @test VgtkCore.huggingface_token() === nothing
                 write(joinpath(hf_home, "token"), "hf_file\n")
-                @test E.huggingface_token() == "hf_file"
-                withenv(() -> (@test E.huggingface_token() == "hf_env"), "HF_TOKEN" => " hf_env ")
+                @test VgtkCore.huggingface_token() == "hf_file"
+                withenv(() -> (@test VgtkCore.huggingface_token() == "hf_env"), "HF_TOKEN" => " hf_env ")
             end
             E.set_project_root!("")
         end

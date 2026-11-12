@@ -638,17 +638,64 @@ end
 # (`ig_sweep_kernel!`). The RSS floor clamps a COPY, never the running sum;
 # ν = dg·(k − m) residual dof, and the n − k outliers pay (2·outlier_halfwidth)^{−dg} each.
 # Plain Float64 arithmetic, callable inside a KernelAbstractions kernel.
-@inline _table_partition_score(prior::IGPrior, lg_table, RSS::Float64, k::Integer, model_dof::Integer,
-                               dg_f::Float64, n::Integer, log_two_outlier_halfwidth::Float64) =
+# In the sweep's accumulation precision `T` (Float64 on the host; a device
+# sweep's own, Float32 in BlobBoards' per-blob kernel): the table entry is read
+# in `T` and the floor is `eps(T)`.
+@inline _table_partition_score(prior::IGPrior, lg_table, RSS::T, k::Integer, model_dof::Integer,
+                               dg_f::T, n::Integer, log_two_outlier_halfwidth::T) where {T<:AbstractFloat} =
     _table_partition_score_cost(prior, lg_table, RSS, k, model_dof, dg_f,
                                 (n - k) * dg_f * log_two_outlier_halfwidth)
 
 # The same score with the complement's cost given (an outlier model that
 # estimates its support).
-@inline _table_partition_score_cost(prior::IGPrior, lg_table, RSS::Float64, k::Integer, model_dof::Integer,
-                                    dg_f::Float64, outlier_cost::Float64) =
-    partition_score(prior, lg_table[k - model_dof], dg_f * (k - model_dof) / 2,
-                    max(RSS, eps(Float64)), outlier_cost)
+@inline _table_partition_score_cost(prior::IGPrior, lg_table, RSS::T, k::Integer, model_dof::Integer,
+                                    dg_f::T, outlier_cost::T) where {T<:AbstractFloat} =
+    partition_score(prior, T(lg_table[k - model_dof]), dg_f * (k - model_dof) / 2,
+                    max(RSS, eps(T)), outlier_cost)
+
+"""
+    prefix_sweep(T, sorted_sq, base, K, lg_table, model_dof, dg, prior, log_two_outlier_halfwidth,
+                 sorted_penalties, prior_table) -> (S*, k*)
+
+The loop body of the stack's one prefix sweep ([`ig_sweep_kernel!`](@ref)),
+callable inside a KernelAbstractions kernel on every backend: ONE sequential
+pass over the `K` ascending squared residuals `sorted_sq[base + 1 : base + K]`
+(a global array, or a kernel's `@localmem` with `base = 0`), returning the best
+partition score `S* = max_k S(k)` and the first `k*` at it (`k* = 0` when no
+partition scores above −Inf, as when `K ≤ model_dof`). `S(k)` is
+[`partition_score`](@ref) under `prior` at `ν = dg·(k − model_dof)`, with the
+log Γ entry `lg_table[k − model_dof]` ([`log_gamma_table`](@ref)`(K, dg; alpha0
+= prior.alpha0)`), the RSS floored at `eps(T)` and the `K − k` outliers paying
+`dg·log(2·outlier_halfwidth)` each; less half the running sum of
+`sorted_penalties` (in the same order; `nothing`: none) and plus
+`prior_table[k]` (`nothing`: none). RSS and the penalty sum accumulate in `T`
+(`Float64` in the grid kernel and [`sweep!`](@ref); a device kernel may sweep in
+its own `Float32`). Positional arguments only, so it compiles inside a kernel.
+"""
+@inline function prefix_sweep(::Type{T}, sorted_sq, base::Integer, K::Integer, lg_table, model_dof::Integer,
+                              dg::Integer, prior::IGPrior, log_two_outlier_halfwidth,
+                              sorted_penalties, prior_table) where {T<:AbstractFloat}
+    dg_f = T(dg)
+    l2h = T(log_two_outlier_halfwidth)
+    RSS = zero(T)
+    pen_sum = zero(T)
+    bS = T(-Inf)
+    bk = 0
+    @inbounds for k in 1:K
+        RSS += T(sorted_sq[base + k])
+        sorted_penalties === nothing || (pen_sum += T(sorted_penalties[base + k]))
+        if k > model_dof
+            S = _table_partition_score(prior, lg_table, RSS, k, model_dof, dg_f, K, l2h)
+            sorted_penalties === nothing || (S -= pen_sum / 2)
+            prior_table === nothing || (S += T(prior_table[k]))
+            if S > bS
+                bS = S
+                bk = k
+            end
+        end
+    end
+    return bS, bk
+end
 
 # =============================================================================
 # The one prefix sweep — a KernelAbstractions kernel
@@ -695,25 +742,8 @@ beyond a pair's model count write nothing.
     if m <= M
         K     = Int(K_per_pair[p])
         base  = pair_offset[p] + (Int64(m) - Int64(1)) * Int64(K)
-        log_two_outlier_halfwidth = log_two_outlier_halfwidth_grid[t]
-        dg_f  = Float64(dg)
-        RSS = 0.0
-        pen_sum = 0.0
-        bS  = -Inf
-        bk  = 0
-        @inbounds for k in 1:K
-            RSS += Float64(sorted_sq_flat[base + k])
-            sorted_penalties === nothing || (pen_sum += Float64(sorted_penalties[base + k]))
-            if k > model_dof
-                S = _table_partition_score(prior, lg_table, RSS, k, model_dof, dg_f, K, log_two_outlier_halfwidth)
-                sorted_penalties === nothing || (S -= pen_sum / 2)
-                prior_table === nothing || (S += prior_table[k])
-                if S > bS
-                    bS = S
-                    bk = k
-                end
-            end
-        end
+        bS, bk = prefix_sweep(Float64, sorted_sq_flat, base, K, lg_table, model_dof, dg, prior,
+                              log_two_outlier_halfwidth_grid[t], sorted_penalties, prior_table)
         @inbounds scores_out[p_local, m, t] = bS
         length(best_k_out) > 0 && (@inbounds best_k_out[p_local, m, t] = Int32(bk))
     end

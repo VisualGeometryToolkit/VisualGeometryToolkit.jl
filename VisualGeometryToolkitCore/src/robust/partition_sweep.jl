@@ -281,8 +281,9 @@ end
 # =============================================================================
 
 """
-    RadixPermBuffers{K}(n)
-    RadixPermBuffers(n)          # K = UInt32 (Float32 key precision) — THE default
+    RadixPermBuffers{K, I}(n)    # a permutation of integer type I (an Int32 permutation of a device's sort, say)
+    RadixPermBuffers{K}(n)       # I = Int
+    RadixPermBuffers(n)          # K = UInt32 (Float32 key precision), I = Int — THE default
 
 Scratch buffers for [`radix_sortperm!`](@ref) — the allocation-free stable
 LSD radix `sortperm` used by the `sweep!` single-sort fast path. Owned by
@@ -314,15 +315,16 @@ then orders such a tie group by index, exactly as a stable comparison sort
 under an `isless` that cannot separate them. Every sweep prefix boundary
 inside such a group is between residuals equal to Float32 precision.
 """
-struct RadixPermBuffers{K<:Unsigned}
+struct RadixPermBuffers{K<:Unsigned, I<:Integer}
     keys::Vector{K}          # monotone-transformed sort keys
     keys2::Vector{K}         # ping-pong partner of `keys`
-    perm2::Vector{Int}       # ping-pong partner of the caller's perm
+    perm2::Vector{I}         # ping-pong partner of the caller's perm (its integer type)
     counts::Matrix{Int}      # 256 × sizeof(K) per-digit histograms (one fused scan)
 end
-RadixPermBuffers{K}(n::Int) where {K<:Unsigned} = RadixPermBuffers{K}(
+RadixPermBuffers{K, I}(n::Int) where {K<:Unsigned, I<:Integer} = RadixPermBuffers{K, I}(
     Vector{K}(undef, n), Vector{K}(undef, n),
-    Vector{Int}(undef, n), Matrix{Int}(undef, 256, sizeof(K)))
+    Vector{I}(undef, n), Matrix{Int}(undef, 256, sizeof(K)))
+RadixPermBuffers{K}(n::Int) where {K<:Unsigned} = RadixPermBuffers{K, Int}(n)
 RadixPermBuffers(n::Int) = RadixPermBuffers{UInt32}(n)
 
 """
@@ -364,20 +366,20 @@ end
 """
     radix_sortperm!(perm, target, rb::RadixPermBuffers, n) -> nothing
 
-Fill `perm[1:n]` with the stable ascending-`isless` permutation of
+`perm` a `Vector{I}` of the buffers' integer type `I`. Fill `perm[1:n]` with the stable ascending-`isless` permutation of
 `target[1:n]` — bitwise identical to `sortperm!(perm, target)` for every
 input (see the stability argument in the header comment). O(n): one fused
 histogram scan, then ≤ 8 stable counting iterations over byte digits, skipping
 digits on which all keys agree (a stable no-op). Allocation-free; buffers
 may have capacity ≥ n.
 """
-function radix_sortperm!(perm::Vector{Int}, target::AbstractVector{<:Union{Float32,Float64}},
-                         rb::RadixPermBuffers{K}, n::Int) where {K<:Unsigned}
+function radix_sortperm!(perm::Vector{I}, target::AbstractVector{<:Union{Float32,Float64}},
+                         rb::RadixPermBuffers{K, I}, n::Int) where {K<:Unsigned, I<:Integer}
     keys = rb.keys; keys2 = rb.keys2; perm2 = rb.perm2; counts = rb.counts
     ndig = sizeof(K)                       # byte iterations: 4 for UInt32, 8 for UInt64
     @inbounds for i in 1:n
         keys[i] = radix_key(K, target[i])
-        perm[i] = i
+        perm[i] = I(i)
     end
     fill!(counts, 0)
     # Fused histogram: one scan over the keys accumulating every byte digit.
@@ -485,7 +487,7 @@ mutable struct ScoringWorkspace{K<:Unsigned}
     const sort_key::Vector{Float64}
     const prior_table::Vector{Float64}
     const scale_prior::IGPrior
-    const radix::RadixPermBuffers{K}   # K = sort-key width; see RadixPermBuffers
+    const radix::RadixPermBuffers{K, Int}   # K = sort-key width; see RadixPermBuffers
     const label_prior::AbstractLabelPrior
     const tail::Vector{Float64}        # the estimated-support sweep's buffers; empty = supplied half-width
     const launch::_SweepLaunch         # the one-work-item kernel launch's buffers

@@ -107,7 +107,7 @@ private names. Each is the function Core's own callers use, unchanged; the priva
   (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
   (VisualGeometryToolkitFeatures 0.7.1). No API change.
 
-## 0.9.1
+## 0.9.1 (2026-11-12)
 
 A patch: the test extension's naming checker, and tests hardened for Julia 1.12. No API change.
 
@@ -127,7 +127,7 @@ A patch: the test extension's naming checker, and tests hardened for Julia 1.12.
   Dual projection's value, the `MappedSurface` intersection in a KernelAbstractions kernel; its NaN-miss pattern still
   exact).
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-11-12)
 
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.

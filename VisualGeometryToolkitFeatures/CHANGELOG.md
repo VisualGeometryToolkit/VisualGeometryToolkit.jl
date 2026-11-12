@@ -36,7 +36,7 @@ caller breaks. This package keeps what needs LibRaw: `load_raw_mosaic`/`LibRawDe
   `find_circle`; without it `detect_image_circle` is an `ArgumentError` naming the package) and ImageSmooth
   (`VisualGeometryToolkitFeaturesImageSmoothExt`: the optional L0 smoothing, `smoothing_weight > 0`).
 
-## 0.7.0 (unreleased)
+## 0.7.0 (2026-11-12)
 
 - **New: `propagate(m, d::Detection{<:Uncertain})`**: the uncertain centre of a detection through a map (its centre and
   the position block of its frame covariance, carried by VisualGeometryToolkitCore's `propagate`; moved from

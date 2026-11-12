@@ -8,7 +8,7 @@ Test-only (no version bump: the registered 0.2.0 tree is unchanged outside `test
   (test/test_contract.jl) to 1e-12 relative instead of bit for bit; the last ulps move with the Julia version and the CPU.
 - README: the Eigen link points at https://libeigen.gitlab.io/ (the old host times out).
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-12)
 
 - **`refine_relpose` refuses a non-finite bearing** by name (a pixel past a fisheye's fold back-projects to NaN), as
   VisualGeometryToolkitEstimation's bearing gate does; before, `NaN` got through the unit-norm test. The strategy constant is

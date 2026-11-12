@@ -11,7 +11,7 @@ private names; behaviour unchanged, the private names gone (no alias).
 - **`metres(x, u::Units)`, public** (was `_metres`): a file number in the unit `u` as plain metres, `read_length`
   stripped (decimal-exact for a power-of-ten unit).
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-11-12)
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).
 

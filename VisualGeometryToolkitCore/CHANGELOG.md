@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`check_naming` retires `LO_TAGS`** (VisualGeometryToolkitEstimation's strategy registry, now
+  `OPTIMIZATION_STRATEGY_TAGS`; beside LocalOptimizationDoneRight's `LODR_STRATEGY_TAGS` and PoseLib's
+  `POSELIB_STRATEGY_TAGS`).
 - **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
   `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
   ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,

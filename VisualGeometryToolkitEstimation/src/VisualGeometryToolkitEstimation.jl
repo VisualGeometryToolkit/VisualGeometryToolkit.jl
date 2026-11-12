@@ -364,7 +364,7 @@ public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidA
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
 # The strategy machinery every package registers its strategies with — the
 # registry macro `@lo_registry`, `lo_construct`, `LOSS_TAGS` and the registry
 # hooks — is VisualGeometryToolkitCore's (its CONTRACT_GENERICS); a name is

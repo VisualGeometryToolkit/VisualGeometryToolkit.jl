@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: the strategy registry is `OPTIMIZATION_STRATEGY_TAGS`** (was `LO_TAGS`; the owner's ruling, after the
+  strategy keyword rename): the tags of `optimization_strategy_from_toml`, `lo_from_toml` and `lo_concrete`, and the
+  downstream merges `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`
+  and `merge(…, PoseLib.POSELIB_STRATEGY_TAGS)`. No alias: the old name is retired in VisualGeometryToolkitCore's `check_naming`.
 - **The view-graph filters take Uncertain edges**: `rotation_loop_angle` (`filter_cycles`' residual),
   `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
   rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the
@@ -60,7 +64,7 @@ non-central one is a `NoncentralSplineModel`).
   `lo_absent`, `lo_validate`, `lo_efficiency_constant_shape`), `strategy_loss`, `lo_loss`, `lo_width_value`,
   `fixed_width` and `refine!` are reached as `VgtkCore.…` (`VgtkEstimation.Irls` still resolves, but it is not
   public there, so the public-names gate flags it), and `using VisualGeometryToolkitEstimation` no longer brings `Irls`/`Triggs`
-  into scope (`using VisualGeometryToolkitCore` does). Its `LO_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
+  into scope (`using VisualGeometryToolkitCore` does). Its `OPTIMIZATION_STRATEGY_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
   Core's contract generics; this package's `CONTRACT_GENERICS` keeps its TOML reader's (`lo_concrete`,
   `lo_resolve_efficiency_constant`), the writer and the placement. The `[optimization_strategy.irls]` defaults moved
   to Core's `configs/default.toml`.
@@ -484,7 +488,7 @@ non-central one is a `NoncentralSplineModel`).
 
 - **Text: LocalOptimizationDoneRight's strategy registry is `STRATEGY_TAGS`** (renamed from `LO_TAGS` in its 0.9): the
   `scale_multiple = "cross_validated"` refusal of `local_optimization_from_toml`, its docstring, the guides and
-  CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.
+  CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.
 - **Breaking: a SplineLens refine's gauge is fixed by its parametrization, and only the live controls are variables.**
   `refine_camera_and_poses` on a SplineLens camera held its rotation and scale gauges with zero-cost pin blocks and its
   unread coordinates (pad slots, absent nodes, nodes no row reads) with anchor rows `coordinate − guess`. Now each patch

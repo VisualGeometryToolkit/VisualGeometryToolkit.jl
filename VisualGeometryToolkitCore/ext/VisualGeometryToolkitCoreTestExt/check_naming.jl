@@ -80,6 +80,7 @@ const RETIRED_NAMES = String[
     # the verb states the kind (conventions/naming.md): a seeded bundle is a refine, the filtered averaging a fit
     "bundle_refine" * "_relpose",        # `refine_relative_pose(pose, K1, K2, cs)` (VisualGeometryToolkitEstimation)
     "filtered_rotation" * "_averaging",  # `fit_filtered_rotation_averaging(vg; cycle_tol, orientation_tol)` (VisualGeometryToolkitEstimation)
+    "LO" * "_TAGS",                      # the strategy registry: `OPTIMIZATION_STRATEGY_TAGS` (VisualGeometryToolkitEstimation; the owner's ruling)
     # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
     # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
     "scale" * "_multiple", "Scale" * "Multiple", "plain_scale" * "_multiple", "deployed_scale" * "_multiple", "deployed" * "_shape",

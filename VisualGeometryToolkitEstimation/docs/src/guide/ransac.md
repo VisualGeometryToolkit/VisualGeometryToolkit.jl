@@ -177,7 +177,7 @@ result = ransac(problem, scoring; config=config)
 
 A local-optimization strategy can be selected by tag, for instance from a
 configuration file. `optimization_strategy_from_toml` reads one strategy table.
-The core registry `VisualGeometryToolkitEstimation.LO_TAGS` holds the tags
+The core registry `VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS` holds the tags
 `"none"` (no local optimization, `nothing`), `"irls"`, `"triggs"` and
 `"terminal_lo"` (the terminal placement,
 `{ type = "terminal_lo", inner = { … } }`: the race on raw scores, then one LO of
@@ -198,10 +198,10 @@ registry, for example LocalOptimizationDoneRight's:
 
 ```julia
 import LocalOptimizationDoneRight
-using VisualGeometryToolkitEstimation: LO_TAGS
+using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS
 
 lo = optimization_strategy_from_toml(Dict("type" => "hq", "loss" => "welsch", "efficiency_constant" => 1.6);
-    class = :homography, tags = merge(LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS))
+    class = :homography, tags = merge(OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS))
 ```
 
 ## Result Type

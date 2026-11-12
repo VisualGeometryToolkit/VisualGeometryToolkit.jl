@@ -23,7 +23,7 @@ using VisualGeometryToolkitCore: AbstractOptimizationStrategy, CauchyShape, Gaus
 using VisualGeometryToolkitCore: HomographyMat
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
-using VisualGeometryToolkitEstimation: LO_TAGS, config_dict, optimization_strategy_from_toml   # public, not exported
+using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS, config_dict, optimization_strategy_from_toml   # public, not exported
 using VisualGeometryToolkitEstimation
 import VisualGeometryToolkitCore
 # A width-carrying strategy's efficiency constant (its `EfficiencyConstant` width mode).
@@ -106,8 +106,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         # in the file, for EVERY arm that takes one.
         # The terminal placement's `inner` is a strategy, never a file default.
         required = Dict("irls" => (:efficiency_constant,), "terminal_lo" => (:inner,))
-        lo_table(tag) = get(VgtkCore.lo_defaults(tag == "none" ? VgtkEstimation.TerminalLO : LO_TAGS[tag]), tag, Dict{String, Any}())
-        for (tag, T) in LO_TAGS
+        lo_table(tag) = get(VgtkCore.lo_defaults(tag == "none" ? VgtkEstimation.TerminalLO : OPTIMIZATION_STRATEGY_TAGS[tag]), tag, Dict{String, Any}())
+        for (tag, T) in OPTIMIZATION_STRATEGY_TAGS
             T === nothing && continue   # "none": no local optimization
             tbl = lo_table(tag)
             for f in fieldnames(T)
@@ -204,7 +204,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             open(io -> TOML.print(io, Dict("ransac" => config_dict(rc))), p, "w")
             @test RansacConfig(p) == rc
             # config_dict is derived from fieldnames: every strategy field appears.
-            for (tag, T) in LO_TAGS
+            for (tag, T) in OPTIMIZATION_STRATEGY_TAGS
                 T === nothing && continue   # "none": no local optimization
                 takes_efficiency_constant = hasfield(T, :width) || hasfield(T, :efficiency_constant)
                 takes_loss = VgtkCore.lo_parametric(T)

@@ -62,6 +62,16 @@
             @test E.data_root(; tiers = ["tier_b"]) == root             # installed already: no download
             @test isfile(joinpath(root, "sub", "run1", "b.json"))
             @test E.link_tree!(E.install_artifact("tier_a", toml), joinpath(root, "sub")) == 0   # idempotent
+            # one tier, as data_root(; tier) and input_path ask for it: installed through the same resolver
+            h5 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
+            bind_artifact!(toml, "tier_e", h5; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
+            @test !ispath(joinpath(root, "sub", "run1", "e.json"))
+            @test E.data_root(; tier = "tier_e") == root && isfile(joinpath(root, "sub", "run1", "e.json"))
+            h6 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "f.json"), "2")))
+            bind_artifact!(toml, "tier_f", h6; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_f.tar.gz", "0"^64)])
+            cf = Dict{String,Any}("inputs" => Dict{String,Any}("f" => Dict{String,Any}("tier" => "tier_f", "path" => "sub/run1/f.json")))
+            @test E.input_path(cf, "f") == joinpath(root, "sub", "run1", "f.json")
+            @test E.data_root(; tier = "no_such_artifact") == root                 # not the view's: only looked up
             @test_throws ErrorException E.assert_primary_copy("a producer")
             # an uninstalled artifact behind a placeholder URL is refused with the way out
             bind_artifact!(toml, "tier_c", Base.SHA1("1"^40); lazy = true, force = true,

@@ -8,6 +8,8 @@
   D3 flags both unkeyed forms of the shared oracle-floor file, `oracle_floors_path()` and
   `oracle_floors_path(results_root())`, and never `oracle_floors_path(<keyed dir>)`. The runner's file hash is
   `file_sha256` itself.
+- **Fixed: `data_root(; tier)` (and so `input_path`) installs its tier from an artifact view**, through the same
+  resolver as `data_root(; tiers)`: on a machine with the artifact view a non-default tier was never fetched.
 
 - **A scratch run is kept apart from the runs of record.** Its record says `scratch = true` (`write_provenance`,
   `cached_result`; a run of record says `false`); `run_key` folds `scratch`, so its keyed directories never are a run

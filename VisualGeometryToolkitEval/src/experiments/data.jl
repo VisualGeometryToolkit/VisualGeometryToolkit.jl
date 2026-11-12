@@ -132,13 +132,19 @@ With `tier`, the root of that input tier, which may live elsewhere on a
 machine (`tier_data_root`, the runner's order): `ENV["VGTK_DATA_ROOT_<TIER>"]`
 → the project's stage graph (`configs/reproduce.toml`) `[sites.<site>.tiers]`,
 `<site>` from `ENV["VGTK_SITE"]` (the runner sets both for its jobs) → the one
-data root above. An `[inputs.<id>]` path is relative to its tier's root.
+data root above, through the same resolver as `tiers`: an artifact view that
+publishes the tier installs it (a tier the view does not hold is only looked
+up). An `[inputs.<id>]` path is relative to its tier's root, so
+[`input_path`](@ref) fetches what it reads.
 """
 function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union{Nothing,AbstractString} = nothing)
     if tier !== nothing
-        tiers, workdir = _site_tiers()
-        r, from = tier_data_root(tier, ""; env = ENV, tiers, workdir)     # the one order (src/code_identity.jl)
+        site_tiers, workdir = _site_tiers()
+        r, from = tier_data_root(tier, ""; env = ENV, tiers = site_tiers, workdir)     # the one order (src/code_identity.jl)
         from == "data root" || return r
+        # under the data root: the one resolver below, which installs the tier when an artifact view publishes it
+        av = _BINDING.artifacts
+        av !== nothing && _view_has(av, tier) && (tiers = String[tier])
     end
     r = _bound_data_root()
     av = _BINDING.artifacts
@@ -308,6 +314,9 @@ function _resolved_path(p::AbstractString)
 end
 
 _is_under(p, root) = (c = _resolved_path(p); r = _resolved_path(root); c == r || startswith(c, rstrip(r, '/') * "/"))
+
+# Whether the artifact view's Artifacts.toml publishes `name` (a tier that is no artifact is only looked up).
+_view_has(av::ArtifactView, name::AbstractString) = isfile(av.toml) && haskey(TOML.parsefile(av.toml), name)
 
 # The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, and the graph's workdir (a
 # relative root's base); `(nothing, "")` without one.

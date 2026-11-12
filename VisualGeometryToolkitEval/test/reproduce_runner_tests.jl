@@ -375,6 +375,9 @@ end
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
         @test code == 0 && occursin("present\tcaptures/2026-09\tchrome_prepare (configs/experiments/chrome.toml)", out)
         @test Reproduce.UNPUBLISHED_TIER == "unpublished"
+        # a scratch launch keys its stages apart from the runs of record
+        k(e) = plan_reproduction(g, load_site("desktop"); env = e, queue_states = noqueue, only = ["setup"]).stages[1].key
+        @test k(env0) != k(merge(env0, Dict("VGTK_SCRATCH" => "1"))) && k(env0) == k(merge(env0, Dict("VGTK_SCRATCH" => "0")))
         # a scratch run's output is no input of record
         write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
         @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")

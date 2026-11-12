@@ -418,6 +418,16 @@
             c = Dict{String,Any}("inputs" => Dict{String,Any}("s" => Dict{String,Any}("tier" => "runs", "path" => "runs/s")))
             @test_throws r"input s \(runs/s\): a scratch run's output" E.verify_inputs(c)
             @test_throws r"a scratch run's output" E.input_path(c, "s")
+            # an input nested deeper in a scratch run's directory is its output too
+            mkpath(joinpath(scr_dir, "sub")); write(joinpath(scr_dir, "sub", "x.csv"), "1\n")
+            @test VgtkEval.scratch_record(joinpath(scr_dir, "sub", "x.csv")) && !VgtkEval.scratch_record(joinpath(rec_dir, "sub", "y.csv"))
+            mkpath(joinpath(data, "runs", "s", "sub")); write(joinpath(data, "runs", "s", "sub", "x.csv"), "1\n")
+            cn = Dict{String,Any}("inputs" => Dict{String,Any}("x" => Dict{String,Any}("tier" => "runs", "path" => "runs/s/sub/x.csv")))
+            @test_throws r"input x \(runs/s/sub/x.csv\): a scratch run's output" E.verify_inputs(cn)
+            # a directory holding one kind of record never takes the other
+            @test_throws r"holds the record of a run of record, and this is a scratch run" withenv(() -> E.write_provenance(rec_dir; driver = "d"), "VGTK_SCRATCH" => "1")
+            @test_throws r"holds the record of a scratch run, and this is a run of record" E.write_provenance(scr_dir; driver = "d")
+            @test E.write_provenance(rec_dir; driver = "d") isa String                                   # the same kind: rewritten
             withenv("VGTK_SCRATCH" => "1") do                                                      # a scratch run may read one
                 @test E.input_path(c, "s") == joinpath(data, "runs", "s")
                 @test E.run_key(cfg; upstream = Dict("poses" => scr_dir)) isa String
@@ -486,13 +496,14 @@
             const POOLS = artifact"pt_e_pools"
             p = Artifacts.@artifact_str("heb_pools")
             sc = load_tuning_artifact(rec["scorer_artifact"])
+            g = JLD2.load(oracle_floors_path(results_root()), "floors")
             """)
         write(joinpath(root, "scripts", "slurm", "x.sbatch"), "#SBATCH --output=/home/u/logs/%j.out\n# /home/fine\n")
         v = E.data_policy_violations(root)
         @test sort([(x.rule, x.file, x.line) for x in v]) ==
               sort([("D1", "src/bad.jl", 1), ("D2", "src/bad.jl", 2), ("D2", "src/bad.jl", 3), ("D3", "src/bad.jl", 4),
                     ("D3", "src/bad.jl", 5), ("D3", "src/bad.jl", 6), ("D3", "src/bad.jl", 7),
-                    ("D4", "src/bad.jl", 10), ("D4", "src/bad.jl", 11),
+                    ("D4", "src/bad.jl", 10), ("D4", "src/bad.jl", 11), ("D3", "src/bad.jl", 13),
                     ("D1", "scripts/slurm/x.sbatch", 1)])
         # a log line's `timestamp` is not a wall-clock stamp in a path; real stamps still are
         write(joinpath(root, "src", "stamps.jl"), """

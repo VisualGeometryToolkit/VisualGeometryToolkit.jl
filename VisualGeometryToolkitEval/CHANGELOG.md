@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Scratch isolation, tightened.** `write_provenance` refuses a directory that holds the record of the other kind
+  (a scratch run's into a run of record's, or the reverse); `scratch_record` finds the run a path belongs to at any
+  depth (`run/sub/x.csv`, the nearest record above it); the runner's stage key folds `VGTK_SCRATCH=1`. Data-policy
+  D3 flags both unkeyed forms of the shared oracle-floor file, `oracle_floors_path()` and
+  `oracle_floors_path(results_root())`, and never `oracle_floors_path(<keyed dir>)`. The runner's file hash is
+  `file_sha256` itself.
+
 - **A scratch run is kept apart from the runs of record.** Its record says `scratch = true` (`write_provenance`,
   `cached_result`; a run of record says `false`); `run_key` folds `scratch`, so its keyed directories never are a run
   of record's, and `cached_result` names its file `<prefix>-scratch_<key>`. Its output (`scratch_record`) is refused as

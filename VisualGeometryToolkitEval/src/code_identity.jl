@@ -254,13 +254,20 @@ end
 """
     scratch_record(path) -> Bool
 
-Whether `path` (a run directory, or a file in one) is the output of a scratch run: the `_provenance.toml` beside
-it says `scratch = true` (`Experiments.scratch_run`). A scratch output is never an input of record, an upstream run
-of record, or a promoted run.
+Whether `path` (a run directory, or anything at any depth inside one: `run/sub/x.csv`) is the output of a scratch
+run: the nearest `_provenance.toml` at or above it, the record of the run it belongs to, says `scratch = true`
+(`Experiments.scratch_run`). A scratch output is never an input of record, an upstream run of record, or a promoted
+run. A path under no record is no scratch output.
 """
 function scratch_record(path::AbstractString)
-    f = joinpath(isdir(path) ? path : dirname(path), "_provenance.toml")
-    return isfile(f) && get(TOML.parsefile(f), "scratch", false) === true
+    d = abspath(isdir(path) ? path : dirname(path))
+    while true
+        f = joinpath(d, "_provenance.toml")
+        isfile(f) && return get(TOML.parsefile(f), "scratch", false) === true
+        p = dirname(d)
+        p == d && return false
+        d = p
+    end
 end
 
 """

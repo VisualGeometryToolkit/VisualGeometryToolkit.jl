@@ -527,7 +527,6 @@ struct ReproducePlan
     code_paths::Vector{String}
 end
 
-_sha_file(path) = file_sha256(path)                    # the one file hash (src/code_identity.jl)
 _sha_text(s) = bytes2hex(sha256(s))
 
 # The commit and whether tracked files changed (anywhere: the code's own state is `code_trees`).
@@ -664,10 +663,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         files = Dict{String, String}()
         for f in unique(filter(!isempty, [s.sbatch, s.driver, (_config_of(s, i) for i in items)...]))
             p = joinpath(g.workdir, f)
-            files[f] = isfile(p) ? _sha_file(p) : "missing"
+            files[f] = isfile(p) ? file_sha256(p) : "missing"
         end
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => e, "command" => cmd, "site" => site.name)
+        get(env, "VGTK_SCRATCH", "") == "1" && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         key = first(_sha_text(sprint(io -> TOML.print(io, keyed; sorted = true))), 16)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
@@ -940,13 +940,13 @@ function _manifest_dict(plan::ReproducePlan, records)
     for st in plan.stages, item in st.items
         isempty(st.spec.config) && continue
         c = _config_of(st.spec, item)
-        configs[c] = isfile(joinpath(g.workdir, c)) ? _sha_file(joinpath(g.workdir, c)) : "missing"
+        configs[c] = isfile(joinpath(g.workdir, c)) ? file_sha256(joinpath(g.workdir, c)) : "missing"
     end
     return Dict{String, Any}("project" => g.name, "graph" => relpath(g.path, g.workdir), "workdir" => g.workdir,
         "julia_project" => g.julia_project, "stamp" => plan.stamp, "commit" => plan.commit, "dirty" => plan.dirty,
         "site" => plan.site.name, "site_file" => plan.site.path, "backend" => String(plan.site.backend),
         "data_root" => plan.data_root, "results_root" => plan.results_root, "configs" => configs,
-        "graph_sha256" => _sha_file(g.path), "code_trees" => plan.code_trees, "stages" => records)
+        "graph_sha256" => file_sha256(g.path), "code_trees" => plan.code_trees, "stages" => records)
 end
 
 # Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs).

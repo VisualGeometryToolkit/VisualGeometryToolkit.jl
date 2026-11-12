@@ -37,7 +37,7 @@ sensor — so every consumer asks the camera what it images instead of supplying
   `posterior_weights!`/`posterior_inlier_probs!(…; prior)`, `median_seeded_posterior(sq, n; outlier_halfwidth, ν,
   prior)` (its `ν = 1e4` and `IGPrior(0, 0)` defaults removed too) and `default_scoring_workspace(n; dg, scale_prior,
   label_prior)` (its label prior was hard-wired flat) have no prior defaults; leaving one out is an
-  `UndefKeywordError`. A caller that relied on the default passes `prior = JeffreysPrior()` /
+  `UndefKeywordError`. A caller that relied on the default supplies `prior = JeffreysPrior()` /
   `label_prior = FlatLabelPrior()`, bit for bit.
 - **`median_seeded_posterior` seeds at `mad_scale`²** (the no-duplication rule): its seed scale is the median residual
   NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.

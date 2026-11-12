@@ -180,16 +180,19 @@ distance √3 — the normalization of a least squares over lengths, such as
 translations); the diagonal strategy is 2-D.
 """
 CoordinateTransformations.AffineMap(
-    s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}},
+    s::HartleyNormalization, pts::AbstractVector{<:StaticVector},
     mask::Union{Nothing, BitVector} = nothing, w::Union{Nothing, AbstractVector} = nothing
-) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
-CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}}, w::AbstractVector) =
-    _hartley_map(pts, eachindex(pts), w, s.center)
-# 3-D points (a least squares over lengths: translations, world points): the same strategy,
-# about the centroid at mean distance √3. A known centre is the radial models' 2-D frame only.
-function CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{3}},
-                                             w::Union{Nothing, AbstractVector} = nothing)
+) = _hartley_strategy_map(s, pts, mask, w)
+CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector}, w::AbstractVector) =
+    _hartley_strategy_map(s, pts, nothing, w)
+# The dimension is dispatched here, behind the same AffineMap methods (no further method
+# of a CoordinateTransformations constructor): image points (the radial models' known
+# centre allowed), or 3-D points (a least squares over lengths: translations, world
+# points) about their centroid at mean distance √3.
+_hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{2}}, mask, w) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
+function _hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{3}}, mask, w)
     s.center === nothing || throw(ArgumentError("HartleyNormalization: a known centre is two-dimensional; 3-D points normalize about their centroid"))
+    mask === nothing || throw(ArgumentError("HartleyNormalization: 3-D points take weights, not a mask"))
     return _hartley_map_3d(pts, w)
 end
 CoordinateTransformations.AffineMap(d::DiagonalNormalization) =

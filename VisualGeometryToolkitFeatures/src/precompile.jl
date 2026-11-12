@@ -19,7 +19,7 @@ using PrecompileTools: @setup_workload, @compile_workload
         for nms in (:mxm, :ellipse)
             asift_detect(img; device = KA.CPU(), nms)
         end
-        nn_match(d1, d2)
+        nn_match(d1, d2; device = KA.CPU())   # the host kernels; no device resolved at precompile time
         # no plan may survive into the package image
         clear_asift_plans!()
     end

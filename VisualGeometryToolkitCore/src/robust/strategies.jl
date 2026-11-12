@@ -268,7 +268,7 @@ scale_interface(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}) = NoScale()
 # (LocalOptimizationDoneRight) registers its strategies with the same macro,
 # against its own defaults table, and states its exceptions as methods of the
 # hooks below — never a copy of the machinery. A caller loading both merges
-# the registries: `optimization_strategy_from_toml(d; class, tags = merge(LO_TAGS, Downstream.LO_TAGS))`.
+# the registries: `optimization_strategy_from_toml(d; class, tags = merge(OPTIMIZATION_STRATEGY_TAGS, Downstream.OPTIMIZATION_STRATEGY_TAGS))`.
 #
 # The keyword constructor is driven by `fieldnames` and the tag: a field's
 # keyword is the field's name; its default is the strategy's table key
@@ -487,7 +487,7 @@ lo_efficiency_constant_shape(::Type{T}) where {T} =
 
 Register the local-optimization strategies of `rows` and return their
 VisualGeometryToolkitCore `TagRegistry` (family `:optimization_strategy`, the TOML
-path `local_optimization_strategy.type`): `const LO_TAGS = @lo_registry ROWS defaults = …`.
+path `local_optimization_strategy.type`): `const OPTIMIZATION_STRATEGY_TAGS = @lo_registry ROWS defaults = …`.
 Each row is
 
     (T, tag, path, scale_interface, loss_family, label, shape, parametric)
@@ -571,6 +571,6 @@ const _CORE_STRATEGY_ROWS = (
 The core optimization strategies' registry (a `TagRegistry` built by
 [`@lo_registry`](@ref)): `"irls"` → [`Irls`](@ref), `"triggs"` →
 [`Triggs`](@ref). A package with strategies of its own merges it with its
-registry (VisualGeometryToolkitEstimation's `LO_TAGS`).
+registry (VisualGeometryToolkitEstimation's `OPTIMIZATION_STRATEGY_TAGS`).
 """
 const STRATEGY_TAGS = @lo_registry _CORE_STRATEGY_ROWS defaults = _STRATEGY_DEFAULTS["optimization_strategy"]

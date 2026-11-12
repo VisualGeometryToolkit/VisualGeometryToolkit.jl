@@ -170,6 +170,10 @@ mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop 
 # the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
 # lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
 branch_audit_efficiency_constant = 3.5322300675464233
+# The E-step's start: the posterior seeded at the median residual (VisualGeometryToolkitCore's
+# `median_seeded_posterior`) at this Student-t ν, the ν update's upper bound (VisualGeometryToolkitCore's
+# `next_nu` ν_max): a near-Gaussian start, which the EM's estimated ν then moves.
+seed_nu = 1.0e4
 
 [robot_world_hand_eye]
 min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
@@ -272,7 +276,7 @@ ftol = 1.0e-10
 stationarity_tol = 0.05
 
 [relpose_bundle]
-# the relative-pose bundle's LM cap (its `refine!` and `bundle_refine_relpose`) on
+# the relative-pose bundle's LM cap (its `refine!` and `refine_relative_pose`) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
 # candidate steps; see [chart_lm]
 max_iter = 100

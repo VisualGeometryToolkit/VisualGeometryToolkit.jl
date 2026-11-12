@@ -1,7 +1,7 @@
 # =============================================================================
 # evaluation/engine/operating_point.jl — the refit protocol's fixed operating
 # point and the evaluation's LO budget (configs/default.toml [refit],
-# [local_optimization]). The efficiency-constant → native maps and the native-axis
+# [local_optimization_strategy]). The efficiency-constant → native maps and the native-axis
 # conversions are VisualGeometryToolkitCore's (`to_native`, `native_map`,
 # `outlier_halfwidth_to_loss_width`); the grid-column lookup is Tuning's
 # `nearest_column`; the miscalibration corruption is Tuning's `corrupt_native`.
@@ -22,7 +22,7 @@ const OPERATING_EFFICIENCY_CONSTANT = Float64(_config_default("refit", "operatin
     lo_iteration_budget() -> Int
 
 The equal LO model-update budget of the evaluation: configs/default.toml
-`[local_optimization] iteration_budget`, so arms compare at equal cost. A
+`[local_optimization_strategy] iteration_budget`, so arms compare at equal cost. A
 paper with its own protocol supplies its budget explicitly instead.
 """
-lo_iteration_budget() = Int(_config_default("local_optimization", "iteration_budget"))
+lo_iteration_budget() = Int(_config_default("local_optimization_strategy", "iteration_budget"))

@@ -8,10 +8,10 @@
     # strategies_tests); this item holds what this package owns: its registry and its TOML reader and writer.
     using Test
     using VisualGeometryToolkitCore: CauchyShape
-    using VisualGeometryToolkitEstimation: LO_TAGS, optimization_strategy_from_toml, config_dict
+    using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS, optimization_strategy_from_toml, config_dict
     using VisualGeometryToolkitCore: Triggs
     lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
-    @test LO_TAGS["triggs"] === Triggs
+    @test OPTIMIZATION_STRATEGY_TAGS["triggs"] === Triggs
     @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
                                        class = :circle) == lo
     @test optimization_strategy_from_toml(config_dict(lo); class = :circle) == lo

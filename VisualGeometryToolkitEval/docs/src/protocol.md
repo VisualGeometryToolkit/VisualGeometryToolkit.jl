@@ -167,7 +167,7 @@ come from its tuning artifact through [`deployed_budget_settings`](@ref).
 There is no fallback and no self-tuning. Every LO call runs within the
 evaluation's equal budget of model updates
 ([`lo_iteration_budget`](@ref VisualGeometryToolkitEval.Evaluation.lo_iteration_budget),
-`configs/default.toml`, table `[local_optimization]`).
+`configs/default.toml`, table `[local_optimization_strategy]`).
 
 ## 6. The metric: pose error, with the F upgrade
 

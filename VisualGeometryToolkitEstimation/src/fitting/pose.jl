@@ -14,12 +14,12 @@
 # =============================================================================
 
 """
-    find_absolute_pose(camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
-        max_trials=10000, min_trials=100,
-        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
+    find_absolute_pose(camera_model, correspondences; scoring,
+        max_trials, min_trials,
+        local_optimization_strategy, config=nothing)
 
 Robust absolute pose estimation via P3P + RANSAC with MSAC scoring.
-Every default shown is `configs/default.toml`'s (`[ransac]`,
+Every default is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.absolute_pose]`); a keyword overrides.
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 3 correspondences
@@ -45,7 +45,7 @@ points (a plain one with plain points).
 - `extent`: as [`find_homography`](@ref); the pose's `_check_extent` rejects
   poses failing cheirality or yielding a non-simple / non-convex image quad.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] AbsolutePoseProblem, n_data)`.
-- `local_optimization_strategy`: default `Irls{TLSShape}()` on the 6-dof pose chart, as
+- `local_optimization_strategy`: default `[pipelines.absolute_pose] local_optimization_strategy` on the 6-dof pose chart, as
   [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 
@@ -77,8 +77,8 @@ function find_absolute_pose(
 end
 
 """
-    refine_absolute_pose(pose, camera_model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
-    refine_absolute_pose(pose, bearing_correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_absolute_pose(pose, camera_model, correspondences; optimization_strategy, scale | width, workspace = nothing)
+    refine_absolute_pose(pose, bearing_correspondences; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against

@@ -15,11 +15,11 @@
 # =============================================================================
 
 """
-    find_essential(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
-        max_trials=10000, min_trials=100,
-        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
+    find_essential(camera1, camera2, pixel_cs; scoring,
+        max_trials, min_trials,
+        local_optimization_strategy, config=nothing)
 
-Robust essential-matrix estimation via 5-point RANSAC with MSAC scoring. Every default shown is `configs/default.toml`'s (`[ransac]`,
+Robust essential-matrix estimation via 5-point RANSAC with MSAC scoring. Every default is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.essential]`); a keyword overrides.
 
 Takes PIXEL correspondences and the two cameras that produced them. Each view
@@ -61,7 +61,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   always a calibrated leftover — and refused by every entry that scores an
   `EssentialProblem`: a `scoring` supplied here, the class default, or
   `ransac` / `locally_optimize` called directly.
-- `local_optimization_strategy`: LO-RANSAC strategy (default `Irls{TLSShape}()`, as
+- `local_optimization_strategy`: LO-RANSAC strategy (default `[pipelines.essential] local_optimization_strategy`, as
   [`find_homography`](@ref)).
 - the other keywords as [`find_homography`](@ref).
 
@@ -83,7 +83,7 @@ end
 
 
 """
-    refine_essential(E, camera1, camera2, pixel_cs; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_essential(E, camera1, camera2, pixel_cs; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The essential matrix `E` refined against the PIXEL correspondences `pixel_cs`

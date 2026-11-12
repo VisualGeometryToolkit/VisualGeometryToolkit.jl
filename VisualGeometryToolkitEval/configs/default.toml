@@ -131,7 +131,7 @@ train_sequences = [
 # The composition evaluator (Evaluation: the refit layer, the selection stream,
 # the sample-budget engine; moved from LocalOptimizationDoneRight's engine).
 # -----------------------------------------------------------------------------
-[local_optimization]
+[local_optimization_strategy]
 # THE equal LO model-update budget of the evaluation: a paper's truncated
 # refiners run at most this many model updates per LO call, so arms compare at
 # equal cost (`lo_iteration_budget`). A paper with its own protocol supplies

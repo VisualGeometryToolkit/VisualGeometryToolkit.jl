@@ -68,7 +68,7 @@ end
     op = PenalizedOperator(A, D; device = KA.CPU())
     # the CSR form applies the operator as the sparse matrix does
     x = randn(rng, n)
-    @test mul!(zeros(150), op.A, x) ≈ A * x && mul!(zeros(n), op.At, b) ≈ A' * b && mul!(zeros(size(D, 1)), CSRMatrix(D), x) == D * x
+    @test mul!(zeros(150), op.A, x) ≈ A * x && mul!(zeros(n), op.At, b) ≈ A' * b && mul!(zeros(size(D, 1)), CSRMatrix(D; device = KA.CPU()), x) == D * x
     # the solution of the normal equations (AᵀA + DᵀWD) x = Aᵀb + DᵀWh, with a target and per-row weights, and with neither
     Wd = sparse(1:length(w), 1:length(w), w)
     exact = Matrix(A' * A + D' * Wd * D) \ (A' * b + D' * (w .* h))
@@ -195,7 +195,7 @@ end
         D = difference_rows((TW, TH), 1)
         N = SparseMatrixCSC(A' * A + 0.7 * D' * D); g = randn(rng, n); d = Vector(diag(N))
         x0 = (Matrix(N) \ g) .+ 1.0e-3 .* randn(rng, n)
-        cpu = normal_cg(CSRMatrix(N), g; diagonal = d, x0, rtol = 1.0e-10, max_iter = 3000)
+        cpu = normal_cg(CSRMatrix(N; device = KA.CPU()), g; diagonal = d, x0, rtol = 1.0e-10, max_iter = 3000)
         dev = Base.invokelatest(getproperty(cuda, :CUDABackend))
         up(v) = Base.invokelatest(on_device, dev, v)
         Nd = Base.invokelatest(CSRMatrix, N; device = dev)

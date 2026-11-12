@@ -62,6 +62,7 @@ function center end
 # Ellipse and Circle) and the transforms (which act on them).
 
 using StaticArrays: StaticArrays, SMatrix, StaticMatrix, MVector, StaticVector
+using MacroTools: MacroTools   # @forward: the Attributed value delegation (one idiom with BoundedCamera's)
 
 "Abstract parent for all 3×3 homogeneous conic matrices."
 abstract type AbstractHomConicMat{T} <: StaticArrays.StaticMatrix{3, 3, T} end
@@ -797,16 +798,16 @@ const ScoredCspond{S, T} = Attributed{Cspond{S, T}, Float64}
 ScoredCspond(source::S, target::T, score::Float64) where {S, T} =
     Attributed(Cspond{S, T}(source, target), score)
 
-# Iterate over the wrapped Pair for destructuring: (source, target) = scored_cspond
-Base.iterate(a::Attributed{<:Cspond}, state...) = iterate(getfield(a, :value), state...)
-
-# Index/length/size forwarding for Attributed-wrapped vectors. Lets pixel coords
-# be accessed uniformly across `Attributed{Point2, ...}` (RoMa csponds with
-# precision attributes) and bare `Point2` (SP+LG csponds with no attributes),
-# so callers like `validate_gt_metric` don't need an `_pixel_of`-style helper.
-@inline Base.getindex(a::Attributed{<:AbstractVector}, i...) = getfield(a, :value)[i...]
-@inline Base.length(a::Attributed{<:AbstractVector}) = length(getfield(a, :value))
-@inline Base.size(a::Attributed{<:AbstractVector}, args...) = size(getfield(a, :value), args...)
+# Method delegation to the wrapped value (`a.value`, which `getproperty` reads as
+# `getfield(a, :value)`), by the stack's one idiom, MacroTools.@forward: iterating
+# the wrapped Pair for destructuring, `(source, target) = scored_cspond`; and index,
+# length and size of a wrapped vector, so pixel coordinates read alike in
+# `Attributed{Point2, …}` (RoMa csponds with precision attributes) and a bare
+# `Point2` (SP+LG csponds with none), without an `_pixel_of`-style helper. Two
+# lines because the two hold for two kinds of value (a Pair, a vector): one over
+# every `Attributed` would forward these to values that have no such method.
+MacroTools.@forward Attributed{<:Cspond}.value (Base.iterate,)
+MacroTools.@forward Attributed{<:AbstractVector}.value (Base.getindex, Base.length, Base.size)
 
 # ========================================================================
 # ScaledIdentity{N,T} - the static N×N matrix λ·I, stored as λ

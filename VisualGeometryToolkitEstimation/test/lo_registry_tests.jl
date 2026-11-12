@@ -19,7 +19,7 @@ using VisualGeometryToolkitCore: AbstractOptimizationStrategy, AbstractLossShape
     GaussianShape, BarronShape, EfficiencyConstant, LossWidth, NoScale, optimization_path, lo_label,
     loss_family, scale_interface, contract_generic_violations
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: LO_TAGS, lo_from_toml, lo_config_dict, config_dict, optimization_strategy_from_toml
+using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS, lo_from_toml, lo_config_dict, config_dict, optimization_strategy_from_toml
 using VisualGeometryToolkitCore: Irls, LOSS_TAGS, @lo_registry, lo_construct, lo_tag, lo_defaults, lo_admits_shape
 
 # --- a downstream strategy family, registered here --------------------------
@@ -103,8 +103,9 @@ end
         @test lo_construct(Irls{WelschShape}; efficiency_constant = 2) == Irls{WelschShape}(efficiency_constant = 2.0)
         @test lo_construct(Irls{WelschShape}; defaults = Dict("irls" => Dict("max_iter" => 3))).max_iter == 3
         @test lo_tag(Irls{TLSShape}) == "irls"
-        @test LO_TAGS["none"] === nothing                                               # no local optimization
-        @test_throws r"renamed \"none\"" LO_TAGS["no_local_optimization"]             # the retired tag names its successor
+        @test !isdefined(VisualGeometryToolkitEstimation, Symbol("LO" * "_TAGS"))       # renamed, no alias (retired in check_naming)
+        @test OPTIMIZATION_STRATEGY_TAGS["none"] === nothing                                               # no local optimization
+        @test_throws r"renamed \"none\"" OPTIMIZATION_STRATEGY_TAGS["no_local_optimization"]             # the retired tag names its successor
         @test lo_defaults(Irls) === VgtkCore._STRATEGY_DEFAULTS["optimization_strategy"]
         # The writer, recorded before the machinery went public (byte-identical tables).
         @test lo_config_dict(Irls{TLSShape}()) == Dict{String, Any}("type" => "irls", "loss" => "tls", "max_iter" => 25)
@@ -139,7 +140,7 @@ end
                 [other.local_optimization_strategy.inner.inner]
                 type = "irls_typo"
                 """)
-            found = VgtkCore.config_tag_violations([LO_TAGS], [dir])
+            found = VgtkCore.config_tag_violations([OPTIMIZATION_STRATEGY_TAGS], [dir])
             @test length(found) == 2
             @test any(f -> occursin("ransac.local_optimization_strategy.inner.type", f) && occursin("no_local_optimization", f), found)
             @test any(f -> occursin("other.local_optimization_strategy.inner.inner.type", f) && occursin("irls_typo", f), found)
@@ -208,8 +209,8 @@ end
         @test_throws ArgumentError ToyFamily{BarronShape}()                   # lo_admits_shape
 
         # The reader through the merged registry, and the writer back.
-        tags = merge(LO_TAGS, TOY_TAGS)
-        # a downstream registry holds no "none": the merge holds it once, from LO_TAGS (regression)
+        tags = merge(OPTIMIZATION_STRATEGY_TAGS, TOY_TAGS)
+        # a downstream registry holds no "none": the merge holds it once, from OPTIMIZATION_STRATEGY_TAGS (regression)
         @test !haskey(TOY_TAGS, "none")
         @test tags["none"] === nothing
         load(d; class = :homography) = optimization_strategy_from_toml(d; class, tags)

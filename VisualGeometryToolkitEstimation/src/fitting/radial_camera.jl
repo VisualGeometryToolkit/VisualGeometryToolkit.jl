@@ -1,7 +1,7 @@
 """
     find_radial_camera(correspondences; center,
-        scoring = MsacScoring(problem; threshold = 3.0), extent = nothing, workspace = nothing,
-        local_optimization_strategy, max_trials = 10000, min_trials = 100,
+        scoring, extent = nothing, workspace = nothing,
+        local_optimization_strategy, max_trials, min_trials,
         config = nothing, rng = ...)
 
 Robust estimation of one board's 1-D radial camera (VisualGeometryToolkitCore
@@ -41,7 +41,7 @@ function find_radial_camera(
 end
 
 """
-    refine_radial_camera(model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_radial_camera(model, correspondences; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The 1-D radial camera `model` (VisualGeometryToolkitCore `RadialCamera`, about its

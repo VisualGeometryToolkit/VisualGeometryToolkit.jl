@@ -196,6 +196,6 @@ end
     seed = rigid(RotMatrix(RotXYZ(0.01, 0.02, 0.0)), SVector(1.0, 0.0, 0.0))
     K = SMatrix{3, 3, Float64}(500, 0, 0, 0, 500, 0, 320, 240, 1)
     cs = [SVector(100.0 + i, 100.0 + 2i) => SVector(110.0 + i, 100.0 + 2i) for i in 1:10]
-    @test_throws MethodError VgtkEstimation.bundle_refine_relpose(phys(seed), K, K, cs)
+    @test_throws MethodError VgtkEstimation.refine_relative_pose(phys(seed), K, K, cs)
 end
 end

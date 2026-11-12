@@ -77,9 +77,11 @@ end
 # =============================================================================
 
 """
-    CSRMatrix(A::SparseMatrixCSC; device = KernelAbstractions.CPU()) -> CSRMatrix
+    CSRMatrix(A::SparseMatrixCSC; device = default_device()) -> CSRMatrix
 
-A sparse operator in compressed sparse rows on a KernelAbstractions `device`: `mul!(y, C,
+A sparse operator in compressed sparse rows on a KernelAbstractions `device`
+([`default_device`](@ref)`()` when none is supplied: an accelerator when one is functional,
+else `KA.CPU()`): `mul!(y, C,
 x)` is one work item per row (each row's sum in its stored order: deterministic on every
 backend, no atomics). `Adapt.adapt(backend, C)` moves it. The operator a device solve
 ([`cgls`](@ref)) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
@@ -92,9 +94,9 @@ struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
     colval::I
     nzval::V
 end
-CSRMatrix(A::SparseMatrixCSC; device = KA.CPU()) = _transposed_csr(SparseMatrixCSC{Float64, Int}(transpose(A)); device)   # its columns are A's rows
+CSRMatrix(A::SparseMatrixCSC; device = default_device()) = _transposed_csr(SparseMatrixCSC{Float64, Int}(transpose(A)); device)   # its columns are A's rows
 # The CSR form of `transpose(A)`: A's own compressed columns, copied to `device` (no transpose).
-_transposed_csr(A::SparseMatrixCSC; device = KA.CPU()) =
+_transposed_csr(A::SparseMatrixCSC; device) =
     CSRMatrix(size(A, 2), size(A, 1), ka_upload(Int, device, A.colptr), ka_upload(Int, device, A.rowval), ka_upload(Float64, device, A.nzval))
 Base.size(C::CSRMatrix) = (C.m, C.n)
 Base.size(C::CSRMatrix, d::Integer) = d == 1 ? C.m : d == 2 ? C.n : 1

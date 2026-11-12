@@ -471,11 +471,21 @@ sensor ∩ the lens coverage ∩ where the lens model is valid.
 - `bc.camera`, `bc.bound`, `bc.lens_coverage` — direct fields; read them through
   `model`, `extent`/`sensor` and `lens_coverage`.
 
-# Method delegation (via `MacroTools.@forward`)
-The standard PosedCamera accessors (`intrinsics`, `lens`, `pose`, `extrinsics`,
-`focal_length`, `model`, `calibration_matrix`) and the
-projection verbs are forwarded to the wrapped `camera`, so
-`intrinsics(bc) === intrinsics(bc.camera)` etc.; `is_in_front(bc, p)` too.
+# Method delegation
+A BoundedCamera is THE type for pixel operations: every camera verb a
+`CameraModel` answers is forwarded to the wrapped `camera` (`MacroTools.@forward`,
+and `@inline` `project`/`backproject` for device kernels) — the maps and their Jacobians (`project`,
+`backproject`, `backproject_with_jacobian`, `unproject`, `is_in_front`,
+`constraint_with_jacobians`), the accessors (`intrinsics`, `lens`, `pose`,
+`extrinsics`, `focal_length`, `model`, `calibration_matrix`), the imaging and
+its domain (`imaging_transform`, `imaging_chain`, `distortion_map`,
+`valid_domain`, `valid_rect`, `undistort`, …) and the camera-derived solvers
+(`p3p`, `transfer`, `radial_homography`); so `backproject_with_jacobian(bc, u)
+== backproject_with_jacobian(bc.camera, u)`. The bound applies to none of them
+(the extent is `image_circle`, `imaged_region` and `lens_coverage`). The
+model constructors (`pinhole`, `window`, `with_parameters`) and the parameter
+protocol are the model's: call them on `model(bc)`, and rebound with
+[`with_model`](@ref).
 
 # Trait
 `bounds_trait(::BoundedCamera) = HasBounds()` — methods that need image
@@ -632,15 +642,8 @@ _check_camera_model(::BoundedCamera, what) = _refuse_bounded_model(what)
 _pose_hint(::AbstractCamera) = ("camera", "`PosedCamera(model, X)`, or `BoundedCamera(PosedCamera(model(bc), X), bc.bound; lens_coverage = lens_coverage(bc))`")
 _unposed_only(f, what, x, args...) = is_posed(x) ? throw(MethodError(f, (x, args...))) : _refuse_unposed(what, x)
 
-# Method delegation to the wrapped camera (`bc.camera`).  Uses MacroTools.@forward
-# to generate the per-method overloads so we don't hand-roll one line per accessor.
-# (Method dispatch is not the same as property forwarding; this is the canonical
-# Julia idiom for "method on wrapper falls through to inner".)
-MacroTools.@forward BoundedCamera.camera (
-    model, intrinsics, lens, focal_length, calibration_matrix,
-    pose, extrinsics,
-    unproject, is_in_front,
-)
+# Method delegation to the wrapped camera (`bc.camera`): the `MacroTools.@forward` list at
+# the end of this module (after every file that defines a verb it forwards).
 # The two maps a device kernel calls are written out `@inline`, which
 # `@forward` does not emit: with a Dual camera the inliner declines the
 # forwarder and the kernel hands the wrapped camera over by pointer through
@@ -1239,5 +1242,31 @@ export p3p, sample_p3p
 # 10. HOMOGRAPHY - Projective transformations
 # -----------------------------------------------------------------------------
 export HomographyMat                   # 3x3 homography matrix
+
+# =============================================================================
+# BoundedCamera: the camera verbs forwarded to its camera
+# =============================================================================
+#
+# A BoundedCamera is THE type for pixel operations (the owner's rule): every camera
+# verb a CameraModel answers reaches the wrapped camera (`bc.camera`), by the Julia
+# idiom for "a method on the wrapper falls through to the inner value",
+# MacroTools.@forward — here, after every file that defines one of them; `project`
+# and `backproject` are the two `@inline` maps above. As those two never did, no
+# forwarded verb applies the bound (the image extent is `image_circle`,
+# `imaged_region` and `lens_coverage`, which a BoundedCamera answers itself). The
+# model constructors (`pinhole`, `window`, `with_parameters`) and the parameter
+# protocol are the model's, not forwarded (as is the synthetic-scene generator
+# `sample_p3p`, which takes its own sensor bounds): call them on `model(bc)` and rebound with
+# `with_model`. A verb with its own BoundedCamera method is not in the list (an
+# ambiguity otherwise): `valid_domain` (image_circle.jl, through `model`),
+# `with_directions`, `with_present`, `axis_gauged`, `image_circle`.
+MacroTools.@forward BoundedCamera.camera (
+    model, intrinsics, lens, focal_length, calibration_matrix,
+    pose, extrinsics,
+    unproject, is_in_front, backproject_with_jacobian, constraint_with_jacobians,
+    imaging_transform, imaging_chain, distortion_map, has_distortion, fov_radius, horizon_radius,
+    valid_rect, undistorted_rect, division_bounded, undistort,
+    p3p, transfer, radial_homography,
+)
 
 end # module Cameras

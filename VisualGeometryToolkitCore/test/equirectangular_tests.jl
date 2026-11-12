@@ -164,8 +164,9 @@ end
 end
 
 @testitem "Backprojection of a camera without its own Jacobian, and of Int pixels" begin
-    # A model with no backproject_with_jacobian method (a BoundedCamera) takes
-    # ForwardDiff through its backproject; an integer pixel is floated first.
+    # The Backprojection of a model it holds no Jacobian rule for (a BoundedCamera,
+    # whatever it wraps) takes ForwardDiff through its backproject; an integer pixel
+    # is floated first.
     using Test, StaticArrays
     using ForwardDiff: ForwardDiff
     using CoordinateTransformations: transform_deriv

@@ -14,15 +14,15 @@
 # =============================================================================
 
 """
-    find_hand_eye(cs; scoring = MsacScoring(problem; threshold = 0.01·L),
-                       max_trials=10000, min_trials=100,
-                       local_optimization_strategy=Irls{TLSShape}(),
+    find_hand_eye(cs; scoring,
+                       max_trials, min_trials,
+                       local_optimization_strategy,
                        motion_pairs=:consecutive,
                        char_length=nothing, min_rel_angle,
                        config=nothing) -> RansacEstimate
 
 Robust hand-eye / robot-world calibration via RANSAC + IRLS. Every
-default shown is `configs/default.toml`'s (`[ransac]`, `[pipelines.hand_eye]`);
+default is `configs/default.toml`'s (`[ransac]`, `[pipelines.hand_eye]`);
 a keyword overrides.
 
 # Arguments
@@ -50,7 +50,7 @@ a keyword overrides.
   motions below it are dropped at construction (default `[robot_world_hand_eye]`
   `min_rel_angle_deg` — see [`HandEyeProblem`](@ref)).
 - `max_trials`, `min_trials` — RANSAC trial bounds.
-- `local_optimization_strategy` — default `Irls{TLSShape}()` — HandEyeProblem has no chart lift; its
+- `local_optimization_strategy` — default `[pipelines.hand_eye] local_optimization_strategy` — HandEyeProblem has no chart lift; its
   weighted refit (Levenberg–Marquardt on the so(3)⊕R³ chart of `Rigid3`) is
   selected by `refine!(lo_ws, ::HandEyeProblem, θ::Rigid3, weights)`.
 - `config` — override `RansacConfig`; the other keywords as
@@ -106,7 +106,7 @@ end
 
 """
     refine_hand_eye(X, cs; motion_pairs = :consecutive, char_length = nothing, min_rel_angle,
-        optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The hand-eye transform `X = T_RP` refined against the `A_i => B_i` pose

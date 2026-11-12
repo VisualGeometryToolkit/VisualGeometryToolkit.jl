@@ -160,7 +160,7 @@ Base.iterate(r::TagRegistry, i::Int = 1) = i > length(r.tags) ? nothing : (r.tag
     merge(a::TagRegistry, b::TagRegistry...) -> TagRegistry
 
 The registry of one family that two packages share — the core's tags and a
-downstream package's (`merge(VisualGeometryToolkitEstimation.LO_TAGS,
+downstream package's (`merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS,
 LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`): every current and retired tag of each,
 and their key paths. The family and its suffix must agree, and a tag declared
 by two of them (or current in one and retired in another) is an

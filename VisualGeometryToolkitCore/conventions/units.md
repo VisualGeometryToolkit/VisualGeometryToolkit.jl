@@ -77,7 +77,7 @@ four points:
    unit, as before units: estimators are not where plain data is refused, the
    IO writers of point 2 are. A model that cannot record a unit — a plane
    homography, a radial or division camera, the up-to-scale relative pose of
-   `bundle_refine_relpose` — refuses unitful input instead, with an
+   `refine_relative_pose` — refuses unitful input instead, with an
    `ArgumentError` naming the fix (strip the plane points in metres, the unit
    the stack's boundaries use). This supersedes the plan's earlier "a plain
    physical input is refused" (ruling of 2026-10-25, Task 9): refusing plain

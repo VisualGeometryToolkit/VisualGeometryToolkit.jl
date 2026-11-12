@@ -470,7 +470,7 @@ PoseLib's optimization strategies' registry (a VisualGeometryToolkitCore
 `TagRegistry`, built by its `@lo_registry`): `"le_zach"` → [`LeZach`](@ref).
 A caller that reads strategies from TOML merges it with the core's,
 `merge(VisualGeometryToolkitCore.STRATEGY_TAGS, PoseLib.POSELIB_STRATEGY_TAGS)` (or with
-VisualGeometryToolkitEstimation's `LO_TAGS`).
+VisualGeometryToolkitEstimation's `OPTIMIZATION_STRATEGY_TAGS`).
 """
 const POSELIB_STRATEGY_TAGS = VisualGeometryToolkitCore.@lo_registry _POSELIB_STRATEGY_ROWS defaults = _POSELIB_STRATEGY_DEFAULTS
 

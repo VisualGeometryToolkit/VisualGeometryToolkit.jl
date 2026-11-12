@@ -75,6 +75,12 @@ const RETIRED_NAMES = String[
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",
     "NoLocal" * "Optimization",   # no local optimization is `nothing` (TOML "none")
     "_check_local" * "_optimization",   # refine_camera_and_poses' strategy check is the refine contract's (`_bundle_loss`)
+    "default_local" * "_optimization",   # the ransac keyword's default: `default_local_optimization_strategy(scoring)` (VisualGeometryToolkitEstimation)
+    "_fit_local" * "_optimization",      # a fit's `optimization_strategy` default: `_fit_strategy_default(fit)` (VisualGeometryToolkitEstimation)
+    # the verb states the kind (conventions/naming.md): a seeded bundle is a refine, the filtered averaging a fit
+    "bundle_refine" * "_relpose",        # `refine_relative_pose(pose, K1, K2, cs)` (VisualGeometryToolkitEstimation)
+    "filtered_rotation" * "_averaging",  # `fit_filtered_rotation_averaging(vg; cycle_tol, orientation_tol)` (VisualGeometryToolkitEstimation)
+    "LO" * "_TAGS",                      # the strategy registry: `OPTIMIZATION_STRATEGY_TAGS` (VisualGeometryToolkitEstimation; the owner's ruling)
     # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
     # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
     "scale" * "_multiple", "Scale" * "Multiple", "plain_scale" * "_multiple", "deployed_scale" * "_multiple", "deployed" * "_shape",

@@ -475,7 +475,7 @@ sweep; its first `k*` entries are the consensus set), [`penalties`](@ref) and
 [`sort_key`](@ref) (the predictive score's per-point penalty and ordering key,
 filled before a sweep), [`lg_table`](@ref), [`scale_prior`](@ref). Build it
 with `scoring_workspace(scoring, n, d_g)` (= [`alloc_scoring_workspace`](@ref))
-or [`default_scoring_workspace`](@ref)`(n; dg, scale_prior)`.
+or [`default_scoring_workspace`](@ref)`(n; dg, scale_prior, label_prior)`.
 """
 mutable struct ScoringWorkspace{K<:Unsigned}
     const perm::Vector{Int}
@@ -584,24 +584,24 @@ function Base.resize!(sws::ScoringWorkspace, n::Integer)
 end
 
 """
-    default_scoring_workspace(n; dg = 1, scale_prior) -> ScoringWorkspace
+    default_scoring_workspace(n; dg = 1, scale_prior, label_prior) -> ScoringWorkspace
 
-A scoring workspace with the flat label prior, for callers that sweep without
-a `StudentTUniformScoring` in hand (a per-blob adaptation, a host-side seed
-loop): length-`n` buffers for a problem of `n` points with codimension `dg`,
-committed to `scale_prior` (the log Γ table's `α₀`; required — the stack's
-default prior is a configuration's, not this function's).
+A scoring workspace for callers that sweep without a `StudentTUniformScoring`
+in hand (a per-blob adaptation, a host-side seed loop): length-`n` buffers for
+a problem of `n` points with codimension `dg`, committed to `scale_prior` (the
+log Γ table's `α₀`) and `label_prior` (e.g. `FlatLabelPrior()`), both required —
+the stack's default priors are a configuration's, not this function's.
 """
-function default_scoring_workspace(n::Int; dg::Int = 1, scale_prior::IGPrior)
+function default_scoring_workspace(n::Int; dg::Int = 1, scale_prior::IGPrior, label_prior::AbstractLabelPrior)
     ScoringWorkspace(
         Vector{Int}(undef, n),
         Vector{Int}(undef, n),
         log_gamma_table(n, dg; alpha0 = scale_prior.alpha0),
         zeros(Float64, n),
         Vector{Float64}(undef, n),
-        Float64[],
+        label_prior_table(n, label_prior),
         scale_prior;
-        label_prior = FlatLabelPrior(),
+        label_prior,
     )
 end
 
@@ -863,7 +863,7 @@ end
 The sort-and-sweep on a bare `ScoringWorkspace`, for callers without a
 `StudentTUniformScoring` (a per-blob posterior adaptation, a host-side seed
 loop). The scale prior is the workspace's, committed at allocation time
-([`default_scoring_workspace`](@ref)`(n; dg, scale_prior)`). A forwarder: no
+([`default_scoring_workspace`](@ref)`(n; dg, scale_prior, label_prior)`). A forwarder: no
 sweep loop of its own.
 """
 sweep!(sws::ScoringWorkspace, sq_distances::AbstractVector{T}, n::Int;

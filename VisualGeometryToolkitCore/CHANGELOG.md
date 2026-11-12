@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`Attributed` delegates by `MacroTools.@forward`**, the stack's one idiom (as `BoundedCamera`): the hand-written
+  `iterate` of a wrapped Pair and `getindex`/`length`/`size` of a wrapped vector are two `@forward` lines. Behaviour is
+  unchanged (the same types; `a.value` is `getfield(a, :value)`).
+- **`check_naming` retires `LO_TAGS`** (VisualGeometryToolkitEstimation's strategy registry, now
+  `OPTIMIZATION_STRATEGY_TAGS`; beside LocalOptimizationDoneRight's `LODR_STRATEGY_TAGS` and PoseLib's
+  `POSELIB_STRATEGY_TAGS`).
 - **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
   `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
   ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,
@@ -24,7 +30,43 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
-
+- **`BoundedCamera` forwards every camera verb** (a BoundedCamera is the type for pixel operations): its one
+  `MacroTools.@forward BoundedCamera.camera` list, moved to the end of the Cameras module so it can name every verb,
+  adds `backproject_with_jacobian` (a SplineLens BoundedCamera was a `MethodError`), `constraint_with_jacobians`,
+  `imaging_transform`, `imaging_chain`, `distortion_map`, `has_distortion`, `fov_radius`, `horizon_radius`,
+  `valid_rect`, `undistorted_rect`, `division_bounded`, `undistort`, `p3p`, `transfer` and `radial_homography` to the
+  accessors, `unproject` and `is_in_front`; `project`/`backproject` stay `@inline` (device kernels). As for those two,
+  no forwarded verb applies the bound. The model constructors (`pinhole`, `window`, `with_parameters`) and the
+  parameter protocol stay the model's: call them on `model(bc)`. A quality test checks that every exported or public
+  verb with a `CameraModel` method has a BoundedCamera one, or is a listed exception.
+- **`check_duplication(dir)` never compares a file with itself**: a subdirectory of a repository (a paper project in
+  a package's repository) lies inside the repository's own tree, so its files were scanned twice and every one was
+  reported as a whole-file copy of itself (`X ⇔ X`). Each file is now scanned once, by its real path, on its own side.
+- **`HartleyNormalization` applies to 3-D points**: `AffineMap(HartleyNormalization(), points3d[, weights])` maps
+  `StaticVector{3}`s about their (weighted) centroid to mean distance √3 (Hartley & Zisserman), the normalization of a
+  least squares over lengths; a known centre stays 2-D (`ArgumentError`). Two bodies (`_hartley_map`, `_hartley_map_3d`)
+  share one acceptance rule (`_hartley_accept`) and degeneracy guard; the 2-D map is unchanged, bit for bit.
+- **`check_naming` retires `bundle_refine_relpose` and `filtered_rotation_averaging`** (VisualGeometryToolkitEstimation's
+  `refine_relative_pose` and `fit_filtered_rotation_averaging`); conventions/units.md names the new one.
+- **`check_naming` retires `default_local_optimization` and `_fit_local_optimization`** (VisualGeometryToolkitEstimation's
+  renames to the strategy keywords' spelling).
+- **Breaking: the Student-t priors are required everywhere** (the owner's ruling (c), 2026-11-11), as the public
+  scorer already required them: `PosteriorWeightState(n; …, prior)`, `reset_posterior!(pws; …, prior)`,
+  `posterior_weights!`/`posterior_inlier_probs!(…; prior)`, `median_seeded_posterior(sq, n; outlier_halfwidth, ν,
+  prior)` (its `ν = 1e4` and `IGPrior(0, 0)` defaults removed too) and `default_scoring_workspace(n; dg, scale_prior,
+  label_prior)` (its label prior was hard-wired flat) have no prior defaults; leaving one out is an
+  `UndefKeywordError`. A caller that relied on the default supplies `prior = JeffreysPrior()` /
+  `label_prior = FlatLabelPrior()`, bit for bit.
+- **`median_seeded_posterior` seeds at `mad_scale`²** (the no-duplication rule): its seed scale is the median residual
+  NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.
+  The two agree for an odd count up to rounding; for an even count the median of the norms averages the two middle
+  norms, not their squares, so the seed moves slightly (the EM it starts converges to the same fixed point).
+- **Breaking: `CSRMatrix` and the `:pool` grid selection default to `default_device()`, and the `:pool` result gains a
+  `backend` field** (a caller comparing a whole `stage_selection(:pool, …)` result with `==` changes) (the stack's GPU-first rule):
+  `CSRMatrix(A; device = default_device())` (was `KA.CPU()`), and `stage_selection(:pool, pairs, residuals; backend)`
+  carries its backend (`default_device()` when none is supplied), on which `select_on_grid!` runs the exact kernels
+  of a residual-quality family (they were hard-wired to `KA.CPU()`). On the host the selections are unchanged, bit for
+  bit.
 - **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
   no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are

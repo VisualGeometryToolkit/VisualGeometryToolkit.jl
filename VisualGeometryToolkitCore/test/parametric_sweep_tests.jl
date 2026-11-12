@@ -73,7 +73,7 @@
             # with large residual): correlate some penalties negatively with q
             pen = 0.5 .* randn(rng, n) .+ (rand(rng, n) .< 0.5) .* (-0.3 .* q)
             prior = seed % 2 == 0 ? JeffreysPrior() : IGPrior(1.3, 0.7)
-            sws = default_scoring_workspace(n; dg, scale_prior = prior)
+            sws = default_scoring_workspace(n; dg, scale_prior = prior, label_prior = FlatLabelPrior())
             S, k = sweep!(sws.perm, sws.lg_table, m, log_two_outlier_halfwidth, dg, q, n;
                           scratch = sws.scratch, penalties = pen, scale_prior = prior)
             Sb, Ib = _brute_best(q, pen, n, m, dg, log_two_outlier_halfwidth, prior)
@@ -98,7 +98,7 @@
             pen = 0.5 .* Float64.(rand(rng, -2:2, n))
             prior = seed % 2 == 0 ? JeffreysPrior() : IGPrior(1.3, 0.7)
             pt = seed % 4 < 2 ? label_prior_table(n, ProfiledLabelPrior()) : nothing
-            sws = default_scoring_workspace(n; dg, scale_prior = prior)
+            sws = default_scoring_workspace(n; dg, scale_prior = prior, label_prior = FlatLabelPrior())
             S, k = sweep!(sws.perm, sws.lg_table, m, log_two_outlier_halfwidth, dg, q, n;
                           scratch = sws.scratch, penalties = pen, prior_table = pt,
                           scale_prior = prior)
@@ -219,8 +219,8 @@
         # homoscedastic degradation: constant penalties reduce to the prefix
         # family of the single q-sort (bit-identical fast path)
         penc = fill(1.234, n)
-        sws1 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior())
-        sws2 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior())
+        sws1 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+        sws2 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
         S1, k1 = sweep!(sws1.perm, sws1.lg_table, m, log_two_outlier_halfwidth, dg, q, n;
                         scratch = sws1.scratch, penalties = penc, scale_prior = JeffreysPrior())
         q2 = copy(q)
@@ -230,7 +230,7 @@
         # crossing bound: the enumeration terminates within C(n,2) events and its
         # optimum dominates every single-μ prefix family (spot check μ grid)
         pen = randn(rng, n)
-        sws = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior())
+        sws = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
         S, k = sweep!(sws.perm, sws.lg_table, m, log_two_outlier_halfwidth, dg, q, n;
                       scratch = sws.scratch, penalties = pen, scale_prior = JeffreysPrior())
         lg = log_gamma_table(n, dg)
@@ -259,10 +259,10 @@
             # by the k-independent constant −(nd − n_θ)·log c and the argmax is
             # invariant. (With a FIXED floor the −ν_k·log c tilt legitimately
             # moves the boundary — that is a different experiment, not this pin.)
-            sws = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior())
+            sws = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
             S, k = sweep!(sws.perm, sws.lg_table, m, log_two_outlier_halfwidth + log(c), dg, c^2 .* q, n;
                           scratch = sws.scratch, penalties = pen, scale_prior = JeffreysPrior())
-            sws0 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior())
+            sws0 = default_scoring_workspace(n; dg, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
             S0, k0 = sweep!(sws0.perm, sws0.lg_table, m, log_two_outlier_halfwidth, dg, q, n;
                             scratch = sws0.scratch, penalties = pen, scale_prior = JeffreysPrior())
             @test k == k0                                   # selected partition invariant

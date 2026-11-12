@@ -20,4 +20,12 @@ end
     dirs = filter(isdir, [joinpath(root, "src"), joinpath(root, "ext")])
     @test isempty(reduce(vcat, [VgtkCore.private_name_violations(d, "PoseLib") for d in dirs]))
     @test isempty(VgtkCore.contract_generic_violations(PoseLib))
+    # the strategy registry (LeZach's): the tag rule, and no tag table outside a TagRegistry
+    @test last.(VgtkCore.tag_registries(PoseLib)) == [PoseLib.POSELIB_STRATEGY_TAGS]
+    @test isempty([v for (_, r) in VgtkCore.tag_registries(PoseLib) for v in VgtkCore.tag_rule_violations(r)])
+    @test isempty(VgtkCore.tag_table_violations(joinpath(root, "src")))
+    # every optimization strategy PoseLib defines is registered
+    strategies = [getfield(PoseLib, n) for n in names(PoseLib; all = true)
+                  if isdefined(PoseLib, n) && (v = getfield(PoseLib, n); v isa Type && v <: VgtkCore.AbstractOptimizationStrategy)]
+    @test !isempty(strategies) && all(T -> VgtkCore.tag_of(PoseLib.POSELIB_STRATEGY_TAGS, T) isa String, strategies)
 end

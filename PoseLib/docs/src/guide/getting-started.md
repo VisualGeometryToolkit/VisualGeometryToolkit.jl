@@ -39,22 +39,26 @@ true
 
 ## Refining an absolute pose
 
-A refiner starts from a seed and polishes it. The pose refiners take and
-return a [`Rigid3`](@ref PoseLib.Rigid3), which `EuclideanMap(R, t)` builds
-from a rotation and a translation. Here the seed is a few pixels off.
+A refiner starts from a seed and polishes it. It returns a `FitResult`, whose
+`estimate` is the refined model; the pose refiners take and return a
+[`Rigid3`](@ref PoseLib.Rigid3), which `EuclideanMap(R, t)` builds from a
+rotation and a translation. Here the seed is a few pixels off.
 
-`loss_width` is in the unit of the image points, pixels here. Under the
-default truncated loss, a point whose residual exceeds it counts as an outlier
-and gets zero weight. A seed must therefore be close enough that the inliers
-fall within the width.
+The strategy is `optimization_strategy = Irls{TLSShape}()`, the truncated loss,
+and its `width` is in the unit of the image points, pixels here. A point whose
+residual exceeds it counts as an outlier and gets zero weight. A seed must
+therefore be close enough that the inliers fall within the width.
 
 ```jldoctest gs
 julia> seed = EuclideanMap(RotationVec(0.002, -0.001, 0.0), Vec3(0.005, 0.0, 0.01));
 
-julia> pose = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0);
+julia> r = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0);
 
-julia> maximum(abs, pose.t) < 1e-8
+julia> pose = estimate(r); maximum(abs, pose.t) < 1e-8
 true
+
+julia> retcode(r)
+:converged
 ```
 
 A P3P solution is a labeled `Extrinsics3`, a map from the world frame to the
@@ -63,7 +67,7 @@ camera frame. `unlabel` turns it into a `Rigid3` seed.
 ```jldoctest gs
 julia> best = poses[argmin([maximum(abs, p.t) for p in poses])];
 
-julia> refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0) isa PoseLib.Rigid3
+julia> estimate(refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)) isa PoseLib.Rigid3
 true
 ```
 
@@ -81,7 +85,7 @@ julia> x2 = [pixel(K, truth(x)) for x in X];
 
 julia> seed = EuclideanMap(RotationVec(0.0, 0.101, 0.001), Vec3(0.99995, 0.01, 0.0));
 
-julia> rel = refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, loss = TLSShape(), loss_width = 2.0);
+julia> rel = estimate(refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia> maximum(abs, rel.R - truth.R) < 1e-6
 true
@@ -89,7 +93,7 @@ true
 
 The same refinement runs on unit bearings, the form that also serves fisheye
 cameras. Each bearing carries the Jacobian of the back-projection, which sets
-the unit of `loss_width`: pixels for these Jacobians. See
+the unit of the width: pixels for these Jacobians. See
 [Refiners](refiners.md) for why.
 
 ```jldoctest gs
@@ -103,7 +107,7 @@ julia> b2 = backproject_with_jacobian.(Ref(camera), x2);
 
 julia> cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
 
-julia> maximum(abs, refine_relpose(seed, cs; max_iter = 50, loss = TLSShape(), loss_width = 2.0).R - rel.R) < 1e-12
+julia> maximum(abs, estimate(refine_relpose(seed, cs; max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)).R - rel.R) < 1e-12
 true
 ```
 
@@ -122,7 +126,7 @@ julia> y = [(h = H * [x; 1.0]; Point2(h[1] / h[3], h[2] / h[3])) for x in x1];
 
 julia> H0 = HomographyMat([1.1 0.02 6.0; -0.03 0.96 -3.0; 1e-4 2e-4 1.0]);
 
-julia> H1 = refine_homography(H0, Csponds(x1, y); max_iter = 25, loss = TLSShape(), loss_width = 2.0);
+julia> H1 = estimate(refine_homography(H0, Csponds(x1, y); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia> H1 / H1[3, 3] ≈ H
 true

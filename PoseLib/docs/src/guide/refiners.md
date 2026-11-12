@@ -15,40 +15,75 @@ optimization.
 | [`refine_relpose`](@ref)`(pose, cs)` | `Rigid3` | unit bearings `f1 => f2` with Jacobians | tangent Sampson error |
 | [`refine_absolute_pose`](@ref)`(pose, K, cs)` | `Rigid3` | 3D to pixel `X => u` | reprojection error |
 
-Every refiner takes three keywords:
+Every refiner takes the robust-estimation contract's keywords:
 
-- `max_iter`, the iteration budget. It has no default; the caller chooses it.
-- `loss`, the robust loss (`TLSShape()`, a truncated quadratic, or another shape below). It has
-  no default either: the loss of a robust estimate is the caller's configuration.
-- `loss_width`, the width of the loss, in the unit of the residual.
+- `max_iter`, PoseLib's Levenberg–Marquardt iteration budget. It has no
+  default; the caller chooses it.
+- `optimization_strategy`, the strategy: VisualGeometryToolkitCore's `Irls{K}`
+  with one of the shapes below, PoseLib's [`LeZach`](@ref)`()`, or `nothing`
+  for plain least squares. It has no default either: the strategy of a robust
+  estimate is the caller's configuration. (An `Irls` strategy's own `max_iter`,
+  its reweighting count, is not read: PoseLib's budget is `max_iter`.)
+- exactly one of `width = w`, the width of the loss in the unit of the
+  residual, and `scale = σ`, the noise scale (or an earlier robust result,
+  whose `noise_scale` is handed on). Least squares takes neither.
 
-## Losses
+The retired keywords `loss` and `loss_width` are refused with an
+`ArgumentError` naming their replacements.
 
-A loss is one of VisualGeometryToolkitCore's loss shapes. Each is parametrized
-by one width `w`, and PoseLib's own `loss_scale` parameter equals that width
-for every loss bound here. The width reaches PoseLib unchanged.
+## Strategies
 
-| `loss` | `ρ(r)` | |
+PoseLib's Levenberg–Marquardt weighs each residual by its loss weight `ρ′`
+alone, without the `ρ″` term, so its strategies are `Irls{K}`; a `Triggs{K}`
+(the `ρ″`-corrected LM of the stack's native refiners) is refused. Each shape
+is parametrized by one width `w`, and PoseLib's own `loss_scale` parameter
+equals that width for every loss bound here. The width reaches PoseLib
+unchanged.
+
+| `optimization_strategy` | `ρ(r)` | |
 |---|---|---|
-| `TLSShape()` (default) | `min(r², w²)` | inliers have `r < w`; outliers get zero weight |
-| `HuberShape()` | `r²` up to `w`, linear beyond | |
-| `CauchyShape()` | `w² log(1 + r²/w²)` | |
-| `GaussianShape()` | `r²` | plain least squares; takes no `loss_width` |
-| [`LeZachTruncation`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's reweighting scheme |
+| `Irls{TLSShape}()` | `min(r², w²)` | inliers have `r < w`; outliers get zero weight |
+| `Irls{HuberShape}()` | `r²` up to `w`, linear beyond | |
+| `Irls{CauchyShape}()` | `w² log(1 + r²/w²)` | |
+| [`LeZach`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's reweighting scheme; TOML `type = "le_zach"` ([`POSELIB_STRATEGY_TAGS`](@ref PoseLib.POSELIB_STRATEGY_TAGS)) |
+| `nothing` | `r²` | plain least squares; takes no `scale` or `width` |
+
+Given `scale = σ`, the loss runs at `w = c·σ`: `c` is the strategy's own
+efficiency constant, else VisualGeometryToolkitCore's
+`efficiency_constant(shape, d)` at the codimension `d` of the refiner's
+residual (1 for the Sampson and tangent-Sampson errors, 2 for the transfer and
+reprojection errors). A truncation (TLS, Le–Zach) has no efficiency constant,
+so it takes `width`.
 
 The truncated loss with a fixed width is the cost that MSAC (M-estimator
-sample consensus) scores hypotheses with, so the default refiner optimizes
+sample consensus) scores hypotheses with, so `Irls{TLSShape}()` optimizes
 what an MSAC-scored RANSAC loop measures.
 
 Under a truncated loss, a correspondence with a residual above `w` contributes
 nothing. A seed far from the answer, with most residuals above the width,
 therefore comes back almost unchanged.
 
+## The result
+
+Every refiner returns a VisualGeometryToolkitCore `FitResult`:
+
+- `estimate(result)`, the refined model;
+- `retcode(result)`, `:converged` when PoseLib stopped on its own tolerances,
+  `:max_iterations` when it used the whole budget, and `iterations(result)`,
+  the iterations PoseLib took;
+- the scale record in its metadata ([`PoseLibRefineMetadata`](@ref)): the
+  `scale` it was given and its `scale_source`, and the `width` PoseLib ran at.
+  `noise_scale(result)` hands a given scale to the next stage; a result run at
+  a width or by least squares records none (`ScaleNone`) and refuses it.
+
+PoseLib reports no residuals, weights or cost, so `rms` is `NaN` and `n` is the
+number of correspondences.
+
 ## Frames and units
 
 The refiners follow the stack's rule that results come back in the frame the
 inputs came in. They hand the data to PoseLib as given and normalize nothing.
-`loss_width` is in the unit of the residual, which is the unit of the data:
+The width is in the unit of the residual, which is the unit of the data:
 
 - A homography or fundamental matrix in pixels takes pixel points and a pixel
   width. A model in another frame takes points and width in that frame.
@@ -76,7 +111,7 @@ using VisualGeometryToolkitCore: backproject_with_jacobian
 b1 = backproject_with_jacobian.(Ref(camera1), u1)   # (bearing, Jacobian) per point
 b2 = backproject_with_jacobian.(Ref(camera2), u2)
 cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
-refine_relpose(pose, cs; max_iter = 25, loss = TLSShape(), loss_width = 2.0)
+refine_relpose(pose, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)
 ```
 
 The residual is the tangent Sampson error
@@ -85,9 +120,9 @@ The residual is the tangent Sampson error
 
 Its denominator is the gradient of the epipolar constraint with respect to the
 coordinates the Jacobians differentiate against. So the Jacobians set the unit
-of `r`, and of `loss_width`:
+of `r`, and of the width:
 
-| `M` is | `r` and `loss_width` are in |
+| `M` is | `r` and the width are in |
 |---|---|
 | `∂f/∂u` from `backproject_with_jacobian` | pixels of `u` |
 | an orthonormal basis of the tangent plane of the sphere at `f` | radians |
@@ -118,7 +153,7 @@ for a fisheye camera.
 
 ## Poses
 
-The pose refiners take and return a [`Rigid3`](@ref PoseLib.Rigid3), an
+The pose refiners take, and return as their `estimate`, a [`Rigid3`](@ref PoseLib.Rigid3), an
 unlabeled rigid motion `x ↦ R·x + t`. `EuclideanMap(R, t)` builds one from a
 rotation and a translation. A labeled pose, such as the `Extrinsics3` that P3P
 returns, becomes one through `unlabel`.

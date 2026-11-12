@@ -23,12 +23,14 @@ stack: its inputs and outputs are the types of
 Design principles, each explained on the [Refiners](guide/refiners.md) page:
 
 - **Frame in, frame out.** The bindings take data in the caller's frame and
-  return results in it; `loss_width` is in the unit of the data handed over.
+  return results in it; the width is in the unit of the data handed over.
 - **Calibrated geometry is on unit bearings**, never on the z = 1 plane, so a
   ray at or beyond 90° is an ordinary input.
-- **The loss is a VisualGeometryToolkitCore loss shape** (or
-  [`LeZachTruncation`](@ref)`()`), mapped to PoseLib's own loss type only at the
-  call into the library.
+- **The robust-estimation contract's names.** The strategy is
+  `optimization_strategy` (VisualGeometryToolkitCore's `Irls{K}`, or
+  [`LeZach`](@ref)`()`), the width `scale` or `width`, and the result a
+  `FitResult` with PoseLib's `retcode` and `iterations`; PoseLib's own loss type
+  appears only at the call into the library.
 
 ## Installation
 
@@ -63,7 +65,9 @@ poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25])
 # Keep the solution that reprojects all 25 points best, then refine it.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-pose = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, loss = TLSShape(), loss_width = 2.0)
+result = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50,
+                              optimization_strategy = Irls{TLSShape}(), width = 2.0)
+pose = estimate(result)
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 
@@ -83,7 +87,7 @@ maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 
 **Explanation**
 
-- [Refiners](guide/refiners.md): the losses, the unit of `loss_width`,
+- [Refiners](guide/refiners.md): the strategies, the unit of the width,
   coordinate frames and bearings.
 - VisualGeometryToolkitCore's
   [Conventions](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/guide/conventions/):

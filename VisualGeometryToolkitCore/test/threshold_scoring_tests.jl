@@ -127,3 +127,64 @@ end
     @test isequal(zero_sample!(copy(v), [1, 2, 4]), [0.0, Inf, 2.0, NaN])
     @test_throws BoundsError zero_sample!(copy(v), [5])
 end
+
+@testitem "sample_point_held: −Inf, NaN, an all-non-finite sample, and the predictive scorer's one decision" begin
+    using Test
+    using StaticArrays: SVector, SMatrix
+    using Random: MersenneTwister
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: RansacScoring, MsacScoring, StudentTUniformScoring, Predictive, JeffreysPrior,
+        FlatLabelPrior, AbstractConstraintProblem, scoring_workspace, alloc_scoring_workspace, score!, inlier_count,
+        consensus_order, consensus_s2, score_sq_residuals!, penalties, zero_sample!
+    marginal = StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    rng = MersenneTwister(5)
+    n = 40
+    base = 0.3 .* abs.(randn(rng, n))
+    # −Inf and NaN in a sampled point are not held, as Inf is; an all-non-finite sample holds none
+    @testset "−Inf, NaN, all non-finite: $(nameof(typeof(sc)))" for sc in (RansacScoring(1; threshold = 8.0), MsacScoring(1; threshold = 8.0), marginal)
+    for (bad, sample) in (([7] => -Inf, [2, 7, 30]), ([7] => NaN, [2, 7, 30]),
+                          ([2, 7, 30] => [Inf, NaN, -Inf], [2, 7, 30]))
+        r = copy(base); r[first(bad)] .= last(bad)
+        nbad = length(first(bad))
+        W = scoring_workspace(sc, n, 1)
+        S = score!(W, sc, zeros(n), r, n; sample)
+        k = inlier_count(sc, W)
+        set = consensus_order(sc, W)[1:k]
+        @test k == n - nbad && all(i -> i ∉ set, first(bad)) && all(i -> i in set, setdiff(sample, first(bad)))
+        @test isfinite(consensus_s2(sc, r, consensus_order(sc, W), k; model_dof = 2, d_g = 1))
+        @test !isnan(S)
+    end
+    end
+
+    # the two-buffer form: held decided once, from the first buffer, applied to both
+    @testset "zero_sample!(v, w, sample)" begin
+    q = [1.0, 0.0, Inf, NaN]; pen = [2.0, Inf, 3.0, 4.0]
+    zero_sample!(q, pen, [1, 2, 3, 4])
+    @test isequal(q, [0.0, 0.0, Inf, NaN]) && isequal(pen, [0.0, 0.0, 3.0, 4.0])
+    @test_throws BoundsError zero_sample!(zeros(3), zeros(2), [3])           # an index invalid in either buffer throws
+    @test zero_sample!(q, pen, nothing) === q
+    end
+
+    # the PREDICTIVE scorer: a 1-D location problem whose sampled points disagree between score and penalty
+    struct _LocProblem <: AbstractConstraintProblem
+        x::Vector{Float64}
+        row::Vector{Float64}
+    end
+    VgtkCore.codimension(::_LocProblem) = 1
+    VgtkCore.minimal_sample_size(::_LocProblem) = 1
+    VgtkCore.whitened_constraint_rows(p::_LocProblem, μ, i::Int) = (p.x[i] - μ, SVector(p.row[i]))
+    x = 0.3 .* randn(rng, n); row = fill(-1.0, n)
+    x[5] = Inf                  # sampled: an infinite residual beside a finite penalty (q Inf, log V finite)
+    row[9] = Inf                # sampled: a finite residual beside an infinite penalty (q 0, log V Inf)
+    prob = _LocProblem(x, row)
+    pred = StudentTUniformScoring{Predictive}(1, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    @testset "predictive: one decision for score and penalty" begin
+    sws = alloc_scoring_workspace(n, 1, pred)
+    qs = zeros(n)
+    S, k = score_sq_residuals!(sws, qs, pred, prob, 0.0, SMatrix{1, 1}(0.01), [5, 9, 20], n)
+    @test isinf(qs[5]) && isfinite(penalties(sws)[5]) && penalties(sws)[5] != 0   # not held: left whole
+    @test qs[9] == 0 && penalties(sws)[9] == 0                                      # held: both zeroed, not half
+    @test qs[20] == 0 && penalties(sws)[20] == 0
+    @test isfinite(S) && 5 ∉ VgtkCore.sweep_order(sws)[1:k]
+    end
+end

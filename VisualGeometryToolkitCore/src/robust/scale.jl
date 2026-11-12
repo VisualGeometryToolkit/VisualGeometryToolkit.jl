@@ -159,20 +159,7 @@ function square_distances!(sq::AbstractVector{T}, r::AbstractVector, n::Int) whe
     return sq
 end
 
-# Forced in, its Inf residual made the consensus scale Inf (RadiometricCamera's grid index,
-# 2026-11-12: 86 of 142 photographs of one set).
-"""
-    sample_point_held(x) -> Bool
-
-THE rule of a minimal sample's points, every scorer's (the threshold families'
-consensus partition and score correction, the Student-t scorer's zeroed scores and
-penalties, the pool staging, through `zero_sample!`): a sample point is held
-at zero residual — its model fits it by construction — only where its value `x` (a
-residual, its square, a score) is finite. A non-finite one is a point the model does
-not reach (a lattice detection a pose leaves unassigned, its distance Inf), and it
-stays an outlier: out of the consensus set, its RSS and its dof.
-"""
-@inline sample_point_held(x) = isfinite(x)
+# A minimal sample's held points: `sample_point_held` (robust/scoring_contract.jl, the rule every scorer reads).
 
 # A minimal sample's points satisfy their constraints exactly: zero their
 # entries of `v` (a score or a penalty buffer) where they are held
@@ -183,6 +170,20 @@ zero_sample!(v::AbstractVector, ::Nothing) = v
 function zero_sample!(v::AbstractVector, sample_idx)
     for idx in sample_idx
         sample_point_held(v[idx]) && (v[idx] = zero(eltype(v)))
+    end
+    return v
+end
+# Two buffers of the same points (the predictive scorer's scores `v` and penalties `w`):
+# held is decided ONCE per sample point, from `v` (the residual's score), and that one
+# decision zeroes both, so a point is never half held (a finite score beside a
+# non-finite penalty, or the reverse). Bounds-checked as above.
+zero_sample!(v::AbstractVector, w::AbstractVector, ::Nothing) = v
+function zero_sample!(v::AbstractVector, w::AbstractVector, sample_idx)
+    for idx in sample_idx
+        held = sample_point_held(v[idx])
+        w[idx]                                   # bounds-checked before either write
+        held || continue
+        v[idx] = zero(eltype(v)); w[idx] = zero(eltype(w))
     end
     return v
 end

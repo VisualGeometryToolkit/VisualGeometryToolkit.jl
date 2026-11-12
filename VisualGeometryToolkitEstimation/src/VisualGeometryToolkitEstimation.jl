@@ -369,7 +369,7 @@ public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidA
 public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
-public RotationCenterViews   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
+public RotationCenterViews, rotation_center_pose   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS

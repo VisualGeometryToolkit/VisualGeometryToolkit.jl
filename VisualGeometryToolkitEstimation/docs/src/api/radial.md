@@ -81,6 +81,7 @@ dot it does not back-project makes no row and is counted in the metadata
 refine_camera_and_poses
 CameraPosesRefineMetadata
 RotationCenterViews
+rotation_center_pose
 RotationCenterRefineMetadata
 n_without_bearing
 without_bearing

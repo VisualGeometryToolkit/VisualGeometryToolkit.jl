@@ -870,7 +870,8 @@ end
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
         ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs, ReturnCode, ClosedForm
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews, rotation_center_pose
+    using VisualGeometryToolkitCore: EuclideanMap, rotation, translation
     cam = pinhole_camera(); held = Tuple(parameter_names(cam))
     axes = [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04),
             SVector(0.0, 0.0, 0.1)]
@@ -886,6 +887,12 @@ end
         @test norm(est.views.center - t.c) < 1.0e-8 && norm(est.views.offset - t.d) < 1.0e-8 && rot_err(est) < 1.0e-9
         @test r.ν == 2 * 6 * 63 - (6 + 3 * 6) && r.rms < 1.0e-8 && scale_source(r) === ScaleNone
         @test sort(collect(keys(est.views.rotations))) == collect(1:6)
+        # a view's pose from the refined views (the public rotation_center_pose): (R_k, d − R_k c), the truth's camera points
+        v = est.views
+        P = rotation_center_pose(v.rotations[3], v.center, v.offset)
+        @test P isa EuclideanMap && rotation(P) == v.rotations[3] && translation(P) == v.offset - SMatrix{3, 3, Float64, 9}(v.rotations[3]) * v.center
+        X = SVector(0.04, -0.08, 0.0)
+        @test norm(P(X) - (t.R[3] * (X - t.c) + t.d)) < 1.0e-8
     end
     @testset "noisy pixels with 5% outliers: Triggs{Huber} at an upstream scale" begin
         upstream = FitResult(0.3, ReturnCode.Success, ClosedForm, 0, NaN, 6,

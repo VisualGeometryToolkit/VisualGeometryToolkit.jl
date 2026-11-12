@@ -34,8 +34,19 @@
 
 const _ViewRotationChart = VgtkCore.SO3Manifold{Float64}
 
-# The rotation-centre view's pose, evaluated inside the bearing block: (R, d − R c).
-@inline _rotation_center_pose(ch, c, d) = (R = model(ch); EuclideanMap(R, d - SMatrix{3, 3}(R) * c))
+"""
+    rotation_center_pose(R, center, offset) -> EuclideanMap
+
+The pose (target → camera) of one view of [`RotationCenterViews`](@ref): the
+camera turned by `R` (target → camera) about the rotation centre `center`
+(target frame), its projection centre at `offset` from it (camera frame), so
+`X ↦ R (X − center) + offset`, i.e. `EuclideanMap(R, offset − R·center)`. The
+pose the rotation-centre refine evaluates inside its bearing block, and the one
+a caller builds from a result's views:
+`rotation_center_pose(v.rotations[k], v.center, v.offset)` with
+`v = estimate(result).views`. Plain numbers (the target's length unit).
+"""
+@inline rotation_center_pose(R, center, offset) = EuclideanMap(R, offset - SMatrix{3, 3}(R) * center)
 
 """
     RotationCenterViews(rotations, center, offset)
@@ -215,7 +226,7 @@ NLLSsolver.getvars(r::_BearingCenterBlock, vars::AbstractVector) =
     (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
 Base.eltype(::_BearingCenterBlock) = Float64
 function NLLSsolver.computeresidual(r::_BearingCenterBlock, ch, c, d)
-    P = _rotation_center_pose(ch, c, d)
+    P = rotation_center_pose(model(ch), c, d)
     e = _bearing_residual(r.problem, rotation(P), translation(P), r.i)
     return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e
 end

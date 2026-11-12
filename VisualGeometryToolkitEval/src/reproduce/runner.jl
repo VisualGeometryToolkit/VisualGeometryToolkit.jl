@@ -423,6 +423,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
                         site::AbstractString = "", unpublished = nothing)
     rows = Dict{String, Tuple{String, Vector{String}}}()
     tiers = get(get(g.site_roots, site, Dict{String, Any}()), "tiers", nothing)
+    view_mount = isempty(data_root) ? nothing :
+                 catalog_view_mount(data_root, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml"))
     wrong = String[]
     add!(path, tier, user) = (r = get!(rows, path, (tier, String[])); user in r[2] || push!(r[2], user))
     function check!(cfg, user)
@@ -431,8 +433,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
         for (id, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
             (t isa AbstractDict && haskey(t, "path")) || continue
             tier = String(get(t, "tier", ""))
-            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env)
-            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : "[sites.$site.tiers]"
+            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
+            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
             r = inspect_input(id, t, root; root_source = from, root_name = name)        # the one check (src/code_identity.jl)
             if tier == UNPUBLISHED_TIER && unpublished !== nothing
                 k = findfirst(u -> u.path == t["path"], unpublished)

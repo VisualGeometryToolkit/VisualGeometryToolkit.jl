@@ -296,8 +296,10 @@ end
 
 The keyed directory of a run that PRODUCES data of the tier `tier` (training
 annotations, a derived pool): `<the tier's root>/<tier>/<kind>-<run_key(cfg; …)>`,
-the tier's root resolved as a consumer's ([`data_root`](@ref)`(; tier)`:
-`VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the data root). A
+the tier's root resolved by the consumers' resolver (`tier_data_root`:
+`VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the data root) as a
+WRITE root: it never installs an artifact, and a tier an artifact view
+publishes read-only is refused until its root is bound. A
 consumer declares it as `[inputs.<id>] tier = "<tier>", path =
 "<tier>/<kind>-<key>"`, the same path on every machine: producer and consumer
 agree wherever the tier's root is. The one place a producer writes input data;
@@ -306,7 +308,7 @@ it writes its records with `producer = true` ([`write_run_records`](@ref),
 resumed or overwritten one.
 """
 keyed_data_dir(cfg::AbstractDict, tier::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
-    joinpath(data_root(; tier), tier, kind * "-" * run_key(cfg; files, upstream, parts))
+    joinpath(_tier_root(tier; write = true), tier, kind * "-" * run_key(cfg; files, upstream, parts))
 
 """
     tier_path(tier, parts...) -> String
@@ -339,7 +341,7 @@ function promote_run(run_dir::AbstractString, tier::AbstractString; name::Abstra
     scratch_record(run_dir) &&
         throw(ArgumentError("promote_run: $run_dir is a scratch run's output (scratch = true): only a run of record is an input of record"))
     key = get(read_provenance(run_dir), "run_key", "")
-    dst = joinpath(data_root(; tier), tier, name)
+    dst = joinpath(_tier_root(tier; write = true), tier, name)
     if isdir(dst)
         had = isfile(joinpath(dst, PROVENANCE_FILE)) ? get(read_provenance(dst), "run_key", "") : ""
         had == key && return dst

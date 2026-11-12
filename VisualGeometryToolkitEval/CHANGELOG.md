@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **One tier resolver, read and write** (`tier_data_root`): the runner's `missing_inputs`, `data_root(; tier)`,
+  `input_path`, `verify_inputs`, `tier_path`, `keyed_data_dir` and `promote_run` all resolve a tier through it, in one
+  order: `VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the artifact view (when the data root IS one and
+  publishes the tier: its mount, the catalog's `mount_dir`; the runner reads it through `catalog_view_mount`), the
+  data root. The view's mount applies only under the view, never to a `VGTK_DATA_ROOT`, an author's own
+  `data/exp_raw` or a fallback, so flat layouts and producers' locations do not move.
+- **A producer never installs an artifact and never writes into a read-only view tier**: `keyed_data_dir` and
+  `promote_run` resolve a write root, and a tier the view publishes is refused ("tier X is published read-only by the
+  artifact view; bind VGTK_DATA_ROOT_X or a site tier to produce it") until its root is bound.
+- **A scratch run never completes a run of record**: `run_complete` compares the record's `scratch` flag with this
+  process's, as `cached_result` does; with the keys (`run_key`) and `promote_run`, a `VGTK_SCRATCH=1` result is never
+  reused or promoted as a run of record, nor the reverse.
+- `tree_sha256`'s `**/x` matches a top-level `x`; a path with a tab or a newline is refused. `_view_has` caches the
+  parsed Artifacts.toml.
+
 - **New: a directory input's `sha256`.** `VisualGeometryToolkitEval.tree_sha256(dir; exclude)` is the one directory
   digest: the SHA-256 of the sorted lines `<relative path>\t<file sha256>\n` of every regular file under it (links
   to files followed), the paths matching an `exclude` glob left out; each file hashed by `file_sha256` (streamed,

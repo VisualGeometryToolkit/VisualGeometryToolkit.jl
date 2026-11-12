@@ -276,6 +276,9 @@ end
         full_digest, kept = VisualGeometryToolkitEval.tree_sha256(photos), VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["*.log"])
         @test full_digest == shell("^\$") && kept == shell("\\.log\$") && full_digest != kept
         @test VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["**/b.ARW", "*.log"]) == shell("b\\.ARW\$|\\.log\$")
+        @test VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["**/index.log"]) == kept                 # `**/` includes no directory
+        tabbed = mktempdir(); write(joinpath(tabbed, "a\tb.txt"), "x")
+        @test_throws r"holds a tab or a newline" VisualGeometryToolkitEval.tree_sha256(tabbed)
         dirdecl(h; excl = "") = write(cfg, replace(text, "path = \"photos/chrome\"" => "path = \"photos/chrome\"\nsha256 = \"$h\"$excl"))
         dirdecl(kept; excl = "\nsha256_exclude = [\"*.log\"]")
         @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))

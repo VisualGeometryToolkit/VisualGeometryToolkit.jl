@@ -224,7 +224,12 @@ function _path_glob(g::AbstractString)
     while i <= lastindex(g)
         c = g[i]
         if c == '*' && i < lastindex(g) && g[nextind(g, i)] == '*'
-            print(out, ".*"); i = nextind(g, nextind(g, i))
+            j = nextind(g, nextind(g, i))
+            if j <= lastindex(g) && g[j] == '/'                      # `**/`: any directories, none included
+                print(out, "(?:.*/)?"); i = nextind(g, j)
+            else
+                print(out, ".*"); i = j
+            end
             continue
         end
         print(out, c == '*' ? "[^/]*" : c == '?' ? "[^/]" : occursin(c, ".+()[]{}^\$|\\") ? "\\" * c : string(c))
@@ -238,8 +243,8 @@ end
 
 THE content digest of a directory, for an input that is one: the SHA-256 of the lines `<relative path>\t<file
 sha256>\n`, one per regular file under `dir` (links followed to their files, not into linked directories), sorted
-by relative path (`/`-separated). A relative path matching a glob of `exclude` (`*` within a segment, `**` across,
-`?`) is left out, so a declared scratch file (a log, an index the reader rebuilds) does not move it. Empty
+by relative path (`/`-separated); a path holding a tab or a newline is refused. A relative path matching a glob
+of `exclude` (`*` within a segment, `**` across, `**/` any directories including none, `?`) is left out, so a declared scratch file (a log, an index the reader rebuilds) does not move it. Empty
 directories do not count. Each file's hash is [`file_sha256`](@ref)'s: streamed, and cached by path, size and
 mtime, so a second digest of an unchanged tree costs a `stat` per file.
 """
@@ -251,6 +256,8 @@ function tree_sha256(dir::AbstractString; exclude = String[])
         p = joinpath(root, f)
         isfile(p) || continue
         rel = join(splitpath(relpath(p, dir)), "/")
+        (occursin('\t', rel) || occursin('\n', rel)) &&
+            throw(ArgumentError("tree_sha256: $(repr(rel)) under $dir holds a tab or a newline, which the digest's lines cannot carry"))
         any(r -> occursin(r, rel), pats) && continue
         push!(rows, (rel, file_sha256(p)))
     end
@@ -271,24 +278,61 @@ every character other than a letter or a digit made `_` (`blobcalib_202609` → 
 tier_variable(tier::AbstractString; prefix::AbstractString = "VGTK_DATA_ROOT") =
     prefix * "_" * uppercase(replace(tier, r"[^A-Za-z0-9]" => "_"))
 
-"""
-    tier_data_root(tier, data_root; env = ENV, tiers = nothing, workdir = "", prefix = "VGTK_DATA_ROOT") -> (root, source)
+# The file that marks a directory as an artifact view (Experiments' ARTIFACT_VIEW_MARKER).
+const _VIEW_MARKER = ".artifact_view"
 
-THE root of an input tier, in one order for the runner and the drivers: the environment's
-[`tier_variable`](@ref)`(tier)` (`source = "env"`), else the machine's table `tiers` (a stage graph's
-`[sites.<site>.tiers]`: `tier = "<root>"`, a relative root relative to `workdir`; `source = "site"`), else the one
-`data_root` (`source = "data root"`). An `[inputs.<id>]` path is relative to its tier's root, so a config names no
-machine path whichever disk a tier lives on.
+"""
+    tier_data_root(tier, data_root; env = ENV, tiers = nothing, workdir = "", prefix = "VGTK_DATA_ROOT",
+                   view_mount = nothing, write = false) -> (root, source)
+
+THE root of an input tier: the one resolver of every tier lookup, read and write — the runner's `missing_inputs`,
+and `Experiments.data_root(; tier)`, `input_path`, `verify_inputs`, `keyed_data_dir`, `promote_run` and `tier_path`.
+In order:
+
+1. the environment's [`tier_variable`](@ref)`(tier)` (`source = "env"`);
+2. the machine's table `tiers` (a stage graph's `[sites.<site>.tiers]`: `tier = "<root>"`, a relative root relative
+   to `workdir`; `source = "site"`);
+3. when `data_root` is an artifact view that publishes the tier — `view_mount(tier)` returns where the view mounts it
+   (`""` its top), `nothing` for a tier it does not publish — `<data_root>/<mount>` (`source = "view"`). The mount
+   applies only there: never to a data root set by `VGTK_DATA_ROOT`, an author's own `data/exp_raw` or a fallback;
+4. the one `data_root` (`source = "data root"`).
+
+An `[inputs.<id>]` path is relative to its tier's root, so a config names no machine path whichever disk a tier
+lives on. With `write = true` (a producer's root) a view tier is refused: an artifact view is read-only, and a
+producer never installs one; it binds the tier's root (the environment or the site table) to produce it.
 """
 function tier_data_root(tier::AbstractString, data_root::AbstractString; env = ENV, tiers = nothing,
-                        workdir::AbstractString = "", prefix::AbstractString = "VGTK_DATA_ROOT")
-    v = String(get(env, tier_variable(tier; prefix), ""))
+                        workdir::AbstractString = "", prefix::AbstractString = "VGTK_DATA_ROOT",
+                        view_mount = nothing, write::Bool = false)
+    var = tier_variable(tier; prefix)
+    v = String(get(env, var, ""))
     isempty(v) || return (v, "env")
     if tiers !== nothing && !isempty(tier) && haskey(tiers, tier)
         t = String(tiers[tier])
         return (isabspath(t) || isempty(workdir) ? t : normpath(joinpath(workdir, t)), "site")
     end
+    m = view_mount === nothing || isempty(tier) ? nothing : view_mount(tier)
+    if m !== nothing
+        write && throw(ArgumentError("tier $tier is published read-only by the artifact view; bind $var or a site tier " *
+                                     "([sites.<site>.tiers]) to produce it"))
+        return (isempty(m) ? String(data_root) : joinpath(data_root, String(m)), "view")
+    end
     return (String(data_root), "data root")
+end
+
+"""
+    catalog_view_mount(data_root, catalog) -> Union{Nothing, Function}
+
+The `view_mount` of [`tier_data_root`](@ref) for a data root read without the package (the runner): when
+`data_root` is an artifact view (its marker file), each tier the project's data catalog `catalog`
+(`configs/data_artifacts.toml`) lists mounts at its entry's `mount_dir` (`""` without one); `nothing` when the root
+is no view or there is no catalog. A project builds its view from the same catalog (`DataArtifacts.catalog_view`),
+so the runner and the drivers resolve a view tier to the same directory.
+"""
+function catalog_view_mount(data_root::AbstractString, catalog::AbstractString)
+    (isfile(joinpath(data_root, _VIEW_MARKER)) && isfile(catalog)) || return nothing
+    entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
+    return t -> haskey(entries, t) ? String(get(entries[t], "mount_dir", "")) : nothing
 end
 
 """
@@ -325,7 +369,7 @@ the table's `sha256_exclude` globs — or a scratch run's output, [`scratch_reco
 function inspect_input(id::AbstractString, t::AbstractDict, root::AbstractString; root_source::AbstractString = "data root",
                        root_name::AbstractString = "", allow_scratch::Bool = false)
     rel, tier = String(t["path"]), String(get(t, "tier", ""))
-    root_source != "data root" && !isdir(root) &&
+    root_source in ("env", "site") && !isdir(root) &&
         return (; state = :root_missing, path = "", problem = "$tier (root $root, from $root_name, is not there)")
     full = isempty(root) ? "" : joinpath(root, rel)
     (isempty(full) || !ispath(full)) &&

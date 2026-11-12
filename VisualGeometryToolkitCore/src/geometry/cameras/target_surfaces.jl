@@ -244,8 +244,8 @@ end
         y, Ji = _map_value_jacobian(S₂⁻¹, _frame_coordinates(q, x))
         Y, Jf = _map_value_jacobian(field, y)
         Z, JS = _map_value_jacobian(S, Y)
-        Jz = _fma_mul(_fma_mul(JS, Jf), Ji)
-        return t * den - s0 - Z[3], den - _fma_dot(SVector(Jz[3, 1], Jz[3, 2]), cd)
+        gz = _fma_tmul(Ji, _fma_tmul(Jf, SVector(JS[3, 1], JS[3, 2], JS[3, 3])))   # row 3 of JS Jf Ji: ∇ of the height
+        return t * den - s0 - Z[3], den - _fma_dot(gz, cd)
     end
     t, x = _plane_hit(q, o, d)                     # the seed
     for _ in 1:_HEIGHT_NEWTON_ITERATIONS

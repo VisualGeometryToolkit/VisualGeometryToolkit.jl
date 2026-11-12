@@ -42,8 +42,18 @@ photosite radiometry spec, 2026-11-12, §1 and §4.1).
   kernel reads the view as it is (two parities and one `linear_value` per element). Not a `MappedArrays.mappedarray`:
   the black level depends on the photosite's position (its colour in the phase), which a value-only mapped function cannot
   see, and Core takes no new dependency.
-- **New: `green_photosite_mask(m)`** (public): the green photosites below the white level — `photosite_colors` and THE
-  saturation rule (`raw ≥ white`, no margin), now one private predicate that `LinearRaw`'s cell kernel reads too.
+- **`photosite_colors(m)` is lazy and isbits** (public; was a `Matrix{UInt8}` built per call in Features): a
+  `PhotositeColors <: AbstractMatrix{UInt8}` holding the size, the pattern (an `NTuple`) and the phase, indexed by the
+  one phase rule — the same values (every former test unchanged), and on a device mosaic it fuses into a broadcast with
+  the device arrays and runs there: a photosite mask (RC's validity mask: the greens, less `raw == 0` and `raw ≥ white`)
+  is ONE broadcast, no host round-trip and no kernel of its own; CPU = GPU, bit for bit (a test, 4 phases × visible and
+  window parities). `collect` gives the matrix. `RawMosaic.pattern` stays the host `Matrix{UInt8}` the decoder fills;
+  the device-facing form is `photosite_colors(m)`, and the black levels are an `NTuple` already.
+- **New: `saturationview(m)`** (exported) **and its type `SaturationView`** (public): the saturation flags on the raw
+  grid, lazily, as a `Bool` matrix matching `linearview` (same grid, same device behaviour, `channelview` of it) — THE
+  saturation rule `raw ≥ white`, now one private predicate that `LinearRaw`'s cell kernel reads too. `photosite_colors`
+  is public, and a colour mask is a plain broadcast over it (`((col .== 0x01) .| (col .== 0x03)) .& .!saturationview(m)`):
+  no mask helper exists, by the owner's ruling.
 - **New: `green_cells(L)`** (public): a cell image's green-cell plane as a matrix view (`:demosaic` refused); Features'
   `variance_stabilize` reads it instead of private accessors.
 - **One phase rule.** The colour lookup, the cell's four sites in column-major order and each site's offset from the

@@ -597,11 +597,11 @@ end
     end
 end
 
-@testitem "raw: the lazy linear view on the raw grid, and the green-photosite mask" setup = [RawFixtures] begin
+@testitem "raw: the lazy linear view and saturation flags on the raw grid; a green mask by broadcast" setup = [RawFixtures] begin
     # linearview(m): every photosite's (raw − black[c]) / (white − black[c]), read lazily; channelview of it is the
     # linear values channel-first, and the green-cell image is the mean of its two G channels, bit for bit.
-    using VisualGeometryToolkitCore: LinearRaw, LinearRawView, linearview, channelview, bayer_channels, photosite_colors,
-        green_photosite_mask
+    using VisualGeometryToolkitCore: LinearRaw, LinearRawView, SaturationView, linearview, saturationview, channelview,
+        bayer_channels, photosite_colors, green_cell_sites, pixel_centre
     raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:11, j in 1:15]      # odd: a last row and column
     raw[3, 4] = 16383; raw[6, 7] = 16390
     for cell in LAYOUTS, origin in ORIGINS, (rows, cols) in ((1:11, 1:15), (2:11, 2:15), (2:10, 1:14))
@@ -615,13 +615,23 @@ end
         @test size(cv) == size(channelview(m)) && all(cv[k, i, j] === lv[2i - 1 + (k - 1) % 2, 2j - 1 + (k - 1) ÷ 2] for k in 1:4, i in axes(cv, 2), j in axes(cv, 3))
         g = findall(n -> n in (:G1, :G2), collect(bayer_channels(m)))
         @test (cv[g[1], :, :] .+ cv[g[2], :, :]) ./ 2 == LinearRaw(m; mode = :green_cells).image[:, :, 1]
-        mask = green_photosite_mask(m)
-        @test mask isa BitMatrix && mask == [(col[i, j] in (0x01, 0x03)) && m[i, j] < m.white for i in axes(m, 1), j in axes(m, 2)]
+        # the saturation flags: the matching lazy Bool matrix, the one rule; LinearRaw's cell flags are its any over the cell
+        sv = saturationview(m)
+        @test sv isa SaturationView && size(sv) == size(m) && copy(sv) == (parent(m) .>= m.white)
+        L = LinearRaw(m; mode = :bin2)
+        @test L.saturated == dropdims(any(channelview(sv); dims = 1); dims = 1)
+        # the green mask is a plain broadcast over photosite_colors: its photosites are green_cell_sites' exactly
+        green = (col .== 0x01) .| (col .== 0x03)
+        G = LinearRaw(m; mode = :green_cells)
+        h, w = size(G.image, 1), size(G.image, 2)
+        sites = Set((Int(s[2] + 0.5), Int(s[1] + 0.5)) for i in 1:h, j in 1:w for s in green_cell_sites(G, i, j))
+        @test sites == Set(Tuple(I) for I in findall(green[1:(2h), 1:(2w)]))
+        @test G.saturated == dropdims(any(channelview(sv .& green); dims = 1); dims = 1)
     end
 end
 
 @testitem "raw: the lazy linear view on the device — CPU = GPU" setup = [RawFixtures] begin
-    using VisualGeometryToolkitCore: LinearRaw, linearview, channelview, bayer_channels, green_photosite_mask
+    using VisualGeometryToolkitCore: LinearRaw, linearview, saturationview, channelview, bayer_channels
     using Adapt: adapt
     using CUDA: CUDA
     import KernelAbstractions as KA
@@ -649,9 +659,41 @@ end
             @test Array(out) == Lg
             cv = adapt(Array, channelview(ld))                                                    # the channel view, moved whole
             @test (cv[g[1], :, :] .+ cv[g[2], :, :]) ./ 2 == Array(LinearRaw(d; mode = :green_cells).image[:, :, 1])
-            @test Array(green_photosite_mask(d)) == green_photosite_mask(h)
+            sd = saturationview(d)
+            @test copy(sd) isa CUDA.CuArray{Bool, 2} && Array(copy(sd)) == copy(saturationview(h))   # a broadcast on the device
+            @test Array(dropdims(any(channelview(copy(sd)); dims = 1); dims = 1)) == LinearRaw(h; mode = :bin2).saturated
         end
     else
         @test_skip CUDA.functional()
     end
+end
+
+@testitem "raw: a photosite mask is one fused broadcast on the device — CPU = GPU" setup = [RawFixtures] begin
+    # photosite_colors is lazy and isbits, so a mask over a device mosaic is one broadcast with its arrays, on the
+    # device (no host round-trip, no kernel of its own): RC's validity mask — the green photosites, less the ADC floor
+    # (raw == 0) and the saturated (raw ≥ white), values under the black level kept — and the linear view, bit for bit
+    # the host's, for the four Bayer phases × visible-origin parities × both parities of a window's start.
+    using VisualGeometryToolkitCore: PhotositeColors, photosite_colors, saturationview, linearview
+    using Adapt: adapt
+    using CUDA: CUDA
+    raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:13, j in 1:17]
+    raw[5, 6] = 16383; raw[2, 3] = 0; raw[7, 8] = 0; raw[4, 4] = 100                     # saturated, floor, under black
+    mask(m) = (c = photosite_colors(m); ((c .== 0x01) .| (c .== 0x03)) .& (parent(m) .!= 0) .& .!saturationview(m))
+    @test isbits(photosite_colors(mosaic(raw, LAYOUTS.RGGB)))
+    for cell in LAYOUTS, origin in ORIGINS, r0 in (1, 2), c0 in (1, 2)
+        rows, cols = r0:13, c0:17
+        h = view(mosaic(raw, cell; origin), rows, cols)
+        col = photosite_colors(h)
+        @test col isa PhotositeColors && collect(col) isa Matrix{UInt8} && collect(col) == [h.pattern[mod(h.visible_origin[1] + h.window_origin[1] + i - 1, 2) + 1, mod(h.visible_origin[2] + h.window_origin[2] + j - 1, 2) + 1] for i in axes(h, 1), j in axes(h, 2)]
+        mh = mask(h)
+        @test mh == [(col[i, j] in (0x01, 0x03)) && h[i, j] != 0 && h[i, j] < h.white for i in axes(h, 1), j in axes(h, 2)]
+        if CUDA.functional()
+            d = view(adapt(CUDA.CuArray, mosaic(raw, cell; origin)), rows, cols)
+            md = mask(d)
+            @test md isa CUDA.CuArray{Bool} && Array(md) == mh
+            @test Array(copy(linearview(d))) == copy(linearview(h))
+            @test photosite_colors(d) === photosite_colors(h)
+        end
+    end
+    CUDA.functional() || @test_skip CUDA.functional()
 end

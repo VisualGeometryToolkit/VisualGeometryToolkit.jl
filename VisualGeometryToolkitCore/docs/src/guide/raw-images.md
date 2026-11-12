@@ -112,9 +112,14 @@ lazily, as ImageCore's `normedview` reads codes as numbers: element `(i, j)` is
 `channelview(linearview(m))` is the linear values channel-first, and the
 green-cell image is the mean of its two G channels, bit for bit. A broadcast
 over it, and `copy`, run on the mosaic's device, and a kernel reads it as it is.
-[`green_photosite_mask`](@ref)`(m)` is the green photosites below the white
-level — the photosite residuals a radiometric fit keeps, by the same
-saturation rule as [`LinearRaw`](@ref)'s flags.
+[`photosite_colors`](@ref)`(m)` is lazy and isbits (the pattern and its
+phase, indexed by the one rule), so it fuses into a broadcast with a device
+mosaic's arrays and runs on the device. [`saturationview`](@ref)`(m)` is the linear view's `Bool` match: the saturation flags on the
+same grid, lazily, by the one rule `raw ≥ white` that [`LinearRaw`](@ref)'s
+flags apply. A photosite mask is a plain broadcast over
+[`photosite_colors`](@ref) — the usable greens of a radiometric fit are
+`((col .== 0x01) .| (col .== 0x03)) .& .!saturationview(m)` with
+`col = photosite_colors(m)` — so no mask helper exists.
 
 ## Linear values on the cells
 

@@ -142,22 +142,55 @@ end
 Base.show(io::IO, ::MIME"text/plain", m::RawMosaic) = show(io, m)
 
 """
-    photosite_colors(mosaic::RawMosaic) -> Matrix{UInt8}
+    PhotositeColors <: AbstractMatrix{UInt8}
+
+The colour index of every photosite of a mosaic, lazily, as an isbits value:
+the size, the colour pattern (at most 4 × 4, in an `NTuple`) and its phase at
+the mosaic's first photosite. Indexing is the one phase rule; nothing is
+stored per photosite, so it is the same on the host and inside a GPU kernel or
+a fused broadcast with a device mosaic's arrays (it holds no array, and a
+device array in the same broadcast decides where it runs).
+"""
+struct PhotositeColors <: AbstractMatrix{UInt8}
+    size::NTuple{2, Int}
+    pattern::NTuple{16, UInt8}      # column-major, n × n of it used
+    n::Int
+    top::Int
+    left::Int
+end
+function PhotositeColors(m::RawMosaic)
+    n = size(m.pattern, 1)
+    top, left = m.visible_origin .+ m.window_origin
+    return PhotositeColors(size(m), ntuple(k -> k <= n * n ? m.pattern[k] : 0x00, Val(16)), n, top, left)
+end
+Base.size(c::PhotositeColors) = c.size
+Base.IndexStyle(::Type{PhotositeColors}) = IndexCartesian()
+# THE phase rule: the colour index of photosite (i, j), the pattern tiled from the raw origin.
+Base.@propagate_inbounds Base.getindex(c::PhotositeColors, i::Int, j::Int) =
+    c.pattern[mod(c.top + i - 1, c.n) + c.n * mod(c.left + j - 1, c.n) + 1]
+
+"""
+    photosite_colors(mosaic::RawMosaic) -> PhotositeColors <: AbstractMatrix{UInt8}
 
 Each photosite's colour index (LibRaw's: `0` R, `1` G, `2` B, `3` the second
 G), the size of `mosaic`: the `pattern` tiled from the full raw frame's origin,
 so photosite `(row, column)` reads
 `pattern[mod(top + row − 1, n) + 1, mod(left + column − 1, n) + 1]` with
-`(top, left) = visible_origin .+ window_origin`.
-"""
-photosite_colors(m::RawMosaic) = UInt8[_photosite_color(m, i, j) for i in axes(m, 1), j in axes(m, 2)]
+`(top, left) = visible_origin .+ window_origin`. Lazy and isbits
+([`PhotositeColors`](@ref)): no matrix is built, and it broadcasts with a
+device mosaic's arrays on the device, fused, so a photosite mask is one
+broadcast with no host round-trip:
 
-# THE phase rule: the colour index of photosite (i, j), the pattern tiled from the raw origin.
-@inline function _photosite_color(m::RawMosaic, i, j)
-    n = size(m.pattern, 1)
-    top, left = m.visible_origin .+ m.window_origin
-    return @inbounds m.pattern[mod(top + i - 1, n) + 1, mod(left + j - 1, n) + 1]
-end
+```julia
+col = photosite_colors(m)
+valid = ((col .== 0x01) .| (col .== 0x03)) .& (parent(m) .!= 0) .& .!saturationview(m)
+```
+
+(`collect` gives a `Matrix{UInt8}`.)
+"""
+photosite_colors(m::RawMosaic) = PhotositeColors(m)
+
+@inline _photosite_color(m::RawMosaic, i, j) = @inbounds PhotositeColors(m)[i, j]
 
 """
     raw_frame_map(m::RawMosaic) -> SimilarityMap{2, …, PixelFrame{:colmap}, PixelFrame{:colmap}}
@@ -446,19 +479,42 @@ function linearview(m::RawMosaic)
 end
 
 """
-    green_photosite_mask(m::RawMosaic) -> AbstractMatrix{Bool}
+    SaturationView{A} <: AbstractMatrix{Bool}
 
-The usable green photosites of a mosaic: `true` at a photosite whose colour is
-green (`photosite_colors(m)` 1 or 3, either green of the cell) and whose code is
-below the white level — the saturation rule of [`LinearRaw`](@ref)'s flags,
-`raw ≥ white` with no margin, applied per photosite. A `BitMatrix` on the
-host, a `Bool` array on a device mosaic's device; the size of `m` (an odd last
-row or column included).
+The lazy saturation flags of a mosaic's photosites on the raw grid,
+[`saturationview`](@ref)`(m)`: element `(i, j)` is `raw[i, j] ≥ white`, read
+when indexed. The match of [`LinearRawView`](@ref): the same grid, the same
+held array, and the same device behaviour (`similar`, a broadcast and `copy`
+are the held array's kind; `adapt` moves it; a kernel reads it as it is).
 """
-function green_photosite_mask(m::RawMosaic)
-    _cell_colors(m, "green_photosite_mask")
-    green = similar(parent(m), Bool, size(m))
-    copyto!(green, [c == 0x01 || c == 0x03 for c in photosite_colors(m)])
-    green .&= .!_at_white.(parent(m), m.white)
-    return green isa Array{Bool} ? BitMatrix(green) : green
+struct SaturationView{A <: AbstractMatrix} <: AbstractMatrix{Bool}
+    raw::A
+    white::Float64
 end
+Base.size(v::SaturationView) = size(v.raw)
+Base.parent(v::SaturationView) = v.raw
+Base.IndexStyle(::Type{<:SaturationView}) = IndexCartesian()
+Base.@propagate_inbounds Base.getindex(v::SaturationView, i::Int, j::Int) = _at_white(v.raw[i, j], v.white)
+Base.similar(v::SaturationView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
+Base.Broadcast.BroadcastStyle(::Type{<:SaturationView{A}}) where {A} = Base.Broadcast.BroadcastStyle(A)
+Base.copy(v::SaturationView) = identity.(v)
+Adapt.adapt_structure(to, v::SaturationView) = SaturationView(Adapt.adapt(to, v.raw), v.white)
+ImageCore.channelview(v::SaturationView) = _cell_channels(v)
+
+"""
+    saturationview(m::RawMosaic) -> SaturationView
+
+The mosaic's saturation flags on the raw grid, lazily: `true` at a photosite
+whose code is at or above the white level, `raw ≥ white` with no margin — THE
+saturation rule, the one [`LinearRaw`](@ref)'s flags apply per cell (a cell is
+flagged when any photosite its planes read is). The `Bool` match of
+[`linearview`](@ref)`(m)`: the same grid, and `channelview` of it is the flags
+channel-first. A mask of the usable photosites of one colour is a plain
+broadcast with [`photosite_colors`](@ref):
+
+```julia
+col = photosite_colors(m)
+usable_green = ((col .== 0x01) .| (col .== 0x03)) .& .!saturationview(m)
+```
+"""
+saturationview(m::RawMosaic) = SaturationView(parent(m), m.white)

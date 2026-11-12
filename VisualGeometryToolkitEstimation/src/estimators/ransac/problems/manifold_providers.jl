@@ -149,10 +149,12 @@ as from `refine!`.
 locally_optimize!(L::LoBuffers, lo::Triggs, problem::LiftableProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
     _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, lo_loss(lo, cs, scoring, buf))
 
-# The rows the robustified LM robustifies: the refit's (`_refit_state`), whose
-# per-datum norm must be the residual's own unit — the unit the loss width is in
-# (the problem's `mahalanobis_distance`). A problem whose refit rows are in
-# another unit (PnP's pinhole rows, calibrated) states its pixel rows here.
+# The rows the robustified LM robustifies, and a refine's plain least squares
+# minimises (`_refine_run(::Nothing, …)`, fitting/_refine.jl): the refit's
+# (`_refit_state`), whose per-datum norm must be the residual's own unit — the
+# unit the loss width is in (the problem's `mahalanobis_distance`). A problem
+# whose refit rows are in another unit (PnP's pinhole rows, calibrated) states
+# its pixel rows here.
 _triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
 
 # THE robustified chart LM — the RANSAC local optimization's (above) and every

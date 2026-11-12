@@ -34,7 +34,7 @@ read through the accessors — [`weights`](@extref VisualGeometryToolkitCore.wei
 properties of the result:
 
 - `weights::W`: one per datum at the estimate. For a robust refine (`L` an
-  `Irls` or `Triggs` strategy) the loss weight `ρ′(r²)`, maximum 1, exactly 0
+  `Irls` or `Triggs` strategy) the loss weight `ρ′(r²)/ρ′(0)`, maximum 1, exactly 0
   below `eps` ([`IrlsWeights`](@extref VisualGeometryToolkitCore.IrlsWeights):
   no cut of its own, `inlier_mask(result, cut)`); for plain least squares
   (`L === Nothing`) a lazy all-ones vector
@@ -272,9 +272,10 @@ _recorded_scale(input) = input === nothing ? NaN : Float64(input.scale)
 _refine_weights(::_RefineSpec{Nothing}, sq) = unit_weights(Float64, length(sq))
 _refine_weights(spec::_RefineSpec, sq) = _loss_weights(strategy_loss(spec.lo)(), sq_loss_width(spec.loss), sq)
 
-# THE loss weights of every refine (the RANSAC classes and both bundles) from the squared residuals `sq`: ρ′ at the
-# loss's squared width `c²`, max 1, and a weight below eps an exact 0 (out of the support, §12).
-_loss_weights(shape, c², sq) = [(x = Float64(weight(shape, s, c²)); x < eps(Float64) ? 0.0 : x) for s in sq]
+# THE loss weights of every refine (the RANSAC classes and both bundles) from the squared residuals `sq`: the fits'
+# normalized ρ′(s)/ρ′(0) at the loss's squared width `c²` (`_irls_weight`, irls_weights.jl; max 1), and a weight below
+# eps an exact 0 (out of the support, §12).
+_loss_weights(shape, c², sq) = [(x = Float64(_irls_weight(shape, Float64(s), Float64(c²))); x < eps(Float64) ? 0.0 : x) for s in sq]
 
 # Too few data for a minimal sample: the guess, unrefined, with no residual.
 function _refine_too_few(::Type{P}, spec::_RefineSpec{L}, θ₀, n::Int) where {P, L}
@@ -295,13 +296,15 @@ _refine_lm_ws(ws) = ws
 # The three strategies — (model, (code, rule), iterations): the termination record
 # -----------------------------------------------------------------------------
 
-# Plain least squares: ONE chart LM from θ over every datum at unit weight.
+# Plain least squares: ONE chart LM from θ over every datum at unit weight, on the rows Triggs robustifies
+# (`_triggs_state`, manifold_providers.jl: the residual's own unit, a pinhole PnP's pixels), so L2 and Triggs at an
+# unbounded width minimise the same cost.
 function _refine_run(::Nothing, problem, θ, spec::_RefineSpec)
     ch = _chart(problem, _as_model(problem, θ))
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(_refine_lm_ws(spec.workspace), rows, dof)
     fill!(sqrt_weights(ews), 1.0)
-    lm = _refit_state(problem, ch, sqrt_weights(ews))
+    lm = _triggs_state(problem, ch, sqrt_weights(ews))
     x, _, _, n_iter, record = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
                                              ftol = _CHART_LM_FTOL)
     any(isnan, x) && return θ, (ReturnCode.Failure, NonFinite), n_iter

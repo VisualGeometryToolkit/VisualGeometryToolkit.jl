@@ -235,19 +235,25 @@ end
     record!(seen, :approximate_camera, approximate_camera(Division{2}, FISHEYE, REGION))
     # the spline fits: the spacing search to a tolerance, the one lattice solve, and the optical axis
     rs = record!(seen, :fit_camera, fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-3))
-    record!(seen, :fit_camera, fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-12, forward = false))   # the finest spacing misses it
+    capped = record!(seen, :fit_camera, fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-12, forward = false))   # the finest spacing misses it
     gw, gh = VgtkCore.metadata(rs).family.grid_size
     record!(seen, :pspline_grid, pspline_grid(SplineLens, bc, REGION, (gw, gh)))
     record!(seen, :optical_axis, optical_axis(with_lens_coverage(GRID_BOUNDED, DISC)))
-    # the stages' records are carried through as records: a stage that did not succeed gives its own, rule included —
-    # a Stalled optical-axis gauge stays Stalled (never re-read as a tolerance search's)
-    sr = VgtkEstimation._spline_record
-    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)) ==
+    # the stages' records are carried through as records, by Core's one rule of several solves (`worst_retcode`): the
+    # most severe, rule included — a Stalled optical-axis gauge stays Stalled (never re-read as a tolerance search's) —
+    # and an earlier stage's failure is never replaced by a later, less severe one (the private `_spline_record` let a
+    # later Stalled replace an earlier MaxIters; it is deleted)
+    @test !isdefined(VgtkEstimation, :_spline_record)
+    wr = VgtkCore.worst_retcode
+    @test wr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)) ==
         (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
-    @test sr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Success, VgtkCore.NoRule)) ==
+    @test wr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Success, VgtkCore.NoRule)) ==
         (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
-    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)) ==
-        (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet)
+    @test wr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)) ==
+        (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
+    # the backward search capped at the finest spacing: the fit's record is at least as severe as the search's
+    @test wr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.retcode(capped), stop_rule(capped))) ==
+        (VgtkCore.retcode(capped), stop_rule(capped))
     check_covered(seen, (:fit_camera, :refine_camera, :approximate_camera, :pspline_grid, :optical_axis))
 end
 

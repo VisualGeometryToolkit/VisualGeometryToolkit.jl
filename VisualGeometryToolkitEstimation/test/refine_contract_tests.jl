@@ -239,3 +239,25 @@ end
     # the retired width multiple names its successor
     @test occursin("give `efficiency_constant`", msg(Symbol("scale" * "_multiple"), 2.5))
 end
+
+# The refine weights are Core's IrlsWeights, "normalized to a maximum of 1" (robust/weights.jl): the fits' one rule
+# ρ′(r²)/ρ′(0) (irls_weights.jl `_irls_weight`), below eps an exact 0. SmoothTLS is the shape whose ρ′(0) is 2: its
+# refine weights reached 2 before they shared the fits' rule.
+@testitem "refine_contract: Irls and Triggs weights are normalized to a maximum of 1" setup = [HomographyScenes] begin
+    using Test, StructArrays, StableRNGs
+    using VisualGeometryToolkitCore: SmoothTLSShape, HuberShape, Irls, Triggs, weights, weight_kind, IrlsWeights, weight,
+        estimate, metadata
+    using VisualGeometryToolkitEstimation: refine_homography, find_homography
+    src, dst = homography_pairs(StableRNG(11), H_PX; n_in = 80, n_out = 0, σ = 0.3, source = gaussian_source)
+    cs = StructArray(src .=> dst)
+    H0 = estimate(find_homography(cs; rng = StableRNG(1)))
+    c = 3.0
+    for lo in (Irls{SmoothTLSShape}(), Triggs{SmoothTLSShape}(), Irls{HuberShape}())
+        r = refine_homography(H0, cs; optimization_strategy = lo, width = c)
+        w = weights(r)
+        @test weight_kind(r) isa IrlsWeights
+        @test maximum(w) <= 1.0 && maximum(w) > 0.9                 # inliers near zero residual weigh near 1, never 2
+        shape = typeof(lo).parameters[1]()
+        @test w == [(x = weight(shape, e^2, c^2) / weight(shape, 0.0, c^2); x < eps() ? 0.0 : x) for e in metadata(r).residuals]
+    end
+end

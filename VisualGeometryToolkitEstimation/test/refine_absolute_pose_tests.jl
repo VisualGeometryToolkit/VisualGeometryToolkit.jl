@@ -274,3 +274,20 @@ end
         @test rms(res) < 1.0e-6
     end
 end
+
+# Plain least squares minimises the PIXEL reprojection residual, the one Triggs robustifies (`_triggs_state`): at an
+# unbounded width Huber is L2, so the two agree to the LM's tolerance. On an anisotropic pinhole (fx ≠ fy) the
+# calibrated-plane rows L2 descended before weigh the two axes differently, a different minimum on noisy pixels.
+@testitem "refine_absolute_pose: L2 minimises the pixels Triggs does" setup = [PixelPoseScenes] begin
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: CameraModel, HuberShape, Triggs, estimate, converged
+    using VisualGeometryToolkitEstimation: refine_absolute_pose
+    E = true_pose()
+    cam = CameraModel(; focal = (1200.0, 400.0), pp = (640.0, 480.0))
+    cs = [X => u + SVector(2.0 * sin(7i), 2.0 * cos(11i)) for (i, (X, u)) in enumerate(pixel_pairs(cam, E, scene_points(E, 0.5)))]
+    l2 = refine_absolute_pose(perturbed(E), cam, cs; optimization_strategy = nothing)
+    tr = refine_absolute_pose(perturbed(E), cam, cs; optimization_strategy = Triggs{HuberShape}(), width = 1.0e9)
+    @test converged(l2) && converged(tr)
+    eR, et = pose_errors(estimate(l2), estimate(tr))
+    @test eR < 1.0e-9 && et < 1.0e-9
+end

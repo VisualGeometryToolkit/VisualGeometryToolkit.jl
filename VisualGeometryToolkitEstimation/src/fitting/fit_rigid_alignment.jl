@@ -153,7 +153,7 @@ function _weighted_rigid(as, bs, w)
     S = sum(w[i] * (as[i] - ca) * (as[i] - ca)' for i in keep)
     λ = LinearAlgebra.eigvals(LinearAlgebra.Symmetric(SMatrix{3, 3, Float64, 9}(S)))
     λ[2] > 1.0e-12 * max(λ[3], eps()) || return nothing
-    R = RotMatrix{3, Float64}(kabsch([w[i] * (as[i] - ca) => (bs[i] - cb) for i in keep]))
+    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds([as[i] - ca for i in keep], [bs[i] - cb for i in keep]; weights = w[keep])))
     return EuclideanMap(R, cb - R * ca; check = false)
 end
 

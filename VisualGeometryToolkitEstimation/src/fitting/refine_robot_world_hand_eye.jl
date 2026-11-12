@@ -76,7 +76,7 @@ camera at frame i). Function names do not encode frames.
   then `efficiency_constant(Shape, 2) × σ`, or the strategy's own constant
   times σ); `width = w`, the loss width in pixels. A refine estimates no
   scale: the metadata records the one it ran with (`scale`, `scale_source`,
-  `loss_width`) and the weights ρ′ at the estimate; `n` is their support and
+  `loss_width`) and the normalized weights ρ′/ρ′(0) at the estimate; `n` is their support and
   `rms` the weighted one, `√(Σ wᵢ‖rᵢ‖² / Σ wᵢ)`.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count; one
   may hide ~8–10 rejected candidate steps); `iterations` sums them over an

@@ -34,6 +34,67 @@ non-central one is a `NoncentralSplineModel`).
   retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
   deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
   `currency migration` test item lists every one, the ports' included), so results are bit-identical.
+- **`fit_rotation_averaging(…; optimization_strategy = nothing)` is the plain least squares** (the owner's ruling,
+  "nothing = L2"): the Lie-algebra iterations from the seed at unit loss weights, at most `[fit_rotation_averaging]
+  max_iter` (new key, 100), retcode `:converged`/`:max_iterations`. It no longer returns the seed alone; the seed is
+  VisualGeometryToolkitCore's `spectral_rotation_averaging`. The other fits' `nothing` was already their least squares
+  (one closed-form weighted solve: linear least squares, Kabsch, the staged hand-eye solve).
+- **Breaking (behaviour): the reweighted fits take one FIXED scale** (the robust-estimation contract, B2).
+  `fit_linear`, `fit_rotation` and `fit_rotation_averaging` keep their objective; their only robustness is
+  `optimization_strategy = Irls{K}(…)` (was `local_optimization`; `nothing` is the plain least squares, a refine's
+  `Triggs` is refused), at ONE loss width set from exactly one of `scale = σ`, `scale = <upstream result>` (its
+  `noise_scale`) or `width = w`. The width is `w` or `efficiency_constant × σ`, the constant the strategy's (the plain
+  multiple for every shape) or `efficiency_constant(K, d)` at the fit's codimension (1, 2, 3). Neither, both, a
+  non-positive value, a `ScaleNone` upstream result, or a scale given to `optimization_strategy = nothing` is an
+  `ArgumentError`, and so is `Irls{K}(loss_width = w)` (the width is the call's `width`). They no longer re-estimate
+  the MAD scale σ̂ every iteration (≈ 1.3σ at 20 % contamination, a ~30 % wider width than the constant intends), so
+  their numbers move. At the true σ, 20 seeds each, median / max error before → after: fit_linear 1.67e-4 / 2.44e-4 →
+  1.60e-4 / 2.28e-4; fit_rotation 1.83e-4 / 3.80e-4 → 1.90e-4 / 3.63e-4 rad; fit_rotation_averaging (max frame error)
+  0.945° / 2.394° → 0.961° / 2.393°. Accuracy is unchanged within noise; the iteration counts move by a few. A hard
+  cutoff (TLS) at a fixed width must contain the least-squares seed's residuals, or every datum is rejected
+  (`:degenerate`). The defaults stay Huber
+  (`[fit_*] optimization_strategy = { type = "irls", loss = "huber", … }`, was `local_optimization`), so a bare call
+  now needs its `scale` or `width`. Every fit, `fit_rigid_alignment` and `fit_robot_world_hand_eye` included, refuses the
+  retired `local_optimization` keyword with an `ArgumentError` naming `optimization_strategy`.
+- **Breaking: the fits' metadata follow the contract's record.** `LinearFitMetadata{L, W}`, `RotationFitMetadata{L, W}`,
+  `RotationAveragingMetadata{K, L, W}` (`L` the strategy type) carry `weights`, `scale`, `scale_source`, `loss_width`;
+  `sigma` is retired (`noise_scale(result)`), and `RotationAveragingMetadata`'s `irls_weights` dictionary is replaced by
+  `edges` and the index-aligned `weights`. `weights(result)` is the loss weight `ρ′` normalized to 1 (`IrlsWeights`:
+  `inlier_mask(result)` needs a cut), the caller's prior NOT folded in (the solve's weight is prior × weight); least
+  squares carries lazy unit weights (`BinaryWeights`). `n` is the support (data of positive solve weight) and `rms`
+  the weight-weighted root mean square, `√(Σwᵢrᵢ²/Σwᵢ)` (`fit_rotation`'s was over every pair).
+- **New: `fit_robot_world_hand_eye(…; optimization_strategy = Irls{K}(), σ_rot, σ_trans, scale | width, tol)`**: the
+  staged solve reweighted per observation on the whitened 6-residual (codimension 6): weighted Kabsch pairs, weighted
+  chordal means, the weighted translation least squares; the covariance and diagnostics at the final weights. A robust
+  fit requires `σ_rot`/`σ_trans` (its scale's units). The default `optimization_strategy = nothing` is the former
+  staged solve, bit for bit. `RobotWorldHandEyeMetadata{K, S, L, W}` gains `weights`, `scale`, `scale_source`,
+  `loss_width` (shared with `refine_robot_world_hand_eye`). This is icra2026's "failure B" fix: five sparse,
+  mis-registered frames no longer poison the mount. Synthetic (30 frames × 2 markers, 2 mrad / 2 mm, five gross poses,
+  20 seeds): `Y` 1.84° / 43.5 mm (least squares) → 0.025° / 0.55 mm (Huber). A redescending loss from the poisoned seed
+  may reject a whole marker: an `ArgumentError` naming Huber.
+- **New: per-edge rotation covariances in `fit_rotation_averaging`, from the keypoints' own covariances** (the owner's
+  rulings). `RotationProblem` takes `Uncertain` pixels (`RotationProblem(camera1, camera2, pixel_cs)`): each keypoint's
+  2×2 covariance is a `Σ₁`/`Σ₂` column (Core's `noise_columns`), and scoring, the chart LM and `solver_covariance` whiten
+  by `blockdiag(Σ₁ᵢ, Σ₂ᵢ)` through Core's Sampson layer (`measurement_covariance`), so `find_rotation`'s residuals,
+  threshold and scale are Mahalanobis (whitened units). Plain pixels are unit isotropic noise, bit for bit as before.
+  `RotationProblem` declares `provides_solver_covariance`: its `solver_covariance(problem, R, inliers)` is the existing
+  constraint sandwich, the implicit-function covariance of the whitened Sampson LM its local optimization runs.
+  New public `uncertain_rotation(problem, result; scale = result)`: `Uncertain(R, CovMat(Σ_R))` with
+  `Σ_R = noise_scale² × solver_covariance` in the so(3) chart of `R` (left exp, radians²), by default at the result's
+  own scale — `find_rotation`'s scorer estimates it on the consensus set (`ScaleEstimated`, in whitened units) — or at
+  another scale input (`σ`, an upstream result). An edge `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (or a bare
+  `Uncertain`; Σ 3×3 in that chart or 9×9 over vec(R)) is whitened by Core's `whitening_factor(R_j, Σ)` (the chart
+  transported to the residual's) before the loss and in the update. The covariances are ABSOLUTE, so such a graph
+  takes no `scale` (an `ArgumentError`; the result records scale 1, `ScaleUpstream`; a `width` is in whitened units),
+  and a graph mixing Uncertain and plain edges is refused. Edges sharing a keypoint are treated as independent (the
+  first-order approximation). This replaces the isotropic-σ_px edge path. Monte Carlo (300 trials, 40 points,
+  anisotropic keypoint covariances up to 4:1): `find_rotation`'s error covariance against Σ_R within 25 % (and closer
+  than the isotropic model's); bare graphs are solved exactly as before.
+- **New: `fit_rigid_alignment(cs; optimization_strategy, scale | width, tol)`**, the rigid `b ≈ R·a + t` from point
+  pairs (the ATE alignment): the weighted Kabsch on weighted centroids, least squares by default, a fixed-scale IRLS
+  with an `Irls` strategy. `RigidAlignmentMetadata{L, W}`. A 150-frame walk (5 mm noise) with five centres 0.9–2.4 m
+  wrong: tilt 1.20° / ATE 36.3 mm (least squares, the former Kabsch ATE) → 0.027° / 8.6 mm (Huber; the noise floor). `configs/default.toml` gains `[fit_rigid_alignment] tol` and
+  `[robot_world_hand_eye] tol`.
 - **Breaking: the EM fits take a `weighting`, never a `scoring`, and record the robust-estimation contract's scale
   and weights** (B3). The Student-t + uniform E-step of `fit_division_camera` and `fit_residual_mixture` is their
   `weighting`: the keyword, and `[fit_division_camera] weighting` (was `scoring`; the same table schema, read by the

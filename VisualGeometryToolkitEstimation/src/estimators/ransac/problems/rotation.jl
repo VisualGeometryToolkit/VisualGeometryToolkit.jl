@@ -17,8 +17,10 @@
 # bearings — VGC's `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`
 # with `H = R`: the transferred ray in `f₂`'s tangent plane, `G_x` the 2×4
 # Jacobian of the joint measurement (both images' pixels): the residual is the
-# Sampson distance of that measurement to the constraint variety, Σ = I assumed
-# (Σ_g = P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ; keypoint covariances are a planned extension). Scoring
+# Sampson distance of that measurement to the constraint variety at the pixels'
+# noise Σ_x = blockdiag(Σ₁, Σ₂) — `I` for plain pixels (Σ_g = P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ),
+# the keypoints' own covariances for `Uncertain` pixels (the `Σ₁`/`Σ₂` columns,
+# `measurement_covariance`), so every route is Mahalanobis. Scoring
 # whitens it through VGC's Sampson layer (the default `whitened_residual`, behind a
 # hemisphere gate), and the chart LM and the lifts descend the same residual
 # through the Sampson-constraint problems' one chart-rows method (sampson_lm.jl:
@@ -45,11 +47,19 @@ each view back-projected with its own camera through
 `backproject_with_jacobian`, the Jacobians landing with their endpoints by
 construction (as [`EssentialProblem`](@ref)`(camera1, camera2, pixel_cs)`). The
 attribute columns of `pixel_cs` (the `:score` prior) travel along.
+
+The pixels may be VisualGeometryToolkitCore `Uncertain` (or `exact` on one side):
+each keypoint's 2×2 covariance becomes the problem's `Σ₁`/`Σ₂` column (Core's
+`noise_columns`), and the residual of scoring, the local optimization's chart LM
+and `solver_covariance` is whitened by `blockdiag(Σ₁ᵢ, Σ₂ᵢ)` through Core's
+Sampson layer: a Mahalanobis residual, so a scorer's threshold and scale are in
+whitened units. Plain pixels are unit isotropic noise, as before.
 """
 function RotationProblem(camera1, camera2, pixel_cs; kw...)
-    fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, u), sources(pixel_cs))
-    fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, u), targets(pixel_cs))
-    cols = merge(VgtkCore.attrs_of(pixel_cs), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
+    s, t = sources(pixel_cs), targets(pixel_cs)
+    fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, VgtkCore.geom(u)), s)
+    fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, VgtkCore.geom(u)), t)
+    cols = merge(VgtkCore.attrs_of(pixel_cs), VgtkCore.noise_columns(s, t), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
     return RotationProblem(VgtkCore.Csponds(first.(fm₁), first.(fm₂), cols); kw...)
 end
 
@@ -61,7 +71,10 @@ the cameras' back-projection) carrying their 3×2 back-projection Jacobians as
 the attribute columns `M₁`/`M₂` (`withattrs(cs; M₁, M₂)`), which put the
 residual, the threshold and the sample gate's `coincident_tol` in PIXELS — so,
 as for the essential problem, there is no default for them. A `:score` column
-is the PROSAC prior. Unit norm and finiteness are checked once, here.
+is the PROSAC prior. The keypoints' measurement noise, when not unit isotropic,
+is two more columns, `Σ₁`/`Σ₂` (2×2 covariances in PIXELS, the space `M₁`/`M₂`
+map from: VisualGeometryToolkitCore's `noise_columns` of the `Uncertain` pixels,
+as the pixel constructor builds them). Unit norm and finiteness are checked once, here.
 """
 function RotationProblem(bearings::VgtkCore.Csponds; sampler::Union{Nothing, AbstractSampler} = nothing,
                          coincident_tol::Real = VgtkCore.COINCIDENT_PX)
@@ -113,6 +126,76 @@ end
     @inbounds dot(R * sources(p.cs)[i], targets(p.cs)[i]) > 0 || return SVector(Inf, Inf)
     return @invoke whitened_residual(p::AbstractConstraintProblem, R, i::Int)
 end
+
+# The model covariance: the one constraint sandwich (covariance.jl), on the rows
+# above — the implicit-function covariance of the whitened-constraint estimator
+# the problem's local optimization runs (its Sampson chart LM over the inliers),
+# in pixels of unit noise. In G_θ's coordinates, vec(R) (9×9, rank 3), as every
+# MinimalSolveProblem's, so predictive scoring contracts it with the same rows;
+# its so(3) chart form (left exp, `SO3Manifold`) is `Jᵀ·Σ·J/4`, `J` the chart's
+# `retract_jacobian` at R (orthogonal columns of norm √2) — what
+# `fit_rotation_averaging` reads from an `Uncertain` edge.
+provides_solver_covariance(::Type{<:RotationProblem}) = true
+
+# A rotation covariance in the so(3) chart of `SO3Manifold(R)` (left exp): a 3×3
+# is already there; a 9×9 over vec(R) (solver_covariance's) is read in as
+# `Jᵀ·Σ·J/4`, `J` the chart's `retract_jacobian` (orthogonal columns of norm √2).
+_rotation_chart_covariance(Σ::SMatrix{3, 3, Float64}, _R) = Σ
+function _rotation_chart_covariance(Σ::SMatrix{9, 9, Float64}, R)
+    J = VgtkCore.retract_jacobian(VgtkCore.SO3Manifold(R))
+    return SMatrix{3, 3, Float64, 9}(VgtkCore.propagate(J' / 2, Σ))
+end
+_rotation_chart_covariance(Σ, _R) = throw(ArgumentError(
+    "a rotation covariance is 3×3 (the so(3) chart) or 9×9 (vec(R), solver_covariance's), got $(size(Σ))"))
+
+# The relative rotation of a pairwise fit as an averaging edge: its rotation with
+# the covariance of the problem's own estimator, the one constraint sandwich
+# (`solver_covariance`, covariance.jl: the implicit-function covariance of the
+# whitened-constraint LM the problem's local optimization runs over the inliers)
+# at unit noise in whitened units, read into the so(3) chart of `SO3Manifold`
+# (left exp, R → exp(δ)·R) and scaled by the fit's noise scale squared: an
+# absolute covariance, rad². The chart is fit_rotation_averaging's edge chart.
+
+"""
+    uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result) -> Uncertain{RotMatrix{3, Float64}}
+
+The relative rotation of a pairwise rotation fit (`find_rotation`, `refine_rotation` on `problem`) with its covariance, the edge
+[`fit_rotation_averaging`](@ref) reads: `Uncertain(R, CovMat(Σ_R))` with
+`R = estimate(result)` and
+
+    Σ_R = noise_scale² · Jᵀ·solver_covariance(problem, R, inliers)·J / 4
+
+in the so(3) chart of `R` (left exp, `R → exp(δ)·R`; `J` the chart's
+`retract_jacobian`, whose columns are orthogonal of norm √2), radians². The
+covariance is the implicit-function covariance of the problem's own
+whitened-constraint estimator over the result's inliers (`solver_covariance`),
+so it carries every keypoint's covariance when the pixels are `Uncertain`
+(`RotationProblem(camera1, camera2, pixel_cs)`), and is in whitened units:
+`scale` is the variance factor of those units — the scale input of the
+robust-estimation contract: by default the result's own `noise_scale`, the
+scale its scorer estimated on the consensus set (`ScaleEstimated`, in whitened
+units: ≈ 1 when the keypoints' covariances are right); or `scale = σ`, or
+another upstream result. A result that recorded no scale (`ScaleNone`) is
+refused. An edge covariance is absolute, so the averaging takes no further scale.
+
+Pairs that share a keypoint across edges make their edges' errors correlated;
+the averaging treats the edges as independent, the first-order approximation.
+
+An `ArgumentError` for a result with no estimate, or a singular sandwich (too
+few inliers).
+"""
+function uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result)
+    R = estimate(result)
+    R === nothing && throw(ArgumentError("uncertain_rotation: the result has no estimate"))
+    σ = VgtkCore.scale_input(scale, nothing).scale
+    Rm = RotMatrix{3, Float64, 9}(R)
+    Σ9 = solver_covariance(problem, Rm, findall(VgtkCore.inlier_mask(result)))
+    Σ9 === nothing && throw(ArgumentError("uncertain_rotation: the inliers do not determine the rotation (a singular covariance)"))
+    Σ = _rotation_chart_covariance(SMatrix{9, 9, Float64, 81}(Σ9), SMatrix{3, 3, Float64, 9}(Rm))
+    return VgtkCore.Uncertain(Rm, VgtkCore.CovMat(Float64(σ)^2 * Σ))::_UncertainRotation
+end
+# The edge's concrete type (Core's CovMat constructor is not inferred through): the assertion makes the call inferable.
+const _UncertainRotation = typeof(VgtkCore.Uncertain(one(RotMatrix{3, Float64, 9}), VgtkCore.CovMat(SMatrix{3, 3, Float64, 9}(LinearAlgebra.I))))
 
 # The sub-detector half-width refusal is the bearing problems' (essential.jl
 # `_check_scoring` on `_BearingProblem`), in the same pixel unit.

@@ -28,9 +28,9 @@
     @test_throws r"give `optimization_strategy`" refine_homography(estimate(r), pairs; local_optimization = Irls{TLSShape}())
 
     A = [1.0 0.0; 0.0 1.0; 1.0 1.0; 2.0 1.0]; y = A * [0.5, -1.0]
-    @test estimate(fit_linear(A, y; optimization_strategy = Irls{HuberShape}())) ≈ [0.5, -1.0]
+    @test estimate(fit_linear(A, y; optimization_strategy = Irls{HuberShape}(), scale = 0.01)) ≈ [0.5, -1.0]
     @test estimate(fit_linear(A, y; optimization_strategy = nothing)) ≈ [0.5, -1.0]        # plain least squares
-    @test_throws r"needs a starting guess" fit_linear(A, y; optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5))
+    @test_throws r"needs a starting guess" fit_linear(A, y; optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), scale = 0.01)
     @test_throws r"give `optimization_strategy`" fit_linear(A, y; local_optimization = Irls{HuberShape}())
 
     @test optimization_strategy_from_toml(Dict("type" => "none"); class = :homography) === nothing

@@ -43,14 +43,18 @@ bearing problem of that model, built like the essential problem from the
 cameras' back-projection with the `M₁`/`M₂` Jacobian columns (the whole field
 of a fisheye takes part, past 90°): VisualGeometryToolkitCore's `Rotation2pt`
 on two pairs, the residual the Sampson distance of the joint measurement (both
-images' pixels, Σ = I) to the transfer constraint on bearings, in pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
+images' pixels, at their noise `blockdiag(Σ₁, Σ₂)`: unit isotropic for plain
+pixels, the keypoints' own for `Uncertain` ones) to the transfer constraint on bearings, in whitened pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
 f₁, f₂; M₁, M₂)` at `H = R`), and the chart-LM refit on VisualGeometryToolkitCore's
 `SO3Manifold` through the homography's transfer rows. `find_rotation`
 is its RANSAC; a scorer or a lift from another package plugs in as for
-`find_essential`.
+`find_essential`. `uncertain_rotation` turns a pairwise result into a
+[`fit_rotation_averaging`](@ref) edge: the rotation with its absolute covariance
+(`noise_scale² × solver_covariance` in the so(3) chart, radians²).
 
 ```@docs
 RotationProblem
 find_rotation
 refine_rotation
+uncertain_rotation
 ```

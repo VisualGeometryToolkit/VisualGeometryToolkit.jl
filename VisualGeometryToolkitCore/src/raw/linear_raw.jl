@@ -2,7 +2,7 @@
 # LinearRaw — a Bayer mosaic as exact linear values on its 2×2 cells
 # =============================================================================
 #
-# Every number after the decode: the linear scaling (`linear_value`, the one
+# Every number after the decode: the linear scaling (`_linear_value`, the one
 # expression), the 2×2 Bayer cells (`:bin2`, `:green_cells`), the saturation
 # flags, the true sample positions and the exact frame map of the
 # half-resolution grid (`LinearRaw(mosaic; mode, gain)`). Both cell modes are
@@ -16,7 +16,7 @@
     LinearRaw
 
 A RAW image as linear values: `(raw − black[c]) / (white − black[c]) × gain`
-([`linear_value`](@ref) of each photosite), camera raw colour, white balance 1,
+(each photosite's [`linearview`](@ref) value), camera raw colour, white balance 1,
 `1.0` = the white level (before the gain). Not clipped: a value above 1 (a gain
 above 1) or below 0 (noise under the black level) is kept.
 
@@ -93,8 +93,8 @@ choice between them):
   their photosites, `(±¼, ±¼)` cell pixels from the centre: each plane's map
   onto the raw is [`bayer_plane_map`](@ref).
 
-Every value is [`linear_value`](@ref) of the photosites of
-`channelview(mosaic)` (the mosaic's [`channelview`](@ref ImageCore.channelview(::RawMosaic))) with [`bayer_levels`](@ref)`(mosaic)`: the
+Every value is from the mosaic's [`linearview`](@ref), read channel-first
+(`channelview(linearview(mosaic))`, the mosaic's [`channelview`](@ref ImageCore.channelview(::RawMosaic))): the
 green-cell value of cell `(i, j)` is the mean of the view's two green channels
 there, times the gain, bit for bit. `:demosaic` (LibRaw's interpolation, for
 display figures) is VisualGeometryToolkitFeatures': `load_raw(path or mosaic; mode = :demosaic)`.
@@ -146,7 +146,7 @@ end
     r0, c0 = 2i - 1, 2j - 1
     @inbounds begin
         x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
-        v = ntuple(k -> linear_value(x[k], black[k], span[k]), Val(4))
+        v = ntuple(k -> _linear_value(x[k], black[k], span[k]), Val(4))
         _store_planes!(img, i, j, v, planes, gain, 1)
         sat[i, j] = any(k -> _at_white(x[k], white), sites)
     end
@@ -161,7 +161,7 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol)
     plane(c) = c == 3 ? 2 : Int(c) + 1                         # 0 R, 1 G, 2 B, 3 G2 → planes R, G, B
     planes = ntuple(p -> Tuple(k for k in 1:4 if plane(cell[k]) == p), Val(3))
     r, g, b = planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int}
-    black, span = bayer_levels(m)
+    black, span = _bayer_levels(m)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
@@ -209,15 +209,6 @@ raw_frame_map(L::LinearRaw) = _geometry(L, "raw_frame_map").plane_maps[_green_pl
 _green_plane(::LinearRaw{:bin2}) = 2
 _green_plane(::LinearRaw{:green_cells}) = 1
 
-"""
-    green_cells(L::LinearRaw) -> AbstractMatrix{Float64}
-
-The green-cell image of a cell image, as a matrix view of its plane (no copy):
-the one plane of `:green_cells`, the second of `:bin2`, each cell's two greens'
-mean times the gain, in the cell grid's pixels ([`raw_frame_map`](@ref)). A
-`:demosaic` image is refused (`ArgumentError`): it has no cells.
-"""
-green_cells(L::LinearRaw) = (_geometry(L, "green_cells"); view(L.image, :, :, _green_plane(L)))
 
 """
     raw_coordinates(img, x) -> SVector{2, Float64}

@@ -1,13 +1,28 @@
 # VisualGeometryToolkitFeatures changelog
 
-## 0.7.1 (unreleased)
+## 0.8.0 (unreleased)
 
-Not breaking. The sensor image moves to VisualGeometryToolkitCore 0.9.2 (`[compat]` VisualGeometryToolkitCore 0.9.2):
-`RawMosaic`, `LinearRaw` (its linearisation and cell kernel), `BayerCellFrame`, `raw_frame_map`, `bayer_plane_map`,
-`green_cell_sites`, `raw_coordinates`, `photosite_colors`, `cfa_string` and `raw_provenance` are deleted here and
-re-exported from Core — the same bindings (`VgtkFeatures.RawMosaic === VgtkCore.RawMosaic`, a test), no alias — so no
-caller breaks. This package keeps what needs LibRaw: `load_raw_mosaic`/`LibRawDecoder` (producing Core's `RawMosaic`),
-`load_raw` and the display demosaic.
+Breaking. The sensor image moves to VisualGeometryToolkitCore 0.9.2 (`[compat]` VisualGeometryToolkitCore 0.9.2), and
+this package keeps only what needs LibRaw: `load_raw_mosaic`/`LibRawDecoder` (producing Core's `RawMosaic`), `load_raw`
+and the display demosaic. The moved definitions are deleted here, and by the owner's ruling (2026-11-12) this package
+re-exports NO name of Core's — the moved ones and its three older re-exports alike: each is exported by Core alone.
+
+- **Breaking: no longer exported (or declared public) here** — use VisualGeometryToolkitCore's (`using
+  VisualGeometryToolkitCore`, or `VgtkCore.X`):
+  - `RawMosaic` — use `VisualGeometryToolkitCore.RawMosaic`;
+  - `LinearRaw` — use `VisualGeometryToolkitCore.LinearRaw`;
+  - `BayerCellFrame` — use `VisualGeometryToolkitCore.BayerCellFrame`;
+  - `raw_frame_map` — use `VisualGeometryToolkitCore.raw_frame_map`;
+  - `bayer_plane_map` — use `VisualGeometryToolkitCore.bayer_plane_map`;
+  - `green_cell_sites` — use `VisualGeometryToolkitCore.green_cell_sites`;
+  - `raw_coordinates` — use `VisualGeometryToolkitCore.raw_coordinates`;
+  - `raw_provenance` — use `VisualGeometryToolkitCore.raw_provenance`;
+  - `cfa_string` — use `VisualGeometryToolkitCore.cfa_string`;
+  - `photosite_colors` — use `VisualGeometryToolkitCore.photosite_colors`;
+  - `feature_frame` — use `VisualGeometryToolkitCore.feature_frame` (the `Detection` method is still added here);
+  - `Cspond` — use `VisualGeometryToolkitCore.Cspond`;
+  - `csponds` — use `VisualGeometryToolkitCore.csponds` (the `NNMatch` method is still added here).
+- **Breaking: the private `_linear` is gone**: a photosite's linear value is Core's `linearview(m)[i, j]`.
 
 - **New: the display demosaic of a mosaic in memory**, `load_raw(mosaic::RawMosaic; mode = :demosaic, gain,
   white_balance)`: LibRaw's AHD on the mosaic's photosites (`libraw_open_bayer`, copied to the host), its colour phase
@@ -15,8 +30,9 @@ caller breaks. This package keeps what needs LibRaw: `load_raw_mosaic`/`LibRawDe
   second one). Bit for bit the demosaic of the same buffer opened by LibRaw (a test); a mosaic whose levels are not
   whole codes (LibRaw holds integers) is an `ArgumentError`, and LibRaw's own reading of the buffer (phase, levels) is
   checked against the mosaic's. `load_raw(mosaic; mode = :green_cells | :bin2)` is Core's `LinearRaw(mosaic; mode, gain)`.
-- **`variance_stabilize` reads Core's public `green_cells(L)`** (the green plane, the display image refused) in place of
-  the raw module's private accessors.
+- **`variance_stabilize` finds the green-cell plane through Core's public frame maps** (the plane whose
+  `bayer_plane_map` is `raw_frame_map(L)`, the cell grid; the display image refused there) in place of the raw module's
+  private accessors.
 - **`CACHE_FORMAT` 4**: a cached `LinearRaw` was stored as `VisualGeometryToolkitFeatures.LinearRaw`; the type is
   Core's now, so earlier entries are misses (decoded again), never a load that fails.
 - **Adapt is no longer a dependency** (it served the mosaic's device form, now Core's). VisualGeometryToolkitCore

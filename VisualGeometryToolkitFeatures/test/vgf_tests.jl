@@ -589,6 +589,7 @@ end
 end
 
 @testitem "Detection(frame, response; polarity) vocabulary" setup = [Fixtures] begin
+    using VisualGeometryToolkitCore: feature_frame
     using VisualGeometryToolkitCore: Disc
     f = Disc(10.0, 20.0, 3.0)
     @test Detection(f, 0.2; polarity = :dark).metadata.laplacian_scale_score == 1.0

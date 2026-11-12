@@ -401,17 +401,16 @@ export AffineMap, Translation
 # -----------------------------------------------------------------------------
 # 3b. THE SENSOR IMAGE - a Bayer RAW mosaic, its photosite views and linear values (raw/)
 # -----------------------------------------------------------------------------
-# Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features keeps the LibRaw decoder and the
-# display demosaic, and re-exports these bindings).
+# Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features 0.8.0 keeps the LibRaw decoder and the
+# display demosaic, and does not re-export these names: Core alone exports them).
 export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
 export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
 export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view
 export photositeview            # the inverse view: 2×2 cells channel-first → the photosite matrix
-public bayer_channels, bayer_levels, linear_value   # each channel's colour; its black level and span; THE linearisation of a photosite
+public bayer_channels           # each channel's colour (the one phase rule)
 export linearview, saturationview   # the mosaic's linear values and its saturation flags on the raw grid, lazily (both compose with channelview)
 public LinearRawView, SaturationView, PhotositeColors   # the lazy views' types (photosite_colors returns the last)
-public green_cells              # a cell image's green-cell plane, as a matrix view
 public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 
@@ -1033,7 +1032,7 @@ import .Cameras: pnp_pixel_whitening
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
-include("raw/linear_raw.jl")   # LinearRaw: linear_value over channelview(m) in one KA kernel; the cell images' maps
+include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl
 include("synthetic/synthetic.jl")

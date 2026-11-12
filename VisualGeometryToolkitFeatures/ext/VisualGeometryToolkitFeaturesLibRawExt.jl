@@ -45,8 +45,8 @@
 module VisualGeometryToolkitFeaturesLibRawExt
 
 using LibRaw_jll: LibRaw_jll, libraw
-using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, LibRawDecoder, RawMosaic
-using VisualGeometryToolkitCore: photosite_colors   # a mosaic's colour phase, Core's one rule (the in-memory demosaic)
+using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, LibRawDecoder
+using VisualGeometryToolkitCore: RawMosaic, photosite_colors   # the decoded mosaic, and its colour phase (Core's one rule; the in-memory demosaic)
 
 # ---- mirrored structures (libraw_types.h, LibRaw 0.22) ----------------------
 

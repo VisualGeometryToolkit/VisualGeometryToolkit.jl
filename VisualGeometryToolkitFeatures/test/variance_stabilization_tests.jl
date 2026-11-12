@@ -2,7 +2,8 @@
 # Poisson–Gaussian noise, and ASIFT on it with its contrast threshold in noise σ, saturated pixels masked.
 
 @testsetup module NoisyMosaic
-using VisualGeometryToolkitFeatures: RawMosaic
+    using VisualGeometryToolkitCore: RawMosaic
+
 using Random: AbstractRNG
 export noisy_mosaic, poisson, RGGB, BLACK, WHITE
 
@@ -36,7 +37,8 @@ end
 end
 
 @testitem "variance_stabilize: unit noise at every level, from the photosites' own black levels" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize
+    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitFeatures: variance_stabilize
     using Random: Xoshiro
     using Statistics: std, mean
     rng = Xoshiro(1)
@@ -65,7 +67,7 @@ end
 end
 
 @testitem "asift_detect on a stabilized image: the threshold in noise σ of the noisiest DoG slice" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize, asift_detect, asift_detect!, AsiftPlan, StabilizedImage
+    using VisualGeometryToolkitFeatures: variance_stabilize, asift_detect, asift_detect!, AsiftPlan, StabilizedImage
     import VisualGeometryToolkitFeatures as VF
     import KernelAbstractions as KA
     using Random: Xoshiro
@@ -98,7 +100,8 @@ end
 end
 
 @testitem "asift_detect on a stabilized image: saturated pixels give no detection" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize, asift_detect
+    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitFeatures: variance_stabilize, asift_detect
     using VisualGeometryToolkitCore: centroid, characteristic_scale, feature_frame
     import KernelAbstractions as KA
     using Random: Xoshiro
@@ -131,7 +134,8 @@ end
 end
 
 @testitem "StabilizedImage holds a Float64 image and a BitMatrix mask without copying them" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitFeatures: LinearRaw, StabilizedImage, variance_stabilize
+    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitFeatures: StabilizedImage, variance_stabilize
     using Random: Xoshiro
     img = rand(Xoshiro(2), 300, 400); sat = falses(300, 400)
     s = StabilizedImage(img, sat, 2.0)

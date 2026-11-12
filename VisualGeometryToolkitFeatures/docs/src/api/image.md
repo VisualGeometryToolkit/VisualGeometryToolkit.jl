@@ -19,7 +19,7 @@ after the decode is Core's: the mosaic's colour phase and its photosites
 channel-first (`channelview`), the linear values on the 2×2 cells
 (`LinearRaw`) and the exact maps onto the sensor (`raw_frame_map`,
 `bayer_plane_map`, `green_cell_sites`, `raw_coordinates`). Those names are
-re-exported here, the same bindings; their reference and design are Core's
+exported by Core only (`using VisualGeometryToolkitCore`); their reference and design are Core's
 "Camera RAW" API page and "Raw images" guide, and this package's
 [Raw images](@ref) page says what is left here.
 
@@ -52,7 +52,7 @@ Pages = ["raw_image.jl"]
 
 ## The detection image of a RAW
 
-[`variance_stabilize`](@ref) maps the green cells (Core's `green_cells(L)`) to the generalized Anscombe
+[`variance_stabilize`](@ref) maps the green cells (the `:green_cells` image, or `:bin2`'s green plane) to the generalized Anscombe
 transform for Poisson–Gaussian noise: the noise has σ ≈ 1 at every level, so
 ASIFT on it ([`asift_detect`](@ref) of a [`StabilizedImage`](@ref)) thresholds
 its DoG at `noise_sigmas` noise σ, in a dim interior as in a bright window, and

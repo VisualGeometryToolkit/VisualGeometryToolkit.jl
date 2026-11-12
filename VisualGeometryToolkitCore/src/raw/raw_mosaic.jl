@@ -25,7 +25,7 @@
 # own: `colorview` builds colorants, and the inverse here is a photosite matrix.
 # `rawview` has nothing to unwrap (the mosaic IS its UInt16 codes) and
 # `normedview(N0f16, parent(m))` is ImageCore's `code / 65535`, not the linear
-# value, which has its own name, `linear_value`.
+# value, which has its own view, `linearview`.
 # =============================================================================
 
 """
@@ -330,9 +330,8 @@ says which photosite is which. Channel `k`'s pixel frame is
 [`BayerCellFrame`](@ref)`{C}` (`C` its colour), and
 [`bayer_plane_map`](@ref)`(m, k)` maps it onto the visible raw, exactly, for
 every Bayer phase and either parity of a window's origin. Its inverse is
-[`photositeview`](@ref). The linear value of a photosite is
-[`linear_value`](@ref)`(v[k, i, j], black[k], span[k])` with
-`(black, span) = `[`bayer_levels`](@ref)`(m)`.
+[`photositeview`](@ref). The linear values channel-first are
+`channelview(`[`linearview`](@ref)`(m))`.
 """
 ImageCore.channelview(m::RawMosaic) = _cell_channels(parent(m))
 
@@ -386,32 +385,20 @@ function bayer_plane_map(m::RawMosaic, k::Integer)
     return _sample_map(_cell_grid_map(m), Val(bayer_channels(m)[k]), _site_offset(k))
 end
 
-"""
-    bayer_levels(m::RawMosaic) -> (black::NTuple{4, Float64}, span::NTuple{4, Float64})
-
-The levels of the four channels of `channelview(m)`, in the channels'
-order: each channel's black level (`m.black` of its colour index) and its span
-`white − black`, the codes that run from `0` to `1` in
-[`linear_value`](@ref). The constants the cell kernel of [`LinearRaw`](@ref)
-reads, computed once per mosaic.
-"""
-function bayer_levels(m::RawMosaic)
-    cell = _cell_colors(m, "bayer_levels")
+# The levels of the four channels of `channelview(m)`, in the channels' order: each channel's black level (`m.black`
+# of its colour index) and its span `white − black`, the codes that run from 0 to 1 — the constants the cell kernel and
+# `linearview` read, computed once per mosaic. Private: the public linear values are `linearview(m)`, and the levels
+# themselves are the mosaic's fields, `m.black` (per colour index) and `m.white`.
+function _bayer_levels(m::RawMosaic)
+    cell = _cell_colors(m, "the Bayer levels")
     black = ntuple(k -> m.black[cell[k] + 1], Val(4))
     return (black, ntuple(k -> m.white - black[k], Val(4)))
 end
 
-"""
-    linear_value(code, black::Float64, span::Float64) -> Float64
-
-A photosite's linear value, `(code − black) / span`: `0` at the black level,
-`1` at the white level (`span = white − black`), not clipped. THE
-linearisation of the stack — convert_raw.py's expression, in its order — which
-the cell kernel of [`LinearRaw`](@ref) applies to every photosite it reads;
-a per-photosite consumer applies it to a mosaic's `channelview` with
-[`bayer_levels`](@ref). Allocation- and branch-free (kernel-lawful).
-"""
-@inline linear_value(code, black::Float64, span::Float64) = (Float64(code) - black) / span
+# THE linearisation of a photosite, `(code − black) / span`: 0 at the black level, 1 at the white level, not clipped —
+# convert_raw.py's expression, in its order. The cell kernel of LinearRaw and `linearview`'s getindex are its two
+# readers; kernel-lawful. Private: its one public spelling is `linearview(m)` (a photosite's value `linearview(m)[i, j]`).
+@inline _linear_value(code, black::Float64, span::Float64) = (Float64(code) - black) / span
 
 # THE saturation rule: a photosite is saturated at the white level, `code ≥ white`, with no margin (LinearRaw's flags,
 # the green-photosite mask).
@@ -425,13 +412,13 @@ a per-photosite consumer applies it to a mosaic's `channelview` with
     LinearRawView{A} <: AbstractMatrix{Float64}
 
 The lazy linear view of a mosaic's photosites on the raw grid,
-[`linearview`](@ref)`(m)`: element `(i, j)` is [`linear_value`](@ref) of the
+[`linearview`](@ref)`(m)`: element `(i, j)` is the linear value of the
 held array's code there, with its channel's black level and span, computed when
 read. It holds the photosites (`parent`, the mosaic's held array, a device array
 too) and the four channels' levels; `similar`, a broadcast and `copy` are the
 held array's kind (a broadcast over a device view runs on the device),
 `adapt` moves it, and a KernelAbstractions kernel reads it as it is (its
-indexing is two parities and one `linear_value`).
+indexing is two parities and one linearisation).
 """
 struct LinearRawView{A <: AbstractMatrix} <: AbstractMatrix{Float64}
     raw::A
@@ -443,7 +430,7 @@ Base.parent(v::LinearRawView) = v.raw
 Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
 Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
     k = _quad_site(i, j)
-    return linear_value(v.raw[i, j], v.black[k], v.span[k])
+    return _linear_value(v.raw[i, j], v.black[k], v.span[k])
 end
 Base.similar(v::LinearRawView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
 Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{A}}) where {A} = Base.Broadcast.BroadcastStyle(A)
@@ -457,7 +444,7 @@ ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
 The mosaic's linear values on the raw grid, lazily, as ImageCore's
 `normedview` reads codes as numbers without a copy: element `(i, j)` is
 `(raw − black[c]) / (white − black[c])` of photosite `(i, j)`, `c` its colour
-— [`linear_value`](@ref) with [`bayer_levels`](@ref)`(m)`, the one
+— the one
 linearisation, the one [`LinearRaw`](@ref)'s cell kernel applies. Not clipped,
 no gain. It composes with ImageCore's `channelview`:
 `channelview(linearview(m))` is the linear values channel-first
@@ -474,7 +461,7 @@ colour in the phase), so the view reads its index — one parity rule, the cell
 sites' (`k = di + 2dj + 1`).
 """
 function linearview(m::RawMosaic)
-    black, span = bayer_levels(m)
+    black, span = _bayer_levels(m)
     return LinearRawView(parent(m), black, span)
 end
 

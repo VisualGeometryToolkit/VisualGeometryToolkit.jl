@@ -9,10 +9,10 @@ photosites channel-first (a method of ImageCore's `channelview`), its linear
 values on the 2×2 cells (`LinearRaw`) and the exact maps of every plane and
 channel onto the sensor (`raw_frame_map`, `bayer_plane_map`,
 `green_cell_sites`, `raw_coordinates`) — is VisualGeometryToolkitCore's since
-Core 0.9.2 and Features 0.7.1, so every package below Features reads the image
-without the decoder. Its design is Core's "Raw images" guide. This package
-re-exports those names, the same bindings (no alias: `VisualGeometryToolkitFeatures.RawMosaic
-=== VisualGeometryToolkitCore.RawMosaic`), so code written against them is unchanged.
+Core 0.9.2 and Features 0.8.0, so every package below Features reads the image
+without the decoder. Its design is Core's "Raw images" guide. Core alone exports
+those names (`using VisualGeometryToolkitCore`); this package no longer
+re-exports them (0.8.0).
 
 What stays here is what needs LibRaw:
 
@@ -44,6 +44,7 @@ pixel centres of that image; positions on the green cells go to the sensor
 through the image's map:
 
 ```julia
+using VisualGeometryToolkitCore                # raw_coordinates, LinearRaw, …
 L = load_raw(path; mode = :green_cells)
 xs = detect(L.image[:, :, 1])                  # any detector: COLMAP centres of the cell grid
 raw_xs = raw_coordinates.(Ref(L), xs)          # the sensor's pixels

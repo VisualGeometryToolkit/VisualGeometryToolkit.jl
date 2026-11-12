@@ -540,9 +540,11 @@ end
 end
 
 @testitem "raw: the green cells are the mean of the linearised view's two green channels, bit for bit" setup = [RawFixtures] begin
-    # ONE linearisation: `linear_value` over `channelview` with `bayer_levels`. The cell kernel's green-cell value is
+    # ONE linearisation: the private `_linear_value` over `channelview` with `_bayer_levels` (linearview's own). The cell kernel's green-cell value is
     # the mean of the two G channels of that view times the gain, and bin2's R and B are its R and B channels.
-    using VisualGeometryToolkitCore: LinearRaw, channelview, bayer_channels, bayer_levels, linear_value
+    using VisualGeometryToolkitCore: LinearRaw, channelview, bayer_channels
+    import VisualGeometryToolkitCore as VgtkCore
+    linear_value, bayer_levels = VgtkCore._linear_value, VgtkCore._bayer_levels
     raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:10, j in 1:14]
     raw[3, 4] = 16383
     for cell in LAYOUTS, origin in ORIGINS, gain in (1.0, 3.5)

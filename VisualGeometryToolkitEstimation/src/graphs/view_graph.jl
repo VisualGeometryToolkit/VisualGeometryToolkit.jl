@@ -210,12 +210,12 @@ end
 
 The angle (radians) by which the rotations of a triangle's edges fail to close:
 `f_k = R_jk·R_ij·f_i` should equal `R_ik·f_i`, so the angle of `R_ikᵀ·R_jk·R_ij`.
-The residual of [`filter_cycles`](@ref) for rotation edges (each edge a rotation
-or an `Attributed` one).
+The residual of [`filter_cycles`](@ref) for rotation edges (each edge a rotation,
+an `Uncertain` one, or an `Attributed` one of either; a covariance plays no part).
 """
 rotation_loop_angle(ij, jk, ik) = Rotations.rotation_angle(RotMatrix{3}(_m3(VgtkCore.value_of(ik))' * _m3(VgtkCore.value_of(jk)) * _m3(VgtkCore.value_of(ij))))
 
-_m3(R) = SMatrix{3, 3, Float64, 9}(R)
+_m3(R) = SMatrix{3, 3, Float64, 9}(VgtkCore.geom(R))   # an Uncertain rotation's covariance is not the filters' (Core's `geom`)
 
 """
     filter_by_orientation(vg::ViewGraph, world_from; tol) -> ViewGraph
@@ -224,7 +224,9 @@ The view graph without the rotation edges that disagree with the absolute
 rotations `world_from` (a `Dict` view => `R_k`, `d = R_k·f_k`, as
 [`fit_rotation_averaging`](@ref) returns): an edge `(i, j)` goes when the angle of
 `R_j·R_ij·R_iᵀ` exceeds `tol` radians (Theia's `FilterViewPairsFromOrientation`).
-An edge with a view missing from `world_from` stays.
+An edge with a view missing from `world_from` stays. Each edge is a rotation, an
+`Uncertain` one, or an `Attributed` one of either (as [`fit_rotation_averaging`](@ref)
+takes them; a covariance plays no part), and so may each `R_k`.
 """
 function filter_by_orientation(vg::ViewGraph{K, E}, world_from::AbstractDict; tol::Real) where {K, E}
     agrees(i, j, e) = !(haskey(world_from, i) && haskey(world_from, j)) ||

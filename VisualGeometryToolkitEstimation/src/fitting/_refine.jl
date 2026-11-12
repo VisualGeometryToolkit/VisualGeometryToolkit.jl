@@ -231,20 +231,20 @@ function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     r = Vector{Float64}(undef, n)
     mahalanobis_distances!(r, problem, θ̂)
     w = _refine_weights(spec, r)
-    sw = sum(w)
-    rms = sqrt(sum(w[i] * r[i]^2 for i in 1:n if w[i] > 0; init = 0.0) / sw)
+    # the stack's one support/rms rule of a weighted result (loop.jl): below eps an exact 0, n the support, rms weighted
+    support, rms = _posterior_support_rms!(w, (abs2(x) for x in r))
     rs = VgtkCore._mad_scale_norms(; norms = r, codimension = codimension(problem))   # the residual norms (mahalanobis_distances!)
     md = RefineMetadata{L}(w, r, _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), rs)
-    return FitResult(θ̂, code, iters, rms, count(>(0), w), md)
+    return FitResult(θ̂, code, iters, rms, support, md)
 end
 
 _recorded_scale(spec::_RefineSpec) = spec.input === nothing ? NaN : Float64(spec.input.scale)
 _recorded_source(spec::_RefineSpec) = spec.input === nothing ? ScaleNone : spec.input.source
 
-# The weights at the estimate: the loss's ρ′ (max 1; below eps an exact 0), or
+# The weights at the estimate: the loss's ρ′ (max 1; `_posterior_support_rms!` zeroes those below eps), or
 # L2's lazy all ones.
 _refine_weights(::_RefineSpec{Nothing}, r) = unit_weights(Float64, length(r))
-_refine_weights(spec::_RefineSpec, r) = _loss_weights(strategy_loss(spec.lo)(), sq_loss_width(spec.loss), r)
+_refine_weights(spec::_RefineSpec, r) = (shape = strategy_loss(spec.lo)(); c² = sq_loss_width(spec.loss); [Float64(weight(shape, ri^2, c²)) for ri in r])
 # ρ′ of each residual norm, max 1, below eps an exact 0.
 _loss_weights(shape, c², r) = [(x = weight(shape, ri^2, c²); x < eps(Float64) ? 0.0 : Float64(x)) for ri in r]
 

@@ -79,7 +79,7 @@ per-ray origins (a non-central camera, for which there is no minimal solver).
 
 The bundles (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not
 RANSAC problems and keep their own LM, but take the same strategy, default and
-scale input (`optimization_strategy`, `scale` | `width`)), and `refine_camera_and_poses` holds
+scale input (`optimization_strategy`, `scale` | `width`), and `refine_camera_and_poses` holds
 parameters with `fixed`.
 
 ## Robust fits: one strategy, one fixed scale

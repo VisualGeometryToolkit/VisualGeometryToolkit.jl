@@ -1,0 +1,8 @@
+[00:00:00] package=PoseLib commit=0000000000000000000000000000000000000000 host=fixture job=0_0
+[00:00:00] cpus=2 workers=1 gpu=none LO_TIMING_GATE= VGTK_BENCHMARK_TESTS= test_args=
+Test Summary:  | Pass  Total  Time
+README example |    5      5  3.7s
+Test Summary: | Pass  Broken  Total     Time
+PoseLib       |  312       1    313  1m20.0s
+     Testing PoseLib tests passed 
+[00:01:40] package=PoseLib wall=100s exit=0

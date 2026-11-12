@@ -1,6 +1,6 @@
 #!/bin/bash
 # summarize.sh <job id | log directory> — one table of a launch of submit_suites.sh: per package the counts of the top-level
-# Test Summary (ok, fail, error, broken, total), the wall time and the exit code of Pkg.test, then every failing or erroring test
+# Test Summary, the last of its log (ok, fail, error, broken, total), the wall time and the exit code of Pkg.test, then every failing or erroring test
 # with its location and its first informative line, and any test item that timed out. Reads <logdir>/<Package>.log as
 # common.sh's run_package writes it; a job id is resolved through ci/slurm/logs/job-<id> (VGTK_SUITE_LOGS for another base).
 # Exits 0 when every package's Pkg.test exited 0, else 1 (a package still running, or without a Test Summary, counts as 1).
@@ -24,9 +24,10 @@ FAILS=$(mktemp); trap 'rm -f "$FAILS"' EXIT
 status=0
 for f in "${LOGS[@]}"; do
   sed -E 's/\x1b\[[0-9;]*m//g' "$f" | awk -v pkg="$(basename "$f" .log)" -v fails="$FAILS" '
-    # The header of the top-level Test Summary names its columns; the row below it holds one number per named column.
-    /^Test Summary:/ && !have { split($0, h, "|"); nh = split(h[2], hdr, " "); getline row; split(row, r, "|"); split(r[2], val, " ");
-                                for (k = 1; k <= nh; k++) col[substr(hdr[k], 1, 2)] = val[k]; have = 1 }
+    # The header of a Test Summary names its columns; the row below it holds one number per named column. A log can hold
+    # several (the PoseLib README-example testset prints one before the package total); the LAST one is the total.
+    /^Test Summary:/ { split($0, h, "|"); nh = split(h[2], hdr, " "); getline row; split(row, r, "|"); split(r[2], val, " ");
+                       split("", col); for (k = 1; k <= nh; k++) col[substr(hdr[k], 1, 2)] = val[k]; have = 1 }
     / wall=[0-9]+s exit=/       { w = $0; sub(/.* wall=/, "", w); sub(/s exit=.*/, "", w); e = $0; sub(/.* exit=/, "", e) }
     /gpu=/ && !gpu              { g = $0; sub(/.* gpu=/, "", g); sub(/ LO_TIMING_GATE=.*/, "", g); gpu = g }
     /Error in testset "/        { name = $0; sub(/^[^"]*"/, "", name); sub(/" on worker.*/, "", name) }

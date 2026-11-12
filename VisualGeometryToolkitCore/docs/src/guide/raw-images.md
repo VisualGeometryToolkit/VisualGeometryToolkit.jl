@@ -103,6 +103,19 @@ x = S(pixel_centre(CartesianIndex(i, j)))   # where G₁ of cell (i, j) sits on 
 y = linear_value(v[g1, i, j], black[g1], span[g1])
 ```
 
+## Linear values on the raw grid: `linearview`
+
+[`linearview`](@ref)`(m)` is the mosaic's linear values on the raw grid,
+lazily, as ImageCore's `normedview` reads codes as numbers: element `(i, j)` is
+`(raw − black[c]) / (white − black[c])` of photosite `(i, j)` (the one
+[`linear_value`](@ref)). It composes with `channelview`:
+`channelview(linearview(m))` is the linear values channel-first, and the
+green-cell image is the mean of its two G channels, bit for bit. A broadcast
+over it, and `copy`, run on the mosaic's device, and a kernel reads it as it is.
+[`green_photosite_mask`](@ref)`(m)` is the green photosites below the white
+level — the photosite residuals a radiometric fit keeps, by the same
+saturation rule as [`LinearRaw`](@ref)'s flags.
+
 ## Linear values on the cells
 
 A [`LinearRaw`](@ref)`{Mode}` (`:green_cells`, `:bin2`, `:demosaic`) stays a

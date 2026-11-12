@@ -301,11 +301,13 @@ every Bayer phase and either parity of a window's origin. Its inverse is
 [`linear_value`](@ref)`(v[k, i, j], black[k], span[k])` with
 `(black, span) = `[`bayer_levels`](@ref)`(m)`.
 """
-function ImageCore.channelview(m::RawMosaic)
-    H, W = size(m)
+ImageCore.channelview(m::RawMosaic) = _cell_channels(parent(m))
+
+# A photosite matrix's 2×2 cells channel-first (a mosaic's held array, or its linear view): THE view of both.
+function _cell_channels(raw::AbstractMatrix)
+    H, W = size(raw)
     h, w = H ÷ 2, W ÷ 2
     h >= 1 && w >= 1 || throw(ArgumentError("channelview: a $(H)×$(W) mosaic holds no 2×2 cell"))
-    raw = parent(m)
     cells = (H, W) == (2h, 2w) ? raw : view(raw, 1:(2h), 1:(2w))
     return reshape(PermutedDimsArray(reshape(cells, 2, h, 2, w), (1, 3, 2, 4)), 4, h, w)
 end
@@ -377,3 +379,86 @@ a per-photosite consumer applies it to a mosaic's `channelview` with
 [`bayer_levels`](@ref). Allocation- and branch-free (kernel-lawful).
 """
 @inline linear_value(code, black::Float64, span::Float64) = (Float64(code) - black) / span
+
+# THE saturation rule: a photosite is saturated at the white level, `code ≥ white`, with no margin (LinearRaw's flags,
+# the green-photosite mask).
+@inline _at_white(code, white::Float64) = code >= white
+
+# THE cell site of photosite (i, j): k = di + 2dj + 1 with (di, dj) its parity in the cell grid (_QUAD_SITES[k]),
+# the cells starting at the mosaic's first photosite.
+@inline _quad_site(i, j) = mod(i - 1, 2) + 2mod(j - 1, 2) + 1
+
+"""
+    LinearRawView{A} <: AbstractMatrix{Float64}
+
+The lazy linear view of a mosaic's photosites on the raw grid,
+[`linearview`](@ref)`(m)`: element `(i, j)` is [`linear_value`](@ref) of the
+held array's code there, with its channel's black level and span, computed when
+read. It holds the photosites (`parent`, the mosaic's held array, a device array
+too) and the four channels' levels; `similar`, a broadcast and `copy` are the
+held array's kind (a broadcast over a device view runs on the device),
+`adapt` moves it, and a KernelAbstractions kernel reads it as it is (its
+indexing is two parities and one `linear_value`).
+"""
+struct LinearRawView{A <: AbstractMatrix} <: AbstractMatrix{Float64}
+    raw::A
+    black::NTuple{4, Float64}
+    span::NTuple{4, Float64}
+end
+Base.size(v::LinearRawView) = size(v.raw)
+Base.parent(v::LinearRawView) = v.raw
+Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
+Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
+    k = _quad_site(i, j)
+    return linear_value(v.raw[i, j], v.black[k], v.span[k])
+end
+Base.similar(v::LinearRawView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
+Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{A}}) where {A} = Base.Broadcast.BroadcastStyle(A)
+Base.copy(v::LinearRawView) = identity.(v)
+Adapt.adapt_structure(to, v::LinearRawView) = LinearRawView(Adapt.adapt(to, v.raw), v.black, v.span)
+ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
+
+"""
+    linearview(m::RawMosaic) -> LinearRawView
+
+The mosaic's linear values on the raw grid, lazily, as ImageCore's
+`normedview` reads codes as numbers without a copy: element `(i, j)` is
+`(raw − black[c]) / (white − black[c])` of photosite `(i, j)`, `c` its colour
+— [`linear_value`](@ref) with [`bayer_levels`](@ref)`(m)`, the one
+linearisation, the one [`LinearRaw`](@ref)'s cell kernel applies. Not clipped,
+no gain. It composes with ImageCore's `channelview`:
+`channelview(linearview(m))` is the linear values channel-first
+(`4 × H/2 × W/2`, the channels of `channelview(m)`), so the green-cell value of
+cell `(i, j)` is the mean of its two green channels, bit for bit
+(`LinearRaw(m; mode = :green_cells).image[i, j, 1]`, at gain 1). An odd last
+row or column is in the view (its photosites' colours by the same rule) and
+left out of the channel view.
+
+Not `normedview(N0f16, …)` itself, whose `code / 65535` ignores the black
+levels, nor a `MappedArrays.mappedarray` of the codes, whose function sees the
+value alone: the black level and span depend on the photosite's position (its
+colour in the phase), so the view reads its index — one parity rule, the cell
+sites' (`k = di + 2dj + 1`).
+"""
+function linearview(m::RawMosaic)
+    black, span = bayer_levels(m)
+    return LinearRawView(parent(m), black, span)
+end
+
+"""
+    green_photosite_mask(m::RawMosaic) -> AbstractMatrix{Bool}
+
+The usable green photosites of a mosaic: `true` at a photosite whose colour is
+green (`photosite_colors(m)` 1 or 3, either green of the cell) and whose code is
+below the white level — the saturation rule of [`LinearRaw`](@ref)'s flags,
+`raw ≥ white` with no margin, applied per photosite. A `BitMatrix` on the
+host, a `Bool` array on a device mosaic's device; the size of `m` (an odd last
+row or column included).
+"""
+function green_photosite_mask(m::RawMosaic)
+    _cell_colors(m, "green_photosite_mask")
+    green = similar(parent(m), Bool, size(m))
+    copyto!(green, [c == 0x01 || c == 0x03 for c in photosite_colors(m)])
+    green .&= .!_at_white.(parent(m), m.white)
+    return green isa Array{Bool} ? BitMatrix(green) : green
+end

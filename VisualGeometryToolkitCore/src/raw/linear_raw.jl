@@ -148,7 +148,7 @@ end
         x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
         v = ntuple(k -> linear_value(x[k], black[k], span[k]), Val(4))
         _store_planes!(img, i, j, v, planes, gain, 1)
-        sat[i, j] = any(k -> x[k] >= white, sites)
+        sat[i, j] = any(k -> _at_white(x[k], white), sites)
     end
 end
 

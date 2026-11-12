@@ -408,6 +408,8 @@ export raw_coordinates          # THE accessor of an image's sensor-pixel coordi
 export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view
 export photositeview            # the inverse view: 2×2 cells channel-first → the photosite matrix
 public bayer_channels, bayer_levels, linear_value   # each channel's colour; its black level and span; THE linearisation of a photosite
+export linearview                # the mosaic's linear values on the raw grid, lazily (composes with channelview)
+public LinearRawView, green_photosite_mask   # the lazy view's type; the green photosites below the white level
 public green_cells              # a cell image's green-cell plane, as a matrix view
 public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)

@@ -33,6 +33,17 @@ photosite radiometry spec, 2026-11-12, §1 and §4.1).
   visible or the window origin; the R and B channels' maps ARE the `:bin2` R and B planes'), its black level and span,
   and THE linearisation `(code − black) / span`, which the cell kernel applies. `BayerCellFrame` gains the tags `:G1` and
   `:G2` (the two green photosites' lattices).
+- **New: `linearview(m)`** (exported) **and its type `LinearRawView`** (public): the mosaic's linear values on the raw
+  grid, lazily — each photosite's `(raw − black[c]) / (white − black[c])`, the one `linear_value` with
+  `bayer_levels(m)` (what Features' private `_linear` computed; that function is gone, its expression moved here once).
+  `normedview`-style (a lazy number view, no copy) and composing with ImageCore's `channelview`:
+  `channelview(linearview(m))` is the linear values channel-first, and `LinearRaw{:green_cells}` is the mean of its two
+  G channels, bit for bit (a test, CPU = GPU). A broadcast and `copy` run on the mosaic's device, and a KernelAbstractions
+  kernel reads the view as it is (two parities and one `linear_value` per element). Not a `MappedArrays.mappedarray`:
+  the black level depends on the photosite's position (its colour in the phase), which a value-only mapped function cannot
+  see, and Core takes no new dependency.
+- **New: `green_photosite_mask(m)`** (public): the green photosites below the white level — `photosite_colors` and THE
+  saturation rule (`raw ≥ white`, no margin), now one private predicate that `LinearRaw`'s cell kernel reads too.
 - **New: `green_cells(L)`** (public): a cell image's green-cell plane as a matrix view (`:demosaic` refused); Features'
   `variance_stabilize` reads it instead of private accessors.
 - **One phase rule.** The colour lookup, the cell's four sites in column-major order and each site's offset from the

@@ -596,3 +596,62 @@ end
         @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
     end
 end
+
+@testitem "raw: the lazy linear view on the raw grid, and the green-photosite mask" setup = [RawFixtures] begin
+    # linearview(m): every photosite's (raw − black[c]) / (white − black[c]), read lazily; channelview of it is the
+    # linear values channel-first, and the green-cell image is the mean of its two G channels, bit for bit.
+    using VisualGeometryToolkitCore: LinearRaw, LinearRawView, linearview, channelview, bayer_channels, photosite_colors,
+        green_photosite_mask
+    raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:11, j in 1:15]      # odd: a last row and column
+    raw[3, 4] = 16383; raw[6, 7] = 16390
+    for cell in LAYOUTS, origin in ORIGINS, (rows, cols) in ((1:11, 1:15), (2:11, 2:15), (2:10, 1:14))
+        m = view(mosaic(raw, cell; origin), rows, cols)
+        lv = linearview(m)
+        col = photosite_colors(m)
+        @test lv isa LinearRawView && size(lv) == size(m) && parent(lv) === parent(m)
+        @test all(lv[i, j] === (Float64(m[i, j]) - m.black[col[i, j] + 1]) / (m.white - m.black[col[i, j] + 1]) for i in axes(m, 1), j in axes(m, 2))
+        @test copy(lv) isa Matrix{Float64} && copy(lv) == [lv[i, j] for i in axes(m, 1), j in axes(m, 2)]
+        cv = channelview(lv)
+        @test size(cv) == size(channelview(m)) && all(cv[k, i, j] === lv[2i - 1 + (k - 1) % 2, 2j - 1 + (k - 1) ÷ 2] for k in 1:4, i in axes(cv, 2), j in axes(cv, 3))
+        g = findall(n -> n in (:G1, :G2), collect(bayer_channels(m)))
+        @test (cv[g[1], :, :] .+ cv[g[2], :, :]) ./ 2 == LinearRaw(m; mode = :green_cells).image[:, :, 1]
+        mask = green_photosite_mask(m)
+        @test mask isa BitMatrix && mask == [(col[i, j] in (0x01, 0x03)) && m[i, j] < m.white for i in axes(m, 1), j in axes(m, 2)]
+    end
+end
+
+@testitem "raw: the lazy linear view on the device — CPU = GPU" setup = [RawFixtures] begin
+    using VisualGeometryToolkitCore: LinearRaw, linearview, channelview, bayer_channels, green_photosite_mask
+    using Adapt: adapt
+    using CUDA: CUDA
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @Const
+    # a kernel reads the lazy view as it is: each cell's two green photosites, linear, averaged
+    @kernel function green_mean_kernel!(out, @Const(lin), greens)
+        i, j = @index(Global, NTuple)
+        (d1, e1), (d2, e2) = greens
+        @inbounds out[i, j] = (lin[2i - 1 + d1, 2j - 1 + e1] + lin[2i - 1 + d2, 2j - 1 + e2]) / 2
+    end
+    if CUDA.functional()
+        raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:13, j in 1:17]
+        raw[5, 6] = 16383
+        for cell in LAYOUTS, origin in ORIGINS, (rows, cols) in ((1:13, 1:17), (2:13, 2:17), (1:12, 1:16))
+            h = view(mosaic(raw, cell; origin), rows, cols)
+            d = view(adapt(CUDA.CuArray, mosaic(raw, cell; origin)), rows, cols)
+            lh, ld = linearview(h), linearview(d)
+            @test KA.get_backend(ld) isa CUDA.CUDABackend
+            @test copy(ld) isa CUDA.CuArray{Float64, 2} && Array(copy(ld)) == copy(lh)            # a broadcast on the device
+            g = findall(n -> n in (:G1, :G2), collect(bayer_channels(d)))
+            site(k) = ((k - 1) % 2, (k - 1) ÷ 2)
+            Lg = LinearRaw(h; mode = :green_cells).image[:, :, 1]
+            out = CUDA.zeros(Float64, size(Lg))
+            green_mean_kernel!(CUDA.CUDABackend())(out, ld, (site(g[1]), site(g[2])); ndrange = size(Lg))
+            @test Array(out) == Lg
+            cv = adapt(Array, channelview(ld))                                                    # the channel view, moved whole
+            @test (cv[g[1], :, :] .+ cv[g[2], :, :]) ./ 2 == Array(LinearRaw(d; mode = :green_cells).image[:, :, 1])
+            @test Array(green_photosite_mask(d)) == green_photosite_mask(h)
+        end
+    else
+        @test_skip CUDA.functional()
+    end
+end

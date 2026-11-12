@@ -2,7 +2,7 @@
 
 Packages: VisualGeometryToolkitCore 0.9.0, VisualGeometryToolkitIO 0.9.0, VisualGeometryToolkitEstimation 0.9.0,
 VisualGeometryToolkitFeatures 0.7.0, VisualGeometryToolkitEval 0.7.0, PoseLib 0.2.0. Baseline: 3eabba46 (the last
-docs-reviewed candidate). Final RC: the version bump 1d816a22 plus this file's commit (no code).
+docs-reviewed candidate). Final RC: 9c74e264 (the version bump 1d816a22 and the release records).
 
 The pass has two parts:
 - **Static** (done on dd9eeec5, read-only): the API diff, stale mentions, docs coverage, make.jl gates, detached
@@ -43,17 +43,22 @@ Every removal and rename is in its package's CHANGELOG (Breaking).
 
 ## 3. Executed on the final RC
 
-| Package | strict docs build | docs item | README item | agent docs | quality / naming |
-|---|---|---|---|---|---|
-| Core | `<exit>` | | | | |
-| IO | | | | | |
-| Features | | | | | |
-| Estimation | | | | | |
-| Eval | | | | | |
-| PoseLib | | | | | |
+The final RC is 9c74e264. The gate ran on a fresh clone (/home/jpr/src/vgtk-final-9c74e264): a `git clone` with no
+Manifest, its workspace resolved from scratch with Julia 1.13.3. Each suite includes its `docs`, README, agent-docs,
+quality and naming items. Counts are pass / fail / error / broken.
 
-README items are known to fail until the 0.9 stack is registered: the fresh environment from the install line
-resolves from the registry. They pass after registration. This is the only accepted failure.
+| Package | strict docs build (9765/9766) | GPU suite (9763) | CPU suite (9764) |
+|---|---|---|---|
+| Core | exit 0 | 342441 / 0 / 0 / 2 | 342175 / 0 / 0 / 25 |
+| IO | exit 0 | 30522 / 0 / 0 / 3 | 30522 / 0 / 0 / 3 |
+| Estimation | exit 0 | 20956 / 0 / 0 / 3 | 20946 / 0 / 0 / 3 |
+| Features | exit 0 | 15520 / 0 / 0 / 2 | 15146 / 0 / 0 / 9 |
+| Eval | exit 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 |
+| PoseLib | exit 0 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 |
+
+There are no failures or errors anywhere, the README items included. The CPU run's extra broken counts are the GPU
+items, which are recorded as broken when no device is present. Core's api/estimators page, which had been 201.15 KiB
+(over the 200 KiB limit), is now under the 150 KiB warning size since the split in 541e1681.
 
 ## 4. Before General (cau-release runs it)
 

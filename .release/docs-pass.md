@@ -29,7 +29,27 @@ Every change is in its package's CHANGELOG. Features 0.8.0 lists each dropped na
 
 ## 3. Executed on the final RC
 
-To be filled from the final gate (Julia 1.13 and 1.12; GPU six, CPU six, docs).
+The final RC is 76efbdbb. The gate ran on two fresh clones, one per Julia version: a `git clone` with no Manifest, its
+workspace resolved from scratch. Each suite includes its `docs`, README, agent-docs, quality and naming items. Counts
+are pass / fail / error / broken.
+
+| Package | 1.13.3 GPU (10211) | 1.13.3 CPU (10212) | 1.12.7 GPU (10215, Features rerun 10279) | 1.12.7 CPU (10216) | docs 1.13 / 1.12 |
+|---|---|---|---|---|---|
+| Core | 380433 / 0 / 0 / 2 | 378855 / 0 / 0 / 30 | 380430 / 0 / 0 / 2 | 378852 / 0 / 0 / 30 | exit 0 / exit 0 |
+| IO | 30531 / 0 / 0 / 3 | 30531 / 0 / 0 / 3 | 30531 / 0 / 0 / 3 | 30531 / 0 / 0 / 3 | exit 0 / exit 0 |
+| Estimation | 20961 / 0 / 0 / 3 | 20951 / 0 / 0 / 3 | 20949 / 0 / 0 / 3 | 20939 / 0 / 0 / 3 | exit 0 / exit 0 |
+| Features | 3069 / 0 / 0 / 2 | 3012 / 0 / 0 / 8 | 3069 / 0 / 0 / 2 (rerun) | 3012 / 0 / 0 / 8 | exit 0 / exit 0 |
+| Eval | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | exit 0 / exit 0 |
+| PoseLib | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | exit 0 / exit 0 |
+
+The first 1.12.7 GPU run of Features (10215) had 1 failure and 1 error. The single rerun on the same tree (10279) is
+green.
+- Aqua "persistent tasks" was not a persistent task. Its subprocess could not load the package: another job was
+  precompiling it in the same depot ("Being precompiled by another process", then a cache miss for ImageMorphology).
+  Aqua's own message says "a precompilation error, not a persistent task".
+- "pairwise_matrix: exact for any descriptors" (`vgf_tests.jl:692`, the default device's Float32 L2 matrix `==` the
+  CPU's) failed once and passed on the rerun and at the released d1a5f837 (10278). This batch does not touch the test
+  or the kernel. It is listed as a post-release follow-up: an intermittent GPU/CPU bit difference.
 
 ---
 

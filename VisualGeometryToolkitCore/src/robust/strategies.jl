@@ -127,6 +127,8 @@ struct Triggs{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     width::W
 end
 Triggs{K}(width::W) where {K, W} = Triggs{K, W}(width)
+# The weights a strategy's stage reports are its loss's ρ′ (robust/weights.jl): no inlier cut of their own.
+weight_kind(::Type{<:Union{Irls, Triggs}}) = IrlsWeights()
 
 """
     lo_admits_shape(T, K) -> nothing

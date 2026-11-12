@@ -175,7 +175,7 @@ a math-space `Transformation` into a `BoundedMap` callable from Julia
 include("geometry/cameras/cameras.jl")   # models, lenses, imaging chain, calibration, rigs, stereo
 using .Cameras
 include("raw/raw_mosaic.jl")             # the sensor image: RawMosaic, the one phase rule, channelview(::RawMosaic), bayer_plane_map(m, k)
-include("raw/linear_raw.jl")             # LinearRaw: linear_value over the mosaic's channelview in one KA kernel; the cell images' maps
+include("raw/linear_raw.jl")             # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 include("synthetic/synthetic.jl")        # evaluation metrics (pose_error, imc_pose_error, mean_average_accuracy)
 include("pools/pools.jl")                # Pools submodule: PoolPair (the pool record, NormalizedImageFrame) + StereoRawPair
 include("visualization_stubs.jl")        # `function f end` stubs the Makie/GLMakie extensions fill

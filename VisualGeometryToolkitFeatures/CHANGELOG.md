@@ -15,8 +15,9 @@ caller breaks. This package keeps what needs LibRaw: `load_raw_mosaic`/`LibRawDe
   second one). Bit for bit the demosaic of the same buffer opened by LibRaw (a test); a mosaic whose levels are not
   whole codes (LibRaw holds integers) is an `ArgumentError`, and LibRaw's own reading of the buffer (phase, levels) is
   checked against the mosaic's. `load_raw(mosaic; mode = :green_cells | :bin2)` is Core's `LinearRaw(mosaic; mode, gain)`.
-- **`variance_stabilize` reads Core's public `green_cells(L)`** (the green plane, the display image refused) in place of
-  the raw module's private accessors.
+- **`variance_stabilize` finds the green-cell plane through Core's public frame maps** (the plane whose
+  `bayer_plane_map` is `raw_frame_map(L)`, the cell grid; the display image refused there) in place of the raw module's
+  private accessors.
 - **`CACHE_FORMAT` 4**: a cached `LinearRaw` was stored as `VisualGeometryToolkitFeatures.LinearRaw`; the type is
   Core's now, so earlier entries are misses (decoded again), never a load that fails.
 - **Adapt is no longer a dependency** (it served the mosaic's device form, now Core's).

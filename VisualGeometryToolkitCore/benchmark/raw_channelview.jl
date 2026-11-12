@@ -17,7 +17,8 @@ import KernelAbstractions as KA
 using KernelAbstractions: @kernel, @index, @Const
 import VisualGeometryToolkitCore as VgtkCore
 const adapt = VgtkCore.Adapt.adapt   # Core's Adapt (the benchmark environment holds no Adapt of its own)
-using VisualGeometryToolkitCore: RawMosaic, LinearRaw, channelview, bayer_levels, linear_value, OnBackend
+using VisualGeometryToolkitCore: RawMosaic, LinearRaw, channelview, OnBackend
+const linear_value, bayer_levels = VgtkCore._linear_value, VgtkCore._bayer_levels   # the one linearisation and its levels (private)
 
 const QUAD = ((0, 0), (1, 0), (0, 1), (1, 1))
 struct View end;     struct Permuted end;     struct Packed end;     struct Held end

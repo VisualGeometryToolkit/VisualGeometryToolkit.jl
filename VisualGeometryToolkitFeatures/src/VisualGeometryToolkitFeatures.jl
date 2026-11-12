@@ -49,7 +49,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # The sensor image, Core's since 0.9.2 (moved from raw_image.jl; Features keeps the decoder and the display demosaic):
 # imported to re-export, the same bindings, so every caller of Features' names reaches Core's objects.
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites,
-    raw_coordinates, raw_provenance, cfa_string, photosite_colors, green_cells
+    raw_coordinates, raw_provenance, cfa_string, photosite_colors
 using LinearAlgebra: isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame

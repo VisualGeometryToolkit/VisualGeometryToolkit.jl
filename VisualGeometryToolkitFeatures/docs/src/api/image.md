@@ -52,7 +52,7 @@ Pages = ["raw_image.jl"]
 
 ## The detection image of a RAW
 
-[`variance_stabilize`](@ref) maps the green cells (Core's `green_cells(L)`) to the generalized Anscombe
+[`variance_stabilize`](@ref) maps the green cells (the `:green_cells` image, or `:bin2`'s green plane) to the generalized Anscombe
 transform for Poisson–Gaussian noise: the noise has σ ≈ 1 at every level, so
 ASIFT on it ([`asift_detect`](@ref) of a [`StabilizedImage`](@ref)) thresholds
 its DoG at `noise_sigmas` noise σ, in a dim interior as in a bright window, and

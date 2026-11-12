@@ -67,8 +67,10 @@ The sensor image moved to Core (owner ruling 2026-11-12); the gate of the photos
 - [x] ONE phase rule: `_photosite_color`, `_QUAD_SITES`, `_site_offset` and the one sample-lattice map `_sample_map`
   (Core `src/raw/raw_mosaic.jl`); `channelview(::RawMosaic)`, `bayer_plane_map` of a mosaic and of a `LinearRaw`,
   `green_cell_sites` and the cell kernel read them. The R/B channel maps ARE the bin2 plane maps (`===`, a test).
-- [x] ONE linearisation: `linear_value` (Core), used by the cell kernel; the green cells are the mean of the linearised
-  view's green channels, bit for bit (a test).
+- [x] ONE linearisation, one public spelling: `linearview` (Core; the scalar `_linear_value` private, used by the cell
+  kernel and the view); the green cells are the mean of the linearised view's green channels, bit for bit (a test).
+- [x] ONE public path to the green-cell image: `LinearRaw(m; mode = :green_cells)` (the `green_cells(L)` accessor not
+  kept); the levels are the mosaic's fields (`_bayer_levels` private).
 - [x] No second frame conversion added: the channel maps compose the existing cell-grid map; `pixel_mask(region, map,
   w, h)` and the `SimilarityMap` region actions are new (Core had none: searched `ct_contravariant.jl`, `regions.jl`,
   `image_circle.jl`, `bbox.jl`).

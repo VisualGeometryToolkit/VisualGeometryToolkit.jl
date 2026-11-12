@@ -89,26 +89,25 @@ the cell: its frame is [`BayerCellFrame`](@ref)`{C}` (`C` its colour) and
 [`bayer_plane_map`](@ref)`(m, k)` its isbits `SimilarityMap` onto the sensor
 (`x ↦ 2x` plus the photosite's offset from the cell centre and a window's
 offset), exact for every Bayer phase and either parity of the visible or the
-window origin. A photosite's linear value is
-[`linear_value`](@ref)`(v[k, i, j], black[k], span[k])` with
-`(black, span) = `[`bayer_levels`](@ref)`(m)`: the one linearisation, the one
-the cell kernel applies.
+window origin. The photosites' linear values channel-first are
+`channelview(`[`linearview`](@ref)`(m))` (next section): the one
+linearisation, the one the cell kernel applies.
 
 ```julia
 v = channelview(m)                      # 4 × H/2 × W/2, a view of parent(m)
-black, span = bayer_levels(m)           # per channel, in v's order
 g1 = findfirst(==(:G1), bayer_channels(m))
 S = bayer_plane_map(m, g1)              # G₁'s lattice → the sensor's PixelFrame{:colmap}
 x = S(pixel_centre(CartesianIndex(i, j)))   # where G₁ of cell (i, j) sits on the sensor
-y = linear_value(v[g1, i, j], black[g1], span[g1])
+y = channelview(linearview(m))[g1, i, j]   # its linear value
 ```
 
 ## Linear values on the raw grid: `linearview`
 
 [`linearview`](@ref)`(m)` is the mosaic's linear values on the raw grid,
 lazily, as ImageCore's `normedview` reads codes as numbers: element `(i, j)` is
-`(raw − black[c]) / (white − black[c])` of photosite `(i, j)` (the one
-[`linear_value`](@ref)). It composes with `channelview`:
+`(raw − black[c]) / (white − black[c])` of photosite `(i, j)`, `c` its colour
+(the black and white levels are the mosaic's fields `m.black`, per colour
+index, and `m.white`). It is the one public spelling of the linearisation. It composes with `channelview`:
 `channelview(linearview(m))` is the linear values channel-first, and the
 green-cell image is the mean of its two G channels, bit for bit. A broadcast
 over it, and `copy`, run on the mosaic's device, and a kernel reads it as it is.
@@ -125,8 +124,10 @@ flags apply. A photosite mask is a plain broadcast over
 
 A [`LinearRaw`](@ref)`{Mode}` (`:green_cells`, `:bin2`, `:demosaic`) stays a
 container of plain planes, `L.image[row, column, plane]`, beside its
-saturation flags, geometry, gain and metadata. Its cell images are the
-`linear_value` of the mosaic's `channelview`: the green-cell value is the mean
+saturation flags, geometry, gain and metadata, and is THE public path to the
+green-cell image: `LinearRaw(m; mode = :green_cells)` (its `image[:, :, 1]`),
+on the mosaic's device. Its cell images are the mosaic's `linearview` read
+channel-first: the green-cell value is the mean
 of the two green channels, times the gain, bit for bit (a test holds it), and
 `:bin2`'s R and B planes are the R and B channels. The planes are not
 wrappers that each know their [`BayerCellFrame`](@ref)`{C}`, for three reasons:
@@ -134,7 +135,7 @@ wrappers that each know their [`BayerCellFrame`](@ref)`{C}`, for three reasons:
 1. Every caller reads the planes as one array: a warp reads all of them in one
    call (`image_warp!(dst, warps, L.image)`, a tuple of one warp per plane),
    the decode stage writes `L.image` as one PNG, a detection image takes a view
-   of one plane ([`green_cells`](@ref)), and a quantile reads `vec(L.image)`. A
+   of one plane, and a quantile reads `vec(L.image)`. A
    tuple of plane wrappers would split that array or make each caller
    reassemble it.
 2. A plane's frame is already one call away and needs nothing new:
@@ -192,7 +193,7 @@ positions as raw pixels maps them through the image first:
 
 ```julia
 L = load_raw(path; mode = :green_cells)        # VisualGeometryToolkitFeatures
-xs = detect(green_cells(L))                    # any detector: COLMAP centres of the cell grid
+xs = detect(L.image[:, :, 1])                  # any detector: COLMAP centres of the cell grid
 raw_xs = raw_coordinates.(Ref(L), xs)          # the sensor's pixels
 ```
 
@@ -222,7 +223,7 @@ concept is the same, by its own functions:
 | views, not copies | `channelview(m)`, `photositeview`, windows by `view` | the same rule |
 | `colorview` (the inverse of `channelview`) | [`photositeview`](@ref), a name of its own | `colorview(C, A)` makes colorants of channels; the inverse here makes the photosite matrix of cells, no colorant |
 | `rawview` | not extended | a mosaic IS its raw `UInt16` codes: there is nothing to unwrap |
-| `normedview(N0f16, A)` | usable on `parent(m)` as ImageCore defines it | it is `code / 65535`; the linear value subtracts each channel's black level and divides by its span, so it has its own name, [`linear_value`](@ref) |
+| `normedview(N0f16, A)` | usable on `parent(m)` as ImageCore defines it | it is `code / 65535`; the linear value subtracts each channel's black level and divides by its span, so it has its own view, [`linearview`](@ref) |
 
 `LinearRaw{:bin2}`'s image stays `H × W × 3` (planes last) in this release:
 moving it channel-first is a breaking change to a stored layout, left for a

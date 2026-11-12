@@ -74,7 +74,9 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
         throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
     isfinite(read_noise) && read_noise >= 0 ||
         throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    G = green_cells(L)                                     # Core's: the green plane, the display image refused
+    # the green-cell plane: the one whose frame IS the cell grid (Core's raw_frame_map; the display image refused there)
+    S = raw_frame_map(L)
+    G = view(L.image, :, :, findfirst(c -> bayer_plane_map(L, c) === S, 1:size(L.image, 3)))
     d1, d2 = L.geometry.green_dn
     g = L.gain
     α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)

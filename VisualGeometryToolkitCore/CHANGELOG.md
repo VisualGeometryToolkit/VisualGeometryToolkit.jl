@@ -27,19 +27,18 @@ photosite radiometry spec, 2026-11-12, §1 and §4.1).
   kernel therefore reads `parent(m)[2i − 1 + di, 2j − 1 + dj]`, the view's `[k, i, j]` by the one rule, as before.
 - **New: `photositeview(v)`** (exported): the inverse view, `4 × h × w` cells → the `2h × 2w` photosite matrix (of a
   mosaic's `channelview`, its held array again).
-- **New: `bayer_channels(m)`, `bayer_plane_map(m::RawMosaic, k)`, `bayer_levels(m)`, `linear_value(code, black, span)`**
-  (public): each channel's colour (`:R`, `:G1`, `:G2`, `:B`; the greens in the cell's order), its isbits `SimilarityMap`
-  from `BayerCellFrame{C}` onto the sensor's `PixelFrame{:colmap}` (exact for every Bayer phase and either parity of the
-  visible or the window origin; the R and B channels' maps ARE the `:bin2` R and B planes'), its black level and span,
-  and THE linearisation `(code − black) / span`, which the cell kernel applies. `BayerCellFrame` gains the tags `:G1` and
-  `:G2` (the two green photosites' lattices).
+- **New: `bayer_channels(m)`, `bayer_plane_map(m::RawMosaic, k)`** (public): each channel's colour (`:R`, `:G1`, `:G2`,
+  `:B`; the greens in the cell's order) and its isbits `SimilarityMap` from `BayerCellFrame{C}` onto the sensor's
+  `PixelFrame{:colmap}` (exact for every Bayer phase and either parity of the visible or the window origin; the R and B
+  channels' maps ARE the `:bin2` R and B planes'). `BayerCellFrame` gains the tags `:G1` and `:G2` (the two green
+  photosites' lattices).
 - **New: `linearview(m)`** (exported) **and its type `LinearRawView`** (public): the mosaic's linear values on the raw
-  grid, lazily — each photosite's `(raw − black[c]) / (white − black[c])`, the one `linear_value` with
-  `bayer_levels(m)` (what Features' private `_linear` computed; that function is gone, its expression moved here once).
+  grid, lazily — each photosite's `(raw − black[c]) / (white − black[c])` (what Features' private `_linear` computed;
+  that function is gone, its expression moved here once, as Core's private `_linear_value`).
   `normedview`-style (a lazy number view, no copy) and composing with ImageCore's `channelview`:
   `channelview(linearview(m))` is the linear values channel-first, and `LinearRaw{:green_cells}` is the mean of its two
   G channels, bit for bit (a test, CPU = GPU). A broadcast and `copy` run on the mosaic's device, and a KernelAbstractions
-  kernel reads the view as it is (two parities and one `linear_value` per element). Not a `MappedArrays.mappedarray`:
+  kernel reads the view as it is (two parities and one linearisation per element). Not a `MappedArrays.mappedarray`:
   the black level depends on the photosite's position (its colour in the phase), which a value-only mapped function cannot
   see, and Core takes no new dependency.
 - **`photosite_colors(m)` is lazy and isbits** (public; was a `Matrix{UInt8}` built per call in Features): a
@@ -54,8 +53,16 @@ photosite radiometry spec, 2026-11-12, §1 and §4.1).
   saturation rule `raw ≥ white`, now one private predicate that `LinearRaw`'s cell kernel reads too. `photosite_colors`
   is public, and a colour mask is a plain broadcast over it (`((col .== 0x01) .| (col .== 0x03)) .& .!saturationview(m)`):
   no mask helper exists, by the owner's ruling.
-- **New: `green_cells(L)`** (public): a cell image's green-cell plane as a matrix view (`:demosaic` refused); Features'
-  `variance_stabilize` reads it instead of private accessors.
+- **One public path per concept** (the duplication check before the release):
+  - the green-cell image: `LinearRaw(m; mode = :green_cells)` (its `image[:, :, 1]`) — the constructor the docs and
+    RC use; it carries the saturation flags, the frame map, the green footprint and the gain, and runs on the mosaic's
+    device. The plane accessor `green_cells(L)` written for this release is not kept (a second public spelling of the
+    same image); Features' `variance_stabilize` finds `:bin2`'s green plane by its frame (`bayer_plane_map(L, c) ===
+    raw_frame_map(L)`), the public frame maps;
+  - the linear value of a photosite: `linearview(m)` (`linearview(m)[i, j]`, or `channelview(linearview(m))[k, i, j]`
+    channel-first). The scalar expression (`_linear_value`) and the per-channel levels (`_bayer_levels`) are private:
+    the levels are the mosaic's public fields `m.black` (per colour index) and `m.white`, and a second public spelling
+    of either would be the duplicate.
 - **One phase rule.** The colour lookup, the cell's four sites in column-major order and each site's offset from the
   cell centre are stated once (`src/raw/raw_mosaic.jl`); `channelview`'s channels, `bayer_plane_map` of a mosaic and of
   a `LinearRaw`, `green_cell_sites` and the cell kernel read them. `bayer_plane_map` and `green_cell_sites` are
@@ -81,9 +88,9 @@ functions are used where the concept is the same):
 | views, not copies | adopted | `channelview(m)`, `photositeview`, mosaic windows by `view` copy no photosite, on the host or a device |
 | `colorview`, the inverse view of `channelview` | not extended: `photositeview`, a name of its own | `colorview(C, A)` makes colorants of channels; the inverse of a mosaic's view makes the photosite matrix of cells, with no colorant type |
 | `rawview` | not extended | a mosaic IS its raw `UInt16` codes: `rawview` exposes the integer storage of a `Normed` array, and there is nothing to unwrap |
-| `normedview(N0f16, A)` | usable as ImageCore defines it, on `parent(m)`; not the linear value | `code / 65535` ignores each channel's black level and span; the linear value `(code − black) / (white − black)` is `linear_value` |
+| `normedview(N0f16, A)` | not adopted for the linear value (usable as ImageCore defines it, on `parent(m)`) | the raw codes are NOT `[0, 1]`-normalised by the black and white levels: `normedview(N0f16, A)` reads a code as `code / 65535`, so the black level is not 0 and the white level is not 1, and each channel has its own black level; the linear value is `(code − black[c]) / (white − black[c])`, `linearview` (a lazy view in `normedview`'s style) |
 | channel-first multi-channel arrays | adopted for the new view; **not** for `LinearRaw{:bin2}`'s stored image | `L.image` stays `H × W × 3` (planes last) in 0.9.2: moving it to `3 × H × W` changes a stored layout every reader indexes (`image_warp!(dst, warps, L.image)`, `L.image[:, :, c]`, the decode cache) — a Breaking item for the next minor release, not an additive one |
-| ImageCore-compatible names only where the concept matches | adopted | no `channelview`-like local name exists; `photositeview`, `linear_value` and `bayer_levels` are named apart because their concepts differ (above) |
+| ImageCore-compatible names only where the concept matches | adopted | no `channelview`-like local name exists; `photositeview`, `linearview` and `saturationview` are named apart because their concepts differ (above) |
 
 The channel order is the cell's own column-major phase order (`R, G1, G2, B` for RGGB), not a fixed `R, G1, G2, B`
 for every phase: reordering channels per phase is a gather, which no reshape or permutation of dimensions expresses,

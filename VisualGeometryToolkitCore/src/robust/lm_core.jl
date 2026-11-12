@@ -750,7 +750,7 @@ function is_stationary(blocks, variables::AbstractVector, free::AbstractVector{B
             s = sum(abs2, r)
             F += NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), s)[2] * s
         else
-            r, J = NLLSsolver.computeresjac(flags, c, vs...)
+            r, J = NLLSsolver.computeresjac(NLLSsolver.static(flags), c, vs...)   # static flags: NLLSsolver's automatic Jacobian
             s = sum(abs2, r)
             ρ′ = NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), s)[2]
             F += ρ′ * s

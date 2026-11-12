@@ -12,6 +12,33 @@ non-central one is a `NoncentralSplineModel`).
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.
 - **Breaking: VisualGeometryToolkitCore's `chisq_median` is retired**; SIMFIT++'s naive variance (`unbiased_median_variance`)
   divides by Distributions' `quantile(Chisq(dg), 0.5)`, bit-identical (the same call).
+- **Fixed: a robust refine's weights are normalized to a maximum of 1** (VisualGeometryToolkitCore's `IrlsWeights`
+  contract). Every `refine_*` and both bundles (`refine_camera_and_poses`, `refine_robot_world_hand_eye`) under `Irls`
+  or `Triggs` reported `ρ′(r²)`, which reaches 2 under `SmoothTLSShape` (its `ρ′(0)`); they now report the fits' one
+  rule `ρ′(r²)/ρ′(0)` (the reweighted fits' `_irls_weight`, not a second copy), a weight below `eps` an exact 0 as
+  before. Every other shape has `ρ′(0) = 1` and is bit-identical. Under `SmoothTLSShape` the weights halve, the support's
+  `eps` cut moves to `ρ′ < 2eps`, and what reads the weights follows: the bundles' √weight-scaled stationarity rows,
+  and `refine_robot_world_hand_eye`'s weighted dof `2Σw − N`, s² and covariance, which counted every inlier twice
+  under SmoothTLS (its covariance moves by the factor `(4Σw − N)/(2Σw − N)`, Σw the new weights' sum: ≈ 1 for many
+  inliers).
+
+- **Fixed: plain least squares on a pinhole PnP minimises pixels** (`refine_absolute_pose(…; optimization_strategy =
+  nothing)`). Its chart LM descended the refit's calibrated-plane rows, while `Triggs` (since its fix above) and the
+  docstring use the pixel reprojection residual; on a pinhole with `fx ≠ fy` the two weigh the axes differently and
+  L2's minimum was not the pixels'. L2 now runs on the rows Triggs robustifies (`_triggs_state`), so L2 and `Triggs` at an
+  unbounded width agree. Numbers move for L2 PnP on an anisotropic pinhole only (for `fx = fy` the two costs differ by
+  a constant factor: the same minimum, last-ulp changes); every other refine class is bit-identical.
+
+- **Changed: three weighted Kabsch copies are VisualGeometryToolkitCore's `kabsch` with a `weights` column**
+  (`fit_rotation`, `fit_rigid_alignment`, `fit_robot_world_hand_eye`'s robust seed). The private copies scaled the
+  pairs, `Σ b(wa)ᵀ`; Core sums `Σ w(baᵀ)`, so the robust fits' estimates move in the last ulps; least-squares
+  estimates are unchanged.
+
+- **Changed: the SplineLens fit's record of its stages is Core's `worst_retcode`** (`fit_camera(SplineLens, …)` and
+  `refine_camera_and_poses`' forward refit; the private `_spline_record` is deleted). An earlier stage's failure is no
+  longer replaced by a later, less severe one (a capped backward search followed by a Stalled gauge was `Stalled`, now
+  `(MaxIters, IterationCap)`), and on a tie the later stage's rule is kept, as `worst_retcode` states.
+
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
   `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and

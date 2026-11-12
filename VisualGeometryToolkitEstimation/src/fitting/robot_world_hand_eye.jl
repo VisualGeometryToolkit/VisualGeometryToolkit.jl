@@ -308,7 +308,7 @@ function _robot_world_hand_eye_init(
         count(>(0), pw) >= 2 || throw(ArgumentError(
             "fit_robot_world_hand_eye: the loss leaves fewer than 2 relative motions of positive weight; a " *
             "redescending loss needs a seed inside its width: use a monotone one (Irls{HuberShape}) or a wider `width`"))
-        RotMatrix{3, Float64}(kabsch([pw[q] * as[q] => bs[q] for q in eachindex(pw) if pw[q] > 0])')
+        RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = pw))')
     end
 
     # 2. R_X per marker: R_B = R_Yᵀ R_A R_X  ⇒  R_X = R_Aᵀ R_Y R_B, chordal mean (weighted: Σ wₖRₖ projected)

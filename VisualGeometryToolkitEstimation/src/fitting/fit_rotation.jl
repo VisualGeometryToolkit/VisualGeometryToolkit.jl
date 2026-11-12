@@ -107,16 +107,18 @@ function fit_rotation(
     w_col = VgtkCore.weights_column(cs)
     prior = w_col === nothing ? ones(n) : Float64.(VgtkCore.check_weights(w_col))
     w = _fit_weights_storage(f, n)
-    R = _weighted_kabsch(as, bs, prior)
-    R === nothing && return _rotation_degenerate(optimization_strategy, f, n, w)
+    # VGC's weighted `kabsch` (Σ wᵢbᵢaᵢᵀ); fewer than two pairs of positive weight leave a one-parameter family
+    count(>(0), prior) >= 2 || return _rotation_degenerate(optimization_strategy, f, n, w)
+    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = prior)))
     r = _rotation_residuals(R, as, bs)
     tol_met = false
     iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
         _irls_weights!(w, f, r)
-        R_new = _weighted_kabsch(as, bs, _solve_weights(prior, w))
-        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w, irls_termination(false, false; solve_failed = true))
+        sw = _solve_weights(prior, w)
+        count(>(0), sw) >= 2 || return _rotation_degenerate(optimization_strategy, f, n, w, irls_termination(false, false; solve_failed = true))
+        R_new = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = sw)))
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
         r = _rotation_residuals(R, as, bs)
@@ -136,13 +138,6 @@ function _unit_direction(v, i)
     nx = norm(x)
     (isfinite(nx) && nx > 0) || throw(ArgumentError("fit_rotation: direction $i is zero or not finite"))
     return x / nx
-end
-
-# Σ wᵢ bᵢaᵢᵀ through VGC's `kabsch` (its pairs scaled by the weights); `nothing`
-# when fewer than two pairs carry weight (a one-parameter family of rotations).
-function _weighted_kabsch(as, bs, w)
-    count(>(0), w) >= 2 || return nothing
-    return RotMatrix{3, Float64}(kabsch([w[i] * as[i] => bs[i] for i in eachindex(as) if w[i] > 0]))
 end
 
 _rotation_residuals(R, as, bs) = [angle_between(R * a, b) for (a, b) in zip(as, bs)]   # VGC's atan(‖Ra × b‖, Ra · b)

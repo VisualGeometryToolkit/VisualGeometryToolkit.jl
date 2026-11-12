@@ -74,7 +74,7 @@ third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
 third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
 6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
 unknowns). Then the robust record: `residual_norms` (one per correspondence,
-pixels), `weights` (the loss's ρ′ at the estimate under a robust strategy, all
+pixels), `weights` (the loss's ρ′/ρ′(0) at the estimate under a robust strategy, all
 ones — lazily — under least squares), and the scale the loss ran at, `scale` and
 `scale_source` (`ScaleGiven`/`ScaleUpstream`, or `NaN`/`ScaleNone` under least
 squares and for a width given alone; [`noise_scale`](@extref VisualGeometryToolkitCore.noise_scale)
@@ -226,7 +226,7 @@ scratch and the camera keeps its family (its lens type).
   `efficiency_constant(Shape, 2)` unless the strategy states one). `width = w`:
   the loss width itself (pixels). A refine estimates no scale; the metadata
   records the one it ran with (`scale`, `scale_source`, `loss_width`) and the
-  weights ρ′ at the estimate.
+  weights ρ′/ρ′(0) at the estimate.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
   `ftol` — its relative cost decrease and the stall postcondition's exact-fit
   test; `xtol` — its step tolerance (chart units); `max_time` — its
@@ -653,7 +653,7 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
                 iters += result.niterations
             end
         end
-        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′ (exactly as the stationarity rows read it)
+        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′/ρ′(0) (exactly as the stationarity rows read it)
         # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end

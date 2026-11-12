@@ -819,7 +819,7 @@ function _refine_spline_axis_gauged(
     if forward === :refitted && out_camera isa BoundedCamera
         out_camera, fcode, forward_max_px = _refit_forward(out_camera, forward_tolerance)
         # a converged refine whose forward refit missed its tolerance reports the forward's
-        VgtkCore.successful_retcode(record[1]) && (record = _spline_record(record, fcode))
+        VgtkCore.successful_retcode(record[1]) && (record = worst_retcode(record, fcode))
     end
     out = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)

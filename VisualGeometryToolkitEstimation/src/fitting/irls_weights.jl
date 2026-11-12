@@ -37,7 +37,6 @@ The resolved robust weighting of one fit call (internal): the deployed loss
 struct FitIrls{S <: VgtkCore.AbstractLossShape}
     shape::S
     sq_loss_width::Float64
-    w0::Float64                 # the shape's weight at r = 0, the normalization to w_max = 1
     scale::Float64
     scale_source::VgtkCore.ScaleSource
     loss_width::Float64
@@ -95,18 +94,19 @@ function _fit_irls(fit::AbstractString, strategy::AbstractOptimizationStrategy, 
     loss_width = isfinite(input.width) ? Float64(input.width) :
         Float64(_refine_constant(lo, codim)) * Float64(input.scale)   # the strategy's constant, else Core's table (fitting/_refine.jl)
     sq = loss_width^2
-    return FitIrls(shape, sq, Float64(weight(shape, 0.0, sq)), Float64(input.scale), VgtkCore.scale_source(input), loss_width)
+    return FitIrls(shape, sq, Float64(input.scale), VgtkCore.scale_source(input), loss_width)
 end
 
-# The normalized loss weight ρ′(r²)/ρ′(0) ∈ [0, 1] of a residual NORM `r`.
-@inline _irls_weight(f::FitIrls, r::Real) = weight(f.shape, Float64(r)^2, f.sq_loss_width) / f.w0
+# THE normalized loss weight ρ′(s)/ρ′(0) ∈ [0, 1] at the squared norm `s` and squared width `c²` (Core's
+# `IrlsWeights`: a maximum of 1): every fit's (`_irls_weights!`) and every refine's (`_loss_weights`, _refine.jl).
+@inline _irls_weight(shape, s, c²) = weight(shape, s, c²) / weight(shape, zero(s), c²)
 
 # The fit's per-datum loss weights at the residual norms `norms` into `w`
 # (least squares: nothing to do).
 _irls_weights!(w, ::Nothing, _norms) = w
 function _irls_weights!(w, f::FitIrls, norms)
     @inbounds for i in eachindex(w, norms)
-        w[i] = _irls_weight(f, norms[i])
+        w[i] = _irls_weight(f.shape, Float64(norms[i])^2, f.sq_loss_width)
     end
     return w
 end

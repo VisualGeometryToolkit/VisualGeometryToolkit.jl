@@ -423,6 +423,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
                         site::AbstractString = "", unpublished = nothing)
     rows = Dict{String, Tuple{String, Vector{String}}}()
     tiers = get(get(g.site_roots, site, Dict{String, Any}()), "tiers", nothing)
+    view_mount = isempty(data_root) ? nothing :
+                 catalog_view_mount(data_root, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml"))
     wrong = String[]
     add!(path, tier, user) = (r = get!(rows, path, (tier, String[])); user in r[2] || push!(r[2], user))
     function check!(cfg, user)
@@ -431,8 +433,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
         for (id, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
             (t isa AbstractDict && haskey(t, "path")) || continue
             tier = String(get(t, "tier", ""))
-            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env)
-            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : "[sites.$site.tiers]"
+            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
+            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
             r = inspect_input(id, t, root; root_source = from, root_name = name)        # the one check (src/code_identity.jl)
             if tier == UNPUBLISHED_TIER && unpublished !== nothing
                 k = findfirst(u -> u.path == t["path"], unpublished)
@@ -527,7 +529,6 @@ struct ReproducePlan
     code_paths::Vector{String}
 end
 
-_sha_file(path) = file_sha256(path)                    # the one file hash (src/code_identity.jl)
 _sha_text(s) = bytes2hex(sha256(s))
 
 # The commit and whether tracked files changed (anywhere: the code's own state is `code_trees`).
@@ -664,10 +665,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         files = Dict{String, String}()
         for f in unique(filter(!isempty, [s.sbatch, s.driver, (_config_of(s, i) for i in items)...]))
             p = joinpath(g.workdir, f)
-            files[f] = isfile(p) ? _sha_file(p) : "missing"
+            files[f] = isfile(p) ? file_sha256(p) : "missing"
         end
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => e, "command" => cmd, "site" => site.name)
+        get(env, "VGTK_SCRATCH", "") == "1" && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         key = first(_sha_text(sprint(io -> TOML.print(io, keyed; sorted = true))), 16)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
@@ -679,7 +681,9 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     for (tier, _) in get(get(g.site_roots, site.name, Dict{String, Any}()), "tiers", Dict{String, Any}())
         var = tier_variable(tier; prefix = g.data_env)
         haskey(base, var) || (base[var] = first(tier_data_root(tier, data; env = base, workdir = g.workdir, prefix = g.data_env,
-                                                              tiers = g.site_roots[site.name]["tiers"])))
+                                                              tiers = g.site_roots[site.name]["tiers"],
+                                                              view_mount = isempty(data) ? nothing :
+                                                                  catalog_view_mount(data, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml")))))
     end
     base["VGTK_SITE"] = site.name
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,
@@ -940,13 +944,13 @@ function _manifest_dict(plan::ReproducePlan, records)
     for st in plan.stages, item in st.items
         isempty(st.spec.config) && continue
         c = _config_of(st.spec, item)
-        configs[c] = isfile(joinpath(g.workdir, c)) ? _sha_file(joinpath(g.workdir, c)) : "missing"
+        configs[c] = isfile(joinpath(g.workdir, c)) ? file_sha256(joinpath(g.workdir, c)) : "missing"
     end
     return Dict{String, Any}("project" => g.name, "graph" => relpath(g.path, g.workdir), "workdir" => g.workdir,
         "julia_project" => g.julia_project, "stamp" => plan.stamp, "commit" => plan.commit, "dirty" => plan.dirty,
         "site" => plan.site.name, "site_file" => plan.site.path, "backend" => String(plan.site.backend),
         "data_root" => plan.data_root, "results_root" => plan.results_root, "configs" => configs,
-        "graph_sha256" => _sha_file(g.path), "code_trees" => plan.code_trees, "stages" => records)
+        "graph_sha256" => file_sha256(g.path), "code_trees" => plan.code_trees, "stages" => records)
 end
 
 # Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs).

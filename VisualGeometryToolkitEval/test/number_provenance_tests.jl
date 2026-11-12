@@ -5,7 +5,11 @@
 @testitem "number_provenance" setup = [GitFixture] begin
     using Test
     using DrWatson: gitdescribe
-    using VisualGeometryToolkitEval.Reproduce: checkout_commit, PaperNumbers
+    using VisualGeometryToolkitEval.Reproduce: checkout_commit, PaperNumbers, provenance_token, project_relative_path
+    # the provenance spellings, public: a field's separators made `_`, a path relative to the project
+    @test provenance_token("a b;c\td") == "a_b_c_d" && provenance_token(:sym) == "sym"
+    @test project_relative_path("/r/p/configs/a b.toml", "/r/p") == "configs/a_b.toml"
+    @test project_relative_path("configs/a.toml", "/r/p") == "configs/a.toml"
     dir = gitrepo()
     described = gitdescribe(dir)
     @test checkout_commit(dir) == described                      # a sha: nothing to sanitize

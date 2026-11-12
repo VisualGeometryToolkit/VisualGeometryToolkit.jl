@@ -23,7 +23,9 @@
 #                       commit holding the tarballs, once uploaded); the bindings
 #                       name the id or revision, `placeholder` until then
 #   [artifacts.<name>]  kind, mount, record, required, what, provenance,
-#                       + the kind's keys:
+#                       mount_dir? (the directory under the mount root the
+#                       tree mounts at, its paths relative to it; default
+#                       the root), + the kind's keys:
 #     pool_sources  config, splits   the raw files the pool producer `config`
 #                                    reads for the scenes of `splits`
 #     pools         config, splits   the pool tree `config` writes
@@ -78,12 +80,12 @@ using Base: SHA1
 using Pkg.Artifacts: bind_artifact!, create_artifact, archive_artifact, remove_artifact
 using Artifacts: with_artifacts_directory
 using ..Experiments: data_root, results_root, project_root, load_run_config, install_artifact,
-    link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER
+    link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER, ArtifactView
 using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
 
 export DataCatalog, load_catalog, project_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
-    fetch_artifacts!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
+    mount_dir, catalog_view, fetch_artifacts!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
 
 const HOSTS = ("zenodo", "huggingface")
 
@@ -297,7 +299,8 @@ end
 _whole(root, files) = [Piece(f, f, 0, filesize(joinpath(root, f))) for f in files]
 
 # The author's root, or `nothing` where the mount does not resolve.
-_author_root(a) = try _mount_root(a["mount"]) catch; nothing end
+_at_mount_dir(root, a) = (md = String(get(a, "mount_dir", "")); isempty(md) ? root : joinpath(root, md))
+_author_root(a) = try _at_mount_dir(_mount_root(a["mount"]), a) catch; nothing end
 
 # [(bound name, part, sub)] of a split entry: part = "meta" or a scene; sub = 0
 # for a whole scene, k for sub-part k. Under `max_part_bytes` the sub-parts of a
@@ -367,6 +370,25 @@ function _entry_of(cat::DataCatalog, bound::AbstractString)
     error("unknown data artifact $bound (catalog: $(cat.path))")
 end
 
+"""
+    mount_dir(cat, name) -> String
+
+Where artifact (or part) `name` mounts under its mount root: the catalog entry's `mount_dir` (a relative
+directory, `"absolute_pose_experiments"`), `""` (the root itself) when it names none. A tier's paths are relative
+to it ([`catalog_view`](@ref), `Experiments.data_root(; tier)`), so a project carries no mount helper of its own.
+"""
+mount_dir(cat::DataCatalog, name::AbstractString) = String(get(cat.artifacts[first(_entry_of(cat, name))], "mount_dir", ""))
+
+"""
+    catalog_view(cat; dir = "", default = required_artifacts(cat)) -> ArtifactView
+
+The project's artifact view of its catalog: its Artifacts.toml, each artifact mounted at its [`mount_dir`](@ref),
+installing `default` when asked for no tier in particular. The binding a project gives
+`Experiments.set_project_root!(…; artifacts = catalog_view(project_catalog()))`.
+"""
+catalog_view(cat::DataCatalog; dir::AbstractString = "", default = required_artifacts(cat)) =
+    ArtifactView(cat.artifacts_toml; dir, mount = name -> mount_dir(cat, name), default)
+
 _mount_root(mount) = mount == "data" ? data_root() : mount == "results" ? results_root() :
     error("artifact mount must be data | results (got $mount)")
 
@@ -387,7 +409,7 @@ function artifact_files(cat::DataCatalog, name::AbstractString; kinds::AbstractD
     entry, part, sub = _entry_of(cat, name)
     a = cat.artifacts[entry]
     mount = a["mount"]
-    root = _mount_root(mount)
+    root = _at_mount_dir(_mount_root(mount), a)                       # where the tree mounts: its paths are relative to it
     cfg = _entry_config(cat, a)
     kind = a["kind"]
     src = if part !== nothing
@@ -435,7 +457,7 @@ end
 
 Install `names` ([`Experiments.install_artifact`](@ref VisualGeometryToolkitEval.Experiments.install_artifact): download, verify,
 unpack into the depot; a placeholder URL is refused with the way out) and link
-each tree into its mount root: `data` artifacts into the project's
+each tree into its mount root, at the entry's [`mount_dir`](@ref): `data` artifacts into the project's
 `data/exp_raw` as an artifact view — skipped when a data root is already bound
 (VGTK_DATA_ROOT, or an author's own data/exp_raw) — and `results` artifacts
 into results_root() (data/exp_pro is created when nothing binds one).
@@ -455,6 +477,8 @@ function fetch_artifacts!(cat::DataCatalog, names::AbstractVector = required_art
         mount = cat.artifacts[first(_entry_of(cat, name))]["mount"]
         dst = mount == "data" ? _data_view!() : mount == "results" ? _results_dir!() :
               error("artifact $name: mount must be data | results (got $mount)")
+        md = mount_dir(cat, name)
+        dst === nothing || isempty(md) || (dst = joinpath(dst, md))
         linked = dst === nothing ? 0 : link_tree!(tree, dst)
         dst === nothing || _reassemble!(tree, dst)
         push!(out, (; name, tree, mount, dst, linked))
@@ -701,6 +725,11 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
         end
         kind = get(a, "kind", "")
         kind in KINDS || kind in kinds || push!(v, "$n: unknown kind $(repr(kind))")
+        if haskey(a, "mount_dir")
+            md = a["mount_dir"]
+            (md isa AbstractString && !isabspath(md) && !any(in((".", "..")), splitpath(md))) ||
+                push!(v, "$n: mount_dir $(repr(md)) is not a relative directory (no `.`, `..`)")
+        end
         kind in ("pool_sources", "pools", "stored") && !haskey(a, "config") && push!(v, "$n: kind $kind needs `config`")
         kind in ("pool_sources", "pools") && !haskey(a, "splits") && push!(v, "$n: kind $kind needs `splits`")
         kind == "tree" && !haskey(a, "dir") && push!(v, "$n: kind tree needs `dir`")

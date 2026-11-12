@@ -61,7 +61,7 @@ export
     # station_cells.jl — a floorplan fan's cells (the hand-eye rig's stations)
     station_cells,
     # station_fan.jl — the fan itself and its colorbar, as TikZ
-    write_station_fan, write_station_fan_colorbar
+    write_station_fan, write_station_fan_colorbar, pgf_colormap
 
 include("render/panel_spec.jl")
 include("render/axis_style.jl")

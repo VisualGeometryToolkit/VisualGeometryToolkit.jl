@@ -26,6 +26,56 @@
   `deployed_budget_settings` and `deployed_basin_settings` read through it; a caller that needs the width itself
   (a renderer, a resumed run carrying it into a format-7 artifact) calls it instead of `art["tuned_width"]`.
   The fixtures (test/data/tuning_v6/) were written by the format-6 code.
+- **New public names for helpers projects restated:** `Reproduce.provenance_token(s)` (a provenance field's
+  spelling: spaces and `;` made `_`), `Reproduce.project_relative_path(path, root = project_root())` (a path as a
+  provenance comment cites it) and `Render.pgf_colormap(colormap; reverse, samples = 15)` (a colormap as pgfplots'
+  colormap body, the one `write_station_fan_colorbar` defines). They were the private `_provenance_token`,
+  `_project_relative` and `_pgf_colormap`.
+
+- **One tier resolver, read and write** (`tier_data_root`): the runner's `missing_inputs`, `data_root(; tier)`,
+  `input_path`, `verify_inputs`, `tier_path`, `keyed_data_dir` and `promote_run` all resolve a tier through it, in one
+  order: `VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the artifact view (when the data root IS one and
+  publishes the tier: its mount, the catalog's `mount_dir`; the runner reads it through `catalog_view_mount`), the
+  data root. The view's mount applies only under the view, never to a `VGTK_DATA_ROOT`, an author's own
+  `data/exp_raw` or a fallback, so flat layouts and producers' locations do not move.
+- **A producer never installs an artifact and never writes into an artifact view**: `keyed_data_dir` and
+  `promote_run` resolve a write root; a tier the view publishes is refused ("tier X is published read-only by the
+  artifact view; bind VGTK_DATA_ROOT_X or a site tier to produce it"), and so is any tier whose root is the view or
+  inside it — the view's own directory, a `VGTK_DATA_ROOT` or a tier root that is one ("the data root is an artifact
+  view (read-only); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_<TIER> to a writable root"). `assert_not_input` guards the
+  site table's tier roots as it guards `VGTK_DATA_ROOT_<TIER>`.
+- **A scratch run never completes a run of record**: `run_complete` compares the record's `scratch` flag with this
+  process's, as `cached_result` does; with the keys (`run_key`) and `promote_run`, a `VGTK_SCRATCH=1` result is never
+  reused or promoted as a run of record, nor the reverse.
+- `tree_sha256`'s `**/x` matches a top-level `x`; a path with a tab or a newline is refused. `_view_has` caches the
+  parsed Artifacts.toml.
+
+- **New: a directory input's `sha256`.** `VisualGeometryToolkitEval.tree_sha256(dir; exclude)` is the one directory
+  digest: the SHA-256 of the sorted lines `<relative path>\t<file sha256>\n` of every regular file under it (links
+  to files followed), the paths matching an `exclude` glob left out; each file hashed by `file_sha256` (streamed,
+  cached by path, size, mtime). An `[inputs.<id>]` that is a directory takes it as `sha256`, with
+  `sha256_exclude = [globs]`; `inspect_input` (the runner, `verify_inputs`, `input_path`) verifies it.
+- **Changed: a producer writes through its tier's root.** `keyed_data_dir(cfg, tier, kind)` and `promote_run` are
+  `<data_root(; tier)>/<tier>/<…>`, the tier's root resolved as a consumer's, so a producer and a consumer
+  (`[inputs.<id>] tier, path = "<tier>/<kind>-<key>"`) agree wherever `VGTK_DATA_ROOT_<TIER>` or the site's tier
+  table puts it. **New: `Experiments.tier_path(tier, parts...)`**, the one reader of a path in a tier that a config
+  does not declare (a capture set: `tier_path(tier, set)`); a declared input is `input_path`'s.
+- **New: a catalog entry's `mount_dir`** (DataArtifacts): the directory under its mount root a tier mounts at, its
+  paths relative to it (`mount_dir(cat, name)`); `pack_artifacts`/`artifact_files` and `fetch_artifacts!` honour it,
+  and `catalog_view(cat; dir, default)` is the project's `ArtifactView` mounting each tier there. A view tier's root
+  (`data_root(; tier)`, so `input_path`) is where the view mounts it. A project's own tier-mount helper becomes this.
+- **Fixed: paper-project rule C1 recognises `cli_option(ARGS, "config")`** (and `cli_option(args, "config", default)`)
+  as reading a config of record.
+
+- **Scratch isolation, tightened.** `write_provenance` refuses a directory that holds the record of the other kind
+  (a scratch run's into a run of record's, or the reverse); `scratch_record` finds the run a path belongs to at any
+  depth (`run/sub/x.csv`, the nearest record above it); the runner's stage key folds `VGTK_SCRATCH=1`. Data-policy
+  D3 flags both unkeyed forms of the shared oracle-floor file, `oracle_floors_path()` and
+  `oracle_floors_path(results_root())`, and never `oracle_floors_path(<keyed dir>)`. The runner's file hash is
+  `file_sha256` itself.
+- **Fixed: `data_root(; tier)` (and so `input_path`) installs its tier from an artifact view**, through the same
+  resolver as `data_root(; tiers)`: on a machine with the artifact view a non-default tier was never fetched.
+
 - **A scratch run is kept apart from the runs of record.** Its record says `scratch = true` (`write_provenance`,
   `cached_result`; a run of record says `false`); `run_key` folds `scratch`, so its keyed directories never are a run
   of record's, and `cached_result` names its file `<prefix>-scratch_<key>`. Its output (`scratch_record`) is refused as

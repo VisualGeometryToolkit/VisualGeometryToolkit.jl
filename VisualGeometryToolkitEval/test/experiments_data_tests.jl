@@ -62,6 +62,16 @@
             @test E.data_root(; tiers = ["tier_b"]) == root             # installed already: no download
             @test isfile(joinpath(root, "sub", "run1", "b.json"))
             @test E.link_tree!(E.install_artifact("tier_a", toml), joinpath(root, "sub")) == 0   # idempotent
+            # one tier, as data_root(; tier) and input_path ask for it: installed through the same resolver
+            h5 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
+            bind_artifact!(toml, "tier_e", h5; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
+            @test !ispath(joinpath(root, "sub", "run1", "e.json"))
+            @test E.data_root(; tier = "tier_e") == joinpath(root, "sub") && isfile(joinpath(root, "sub", "run1", "e.json"))   # where the view mounts it
+            h6 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "f.json"), "2")))
+            bind_artifact!(toml, "tier_f", h6; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_f.tar.gz", "0"^64)])
+            cf = Dict{String,Any}("inputs" => Dict{String,Any}("f" => Dict{String,Any}("tier" => "tier_f", "path" => "run1/f.json")))
+            @test E.input_path(cf, "f") == joinpath(root, "sub", "run1", "f.json")
+            @test E.data_root(; tier = "no_such_artifact") == root                 # not the view's: only looked up
             @test_throws ErrorException E.assert_primary_copy("a producer")
             # an uninstalled artifact behind a placeholder URL is refused with the way out
             bind_artifact!(toml, "tier_c", Base.SHA1("1"^40); lazy = true, force = true,
@@ -83,6 +93,108 @@
                 @test E.huggingface_token() == "hf_file"
                 withenv(() -> (@test E.huggingface_token() == "hf_env"), "HF_TOKEN" => " hf_env ")
             end
+            E.set_project_root!("")
+        end
+    end
+
+    @testset "one tier resolver, read and write: the view's mount only under the view; producers never install" begin
+        @test E.ARTIFACT_VIEW_MARKER == VgtkEval._VIEW_MARKER                       # the runner's copy of the marker name
+        dir = mktempdir(); toml = joinpath(dir, "Artifacts.toml")
+        h = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
+        bind_artifact!(toml, "tier_e", h; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
+        bind_artifact!(toml, "tier_n", Base.SHA1("3"^40); lazy = true,              # never installed: a placeholder URL
+                       download_info = [("https://zenodo.org/records/ZENODO_RECORD_X/files/n.tar.gz", "0"^64)])
+        mkpath(joinpath(dir, "configs"))
+        write(joinpath(dir, "configs", "data_artifacts.toml"), "[artifacts.tier_e]\nmount_dir = \"sub\"\n[artifacts.tier_n]\nmount_dir = \"n\"\n")
+        write(joinpath(dir, "configs", "e.toml"), "[inputs.e]\ntier = \"tier_e\"\npath = \"run1/e.json\"\n")
+        sitedir = mktempdir(); envdir = mktempdir()
+        write(joinpath(dir, "configs", "reproduce.toml"), """
+            [project]
+            name = "p"
+            workdir = ".."
+            [sites.m]
+            tiers = { tier_e = "$sitedir" }
+            [[stage]]
+            name = "s"
+            command = ["true"]
+            config = "configs/e.toml"
+            """)
+        cfg = Dict{String,Any}("n" => 1); k = E.run_key(cfg)
+        withenv("VGTK_DATA_ROOT" => nothing, "VGTK_SITE" => nothing, "VGTK_DATA_ROOT_TIER_E" => nothing, "VGTK_DATA_ROOT_TIER_N" => nothing) do
+            E.set_project_root!(dir; artifacts = E.ArtifactView(toml; mount = n -> n == "tier_e" ? "sub" : "n"))
+            root = E.data_root()                                                     # the view
+            # S1: the runner's missing_inputs and input_path resolve a view tier to the same directory
+            @test E.input_path(TOML.parsefile(joinpath(dir, "configs", "e.toml")), "e") == joinpath(root, "sub", "run1", "e.json")
+            g = VgtkEval.Reproduce.load_stage_graph(joinpath(dir, "configs", "reproduce.toml"))
+            @test isempty(VgtkEval.Reproduce.missing_inputs(g, ["s"]; data_root = root, env = Dict{String,String}()))
+            @test first(VgtkEval.tier_data_root("tier_e", root; env = Dict{String,String}(),
+                        view_mount = VgtkEval.catalog_view_mount(root, joinpath(dir, "configs", "data_artifacts.toml")))) == joinpath(root, "sub")
+            # S3: a producer never installs and never writes into a view tier; with its root bound it writes there
+            @test_throws r"tier tier_n is published read-only by the artifact view; bind VGTK_DATA_ROOT_TIER_N" E.keyed_data_dir(cfg, "tier_n", "k")
+            @test_throws r"tier tier_e is published read-only" E.keyed_data_dir(cfg, "tier_e", "k")
+            run = joinpath(mktempdir(), "run"); mkpath(run); E.write_provenance(run, Dict("run_key" => k); driver = "d")
+            @test_throws r"tier tier_e is published read-only" E.promote_run(run, "tier_e")
+            # a tier the view does not publish: the data root IS the view, read-only, so producing it is refused too
+            @test_throws r"the data root is an artifact view \(read-only\); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_LOCAL_TIER" E.keyed_data_dir(cfg, "local_tier", "k")
+            @test_throws r"the data root is an artifact view" E.promote_run(run, "local_tier")
+            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT" => root)
+            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"),
+                                                                      "VGTK_DATA_ROOT_LOCAL_TIER" => joinpath(root, "sub"))   # a root inside the view
+            writable = mktempdir()
+            @test withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT_LOCAL_TIER" => writable) == joinpath(writable, "local_tier", "k-" * k)
+            withenv("VGTK_DATA_ROOT_TIER_N" => envdir) do
+                @test E.keyed_data_dir(cfg, "tier_n", "k") == joinpath(envdir, "tier_n", "k-" * k)
+            end
+            # S4: env beats site beats the view, for reading and producing
+            withenv("VGTK_SITE" => "m") do
+                @test E.data_root(; tier = "tier_e") == sitedir
+                @test E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(sitedir, "tier_e", "k-" * k)
+                withenv("VGTK_DATA_ROOT_TIER_E" => envdir) do
+                    @test E.data_root(; tier = "tier_e") == envdir && E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(envdir, "tier_e", "k-" * k)
+                end
+            end
+            @test E.data_root(; tier = "tier_e") == joinpath(root, "sub")
+            # S2: the mount applies only under the view: a VGTK_DATA_ROOT, an author's own data/exp_raw, a fallback
+            flat = mktempdir(); mkpath(joinpath(flat, "run1")); write(joinpath(flat, "run1", "e.json"), "1")
+            withenv("VGTK_DATA_ROOT" => flat) do
+                @test E.data_root(; tier = "tier_e") == flat && E.input_path(TOML.parsefile(joinpath(dir, "configs", "e.toml")), "e") == joinpath(flat, "run1", "e.json")
+                @test E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(flat, "tier_e", "k-" * k)          # unmoved
+                @test isempty(VgtkEval.Reproduce.missing_inputs(g, ["s"]; data_root = flat, env = Dict{String,String}()))
+            end
+            own = mktempdir(); proj2 = mktempdir(); mkpath(joinpath(proj2, "data")); symlink(own, joinpath(proj2, "data", "exp_raw"))
+            E.set_project_root!(proj2; artifacts = E.ArtifactView(toml; mount = _ -> "sub"))
+            @test E.data_root(; tier = "tier_e") == joinpath(proj2, "data", "exp_raw")
+            fb = mktempdir()
+            E.set_project_root!(mktempdir(); data_fallback = () -> fb, artifacts = E.ArtifactView(toml; mount = _ -> "sub"))
+            @test E.data_root(; tier = "tier_e") == fb && E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(fb, "tier_e", "k-" * k)
+            E.set_project_root!("")
+        end
+    end
+
+    @testset "tier_path: a path in a tier, under its tier's root" begin
+        data = mktempdir(); derived = mktempdir()
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_DATA_ROOT_DERIVED" => derived, "VGTK_SITE" => nothing) do
+            E.set_project_root!(mktempdir())
+            @test E.tier_path("derived", "derived", "pool-k", "pool.jld2") == joinpath(derived, "derived", "pool-k", "pool.jld2")
+            @test E.tier_path("boards", "a4.toml") == joinpath(data, "a4.toml")               # no tier root: the data root
+            @test E.tier_path("boards") == data
+            E.set_project_root!("")
+        end
+    end
+
+    @testset "a scratch run never completes, caches or promotes a run of record, nor the reverse" begin
+        out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
+        withenv("VGTK_SCRATCH" => nothing) do
+            E.set_project_root!(mktempdir())
+            E.write_provenance(out; driver = "d")
+            @test E.run_complete(out; sidecar = "r.jld2")
+            @test !withenv(() -> (@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2")), "VGTK_SCRATCH" => "1")
+            s = mktempdir(); write(joinpath(s, "r.jld2"), "x")
+            withenv(() -> E.write_provenance(s; driver = "d"), "VGTK_SCRATCH" => "1")
+            @test withenv(() -> E.run_complete(s; sidecar = "r.jld2"), "VGTK_SCRATCH" => "1")
+            @test !(@test_logs (:info, r"its code changed") E.run_complete(s; sidecar = "r.jld2"))
+            cfg = Dict{String,Any}("n" => 2)
+            @test withenv(() -> E.run_key(cfg), "VGTK_SCRATCH" => "1") != E.run_key(cfg)
             E.set_project_root!("")
         end
     end
@@ -324,6 +436,15 @@
             @test_throws r"lacks `matcher` \(or a `layout`\)" E.load_run_config(p)
             # a producer's keyed directory under the data root
             @test E.keyed_data_dir(cfg, "annotations", "train") == joinpath(data, "annotations", "train-" * k0)
+            # producer and consumer agree under a tier root set elsewhere: one path of record, `<tier>/<kind>-<key>`
+            derived = mktempdir()
+            withenv("VGTK_DATA_ROOT_DERIVED" => derived) do
+                out = E.keyed_data_dir(cfg, "derived", "pool")
+                @test out == joinpath(derived, "derived", "pool-" * k0)
+                mkpath(out); write(joinpath(out, "pool.jld2"), "p")
+                c = Dict{String,Any}("inputs" => Dict{String,Any}("pool" => Dict{String,Any}("tier" => "derived", "path" => "derived/pool-" * k0)))
+                @test E.input_path(c, "pool") == out
+            end
             # a run of record made an input of record
             run = joinpath(res, "fig", "run-" * k0); mkpath(run); write(joinpath(run, "r.csv"), "1\n")
             @test_throws r"no _provenance.toml" E.promote_run(run, "runs_of_record")
@@ -418,6 +539,16 @@
             c = Dict{String,Any}("inputs" => Dict{String,Any}("s" => Dict{String,Any}("tier" => "runs", "path" => "runs/s")))
             @test_throws r"input s \(runs/s\): a scratch run's output" E.verify_inputs(c)
             @test_throws r"a scratch run's output" E.input_path(c, "s")
+            # an input nested deeper in a scratch run's directory is its output too
+            mkpath(joinpath(scr_dir, "sub")); write(joinpath(scr_dir, "sub", "x.csv"), "1\n")
+            @test VgtkEval.scratch_record(joinpath(scr_dir, "sub", "x.csv")) && !VgtkEval.scratch_record(joinpath(rec_dir, "sub", "y.csv"))
+            mkpath(joinpath(data, "runs", "s", "sub")); write(joinpath(data, "runs", "s", "sub", "x.csv"), "1\n")
+            cn = Dict{String,Any}("inputs" => Dict{String,Any}("x" => Dict{String,Any}("tier" => "runs", "path" => "runs/s/sub/x.csv")))
+            @test_throws r"input x \(runs/s/sub/x.csv\): a scratch run's output" E.verify_inputs(cn)
+            # a directory holding one kind of record never takes the other
+            @test_throws r"holds the record of a run of record, and this is a scratch run" withenv(() -> E.write_provenance(rec_dir; driver = "d"), "VGTK_SCRATCH" => "1")
+            @test_throws r"holds the record of a scratch run, and this is a run of record" E.write_provenance(scr_dir; driver = "d")
+            @test E.write_provenance(rec_dir; driver = "d") isa String                                   # the same kind: rewritten
             withenv("VGTK_SCRATCH" => "1") do                                                      # a scratch run may read one
                 @test E.input_path(c, "s") == joinpath(data, "runs", "s")
                 @test E.run_key(cfg; upstream = Dict("poses" => scr_dir)) isa String
@@ -486,13 +617,15 @@
             const POOLS = artifact"pt_e_pools"
             p = Artifacts.@artifact_str("heb_pools")
             sc = load_tuning_artifact(rec["scorer_artifact"])
+            g = JLD2.load(oracle_floors_path(results_root()), "floors")
+            h = JLD2.load(oracle_floors_path(keyed_cell_dir(cfg, "floors", "oracle")), "floors")
             """)
         write(joinpath(root, "scripts", "slurm", "x.sbatch"), "#SBATCH --output=/home/u/logs/%j.out\n# /home/fine\n")
         v = E.data_policy_violations(root)
         @test sort([(x.rule, x.file, x.line) for x in v]) ==
               sort([("D1", "src/bad.jl", 1), ("D2", "src/bad.jl", 2), ("D2", "src/bad.jl", 3), ("D3", "src/bad.jl", 4),
                     ("D3", "src/bad.jl", 5), ("D3", "src/bad.jl", 6), ("D3", "src/bad.jl", 7),
-                    ("D4", "src/bad.jl", 10), ("D4", "src/bad.jl", 11),
+                    ("D4", "src/bad.jl", 10), ("D4", "src/bad.jl", 11), ("D3", "src/bad.jl", 13),
                     ("D1", "scripts/slurm/x.sbatch", 1)])
         # a log line's `timestamp` is not a wall-clock stamp in a path; real stamps still are
         write(joinpath(root, "src", "stamps.jl"), """

@@ -141,6 +141,14 @@
             @test D.artifact_files(fcat, "t_root").files == ["extra/notes.txt", "tiers/a/b.png", "tiers/a/deep/e.png"]   # dir "." is the root
             @test D.artifact_files(fcat, "t_excl").files == ["tiers/a/b.png", "tiers/a/deep/e.png", "tiers/skip/d.png"]  # no include: every file
             @test isempty(D.artifact_files(fcat, "t_none").files)
+            # a per-entry mount_dir: the tree mounts there, its paths relative to it; the view mounts it there too
+            md = merge(tree("."), Dict{String,Any}("mount_dir" => "extra"))
+            mcat = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records, Dict{String,Any}(cat.artifacts..., "t_md" => md))
+            a = D.artifact_files(mcat, "t_md")
+            @test a.root == joinpath(author_data, "extra") && a.files == ["notes.txt"]
+            @test D.mount_dir(mcat, "t_md") == "extra" && D.mount_dir(mcat, "t_extra") == ""
+            v = D.catalog_view(mcat)
+            @test v.mount("t_md") == "extra" && v.mount("t_extra") == "" && v.default == D.required_artifacts(mcat)
         end
 
         @testset "pack, bind, check" begin
@@ -190,9 +198,11 @@
             v = D.catalog_violations(D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, cat.records,
                                                    Dict{String,Any}(cat.artifacts..., "t_bad" => tree("tiers"; filter = ["!"]),
                                                                     "t_empty" => tree("tiers"; filter = []),
+                                                                    "t_md" => tree("."; mount_dir = "../up"),
                                                                     "t_heb_val" => merge(cat.artifacts["t_heb_val"], Dict("filter" => ["**"])))))
             @test any(contains("t_bad: filter must be"), v) && any(contains("t_empty: filter must be"), v)
             @test any(contains("t_heb_val: filter needs kind tree"), v)
+            @test any(contains("t_md: mount_dir \"../up\" is not a relative directory"), v)
             withenv("VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                 @test !isempty(D.catalog_violations(D.load_catalog(catalog)))
             end

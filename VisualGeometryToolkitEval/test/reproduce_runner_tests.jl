@@ -267,9 +267,30 @@ end
         @test code == 2 && occursin("refused: an input is not the data of record", out) && !isfile(joinpath(f.results, "ran.txt"))
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
         @test code == 2 && occursin("expected $actual", out)
-        # a sha256 names a file: on a directory, or not 64 hex digits, it is a config error
-        write(cfg, replace(text, "path = \"photos/chrome\"" => "path = \"photos/chrome\"\nsha256 = \"$actual\""))
-        @test_throws r"input photos .*a directory" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        # a directory's sha256 is its tree digest (tree_sha256): the sorted (path, file sha256) list, globs excluded
+        photos = joinpath(f.data, "photos", "chrome")
+        mkpath(joinpath(photos, "sub")); write(joinpath(photos, "a.ARW"), "a"); write(joinpath(photos, "sub", "b.ARW"), "b")
+        write(joinpath(photos, "index.log"), "rebuilt by the reader")
+        shell(ex) = first(split(read(Cmd(["bash", "-c", "cd '$photos' && find . -type f | sed 's|^./||' | grep -v -E '$ex' | LC_ALL=C sort | " *
+                                          "while read f; do printf '%s\\t%s\\n' \"\$f\" \"\$(sha256sum \"\$f\" | cut -c1-64)\"; done | sha256sum"]), String)))
+        full_digest, kept = VisualGeometryToolkitEval.tree_sha256(photos), VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["*.log"])
+        @test full_digest == shell("^\$") && kept == shell("\\.log\$") && full_digest != kept
+        @test VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["**/b.ARW", "*.log"]) == shell("b\\.ARW\$|\\.log\$")
+        @test VisualGeometryToolkitEval.tree_sha256(photos; exclude = ["**/index.log"]) == kept                 # `**/` includes no directory
+        tabbed = mktempdir(); write(joinpath(tabbed, "a\tb.txt"), "x")
+        @test_throws r"holds a tab or a newline" VisualGeometryToolkitEval.tree_sha256(tabbed)
+        dirdecl(h; excl = "") = write(cfg, replace(text, "path = \"photos/chrome\"" => "path = \"photos/chrome\"\nsha256 = \"$h\"$excl"))
+        dirdecl(kept; excl = "\nsha256_exclude = [\"*.log\"]")
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        write(joinpath(photos, "index.log"), "rebuilt again")                                       # excluded: no change
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        write(joinpath(photos, "sub", "b.ARW"), "b, edited")
+        @test_throws r"input photos .*sha256 expected [0-9a-f]{64}, actual" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        dirdecl(full_digest)                                                                         # the log counts without the glob
+        @test_throws r"input photos .*sha256 expected" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        write(cfg, replace(text, "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$actual\"\nsha256_exclude = [\"x\"]"))
+        write(board, "board of record\n")
+        @test_throws r"sha256_exclude is for a directory" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
         declare("abc")
         @test_throws r"is no SHA-256" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
         # a missing input with a sha256 is reported missing, as any
@@ -375,6 +396,9 @@ end
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
         @test code == 0 && occursin("present\tcaptures/2026-09\tchrome_prepare (configs/experiments/chrome.toml)", out)
         @test Reproduce.UNPUBLISHED_TIER == "unpublished"
+        # a scratch launch keys its stages apart from the runs of record
+        k(e) = plan_reproduction(g, load_site("desktop"); env = e, queue_states = noqueue, only = ["setup"]).stages[1].key
+        @test k(env0) != k(merge(env0, Dict("VGTK_SCRATCH" => "1"))) && k(env0) == k(merge(env0, Dict("VGTK_SCRATCH" => "0")))
         # a scratch run's output is no input of record
         write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
         @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")

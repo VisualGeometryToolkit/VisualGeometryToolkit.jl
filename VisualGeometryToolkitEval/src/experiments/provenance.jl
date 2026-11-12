@@ -147,7 +147,8 @@ results or data root they live under, the roots beside them
 (`inputs = {data = […], data_root = …}`). Refuses to write into the data root
 unless `producer` ([`assert_not_input`](@ref)), records `scratch` (whether this
 is a [`scratch_run`](@ref); a run of record refuses `inputs` that are a scratch
-run's output), and refuses a run of record of uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
+run's output, and a directory already holding a record with the other flag is
+refused), and refuses a run of record of uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
 staged, deleted or untracked file in the project's `src` or a package it loads
 from a path, or code in no git checkout); a [`scratch_run`](@ref) records it
 with a warning, its trees marked `+uncommitted`. Returns the record's path.
@@ -171,6 +172,12 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
         prov["inputs"] = _relative_inputs(inputs)
     end
     prov["scratch"] = scratch_run()
+    old = joinpath(dir, PROVENANCE_FILE)
+    if isfile(old)
+        was = get(TOML.parsefile(old), "scratch", false) === true
+        was == prov["scratch"] || throw(ArgumentError("write_provenance: $dir holds the record of a $(was ? "scratch run" : "run of record"), " *
+            "and this is a $(was ? "run of record" : "scratch run"): the two never share a directory (key it, keyed_cell_dir)"))
+    end
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
     prov["code_trees"] = _recorded_code_trees(gitpath, "the record of $dir")
@@ -293,6 +300,8 @@ function run_complete(outdir::AbstractString; sidecar::AbstractString, gitpath::
     isfile(joinpath(outdir, PROVENANCE_FILE)) || return false
     prov = try read_provenance(outdir) catch; return false end
     changes = code_tree_changes(get(prov, "code_trees", nothing), current_code_trees(gitpath))
+    # a scratch run's result never completes a run of record, nor the reverse
+    get(prov, "scratch", false) === scratch_run() || push!(changes, "scratch: $(get(prov, "scratch", false)) → $(scratch_run())")
     isempty(changes) && return true
     @info "rerunning $outdir: its code changed" changes = join(changes, "; ")
     return false

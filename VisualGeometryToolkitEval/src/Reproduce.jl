@@ -48,7 +48,7 @@ using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
 using ..Tuning: _git_identity                  # results_branches.jl: a checkout's HEAD and its dirtiness, the package's one rule
 import ..cli_option                             # src/cli.jl: runner.jl reads its options through it
-import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..inspect_input   # src/code_identity.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input   # src/code_identity.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
 using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
 using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
 
@@ -67,7 +67,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     fragment_coordinates, compare_fragments, verify_assets, assets_deployed, deploy_assets,
     gather_numbers, uncited_macros,
     PaperNumbers, add_number!, add_table_row!, add_macro!, write_numbers, tex_number, number_macro_name,
-    checkout_commit, number_provenance,
+    checkout_commit, number_provenance, provenance_token, project_relative_path,
     results_branch, accept_results, remove_results_worktree,
     Site, StageSpec, StageGraph, PlannedStage, ReproducePlan, load_site, shipped_sites, load_stage_graph, select_stages,
     stage_items, missing_inputs, resolve_roots, plan_reproduction, print_plan, print_missing, run_manifests,

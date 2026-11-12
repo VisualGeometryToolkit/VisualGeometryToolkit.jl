@@ -74,12 +74,12 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Re
         throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
     isfinite(read_noise) && read_noise >= 0 ||
         throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    d1, d2 = _geometry(L, "variance_stabilize").green_dn   # the display image's refusal, the raw module's one
+    G = green_cells(L)                                     # Core's: the green plane, the display image refused
+    d1, d2 = L.geometry.green_dn
     g = L.gain
     α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)
     σ² = g^2 * read_noise^2 / 4 * (1 / d1^2 + 1 / d2^2)
     f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    G = view(L.image, :, :, _green_plane(L))
     return StabilizedImage(f.(G), L.saturated, f(g))
 end
 

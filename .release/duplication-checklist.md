@@ -57,3 +57,27 @@ Final RC: 9c74e264 (the version bump 1d816a22 and the release records; this file
 
 Features ASIFT singular-covariance drop (F6 ruling), `is_stationary`'s gradient form, `pooled_noise_scale` (F8),
 CountedLO's log hook (F9), the lens-circle hoist (F10).
+
+## 0.9.2 / Features 0.7.1: the Bayer port (branch `bayer-port`)
+
+The sensor image moved to Core (owner ruling 2026-11-12); the gate of the photosite-radiometry spec:
+
+- [x] ONE stored RAW type: `RawMosaic`, defined in Core only (Features re-exports the binding; `VgtkFeatures.RawMosaic ===
+  VgtkCore.RawMosaic`, a test). No second image-with-frame type (`FramedImage` stays a warp's canvas).
+- [x] ONE phase rule: `_photosite_color`, `_QUAD_SITES`, `_site_offset` and the one sample-lattice map `_sample_map`
+  (Core `src/raw/raw_mosaic.jl`); `channelview(::RawMosaic)`, `bayer_plane_map` of a mosaic and of a `LinearRaw`,
+  `green_cell_sites` and the cell kernel read them. The R/B channel maps ARE the bin2 plane maps (`===`, a test).
+- [x] ONE linearisation: `linear_value` (Core), used by the cell kernel; the green cells are the mean of the linearised
+  view's green channels, bit for bit (a test).
+- [x] No second frame conversion added: the channel maps compose the existing cell-grid map; `pixel_mask(region, map,
+  w, h)` and the `SimilarityMap` region actions are new (Core had none: searched `ct_contravariant.jl`, `regions.jl`,
+  `image_circle.jl`, `bbox.jl`).
+- [x] No second demosaic: `load_raw(mosaic; mode = :demosaic)` runs LibRaw's one AHD on the mosaic's buffer
+  (`libraw_open_bayer`), bit-identical to the same buffer's file-path demosaic (a test).
+- [ ] Downstream copies (not this branch; listed for their owners): RC `cvpr2027/frontends/scripts/convert_raw.py` (+
+  `_night06/_night07` copies: rawpy decode, `(img - black)/(white - black)`, 2×2 binning, `"RGBG"` CFA string, raw-grid
+  green mask), `detect_aprilgrid.py` and `green_copy.py` (rawpy demosaic as detection input), `cvpr2027/src/drivers.jl:375`
+  (`cfa_string`'s body), `src/calibration_pipeline/io.jl:61-70` `_camera_at` (the size-ratio rescale standing in for
+  `raw_frame_map`; spec §4.2); PS `examples/panorama_vignetting/run.jl:530,537`, `src/precompile.jl:14`,
+  `test/registration_tests.jl:96` (hard-coded `x ↦ 2x` beside an available `frame_map`); Features
+  `test/variance_stabilization_tests.jl:30` (a hand phase tiling in a test fixture).

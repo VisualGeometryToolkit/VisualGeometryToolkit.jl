@@ -174,6 +174,8 @@ a math-space `Transformation` into a `BoundedMap` callable from Julia
 ```julia
 include("geometry/cameras/cameras.jl")   # models, lenses, imaging chain, calibration, rigs, stereo
 using .Cameras
+include("raw/raw_mosaic.jl")             # the sensor image: RawMosaic, the one phase rule, channelview(::RawMosaic), bayer_plane_map(m, k)
+include("raw/linear_raw.jl")             # LinearRaw: linear_value over the mosaic's channelview in one KA kernel; the cell images' maps
 include("synthetic/synthetic.jl")        # evaluation metrics (pose_error, imc_pose_error, mean_average_accuracy)
 include("pools/pools.jl")                # Pools submodule: PoolPair (the pool record, NormalizedImageFrame) + StereoRawPair
 include("visualization_stubs.jl")        # `function f end` stubs the Makie/GLMakie extensions fill
@@ -185,7 +187,9 @@ include("quality/agent_docs.jl")         # agent_doc_violations: what CLAUDE.md,
 include("quality/conventions.jl")        # conventions_dir, convention_files: the one copy of the stack conventions
 ```
 
-**Why last?** Cameras uses the solvers (P3P, radial calibration), the batched
+**Why last?** The sensor image (`raw/`, moved from VisualGeometryToolkitFeatures in 0.9.2)
+follows Cameras for `pixel_centre`, the one index → COLMAP conversion its photosite
+offsets read, and the warp section for ImageCore's `channelview`. Cameras uses the solvers (P3P, radial calibration), the batched
 maps (lens kernels), and the B-spline numerics (grid models). `check_naming`
 depends on nothing in the package; it sits last because nothing in the package
 calls it — every stack package's quality test does. `stack_contracts.jl` is

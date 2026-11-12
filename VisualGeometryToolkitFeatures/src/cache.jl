@@ -61,8 +61,10 @@ Raise it with any change to the layout of a cached type.
 - 3 (2026-11): `LinearRaw{Mode, I, S, G, M}` holds its image and saturation
   arrays as the mosaic's device made them (was `LinearRaw{Mode, G, M}`), so
   cached decodes of the earlier layout do not load.
+- 4 (2026-11, Features 0.7.1): `LinearRaw` is VisualGeometryToolkitCore's (moved
+  from this package), so a decode cached under this package's type does not load.
 """
-const CACHE_FORMAT = 3
+const CACHE_FORMAT = 4
 
 """
     cache_key(args...) -> String

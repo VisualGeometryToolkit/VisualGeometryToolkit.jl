@@ -29,6 +29,10 @@ BlobBoards build on it.
   `tps_coefficients`, `tps_evaluate`, `tps_gradient`) and the spherical spline
   (`SphericalSplineSystem`), public, not exported.
 - Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
+- The sensor image: `RawMosaic` (a decoded Bayer RAW, an `AbstractMatrix` of its photosites that knows
+  its colour phase and frame), its channel-first photosite view (a method of ImageCore's `channelview`), and `LinearRaw`, its exact
+  linear values on the 2×2 cells, with the exact maps onto the sensor (`raw_frame_map`,
+  `bayer_plane_map`). Decoding a file is VisualGeometryToolkitFeatures' (LibRaw).
 
 Plotting loads as a package extension with any Makie backend.
 
@@ -84,6 +88,7 @@ using GPUArrays: GPUArrays   # an eager release of a device buffer (`free_device
 # Colors (still needed for image types, independent of plotting)
 using Colors: Colors, Gray
 using FixedPointNumbers: FixedPointNumbers, N0f8, N0f16
+using ImageCore: channelview   # a mosaic's channel-first photosites are a method of ImageCore's channelview (raw/raw_mosaic.jl)
 
 # Scale space and image processing functionality
 using IntervalSets: IntervalSets, ClosedInterval
@@ -392,6 +397,23 @@ export PerspectiveMap # Perspective division P^n → R^(n-1)
 # their constructors with VGC-primitive overloads in transforms/coord_maps.jl
 # and primitives/feature_frames.jl).
 export AffineMap, Translation
+
+# -----------------------------------------------------------------------------
+# 3b. THE SENSOR IMAGE - a Bayer RAW mosaic, its photosite views and linear values (raw/)
+# -----------------------------------------------------------------------------
+# Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features keeps the LibRaw decoder and the
+# display demosaic, and re-exports these bindings).
+export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
+export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
+export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
+export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view
+export photositeview            # the inverse view: 2×2 cells channel-first → the photosite matrix
+public bayer_channels, bayer_levels, linear_value   # each channel's colour; its black level and span; THE linearisation of a photosite
+export linearview, saturationview   # the mosaic's linear values and its saturation flags on the raw grid, lazily (both compose with channelview)
+public LinearRawView, SaturationView, PhotositeColors   # the lazy views' types (photosite_colors returns the last)
+public green_cells              # a cell image's green-cell plane, as a matrix view
+public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
+public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 
 # -----------------------------------------------------------------------------
 # 4. COMPOSITION & INTERFACE - Abstract types for feature packages
@@ -1007,6 +1029,11 @@ using .Cameras  # Import all exported symbols into parent namespace
 # lift's frozen pixel whitening. RVG imports it by name and adds the
 # problem-level method.
 import .Cameras: pnp_pixel_whitening
+
+# The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
+# `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
+include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
+include("raw/linear_raw.jl")   # LinearRaw: linear_value over channelview(m) in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl
 include("synthetic/synthetic.jl")

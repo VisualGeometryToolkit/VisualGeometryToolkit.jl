@@ -73,6 +73,10 @@
     mod = "src/raw_image.jl" => "f(h) = @ccall libraw.$(lr)dcraw_process(h::Ptr{Cvoid})::Cint  # $dm\n"
     @test isempty(findings(mod; name = "VisualGeometryToolkitFeatures"))
     @test uses(mod) == [:dcraw, :libraw]
+    # and Core's sensor image (the mosaic and its linear values), which names the display mode it refuses
+    core = "src/raw/linear_raw.jl" => "const MODES = (:bin2, :$dm)\n"
+    @test isempty(findings(core; name = "VisualGeometryToolkitCore"))
+    @test uses(core) == [:demosaic] && uses(core; name = "VisualGeometryToolkitFeatures") == [:demosaic]
     # a finding names the file and the line, and prints the rule
     v = only(findings("src/a.jl" => "a = 1\nb = $(dm)(m)\n"))
     @test (v.file, v.line, v.use) == ("src/a.jl", 2, :demosaic)

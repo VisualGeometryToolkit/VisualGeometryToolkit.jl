@@ -14,10 +14,14 @@ and VisualGeometryToolkitCore's `check_raw_decoding` flags any other decoding
 path. `load_raw(path; mode, gain)` reads a Bayer RAW file in the sensor's
 orientation (the EXIF flip is never applied). The decoder is
 [`LibRawDecoder`](@ref) (`using LibRaw_jll`: LibRaw 0.22 through `ccall`, no
-Python). Everything after the decode is Julia code here. A decoded
-[`RawMosaic`](@ref) is an `AbstractMatrix` of its photosites, and
-[`raw_coordinates`](@ref) is every image's one way to its sensor pixels: the
-guide's [Raw images](@ref) page is the design.
+Python). It produces VisualGeometryToolkitCore's `RawMosaic`, and every number
+after the decode is Core's: the mosaic's colour phase and its photosites
+channel-first (`channelview`), the linear values on the 2×2 cells
+(`LinearRaw`) and the exact maps onto the sensor (`raw_frame_map`,
+`bayer_plane_map`, `green_cell_sites`, `raw_coordinates`). Those names are
+re-exported here, the same bindings; their reference and design are Core's
+"Camera RAW" API page and "Raw images" guide, and this package's
+[Raw images](@ref) page says what is left here.
 
 | mode | image | use |
 |---|---|---|
@@ -26,24 +30,12 @@ guide's [Raw images](@ref) page is the design.
 | `:demosaic` | LibRaw's AHD demosaic, full resolution, linear | display figures only |
 
 The cell modes are exact: `(raw − black[c]) / (white − black[c]) × gain`, with
-saturation flags and each plane's true sample position. Their pixel frame,
-the cell grid [`BayerCellFrame`](@ref)`{:G}`, maps onto the visible raw's
-`PixelFrame{:colmap}` by [`raw_frame_map`](@ref), `x ↦ 2x` exactly, for every
-Bayer phase and either parity of the visible origin. Its inverse is `inv`, and
-a calibration matrix moves with it through Core's
-`reframed_calibration(raw_frame_map(L), K)`. Each plane is a frame of its own,
-`BayerCellFrame{C}`, and [`bayer_plane_map`](@ref)`(L, c)` is its map onto the
-raw: the plane's translation onto the cell grid (`(±¼, ±¼)` cells for R and
-B, none for G) composed with `raw_frame_map(L)`. A warp reads plane `c`
-through `inv(bayer_plane_map(L, c)) ∘ math` like any other map, all planes in
-one call (`image_warp!(dst, warps, L.image)`, a tuple of one warp per plane);
-a composition that joins two planes' frames is refused. A
-green-cell value is the mean of two diagonal photosites, at `(±½, ∓½)` raw
-pixels from the cell centre for an RGGB or BGGR cell and `(±½, ±½)` for GRBG or
-GBRG; [`green_cell_sites`](@ref) gives them, so a renderer can model the
-footprint exactly. The demosaic interpolates. It has no frame map, so the
-geometric accessors refuse it. [`raw_provenance`](@ref) records the decoder,
-LibRaw's version, the mode and the frame map.
+saturation flags and each plane's true sample position, on the cell grid that
+maps onto the visible raw's `PixelFrame{:colmap}` by `x ↦ 2x` exactly. The
+demosaic interpolates. It has no frame map, so the geometric accessors refuse
+it. It takes a file or a mosaic in memory, `load_raw(mosaic; mode =
+:demosaic)`: a mosaic corrected per photosite (vignetting, say) is displayed
+through the same LibRaw demosaic, on its photosites, phase and levels.
 
 The EXIF fields become VisualGeometryToolkitCore's typed values through
 [`exposure_settings`](@ref), [`lens_settings`](@ref), [`body_identity`](@ref),
@@ -60,7 +52,7 @@ Pages = ["raw_image.jl"]
 
 ## The detection image of a RAW
 
-[`variance_stabilize`](@ref) maps the green cells to the generalized Anscombe
+[`variance_stabilize`](@ref) maps the green cells (Core's `green_cells(L)`) to the generalized Anscombe
 transform for Poisson–Gaussian noise: the noise has σ ≈ 1 at every level, so
 ASIFT on it ([`asift_detect`](@ref) of a [`StabilizedImage`](@ref)) thresholds
 its DoG at `noise_sigmas` noise σ, in a dim interior as in a bright window, and

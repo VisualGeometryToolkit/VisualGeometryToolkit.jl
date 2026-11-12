@@ -112,9 +112,7 @@ _camera_model(c::BoundedCamera) = model(c)
 # One correspondence's residual block: a board point `X` (the board's frame) and its pixel `u`, projected through the
 # camera, its view's pose (world → camera) and its board's pose (board → world): `project(camera, view(board(X))) − u`.
 # `F = (camera, view, board)` says which of the three are variables of the block, in that order (`varind`); a held one
-# is the value the block carries. The view is a pose chart (`true`), held (`false`), or the rotation-centre views'
-# three variables (`:rotation_center`: its rotation chart, the shared centre c and offset d, its pose (R, d − R c);
-# rotation_center_views.jl). A refine without boards is one held identity board (`X` in the world).
+# is the value the block carries. A refine without boards is one held identity board (`X` in the world).
 # A robust refine scales the block by `sqrt_weight` (an IRLS cycle's √w; 1 otherwise) or robustifies its squared norm
 # by `robust` (Triggs: NLLSsolver's robustifier, Core's `loss_robustifier`; `NoRobust()` otherwise). `M` is the camera
 # chart's type: the problem's variable vector holds a Union, and `getvars` asserts each slot's concrete type (the camera
@@ -142,13 +140,8 @@ NLLSsolver.varindices(r::_BoardViewResidual) = r.varind
     i = 1
     cam = F[1] ? (vars[r.varind[i]]::M,) : ()
     i += F[1]
-    if F[2] === :rotation_center        # the rotation-centre views' rotation chart, centre and offset (rotation_center_views.jl)
-        view = (vars[r.varind[i]]::_ViewRotationChart, vars[r.varind[i + 1]]::SVector{3, Float64}, vars[r.varind[i + 2]]::SVector{3, Float64})
-        i += 3
-    else
-        view = F[2] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
-        i += F[2]
-    end
+    view = F[2] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
+    i += F[2]
     board = F[3] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
     return (cam..., view..., board...)
 end
@@ -157,13 +150,8 @@ function NLLSsolver.computeresidual(r::_BoardViewResidual{N, F}, vs...) where {N
     i = 1
     camera = F[1] ? model(vs[i]) : r.camera
     i += F[1]
-    if F[2] === :rotation_center
-        view = _rotation_center_pose(vs[i], vs[i + 1], vs[i + 2])
-        i += 3
-    else
-        view = F[2] ? model(vs[i]) : r.view
-        i += F[2]
-    end
+    view = F[2] ? model(vs[i]) : r.view
+    i += F[2]
     board = F[3] ? model(vs[i]) : r.board
     e = VgtkCore.reprojection_error(camera, view, board(r.X), r.u)
     return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e

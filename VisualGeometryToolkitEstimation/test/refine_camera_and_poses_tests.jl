@@ -843,7 +843,8 @@ end
     @test_throws ArgumentError check_penalty_weight(:aic, "w")
 end
 # The rotation-centre views (fitting/rotation_center_views.jl): a held camera turned about one fixed point, x_k =
-# R_k (X − c) + d — one rotation per view, the centre c and the offset d shared. From exact pixels and a perturbed
+# R_k (X − c) + d — one rotation per view, the centre c and the offset d shared; the residual is each dot's bearing
+# (back-projected once, whitened into pixels), for every camera. From exact pixels and a perturbed
 # start the truth is recovered; from noisy, contaminated pixels a robust refine at an upstream scale recovers it to the
 # noise and records ScaleUpstream; a one-axis set, two views, a free camera and mismatched keys are refused.
 @testsetup module RotationCenterScenes
@@ -865,6 +866,7 @@ end
 
 @testitem "refine_camera_and_poses: rotation-centre views — the centre, the offset and the rotations recovered" setup = [CameraPoseScenes, RotationCenterScenes] begin
     using StaticArrays: SVector, SMatrix
+    using Random: Xoshiro
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
         ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs, ReturnCode, ClosedForm
@@ -909,6 +911,30 @@ end
         rw = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(), width = 0.9)
         @test converged(rw) && scale_source(rw) === ScaleNone && rw.loss_width ≈ 0.9
         @test norm(estimate(rw).views.center - t.c) < 2.0e-3 && norm(estimate(rw).views.offset - t.d) < 2.0e-3
+        # Against the pixel residual this refine had until 2026-11-12 (125d80dc, measured on this draw): the bearing residual
+        # (the tangent angle whitened into pixels by the back-projection Jacobian) agrees with it to first order, so the robust
+        # estimates move by at most 0.15 mm (Triggs 0.14 mm, Irls 0.10 mm; their errors from the truth ~ 1–3 mm), held here to
+        # 0.3 mm, and the rms by under 0.2%; least squares, pulled by the 39 px outliers where the two whitenings differ at second
+        # order, moves 4.7 mm of its 128 mm error, held to 6 mm.
+        pixel = (; triggs = (SVector(0.004072459394970187, 0.05969235118380859, 0.550116422376878), SVector(0.0039358994868110035, -0.06000631028468068, 0.04992637853293849), 1.3127269696967419),
+                   irls = (SVector(0.0047630306346337584, 0.0604612519022046, 0.552897911548909), SVector(0.0045601818109889, -0.060655537831177345, 0.04710058584120184), 0.9567499158517401),
+                   ls = (SVector(-0.018633388942561075, 0.021148500989788353, 0.4300183992280283), SVector(-0.016167986091148567, -0.023189031771895668, 0.17070093401990608), 7.7416495908487235))
+        for (res, ref, tol) in ((r, pixel.triggs, 3.0e-4), (rw, pixel.triggs, 3.0e-4), (ri, pixel.irls, 3.0e-4), (ls, pixel.ls, 6.0e-3))
+            @test norm(estimate(res).views.center - ref[1]) < tol && norm(estimate(res).views.offset - ref[2]) < tol
+        end
+        @test abs(r.rms - pixel.triggs[3]) < 2.0e-3 * pixel.triggs[3] && abs(ri.rms - pixel.irls[3]) < 2.0e-3 * pixel.irls[3]
+    end
+    @testset "least squares on outlier-free, low-noise pixels: the bearing residual's estimate is the pixel residual's" begin
+        # σ = 0.1 px, no outliers (Xoshiro(7)): the two whitenings differ only at second order in the residual, so the least-
+        # squares estimates agree far below a millimetre — measured 0.25 µm in c and 0.27 µm in d against the pixel residual's
+        # (125d80dc), held here to 10 µm; the rms to 1e-4 relative (measured 1.7e-6). The 4.7 mm of the contaminated set above is
+        # the 39 px outliers' full influence under least squares, not a disagreement of the residuals.
+        clean = center_views(cam, t; σ = 0.1, rng = Xoshiro(7))
+        r = refine_camera_and_poses(cam, start, clean; fixed = held, optimization_strategy = nothing)
+        c_px = SVector(0.0042235228666873915, 0.05965448096833881, 0.5499675920672018)
+        d_px = SVector(0.004393079564646457, -0.05981001254314642, 0.0500520758028424)
+        @test converged(r) && norm(estimate(r).views.center - c_px) < 1.0e-5 && norm(estimate(r).views.offset - d_px) < 1.0e-5
+        @test abs(r.rms - 0.13627333865447266) < 1.0e-4 * 0.13627333865447266
     end
     @testset "the gauge: a one-axis set and two views are refused; a free camera; the keys" begin
         one_axis = center_truth([SVector(0.0, 0.0, a) for a in -0.1:0.05:0.1])
@@ -923,48 +949,59 @@ end
     end
 end
 
-@testitem "refine_camera_and_poses: rotation-centre views of a held SplineLens camera — the spline route's block, its implicit Jacobian" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
+@testitem "refine_camera_and_poses: rotation-centre views of a held SplineLens camera — the bearing residual, no projection in the solve" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
     using StaticArrays: SVector, SMatrix
-    using LinearAlgebra: norm
+    using LinearAlgebra: norm, normalize
     using Random: Xoshiro
     import NLLSsolver
     using VisualGeometryToolkitCore: estimate, converged, metadata, exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs,
-        lens, with_present, spline_window
+        lens, with_present, spline_window, backproject, project, retcode, stop_rule, ReturnCode, NoRule, retcode_symbol, successful_retcode,
+        CameraModel
     import VisualGeometryToolkitCore
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews, n_without_bearing, without_bearing
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    # a camera whose back-projection Jacobian is zero at one pixel (the singular-Jacobian testset)
+    struct SingularAt{C}
+        camera::C
+        u::SVector{2, Float64}
+    end
+    VisualGeometryToolkitCore.backproject_with_jacobian(c::SingularAt, u) =
+        u == c.u ? (first(VisualGeometryToolkitCore.backproject_with_jacobian(c.camera, u)), zero(SMatrix{3, 2, Float64, 6})) :
+                   VisualGeometryToolkitCore.backproject_with_jacobian(c.camera, u)
     cam = spline_truth()
-    # rotations to 0.4 rad (the parametric item's axes × 4): the centre is held well against the offset (at × 1 it slides with
-    # it, 6.6 mm least-squares error at this noise)
+    # rotations to 0.4 rad (the parametric item's axes × 4): the centre is held well against the offset
     axes = 4 .* [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04)]
     t = center_truth(axes)
     start = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),
                                 t.c + SVector(0.01, -0.008, 0.012), t.d + SVector(-0.005, 0.004, 0.006))
     rot_err(est) = maximum(norm(est.views.rotations[k] - R) for (k, R) in t.R)
     exact = center_views(cam, t)
-    @testset "exact pixels: the truth, the camera held as given, no correspondence dropped" begin
+    @testset "exact pixels: the truth, the camera held as given, every dot a bearing; the termination record" begin
         r = refine_camera_and_poses(cam, start, exact; fixed = (:controls,), optimization_strategy = nothing)
         @test converged(r) && scale_source(r) === ScaleNone
+        @test retcode(r) == ReturnCode.Success && stop_rule(r) != NoRule && retcode_symbol(r) === :converged     # §14: (code, rule)
+        @test converged(r) == successful_retcode(retcode(r))
         est = estimate(r)
         @test est.camera === cam
-        # the floor is the two projection solves' (the pixels `project`'s, from the pinhole point; the block's from its cell's
-        # centre), each converged below its tolerance: measured rms 1.4e-5 px, c and d 1.7e-7 m, R 3.1e-7
+        # the floor is the pixels' (`project`'s LM, converged below its tolerance): the bearings of the given pixels are exact
         @test norm(est.views.center - t.c) < 2.0e-6 && norm(est.views.offset - t.d) < 2.0e-6 && rot_err(est) < 3.0e-6
         @test r.n == 5 * 63 && r.ν == 2 * 5 * 63 - (6 + 3 * 5) && r.rms < 1.0e-4
-        sp = metadata(r).spline
-        @test (sp.n_dropped_window, sp.n_dropped_unprojected) == (0, 0) && sp.windows_settled && sp.rounds >= 1
+        @test n_without_bearing(r) == 0 && isempty(without_bearing(r)) && n_without_bearing(metadata(r)) == 0
     end
-    @testset "a start far enough that the dots change windows: the blocks rebuilt at the estimate until every window is its own" begin
-        # the rotations 0.03 rad and the centre 3 cm off: the projections move by up to tens of pixels, across the 107 px cells, so
-        # a block built at the start reads a window its dot has left (the held one only extrapolates); the route's rebuild rounds
-        # (`_window_rounds`, the spline route's own) re-find the windows until they settle, and the truth comes back exactly
-        far = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.03, -0.02, 0.025))) * R for (k, R) in t.R),
-                                  t.c + SVector(0.03, -0.025, 0.03), t.d + SVector(-0.01, 0.01, 0.012))
-        r = refine_camera_and_poses(cam, far, exact; fixed = (:controls,), optimization_strategy = nothing)
-        sp = metadata(r).spline
-        @test converged(r) && sp.rounds >= 2 && sp.windows_settled
+    @testset "the rim off the pixel domain at the start (a frame turn, as on the chrome fisheyes): converged" begin
+        # dots up to 8 px from the image's border, the start's frame turned 50 mrad against the truth's (R_k ← Q R_k, d ← Q d): the
+        # start's pose predicts the rim dots off the lens's pixel domain, which the pixel residual (the projection through the
+        # spline) could not start from — refused, "does not project at the guess", on 125d80dc. The bearing residual never projects.
+        Q = SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.03, -0.035, 0.015)))
+        px = [SVector(x, y) for x in range(8.0, 1272.0; length = 12) for y in range(8.0, 952.0; length = 9)]
+        rays = [normalize(backproject(cam, u)) for u in px]
+        rim = Dict(k => [(R' * (2.5 * f - (t.d - R * t.c))) => u for (f, u) in zip(rays, px)] for (k, R) in t.R)
+        turned = RotationCenterViews(Dict(k => Q * R for (k, R) in t.R), t.c, Q * t.d)
+        @test any(k -> any(c -> !all(isfinite, project(cam, Q * t.R[k] * (first(c) - t.c) + Q * t.d)), rim[k]), keys(rim))   # off the domain at the start
+        r = refine_camera_and_poses(cam, turned, rim; fixed = (:controls,), optimization_strategy = nothing)
+        @test converged(r) && n_without_bearing(r) == 0
         est = estimate(r)
-        @test norm(est.views.center - t.c) < 2.0e-6 && norm(est.views.offset - t.d) < 2.0e-6 && r.rms < 1.0e-4
+        @test norm(est.views.center - t.c) < 1.0e-6 && norm(est.views.offset - t.d) < 1.0e-6 && rot_err(est) < 1.0e-6 && r.rms < 1.0e-4
     end
     @testset "noisy pixels: Triggs{Huber} at a given scale, Irls{Huber}, and an absolute width" begin
         noisy = center_views(cam, t; σ = 0.3, rng = Xoshiro(5))
@@ -974,7 +1011,7 @@ end
             r = refine_camera_and_poses(cam, start, noisy; fixed = (:controls,), optimization_strategy = strategy, input...)
             @test converged(r)
             @test haskey(input, :scale) ? (scale_source(r) === ScaleGiven && noise_scale(r) == 0.3) : (scale_source(r) === ScaleNone && r.loss_width ≈ 0.9)
-            # σ = 0.3 px on 5 × 63 dots, no outliers: measured c, d errors 2.5–3.6 mm (least squares 2.8 mm), R 3.8–5.0e-3
+            # σ = 0.3 px on 5 × 63 dots, no outliers: c, d errors of a few mm (the pixel residual's measured 2.5–3.6 mm), R ≤ 5e-3
             est = estimate(r)
             @test norm(est.views.center - t.c) < 6.0e-3 && norm(est.views.offset - t.d) < 6.0e-3 && rot_err(est) < 8.0e-3
         end
@@ -986,30 +1023,40 @@ end
         @test converged(r) && count(<(1), r.weights) >= 10
         @test norm(estimate(r).views.center - t.c) < norm(estimate(ls).views.center - t.c)
     end
-    @testset "a masked lattice: the correspondences on an absent window make no row and are counted" begin
+    @testset "a masked lattice: a dot the camera does not back-project makes no row and is counted, named" begin
         present = trues(10, 12); present[8, 10] = false          # one node toward the lower-right corner: its 16 windows absent
         masked = with_present(cam, present)
-        b = lens(masked).backward
-        absent(u) = (w = spline_window(b.area, size(b.controls), VisualGeometryToolkitCore.Cameras._normalized_point(masked.intrinsics, u));
-                     !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
-        n_absent = count(absent(last(x)) for cs in values(exact) for x in cs)
-        @test n_absent > 0
+        nob = [(k, j) for (k, cs) in exact for (j, c) in enumerate(cs) if !all(isfinite, backproject(masked, last(c)))]
+        @test !isempty(nob)
         r = refine_camera_and_poses(masked, start, exact; fixed = (:controls,), optimization_strategy = nothing)
-        sp = metadata(r).spline
-        @test sp.n_dropped_window == n_absent && r.n == 5 * 63 - n_absent - sp.n_dropped_unprojected
+        @test n_without_bearing(r) == length(nob) && Set(without_bearing(r)) == Set(nob) && r.n == 5 * 63 - length(nob)
         @test converged(r) && norm(estimate(r).views.center - t.c) < 2.0e-6 && estimate(r).camera === masked
+    end
+    @testset "a dot whose back-projection Jacobian is singular is counted, never an abort" begin
+        # the camera's back-projection with one dot's Jacobian zeroed (finite, singular on the tangent plane): BearingPoseProblem
+        # refuses such a Jacobian, so built into a view's problem it would abort the whole refine; the blocks find it first,
+        # by the problem's own test (`_whitening_defect`), and count it
+        u0 = last(exact[3][30])
+        singular = SingularAt(cam, u0)
+        fM = VisualGeometryToolkitCore.backproject_with_jacobian(singular, u0)
+        f0 = normalize(fM[1])
+        @test VE._whitening_defect(f0, VE._tangent_basis(f0), fM[2]) === :singular
+        good = [VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(c)) for c in exact[3][1:3]]
+        @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Csponds(
+            [first(c) for c in exact[3][[1, 2, 3, 30]]], push!([normalize(g[1]) for g in good], f0); M = push!([g[2] for g in good], fM[2])))
+        ids = sort(collect(keys(t.R)))
+        blocks, without = VE._rotation_center_bearing_blocks(singular, ids, exact)
+        @test without == [(3, 30)] && length(blocks) == 5 * 63 - 1
     end
     @testset "refusals: a free camera, a box, a `fixed` that is not the controls" begin
         @test_throws r"HELD camera" refine_camera_and_poses(cam, start, exact; fixed = (), optimization_strategy = nothing)
         @test_throws r"box" refine_camera_and_poses(cam, start, exact; fixed = (:controls,), box = (; f = (100.0, 900.0)), optimization_strategy = nothing)
         @test_throws r"one parameter group is its controls" refine_camera_and_poses(cam, start, exact; fixed = (:controls, :f), optimization_strategy = nothing)
     end
-    @testset "the block: its Jacobian matches finite differences of its residual; type-stable" begin
+    @testset "the bearing block: its Jacobian (ForwardDiff through the bearing residual) matches finite differences; type-stable" begin
         ids = sort(collect(keys(t.R)))
-        poses = [VE._rotation_center_pose(VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k])), start.center, start.offset) for k in ids]
-        q0 = VE._spline_center_problem(cam, poses, [exact[k] for k in ids], Any[])
-        blocks, counts = q0.blocks, q0.counts
-        @test length(blocks) == 5 * 63 && counts == (; n_dropped_window = 0, n_dropped_unprojected = 0)
+        blocks, without = VE._rotation_center_bearing_blocks(cam, ids, exact)
+        @test length(blocks) == 5 * 63 && isempty(without)
         vars = Union{SVector{3, Float64}, VE._ViewRotationChart}[start.center, start.offset]
         foreach(k -> push!(vars, VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)
         h = 1.0e-6
@@ -1017,7 +1064,7 @@ end
             vs = NLLSsolver.getvars(b, vars)
             @test (@inferred NLLSsolver.getvars(b, vars)) isa Tuple{VE._ViewRotationChart, SVector{3, Float64}, SVector{3, Float64}}
             @test (@inferred NLLSsolver.computeresidual(b, vs...)) isa SVector{2, Float64}
-            res, J = @inferred NLLSsolver.computeresjac(7, b, vs...)
+            res, J = @inferred NLLSsolver.computeresjac(NLLSsolver.static(7), b, vs...)
             @test res ≈ NLLSsolver.computeresidual(b, vs...) && size(J) == (2, 9)
             col = 0
             for k in 1:3, j in 1:3

@@ -5,6 +5,21 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
+  owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
+  `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and
+  the dots without a bearing are read by the new `n_without_bearing(r)` and `without_bearing(r)`. `refine_camera_and_poses(camera, ::RotationCenterViews, csponds)` back-projects each dot once
+  (`backproject_with_jacobian`) and refines on the existing `BearingPoseProblem` residual — the tangent angle to the
+  predicted bearing of `R_k (X − c) + d`, whitened into pixels by the back-projection Jacobian — no longer on the pixel
+  reprojection error. The camera is never projected inside the solve, so a lens's pixel domain or a SplineLens's
+  windows can no longer stop it: the pixel residual stalled or refused on SplineLens fisheyes whose frame differs from the
+  start's (the rim dots predicted off the domain). A dot the camera does not back-project makes no row and is counted
+  (`n_without_bearing`, `without_bearing`). On parametric cameras the estimates agree with the pixel residual's to
+  first order (0.15 mm on the test scene, rms within 0.2%). A dot whose back-projection Jacobian cannot whiten its
+  residual (not finite, not tangent, singular: `BearingPoseProblem`'s own test) is counted without a bearing, not an
+  error. The pixel path is deleted: `_BoardViewResidual`'s `:rotation_center` view and the SplineLens rotation-centre
+  block (`_SplineCenterBlock`, `_spline_center_problem`).
+
 - **Breaking: every result records its termination (VisualGeometryToolkitCore's §14 record)**, a `ReturnCode` and a
   `StopRule` in the FitResult core, so `converged(r) == successful_retcode(retcode(r))` for every `fit_*`, `find_*`,
   `refine_*`, `ransac` and `locally_optimize` result. Estimates, residuals and iteration counts are unchanged; what

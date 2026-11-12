@@ -118,10 +118,7 @@ function BearingPoseProblem(
             )
         )
     end
-    Bs = map(fs) do f
-        b1, b2 = s2_tangent_basis(f)
-        SMatrix{3, 2, Float64, 6}(b1[1], b1[2], b1[3], b2[1], b2[2], b2[3])
-    end
+    Bs = map(_tangent_basis, fs)
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
     ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing)
     data = VgtkCore.Csponds(Xs, fs)
@@ -132,24 +129,34 @@ end
 # z = 1 chart point has norm ≥ 1, ≈ 1.0185 already on a narrow field.
 const _UNIT_BEARING_TOL = 1.0e-6
 
-# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from. `M`
-# must be tangent at f (bearings.md: a swapped or untangent Jacobian moves the
-# residual little and its descent direction a lot), and invertible on it.
-function _pixel_whitening(f, B, M, i)
+# The bearing `f`'s tangent basis (3 × 2, Core's `s2_tangent_basis`): the residual's coordinates.
+_tangent_basis(f) = SMatrix{3, 2, Float64, 6}(hcat(s2_tangent_basis(f)...))
+
+# THE test of a back-projection Jacobian `M` against its bearing `f` (tangent basis `B`): why it cannot whiten the tangent
+# residual into pixels — `:nonfinite`, `:not_tangent` (bearings.md: a swapped or untangent Jacobian moves the residual
+# little and its descent direction a lot), `:singular` (not invertible on the tangent plane) — or `nothing` when it can.
+# `_pixel_whitening` refuses by it; a caller that drops such a dot (the rotation-centre refine) reads the same test.
+function _whitening_defect(f, B, M)
     Ms = SMatrix{3, 2, Float64, 6}(M)
-    all(isfinite, Ms) || throw(ArgumentError("BearingPoseProblem: M[$i] is not finite"))
+    all(isfinite, Ms) || return :nonfinite
     for k in 1:2
-        abs(dot(f, Ms[:, k])) <= _UNIT_BEARING_TOL * norm(Ms[:, k]) || throw(
-            ArgumentError(
-                "BearingPoseProblem: M[$i] is not tangent to its bearing (fᵀM ≠ 0): it is not this bearing's " *
-                    "back-projection Jacobian (`backproject_with_jacobian(camera, u)` returns the pair)"
-            )
-        )
+        abs(dot(f, Ms[:, k])) <= _UNIT_BEARING_TOL * norm(Ms[:, k]) || return :not_tangent
     end
     A = B' * Ms
     d = A[1, 1] * A[2, 2] - A[1, 2] * A[2, 1]
-    (isfinite(d) && !iszero(d)) || throw(ArgumentError("BearingPoseProblem: M[$i] is singular on the tangent plane"))
-    return SMatrix{2, 2, Float64, 4}(inv(A))
+    (isfinite(d) && !iszero(d)) || return :singular
+    return nothing
+end
+
+# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from; refused where `_whitening_defect` finds one.
+function _pixel_whitening(f, B, M, i)
+    defect = _whitening_defect(f, B, M)
+    defect === :nonfinite && throw(ArgumentError("BearingPoseProblem: M[$i] is not finite"))
+    defect === :not_tangent && throw(ArgumentError(
+        "BearingPoseProblem: M[$i] is not tangent to its bearing (fᵀM ≠ 0): it is not this bearing's " *
+            "back-projection Jacobian (`backproject_with_jacobian(camera, u)` returns the pair)"))
+    defect === :singular && throw(ArgumentError("BearingPoseProblem: M[$i] is singular on the tangent plane"))
+    return SMatrix{2, 2, Float64, 4}(inv(B' * SMatrix{3, 2, Float64, 6}(M)))
 end
 
 # log_f(p) in the basis B: the tangent vector at f pointing to p, of norm ∠(f, p).

@@ -161,8 +161,8 @@ end
 
 # The block's projection: the camera-frame point, the solve's point and whether it
 # converged — Core's solve for differentiation (from the cell's centre).
-_spline_solve(r::_SplineReprojection, C, pose::_SplinePose) = _spline_solve(r, C, model(pose))
-function _spline_solve(r::_SplineReprojection, C, P::EuclideanMap)   # at the pose `P` itself (a rotation-centre view's)
+function _spline_solve(r::_SplineReprojection, C, pose::_SplinePose)
+    P = model(pose)
     Xc = rotation(P) * r.X + translation(P)
     C₀, X₀, x₀, ok₀ = r.solve[]
     C₀ == C && X₀ == Xc && return Xc, x₀, ok₀                        # the point just solved
@@ -827,64 +827,4 @@ function _refine_spline_axis_gauged(
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
         forward, forward_max_px, cost_start)
     return (; camera = out_camera, poses = out), record..., iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
-end
-
-# =============================================================================
-# The rotation-centre views of a HELD SplineLens camera
-# =============================================================================
-#
-# One correspondence of `RotationCenterViews` (rotation_center_views.jl) through a held
-# SplineLens camera: the held route's own block (`_SplinePoseBlock`: its window's controls,
-# cell, projection solve and pixel affinity, built by `_spline_problem`) at the view's pose
-# (R_k, d − R_k c), its variables the view's rotation chart, the centre c and the offset d.
-# Its Jacobian is the block's implicit one in the camera-frame point (Core's
-# `_projection_jacobians`: ∂x*/∂X_c, the lens's solve never seen by a dual) times
-# ForwardDiff's of the point X_c = R_k X + d − R_k c in the three variables' NLLSsolver
-# updates — the parametrization differentiated exactly as the bundle's ForwardDiff blocks
-# differentiate it. A robust refine scales the block by `sqrt_weight` or robustifies it by
-# `robust` (`_with_robust`, as the bundle's blocks); NLLSsolver's own cost, gradient and
-# normal matrix read the robustifier.
-struct _SplineCenterBlock{K} <: NLLSsolver.AbstractResidual
-    varind::SVector{3, Int}
-    block::_SplinePoseBlock
-    sqrt_weight::Float64
-    robust::K
-end
-_SplineCenterBlock(varind::SVector{3, Int}, block::_SplinePoseBlock) = _SplineCenterBlock{NLLSsolver.NoRobust}(varind, block, 1.0, NLLSsolver.NoRobust())
-NLLSsolver.robustkernel(r::_SplineCenterBlock) = r.robust
-_with_robust(r::_SplineCenterBlock, sqrt_weight::Float64, robust::K) where {K} = _SplineCenterBlock{K}(r.varind, r.block, sqrt_weight, robust)
-NLLSsolver.ndeps(::_SplineCenterBlock) = NLLSsolver.static(3)
-NLLSsolver.nres(::_SplineCenterBlock) = NLLSsolver.static(2)
-NLLSsolver.varindices(r::_SplineCenterBlock) = r.varind
-NLLSsolver.getvars(r::_SplineCenterBlock, vars::AbstractVector) =
-    (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
-Base.eltype(::_SplineCenterBlock) = Float64
-NLLSsolver.computeresidual(r::_SplineCenterBlock, ch, c, d) = r.sqrt_weight * _spline_rows(r.block, r.block.held, _rotation_center_pose(ch, c, d))
-NLLSsolver.computecost(vars::AbstractVector, r::_SplineCenterBlock) = finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
-function NLLSsolver.computeresjac(varflags, r::_SplineCenterBlock, ch, c, d)
-    varflags == 7 || throw(ArgumentError("refine_camera_and_poses: a rotation-centre view's rotation, centre and offset are free (varflags = $varflags)"))
-    b = r.block
-    Xc, x, ok = _spline_solve(b, b.held, _rotation_center_pose(ch, c, d))
-    ok || return SVector(NaN, NaN), fill(NaN, 2, 9)
-    Dt = first(VgtkCore.Cameras._projection_jacobians(b.held, b.cell, x, Xc))
-    point(δ) = (P = _rotation_center_pose(NLLSsolver.update(ch, δ), c + δ[SVector(4, 5, 6)], d + δ[SVector(7, 8, 9)]); rotation(P) * b.X + translation(P))
-    J = b.pixel[1] * Dt * ForwardDiff.jacobian(point, zero(SVector{9, Float64}))
-    return r.sqrt_weight * (_spline_pixel(b, x) - b.u), Matrix{Float64}(r.sqrt_weight * J)
-end
-
-# The rotation-centre problem of a held SplineLens camera `cm` at the views' poses `poses` (block order) and the
-# variables `variables` they come from: the held route's problem (`_spline_problem`, the forward dropped as that route
-# drops it, warm-started at `seeds`; a correspondence on an absent window, or one it does not project within a cell of
-# one, is counted, not a row), each block re-keyed onto the view's rotation chart (variable 2 + v), the centre (1) and
-# the offset (2): `(; blocks, variables, windows, xs, counts)`, the counts as the held route reports them; at the guess
-# a correspondence it does not project is an `ArgumentError`, at a rebuild round its `_NotProjected`.
-function _spline_center_problem(cm::CameraModel, poses::AbstractVector, views::AbstractVector, variables::AbstractVector;
-                                stage::Symbol = :guess, round::Int = 0, seeds = nothing)
-    p = _spline_problem(_without_forward(cm), poses, views, false, 0.0; stage, round, seeds)
-    if p isa _NotProjected
-        stage === :guess && throw(ArgumentError(_not_projected_message(p)))
-        return p
-    end
-    blocks = [_SplineCenterBlock(SVector(2 + b.varind[1], 1, 2), b) for b in p.costs]
-    return (; blocks, variables = copy(variables), p.windows, p.xs, counts = (; n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected))
 end

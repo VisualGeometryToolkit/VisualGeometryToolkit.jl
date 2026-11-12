@@ -70,13 +70,20 @@ held pose (its first board by default, `held_boards`/`held_views`), exactly.
 `refine_camera_and_poses(camera, views::RotationCenterViews, csponds)` refines
 the views of a camera turned about one fixed point (a tripod head) under one
 rigid motion model, one rotation per view and a shared centre and offset, the
-camera held; a SplineLens camera's correspondences are its route's blocks,
-rebuilt until their windows settle.
+camera held. Its residual is each dot's BEARING for every camera: the dot
+back-projected once by the camera, the tangent angle to the predicted bearing
+whitened into pixels by the back-projection Jacobian (the
+`BearingPoseProblem`'s); the camera is never projected inside the solve, and a
+dot it does not back-project makes no row and is counted in the metadata
+(`n_without_bearing`, `without_bearing`).
 
 ```@docs
 refine_camera_and_poses
 CameraPosesRefineMetadata
 RotationCenterViews
+RotationCenterRefineMetadata
+n_without_bearing
+without_bearing
 ```
 
 Every bundle — this one, [`refine_robot_world_hand_eye`](@ref) and a downstream package's

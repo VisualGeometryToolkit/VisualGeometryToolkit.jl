@@ -114,9 +114,10 @@ _camera_model(c::BoundedCamera) = model(c)
 # camera, its view's pose (world → camera) and its board's pose (board → world): `project(camera, view(board(X))) − u`.
 # `F = (camera, view, board)` says which of the three are variables of the block, in that order (`varind`); a held one
 # is the value the block carries. A refine without boards is one held identity board (`X` in the world).
-# A robust refine scales the block by `sqrt_weight` (an IRLS cycle's √w; 1 otherwise) or robustifies its squared norm
-# by `robust` (Triggs: NLLSsolver's robustifier, Core's `loss_robustifier`; `NoRobust()` otherwise). `M` is the camera
-# chart's type: the problem's variable vector holds a Union, and `getvars` asserts each slot's concrete type (the camera
+# A robust refine scales the block by `sqrt_weight` (√ρ′ at the estimate, for the stationarity and covariance rows;
+# 1 otherwise) or robustifies its squared norm by `robust` (Triggs: NLLSsolver's robustifier, Core's
+# `loss_robustifier`; `NoRobust()` otherwise). `M` is the camera chart's type: the problem's variable vector holds a
+# Union, and `getvars` asserts each slot's concrete type (the camera
 # chart, a pose chart), so the block's residual and its ForwardDiff Jacobian compile for concrete types instead of
 # boxing every variable (the warm solve allocated ~29 KB a correspondence without it).
 struct _BoardViewResidual{N, F, C, K, M} <: NLLSsolver.AbstractResidual

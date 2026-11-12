@@ -28,8 +28,8 @@ non-central one is a `NoncentralSplineModel`).
   divides by Distributions' `quantile(Chisq(dg), 0.5)`, bit-identical (the same call).
 - **Fixed: a robust refine's weights are normalized to a maximum of 1** (VisualGeometryToolkitCore's `IrlsWeights`
   contract). Every `refine_*` and both bundles (`refine_camera_and_poses`, `refine_robot_world_hand_eye`) under `Irls`
-  or `Triggs` reported `ρ′(r²)`, which reaches 2 under `SmoothTLSShape` (its `ρ′(0)`); they now report the fits' one
-  rule `ρ′(r²)/ρ′(0)` (the reweighted fits' `_irls_weight`, not a second copy), a weight below `eps` an exact 0 as
+  or `Triggs` reported `ρ′(r²)`, which reaches 2 under `SmoothTLSShape` (its `ρ′(0)`); they now report
+  (under `Triggs`: an `Irls` refine is refused, below) the fits' one rule `ρ′(r²)/ρ′(0)` (the reweighted fits' `_irls_weight`, not a second copy), a weight below `eps` an exact 0 as
   before. Every other shape has `ρ′(0) = 1` and is bit-identical. Under `SmoothTLSShape` the weights halve, the support's
   `eps` cut moves to `ρ′ < 2eps`, and what reads the weights follows: the bundles' √weight-scaled stationarity rows,
   and `refine_robot_world_hand_eye`'s weighted dof `2Σw − N`, s² and covariance, which counted every inlier twice

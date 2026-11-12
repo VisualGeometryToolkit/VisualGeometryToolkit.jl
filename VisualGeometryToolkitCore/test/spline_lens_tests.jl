@@ -829,3 +829,54 @@ end
         end
     end
 end
+
+@testitem "SplineLens: project of a ray carrying ForwardDiff Duals, by the solve's implicit derivative" begin
+    # A pose refine differentiates the projection with ForwardDiff (`transform_deriv`, `ForwardDiff.jacobian`): the ray's
+    # values are projected by the plain solve and its partials carried by `_projection_jacobians`' implicit `∂x/∂t`
+    # (no dual enters the LM inverse; the cold start built a Float64 point and threw before).
+    using Test
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: norm
+    import ForwardDiff
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, Rect2, KannalaBrandt, Size2, project
+    src = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
+    cam = CameraModel(SplineLens, src, Size2(1280, 960); grid_size = (12, 10))
+    l = cam.lens
+    for X in (SVector(0.1, -0.05, 1.0), SVector(-0.6, 0.4, 1.0), SVector(0.9, 0.7, 0.8))
+        J = ForwardDiff.jacobian(t -> project(l, t), X)
+        h = 1.0e-6
+        Jfd = reduce(hcat, [(project(l, X + h * e) - project(l, X - h * e)) / 2h for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))])
+        @test norm(J - Jfd) <= 1.0e-6 * norm(J)
+        # through the camera (the pixel affinity), and the value is the plain projection's, bit for bit
+        @test ForwardDiff.jacobian(t -> project(cam, t), X) ≈ reduce(hcat, [(project(cam, X + h * e) - project(cam, X - h * e)) / 2h
+                                                                              for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))]) rtol = 1.0e-6
+        D = ForwardDiff.Dual{Nothing}.(X, (ForwardDiff.Partials((1.0, 0.0)), ForwardDiff.Partials((0.0, 1.0)), ForwardDiff.Partials((0.0, 0.0))))
+        @test ForwardDiff.value.(@inferred(project(l, D))) == project(l, X)
+        # nested Duals (a Hessian) differentiate exactly: the second derivative against differences of the first
+        H = ForwardDiff.jacobian(t -> ForwardDiff.jacobian(s -> project(l, s), t)[:, 1], X)
+        Hfd = reduce(hcat, [(ForwardDiff.jacobian(s -> project(l, s), X + h * e)[:, 1] - ForwardDiff.jacobian(s -> project(l, s), X - h * e)[:, 1]) / 2h
+                             for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))])
+        @test norm(H - Hfd) <= 1.0e-4 * max(norm(H), 1.0)
+    end
+    # a ray the lens does not image: NaN, no partials, no throw
+    Xb = SVector(0.0, 0.0, -1.0)
+    @test all(iszero, ForwardDiff.jacobian(t -> project(l, t), Xb))          # a NaN value with zero partials
+    @test all(isnan, project(l, ForwardDiff.Dual{Nothing}.(Xb, 1.0)))
+    # with a forward spline: the value and the partials are both the forward's (its chart and spline, the Duals straight
+    # through), the value `project`'s bit for bit; the Jacobian against finite differences, and a Hessian through nested Duals
+    fwd = ChartSpline(Rect2(-1.5, -1.5, 3.0, 3.0), [SVector(0.1 * (j - 4.5) + 0.01 * (i - 4.5)^2, 0.1 * (i - 4.5) - 0.005 * (j - 4.5)^2) for i in 1:8, j in 1:8])
+    lf = SplineLens(l.backward; forward = fwd)
+    h = 1.0e-6
+    E3 = (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))
+    for X in (SVector(0.1, -0.05, 1.0), SVector(-0.3, 0.2, 1.0))
+        @test all(isfinite, project(lf, X)) && project(lf, X) != project(l, X)          # the forward's value, not the backward's
+        Jf = ForwardDiff.jacobian(t -> project(lf, t), X)
+        Jffd = reduce(hcat, [(project(lf, X + h * e) - project(lf, X - h * e)) / 2h for e in E3])
+        @test norm(Jf - Jffd) <= 1.0e-6 * norm(Jf)
+        D = ForwardDiff.Dual{Nothing}.(X, (ForwardDiff.Partials((1.0,)), ForwardDiff.Partials((0.0,)), ForwardDiff.Partials((0.0,))))
+        @test ForwardDiff.value.(@inferred(project(lf, D))) == project(lf, X)
+        Hf = ForwardDiff.jacobian(t -> ForwardDiff.jacobian(s -> project(lf, s), t)[:, 1], X)
+        Hffd = reduce(hcat, [(ForwardDiff.jacobian(s -> project(lf, s), X + h * e)[:, 1] - ForwardDiff.jacobian(s -> project(lf, s), X - h * e)[:, 1]) / 2h for e in E3])
+        @test norm(Hf - Hffd) <= 1.0e-4 * max(norm(Hf), 1.0)
+    end
+end

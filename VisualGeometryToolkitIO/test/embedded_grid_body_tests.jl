@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # RadiometricCamera's `rc/calibration_state/v1` stored its camera as the old
-# Schöps/vgio central grid body (`"type": "CentralGenericModel"`, the pixel
+# Schöps/vgio central grid body (the old central type token, the pixel
 # lattice's `direction_grid` and `present`, a nominal pinhole, a domain) with no
 # schema of its own. `camera_from_json` reads such a body through the one
 # conversion every old central grid takes (`_central_grid_body`, migrate.jl), so

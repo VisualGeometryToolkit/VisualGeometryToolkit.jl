@@ -51,6 +51,7 @@ import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Un
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
 import VisualGeometryToolkitCore: centroid, shape_matrix, feature_frame, region
+import VisualGeometryToolkitCore: propagate   # a detection's uncertain centre through a map (detection_types.jl)
 
 
 # =============================================================================

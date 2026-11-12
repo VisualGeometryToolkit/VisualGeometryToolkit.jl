@@ -120,7 +120,7 @@ import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surfac
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
-using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds  # composition primitives (depth-attributed points, correspondence sets)
+using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds, withattrs  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
 import ..VisualGeometryToolkitCore: is_posed  # the pose trait, answered per camera type
@@ -1246,6 +1246,7 @@ export FramedLensProjection
 # -----------------------------------------------------------------------------
 export project, backproject, unproject, transfer
 export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibrated geometry entry point
+export bearing_csponds   # pixel pairs → bearing csponds with their M₁/M₂ pixel Jacobians
 
 # -----------------------------------------------------------------------------
 # 7. CAMERA ACCESSORS - Extract camera properties

@@ -206,3 +206,22 @@ end
     @test abs(slope(v) + 2) < 0.01
     @test abs(slope(z) + 1) < 0.01
 end
+
+# A detection's uncertain centre through a map (detection_types.jl, moved from PanoramaStitching): its centre with the
+# (x, y) block of its frame's covariance, carried by Core's propagate.
+@testitem "keypoint covariance: propagate(map, detection) — the centre and its position block through the map" setup = [Fixtures, UncFixtures] begin
+    using VisualGeometryToolkitCore: Uncertain, CovMat, cov, geom, propagate, SimilarityMap
+    using StaticArrays: SMatrix, SVector
+    using Rotations: RotMatrix
+    on = asift_detect(IMG; device = KA.CPU(), uncertainty = FeatureCovariance())
+    d = first(on)
+    S = SimilarityMap(2.0, RotMatrix{2}(π / 6), SVector(1.0, -3.0))
+    u = propagate(S, d)
+    Σ = cov(d)
+    ref = propagate(S, Uncertain(SVector{2, Float64}(d.center[1], d.center[2]),
+                                 CovMat(SMatrix{2, 2, Float64, 4}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]))))
+    @test geom(u) == geom(ref) && cov(u) == cov(ref)
+    @test geom(u) ≈ S(SVector(d.center[1], d.center[2]))
+    R = SMatrix{2, 2}(RotMatrix{2}(π / 6))
+    @test SMatrix{2, 2}(cov(u)) ≈ 4 * R * SMatrix{2, 2}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]) * R'
+end

@@ -1314,3 +1314,28 @@ pnp_pixel_whitening(proj) = error(
         "affine_part(K) ∘ Pinhole()); got $(typeof(proj)). Undistort the " *
         "measurements to a pinhole model, or use an IRLS local optimization."
 )
+
+"""
+    bearing_csponds(camera1, camera2, cs_px) -> Csponds
+
+Pixel correspondences `cs_px` (`u => v`, view 1's pixel to view 2's) as bearing
+correspondences: each endpoint back-projected by its camera
+([`backproject_with_jacobian`](@ref)`(camera, u) -> (f, M)`), the unit bearings
+the pair and the 3×2 pixel Jacobians its `M₁`/`M₂` attribute columns, which put a
+bearing residual back in pixels (bearings.md). One back-projection per endpoint,
+no filtering: a pixel a camera does not back-project gives its non-finite bearing.
+"""
+function bearing_csponds(cam1, cam2, cs_px)
+    k = length(cs_px)
+    b1 = Vector{Vec3{Float64}}(undef, k); b2 = Vector{Vec3{Float64}}(undef, k)
+    J1 = Vector{SMatrix{3, 2, Float64, 6}}(undef, k)
+    J2 = Vector{SMatrix{3, 2, Float64, 6}}(undef, k)
+    for i in 1:k
+        u = cs_px[i].first; v = cs_px[i].second
+        f₁, M₁ = backproject_with_jacobian(cam1, SVector{2, Float64}(u[1], u[2]))
+        f₂, M₂ = backproject_with_jacobian(cam2, SVector{2, Float64}(v[1], v[2]))
+        b1[i] = Vec3{Float64}(f₁); b2[i] = Vec3{Float64}(f₂)
+        J1[i] = SMatrix{3, 2, Float64, 6}(M₁); J2[i] = SMatrix{3, 2, Float64, 6}(M₂)
+    end
+    return withattrs(Csponds(b1, b2); M₁ = J1, M₂ = J2)
+end

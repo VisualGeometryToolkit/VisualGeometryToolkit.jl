@@ -510,6 +510,10 @@ const RETIRED_NAMES = String[
     # carried as bare offsets or an integer scale beside the image
     "plane" * "_offsets",                    # `bayer_plane_map(L, c)` (its translation onto the cell grid: `inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c)`)
     "raw" * "_scale",                        # `raw_frame_map(L)` (PanoramaStitching's keyword: the frame's map onto the raw)
+    # PanoramaStitching's 0.9 audit: its parallel feature record and its keypoint-noise and width helpers are the stack's
+    # (the detections themselves, Features' `propagate(map, detection)`, the scorer's own width), never restated
+    "Frame" * "Features", "keypoint" * "_covariance_scale", "keypoint" * "_uncertain", "pixel" * "_covariances",
+    "bundle" * "_whitening", "scoring" * "_threshold_px",
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

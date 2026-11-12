@@ -295,6 +295,7 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
+public bearing_csponds   # pixel pairs → bearing csponds carrying their pixel Jacobians (M₁, M₂)
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
 export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance

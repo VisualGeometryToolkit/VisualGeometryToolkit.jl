@@ -164,7 +164,7 @@ const CONTRACT_GENERICS = (
     # the TOML config hooks (base/config_toml.jl)
     toml_key, toml_skip_fields, toml_field,
     # geometry and camera accessors other packages implement for their own types
-    centroid, region, shape_matrix, feature_frame, geom, csponds, focal_length,
+    centroid, region, shape_matrix, feature_frame, geom, csponds, focal_length, propagate,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene, division_coeffs,
     free_names,   # a lens family's free coefficients: a calibrator's own lens target (CaliBlobs' LensTarget) answers it
     # the support protocol a node model implements (geometry/cameras/support.jl)

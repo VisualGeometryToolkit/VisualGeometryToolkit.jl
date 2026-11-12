@@ -26,3 +26,20 @@
     @test map(last, backproject_with_jacobian(m, pixels; device = KA.CPU())) == [last(backproject_with_jacobian(m, u)) for u in pixels]
     @test isempty(backproject(cam, SVector{2, Float64}[]; device = KA.CPU()))
 end
+
+# Pixel pairs → bearing correspondences with their pixel Jacobians (public since 0.9; was Synthetic's private helper).
+@testitem "bearing_csponds: each endpoint back-projected by its camera, the Jacobians the M columns" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, bearing_csponds, backproject_with_jacobian, sources, targets, Point2
+    c1 = CameraModel(; focal = 600.0, pp = (320.0, 240.0), lens = KannalaBrandt(-0.02))
+    c2 = CameraModel(; focal = 450.0, pp = (300.0, 250.0))
+    px = [Point2(100.0 + 7i, 80.0 + 5i) => Point2(200.0 - 3i, 150.0 + 4i) for i in 1:9]
+    cs = bearing_csponds(c1, c2, px)
+    @test length(cs) == 9
+    for i in 1:9
+        f1, M1 = backproject_with_jacobian(c1, SVector{2, Float64}(px[i].first...))
+        f2, M2 = backproject_with_jacobian(c2, SVector{2, Float64}(px[i].second...))
+        @test sources(cs)[i] == f1 && targets(cs)[i] == f2 && cs.M₁[i] == M1 && cs.M₂[i] == M2
+    end
+end

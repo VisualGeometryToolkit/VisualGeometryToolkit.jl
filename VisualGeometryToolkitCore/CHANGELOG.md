@@ -1,5 +1,15 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased (next patch)
+
+- **Fixed: one surface and one ray have one hit, whatever code calls it.** `intersection`, `chart` and `normal` of a
+  `MappedSurface` were `@inline`, so every caller compiled its own copy of the root, and LLVM resolved the contractions
+  the root's arithmetic allows (StaticArrays' `muladd` products, its `@simd` `dot`, the LM increment's `muladd`s)
+  differently per copy: two hits of the same surface and ray in one function came out 2–3 ulp apart (a height field
+  alone or composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). They are now `@noinline`: the bits
+  depend on the arguments' types only. Tested bit for bit over 10⁴ calls from five call sites per surface
+  (`mapped_surface_determinism_tests.jl`).
+
 ## 0.9.1
 
 A patch: the test extension's naming checker, and tests hardened for Julia 1.12. No API change.

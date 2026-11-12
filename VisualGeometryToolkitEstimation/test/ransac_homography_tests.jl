@@ -266,6 +266,16 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test estimate(r_counted) == estimate(r_inner)
         @test counted.calls[] >= 1
         @test counted.iterations[] >= counted.calls[]
+        # each call's record, beside the counters: its iterations, ReturnCode and StopRule
+        recs = counted.call_records
+        @test recs isa Vector{@NamedTuple{iterations::Int, retcode::VgtkCore.ReturnCode.T, stop_rule::VgtkCore.StopRule}}
+        @test length(recs) == counted.calls[]
+        @test sum(r -> r.iterations, recs) == counted.iterations[]
+        # a seeded call's record is the termination record its result reports
+        seeded = VgtkEstimation.CountedLO(inner)
+        sc = MsacScoring(problem; threshold = 3.0)
+        rs = locally_optimize(problem, estimate(r_inner); local_optimization_strategy = seeded, scoring = sc)
+        @test seeded.call_records == [(iterations = seeded.iterations[], retcode = rs.lo_retcode, stop_rule = rs.lo_stop_rule)]
         @test VgtkCore.lo_width(counted) == VgtkCore.lo_width(inner)
         @test VgtkCore.lo_label(counted) == VgtkCore.lo_label(inner)
         @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
@@ -274,6 +284,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # rewidthing keeps the counters (the same Refs)
         @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).calls === counted.calls
         @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).iterations === counted.iterations
+        @test VgtkCore.with_width(counted, VgtkCore.LossWidth(2.0)).call_records === counted.call_records
         # the loss identity and the fixed-width control are the inner's
         for lo in (inner, Irls{GemanMcclureShape}(efficiency_constant = 2.0))
             c = VgtkEstimation.CountedLO(lo)
@@ -308,6 +319,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test serial.calls[] > length(problems)
         @test threaded.calls[] == serial.calls[]
         @test threaded.iterations[] == serial.iterations[]
+        @test length(threaded.call_records) == threaded.calls[]
+        @test sort(threaded.call_records) == sort(serial.call_records)     # the same calls, in the threads' order
         # Contention the sweep above rarely reaches: four tasks hammer one counter
         # with near-instant calls (a plain `Ref` loses increments here).
         sc = MsacScoring(problems[1]; threshold = 3.0)
@@ -324,6 +337,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         end
         foreach(wait, tasks)
         @test hammered.calls[] == 4 * n_calls
+        @test length(hammered.call_records) == 4 * n_calls                  # no record lost under contention
     end
 
     @testset "TerminalLO — the raw race, then one seeded LO of its incumbent" begin
@@ -403,7 +417,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
             @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
             # an external refit is not counted: the wrapper that ran the bracket counts nothing
-            w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0
+            w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0 && isempty(w.call_records)
         end
         native = Irls{WelschShape}(efficiency_constant = 1.5)
         @test VgtkCore.RefitFamily(VgtkEstimation.CountedLO(native)) === VgtkCore.RefitFamily(native) === VgtkCore.NativeRefit()

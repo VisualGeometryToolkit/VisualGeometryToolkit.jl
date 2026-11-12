@@ -313,7 +313,7 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
 # (exported there); this package publishes its own wrappers and instrumentation
 # -----------------------------------------------------------------------------
 public synthetic_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
-public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
+public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations, and records each call's termination
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
 # The zero-allocation RANSAC entry and its result buffers.

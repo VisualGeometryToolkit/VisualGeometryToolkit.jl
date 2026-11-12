@@ -1,6 +1,6 @@
 # VisualGeometryToolkitFeatures changelog
 
-## Unreleased
+## 0.7.0 (unreleased)
 
 - **New: `propagate(m, d::Detection{<:Uncertain})`**: the uncertain centre of a detection through a map (its centre and
   the position block of its frame covariance, carried by VisualGeometryToolkitCore's `propagate`; moved from

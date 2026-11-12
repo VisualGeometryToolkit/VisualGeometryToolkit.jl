@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEval changelog
 
-## Unreleased
+## 0.7.0 (unreleased)
 
 - **`install_artifact` is VisualGeometryToolkitCore's**, re-exported by `Experiments` (the same binding);
   `huggingface_token` and the internal `_published` are no longer reachable as `Experiments.*` (read Core's).

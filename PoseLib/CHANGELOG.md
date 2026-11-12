@@ -1,6 +1,6 @@
 # PoseLib changelog
 
-## Unreleased
+## 0.2.0 (unreleased)
 
 - **`refine_relpose` refuses a non-finite bearing** by name (a pixel past a fisheye's fold back-projects to NaN), as
   VisualGeometryToolkitEstimation's bearing gate does; before, `NaN` got through the unit-norm test. The strategy constant is

@@ -5,6 +5,14 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New methods of existing functions (hoists from downstream copies).** `is_stationary(blocks, variables, free; tol,
+  ftol)`: the stall postcondition of an NLLSsolver problem's residual blocks in the columns of its free variables, the
+  √ρ′-weighted gradient and column norms accumulated block by block (each block's `robustkernel`), the problem's
+  Jacobian never held — the form RadiometricCamera's `lm_stationary` faked a two-row Jacobian for and
+  PanoramaStitching's rotation bundle cut its held columns for. `lens_coverage(camera, rim_margin)`: the lens coverage
+  less a rim margin at the lens's edge (a `Circle`'s radius, an `Ellipse`'s semi-axes, a `Rect`'s sides inside the
+  sensor), or `nothing` — PanoramaStitching's frame-region rim and RadiometricCamera's image circle less its rim.
+
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),
   one Dual layer at a time, so nested Duals differentiate exactly; no Dual enters the LM inverse. With a forward spline the

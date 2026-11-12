@@ -5,6 +5,13 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`rotation_center_pose(R, center, offset)`, public** (the rotation-centre view's pose `(R, offset − R·center)`, the
+  private `_rotation_center_pose` renamed: its chart argument is now the rotation, `model(chart)` at the block), so a
+  caller builds a view's pose from a result's `RotationCenterViews` instead of copying it.
+- **`pooled_noise_scale(scales, dofs)`**: the pool from the recorded numbers (each result's scale and degrees of
+  freedom), the one pooling body; `pooled_noise_scale(results)` is it on `noise_scale(rᵢ)` (`NaN` for `ScaleNone`)
+  and `rᵢ.dof`, bit-identical.
+
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
   `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and

@@ -73,17 +73,18 @@ end
 @testitem "view_overlap: Sutherland–Hodgman keeps a non-convex subject's winding" begin
     using Test
     using VisualGeometryToolkitCore: Point2
-    using VisualGeometryToolkitCore.Primitives: _convex_clip!, _shoelace_signed_area
+    using VisualGeometryToolkitCore.Primitives: _convex_clip!
+    using VisualGeometryToolkitCore: signed_area
     P(x, y) = Point2{Float64}(x, y)
     # a U (area 7) whose two arms a band across them cuts into two squares (area 2)
     U = [P(0, 0), P(3, 0), P(3, 3), P(2, 3), P(2, 1), P(1, 1), P(1, 3), P(0, 3)]
     band = [P(-1, 2), P(4, 2), P(4, 4), P(-1, 4)]
-    @test _shoelace_signed_area(_convex_clip!(copy(U), copy(band))) ≈ 2 atol = 1.0e-12
+    @test signed_area(_convex_clip!(copy(U), copy(band))) ≈ 2 atol = 1.0e-12
     # the subject's orientation is kept: clockwise is negative
-    @test _shoelace_signed_area(_convex_clip!(reverse(U), copy(band))) ≈ -2 atol = 1.0e-12
+    @test signed_area(_convex_clip!(reverse(U), copy(band))) ≈ -2 atol = 1.0e-12
     # a subject winding twice round the clip counts it twice
     sq = [P(-5, -5), P(5, -5), P(5, 5), P(-5, 5)]
-    @test _shoelace_signed_area(_convex_clip!(vcat(sq, sq), copy(band))) ≈ 2 * 10 atol = 1.0e-9
+    @test signed_area(_convex_clip!(vcat(sq, sq), copy(band))) ≈ 2 * 10 atol = 1.0e-9
 end
 
 @testitem "view_overlap: two spherical caps" setup = [ViewOverlapSetup] begin

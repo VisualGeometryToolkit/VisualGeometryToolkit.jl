@@ -149,7 +149,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
     for r in regions
         # an MSER is one 8-connected region: its ONE outer boundary first, then its holes (boundary_contours' order, by signed area)
         for (k, c) in enumerate(boundary_contours(region_mask(r, levels)))
-            k > 1 && _polygon_area(c) < min_hole_area && continue   # a small hole (a hot pixel in the surround): not the rim
+            k > 1 && abs(signed_area(c)) < min_hole_area && continue   # a small hole (a hot pixel in the surround): not the rim
             append!(points, _inside_frame(c, W, H))
         end
     end
@@ -189,17 +189,6 @@ end
 
 # The vertices of a boundary polygon not on the border of the `W × H` frame (COLMAP pixel corners: the border is x ∈ {0, W}, y ∈ {0, H}).
 _inside_frame(poly, W, H) = [p for p in poly if 0.5 < p[1] < W - 0.5 && 0.5 < p[2] < H - 0.5]
-
-# |shoelace area| of a closed polygon (the last vertex joins the first), summed as Core's `area(::Polygon)` sums it.
-function _polygon_area(ring)
-    n = length(ring)
-    total = 0.0
-    @inbounds for i in 1:n
-        j = i == n ? 1 : i + 1
-        total += Float64(ring[i][1]) * Float64(ring[j][2]) - Float64(ring[j][1]) * Float64(ring[i][2])
-    end
-    return abs(0.5 * total)
-end
 
 # The extension hooks. VisualGeometryToolkitFeaturesEstimationExt adds `_fit_image_circle` for `Circle` and `Ellipse`
 # (the RANSAC on the contour); VisualGeometryToolkitFeaturesImageSmoothExt adds `_l0_smooth!`. Without them loaded the

@@ -110,6 +110,9 @@ private names. Each is the function Core's own callers use, unchanged; the priva
   the four texels itself.
 - **`julia_blocks(path)`, public** (the Test extension; was a closure of `test_readme_example`, over a page's text):
   the code of a page's `julia` fenced blocks, in order.
+- **`signed_area(ring)`, public** (was `_shoelace_signed_area`, Primitives): the signed shoelace area of a closed ring of
+  2-D points, the one body of `area(::Polygon)`, the view-overlap clip's orientation and VisualGeometryToolkitFeatures'
+  `detect_image_circle` hole size (which restated it on a contour, no `Polygon`). Bit for bit the same sum.
 - **The dependency allow-list names VisualGeometryToolkitEstimation for VisualGeometryToolkitFeatures**
   (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
   (VisualGeometryToolkitFeatures 0.8.0). No API change.

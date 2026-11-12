@@ -6,12 +6,7 @@
 @testsetup module ImageCircleFixtures
     using Statistics: mean
     using Random: Xoshiro
-    import VisualGeometryToolkitCore as VgtkCore
-    import VisualGeometryToolkitFeatures as VgtkFeatures
-    export cover, disc_frames, rim_frames, SensorImage
-    # The module that owns the sensor image (RawMosaic, LinearRaw, raw_frame_map): VisualGeometryToolkitCore from 0.9.2
-    # (bayer-port), whose names are imported from Core; before it, this package's own. Drop it for VgtkCore once both land.
-    const SensorImage = isdefined(VgtkCore, :RawMosaic) ? VgtkCore : VgtkFeatures
+    export cover, disc_frames, rim_frames
     # the fraction of pixel (x, y) (1-based column, row) inside the disc of centre (cx, cy) and radius ρ, COLMAP pixels,
     # on a 4 × 4 subpixel grid
     cover(x, y, cx, cy, ρ) = mean((x - 1 + (i - 0.5) / 4 - cx)^2 + (y - 1 + (j - 0.5) / 4 - cy)^2 <= ρ^2 for i in 1:4, j in 1:4)
@@ -145,7 +140,7 @@ end
     using Random: Xoshiro
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
-    RawMosaic, LinearRaw, raw_frame_map = SensorImage.RawMosaic, SensorImage.LinearRaw, SensorImage.raw_frame_map
+    using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
     using StaticArrays: SVector
     W, H, c, r = 360, 240, (181.3, 118.7), 100.0
     a = 0.1 * hypot(W, H)
@@ -189,7 +184,7 @@ end
     using Adapt: adapt
     using CUDA: CUDA
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
-    RawMosaic, LinearRaw = SensorImage.RawMosaic, SensorImage.LinearRaw
+    using VisualGeometryToolkitCore: RawMosaic, LinearRaw
     if CUDA.functional()
         W, H, c, r = 360, 240, (181.3, 118.7), 100.0
         a = 0.1 * hypot(W, H)

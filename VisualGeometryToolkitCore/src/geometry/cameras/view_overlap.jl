@@ -11,10 +11,10 @@
 # in frame i's image by Core's Sutherland–Hodgman (`_convex_clip!`,
 # primitives/operators.jl) against the convex ring of Ω_i. Only the area differs
 # from `overlap_area`: it is a solid angle on the sphere
-# (`_spherical_signed_area`, beside `_shoelace_signed_area`), not a pixel area.
+# (`_spherical_signed_area`, beside `signed_area`), not a pixel area.
 
 using ..VisualGeometryToolkitCore: angle_between   # the well-conditioned atan(‖u × v‖, u · v) (transforms/euclidean_map.jl)
-using ..Primitives: RegionIntersection, _convex_clip!, _spherical_signed_area, _shoelace_signed_area
+using ..Primitives: RegionIntersection, _convex_clip!, _spherical_signed_area, signed_area
 
 # A direction is imaged by a lens when its pixel brings it back within this angle (rad).
 const _ROUND_TRIP_ANGLE = 1.0e-6
@@ -215,7 +215,7 @@ _orientation(::AbstractCamera) = throw(
 _region_ring(r::Rect{2}, n::Int) = _rect_edge_samples(identity, r, cld(n, 4))
 function _region_ring(e::Ellipse, n::Int)
     ring = Point2{Float64}[Point2{Float64}(p[1], p[2]) for p in boundary_points(e, n)]
-    _shoelace_signed_area(ring) < 0 && reverse!(ring)
+    signed_area(ring) < 0 && reverse!(ring)
     return ring
 end
 _region_ring(s::RegionIntersection, n::Int) = _deduplicated!(_convex_clip!(_region_ring(s.a, n), _region_ring(s.b, n)))

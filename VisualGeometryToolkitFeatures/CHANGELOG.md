@@ -41,7 +41,7 @@ re-exports NO name of Core's — the moved ones and its three older re-exports a
   border_margin = 5)`** (exported; moved from RadiometricCamera, the same signature and, on its tests, the same results
   bit for bit): the image circle of a lens measured from photographs — the frames' per-pixel maximum as `N0f8`, its
   dark MSERs (`detect_mser`, `max_area = 1`, duplicates kept), every region boundary less the holes smaller than
-  `min_hole_area` and the border's vertices, their convex hull, and a RANSAC `Ellipse` or `Circle` through the hull's
+  `min_hole_area` (VisualGeometryToolkitCore's `signed_area`) and the border's vertices, their convex hull, and a RANSAC `Ellipse` or `Circle` through the hull's
   vertices off the border, scored by the Student-t + uniform marginal at `outlier_halfwidth`. Returns `(; circle, fit,
   contour, cut, rim_gap)` or `nothing`. A RAW frame (a `RawMosaic`, or `LinearRaw(mosaic; mode = :green_cells)`) is
   measured on its green cells, with the keywords in green-cell pixels (a pipeline config's resolution), and only the

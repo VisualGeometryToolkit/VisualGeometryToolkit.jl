@@ -106,6 +106,7 @@ export Circle, Ellipse, AbstractConic3D, Ellipse3D, Circle3D
 public RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, held lazily, and the identity of ∩ (primitives/regions.jl)
 export boundary_point, boundary_points
 export centroid, area
+public signed_area   # the signed shoelace area of a closed ring of 2-D points (primitives/operators.jl)
 export shape_matrix, characteristic_scale
 export iou, overlap_area, coverage, best_iou_match
 public overlap_method, geom_rank
@@ -955,6 +956,7 @@ include("geometry/primitives/primitives.jl")
 using .Primitives  # Import all exported symbols into parent namespace
 using .Primitives: rect_corners, _rect_edge_samples, _snap_outward   # the one corner order and per-edge rect walk (primitives/rectangles.jl)
 using .Primitives: is_positive_definite   # public here (feature_frames.jl)
+using .Primitives: signed_area   # public here (operators.jl): the shoelace area of a closed ring of points
 
 # Geometry Transforms (remaining - these use Ellipse from Primitives)
 include("geometry/transforms/conversions.jl")      # Coordinate system conversions

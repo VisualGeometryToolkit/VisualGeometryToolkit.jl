@@ -698,10 +698,19 @@ Area of a simple polygon (no holes) via the shoelace formula.
 """
 function area(poly::GeometryBasics.Polygon)
     ring = GeometryBasics.coordinates(poly)
-    return abs(_shoelace_signed_area(ring))
+    return abs(signed_area(ring))
 end
 
-function _shoelace_signed_area(ring)
+"""
+    signed_area(ring) -> Float64
+
+The signed area of the closed polygon `ring` (its vertices in order, any
+indexable 2-vectors or tuples; the last joins the first) by the shoelace
+formula, in `Float64`: positive for counter-clockwise vertices in a y-up frame
+(clockwise on screen, y down), negative for the other order. `abs` of it is
+[`area`](@ref) of the polygon, for a ring that is no `Polygon` (a contour).
+"""
+function signed_area(ring)
     n = length(ring)
     total = 0.0
     @inbounds for i in 1:n
@@ -779,9 +788,9 @@ the two clipping buffers. Both must be `Vector{Point2{Float64}}` (see
 `_as_point2f`) and neither is usable afterwards.
 """
 function _convex_clip_area!(subject::Vector{Point2{Float64}}, clip::Vector{Point2{Float64}})
-    _shoelace_signed_area(subject) < 0 && reverse!(subject)
-    _shoelace_signed_area(clip) < 0 && reverse!(clip)
-    return abs(_shoelace_signed_area(_convex_clip!(subject, clip)))
+    signed_area(subject) < 0 && reverse!(subject)
+    signed_area(clip) < 0 && reverse!(clip)
+    return abs(signed_area(_convex_clip!(subject, clip)))
 end
 
 """

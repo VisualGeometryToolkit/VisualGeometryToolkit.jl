@@ -11,7 +11,7 @@ photosite radiometry spec, 2026-11-12, §1 and §4.1).
   **`BayerCellFrame`, `raw_frame_map`, `bayer_plane_map`, `green_cell_sites`, `raw_coordinates`, `photosite_colors`**,
   and with them `cfa_string` (the mosaic's `show` reads it) and `raw_provenance` (an accessor of `LinearRaw` alone)
   (`src/raw/`). No new dependency: Adapt, KernelAbstractions and ImageCore were Core's already. Every assertion of
-  Features' former raw tests passes unchanged here (`test/raw_mosaic_tests.jl`, only the import moved), CPU and GPU.
+  Features' former raw tests holds unchanged here (`test/raw_mosaic_tests.jl`, only the import moved), CPU and GPU.
   `LinearRaw`'s inner constructor now checks the gain (positive and finite), the check `LinearRaw(mosaic; gain)` made,
   so the display image Features builds takes the same rule.
 - **New: `channelview(m::RawMosaic)`, a method of ImageCore's `channelview`** (exported, the same binding as

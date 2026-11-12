@@ -114,7 +114,7 @@ function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1)
         "LinearRaw: the display demosaic is LibRaw's interpolation, made by VisualGeometryToolkitFeatures: " *
             "`load_raw(path_or_mosaic; mode = :demosaic)`"
     ))
-    return _cells(mosaic, _checked_gain(gain), mode)
+    return _cell_images(mosaic, _checked_gain(gain), mode)
 end
 
 function _checked_gain(gain::Real)
@@ -152,7 +152,7 @@ end
     end
 end
 
-function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
+function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol)
     H, W = size(m)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))

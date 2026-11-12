@@ -7,8 +7,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
 
 - **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
   `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
-  ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The decision-width shapes (Welsch, Geman–McClure,
-  Cauchy, smooth TLS, TLS) follow the scorer's decision point as before; a shape with neither is an `ArgumentError`
+  ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,
+  Geman–McClure, Cauchy, smooth TLS, TLS, Barron) follow the scorer's decision point as before; a shape with neither is an `ArgumentError`
   naming it and the remedy.
 - `Triggs{K}()` is constructible with no efficiency constant (`width === nothing`): a refine
   (VisualGeometryToolkitEstimation's `refine_*`, whose default it is) runs it at `efficiency_constant(K, d)` times the

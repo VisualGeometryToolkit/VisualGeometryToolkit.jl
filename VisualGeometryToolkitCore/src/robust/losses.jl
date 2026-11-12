@@ -1002,9 +1002,6 @@ decision_width(::GemanMcclureShape, boundary::Real) = Float64(boundary) / sqrt(s
 decision_width(::CauchyShape, boundary::Real) = Float64(boundary)
 decision_width(::SmoothTLSShape, boundary::Real) = sqrt(2.0) * Float64(boundary)
 decision_width(::TLSShape, boundary::Real) = Float64(boundary)
-# The shapes with a decision width (the methods above): a strategy of one with no width follows the scorer's decision
-# point (`loss_at`); any other runs at its efficiency constant.
-const _DecisionWidthShape = Union{WelschShape, GemanMcclureShape, CauchyShape, SmoothTLSShape, TLSShape}
 
 """
     decision_boundary(shape::AbstractLossShape, loss_width) -> Float64

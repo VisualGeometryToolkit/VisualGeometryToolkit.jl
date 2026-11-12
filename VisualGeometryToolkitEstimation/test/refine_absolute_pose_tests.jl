@@ -1,5 +1,5 @@
-# refine_absolute_pose — find_absolute_pose's local optimization alone, from a
-# given pose, on the AbsolutePoseProblem's rows (the raw-pixel reprojection
+# refine_absolute_pose — the refine contract (no scorer; the caller's scale or
+# width), from a given pose, on the AbsolutePoseProblem's rows (the raw-pixel reprojection
 # error through the full camera).
 #
 # Correctness: a perturbed pose is recovered to the LM's tolerance from exact

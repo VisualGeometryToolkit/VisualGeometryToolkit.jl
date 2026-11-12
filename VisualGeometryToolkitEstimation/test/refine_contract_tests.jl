@@ -158,8 +158,9 @@
 end
 
 # The contract on EVERY refine_* class (the 11 RANSAC classes, the rotation's two forms and the camera and bearing
-# forms of the pose): the refusals and their messages, the default's need of a scale, least squares, and the result's
-# type inferred — on too few data for a minimal sample (the refine parses every keyword first, so the too-few path is
+# forms of the pose): the refusals and their messages, the default's need of a scale, least squares, the result of a
+# concrete type (checked at run time: some classes' problem constructors do not infer, so the call itself is not
+# `@inferred`) with its accessors inferred — on too few data for a minimal sample (the refine parses every keyword first, so the too-few path is
 # the contract's, cheaply), and hand-eye (whose problem needs 3 poses to exist) on 3.
 @testitem "refine_contract: every refine_* class" setup = [TooFewData] begin
     import VisualGeometryToolkitCore as VgtkCore

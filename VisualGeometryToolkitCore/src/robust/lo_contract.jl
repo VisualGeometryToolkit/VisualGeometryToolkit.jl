@@ -123,8 +123,8 @@ width_scale_interface(::LossWidth) = FixedScale()
 THE resolution of a width-carrying local optimizer's loss, statically
 dispatched on its width mode [`lo_width`](@ref):
 
-- `nothing` (follow the scorer): for a shape with a decision width (Welsch,
-  Geman–McClure, Cauchy, smooth TLS, TLS), `deploy(shape, w²; efficiency_constant = 1)` with
+- `nothing` (follow the scorer): for a shape with a [`decision_width`](@ref)
+  method (Welsch, Geman–McClure, Cauchy, smooth TLS, TLS, Barron), `deploy(shape, w²; efficiency_constant = 1)` with
   `w = decision_width(shape, decision_boundary(scoring, buf))` — the loss's
   decision boundary at the scorer's (the identity for `TLSShape`): a threshold
   scorer's constant threshold, or the Student-t + uniform scorer's MAP crossover
@@ -145,16 +145,22 @@ _loss_at(::Nothing, lo, shape, cs, scoring, buf) = _follow_scorer(shape, cs, sco
 # No width stated: a shape with a decision width runs at the scorer's decision point; one without (Huber: its ψ never
 # turns, so no residual flips its decision) at the table's `efficiency_constant(K, d)` times the scorer's consensus
 # scale, `d` the scorer's codimension (the owner's ruling, 2026-11-12); a shape with neither is refused by name.
-function _follow_scorer(shape::_DecisionWidthShape, cs, scoring, buf)
-    w = decision_width(shape, decision_boundary(scoring, buf))
-    return deploy(shape, w^2; efficiency_constant = 1.0)
-end
 function _follow_scorer(shape::AbstractLossShape, cs, scoring, buf)
-    hasmethod(efficiency_constant, Tuple{Type{typeof(shape)}}) || throw(ArgumentError(
+    if _has_decision_width(shape)
+        w = decision_width(shape, decision_boundary(scoring, buf))
+        return deploy(shape, w^2; efficiency_constant = 1.0)
+    end
+    _has_efficiency_constant(shape) || throw(ArgumentError(
         "$(nameof(typeof(shape))) has no decision width and no efficiency constant: a strategy of it must state its " *
             "width (`efficiency_constant = c`, the multiple of the consensus scale, or `loss_width = w`)"))
     return deploy(shape, max(scale_s2(cs), eps()); efficiency_constant = efficiency_constant(shape, codimension(scoring)))
 end
+
+# Whether a shape has a decision width / a table efficiency constant: read off the methods themselves, so a shape that
+# gains one (Barron's decision width, losses.jl) is followed without a hand-kept list.
+_has_decision_width(shape::AbstractLossShape) = hasmethod(decision_width, Tuple{typeof(shape), Float64})
+_has_efficiency_constant(shape::AbstractLossShape) = hasmethod(efficiency_constant, Tuple{Type{typeof(shape)}})
+
 function _loss_at(sm::EfficiencyConstant{Float64}, lo, shape, cs, scoring, buf)
     s2 = max(scale_s2(cs), eps())
     return deploy(shape, s2; efficiency_constant = sm.value)

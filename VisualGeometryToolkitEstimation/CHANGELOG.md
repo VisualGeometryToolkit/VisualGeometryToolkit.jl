@@ -34,8 +34,13 @@ non-central one is a `NoncentralSplineModel`).
   `fixed`. Its `fixed` is resolved by VisualGeometryToolkitCore's `free_parameter_names`, so it takes a group
   (`fixed = (:k,)` holds k1…) and accepts `:skew`.
 - **`Irls`, `Triggs`, `LOSS_TAGS` and the strategy registry machinery are VisualGeometryToolkitCore's** (moved, A2):
-  this package imports and re-publishes them (`VgtkEstimation.Irls`, `VgtkEstimation.@lo_registry` keep working), and
-  its `LO_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
+  this package uses them internally and **no longer exports or publishes them** (a name is published only by the
+  package that owns it): `Irls`, `Triggs`, `LOSS_TAGS`, `@lo_registry`, `lo_construct`, the registry hooks (`lo_tag`,
+  `lo_defaults`, `lo_parametric`, `lo_admits`, `lo_admits_shape`, `lo_key`, `lo_field`, `lo_field_from_toml`,
+  `lo_absent`, `lo_validate`, `lo_efficiency_constant_shape`), `strategy_loss`, `lo_loss`, `lo_width_value`,
+  `fixed_width` and `refine!` are reached as `VgtkCore.…` (`VgtkEstimation.Irls` still resolves, but it is not
+  public there, so the public-names gate flags it), and `using VisualGeometryToolkitEstimation` no longer brings `Irls`/`Triggs`
+  into scope (`using VisualGeometryToolkitCore` does). Its `LO_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
   Core's contract generics; this package's `CONTRACT_GENERICS` keeps its TOML reader's (`lo_concrete`,
   `lo_resolve_efficiency_constant`), the writer and the placement. The `[optimization_strategy.irls]` defaults moved
   to Core's `configs/default.toml`.

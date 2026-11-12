@@ -8,7 +8,8 @@
     # strategies_tests); this item holds what this package owns: its registry and its TOML reader and writer.
     using Test
     using VisualGeometryToolkitCore: CauchyShape
-    using VisualGeometryToolkitEstimation: Triggs, LO_TAGS, optimization_strategy_from_toml, config_dict
+    using VisualGeometryToolkitEstimation: LO_TAGS, optimization_strategy_from_toml, config_dict
+    using VisualGeometryToolkitCore: Triggs
     lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
     @test LO_TAGS["triggs"] === Triggs
     @test optimization_strategy_from_toml(Dict{String, Any}("type" => "triggs", "loss" => "cauchy", "efficiency_constant" => 2.5);
@@ -25,8 +26,8 @@ end
     using Test, StableRNGs, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: CauchyShape, WelschShape, MsacScoring, estimate, converged, csponds, Point2
     using VisualGeometryToolkitCore.Synthetic: projective_distance
-    using VisualGeometryToolkitEstimation: Triggs, HomographyProblem, CircleProblem, ransac, locally_optimize,
-        find_homography, RansacConfig
+    using VisualGeometryToolkitEstimation: HomographyProblem, CircleProblem, ransac, locally_optimize, find_homography, RansacConfig
+    using VisualGeometryToolkitCore: Triggs
     import VisualGeometryToolkitEstimation as VgtkEstimation
     src, dst = homography_pairs(StableRNG(41), H_PX; n_in = 150, n_out = 60, σ = 0.5, source = gaussian_source)
     pairs = src .=> dst
@@ -62,7 +63,8 @@ end
 @testitem "Triggs: admits exactly the shapes Irls admits, each refines a circle" begin
     using Test, StableRNGs, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: GaussianShape, Point2, Circle, estimate, converged
-    using VisualGeometryToolkitEstimation: Triggs, Irls, refine_circle, optimization_strategy_from_toml, config_dict
+    using VisualGeometryToolkitEstimation: refine_circle, optimization_strategy_from_toml, config_dict
+    using VisualGeometryToolkitCore: Triggs, Irls
     import VisualGeometryToolkitCore as VgtkCore
     admits(f) = try
         f(); true

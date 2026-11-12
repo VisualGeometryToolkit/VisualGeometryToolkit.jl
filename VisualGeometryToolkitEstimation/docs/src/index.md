@@ -22,8 +22,8 @@ and local optimizers plug in by keyword.
 - **Core defaults**: every `find_*` runs VisualGeometryToolkitCore's MSAC
   (`[pipelines.<class>] scoring`, MSAC at the class's threshold) and a local optimization read from
   `configs/default.toml`: least squares on the inliers
-  ([`Irls`](@ref)`{TLSShape}`, following the scorer's decision point) for most
-  problems, the robustified chart LM [`Triggs`](@ref) for the circle and the
+  ([`Irls`](@extref VisualGeometryToolkitCore.Irls)`{TLSShape}`, following the scorer's decision point) for most
+  problems, the robustified chart LM [`Triggs`](@extref VisualGeometryToolkitCore.Triggs) for the circle and the
   ellipse. The per-class thresholds are conventions (homography, fundamental
   matrix and the radial classes 3 px; essential matrix, rotation, circle and
   ellipse 1 px; absolute pose 8 px; hand-eye `0.01·L`). See
@@ -34,7 +34,7 @@ and local optimizers plug in by keyword.
   `StudentTUniform()`, `Gnc{…}(…)` from LocalOptimizationDoneRight. See
   [Getting Started](guide/getting-started.md).
 - **Core local optimizations**: `nothing` (none) and the static
-  IRLS [`Irls`](@ref)`{K}` on any VisualGeometryToolkitCore loss shape, with its width
+  IRLS [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` on any VisualGeometryToolkitCore loss shape, with its width
   following the scorer, anchored at the consensus scale (`EfficiencyConstant(m)`)
   or absolute (`LossWidth(w)`). The refit is Levenberg–Marquardt on a minimal
   chart about the current model: sl(3) for `HomographyProblem`, Bartoli–Sturm

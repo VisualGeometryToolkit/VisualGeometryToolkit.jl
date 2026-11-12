@@ -509,7 +509,7 @@ refinement is the sound upgrade path.
   (near-identity motions are uninformative) — the same predicate as
   [`find_hand_eye`](@ref)'s.
 - `optimization_strategy` — `nothing` (the default: the staged linear solve
-  above, least squares), or an [`Irls`](@ref)`{K}` strategy: the staged solve
+  above, least squares), or an [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` strategy: the staged solve
   reweighted per observation at ONE loss width on the whitened 6-vector
   residual (codimension 6), iterated to `tol` or the strategy's `max_iter`.
   Each stage takes the weights: a Kabsch pair weighs `wₖ₁·wₖ₂`, the chordal

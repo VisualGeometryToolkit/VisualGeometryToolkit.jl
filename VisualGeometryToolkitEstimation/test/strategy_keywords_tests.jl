@@ -6,8 +6,8 @@
 # =============================================================================
 
 @testitem "strategy keywords: the new names, the retired ones refused" begin
-    using VisualGeometryToolkitEstimation: find_homography, refine_homography, fit_linear, Irls, Triggs,
-        optimization_strategy_from_toml
+    using VisualGeometryToolkitEstimation: find_homography, refine_homography, fit_linear, optimization_strategy_from_toml
+    using VisualGeometryToolkitCore: Irls, Triggs
     using VisualGeometryToolkitCore: TLSShape, WelschShape, GaussianShape, HuberShape, estimate, Point2
     using StableRNGs: StableRNG
     using StaticArrays: SVector

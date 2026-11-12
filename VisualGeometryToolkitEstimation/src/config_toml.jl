@@ -128,7 +128,7 @@ _from_toml(::Type{T}, ::Val{F}, v) where {T <: AbstractOptimizationStrategy, F} 
     lo_resolve_efficiency_constant(T, K, value; class::Symbol) -> Float64
 
 A TOML `efficiency_constant` of strategy `T`, read for loss shape `K`
-([`lo_efficiency_constant_shape`](@ref)) in pipeline model class `class`. A number
+([`lo_efficiency_constant_shape`](@extref VisualGeometryToolkitCore.lo_efficiency_constant_shape)) in pipeline model class `class`. A number
 is the caller's own and claims nothing about provenance, so it is taken as
 given. A string is refused here: `"cross_validated"` names the accv2026
 operating points, LocalOptimizationDoneRight's tuning constants, which its
@@ -139,7 +139,7 @@ lo_resolve_efficiency_constant(::Type, ::Type, v::AbstractString; class::Symbol)
     v == "cross_validated" ?
     "efficiency_constant = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
         "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, " *
-        "LocalOptimizationDoneRight.STRATEGY_TAGS)), or give a number" :
+        "LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)), or give a number" :
     "efficiency_constant must be a number, got $(repr(v))"))
 
 function _loss_of(d::AbstractDict, section)
@@ -154,7 +154,7 @@ end
 Build a local-optimization strategy from its TOML table (see the registry
 comment above). `tags` is the strategy registry the `type` is looked up in —
 [`LO_TAGS`](@ref), or its merge with a downstream package's
-(`merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`); the entry is then
+(`merge(LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`); the entry is then
 built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
 downstream `efficiency_constant = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.
@@ -172,7 +172,7 @@ end
 
 The concrete strategy type registry entry `T` names in its TOML `table`, and
 the keys the table may carry beyond `C`'s fields and width. Default: a
-loss-parametric family is concrete at its `loss` ([`LOSS_TAGS`](@ref); a
+loss-parametric family is concrete at its `loss` ([`LOSS_TAGS`](@extref VisualGeometryToolkitCore.LOSS_TAGS); a
 missing or unknown loss is an `ArgumentError` listing the loss tags),
 `(T{K}, ("type", "loss"))`; any other strategy is itself, `(T, ("type",))`.
 `tags` is the strategy registry the table was read through, for a strategy
@@ -185,14 +185,14 @@ lo_concrete(::Type{T}, d::AbstractDict, sec::AbstractString; tags::TagRegistry =
     lo_from_toml(T, table; class::Symbol, section = "optimization_strategy", tags = LO_TAGS) -> AbstractOptimizationStrategy
 
 The strategy of registry entry `T` (a type or a loss-parametric family,
-registered by any package with [`@lo_registry`](@ref)) from its TOML table —
+registered by any package with [`@lo_registry`](@extref `VisualGeometryToolkitCore.@lo_registry-Tuple{Any, Vararg{Any}}`)) from its TOML table —
 the half of [`optimization_strategy_from_toml`](@ref) after the tag lookup.
 The table's keys are the fields (Greek spelled ASCII), the width as
 `efficiency_constant` or `loss_width`, and [`lo_concrete`](@ref)'s extra keys; an
 unknown key is refused, a field the owner's defaults have no key for is
 required, every other absent key inherits the defaults. A `efficiency_constant`
 goes through [`lo_resolve_efficiency_constant`](@ref) at
-[`lo_efficiency_constant_shape`](@ref).
+[`lo_efficiency_constant_shape`](@extref VisualGeometryToolkitCore.lo_efficiency_constant_shape).
 """
 function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "optimization_strategy",
                       tags::TagRegistry = LO_TAGS)
@@ -373,7 +373,7 @@ config_dict(::Nothing) = Dict{String, Any}("type" => "none")   # no local optimi
 
 The TOML table of any registered strategy: VisualGeometryToolkitCore's
 `toml_table` field walk (the width skipped, Greek spelled ASCII, a field's
-own spelling through `toml_field`), its `type` ([`lo_tag`](@ref)), its `loss`
+own spelling through `toml_field`), its `type` ([`lo_tag`](@extref VisualGeometryToolkitCore.lo_tag)), its `loss`
 for a loss-parametric family, and its width as `efficiency_constant` or
 `loss_width` (no width writes nothing).
 """

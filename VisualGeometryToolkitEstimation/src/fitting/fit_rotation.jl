@@ -61,7 +61,7 @@ at ONE loss width: residual angles `rᵢ = ∠(R·aᵢ, bᵢ)`, the weights of t
 strategy's loss at that width, and the weighted Kabsch. The width is fixed by
 the caller's scale input and never re-estimated.
 
-- `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss
+- `optimization_strategy` — the robust weighting, an [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` strategy (its loss
   `K`, its efficiency constant and its `max_iter`; default
   configs/default.toml `[fit_rotation] optimization_strategy`, Huber), or `nothing` for the
   plain (prior-weighted) Kabsch.

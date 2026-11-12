@@ -33,12 +33,12 @@ end
 # (state, likelihood, method, problem, θ₀, max_iter) of the core's LO arm, fresh:
 # the static M-estimator `Irls{K}` on the posterior-weight iteration, built as
 # its `locally_optimize!` builds it.
-function arm(p, sc, model::M, lo::VgtkEstimation.Irls) where {M}
+function arm(p, sc, model::M, lo::VgtkCore.Irls) where {M}
     ws, cs = seeded(p, sc, model, lo)
     buf = ws.buf
     n = VgtkEstimation.data_size(p)
     state = VgtkEstimation._seeded_irls_state!(ws.lo_ws, p, model, cs, buf, sc, something(VgtkCore.outlier_halfwidth(sc), 1.0))
-    lh = VgtkEstimation.LossPlainWeights(state.rws, n, VgtkEstimation.lo_loss(lo, cs, sc, buf))
+    lh = VgtkEstimation.LossPlainWeights(state.rws, n, VgtkCore.lo_loss(lo, cs, sc, buf))
     VgtkEstimation._seed_policy_weights!(state, lh, n)
     return state, lh, VgtkEstimation.PosteriorIrlsMethod(ws.lo_ws.refine), p, model, lo.max_iter
 end
@@ -80,7 +80,7 @@ problems = (
 )
 # The moved strategies' states (the Student-t + uniform and Barron-adaptive
 # IRLS, StuTuBCD, the HQ lifts, GNC, the mixture lifts): LocalOptimizationDoneRight's suite.
-arms(kind) = Any[VgtkEstimation.Irls{WelschShape}(efficiency_constant = 1.5), VgtkEstimation.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463)]   # GM: decision_width(GM, 1.25), the retired half-weight currency's 1.25
+arms(kind) = Any[VgtkCore.Irls{WelschShape}(efficiency_constant = 1.5), VgtkCore.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463)]   # GM: decision_width(GM, 1.25), the retired half-weight currency's 1.25
 @testset "Recorded == bare: $kind $(nameof(typeof(lo)))" for (kind, p) in problems, lo in arms(kind)
     sc = MsacScoring(p; threshold = 3.0)   # 6σ of the scenes' 0.5 px noise
     θ = estimate(VgtkEstimation.ransac(p, sc; rng = Xoshiro(1), config = VgtkEstimation.RansacConfig(max_trials = 200)))

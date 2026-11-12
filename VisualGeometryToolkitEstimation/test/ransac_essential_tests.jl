@@ -38,7 +38,7 @@ _sampson_cost(E, u₁, u₂, w) =
     E_pert = perturbed_essential(R, t, 0.08, SA[0.1, -0.08, 0.05])
 
     w = ones(n)
-    E_ref = VgtkEstimation.refine!(refine_workspace(typeof(p), data_size(p)), p, E_pert, w)
+    E_ref = VgtkCore.refine!(refine_workspace(typeof(p), data_size(p)), p, E_pert, w)
 
     @test E_ref !== nothing
     @test E_ref isa EssentialMat
@@ -241,7 +241,7 @@ end
     pm = _retyped(EssentialProblem(camA, camB, csponds(a2, b2)); T₂ = Float32)
     @test eltype(pm.cs.M₁) != eltype(pm.cs.M₂)
     θ₀ = EssentialMat(R2, normalize(t2 + SA[0.05, -0.04, 0.03]))
-    θ₁ = VgtkEstimation.refine!(refine_workspace(typeof(pm), data_size(pm)), pm, θ₀, ones(length(a2)))
+    θ₁ = VgtkCore.refine!(refine_workspace(typeof(pm), data_size(pm)), pm, θ₀, ones(length(a2)))
     @test θ₁ !== nothing
 end
 

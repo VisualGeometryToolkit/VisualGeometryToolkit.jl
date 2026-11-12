@@ -7,7 +7,8 @@
     using LinearAlgebra: normalize
     using Rotations: RotMatrix, RotXYZ, rotation_angle
     using VisualGeometryToolkitCore: Csponds, estimate, retcode, rms, HuberShape, WelschShape
-    using VisualGeometryToolkitEstimation: fit_rotation, Irls
+    using VisualGeometryToolkitEstimation: fit_rotation
+    using VisualGeometryToolkitCore: Irls
     R = RotMatrix(RotXYZ(0.4, -1.1, 2.3))
     as = [normalize(SVector(sin(3k), cos(5k), sin(7k + 1))) for k in 1:30]
     cs = Csponds(as, [R * a for a in as])
@@ -30,7 +31,8 @@ end
     using StableRNGs: StableRNG
     using VisualGeometryToolkitCore: Csponds, withattrs, estimate, retcode, kabsch, HuberShape, WelschShape, TLSShape,
         weight, angle_between, efficiency_constant
-    using VisualGeometryToolkitEstimation: fit_rotation, Irls
+    using VisualGeometryToolkitEstimation: fit_rotation
+    using VisualGeometryToolkitCore: Irls
     rng = StableRNG(7)
     R = RotMatrix(RotXYZ(0.2, 0.3, -0.5))
     n = 200

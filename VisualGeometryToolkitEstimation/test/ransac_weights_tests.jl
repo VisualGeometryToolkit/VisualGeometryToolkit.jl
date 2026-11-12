@@ -10,8 +10,8 @@
     using VisualGeometryToolkitCore: csponds, estimate, converged, rms, weights, metadata, MsacScoring, RansacScoring,
         inlier_mask, weight_kind, noise_scale, scale_source, BinaryWeights, ScaleEstimated, ScaleNone
     using VisualGeometryToolkitCore: TLSShape
-    using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, HomographyProblem, inlier_ratio,
-        find_homography, locally_optimize, Irls
+    using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, HomographyProblem, inlier_ratio, find_homography, locally_optimize
+    using VisualGeometryToolkitCore: Irls
 
     src, dst = homography_pairs(StableRNG(5), H_TRUE; n_in = 100, n_out = 30, σ = 0.5)
     cs = csponds(src, dst)

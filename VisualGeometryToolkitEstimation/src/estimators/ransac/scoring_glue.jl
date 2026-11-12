@@ -182,7 +182,7 @@ current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² 
 """
     LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss)
 
-Frozen-scale plain-IRLS likelihood adapter for [`Irls{K}`](@ref Irls): ONE
+Frozen-scale plain-IRLS likelihood adapter for [`Irls{K}`](@extref VisualGeometryToolkitCore.Irls): ONE
 weight policy generic over the loss, replacing the former per-loss
 Welsch/Geman–McClure/Huber/L2 quadruplet whose bodies differed only in the
 weight formula — which is exactly `VisualGeometryToolkitCore.weight` on the shape.  Reuses

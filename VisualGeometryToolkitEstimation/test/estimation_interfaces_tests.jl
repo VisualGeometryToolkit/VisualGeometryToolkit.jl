@@ -86,7 +86,7 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
     # the fresh set's scale is what the score hands a consensus-anchored
     # strategy — through the owner, VGC's `loss_at` (here via `lo_loss`)
     cs = fresh()
-    @test scale_s2(VgtkEstimation.lo_loss(Irls{WelschShape}(efficiency_constant = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
+    @test scale_s2(VgtkCore.lo_loss(Irls{WelschShape}(efficiency_constant = 1.0), cs, scoring, buf)) == max(scale_s2(cs), eps())
 end
 
 @testset "weight-policy verbs available per adapter" begin
@@ -155,8 +155,8 @@ end
     @testset "with_width sets the width mode and preserves every other field" begin
         RVGK = VisualGeometryToolkitEstimation
         strategies = Any[
-            RVGK.Irls{WelschShape}(efficiency_constant = 1.5),                                   # parametric
-            RVGK.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463, max_iter = 7),   # decision_width(GM, 1.25): the retired half-weight currency's 1.25
+            VgtkCore.Irls{WelschShape}(efficiency_constant = 1.5),                                   # parametric
+            VgtkCore.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463, max_iter = 7),   # decision_width(GM, 1.25): the retired half-weight currency's 1.25
         ]   # the moved strategies' constructor shapes: LocalOptimizationDoneRight's suite
         for lo in strategies
             @test lo_width(lo) isa EfficiencyConstant
@@ -200,7 +200,7 @@ end
     @test inlier_count(cs) == 45                                   # the planted inliers, no outliers
     @test is_fresh(cs, buf.epoch)
     # a TLS strategy that follows the scorer deploys TLS at the scorer's threshold
-    @test sq_loss_width(VgtkEstimation.lo_loss(Irls{VgtkCore.TLSShape}(), cs, scoring, buf)) == 9.0
+    @test sq_loss_width(VgtkCore.lo_loss(Irls{VgtkCore.TLSShape}(), cs, scoring, buf)) == 9.0
 end
 
 end

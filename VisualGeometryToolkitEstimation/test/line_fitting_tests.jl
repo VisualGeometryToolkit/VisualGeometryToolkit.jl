@@ -60,7 +60,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         @test model_type(prob) === Line2D{Float64}
 
         # `refine!` (θ unread) over all-inlier weights recovers the generating line.
-        line = VgtkEstimation.refine!(nothing, prob, nothing, ones(40))
+        line = VgtkCore.refine!(nothing, prob, nothing, ones(40))
         @test line !== nothing
         for p in pts
             @test abs(signed_distance(line, p)) < 0.2
@@ -74,21 +74,21 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         end
         prob2 = LineFittingProblem(pts2)
         w = [i <= 20 ? 1.0 : 0.0 for i in 1:40]
-        line2 = VgtkEstimation.refine!(nothing, prob2, nothing, w)
+        line2 = VgtkCore.refine!(nothing, prob2, nothing, w)
         @test line2 !== nothing
         for i in 1:20
             @test abs(signed_distance(line2, pts2[i])) < 0.2
         end
 
         # Fewer than 3 surviving weights is a `nothing`, not a throw.
-        @test VgtkEstimation.refine!(nothing, prob, nothing, [i <= 2 ? 1.0 : 0.0 for i in 1:40]) === nothing
+        @test VgtkCore.refine!(nothing, prob, nothing, [i <= 2 ? 1.0 : 0.0 for i in 1:40]) === nothing
 
         # SOFT weights are weights, not a mask: a point at weight 1e-6 barely
         # moves the line. As a mask it would pull it by 0.5·3/60 = 0.025.
         pts3 = [Point2{Float64}(Float64(i), 0.0) for i in 0:56]
         append!(pts3, [Point2{Float64}(Float64(x), 0.5) for x in (10, 30, 50)])
         w3 = [i <= 57 ? 1.0 : 1.0e-6 for i in 1:60]
-        line3 = VgtkEstimation.refine!(nothing, LineFittingProblem(pts3), nothing, w3)
+        line3 = VgtkCore.refine!(nothing, LineFittingProblem(pts3), nothing, w3)
         @test abs(signed_distance(line3, Point2(0.0, 0.0))) < 1.0e-4
         @test abs(signed_distance(line3, Point2(56.0, 0.0))) < 1.0e-4
     end

@@ -1,4 +1,5 @@
 @testitem "config_toml" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: Irls, Triggs
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -67,7 +68,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             sprint(showerror, e)
         end
         @test occursin("LocalOptimizationDoneRight", msg)
-        @test occursin("LocalOptimizationDoneRight.STRATEGY_TAGS", msg)   # its registry's name since LODR 0.9
+        @test occursin("LocalOptimizationDoneRight.LODR_STRATEGY_TAGS", msg)   # its registry's name since LODR 0.9
         @test_throws ArgumentError lo_from("welsch", "not_a_number")
 
         # A LITERAL efficiency constant claims no provenance, so any shape may take one.
@@ -105,7 +106,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         # in the file, for EVERY arm that takes one.
         # The terminal placement's `inner` is a strategy, never a file default.
         required = Dict("irls" => (:efficiency_constant,), "terminal_lo" => (:inner,))
-        lo_table(tag) = get(VgtkEstimation.lo_defaults(tag == "none" ? VgtkEstimation.TerminalLO : LO_TAGS[tag]), tag, Dict{String, Any}())
+        lo_table(tag) = get(VgtkCore.lo_defaults(tag == "none" ? VgtkEstimation.TerminalLO : LO_TAGS[tag]), tag, Dict{String, Any}())
         for (tag, T) in LO_TAGS
             T === nothing && continue   # "none": no local optimization
             tbl = lo_table(tag)
@@ -206,7 +207,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             for (tag, T) in LO_TAGS
                 T === nothing && continue   # "none": no local optimization
                 takes_efficiency_constant = hasfield(T, :width) || hasfield(T, :efficiency_constant)
-                takes_loss = VgtkEstimation.lo_parametric(T)
+                takes_loss = VgtkCore.lo_parametric(T)
                 # the minimal table for this tag: only the keys it actually takes
                 tbl = Dict{String, Any}("type" => tag)
                 takes_loss && (tbl["loss"] = "welsch")

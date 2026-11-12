@@ -16,8 +16,8 @@ using Statistics: median
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: center, estimate, radial_rows   # VGC accessors (public)
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RadialCameraProblem, find_radial_camera,
-    solve, refine!, mahalanobis_distances!, data_size, codimension
+using VisualGeometryToolkitEstimation: RadialCameraProblem, find_radial_camera, solve, mahalanobis_distances!, data_size, codimension
+using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialCamera, radial_camera_5pt,
     constraint_with_jacobians
 using VisualGeometryToolkitCore.Synthetic: projective_distance
@@ -83,7 +83,8 @@ end
 # distortion. (The partition-anchored Welsch-HQ lift on this chart, the old
 # default, is LocalOptimizationDoneRight's test.)
 @testset "radial camera (chart rows)" begin
-    using VisualGeometryToolkitEstimation: Irls, TLSShape, MinimalSolveProblem, ManifoldLiftProvider
+    using VisualGeometryToolkitEstimation: TLSShape, MinimalSolveProblem, ManifoldLiftProvider
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
         lift_model, lift_residuals
     rng = StableRNG(11)

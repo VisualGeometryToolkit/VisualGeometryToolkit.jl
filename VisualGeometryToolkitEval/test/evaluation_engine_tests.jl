@@ -44,8 +44,8 @@
     using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, sample_starts, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
         tuning_table, EfficiencyConstantWindow, PairUnit
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, Irls, EssentialProblem, FundMatProblem,
-        HomographyProblem, RelposeBundleProblem, fixed_width
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem
+    using VisualGeometryToolkitCore: Irls, fixed_width
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: AbstractScoring, AbstractOptimizationStrategy, ExternalRefit, NativeRefit, RefitFamily,
         MsacScoring, TLSShape, EfficiencyConstant, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,

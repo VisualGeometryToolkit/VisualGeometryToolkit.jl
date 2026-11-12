@@ -12,7 +12,8 @@ using VisualGeometryToolkitCore: Csponds, csponds, exact
 using VisualGeometryToolkitCore: homography_4pt   # the positional minimal kernel (public, not exported)
 using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitEstimation: UniformSampler, refine!, inlier_ratio, sampler   # public, not exported
+using VisualGeometryToolkitEstimation: UniformSampler, inlier_ratio, sampler
+using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitEstimation
 using Rotations: RotMatrix, RotX, RotZ
 using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_type,
@@ -276,13 +277,13 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # the loss identity and the fixed-width control are the inner's
         for lo in (inner, Irls{GemanMcclureShape}(efficiency_constant = 2.0))
             c = VgtkEstimation.CountedLO(lo)
-            @test VgtkEstimation.strategy_loss(c) === VgtkEstimation.strategy_loss(lo)
-            @test VgtkEstimation.fixed_width(c, 4.0) == VgtkEstimation.fixed_width(lo, 4.0)
-            @test VgtkCore.with_width(c, VgtkEstimation.fixed_width(c, 4.0)).inner ==
-                VgtkCore.with_width(lo, VgtkEstimation.fixed_width(lo, 4.0))
+            @test VgtkCore.strategy_loss(c) === VgtkCore.strategy_loss(lo)
+            @test VgtkCore.fixed_width(c, 4.0) == VgtkCore.fixed_width(lo, 4.0)
+            @test VgtkCore.with_width(c, VgtkCore.fixed_width(c, 4.0)).inner ==
+                VgtkCore.with_width(lo, VgtkCore.fixed_width(lo, 4.0))
             t = VgtkEstimation.TerminalLO(lo)
-            @test VgtkEstimation.strategy_loss(t) === VgtkEstimation.strategy_loss(lo)
-            @test VgtkEstimation.fixed_width(VgtkEstimation.CountedLO(t), 4.0) == VgtkEstimation.fixed_width(lo, 4.0)
+            @test VgtkCore.strategy_loss(t) === VgtkCore.strategy_loss(lo)
+            @test VgtkCore.fixed_width(VgtkEstimation.CountedLO(t), 4.0) == VgtkCore.fixed_width(lo, 4.0)
         end
     end
 
@@ -385,7 +386,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test VgtkCore.lo_marker(t) == VgtkCore.lo_marker(inner)
         @test VgtkCore.with_width(t, VgtkCore.LossWidth(2.0)) ==
             VgtkEstimation.TerminalLO(VgtkCore.with_width(inner, VgtkCore.LossWidth(2.0)))
-        @test VgtkEstimation.fixed_width(t, 4.0) == VgtkEstimation.fixed_width(inner, 4.0)
+        @test VgtkCore.fixed_width(t, 4.0) == VgtkCore.fixed_width(inner, 4.0)
         # A seeded refine has no race: it runs the inner strategy.
         @test estimate(locally_optimize(problem, estimate(r0); local_optimization_strategy = t, scoring = sc)) ==
             estimate(seeded)

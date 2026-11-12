@@ -68,7 +68,7 @@ default expression calls. A default that is not in the file throws BY DESIGN.
   `"none"` (`nothing`), `"irls"`, `"triggs"` and `"terminal_lo"` (`TerminalLO`, the
   terminal placement: `{ type = "terminal_lo", inner = { … } }`); LocalOptimizationDoneRight's
   strategies load through an explicit merge,
-  `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`,
+  `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`,
   which also resolves `efficiency_constant = "cross_validated"` (the core refuses
   it, naming the merge). A loss the mechanism cannot run (a Barron shape
   without its α) is refused at load.

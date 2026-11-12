@@ -278,8 +278,8 @@ end
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape,
         noise_scale, scale_source, weight_kind, weights, ScaleGiven, ScaleNone, ScaleUpstream, IrlsWeights, BinaryWeights,
         efficiency_constant, metadata
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, optimization_strategy_from_toml,
-        config_dict, CameraPosesRefineMetadata
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, optimization_strategy_from_toml, config_dict, CameraPosesRefineMetadata
+    using VisualGeometryToolkitCore: Irls, Triggs
     using VisualGeometryToolkitCore: EuclideanMap, exp_so3
     using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)

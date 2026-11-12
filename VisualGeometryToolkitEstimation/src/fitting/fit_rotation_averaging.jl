@@ -87,7 +87,7 @@ fixed by the caller's scale input.
 - The edge weights: a zero weight drops its edge. The edges of positive weight
   must connect every frame (an `ArgumentError` otherwise — a zero-weight bridge
   splits the graph), and all-zero weights are refused.
-- `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss,
+- `optimization_strategy` — the robust weighting, an [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` strategy (its loss,
   its efficiency constant and its `max_iter`; default configs/default.toml
   `[fit_rotation_averaging] optimization_strategy`, Huber), or `nothing` for the plain least
   squares: the same Lie-algebra iterations from the seed at unit loss weights (no robust loss), at most

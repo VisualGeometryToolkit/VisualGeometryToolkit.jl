@@ -159,7 +159,8 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: csponds, estimate, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
         noise_scale, scale_source, ScaleUpstream, ScaleGiven, ScaleNone, ScaleEstimated
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, fit_rotation_averaging, Irls
+    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, fit_rotation_averaging
+    using VisualGeometryToolkitCore: Irls
     using StableRNGs: StableRNG
 
     cam = edge_camera()
@@ -215,7 +216,8 @@ end
     using Rotations: RotMatrix, RotationVec, QuatRotation, rotation_angle
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: Attributed, Uncertain, CovMat, estimate, HuberShape, retract_jacobian, SO3Manifold, propagate
-    using VisualGeometryToolkitEstimation: fit_rotation_averaging, Irls
+    using VisualGeometryToolkitEstimation: fit_rotation_averaging
+    using VisualGeometryToolkitCore: Irls
 
     n = 7
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 2)]

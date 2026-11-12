@@ -1,4 +1,5 @@
 @testitem "radial_homography" setup = [RadialScenes] begin
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -15,8 +16,8 @@ using StaticArrays, LinearAlgebra, Random
 using VisualGeometryToolkitCore: center, converged, division_coeff, estimate, homography   # VGC accessors (public)
 using VisualGeometryToolkitCore: is_map_inlier   # the posterior MAP inlier rule
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RadialHomographyProblem, find_radial_homography,
-    solve, refine!, mahalanobis_distances!, data_size
+using VisualGeometryToolkitEstimation: RadialHomographyProblem, find_radial_homography, solve, mahalanobis_distances!, data_size
+using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, radial_transfer, backproject, WelschShape,
     HomographyMat, unit_normalize
 using VisualGeometryToolkitCore.Synthetic: projective_distance

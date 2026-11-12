@@ -28,7 +28,7 @@
     RefineMetadata{L, T, W}
 
 The metadata of every RANSAC-class `refine_*` (`FitResult{M, RefineMetadata}`),
-read through the accessors — [`weights`](@ref), [`weight_kind`](@ref),
+read through the accessors — [`weights`](@extref VisualGeometryToolkitCore.weights), [`weight_kind`](@extref VisualGeometryToolkitCore.weight_kind),
 [`noise_scale`](@extref VisualGeometryToolkitCore.noise_scale),
 [`scale_source`](@extref VisualGeometryToolkitCore.scale_source) — or as
 properties of the result:

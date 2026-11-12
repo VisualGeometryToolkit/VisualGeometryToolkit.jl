@@ -18,7 +18,7 @@ declared `public`): `init_state!`, `update_model!`, `update_residuals!`,
 the `block_coordinate_descent!` loop through this interface, and a new one does the same.
 
 The RANSAC LO refinement uses the loop via [`PosteriorIrlsMethod`](@ref)
-(the iteration of [`Irls`](@ref), [`posterior_irls!`](@ref); downstream,
+(the iteration of [`Irls`](@extref VisualGeometryToolkitCore.Irls), [`posterior_irls!`](@ref); downstream,
 LocalOptimizationDoneRight's Student-t + uniform IRLS). Its model block is a bound, named update —
 [`WeightedRefine`](@ref) (the problem's weighted `refine!`, the default) or
 [`KeepModel`](@ref) (the model held: EM of the noise model on fixed residuals,

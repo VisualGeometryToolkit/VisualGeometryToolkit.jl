@@ -61,7 +61,7 @@ takes neither. The loss width is the strategy's efficiency constant times the
 scale — Core's `efficiency_constant(Shape, d)` at the problem's codimension
 unless the strategy states one (TLS has none: state one, or give a width).
 
-The result is a `FitResult` with [`RefineMetadata`](@ref): the refined model,
+The result is a `FitResult` with [`RefineMetadata`](@ref VisualGeometryToolkitEstimation.RefineMetadata): the refined model,
 the per-datum `weights` (the loss's ρ′; all ones under least squares) and
 `residuals` at it, and the scale record (`noise_scale`, `scale_source`,
 `loss_width`). `n` is the weights' support and `rms` the weighted one. There is
@@ -70,7 +70,7 @@ states one).
 
 The RANSAC-family seeded refine — a scorer, its consensus set, the strategy
 anchored on it, the consensus test on the result — is
-[`locally_optimize`](@ref)`(problem, θ₀; scoring, local_optimization)`, with
+[`locally_optimize`](@ref)`(problem, θ₀; scoring, local_optimization_strategy)`, with
 any strategy the problem hosts (and `BoundedProblem` for an extent check).
 
 One `refine_*` has no `find_*`: `refine_absolute_pose(pose, bearings)` on a

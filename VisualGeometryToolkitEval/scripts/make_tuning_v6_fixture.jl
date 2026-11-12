@@ -22,7 +22,7 @@ import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitEval
 using VisualGeometryToolkitEval.Evaluation: ComposedSpec
 using VisualGeometryToolkitCore: OutlierHalfwidth, TLSShape, GemanMcclureShape, WelschShape, CauchyShape
-using VisualGeometryToolkitEstimation: Irls
+using VisualGeometryToolkitCore: Irls
 
 const OLD = "scale" * "_multiple"                                     # the v6 name of the efficiency constant
 const OLD_AXIS = getfield(VgtkCore, Symbol("Scale" * "Multiple"))()   # its width axis

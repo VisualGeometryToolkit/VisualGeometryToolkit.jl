@@ -187,8 +187,8 @@ end
     using Rotations: RotMatrix
     using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Csponds, csponds, HomographyMat, Extrinsics3, Vec3,
         TLSShape
-    using VisualGeometryToolkitEstimation: Irls, find_homography, refine_homography, find_circle, refine_circle,
-        find_absolute_pose, refine_absolute_pose
+    using VisualGeometryToolkitEstimation: find_homography, refine_homography, find_circle, refine_circle, find_absolute_pose, refine_absolute_pose
+    using VisualGeometryToolkitCore: Irls
 
     caught(f) = try f(); nothing catch e; e end
     # the same refusal: the same exception type and, for an ArgumentError, the same message

@@ -119,13 +119,13 @@ import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, m
     locally_optimize!, lo_workspace, lo_width
 # The core optimization strategies and the strategy registry machinery are
 # VisualGeometryToolkitCore's (robust/strategies.jl, A2); this package registers its
-# own (TerminalLO) with the same macro and re-publishes the machinery for its
-# downstream users.
-using VisualGeometryToolkitCore: Irls, Triggs, LOSS_TAGS, STRATEGY_TAGS, lo_loss, fixed_width,
-    lo_width_value, lo_admits_shape, lo_construct, lo_has_default, lo_takes_width, @lo_registry
+# own (TerminalLO) with the same macro and uses the rest internally (it
+# re-publishes none of them: callers reach them through VisualGeometryToolkitCore).
+using VisualGeometryToolkitCore: Irls, Triggs, LOSS_TAGS, STRATEGY_TAGS, lo_loss,
+    lo_construct, lo_has_default, lo_takes_width, @lo_registry
 # the registry hooks `@lo_registry` and this package's strategies add methods to: imported
-import VisualGeometryToolkitCore: strategy_loss, lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field,
-    lo_field_from_toml, lo_absent, lo_validate, lo_efficiency_constant_shape
+import VisualGeometryToolkitCore: strategy_loss, lo_tag, lo_defaults, lo_parametric,
+    lo_field_from_toml, lo_efficiency_constant_shape
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
@@ -305,9 +305,9 @@ export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
 
 # -----------------------------------------------------------------------------
-# 4. LOCAL-OPTIMIZATION strategies a user picks
+# 4. LOCAL-OPTIMIZATION: the core strategies Irls and Triggs are VisualGeometryToolkitCore's
+# (exported there); this package publishes its own wrappers and instrumentation
 # -----------------------------------------------------------------------------
-export Irls, Triggs
 public synthetic_scenes   # the shared synthetic test scenes (the Test extension): every stack package's tests draw from them
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
@@ -325,10 +325,11 @@ public unbiased_median_variance, with_residual_unit
 public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it; its normalization is Core's penalty_scale, mean_positive_eigenvalue)
 # Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
-# PoseLib has its own), `refine!` the LO refit an extender implements.
+# PoseLib has its own). The LO refit an extender implements, `refine!`, is
+# VisualGeometryToolkitCore's.
 public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
-    refine!, fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
+    fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
 # measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).
 public draw_hypotheses, Hypotheses, PoolVariance, InlierVariance, TrackVariance
@@ -340,7 +341,7 @@ public DltWorkspace, RansacWorkspace, RansacResultBuffers, LoBuffers
 # The result's metadata, the lean LO result, and posterior helpers. The last two
 # have a documented downstream consumer (LocalOptimizationDoneRight).
 public RansacMetadata, inlier_ratio, PosteriorLikelihood, LossPlainWeights,
-    consensus_s2!, fixed_width
+    consensus_s2!
 # The posterior-weight iteration a caller can drive outside RANSAC: its method,
 # state and model updates, and the EM spec of `fit_residual_mixture` (its TOML
 # loader and tag tables), with that fit's metadata.
@@ -349,13 +350,10 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
     StopWhenNoImprovement, iterations_without_improvement,
     MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata,
     NoImprovementStop, ParameterChangeStop, StopWhenParameterChangeLess, change_parameters, STOP_TAGS
-# The local-optimization extension point: a strategy adds a `locally_optimize!`
-# method (downstream: LocalOptimizationDoneRight); a loss-parametric strategy
-# names its loss (`strategy_loss`) and deploys it through `lo_loss`, its
-# `efficiency_constant` the plain multiple whatever the shape; the
-# chart problems' rows provider and the problem family a lift runs on.
-public lo_loss, strategy_loss, lo_width_value,
-    ManifoldLiftProvider, LiftableProblem
+# The chart problems' rows provider and the problem family a lift runs on. (The
+# local-optimization extension point — `locally_optimize!`, `strategy_loss`,
+# `lo_loss` — is VisualGeometryToolkitCore's.)
+public ManifoldLiftProvider, LiftableProblem
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
@@ -365,16 +363,13 @@ public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidA
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS,
-    LOSS_TAGS
-# The strategy machinery every package registers its strategies with,
-# re-published from VisualGeometryToolkitCore (whose CONTRACT_GENERICS hold the
-# registry hooks): the registry macro, the keyword constructor, the shared shape
-# admission and the hooks; this package's own are the generic writer and the
-# TOML reader's hooks (CONTRACT_GENERICS below).
-public @lo_registry, lo_construct, lo_config_dict, lo_admits_shape,
-    lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent,
-    lo_validate, lo_concrete, lo_efficiency_constant_shape, lo_resolve_efficiency_constant
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS
+# The strategy machinery every package registers its strategies with — the
+# registry macro `@lo_registry`, `lo_construct`, `LOSS_TAGS` and the registry
+# hooks — is VisualGeometryToolkitCore's (its CONTRACT_GENERICS); a name is
+# published only by the package that owns it. This package's own are the
+# generic writer and the TOML reader's hooks (CONTRACT_GENERICS below).
+public lo_config_dict, lo_concrete, lo_resolve_efficiency_constant
 
 
 # =============================================================================

@@ -27,7 +27,7 @@ RANSAC on the [`EllipseProblem`](@ref): 5-point samples (VisualGeometryToolkitCo
 `Ellipse5pt`, the conic through them when it is an ellipse), MSAC scoring of the
 Sampson distance of `(x − c)ᵀ Q (x − c) − 1` — the geometric distance to the
 ellipse to first order — and, as local optimization, the robustified LM
-([`Triggs`](@ref)) on the centre and log shape of the points' ORTHOGONAL
+([`Triggs`](@extref VisualGeometryToolkitCore.Triggs)) on the centre and log shape of the points' ORTHOGONAL
 distances to the ellipse (the problem's refit rows): one Levenberg–Marquardt
 solve from the hypothesis over all the points under the Welsch loss at
 `efficiency_constant·ŝ`, ŝ the Student-t scale of the hypothesis's Sampson errors.

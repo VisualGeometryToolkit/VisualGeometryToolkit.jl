@@ -17,7 +17,7 @@ Robust estimation of a 2D circle through points (a contour, edge points) by
 RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCore's
 `Circle3pt`, the circumcircle), MSAC scoring of the Sampson distance of
 `‖x − c‖² − r²` — the geometric distance to the circle to first order — and,
-as local optimization, the robustified LM ([`Triggs`](@ref)) on the centre
+as local optimization, the robustified LM ([`Triggs`](@extref VisualGeometryToolkitCore.Triggs)) on the centre
 and log radius: one Levenberg–Marquardt solve from the hypothesis over all the
 points under the Welsch loss at `efficiency_constant·ŝ`, ŝ the Student-t scale of the
 hypothesis's Sampson errors. Every default

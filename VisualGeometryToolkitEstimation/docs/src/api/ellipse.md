@@ -18,7 +18,7 @@ the maximum-likelihood objective under isotropic Gaussian noise on the points,
 which the Sampson distance approximates only to first order (on a
 high-curvature ellipse the Sampson least squares is measurably the worse
 estimator). `find_ellipse` is its RANSAC, with the robustified LM
-([`Triggs`](@ref)) as its local optimization; `refine_ellipse` refines a given
+([`Triggs`](@extref VisualGeometryToolkitCore.Triggs)) as its local optimization; `refine_ellipse` refines a given
 ellipse — with `optimization_strategy = nothing`, the orthogonal-distance least
 squares, its covariance `s²·solver_covariance(problem, e, eachindex(points))`.
 

@@ -4,7 +4,8 @@
 
 @testitem "fit_rotation_averaging: exact, robust, gauged" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
-    using VisualGeometryToolkitEstimation: fit_rotation_averaging, _averaging_columns, Irls
+    using VisualGeometryToolkitEstimation: fit_rotation_averaging, _averaging_columns
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: estimate, converged, rms, spectral_rotation_averaging, CauchyShape, TLSShape, Attributed
 
     rng = Xoshiro(17)

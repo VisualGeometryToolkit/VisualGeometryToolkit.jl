@@ -65,7 +65,7 @@ end
 
 @testitem "fit contract: the scale input, refusals" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: Irls, Triggs
+    using VisualGeometryToolkitCore: Irls, Triggs
     using VisualGeometryToolkitCore: HuberShape, WelschShape, GaussianShape, TLSShape
     for (name, _, fit) in CONTRACT_FITS
         @testset "$name" begin
@@ -98,8 +98,8 @@ end
 
 @testitem "fit contract: the scale record, the width rule, the weights and their kind" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: Irls, LinearFitMetadata, RotationFitMetadata, RigidAlignmentMetadata,
-        RotationAveragingMetadata
+    using VisualGeometryToolkitEstimation: LinearFitMetadata, RotationFitMetadata, RigidAlignmentMetadata, RotationAveragingMetadata
+    using VisualGeometryToolkitCore: Irls
     # each metadata through its outer constructor (the strategy type given, the weights' type inferred)
     _remade(m::LinearFitMetadata{L}) where {L} = LinearFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
     _remade(m::RotationFitMetadata{L}) where {L} = RotationFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
@@ -161,7 +161,8 @@ end
 
 @testitem "fit_rigid_alignment: 5 gross outliers move the L2 alignment, not the robust one" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: fit_rigid_alignment, Irls
+    using VisualGeometryToolkitEstimation: fit_rigid_alignment
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: HuberShape, WelschShape, weights, withattrs, retcode
     # a walk of 150 camera centres (5 mm noise per axis, metres) and five
     # centres a registration placed 0.9–2.4 m wrong (icra2026 failure B)
@@ -202,7 +203,8 @@ end
 @testitem "fit_robot_world_hand_eye: a robust fit through gross observations" setup = [FitContractScenes, PoseScenes] begin
     using Test
     using StableRNGs
-    using VisualGeometryToolkitEstimation: fit_robot_world_hand_eye, Irls, Triggs
+    using VisualGeometryToolkitEstimation: fit_robot_world_hand_eye
+    using VisualGeometryToolkitCore: Irls, Triggs
     using VisualGeometryToolkitCore: HuberShape, WelschShape, log_so3, weights, weight_kind, noise_scale, scale_source,
         IrlsWeights, BinaryWeights, ScaleGiven, ScaleNone, retcode
     rng = StableRNG(21)
@@ -250,7 +252,8 @@ end
 
 @testitem "fit contract: the default strategy is the TOML table's (shape and max_iter)" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: Irls, optimization_strategy_from_toml, _dflt
+    using VisualGeometryToolkitEstimation: optimization_strategy_from_toml, _dflt
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: HuberShape
     for (name, _, fit) in CONTRACT_FITS
         name in (:fit_rigid_alignment, :fit_robot_world_hand_eye) && continue   # their default is least squares (no table strategy)

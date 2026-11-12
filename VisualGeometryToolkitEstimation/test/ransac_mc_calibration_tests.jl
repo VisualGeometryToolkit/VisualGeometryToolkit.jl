@@ -63,8 +63,8 @@ using VisualGeometryToolkitCore.Synthetic: sample_homography_scene, sample_twovi
     run_calibration, is_calibrated, run_containment, containment_nominal,
     fundmat_norm_xform, F_NORM_SCALE   # VGC's MC calibration harness (public)
 using VisualGeometryToolkitCore: solver_covariance   # the constraint-problem contract (VGC)
-using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem,
-    AbsolutePoseProblem, HandEyeProblem, refine!, board_sq_residuals
+using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, HandEyeProblem, board_sq_residuals
+using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitCore: CameraModel, px
 const VgtkEstimation = VisualGeometryToolkitEstimation
 

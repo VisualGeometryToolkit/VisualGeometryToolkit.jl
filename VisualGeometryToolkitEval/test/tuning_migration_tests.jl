@@ -12,7 +12,7 @@
     import VisualGeometryToolkitEval as VgtkEval
     using VisualGeometryToolkitEval.Tuning: load_tuning_artifact, tuning_hash, EfficiencyConstantWindow
     using VisualGeometryToolkitEval.Evaluation: ComposedSpec, Roster, SoloSpec, deployed_budget_settings, tuned_width
-    using VisualGeometryToolkitEstimation: Irls
+    using VisualGeometryToolkitCore: Irls
 
     F = VgtkEval.engine_fixtures()
     dir = joinpath(@__DIR__, "data", "tuning_v6")

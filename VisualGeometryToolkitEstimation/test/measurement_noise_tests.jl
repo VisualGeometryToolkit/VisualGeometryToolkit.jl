@@ -17,7 +17,8 @@
         source_map, destination_map, sampson_distance, mahalanobis_distance, mahalanobis_distances!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
-    using VisualGeometryToolkitEstimation: Irls, locally_optimize, RadialHomographyProblem
+    using VisualGeometryToolkitEstimation: locally_optimize, RadialHomographyProblem
+    using VisualGeometryToolkitCore: Irls
 
     rng = StableRNG(5)
     H = HomographyMat(PosedCamera(CameraModel(; focal = 800.0, pp = (320.0, 240.0)), EuclideanMap(RotMatrix(RotX(0.25)), SA[-0.025, -0.025, 0.3])))

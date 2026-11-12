@@ -59,7 +59,7 @@ weighted Kabsch of the centred points (VisualGeometryToolkitCore's
 centroids) — iterating, when robust, a reweighted Kabsch at ONE loss width.
 
 - `optimization_strategy` — `nothing` (the default: the classical
-  least-squares alignment, one solve), or an [`Irls`](@ref)`{K}` strategy
+  least-squares alignment, one solve), or an [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` strategy
   (its loss, its efficiency constant and its `max_iter`). A Triggs strategy is
   refused.
 - `scale` | `width` — with an `Irls` strategy, EXACTLY ONE of: `scale = σ`

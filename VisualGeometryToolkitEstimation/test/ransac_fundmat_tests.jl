@@ -13,7 +13,8 @@ using VisualGeometryToolkitCore: csponds
 using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
 using VisualGeometryToolkitCore: mahalanobis_distances!   # the constraint-problem contract (VGC)
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitEstimation: refine!, inlier_ratio   # public, not exported
+using VisualGeometryToolkitEstimation: inlier_ratio
+using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_type
 

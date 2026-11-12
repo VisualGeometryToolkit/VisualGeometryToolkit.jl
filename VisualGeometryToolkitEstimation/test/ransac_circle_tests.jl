@@ -5,6 +5,7 @@
 # keyword set shared with the other `find_*` pipelines.
 
 @testitem "CircleProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays
     import ForwardDiff
     using VisualGeometryToolkitCore: Point2, Circle, residual_rows!, residual_jacobian_rows!, whitened_residuals!
@@ -47,10 +48,10 @@
     @test J ≈ ForwardDiff.jacobian(rows, Vector(a0)) rtol = 1.0e-8
     # the chart-LM refit (refine!) from a perturbed circle lands at the noise floor
     ws = VgtkEstimation.refine_workspace(typeof(pp), 100)
-    c₁ = VgtkEstimation.refine!(ws, pp, c₀, ones(100))
+    c₁ = VgtkCore.refine!(ws, pp, c₀, ones(100))
     @test c₁ isa Circle{Float64}
     @test norm(centre(c₁) - C₀) < 0.3 && abs(c₁.r - R₀) < 0.3            # σ = 1 px on 100 points: σ/√50 ≈ 0.14 px
-    refit_allocs(ws, p, θ, w) = (VgtkEstimation.refine!(ws, p, θ, w); @allocated VgtkEstimation.refine!(ws, p, θ, w))
+    refit_allocs(ws, p, θ, w) = (VgtkCore.refine!(ws, p, θ, w); @allocated VgtkCore.refine!(ws, p, θ, w))
     @test refit_allocs(ws, pp, c₀, ones(100)) == 0
 end
 

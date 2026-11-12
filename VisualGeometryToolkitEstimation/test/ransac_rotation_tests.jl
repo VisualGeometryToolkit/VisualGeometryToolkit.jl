@@ -81,6 +81,7 @@ end
 end
 
 @testitem "RotationProblem: chart rows against ForwardDiff; the refit lowers the Sampson cost" setup = [RotationScene] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
         withattrs, sources, targets, estimate, converged, angle_between
@@ -104,11 +105,11 @@ end
     # the chart-LM refit (refine!) from the kabsch start lowers the Sampson cost
     cost(Rx) = (r = zeros(n); VgtkEstimation.mahalanobis_distances!(r, p, Rx); sum(abs2, r))
     ws = VgtkEstimation.refine_workspace(typeof(p), n)
-    R1 = VgtkEstimation.refine!(ws, p, R0, ones(n))
+    R1 = VgtkCore.refine!(ws, p, R0, ones(n))
     @test R1 isa RotMatrix
     @test cost(R1) < cost(R0)
     @test Rotations.rotation_angle(RotMatrix{3}(R1' * R)) < 3.0e-3                  # at the noise floor (1 px on 200 pairs)
-    refit_allocs(ws, p, R0, w) = (VgtkEstimation.refine!(ws, p, R0, w); @allocated VgtkEstimation.refine!(ws, p, R0, w))
+    refit_allocs(ws, p, R0, w) = (VgtkCore.refine!(ws, p, R0, w); @allocated VgtkCore.refine!(ws, p, R0, w))
     @test refit_allocs(ws, p, R0, ones(n)) == 0   # allocation-free: the refit's buffers are the workspace's and the task's
 end
 

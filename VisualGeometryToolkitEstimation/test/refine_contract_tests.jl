@@ -11,8 +11,8 @@
     using VisualGeometryToolkitCore: Circle, Point2, HomographyMat, estimate, retcode, iterations, weights, weight_kind,
         noise_scale, scale_source, inlier_mask, ScaleGiven, ScaleUpstream, ScaleNone, IrlsWeights, BinaryWeights,
         WelschShape, HuberShape, TLSShape, GaussianShape, efficiency_constant, MsacScoring
-    using VisualGeometryToolkitEstimation: refine_homography, refine_circle, find_homography, Triggs, Irls,
-        RefineMetadata, CircleProblem, HomographyProblem, RansacWorkspace, locally_optimize
+    using VisualGeometryToolkitEstimation: refine_homography, refine_circle, find_homography, RefineMetadata, CircleProblem, HomographyProblem, RansacWorkspace, locally_optimize
+    using VisualGeometryToolkitCore: Triggs, Irls
 
     src, dst = homography_pairs(StableRNG(11), H_PX; n_in = 120, n_out = 60, σ = 0.3, source = gaussian_source,
                                 target = rng -> randn(rng, 2) .* 400 .+ 300)
@@ -170,9 +170,8 @@ end
     using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Csponds, csponds, HomographyMat, FundMat,
         EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, EuclideanMap, MsacScoring, WelschShape,
         retcode, estimate, ScaleGiven, ScaleNone, scale_source, weight_kind, IrlsWeights, BinaryWeights
-    using VisualGeometryToolkitEstimation: refine_homography, refine_fundmat, refine_essential, refine_rotation,
-        refine_circle, refine_ellipse, refine_radial_homography, refine_radial_camera, refine_absolute_pose,
-        refine_hand_eye, RefineMetadata, Triggs, Irls, HomographyProblem
+    using VisualGeometryToolkitEstimation: refine_homography, refine_fundmat, refine_essential, refine_rotation, refine_circle, refine_ellipse, refine_radial_homography, refine_radial_camera, refine_absolute_pose, refine_hand_eye, RefineMetadata, HomographyProblem
+    using VisualGeometryToolkitCore: Triggs, Irls
 
     pts, cs = few_points, few_csponds
     I3 = SMatrix{3, 3, Float64}(I)

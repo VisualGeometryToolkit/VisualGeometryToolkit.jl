@@ -1,4 +1,5 @@
 @testitem "ransac" begin
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation

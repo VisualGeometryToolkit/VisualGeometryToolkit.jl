@@ -19,9 +19,8 @@ using VisualGeometryToolkitCore: AbstractOptimizationStrategy, AbstractLossShape
     GaussianShape, BarronShape, EfficiencyConstant, LossWidth, NoScale, optimization_path, lo_label,
     loss_family, scale_interface, contract_generic_violations
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: Irls, LO_TAGS, LOSS_TAGS, @lo_registry,
-    lo_construct, lo_from_toml, lo_config_dict, config_dict, optimization_strategy_from_toml, lo_tag,
-    lo_defaults, lo_admits_shape
+using VisualGeometryToolkitEstimation: LO_TAGS, lo_from_toml, lo_config_dict, config_dict, optimization_strategy_from_toml
+using VisualGeometryToolkitCore: Irls, LOSS_TAGS, @lo_registry, lo_construct, lo_tag, lo_defaults, lo_admits_shape
 
 # --- a downstream strategy family, registered here --------------------------
 # A plain strategy with a Greek field, a width, a default read from another
@@ -38,7 +37,7 @@ struct ToyFamily{K <: AbstractLossShape, W} <: AbstractOptimizationStrategy
     width::W
 end
 ToyFamily{K}(max_iter::Integer, width::W) where {K, W} = ToyFamily{K, W}(Int(max_iter), width)
-VgtkEstimation.strategy_loss(::Type{<:ToyFamily{K}}) where {K} = K
+VgtkCore.strategy_loss(::Type{<:ToyFamily{K}}) where {K} = K
 # A wrapper family whose parameter is a strategy, named in TOML by `inner` +
 # `loss` (the shape of LocalOptimizationDoneRight's `Gnc{Irls{K}}`).
 struct ToyWrap{S <: AbstractOptimizationStrategy, W} <: AbstractOptimizationStrategy
@@ -52,7 +51,7 @@ struct ToyEcm <: AbstractOptimizationStrategy
     max_iter::Int
     efficiency_constant::Float64
 end
-VgtkEstimation.strategy_loss(::Type{<:ToyWrap{S}}) where {S} = VgtkEstimation.strategy_loss(S)
+VgtkCore.strategy_loss(::Type{<:ToyWrap{S}}) where {S} = VgtkCore.strategy_loss(S)
 
 const TOY_DEFAULTS = Dict{String, Any}(
     "toy_arm" => Dict{String, Any}("toy_iters" => 4, "mu" => 0.5),
@@ -69,8 +68,8 @@ const TOY_ROWS = (
 )
 const TOY_TAGS = @lo_registry TOY_ROWS defaults = TOY_DEFAULTS retired = ("toy" => "toy_arm",)
 
-VgtkEstimation.lo_key(::Type{<:ToyArm}, ::Val{:max_iter}) = "toy_iters"
-VgtkEstimation.lo_validate(lo::ToyArm) =
+VgtkCore.lo_key(::Type{<:ToyArm}, ::Val{:max_iter}) = "toy_iters"
+VgtkCore.lo_validate(lo::ToyArm) =
     lo.μ > 0 ? lo : throw(ArgumentError("ToyArm: μ must be positive, got $(lo.μ)"))
 VgtkEstimation.lo_resolve_efficiency_constant(::Type{<:ToyArm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
     v == "tuned" ? (class === :homography && K === WelschShape ? 3.0 : 4.0) :
@@ -78,14 +77,14 @@ VgtkEstimation.lo_resolve_efficiency_constant(::Type{<:ToyArm}, ::Type{K}, v::Ab
 VgtkEstimation.lo_resolve_efficiency_constant(::Type{<:ToyEcm}, ::Type{K}, v::AbstractString; class::Symbol) where {K} =
     v == "cross_validated" ? (class === :homography ? 2.5 : 3.5) :
     throw(ArgumentError("toy_ecm: efficiency_constant must be a number or \"cross_validated\", got $(repr(v))"))
-VgtkEstimation.lo_admits(::Type{<:ToyFamily}, ::Type{K}) where {K} =
+VgtkCore.lo_admits(::Type{<:ToyFamily}, ::Type{K}) where {K} =
     K === GaussianShape ? throw(ArgumentError("ToyFamily{GaussianShape}: no")) : lo_admits_shape(ToyFamily{K}, K)
 
 # The wrapper admits an `Irls` inner strategy only, is concrete at its inner
 # strategy (resolved through the registry the table was read with), and
 # writes its `inner` key.
-VgtkEstimation.lo_admits(::Type{<:ToyWrap}, ::Type{S}) where {S} =
-    S <: Irls ? lo_admits_shape(ToyWrap{S}, VgtkEstimation.strategy_loss(S)) :
+VgtkCore.lo_admits(::Type{<:ToyWrap}, ::Type{S}) where {S} =
+    S <: Irls ? lo_admits_shape(ToyWrap{S}, VgtkCore.strategy_loss(S)) :
     throw(ArgumentError("ToyWrap{$S}: the inner strategy must be an Irls"))
 function VgtkEstimation.lo_concrete(::Type{ToyWrap}, d::AbstractDict, sec::AbstractString; tags)
     inner = tags[get(d, "inner", "irls")]

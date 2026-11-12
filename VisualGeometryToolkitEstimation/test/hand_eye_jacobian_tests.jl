@@ -30,7 +30,7 @@ using VisualGeometryToolkitEstimation: data_size, ChartLm
     )
 
     Xpert = retract_pose(Xtrue, (0.4, -0.32, 0.24, 0.1, -0.05, 0.08))
-    Xref = VgtkEstimation.refine!(nothing, problem, Xpert, w)
+    Xref = VgtkCore.refine!(nothing, problem, Xpert, w)
 
     @test Xref !== nothing
     @test Xref isa EuclideanMap

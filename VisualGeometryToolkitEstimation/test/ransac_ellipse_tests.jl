@@ -5,6 +5,7 @@
 # run and clutter), and the keyword set shared with the other `find_*` pipelines.
 
 @testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point,
         whitened_residuals!
@@ -59,10 +60,10 @@
     @test abs(rows(zero(a0))[7] / lm.sqrtw[7]) ≈ minimum(φ -> norm(SVector(pn[7]...) - SVector(boundary_point(e₀, φ)...)), range(0, 2π, 200_001)) atol = 1.0e-5
     # the chart-LM refit (refine!) from a perturbed ellipse lands at the noise floor
     ws = VgtkEstimation.refine_workspace(typeof(pp), 100)
-    e₁ = VgtkEstimation.refine!(ws, pp, e₀, ones(100))
+    e₁ = VgtkCore.refine!(ws, pp, e₀, ones(100))
     @test e₁ isa Ellipse{Float64}
     @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
-    refit_allocs(ws, p, θ, w) = (VgtkEstimation.refine!(ws, p, θ, w); @allocated VgtkEstimation.refine!(ws, p, θ, w))
+    refit_allocs(ws, p, θ, w) = (VgtkCore.refine!(ws, p, θ, w); @allocated VgtkCore.refine!(ws, p, θ, w))
     @test refit_allocs(ws, pp, e₀, ones(100)) == 0
 end
 

@@ -51,7 +51,8 @@ end
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, Lens, Equidistant, GaussianShape, CauchyShape, estimate, converged, rms, inlier_mask
-    using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls, Triggs
+    using VisualGeometryToolkitEstimation: refine_absolute_pose
+    using VisualGeometryToolkitCore: Irls, Triggs
     E = true_pose()
     ls = (; optimization_strategy = nothing)   # plain least squares over every point
     pin = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
@@ -75,7 +76,8 @@ end
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, GaussianShape, estimate, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip,
         retcode, iterations, MsacScoring
-    using VisualGeometryToolkitEstimation: refine_absolute_pose, Irls
+    using VisualGeometryToolkitEstimation: refine_absolute_pose
+    using VisualGeometryToolkitCore: Irls
     E = true_pose()
     cam = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     cs = pixel_pairs(cam, E, scene_points(E, 0.6; n = 12))
@@ -186,7 +188,8 @@ end
     using Random: Xoshiro, randperm
     using VisualGeometryToolkitCore: Csponds, withattrs, estimate, converged, CauchyShape, WelschShape, s2_tangent_basis, EuclideanMap, exp_so3, inlier_mask
     using Rotations: RotMatrix
-    using VisualGeometryToolkitEstimation: refine_absolute_pose, Triggs
+    using VisualGeometryToolkitEstimation: refine_absolute_pose
+    using VisualGeometryToolkitCore: Triggs
     E = true_pose(); rng = Xoshiro(3)
     Xs = scene_points(E, deg2rad(100))
     os = [SVector(0.02 * sin(3i), 0.02 * cos(5i), 0.01 * sin(i)) for i in eachindex(Xs)]

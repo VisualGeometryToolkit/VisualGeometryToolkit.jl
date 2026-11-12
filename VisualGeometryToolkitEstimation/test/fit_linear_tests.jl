@@ -4,7 +4,8 @@
 
 @testitem "fit_linear: exact, robust, prior weights" begin
     using Test, Random, LinearAlgebra, Statistics
-    using VisualGeometryToolkitEstimation: fit_linear, Irls
+    using VisualGeometryToolkitEstimation: fit_linear
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: HuberShape, TLSShape, estimate, converged, noise_scale, scale_source, ScaleGiven
     import VisualGeometryToolkitCore as VgtkCore
 
@@ -75,7 +76,8 @@ end
 
 @testitem "fit_linear: the robust estimate is the stack's Irls strategy" begin
     using Test, Random, LinearAlgebra
-    using VisualGeometryToolkitEstimation: fit_linear, Irls, optimization_strategy_from_toml
+    using VisualGeometryToolkitEstimation: fit_linear, optimization_strategy_from_toml
+    using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitEstimation: _dflt
     using VisualGeometryToolkitCore: HuberShape, WelschShape, GemanMcclureShape, estimate
     import VisualGeometryToolkitCore as VgtkCore

@@ -65,7 +65,7 @@ re-estimated.
 
 - `prior` — fixed non-negative row weights (a bootstrap's resampling counts, a
   previous fit's weights); a zero weight drops its row. Default all ones.
-- `optimization_strategy` — the robust weighting, an [`Irls`](@ref)`{K}` strategy (its loss
+- `optimization_strategy` — the robust weighting, an [`Irls`](@extref VisualGeometryToolkitCore.Irls)`{K}` strategy (its loss
   `K`, its efficiency constant and its `max_iter`; default
   configs/default.toml `[fit_linear] optimization_strategy`, Huber), or `nothing` for the
   plain prior-weighted least squares. At most `max_iter` iterations after the

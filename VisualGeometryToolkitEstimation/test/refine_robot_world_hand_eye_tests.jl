@@ -1,4 +1,5 @@
 @testitem "refine_robot_world_hand_eye" setup = [PoseScenes] begin
+    using VisualGeometryToolkitCore: Triggs
 # refine_robot_world_hand_eye: the reprojection-error refinement of a robot-world
 # calibration A_i X_m = Y B_i^m against the markers' FEATURES, camera and rig
 # poses fixed. Exact recovery, the argument contract, degeneracy REPORTED, and
@@ -17,7 +18,8 @@ using VisualGeometryToolkitCore: EuclideanMap, CameraModel, project
 using VisualGeometryToolkitCore: RigidExpManifold6, local_coordinates   # the decoupled pose chart (public)
 using VisualGeometryToolkitCore: estimate, retcode, rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
-using VisualGeometryToolkitEstimation: refine_robot_world_hand_eye, RobotWorldHandEyeCalibration, Irls
+using VisualGeometryToolkitEstimation: refine_robot_world_hand_eye, RobotWorldHandEyeCalibration
+using VisualGeometryToolkitCore: Irls
 using VisualGeometryToolkitCore: noise_scale, scale_source, weight_kind, weights, ScaleGiven, ScaleNone, IrlsWeights,
     BinaryWeights, efficiency_constant, WelschShape, HuberShape
 import VisualGeometryToolkitEstimation as VgtkEstimation

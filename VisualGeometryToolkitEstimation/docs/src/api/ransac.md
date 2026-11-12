@@ -234,7 +234,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }     # no width key
 
 `type` is a tag of the strategy registry — the core [`LO_TAGS`](@ref)
 (`"none"` for `nothing`, `"irls"`, `"triggs"`, `"terminal_lo"`), or its explicit merge with a downstream
-package's — and `loss` a tag of [`LOSS_TAGS`](@ref). The registries are
+package's — and `loss` a tag of [`LOSS_TAGS`](@extref VisualGeometryToolkitCore.LOSS_TAGS). The registries are
 VisualGeometryToolkitCore `TagRegistry` values; a retired tag is refused with its
 successor's name. The paper strategies and their cross-validated operating
 points (`efficiency_constant = "cross_validated"`) are LocalOptimizationDoneRight's:
@@ -244,7 +244,7 @@ using VisualGeometryToolkitEstimation: optimization_strategy_from_toml, LO_TAGS
 import LocalOptimizationDoneRight
 
 lo = optimization_strategy_from_toml(table; class = :homography,
-                                  tags = merge(LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS))
+                                  tags = merge(LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS))
 ```
 
 The scorer is selected the same way, by one reader through a tag registry
@@ -265,17 +265,26 @@ table; `@lo_registry` defines the row facts and the keyword constructors and
 returns the package's registry:
 
 ```julia
-import VisualGeometryToolkitEstimation as VgtkEstimation
+import VisualGeometryToolkitCore as VgtkCore   # the machinery is VisualGeometryToolkitCore's
 
 #   type     tag        path   scale  family  label   shape  parametric
 const ROWS = ((MyArm, "my_arm", :irls, nothing, nothing, "Mine", nothing, false),)
-const MY_LO_TAGS = VgtkEstimation.@lo_registry ROWS defaults = MY_DEFAULTS["optimization_strategy"]
+const MY_LO_TAGS = VgtkCore.@lo_registry ROWS defaults = MY_DEFAULTS["optimization_strategy"]
 ```
 
-A strategy's exceptions are methods of the hooks — [`lo_admits`](@ref),
-[`lo_key`](@ref), [`lo_field`](@ref), [`lo_field_from_toml`](@ref),
-[`lo_absent`](@ref), [`lo_validate`](@ref), [`lo_concrete`](@ref),
-[`lo_efficiency_constant_shape`](@ref) and [`lo_resolve_efficiency_constant`](@ref) —
+The machinery is VisualGeometryToolkitCore's —
+[`@lo_registry`](@extref `VisualGeometryToolkitCore.@lo_registry-Tuple{Any, Vararg{Any}}`),
+[`lo_construct`](@extref VisualGeometryToolkitCore.lo_construct),
+[`lo_tag`](@extref VisualGeometryToolkitCore.lo_tag),
+[`lo_defaults`](@extref VisualGeometryToolkitCore.lo_defaults),
+[`lo_parametric`](@extref VisualGeometryToolkitCore.lo_parametric),
+[`lo_admits_shape`](@extref VisualGeometryToolkitCore.lo_admits_shape) and the
+loss registry [`LOSS_TAGS`](@extref VisualGeometryToolkitCore.LOSS_TAGS); this
+package holds the TOML reader and writer below.
+A strategy's exceptions are methods of the hooks — [`lo_admits`](@extref VisualGeometryToolkitCore.lo_admits),
+[`lo_key`](@extref VisualGeometryToolkitCore.lo_key), [`lo_field`](@extref VisualGeometryToolkitCore.lo_field), [`lo_field_from_toml`](@extref VisualGeometryToolkitCore.lo_field_from_toml),
+[`lo_absent`](@extref VisualGeometryToolkitCore.lo_absent), [`lo_validate`](@extref VisualGeometryToolkitCore.lo_validate), [`lo_concrete`](@ref),
+[`lo_efficiency_constant_shape`](@extref VisualGeometryToolkitCore.lo_efficiency_constant_shape) and [`lo_resolve_efficiency_constant`](@ref) —
 all of them [`CONTRACT_GENERICS`](@ref); the reader and writer are the same for
 every strategy.
 
@@ -287,22 +296,8 @@ scoring_from_toml
 config_dict
 lo_config_dict
 LO_TAGS
-@lo_registry
-lo_construct
-lo_tag
-lo_defaults
-lo_parametric
-lo_admits
-lo_admits_shape
-lo_key
-lo_field
-lo_field_from_toml
-lo_absent
-lo_validate
 lo_concrete
-lo_efficiency_constant_shape
 lo_resolve_efficiency_constant
-LOSS_TAGS
 MODEL_UPDATE_TAGS
 NUISANCE_TAGS
 STOP_TAGS

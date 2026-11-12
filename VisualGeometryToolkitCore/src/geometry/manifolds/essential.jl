@@ -118,6 +118,20 @@ orientation preserved bit-for-bit for the consumer byte-identity gates)."
     return b1, b2
 end
 
+"""
+    s2_tangent_basis_matrix([T,] f) -> SMatrix{3, 2, T}
+
+The tangent basis of S² at `f`, [`s2_tangent_basis`](@ref)'s pair `(b1, b2)`, as the columns of one 3 × 2 matrix `B`
+(`Bᵀ` is the 2 × 3 projection onto the tangent plane), its elements converted to `T` (default: the basis's own type,
+`promote_type(eltype(f), Float64)`). The one packing of the basis: a bearing residual's coordinates, a back-projection
+Jacobian's tangent rows, a transfer form's projection.
+"""
+@inline function s2_tangent_basis_matrix(::Type{T}, f) where {T}
+    b1, b2 = s2_tangent_basis(f)
+    return SMatrix{3, 2, T, 6}(b1[1], b1[2], b1[3], b2[1], b2[2], b2[3])
+end
+@inline s2_tangent_basis_matrix(f) = s2_tangent_basis_matrix(promote_type(eltype(f), Float64), f)
+
 # The kind's translation data at an anchor translation `t`.
 _translation_kind(::Type{<:S2TangentT}, t) = S2TangentT(s2_tangent_basis(t)...)
 _translation_kind(::Type{RenormalizedT}, t) = RenormalizedT()

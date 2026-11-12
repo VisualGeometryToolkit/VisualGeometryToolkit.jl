@@ -118,7 +118,7 @@ function BearingPoseProblem(
             )
         )
     end
-    Bs = map(_tangent_basis, fs)
+    Bs = map(f -> VgtkCore.s2_tangent_basis_matrix(Float64, f), fs)   # the residual's coordinates
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
     ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing)
     data = VgtkCore.Csponds(Xs, fs)
@@ -129,8 +129,6 @@ end
 # z = 1 chart point has norm ≥ 1, ≈ 1.0185 already on a narrow field.
 const _UNIT_BEARING_TOL = 1.0e-6
 
-# The bearing `f`'s tangent basis (3 × 2, Core's `s2_tangent_basis`): the residual's coordinates.
-_tangent_basis(f) = SMatrix{3, 2, Float64, 6}(hcat(s2_tangent_basis(f)...))
 
 # THE test of a back-projection Jacobian `M` against its bearing `f` (tangent basis `B`): why it cannot whiten the tangent
 # residual into pixels — `:nonfinite`, `:not_tangent` (bearings.md: a swapped or untangent Jacobian moves the residual

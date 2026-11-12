@@ -149,7 +149,7 @@ using ..VisualGeometryToolkitCore: HomographyMap   # rectify.jl — the per-view
 using ..VisualGeometryToolkitCore: ViewFrame, ImageFrame, TargetFrame  # per-view identity tags (minted by StereoRig)
 using ..VisualGeometryToolkitCore: NormalizedImageFrame, DiagonalNormalization  # the normalization map's factory (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: GnomonicFrame  # per-view CALIBRATED frame (essential_form slots)
-using ..VisualGeometryToolkitCore: s2_tangent_basis  # T_f S² basis: shared with EssentialManifold5 (backproject_with_jacobian)
+using ..VisualGeometryToolkitCore: s2_tangent_basis, s2_tangent_basis_matrix  # T_f S² basis: shared with EssentialManifold5 (backproject_with_jacobian)
 using ..VisualGeometryToolkitCore: Frame, EquidistantFrame, DistortedFrame  # framed imaging chain (0.10)
 using ..VisualGeometryToolkitCore: RetinalFrame  # RayMap's defining-frame parameter (0.11)
 # The remaining retinal frames (0.13): the frame tags of the pure-projection

@@ -63,3 +63,15 @@
         @test J ≈ ForwardDiff.jacobian(rows, zeros(3)) rtol = 1.0e-9
     end
 end
+
+@testitem "s2_tangent_basis_matrix: the tangent basis as one 3 × 2 matrix" begin
+    using Test, StaticArrays, LinearAlgebra
+    using VisualGeometryToolkitCore: s2_tangent_basis, s2_tangent_basis_matrix
+    for f in (normalize(SVector(0.1, -0.2, 1.0)), SVector(1.0, 0.0, 0.0), normalize(SVector(-0.3, 0.9, 0.2)))
+        b1, b2 = s2_tangent_basis(f)
+        B = @inferred s2_tangent_basis_matrix(f)
+        @test B isa SMatrix{3, 2, Float64, 6} && B[:, 1] == b1 && B[:, 2] == b2      # the pair, bit for bit
+        @test B' * B ≈ I && norm(B' * f) < 1.0e-14                                 # orthonormal, tangent at f
+        @test (@inferred s2_tangent_basis_matrix(Float32, f)) == SMatrix{3, 2, Float32, 6}(B)
+    end
+end

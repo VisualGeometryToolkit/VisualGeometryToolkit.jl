@@ -517,8 +517,7 @@ end
     T = eltype(f)
     nanM = SMatrix{3, 2, T, 6}(ntuple(_ -> T(NaN), Val(6)))
     all(isfinite, f) || return f, nanM
-    b1, b2 = s2_tangent_basis(SVector{3, T}(f))
-    B = SMatrix{3, 2, T, 6}(b1[1], b1[2], b1[3], b2[1], b2[2], b2[3])
+    B = s2_tangent_basis_matrix(T, SVector{3, T}(f))
     # The closure must stay ELEMENT-TYPE GENERIC: `_value_and_jacobian` feeds it
     # ForwardDiff `Dual`s, so forcing the camera's own `T` here would convert
     # them back to Float64 and lose the derivative (a MethodError, in fact).

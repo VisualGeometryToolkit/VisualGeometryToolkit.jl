@@ -1040,7 +1040,7 @@ end
         singular = SingularAt(cam, u0)
         fM = VisualGeometryToolkitCore.backproject_with_jacobian(singular, u0)
         f0 = normalize(fM[1])
-        @test VE._whitening_defect(f0, VE._tangent_basis(f0), fM[2]) === :singular
+        @test VE._whitening_defect(f0, VisualGeometryToolkitCore.s2_tangent_basis_matrix(Float64, f0), fM[2]) === :singular
         good = [VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(c)) for c in exact[3][1:3]]
         @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Csponds(
             [first(c) for c in exact[3][[1, 2, 3, 30]]], push!([normalize(g[1]) for g in good], f0); M = push!([g[2] for g in good], fM[2])))

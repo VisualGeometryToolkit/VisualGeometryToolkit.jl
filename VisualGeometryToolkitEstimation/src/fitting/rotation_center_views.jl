@@ -234,7 +234,7 @@ function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, csponds) wh
             Xj, u = _correspondence(v, j, c)
             f, M = VgtkCore.backproject_with_jacobian(cm, u)
             if all(isfinite, f) && !iszero(norm(f)) && (fu = normalize(SVector{3, Float64}(f));
-                                                       _whitening_defect(fu, _tangent_basis(fu), M) === nothing)
+                                                       _whitening_defect(fu, VgtkCore.s2_tangent_basis_matrix(Float64, fu), M) === nothing)
                 push!(X, Xj); push!(F, fu); push!(Ms, SMatrix{3, 2, Float64, 6}(M))
             else                # no finite bearing, or a Jacobian that cannot whiten it (BearingPoseProblem's own test)
                 push!(without, (k, j))

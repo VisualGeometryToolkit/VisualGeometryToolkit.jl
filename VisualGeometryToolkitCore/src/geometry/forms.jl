@@ -495,8 +495,7 @@ end
     h = Hm * s
     nh = norm(h)
     ĥ = h / nh
-    b1, b2 = s2_tangent_basis(d)
-    P = SMatrix{2, 3, T, 6}(b1[1], b2[1], b1[2], b2[2], b1[3], b2[3])
+    P = SMatrix{2, 3, T, 6}(transpose(s2_tangent_basis_matrix(T, d)))
     D = P * ((SMatrix{3, 3, T, 9}(I) - ĥ * ĥ') / nh)
     return (; g = P * ĥ, P, D, s, Hm, cheiral = dot(ĥ, d) > 0)
 end

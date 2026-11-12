@@ -251,7 +251,13 @@ end
         (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
     @test wr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)) ==
         (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
-    # the backward search capped at the finest spacing: the fit's record is at least as severe as the search's
+    # a tie of severity keeps the LATER stage's record (the former rule kept the earlier on a success): two successes,
+    # the closed-form stage after the tolerance search
+    @test wr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)) ==
+        (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
+    # the backward search capped at the finest spacing: the fit does not report a success, and its record is at least as
+    # severe as a capped search's
+    @test !VgtkCore.successful_retcode(VgtkCore.retcode(capped)) && !VgtkCore.converged(capped)
     @test wr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.retcode(capped), stop_rule(capped))) ==
         (VgtkCore.retcode(capped), stop_rule(capped))
     check_covered(seen, (:fit_camera, :refine_camera, :approximate_camera, :pspline_grid, :optical_axis))

@@ -27,7 +27,8 @@ non-central one is a `NoncentralSplineModel`).
   docstring use the pixel reprojection residual; on a pinhole with `fx ≠ fy` the two weigh the axes differently and
   L2's minimum was not the pixels'. L2 now runs on the rows Triggs robustifies (`_triggs_state`), so L2 and `Triggs` at an
   unbounded width agree. Numbers move for L2 PnP on an anisotropic pinhole only (for `fx = fy` the two costs differ by
-  a constant factor: the same minimum, last-ulp changes); every other refine class is bit-identical.
+  a constant factor: the same minimum, last-ulp changes); every other refine class is bit-identical. Measured on the
+  anisotropic test pinhole: the rotation moves by about 9e-4 and the pixel rms falls from 1.997 to 1.981 px.
 
 - **Changed: three weighted Kabsch copies are VisualGeometryToolkitCore's `kabsch` with a `weights` column**
   (`fit_rotation`, `fit_rigid_alignment`, `fit_robot_world_hand_eye`'s robust seed). The private copies scaled the

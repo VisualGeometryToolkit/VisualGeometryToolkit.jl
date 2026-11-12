@@ -99,6 +99,8 @@ end
 
 # THE normalized loss weight ρ′(s)/ρ′(0) ∈ [0, 1] at the squared norm `s` and squared width `c²` (Core's
 # `IrlsWeights`: a maximum of 1): every fit's (`_irls_weights!`) and every refine's (`_loss_weights`, _refine.jl).
+# ρ′(0) > 0 for every shipped shape at a positive width; a zero (or NaN) width gives 0/0 = NaN, as the former division by
+# the stored `w0` did — the strategies refuse such a width before a weight is formed.
 @inline _irls_weight(shape, s, c²) = weight(shape, s, c²) / weight(shape, zero(s), c²)
 
 # The fit's per-datum loss weights at the residual norms `norms` into `w`

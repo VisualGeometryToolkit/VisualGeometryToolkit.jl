@@ -52,7 +52,7 @@ end
     views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
     cam0 = with_parameters(cam, θ .* SVector(1.04, 1.01, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 6.0, -5.0))   # f, aspect, skew, cx, cy
-    res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views)
+    res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; optimization_strategy = nothing)
     @test retcode(res) === :converged
     est = estimate(res)
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
@@ -72,7 +72,7 @@ end
     θ = parameter_vector(cam)
     δ = SVector(1.03, 1.0, 1.0, 1.0, 1.0, 0.8, 1.2, 0.9, 1.1)                    # f, aspect, skew, cx, cy, k1 … k4
     cam0 = with_parameters(cam, θ .* δ .+ SVector(0.0, 0.0, 0.0, -4.0, 3.0, 0.0, 0.0, 0.0, 0.0))
-    res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views)
+    res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; optimization_strategy = nothing)
     @test retcode(res) === :converged
     est = estimate(res)
     @test lens(est.camera) isa KannalaBrandt                                    # the family is kept
@@ -81,7 +81,7 @@ end
     @test maximum(norm(P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-9
     @test rms(res) < 1.0e-6
     # `fixed` takes a group, by Core's one expansion: `:k` holds k1 … k4 (and `:skew`, the gauge, is accepted)
-    held = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; fixed = (:k, :skew))
+    held = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; fixed = (:k, :skew), optimization_strategy = nothing)
     @test held.free == (:f, :aspect, :cx, :cy) == free_parameter_names(cam0, (:k,))
     @test parameter_vector(estimate(held).camera)[6:9] == parameter_vector(cam0)[6:9]
 end
@@ -130,13 +130,14 @@ end
     views = views_of(cam, Es, 0.5)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the camera held: the poses alone (the camera comes back as given)
-    held = refine_camera_and_poses(cam, poses0, views; fixed = parameter_names(cam))
+    held = refine_camera_and_poses(cam, poses0, views; fixed = parameter_names(cam), optimization_strategy = nothing)
     @test retcode(held) === :converged && estimate(held).camera === cam && held.free == ()
     # `fixed` names the held parameters, the complement of the refined set (the retired `free`), bit for bit:
     # holding the aspect refines (f, cx, cy) exactly as the former `free = (:f, :cx, :cy)` did
-    part = refine_camera_and_poses(cam, poses0, views; fixed = (:aspect,))
+    part = refine_camera_and_poses(cam, poses0, views; fixed = (:aspect,), optimization_strategy = nothing)
     @test part.free == (:f, :cx, :cy) && parameter_vector(estimate(part).camera)[2] === parameter_vector(cam)[2]
-    @test refine_camera_and_poses(cam, poses0, views; fixed = ()).free == refine_camera_and_poses(cam, poses0, views).free
+    @test refine_camera_and_poses(cam, poses0, views; fixed = (), optimization_strategy = nothing).free ==
+        refine_camera_and_poses(cam, poses0, views; optimization_strategy = nothing).free
     # the other spellings are refused, naming `fixed`
     for kw in (:free, :fix, :fixed_params, :hold)
         @test_throws r"give `fixed`" refine_camera_and_poses(cam, poses0, views; (; kw => ())...)
@@ -144,25 +145,25 @@ end
     @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-9
     # a dict keyed by view: the same estimate, keyed back; a Csponds view is one too
     cam0 = with_parameters(cam, parameter_vector(cam) .* SVector(1.02, 1.0, 1.0, 1.0, 1.0))
-    rv = refine_camera_and_poses(cam0, poses0, views)
+    rv = refine_camera_and_poses(cam0, poses0, views; optimization_strategy = nothing)
     rd = refine_camera_and_poses(cam0, Dict(:c => poses0[3], :a => poses0[1], :b => poses0[2]),
-                                 Dict(:a => views[1], :b => views[2], :c => Csponds(first.(views[3]), last.(views[3]))))
+                                 Dict(:a => views[1], :b => views[2], :c => Csponds(first.(views[3]), last.(views[3]))); optimization_strategy = nothing)
     @test parameter_vector(estimate(rd).camera) ≈ parameter_vector(estimate(rv).camera) rtol = 1.0e-12
     @test estimate(rd).poses[:b].t ≈ estimate(rv).poses[2].t rtol = 1.0e-12
     # lengths in, lengths out (metres), the same refinement
-    rp = refine_camera_and_poses(cam0, [with_unit(P, m) for P in poses0], [[X .* m => u for (X, u) in cs] for cs in views])
+    rp = refine_camera_and_poses(cam0, [with_unit(P, m) for P in poses0], [[X .* m => u for (X, u) in cs] for cs in views]; optimization_strategy = nothing)
     @test ustrip(m, estimate(rp).poses[1]).t ≈ estimate(rv).poses[1].t rtol = 1.0e-12
     # refusals
-    @test_throws ArgumentError refine_camera_and_poses(cam0, Dict(:a => poses0[1]), Dict(:b => views[1]))
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:2], views)
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = (:k9,))
-    @test_throws ArgumentError refine_camera_and_poses(cam0, [EuclideanMap(Es[1].R, SVector(0.0, 0.0, -50.0)); poses0[2:3]], views)   # behind the camera
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:1], [views[1][1:2]])   # underdetermined
-    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = parameter_names(cam0), box = (; f = (1.0, 2.0)))   # a box with nothing to bound
+    @test_throws ArgumentError refine_camera_and_poses(cam0, Dict(:a => poses0[1]), Dict(:b => views[1]); optimization_strategy = nothing)
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:2], views; optimization_strategy = nothing)
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = (:k9,), optimization_strategy = nothing)
+    @test_throws ArgumentError refine_camera_and_poses(cam0, [EuclideanMap(Es[1].R, SVector(0.0, 0.0, -50.0)); poses0[2:3]], views; optimization_strategy = nothing)   # behind the camera
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0[1:1], [views[1][1:2]]; optimization_strategy = nothing)   # underdetermined
+    @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = parameter_names(cam0), box = (; f = (1.0, 2.0)), optimization_strategy = nothing)   # a box with nothing to bound
     # the wall-clock cap reaches the LM: a zero cap stops after the first iteration, :max_time; Inf is no cap
-    rt = refine_camera_and_poses(cam0, poses0, views; max_time = 0.0)
+    rt = refine_camera_and_poses(cam0, poses0, views; max_time = 0.0, optimization_strategy = nothing)
     @test retcode(rt) === :max_time && rt.iterations <= 1
-    @test estimate(refine_camera_and_poses(cam0, poses0, views; max_time = Inf)).camera == estimate(rv).camera
+    @test estimate(refine_camera_and_poses(cam0, poses0, views; max_time = Inf, optimization_strategy = nothing)).camera == estimate(rv).camera
 end
 
 @testsetup module SplineCameraPoseScenes
@@ -267,16 +268,19 @@ end
     end
 end
 
-# A robust refine (`local_optimization_strategy`): the RANSAC local optimization's own strategies (Irls{Shape}, Triggs{Shape} with a
-# efficiency_constant of the caller's `scale`, or an absolute loss_width), read by its TOML reader, from the caller's start
-# (no least-squares stage); a refine estimates no scale; plain least squares unchanged; the refusals.
-@testitem "refine_camera_and_poses: local_optimization_strategy = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
+# A robust refine (`optimization_strategy`, the refine contract): Triggs{Shape} (the default, Triggs{Welsch}) or
+# Irls{Shape} at the caller's `scale` times the strategy's efficiency constant, or at the caller's `width`, from the
+# caller's start (no least-squares stage); a refine estimates no scale; `nothing` is plain least squares; the refusals.
+@testitem "refine_camera_and_poses: optimization_strategy = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
-    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, optimization_strategy_from_toml, config_dict
-    using VisualGeometryToolkitCore: EuclideanMap, exp_so3, ScaleNone, ScaleGiven
+    using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, WelschShape, HuberShape,
+        noise_scale, scale_source, weight_kind, weights, ScaleGiven, ScaleNone, ScaleUpstream, IrlsWeights, BinaryWeights,
+        efficiency_constant, metadata
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, Irls, Triggs, optimization_strategy_from_toml,
+        config_dict, CameraPosesRefineMetadata
+    using VisualGeometryToolkitCore: EuclideanMap, exp_so3
     using Rotations: RotMatrix
     cam = pinhole_camera(); Es = truth_poses(5); views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
@@ -288,21 +292,24 @@ end
                     (rand(rng) < 0.08 ? (20 + 40rand(rng)) * normalize(SVector(randn(rng), randn(rng))) : zero(SVector{2}))
               for (X, u) in cs] for cs in views]
     err(r) = maximum(abs.(parameter_vector(estimate(r).camera) - θ)[[1, 4, 5]])      # f, cx, cy, pixels
-    ls = refine_camera_and_poses(cam0, poses0, noisy)
-    @test err(ls) > 3.0 && isnan(ls.scale) && ls.scale_source === ScaleNone && isnan(ls.loss_width) &&
-        all(==(1.0), ls.weights)
-    # least squares is the default: the same estimate, bit for bit
-    ls2 = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = nothing)
-    @test parameter_vector(estimate(ls2).camera) == parameter_vector(estimate(ls).camera) && ls2.residuals == ls.residuals
+    ls = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = nothing)
+    @test err(ls) > 3.0 && isnan(ls.scale) && scale_source(ls) === ScaleNone && isnan(ls.loss_width)
+    @test all(==(1.0), ls.weights) && weight_kind(ls) === BinaryWeights() && sizeof(weights(ls)) < 64
+    @test_throws ArgumentError noise_scale(ls)
     @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
+    # the default is the refine contract's: Triggs{Welsch}, so it needs exactly one of scale or width
+    @test_throws r"scale = σ" refine_camera_and_poses(cam0, poses0, noisy)
+    rd = refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2)
+    @test metadata(rd) isa CameraPosesRefineMetadata{<:Triggs{WelschShape}}
+    @test rd.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.2
+    @test (@inferred noise_scale(rd)) === 0.2 && (@inferred scale_source(rd)) === ScaleGiven && weight_kind(rd) === IrlsWeights()
     # A robust refine runs NO least-squares stage (the owner's ruling) and estimates no scale: its width is the
-    # strategy's efficiency_constant times the caller's `scale` (the detections' σ). From this far start (every residual
+    # strategy's efficiency constant times the caller's `scale` (the detections' σ). From this far start (every residual
     # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Irls{Huber} 0.175 px; Triggs{Welsch}
-    # 0.30 px, 0.20 with a least-squares stage: one Welsch LM from a start 25 px off)
+    # 0.30 px: one Welsch LM from a start 25 px off)
     for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
-        @test_throws r"estimates none: supply `scale`" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo)
         rs = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = 0.2)
-        @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2 && rs.scale_source === ScaleGiven
+        @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
         @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
     end
@@ -316,23 +323,25 @@ end
         r = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
-    # an absolute width needs no scale (Irls; Triggs takes an efficiency constant only): Huber at loss_width 1.345 · 0.2 px
-    rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(loss_width = 1.345 * 0.2))
-    @test retcode(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.scale_source === ScaleNone && rw.loss_width ≈ 1.345 * 0.2
-    # the strategy from the LO's own TOML reader, and back
+    # a width alone: the loss at it, no scale recorded; the same loss as the scale that gives it (the record aside)
+    rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), width = 1.345 * 0.2)
+    @test retcode(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.loss_width ≈ 1.345 * 0.2
+    @test_throws ArgumentError noise_scale(rw)
+    ru = refine_camera_and_poses(cam1, poses1, noisy; scale = rd)       # an upstream result's scale, handed on
+    @test noise_scale(ru) === 0.2 && scale_source(ru) === ScaleUpstream
+    # the strategy from the TOML reader, and back
     t = Dict("type" => "triggs", "loss" => "welsch", "efficiency_constant" => 2.98)
-    lo = optimization_strategy_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.local_optimization_strategy")
+    lo = optimization_strategy_from_toml(t; class = :refine_camera_and_poses, section = "refine_camera_and_poses.optimization_strategy")
     @test lo == Triggs{WelschShape}(efficiency_constant = 2.98) && config_dict(lo) == t
-    # refusals: a strategy anchored on a RANSAC consensus set, one following a scorer's threshold, a scale without a
-    # loss, a scorer (a refine takes none)
-    @test_throws r"inlier threshold" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = Irls{WelschShape}())
-    @test_throws r"reads none" refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2)
+    # refusals: a strategy anchored on a RANSAC consensus set; neither or both of scale and width; a scale for least
+    # squares; a non-positive scale; a scorer (a refine takes none); the retired keywords
+    @test_throws r"consensus set" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = VisualGeometryToolkitEstimation.TerminalLO(Irls{HuberShape}()))
+    @test_throws r"not both" refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2, width = 0.5)
+    @test_throws r"reads no scale" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = nothing, scale = 0.2)
     @test_throws MethodError refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2, scoring = nothing)
-    @test_throws r"positive finite" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = -1.0)
-    # the retired keyword `robust`, whatever its value: refused, naming `local_optimization_strategy`
-    @test_throws r"`robust` is retired: it is `optimization_strategy`" refine_camera_and_poses(cam1, poses1, noisy; robust = nothing)
-    @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo)
-    @test_throws r"`robust` is retired" refine_camera_and_poses(cam1, poses1, noisy; robust = lo, scale = 0.2)
+    @test_throws r"positive and finite" refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = -1.0)
+    @test_throws r"`robust` is retired: give `optimization_strategy`" refine_camera_and_poses(cam1, poses1, noisy; robust = nothing)
+    @test_throws r"`local_optimization` is retired" refine_camera_and_poses(cam1, poses1, noisy; local_optimization = lo, scale = 0.2)
 end
 
 # Several boards (owner decision 20): the board poses a block of the same bundle, each board → world a variable unless
@@ -377,7 +386,7 @@ end
     boards0 = Dict(b => b === :A ? E : nudged(E, 7 + keyn[b]) for (b, E) in boards)     # board A at the truth: the held gauge
     Δ(P, E) = max(maximum(abs, rotation(P) - rotation(E)), norm(translation(P) - translation(E)))   # ≈ rad, m
     # exact pixels: everything recovered to the LM's tolerance, board A (each component's first board) held exactly
-    res = refine_camera_and_poses(cam0, views0, boards0, board_views(cam, views, boards))
+    res = refine_camera_and_poses(cam0, views0, boards0, board_views(cam, views, boards); optimization_strategy = nothing)
     est = estimate(res)
     @test retcode(res) === :converged && rms(res) < 1.0e-9
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
@@ -390,8 +399,8 @@ end
     # (measured: f, cx, cy within 4.2 px, the boards within 1.5 mrad / mm, the views within 1 cm: the boards are near
     # fronto-parallel, so the views' depth trades with f)
     noisy = board_views(cam, views, boards; σ = 0.2, rng = Xoshiro(7))
-    rn = refine_camera_and_poses(cam0, views0, boards0, noisy)
-    rt = refine_camera_and_poses(cam, views, boards, noisy)
+    rn = refine_camera_and_poses(cam0, views0, boards0, noisy; optimization_strategy = nothing)
+    rt = refine_camera_and_poses(cam, views, boards, noisy; optimization_strategy = nothing)
     en, et = estimate(rn), estimate(rt)
     @test retcode(rn) === :converged && retcode(rt) === :converged
     @test parameter_vector(en.camera) ≈ parameter_vector(et.camera) rtol = 1.0e-8
@@ -402,7 +411,7 @@ end
     @test maximum(Δ(en.board_poses[b], boards[b]) for b in (:B, :C)) < 5.0e-3
     @test maximum(Δ(en.poses[v], views[v]) for v in 1:6) < 2.0e-2
     # the gauge held by a view instead: the same solution up to the gauge (every view ∘ board the same map)
-    rv = refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), held_views = (1,))
+    rv = refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), held_views = (1,), optimization_strategy = nothing)
     ev = estimate(rv)
     @test ev.poses[1] == views0[1] && retcode(rv) === :converged
     @test rms(rv) ≈ rms(rn) rtol = 1.0e-8
@@ -413,12 +422,12 @@ end
     vd = merge(views, Dict(7 => views[2])); bd = merge(boards, Dict(:D => nudged(boards[:B], 1)))
     obs = merge(board_views(cam, views, boards), Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X))))
                                                                    for X in board_points()]))
-    r2 = refine_camera_and_poses(cam0, merge(views0, Dict(7 => nudged(views[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs)
+    r2 = refine_camera_and_poses(cam0, merge(views0, Dict(7 => nudged(views[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs; optimization_strategy = nothing)
     @test retcode(r2) === :converged && estimate(r2).board_poses[:D] === bd[:D] && rms(r2) < 1.0e-9
     # refusals: a component with no held pose, a key without a pose, a pose without correspondences
-    @test_throws r"hold no pose" refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = ())
-    @test_throws r"no pose" refine_camera_and_poses(cam0, views0, Dict(:A => boards[:A], :B => boards[:B]), noisy)
-    @test_throws r"no correspondence" refine_camera_and_poses(cam0, merge(views0, Dict(9 => views[1])), boards0, noisy)
+    @test_throws r"hold no pose" refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), optimization_strategy = nothing)
+    @test_throws r"no pose" refine_camera_and_poses(cam0, views0, Dict(:A => boards[:A], :B => boards[:B]), noisy; optimization_strategy = nothing)
+    @test_throws r"no correspondence" refine_camera_and_poses(cam0, merge(views0, Dict(9 => views[1])), boards0, noisy; optimization_strategy = nothing)
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined from its optical axis, K frozen" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin

@@ -528,7 +528,13 @@ function _refit_forward(camera::BoundedCamera, tolerance)
     return VgtkCore.with_model(camera, _with_forward(cam, fwd.spline)), fwd.code, fwd.r.errors.max
 end
 
-function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)
+# The SplineLens route is least squares only: its `optimization_strategy` is `nothing` (the default here), and it
+# reads no scale; a robust strategy is refused, naming the parametric route that hosts one.
+function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector;
+                                  optimization_strategy = nothing, scale = nothing, width = nothing, kwargs...)
+    (optimization_strategy === nothing && scale === nothing && width === nothing) || throw(ArgumentError(
+        "refine_camera_and_poses: a SplineLens camera is refined by least squares only (optimization_strategy = nothing, " *
+            "no scale or width); a robust strategy refines a parametric camera"))
     out = _refine_spline_camera_and_poses(camera, poses, views; kwargs...)
     out isa _NotProjected && throw(ArgumentError(_not_projected_message(out)))   # the public error of a point that does not project
     return out

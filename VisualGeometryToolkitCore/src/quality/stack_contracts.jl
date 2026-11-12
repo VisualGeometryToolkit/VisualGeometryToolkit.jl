@@ -142,6 +142,8 @@ const CONTRACT_GENERICS = (
     # the strategy registry's hooks and a loss-parametric strategy's loss (robust/strategies.jl)
     lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent, lo_validate,
     lo_efficiency_constant_shape, strategy_loss,
+    # the termination record, answered by a metadata type that records it (base/return_code.jl)
+    return_code, stop_rule,
     # the weight kind of a producer or metadata type (robust/weights.jl)
     weight_kind,
     # the Student-t scorer's estimated-support sweep, implemented by another package's outlier model

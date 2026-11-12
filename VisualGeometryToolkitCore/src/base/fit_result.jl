@@ -163,15 +163,7 @@ produced. The SciML `sol.u`.
 """
 estimate(r::FitResult) = r.estimate
 
-"""
-    retcode(r::FitResult) -> Symbol
-
-Why the fit stopped: `:converged`, `:max_iterations`, `:degenerate`,
-`:solve_failed`, `:stalled` (an LM that stopped at a non-stationary point,
-[`lm_retcode`](@ref)), …; a closed-form solve reports `:solved`. Compare with
-[`converged`](@ref) for the boolean.
-"""
-retcode(r::FitResult) = r.retcode
+# `retcode(r)`, `converged(r)` and `found_model(r)` read the termination record: base/return_code.jl.
 
 """
     iterations(r::FitResult) -> Int
@@ -197,14 +189,6 @@ also reachable directly on `r` as properties.
 """
 metadata(r::FitResult) = r.metadata
 
-"""
-    converged(r::FitResult) -> Bool
-
-`retcode(r) === :converged` — the SciML `successful_retcode` convenience.
-Also reachable as the property `r.converged`.
-"""
-converged(r::FitResult) = r.retcode === :converged
-
 # -----------------------------------------------------------------------------
 # Property forwarding into metadata — derived from `fieldnames(M)`, so a new
 # metadata type gets its accessors for free and nothing is hand-listed.
@@ -218,7 +202,7 @@ converged(r::FitResult) = r.retcode === :converged
     end
     # Derived, not stored: the one computed property, so `r.converged` reads
     # like every other diagnostic instead of being the lone function call.
-    push!(ex, :(s === :converged && return getfield(r, :retcode) === :converged))
+    push!(ex, :(s === :converged && return converged(r)))
     for f in meta
         push!(ex, :(s === $(QuoteNode(f)) && return getfield(getfield(r, :metadata), $(QuoteNode(f)))))
     end

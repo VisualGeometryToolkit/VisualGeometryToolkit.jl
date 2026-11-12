@@ -517,7 +517,7 @@ public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
 public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)
 # The contract conformance helpers (ext/VisualGeometryToolkitCoreTestExt with Test).
-public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract
+public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract, test_termination_record
 # The MAP inlier rule on a posterior membership weight (posterior > ½), the one
 # definition every posterior decision in the stack calls.
 export is_map_inlier
@@ -553,6 +553,11 @@ public codimension_factor
 # scale and its ScaleSource; `scale_input` parses a stage's `scale`/`width` keywords.
 public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_scale, scale_source,
     ScaleInput, scale_input
+# The termination record of every fit (base/return_code.jl): the verdict, a `ReturnCode.T` (SciMLBase's
+# names and success rule, matched without the dependency), and the rule that fired, a `StopRule`.
+public ReturnCode, successful_retcode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
+    ParameterChange, NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap,
+    NonFinite, Callback, TrialBudget, AdaptiveCount, return_code, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
 # The core optimization strategies and the registry machinery every package registers its strategies with
@@ -646,7 +651,7 @@ public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
-public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
+public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, nlls_termination, finite_cost, nlls_rows_and_jacobian   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded (and as a ReturnCode and StopRule); a block's cost as its LM reads it; a problem's rows and sparse Jacobian
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope
@@ -864,6 +869,7 @@ include("base/cspond_set.jl") # Csponds columnar container + sources/targets pro
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
 include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
 include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
+include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode/stop_rule/converged/found_model — the termination record (uses FitResult)
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)

@@ -395,6 +395,48 @@ the same bits.
 """
 nlls_stop_reasons(bits::Integer) = Symbol[name for (b, name) in _NLLS_STOP_BITS if (bits >> b) & 1 == 1]
 
+"""
+    nlls_termination(result::NLLSsolver.NLLSResult, postcondition) -> (ReturnCode.T, StopRule)
+    nlls_termination(bits::Integer, postcondition) -> (ReturnCode.T, StopRule)
+
+The termination record of an NLLSsolver solve — its [`ReturnCode`](@ref) and
+[`StopRule`](@ref) — from its termination bits (`result.termination`, NLLSsolver
+5.x `optimizeloop!`; the bits as [`nlls_stop_reasons`](@ref) names them),
+decoded in [`nlls_stop_code`](@ref)'s one order:
+
+| bits (the first that applies) | `StopRule` | `ReturnCode` |
+|:--|:--|:--|
+| 11, a non-finite start point (no step tried) | `NonFinite` | `InitialFailure` |
+| 0, 1, 4, 5, 10, 12 without a step-size stop | `NonFinite` | `Failure` |
+| 6, the step size | `IncrementSize` | `Success` if the postcondition holds, else `Stalled` |
+| 2, 3, a cost decrease | `CostDecrease` | `Success` |
+| 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
+| 16 and above only, a user callback | `Callback` | `Terminated` |
+| 9, the time cap | `TimeCap` | `MaxTime` |
+| 8, the iteration cap | `IterationCap` | `MaxIters` |
+
+`postcondition` is the stall postcondition at the returned point — a `Bool`, or a
+callable `() -> Bool` that runs only for the stops that need it (a step-size or
+rejection stop: [`is_stationary`](@ref), or the chart LM's own test). A tolerance
+met on the last iteration outranks the cap, so `MaxIters` means no tolerance
+fired.
+"""
+nlls_termination(result::NLLSsolver.NLLSResult, postcondition) = nlls_termination(result.termination, postcondition)
+function nlls_termination(bits::Integer, postcondition)
+    bits & (1 << 11) != 0 && bits & (1 << 6) == 0 && return (ReturnCode.InitialFailure, NonFinite)
+    code = nlls_stop_code(bits)
+    code == _LM_FAILED && return (ReturnCode.Failure, NonFinite)
+    code == 1 && return (ReturnCode.Success, CostDecrease)
+    code == _LM_MAX_TIME && return (ReturnCode.MaxTime, TimeCap)
+    code == -1 && return (ReturnCode.MaxIters, IterationCap)
+    # the stops whose verdict is the postcondition's (a step-size stop, the rejection cap), and a callback's
+    rule = code == 2 ? IncrementSize : bits & (1 << 7) != 0 ? RejectionCap : bits >> 16 != 0 ? Callback : NoRule
+    rule == Callback && return (ReturnCode.Terminated, Callback)
+    return (_holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, rule)
+end
+_holds(p::Bool) = p
+_holds(p) = p()::Bool
+
 # The decoder's two codes beyond the stop codes 1, 2, 4 and −1 (`lm_retcode`
 # reads them): a failed solve and the time cap.
 const _LM_FAILED = -3
@@ -411,7 +453,7 @@ const _LM_STALLED = -2
 
 """
     lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol)
-        -> (x::SVector{N}, F, converged, iterations)
+        -> (x::SVector{N}, F, converged, iterations, (code, rule))
 
 THE chart LM: NLLSsolver's Levenberg–Marquardt (Marquardt's DᵀD damping)
 minimizing `‖r(x)‖²`, with `r` the [`residual_rows!`](@ref) of the
@@ -421,6 +463,10 @@ cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode a
 `iterations` NLLSsolver's iteration count (one accepted step each; a start at
 a stationary point takes one zero step, and only a start whose cost or
 gradient is not finite stops at 0, `:solve_failed`).
+`(code, rule)` is the solve's termination record, a [`ReturnCode`](@ref) and a
+[`StopRule`](@ref) ([`nlls_termination`](@ref) under the same stall
+postcondition: `code` is `ReturnCode.Stalled` exactly when `converged` is
+`_LM_STALLED`).
 
 `maxit` (accepted iterations), `ftol` and `xtol` (absolute) are the stack's LM knobs, mapped once by
 [`nlls_options`](@ref); their defaults (1000, `eps()`, `1e-10`) are the ones the
@@ -451,10 +497,9 @@ function lmsolve_chart!(
     x = problem.variables[1]
     F = 2 * result.bestcost
     converged = nlls_stop_code(result.termination)
-    if converged == 2 || converged == 4
-        _lm_stationary(ews, lm, x, stationarity_tol, ftol) || (converged = _LM_STALLED)
-    end
-    return x, F, converged, result.niterations
+    stationary = (converged == 2 || converged == 4) ? _lm_stationary(ews, lm, x, stationarity_tol, ftol) : true
+    stationary || (converged = _LM_STALLED)
+    return x, F, converged, result.niterations, nlls_termination(result, stationary)
 end
 
 # =============================================================================
@@ -521,7 +566,7 @@ end
 
 """
     lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}; maxit = 1000, ftol = eps(), xtol = 1e-10, stationarity_tol)
-        -> (x, F, converged, iterations)
+        -> (x, F, converged, iterations, (code, rule))
 
 The ROBUSTIFIED chart LM: NLLSsolver's Levenberg–Marquardt minimizing
 `Σᵢ ρ(‖rᵢ(x)‖²)` from the chart origin, `rᵢ` datum `i`'s `C` consecutive rows
@@ -554,11 +599,10 @@ function lmsolve_chart!(
     x = problem.variables[1]
     F = 2 * result.bestcost
     converged = nlls_stop_code(result.termination)
-    if converged == 2 || converged == 4
-        _robust_stationary(ews, state, x, Val(C), stationarity_tol, ftol) || (converged = _LM_STALLED)
-    end
+    stationary = (converged == 2 || converged == 4) ? _robust_stationary(ews, state, x, Val(C), stationarity_tol, ftol) : true
+    stationary || (converged = _LM_STALLED)
     _robust_rows!(state, x)            # the solver's last evaluation may have been a rejected trial
-    return x, F, converged, result.niterations
+    return x, F, converged, result.niterations, nlls_termination(result, stationary)
 end
 
 # The stall postcondition of the robustified LM: at a robust minimizer

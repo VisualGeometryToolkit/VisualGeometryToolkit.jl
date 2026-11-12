@@ -67,6 +67,25 @@ ScaleInput
 scale_input
 ```
 
+Why a fit stopped is its termination record: the verdict, a
+[`ReturnCode`](@ref) (`ReturnCode.T`, SciMLBase's names and success rule),
+read by [`retcode`](@ref), and the rule that fired, a [`StopRule`](@ref), read
+by [`stop_rule`](@ref). [`converged`](@ref) is strict,
+[`successful_retcode`](@ref) of the code: a cap or a stall is not converged.
+Whether a RANSAC found a model is [`found_model`](@ref).
+
+```@docs
+ReturnCode
+successful_retcode
+StopRule
+return_code
+stop_rule
+found_model
+retcode_symbol
+retcode_from_symbol
+worst_retcode
+```
+
 Its per-datum weights in [0, 1] are [`weights`](@ref)`(result)`, a plain vector;
 what they mean — and so where [`inlier_mask`](@ref)`(result)` cuts them — is
 the producer type's [`WeightKind`](@ref), read by [`weight_kind`](@ref)

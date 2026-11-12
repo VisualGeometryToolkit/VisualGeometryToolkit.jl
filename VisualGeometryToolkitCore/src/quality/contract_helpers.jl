@@ -35,6 +35,20 @@ warm-up (`allocations = true`). Implemented by VisualGeometryToolkitCoreTestExt.
 function test_local_optimization_contract end
 
 """
+    test_termination_record(result)
+
+The termination record of one fit result, as tests: [`retcode`](@ref) a
+[`ReturnCode`](@ref) `ReturnCode.T`, [`stop_rule`](@ref) a [`StopRule`](@ref)
+and [`converged`](@ref) a `Bool`, each inferred; `converged(result)` is
+[`successful_retcode`](@ref)`(retcode(result))`; and the FitResult core's
+`retcode::Symbol` agrees with the code, `retcode_symbol(code, rule)` (the
+transition's one map). A producer's suite runs it on one result of each of its
+verbs; the contract gate runs it on every declared entry point. Implemented by
+VisualGeometryToolkitCoreTestExt.
+"""
+function test_termination_record end
+
+"""
     test_manifold_contract(m::Manifold; atol = 1e-12, allocations = true)
 
 The manifold contract on `m`, as tests — what an optimizer that holds `m` as

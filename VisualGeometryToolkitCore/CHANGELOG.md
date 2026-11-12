@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`Attributed` delegates by `MacroTools.@forward`**, the stack's one idiom (as `BoundedCamera`): the hand-written
+  `iterate` of a wrapped Pair and `getindex`/`length`/`size` of a wrapped vector are two `@forward` lines. Behaviour is
+  unchanged (the same types; `a.value` is `getfield(a, :value)`).
 - **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
   `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
   ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,
@@ -24,7 +27,15 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
-
+- **`BoundedCamera` forwards every camera verb** (a BoundedCamera is the type for pixel operations): its one
+  `MacroTools.@forward BoundedCamera.camera` list, moved to the end of the Cameras module so it can name every verb,
+  adds `backproject_with_jacobian` (a SplineLens BoundedCamera was a `MethodError`), `constraint_with_jacobians`,
+  `imaging_transform`, `imaging_chain`, `distortion_map`, `has_distortion`, `fov_radius`, `horizon_radius`,
+  `valid_rect`, `undistorted_rect`, `division_bounded`, `undistort`, `p3p`, `transfer` and `radial_homography` to the
+  accessors, `unproject` and `is_in_front`; `project`/`backproject` stay `@inline` (device kernels). As for those two,
+  no forwarded verb applies the bound. The model constructors (`pinhole`, `window`, `with_parameters`) and the
+  parameter protocol stay the model's: call them on `model(bc)`. A quality test checks that every exported or public
+  verb with a `CameraModel` method has a BoundedCamera one, or is a listed exception.
 - **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
   no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are

@@ -180,3 +180,59 @@ end
         @test :sin ∉ called && :cos ∉ called
     end
 end
+
+# A BoundedCamera is THE type for pixel operations: every camera verb a CameraModel
+# answers is forwarded to its camera (one MacroTools.@forward list, and the two @inline maps). A
+# research job met `backproject_with_jacobian(::BoundedCamera{…SplineLens…}, ::SVector{2})`
+# as a MethodError when only `project` and `backproject` were forwarded.
+@testitem "BoundedCamera forwards every camera verb" begin
+    using Test, StaticArrays
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, BoundedCamera, SplineLens, Lens, Equidistant, Size2, px,
+        backproject_with_jacobian, backproject, project, calibration_matrix, imaging_transform
+    # The verbs a CameraModel answers that a BoundedCamera does not, each with its reason.
+    not_forwarded = Dict(
+        :pinhole => "a model constructor: forwarded it would drop the bound (`with_model(bc, pinhole(model(bc)))`)",
+        :window => "a model constructor (a SplineLens window), as `pinhole`",
+        :with_parameters => "a model constructor, as `pinhole`",
+        :parameter_vector => "the parameter protocol is the LM variable's: `model(bc)`",
+        :parameter_names => "the parameter protocol, as `parameter_vector`",
+        :parameter_bounds => "the parameter protocol, as `parameter_vector`",
+        :minimal_manifold => "the parameter protocol, as `parameter_vector`",
+        :ambient_coordinates => "the parameter protocol, as `parameter_vector`",
+        :sample_p3p => "a synthetic-scene generator that takes its own `sensor_bounds`: call it on `model(bc)`",
+    )
+    first_arg(m) = (sig = Base.unwrap_unionall(m.sig); length(sig.parameters) >= 2 ?
+        Base.rewrap_unionall(sig.parameters[2], m.sig) : Union{})
+    # a method for the CameraModel family (its first argument a CameraModel type), and one a
+    # BoundedCamera reaches (its first argument a type a BoundedCamera is: the forwarder, or a
+    # Union{PosedCamera, BoundedCamera} method of its own; never the untyped fallback)
+    takes(::Type{VgtkCore.CameraModel}, f) = any(m -> (A = first_arg(m); A !== Union{} && A !== Any && A <: VgtkCore.CameraModel), methods(f))
+    takes(::Type{BoundedCamera}, f) = any(m -> (A = first_arg(m); A !== Any && BoundedCamera <: A), methods(f))
+    verbs = Dict{Symbol, Function}()                  # every exported or public verb with a CameraModel method
+    for M in (VgtkCore, VgtkCore.Cameras), s in names(M)
+        isdefined(M, s) || continue
+        f = getfield(M, s)
+        f isa Function && !(f isa Type) && takes(VgtkCore.CameraModel, f) && (verbs[s] = f)
+    end
+    @test haskey(verbs, :backproject_with_jacobian) && haskey(verbs, :project)   # the scan sees the verbs
+    for (s, f) in sort!(collect(verbs); by = first)
+        s in keys(not_forwarded) && continue
+        @test (s, takes(BoundedCamera, f)) == (s, true)
+    end
+    @test all(s -> haskey(verbs, s), keys(not_forwarded))                         # every exception is a verb the scan finds
+    @test !any(s -> haskey(verbs, s) && takes(BoundedCamera, verbs[s]), keys(not_forwarded))   # and none is forwarded
+
+    # a parametric and a SplineLens camera, bounded: the forwarded verbs are the camera's, inferred
+    cm = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = Lens(Equidistant()))
+    gen = CameraModel(SplineLens, cm, Size2(640, 480); grid_size = (6, 5))
+    u = SVector(400.0, 100.0); X = SVector(0.2, -0.1, 1.0)
+    for cam in (cm, gen)
+        bc = BoundedCamera(cam, Size2(640, 480))
+        @test (@inferred backproject_with_jacobian(bc, u)) == backproject_with_jacobian(cam, u)
+        @test backproject(bc, u) == backproject(cam, u) && isequal(project(bc, X), project(cam, X))
+        @test backproject_with_jacobian(bc, [u, u]; device = KA.CPU()) == backproject_with_jacobian(cam, [u, u]; device = KA.CPU())
+        @test calibration_matrix(bc) == calibration_matrix(cam)
+    end
+end

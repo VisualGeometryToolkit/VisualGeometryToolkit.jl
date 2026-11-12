@@ -205,6 +205,20 @@
             @test AffineMap(DiagonalNormalization((1200, 900))) == Td
             @test AffineMap(DiagonalNormalization(Size2(width = 1200px, height = 900px))) == Td
             @test AffineMap(DiagonalNormalization((1200, 900); center = (700.0, 400.0)))(SVector(700.0, 400.0)) == SVector(0.0, 0.0)
+            # Hartley on 3-D points (a least squares over lengths): the centroid, mean distance √3
+            rng3 = Xoshiro(7)
+            X = [SVector(1.0e5, -2.0e5, 3.0e4) + 0.3 * randn(rng3, SVector{3, Float64}) for _ in 1:25]
+            T3 = AffineMap(HartleyNormalization(), X)
+            @test T3.linear isa Diagonal && T3.linear[1, 1] == T3.linear[2, 2] == T3.linear[3, 3]
+            @test norm(T3(sum(X) / length(X))) < 1.0e-6
+            @test sum(norm(T3(p)) for p in X) / length(X) ≈ sqrt(3) rtol = 1.0e-9
+            w3 = [isodd(i) ? 1.0 : 0.0 for i in 1:25]
+            A3w = AffineMap(HartleyNormalization(), X, w3); A3o = AffineMap(HartleyNormalization(), X[1:2:end])
+            @test A3w.linear ≈ A3o.linear && A3w.translation ≈ A3o.translation
+            let I3 = AffineMap(HartleyNormalization(), SVector{3, Float64}[])   # no points: the identity
+                @test I3.linear == Diagonal(SVector(1.0, 1.0, 1.0)) && I3.translation == zeros(3)
+            end
+            @test_throws ArgumentError AffineMap(HartleyNormalization(; center = (1.0, 2.0)), X)
         end
 
         @testset "solve — Homography4pt" begin

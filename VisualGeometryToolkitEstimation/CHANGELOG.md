@@ -24,6 +24,11 @@ non-central one is a `NoncentralSplineModel`).
   covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
   rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
+- **`fit_robot_world_hand_eye` solves its translations normalized** (the stack's normalize-LS rule): the joint
+  `[t_Y; t_X…]` least squares runs on each side's translations about their centroid at one isotropic scale (the rig
+  side's 3-D `HartleyNormalization`), unnormalized on the way out. The design's rotation blocks, and so its singular
+  values, are unchanged; the right-hand side no longer cancels when a frame sits far from its origin. Results move at
+  rounding level only.
 - **Breaking: two names take the verb of their kind** (conventions/naming.md): the relative-pose bundle, which needs
   a seed, is `refine_relative_pose(pose, K1, K2, cs; max_iter)` (was `bundle_refine_relpose`; public, as before), and
   the averaging behind the view-graph filters, a staged fit, is `fit_filtered_rotation_averaging(vg; cycle_tol,

@@ -67,6 +67,7 @@ using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleIn
 using FlexUnits: Quantity
 using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
 using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
+using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type
 # whose problem argument is RVG's) and builds its pool-frame problems.

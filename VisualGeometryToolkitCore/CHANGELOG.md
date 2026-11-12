@@ -24,6 +24,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
+- **`HartleyNormalization` applies to 3-D points**: `AffineMap(HartleyNormalization(), points3d[, weights])` maps
+  `StaticVector{3}`s about their (weighted) centroid to mean distance √3 (Hartley & Zisserman), the normalization of a
+  least squares over lengths; a known centre stays 2-D (`ArgumentError`). One body serves both dimensions; the 2-D map
+  is unchanged, bit for bit.
 - **`check_naming` retires `bundle_refine_relpose` and `filtered_rotation_averaging`** (VisualGeometryToolkitEstimation's
   `refine_relative_pose` and `fit_filtered_rotation_averaging`); conventions/units.md names the new one.
 - **`check_naming` retires `default_local_optimization` and `_fit_local_optimization`** (VisualGeometryToolkitEstimation's

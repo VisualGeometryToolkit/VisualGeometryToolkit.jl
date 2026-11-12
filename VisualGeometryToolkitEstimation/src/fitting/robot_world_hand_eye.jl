@@ -326,8 +326,20 @@ function _robot_world_hand_eye_init(
     end
 
     # 3. All translations jointly:  t_B = R_Yᵀ R_A t_X − R_Yᵀ t_Y + R_Yᵀ t_A
-    #    unknown u = [t_Y ; t_X₁ … t_X_M] — exactly optimal given the rotations
+    #    unknown u = [t_Y ; t_X₁ … t_X_M] — exactly optimal given the rotations.
+    #    Solved in a normalized space (the stack's normalize-LS rule): each side's
+    #    translations about their centroid c_A, c_B, at ONE isotropic scale s — the
+    #    rig side's HartleyNormalization (VisualGeometryToolkitCore, 3-D: mean distance
+    #    √3) — as t′_A = s(t_A − c_A), t′_B = s(t_B − c_B). The rows keep their form,
+    #    with t′_X = s·t_X and t′_Y = s(t_Y − c_A + R_Y c_B), unnormalized on the way out.
+    #    The rotation blocks of the design are untouched (its singular values are
+    #    the same); what moves is the right-hand side's cancellation when a frame
+    #    sits far from its origin.
     n = length(obs_marker)
+    NA = wobs === nothing ? AffineMap(HartleyNormalization(), tA) : AffineMap(HartleyNormalization(), tA, wobs)   # the observations' weights, when weighted
+    NB = wobs === nothing ? AffineMap(HartleyNormalization(), tB) : AffineMap(HartleyNormalization(), tB, wobs)
+    s = NA.linear[1, 1]
+    cA = inv(NA)(zero(SVector{3, Float64})); cB = inv(NB)(zero(SVector{3, Float64}))
     Amat = zeros(3n, 3 * (M + 1))
     rhs = zeros(3n)
     RYt = SMatrix{3, 3, Float64, 9}(R_Y')
@@ -336,7 +348,7 @@ function _robot_world_hand_eye_init(
         rows = (3k - 2):(3k)
         Amat[rows, 1:3] .= -RYt
         Amat[rows, (3m + 1):(3m + 3)] .= RYt * SMatrix{3, 3, Float64, 9}(RA[k])
-        rhs[rows] .= tB[k] - RYt * tA[k]
+        rhs[rows] .= s * (tB[k] - cB) - RYt * NA(tA[k])
         if wobs !== nothing                                            # the weighted least squares: rows × √wₖ
             sk = sqrt(wobs[k])
             Amat[rows, :] .*= sk
@@ -344,8 +356,8 @@ function _robot_world_hand_eye_init(
         end
     end
     u = Amat \ rhs
-    t_Y = SVector{3, Float64}(u[1], u[2], u[3])
-    t_X = [SVector{3, Float64}(u[3m + 1], u[3m + 2], u[3m + 3]) for m in 1:M]
+    t_Y = SVector{3, Float64}(u[1], u[2], u[3]) / s + cA - R_Y * cB
+    t_X = [SVector{3, Float64}(u[3m + 1], u[3m + 2], u[3m + 3]) / s for m in 1:M]
 
     return R_Y, t_Y, R_X, t_X, pairs, as
 end

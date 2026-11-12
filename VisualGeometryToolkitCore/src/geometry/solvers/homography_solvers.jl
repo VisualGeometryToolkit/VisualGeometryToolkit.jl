@@ -31,11 +31,13 @@ end
 # component is silently overwritten with 1.
 @inline _lift_image_point(u::StaticVector{2}, ::Type{T}) where {T} = SVector{3, T}(u[1], u[2], one(T))
 
-@inline _hartley_identity(::Type{T}) where {T} =
+@inline _hartley_identity(::Type{T}, ::Val{2} = Val(2)) where {T} =
     AffineMap(
     LinearAlgebra.Diagonal(SVector{2, T}(one(T), one(T))),
     zero(Vec2{T})
 )
+@inline _hartley_identity(::Type{T}, ::Val{3}) where {T} =
+    AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))
 
 # The weight predicate of the single Hartley-map body: each weights variant
 # inlines to its own loop. The normalizer is Σ(effective weight) — the count
@@ -59,40 +61,43 @@ end
 @inline _selection(idx, u₁, u₂) = idx
 
 # The Hartley map of `pts` over the selected indices `sel` (the one body: every
-# weights variant inlines to its own loop) — translation to the weighted
-# centroid, or to `center` when given; scale √2 over the weighted mean distance
-# from it. Indexing is checked: an index list is the caller's.
+# weights variant inlines to its own loop, and every dimension D shares it) —
+# translation to the weighted centroid, or to `center` when given; scale √D over
+# the weighted mean distance from it (Hartley & Zisserman §4.4: √2 for image
+# points, √3 for 3-D points). Indexing is checked: an index list is the caller's.
 function _hartley_map(
-        pts::AbstractVector{<:StaticVector{2, T}},
+        pts::AbstractVector{<:StaticVector{D, T}},
         sel,
         w::Union{Nothing, AbstractVector},
         center
-    ) where {T}
-    cx = zero(T); cy = zero(T); sw = zero(T)
+    ) where {D, T}
+    c = zero(SVector{D, T}); sw = zero(T)
     for i in sel
         acc, wi = _hartley_accept(w, i, T)
         acc || continue
-        sw += wi; cx += wi * pts[i][1]; cy += wi * pts[i][2]
+        sw += wi; c = c + wi * SVector{D, T}(pts[i])
     end
     # Uniform degenerate guard: empty input, empty selection, or all-zero
     # weights yield the identity frame.
-    sw < eps(T) && return _hartley_identity(T)
-    if center === nothing
-        cx /= sw; cy /= sw
-    else
-        cx = T(center[1]); cy = T(center[2])
-    end
+    sw < eps(T) && return _hartley_identity(T, Val(D))
+    c = center === nothing ? c / sw : SVector{D, T}(center)
     d = zero(T)
     for i in sel
         acc, wi = _hartley_accept(w, i, T)
         acc || continue
-        dx = pts[i][1] - cx; dy = pts[i][2] - cy
-        d += wi * hypot(dx, dy)
+        d += wi * _hartley_distance(SVector{D, T}(pts[i]), c)
     end
     d /= sw
-    s = d > eps(T) ? sqrt(T(2)) / d : one(T)
-    return _hartley_affine(T, s, cx, cy)
+    s = d > eps(T) ? sqrt(T(D)) / d : one(T)
+    return _hartley_affine(T, s, c)
 end
+# The distance from the centre: `hypot` in the plane (the 2-D map's arithmetic since
+# it was written), the norm in 3-D.
+@inline _hartley_distance(p::SVector{2}, c::SVector{2}) = hypot(p[1] - c[1], p[2] - c[2])
+@inline _hartley_distance(p::SVector{3}, c::SVector{3}) = norm(p - c)
+@inline _hartley_affine(::Type{T}, s::T, c::SVector{2, T}) where {T} = _hartley_affine(T, s, c[1], c[2])
+@inline _hartley_affine(::Type{T}, s::T, c::SVector{3, T}) where {T} =
+    AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(s, s, s)), Vec3{T}(-s * c[1], -s * c[2], -s * c[3]))
 
 
 # =============================================================================
@@ -144,13 +149,17 @@ _pixel_extent(x) = Float64(_strip_pixels(x))   # a plain number or px; a length 
 
 """
     AffineMap(s::HartleyNormalization, points, mask = nothing, weights = nothing) -> AffineMap
+    AffineMap(s::HartleyNormalization, points3d, weights = nothing) -> AffineMap
     AffineMap(s::DiagonalNormalization) -> AffineMap
 
-Apply a normalization strategy: the 2D affine map `x ↦ σ·(x − c)` it
+Apply a normalization strategy: the affine map `x ↦ σ·(x − c)` it
 prescribes (a `Diagonal` linear part, uniform scale). For Hartley the centre
 and scale come from `points` — `mask` (a `BitVector`) and `weights` restrict
 and weight the statistics, an empty selection gives the identity; the
-diagonal strategy needs no data.
+diagonal strategy needs no data. Hartley applies to image points (mean
+distance √2) and to 3-D points (`StaticVector{3}`: about their centroid, mean
+distance √3 — the normalization of a least squares over lengths, such as
+translations); the diagonal strategy is 2-D.
 """
 CoordinateTransformations.AffineMap(
     s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}},
@@ -158,6 +167,13 @@ CoordinateTransformations.AffineMap(
 ) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
 CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}}, w::AbstractVector) =
     _hartley_map(pts, eachindex(pts), w, s.center)
+# 3-D points (a least squares over lengths: translations, world points): the same strategy,
+# about the centroid at mean distance √3. A known centre is the radial models' 2-D frame only.
+function CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{3}},
+                                             w::Union{Nothing, AbstractVector} = nothing)
+    s.center === nothing || throw(ArgumentError("HartleyNormalization: a known centre is two-dimensional; 3-D points normalize about their centroid"))
+    return _hartley_map(pts, eachindex(pts), w, nothing)
+end
 CoordinateTransformations.AffineMap(d::DiagonalNormalization) =
     _hartley_affine(Float64, one(Float64) / (hypot(d.width, d.height) / 2), d.center[1], d.center[2])
 

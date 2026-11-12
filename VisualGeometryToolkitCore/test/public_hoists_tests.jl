@@ -39,6 +39,8 @@ end
     P = SimilarityMap(0.9, one(RotMatrix{3, Float64}), SVector(-0.4, -0.45, 0.0))
     rect = Rect2(-0.5, -0.5, 1.0, 1.0)
     rays = [(SVector(0.3randn(rng), 0.3randn(rng), 0.0), SVector(0.2randn(rng), 0.2randn(rng), 1.0)) for _ in 1:200]
+    # the same hit: equal numbers (a signed zero equal to its opposite), a miss on both
+    same((ta, xa), (tb, xb)) = isnan(ta) ? isnan(tb) && all(isnan, xb) : ta == tb && xa == xb
     H = HeightField(nodes, 0.01 .* randn(rng, 16))
     T = ThinPlateSpline(nodes, 0.01 .* randn(rng, 16), 0.01 .* randn(rng, 16))
     for (C, Pc) in ((H, nothing), (H, P), (H ∘ Aspect(0.01) ∘ Skew(-0.003), nothing), (H ∘ T, P))
@@ -47,9 +49,9 @@ end
         s2 = with_parameters(s, θ)
         built = MappedSurface(X, with_parameters(C, θ), Pc, rect)        # the checked builder from the parts
         @test s2 isa MappedSurface && s2.frame == s.frame && s2.map.t1 == s.map.t1   # the frame and the pose kept
-        @test all(isequal(intersection(s2, o, d), intersection(built, o, d)) for (o, d) in rays)
+        @test all(same(intersection(s2, o, d), intersection(built, o, d)) for (o, d) in rays)
         @test count(r -> isfinite(intersection(s2, r...)[1]), rays) > 50
-        @test all(isequal(intersection(with_parameters(s, parameter_vector(C)), o, d), intersection(s, o, d)) for (o, d) in rays)
+        @test all(same(intersection(with_parameters(s, parameter_vector(C)), o, d), intersection(s, o, d)) for (o, d) in rays)
     end
 
     # RadiometricCamera's former form, bit for bit: every HeightField member rebuilt by its own with_parameters

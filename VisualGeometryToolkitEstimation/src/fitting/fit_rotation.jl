@@ -78,7 +78,7 @@ the caller's scale input and never re-estimated.
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
   loss weight (fixed prior weights).
 
-`retcode` is `:converged`, `:max_iterations`, `:solved` (least squares), or
+`retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least squares), or
 `:degenerate` when fewer than two pairs keep a positive weight. `n` is the
 support (the pairs of positive solve weight), `rms` the weight-weighted root
 mean square residual angle. The metadata ([`RotationFitMetadata`](@ref))
@@ -110,25 +110,25 @@ function fit_rotation(
     R = _weighted_kabsch(as, bs, prior)
     R === nothing && return _rotation_degenerate(optimization_strategy, f, n, w)
     r = _rotation_residuals(R, as, bs)
-    retcode = f === nothing ? :solved : :max_iterations
+    tol_met = false
     iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
         _irls_weights!(w, f, r)
         R_new = _weighted_kabsch(as, bs, _solve_weights(prior, w))
-        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w)
+        R_new === nothing && return _rotation_degenerate(optimization_strategy, f, n, w, _irls_record(false, false; solve_failed = true))
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
         r = _rotation_residuals(R, as, bs)
         if Δ < tol
-            retcode = :converged
+            tol_met = true
             break
         end
     end
     _irls_weights!(w, f, r)                    # the metadata at the returned rotation
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(R, retcode, iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(R, _irls_record(tol_met, f === nothing)..., iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 function _unit_direction(v, i)
@@ -147,5 +147,7 @@ end
 
 _rotation_residuals(R, as, bs) = [angle_between(R * a, b) for (a, b) in zip(as, bs)]   # VGC's atan(‖Ra × b‖, Ra · b)
 
-_rotation_degenerate(strategy, f, n, w) =
-    FitResult(one(RotMatrix{3, Float64}), :degenerate, 0, NaN, 0, RotationFitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))
+# A solve that failed: before the loop, a degenerate start `(InitialFailure, NoRule)`; inside it, a weighted
+# solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
+_rotation_degenerate(strategy, f, n, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
+    FitResult(one(RotMatrix{3, Float64}), record..., 0, NaN, 0, RotationFitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))

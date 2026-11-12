@@ -26,7 +26,7 @@ overrides.
 
 Returns a `RansacEstimate` (its `estimate` a `Circle{Float64}`), the `:no_model` result (`iterations` 0) for
 fewer than 3 points. `iterations(result)` is the number of trials (hypotheses
-drawn); test `converged(result)` before reading the model (see
+drawn); test `found_model(result)` before reading the model (see
 [`RansacEstimate`](@ref)).
 
 # Arguments
@@ -50,7 +50,7 @@ The 2D circle through `points` refined from the given `circle` (the points'
 distances to it, pixels; codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.circle] optimization_strategy`). Fewer than 3 points: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_circle(circle::VgtkCore.Circle, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
     return _guarded_refine(() -> CircleProblem(points), CircleProblem, length(points), Val(:circle), circle; kwargs...)

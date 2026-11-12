@@ -73,6 +73,7 @@ end
 end
 
 @testitem "refine_absolute_pose: frames, units, too few" setup = [PixelPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, GaussianShape, estimate, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip,
         retcode, iterations, MsacScoring
@@ -93,7 +94,7 @@ end
     res = refine_absolute_pose(Ep, cam, [X .* m => u for (X, u) in cs]; ls...)
     @test maximum(abs, ustrip(m, estimate(res)).t - E.t) < 1.0e-9
     @test let r = refine_absolute_pose(E, cam, cs[1:2]; ls...)
-        retcode(r) === :degenerate && iterations(r) == 0 && estimate(r).R == E.R
+        retcode_symbol(r) === :degenerate && iterations(r) == 0 && estimate(r).R == E.R
     end
 end
 
@@ -217,6 +218,7 @@ end
 end
 
 @testitem "refine_absolute_pose bearings: refusals, frames and units" setup = [PixelPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using VisualGeometryToolkitCore: Csponds, withattrs, estimate, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip,
@@ -231,7 +233,7 @@ end
     Mbad = [hcat(normalize(SVector(1.0, 0.0, 0.0) - f[1] * f) + f, normalize(SVector(0.0, 1.0, 0.0) - f[2] * f)) for f in fs]
     @test_throws ArgumentError refine_absolute_pose(E, withattrs(Csponds(Xs, fs); M = Mbad); optimization_strategy = nothing)
     @test let r = refine_absolute_pose(E, Csponds(Xs[1:2], fs[1:2]); optimization_strategy = nothing)
-        retcode(r) === :degenerate && iterations(r) == 0 && estimate(r).R == E.R
+        retcode_symbol(r) === :degenerate && iterations(r) == 0 && estimate(r).R == E.R
     end
     # the guess's frames come back (frames.md rule 1); an unlabeled guess comes back unlabeled
     El = relabel(WorldFrame, CameraFrame, perturbed(E))

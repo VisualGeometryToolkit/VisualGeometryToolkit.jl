@@ -56,6 +56,11 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
+# Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
+# through FitResult's constructor; a loop that reports a Symbol records `retcode_from_symbol(s, rule)`.
+using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_from_symbol, retcode_symbol,
+    worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
+    ToleranceMet, IterationCap, TimeCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
 # robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
 # (fitting/_refine.jl) the scale they were handed.
@@ -159,7 +164,7 @@ import VisualGeometryToolkitCore: weight_kind
 # its methods to VGC's functions.
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
     ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed,
-    lm_retcode, loss_robustifier
+    loss_robustifier
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!
 import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
@@ -234,7 +239,7 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
-using VisualGeometryToolkitCore: nlls_retcode, nlls_rows_and_jacobian, nlls_stop_reasons   # NLLSsolver's termination bits + the stall postcondition, as a retcode
+using VisualGeometryToolkitCore: nlls_rows_and_jacobian, nlls_stop_reasons   # NLLSsolver's rows and termination bits (the record: nlls_termination)
 using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 # fit_camera's spline families: the penalized normal equations (a sparse

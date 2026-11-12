@@ -57,8 +57,8 @@ julia> r = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, optimizat
 julia> pose = estimate(r); maximum(abs, pose.t) < 1e-8
 true
 
-julia> retcode(r)
-:converged
+julia> converged(r)
+true
 ```
 
 A P3P solution is a labeled `Extrinsics3`, a map from the world frame to the

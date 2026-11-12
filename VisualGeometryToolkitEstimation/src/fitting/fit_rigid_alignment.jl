@@ -77,7 +77,7 @@ centroids) — iterating, when robust, a reweighted Kabsch at ONE loss width.
 
 At least three pairs of positive weight are needed, not all on one line
 (`ArgumentError`; a robust iteration whose weights leave fewer returns
-`:degenerate`). `retcode` is `:converged`, `:max_iterations`, `:solved` (least
+`:degenerate`). `retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least
 squares) or `:degenerate`; `n` is the support (pairs of positive solve
 weight), `rms` the weight-weighted root mean square distance — the ATE of the
 pairs the weighting keeps. Physical points (lengths) are read in metres and
@@ -105,26 +105,26 @@ function fit_rigid_alignment(
     T = _weighted_rigid(as, bs, prior)
     T === nothing && throw(ArgumentError("fit_rigid_alignment: the points of positive weight are collinear"))
     r = _rigid_residuals(T, as, bs)
-    retcode = f === nothing ? :solved : :max_iterations
+    tol_met = false
     iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
         _irls_weights!(w, f, r)
         T_new = _weighted_rigid(as, bs, _solve_weights(prior, w))
-        T_new === nothing && return _rigid_degenerate(optimization_strategy, f, n, w)
+        T_new === nothing && return _rigid_degenerate(optimization_strategy, f, n, w, _irls_record(false, false; solve_failed = true))
         ΔR = Rotations.rotation_angle(RotMatrix{3, Float64}(rotation(T_new) * rotation(T)'))
         Δt = norm(translation(T_new) - translation(T))
         T = T_new
         r = _rigid_residuals(T, as, bs)
         if ΔR < tol && Δt < tol * f.loss_width
-            retcode = :converged
+            tol_met = true
             break
         end
     end
     _irls_weights!(w, f, r)                           # the metadata at the returned transform
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(T, retcode, iter, rms, used,
+    return FitResult(T, _irls_record(tol_met, f === nothing)..., iter, rms, used,
                      RigidAlignmentMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
@@ -159,6 +159,8 @@ end
 
 _rigid_residuals(T, as, bs) = [norm(b - (rotation(T) * a + translation(T))) for (a, b) in zip(as, bs)]
 
-_rigid_degenerate(strategy, f, n, w) =
-    FitResult(EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}); check = false), :degenerate, 0, NaN, 0,
+# A solve that failed: before the loop, a degenerate start `(InitialFailure, NoRule)`; inside it, a weighted
+# solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
+_rigid_degenerate(strategy, f, n, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
+    FitResult(EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}); check = false), record..., 0, NaN, 0,
               RigidAlignmentMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))

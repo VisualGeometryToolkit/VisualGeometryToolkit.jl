@@ -3,6 +3,7 @@
 # the noise's accuracy where the plain Kabsch is pulled degrees away.
 
 @testitem "fit_rotation: exact on clean pairs" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Rotations: RotMatrix, RotXYZ, rotation_angle
@@ -14,7 +15,7 @@
     cs = Csponds(as, [R * a for a in as])
     for K in (HuberShape, WelschShape)
         res = fit_rotation(cs; optimization_strategy = Irls{K}(), scale = 1.0e-3)
-        @test retcode(res) === :converged
+        @test retcode_symbol(res) === :converged
         @test rotation_angle(estimate(res) * R') < 1.0e-14
         @test rms(res) < 1.0e-14
     end
@@ -25,6 +26,7 @@
 end
 
 @testitem "fit_rotation: 20% outliers" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm, cross
     using Rotations: RotMatrix, RotXYZ, rotation_angle
@@ -54,7 +56,7 @@ end
     # the inlier fit, here bounded by 5e-4 rad (σ = 1e-3, 160 inliers).
     for K in (HuberShape, WelschShape)
         res = fit_rotation(cs; optimization_strategy = Irls{K}(), scale = σ)
-        @test retcode(res) === :converged
+        @test retcode_symbol(res) === :converged
         @test rotation_angle(estimate(res) * R') < 5.0e-4
         @test rotation_angle(estimate(res) * R') < plain / 10
     end
@@ -82,12 +84,13 @@ end
     end
     # a loss that is no M-estimator (TLS, a hard cutoff): no efficiency default, so its constant (or a width) is
     # required — an ArgumentError naming both. A hard cutoff at a FIXED width must contain the least-squares seed's
-    # residuals (here 0.05 rad off): at 3σ it rejects every pair (:degenerate), at 100σ it keeps the inliers and drops
+    # residuals (here 0.05 rad off): at 3σ it rejects every pair (an unsolvable weighted solve), at 100σ it keeps the inliers and drops
     # every random direction
     e = try fit_rotation(cs; optimization_strategy = Irls{TLSShape}(), scale = σ); nothing catch e; e end
     @test e isa ArgumentError && occursin("width", e.msg) && occursin("TLSShape", e.msg)
-    @test retcode(fit_rotation(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = σ)) === :degenerate
+    # (a weighted solve left with no row inside its loop: SciMLBase's InternalLinearSolveFailed, `:solve_failed`)
+    @test retcode_symbol(fit_rotation(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = σ)) === :solve_failed
     rest = fit_rotation(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 100.0), scale = σ)
-    @test retcode(rest) === :converged && rotation_angle(estimate(rest) * R') < 5.0e-4
+    @test retcode_symbol(rest) === :converged && rotation_angle(estimate(rest) * R') < 5.0e-4
     @test all(iszero, rest.weights[out])
 end

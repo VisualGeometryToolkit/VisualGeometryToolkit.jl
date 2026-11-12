@@ -25,7 +25,7 @@ Every default is `configs/default.toml`'s (`[ransac]`,
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 4 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Arguments
 - `correspondences`: 2D-2D correspondences — `Csponds`, `StructArray{<:Pair}` or a
@@ -99,15 +99,16 @@ caller's scale, frozen. (The RANSAC local-optimization step from a seed — a
 scorer, its consensus set, the strategy anchored on it — is
 [`locally_optimize`](@ref), not a refine.)
 
-Returns a `FitResult` with [`RefineMetadata`](@ref): the refined model, `retcode`
-(the LM's: `:converged`, `:max_iterations`, `:stalled`, `:solve_failed`; an Irls
-run's `:converged` or `:max_iterations`), `iterations` (the LM's accepted
+Returns a `FitResult` with [`RefineMetadata`](@ref): the refined model, its
+termination record (`retcode`, `stop_rule`: the LM's, whose `retcode_symbol` is
+`:converged`, `:max_iterations`, `:stalled` or `:solve_failed`; an Irls run's
+`(Success, CostDecrease)` or `(MaxIters, IterationCap)`), `iterations` (the LM's accepted
 iterations; an Irls run's cycles), `rms` the weighted residual rms
 `√(Σ wᵢrᵢ² / Σ wᵢ)` and `n` the support (`count(w > 0)`), and in the metadata
 the per-datum `weights` and `residuals` at the estimate and the scale record
 (`noise_scale(result)`, `scale_source(result)`, `loss_width`). There is no inlier
 mask: a loss weight has no cut of its own (`inlier_mask(result, cut)` states one).
-Fewer than 4 correspondences: the guess back unrefined, `retcode` `:degenerate`,
+Fewer than 4 correspondences: the guess back unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`),
 `n` 0.
 
 # Keywords — shared by every `refine_*`

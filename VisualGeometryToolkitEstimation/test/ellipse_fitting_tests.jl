@@ -3,6 +3,7 @@
 # maximum-likelihood ellipse, its covariance the one model covariance.
 
 @testitem "ellipse_fitting" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -96,7 +97,7 @@
 
     @testset "too few points" begin
         @test let r = refine_ellipse(e0, _points(e0, 4); optimization_strategy = nothing)
-            retcode(r) === :degenerate && iterations(r) == 0 && estimate(r) == e0
+            retcode_symbol(r) === :degenerate && iterations(r) == 0 && estimate(r) == e0
         end
     end
 end

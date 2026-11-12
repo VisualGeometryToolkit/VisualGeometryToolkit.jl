@@ -15,9 +15,9 @@
     end
 
     @testset "FitResult" begin
-        lean = FitResult(3.14, :converged, 7, 0.21, 100, nothing)
+        lean = FitResult(3.14, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 7, 0.21, 100, nothing)
         @test @inferred(estimate(lean)) == 3.14
-        @test @inferred(retcode(lean)) === :converged
+        @test @inferred(retcode(lean)) === VisualGeometryToolkitCore.ReturnCode.Success
         @test @inferred(converged(lean))
         @test @inferred(iterations(lean)) == 7
         @test @inferred(rms(lean)) == 0.21
@@ -26,29 +26,34 @@
         @test_throws Exception weights(lean)
         @test_throws Exception lean.weights
 
-        ir = FitResult([1.0, 2.0], :max_iterations, 50, 0.5, 3, _IrlsMeta(1.2, 8.0, [0.9, 1.0, 0.1]))
+        ir = FitResult([1.0, 2.0], VisualGeometryToolkitCore.ReturnCode.MaxIters, VisualGeometryToolkitCore.IterationCap, 50, 0.5, 3, _IrlsMeta(1.2, 8.0, [0.9, 1.0, 0.1]))
         @test !converged(ir)
         @test @inferred(weights(ir)) == [0.9, 1.0, 0.1]
         @test ir.metadata.scale == 1.2 && ir.metadata.ν == 8.0
 
         bu = FitResult(
-            :cal, :converged, 12, 0.2, 500, BundleMetadata(
+            :cal, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 12, 0.2, 500, BundleMetadata(
                 [1.0], [0.4], [1, 3], 488, 1.1,
-                (rms = 0.31, median = 0.25, p90 = 0.62), (rms = 0.2, median = 0.18, p90 = 0.4)
+                (rms = 0.31, median = 0.25, p90 = 0.62), (rms = 0.2, median = 0.18, p90 = 0.4);
+                scale = 0.7, scale_source = VisualGeometryToolkitCore.ScaleGiven
             )
         )
+        # the bundle's scale record: read by noise_scale/scale_source, required (no default)
+        @test VisualGeometryToolkitCore.noise_scale(bu) === 0.7 && VisualGeometryToolkitCore.scale_source(bu) === VisualGeometryToolkitCore.ScaleGiven
+        @test_throws UndefKeywordError BundleMetadata([1.0], [0.4], [1], 1, NaN, bu.before, bu.after)
         @test @inferred(dof(bu)) == 488
         @test bu.metadata.after.median == 0.18 && bu.metadata.before.p90 == 0.62
         @test rms(bu) == bu.metadata.after.rms == 0.2
         # one residual per weight — one per observation
-        @test_throws ArgumentError BundleMetadata([1.0], [0.4, 0.5], [1], 1, NaN, bu.before, bu.after)
+        @test_throws ArgumentError BundleMetadata([1.0], [0.4, 0.5], [1], 1, NaN, bu.before, bu.after;
+                                                  scale = NaN, scale_source = VisualGeometryToolkitCore.ScaleNone)
         # concrete types all the way down — no Union fields anywhere
         @test isconcretetype(typeof(ir.metadata)) && isconcretetype(typeof(bu.metadata))
         @test isconcretetype(typeof(ir)) && isconcretetype(typeof(lean))
 
         @testset "property forwarding into metadata" begin
             # The core fields read as properties …
-            @test ir.estimate == [1.0, 2.0] && ir.retcode === :max_iterations
+            @test ir.estimate == [1.0, 2.0] && ir.retcode === VisualGeometryToolkitCore.ReturnCode.MaxIters && ir.stop_rule === VisualGeometryToolkitCore.IterationCap
             @test ir.iterations == 50 && ir.rms == 0.5 && ir.n == 3
             # … the derived `converged` is a property too — uniform with the rest,
             # computed from retcode on access, never stored …
@@ -69,9 +74,9 @@
             @test ir.weights === weights(ir)
             @test bu.dof === dof(bu)
             # propertynames advertises core + metadata, in that order.
-            @test propertynames(lean) == (:estimate, :retcode, :iterations, :rms, :n, :metadata, :converged)
+            @test propertynames(lean) == (:estimate, :retcode, :stop_rule, :iterations, :rms, :n, :metadata, :converged)
             @test propertynames(ir) == (
-                :estimate, :retcode, :iterations, :rms, :n, :metadata, :converged,
+                :estimate, :retcode, :stop_rule, :iterations, :rms, :n, :metadata, :converged,
                 :scale, :ν, :weights,
             )
             # An unknown name is an error on every variant — never `nothing`.
@@ -88,12 +93,12 @@
                 n::Int
                 extra::Float64
             end
-            @test_throws ErrorException FitResult(1.0, :converged, 1, 0.0, 10, _ShadowingMeta(99, 2.0))
+            @test_throws ErrorException FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 10, _ShadowingMeta(99, 2.0))
             # the derived property's name is reserved just like a stored core field
             struct _ShadowsConverged
                 converged::Bool
             end
-            @test_throws ErrorException FitResult(1.0, :converged, 1, 0.0, 10, _ShadowsConverged(true))
+            @test_throws ErrorException FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 10, _ShadowsConverged(true))
             # and the check is a compile-time no-op for a valid metadata type
             @test _reject_shadowing(_IrlsMeta) === nothing
             # the core list the forwarder derives from IS the struct's field order
@@ -150,7 +155,7 @@ end
     @test nested_metadata(_NestInner) === ()
 
     m = _NestOuter(7, _NestInner(2.5, [1, 2]))
-    r = FitResult(:est, :converged, 3, 0.1, 9, m)
+    r = FitResult(:est, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 3, 0.1, 9, m)
     @test r.b == 2.5 && r.c == [1, 2] && r.a == 7
     @test r.inner === m.inner
     @test r.estimate === :est && r.converged
@@ -161,9 +166,9 @@ end
     @test @inferred(_a(r)) == 7
     @test_throws Exception r.nothing_here
 
-    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestClashOuter(1, _NestClashInner(2)))
-    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestClashCore(_NestCoreInner(2.0)))
-    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestTwo(_NestInner(1.0, [1]), _NestInner(2.0, [2])))
-    @test_throws ErrorException FitResult(:e, :converged, 1, 0.0, 1, _NestNotField(1))
+    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestClashOuter(1, _NestClashInner(2)))
+    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestClashCore(_NestCoreInner(2.0)))
+    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestTwo(_NestInner(1.0, [1]), _NestInner(2.0, [2])))
+    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestNotField(1))
     @test _reject_shadowing(_NestOuter) === nothing
 end

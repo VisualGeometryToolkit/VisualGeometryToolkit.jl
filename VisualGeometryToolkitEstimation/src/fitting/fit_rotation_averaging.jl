@@ -117,7 +117,7 @@ rather than left free in a singular solve; more generally, in each part of
 the graph that the edges of positive weight no longer tie to the gauge frame,
 the first sorted frame is held and the rest move with it.
 
-`retcode` is `:converged` or `:max_iterations`;
+`retcode_symbol(result)` is `:converged` or `:max_iterations`;
 `n` the support (the edges of positive solve weight) and `rms` the
 weight-weighted root mean square residual angle over them. A disconnected
 graph is an `ArgumentError`, counting only the edges of positive weight; the
@@ -150,7 +150,7 @@ function fit_rotation_averaging(
         r[q] = log_so3(R[j] * Rrel[q] * R[i]')
     end
     edge_residuals!()
-    retcode = :max_iterations; iter = 0
+    tol_met = false; iter = 0
     while iter < _averaging_max_iter(optimization_strategy)
         iter += 1
         W = _edge_whitening(Σrel, edges, R)
@@ -166,14 +166,14 @@ function fit_rotation_averaging(
             Δ = max(Δ, norm(δ))
         end
         edge_residuals!()
-        Δ < tol && (retcode = :converged; break)
+        Δ < tol && (tol_met = true; break)
     end
     _irls_weights!(w, f, _whitened_norms(_edge_whitening(Σrel, edges, R), r))   # the metadata at the returned rotations
     out = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
     meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
     sw = _solve_weights(p, w)
     used, rms = _weighted_support_rms(sw, (norm(x)^2 for x in r))                # a zero weight drops its edge
-    return FitResult(out, retcode, iter, rms, used, meta)
+    return FitResult(out, _irls_record(tol_met, false)..., iter, rms, used, meta)
 end
 
 # The iteration cap: an Irls strategy's own `max_iter`; least squares (`nothing`, unit loss weights) iterates too, at

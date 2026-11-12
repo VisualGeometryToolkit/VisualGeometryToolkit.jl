@@ -32,11 +32,11 @@ obtains the radial camera when no homography is available; when one is, its
 rows 1–2 are the same object (`RadialCamera(H)`). Five correspondences
 determine `P` (five degrees of freedom).
 
-The `FitResult`'s estimate is the camera, `retcode` `:solved` after `iterations`
+The `FitResult`'s estimate is the camera, its record `(ReturnCode.Success, ClosedForm)` after `iterations`
 iterations (its `iterations` field), and `rms` the point–radial-line distance (px) of the `n` pairs at the
 fit, whatever the iteration count. When the constraint rows leave more than
 one null direction (a degenerate configuration — the plane points on a line,
-or a pixel on the centre) the retcode is `:degenerate`, the camera NaN and the
+or a pixel on the centre) the record is `(ReturnCode.InitialFailure, NoRule)`, the camera NaN and the
 rms NaN.
 
 Units: the source points are plain numbers. A radial camera maps from the source
@@ -62,7 +62,7 @@ function fit_radial_camera(
     A = Matrix{Float64}(undef, n, 6)
     svd_ws = VgtkCore.SvdWorkspace{Float64}(n, 6)
     P = RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(1, 0, 0, 1, 0, 0), o)
-    degenerate(iter) = FitResult(RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(ntuple(_ -> NaN, 6)), p.context), :degenerate, iter, NaN, n, nothing)
+    degenerate(iter) = FitResult(RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(ntuple(_ -> NaN, 6)), p.context), ReturnCode.InitialFailure, NoRule, iter, NaN, n, nothing)
     for iter in 1:iterations
         for i in 1:n
             _, G_x, row = constraint_with_jacobians(P, Xn[i], xn[i])
@@ -85,6 +85,6 @@ function fit_radial_camera(
     # the reported residual is the point–radial-line distance in px (the
     # problem's scoring residual), one currency whatever the iteration count
     ss = sum(abs2, mahalanobis_distances!(Vector{Float64}(undef, n), p, P))
-    return FitResult(P, :solved, iterations, sqrt(ss / n), n, nothing)
+    return FitResult(P, ReturnCode.Success, ClosedForm, iterations, sqrt(ss / n), n, nothing)
 end
 

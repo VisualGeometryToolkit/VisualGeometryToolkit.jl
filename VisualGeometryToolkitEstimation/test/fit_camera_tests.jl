@@ -150,6 +150,7 @@ end
 end
 
 @testitem "fit_camera: a region past the source's fold" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Rect, metadata, retcode, px
@@ -161,11 +162,12 @@ end
     r = @test_logs (:warn, r"past the radii the source") match_mode = :any fit_camera(KannalaBrandt{4}, src, Rect(0, 0, 1000, 1000))
     fam = metadata(r).family
     @test fam.clipped && isfinite(fam.θ_max) && fam.θ_max == fam.θ_source > 3.1
-    @test retcode(r) === :solved && metadata(r).max_px < 1.0e-6                     # KB4 holds KB1: the linear fit to its solve's rounding (θ⁹ to 180°)
+    @test retcode_symbol(r) === :solved && metadata(r).max_px < 1.0e-6                     # KB4 holds KB1: the linear fit to its solve's rounding (θ⁹ to 180°)
 end
 
 
 @testitem "fit_camera(SplineLens): a SplineLens source keeps its backward, on its optical axis, and gains a forward spline" setup = [FitCameraFisheye] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -177,7 +179,7 @@ end
     cam = estimate(r)
     @test cam isa CameraModel && lens(cam) isa SplineLens && lens(cam).forward isa ChartSpline{2}
     @test metadata(r) isa CameraFitMetadata
-    @test retcode(r) === :converged
+    @test retcode_symbol(r) === :converged
     # the backward is the source's on its optical axis (2026-11-11, changed on purpose: a gauge-K source is gauged
     # first, `optical_axis` then Core's `axis_gauged`): its controls turned by the fit's rotation, exactly, its K's
     # principal point moved to the axis's pixel. GRID is the fisheye's own spline, so the turn is its approximation
@@ -219,7 +221,7 @@ end
     @test lens(estimate(r2)).backward.controls == map(c -> R2 * c, lens(cam).backward.controls)
     @test maximum(abs, R2 - one(R2)) < 1.0e-8
     @test maximum(norm.(lens(estimate(r2)).forward.controls .- lens(cam).forward.controls)) < 1.0e-6
-    @test retcode(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward.max_px <= 1.0e-3
+    @test retcode_symbol(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward.max_px <= 1.0e-3
     # a kept backward has no lattice to choose
     @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
 end
@@ -236,6 +238,7 @@ end
 end
 
 @testitem "fit_camera(SplineLens): region shapes" setup = [FitCameraFisheye] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA
     using VisualGeometryToolkitCore: estimate, metadata, retcode, SplineLens, CameraModel, BoundedCamera, Size2, KannalaBrandt, Rect, px
@@ -243,14 +246,14 @@ end
     # the disc cut by the frame: a non-square region, anisotropic counts
     cut = Rect(0, 150, 1000, 700) ∩ DISC
     r = fit_camera(SplineLens, GRID_BOUNDED, cut; tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
+    @test retcode_symbol(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
     n = metadata(r).family.forward.counts
     @test n[1] > n[2]                                                           # wider than tall (measured 28 × 22)
     # the whole sensor of a parametric camera (corners at 81°): its backward lattice
     # and its forward, both to the tolerance
     wide = BoundedCamera(CameraModel(500.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02)), Size2(1000, 1000))
     r = fit_camera(SplineLens, wide, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).max_px <= 1.0e-3 && metadata(r).family.forward.max_px <= 1.0e-3
+    @test retcode_symbol(r) === :converged && metadata(r).max_px <= 1.0e-3 && metadata(r).family.forward.max_px <= 1.0e-3
     # the grid's whole sensor (its corners near 150°, far past the lit disc): the
     # forward reaches 1e-3 px within the bracket, where the old forward map did
     # not. The cause, measured 2026-11-10 against the old code (004a004c): the
@@ -262,16 +265,17 @@ end
     # off ẑ — reaches 1.41e-3 px; the lens axis (ẑ, the ray of the principal
     # point) reaches 5.69e-4 px.
     r = fit_camera(SplineLens, GRID_BOUNDED, Rect(0, 0, 1000, 1000); tolerance = 1.0e-3)
-    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
+    @test retcode_symbol(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
     # a forward tolerance out of reach within the bracket: the fit says so and
     # reports what it reached, the kept backward notwithstanding
     r = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-7)
-    @test retcode(r) === :max_iterations && 1.0e-7 < metadata(r).family.forward.max_px < 1.0e-3 && metadata(r).max_px < 1.0e-9
+    @test retcode_symbol(r) === :max_iterations && 1.0e-7 < metadata(r).family.forward.max_px < 1.0e-3 && metadata(r).max_px < 1.0e-9
     # the quadrature is on the image: a spline target takes no weight
     @test_throws MethodError fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, weight = :image)
 end
 
 @testitem "fit_camera(SplineLens): a backward lattice from a parametric model" setup = [FitCameraFisheye] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, normalize
@@ -287,7 +291,7 @@ end
     md = metadata(r)
     # the tolerance chooses the lattice: the largest spacing that meets it (measured
     # 2026-11-04: 35 × 35 nodes, 9.6e-5 px; 40 × 40 reached 5.4e-5 px)
-    @test retcode(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
+    @test retcode_symbol(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
     @test md.max_px <= 1.0e-4 && md.family.tolerance == 1.0e-4
     gw, gh = md.family.grid_size
     @test gh == gw && 20 <= gh <= 40 && VgtkEstimation._lattice_grid_size(1000, 1000, gw - 3) == (gw, gh)
@@ -307,7 +311,7 @@ end
     # lattice attains is out of reach, never a false convergence (measured
     # 2026-11-04: 169 × 169 reaches 1.9e-6 px)
     rf = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-12, forward = false)
-    @test retcode(rf) === :max_iterations && metadata(rf).max_px > 1.0e-9 && metadata(rf).family.grid_size == (169, 169)
+    @test retcode_symbol(rf) === :max_iterations && metadata(rf).max_px > 1.0e-9 && metadata(rf).family.grid_size == (169, 169)
     # the nodes outside the region: finite, and smooth — the unit controls' third
     # differences along both axes, below node interpolation's (ringing in the
     # corners); the nodes whose support meets the region within its bounding cone
@@ -328,10 +332,10 @@ end
     # nodes at most) says so and returns what it reached, never warns only
     small = BoundedCamera(CameraModel(18.0px, SA[30.0px, 30.0px]; lens = KannalaBrandt(-0.02)), Size2(60, 60))
     ru = fit_camera(SplineLens, small, Rect(0, 0, 60, 60) ∩ Ellipse(SVector(30.0, 30.0), 29.0, 29.0, 0.0); tolerance = 1.0e-6, forward = false)
-    @test retcode(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6 && metadata(ru).family.grid_size == (13, 13)
+    @test retcode_symbol(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6 && metadata(ru).family.grid_size == (13, 13)
     # a given lattice: no search, the tolerance read off it
     rg = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 40), forward = false)
-    @test metadata(rg).family.grid_size == (40, 40) && metadata(rg).family.outer_iterations == 0 && retcode(rg) === :converged
+    @test metadata(rg).family.grid_size == (40, 40) && metadata(rg).family.outer_iterations == 0 && retcode_symbol(rg) === :converged
     # a non-square one: given as (columns, rows) and reported in that order, Core's grid_size's
     rn = fit_camera(SplineLens, bc, REGION; tolerance = 1.0e-4, grid_size = (40, 30), forward = false)
     @test metadata(rn).family.grid_size == grid_size(estimate(rn)) == (40, 30) && size(lens(estimate(rn)).backward.controls) == (30, 40)
@@ -404,6 +408,7 @@ end
 end
 
 @testitem "pspline_grid: the SplineLens backward's one solve on a given lattice — fit_camera's at the lattice it chose" setup = [FitCameraFisheye] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using VisualGeometryToolkitCore: estimate, metadata, retcode, iterations, rms, BoundedCamera, Size2, SplineLens, lens
     using VisualGeometryToolkitEstimation: fit_camera, pspline_grid, CameraFitMetadata
@@ -413,13 +418,13 @@ end
     @test lens(estimate(r)).backward.controls == lens(estimate(rb)).backward.controls   # the forward does not move the backward
     gw, gh = metadata(r).family.grid_size
     p = pspline_grid(SplineLens, bc, REGION, (gw, gh))       # (columns, rows), Core's lattice convention
-    @test retcode(p) === :solved && iterations(p) == 0 && metadata(p) isa CameraFitMetadata && lens(estimate(p)).forward === nothing
+    @test retcode_symbol(p) === :solved && iterations(p) == 0 && metadata(p) isa CameraFitMetadata && lens(estimate(p)).forward === nothing
     @test lens(estimate(p)).backward.controls == lens(estimate(r)).backward.controls && rms(p) == rms(r) && metadata(p).max_px == metadata(r).max_px
     @test metadata(p).family == (; λ = metadata(r).family.λ, grid_size = (gw, gh), stride = metadata(r).family.stride, n_held_out_dropped = 0)
     for (cols, rows) in ((35, 25), (105, 75))
         g = pspline_grid(SplineLens, bc, REGION, (cols, rows))
         G = lens(estimate(g)).backward.controls
-        @test size(G) == (rows, cols) && metadata(g).family.grid_size == (cols, rows) && retcode(g) === :solved
+        @test size(G) == (rows, cols) && metadata(g).family.grid_size == (cols, rows) && retcode_symbol(g) === :solved
         @test isfinite(metadata(g).max_px) && all(c -> all(isfinite, c), G)
     end
     @test metadata(pspline_grid(SplineLens, bc, REGION, (105, 75))).max_px < metadata(pspline_grid(SplineLens, bc, REGION, (35, 25))).max_px
@@ -428,13 +433,14 @@ end
 end
 
 @testitem "pspline_grid: the non-central model on a given lattice — fit_camera's at the lattice it chose" setup = [FitCameraNoncentral] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using VisualGeometryToolkitCore: estimate, metadata, retcode, rms, NoncentralSplineModel
     using VisualGeometryToolkitEstimation: fit_camera, pspline_grid
     r = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3)
     gw, gh = metadata(r).family.grid_size
     p = pspline_grid(NoncentralSplineModel, SOURCE, REGION, (gw, gh))
-    @test retcode(p) === :solved && estimate(p).directions.controls == estimate(r).directions.controls &&
+    @test retcode_symbol(p) === :solved && estimate(p).directions.controls == estimate(r).directions.controls &&
         estimate(p).points.controls == estimate(r).points.controls
     @test metadata(p).max_px == metadata(r).max_px && metadata(p).family.max_offset == metadata(r).family.max_offset &&
         metadata(p).family.center == metadata(r).family.center && rms(p) == rms(r)
@@ -445,6 +451,7 @@ end
 end
 
 @testitem "fit_camera(SplineLens): a function source goes through Core's source constructor, which gauges it" setup = [FitCameraFisheye] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using VisualGeometryToolkitCore: metadata, retcode, estimate, backproject, CameraModel, SplineLens, BoundedCamera, Size2, lens, rotation
     using VisualGeometryToolkitEstimation: fit_camera
@@ -456,7 +463,7 @@ end
     @test_throws r"CameraModel\(SplineLens, f, size" fit_camera(SplineLens, f, REGION; tolerance = 1.0e-2)   # the refusal names the route
     cam = CameraModel(SplineLens, f, Size2(1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = fit_camera(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION; tolerance = 1.0e-2)
-    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-2
+    @test retcode_symbol(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-2
     # the backward is the camera's on its optical axis (changed on purpose, 2026-11-11: a gauge-K source is gauged
     # first), its controls turned by the fit's rotation exactly
     R = rotation(metadata(r).rotation)
@@ -484,6 +491,7 @@ end
 end
 
 @testitem "fit_camera: a non-central model from a non-central source" setup = [FitCameraNoncentral] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm, normalize, dot
@@ -496,7 +504,7 @@ end
     g = estimate(r)
     md = metadata(r)
     # the tolerance chooses the lattice (measured 2026-11-04: 26 × 26 nodes)
-    @test retcode(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
+    @test retcode_symbol(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
     gw, gh = md.family.grid_size
     # Core's full-image lattice with the source's K
     @test g isa NoncentralSplineModel && g.intrinsics.K == MODEL.intrinsics.K && g.directions.area == MODEL.directions.area
@@ -543,13 +551,14 @@ end
     # a tolerance out of reach at the finest lattice (169 × 169 for 1000 px)
     # returns what it reached (measured 4.3e-5 px), never throws
     ru = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-9)
-    @test retcode(ru) === :max_iterations && 1.0e-9 < metadata(ru).max_px < 1.0e-3
+    @test retcode_symbol(ru) === :max_iterations && 1.0e-9 < metadata(ru).max_px < 1.0e-3
     @test metadata(ru).family.grid_size == (169, 169)
     # the bare model has no image: bound it
     @test_throws r"no image" fit_camera(NoncentralSplineModel, MODEL, REGION; tolerance = 1.0e-3)
 end
 
 @testitem "fit_camera: a non-central model from a central source" setup = [FitCameraNoncentral] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, normalize
@@ -560,7 +569,7 @@ end
     bc = BoundedCamera(FISHEYE, Size2(1000, 1000))
     r = fit_camera(NoncentralSplineModel, bc, REGION; tolerance = 1.0e-3)
     g = estimate(r)
-    @test retcode(r) === :converged
+    @test retcode_symbol(r) === :converged
     # every line through the projection centre: c* is the centre and every
     # point is c* (offsets ≡ 0)
     @test metadata(r).family.center == SVector(0.0, 0.0, 0.0)
@@ -573,7 +582,7 @@ end
     # out of reach at the finest lattice of a 60 px image: said, not warned
     small = BoundedCamera(CameraModel(18.0px, SA[30.0px, 30.0px]; lens = KannalaBrandt(-0.02)), Size2(60, 60))
     ru = fit_camera(NoncentralSplineModel, small, Rect(0, 0, 60, 60) ∩ Ellipse(SVector(30.0, 30.0), 29.0, 29.0, 0.0); tolerance = 1.0e-6)
-    @test retcode(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6
+    @test retcode_symbol(ru) === :max_iterations && metadata(ru).max_px > 1.0e-6
     # the batched central source lines are the scalar back-projection, normalized
     pix = [SVector(500.5, 400.5), SVector(20.5, 500.5), SVector(950.5, 980.5)]
     # (to the last bit: on an accelerator the batched backprojection's functions are the device's, 2026-11-11)

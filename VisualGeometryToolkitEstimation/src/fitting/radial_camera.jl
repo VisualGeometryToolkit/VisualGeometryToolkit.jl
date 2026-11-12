@@ -12,7 +12,7 @@ solve with MSAC scoring on the point–radial-line distance.
 Returns a `RansacEstimate` whose model lives about the distortion centre
 `center` (pixels, REQUIRED), the `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 The uncalibrated verification model for board correspondences: no distortion
 parameter is estimated per board (that is the focal stack's job, across
@@ -51,7 +51,7 @@ codimension 1). The problem's centre is the model's own (`center(model)`):
 the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.radial_camera] optimization_strategy`). Fewer than 5 correspondences: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_radial_camera(
         model::VgtkCore.RadialCamera, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};

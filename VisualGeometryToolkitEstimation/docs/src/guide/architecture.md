@@ -135,8 +135,8 @@ the caller's units.
 Local optimization refines promising hypotheses during the RANSAC loop through
 VisualGeometryToolkitCore's local-optimization contract:
 `locally_optimize!(L, lo, problem, θ, cs::ConsensusSet, buf::ScoreBuffers,
-scoring)` on the strategy's workspace `L`, returning `lo_estimate(θ′, retcode;
-iterations, residuals_current)`. The core strategies are:
+scoring)` on the strategy's workspace `L`, returning `lo_estimate(θ′, code, rule;
+iterations, residuals_current)` (its termination record). The core strategies are:
 
 - `nothing` — no local optimization anywhere; the default of
   `ransac(problem, scoring)`. When selected, `_finalize` does **not** run LO

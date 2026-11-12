@@ -9,7 +9,7 @@ using StableRNGs
 using LinearAlgebra
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
+using VisualGeometryToolkitCore: converged, found_model, estimate   # VGC accessors (public)
 using VisualGeometryToolkitCore: minimal_sample_size   # the constraint-problem contract (VGC)
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
@@ -103,7 +103,7 @@ end
             scoring = MsacScoring(problem; threshold = 1.0e-4)
             result = ransac(problem, scoring; config, rng = StableRNG(422))
 
-            @test converged(result)
+            @test found_model(result)          # a model found (a search at its trial budget did not converge)
             F_est = estimate(result)
             @test sum(inlier_mask(result)) >= n_in
 

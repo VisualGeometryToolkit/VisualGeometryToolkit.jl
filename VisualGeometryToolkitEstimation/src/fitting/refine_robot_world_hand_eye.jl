@@ -83,12 +83,13 @@ camera at frame i). Function names do not encode frames.
   Irls run's LMs.
 
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
-residual block per point, with nothing compiled per marker count. Its retcode is
-`:converged` only when the estimate is stationary, `:max_iterations` at the
-iteration cap, `:max_time` at the solver's time cap, `:solve_failed` when a
-solve was non-finite or failed (the estimate is then the last accepted one)
-and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`; under a robust strategy the stationarity of the
-robust cost). Rig poses, points and pixels must
+residual block per point, with nothing compiled per marker count. Its termination
+record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's `nlls_termination`) is
+`ReturnCode.Success` only when the estimate is stationary, `MaxIters` at the
+iteration cap (an Irls run capped at its cycles), `MaxTime` at the solver's time
+cap, `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
+failed (the estimate is then the last accepted one) and `Stalled` otherwise
+(under a robust strategy the stationarity of the robust cost). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.
 
@@ -292,7 +293,10 @@ function _refine_robot_world_hand_eye(
     # robust strategy: the stall postcondition, the eigen-diagnostics and the covariance are the weighted problem's
     r, Js = nlls_rows_and_jacobian(stationarity_blocks, charts)
     J = Matrix(Js)
-    retcode = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
+    # the termination record: an Irls run capped at its cycles, else the last solve's (NLLSsolver's bits under the
+    # stall postcondition at the returned point)
+    termination = irls_capped ? (ReturnCode.MaxIters, IterationCap) :
+        nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL))
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -309,7 +313,7 @@ function _refine_robot_world_hand_eye(
     r_raw = lo === nothing ? r : first(nlls_rows_and_jacobian(costs, charts))   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
-        retcode, iterations = iters, rms_rows = n, strategy = lo, weights,
+        termination, iterations = iters, rms_rows = n, strategy = lo, weights,
         scale = VgtkCore.scale_source(input) === ScaleNone ? NaN : Float64(VgtkCore.noise_scale(input)), scale_source = VgtkCore.scale_source(input),
         loss_width = sqrt(_sq_loss_width(loss))
     )

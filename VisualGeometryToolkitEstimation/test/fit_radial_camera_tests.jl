@@ -4,6 +4,7 @@
 # solve (`radial_camera_5pt` / `RadialCamera5pt`) and the RadialCamera model's
 # own assertions stay in VGC.
 @testitem "fit_radial_camera" setup = [DivisionBoards] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra: norm, dot
@@ -24,7 +25,7 @@
         rc = fit_radial_camera(pts; center = o)
         Pc = estimate(rc)
         @test Pc isa RadialCamera
-        @test retcode(rc) === :solved && iterations(rc) == 2 && rc.n == length(pts)
+        @test retcode_symbol(rc) === :solved && iterations(rc) == 2 && rc.n == length(pts)
         @test rms(rc) < 1.0e-6                                               # noise-free: every pixel ON its radial line
         a = vec(radial_rows(Pc))
         @test projective_distance(Pc |> radial_rows, radial_rows(P_true)) < sqrt(2.0e-9)   # up to scale and sign
@@ -54,7 +55,7 @@
         # degenerate: collinear plane points leave more than one null direction
         col = [SVector(t, 2t) => pts[1][2] .* (1 + 0.1t) for t in 1.0:5.0]
         rd = fit_radial_camera(col; center = o, iterations = 1)
-        @test retcode(rd) === :degenerate && all(isnan, radial_rows(estimate(rd))) && isnan(rms(rd))
+        @test retcode_symbol(rd) === :degenerate && all(isnan, radial_rows(estimate(rd))) && isnan(rms(rd))
         # on noise-free data the algebraic (one-iteration) and whitened fits agree
         Pu = estimate(fit_radial_camera(pts; center = o, iterations = 1))
         @test projective_distance(radial_rows(Pu), a) < sqrt(2.0e-9)

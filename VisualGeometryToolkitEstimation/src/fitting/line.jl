@@ -29,7 +29,7 @@
 
 `FitResult` metadata of [`fit_line`](@ref). The core carries the fitted
 line — `estimate` is an `Uncertain{Line2D{T}, <:CovMat{2,T}}` with the
-(φ, d) parameter covariance — `retcode = :solved`, `iterations = 1` (the one
+(φ, d) parameter covariance — the record `(ReturnCode.Success, ClosedForm)`, `iterations = 1` (the one
 covariance reweight-and-solve cycle after the total-least-squares seed), and
 `rms`, the root-mean-square orthogonal residual over the `n` points. Here:
 
@@ -126,5 +126,5 @@ function fit_line(points::AbstractVector{<:Uncertain{<:Point2}})
 
     ν = residual_dof(LineFittingProblem, n)   # (n − 2)·1
     s² = S / ν
-    return FitResult(Uncertain(line, CovMat(s² * inv(JtWJ))), :solved, 1, sqrt(S / n), n, LineFitMetadata(s², ν))
+    return FitResult(Uncertain(line, CovMat(s² * inv(JtWJ))), ReturnCode.Success, ClosedForm, 1, sqrt(S / n), n, LineFitMetadata(s², ν))
 end

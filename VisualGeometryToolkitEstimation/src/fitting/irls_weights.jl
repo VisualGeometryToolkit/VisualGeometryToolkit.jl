@@ -149,3 +149,18 @@ _fit_max_iter(lo::Irls) = lo.max_iter
 # the strategy's cap, :degenerate, :solved for a least-squares fit). When §14
 # lands, the uniform Termination/StopRule record is written HERE, one helper
 # from these three outcomes, and joins the metadata beside the scale record.
+
+"""
+    _irls_record(converged, closed_form; solve_failed = false) -> (ReturnCode.T, StopRule)
+
+THE termination record of the reweighted fits' loop (`fit_linear`, `fit_rotation`, `fit_rigid_alignment`,
+`fit_rotation_averaging`, `fit_robot_world_hand_eye`): its increment tolerance met, `(Success, IncrementSize)`;
+otherwise a least-squares run (`closed_form`) is a closed form, `(Success, ClosedForm)`, and a robust one reached its
+cap, `(MaxIters, IterationCap)`; a weighted solve that could not be solved inside the loop (too few rows of positive
+weight left) is SciMLBase's `(InternalLinearSolveFailed, NoRule)`.
+"""
+function _irls_record(converged::Bool, closed_form::Bool; solve_failed::Bool = false)
+    solve_failed && return (ReturnCode.InternalLinearSolveFailed, NoRule)
+    converged && return (ReturnCode.Success, IncrementSize)
+    return closed_form ? (ReturnCode.Success, ClosedForm) : (ReturnCode.MaxIters, IterationCap)
+end

@@ -41,7 +41,9 @@ include("base/image_frames.jl")  # 2-D image frames (pixel/image/gnomonic/retina
 include("base/types.jl")         # interface.jl + interface_functions.jl, AbstractDetection, conic matrices
 include("base/cspond_set.jl")    # Csponds columnar container + sources/targets protocol
 include("base/coordinates.jl")   # to_affine / to_euclidean
+include("base/return_code.jl")   # ReturnCode, StopRule: the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")    # FitResult{P,M} — the one iterative-fit return type
+include("base/termination_accessors.jl")  # retcode, stop_rule, converged, found_model, retcode_symbol on a FitResult
 include("base/utils.jl")         # geometry utilities
 include("base/config_toml.jl")   # TOML config skeleton shared by every package with a configuration of record
 include("base/device.jl")        # default_device — the family's one KA backend resolver (CUDA ext registers)

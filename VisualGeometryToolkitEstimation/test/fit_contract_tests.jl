@@ -160,6 +160,7 @@ end
 end
 
 @testitem "fit_rigid_alignment: 5 gross outliers move the L2 alignment, not the robust one" setup = [FitContractScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using VisualGeometryToolkitEstimation: fit_rigid_alignment
     using VisualGeometryToolkitCore: Irls
@@ -179,14 +180,14 @@ end
     cs = Csponds(walk, gt)
     err(fit) = (rotation_angle(RotMatrix{3, Float64}(rotation(estimate(fit)) * R')), norm(translation(estimate(fit)) - t))
     l2 = fit_rigid_alignment(cs)
-    @test retcode(l2) === :solved
+    @test retcode_symbol(l2) === :solved
     clean = fit_rigid_alignment(Csponds(walk[setdiff(1:150, bad)], gt[setdiff(1:150, bad)]))
     e_clean = err(clean)
     e_l2 = err(l2)
     @test e_l2[1] > 10 * max(e_clean[1], 1.0e-4) || e_l2[2] > 10 * max(e_clean[2], 1.0e-3)   # the L2 alignment moves
     for K in (HuberShape, WelschShape)
         rob = fit_rigid_alignment(cs; optimization_strategy = Irls{K}(), scale = σ)
-        @test retcode(rob) === :converged
+        @test retcode_symbol(rob) === :converged
         e = err(rob)
         @test e[1] < 2.0e-3 && e[2] < 2.0e-3                                           # beyond tolerance: no
         @test maximum(weights(rob)[bad]) < 0.1
@@ -201,6 +202,7 @@ end
 end
 
 @testitem "fit_robot_world_hand_eye: a robust fit through gross observations" setup = [FitContractScenes, PoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StableRNGs
     using VisualGeometryToolkitEstimation: fit_robot_world_hand_eye
@@ -232,7 +234,7 @@ end
     end
     for K in (HuberShape,)
         rob = fit_robot_world_hand_eye(markers; σ_rot = σ_R, σ_trans = σ_t, optimization_strategy = Irls{K}(), scale = 1.0)
-        @test retcode(rob) === :converged
+        @test retcode_symbol(rob) === :converged
         @test weight_kind(rob) === IrlsWeights() && noise_scale(rob) === 1.0 && scale_source(rob) === ScaleGiven
         @test length(weights(rob)) == N * M
         @test maximum(weights(rob)[[4, 9, 15, 22, 27]]) < 0.2                   # marker 1's block comes first

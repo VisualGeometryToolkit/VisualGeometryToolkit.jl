@@ -3,6 +3,7 @@
 # loop it was hoisted from, and the refusals (the robust-estimation contract).
 
 @testitem "fit_linear: exact, robust, prior weights" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test, Random, LinearAlgebra, Statistics
     using VisualGeometryToolkitEstimation: fit_linear
     using VisualGeometryToolkitCore: Irls
@@ -19,7 +20,7 @@
         @test all(==(1.0), r.weights)                            # every residual inside the width
         r2 = fit_linear(A, A * x0; optimization_strategy = nothing)
         @test estimate(r2) ≈ x0 rtol = 1.0e-12
-        @test r2.retcode === :solved
+        @test retcode_symbol(r2) === :solved
     end
     @testset "20% gross outliers: at the inliers' noise floor" begin
         y = A * x0 .+ 1.0e-3 .* randn(rng, m)
@@ -66,10 +67,10 @@
         @test_throws DimensionMismatch fit_linear(A, ones(m - 1); scale = 1.0)
         @test_throws DimensionMismatch fit_linear(A, ones(m), ones(3); scale = 1.0)
         @test_throws ArgumentError fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(), scale = 1.0)
-        @test fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = 1.0e-3).retcode === :converged
-        @test fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(), width = 3.0e-3).retcode === :converged
+        @test retcode_symbol(fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = 1.0e-3)) === :converged
+        @test retcode_symbol(fit_linear(A, A * x0; optimization_strategy = Irls{TLSShape}(), width = 3.0e-3)) === :converged
         p = zeros(m); p[1:3] .= 1
-        @test fit_linear(A, A * x0, p; scale = 1.0).retcode === :degenerate
+        @test retcode_symbol(fit_linear(A, A * x0, p; scale = 1.0)) === :degenerate
         @test_throws ArgumentError fit_linear(A, A * x0, fill(-1.0, m); scale = 1.0)
     end
 end

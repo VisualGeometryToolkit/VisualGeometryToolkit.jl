@@ -20,7 +20,9 @@ using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialMani
     ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
     local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
     tangent_size
-using VisualGeometryToolkitCore: WelschShape, loss_robustifier, nlls_retcode
+using VisualGeometryToolkitCore: WelschShape, loss_robustifier, nlls_termination, retcode_symbol, is_stationary
+# the legacy Symbol of an NLLSsolver solve's termination record, under the stall postcondition at (J, r)
+nlls_symbol(res, J, r; kw...) = retcode_symbol(nlls_termination(res, () -> is_stationary(J, r; kw...))...)
 
 pose(ω, t) = EuclideanMap(RotMatrix{3}(RotXYZ(ω...)), SVector{3, Float64}(t))
 
@@ -178,7 +180,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test !is_stationary(J, [NaN, 0.0, 1.0]; tol = 1.0e-3, ftol = eps())     # a NaN fails
     end
 
-    @testset "nlls_retcode and loss_robustifier" begin
+    @testset "nlls_termination (its legacy Symbol) and loss_robustifier" begin
         J = [1.0 0.0; 0.0 2.0; 1.0 1.0]
         y = [1.0, 2.0, 4.0]
         x̂ = J \ y
@@ -191,28 +193,28 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         res(bits) = NLLSsolver.NLLSResult(map(fieldnames(NLLSsolver.NLLSResult), fieldtypes(NLLSsolver.NLLSResult)) do f, F
             f === :termination ? F(bits) : F <: Enum ? first(instances(F)) : zero(F)
         end...)
-        @test nlls_retcode(res(1 << 1), J, r_opt; kw...) === :solve_failed
+        @test nlls_symbol(res(1 << 1), J, r_opt; kw...) === :solve_failed
         for b in (0, 1, 4, 5, 10)
-            @test nlls_retcode(res(1 << b), J, r_opt; kw...) === :solve_failed
+            @test nlls_symbol(res(1 << b), J, r_opt; kw...) === :solve_failed
         end
-        @test nlls_retcode(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
-        @test nlls_retcode(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
-        @test nlls_retcode(res(1 << 9), J, r_opt; kw...) === :max_time
+        @test nlls_symbol(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
+        @test nlls_symbol(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
+        @test nlls_symbol(res(1 << 9), J, r_opt; kw...) === :max_time
         # The one order (VGC `nlls_stop_code`, ruled 2026-10-27; until then this
         # decoder tested the caps before the cost tolerance and ran the
         # postcondition on a cost-decrease stop): a cost-decrease stop is
         # converged and outranks a cap; a step stop is checked first and takes
         # the postcondition.
-        @test nlls_retcode(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :converged
-        @test nlls_retcode(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :converged
-        @test nlls_retcode(res(1 << 8), J, r_opt; kw...) === :max_iterations
-        @test nlls_retcode(res(1 << 2), J, r_opt; kw...) === :converged
-        @test nlls_retcode(res(1 << 2), J, r_off; kw...) === :converged
-        @test nlls_retcode(res((1 << 2) | (1 << 6)), J, r_off; kw...) === :stalled   # the step stop first
-        @test nlls_retcode(res(1 << 6), J, r_opt; kw...) === :converged
-        @test nlls_retcode(res((1 << 1) | (1 << 6)), J, r_off; kw...) === :stalled   # a NaN trial at a step stop
-        @test nlls_retcode(res(1 << 7), J, r_off; kw...) === :stalled
-        @test nlls_retcode(res(1 << 7), J, r_opt; kw...) === :converged
+        @test nlls_symbol(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :converged
+        @test nlls_symbol(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :converged
+        @test nlls_symbol(res(1 << 8), J, r_opt; kw...) === :max_iterations
+        @test nlls_symbol(res(1 << 2), J, r_opt; kw...) === :converged
+        @test nlls_symbol(res(1 << 2), J, r_off; kw...) === :converged
+        @test nlls_symbol(res((1 << 2) | (1 << 6)), J, r_off; kw...) === :stalled   # the step stop first
+        @test nlls_symbol(res(1 << 6), J, r_opt; kw...) === :converged
+        @test nlls_symbol(res((1 << 1) | (1 << 6)), J, r_off; kw...) === :stalled   # a NaN trial at a step stop
+        @test nlls_symbol(res(1 << 7), J, r_off; kw...) === :stalled
+        @test nlls_symbol(res(1 << 7), J, r_opt; kw...) === :converged
 
         # The oracle: CaliBlobs' production WelschRobustifier, written out.
         w2 = 2.0^2

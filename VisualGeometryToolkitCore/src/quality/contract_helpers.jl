@@ -28,7 +28,8 @@ The local-optimization contract on `lo` for `problem` from the hypothesis `θ`
 under `scoring`, in the element type `T` (the workspace's and score buffers'),
 as tests: [`lo_workspace`](@ref) built once,
 [`locally_optimize!`](@ref) type-stable, returning a [`lo_estimate`](@ref)
-result of the problem's model type, honest about `residuals_current` (the
+result of the problem's model type whose termination record satisfies
+[`test_termination_record`](@ref), honest about `residuals_current` (the
 buffers then hold the refined model's residuals), allocation-free after
 warm-up (`allocations = true`). Implemented by VisualGeometryToolkitCoreTestExt.
 """
@@ -38,13 +39,15 @@ function test_local_optimization_contract end
     test_termination_record(result)
 
 The termination record of one fit result, as tests: [`retcode`](@ref) a
-[`ReturnCode`](@ref) `ReturnCode.T`, [`stop_rule`](@ref) a [`StopRule`](@ref)
-and [`converged`](@ref) a `Bool`, each inferred; `converged(result)` is
-[`successful_retcode`](@ref)`(retcode(result))`; and the FitResult core's
-`retcode::Symbol` agrees with the code, `retcode_symbol(code, rule)` (the
-transition's one map). A producer's suite runs it on one result of each of its
-verbs; the contract gate runs it on every declared entry point. Implemented by
-VisualGeometryToolkitCoreTestExt.
+[`ReturnCode`](@ref) `ReturnCode.T`, [`stop_rule`](@ref) a [`StopRule`](@ref),
+[`converged`](@ref) a `Bool` and [`retcode_symbol`](@ref)`(result)` a `Symbol`,
+each inferred; `converged(result)` (and the property `result.converged`) is
+[`successful_retcode`](@ref)`(retcode(result))`, and `retcode_symbol(result)`
+is `retcode_symbol(code, rule)`. [`test_local_optimization_contract`](@ref)
+runs it on the refit it checks; a producer's suite runs it on one result of
+each of its verbs and paths (VisualGeometryToolkitEstimation's and PoseLib's
+termination-record items cover every `fit_*`, `find_*` and `refine_*`).
+Implemented by VisualGeometryToolkitCoreTestExt.
 """
 function test_termination_record end
 

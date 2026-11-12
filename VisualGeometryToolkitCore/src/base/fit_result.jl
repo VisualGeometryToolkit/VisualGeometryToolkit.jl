@@ -37,44 +37,52 @@
 """
     FitResult{P, M}
 
-Result of a fit: `estimate::P`, `retcode::Symbol` (`:converged`,
-`:max_iterations`, `:degenerate`, …; a closed-form solve reports `:solved`
-with `iterations = 0`), `iterations`, `rms` over `n` residuals, and solver-specific `metadata::M` (`nothing` for the lean
-default; see [`BundleMetadata`](@ref)).
+Result of a fit: `estimate::P`, its termination record — `retcode::ReturnCode.T`
+(why it stopped, the verdict: [`ReturnCode`](@ref)) and `stop_rule::StopRule`
+(which rule fired: [`StopRule`](@ref)) — `iterations` (`0` for a closed-form
+solve), `rms` over `n` residuals, and solver-specific `metadata::M` (`nothing`
+for the lean default; see [`BundleMetadata`](@ref)).
+
+    FitResult(estimate, code::ReturnCode.T, rule::StopRule, iterations, rms, n, metadata)
+
+Every producer records the code and the rule; a loop that reports a legacy
+Symbol records `retcode_from_symbol(retcode, rule)...` (its success rule
+`rule`), the one map from a Symbol.
 
 For a RANSAC the loop count `iterations` is its trials — the hypotheses drawn.
 
 Read a result through its accessors, which are the API: [`estimate`](@ref),
-[`retcode`](@ref), [`converged`](@ref), [`iterations`](@ref), [`rms`](@ref),
-[`metadata`](@ref), and the metadata's own ([`weights`](@ref), [`dof`](@ref), …).
-Field and property names are an implementation detail.
+[`retcode`](@ref), [`stop_rule`](@ref), [`converged`](@ref), [`iterations`](@ref),
+[`rms`](@ref), [`metadata`](@ref), and the metadata's own ([`weights`](@ref),
+[`dof`](@ref), …). Field and property names are an implementation detail.
 
 (A property spelling still resolves, so older call sites keep working: the
 core fields, the derived `converged`, and metadata fields forwarded from
 `metadata`. A property that exists on none of them is an error; a metadata
 type with a field named like a core accessor (`estimate`, `retcode`,
-`iterations`, `rms`, `n`, `metadata`, `converged`) is rejected at
+`stop_rule`, `iterations`, `rms`, `n`, `metadata`, `converged`) is rejected at
 construction.)
 """
 struct FitResult{P, M}
     estimate::P
-    retcode::Symbol
+    retcode::ReturnCode.T
+    stop_rule::StopRule
     iterations::Int
     rms::Float64
     n::Int
     metadata::M
-    function FitResult{P, M}(estimate, retcode, iterations, rms, n, metadata) where {P, M}
+    function FitResult{P, M}(estimate, code::ReturnCode.T, rule::StopRule, iterations, rms, n, metadata) where {P, M}
         _reject_shadowing(M)
-        return new{P, M}(estimate, retcode, iterations, rms, n, metadata)
+        return new{P, M}(estimate, code, rule, iterations, rms, n, metadata)
     end
 end
-FitResult(estimate::P, retcode::Symbol, iterations::Integer, rms::Real, n::Integer, metadata::M) where {P, M} =
-    FitResult{P, M}(estimate, retcode, Int(iterations), Float64(rms), Int(n), metadata)
+FitResult(estimate::P, code::ReturnCode.T, rule::StopRule, iterations::Integer, rms::Real, n::Integer, metadata::M) where {P, M} =
+    FitResult{P, M}(estimate, code, rule, Int(iterations), Float64(rms), Int(n), metadata)
 
 # The core field names, in field order — the one list both the forwarder
 # and the shadowing check derive from. `:converged` is not a field but IS a
 # property (derived from `retcode` on access), so it is reserved with them.
-const _FITRESULT_CORE = (:estimate, :retcode, :iterations, :rms, :n, :metadata)
+const _FITRESULT_CORE = (:estimate, :retcode, :stop_rule, :iterations, :rms, :n, :metadata)
 const _FITRESULT_PROPS = (_FITRESULT_CORE..., :converged)
 
 # A metadata type whose field would collide with the core is refused when
@@ -126,34 +134,7 @@ refused when the result is built, exactly as an outer one is.
 nested_metadata(::Type) = ()
 
 
-"""
-    BundleMetadata(weights, residuals, fixed_frames, dof, loss_width, before, after)
-
-Diagnostics of a bundle refinement: the final per-observation `weights` its
-robust loss left and `residuals` (each observation's residual NORM, in the
-bundle's order — what an inlier classification of the refined model reads; a
-weight is the loss's guide to its optimizer, never inverted back into a
-residual), the gauge-fixing `fixed_frames`, the degrees of freedom `dof`, the
-robust loss's frozen `loss_width` (`NaN` under plain least squares — a LOSS
-WIDTH, not a noise scale), and `before`/`after` residual summaries as concrete
-`(; rms, median, p90)` NamedTuples — the FitResult's own `rms` mirrors
-`after.rms` first-class.
-"""
-struct BundleMetadata{W <: AbstractVector{Float64}}
-    weights::W
-    residuals::Vector{Float64}
-    fixed_frames::Vector{Int}
-    dof::Int
-    loss_width::Float64
-    before::@NamedTuple{rms::Float64, median::Float64, p90::Float64}
-    after::@NamedTuple{rms::Float64, median::Float64, p90::Float64}
-    function BundleMetadata(weights::W, residuals::AbstractVector{<:Real}, fixed_frames::AbstractVector{<:Integer},
-                            dof::Integer, loss_width::Real, before, after) where {W <: AbstractVector{Float64}}
-        length(residuals) == length(weights) || throw(ArgumentError(
-            "BundleMetadata: $(length(residuals)) residuals for $(length(weights)) weights — one each per observation"))
-        return new{W}(weights, residuals, fixed_frames, dof, loss_width, before, after)
-    end
-end
+# `BundleMetadata`, the bundle refinements' metadata, is in base/bundle_metadata.jl (it records a ScaleSource).
 
 """
     estimate(r::FitResult) -> P
@@ -163,7 +144,7 @@ produced. The SciML `sol.u`.
 """
 estimate(r::FitResult) = r.estimate
 
-# `retcode(r)`, `converged(r)` and `found_model(r)` read the termination record: base/return_code.jl.
+# `retcode(r)`, `stop_rule(r)`, `converged(r)` and `found_model(r)` read the termination record: base/termination_accessors.jl.
 
 """
     iterations(r::FitResult) -> Int

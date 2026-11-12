@@ -25,7 +25,7 @@ Every default is `configs/default.toml`'s (`[ransac]`,
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 3 correspondences
 (the P3P minimal sample).
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Units
 The world points are plain numbers or lengths, all one form. Lengths
@@ -90,7 +90,7 @@ least squares over every correspondence is `optimization_strategy = nothing`.
 The keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.absolute_pose] optimization_strategy`). Fewer than 3 correspondences:
-the guess back unrefined, `retcode` `:degenerate`.
+the guess back unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 
 # Bearings: a camera given by its rays (central or generalized)
 The second form takes `X => f` pairs of world points and the camera-frame UNIT

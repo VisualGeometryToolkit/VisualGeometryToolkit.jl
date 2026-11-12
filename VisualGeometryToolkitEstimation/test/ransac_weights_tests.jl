@@ -74,7 +74,7 @@ end
 @testitem "ransac_weights: every find_* result type, and the no-model result" begin
     using Test, StaticArrays, LinearAlgebra
     using VisualGeometryToolkitCore: Point2, CameraModel, Csponds, csponds, weights, metadata, MsacScoring,
-        inlier_mask, weight_kind, noise_scale, scale_source, BinaryWeights, ScaleNone, ScaleEstimated
+        inlier_mask, weight_kind, noise_scale, scale_source, BinaryWeights, ScaleNone, ScaleEstimated, ReturnCode, NoRule
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, CircleProblem,
         find_homography, find_fundmat, find_essential, find_rotation, find_circle, find_ellipse,
         find_radial_homography, find_radial_camera, find_absolute_pose
@@ -103,11 +103,12 @@ end
     # the constructor is concrete and inferred
     sc = MsacScoring(CircleProblem; threshold = 1.0)
     m = @inferred RansacMetadata{Float32, typeof(sc)}(Float32[1, 2], Float32[1, 0], 1.0, 0.5,
-        ScaleEstimated, 3, 1.0, :not_run)
+        ScaleEstimated, 3, 1.0, ReturnCode.Default, NoRule)
     @test isconcretetype(typeof(m)) && isbitstype(typeof(m.scale_source))
 end
 
 @testitem "ransac_weights: pooled_noise_scale pools the results' scales by their degrees of freedom" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test, StableRNGs
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: csponds, converged, noise_scale, scale_source, retcode, estimate, metadata,
@@ -121,7 +122,8 @@ end
     @test all(converged, rs)
     p = pooled_noise_scale(rs)
     ν = [r.dof for r in rs]; s = [noise_scale(r) for r in rs]
-    @test retcode(p) === :pooled && metadata(p) isa PooledScaleMetadata
+    @test retcode(p) == VgtkCore.ReturnCode.Success && VgtkCore.stop_rule(p) == VgtkCore.ClosedForm && metadata(p) isa PooledScaleMetadata
+    VgtkCore.test_termination_record(p)
     # type-stable: the pool, its metadata and its scale
     @test @inferred(pooled_noise_scale(rs)) isa VgtkCore.FitResult{Float64, PooledScaleMetadata}
     @test @inferred(PooledScaleMetadata(0.5, ScaleEstimated, 10, 2, 0)) isa PooledScaleMetadata
@@ -142,6 +144,6 @@ end
     @test noise_scale(q) ≈ noise_scale(p) rtol = 1.0e-14
     @test metadata(q).left_out == 1
     d = pooled_noise_scale([failed])
-    @test retcode(d) === :degenerate && isnan(estimate(d)) && scale_source(d) === ScaleNone
+    @test retcode_symbol(d) === :degenerate && isnan(estimate(d)) && scale_source(d) === ScaleNone
     @test_throws ArgumentError noise_scale(d)
 end

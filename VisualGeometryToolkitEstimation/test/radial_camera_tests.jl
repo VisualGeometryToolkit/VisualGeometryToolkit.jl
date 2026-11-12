@@ -72,7 +72,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
     @test median(abs.(r2[gt2])) < 0.5
     @test let r = find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446))
-        VgtkCore.retcode(r) === :no_model && VgtkCore.iterations(r) == 0 && VgtkCore.estimate(r) === nothing
+        VgtkCore.retcode_symbol(r) === :no_model && VgtkCore.iterations(r) == 0 && VgtkCore.estimate(r) === nothing
     end
 end
 
@@ -109,7 +109,7 @@ end
     # the deployed pipeline: RANSAC + the class default
     est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(4))
     @test est !== nothing
-    @test est.lo_retcode != :not_run
+    @test est.lo_retcode != VgtkCore.ReturnCode.Default                  # a local optimization ran
     rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, estimate(est))
     @test median(abs.(rr[gt])) < 0.4
     @test count(inlier_mask(est) .& .!gt) == 0

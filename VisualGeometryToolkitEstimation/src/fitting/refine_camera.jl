@@ -199,13 +199,13 @@ function _sample_errors(lm::_LensRegressionLm, x, θcap)
 end
 
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
-# zero), its retcode and its iterations — a function barrier static in the N
+# zero), its termination record `(code, rule)` and its iterations — a function barrier static in the N
 # coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
 # device (one placeholder row, NLLSsolver's problem needs one).
 function _regress_lens(lm::_LensRegressionLm, ::Val{N}, max_iter::Int) where {N}
     ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
-    x, _, conv, iterations = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
-    return x, VgtkCore.lm_retcode(conv), iterations
+    x, _, _, iterations, record = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
+    return x, record, iterations
 end
 
 # ==============================================================================
@@ -252,8 +252,9 @@ converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where th
 
 The domain is the region's farthest radius, capped by the source's own view-angle limit, as `fit_camera`'s; a region
 past the family's view-angle limit (the perspective plane's 90° for a gnomonic family) is a [`ViewAngleLimitError`](@ref). At most `max_iter` accepted iterations (configs/default.toml
-`[refine_camera]`); the `retcode` is the LM's, and a refine that ends at a non-finite focal rescale is
-`:solve_failed`, never a throw. The metadata is [`CameraFitMetadata`](@ref): the round trip's errors per sample in
+`[refine_camera]`); the termination record (`retcode`, `stop_rule`) is the LM's, a refine that ends at a non-finite
+focal rescale is `(ReturnCode.Failure, NonFinite)` (`:solve_failed`), never a throw, and one with nothing free (the
+guess returned, no LM) is a closed form, `(ReturnCode.Success, ClosedForm)`. The metadata is [`CameraFitMetadata`](@ref): the round trip's errors per sample in
 `residuals` (px), their maximum and edge-band maximum, the result's `rms` their weighted root mean square.
 
 A `NoncentralSplineModel` source is an `ArgumentError`: not supported yet.
@@ -291,15 +292,16 @@ function refine_camera(
     θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     # nothing free (a physical K with `free = ()`; a gauge K's axis is always free): the guess itself, no LM
-    p, code, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), :converged, 0) : _regress_lens(lm, Val(tangent_size(P)), max_iter)
+    p, record, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0) :
+        _regress_lens(lm, Val(tangent_size(P)), max_iter)
 
     fit = _regression_parts(retract(P, p))
     # a regression that ends non-finite did not converge: its FitResult reports it
-    isfinite(fit.s) || (code = :solve_failed)
+    isfinite(fit.s) || (record = (ReturnCode.Failure, NonFinite))
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the refined lens's domain
     θend = isfinite(fit.s) ? Float64(view_angle_limit(fit.lens)) - 1.0e-9 : Inf
     e = K0[1, 1] .* _sample_errors(lm, p, L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf)
-    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, iters)
+    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
 end
 # A bounded camera's model is the source (its image does not enter: the region bounds the fit).
 refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = refine_camera(guess, model(source), region; kwargs...)
@@ -382,7 +384,7 @@ approximate_camera(::Type{Division}, source::CameraModel, region; kwargs...) = a
 # linear fit).
 function _approximation_start(form, ::Type{L}, source, region, weight, fixed) where {L}
     r = fit_camera(L, source, region; weight, fixed)
-    return retcode(r) === :solve_failed ? _anchor_camera(L, source) : estimate(r)
+    return converged(r) ? estimate(r) : _anchor_camera(L, source)     # a failed linear solve: the anchor
 end
 _approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed) where {L} = _anchor_camera(L, source)
 # The camera of the source's K with the family's anchor lens, or with a given lens.

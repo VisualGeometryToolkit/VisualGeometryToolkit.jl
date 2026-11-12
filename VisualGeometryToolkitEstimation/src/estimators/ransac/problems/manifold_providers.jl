@@ -166,8 +166,8 @@ function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model
     fill!(sqrt_weights(ews), 1.0)
     lm = _triggs_state(problem, ch, sqrt_weights(ews))
     robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    x, _, code, n_iter = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
+    x, _, _, n_iter, (code, rule) = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
         maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return lo_estimate(model, :solve_failed)
-    return lo_estimate(_model_at(problem, recenter(ch, x)), lm_retcode(code); iterations = n_iter)
+    any(isnan, x) && return lo_estimate(model, ReturnCode.Failure, NonFinite)
+    return lo_estimate(_model_at(problem, recenter(ch, x)), code, rule; iterations = n_iter)
 end

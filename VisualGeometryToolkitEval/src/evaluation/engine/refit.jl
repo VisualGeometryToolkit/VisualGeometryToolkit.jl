@@ -228,7 +228,7 @@ function refit_model(prob, seed, lo::Union{Nothing, AbstractOptimizationStrategy
     lo_run = (s2 === nothing || lo_run === nothing) ? lo_run : with_width(lo_run, fixed_width(lo_run, Float64(s2)))   # no LO has no width to fix
     r = locally_optimize(prob, seed; local_optimization_strategy = lo_run, scoring = sc,
                          workspace, score_guard = _is_guarded(lo))
-    return converged(r) ? estimate(r) : nothing
+    return found_model(r) ? estimate(r) : nothing
 end
 
 function _native_refit_imc(prob, seed, lo, sc, imcf::F, fallback::Float64, ws,

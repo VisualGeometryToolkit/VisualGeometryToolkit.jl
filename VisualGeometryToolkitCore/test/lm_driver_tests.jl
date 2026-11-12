@@ -82,7 +82,7 @@ end
 
 @testset "the stop codes: one decoder, one order" begin
     # NLLSsolver's termination bits → `nlls_stop_code`, the one decoder the chart
-    # LM and `nlls_retcode` read: failure without a step stop −3; step stop
+    # LM and `nlls_termination` read: failure without a step stop −3; step stop
     # (6) 2; cost-decrease stop (2, 3) 1; maxfails (7) 4; time cap −4;
     # iteration cap −1; anything else 4.
     code = VgtkCore.nlls_stop_code

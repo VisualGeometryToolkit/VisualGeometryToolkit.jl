@@ -244,8 +244,8 @@ The shared body of every RANSAC-class `refine_*` on `n` data of the problem type
 `P`: the keywords parsed (and the ones a refine does not take refused), then —
 when the data hold a minimal sample — the strategy run once from `θ₀` on
 `problem()` (built only then) and the result assembled; otherwise the guess
-comes back unrefined, `retcode` `:degenerate`, `iterations` 0, `n` 0 and NaN
-residuals.
+comes back unrefined, its record `(ReturnCode.InitialFailure, NoRule)`
+(`:degenerate`), `iterations` 0, `n` 0 and NaN residuals.
 """
 function _guarded_refine(problem, ::Type{P}, n::Integer, class::Val, θ₀; kwargs...) where {P}
     spec = _refine_spec(P, class; kwargs...)
@@ -257,7 +257,7 @@ function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     _prepare!(problem)
     θ = _seed_convert(model_type(problem), θ₀)
     M = model_type(typeof(problem))
-    θ̂, code, iters = _refine_run(spec.lo, problem, θ, spec)
+    θ̂, (code, rule), iters = _refine_run(spec.lo, problem, θ, spec)
     θ̂ = convert(M, θ̂)::M   # the problem's model type on every path (a failed LM returns its seed), so the result is inferred
     n = data_size(problem)
     r = Vector{Float64}(undef, n)
@@ -267,7 +267,7 @@ function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     support, rms = _weighted_support_rms(w, sq)   # the stack's one rule of a weighted result (loop.jl): n the support, rms weighted
     rs = VgtkCore._mad_scale_norms(; norms = r, codimension = codimension(problem))   # the residual norms (mahalanobis_distances!)
     md = RefineMetadata{L}(w, r, _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), rs)
-    return FitResult(θ̂, code, iters, rms, support, md)
+    return FitResult(θ̂, code, rule, iters, rms, support, md)
 end
 
 _recorded_scale(spec::_RefineSpec) = spec.input === nothing ? NaN : Float64(spec.input.scale)
@@ -285,7 +285,7 @@ _loss_weights(shape, c², sq) = [(x = Float64(weight(shape, s, c²)); x < eps(Fl
 function _refine_too_few(::Type{P}, spec::_RefineSpec{L}, θ₀, n::Int) where {P, L}
     w = L === Nothing ? unit_weights(Float64, n) : zeros(n)   # L2's weights are its unit weights; nothing was fitted (n = 0)
     md = RefineMetadata{L}(w, fill(NaN, n), _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), NaN)
-    return FitResult(_seed_convert(model_type(P), θ₀), :degenerate, 0, NaN, 0, md)
+    return FitResult(_seed_convert(model_type(P), θ₀), ReturnCode.InitialFailure, NoRule, 0, NaN, 0, md)
 end
 
 # The chart LM's workspace from the caller's `workspace` (a RansacWorkspace, its
@@ -297,7 +297,7 @@ _refine_lm_ws(L::LoBuffers) = L.refine
 _refine_lm_ws(ws) = ws
 
 # -----------------------------------------------------------------------------
-# The three strategies — (model, retcode, iterations)
+# The three strategies — (model, (code, rule), iterations): the termination record
 # -----------------------------------------------------------------------------
 
 # Plain least squares: ONE chart LM from θ over every datum at unit weight.
@@ -307,23 +307,28 @@ function _refine_run(::Nothing, problem, θ, spec::_RefineSpec)
     ews = _lm_workspace(_refine_lm_ws(spec.workspace), rows, dof)
     fill!(sqrt_weights(ews), 1.0)
     lm = _refit_state(problem, ch, sqrt_weights(ews))
-    x, _, code, n_iter = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
-                                        ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return θ, :solve_failed, n_iter
-    return _model_at(problem, recenter(ch, x)), lm_retcode(code), n_iter
+    x, _, _, n_iter, record = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
+                                             ftol = _CHART_LM_FTOL)
+    any(isnan, x) && return θ, (ReturnCode.Failure, NonFinite), n_iter
+    return _model_at(problem, recenter(ch, x)), record, n_iter
 end
 
 # Triggs: ONE robustified chart LM at the frozen width (`_triggs_lm`, the RANSAC
 # local optimization's own).
 function _refine_run(lo::Triggs, problem, θ, spec::_RefineSpec)
     r = _triggs_lm(_refine_lm_ws(spec.workspace), strategy_loss(lo)(), problem, θ, spec.loss)
-    return estimate(r), retcode(r), iterations(r)
+    return estimate(r), (retcode(r), stop_rule(r)), iterations(r)
 end
 
 # Irls: the weights ρ′ at the current model, one weighted chart LM (`refine!`),
 # repeated while the robust cost Σρ(r²) decreases, at most `max_iter` cycles.
-# `iterations` counts the cycles.
+# `iterations` counts the cycles. Its Symbol stop is its record through `retcode_from_symbol`, the
+# rule the robust cost's (`CostDecrease`).
 function _refine_run(lo::Irls, problem, θ, spec::_RefineSpec)
+    θ̂, stop, k = _irls_cycles(lo, problem, θ, spec)
+    return θ̂, retcode_from_symbol(stop, CostDecrease), k
+end
+function _irls_cycles(lo::Irls, problem, θ, spec::_RefineSpec)
     shape = strategy_loss(lo)()
     c² = sq_loss_width(spec.loss)
     n = data_size(problem)

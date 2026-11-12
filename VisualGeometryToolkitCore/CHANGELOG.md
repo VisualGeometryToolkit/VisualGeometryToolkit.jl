@@ -129,24 +129,56 @@ sensor — so every consumer asks the camera what it images instead of supplying
   non-finite `c` (give no width to follow the scorer). The retired names are in `check_naming`'s `RETIRED_NAMES`, with
   the call forms of `noise_sigma`.
 - **New: every fit's termination record, `ReturnCode` and `StopRule`; Breaking: `converged` is strict** (the
-  robust-estimation contract §14, owner rulings 2026-11-11).
+  robust-estimation contract §14, owner rulings 2026-11-11 and 2026-11-12: a released version carries no
+  transitional inconsistency).
   - `ReturnCode` is SciMLBase's return-code interface, MATCHED without the dependency: a module-scoped enum
     (`ReturnCode.T`, `ReturnCode.Success`) with SciMLBase's names, integer values and `successful_retcode` rule, for
-    the codes the stack produces: `Success`, `Terminated`, `MaxIters`, `MaxTime`, `Stalled`, `InitialFailure`,
+    the codes the stack produces: `Default`, `Success`, `Terminated`, `MaxIters`, `MaxTime`, `Stalled`, `InitialFailure`,
     `Failure`, `InternalLinearSolveFailed`. A test pins the names and values to SciMLBase 3.58's.
   - `StopRule` is the detail, which rule fired: `NoRule`, `ClosedForm`, `CostDecrease`, `IncrementSize`, `RejectionCap`,
     `ParameterChange`, `NoImprovement`, `ExactFit`, `ToleranceMet`, `LadderConverged`, `LeftBasin`, `ShapeGate`, `IterationCap`,
-    `TimeCap`, `NonFinite`, `Callback`, `TrialBudget`, `AdaptiveCount`.
-  - A producer records both in its metadata (`return_code`, `stop_rule`) and declares
-    `return_code(m::MyMetadata)` (a contract generic, as is `stop_rule`). `retcode(r)` then returns its
-    `ReturnCode.T`. During the transition a producer that records none answers with the FitResult core's
-    `retcode::Symbol` as before; the core Symbol of a recording producer is written by `retcode_symbol(code, rule)`,
-    and `test_termination_record(r)` checks that they agree. When every producer records the code, the core field
-    becomes the `ReturnCode.T` (Breaking).
-  - **Breaking: `converged(r)` (and `r.converged`) is `successful_retcode(retcode(r))`** for a recording producer:
-    an iteration or RANSAC trial cap (`MaxIters`) is not converged, a closed-form solve (`Success`, `ClosedForm`) is.
-    `found_model(r)` (`estimate(r) !== nothing`) is the old "a RANSAC found a model". No producer records a code
-    yet, so no result's `converged` moves in this release of the interface.
+    `TimeCap`, `NonFinite`, `Callback`, `TrialBudget`, `AdaptiveCount`, `SeedKept`.
+  - **Breaking: the FitResult core holds the record** (the transition is resolved: every producer records a code, so
+    `converged` agrees with `successful_retcode(retcode(r))` for every result and every code, a closed form's
+    included). The core field `retcode::Symbol` is `retcode::ReturnCode.T`, beside a new core field
+    `stop_rule::StopRule`; `retcode(r)` returns the `ReturnCode.T` and `stop_rule(r)` the rule for every result, each
+    inferred. There is no metadata copy: the `return_code` generic is removed. `retcode_symbol(r)` is the legacy
+    Symbol spelling (`retcode_symbol(code, rule)`, the one map back). The termination types load before `FitResult`
+    (base/return_code.jl); the accessors are in base/termination_accessors.jl.
+  - **Breaking: `converged(r)` (and `r.converged`) is `successful_retcode(retcode(r))`, strict**: an iteration or
+    RANSAC trial cap (`MaxIters`) is not converged, a closed-form solve (`Success`, `ClosedForm`; the old `:solved`)
+    is. `found_model(r)` (`estimate(r) !== nothing`) is the old "a RANSAC found a model".
+  - Migration, one line per old form:
+    - `FitResult(x, :sym, iters, rms, n, md)` → `FitResult(x, retcode_from_symbol(:sym, rule)..., iters, rms, n, md)`
+      (`rule` the loop's success rule), or `FitResult(x, code, rule, iters, rms, n, md)`;
+    - `lo_estimate(θ, :sym; kw...)` → `lo_estimate(θ, :sym, rule; kw...)`, or `lo_estimate(θ, code, rule; kw...)`
+      (an LO status no fit reports, LODR's `:left_basin`, states its record: `(ReturnCode.Terminated, LeftBasin)`);
+    - `retcode(r) === :sym` → `retcode_symbol(r) === :sym`, or `retcode(r) == ReturnCode.X`;
+    - a rebuild `FitResult(f(estimate(r)), retcode(r), iterations(r), …)` → `FitResult(f(estimate(r)), retcode(r),
+      stop_rule(r), iterations(r), …)`;
+    - `converged(r)` read as "a RANSAC found a model" → `found_model(r)`;
+    - `return_code(m::MyMetadata) = …` → delete it (the record is the core's).
+    - `nlls_retcode(result, J, r; tol, ftol)` (removed: no consumer left) → `retcode_symbol(nlls_termination(result,
+      () -> is_stationary(J, r; tol, ftol))...)`, or the record itself.
+    - `BundleMetadata(w, r, fixed, dof, width, before, after)` → `BundleMetadata(w, r, fixed, dof, width, before, after;
+      scale, scale_source)` (below).
+  - **Breaking: `BundleMetadata` records the bundle's scale** (the robust-estimation contract's scale record, as
+    VisualGeometryToolkitEstimation's `CameraPosesRefineMetadata` does): required keywords `scale` (the noise scale the
+    bundle ran with; `NaN` under least squares) and `scale_source` (`ScaleGiven`, `ScaleUpstream`, or `ScaleNone`), read
+    by `noise_scale` and `scale_source`. Its termination record is the FitResult core's, as every result's. It moved to
+    base/bundle_metadata.jl (after the `ScaleSource` it holds).
+  - The no-local-optimization strategy `nothing` records `(Success, ClosedForm)` (the seed returned as it is).
+  - **`ReturnCode.Default`** (SciMLBase's, value 0: "the solving process has not been run"; not successful) is the
+    record of a solve that never ran — a RANSAC result's local-optimization record when none ran. **`StopRule`
+    `SeedKept`**: a RANSAC's score guard kept the seed (recorded with the refit's own code).
+    `retcode_from_symbol` also reads a RANSAC's former local-optimization statuses: `:not_run` → `(Default, NoRule)`,
+    `:guard_kept_seed` → `(Success, SeedKept)` (both read back by `retcode_symbol`), `:no_lo` → `(Success, ClosedForm)`,
+    `:thin_partition` → `(InitialFailure, NoRule)`.
+  - `test_termination_record(r)` checks a result's record: `retcode`, `stop_rule`, `converged` and
+    `retcode_symbol(r)` inferred, `converged(r) == successful_retcode(retcode(r))`. `test_local_optimization_contract`
+    runs it on the refit it checks.
+  - `ReturnCode`'s type and every value are public inside its module, so another package's qualified
+    `ReturnCode.Success` is a public access.
   - `nlls_termination(result_or_bits, postcondition)` maps NLLSsolver's termination bits to `(ReturnCode, StopRule)`
     in `nlls_stop_code`'s one order. `lmsolve_chart!` returns it as a fifth value, under its own stall postcondition.
     `retcode_from_symbol(s, rule)` is `retcode_symbol`'s inverse, for a loop that still reports a Symbol.

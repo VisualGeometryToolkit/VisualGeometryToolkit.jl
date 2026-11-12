@@ -1,4 +1,5 @@
 @testitem "ransac" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
@@ -277,7 +278,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
 
         @test result isa FitResult
         @test estimate(result) isa Line2D{Float64}
-        @test retcode(result) === :converged
+        @test retcode_symbol(result) === :converged
         @test converged(result) == true
         @test inlier_mask(result) isa BitVector
         # Default workspace storage is Float32: per-point vectors come back

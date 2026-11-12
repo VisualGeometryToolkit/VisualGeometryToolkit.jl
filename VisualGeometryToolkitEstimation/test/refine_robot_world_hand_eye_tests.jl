@@ -1,4 +1,5 @@
 @testitem "refine_robot_world_hand_eye" setup = [PoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: Triggs
 # refine_robot_world_hand_eye: the reprojection-error refinement of a robot-world
 # calibration A_i X_m = Y B_i^m against the markers' FEATURES, camera and rig
@@ -81,7 +82,7 @@ function rw_trial(block; N = 12, M = 3, f = 600.0, σ = 0.5, rot = 0.01, tr = 0.
     return function (rng)
         sc = rw_scene(rng; N, M, f, σ, layout)
         res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot, tr), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        retcode(res) === :converged || return nothing
+        retcode_symbol(res) === :converged || return nothing
         cal = estimate(res)
         δs = vcat([_rwδ(sc.Y, cal.Y)], [_rwδ(sc.X[m], cal.X[m]) for m in 1:M])
         block === :joint && return Vector(reduce(vcat, δs)), Matrix(res.cov)
@@ -99,7 +100,7 @@ function rw_heldout_trial(; N = 12, M = 3, f = 600.0, σ = 0.5)
         held = filter(o -> o[1] == N + 1, sc.obs)
         isempty(held) && return nothing
         res = refine_robot_world_hand_eye(rw_seed(rng, sc), sc.camera, rw_markers(sc; frames = 1:N); optimization_strategy = nothing)
-        retcode(res) === :converged || return nothing
+        retcode_symbol(res) === :converged || return nothing
         cal = estimate(res)
         i, m, cs = held[rand(rng, 1:length(held))]
         P, u = cs[rand(rng, 1:length(cs))]
@@ -118,7 +119,7 @@ end
         sc = rw_scene(rng; σ = 0.0)
         res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot = 0.02, tr = 0.02), sc.camera, rw_markers(sc); optimization_strategy = nothing)
         @test estimate(res) isa RobotWorldHandEyeCalibration{Int}
-        @test retcode(res) === :converged
+        @test retcode_symbol(res) === :converged
         @test res.rms < 1.0e-9
         @test norm(_rwδ(sc.Y, estimate(res).Y)) < 1.0e-9
         @test all(norm(_rwδ(sc.X[m], estimate(res).X[m])) < 1.0e-9 for m in 1:3)
@@ -147,7 +148,7 @@ end
         for m in (nan_px, nan_pt, behind, nan_rig)
             @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, m; optimization_strategy = nothing)
         end
-        @test retcode(refine_robot_world_hand_eye(seed, sc.camera, mk; optimization_strategy = nothing)) === :converged        # the untouched input is fine
+        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, mk; optimization_strategy = nothing)) === :converged        # the untouched input is fine
     end
 
     @testset "the refine contract: Triggs{Welsch} by default at the caller's scale, weights, the scale record" begin
@@ -163,16 +164,16 @@ end
         ls = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = nothing)
         @test_throws r"scale = σ" refine_robot_world_hand_eye(seed, sc.camera, moved)
         rt = refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5)
-        @test retcode(rt) === :converged && err(rt) < err(ls) / 3
+        @test retcode_symbol(rt) === :converged && err(rt) < err(ls) / 3
         @test noise_scale(rt) === 0.5 && scale_source(rt) === ScaleGiven && weight_kind(rt) === IrlsWeights()
         @test rt.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.5
         @test length(weights(rt)) == sum(length, values(rt.residuals)) && rt.n == count(>(0), weights(rt))
         @test count(<(0.1), weights(rt)) >= 1
         ri = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(), scale = 0.5)
-        @test retcode(ri) === :converged && err(ri) < err(ls) / 2
+        @test retcode_symbol(ri) === :converged && err(ri) < err(ls) / 2
         @test weight_kind(ls) === BinaryWeights() && scale_source(ls) === ScaleNone && all(==(1), weights(ls))
         # an Irls run that reaches its `max_iter` cycles is capped, never `:converged`
-        @test retcode(refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(max_iter = 1),
+        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(max_iter = 1),
                                                   scale = 0.5)) === :max_iterations
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword
@@ -237,7 +238,7 @@ end
         sc = rw_scene(rng; M, σ = 0.0, layout = :grid)
         @test length(rw_markers(sc)) == M                 # every marker is seen
         res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot = 0.1, tr = 0.1), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        @test retcode(res) === :converged
+        @test retcode_symbol(res) === :converged
         @test res.rms < 1.0e-9
         @test norm(_rwδ(sc.Y, estimate(res).Y)) < 1.0e-9
         @test all(norm(_rwδ(sc.X[m], estimate(res).X[m])) < 1.0e-9 for m in 1:M)

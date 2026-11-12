@@ -38,7 +38,7 @@ LocalOptimizationDoneRight's lifts selected by tag) plugs in through `scoring` a
   VisualGeometryToolkitFeatures' 0.06 px refinement bound are refused.
 
 Returns a `RansacEstimate` (its `estimate` a `RotMatrix{3, Float64}`), or
-the `:no_model` result (`iterations` 0) for fewer than 2 correspondences; test `converged(result)` before
+the `:no_model` result (`iterations` 0) for fewer than 2 correspondences; test `found_model(result)` before
 reading the model.
 """
 function find_rotation(camera1, camera2, pixel_cs; kwargs...)
@@ -58,7 +58,7 @@ correspondences from `R` itself, on [`find_rotation`](@ref)'s
 [`RotationProblem`](@ref) (its forms; codimension 2): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.rotation] optimization_strategy`). Fewer than 2 correspondences: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
     return _guarded_refine(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), Val(:rotation), R; kwargs...)

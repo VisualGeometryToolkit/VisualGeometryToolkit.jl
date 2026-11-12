@@ -13,7 +13,7 @@ scoring and least-squares-on-the-inliers local optimization. Every default is
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 7 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Arguments
 - `correspondences`: as [`find_homography`](@ref); a `Csponds` `:score` column is the
@@ -38,7 +38,7 @@ The fundamental matrix `F` refined against `correspondences` from `F` itself
 (the Sampson residual, pixels; codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.fundmat] optimization_strategy`). Fewer than 7 correspondences: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_fundmat(
         F, pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};

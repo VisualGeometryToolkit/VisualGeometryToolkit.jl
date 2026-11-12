@@ -43,8 +43,8 @@ p.attributes   # the depth
   VisualGeometryToolkitFeatures; the geometry and the alias live here so
   downstream packages agree on the type.
 - **Fit results do NOT use `Attributed`.** They return a
-  [`FitResult`](@ref): a fixed core (`estimate`, `retcode`, `iterations`,
-  `rms`, `n`) plus solver-specific `metadata` selected by type parameter.
+  [`FitResult`](@ref): a fixed core (`estimate`, `retcode`, `stop_rule`,
+  `iterations`, `rms`, `n`) plus solver-specific `metadata` selected by type parameter.
   It forwards properties into its metadata with the same `@generated`
   mechanism described below, so `r.weights` reads like `sc.first` does —
   `Attributed` with a fixed core, not a second paradigm.

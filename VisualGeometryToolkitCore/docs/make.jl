@@ -153,6 +153,7 @@ makedocs(;
             "Configuration Tags & Stack Contracts" => "api/stack_contracts.md",
             "Manifolds & Uncertainty" => "api/manifolds.md",
             "Core Types" => "api/types.md",
+            "Termination Record" => "api/termination.md",
             "Core" => "api/core.md",
             "Synthetic Data" => "api/synthetic.md",
         ],

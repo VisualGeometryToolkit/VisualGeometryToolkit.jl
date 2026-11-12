@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking: the refiners record their termination** (VisualGeometryToolkitCore's §14 record, in the FitResult core):
+  `(ReturnCode.Success, NoRule)` before the iteration cap (the owner's ruling: PoseLib reports no stop rule, so none is
+  claimed; `retcode_symbol` `:converged`), `(ReturnCode.MaxIters, IterationCap)` at it. `retcode(r)` is the
+  `ReturnCode.T`; `converged(r)` is unchanged.
+
 - **Breaking: the refiners speak the stack's robust-estimation contract** (`refine_homography`,
   `refine_fundamental`, both `refine_relpose` forms, both `refine_absolute_pose` forms). A renaming: every
   refinement is bit-identical to the one it replaces (test/test_contract.jl pins the stack's PoseLib baselines).

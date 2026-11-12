@@ -5,6 +5,63 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: every result records its termination (VisualGeometryToolkitCore's §14 record)**, a `ReturnCode` and a
+  `StopRule` in the FitResult core, so `converged(r) == successful_retcode(retcode(r))` for every `fit_*`, `find_*`,
+  `refine_*`, `ransac` and `locally_optimize` result. Estimates, residuals and iteration counts are unchanged; what
+  changes is the record and the Symbol `retcode_symbol(r)` reads where noted:
+  - an IRLS fit (`fit_linear`, `fit_rotation`, `fit_rigid_alignment`, `fit_rotation_averaging`,
+    `fit_robot_world_hand_eye`): `(Success, IncrementSize)`, `(MaxIters, IterationCap)`, least squares
+    `(Success, ClosedForm)`, a degenerate input `(InitialFailure, NoRule)`, a weighted solve that cannot be solved inside
+    the loop `(InternalLinearSolveFailed, NoRule)` (was `:degenerate`, now `retcode_symbol` `:solve_failed`; the owner's
+    ruling); `fit_line`, `fit_radial_camera`,
+    `pspline_grid` and `fit_camera`'s linear fit are closed forms (`converged` now true, as for every `:solved`);
+  - the NLLSsolver bundles (`refine_camera_and_poses`, its SplineLens form, `refine_robot_world_hand_eye`) and the
+    chart LMs (`refine_*`, `refine_camera`, the `Triggs` local optimization) record `nlls_termination`'s
+    `(code, rule)`; an Irls run capped at its cycles `(MaxIters, IterationCap)`; an Irls `refine_*` stops on its robust
+    cost (`CostDecrease`); `refine_camera` with nothing free a closed form, `(Success, ClosedForm)` (was `:converged`, now `:solved`; the owner's
+    ruling);
+  - the EM fits (`fit_division_camera`, `fit_residual_mixture`, the posterior-IRLS local optimization) record the
+    configured stop's rule (`ParameterChange`; `NoImprovement` under `WeightedRefine`, `CostDecrease` under
+    `KeepModel`); **behaviour change:** `fit_division_camera` combines its two legs (around the branch audit) by
+    `worst_retcode` — the resumed leg's record, or the more severe of a converged first leg and the resumed one (it
+    reported the last leg's Symbol); a leg that stopped at the checkpoint does not enter;
+  - `approximate_camera` starts from the linear fit when it `converged` (was: unless its retcode was `:solve_failed`;
+    the same starts, the linear fit's records being `(Success, ClosedForm)` or `(Failure, NonFinite)`);
+  - the SplineLens and non-central spline fits carry their stages' records through (the backward and forward spacing
+    searches, the optical-axis gauge, the forward refit of `refine_camera_and_poses`' spline route): a stage that did
+    not succeed gives the result its own record, rule included (a Stalled gauge stays `(Stalled, IncrementSize)`);
+  - the spline spacing searches (`fit_camera(SplineLens | NoncentralSplineModel, …)`) record `ToleranceMet`, or
+    `(MaxIters, IterationCap)` at the finest spacing;
+  - **a RANSAC search** records `(Success, AdaptiveCount)` when its confidence count ended it, `(Success, TrialBudget)`
+    when an exhaustive sampler drew every sample, `(MaxIters, TrialBudget)` when it drew `max_trials` without the
+    confidence (was `:converged`: no longer `converged`, though `found_model`), and `(Failure, TrialBudget)` with no
+    model (`:no_model`). The confidence is reached when its trial count is at most `max_trials` — a count equal to the
+    budget reached it at the cap (`AdaptiveCount`), and so does a fixed budget (`min_trials == max_trials`) whose
+    confidence count is within it. A seeded
+    `locally_optimize` records its kept refit's record, or `(Success, ClosedForm)` for the seed kept (was
+    `:converged`); a terminal local optimization keeps the search's record unless its refit did not succeed;
+  - **Breaking: `RansacMetadata`'s local-optimization outcome is the same record** (the owner's ruling): `lo_retcode`
+    is a `ReturnCode.T` (was a Symbol) beside a new field `lo_stop_rule::StopRule` — the core record of the best
+    model's `lo_estimate` refit, concretely typed. Behaviour changes, by former Symbol (each through
+    `retcode_from_symbol`, the one map):
+    - `:not_run` (no local optimization ran for the best model: no model, the seed kept unscored, a refit not kept)
+      → `(ReturnCode.Default, NoRule)`, SciMLBase's "the solving process has not been run";
+    - `:no_lo` (the strategy `nothing`) → `(Success, ClosedForm)`: the seed returned as it is;
+    - `:thin_partition` (a consensus too thin to refine) → `(InitialFailure, NoRule)`: the refit could not start; the
+      RESULT then records the seed's `(Success, ClosedForm)` (a seeded refine), or keeps the search's (a terminal LO);
+    - `:guard_kept_seed` → the refit's own code with the rule `SeedKept`;
+    - an iterative refit's Symbol (`:converged`, `:max_iterations`, `:stalled`, `:solve_failed`, …) → its record.
+    No estimate, residual or count moves. Migration: `r.lo_retcode === :sym` →
+    `retcode_symbol(r.lo_retcode, r.lo_stop_rule) === :sym` (`:not_run` and `:guard_kept_seed` read back as before), or
+    `r.lo_retcode == ReturnCode.X`; `RansacMetadata(…, sar, :sym[, nonfinite])` → `RansacMetadata(…, sar,
+    retcode_from_symbol(:sym, rule)...[, nonfinite])`; the workspace's `best_lo_retcode` (an `on_improvement` callback's)
+    is a `ReturnCode.T` beside `best_lo_stop_rule`.
+  - `pooled_noise_scale` records `(Success, ClosedForm)` (was `:pooled`; `retcode_symbol` `:solved`), or
+    `(InitialFailure, NoRule)` when no result enters the pool; `refine_camera_and_poses` under `RotationCenterViews`
+    records its bundle's solve, as the other parametrizations do.
+  - Every `find_*` docstring says to test `found_model(result)` before reading the model. The terminal placement
+    refines a search that found a model (`found_model`), as before.
+
 - **Breaking: the strategy registry is `OPTIMIZATION_STRATEGY_TAGS`** (was `LO_TAGS`; the owner's ruling, after the
   strategy keyword rename): the tags of `optimization_strategy_from_toml`, `lo_from_toml` and `lo_concrete`, and the
   downstream merges `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`

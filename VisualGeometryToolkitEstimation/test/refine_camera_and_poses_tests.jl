@@ -45,6 +45,7 @@
 end
 
 @testitem "refine_camera_and_poses: a pinhole camera and its poses recovered" setup = [CameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, Pinhole, parameter_vector, parameter_names, with_parameters, estimate, retcode, rms
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
@@ -53,7 +54,7 @@ end
     θ = parameter_vector(cam)
     cam0 = with_parameters(cam, θ .* SVector(1.04, 1.01, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 6.0, -5.0))   # f, aspect, skew, cx, cy
     res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; optimization_strategy = nothing)
-    @test retcode(res) === :converged
+    @test retcode_symbol(res) === :converged
     est = estimate(res)
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
     @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-9
@@ -63,6 +64,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: a fisheye past 90°, camera and poses recovered" setup = [CameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, estimate, retcode, rms, KannalaBrandt, lens, free_parameter_names
@@ -73,7 +75,7 @@ end
     δ = SVector(1.03, 1.0, 1.0, 1.0, 1.0, 0.8, 1.2, 0.9, 1.1)                    # f, aspect, skew, cx, cy, k1 … k4
     cam0 = with_parameters(cam, θ .* δ .+ SVector(0.0, 0.0, 0.0, -4.0, 3.0, 0.0, 0.0, 0.0, 0.0))
     res = refine_camera_and_poses(cam0, [perturbed_pose(E, v) for (v, E) in enumerate(Es)], views; optimization_strategy = nothing)
-    @test retcode(res) === :converged
+    @test retcode_symbol(res) === :converged
     est = estimate(res)
     @test lens(est.camera) isa KannalaBrandt                                    # the family is kept
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0e-2)) < 1.0e-7
@@ -123,6 +125,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: a held camera, dict and vector forms, lengths, refusals" setup = [CameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: parameter_vector, parameter_names, with_parameters, estimate, retcode, EuclideanMap, m, ustrip, with_unit, Csponds
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
@@ -131,7 +134,7 @@ end
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the camera held: the poses alone (the camera comes back as given)
     held = refine_camera_and_poses(cam, poses0, views; fixed = parameter_names(cam), optimization_strategy = nothing)
-    @test retcode(held) === :converged && estimate(held).camera === cam && held.free == ()
+    @test retcode_symbol(held) === :converged && estimate(held).camera === cam && held.free == ()
     # `fixed` names the held parameters, the complement of the refined set (the retired `free`), bit for bit:
     # holding the aspect refines (f, cx, cy) exactly as the former `free = (:f, :cx, :cy)` did
     part = refine_camera_and_poses(cam, poses0, views; fixed = (:aspect,), optimization_strategy = nothing)
@@ -162,7 +165,7 @@ end
     @test_throws ArgumentError refine_camera_and_poses(cam0, poses0, views; fixed = parameter_names(cam0), box = (; f = (1.0, 2.0)), optimization_strategy = nothing)   # a box with nothing to bound
     # the wall-clock cap reaches the LM: a zero cap stops after the first iteration, :max_time; Inf is no cap
     rt = refine_camera_and_poses(cam0, poses0, views; max_time = 0.0, optimization_strategy = nothing)
-    @test retcode(rt) === :max_time && rt.iterations <= 1
+    @test retcode_symbol(rt) === :max_time && rt.iterations <= 1
     @test estimate(refine_camera_and_poses(cam0, poses0, views; max_time = Inf, optimization_strategy = nothing)).camera == estimate(rv).camera
 end
 
@@ -172,7 +175,7 @@ end
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Size2, project, reprojection_error, backproject, angle_between
     using Test: @test, @test_throws
     using Random: Xoshiro, randn
-    using VisualGeometryToolkitCore: estimate, retcode, rms
+    using VisualGeometryToolkitCore: estimate, retcode, retcode_symbol, rms
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, optical_axis
     using VisualGeometryToolkitCore: axis_gauged, calibration_matrix, metadata, rotation, BoundedCamera, Size2, model
     using Rotations: RotMatrix
@@ -245,7 +248,7 @@ end
         g0 = perturbed_controls(rough, 0.01)
         prediction(r) = spline_rms(model(estimate(r).camera), estimate(r).poses, clean)
         rg = refine_camera_and_poses(bounded(g0), p0, noisy)
-        @test retcode(rg) === :converged && !rg.spline.gcv_at_bound
+        @test retcode_symbol(rg) === :converged && !rg.spline.gcv_at_bound
         @test rg.spline.β ≈ first(sort(rg.spline.gcv; by = e -> e.gcv)).β rtol = 1.0e-12    # the least of the weights evaluated
         @test all(e -> isfinite(e.gcv), rg.spline.gcv) && issorted(rg.spline.gcv; by = e -> e.β)
         @test abs(log10(rg.spline.β) - old_log10β) <= 0.1
@@ -272,6 +275,7 @@ end
 # Irls{Shape} at the caller's `scale` times the strategy's efficiency constant, or at the caller's `width`, from the
 # caller's start (no least-squares stage); a refine estimates no scale; `nothing` is plain least squares; the refusals.
 @testitem "refine_camera_and_poses: optimization_strategy = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
@@ -309,7 +313,7 @@ end
     # 0.30 px: one Welsch LM from a start 25 px off)
     for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         rs = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = 0.2)
-        @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
+        @test retcode_symbol(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
         @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
         # `n` the weights' support and `rms` the weighted one (the stack's one rule): Welsch gives the 20–60 px outliers
@@ -328,14 +332,14 @@ end
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
     for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         r = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2)
-        @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
+        @test retcode_symbol(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
     # an Irls run that reaches its `max_iter` cycles is capped, never `:converged` (whatever its last solve)
-    @test retcode(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(max_iter = 1), scale = 0.2)) ===
+    @test retcode_symbol(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(max_iter = 1), scale = 0.2)) ===
         :max_iterations
     # a width alone: the loss at it, no scale recorded; the same loss as the scale that gives it (the record aside)
     rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), width = 1.345 * 0.2)
-    @test retcode(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.loss_width ≈ 1.345 * 0.2
+    @test retcode_symbol(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.loss_width ≈ 1.345 * 0.2
     @test_throws ArgumentError noise_scale(rw)
     ru = refine_camera_and_poses(cam1, poses1, noisy; scale = rd)       # an upstream result's scale, handed on
     @test noise_scale(ru) === 0.2 && scale_source(ru) === ScaleUpstream
@@ -383,6 +387,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: board poses, recovered from exact and noisy pixels, the gauge held exactly" setup = [CameraPoseScenes, BoardScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using Random: Xoshiro
@@ -398,7 +403,7 @@ end
     # exact pixels: everything recovered to the LM's tolerance, board A (each component's first board) held exactly
     res = refine_camera_and_poses(cam0, views0, boards0, board_views(cam, views, boards); optimization_strategy = nothing)
     est = estimate(res)
-    @test retcode(res) === :converged && rms(res) < 1.0e-9
+    @test retcode_symbol(res) === :converged && rms(res) < 1.0e-9
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
     @test est.board_poses[:A] === boards0[:A]
     @test maximum(Δ(est.board_poses[b], boards[b]) for b in (:B, :C)) < 1.0e-9
@@ -412,7 +417,7 @@ end
     rn = refine_camera_and_poses(cam0, views0, boards0, noisy; optimization_strategy = nothing)
     rt = refine_camera_and_poses(cam, views, boards, noisy; optimization_strategy = nothing)
     en, et = estimate(rn), estimate(rt)
-    @test retcode(rn) === :converged && retcode(rt) === :converged
+    @test retcode_symbol(rn) === :converged && retcode_symbol(rt) === :converged
     @test parameter_vector(en.camera) ≈ parameter_vector(et.camera) rtol = 1.0e-8
     @test maximum(Δ(en.poses[v], et.poses[v]) for v in 1:6) < 1.0e-6
     @test maximum(Δ(en.board_poses[b], et.board_poses[b]) for b in (:A, :B, :C)) < 1.0e-6
@@ -423,7 +428,7 @@ end
     # the gauge held by a view instead: the same solution up to the gauge (every view ∘ board the same map)
     rv = refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), held_views = (1,), optimization_strategy = nothing)
     ev = estimate(rv)
-    @test ev.poses[1] == views0[1] && retcode(rv) === :converged
+    @test ev.poses[1] == views0[1] && retcode_symbol(rv) === :converged
     @test rms(rv) ≈ rms(rn) rtol = 1.0e-8
     for v in 1:6, b in (:A, :B, :C)
         @test Δ(ev.poses[v] ∘ ev.board_poses[b], en.poses[v] ∘ en.board_poses[b]) < 1.0e-6
@@ -433,7 +438,7 @@ end
     obs = merge(board_views(cam, views, boards), Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X))))
                                                                    for X in board_points()]))
     r2 = refine_camera_and_poses(cam0, merge(views0, Dict(7 => nudged(views[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs; optimization_strategy = nothing)
-    @test retcode(r2) === :converged && estimate(r2).board_poses[:D] === bd[:D] && rms(r2) < 1.0e-9
+    @test retcode_symbol(r2) === :converged && estimate(r2).board_poses[:D] === bd[:D] && rms(r2) < 1.0e-9
     # refusals: a component with no held pose, a key without a pose, a pose without correspondences
     @test_throws r"hold no pose" refine_camera_and_poses(cam0, views0, boards0, noisy; held_boards = (), optimization_strategy = nothing)
     @test_throws r"no pose" refine_camera_and_poses(cam0, views0, Dict(:A => boards[:A], :B => boards[:B]), noisy; optimization_strategy = nothing)
@@ -441,6 +446,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's controls and poses refined from its optical axis, K frozen" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, retcode, rms, calibration_matrix, backproject, lens, SplineLens,
@@ -451,7 +457,7 @@ end
     cam0 = perturbed_controls(truth, 0.01); poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     res = refine_camera_and_poses(bounded(cam0), poses0, views)
     est = estimate(res)
-    @test retcode(res) === :converged
+    @test retcode_symbol(res) === :converged
     # K bit-identical to the entry's: the guess on its optical axis (2026-11-11: no longer the guess's own K — the entry
     # gauge moves its principal point to the axis's pixel; held exactly from there)
     g0, R0 = entry_gauge(cam0)
@@ -487,21 +493,22 @@ end
     # directions-first stage; a joint solve from there crept for 158 iterations)
     far = perturbed_controls(truth, 0.05)
     rf = refine_camera_and_poses(bounded(far), poses0, views)
-    @test retcode(rf) === :converged && rf.spline.windows_settled
+    @test retcode_symbol(rf) === :converged && rf.spline.windows_settled
     # `max_time` caps the whole refine, all stages and rounds: with a zero cap the first solve stops after its first
     # iteration, and only the joint solve's one capped iteration follows. GCV's start solve (at β = 1) cut short: no
     # weight is searched, and the metadata is that estimate's — β = 1, its λ, no curve and no tr H — and its windows,
     # never rebuilt, are not settled
     rt = refine_camera_and_poses(bounded(far), poses0, views; max_time = 0.0)
-    @test retcode(rt) === :max_time && rt.iterations <= 2 && rt.spline.rounds == 1
+    @test retcode_symbol(rt) === :max_time && rt.iterations <= 2 && rt.spline.rounds == 1
     @test rt.spline.β == 1.0 && rt.spline.gcv === nothing && rt.spline.effective_dof === nothing && !rt.spline.gcv_at_bound
     @test !rt.spline.windows_settled
     rp = refine_camera_and_poses(bounded(far), poses0, views; penalty = 1.0e-8, max_time = 0.0)
-    @test retcode(rp) === :max_time && !rp.spline.windows_settled && rp.spline.β == 1.0e-8
+    @test retcode_symbol(rp) === :max_time && !rp.spline.windows_settled && rp.spline.β == 1.0e-8
     @test ray_error(model(estimate(rf).camera), first(truth_in_frame(truth, Es, estimate(rf))), views) < ray_error(far, truth, views) / 1000
 end
 
 @testitem "refine_camera_and_poses: the SplineLens cameras fit_camera and the constructors make, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region,
@@ -520,7 +527,7 @@ end
         cam0 = perturbed_controls(truth, 0.01)
         res = refine_camera_and_poses(bounded(cam0), poses0, views)
         est = estimate(res)
-        @test retcode(res) === :converged
+        @test retcode_symbol(res) === :converged
         @test calibration_matrix(model(est.camera)) == calibration_matrix(first(entry_gauge(cam0)))   # K bit-identical to the entry's
         @test rms(res) < 1.0e-3 < spline_rms(cam0, poses0, views)
         @test ray_error(model(est.camera), first(truth_in_frame(truth, Es, est)), views) < ray_error(cam0, truth, views) / 1000
@@ -531,7 +538,7 @@ end
     views = spline_views(fitted, Es, 1.1)
     cam0 = perturbed_controls(fitted, 0.05)
     res = refine_camera_and_poses(bounded(cam0), poses0, views)
-    @test retcode(res) === :converged
+    @test retcode_symbol(res) === :converged
     @test ray_error(model(estimate(res).camera), first(truth_in_frame(fitted, Es, estimate(res))), views) < ray_error(cam0, fitted, views) / 1000
 end
 
@@ -567,6 +574,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's poses alone, a forward refitted, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, estimate, retcode,
         lens, model, parameter_vector, with_present, spline_window, imaged_region, calibration_matrix
@@ -579,7 +587,7 @@ end
     # == (2026-11-11: no longer the given camera itself) — and the poses recovered in that frame
     held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))   # the former `free = ()`
     gt, Rt = entry_gauge(truth)
-    @test retcode(held) === :converged && held.free == ()
+    @test retcode_symbol(held) === :converged && held.free == ()
     @test parameter_vector(model(estimate(held).camera)) == parameter_vector(gt) && calibration_matrix(model(estimate(held).camera)) == calibration_matrix(gt)
     @test maximum(maximum(abs, P.t - VC.axis_gauged(E, Rt).t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-6
     # a camera holding a forward spline: refined without it, the forward refitted over the bounded camera's imaged region
@@ -588,7 +596,7 @@ end
         tolerance = 1.0e-3)), Size2(1280, 960))
     @test lens(model(bc)).forward isa ChartSpline{2}
     rf = refine_camera_and_poses(bc, poses0, views; forward_tolerance = 1.0e-3)
-    @test retcode(rf) === :converged && estimate(rf).camera isa BoundedCamera
+    @test retcode_symbol(rf) === :converged && estimate(rf).camera isa BoundedCamera
     @test lens(model(estimate(rf).camera)).forward isa ChartSpline{2} && rf.spline.forward === :refitted
     @test rf.spline.forward_max_px <= 1.0e-3
     @test calibration_matrix(model(estimate(rf).camera)) == calibration_matrix(first(entry_gauge(bc)))   # the entry's K, held
@@ -640,6 +648,7 @@ end
 end
 
 @testitem "refine_camera_and_poses: a SplineLens camera's smoothness is scale-free; the penalty fixed, off, or chosen by GCV" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: norm, eigvals, Symmetric, tr
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, estimate, retcode, rms, lens,
@@ -727,14 +736,14 @@ end
     # a numeric penalty: GCV off, the weight as given, the same result every time
     r1 = refine_camera_and_poses(bounded(cam0), poses0, views; penalty = 1.0e-8)
     r2 = refine_camera_and_poses(bounded(cam0), poses0, views; penalty = 1.0e-8)
-    @test retcode(r1) === :converged && r1.spline.β == 1.0e-8 && r1.spline.gcv === nothing && !r1.spline.gcv_at_bound
+    @test retcode_symbol(r1) === :converged && r1.spline.β == 1.0e-8 && r1.spline.gcv === nothing && !r1.spline.gcv_at_bound
     @test parameter_vector(model(estimate(r1).camera)) == parameter_vector(model(estimate(r2).camera))
     # penalty = 0: no smoothness; the present nodes no correspondence's window reads are held at their guesses and counted
     # (without the Δ³ rows each log-scale is held by its data alone, nearly collinear with its direction: the joint
     # solve takes ≈ 210 iterations, past the default per-solve cap)
-    @test retcode(refine_camera_and_poses(bounded(cam0), poses0, views; penalty = 0)) === :max_iterations   # the default cap: visible
+    @test retcode_symbol(refine_camera_and_poses(bounded(cam0), poses0, views; penalty = 0)) === :max_iterations   # the default cap: visible
     r0 = refine_camera_and_poses(bounded(cam0), poses0, views; penalty = 0, max_iter = 300)
-    @test retcode(r0) === :converged && r0.spline.β == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
+    @test retcode_symbol(r0) === :converged && r0.spline.β == 0 && r0.spline.λ == 0 && r0.spline.gcv === nothing
     # (the nodes no window reads, and their held controls, are the entry-gauged guess's, 2026-11-11: the refine starts
     # from the guess on its optical axis — its controls turned, its principal point moved)
     g0 = first(entry_gauge(cam0))
@@ -858,7 +867,7 @@ end
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
-        ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs
+        ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs, ReturnCode, ClosedForm
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
     cam = pinhole_camera(); held = Tuple(parameter_names(cam))
     axes = [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04),
@@ -877,7 +886,8 @@ end
         @test sort(collect(keys(est.views.rotations))) == collect(1:6)
     end
     @testset "noisy pixels with 5% outliers: Triggs{Huber} at an upstream scale" begin
-        upstream = FitResult(0.3, :pooled, 0, NaN, 6, (; scale = 0.3, scale_source = ScaleEstimated))
+        upstream = FitResult(0.3, ReturnCode.Success, ClosedForm, 0, NaN, 6,
+                             (; scale = 0.3, scale_source = ScaleEstimated))
         views = center_views(cam, t; σ = 0.3, outliers = 0.05)
         r = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(efficiency_constant = 3.0),
                                     scale = upstream)

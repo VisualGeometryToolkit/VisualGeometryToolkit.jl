@@ -34,7 +34,7 @@ a `VisualGeometryToolkitCore.RadialHomography` in the DATA (pixel) frame — `H`
 `k`, and the distortion `center` all carried in the model — the `:no_model` result (`iterations` 0)
 for fewer than a minimal sample (5 correspondences, 4 with `minimal = :homography`).
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 `center` — the distortion center in target pixels — is REQUIRED: the 5-pt
 solver runs in the Hartley frame about it.
@@ -78,7 +78,7 @@ codimension 2). The problem's distortion centre is the model's own
 (`center(model)`): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.radial_homography] optimization_strategy`). Fewer than 5 correspondences: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_radial_homography(
         model::VgtkCore.RadialHomography{<:Any, 1}, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};

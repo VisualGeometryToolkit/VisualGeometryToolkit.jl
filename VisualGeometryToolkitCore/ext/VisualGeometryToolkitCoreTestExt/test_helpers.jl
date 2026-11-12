@@ -62,10 +62,10 @@ function test_recorded(make; nested = RECORDED_NESTED_STATES)
     rec = Recorded(st2)
     Test.@test isequal(_fingerprint(block_coordinate_descent!(rec, lh2, m2, p2, θ₀2; max_iter), nested), _fingerprint(bare, nested))
     Test.@test isequal(_snap_state(st2, nested), bare_state)
-    Test.@test rec.reason[] === retcode(bare)
+    Test.@test rec.reason[] !== :continue   # the reason the run ended (its record is the result's, compared above)
     k_run = iterations(bare)
     k_rec = length(rec.iterates)
-    Test.@test k_rec == (retcode(bare) === :solve_failed ? k_run - 1 : k_run)
+    Test.@test k_rec == (rec.reason[] === :solve_failed ? k_run - 1 : k_run)
     Test.@test length(rec.cost) == length(rec.s2) == k_rec
     # iterate for iterate: the bare run truncated after k is the recorded run's k-th entry
     for k in 1:k_rec

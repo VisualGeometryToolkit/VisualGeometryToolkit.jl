@@ -288,16 +288,26 @@ function post_iteration!(state::PosteriorIrlsState{M}, method::PosteriorIrlsMeth
 end
 stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel}) = StopWhenNoImprovement(1, 1)
 
+# The termination record's rule (§14) of a run its stop rule ended `:converged`, by the
+# configured stop and model update — the ONE map: the parameter change; the incumbent's
+# cost not falling under a refit; the mixture NLL falling by ≤ `tol` under a held model
+# (its `StopWhenNoImprovement` is a cost-decrease test). The run's Symbol reason becomes
+# its record through `retcode_from_symbol` (`lo_estimate`'s Symbol form).
+_stop_rule(::ParameterChangeStop, _model_update) = ParameterChange
+_stop_rule(::NoImprovementStop, ::WeightedRefine) = NoImprovement
+_stop_rule(::NoImprovementStop, ::KeepModel) = CostDecrease
+_stop_rule(m::PosteriorIrlsMethod) = _stop_rule(m.stop, m.model_update)
+
 function block_coordinate_result(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter) where {M, T}
-    return lo_estimate(state.best.value, stop_reason; iterations = final_iter)
+    return lo_estimate(state.best.value, stop_reason, _stop_rule(method); iterations = final_iter)
 end
 
 # The parameter-change rule: its criterion, and the LAST iterate as the result (on
 # `:solve_failed`, the last model the model block produced).
 stopping_criterion(m::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
 stopping_criterion(m::PosteriorIrlsMethod{<:Any, KeepModel, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
-block_coordinate_result(::PosteriorIrlsState, ::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter) =
-    lo_estimate(θ, stop_reason; iterations = final_iter)
+block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter) =
+    lo_estimate(θ, stop_reason, _stop_rule(method); iterations = final_iter)
 
 """
     posterior_irls!(likelihood, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
@@ -330,7 +340,7 @@ function posterior_irls!(
     _seed_policy_weights!(state, lh, data_size(problem))
     result = block_coordinate_descent!(state, lh, method, problem, model; max_iter)
     copyto!(buf.residuals, state.best_residuals)
-    return lo_estimate(estimate(result), retcode(result); iterations = iterations(result), residuals_current = true)
+    return lo_estimate(estimate(result), retcode(result), stop_rule(result); iterations = iterations(result), residuals_current = true)
 end
 
 """

@@ -1,4 +1,5 @@
 @testitem "fit_division_camera" setup = [DivisionBoards] begin
+    using VisualGeometryToolkitCore: retcode_symbol
 # fit_division_camera — iterated Sampson-whitened, Student-t re-weighted focal stack
 using Test, Random, LinearAlgebra
 using StableRNGs
@@ -38,7 +39,7 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     @test abs(f_irls - f0) < abs(f_plain - f0)                        # whitening + robust weights beat the plain stack
     @test abs(f_irls - f0) / f0 < 1.0e-2                                  # information limit under 8 % contamination
     @test abs(parameter_vector(lens(estimate(res)))[1] / f_irls^2 - k0) / abs(k0) < 0.05
-    @test retcode(res) in (:converged, :max_iterations)
+    @test retcode_symbol(res) in (:converged, :max_iterations)
     @test 0.2 < noise_scale(res) < 1.0                                        # ŝ recovers the pixel noise scale
     @test @inferred(noise_scale(res)) isa Float64
     md = res.metadata
@@ -61,7 +62,7 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     for mi in (1, 2, 5)
         @test iterations(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(mi))) <= mi
     end
-    @test retcode(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(1))) === :max_iterations
+    @test retcode_symbol(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(1))) === :max_iterations
     # one iteration moves the solution off the seeded step (the step whitened at the
     # seed, the half-diagonal by default): the robust re-weighting begins there
     p1 = estimate(fit_division_camera(rc, vw; image_size = sz, mixture_em = em_at(1)))

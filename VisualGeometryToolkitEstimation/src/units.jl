@@ -53,9 +53,9 @@ _map_csponds(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) 
 # of `P` is that of `M`). Any other fit's estimate is concrete and simply mapped.
 function _map_estimate(f, r::FitResult{P, R}) where {P, R}
     E = estimate(r)
-    Nothing <: P || return FitResult(f(E), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    Nothing <: P || return FitResult(f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
     N = Base.promote_op(f, P)
-    return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 
 # A RANSAC (or any) result with its model read as metres: everything else as it was.

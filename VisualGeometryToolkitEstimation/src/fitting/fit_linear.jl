@@ -85,7 +85,7 @@ The least squares is a column-pivoted QR, so a column that no row with weight
 reaches (an unsupported basis function) gets a basic solution's value, not an
 error; drop such columns before the call when their value matters.
 
-`retcode` is `:converged`, `:max_iterations`, `:solved` (least squares), or
+`retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least squares), or
 `:degenerate` when fewer rows keep a positive weight than there are columns.
 `n` is the support (the rows of positive solve weight) and `rms` the
 weight-weighted root mean square residual over the rows,
@@ -111,25 +111,25 @@ function fit_linear(
     x = _weighted_lstsq(Af, yf, p)
     x === nothing && return _linear_degenerate(optimization_strategy, f, n, m, w)
     r = yf .- Af * x
-    retcode = f === nothing ? :solved : :max_iterations
+    tol_met = false
     iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
         _irls_weights!(w, f, r)
         x_new = _weighted_lstsq(Af, yf, _solve_weights(p, w))
-        x_new === nothing && return _linear_degenerate(optimization_strategy, f, n, m, w)
+        x_new === nothing && return _linear_degenerate(optimization_strategy, f, n, m, w, _irls_record(false, false; solve_failed = true))
         Δ = maximum(abs, x_new .- x; init = 0.0)
         x = x_new
         r = yf .- Af * x
         if Δ < tol * max(1.0, maximum(abs, x; init = 0.0))
-            retcode = :converged
+            tol_met = true
             break
         end
     end
     _irls_weights!(w, f, r)                   # the metadata at the returned coefficients
     sw = _solve_weights(p, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(x, retcode, iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    return FitResult(x, _irls_record(tol_met, f === nothing)..., iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 # The weighted least squares on the rows of positive weight: the column-pivoted
@@ -141,5 +141,7 @@ function _weighted_lstsq(A, y, w)
     return LinearAlgebra.qr(s .* A[keep, :], LinearAlgebra.ColumnNorm()) \ (s .* y[keep])
 end
 
-_linear_degenerate(strategy, f, n, m, w) =
-    FitResult(fill(NaN, n), :degenerate, 0, NaN, 0, LinearFitMetadata{typeof(strategy)}(w, fill(NaN, m), _fit_scale_record(f)...))
+# A solve that failed: before the loop, a degenerate start `(InitialFailure, NoRule)`; inside it, a weighted
+# solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
+_linear_degenerate(strategy, f, n, m, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
+    FitResult(fill(NaN, n), record..., 0, NaN, 0, LinearFitMetadata{typeof(strategy)}(w, fill(NaN, m), _fit_scale_record(f)...))

@@ -30,10 +30,11 @@ scorer, inside `ransac`'s wall time. The result is that seeded refine's:
 
 - `estimate`: the refined model, or the raw incumbent when the refined model
   fails `test_consensus` (as `locally_optimize` keeps its seed) or the
-  incumbent's consensus set is too thin to refine (`lo_retcode` `:thin_partition`).
+  incumbent's consensus set is too thin to refine (its refit's record `(InitialFailure, NoRule)`).
   The refined model is kept even if it scores below the raw incumbent (there is
   no `score_guard` at the terminal placement);
-- `lo_retcode`: the inner strategy's (`:not_run` when the seed was kept);
+- `lo_retcode`, `lo_stop_rule`: the inner strategy's record (`(ReturnCode.Default, NoRule)`
+  when no local optimization ran for the reported model);
 - `residuals`, `weights`, `quality`, `scale`, `dof`, `n`, `rms`:
   the reported model re-scored under the scorer;
 - `iterations` and `sample_acceptance_rate`: the raw race's.

@@ -37,7 +37,7 @@ Every default is `configs/default.toml`'s (`[ransac]`,
 
 Returns a `RansacEstimate` (its `estimate` an `Ellipse{Float64}`), the `:no_model` result (`iterations` 0)
 for fewer than 5 points. `iterations(result)` is the number of trials (hypotheses
-drawn); test `converged(result)` before reading the model (see
+drawn); test `found_model(result)` before reading the model (see
 [`RansacEstimate`](@ref)). From a given ellipse, the same step without the
 sampling: [`refine_ellipse`](@ref).
 
@@ -65,7 +65,7 @@ codimension 1), on the log-shape chart (VisualGeometryToolkitCore's
 `EllipseManifold`, smooth at a circle): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.ellipse] optimization_strategy`). Fewer than 5 points: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 
 The maximum-likelihood ellipse under isotropic Gaussian noise on outlier-free
 points is `refine_ellipse(direct_ellipse(points), points; optimization_strategy =

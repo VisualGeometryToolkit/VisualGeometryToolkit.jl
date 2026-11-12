@@ -56,6 +56,7 @@
 end
 
 @testitem "find_circle: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, estimate, converged, retcode, iterations
@@ -75,12 +76,12 @@ end
         @test count(inl[bad]) < 0.05 * length(bad)
     end
     @test let r = find_circle([Point2(0.0, 0.0), Point2(1.0, 0.0)])
-        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
     end
     # no sample gives a circle (collinear points): a :no_model result whose estimate is nothing,
     # not a MethodError (2026-11-03: `zero(::Type{Circle{Float64}})` did not exist)
     none = find_circle([Point2(Float64(i), 2.0 * i + 1) for i in 1:10]; rng = Xoshiro(1))
-    @test !converged(none) && retcode(none) === :no_model && estimate(none) === nothing && !any(inlier_mask(none))
+    @test !converged(none) && retcode_symbol(none) === :no_model && estimate(none) === nothing && !any(inlier_mask(none))
 end
 
 @testitem "find_circle: the keywords of every find_* pipeline" setup = [ConicScenes] begin

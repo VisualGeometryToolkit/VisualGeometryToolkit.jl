@@ -70,7 +70,7 @@ count uses the hypergeometric distribution (the stopping criterion).
 - `on_improvement=nothing`: optional anytime-trace hook, called as
   `on_improvement(trial::Int, score, ws::RansacWorkspace)` exactly when the
   tracked best (the acceptance that also re-arms the adaptive
-  trial count) is replaced — read `ws.best_model` / `ws.best_lo_retcode`
+  trial count) is replaced — read `ws.best_model` / `ws.best_lo_retcode` (and `ws.best_lo_stop_rule`)
   inside the callback. Improvements are rare (≈ log-many per run), so a cheap
   callback keeps overhead negligible; `nothing` (production default) is
   specialized away at compile time.
@@ -81,16 +81,21 @@ count uses the hypergeometric distribution (the stopping criterion).
   scorer, the candidate re-enters the incumbent race as the RAW hypothesis
   (at its Phase-1 score) instead of the refined model; the race itself stays
   the standard monotone best-so-far comparison. A raw hypothesis kept this
-  way is stamped `lo_retcode = :guard_kept_seed` on the result.
+  way records its refit's code with the rule `SeedKept` (`lo_retcode`, `lo_stop_rule`) on the result.
 
 # Returns
 A [`RansacEstimate`](@ref); `iterations(result)` is the number of trials
-(hypotheses drawn), whether the adaptive stop or `max_trials` ended the loop —
-both return `:converged`. Test it with VisualGeometryToolkitCore's `converged(result)`
-before reading the model: `retcode(result) === :no_model` (`converged` false)
-means NO hypothesis survived — there is no estimate: its `estimate` is `nothing`
-(with `quality = -Inf`, all-zero weights — an all-false `inlier_mask(result)` —,
-`rms` NaN and a `ScaleNone` scale).
+(hypotheses drawn). Why the loop ended is its termination record
+(`retcode(result)`, `stop_rule(result)`; the table on [`RansacMetadata`](@ref)):
+the adaptive count drawn (`ReturnCode.Success`, `AdaptiveCount`), every sample
+of an exhaustive sampler (`Success`, `TrialBudget`), or `max_trials` drawn
+without reaching the confidence (`ReturnCode.MaxIters`, `TrialBudget`: not
+`converged`, but a model was found; a confidence count equal to `max_trials` was
+reached at the cap: `AdaptiveCount`). Test VisualGeometryToolkitCore's `found_model(result)`
+before reading the model: `found_model(result) == false` (`retcode(result) ==
+ReturnCode.Failure`) means NO hypothesis survived — there is no estimate: its
+`estimate` is `nothing` (with `quality = -Inf`, all-zero weights — an all-false
+`inlier_mask(result)` —, `rms` NaN and a `ScaleNone` scale).
 
 # Examples
 ```julia
@@ -171,13 +176,15 @@ function _ransac_placed(
         ws, problem, scoring, nothing, config, on_improvement,
         false, rng, on_hypothesis, result
     )
-    converged(raw) || return raw
+    found_model(raw) || return raw
     # `has_best` still holds the raw incumbent: a seed the scorer cannot score
-    # finalizes as it, at its race score.
+    # finalizes as it, at its race score. The search's termination record is
+    # the result's, unless the terminal LO did not succeed (`_terminal_record`).
     q = raw.quality
     return _locally_optimize_seed!(
         ws, problem, scoring, local_optimization_strategy, estimate(raw);
-        trial = iterations(raw), sar = raw.sample_acceptance_rate, result, unscored = (q, q)
+        trial = iterations(raw), sar = raw.sample_acceptance_rate, result, unscored = (q, q),
+        search = (retcode(raw), stop_rule(raw))
     )
 end
 
@@ -195,7 +202,7 @@ function _entry_workspace(workspace, problem, scoring, lo)
     ws = workspace === nothing ? RansacWorkspace(problem, scoring, lo) : workspace
     set_n!(ws, data_size(problem))
     ws.has_best = false
-    ws.best_lo_retcode = :not_run
+    ws.best_lo_retcode, ws.best_lo_stop_rule = _LO_NOT_RUN
     check_workspace(scoring, ws.buf.scoring_ws)
     check_composition(scoring, lo)
     return ws
@@ -215,6 +222,9 @@ function _ransac_loop(
     # never re-armed, for the `ExhaustiveSampler`.
     s = sampler(problem)
     needed = trial_budget(s, config)
+    # Whether `needed` is the adaptive count of a reached confidence (it then
+    # ended the loop: `AdaptiveCount`) rather than the trial budget.
+    reached = false
     trial = 0
     effective = 0
 
@@ -237,7 +247,7 @@ function _ransac_loop(
         if best[2] > old_best[2] && ws.has_best
             # The adaptive count from the incumbent's consensus size k* (the
             # count of its mask, read without a bit count).
-            adapts(s) && (needed = _adaptive_trials(ws.best_k, length(ws.best_mask), K, config))
+            adapts(s) && ((needed, reached) = _adaptive_count(ws.best_k, length(ws.best_mask), K, config))
             # Anytime-trace hook: fires only on acceptance of a new tracked
             # best (rare); the `nothing` default is specialized away entirely.
             on_improvement === nothing || on_improvement(trial, best[2], ws)
@@ -245,8 +255,17 @@ function _ransac_loop(
     end
 
     sar = trial > 0 ? Float64(effective) / Float64(trial) : 1.0
-    return _finalize(scoring, ws, problem, best, sar, trial, result)
+    return _finalize(scoring, ws, problem, best, sar, trial, result, _search_record(s, reached))
 end
+
+# Why a search that found a model stopped (its termination record): an
+# exhaustive sampler drew every sample (`Success`, `TrialBudget`); the adaptive
+# count of a reached confidence ended it (`Success`, `AdaptiveCount`); or the
+# trial budget `max_trials` was drawn without reaching the confidence
+# (`MaxIters`, `TrialBudget`). A search with no model is `_no_model_result`'s.
+_search_record(s, reached::Bool) =
+    !adapts(s) ? (ReturnCode.Success, TrialBudget) :
+    reached ? (ReturnCode.Success, AdaptiveCount) : (ReturnCode.MaxIters, TrialBudget)
 
 # =============================================================================
 # _draw_trial! — ONE minimal-sample trial (shared by `ransac` and `draw_hypotheses`)
@@ -298,17 +317,18 @@ end
 # =============================================================================
 
 """
-    _track_best!(ws, scoring, model, lo_retcode)
+    _track_best!(ws, scoring, model, (lo_code, lo_rule) = (ReturnCode.Default, NoRule))
 
 Copy the scoring buffers (residuals, per-point scores, consensus mask and
 order, k*) into the incumbent's, so `_finalize` reads the incumbent's scale and
-soft weights with no re-score.
+soft weights with no re-score; the model's local-optimization record goes with
+it (SciMLBase's `Default`, not run, when none ran).
 """
-function _track_best!(ws::RansacWorkspace, scoring, model, lo_stop_reason::Symbol = :not_run)
+function _track_best!(ws::RansacWorkspace, scoring, model, lo::Tuple{ReturnCode.T, StopRule} = _LO_NOT_RUN)
     buf = ws.buf
     ws.best_model = model
     ws.has_best = true
-    ws.best_lo_retcode = lo_stop_reason
+    ws.best_lo_retcode, ws.best_lo_stop_rule = lo
     copyto!(ws.best_residuals, buf.residuals)
     copyto!(ws.best_scores, buf.scores)
     copyto!(ws.best_mask, buf.mask)
@@ -369,7 +389,7 @@ function _try_model!(
     if score_guard && score_l < score_g
         score_g <= best_l && return (best_g, best_l)
         score_model!(buf, scoring, problem, model_scored; sample = ws.sample_indices)
-        _track_best!(ws, scoring, model, :guard_kept_seed)
+        _track_best!(ws, scoring, model, (retcode(lo_est), SeedKept))
         return (score_g, score_g)
     end
 
@@ -381,7 +401,7 @@ function _try_model!(
     # `BoundedProblem` the extent geometry check).
     test_consensus(problem, lo_model, buf.mask) || return (best_g, best_l)
 
-    _track_best!(ws, scoring, lo_model, retcode(lo_est))
+    _track_best!(ws, scoring, lo_model, (retcode(lo_est), stop_rule(lo_est)))
     return (score_g, score_l)
 end
 
@@ -397,7 +417,7 @@ _holds_consensus(problem, k::Int) = _holds_minimal_sample(minimal_sample_size(pr
 # unrefined (`:thin_partition`). Every consensus set an optimizer receives is
 # stamped here from the score that just ran, so it is fresh by construction.
 function _lo_on_partition!(ws, problem, model, scoring, k::Int, lo, score::Real = NaN)
-    _holds_stable_partition(problem, k) || return lo_estimate(model, :thin_partition)
+    _holds_stable_partition(problem, k) || return lo_estimate(model, ReturnCode.InitialFailure, NoRule)
     buf = ws.buf
     cs = consensus_set(
         scoring, buf.scoring_ws, buf.residuals;
@@ -418,7 +438,7 @@ building block of a strategy that refits at a scoring of its own inside a loop
 """
 function locally_optimize_rescored!(L, lo, problem, θ, buf::ScoreBuffers, scoring)
     score, k = score_model!(buf, scoring, problem, θ)
-    _holds_stable_partition(problem, k) || return lo_estimate(θ, :thin_partition)
+    _holds_stable_partition(problem, k) || return lo_estimate(θ, ReturnCode.InitialFailure, NoRule)
     cs = consensus_set(
         scoring, buf.scoring_ws, buf.residuals;
         model_dof = minimal_sample_size(problem) + 1, d_g = codimension(problem), epoch = buf.epoch, score
@@ -563,8 +583,11 @@ Entry for solvers that return several candidate models (e.g. the two planar-pose
 ambiguity solutions). Each candidate is scored against the consensus set; the
 single highest-scoring one that succeeds at `test_consensus` is kept, and **only that
 one** is locally optimized. The candidates are never all optimized — selection
-is by consensus score, optimization is on the winner alone. Returns a `:no_model`
-result (`converged` false, no estimate) if no candidate clears consensus. `scoring` is
+is by consensus score, optimization is on the winner alone. Returns a result
+with no model (`found_model` false, `ReturnCode.Failure`) if no candidate clears
+consensus. The winner's termination record is the selection's (`Success`,
+`ClosedForm`), or — when its refined model is kept — its local optimization's
+(as in the single-seed method). `scoring` is
 required, as in the single-seed method.
 """
 function locally_optimize(
@@ -606,29 +629,38 @@ function _select_then_optimize!(
     end
     # Nothing cleared consensus → no_model (ws.has_best is still false).
     best_θ === nothing &&
-        return _finalize(scoring, ws, problem, (best_score, best_score), 1.0, 1, _result_buffers(ws, problem))
+        return _finalize(scoring, ws, problem, (best_score, best_score), 1.0, 1, _result_buffers(ws, problem), _CLOSED_FORM)
     # Locally optimize the chosen winner only (it re-scores the seed internally).
     return _locally_optimize_seed!(ws, problem, scoring, lo, best_θ)
 end
 
-# `trial`, `sar`, `result` and `unscored` are a terminal placement's
+# `trial`, `sar`, `result`, `unscored` and `search` are a terminal placement's
 # (`_ransac_placed`): the raw race's trial count and acceptance rate, its result
-# buffers, and the score its incumbent finalizes at when the seed cannot be
-# scored (its `has_best` is then still the race's). A seeded refine's own are
-# one trial, every sample accepted, fresh buffers and no incumbent.
+# buffers, the score its incumbent finalizes at when the seed cannot be
+# scored (its `has_best` is then still the race's), and its termination record.
+# A seeded refine's own are one trial, every sample accepted, fresh buffers, no
+# incumbent and no search (`nothing`).
+#
+# The termination record of a seeded refine: the kept refined model's local
+# optimization's record (the LO result's core: an iterative optimizer's verdict,
+# `(Success, ClosedForm)` for no LO); a refit that did not run (`InitialFailure`:
+# a consensus too thin to refine) handed the seed back, and the seed kept is
+# `(Success, ClosedForm)`. A terminal
+# placement keeps its search's record unless that record is not successful
+# (`_terminal_record`).
 function _locally_optimize_seed!(
         ws::RansacWorkspace{K, M, T}, problem,
         scoring::AbstractScoring, lo::Union{Nothing, AbstractOptimizationStrategy}, seed::Union{M, Uncertain{M}};
         score_guard::Bool = false, trial::Int = 1, sar::Float64 = 1.0,
         result::RansacResultBuffers = _result_buffers(ws, problem),
-        unscored::Tuple = (T(-Inf), T(-Inf))
+        unscored::Tuple = (T(-Inf), T(-Inf)), search = nothing
     ) where {K, M, T}
     _prepare!(problem)
     θ₀ = geom(seed)
     scored = _seed_scored!(ws, problem, scoring, seed)
     # No covariance on the seed's consensus: not scored (`has_best` is false, or
     # a terminal placement's raw incumbent).
-    scored === nothing && return _finalize(scoring, ws, problem, unscored, sar, trial, result)
+    scored === nothing && return _finalize(scoring, ws, problem, unscored, sar, trial, result, _terminal_record(search, _CLOSED_FORM))
     score_g, k_star = score_model!(ws.buf, scoring, problem, scored)
     if _holds_consensus(problem, k_star) && test_consensus(problem, θ₀, ws.buf.mask)
         # Phases 2–3 exactly as a RANSAC candidate runs them; only the
@@ -640,15 +672,28 @@ function _locally_optimize_seed!(
             # score_guard: keep the refined model only if it does not score
             # below the seed under the same scorer.
             if test_consensus(problem, lo_model, ws.buf.mask) && (!score_guard || score_l >= score_g)
-                _track_best!(ws, scoring, lo_model, retcode(lo_est))
-                return _finalize(scoring, ws, problem, (score_g, score_l), sar, trial, result)
+                _track_best!(ws, scoring, lo_model, (retcode(lo_est), stop_rule(lo_est)))
+                record = _terminal_record(search, _refit_record(lo_est))
+                return _finalize(scoring, ws, problem, (score_g, score_l), sar, trial, result, record)
             end
         end
         score_model!(ws.buf, scoring, problem, scored)
     end
     _track_best!(ws, scoring, θ₀)
-    return _finalize(scoring, ws, problem, (score_g, score_g), sar, trial, result)
+    return _finalize(scoring, ws, problem, (score_g, score_g), sar, trial, result, _terminal_record(search, _CLOSED_FORM))
 end
+
+const _CLOSED_FORM = (ReturnCode.Success, ClosedForm)
+
+# The record a kept refit gives its result: its own, or — a refit that did not run
+# (`InitialFailure`, the seed handed back) — the seed's.
+_refit_record(lo_est) = retcode(lo_est) == ReturnCode.InitialFailure ? _CLOSED_FORM : (retcode(lo_est), stop_rule(lo_est))
+
+# A seeded refine's record is its own (`search === nothing`); a terminal
+# placement keeps its search's, unless its LO did not succeed (the more severe).
+_terminal_record(::Nothing, record::Tuple{ReturnCode.T, StopRule}) = record
+_terminal_record(search::Tuple{ReturnCode.T, StopRule}, record::Tuple{ReturnCode.T, StopRule}) =
+    VgtkCore.successful_retcode(record[1]) ? search : worst_retcode(search, record)
 
 # =============================================================================
 # _finalize — the result from the incumbent's buffers
@@ -656,16 +701,20 @@ end
 
 # The result of a search with no model — every sample failed, or (with
 # `trials = 0`, `sar = NaN`) too few data for one sample: no estimate, zero
-# residuals and weights (an all-false inlier mask), no scale.
+# residuals and weights (an all-false inlier mask), no scale; its record
+# `(Failure, TrialBudget)` (the legacy `:no_model`).
 function _no_model_result(::Type{M}, scoring::S, result::RansacResultBuffers{T}, trials::Int, sar::Float64) where {M, S, T}
     fill!(result.residuals, zero(T)); fill!(result.weights, zero(T))
     return RansacEstimate{M, T, S}(
-        nothing, :no_model, trials, NaN, 0,
-        RansacMetadata{T, S}(result.residuals, result.weights, -Inf, NaN, ScaleNone, 0, sar, :not_run)
+        nothing, ReturnCode.Failure, TrialBudget, trials, NaN, 0,
+        RansacMetadata{T, S}(result.residuals, result.weights, -Inf, NaN, ScaleNone, 0, sar, _LO_NOT_RUN...)
     )
 end
 
-function _finalize(scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, sar, trial, result::RansacResultBuffers) where {S}
+function _finalize(
+        scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, sar, trial, result::RansacResultBuffers,
+        (code, rule)::Tuple{ReturnCode.T, StopRule}
+    ) where {S}
     M = model_type(problem)
     T = eltype(ws.best_residuals)   # attributes come back in the workspace's storage precision
     p = minimal_sample_size(problem)
@@ -693,10 +742,10 @@ function _finalize(scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, 
     # The explicit alias: the outer constructor would infer `P` from the model
     # and lose the union a failed search needs.
     return RansacEstimate{M, T, S}(
-        model, :converged, trial, rms, n,
+        model, code, rule, trial, rms, n,
         RansacMetadata{T, S}(
             result.residuals, result.weights,
-            best_score, scale, source, nu, sar, ws.best_lo_retcode, nonfinite_scale
+            best_score, scale, source, nu, sar, ws.best_lo_retcode, ws.best_lo_stop_rule, nonfinite_scale
         )
     )
 end
@@ -775,16 +824,23 @@ function _p_all_inliers(n_inliers::Int, n_total::Int, k::Int)
     return p
 end
 
-function _adaptive_trials(n_inliers::Int, n_total::Int, k::Int, config::RansacConfig)
+# The adaptive trial count and whether the confidence `success_prob` is reached
+# within the budget: `(count, reached)`. `reached` is whether the confidence count
+# — the trials the confidence needs, before `min_trials` raises it — is at most
+# `max_trials` (a count equal to the budget reached it AT the cap); it is false when
+# the count is beyond the budget or undefined, the budget then drawn without it.
+function _adaptive_count(n_inliers::Int, n_total::Int, k::Int, config::RansacConfig)
     p_success = _p_all_inliers(n_inliers, n_total, k)
-    p_success ≈ 0 && return config.max_trials
+    p_success ≈ 0 && return (config.max_trials, false)
     p_failure = 1 - p_success
-    p_failure ≈ 0 && return config.min_trials
+    p_failure ≈ 0 && return (config.min_trials, true)
     # log(1 − η)/log(p_failure) in Float64 BEFORE any Int conversion: it is +Inf
     # for η = 1 (certainty needs every trial) and ±Inf/NaN when p_failure rounds
-    # to 1. `ceil(Int, ±Inf)` would throw an InexactError; any count at or
-    # beyond the budget, or undefined, is the budget.
+    # to 1. `ceil(Int, ±Inf)` would throw an InexactError; any count beyond the
+    # budget, or undefined, is the budget.
     trials = log1p(-config.success_prob) / log(p_failure)
-    0 <= trials < config.max_trials || return config.max_trials
-    return clamp(ceil(Int, trials), config.min_trials, config.max_trials)
+    0 <= trials <= config.max_trials || return (config.max_trials, false)
+    return (clamp(ceil(Int, trials), config.min_trials, config.max_trials), true)
 end
+_adaptive_trials(n_inliers::Int, n_total::Int, k::Int, config::RansacConfig) =
+    first(_adaptive_count(n_inliers, n_total, k, config))

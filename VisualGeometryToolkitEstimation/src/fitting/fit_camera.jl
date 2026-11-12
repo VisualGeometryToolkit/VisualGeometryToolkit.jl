@@ -201,7 +201,7 @@ over the region. The target type selects the family and the solve:
     `approximate_camera(KannalaBrandt{4}, camera, region)`.
   - The result reports the linear fit's residual: the round trip's error of the returned
     camera at each sample, in pixels (`metadata.residuals`, `max_px`, `max_px_edge`; the
-    result's `rms` their weighted root mean square). The `retcode` is `:solved`, `iterations`
+    result's `rms` their weighted root mean square). The `retcode_symbol(result)` is `:solved`, `iterations`
     0; a degenerate solve (a non-positive or non-finite rescale) is `:solve_failed` (its
     camera's focals non-finite), never a throw.
   - **`fixed`** (`fixed = ()`: every coefficient and the focal solved) holds parameters by name or group, resolved by
@@ -226,9 +226,9 @@ over the region. The target type selects the family and the solve:
   as Core's `grid_size(camera)`) when given, else at the lattice THE SPACING
   SEARCH chooses: the spacing is doubled down from 4 cells along the longer
   side and then bisected to the LARGEST spacing whose held-out maximum error is
-  at most `tolerance` (px), `retcode :converged`; a fit that cannot reach it at
+  at most `tolerance` (px), `retcode_symbol` `:converged`; a fit that cannot reach it at
   the finest spacing of the bracket (a cell of three quadrature strides)
-  returns `retcode :max_iterations` with what it reached. The region restricts
+  returns `retcode_symbol` `:max_iterations` with what it reached. The region restricts
   the quadrature only, never the lattice: a node whose support misses it is
   held by the penalty. The tolerance bounds the held-out DIRECTION error in
   pixels, the non-central target's metric (below). A SplineLens source's
@@ -352,18 +352,18 @@ function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, 
     moving = VgtkCore.free_parameter_names(_anchor_camera(target, source), fixed)
     pr = _profile_samples(role, L, source, region, K0, weight)
     s, fitted = _linear_lens(form, target, pr.rA, pr.angles, pr.w, moving)
-    code = :solved
+    record = (ReturnCode.Success, ClosedForm)
     if !(isfinite(s) && s > 0)                       # a degenerate solve: reported, never a throw
-        s, fitted, code = NaN, target, :solve_failed
+        s, fitted, record = NaN, target, (ReturnCode.Failure, NonFinite)
     end
     fit = (; s, a = 1.0, δ = zero(SVector{2, Float64}), R = nothing, lens = fitted)
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the fitted lens's domain
     # (a lift's, and a forward lens's whose linear fit folds before the source's domain ends), on the host
-    θend = code === :solved ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
+    θend = VgtkCore.successful_retcode(record[1]) ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
     θcap = L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf     # (a lens at the source's own fold, to its rounding: not capped)
     e = map((d, θ, y) -> K0[1, 1] * _pixel_offset(fit, M, d, θ, y, θcap), pr.rays, pr.angles, pr.points)
-    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, 0)
+    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, 0)
 end
 # A bounded camera's model is the source (its image does not enter: the region bounds the fit).
 fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = fit_camera(L, model(source), region; kwargs...)
@@ -376,7 +376,7 @@ fit_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L
 # written exactly: K₀ · diag(s, s, 1) made 0·Inf = NaN in row 3 for a non-finite s, which the structure check refuses)
 # — and its metadata from the round trip's errors `e` per sample (px): their weighted rms, maximum and edge-band
 # maximum, their norms per sample.
-function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, iters)
+function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, (code, rule)::Tuple{ReturnCode.T, StopRule}, iters)
     s, a, δ = fit.s, fit.a, fit.δ
     m = K0[1, 1] * (M * δ)
     Kb = CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1] * s, 0, 0, K0[1, 2] * s, K0[2, 2] * s * a, 0, K0[1, 3] + m[1], K0[2, 3] + m[2], 1); check = false)
@@ -386,7 +386,7 @@ function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, code, iters)
     residuals = map(norm, e)
     edge = pr.rA .>= pr.r_edge - _EDGE_BAND_PX / K0[1, 1]
     return FitResult(
-        out, code, iters, rms_px, length(pr.rays),
+        out, code, rule, iters, rms_px, length(pr.rays),
         CameraFitMetadata(
             region, weight, maximum(residuals), maximum(residuals[edge]),
             (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source, pr.clipped),
@@ -947,8 +947,8 @@ _max_cells(extent::Real, stride::Integer) = max(1, floor(Int, extent / (3 * stri
 # spline): `fit(cells)` the fit with `cells` knot cells along the longer side,
 # its held-out maximum `errors.max`. Doubling from 4 cells to the first count that
 # meets `tolerance`, then bisection between it and the last that did not: the
-# LARGEST spacing that meets it, `:converged`; `:max_iterations` with what the
-# finest spacing reached when `cells_max` does not meet it. Each fit is an outer
+# LARGEST spacing that meets it, `(Success, ToleranceMet)`; `(MaxIters, IterationCap)` with what the
+# finest spacing reached when `cells_max` does not meet it (the termination record). Each fit is an outer
 # iteration (the fit's inputs change, the estimator repeats); their count is the
 # third value.
 function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
@@ -959,7 +959,7 @@ function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
     best = fit(cells)
     while !meets(best)
         lower = cells
-        cells == cells_max && return best, :max_iterations, outer_iterations
+        cells == cells_max && return best, (ReturnCode.MaxIters, IterationCap), outer_iterations
         cells = min(2cells, cells_max)
         best = fit(cells)
         outer_iterations += 1
@@ -975,7 +975,7 @@ function _spacing_search(fit::F, tolerance::Real, cells_max::Int) where {F}
             lower = mid
         end
     end
-    return best, :converged, outer_iterations
+    return best, (ReturnCode.Success, ToleranceMet), outer_iterations
 end
 
 # ------------------------------------------------------------------------------
@@ -1025,11 +1025,11 @@ function _pspline_grid(::Type{G}, g, grid_size) where {G}
     return (; fitted, errors, family = (; family..., n_held_out_dropped = g.held.n_dropped), λ, grid_size = (gw, gh))
 end
 # The lattice the spacing search chose (or `grid_size`, when given: no search,
-# the tolerance read off it): the solve, its retcode and its outer iterations.
+# the tolerance read off it): the solve, its termination record and its outer iterations.
 function _backward_search(::Type{G}, g, grid_size, tolerance::Real) where {G}
     if grid_size !== nothing
         r = _pspline_grid(G, g, grid_size)
-        return r, (r.errors.max <= tolerance ? :converged : :max_iterations), 0
+        return r, (r.errors.max <= tolerance ? (ReturnCode.Success, ToleranceMet) : (ReturnCode.MaxIters, IterationCap)), 0
     end
     W, H = Int(g.size.width), Int(g.size.height)
     return _spacing_search(cells -> _pspline_grid(G, g, _lattice_grid_size(W, H, cells)), tolerance, _max_cells(max(W, H), g.q.stride))
@@ -1062,7 +1062,7 @@ the lattice `fit_camera` chose is its backward.
 `source` is a [`BoundedCamera`](@extref
 VisualGeometryToolkitCore.Cameras.BoundedCamera) (the lattice needs the image:
 a bare model is an `ArgumentError`) of a `CameraModel` or, for the non-central
-target, also of a `NoncentralSplineModel`. The result's `retcode` is `:solved`,
+target, also of a `NoncentralSplineModel`. The result's `retcode_symbol` is `:solved`,
 `iterations` 0; its metadata is `fit_camera`'s, the held-out errors (the
 direction error in pixels; for the non-central model also the line offsets in
 metres, and `center`) and `family = (; λ, grid_size, stride,
@@ -1074,7 +1074,7 @@ function pspline_grid(
     ) where {G <: Union{SplineLens, NoncentralSplineModel}}
     g = _grid_data(G, source, region, device)
     r = _pspline_grid(G, g, grid_size)
-    return FitResult(r.fitted, :solved, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
+    return FitResult(r.fitted, ReturnCode.Success, ClosedForm, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
 end
 
 # The mean positive eigenvalue of a full `ny × nx` lattice's Δ³ operator `D` (its DᵀD), once per
@@ -1152,7 +1152,7 @@ function fit_camera(
     g = _grid_data(NoncentralSplineModel, source, region, device)
     r, code, n = _backward_search(NoncentralSplineModel, g, grid_size, tolerance)
     return FitResult(
-        r.fitted, code, 0, r.errors.rms, length(g.q.fit_px),
+        r.fitted, code..., 0, r.errors.rms, length(g.q.fit_px),
         _grid_metadata(r, g, (; tolerance = Float64(tolerance), outer_iterations = n))
     )
 end
@@ -1257,16 +1257,16 @@ function fit_camera(
     _check_tolerance(tolerance)
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
     gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source)
-    gauge.code === :converged || (code = gauge.code)
+    code = _spline_record(code, gauge.code, nothing)
     cam = gauge.camera
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
-    fwd === nothing || fwd.code === :converged || (code = fwd.code)
+    fwd === nothing || (code = _spline_record(code, fwd.code, nothing))
     out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
     ff = fwd === nothing ? nothing :
         (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
             max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
     return FitResult(
-        out, code, 0, back.errors.rms, back.n,
+        out, code..., 0, back.errors.rms, back.n,
         CameraFitMetadata(
             region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), forward = ff),
             gauge.rotation, gauge.symmetry_residual, back.errors.values,
@@ -1281,13 +1281,13 @@ end
 # `imaged_region`), not the fit's region. The camera, the rotation, the symmetry residual and the optical axis fit's
 # retcode.
 _axis_gauge(::VgtkCore.Cameras.FreeIntrinsics, cam, source::BoundedCamera) =
-    (; camera = cam, rotation = _source_to_fitted(nothing), symmetry_residual = NaN, code = :converged)
+    (; camera = cam, rotation = _source_to_fitted(nothing), symmetry_residual = NaN, code = (ReturnCode.Success, NoRule))
 function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, source::BoundedCamera)
     r = optical_axis(VgtkCore.with_model(source, cam))
     K = calibration_matrix(estimate(r))
     R = metadata(r).rotation
     camera = VgtkCore.axis_gauged(cam, rotation(R), K)
-    return (; camera, rotation = R, metadata(r).symmetry_residual, code = retcode(r))
+    return (; camera, rotation = R, metadata(r).symmetry_residual, code = (retcode(r), stop_rule(r)))
 end
 
 # Any other source has no image for the lattice — a bare camera model as well (it
@@ -1296,10 +1296,16 @@ fit_camera(::Type{SplineLens}, source, region; kwargs...) = _no_image(source)
 fit_camera(::Type{SplineLens}, source::CameraModel, region; kwargs...) = _no_image(source)
 fit_camera(::Type{SplineLens}, source::NoncentralSplineModel, region; kwargs...) = _no_image(source)
 
+# The record of a SplineLens fit from its stages' records (the backward search, the optical-axis gauge, the forward
+# search), carried through as records: a later stage that did not succeed replaces the earlier (a Stalled gauge stays
+# Stalled, with its rule).
+_spline_record(rec::Tuple{ReturnCode.T, StopRule}, later::Tuple{ReturnCode.T, StopRule}, ::Nothing) =
+    VgtkCore.successful_retcode(later[1]) ? rec : later
+
 # The backward of the SplineLens target: a SplineLens source's own, kept exactly
 # (its forward dropped; the held-out direction errors against it, its own), or
 # the P-spline lattice of any other camera source (`grid_size`, or the spacing
-# search to `tolerance`). Its camera, its errors and point count, the retcode and
+# search to `tolerance`). Its camera, its errors and point count, the termination record and
 # the central fields of the family.
 function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics, <:SplineLens}, source, region, grid_size, tolerance, device)
     grid_size === nothing || throw(
@@ -1310,7 +1316,7 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     held = _held_out(SplineLens, cam, q, cam.intrinsics, device)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)
     family = (; λ = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped)
-    return (; camera = cam, errors, n = length(q.fit_px)), :converged, family
+    return (; camera = cam, errors, n = length(q.fit_px)), (ReturnCode.Success, NoRule), family   # kept: nothing searched
 end
 function _spline_backward(::CameraModel, source, region, grid_size, tolerance, device)
     g = _grid_data(SplineLens, source, region, device)

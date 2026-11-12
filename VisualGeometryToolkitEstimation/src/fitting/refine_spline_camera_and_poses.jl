@@ -698,14 +698,14 @@ function _refine_spline_camera_and_poses(camera::_RefinedCamera, poses::Abstract
     turned = [VgtkCore.axis_gauged(pose, rotation(R)) for pose in poses]
     out = _refine_spline_axis_gauged(gauged, turned, views, _camera_model(camera).lens.forward !== nothing; kwargs...)
     out isa _NotProjected && return out
-    est, code, iterations, rms_px, n, md = out
+    est, code, rule, iterations, rms_px, n, md = out
     refined = optical_axis(est.camera)
     Kr = calibration_matrix(estimate(refined))
     spline = (;
         md.spline..., axis_rotation = R, symmetry_residual = metadata(entry).symmetry_residual,
         refined_axis_offset = hypot(Kr[1, 3] - K[1, 3], Kr[2, 3] - K[2, 3]), refined_symmetry_residual = metadata(refined).symmetry_residual,
     )
-    return est, code, iterations, rms_px, n, CameraPosesRefineMetadata(md.residuals, md.s², md.ν, md.free, spline)
+    return est, code, rule, iterations, rms_px, n, CameraPosesRefineMetadata(md.residuals, md.s², md.ν, md.free, spline)
 end
 
 function _refine_spline_axis_gauged(
@@ -761,8 +761,8 @@ function _refine_spline_axis_gauged(
     if isfree
         pre = _refine_spline_axis_gauged(back, poses, views, false; fixed = (:controls,), penalty = w, max_iter, ftol, xtol, max_time = _remaining(deadline))
         pre isa _NotProjected && return pre
-        iterations += pre[3]
-        timed_out |= pre[2] === :max_time
+        iterations += pre[4]
+        timed_out |= pre[2] == ReturnCode.MaxTime
         # a stage cut short by `max_time` is not built on: the joint solve starts where it did
         if timed_out
             p = _spline_problem(back, pre[1].poses, views, true, w)
@@ -808,8 +808,9 @@ function _refine_spline_axis_gauged(
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = nlls_rows_and_jacobian(_spline_blocks(p), vars)
-    code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
-    timed_out && (code = :max_time)                          # a stage or round cut short by the refine's `max_time`
+    # the termination record: the last solve's (NLLSsolver's bits under the stall postcondition at the returned point)
+    record = nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
+    timed_out && (record = (ReturnCode.MaxTime, TimeCap))   # a stage or round cut short by the refine's `max_time`
     rd = r[1:2n]
     ν = nobs - np
     refined = isfree ? CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, controls); present = l.present)) : cam
@@ -817,14 +818,15 @@ function _refine_spline_axis_gauged(
     forward_max_px = nothing
     if forward === :refitted && out_camera isa BoundedCamera
         out_camera, fcode, forward_max_px = _refit_forward(out_camera, forward_tolerance)
-        fcode === :converged || code !== :converged || (code = fcode)
+        # a converged refine whose forward refit missed its tolerance reports the forward's
+        VgtkCore.successful_retcode(record[1]) && (record = _spline_record(record, fcode, nothing))
     end
     out = [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(poses, poses_out)]
     n_nodes_unrefined = isfree ? count(p.present .& .!p.live) : count(p.present)
     spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
         forward, forward_max_px, cost_start)
-    return (; camera = out_camera, poses = out), code, iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
+    return (; camera = out_camera, poses = out), record..., iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end
 
 # =============================================================================

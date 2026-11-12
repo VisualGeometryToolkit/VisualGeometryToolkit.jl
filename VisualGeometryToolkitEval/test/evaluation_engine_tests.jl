@@ -566,7 +566,7 @@
         @test !isempty(warm[1]) && isempty(events[1])      # j = 0 saw the warm-up only
         @test warm[2:end] == events[2:end]                 # the pairs' records are the warm-up-free ones
         # finalize: extras only when asked, one per pair, in the pair's slot
-        fin = run(; finalize = (j, r) -> (j, VgtkCore.converged(r)))
+        fin = run(; finalize = (j, r) -> (j, VgtkCore.found_model(r)))
         @test fin.err == base.err && fin.extras == [(j, true) for j in 1:8]
         # the guard is forwarded to ransac and still yields a model per pair
         guarded = run(; score_guard = true)

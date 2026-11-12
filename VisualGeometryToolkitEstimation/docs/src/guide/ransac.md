@@ -211,8 +211,10 @@ lo = optimization_strategy_from_toml(Dict("type" => "hq", "loss" => "welsch", "e
 ```julia
 using VisualGeometryToolkitCore: inlier_mask, weight_kind, noise_scale, scale_source
 
-converged(result)      # false ⇔ retcode(result) === :no_model: NO estimate
-estimate(result)       # estimated model (e.g., 3×3 matrix); `nothing` when !converged
+found_model(result)    # false ⇔ NO estimate (retcode(result) == ReturnCode.Failure)
+converged(result)      # strict: the confidence reached (or every sample drawn); false at the max_trials cap
+retcode(result), stop_rule(result)   # the termination record: a ReturnCode and a StopRule
+estimate(result)       # estimated model (e.g., 3×3 matrix); `nothing` when !found_model
 weights(result)        # per-point weights in [0, 1]: 1/0 membership (MSAC/RANSAC), the posterior (Student-t)
 weight_kind(result)    # BinaryWeights() or PosteriorWeights(): the scorer's, from the result's type
 inlier_mask(result)    # BitVector of inliers, cut by the kind: w > 0, or the MAP rule w > ½

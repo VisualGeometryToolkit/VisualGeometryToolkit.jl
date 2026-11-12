@@ -133,7 +133,7 @@ function refine_camera_and_poses(
                                              for (v, k) in enumerate(ids))
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
-    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.iterations, sol.rms, n,
+    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, sol.iterations, sol.rms, n,
                      _bundle_metadata(sol, free, kw; spline))
 end
 
@@ -158,7 +158,7 @@ function _rotation_center_solve(_role, cm, poses, ids, csponds, vars0, p, kw)
     rebuild(q, solved, round) = (_check_determined(length(q.blocks), p);
         _spline_center_problem(cm, [_rotation_center_pose(solved[2 + v]::_ViewRotationChart, solved[1], solved[2]) for v in eachindex(ids)], views,
                                solved; stage = :round, round, seeds = q.xs))
-    solve(q) = (sol = _solve_bundle(q.blocks, q.variables, p, kw); (sol, sol.variables, sol.iterations, sol.code === :max_time, NaN))
+    solve(q) = (sol = _solve_bundle(q.blocks, q.variables, p, kw); (sol, sol.variables, sol.iterations, sol.code == ReturnCode.MaxTime, NaN))
     st = _window_rounds(q0, solve, rebuild)
     st isa _NotProjected && throw(ArgumentError(_not_projected_message(st)))
     sol = merge(st.out, (; iterations = st.iterations))

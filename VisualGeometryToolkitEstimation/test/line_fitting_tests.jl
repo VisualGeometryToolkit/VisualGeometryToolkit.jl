@@ -1,4 +1,5 @@
 @testitem "line_fitting" setup = [Contamination] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -116,7 +117,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         _, k = VgtkCore.score_model!(ws.buf, sc, prob, θ₀)
         est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
         @test iterations(est) > 2
-        @test retcode(est) in (:converged, :max_iterations)
+        @test retcode_symbol(est) in (:converged, :max_iterations)
         @test abs(signed_distance(estimate(est), Point2(28.0, 0.0))) < abs(signed_distance(θ₀, Point2(28.0, 0.0)))
     end
 
@@ -129,7 +130,7 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         prob = InhomLineFittingProblem(pts)
         r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), rng = StableRNG(60))
         @test converged(r)
-        @test r.lo_retcode === :solve_failed
+        @test VgtkCore.retcode_symbol(r.lo_retcode, r.lo_stop_rule) === :solve_failed
     end
 
 end

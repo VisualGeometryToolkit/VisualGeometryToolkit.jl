@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The live and refit runs read a model when the search found one (`found_model`)**, not when it `converged`:
+  VisualGeometryToolkitCore's `converged` is strict (a run that drew its trial budget without reaching the confidence
+  did not converge but found a model), so every error and refit is computed as before.
+
 - **Breaking: the LO budget's table is `[local_optimization_strategy]`** (`iteration_budget`; was `[local_optimization]`,
   the retired keyword spelling). `lo_iteration_budget()` reads it; the value is unchanged.
 - **Breaking: the strategy names follow VisualGeometryToolkitCore/Estimation**: arms, specs and runners take

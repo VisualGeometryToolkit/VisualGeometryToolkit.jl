@@ -557,7 +557,7 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
 # names and success rule, matched without the dependency), and the rule that fired, a `StopRule`.
 public ReturnCode, successful_retcode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
     ParameterChange, NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap,
-    NonFinite, Callback, TrialBudget, AdaptiveCount, return_code, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
+    NonFinite, Callback, TrialBudget, AdaptiveCount, SeedKept, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
 # The core optimization strategies and the registry machinery every package registers its strategies with
@@ -647,7 +647,7 @@ public keep_best
 # `lmsolve_chart!` stays internal (import-by-name), the workspace type is public.
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
-public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, lm_retcode, is_stationary, nlls_retcode, loss_robustifier
+public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, lm_retcode, is_stationary, loss_robustifier
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
@@ -867,9 +867,11 @@ include("base/image_frames.jl")   # 2-D image frames (retinal/pixel/target-plane
 include("base/types.jl")    # Loads interface.jl, defines AbstractDetection, conic matrices
 include("base/cspond_set.jl") # Csponds columnar container + sources/targets protocol + lift
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
+include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode_symbol/retcode_from_symbol/worst_retcode — the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
+include("base/termination_accessors.jl")  # retcode/stop_rule/converged/found_model/retcode_symbol on a FitResult (uses FitResult)
 include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
-include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode/stop_rule/converged/found_model — the termination record (uses FitResult)
+include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)

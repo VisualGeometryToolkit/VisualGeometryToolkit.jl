@@ -4,6 +4,7 @@
 # robust strategy (neither for least squares), records the scale it ran with,
 # and returns `FitResult{M, RefineMetadata}` with per-datum loss weights.
 @testitem "refine_contract" setup = [HomographyScenes, Contamination, ConicScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test, Random, LinearAlgebra, StaticArrays, StructArrays
@@ -133,7 +134,7 @@
         @test isconcretetype(typeof(VgtkCore.metadata(r)))
         # too few data: the guess, unrefined, of the same type
         rf = refine_homography(H0, cs[1:3]; scale = σ)
-        @test typeof(rf) === typeof(r) && retcode(rf) === :degenerate && rf.n == 0 && iterations(rf) == 0
+        @test typeof(rf) === typeof(r) && retcode_symbol(rf) === :degenerate && rf.n == 0 && iterations(rf) == 0
         @test estimate(rf) == H0
     end
 
@@ -163,6 +164,7 @@ end
 # `@inferred`) with its accessors inferred — on too few data for a minimal sample (the refine parses every keyword first, so the too-few path is
 # the contract's, cheaply), and hand-eye (whose problem needs 3 poses to exist) on 3.
 @testitem "refine_contract: every refine_* class" setup = [TooFewData] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -232,7 +234,7 @@ end
         @test isconcretetype(typeof(l2)) && (@inferred scale_source(l2)) === ScaleNone
         @test l2 isa VgtkCore.FitResult{<:Any, <:RefineMetadata{Nothing}} && scale_source(l2) === ScaleNone &&
             weight_kind(l2) === BinaryWeights()
-        class === :hand_eye || @test retcode(r) === :degenerate && retcode(l2) === :degenerate
+        class === :hand_eye || @test retcode_symbol(r) === :degenerate && retcode_symbol(l2) === :degenerate
     end
     # the retired width multiple names its successor
     @test occursin("give `efficiency_constant`", msg(Symbol("scale" * "_multiple"), 2.5))

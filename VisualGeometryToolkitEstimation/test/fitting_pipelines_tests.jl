@@ -1,4 +1,5 @@
 @testitem "fitting_pipelines" setup = [EpipolarScenes, HomographyScenes, PoseScenes, Contamination] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -62,7 +63,7 @@ using VisualGeometryToolkitEstimation
 
         # Below the minimal sample the wrapper returns the :no_model result (no trial), it does not throw.
         @test let r = find_homography(StructArray(src[1:3] .=> dst[1:3]); rng = StableRNG(136))
-            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+            retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
         end
     end
 
@@ -119,7 +120,7 @@ using VisualGeometryToolkitEstimation
         @test s[3] / s[1] < 1.0e-6
 
         @test let r = find_essential(ECAM, ECAM, csponds(topx.(u₁[1:4]), topx.(u₂[1:4])); rng = StableRNG(140))
-            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+            retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
         end
         # The floor refusal: a threshold carried over in the OLD calibrated
         # units is rejected, not silently honoured 800x too tight.
@@ -148,7 +149,7 @@ using VisualGeometryToolkitEstimation
         # fewer than the P3P minimal sample: no hypothesis; a minimal sample is
         # searched, and holds no consensus beyond itself
         @test let r = find_absolute_pose(cam, StructArray(src[1:2] .=> dst[1:2]); rng = StableRNG(143))
-            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+            retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
         end
         @test !converged(find_absolute_pose(cam, StructArray(src[1:3] .=> dst[1:3]); rng = StableRNG(143)))
 

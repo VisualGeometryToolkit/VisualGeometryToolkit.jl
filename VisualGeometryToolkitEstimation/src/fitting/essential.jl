@@ -40,7 +40,7 @@ cam, cs)`, which costs three characters and keeps the asymmetry available.
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 5 correspondences.
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Arguments
 - `camera1`, `camera2`: the cameras of the source and target views (any
@@ -92,7 +92,7 @@ bearing problem (each view back-projected with its own camera; the residual
 whitened into pixels, codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.essential] optimization_strategy`). Fewer than 5 correspondences: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 """
 function refine_essential(E, camera1, camera2, pixel_cs; kwargs...)
     return _guarded_refine(() -> EssentialProblem(camera1, camera2, pixel_cs), EssentialProblem{Float64}, length(pixel_cs), Val(:essential), E; kwargs...)

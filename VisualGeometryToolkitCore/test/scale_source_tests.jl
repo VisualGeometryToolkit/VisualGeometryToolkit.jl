@@ -14,7 +14,7 @@
         scale_source::ScaleSource
         weights::Vector{T}
     end
-    result(s, src; T = Float64) = FitResult(1.0, :converged, 3, 0.1, 10, _RobustMeta{T}(T(s), src, T[1, 1]))
+    result(s, src; T = Float64) = FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 3, 0.1, 10, _RobustMeta{T}(T(s), src, T[1, 1]))
 
     @testset "the enum: isbits, four values, prefixed" begin
         @test isbitstype(ScaleSource)
@@ -39,7 +39,7 @@
         @test_throws ArgumentError noise_scale(none)
         @test_throws ArgumentError scale_input(none, nothing)
         # a lean result (no metadata) records no scale either
-        lean = FitResult(1.0, :converged, 1, 0.0, 3, nothing)
+        lean = FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 3, nothing)
         @test scale_source(lean) === ScaleNone
         @test_throws ArgumentError noise_scale(lean)
     end

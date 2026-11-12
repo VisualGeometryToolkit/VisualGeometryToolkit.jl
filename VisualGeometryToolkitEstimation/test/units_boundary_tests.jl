@@ -1,4 +1,5 @@
 @testitem "units_boundary" setup = [PoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
 # The units layering at the public estimators (VGC conventions/units.md): a
 # physical input (lengths) is stripped in metres once at entry, the inner loop
@@ -84,7 +85,7 @@ same_diagnostics(a, b) = retcode(a) === retcode(b) && iterations(a) == iteration
     @test_throws TypeError find_absolute_pose(cam, X .=> u; extent = ext_m)
     # fewer than a minimal sample: nothing, either form
     @test let r = find_absolute_pose(cam, [x .* m for x in X[1:2]] .=> u[1:2])
-        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
     end
     # the problem is the inner loop: physical points are a MethodError
     @test_throws MethodError AbsolutePoseProblem(cam, [x .* m for x in X] .=> u)

@@ -19,7 +19,7 @@
     VgtkCore.weight_kind(::Type{<:_Meta{P}}) where {P} = weight_kind(P)
     struct _Irls end
     VgtkCore.weight_kind(::Type{_Irls}) = IrlsWeights()
-    result(P, w) = FitResult(0.0, :converged, 1, 0.0, length(w), _Meta{P, eltype(w)}(w))
+    result(P, w) = FitResult(0.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, length(w), _Meta{P, eltype(w)}(w))
 
     @testset "the kind is the producer type's trait" begin
         @test weight_kind(RansacScoring{1, Float64}) === BinaryWeights()
@@ -28,7 +28,7 @@
         r = result(MsacScoring{1, Float64}, [1.0, 0.0, 1.0])
         @test @inferred(weight_kind(r)) === BinaryWeights()
         @test weights(r) == [1.0, 0.0, 1.0]
-        @test_throws ArgumentError weight_kind(FitResult(0.0, :converged, 1, 0.0, 1, nothing))
+        @test_throws ArgumentError weight_kind(FitResult(0.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, nothing))
     end
 
     @testset "inlier_mask dispatches on the kind" begin
@@ -54,7 +54,7 @@ end
     w = @inferred unit_weights(4)
     @test w isa Fill && w == ones(4) && eltype(unit_weights(Float32, 3)) === Float32
     @test (@allocated unit_weights(10_000)) == 0
-    r = FitResult(0.0, :converged, 1, 0.0, 4, _L2Meta{Nothing}(w))
+    r = FitResult(0.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 4, _L2Meta{Nothing}(w))
     @test @inferred(weight_kind(r)) === BinaryWeights()             # an L2 producer is `nothing`
     @test weights(r) === w
     @test inlier_mask(r) == trues(4)

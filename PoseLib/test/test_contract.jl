@@ -132,13 +132,13 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
     @testset "the result: FitResult with retcode, iterations and the scale record" begin
         r = H((; optimization_strategy = Irls{TLSShape}(), width = 2.0))
         @test r isa FitResult{VgtkCore.HomographyMat{Float64}, PoseLibRefineMetadata}
-        @test retcode(r) === :converged && 0 < iterations(r) < 25
+        @test retcode(r) == VgtkCore.ReturnCode.Success && VgtkCore.stop_rule(r) == VgtkCore.NoRule && 0 < iterations(r) < 25
         @test r.n == length(d.hom) && isnan(r.rms)            # PoseLib reports no residual summary
         @test isnan(r.scale) && scale_source(r) == ScaleNone && r.width === 2.0
         @test_throws ArgumentError noise_scale(r)             # a width is never backed out into a scale
         # the budget used up is :max_iterations
         r1 = H((; optimization_strategy = nothing))
-        @test retcode(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing)) === :max_iterations
+        @test retcode(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing)) == VgtkCore.ReturnCode.MaxIters
         @test scale_source(r1) == ScaleNone && isnan(r1.width)
         # an upstream result's scale is handed on (ScaleUpstream)
         rg = H((; optimization_strategy = Irls{HuberShape}(), scale = 0.5))
@@ -152,6 +152,19 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         ra = calls.absolute_pose((; optimization_strategy = Irls{TLSShape}(), width = 40.0))
         @test VgtkCore.ustrip(VgtkCore.m, estimate(rp)).R == estimate(ra).R
         @test (retcode(rp), iterations(rp), rp.width) == (retcode(ra), iterations(ra), ra.width)
+    end
+
+    @testset "every refiner records its termination (converged == successful_retcode)" begin
+        for (name, call) in pairs(calls), lo in (nothing, Irls{TLSShape}())
+            w = name === :absolute_pose ? 40.0 : 2.0
+            r = call(lo === nothing ? (; optimization_strategy = nothing) : (; optimization_strategy = lo, width = w))
+            VgtkCore.test_termination_record(r)
+        end
+        VgtkCore.test_termination_record(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
+        rp = refine_absolute_pose(VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m), d.K1,
+                                  Csponds([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
+                                  optimization_strategy = nothing)
+        VgtkCore.test_termination_record(rp)
     end
 
     @testset "type-stable" begin

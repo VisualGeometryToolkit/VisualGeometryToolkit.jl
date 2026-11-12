@@ -334,7 +334,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         sc = MsacScoring(problem; threshold = 3.0)
         cfg = RansacConfig(max_trials = 3000, min_trials = 200)
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
-        events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode))
+        events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode, ws.best_lo_stop_rule))
         run(lo, trace = []; kw...) = ransac(
             problem, sc; local_optimization_strategy = lo, config = cfg, rng = StableRNG(128),
             on_improvement = events(trace), kw...
@@ -352,7 +352,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test VgtkCore.iterations(rt) == VgtkCore.iterations(r0)   # trials of the raw race
         @test rt.sample_acceptance_rate == r0.sample_acceptance_rate
         @test !isempty(trace0) && trace == trace0              # the raw incumbent's events
-        @test rt.lo_retcode == seeded.lo_retcode
+        @test rt.lo_retcode == seeded.lo_retcode && rt.lo_stop_rule == seeded.lo_stop_rule
         @test inlier_mask(rt) == inlier_mask(seeded)             # re-scored for the refined model
         @test rt.quality == seeded.quality
         @test rt.residuals == seeded.residuals
@@ -410,7 +410,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()
     end
 
-    @testset "TerminalLO — a thin incumbent comes back unrefined, :thin_partition" begin
+    @testset "TerminalLO — a thin incumbent comes back unrefined (its refit's record InitialFailure)" begin
         # five exact correspondences of a homography among scattered outliers:
         # the incumbent's consensus is m + 1 = 5 points, no residual dof
         rng = StableRNG(3)
@@ -428,8 +428,9 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         rt = ransac(problem, sc; local_optimization_strategy = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
             config = cfg, rng = StableRNG(1))
         @test sum(inlier_mask(rt)) == 5
-        @test rt.lo_retcode === :thin_partition
+        @test (rt.lo_retcode, rt.lo_stop_rule) == (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)   # the refit did not run
         @test estimate(rt) == estimate(r0)
+        @test VgtkCore.retcode(rt) == VgtkCore.retcode(r0) && VgtkCore.stop_rule(rt) == VgtkCore.stop_rule(r0)   # the search's record
     end
 
     @testset "PROSAC with scored correspondences" begin

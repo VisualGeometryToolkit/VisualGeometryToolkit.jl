@@ -20,6 +20,7 @@ const REGION = Rect(0, 0, 1000, 1000) ∩ DISC
 end
 
 @testitem "optical_axis: a spline turned 5° off its axis — the axis and the principal point recovered, every image kept after the re-gauge" setup = [OffAxisSpline] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm, dot, normalize
@@ -31,7 +32,7 @@ end
     K0 = calibration_matrix(OFF_AXIS)
     @test norm(SVector(K0[1, 3], K0[2, 3]) - SVector(500.0, 500.0)) > 20          # the never-fitted gauge: off the axis's pixel
     r = optical_axis(with_lens_coverage(OFF_BOUNDED, DISC))
-    @test retcode(r) === :converged
+    @test retcode_symbol(r) === :converged
     R = metadata(r).rotation
     @test map_frames(R) == (ViewFrame{:source}, ViewFrame{:fitted})
     axis = rotation(R)' * SVector(0.0, 0.0, 1.0)                                   # the axis in the source frame
@@ -84,6 +85,7 @@ end
 end
 
 @testitem "fit_camera(SplineLens): a gauge-K source is gauged on its optical axis first; a physical source is unchanged" setup = [OffAxisSpline] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -102,7 +104,7 @@ end
     pix = [SVector(500.0 + ρ * cos(a), 500.0 + ρ * sin(a)) for ρ in (0.0, 150.0, 400.0) for a in range(0, 2π; length = 9)]
     @test all(u -> norm(backproject(cam, u) - R * backproject(OFF_AXIS, u)) < 1.0e-12, pix)
     @test all(u -> norm(project(cam, backproject(cam, u)) - u) < 1.0e-3, pix)
-    @test retcode(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
+    @test retcode_symbol(r) === :converged && metadata(r).family.forward.max_px <= 1.0e-3
     # a parametric source: its ẑ is the axis already — the identity, the source's K
     rp = fit_camera(SplineLens, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION; tolerance = 1.0e-2, forward = false)
     @test rotation(metadata(rp).rotation) == one(R) && isnan(metadata(rp).symmetry_residual)
@@ -110,6 +112,7 @@ end
 end
 
 @testitem "optical_axis: a bounded camera only — its region is the camera's own bound; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, dot, normalize, I
@@ -132,7 +135,7 @@ end
     spl = CameraModel(SplineLens, f, Size2(1400, 1000); grid_size = (30, 22), init = :quasi_interpolate)
     circle = Ellipse(SVector(700.0, 500.0), 0.95 * 250 * θmax, 0.95 * 250 * θmax, 0.0)
     r = optical_axis(BoundedCamera(spl, Size2(1400, 1000); lens_coverage = circle))
-    @test retcode(r) === :converged
+    @test retcode_symbol(r) === :converged
     axis = rotation(metadata(r).rotation)' * SVector(0.0, 0.0, 1.0)
     @test acosd(min(1.0, dot(axis, Q3 * SVector(0.0, 0.0, 1.0)))) < 0.01
     K = calibration_matrix(estimate(r))
@@ -143,6 +146,7 @@ end
 end
 
 @testitem "refine_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using CUDA: CUDA
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, metadata, retcode, iterations, rotation,
@@ -156,10 +160,10 @@ end
     fits = [(VE._AXIS_FAMILY, b, imaged_region(b), VE._AXIS_FIXED), (KannalaBrandt{4}, FISHEYE, REGION, ())]   # a gauge K, a physical K
     for (L, src, region, fixed) in fits
         rc = approximate_camera(L, src, region; fixed, device = cpu)
-        @test retcode(rc) === :converged
+        @test retcode_symbol(rc) === :converged
         CUDA.functional() || continue
         rg = approximate_camera(L, src, region; fixed, device = VC.default_device())
-        @test retcode(rg) === :converged && iterations(rg) == iterations(rc)
+        @test retcode_symbol(rg) === :converged && iterations(rg) == iterations(rc)
         @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9
         @test maximum(abs, rotation(metadata(rg).rotation) - rotation(metadata(rc).rotation)) < 1.0e-12

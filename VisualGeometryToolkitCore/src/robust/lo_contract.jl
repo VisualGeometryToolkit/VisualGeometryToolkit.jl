@@ -33,7 +33,7 @@ lo_workspace(::Type, ::Type, ::Union{Nothing, AbstractOptimizationStrategy}, ::I
 
 Refine the hypothesis `θ` of `problem` with the strategy `lo` on its workspace
 `L` ([`lo_workspace`](@ref)), seeded by the consensus set `cs` of the score
-that just ran on `buf`. Returns [`lo_estimate`](@ref)`(θ′, retcode; iterations,
+that just ran on `buf`. Returns [`lo_estimate`](@ref)`(θ′, code, rule; iterations,
 residuals_current)`: `θ′ === θ` when nothing was refit; `residuals_current`
 when `residuals(buf)` holds `θ′`'s residuals on exit (the loop then skips
 recomputing them).
@@ -57,9 +57,9 @@ function _lo_problem_types(lo::AbstractOptimizationStrategy)
     return isempty(types) ? "no problem type" : join(sort!(unique!(types)), ", ")
 end
 
-# `nothing` — no local optimization: the hypothesis comes back unchanged (`:no_lo`).
+# `nothing` — no local optimization: the hypothesis comes back unchanged, `(Success, ClosedForm)`.
 locally_optimize!(_L, ::Nothing, _problem, model, ::ConsensusSet, ::ScoreBuffers, _scoring) =
-    lo_estimate(model, :no_lo)
+    lo_estimate(model, ReturnCode.Success, ClosedForm)
 
 function locally_optimize!(_L, lo::AbstractOptimizationStrategy, problem, _model, _cs::ConsensusSet, _buf::ScoreBuffers, _scoring)
     throw(ArgumentError(
@@ -80,19 +80,25 @@ struct LoInfo
 end
 
 """
-    lo_estimate(model, retcode; iterations = 0, residuals_current = false) -> FitResult{M, LoInfo}
+    lo_estimate(model, code::ReturnCode.T, rule::StopRule; iterations = 0, residuals_current = false) -> FitResult{M, LoInfo}
+    lo_estimate(model, retcode::Symbol, rule::StopRule; iterations = 0, residuals_current = false)
 
 The lean result of one local-optimization refit — what
 [`locally_optimize!`](@ref) and a `block_coordinate_result` return. `estimate`
-is the refined model; `retcode` is why the refit stopped: `:no_lo` (no LO ran),
-`:converged`, `:max_iterations`, `:solve_failed` (a refit failed; the incumbent
-is returned), `:thin_partition` (the consensus set has no residual dof, so no LO
-ran), `:left_basin`, or another stopping criterion's reason. The refit computes
-no residual summary, so `rms` is `NaN` and `n` is 0. Zero heap allocation when
-`M` is isbits.
+is the refined model; its termination record (the FitResult core's
+[`retcode`](@ref) and [`stop_rule`](@ref)) is why the refit stopped. No LO ran
+(the strategy `nothing`): `(Success, ClosedForm)`, the seed returned as it is;
+the consensus set has no residual dof, so no LO ran: `(InitialFailure,
+NoRule)`; a refit that failed (the incumbent returned): `(Failure,
+NonFinite)`; otherwise the optimizer's record. A loop that reports a legacy
+Symbol supplies it with its success rule, `retcode_from_symbol(retcode, rule)`
+(the one map; the second form). The refit computes no residual summary, so
+`rms` is `NaN` and `n` is 0. Zero heap allocation when `M` is isbits.
 """
-lo_estimate(model::M, retcode::Symbol; iterations::Int = 0, residuals_current::Bool = false) where {M} =
-    FitResult{M, LoInfo}(model, retcode, iterations, NaN, 0, LoInfo(residuals_current))
+lo_estimate(model::M, code::ReturnCode.T, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) where {M} =
+    FitResult{M, LoInfo}(model, code, rule, iterations, NaN, 0, LoInfo(residuals_current))
+lo_estimate(model, retcode::Symbol, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) =
+    lo_estimate(model, retcode_from_symbol(retcode, rule)...; iterations, residuals_current)
 
 """
     lo_width(lo) -> nothing | EfficiencyConstant{Float64} | LossWidth{NTuple{2,Float64}}

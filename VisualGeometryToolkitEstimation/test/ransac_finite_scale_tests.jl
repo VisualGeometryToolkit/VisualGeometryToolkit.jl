@@ -53,6 +53,6 @@
     @test isequal(VgtkEstimation._estimated_scale(9, NaN), (NaN, ScaleNone, true))
     @test isequal(VgtkEstimation._estimated_scale(0, 1.0), (NaN, ScaleNone, false))
     # a metadata built without the field (every earlier constructor) records no drop
-    md = VgtkEstimation.RansacMetadata{Float64, typeof(MsacScoring(p; threshold = 1.0))}(zeros(2), ones(2), 1.0, 0.5, ScaleEstimated, 2, 1.0, :not_run)
+    md = VgtkEstimation.RansacMetadata{Float64, typeof(MsacScoring(p; threshold = 1.0))}(zeros(2), ones(2), 1.0, 0.5, ScaleEstimated, 2, 1.0, VgtkCore.ReturnCode.Default, VgtkCore.NoRule)
     @test !md.nonfinite_scale
 end

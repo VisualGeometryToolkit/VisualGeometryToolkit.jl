@@ -1,6 +1,7 @@
 @testitem "core_defaults" setup = [RadialCameraScene, EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
-                                   ConicScenes, RotationScene] begin
+                                   ConicScenes, RotationScene, FindScenes] begin
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessor
+    using VisualGeometryToolkitCore: retcode_symbol
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -34,61 +35,7 @@ using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_u
 
 thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
 
-# --- the scenes ---------------------------------------------------------------
-function h_scene()
-    src, dst = homography_pairs(
-        StableRNG(11), H_PX; n_in = 120, n_out = 60, σ = 0.3,
-        source = gaussian_source, target = rng -> randn(rng, 2) .* 400 .+ 300
-    )
-    return StructArray(src .=> dst), 120
-end
-function stereo_scene(cam; seed = 13)
-    u₁, u₂ = stereo_pixel_pairs(
-        StableRNG(seed), cam, cam, RotMatrix(RotXYZ(0.05, 0.12, -0.03)), SVector{3, Float64}(0.9, 0.05, 0.1);
-        n = 140, σ₂ = 0.4, n_out = 60,
-        point = rng -> SA[2.0 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), 4.0 + 3.0 * rand(rng)],
-        outlier = rng -> (SA[960 * rand(rng), 720 * rand(rng)], SA[960 * rand(rng), 720 * rand(rng)])
-    )
-    return u₁, u₂, length(u₁) - 60
-end
-const PCAM = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
-const R_PNP = RotMatrix(RotXYZ(0.15, -0.25, 0.1))
-const T_PNP = Vec3{Float64}(0.3, -0.2, 0.6)
-function pnp_scene()
-    pairs, _ = contaminated_pairs(
-        StableRNG(19), (rng, _) -> Pair(frustum_point(rng, PCAM, R_PNP, T_PNP)...), 120; σ = 0.5, n_out = 60,
-        outlier = (rng, _) -> first(frustum_point(rng, PCAM, R_PNP, T_PNP)) => SVector(40.0 + 880.0 * rand(rng), 40.0 + 640.0 * rand(rng))
-    )
-    return StructArray(first.(pairs) .=> last.(pairs))
-end
-const RW, RH = 1200.0, 900.0
-const M_RH = RadialHomography{Float64}(
-    HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
-    -0.25 / hypot(RW, RH)^2, SVector(RW / 2, RH / 2)
-)
-function radial_homography_scene()
-    function inlier(rng, _)
-        while true
-            s = SVector(200 * rand(rng), 150 * rand(rng))
-            d = radial_transfer(M_RH, s)
-            d === nothing && continue
-            (0 < d[1] < RW && 0 < d[2] < RH) && return s => SVector(d[1], d[2])
-        end
-    end
-    return contaminated_pairs(
-        StableRNG(17), inlier, 70; σ = 0.3, n_out = 30, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(RW * rand(rng), RH * rand(rng))
-    )
-end
-function hand_eye_scene()
-    rng = StableRNG(29)
-    sc = robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
-                                    A = (ang_max = π / 3, t_scale = 0.5))
-    X, Y, A = only(sc.X), sc.Y, sc.A
-    B = [perturb_pose(rng, marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
-    return A .=> B, X
-end
-
+# --- the scenes: FindScenes (scenes_testsetups.jl), one definition shared with termination_record_tests.jl
 # The default run and the run with its default spelled out (MSAC at the class
 # threshold in the problem's residual unit) are the same run.
 function same_run(r_default, r_explicit)
@@ -125,7 +72,7 @@ end
         r = find_homography(cs; rng = StableRNG(1))
         same_run(r, find_homography(cs; scoring = MsacScoring(p; threshold = thr(:homography)), rng = StableRNG(1)))
         @test count(inlier_mask(r)[1:n_in]) > 0.9 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 10
-        @test r.lo_retcode !== :not_run                                     # the default LO ran
+        @test r.lo_retcode != VgtkCore.ReturnCode.Default                   # the default LO ran
     end
     @testset "fundmat" begin
         u₁, u₂, n_in = stereo_scene(PCAM)
@@ -394,7 +341,7 @@ end
         for kws in ((;), (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5)))
             class === :essential && kws !== (;) && continue
             r = refine(raw; scale = raw_r, kws...)   # the search's own scale, handed on
-            @test converged(r) || (class === :fundmat && retcode(r) === :max_iterations)
+            @test converged(r) || (class === :fundmat && retcode_symbol(r) === :max_iterations)
             @test VgtkCore.scale_source(r) === VgtkCore.ScaleUpstream && VgtkCore.noise_scale(r) == VgtkCore.noise_scale(raw_r)
             @test maximum(abs, Float64.(r.residuals[m]) .- Float64.(f.residuals[m])) < (class === :fundmat ? 0.65 : 0.3) * f.rms
             @test isapprox(sqrt(sum(abs2, Float64.(r.residuals[m])) / count(m)), f.rms; rtol = class === :fundmat ? 0.025 : 0.02)

@@ -73,7 +73,7 @@ Returns an `FitResult{Rigid3, RansacMetadata}` whose `estimate` is
 metres). The nuisance camera-in-world transform `Y` is **not**
 computed by this pipeline.
 `iterations(result)` is the number of trials (hypotheses drawn); test
-`converged(result)` before reading the model (see [`RansacEstimate`](@ref)).
+`found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Examples
 ```julia
@@ -116,7 +116,7 @@ build it, as there; its 6-residual, codimension 6, in the poses' length unit
 with rotation entering as `char_length`·angle): the keywords, the result and the refusals are those of every `refine_*`,
 documented on [`refine_homography`](@ref) (default strategy:
 `[refine.hand_eye] optimization_strategy`). Fewer than 2 motions: the guess back
-unrefined, `retcode` `:degenerate`.
+unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:degenerate`).
 A `scale` or `width` is in the poses' length unit.
 
 # Units

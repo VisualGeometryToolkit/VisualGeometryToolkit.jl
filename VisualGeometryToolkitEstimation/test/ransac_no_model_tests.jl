@@ -3,7 +3,8 @@
 # placeholder a forgotten `converged` test would read as a model.
 
 @testitem "ransac: no model" setup = [ConicScenes] begin
-    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleNone   # the robust contract's accessors
+    using VisualGeometryToolkitCore: retcode_symbol
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleNone, ReturnCode   # the robust contract's accessors
     using Test, Random, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, csponds,
         estimate, converged, retcode, iterations
@@ -11,7 +12,7 @@
         ransac, find_circle, find_ellipse, find_homography, find_fundmat
 
     function no_model(r)
-        @test retcode(r) === :no_model
+        @test retcode_symbol(r) === :no_model
         @test estimate(r) === nothing
         @test !converged(r)
         @test !any(inlier_mask(r))
@@ -20,7 +21,7 @@
         @test scale_source(r) == ScaleNone && isnan(r.scale)
         @test_throws ArgumentError noise_scale(r)
         @test r.dof == 0
-        @test r.lo_retcode === :not_run
+        @test retcode_symbol(r.lo_retcode, r.lo_stop_rule) === :not_run && r.lo_retcode == ReturnCode.Default
         return r
     end
 
@@ -58,6 +59,7 @@
 end
 
 @testitem "ransac: no model through the metre and frame re-wrappers" begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, StaticArrays
     using Rotations: RotMatrix, RotX, RotZ
@@ -67,7 +69,7 @@ end
     using VisualGeometryToolkitEstimation: find_absolute_pose, find_hand_eye
 
     function no_model(r)
-        @test retcode(r) === :no_model
+        @test retcode_symbol(r) === :no_model
         @test estimate(r) === nothing
         @test !converged(r)
         @test !any(inlier_mask(r))
@@ -98,6 +100,7 @@ end
 end
 
 @testitem "ransac: too few points is the no-model result" setup = [TooFewData] begin
+    using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask, scale_source, ScaleNone   # the robust contract's accessors
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
@@ -114,7 +117,7 @@ end
     # a refine_* on too few data: the guess back unrefined, its result type a refine's (the refine contract)
     function too_few_refine(r, guess, n)
         @test r isa VgtkCore.FitResult{<:Any, <:RefineMetadata}
-        @test retcode(r) === :degenerate && iterations(r) == 0 && r.n == 0 && isnan(r.rms)
+        @test retcode_symbol(r) === :degenerate && iterations(r) == 0 && r.n == 0 && isnan(r.rms)
         θ = estimate(r)
         @test guess isa VgtkCore.EuclideanMap ?
             (VgtkCore.rotation(θ) == VgtkCore.rotation(guess) && VgtkCore.translation(θ) == VgtkCore.translation(guess)) : θ == guess
@@ -123,7 +126,7 @@ end
     end
     function too_few(r, n)
         @test r isa RansacEstimate
-        @test retcode(r) === :no_model
+        @test retcode_symbol(r) === :no_model
         @test iterations(r) == 0
         @test estimate(r) === nothing
         @test !converged(r)

@@ -65,8 +65,8 @@ RANSAC-specific diagnostics, the `metadata` of a [`RansacEstimate`](@ref):
 whose `weight_kind` gives the weights their meaning (a threshold scorer's
 `BinaryWeights`, the Student-t + uniform scorer's `PosteriorWeights`).
 
-The core fields carry the rest: `retcode` is `:converged` or `:no_model` (no
-estimate: test `converged(result)`), `iterations` the number of trials
+The core fields carry the rest: the termination record (`retcode(result)`,
+`stop_rule(result)`; below), `iterations` the number of trials
 (hypotheses drawn — RANSAC's loop count; VGC's shared `FitResult` field, no
 second name), and `n` and `rms` the weights' support and weighted
 root-mean-square residual:
@@ -99,8 +99,14 @@ every point of non-negligible posterior, each counted at its weight.
   partition (`n_in` its size, `p` the minimal-sample dof); 0 when it is too thin
 - `sample_acceptance_rate::Float64`: fraction of trials that succeeded at `test_sample`
   (effective trials / `iterations`); low values mean frequent sample degeneracy
-- `lo_retcode::Symbol`: why the local-optimization loop stopped for the best
-  model (see [`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate)); `:not_run` when no LO ran
+- `lo_retcode::ReturnCode.T`, `lo_stop_rule::StopRule`: the termination record of
+  the best model's local optimization, the core of its
+  [`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate) result (the same record as
+  every result's): `(Success, ClosedForm)` for no local optimization (`nothing`),
+  `(InitialFailure, NoRule)` for a consensus too thin to refine, an iterative
+  optimizer's own; the refit's code with the rule `SeedKept` when the score guard
+  kept the seed; `(ReturnCode.Default, NoRule)` — SciMLBase's "not run" — when no
+  local optimization ran for the best model (no model, or the seed kept unscored)
 - `nonfinite_scale::Bool`: the consensus partition's scale came out non-finite (an
   overflowing RSS) and was dropped: `scale_source` `ScaleNone`, `scale` `NaN`, `dof`
   the partition's. An estimated scale is finite: `ScaleEstimated` never carries a
@@ -117,12 +123,16 @@ struct RansacMetadata{T, S}
     scale_source::ScaleSource
     dof::Int
     sample_acceptance_rate::Float64
-    lo_retcode::Symbol
+    lo_retcode::ReturnCode.T
+    lo_stop_rule::StopRule
     nonfinite_scale::Bool
 end
 # A result whose scale was not dropped (every result before the field, and every search with no model).
-RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode) where {T, S} =
-    RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, false)
+RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule) where {T, S} =
+    RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule, false)
+
+# The local-optimization record of a model no local optimization ran for: SciMLBase's "not run".
+const _LO_NOT_RUN = (ReturnCode.Default, NoRule)
 
 # The weights' kind is the scorer's, from the metadata's type (Core's trait).
 VgtkCore.weight_kind(::Type{<:RansacMetadata{<:Any, S}}) where {S} = VgtkCore.weight_kind(S)
@@ -134,16 +144,29 @@ The return type of [`ransac`](@ref), [`locally_optimize`](@ref) and every
 `find_*` pipeline: `M` the model, `T` the storage precision, `S` the scorer's
 type. The model and the core diagnostics are read through
 VisualGeometryToolkitCore's accessors — `estimate(result)`,
-`converged(result)`, `iterations(result)` (for RANSAC the number of trials,
+`found_model(result)`, `retcode(result)`, `stop_rule(result)`, `iterations(result)` (for RANSAC the number of trials,
 hypotheses drawn), `rms(result)` — the weights through `weights(result)`,
 `weight_kind(result)` and `inlier_mask(result)`, the scale through
 `noise_scale(result)` and `scale_source(result)`; the other diagnostics of
 [`RansacMetadata`](@ref) forward as properties (`result.quality`,
 `result.dof`).
 
-`converged(result)` is THE success predicate. A failed search —
-`retcode(result) === :no_model`, `converged(result) == false` — has no
-estimate: its `estimate` is `nothing` (so `estimate(result)` is
+The termination record of the search:
+
+| stop | `retcode` | `stop_rule` | `retcode_symbol` |
+|:--|:--|:--|:--|
+| no hypothesis held a consensus (no estimate) | `Failure` | `TrialBudget` | `:no_model` |
+| the adaptive trial count drawn (the confidence `success_prob` reached) | `Success` | `AdaptiveCount` | `:converged` |
+| an exhaustive sampler drew every sample | `Success` | `TrialBudget` | `:converged` |
+| `max_trials` drawn without reaching the confidence | `MaxIters` | `TrialBudget` | `:max_iterations` |
+| a selection among fixed candidates, or a seed kept unrefined | `Success` | `ClosedForm` | `:solved` |
+| a seed refined by a local optimization | that refit's record | | |
+
+`found_model(result)` is THE "a model was found" predicate; `converged(result)`
+is strict (`successful_retcode(retcode(result))`: false for a search that drew
+`max_trials` without reaching its confidence, which still found a model). A
+failed search — `found_model(result) == false`, `retcode(result) ==
+ReturnCode.Failure` — has no estimate: its `estimate` is `nothing` (so `estimate(result)` is
 `Union{M, Nothing}`, Base's `findfirst` idiom), its `quality` is `-Inf`, its
 weights all zero (an all-false `inlier_mask`), `rms` NaN and its scale
 `ScaleNone`. Every `find_*` and `refine_*` pipeline returns this type on every
@@ -188,8 +211,9 @@ the pooled variance of their consensus partitions. A result without a scale
 (`ScaleNone`: a failed search) or without degrees of freedom (`dof == 0`) is
 left out and counted. The estimate is `σ̂`, also the metadata's `scale`
 (`ScaleEstimated`), so a downstream stage takes it as `scale = result` and
-records `ScaleUpstream`. `retcode` is `:pooled`, or `:degenerate` (estimate
-and scale `NaN`, `ScaleNone`) when no result enters the pool.
+records `ScaleUpstream`. Its termination record is a closed form's
+(`ReturnCode.Success`, `ClosedForm`), or `(ReturnCode.InitialFailure, NoRule)`
+(estimate and scale `NaN`, `ScaleNone`) when no result enters the pool.
 """
 function pooled_noise_scale(results)
     num, den, pooled, left_out = 0.0, 0, 0, 0
@@ -201,9 +225,9 @@ function pooled_noise_scale(results)
         ν = r.dof
         num += ν * Float64(VgtkCore.noise_scale(r))^2; den += ν; pooled += 1
     end
-    pooled == 0 && return FitResult(NaN, :degenerate, 0, NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
+    pooled == 0 && return FitResult(NaN, ReturnCode.InitialFailure, NoRule, 0, NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
     σ = sqrt(num / den)
-    return FitResult(σ, :pooled, 0, NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
+    return FitResult(σ, ReturnCode.Success, ClosedForm, 0, NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
 end
 
 # The lean result of one local-optimization refit is VisualGeometryToolkitCore's
@@ -334,7 +358,8 @@ mutable struct RansacWorkspace{K, M, T <: AbstractFloat, W, L}
     # Sampling buffer (length = minimal_sample_size, statically sized)
     const sample_indices::MVector{K, Int}
     has_best::Bool
-    best_lo_retcode::Symbol   # LO stop reason for the current best model (surfaced on the result)
+    best_lo_retcode::ReturnCode.T   # the current best model's local-optimization record (surfaced on the result)
+    best_lo_stop_rule::StopRule
 end
 
 function RansacWorkspace(
@@ -344,7 +369,7 @@ function RansacWorkspace(
     return RansacWorkspace{k, M, T, W, L}(
         ScoreBuffers{T}(n, scoring_ws), lo_ws,
         Ref{M}()[], Vector{T}(undef, n), Vector{Float64}(undef, n), falses(n), Vector{Int}(undef, n), 0,
-        MVector{k, Int}(undef), false, :not_run,
+        MVector{k, Int}(undef), false, _LO_NOT_RUN...,
     )
 end
 

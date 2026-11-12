@@ -106,7 +106,7 @@ _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
 
 `FitResult` metadata of [`fit_robot_world_hand_eye`](@ref) (`S = Float64`) and of
 [`refine_robot_world_hand_eye`](@ref) (`S = Nothing`: no pose-residual noise
-scales; its `retcode` is `:converged`, `:max_iterations`, `:max_time`, `:solve_failed` or `:stalled`) — one type, assembled in one place.
+scales; its `retcode_symbol(result)` is `:converged`, `:max_iterations`, `:max_time`, `:solve_failed` or `:stalled`) — one type, assembled in one place.
 The core carries the `RobotWorldHandEyeCalibration` (`estimate`), the `retcode`, the
 `iterations`, the `rms` and the `n` observations (the fit: pose observations,
 its `rms` over the weighted residual rows; the refinement: points, its `rms`
@@ -194,7 +194,7 @@ const _ROBOT_WORLD_HAND_EYE_RANK_RTOL = 1.0e-12
 # covariance are the weighted problem's.
 function _robot_world_hand_eye_result(
         cal::RobotWorldHandEyeCalibration{K}, r::AbstractVector, J::AbstractMatrix, w::Int, counts, covariance,
-        σ_rot::S, σ_trans::S; retcode::Symbol, iterations::Int, rms_rows::Int,
+        σ_rot::S, σ_trans::S; termination::Tuple{ReturnCode.T, StopRule}, iterations::Int, rms_rows::Int,
         strategy::L = nothing, weights::AbstractVector{Float64} = VgtkCore.unit_weights(length(r) ÷ w),
         scale::Float64 = NaN, scale_source::VgtkCore.ScaleSource = VgtkCore.ScaleNone, loss_width::Float64 = NaN
     ) where {K, S, L}
@@ -222,7 +222,7 @@ function _robot_world_hand_eye_result(
         res_norms, s2, dof, cov, SMatrix{6, 6, Float64, 36}(cov[1:6, 1:6]), λ_min, v_min, σ_rot, σ_trans,
         weights, scale, scale_source, loss_width
     )
-    return FitResult(cal, retcode, iterations, rms, support, md)
+    return FitResult(cal, termination..., iterations, rms, support, md)
 end
 
 # -----------------------------------------------------------------------------
@@ -636,7 +636,7 @@ function fit_robot_world_hand_eye(
     σr, σt = Float64(σ_rot), Float64(σ_trans)
     (σr > 0 && σt > 0) || throw(ArgumentError("provided σ must be positive"))
     wobs = ones(n)
-    retcode = :max_iterations; iter = 0
+    tol_met = false; iter = 0
     while iter < _fit_max_iter(optimization_strategy)
         iter += 1
         _robot_world_hand_eye_weights!(wobs, f, cal, Val(M + 1), obs, σr, σt)
@@ -650,11 +650,11 @@ function fit_robot_world_hand_eye(
         Δ = _robot_world_hand_eye_move(new, cal, σr, σt)
         cal = new
         obs = (; RA, tA, obs_marker, RB, tB, pairs, axes_A, by_marker, wobs = nothing)
-        Δ < tol && (retcode = :converged; break)
+        Δ < tol && (tol_met = true; break)
     end
     return _fit_robot_world_hand_eye_report(
         cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans;
-        f, strategy = optimization_strategy, retcode, iterations = iter
+        f, strategy = optimization_strategy, termination = _irls_record(tol_met, false), iterations = iter
     )
 end
 
@@ -690,7 +690,7 @@ end
 # type carries the M + 1 blocks): noise-scale profiling, the diagnostic
 # residual and its Jacobian, and the stage-condition covariance.
 function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::ProductManifold, obs, counts, σ_rot, σ_trans;
-                                          f = nothing, strategy = nothing, retcode::Symbol = :solved, iterations::Int = 0)
+                                          f = nothing, strategy = nothing, termination::Tuple{ReturnCode.T, StopRule} = (ReturnCode.Success, ClosedForm), iterations::Int = 0)
     p = tangent_size(P)
     n = length(obs.obs_marker)
     r0 = _robot_world_hand_eye_residuals(zeros(p), P, obs, 1.0, 1.0)
@@ -716,7 +716,7 @@ function _fit_robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::
         return implicit_covariance(Fθ, Fε; Σx = fill(Σε, n))
     end
     return _robot_world_hand_eye_result(
-        cal, r, J, 6, counts, covariance, σr, σt; retcode, iterations, rms_rows = length(r),
+        cal, r, J, 6, counts, covariance, σr, σt; termination, iterations, rms_rows = length(r),
         strategy, weights = wts, (_robot_world_hand_eye_scale_record(f))...
     )
 end

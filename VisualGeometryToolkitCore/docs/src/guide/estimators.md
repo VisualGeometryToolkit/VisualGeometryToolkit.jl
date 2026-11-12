@@ -165,7 +165,7 @@ so a downstream loss-width family shares the loop.
 ```julia
 lo_workspace(::Type{P}, ::Type{T}, lo, n) -> L     # built once; default nothing
 locally_optimize!(L, lo, problem, θ, cs::ConsensusSet, buf::ScoreBuffers, scoring)
-    -> lo_estimate(θ′, retcode; iterations, residuals_current)
+    -> lo_estimate(θ′, code, rule; iterations, residuals_current)
 ```
 
 On entry `residuals(buf)` holds θ's residuals and `cs` is the consensus set of
@@ -243,7 +243,7 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   in one place, `nlls_options`; block-structured fits (the
   relative-pose bundle, the robot-world refinement) build their own NLLSsolver
   problems and share that map and the stall postcondition
-  (`nlls_retcode`). The Schur complement (NLLSsolver pull request #60, still
+  (`nlls_termination`). The Schur complement (NLLSsolver pull request #60, still
   open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The
   Schur complement of the LM driver" in [Getting Started](getting-started.md).
 

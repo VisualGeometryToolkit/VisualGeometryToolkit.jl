@@ -110,7 +110,7 @@ end
     fast = run(); slow = run(; schur = false)
     # With #60 loaded `fast` is the Schur system; without it both runs take the
     # sparse LDL and agree trivially — the comparison holds either way.
-    @test fast.retcode === :converged && slow.retcode === :converged
+    @test VisualGeometryToolkitCore.retcode_symbol(fast.retcode...) === :converged && VisualGeometryToolkitCore.retcode_symbol(slow.retcode...) === :converged
     @test maximum(abs, fast.R - slow.R) < 1.0e-9 && maximum(abs, fast.t - slow.t) < 1.0e-9
     @test isapprox(fast.result.bestcost, slow.result.bestcost; rtol = 1.0e-10)
 end
@@ -241,8 +241,8 @@ end
         @test dirdeg(SVector{3, Float64}(tr), t) <= 1.0e-6
         @test abs(F - b.F) <= 1.0e-12 * b.F
         # converged at exit: NLLSsolver's cost-tolerance stop, and stationary
-        # (VGC `nlls_retcode`: the stall postcondition on the stacked rows)
-        @test retcode === :converged
+        # (VGC `nlls_termination`: the stall postcondition on the stacked rows)
+        @test VisualGeometryToolkitCore.retcode_symbol(retcode...) === :converged
         iterations_to_stop[N] = (iters, k1e6)
     end
     # The run stops when the cost has converged: within 1e-6 of its final value

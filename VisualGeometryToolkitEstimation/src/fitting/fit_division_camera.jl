@@ -456,19 +456,27 @@ function fit_division_camera(
     # audited iteration, its posterior refreshed there, for what remains of the
     # budget; when it moves none, the IRLS simply continues from its incumbent.
     # Never after `:solve_failed`.
+    #
+    # The termination record (§14): each leg's, the legs combined by `worst_retcode`
+    # (the later on a tie). A leg that stopped at the CHECKPOINT did not terminate —
+    # the budget was not spent — so only a leg that ended on its own enters with the
+    # resumed one.
     checkpoint = max_iter - max_iter ÷ 2
     res = _division_run!(st, lh, method, problem, state0, checkpoint, 1)
     niter, rc = iterations(res), retcode(res)
+    record = (rc, stop_rule(res))
     θ = estimate(res)
-    audited = rc !== :solve_failed && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
+    audited = rc != ReturnCode.Failure && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
     if audited !== nothing
         verbose && println("  branch audit: $(_moved_branches(audited, θ)) view(s) moved; resuming")
         st = _division_irls_state(st.rws, problem, audited, st.residuals, lh; refresh = true)
         res = _division_run!(st, lh, method, problem, audited, max_iter - niter - 1, niter + 2)
-        niter, rc = niter + 1 + iterations(res), retcode(res)
-    elseif rc === :max_iterations && niter < max_iter
+        resumed = (retcode(res), stop_rule(res))
+        record = rc == ReturnCode.MaxIters ? resumed : worst_retcode(record, resumed)
+        niter = niter + 1 + iterations(res)
+    elseif rc == ReturnCode.MaxIters && niter < max_iter
         res = _division_run!(st, lh, method, problem, θ, max_iter - niter, niter + 1)
-        niter, rc = niter + iterations(res), retcode(res)
+        niter, record = niter + iterations(res), (retcode(res), stop_rule(res))
     end
     best = estimate(res)
     state = _keyed(best, ids)
@@ -493,7 +501,7 @@ function fit_division_camera(
     end
     support, wrms = _posterior_support_rms!(w, sq)        # a posterior below eps an exact 0; its support and weighted RMS
     return FitResult(
-        camera, rc, niter,
+        camera, record..., niter,
         wrms, support,               # the posterior-weighted whitened-residual RMS (px), its support
         DivisionCameraMetadata(
             state, radial_cameras, Dict(ids[i] => _with_weights(views[ids[i]], wpost[i]) for i in eachindex(ids)),
@@ -533,6 +541,6 @@ function _division_run!(st, lh, method, problem::DivisionCameraProblem, θ, max_
     run = problem.verbose ? VgtkCore.Recorded(st) : st
     res = block_coordinate_descent!(run, lh, method, problem, θ; max_iter)
     _print_iterations(run, first_iter)
-    problem.verbose && println("  -> $(retcode(res)) after $(iterations(res)) iteration(s)")
+    problem.verbose && println("  -> $(retcode_symbol(res)) after $(iterations(res)) iteration(s)")
     return res
 end

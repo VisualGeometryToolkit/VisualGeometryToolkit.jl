@@ -157,7 +157,7 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}; weighting::Abst
                                     _FixedDistances(r), r; max_iter = config.max_iter)
     w = collect(Float64, view(inlier_weight(rws), 1:n))
     support, wrms = _posterior_support_rms!(w, (abs2(x) for x in r))
-    return FitResult(rws, retcode(res), iterations(res), wrms, support,
+    return FitResult(rws, retcode(res), stop_rule(res), iterations(res), wrms, support,
                      ResidualMixtureMetadata(state.current_cost, w, sqrt(s_hat_sq(rws)), ScaleEstimated))
 end
 

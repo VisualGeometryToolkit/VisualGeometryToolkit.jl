@@ -29,7 +29,7 @@ VisualGeometryToolkitCore.cov
 ## Fit Results
 
 Every estimator returns a [`FitResult`](@ref): a fixed core — the estimate,
-why it stopped, how many iterations, the residual RMS over `n` — plus
+why it stopped (its termination record), how many iterations, the residual RMS over `n` — plus
 solver-specific `metadata` selected by type parameter. Read it through the
 accessors below (`estimate(r)`, `retcode(r)`, …, and the metadata's own such as
 `weights(r)`), never by field name. A property spelling still forwards to the
@@ -67,24 +67,9 @@ ScaleInput
 scale_input
 ```
 
-Why a fit stopped is its termination record: the verdict, a
-[`ReturnCode`](@ref) (`ReturnCode.T`, SciMLBase's names and success rule),
-read by [`retcode`](@ref), and the rule that fired, a [`StopRule`](@ref), read
-by [`stop_rule`](@ref). [`converged`](@ref) is strict,
-[`successful_retcode`](@ref) of the code: a cap or a stall is not converged.
-Whether a RANSAC found a model is [`found_model`](@ref).
+Why a fit stopped is its termination record, a [`ReturnCode`](@ref) and a [`StopRule`](@ref) in the result's core: see
+the Termination Record page.
 
-```@docs
-ReturnCode
-successful_retcode
-StopRule
-return_code
-stop_rule
-found_model
-retcode_symbol
-retcode_from_symbol
-worst_retcode
-```
 
 Its per-datum weights in [0, 1] are [`weights`](@ref)`(result)`, a plain vector;
 what they mean — and so where [`inlier_mask`](@ref)`(result)` cuts them — is

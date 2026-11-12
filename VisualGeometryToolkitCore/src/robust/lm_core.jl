@@ -13,7 +13,7 @@
 # `refine_ellipse` run the chart LM; its block-structured fits (the
 # relative-pose bundle, `refine_robot_world_hand_eye`) build their own
 # NLLSsolver problems and share the adapter's knob map (`nlls_options`) and
-# stop decoding (`nlls_retcode`, the stall postcondition `is_stationary`).
+# stop decoding (`nlls_termination`, the stall postcondition `is_stationary`).
 #
 # The adapter presents a linearization state as an NLLSsolver problem: one
 # variable, the chart vector (an `SVector{N}`, NLLSsolver's `EuclideanVector`),
@@ -335,8 +335,8 @@ end
     nlls_stop_code(bits::Integer) -> Int
 
 THE decoder of NLLSsolver's termination bits (`result.termination`, listed at
-[`nlls_retcode`](@ref)) into one stop code — the one both the chart LM's code
-(`lmsolve_chart!`, read by [`lm_retcode`](@ref)) and `nlls_retcode` are views
+[`nlls_stop_reasons`](@ref)) into one stop code — the one both the chart LM's code
+(`lmsolve_chart!`, read by [`lm_retcode`](@ref)) and [`nlls_termination`](@ref) are views
 of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 [`nlls_stop_reasons`](@ref) for every bit that is set). One order, the first
 that applies:
@@ -702,7 +702,7 @@ end
     is_stationary(J::AbstractMatrix, f::AbstractVector; tol, ftol) -> Bool
 
 The stall postcondition of [`lmsolve_chart!`](@ref) for a fit the chart LM
-does not run (a block-structured NLLSsolver problem, [`nlls_retcode`](@ref)):
+does not run (a block-structured NLLSsolver problem, [`nlls_termination`](@ref)'s postcondition):
 whether the point at which the residual `f` and its Jacobian `J` were
 evaluated is a stationary point of `F = ‖f‖²` — `F < ftol` (an exact fit,
 whose residual points in no particular direction), or every column `Jⱼ`
@@ -736,41 +736,13 @@ lm_retcode(converged::Int) =
     converged == _LM_FAILED ? :solve_failed : converged == _LM_MAX_TIME ? :max_time : :converged
 
 """
-    nlls_retcode(result, J::AbstractMatrix, r::AbstractVector; tol, ftol) -> Symbol
-
-The retcode of a fit run by NLLSsolver, from its `NLLSsolver.NLLSResult` and the
-Jacobian `J` and residual `r` at the returned estimate. NLLSsolver's
-termination bits (`result.termination`; NLLSsolver 5.x, `optimizeloop!` in
-src/optimize.jl): 0 the cost is infinite, 1 the cost is
-NaN, 2 the relative decrease in cost is too small, 3 the absolute decrease in
-cost is too small, 4 an infinity in the step, 5 a NaN in the step, 6 the max
-of the step size is too small, 7 the maximum number of consecutive failed
-iterations (iterations whose cost is higher than the current best,
-`maxfails`) is reached, 8 the maximum number of iterations is reached, 9 the
-maximum amount of time is exceeded, 10 the cost computations do not agree, 11
-the start point's cost or gradient is not finite (NLLSsolver ≥ 5.3.1: no step is
-tried), 16 terminated by the user callback. Decoded by the one order of
-`nlls_stop_code` (the chart LM reads the same): a failure (0, 1, 4, 5, 10, 11) without a step-size
-stop is `:solve_failed`; a step-size stop (6) is `:converged` when
-[`is_stationary`](@ref)`(J, r; tol, ftol)` holds and `:stalled` otherwise; a
-cost-decrease stop (2, 3) is `:converged`; the consecutive-failure cap (7)
-and any other stop (16) take the stall postcondition as the step stop does;
-then `:max_time` (9) and `:max_iterations` (8). A tolerance outranks a cap.
-"""
-function nlls_retcode(result::NLLSsolver.NLLSResult, J::AbstractMatrix, r::AbstractVector; tol::Real, ftol::Real)
-    code = nlls_stop_code(result.termination)
-    (code == 2 || code == 4) && return is_stationary(J, r; tol, ftol) ? :converged : :stalled
-    return lm_retcode(code)
-end
-
-"""
     nlls_rows_and_jacobian(blocks, variables) -> (r, J::SparseMatrixCSC)
 
 The rows of NLLSsolver residual `blocks` at `variables` (an NLLSsolver problem's
 variable vector) and their sparse Jacobian in the variables' chart coordinates
 — `NLLSsolver.computeresjac` of every block with all its variables free —
 the rows in block order, each variable's `NLLSsolver.nvars` columns in variable
-order (a run-time size included). What [`nlls_retcode`](@ref)'s stall
+order (a run-time size included). What [`nlls_termination`](@ref)'s stall
 postcondition reads, and a covariance or a GCV linearization of the same fit.
 """
 function nlls_rows_and_jacobian(blocks, variables::AbstractVector)

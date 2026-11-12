@@ -21,7 +21,8 @@ function VgtkCore.test_termination_record(r::FitResult)
         rule = Test.@inferred VgtkCore.stop_rule(r)
         Test.@test rule isa VgtkCore.StopRule
         Test.@test (Test.@inferred VgtkCore.converged(r)) === VgtkCore.successful_retcode(code)
-        Test.@test getfield(r, :retcode) === VgtkCore.retcode_symbol(code, rule)
+        Test.@test r.converged === VgtkCore.converged(r)
+        Test.@test (Test.@inferred VgtkCore.retcode_symbol(r)) === VgtkCore.retcode_symbol(code, rule)
     end
 end
 
@@ -110,6 +111,7 @@ function test_local_optimization_contract(::Type{T}, lo, problem, θ, scoring; a
         r = run()
         Test.@test r isa FitResult{<:Any, LoInfo}
         Test.@test estimate(r) isa model_type(problem)
+        VgtkCore.test_termination_record(r)            # the refit's termination record
         if r.residuals_current
             rr = similar(buf.residuals)
             mahalanobis_distances!(rr, problem, estimate(r))

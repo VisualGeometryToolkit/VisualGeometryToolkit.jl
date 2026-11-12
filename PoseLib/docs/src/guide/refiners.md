@@ -68,8 +68,10 @@ therefore comes back almost unchanged.
 Every refiner returns a VisualGeometryToolkitCore `FitResult`:
 
 - `estimate(result)`, the refined model;
-- `retcode(result)`, `:converged` when PoseLib stopped on its own tolerances,
-  `:max_iterations` when it used the whole budget, and `iterations(result)`,
+- `retcode(result)`, its termination record's `ReturnCode`: `ReturnCode.Success`
+  (with `stop_rule(result) == NoRule`: PoseLib states no rule) when PoseLib stopped
+  on its own tolerances, `ReturnCode.MaxIters` when it used the whole budget, and
+  `iterations(result)`,
   the iterations PoseLib took;
 - the scale record in its metadata ([`PoseLibRefineMetadata`](@ref PoseLib.PoseLibRefineMetadata)): the
   `scale` it was given and its `scale_source`, and the `width` PoseLib ran at.

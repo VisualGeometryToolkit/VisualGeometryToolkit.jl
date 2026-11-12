@@ -583,11 +583,15 @@ function _refine_width(lo, scale, width, d::Int)
 end
 
 # The refined model as a FitResult: PoseLib's iteration count and why it
-# stopped (it exhausts the budget only at `iterations == max_iter`). PoseLib
+# stopped (it exhausts the budget only at `iterations == max_iter`), as its
+# termination record: `(Success, NoRule)` before the cap (PoseLib reports no
+# stop rule, so none is claimed), `(MaxIters, IterationCap)` at it. PoseLib
 # reports no residual summary, so `rms` is `NaN`; `n` is the number of
 # correspondences refined over.
 _refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::PoseLibRefineMetadata) =
-    FitResult(model, iterations < max_iter ? :converged : :max_iterations, iterations, NaN, n, meta)
+    FitResult(model, (iterations < max_iter ? (VgtkCore.ReturnCode.Success, VgtkCore.NoRule) :
+                                              (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
+              iterations, NaN, n, meta)
 
 # Unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
 # `_assert_unit_bearings` (`problems/cspond.jl`) in tolerance and in what the
@@ -996,7 +1000,7 @@ function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, c
     # rebuilt through the checked constructor (the refined rotation is verified, as
     # before), then read in metres; the rest of the result is the plain refinement's
     pose_m = VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m)
-    return FitResult(pose_m, r.retcode, r.iterations, r.rms, r.n, r.metadata)
+    return FitResult(pose_m, VgtkCore.retcode(r), VgtkCore.stop_rule(r), r.iterations, r.rms, r.n, r.metadata)
 end
 
 refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(
@@ -1051,9 +1055,11 @@ The retired `loss` and `loss_width` keywords are refused with an
 Levenberg–Marquardt iteration budget; it has no default (an `Irls` strategy's
 own `max_iter`, its reweighting count, is not read by PoseLib).
 
-The result records PoseLib's `iterations` and its `retcode`: `:converged` when
-PoseLib stopped on its own tolerances, `:max_iterations` when it used the whole
-budget. Its metadata ([`PoseLibRefineMetadata`](@ref)) is the scale record:
+The result records PoseLib's `iterations` and its termination record
+(`retcode`, `stop_rule`; VisualGeometryToolkitCore's, SciMLBase's semantics):
+`(ReturnCode.Success, NoRule)` when PoseLib stopped on its own tolerances —
+PoseLib reports no stop rule, so none is claimed — and `(ReturnCode.MaxIters,
+IterationCap)` when it used the whole budget. Its metadata ([`PoseLibRefineMetadata`](@ref)) is the scale record:
 `noise_scale(result)` hands a given scale on to the next stage. PoseLib reports
 no residuals, weights or cost, so `rms` is `NaN` and `n` is the number of
 correspondences.
@@ -1080,8 +1086,8 @@ julia> r = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1
 julia> H1 = estimate(r); H1 / H1[3, 3] ≈ H
 true
 
-julia> retcode(r), iterations(r) < 25
-(:converged, true)
+julia> converged(r), iterations(r) < 25
+(true, true)
 ```
 """
 function refine_homography(H::AbstractMatrix,

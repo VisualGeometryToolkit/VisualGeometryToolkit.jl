@@ -352,8 +352,8 @@ end
 # Core routine: robust full-3D two-view BA (camera-aware).  Seed pose (R₀,t₀) +
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
 # per-point √weights → `(; R, t, result, retcode)`: the refined (R, t) (‖t‖=1),
-# NLLSsolver's result, and the retcode (VGC `nlls_retcode`, the stall
-# postcondition at `stationarity_tol`) when `retcode = true` — `nothing`
+# NLLSsolver's result, and its termination record `(ReturnCode.T, StopRule)` (VGC
+# `nlls_termination`, the stall postcondition at `stationarity_tol`) when `retcode = true` — `nothing`
 # otherwise: no production caller reads it (a `:stalled` bundle's pose is still
 # scored by the caller, the LO's acceptance, as a converged one is), and it
 # costs a sweep over the rows. `nothing` on failure. Positional and
@@ -414,12 +414,11 @@ function _bundle_optimize(
     return (; R, t, result, retcode = code)
 end
 
-# The bundle's retcode: NLLSsolver's termination bits and the stall
-# postcondition on the stacked rows (`nlls_retcode`; its exact-fit test at
-# eps).
+# The bundle's termination record: NLLSsolver's termination bits and the stall
+# postcondition on the stacked rows (`nlls_termination`; its exact-fit test at
+# eps), evaluated only for a stop that needs it.
 function _bundle_retcode(run::_BundleRun, result, tol)
-    J, f = _bundle_jacobian(run)
-    return nlls_retcode(result, J, f; tol, ftol = eps())
+    return nlls_termination(result, () -> ((J, f) = _bundle_jacobian(run); VgtkCore.is_stationary(J, f; tol, ftol = eps())))
 end
 
 # =============================================================================

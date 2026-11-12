@@ -25,7 +25,7 @@
 # on the camera and its view's pose (on the pose alone with nothing free in the
 # camera), differentiated by NLLSsolver (ForwardDiff through the retractions and
 # the lens). The driver is VGC's `nlls_options` (Marquardt's DᵀD damping); the
-# stop is checked by VGC's stall postcondition (`nlls_retcode`) on the rows and
+# stop is recorded by VGC's `nlls_termination`, under the stall postcondition on the rows and
 # their Jacobian at the estimate.
 #
 # Hoisted from RadiometricCamera's experiments (`refine_lens_and_poses`,
@@ -247,9 +247,10 @@ scratch and the camera keeps its family (its lens type).
 
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
-each with its input's frame labels). `retcode` is `:converged` only at a
-stationary point (VisualGeometryToolkitCore's `nlls_retcode`), else
-`:max_iterations`, `:max_time`, `:solve_failed` or `:stalled`; `rms` is
+each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
+VisualGeometryToolkitCore's `nlls_termination`: `ReturnCode.Success` only at a stationary point, else `MaxIters`
+(the iteration cap; an Irls run capped at its cycles), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
+`Stalled`; `rms` is
 `√(Σ‖rᵢ‖² / n)` over the `n` correspondences (pixels). The metadata
 ([`CameraPosesRefineMetadata`](@ref)) carries the residual rows, `s²`, `ν` and
 the free parameter names. Plain least squares: the correspondences must be
@@ -375,7 +376,7 @@ trait, `GaugeIntrinsics`, selects it):
   is not modelled here: that is the board-deformation solve of
   RadiometricCamera's calibration pipeline.
 - `max_time` caps the whole refine (every stage and rebuild round reads what
-  is left of it; `:max_time` when any was cut short).
+  is left of it; the record `(ReturnCode.MaxTime, TimeCap)` when any was cut short).
 - Device: the projections that build each problem run batched on the device
   (Core's `default_device()`); the LM is NLLSsolver's, on the CPU.
 
@@ -471,7 +472,7 @@ function refine_camera_and_poses(
         camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_csponds(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    return _camera_poses_result((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
@@ -479,10 +480,10 @@ function refine_camera_and_poses(
     )
     r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), iterations(r), rms(r), r.n, metadata(r))
+    return _camera_poses_result((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 
-_camera_poses_result(est, code, iters, rms, n, meta) = FitResult(est, code, iters, rms, n, meta)
+_camera_poses_result(est, code, rule, iters, rms, n, meta) = FitResult(est, code, rule, iters, rms, n, meta)
 
 # The route, by Core's `IntrinsicsRole` trait: a free K (a parametric lens) below; a gauge K
 # (a SplineLens) in refine_spline_camera_and_poses.jl.
@@ -604,7 +605,7 @@ function _refine_bundle(
     all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
-    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code,
+    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code, sol.rule,
         sol.iterations, sol.rms, sol.n, _bundle_metadata(sol, free, kw)
 end
 
@@ -614,7 +615,7 @@ end
 # ruling, 2026-11-11): the strategy's solve starts from the caller's start, its loss at its width over the caller's
 # frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's `loss_robustifier`); Irls, weighted
 # solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol` (relative) or `max_iter` cycles. A
-# refine estimates no scale. Returns the variables at the estimate, the retcode, the iterations, the reprojection rows,
+# refine estimates no scale. Returns the variables at the estimate, the termination record (`code`, `rule`), the iterations, the reprojection rows,
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
 # loop.jl: under least squares every correspondence and √(S/n)).
 function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer, kw)
@@ -669,11 +670,14 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    code = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
+    # the termination record: an Irls run capped at its cycles, else the last solve's (NLLSsolver's bits under the
+    # stall postcondition at the returned point)
+    code, rule = irls_capped ? (ReturnCode.MaxIters, IterationCap) :
+        nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
     lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
-    return (; variables = problem.variables, code, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
+    return (; variables = problem.variables, code, rule, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
 _bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
     _row_norms(sol.residuals), sol.weights, kw.input === nothing ? NaN : kw.input.scale, kw.input === nothing ? ScaleNone : kw.input.source,

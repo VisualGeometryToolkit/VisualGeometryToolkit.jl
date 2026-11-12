@@ -24,7 +24,7 @@ Each run uses the caller's problem of the pair, `problem_of(ctxs[j].pair)`, the
 selection `scoring`, the LO strategy `lo`, adaptive termination under `config`. Each pair's stream is `StableRNG(seed_of(j))`,
 handed to `ransac` explicitly, so a run is independent of the thread schedule,
 identical across calls that share `seed_of` (`seed_of` should be a `stable_seed`). Per pair: `err[j]` the imc pose error
-[deg] of the final model, `Inf` when the run yielded no model (`converged`
+[deg] of the final model, `Inf` when the run yielded no model (`found_model`
 false) or the pair was cancelled; `trials[j]` the trials drawn; `wall_s[j]` the wall clock of the
 `ransac` call alone. `warmup` first runs one short solve on pair 1 (result
 discarded) so no bracket pays JIT.
@@ -71,7 +71,7 @@ function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ct
                    on_improvement = cb, score_guard, rng)
         wall_s[j] = (time_ns() - t0) / 1e9
         trials[j] = iterations(r)
-        err[j] = converged(r) ? Float64(model_imc(estimate(r), ctxs[j])) : Inf
+        err[j] = found_model(r) ? Float64(model_imc(estimate(r), ctxs[j])) : Inf
         finalize === nothing || (extras[j] = finalize(j, r))
     end
     return finalize === nothing ? (; err, trials, wall_s) : (; err, trials, wall_s, extras)

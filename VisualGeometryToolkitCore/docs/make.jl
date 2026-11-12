@@ -82,7 +82,10 @@ makedocs(;
         # api/estimators.html 246 KiB): the intrinsics and sensors to
         # api/intrinsics.md, the pool selection and its grid kernels to
         # api/pool_selection.md, the Student-t + uniform scorer to
-        # api/student_t_scoring.md.
+        # api/student_t_scoring.md. Split on 2026-11-12 (api/estimators.html
+        # measured 201.15 KiB, over the 200 KiB limit, once the strategy layer
+        # moved to Core): the optimization strategies and the LO contract to
+        # api/optimization_strategies.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
@@ -146,6 +149,7 @@ makedocs(;
             "Epipolar Forms" => "api/epipolar_forms.md",
             "Correspondences" => "api/matching.md",
             "Robust Estimation" => "api/estimators.md",
+            "Optimization Strategies" => "api/optimization_strategies.md",
             "Student-t + Uniform Scoring" => "api/student_t_scoring.md",
             "Pool Selection" => "api/pool_selection.md",
             "Robust Losses" => "api/robust_losses.md",

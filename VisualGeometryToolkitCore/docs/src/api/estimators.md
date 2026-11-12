@@ -6,6 +6,8 @@
     VisualGeometryToolkitCore provides the contracts and shared primitives
     documented here and on the pages beside it: the problem, scoring and
     local-optimization contracts with the baseline scorers (this page); the
+    optimization strategies and the local-optimization contract
+    ([Optimization Strategies API](optimization_strategies.md)); the
     Student-t + uniform scorer ([Student-t + Uniform Scoring API](student_t_scoring.md));
     pool selection ([Pool Selection API](pool_selection.md)); the robust-loss family and the width axes
     ([Robust Losses API](robust_losses.md)); the robust-statistics toolkit,
@@ -25,7 +27,7 @@ CurrentModule = VisualGeometryToolkitCore
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["robust/estimation.jl", "robust/weights.jl", "robust/strategies.jl"]
+Pages = ["robust/estimation.jl", "robust/weights.jl"]
 ```
 
 ## Problem Protocol
@@ -47,12 +49,11 @@ Pages = ["robust/scoring_contract.jl", "robust/baseline_scorers.jl"]
 The scale-free marginal score of "RANSAC Scoring Done Right" is on the
 [Student-t + Uniform Scoring API](student_t_scoring.md) page.
 
-## Local-Optimization and External-Refit Contracts
+## Optimization Strategies and the Local-Optimization Contract
 
-```@autodocs
-Modules = [VisualGeometryToolkitCore]
-Pages = ["robust/lo_contract.jl"]
-```
+The optimization strategies (`Irls`, `Triggs` and their registry) and the
+local-optimization and external-refit contracts are on the
+[Optimization Strategies API](optimization_strategies.md) page.
 
 ## Pool Selection
 

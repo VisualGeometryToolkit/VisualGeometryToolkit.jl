@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEstimation changelog
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-11-12)
 
 Additive patch, on VisualGeometryToolkitCore 0.9.2 (its public `normalized_point`): `[compat]` VisualGeometryToolkitCore = "0.9.2".
 

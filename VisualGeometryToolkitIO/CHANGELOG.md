@@ -1,6 +1,20 @@
 # VisualGeometryToolkitIO changelog
 
-## 0.9.1 (unreleased)
+## 0.9.2 (unreleased)
+
+### Fixed
+
+- **An old grid body embedded in a record reads.** `camera_from_json` (both forms) took any body with a `type` for
+  the current non-central body, so the old grid bodies (`"type": "CentralGenericModel"` or
+  `"NoncentralGenericModel"`, `direction_grid`, `point_grid`, `present`, `nominal_intrinsics`, `domain`) that
+  RadiometricCamera's `rc/calibration_state/v1` and `rc/radiometric_camera/v1` store as their camera failed with
+  `KeyError: key "spline" not found`. They now read as the camera they migrate to, through the one conversion an old
+  grid file (`vgio/generic_camera/v2`/`v3`) and an old rig sensor take: a central one as a `CameraModel` with a
+  `SplineLens`, a non-central one as a `NoncentralSplineModel` (its line points in the enclosing record's length
+  unit), the domain the lens coverage; bit for bit the camera the whole-file migration of the same body gives. An
+  old grid body is read in the colmap pixel frame, the frame of every old grid body, whatever frame the call names.
+
+## 0.9.1 (2026-11-12)
 
 Additive patch: public names for two private functions a downstream package (RadiometricCamera) called by their
 private names; behaviour unchanged, the private names gone (no alias).

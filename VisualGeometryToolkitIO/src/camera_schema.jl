@@ -293,6 +293,15 @@ Read a camera body (the inverse of [`camera_json`](@ref) of a model) whose
 principal point is in the pixel `frame` the enclosing file declares: a
 `CameraModel`, or a `NoncentralSplineModel` (a body with a `type`, its line
 points in `length_unit`), in VGC's canonical pixel frame, and its extent.
+
+An old grid body (the body of a `vgio/generic_camera/v2`/`v3` record, as
+another package's record embeds it — RadiometricCamera's
+`rc/calibration_state/v1` camera) reads as the camera it migrates to, through
+the same conversion as an old grid file: a central one as a `CameraModel` with
+a `SplineLens`, a non-central one as a `NoncentralSplineModel` (its line points
+in `length_unit`). Such a body is read in the colmap pixel frame
+(`CANONICAL_PIXEL_FRAME`), whatever `frame` is given: the old grid code reads
+every old grid body's numbers in that frame.
 """
 camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =
     _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
@@ -307,8 +316,9 @@ Read a bounded camera's body (the inverse of [`camera_json`](@ref) of a
 lens coverage (none: the whole sensor), in VGC's canonical pixel frame.
 """
 function camera_from_json(::Type{BoundedCamera}, body, frame::Type{<:PixelFrame}; length_unit::Units = mm)
-    _validate(_BOUNDED_CAMERA_BODY, body, "a camera body", "")
-    return _bounded_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
+    s, b = _current_camera_body(VgioStyle(; pixel_frame = frame, length_unit), body)   # an embedded old grid body: its camera's
+    _validate(_BOUNDED_CAMERA_BODY, b, "a camera body", "")
+    return _bounded_from_body(s, b::Record)
 end
 
 # A bounded camera's body on IO's style, and back: the one form every kind that stores one embeds (a camera store's
@@ -319,9 +329,12 @@ function _bounded_body(s::VgioStyle, bc::BoundedCamera)
     body = _model_body(s, m, ext)                      # the model's own body: a central camera's or a non-central one's
     return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
 end
-_model_from_body(s::VgioStyle, b::Record) =
-    haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
+function _model_from_body(s::VgioStyle, b::Record)
+    s, b = _current_camera_body(s, b)                  # an embedded old grid body: its camera's (migrate.jl)
+    return haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
+end
 function _bounded_from_body(s::VgioStyle, b::Record, pose = nothing)
+    s, b = _current_camera_body(s, b)
     m, ext = _model_from_body(s, b)
     return BoundedCamera(_posed(m, pose), _bound_from_body(b, ext, s.length_unit); lens_coverage = _lens_coverage_from_json(s, get(b, :lens_coverage, nothing)))
 end

@@ -1,6 +1,6 @@
 # VisualGeometryToolkitFeatures changelog
 
-## 0.8.0 (unreleased)
+## 0.8.0 (2026-11-12)
 
 Breaking. The sensor image moves to VisualGeometryToolkitCore 0.9.2 (`[compat]` VisualGeometryToolkitCore 0.9.2), and
 this package keeps only what needs LibRaw: `load_raw_mosaic`/`LibRawDecoder` (producing Core's `RawMosaic`), `load_raw`

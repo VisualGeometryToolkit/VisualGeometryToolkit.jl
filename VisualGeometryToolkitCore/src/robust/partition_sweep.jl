@@ -666,7 +666,7 @@ end
 
 The loop body of the stack's one prefix sweep ([`ig_sweep_kernel!`](@ref)),
 callable inside a KernelAbstractions kernel on every backend: ONE sequential
-pass over the `K` ascending squared residuals `sorted_sq[base + 1 : base + K]`
+sweep over the `K` ascending squared residuals `sorted_sq[base + 1 : base + K]`
 (a global array, or a kernel's `@localmem` with `base = 0`), returning the best
 partition score `S* = max_k S(k)` and the first `k*` at it (`k* = 0` when no
 partition scores above −Inf, as when `K ≤ model_dof`). `S(k)` is

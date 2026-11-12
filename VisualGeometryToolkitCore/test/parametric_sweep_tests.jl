@@ -340,6 +340,7 @@ end
         tid <= n && (smem[tid] = sq[tid, blob])
         @synchronize()
         if tid == 1
+            n = Int(cnt[blob])   # re-read: KernelAbstractions' CPU backend splits the body at @synchronize, so a plain local does not cross it
             S, k = prefix_sweep(eltype(S_out), smem, 0, n, lg, model_dof, 1, IGPrior(0.0, 0.0), l2h[blob], nothing, nothing)
             S_out[blob] = S
             k_out[blob] = Int32(k)

@@ -25,7 +25,21 @@ mode method and `_frame_map_record` respectively).
 
 ## 3. Executed on the final RC
 
-To be filled from the fresh-clone gate on the head with the provenance method.
+The final RC is 4055b67b (0.9.4 on b7ad736e, the pushed 0.9.3). The gate ran on two fresh clones, one per Julia version: a
+`git clone` with no Manifest, its workspace resolved from scratch. Counts are pass / fail / error / broken.
+
+| Package | 1.13.3 GPU (10623) | 1.13.3 CPU (10624) | 1.12.7 GPU (10632) | 1.12.7 CPU (10633) | docs 1.13 / 1.12 |
+|---|---|---|---|---|---|
+| VisualGeometryToolkitCore | 411320 / 0 / 0 / 2 | 409742 / 0 / 0 / 30 | 411317 / 0 / 0 / 2 | 409739 / 0 / 0 / 30 | 0 / 0 (10625, 10634) |
+| VisualGeometryToolkitIO | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 0 / 0 (10626, 10635) |
+| VisualGeometryToolkitEstimation | 20961 / 0 / 0 / 3 | 20951 / 0 / 0 / 3 | 20949 / 0 / 0 / 3 | 20939 / 0 / 0 / 3 | 0 / 0 |
+| VisualGeometryToolkitFeatures | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | 0 / 0 |
+| VisualGeometryToolkitEval | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 0 / 0 |
+| PoseLib | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 0 / 0 |
+
+No failures or errors anywhere. The previous RC 2133c287 (the provenance method with an untyped map argument) failed Core's JET
+gate on two of its four runs (13 reports against the bound 12: `translation(S::Any)`, union-split onto `Disc`/`OrientedDisc`);
+4055b67b types the argument. Earlier RCs: eff6ff34 (before the provenance method), all green.
 
 ---|---|---|---|---|---|
 | VisualGeometryToolkitCore | 410869 / 0 / 0 / 2 | 409291 / 0 / 0 / 30 | 410866 / 0 / 0 / 2 | 409288 / 0 / 0 / 30 | 0 / 0 (10513, 10517) |

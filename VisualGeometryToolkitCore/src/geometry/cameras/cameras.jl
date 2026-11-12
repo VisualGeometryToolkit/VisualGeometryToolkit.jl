@@ -120,7 +120,7 @@ import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surfac
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
-using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds  # composition primitives (depth-attributed points, correspondence sets)
+using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds, withattrs  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
 import ..VisualGeometryToolkitCore: is_posed  # the pose trait, answered per camera type
@@ -564,6 +564,33 @@ where the lens MODEL is valid — that is
 [`imaged_region`](@ref)`(camera)`.
 """
 lens_coverage(bc::BoundedCamera) = bc.lens_coverage
+
+"""
+    lens_coverage(camera::BoundedCamera, rim_margin::Real) -> Union{Rect2{Float64}, Circle{Float64}, Ellipse{Float64}, Nothing}
+
+The camera's [`lens_coverage`](@ref) less `rim_margin` pixels at the LENS's
+edge (an image circle's soft rim), or `nothing` when nothing is left: a
+`Circle` of radius `r − rim_margin`, an `Ellipse` with both semi-axes less
+`rim_margin`, a `Rect` inset by `rim_margin` on each side that lies inside the
+sensor — a side on or past the sensor's edge is the sensor's, not the lens's,
+and stays, so a camera whose whole sensor is lit loses nothing. The kind it was
+given; a margin of `0` returns the coverage. Where a consumer counts a pixel as
+lit away from the rim: `imaged_region(with_lens_coverage(camera, c))` is what
+such a camera images (with [`with_lens_coverage`](@ref)), and a `Circle`'s
+`c.r` the radius it reaches from the circle's centre.
+"""
+function lens_coverage(bc::BoundedCamera, rim_margin::Real)
+    e = extent(bc)
+    return _less_rim(lens_coverage(bc), rim_margin, Rect2{Float64}(0, 0, e.width, e.height))
+end
+_less_rim(c::Circle, m, _) = c.r > m ? Circle(c.center, c.r - m) : nothing
+_less_rim(e::Ellipse, m, _) = min(e.a, e.b) > m ? Ellipse(e.center, e.a - m, e.b - m, e.θ) : nothing
+function _less_rim(r::Rect, m, sensor::Rect)
+    lo, hi = r.origin, r.origin .+ r.widths; slo, shi = sensor.origin, sensor.origin .+ sensor.widths
+    x0, y0 = ntuple(i -> lo[i] > slo[i] ? lo[i] + m : lo[i], 2)
+    x1, y1 = ntuple(i -> hi[i] < shi[i] ? hi[i] - m : hi[i], 2)
+    return x1 > x0 && y1 > y0 ? Rect2{Float64}(x0, y0, x1 - x0, y1 - y0) : nothing
+end
 
 """
     with_lens_coverage(camera::BoundedCamera, region) -> BoundedCamera
@@ -1219,6 +1246,7 @@ export FramedLensProjection
 # -----------------------------------------------------------------------------
 export project, backproject, unproject, transfer
 export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibrated geometry entry point
+export bearing_csponds   # pixel pairs → bearing csponds with their M₁/M₂ pixel Jacobians
 
 # -----------------------------------------------------------------------------
 # 7. CAMERA ACCESSORS - Extract camera properties

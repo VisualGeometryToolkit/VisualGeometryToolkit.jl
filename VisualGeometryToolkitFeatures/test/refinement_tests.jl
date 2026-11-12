@@ -57,3 +57,45 @@ end
     r = VF._pyramid_buffers(KA.CPU(), 64, 48, 70, 60, [(128, 96), (64, 48)], 3, 3, true)
     @test r[5] == 3 && size(r[2]) == (64, 48, 3) && size(r[3][1]) == (128, 96, 6, 3)
 end
+
+# The owner's ruling (2026-11-12): with `FeatureCovariance` a detection whose covariance is singular or NaN is DROPPED,
+# exactly as a failed refinement is, and counted in the same plan counter (`refine_dropped`); never returned with a
+# covariance a consumer cannot whiten by.
+@testitem "asift: a detection with a singular-Hessian covariance is dropped and counted" begin
+    using VisualGeometryToolkitFeatures: asift_detect!, AsiftPlan, FeatureCovariance, _ift_cov, _pk, _drop_singular_covs!
+    using VisualGeometryToolkitCore: cov
+    using LinearAlgebra: isposdef
+    import KernelAbstractions as KA
+    using Random: Xoshiro
+    # the IFT covariance of the pipeline (`_ift_cov`) at a regular and at a singular DoG Hessian, M = I (unit functionals)
+    tab = zeros(Float32, 45, 4, 4, 1)
+    foreach(k -> (tab[_pk(k, k), 2, 1, 1] = 1.0f0), 1:9)
+    regular = _ift_cov(tab, 2, 1, 1, (-1.0f0, -2.0f0, -3.0f0, 0.1f0, 0.0f0, 0.2f0), 0.1f0, -0.2f0, 0.05f0, 1.0f0, Int32(3))
+    singular = _ift_cov(tab, 2, 1, 1, (-1.0f0, -1.0f0, -1.0f0, -1.0f0, -1.0f0, -1.0f0), 0.1f0, -0.2f0, 0.05f0, 1.0f0, Int32(3))   # rank 1: det Ĥ = 0
+    @test all(isfinite, regular) && !all(isfinite, singular)
+    # a pool of four: valid regular, valid singular, valid NaN, and a singular one already rejected (the boundary)
+    fh = zeros(Float32, 9, 4); fh[9, 1:3] .= 1.0f0
+    ch = hcat(collect(regular), collect(singular), fill(NaN32, 6), collect(singular))
+    @test _drop_singular_covs!(fh, ch, 4) == 2                 # counted: the two valid detections without a covariance
+    @test fh[9, :] == Float32[1, 0, 0, 0]                      # dropped: marked invalid like a boundary reject
+    @test _drop_singular_covs!(fh, nothing, 4) == 0            # no covariances asked for: nothing to drop
+    # through the detector: every returned covariance is finite and positive definite, and the counter is the
+    # refinement's own plus the covariance drops (never fewer than without covariances)
+    rng = Xoshiro(9)
+    H, W = 256, 320
+    img = fill(0.5f0, H, W)
+    for _ in 1:60
+        cx, cy, σ, a = W * rand(rng), H * rand(rng), 1.5 + 10rand(rng), 0.4f0 * (rand(rng) - 0.5f0)
+        r = ceil(Int, 4σ)
+        for j in max(1, floor(Int, cx) - r):min(W, floor(Int, cx) + r), i in max(1, floor(Int, cy) - r):min(H, floor(Int, cy) + r)
+            img[i, j] += a * exp(-Float32((j - 0.5 - cx)^2 + (i - 0.5 - cy)^2) / Float32(2σ^2))
+        end
+    end
+    img .+= 0.01f0 .* randn(rng, Float32, H, W)
+    plan = AsiftPlan(W, H; device = KA.CPU())
+    plain = asift_detect!(plan, permutedims(img); nms = :none, intensity_thr = 0.01)
+    n_plain = plan.refine_dropped
+    r = asift_detect!(plan, permutedims(img); nms = :none, intensity_thr = 0.01, uncertainty = FeatureCovariance())
+    @test all(c -> all(isfinite, c) && isposdef(parent(c)), r.cov)
+    @test plan.refine_dropped == n_plain + (length(plain) - length(r.features))
+end

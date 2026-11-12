@@ -126,12 +126,12 @@ graph is an `ArgumentError`, counting only the edges of positive weight; the
 function fit_rotation_averaging(
         relative::AbstractDict{<:Tuple{K, K}};
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_strategy_default("fit_rotation_averaging"),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_rotation_averaging", "tol"),
         seed::Union{Symbol, AbstractDict} = :spectral,
     ) where {K}
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     edges = sort!(collect(keys(relative)))
     meas = [_edge_measurement(relative[e]) for e in edges]
     f = _averaging_irls(optimization_strategy, scale, width, [first(x) for x in meas])

@@ -711,7 +711,7 @@ end
 function _refine_spline_axis_gauged(
         camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector, had_forward::Bool;
         fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
         penalty::Union{Symbol, Real, Nothing} = :gcv,
         refit_forward::Bool = true,
@@ -826,5 +826,5 @@ function _refine_spline_axis_gauged(
     spline = (; β = isfree ? w : 0.0, λ = p.λ, gcv, gcv_at_bound, effective_dof, n_nodes_unrefined,
         n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected, rounds, windows_settled = settled,
         forward, forward_max_px, cost_start)
-    return (; camera = out_camera, poses = out), record..., iterations, sqrt(sum(abs2, rd) / n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
+    return (; camera = out_camera, poses = out), record..., iterations, rms(rd, n), n, CameraPosesRefineMetadata(rd, sum(abs2, r) / ν, ν, free, spline)
 end

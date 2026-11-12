@@ -512,6 +512,10 @@ const RETIRED_NAMES = String[
     # carried as bare offsets or an integer scale beside the image
     "plane" * "_offsets",                    # `bayer_plane_map(L, c)` (its translation onto the cell grid: `inv(raw_frame_map(L)) ∘ bayer_plane_map(L, c)`)
     "raw" * "_scale",                        # `raw_frame_map(L)` (PanoramaStitching's keyword: the frame's map onto the raw)
+    # PanoramaStitching's 0.9 audit: its parallel feature record and its keypoint-noise and width helpers are the stack's
+    # (the detections themselves, Features' `propagate(map, detection)`, the scorer's own width), never restated
+    "Frame" * "Features", "keypoint" * "_covariance_scale", "keypoint" * "_uncertain", "pixel" * "_covariances",
+    "bundle" * "_whitening", "scoring" * "_threshold_px",
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -1681,7 +1685,7 @@ end
 #   - Julia: a keyword argument so named in a CALL or a SIGNATURE of a
 #     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*`, their
 #     `_`-prefixed internals, `LensSpec` and CaliBlobs' `LensTarget`). A signature's refusal
-#     slot (`free = _RetiredKeyword()`) and a call inside `@test_throws` (the
+#     slot (`free = RetiredKeyword()`) and a call inside `@test_throws` (the
 #     test of the refusal) are the refusal itself, not a use. Comments
 #     ("CUDA-free", "free memory", "for free"), a local `free`, a struct field
 #     (a result's record of what was refined) and Base's or a package's own
@@ -1694,7 +1698,8 @@ end
 const _R13_SPELLINGS = (:free, :fix, :fixed_params, :hold)
 const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$|^(LensSpec|LensTarget)$"
 const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
-_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
+_r13_refusal(v) = Meta.isexpr(v, :call) && (v.args[1] in (:RetiredKeyword, :_NoFree) ||
+    (Meta.isexpr(v.args[1], :.) && v.args[1].args[end] == QuoteNode(:RetiredKeyword)))   # qualified, as a downstream package writes it
 function _r13_keywords!(acc, ex, line::Int)
     ex isa Expr || return acc
     if Meta.isexpr(ex, :macrocall) && ex.args[1] in (Symbol("@test_throws"),)

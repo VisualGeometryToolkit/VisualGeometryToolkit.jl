@@ -114,9 +114,9 @@ function refine_robot_world_hand_eye(
         };
         max_iter::Int = _dflt("refine_robot_world_hand_eye", "max_iter"),
         optimization_strategy = _refine_default(Val(:refine_robot_world_hand_eye)),
-        scale = nothing, width = nothing, local_optimization = _RetiredKeyword(),
+        scale = nothing, width = nothing, local_optimization = RetiredKeyword(),
     ) where {K}
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     strategy = bundle_loss(optimization_strategy; scale, width, caller = "refine_robot_world_hand_eye")
     ids = block_order(markers, guess.X)             # the key sets must match: every marker of the guess is refined
     M = length(ids)

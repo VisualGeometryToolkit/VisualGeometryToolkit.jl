@@ -19,18 +19,37 @@
 #            optimizer left them current) → gate S > S_lo → test_consensus
 # =============================================================================
 
-# A retired strategy keyword (the owner's ruling, 2026-11-11): `find_*`, `ransac` and
-# `locally_optimize` take `local_optimization_strategy`, every `refine_*` and `fit_*`
-# `optimization_strategy`. A retired keyword is refused naming its successor, never aliased.
-struct _RetiredKeyword end
-_refuse_retired_keyword(::_RetiredKeyword, _old, _new) = nothing
-_refuse_retired_keyword(_value, old, new) =
+"""
+    RetiredKeyword()
+    refuse_retired_keyword(value, old, new) -> nothing
+
+The stack's one refusal of a retired keyword, never an alias: a function keeps the
+retired keyword `old` with the default `RetiredKeyword()` and calls
+`refuse_retired_keyword(old_value, :old, successor)` first, which throws
+`ArgumentError("the keyword `old` is retired: give `new`")` for any value a caller
+supplies and returns `nothing` for the default. `new` names what replaces it (a
+keyword, or the argument that now carries it). Every `find_*`, `ransac` and
+`locally_optimize` refuses `local_optimization` this way (it takes
+`local_optimization_strategy`), every `refine_*` and `fit_*` the strategy
+spellings (the owner's ruling, 2026-11-11); a downstream package refuses its own
+retired keywords through the same pair.
+"""
+struct RetiredKeyword end
+"""
+    refuse_retired_keyword(value, old, new) -> nothing
+
+`nothing` for [`RetiredKeyword`](@ref)`()`, the retired keyword's default; for any
+other `value` an `ArgumentError` naming the retired keyword `old` and its
+successor `new`.
+"""
+refuse_retired_keyword(::RetiredKeyword, _old, _new) = nothing
+refuse_retired_keyword(_value, old, new) =
     throw(ArgumentError("the keyword `$old` is retired: give `$new`"))
 # The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word),
 # naming the exceptions; the other spellings are refused, never aliased.
 function _refuse_held_spellings(free, fix, fixed_params, hold)
     for (v, name) in ((free, :free), (fix, :fix), (fixed_params, :fixed_params), (hold, :hold))
-        v isa _RetiredKeyword || throw(ArgumentError(
+        v isa RetiredKeyword || throw(ArgumentError(
             "the keyword `$name` is retired: give `fixed`, the parameters held (every other one is refined)"))
     end
     return nothing
@@ -106,7 +125,7 @@ function ransac(
         problem::AbstractRansacProblem,
         scoring::AbstractScoring;
         local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization_strategy(scoring),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         config::RansacConfig = RansacConfig(),
         workspace = nothing,
         on_improvement = nothing,
@@ -118,7 +137,7 @@ function ransac(
         # `rng = Xoshiro(seed)` makes the run bit-reproducible.
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     _check_scoring(problem, scoring)
     ws = _entry_workspace(workspace, problem, scoring, local_optimization_strategy)
     return ransac!(
@@ -534,13 +553,13 @@ function locally_optimize(
         problem, θ₀;
         local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy},   # REQUIRED — no default
         scoring::AbstractScoring,                        # REQUIRED — no default
-        local_optimization = _RetiredKeyword(),          # refused, naming its successor
+        local_optimization = RetiredKeyword(),          # refused, naming its successor
         workspace = nothing,
         score_guard::Bool = false,
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     sc = scoring
     _check_scoring(problem, sc)
     ws = _entry_workspace(workspace, problem, sc, local_optimization_strategy)
@@ -589,12 +608,12 @@ function locally_optimize(
         problem, models::FixedModels;
         local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy},   # REQUIRED — no default
         scoring::AbstractScoring,                        # REQUIRED — no default
-        local_optimization = _RetiredKeyword(),          # refused, naming its successor
+        local_optimization = RetiredKeyword(),          # refused, naming its successor
         workspace = nothing,
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     sc = scoring
     _check_scoring(problem, sc)
     # The no-consensus exit of `_select_then_optimize!` relies on `has_best`

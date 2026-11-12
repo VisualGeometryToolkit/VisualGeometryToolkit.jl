@@ -181,7 +181,7 @@ end
     return (ΔR * ch.R, _translation(_coupling(ch), ΔR, ch.t, v))
 end
 
-# Re-anchoring re-projects R onto SO(3) — the one policy (`_reproject_so3`,
+# Re-anchoring re-projects R onto SO(3) — the one policy (`reproject_so3`,
 # lie.jl) — and keeps the anchor's storage types in the contract's element type
 # (base/manifold.jl): a step of the chart's own float type gives back the type
 # a solver stepping a chart variable holds, a Dual step a Dual-valued chart.
@@ -199,7 +199,7 @@ function recenter(ch::RigidChart{P, C, Rot, Tr}, v) where {P, C, Rot, Tr}
     S = promote_type(eltype(Rot), eltype(Tr))
     T = promote_type(S, eltype(v))
     RotT, TrT = T === S ? (Rot, Tr) : (_storage_with_eltype(Rot, T), _storage_with_eltype(Tr, T))
-    return RigidChart{P, C, RotT, TrT}(RotT(_reproject_so3(R)), TrT(t))
+    return RigidChart{P, C, RotT, TrT}(RotT(reproject_so3(R)), TrT(t))
 end
 
 function retract(ch::RigidChart, v)
@@ -284,7 +284,7 @@ function recenter(ch::RotationChart{P, Rot}, v) where {P, Rot}
     S = eltype(Rot)
     T = promote_type(S, eltype(v))
     RotT = T === S ? Rot : _storage_with_eltype(Rot, T)
-    return RotationChart{P, RotT}(RotT(_reproject_so3(_rotated_anchor(ch, v))))
+    return RotationChart{P, RotT}(RotT(reproject_so3(_rotated_anchor(ch, v))))
 end
 
 """
@@ -331,3 +331,25 @@ function local_coordinates(ch::RigidChart, pose::PlainEuclideanMap{3})
 end
 # a restricted pose manifold reads the same closed form on its free coordinates
 local_coordinates(rc::SubsetManifold, pose::PlainEuclideanMap{3}) = local_coordinates(rc.manifold, pose)[rc.idx]
+
+"""
+    inv(pose::Uncertain{<:EuclideanMap{3}}) -> Uncertain
+
+The inverse of an uncertain rigid pose, its covariance carried through: both
+over `[δω; δt]` in the [`RigidExpManifold6`](@ref) chart (`R ↦ exp(δω)·R`,
+`t ↦ t + δt`, the stack's persisted pose chart), and with `R`, `t` the pose's,
+the inverse's perturbation is `δω′ = −Rᵀδω`, `δt′ = −Rᵀδt − Rᵀ[t]ₓδω`, so
+`Σ′ = J·Σ·Jᵀ` (symmetrized exactly). A covariance form (`CovMat{6}`), plain
+translations (the caller's length unit, the covariance in its square). GTSAM's
+`Pose3::inverse` with its Jacobian is the right-chart counterpart (its
+`AdjointMap`); this is the left chart's.
+"""
+function Base.inv(u::Uncertain{<:PlainEuclideanMap{3}, <:CovMat{6}})
+    Y = geom(u)
+    R, t = SMatrix{3, 3, Float64}(Y.R), SVector{3, Float64}(Y.t)
+    tx = SMatrix{3, 3, Float64}(0, t[3], -t[2], -t[3], 0, t[1], t[2], -t[1], 0)
+    Z = zero(SMatrix{3, 3, Float64})
+    J = [-R' Z; -R' * tx -R']
+    S = J * SMatrix{6, 6, Float64, 36}(cov(u)) * J'
+    return Uncertain(inv(Y), CovMat(SMatrix{6, 6, Float64, 36}((S + S') / 2)))
+end

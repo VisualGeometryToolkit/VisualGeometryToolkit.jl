@@ -140,6 +140,16 @@
                 @test isconcretetype(typeof(rb))
                 @test (@inferred radix_sortperm!(perm, v, rb, 8)) === nothing
             end
+            # (d) the permutation's integer type is the buffers' (an Int32 permutation): the same order as Int's
+            for K in (UInt32, UInt64), n in (1, 33, 517)
+                v = randn(MersenneTwister(n), n)
+                p64 = Vector{Int}(undef, n); radix_sortperm!(p64, v, RadixPermBuffers{K}(n), n)
+                p32 = Vector{Int32}(undef, n); rb32 = RadixPermBuffers{K, Int32}(n)
+                @test isconcretetype(typeof(rb32)) && eltype(rb32.perm2) === Int32
+                @test (@inferred radix_sortperm!(p32, v, rb32, n)) === nothing
+                @test p32 == p64
+            end
+            @test RadixPermBuffers{UInt32}(4) isa RadixPermBuffers{UInt32, Int}
             # the scoring workspace carries the width in its type (no abstract field)
             sws32 = default_scoring_workspace(16; dg = 1, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
             @test isconcretetype(typeof(sws32))

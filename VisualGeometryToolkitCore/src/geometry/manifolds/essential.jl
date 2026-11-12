@@ -208,9 +208,9 @@ function retract(ch::EssentialManifold, v::StaticVector)
     return EssentialMat(Tuple(skew(t) * R))
 end
 
-# re-anchoring re-projects R onto SO(3) — the one policy (`_reproject_so3`, lie.jl);
+# re-anchoring re-projects R onto SO(3) — the one policy (`reproject_so3`, lie.jl);
 # `recenter_pose` (the engines' verbatim update) does not
 function recenter(ch::EssentialManifold{G}, v) where {G}
     R, t = recenter_pose(ch, v)
-    return EssentialManifold{G}(_reproject_so3(R), t)
+    return EssentialManifold{G}(reproject_so3(R), t)
 end

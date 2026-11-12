@@ -188,12 +188,19 @@ end
 # its `SMatrix`, the element type kept (Duals included).
 log_so3(R::StaticMatrix{3, 3, T}) where {T <: Real} = log_so3(SMatrix{3, 3, T, 9}(R))
 
-# The rotation a drifted rotation matrix stands for, by its unit quaternion — the
-# ONE re-anchoring policy of every chart with an SO(3) part (`recenter` of the rigid
-# and essential charts): a long run of multiplied rotation updates otherwise
-# accumulates rounding until an `EuclideanMap` rebuild's rotation check refuses the
-# iterate. Retractions do not re-project; only re-anchoring does.
-_reproject_so3(R::AbstractMatrix{T}) where {T} =
+"""
+    reproject_so3(R::AbstractMatrix) -> SMatrix{3, 3}
+
+The rotation a drifted rotation matrix `R` stands for, by its unit quaternion
+(Rotations' `QuatRotation` of it, back to a matrix), in `R`'s element type: the
+ONE re-anchoring policy of every chart with an SO(3) part (`recenter` of the
+rigid and essential charts), and the one a caller applies to a rotation that
+walked through many retractions or was read from a file before building an
+`EuclideanMap` — whose rotation check refuses a matrix past √eps off
+orthonormal. On an orthonormal `R` it changes it by rounding only. Retractions
+do not re-project; only re-anchoring does.
+"""
+reproject_so3(R::AbstractMatrix{T}) where {T} =
     SMatrix{3, 3, T, 9}(RotMatrix{3, T}(Rotations.QuatRotation(RotMatrix{3, T}(SMatrix{3, 3, T, 9}(R)))))
 
 """

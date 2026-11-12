@@ -270,7 +270,7 @@ function refine_camera(
         fixed::Tuple{Vararg{Symbol}} = (),
         weight::Symbol = :image, max_iter::Int = _dflt("refine_camera", "max_iter"), device = default_device(),
         optimization_strategy = nothing, scale = nothing, width = nothing,
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
     _check_l2_refine(optimization_strategy, scale, width)

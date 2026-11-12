@@ -79,6 +79,7 @@ using FlexUnits: Quantity, Units, ustrip, uconvert, dimension, ubase,
 # Functional updates
 using Accessors: Accessors
 using Adapt: Adapt   # a warp's device form (BoundedMap's adapt_structure, geometry/transforms/bounded_map.jl)
+using GPUArrays: GPUArrays   # an eager release of a device buffer (`free_device_buffers!`, base/device.jl): GPUArrays owns `unsafe_free!`
 
 # Colors (still needed for image types, independent of plotting)
 using Colors: Colors, Gray
@@ -118,7 +119,7 @@ export bbox
 # Compute backend dispatch tags (shared across the package family)
 export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
-public device_free_bytes, reclaim_device!, device_names   # the accelerator's memory and devices, the extension's queries (base/device.jl)
+public device_free_bytes, reclaim_device!, device_names, free_device_buffers!   # the accelerator's memory and devices, the extension's queries (base/device.jl)
 export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
 public device_zeros   # a zero array on a backend (base/device.jl; KernelAbstractions' `zeros` is not public)
 
@@ -294,6 +295,7 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
+public bearing_csponds   # pixel pairs → bearing csponds carrying their pixel Jacobians (M₁, M₂)
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
 export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance
@@ -497,7 +499,7 @@ public scoring_workspace, score!, inlier_count, consensus_order, decision_bounda
     has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
     score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
-    with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality,
+    with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, @threshold_scoring_constructors, ThresholdScoringWorkspace, residual_quality,
     SCORING_TAGS
 # The Student-t + uniform marginal scorer and its partition sweep (robust/partition_sweep.jl,
 # robust/student_t_uniform_scoring.jl; moved from RANSACScoringDoneRight, 2026-11-11). The
@@ -751,6 +753,7 @@ export motion
 # geometry/solvers/fundmat.jl).  The reverse direction is `FundMat(E, K1, K2)`.
 export translation_angle, angle_between, skew   # angle_between(u, v): the well-conditioned atan(‖u × v‖, u · v)
 export exp_so3, log_so3, left_jacobian, exp_se3, log_se3
+public reproject_so3   # a drifted rotation matrix back on SO(3), by its unit quaternion (the charts' one re-anchoring)
 public SO3        # group tag: the type-argument slot of left_jacobian(SO3, ω)
 export kabsch, chordal_mean, spectral_rotation_averaging, mirror   # SO(3) projection is Rotations.nearest_rotation
 

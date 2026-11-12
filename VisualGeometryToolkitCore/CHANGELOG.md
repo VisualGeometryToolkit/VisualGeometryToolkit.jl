@@ -14,6 +14,37 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **Breaking: `lm_retcode` is removed** (public in 0.8; the termination record is the one map). The chart LM's outcome is
   the `(code, rule)` record `lmsolve_chart!` returns (from `nlls_termination`); a caller that still wants the former
   Symbol reads `retcode_symbol(code, rule)`.
+- **`reset_posterior!(pws; …)`: a keyword left out keeps the state's current value** (the owner's ruling, 2026-11-12;
+  `prior` was required and `codimension`, `inlier_prior` defaulted to 1 and ½), so a caller re-seeding one parameter
+  states only that one. A call that gives every keyword is unchanged.
+
+- **`rms(residuals, n = length(residuals))`**: the fits' root-mean-square residual `√(Σ r² / n)`, the one computation
+  (a method of the `rms` accessor); VisualGeometryToolkitEstimation's `fit_camera`, `refine_camera_and_poses` (spline),
+  and `fit_division_camera`'s step use it.
+
+- **`reproject_so3(R)`, public** (was the private `_reproject_so3`): a drifted rotation matrix back on SO(3) by its
+  unit quaternion, the charts' one re-anchoring and a caller's before an `EuclideanMap`'s rotation check.
+- **`inv(pose::Uncertain{<:EuclideanMap{3}, <:CovMat{6}})`**: the inverse of an uncertain rigid pose with its
+  covariance carried through in the `RigidExpManifold6` chart (hoisted from BlobBoards' bmvc2026
+  `inv_pose_covariance`).
+
+- **New dependency: GPUArrays** (11.5), for `free_device_buffers!(xs...)` (public): the ONE eager release of a device
+  buffer (GPUArrays' `unsafe_free!`; a host array untouched), hoisted from RANSACScoringDoneRight. KernelAbstractions'
+  `unsafe_free!`, which VisualGeometryToolkitFeatures called, is not extended by CUDA.jl 5.11 and freed nothing on the GPU.
+- **`@threshold_scoring_constructors S`, public**: a threshold-scorer family's constructors (`S{DG}()`, `S()`,
+  `S(dg; threshold)`, `S(problem; threshold)`, `S(P; threshold)`) and its `with_width`, generated once; `RansacScoring`
+  and `MsacScoring` are built by it (bit-identical), and a downstream family by the same line.
+- **`RadixPermBuffers{K, I}`**: the radix sort's permutation of any integer type `I` (`radix_sortperm!(perm::Vector{I},
+  …)`); `RadixPermBuffers{K}(n)` is `I = Int`, bit-identical.
+
+- **New methods of existing functions (hoists from downstream copies).** `is_stationary(blocks, variables, free; tol,
+  ftol)`: the stall postcondition of an NLLSsolver problem's residual blocks in the columns of its free variables, the
+  √ρ′-weighted gradient and column norms accumulated block by block (each block's `robustkernel`), the problem's
+  Jacobian never held — the form RadiometricCamera's `lm_stationary` faked a two-row Jacobian for and
+  PanoramaStitching's rotation bundle cut its held columns for. `lens_coverage(camera, rim_margin)`: the lens coverage
+  less a rim margin at the lens's edge (a `Circle`'s radius, an `Ellipse`'s semi-axes, a `Rect`'s sides inside the
+  sensor), or `nothing` — PanoramaStitching's frame-region rim and RadiometricCamera's image circle less its rim.
+
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),
   one Dual layer at a time, so nested Duals differentiate exactly; no Dual enters the LM inverse. With a forward spline the

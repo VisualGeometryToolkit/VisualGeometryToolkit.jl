@@ -218,3 +218,38 @@ end
     end
     @test VgtkCore.sampson_residuals!(Float64[], F, VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])) == Float64[]
 end
+
+# The eager release of a device buffer (base/device.jl, hoisted from RANSACScoringDoneRight): GPUArrays' unsafe_free!, so a
+# CuArray's memory is released at once (KernelAbstractions' unsafe_free! is not extended by CUDA.jl and freed nothing);
+# a host array is left alone.
+@testitem "free_device_buffers!: a device buffer released at once, a host array untouched (CUDA availability-gated)" begin
+    using Test
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: free_device_buffers!, ka_upload
+    h = rand(Float32, 64)
+    c = copy(h)
+    @test free_device_buffers!(h, zeros(3)) === nothing && h == c                 # host: nothing happens, still readable
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        d = Base.invokelatest(ka_upload, Float32, gpu, rand(Float32, 1 << 20))
+        r = reshape(d, 1024, 1024)                               # derived: shares d's memory
+        @test !d.data.freed
+        Base.invokelatest(free_device_buffers!, d)
+        @test d.data.freed                                       # this reference released at once
+        @test_throws ArgumentError Base.invokelatest(sum, d)    # a freed buffer is never read again
+        Base.invokelatest(free_device_buffers!, r)
+        @test r.data.freed
+        # another buffer allocates and is released as the first was
+        e = Base.invokelatest(ka_upload, Float32, gpu, rand(Float32, 1 << 20))
+        @test !e.data.freed
+        Base.invokelatest(free_device_buffers!, e)
+    end
+end

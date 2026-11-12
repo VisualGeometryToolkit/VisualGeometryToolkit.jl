@@ -12,6 +12,14 @@ ransac!
 locally_optimize
 ```
 
+A retired keyword (the strategy spellings, a downstream package's own) is
+refused through one pair, never aliased:
+
+```@docs
+RetiredKeyword
+refuse_retired_keyword
+```
+
 ## Problem Interface
 
 ```@docs
@@ -304,6 +312,7 @@ default_config_path
 optimization_strategy_from_toml
 lo_from_toml
 scoring_from_toml
+default_student_t_uniform_scoring
 config_dict
 lo_config_dict
 OPTIMIZATION_STRATEGY_TAGS

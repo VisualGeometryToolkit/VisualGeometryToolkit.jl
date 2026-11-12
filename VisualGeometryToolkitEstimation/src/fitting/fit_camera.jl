@@ -315,7 +315,7 @@ _linear_form(::Type) = _NoLinearForm()
 
 function fit_camera(
         ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
     _refuse_held_spellings(free, fix, fixed_params, hold)
     return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed)
@@ -323,7 +323,7 @@ end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function fit_camera(
         target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
     return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed)
@@ -932,7 +932,7 @@ _check_lattice_size(ny::Integer, nx::Integer) = (ny >= 4 && nx >= 4) || throw(
 # An error at the held-out points (pixels, or metres for a line offset): its
 # maximum, rms and edge-band maximum, and the errors themselves.
 function _held_out_errors(err::AbstractVector{Float64}, edge::AbstractVector{Bool})
-    return (; max = maximum(err), rms = sqrt(sum(abs2, err) / length(err)), max_edge = any(edge) ? maximum(err[edge]) : 0.0, values = err)
+    return (; max = maximum(err), rms = rms(err), max_edge = any(edge) ? maximum(err[edge]) : 0.0, values = err)
 end
 
 _check_tolerance(tolerance::Real) =

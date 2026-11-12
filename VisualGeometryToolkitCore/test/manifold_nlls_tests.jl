@@ -39,6 +39,24 @@ NLLSsolver.getvars(::_PointResidual, vars::Vector) = (vars[1],)
 NLLSsolver.computeresidual(r::_PointResidual, ch::VgtkCore.Manifold) = model(ch)(r.x) - r.y
 Base.eltype(::_PointResidual) = Float64
 
+# The same residual under a robustifier of the test's own (`robustkernel`): ρ′ as `k` returns it.
+struct _RobustPointResidual{K} <: NLLSsolver.AbstractResidual
+    p::_PointResidual
+    k::K
+end
+NLLSsolver.ndeps(::_RobustPointResidual) = NLLSsolver.static(1)
+NLLSsolver.nres(::_RobustPointResidual) = NLLSsolver.static(3)
+NLLSsolver.varindices(::_RobustPointResidual) = SVector(1)
+NLLSsolver.getvars(::_RobustPointResidual, vars::Vector) = (vars[1],)
+NLLSsolver.computeresidual(r::_RobustPointResidual, ch::VgtkCore.Manifold) = NLLSsolver.computeresidual(r.p, ch)
+NLLSsolver.robustkernel(r::_RobustPointResidual) = r.k
+Base.eltype(::_RobustPointResidual) = Float64
+struct _ConstantSlope <: NLLSsolver.AbstractRobustifier
+    slope::Float64            # ρ′ everywhere: 0 a plateau (every datum past a redescending loss's cutoff), < 0 a broken loss
+end
+NLLSsolver.robustify(k::_ConstantSlope, c) = k.slope * c
+NLLSsolver.robustifydcost(k::_ConstantSlope, c) = (k.slope * c, k.slope, zero(c))
+
 nvars_of(ch) = NLLSsolver.nvars(ch)
 ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
 
@@ -178,6 +196,44 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test is_stationary(J, zeros(3); tol = 1.0e-10, ftol = eps())            # an exact fit
         @test is_stationary(hcat(J, zeros(3)), J * x̂ - y; tol = 1.0e-10, ftol = eps())   # a zero column is skipped
         @test !is_stationary(J, [NaN, 0.0, 1.0]; tol = 1.0e-3, ftol = eps())     # a NaN fails
+    end
+
+    @testset "is_stationary on residual blocks (the gradient accumulated, the Jacobian never held)" begin
+        truth = pose((0.2, -0.1, 0.3), (0.5, -0.4, 2.0))
+        xs = [SVector(cos(k), sin(2k), 0.3k) for k in 1:12]
+        noise = [0.01 * SVector(sin(3k), cos(5k), sin(7k)) for k in 1:12]
+        blocks = [_PointResidual(x, truth(x) + e) for (x, e) in zip(xs, noise)]
+        problem = NLLSsolver.NLLSProblem(RigidExpManifold6{Float64}, _PointResidual)
+        NLLSsolver.addvariable!(problem, RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8))))
+        foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
+        start = copy(problem.variables)
+        NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
+        # the cosine the matrix method reads, of the stacked rows and Jacobian (Core's assembler)
+        cosine(vars) = ((r, J) = VgtkCore.nlls_rows_and_jacobian(blocks, vars); VgtkCore._residual_cosine!(zeros(6), zeros(6), Matrix(J), r))
+        for vars in (problem.variables, start)
+            c = cosine(vars)
+            @test is_stationary(blocks, vars, [true]; tol = c * (1 + 1.0e-9), ftol = eps())   # the same quantity
+            @test !is_stationary(blocks, vars, [true]; tol = c * (1 - 1.0e-9), ftol = eps())
+        end
+        @test is_stationary(blocks, problem.variables, [true]; tol = 1.0e-6, ftol = eps())     # the LM's optimum
+        @test !is_stationary(blocks, start, [true]; tol = 1.0e-6, ftol = eps())                # its start
+        @test is_stationary(blocks, start, [false]; tol = 1.0e-6, ftol = eps())                # held: no column to test
+        exact_blocks = [_PointResidual(x, truth(x)) for x in xs]
+        @test is_stationary(exact_blocks, [RigidExpManifold6(truth)], [true]; tol = 0.0, ftol = 1.0e-20)   # an exact fit
+        @test_throws DimensionMismatch is_stationary(blocks, start, [true, false]; tol = 1.0e-6, ftol = eps())
+        # ρ′ as the robust chart LM reads it: clamped at 0, and a plateau (no datum carrying weight) is NOT stationary —
+        # not an exact fit (the weighted cost is 0 there), however large the tolerance
+        for slope in (0.0, -1.0)
+            plateau = [_RobustPointResidual(b, _ConstantSlope(slope)) for b in blocks]
+            @test !is_stationary(plateau, start, [true]; tol = 1.0, ftol = 1.0e-12)
+        end
+        # a robustifier of slope 1 is the plain cost, decision for decision
+        unit = [_RobustPointResidual(b, _ConstantSlope(1.0)) for b in blocks]
+        for vars in (problem.variables, start)
+            c = cosine(vars)
+            @test is_stationary(unit, vars, [true]; tol = c * (1 + 1.0e-9), ftol = eps()) &&
+                  !is_stationary(unit, vars, [true]; tol = c * (1 - 1.0e-9), ftol = eps())
+        end
     end
 
     @testset "nlls_termination (its legacy Symbol) and loss_robustifier" begin

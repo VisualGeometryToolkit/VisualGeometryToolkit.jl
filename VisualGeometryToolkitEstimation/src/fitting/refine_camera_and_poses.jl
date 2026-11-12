@@ -513,7 +513,7 @@ end
 # scale input and its loss: `bundle_loss`).
 function _bundle_keywords(;
         fixed::Tuple{Vararg{Symbol}} = (),
-        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+        free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
         max_iter::Integer = _dflt("refine_camera_and_poses", "max_iter"),
         ftol::Real = _dflt("refine_camera_and_poses", "ftol"),
@@ -521,11 +521,11 @@ function _bundle_keywords(;
         max_time::Union{Nothing, Real} = nothing,
         optimization_strategy = _refine_default(Val(:refine_camera_and_poses)),
         scale = nothing, width = nothing,
-        robust = _RetiredKeyword(),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        robust = RetiredKeyword(),
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
     )
-    _refuse_retired_keyword(robust, :robust, :optimization_strategy)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(robust, :robust, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
     lo, input, loss = bundle_loss(optimization_strategy; scale, width, caller = "refine_camera_and_poses")
     return (; fixed, box, max_iter, ftol, xtol, max_time, lo, input, loss)

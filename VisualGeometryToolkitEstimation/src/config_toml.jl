@@ -254,8 +254,13 @@ The RANSAC scorer of its TOML table: `type` looked up in `tags`
 (VisualGeometryToolkitCore's `SCORING_TAGS`, or a downstream merge of it), then
 the entry `T` built from the table by its method of the second form, which a
 downstream scorer adds. `problem` is the problem type the scorer scores (its
-codimension). Core's threshold scorers take one key, `threshold` (required: a
-loss width in the residual's units, e.g. `{ type = "msac", threshold = 3.0 }`).
+codimension). Every threshold scorer ([`AbstractThresholdScoring`](@extref
+VisualGeometryToolkitCore.AbstractThresholdScoring): Core's two, and a downstream
+family built by `@threshold_scoring_constructors`) takes one key, `threshold`
+(required: a loss width in the residual's units, e.g. `{ type = "msac",
+threshold = 3.0 }`), and is built as `T(problem; threshold)`. Its writer is
+`config_dict(scoring; tags)`, `tags` the same registry (a downstream merge for a
+downstream family).
 Unknown `type` or keys, and a missing key, are an `ArgumentError`.
 [`config_dict`](@ref) writes the table back.
 """
@@ -264,7 +269,7 @@ function scoring_from_toml(d::AbstractDict; problem::Type, section::AbstractStri
     haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
     return scoring_from_toml(tags[d["type"]], d; problem, section = "$section.$(d["type"])")
 end
-function scoring_from_toml(::Type{T}, d::AbstractDict; problem::Type, section::AbstractString) where {T <: Union{RansacScoring, MsacScoring}}
+function scoring_from_toml(::Type{T}, d::AbstractDict; problem::Type, section::AbstractString) where {T <: AbstractThresholdScoring}
     _refuse_other_width(d, "outlier_halfwidth", "threshold", "a threshold scorer", "the Student-t + uniform scorer's", section)
     _check_keys(d, ("type", "threshold"), section)
     haskey(d, "threshold") || throw(ArgumentError("[$section] needs `threshold` (a scorer's width is its config's)"))
@@ -280,8 +285,8 @@ _refuse_other_width(d::AbstractDict, other, own, who, whose, section) =
 scoring_from_toml(::Type{T}, ::AbstractDict; problem::Type, section::AbstractString) where {T} =
     throw(ArgumentError("[$section] scorer $T has no TOML reader (its package adds a `scoring_from_toml` method)"))
 
-config_dict(sc::Union{RansacScoring{<:Any, Float64}, MsacScoring{<:Any, Float64}}) =
-    Dict{String, Any}("type" => VgtkCore.tag_of(VgtkCore.SCORING_TAGS, sc), "threshold" => sc.threshold)
+config_dict(sc::AbstractThresholdScoring{Float64}; tags::TagRegistry = VgtkCore.SCORING_TAGS) =
+    Dict{String, Any}("type" => VgtkCore.tag_of(tags, sc), "threshold" => sc.threshold)
 
 # The Student-t + uniform marginal scorer (Core's `StudentTUniformScoring`): `{ type = "student_t_uniform",
 # outlier_halfwidth = h, scale_prior = …, label_prior = … }`. The width is the table's, required. The two priors are
@@ -327,6 +332,20 @@ function scoring_from_toml(::Type{<:StudentTUniformScoring}, d::AbstractDict; pr
                                   scale_prior = _scale_prior_from_toml(d, section),
                                   label_prior = _label_prior_from_toml(d, section))
 end
+
+"""
+    default_student_t_uniform_scoring(P, outlier_halfwidth) -> StudentTUniformScoring
+
+The Student-t + uniform scorer of record for problem type `P` at the uniform
+outlier half-width `outlier_halfwidth` (in `P`'s residual units): the table
+`{ type = "student_t_uniform", outlier_halfwidth = h }` read by
+[`scoring_from_toml`](@ref), so its scale and label priors are the stack's
+configuration of record (`configs/default.toml` `[scoring.student_t_uniform]`),
+never restated by a caller. Core's `StudentTUniformScoring(P, h; scale_prior,
+label_prior)` takes both priors explicitly; this is the one place they default.
+"""
+default_student_t_uniform_scoring(::Type{P}, outlier_halfwidth::Real) where {P} = scoring_from_toml(
+    Dict{String, Any}("type" => "student_t_uniform", "outlier_halfwidth" => Float64(outlier_halfwidth)); problem = P)
 
 # The writer states both priors (a written table reads back the same scorer whatever the defaults file says). The
 # model-certain scorer at a supplied width only: a predictive scorer, or an outlier model that estimates the support,

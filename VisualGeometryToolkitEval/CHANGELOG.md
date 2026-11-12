@@ -5,6 +5,11 @@
 - **`install_artifact` is VisualGeometryToolkitCore's**, re-exported by `Experiments` (the same binding);
   `huggingface_token` and the internal `_published` are no longer reachable as `Experiments.*` (read Core's).
   Downloads is no longer a direct dependency.
+- **`DataArtifacts.fetch_data!(cat; argv = ARGS, io = stdout)`**: a paper project's `scripts/fetch_data.jl` as one call
+  (`--list`, `--all`, `--only=…`, the required artifacts by default; a split entry's parts listed and fetched, a chunked
+  file reassembled), hoisted from LocalOptimizationDoneRight's accv2026 script; RANSACScoringDoneRight's neurips2026
+  script was its copy.
+
 - **The live and refit runs read a model when the search found one (`found_model`)**, not when it `converged`:
   VisualGeometryToolkitCore's `converged` is strict (a run that drew its trial budget without reaching the confidence
   did not converge but found a model), so every error and refit is computed as before.

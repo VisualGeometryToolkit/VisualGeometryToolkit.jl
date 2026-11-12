@@ -890,21 +890,6 @@ end
 # chart machinery reads the same columns (`cd_pair` on a bearing set takes the
 # tangent form), so the default `estimate` and `covariance` run on bearings too.
 
-# Pixel pairs → bearing csponds carrying their pixel Jacobians.
-function _bearing_csponds(cam1, cam2, cs_px)
-    k = length(cs_px)
-    b1 = Vector{Vec3{Float64}}(undef, k); b2 = Vector{Vec3{Float64}}(undef, k)
-    J1 = Vector{SMatrix{3, 2, Float64, 6}}(undef, k)
-    J2 = Vector{SMatrix{3, 2, Float64, 6}}(undef, k)
-    for i in 1:k
-        u = cs_px[i].first; v = cs_px[i].second
-        f₁, M₁ = backproject_with_jacobian(cam1, SVector{2, Float64}(u[1], u[2]))
-        f₂, M₂ = backproject_with_jacobian(cam2, SVector{2, Float64}(v[1], v[2]))
-        b1[i] = Vec3{Float64}(f₁); b2[i] = Vec3{Float64}(f₂)
-        J1[i] = SMatrix{3, 2, Float64, 6}(M₁); J2[i] = SMatrix{3, 2, Float64, 6}(M₂)
-    end
-    return withattrs(Csponds(b1, b2); M₁ = J1, M₂ = J2)
-end
 
 # The calibrated (z = 1) scene points projected through two REAL cameras. The
 # scene's own `f` fixes view 1's pixel frame; view 2 is re-projected, so its
@@ -931,7 +916,7 @@ noise `σ_px` entering as `σ = σ_px/f`, as the F and H trials do.
 **Camera-aware (`cameras = (cam1, cam2)`)**: the scene is projected through two
 real [`CameraModel`](@ref VisualGeometryToolkitCore.Cameras.CameraModel)s, perturbed in PIXELS with `σ_px` itself, and handed
 to the estimate and the covariance as BEARING correspondences carrying the
-`M₁`/`M₂` pixel Jacobians from [`backproject_with_jacobian`](@ref) — what an
+`M₁`/`M₂` pixel Jacobians from [`backproject_with_jacobian`](@ref VisualGeometryToolkitCore.Cameras.backproject_with_jacobian) — what an
 essential-matrix problem takes. The default estimate and covariance read those
 columns (the tangent form of `constraint_with_jacobians`), so the hooks are
 optional here as everywhere. The returned covariance is scaled by `σ_px²`, so
@@ -963,7 +948,7 @@ function essential_trial(;
         # bearings: M at the true pixels for the truth, at the perturbed ones for the data
         return _chart_trial(
             estimate, covariance, error, ch,
-            _bearing_csponds(cameras..., cs), _bearing_csponds(cameras..., csn), shapes, σ
+            bearing_csponds(cameras..., cs), bearing_csponds(cameras..., csn), shapes, σ
         )
     end
     return trial
@@ -1205,8 +1190,8 @@ function epipolar_band_trial(
         # The estimate and covariance get bearings when cameras are given —
         # what an E problem takes — and the untouched `cs`/`csn` otherwise.
         cs_h, csn_h = if model_class === :E && cameras !== nothing
-            _bearing_csponds(cameras[1], cameras[2], cs),
-                _bearing_csponds(cameras[1], cameras[2], csn)
+            bearing_csponds(cameras[1], cameras[2], cs),
+                bearing_csponds(cameras[1], cameras[2], csn)
         else
             cs, csn
         end

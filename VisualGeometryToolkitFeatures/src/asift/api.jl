@@ -65,7 +65,7 @@ const _MAX_CACHED_PLANS = Ref(1)
     set_max_cached_plans!(n) -> Int
 
 Set how many [`AsiftPlan`](@ref)s stay resident (default 1). Evicted plans have
-their device buffers released immediately via `KernelAbstractions.unsafe_free!`.
+their device buffers released immediately via VisualGeometryToolkitCore's `free_device_buffers!`.
 """
 function set_max_cached_plans!(n::Integer)
     n >= 1 || throw(ArgumentError("need at least one resident plan, got $n"))
@@ -109,9 +109,9 @@ function _asift_plan(
     return plan
 end
 
-# Release a plan's device buffers EAGERLY via KernelAbstractions'
-# `unsafe_free!` (device-agnostic: a no-op on CPU and on any backend that does
-# not implement it).
+# Release a plan's device buffers EAGERLY via VisualGeometryToolkitCore's
+# `free_device_buffers!` (GPUArrays' `unsafe_free!`; a host array is left alone).
+# KernelAbstractions' `unsafe_free!`, used here until 0.9, freed nothing on CUDA.
 #
 # Waiting for the GC is not good enough here. A plan's `gauss`/`dogs` pyramids
 # are multi-GiB on device but only a few hundred bytes of host wrapper, so they
@@ -120,7 +120,7 @@ end
 # 25-tilt schedule) hold ~17 GiB of a 24 GiB card between them.
 _free_plan_buffers!(x::AbstractVector{<:AbstractArray}) =
     (foreach(_free_plan_buffers!, x); nothing)
-_free_plan_buffers!(x::AbstractArray) = (KA.unsafe_free!(x); nothing)
+_free_plan_buffers!(x::AbstractArray) = free_device_buffers!(x)
 _free_plan_buffers!(::Any) = nothing   # scalars, and `geo`'s NamedTuples
 
 function _free_plan!(p::AsiftPlan)
@@ -233,7 +233,8 @@ CPU (pinned by the test suite):
 - every detection is refined: extrema are searched on the interior scale slices
   only (each with a slice above and below), and an extremum whose refinement
   fails is dropped (`plan.refine_dropped` counts them), never returned on the
-  octave's pixel grid.
+  octave's pixel grid; with `uncertainty = FeatureCovariance()`, so is a
+  detection whose covariance is singular or NaN (counted there too).
 With `raw = true` the features are in 0-indexed OpenCV coordinates (top-left
 pixel centre (0, 0)), 0.5 less on both axes.
 

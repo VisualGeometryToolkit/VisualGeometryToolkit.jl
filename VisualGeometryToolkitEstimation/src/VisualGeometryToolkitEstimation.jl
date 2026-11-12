@@ -136,7 +136,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, check_composition,
-    EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, decision_boundary,
+    EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, AbstractThresholdScoring, decision_boundary,
     StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
@@ -368,10 +368,11 @@ public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the 
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
-public RotationCenterViews   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
+public RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (estimators/ransac/loop.jl)
+public RotationCenterViews, rotation_center_pose   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, default_student_t_uniform_scoring, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
 # The strategy machinery every package registers its strategies with — the
 # registry macro `@lo_registry`, `lo_construct`, `LOSS_TAGS` and the registry
 # hooks — is VisualGeometryToolkitCore's (its CONTRACT_GENERICS); a name is

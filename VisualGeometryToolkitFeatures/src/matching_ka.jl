@@ -228,7 +228,7 @@ feature's best row within each block (features × blocks, block-local), else
 The score block is the pipeline's largest single allocation (M × N: 3.09 GiB for
 a 60k gallery against 13.7k detections, 9.79 GiB against 43.5k). Materialising
 it whole is what OOMs on cluttered frames, so it is built `_row_chunks` at a
-time and each block released eagerly via `KA.unsafe_free!` rather than waiting
+time and each block released eagerly via VisualGeometryToolkitCore's `free_device_buffers!` rather than waiting
 for a finalizer. The result does not depend on the chunking.
 """
 function _nn_select(
@@ -271,11 +271,11 @@ function _nn_select(
                 ndrange = (N, b2 - b1 + 1)
             )
             KA.synchronize(dev)
-            KA.unsafe_free!(coff); KA.unsafe_free!(csz); KA.unsafe_free!(cbase)
+            free_device_buffers!(coff, csz, cbase)
         else
             KA.synchronize(dev)
         end
-        S === nothing && KA.unsafe_free!(blk)
+        S === nothing && free_device_buffers!(blk)
     end
     KA.synchronize(dev)
     return Array(top_idx), Array(top_sc), rev === nothing ? nothing : Array(rev.idx)

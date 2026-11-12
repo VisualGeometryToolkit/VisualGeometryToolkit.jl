@@ -39,6 +39,22 @@ non-central one is a `NoncentralSplineModel`).
   `refine_camera_and_poses`' forward refit; the private `_spline_record` is deleted). An earlier stage's failure is no
   longer replaced by a later, less severe one (a capped backward search followed by a Stalled gauge was `Stalled`, now
   `(MaxIters, IterationCap)`), and on a tie the later stage's rule is kept, as `worst_retcode` states.
+- **`RetiredKeyword` and `refuse_retired_keyword(value, old, new)`, public** (were `_RetiredKeyword` and
+  `_refuse_retired_keyword`): the stack's one refusal of a retired keyword, for a downstream package's own too.
+- **`default_student_t_uniform_scoring(P, outlier_halfwidth)`, public**: the Student-t + uniform scorer of record at a
+  half-width, its priors the defaults table's (hoisted from BlobBoards' `_scoring` and CaliBlobs' copy);
+  `fit_division_camera`'s refusal of `outlier_halfwidth` names it.
+
+- **The threshold-scorer TOML table is every `AbstractThresholdScoring`'s**: `scoring_from_toml` builds any threshold
+  family as `T(problem; threshold)`, and `config_dict(scoring; tags = SCORING_TAGS)` writes its tag from the registry it
+  is given (a downstream merge for a downstream family), so a package's loss-width families need no reader or writer.
+
+- **`rotation_center_pose(R, center, offset)`, public** (the rotation-centre view's pose `(R, offset − R·center)`, the
+  private `_rotation_center_pose` renamed: its chart argument is now the rotation, `model(chart)` at the block), so a
+  caller builds a view's pose from a result's `RotationCenterViews` instead of copying it.
+- **`pooled_noise_scale(scales, dofs)`**: the pool from the recorded numbers (each result's scale and degrees of
+  freedom), the one pooling body; `pooled_noise_scale(results)` is it on `noise_scale(rᵢ)` (`NaN` for `ScaleNone`)
+  and `rᵢ.dof`, bit-identical.
 
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer

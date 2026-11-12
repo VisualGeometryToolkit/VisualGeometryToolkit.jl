@@ -34,7 +34,7 @@ function _ransac_pipeline(
         scoring::Union{AbstractScoring, Nothing} = nothing,
         # The class's strategy of record (configs/default.toml [pipelines.<class>]).
         local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _dflt_lo(class),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         # Defaults are configs/default.toml [ransac] — the same authority
         # RansacConfig() reads, so there is no second "default" to disagree.
         max_trials::Int = _dflt("ransac", "max_trials"),
@@ -45,7 +45,7 @@ function _ransac_pipeline(
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     scoring = _class_scoring(problem, class, scoring)
     config = something(config, RansacConfig(; max_trials, min_trials))
     problem isa _TooFew && return _too_few(problem, scoring, workspace)

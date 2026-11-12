@@ -637,6 +637,14 @@ function _robust_stationary(ews::ManifoldLmWorkspace, s::_RobustChartState, x, :
             g[q] += ρ′ * jr; w[q] += ρ′ * jj
         end
     end
+    return _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+end
+
+# THE decision of the robust stall postcondition from the √ρ′-weighted gradient `g = Σ ρ′ Jᵀr`, column norms
+# `w = Σ ρ′ ‖Jⱼ‖²`, weighted cost `f2 = Σ ρ′ ‖r‖²` (ρ′ clamped at 0) and whether any datum carried weight — the chart
+# LM's (`_robust_stationary`) and the residual blocks' (`is_stationary(blocks, …)`), after each one's unweighted
+# exact-fit test: a plateau (every ρ′ = 0) fails, a weighted exact fit holds, else the column cosine at `tol`.
+function _robust_stationary_decision(g, w, f2, carried::Bool, tol::Real, ftol::Real)
     carried || return false
     f2 < ftol && return true
     fn = sqrt(f2)
@@ -716,6 +724,57 @@ function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Re
     sum(abs2, f) < ftol && return true
     n = size(J, 2)
     return _residual_cosine!(similar(f, n), similar(f, n), J, f) <= tol
+end
+
+"""
+    is_stationary(blocks, variables, free::AbstractVector{Bool}; tol, ftol) -> Bool
+
+The same stall postcondition for an NLLSsolver problem's residual `blocks` at
+its `variables`, in the chart coordinates of the variables `free` marks (a held
+variable's columns are left out, as the solver held them): the cost
+NLLSsolver minimizes, `F = Σₖ ρ(‖rₖ‖²)` (`ρ` each block's `robustkernel`,
+the identity for a plain block), is stationary when `Σₖ ‖rₖ‖² < ftol` (or `Σₖ ρ′ₖ‖rₖ‖² < ftol` with some ρ′ₖ > 0), or
+when every free column of the √ρ′-weighted system is numerically orthogonal to
+its rows, `max_j |gⱼ| / (√wⱼ ‖√ρ′ r‖) ≤ tol` with `gⱼ = Σₖ ρ′ₖ Jₖⱼᵀ rₖ` and
+`wⱼ = Σₖ ρ′ₖ ‖Jₖⱼ‖²` — the test the matrix method above makes of the stacked
+rows `√ρ′ₖ rₖ` and Jacobian `√ρ′ₖ Jₖ`, and exactly the robust chart LM's
+(`lmsolve_chart!`): ρ′ clamped at 0, the unweighted cost below `ftol` an exact
+fit, and a plateau (every block past a redescending loss's cutoff, ρ′ = 0
+throughout) NOT stationary. The rows and their Jacobian
+(`NLLSsolver.computeresjac` of each block with all its variables, as
+[`nlls_rows_and_jacobian`](@ref) evaluates them, a held variable's columns skipped) are accumulated block by block
+into `g`, `w` and `F`: the problem's Jacobian is never held.
+"""
+function is_stationary(blocks, variables::AbstractVector, free::AbstractVector{Bool}; tol::Real, ftol::Real)
+    length(free) == length(variables) ||
+        throw(DimensionMismatch("is_stationary: $(length(variables)) variables, $(length(free)) free flags"))
+    offsets = cumsum([0; [free[v] ? Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v]))) : 0 for v in eachindex(variables)]])
+    g = zeros(offsets[end]); w = zeros(offsets[end]); F = 0.0; f2 = 0.0; carried = false
+    for c in blocks
+        vi = NLLSsolver.varindices(c)
+        # every variable of the block differentiated (static flags, as `nlls_rows_and_jacobian`); a held one's columns skipped
+        r, J = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)
+        sq = sum(abs2, r)
+        ρ′ = max(NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), sq)[2], 0.0)
+        F += sq; f2 += ρ′ * sq; carried |= ρ′ > 0
+        col = 0
+        for v in vi
+            nv = Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v])))
+            if free[v]
+                @inbounds for k in 1:nv
+                    q = offsets[v] + k; jc = col + k
+                    jr = 0.0; jj = 0.0
+                    for i in eachindex(r)
+                        jr += J[i, jc] * r[i]; jj += J[i, jc]^2
+                    end
+                    g[q] += ρ′ * jr; w[q] += ρ′ * jj
+                end
+            end
+            col += nv
+        end
+    end
+    F < ftol && return true
+    return _robust_stationary_decision(g, w, f2, carried, tol, ftol)
 end
 
 """

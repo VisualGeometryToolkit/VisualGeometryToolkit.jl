@@ -38,19 +38,20 @@ import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
 using VisualGeometryToolkitCore: Point2
 using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
-using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
+using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!, free_device_buffers!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
 using VisualGeometryToolkitCore: ka_upload, on_device, device_zeros   # the family's one upload to a device (base/device.jl)
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, Translation, relabel, scale, translation, pixel_centre   # the RAW cell grid's frame map and pixel centres (raw_image.jl)
-using LinearAlgebra: UniformScaling
+using LinearAlgebra: UniformScaling, isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
 import VisualGeometryToolkitCore: centroid, shape_matrix, feature_frame, region
+import VisualGeometryToolkitCore: propagate   # a detection's uncertain centre through a map (detection_types.jl)
 
 
 # =============================================================================

@@ -18,9 +18,9 @@
 # =============================================================================
 
 """
-    find_ellipse(points; scoring = MsacScoring(problem; threshold = 1.0),
-        max_trials = 10000, min_trials = 100,
-        local_optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), config = nothing)
+    find_ellipse(points; scoring,
+        max_trials, min_trials,
+        local_optimization_strategy, config = nothing)
 
 Robust estimation of a 2D ellipse through points (a contour, edge points) by
 RANSAC on the [`EllipseProblem`](@ref): 5-point samples (VisualGeometryToolkitCore's
@@ -31,7 +31,7 @@ ellipse to first order — and, as local optimization, the robustified LM
 distances to the ellipse (the problem's refit rows): one Levenberg–Marquardt
 solve from the hypothesis over all the points under the Welsch loss at
 `efficiency_constant·ŝ`, ŝ the Student-t scale of the hypothesis's Sampson errors.
-Every default shown is `configs/default.toml`'s (`[ransac]`,
+Every default is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.ellipse]`); a keyword overrides. The circle's counterpart is
 [`find_circle`](@ref).
 
@@ -46,7 +46,7 @@ sampling: [`refine_ellipse`](@ref).
   storage canonicalized internally), plain: unit isotropic noise.
 - `scoring`: the scorer, its width **in PIXELS** (the points' unit), as [`find_homography`](@ref); default `[pipelines.ellipse] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] EllipseProblem, n_data)`.
-- `local_optimization_strategy`: default `Triggs{WelschShape}(efficiency_constant = 2.5)`; any
+- `local_optimization_strategy`: default `[pipelines.ellipse] local_optimization_strategy`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
@@ -55,7 +55,7 @@ function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Re
 end
 
 """
-    refine_ellipse(ellipse, points; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_ellipse(ellipse, points; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The 2D ellipse through `points` refined from the given `ellipse`. Every

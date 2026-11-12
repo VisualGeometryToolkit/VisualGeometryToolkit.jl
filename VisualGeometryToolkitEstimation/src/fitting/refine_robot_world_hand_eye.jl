@@ -33,7 +33,7 @@
 
 """
     refine_robot_world_hand_eye(guess::RobotWorldHandEyeCalibration{K}, camera::CameraModel, markers;
-                       optimization_strategy = Triggs{WelschShape}(), scale | width, max_iter)
+                       optimization_strategy, scale | width, max_iter)
         -> FitResult{RobotWorldHandEyeCalibration{K}, <:RobotWorldHandEyeMetadata{K, Nothing}}
         # defaults: configs/default.toml [refine_robot_world_hand_eye]
 

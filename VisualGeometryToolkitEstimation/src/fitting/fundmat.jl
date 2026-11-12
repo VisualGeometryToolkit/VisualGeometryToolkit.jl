@@ -3,12 +3,12 @@
 # =============================================================================
 
 """
-    find_fundmat(correspondences; scoring = MsacScoring(problem; threshold = 3.0),
-        max_trials=10000, min_trials=100,
-        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
+    find_fundmat(correspondences; scoring,
+        max_trials, min_trials,
+        local_optimization_strategy, config=nothing)
 
 Robust fundamental matrix estimation via 7-point RANSAC with MSAC
-scoring and least-squares-on-the-inliers local optimization. Every default shown is
+scoring and least-squares-on-the-inliers local optimization. Every default is
 `configs/default.toml`'s (`[ransac]`, `[pipelines.fundmat]`); a keyword overrides.
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 7 correspondences.
@@ -20,7 +20,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   per-match prior (PROSAC; uniform otherwise).
 - `scoring`: the scorer, its width **in PIXELS**, as [`find_homography`](@ref); default `[pipelines.fundmat] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] FundMatProblem{Float64}, n_data)`.
-- `local_optimization_strategy`: default `Irls{TLSShape}()`, as [`find_homography`](@ref).
+- `local_optimization_strategy`: default `[pipelines.fundmat] local_optimization_strategy`, as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
 function find_fundmat(
@@ -31,7 +31,7 @@ function find_fundmat(
 end
 
 """
-    refine_fundmat(F, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_fundmat(F, correspondences; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The fundamental matrix `F` refined against `correspondences` from `F` itself

@@ -24,6 +24,11 @@ non-central one is a `NoncentralSplineModel`).
   covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
   rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
+- **Docs: the `find_*`/`refine_*` docstrings state no literal defaults**: their signatures name `scoring`,
+  `max_trials`, `min_trials` and the strategy keyword without a value, and the text points at the
+  `configs/default.toml` table that holds it (`[ransac]`, `[pipelines.<class>]`) instead of restating
+  `MsacScoring(problem; threshold = …)`, `Irls{TLSShape}()` or `Triggs{WelschShape}(efficiency_constant = 2.5)`,
+  which could drift from the file.
 - **`fit_robot_world_hand_eye` solves its translations normalized** (the stack's normalize-LS rule): the joint
   `[t_Y; t_X…]` least squares runs on each side's translations about their centroid at one isotropic scale (the rig
   side's 3-D `HartleyNormalization`), unnormalized on the way out. The design's rotation blocks, and so its singular

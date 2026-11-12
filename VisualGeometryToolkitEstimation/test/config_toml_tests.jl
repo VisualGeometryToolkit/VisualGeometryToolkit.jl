@@ -278,6 +278,28 @@ end
     @test_throws r"needs a `type`" scoring_from_toml(Dict("threshold" => 1.0); problem = HomographyProblem)
 end
 
+# Every threshold scorer's table is the one reader's and writer's (AbstractThresholdScoring): a downstream family built
+# by Core's @threshold_scoring_constructors, in a downstream merge of SCORING_TAGS, reads through `T(problem; threshold)`
+# and writes its tag from the registry it is given.
+@testitem "config_toml: a downstream threshold family reads and writes through the one threshold-scorer table" begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: AbstractThresholdScoring, @threshold_scoring_constructors, SCORING_TAGS, TagRegistry, MsacScoring
+    using VisualGeometryToolkitEstimation: scoring_from_toml, config_dict, HomographyProblem
+    struct HalfMsacScoring{DG, T} <: AbstractThresholdScoring{T}
+        threshold::T
+        HalfMsacScoring{DG, T}(threshold) where {DG, T} = new{DG, T}(threshold)
+    end
+    @threshold_scoring_constructors HalfMsacScoring
+    tags = merge(SCORING_TAGS, TagRegistry(:scoring, "Scoring", "half_msac" => HalfMsacScoring))
+    d = Dict("type" => "half_msac", "threshold" => 2.5)
+    sc = scoring_from_toml(d; problem = HomographyProblem, tags)
+    @test sc === HalfMsacScoring(HomographyProblem; threshold = 2.5)
+    @test config_dict(sc; tags) == d && scoring_from_toml(config_dict(sc; tags); problem = HomographyProblem, tags) === sc
+    @test_throws r"`outlier_halfwidth` is" scoring_from_toml(Dict("type" => "half_msac", "outlier_halfwidth" => 2.0); problem = HomographyProblem, tags)
+    @test config_dict(MsacScoring(HomographyProblem; threshold = 2.0)) == Dict("type" => "msac", "threshold" => 2.0)   # Core's, unchanged
+end
+
 # The owner's ruling (c): the Student-t scorer's scale prior and label prior are required keys of its table, the stack's
 # default (Jeffreys, flat) in configs/default.toml's [scoring.student_t_uniform] — a key the table leaves out inherits
 # it there, as a strategy's keys do — and nothing defaulted in code; config_dict states both, and reads back.

@@ -136,7 +136,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, check_composition,
-    EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, decision_boundary,
+    EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, AbstractThresholdScoring, decision_boundary,
     StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,

@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **The threshold-scorer TOML table is every `AbstractThresholdScoring`'s**: `scoring_from_toml` builds any threshold
+  family as `T(problem; threshold)`, and `config_dict(scoring; tags = SCORING_TAGS)` writes its tag from the registry it
+  is given (a downstream merge for a downstream family), so a package's loss-width families need no reader or writer.
+
 - **`rotation_center_pose(R, center, offset)`, public** (the rotation-centre view's pose `(R, offset − R·center)`, the
   private `_rotation_center_pose` renamed: its chart argument is now the rotation, `model(chart)` at the block), so a
   caller builds a view's pose from a result's `RotationCenterViews` instead of copying it.

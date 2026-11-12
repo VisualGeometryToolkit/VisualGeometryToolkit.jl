@@ -83,9 +83,10 @@ using ..Experiments: data_root, results_root, project_root, load_run_config, ins
     link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER, ArtifactView
 using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
+using ..VisualGeometryToolkitEval: cli_option
 
 export DataCatalog, load_catalog, project_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
-    mount_dir, catalog_view, fetch_artifacts!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
+    mount_dir, catalog_view, fetch_artifacts!, fetch_data, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
 
 const HOSTS = ("zenodo", "huggingface")
 
@@ -484,6 +485,52 @@ function fetch_artifacts!(cat::DataCatalog, names::AbstractVector = required_art
         push!(out, (; name, tree, mount, dst, linked))
     end
     return out
+end
+
+"""
+    fetch_data(cat = project_catalog(); argv = ARGS, io = stdout) -> Union{Vector{NamedTuple}, Nothing}
+
+A paper project's `scripts/fetch_data.jl`, the new-machine setup step: the
+command line `argv` read as
+
+    (none)          the required artifacts ([`required_artifacts`](@ref))
+    --all           every catalogued artifact, required or not
+    --only=a,b      the named entries (or parts)
+    --list          the catalog, nothing fetched: per entry whether it is required,
+                    its mount and what it is, then each of its parts
+                    ([`artifact_parts`](@ref): a split entry's parts and sub-parts)
+                    with its download URL, or "(not bound)"
+
+then [`fetch_artifacts!`](@ref) of them (a split entry all its parts, a chunked
+file reassembled), one line per artifact to `io` (its new links and where, or
+that its root is already bound), the two roots (`data_root()`,
+`results_root()`), and the line `FETCH_DATA_DONE`. Returns `fetch_artifacts!`'s
+rows (`nothing` for `--list`). A script is the one call
+`fetch_data(project_catalog())` after `@quickactivate`.
+"""
+function fetch_data(cat::DataCatalog = project_catalog(); argv::AbstractVector{<:AbstractString} = ARGS, io::IO = stdout)
+    if "--list" in argv
+        meta = isfile(cat.artifacts_toml) ? TOML.parsefile(cat.artifacts_toml) : Dict{String, Any}()
+        for (n, a) in sort(collect(cat.artifacts); by = first)
+            println(io, rpad(n, 32), get(a, "required", false) ? " required " : " optional ", rpad(a["mount"], 8), " ", a["what"])
+            for p in artifact_parts(cat, n)
+                println(io, " "^32, "  ", haskey(meta, p) ? meta[p]["download"][1]["url"] : "$p (not bound)")
+            end
+        end
+        return nothing
+    end
+    only = filter(!isempty, split(cli_option(argv, "only", ""), ','))
+    names = !isempty(only) ? String.(only) : "--all" in argv ? sort(collect(keys(cat.artifacts))) : required_artifacts(cat)
+    rows = fetch_artifacts!(cat, names)
+    for r in rows
+        println(io, rpad(r.name, 32), " ", r.dst === nothing ? "not linked: its $(r.mount) root is bound" :
+                                               "$(r.linked) new link(s) under $(r.dst)")
+    end
+    for (what, root) in (("data_root()   ", data_root), ("results_root()", results_root))
+        println(io, what, " = ", try root() catch err; sprint(showerror, err) end)
+    end
+    println(io, "FETCH_DATA_DONE")
+    return rows
 end
 
 # Concatenate `<file>.chunk1..mofm` into `<file>` under `dst` for every chunk

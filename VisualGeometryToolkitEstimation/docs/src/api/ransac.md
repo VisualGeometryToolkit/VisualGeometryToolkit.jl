@@ -148,6 +148,17 @@ RefineMetadata
 inlier_ratio
 ```
 
+## One noise scale for a set of results
+
+`pooled_noise_scale(results)` pools the scales several RANSAC results
+originated (each `ScaleEstimated`, over its own dof) into one, for a downstream
+refine of them all (`scale = pooled`, recorded `ScaleUpstream`); a result
+without a scale is left out and counted.
+
+```@docs
+pooled_noise_scale
+```
+
 ## Workspaces
 
 `RansacWorkspace{K, M, T, W, L}` is the composed workspace of one RANSAC run:

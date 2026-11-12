@@ -67,9 +67,16 @@ board (board → world) to the same bundle, the correspondences keyed by
 `(view, board)`; each connected group of views and boards keeps its gauge by a
 held pose (its first board by default, `held_boards`/`held_views`), exactly.
 
+`refine_camera_and_poses(camera, views::RotationCenterViews, csponds)` refines
+the views of a camera turned about one fixed point (a tripod head) under one
+rigid motion model, one rotation per view and a shared centre and offset, the
+camera held; a SplineLens camera's correspondences are its route's blocks,
+rebuilt until their windows settle.
+
 ```@docs
 refine_camera_and_poses
 CameraPosesRefineMetadata
+RotationCenterViews
 ```
 
 ## Penalty weights: normalization and generalized cross-validation

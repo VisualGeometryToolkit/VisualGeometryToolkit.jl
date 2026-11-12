@@ -4,7 +4,7 @@
 
 - **The dependency allow-list names VisualGeometryToolkitEstimation for VisualGeometryToolkitFeatures**
   (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
-  (VisualGeometryToolkitFeatures 0.7.1). No API change.
+  (VisualGeometryToolkitFeatures 0.8.0). No API change.
 
 ## 0.9.1
 

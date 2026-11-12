@@ -6,7 +6,12 @@
 @testsetup module ImageCircleFixtures
     using Statistics: mean
     using Random: Xoshiro
-    export cover, disc_frames, rim_frames
+    import VisualGeometryToolkitCore as VgtkCore
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    export cover, disc_frames, rim_frames, SensorImage
+    # The module that owns the sensor image (RawMosaic, LinearRaw, raw_frame_map): VisualGeometryToolkitCore from 0.9.2
+    # (bayer-port), whose names are imported from Core; before it, this package's own. Drop it for VgtkCore once both land.
+    const SensorImage = isdefined(VgtkCore, :RawMosaic) ? VgtkCore : VgtkFeatures
     # the fraction of pixel (x, y) (1-based column, row) inside the disc of centre (cx, cy) and radius ρ, COLMAP pixels,
     # on a 4 × 4 subpixel grid
     cover(x, y, cx, cy, ρ) = mean((x - 1 + (i - 0.5) / 4 - cx)^2 + (y - 1 + (j - 0.5) / 4 - cy)^2 <= ρ^2 for i in 1:4, j in 1:4)
@@ -134,13 +139,13 @@ end
 
 @testitem "detect_image_circle on RAW frames: the green cells, the circle in raw pixels" setup = [ImageCircleFixtures] begin
     # A RAW frame is measured on its green cells (LinearRaw{:green_cells}, the geometry image) and the circle taken to the
-    # raw's pixels by the cells' raw_frame_map (Core's similarity action on an Ellipse); the keywords are in the caller's,
-    # raw, pixels (÷ 2 for a length, ÷ 4 for an area on the cells). The same scene measured on the full-resolution frames
+    # raw's pixels by the cells' raw_frame_map (Core's similarity action on an Ellipse); the keywords are in green-cell
+    # pixels (the resolution measured on: only the result is mapped). The same scene measured on the full-resolution frames
     # agrees to the map's exactness (the green cells average two photosites: the rim's partial-coverage band, ≲ 1 raw px).
     using Random: Xoshiro
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
-    using VisualGeometryToolkitFeatures: RawMosaic, LinearRaw, raw_frame_map
+    RawMosaic, LinearRaw, raw_frame_map = SensorImage.RawMosaic, SensorImage.LinearRaw, SensorImage.raw_frame_map
     using StaticArrays: SVector
     W, H, c, r = 360, 240, (181.3, 118.7), 100.0
     a = 0.1 * hypot(W, H)
@@ -161,18 +166,15 @@ end
     @test hypot(green.center[1] - full.center[1], green.center[2] - full.center[2]) < 1.0
     @test abs(green.a - full.a) < 2.0 && abs(green.b - full.b) < 2.0                                  # one green cell = 2 raw px
     @test hypot(green.center[1] - c[1], green.center[2] - c[2]) < 1.0 && 0 < green.a - r < 3.0
-    # the RAW method: the same, bit for bit, with the keywords in raw px (border_margin = 10 raw px: the plane's 5)
-    raw = detect_image_circle(Xoshiro(1), cells; outlier_halfwidth = a, min_hole_area = 8, border_margin = 10)
+    # the RAW method: the same, bit for bit, with the same keywords (green-cell px: only the result is mapped)
+    raw = detect_image_circle(Xoshiro(1), cells; outlier_halfwidth = a / 2, min_hole_area = 2)
     @test raw.circle === green
     @test raw.contour == [VgtkCore.Point2{Float64}(S(SVector{2, Float64}(p[1], p[2]))) for p in by_hand.contour] && raw.cut == by_hand.cut && raw.rim_gap === by_hand.rim_gap
     @test VgtkCore.estimate(raw.fit) === green && VgtkCore.inlier_mask(raw.fit) == VgtkCore.inlier_mask(by_hand.fit)
-    # a mosaic is read as its green cells; :bin2's G is the same plane; a generator streams
-    @test detect_image_circle(Xoshiro(1), mosaics; outlier_halfwidth = a, min_hole_area = 8, border_margin = 10).circle === green
-    @test detect_image_circle(Xoshiro(1), (LinearRaw(m; mode = :bin2) for m in mosaics); outlier_halfwidth = a, min_hole_area = 8, border_margin = 10).circle === green
+    # a mosaic is read as its green cells, and frames may stream; a cell image of another mode is refused
+    @test detect_image_circle(Xoshiro(1), (m for m in mosaics); outlier_halfwidth = a / 2, min_hole_area = 2).circle === green
+    @test_throws ArgumentError detect_image_circle(Xoshiro(1), [LinearRaw(m; mode = :bin2) for m in mosaics]; outlier_halfwidth = a / 2, min_hole_area = 2)
     @test detect_image_circle(Xoshiro(1), VgtkCore.Circle, cells; outlier_halfwidth = a, min_hole_area = 8).circle isa VgtkCore.Circle{Float64}
-    # the default border_margin is 5 raw px (2.5 cells): the caller's pixels
-    @test detect_image_circle(Xoshiro(1), cells; outlier_halfwidth = a, min_hole_area = 8, border_margin = 5).circle ===
-        detect_image_circle(Xoshiro(1), cells; outlier_halfwidth = a, min_hole_area = 8).circle
     # one kind of frame, one sensor window
     @test_throws ArgumentError detect_image_circle(Xoshiro(1), [cells[1], planes[2]]; outlier_halfwidth = a, min_hole_area = 8)
     @test_throws ArgumentError detect_image_circle(Xoshiro(1), [planes[1], cells[2]]; outlier_halfwidth = a, min_hole_area = 8)
@@ -187,7 +189,7 @@ end
     using Adapt: adapt
     using CUDA: CUDA
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
-    using VisualGeometryToolkitFeatures: RawMosaic, LinearRaw
+    RawMosaic, LinearRaw = SensorImage.RawMosaic, SensorImage.LinearRaw
     if CUDA.functional()
         W, H, c, r = 360, 240, (181.3, 118.7), 100.0
         a = 0.1 * hypot(W, H)
@@ -214,4 +216,21 @@ end
     res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 0.1 * hypot(W, H), min_hole_area = 8, smoothing_weight = 5e-4)
     # on a sharp rim the smoothing does not move the circle (≈ 1 px outward, as unsmoothed)
     @test hypot(res.circle.center[1] - c[1], res.circle.center[2] - c[2]) < 0.5 && 0 < res.circle.a - r < 2.0
+end
+
+@testitem "detect_image_circle: the extension hooks name the package to load" begin
+    # the fit and the smoothing are package extensions; without one loaded the call stops before any work with an
+    # ArgumentError naming the package (the fallbacks; a loaded extension cannot be unloaded, so they are called directly)
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    function msg(f)
+        try
+            f()
+        catch e
+            return e isa ArgumentError ? e.msg : ""
+        end
+        return ""
+    end
+    @test occursin("using VisualGeometryToolkitEstimation", msg(() -> VgtkFeatures._fit_image_circle(Int, Float64[]; outlier_halfwidth = 1.0, rng = nothing)))
+    @test occursin("using ImageSmooth", msg(() -> VgtkFeatures._l0_smooth!(nothing, nothing, 1)))
+    @test occursin("using SomePackage", msg(() -> VgtkFeatures._require_extension(:NoSuchExtension, "SomePackage", "a part")))
 end

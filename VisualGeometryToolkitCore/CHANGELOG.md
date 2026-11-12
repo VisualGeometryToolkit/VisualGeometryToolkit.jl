@@ -24,7 +24,11 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
-
+- **`CSRMatrix` and the `:pool` grid selection default to `default_device()`** (the stack's GPU-first rule):
+  `CSRMatrix(A; device = default_device())` (was `KA.CPU()`), and `stage_selection(:pool, pairs, residuals; backend)`
+  carries its backend (`default_device()` when none is supplied), on which `select_on_grid!` runs the exact kernels
+  of a residual-quality family (they were hard-wired to `KA.CPU()`). On the host the selections are unchanged, bit for
+  bit.
 - **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
   no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are

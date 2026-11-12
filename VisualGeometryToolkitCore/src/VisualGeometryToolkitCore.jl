@@ -497,7 +497,7 @@ public scoring_workspace, score!, inlier_count, consensus_order, decision_bounda
     has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
     score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
-    with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, ThresholdScoringWorkspace, residual_quality,
+    with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, @threshold_scoring_constructors, ThresholdScoringWorkspace, residual_quality,
     SCORING_TAGS
 # The Student-t + uniform marginal scorer and its partition sweep (robust/partition_sweep.jl,
 # robust/student_t_uniform_scoring.jl; moved from RANSACScoringDoneRight, 2026-11-11). The

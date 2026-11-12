@@ -95,31 +95,49 @@ const _ThresholdScoring{DG, T} = Union{RansacScoring{DG, T}, MsacScoring{DG, T}}
 # shares (these and StudentTUniformScoring's), the problem protocol's `codimension` implemented by the problem type.
 _problem_codimension(::Type{P}) where {P <: AbstractConstraintProblem} = codimension(P)
 
-for S in (:RansacScoring, :MsacScoring)
-    @eval begin
+"""
+    @threshold_scoring_constructors S
+
+The constructors and the width setter of a threshold-scorer family `S{DG, T} <:
+`[`AbstractThresholdScoring`](@ref)`{T}` (`DG` its codimension, its threshold in
+a field `threshold`, an inner constructor `S{DG, T}(threshold)`), as
+[`RansacScoring`](@ref) and [`MsacScoring`](@ref) have them: `S{DG}()` and
+`S()` (codimension 1) the width-free form; `S(dg; threshold)`,
+`S(problem; threshold)` and `S(P; threshold)` (a problem, or a problem TYPE,
+gives the codimension) at a threshold, refused unless positive and finite
+(`ArgumentError`), or width-free without one; and
+[`with_width`](@ref)`(::S{DG}, w::LossWidth)`, the same family at `w`'s loss
+width. A downstream family (RANSACScoringDoneRight's loss-width baselines) is
+given them by this one line after its struct, exactly as Core's two are.
+"""
+macro threshold_scoring_constructors(S)
+    at, cod, pcod = GlobalRef(@__MODULE__, :_at_threshold), GlobalRef(@__MODULE__, :codimension), GlobalRef(@__MODULE__, :_problem_codimension)
+    ACP, WW, LW, lw = GlobalRef(@__MODULE__, :AbstractConstraintProblem), GlobalRef(@__MODULE__, :with_width),
+        GlobalRef(@__MODULE__, :LossWidth), GlobalRef(@__MODULE__, :loss_width)
+    return esc(quote
         $S{DG}() where {DG} = $S{DG, Nothing}(nothing)
         $S() = $S{1}()
-        $S(dg::Integer; threshold::Union{Nothing, Real} = nothing) = _at_threshold($S{Int(dg)}, threshold)
-        $S(problem::AbstractConstraintProblem; threshold::Union{Nothing, Real} = nothing) =
-            _at_threshold($S{codimension(problem)}, threshold)
-        $S(::Type{P}; threshold::Union{Nothing, Real} = nothing) where {P <: AbstractConstraintProblem} =
-            _at_threshold($S{_problem_codimension(P)}, threshold)
-    end
+        $S(dg::Integer; threshold::Union{Nothing, Real} = nothing) = $at($S{Int(dg)}, threshold)
+        $S(problem::$ACP; threshold::Union{Nothing, Real} = nothing) = $at($S{$cod(problem)}, threshold)
+        $S(::Type{P}; threshold::Union{Nothing, Real} = nothing) where {P <: $ACP} = $at($S{$pcod(P)}, threshold)
+        $WW(sc::$S{DG}, w::$LW{NTuple{2, Float64}}) where {DG} = $S(DG; threshold = $lw(w))
+        nothing
+    end)
 end
 _at_threshold(::Type{S}, ::Nothing) where {S} = S{Nothing}(nothing)
 function _at_threshold(::Type{S}, τ::Real) where {S}
     (isfinite(τ) && τ > 0) || throw(ArgumentError("$(nameof(S)): threshold must be positive and finite, got $τ"))
     return S{Float64}(Float64(τ))
 end
+@threshold_scoring_constructors RansacScoring
+@threshold_scoring_constructors MsacScoring
 
 codimension(::_ThresholdScoring{DG}) where {DG} = DG
 loss_shape(::MsacScoring) = TLSShape()
 
 # The width a threshold scorer is built at is its truncated loss's width: the
-# loss-width axis, set by `with_width`.
+# loss-width axis, set by `with_width` (`@threshold_scoring_constructors`).
 width_axis(::_ThresholdScoring) = LossWidth()
-with_width(sc::RansacScoring{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = RansacScoring(DG; threshold = loss_width(w))
-with_width(sc::MsacScoring{DG}, w::LossWidth{NTuple{2, Float64}}) where {DG} = MsacScoring(DG; threshold = loss_width(w))
 
 """
     residual_quality(scoring, d2::Float64, loss_width::Float64) -> Float64

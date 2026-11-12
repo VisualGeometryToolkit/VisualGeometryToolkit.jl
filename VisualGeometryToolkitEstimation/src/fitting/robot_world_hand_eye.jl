@@ -201,8 +201,8 @@ function _robot_world_hand_eye_result(
     N = size(J, 2)
     n = length(r) ÷ w
     length(weights) == n || throw(DimensionMismatch("$n data, $(length(weights)) weights"))
-    dof, RSS, rms, support = if strategy === nothing
-        length(r) - N, sum(abs2, r), sqrt(sum(abs2, r) / rms_rows), n
+    dof, RSS, rms_value, support = if strategy === nothing
+        length(r) - N, sum(abs2, r), VgtkCore.rms(r, rms_rows), n
     else
         used, sum_w, rss_w = _weighted_support(weights, (sum(abs2, view(r, (w * (k - 1) + 1):(w * k))) for k in 1:n))
         dof_w = w * sum_w - N
@@ -222,7 +222,7 @@ function _robot_world_hand_eye_result(
         res_norms, s2, dof, cov, SMatrix{6, 6, Float64, 36}(cov[1:6, 1:6]), λ_min, v_min, σ_rot, σ_trans,
         weights, scale, scale_source, loss_width
     )
-    return FitResult(cal, termination..., iterations, rms, support, md)
+    return FitResult(cal, termination..., iterations, rms_value, support, md)
 end
 
 # -----------------------------------------------------------------------------

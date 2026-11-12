@@ -5,6 +5,8 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `bearing_csponds(camera1, camera2, cs_px)`** (public, Cameras; moved from Synthetic): pixel correspondences as
+  bearing correspondences, each endpoint back-projected with its pixel Jacobian (the `M₁`/`M₂` attribute columns).
 - **New: `prefix_sweep`** (public): the device-callable prefix sweep of a sorted column, the one body behind
   `ig_sweep_kernel!` and the host `sweep!` (equal output, `===`, tested on the CPU and a CUDA kernel).
 - **New: `check_keys(...; renamed = (old => new, …))`** refuses a renamed TOML key by naming its successor (no alias).

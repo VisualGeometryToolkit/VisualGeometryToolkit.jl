@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **New: `propagate(m, d::Detection{<:Uncertain})`**: the uncertain centre of a detection through a map (its centre and
+  the position block of its frame covariance, carried by VisualGeometryToolkitCore's `propagate`; moved from
+  PanoramaStitching).
 - **Device buffers are released through VisualGeometryToolkitCore's `free_device_buffers!`** (an evicted ASIFT plan's,
   the matcher's score blocks), no longer KernelAbstractions' `unsafe_free!`, which CUDA.jl does not extend: on a GPU
   they were not released until the collector ran. Now they are, at once.

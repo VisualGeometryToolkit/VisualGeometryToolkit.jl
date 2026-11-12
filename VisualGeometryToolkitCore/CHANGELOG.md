@@ -14,6 +14,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   (VisualGeometryToolkitEstimation's `refine_*`, whose default it is) runs it at `efficiency_constant(K, d)` times the
   caller's `scale`, and a RANSAC local optimization follows the scorer's `decision_boundary`, as `Irls{K}()` does.
   It was an `UndefKeywordError`.
+- **The predictive Student-t scorer decides a sample point held once, from its score**: its scores and penalties are
+  zeroed together by `zero_sample!(q, penalties, sample)` (new two-buffer form), so a point with a finite score beside
+  a non-finite penalty (or the reverse) is never half held. `sample_point_held` is documented with the scoring
+  contract (robust/scoring_contract.jl, the Robust Estimation API page).
 - **A minimal-sample point with a non-finite residual is not held** (`sample_point_held`, the one rule every scorer
   reads: the threshold families' consensus partition and score correction, `zero_sample!` and so the Student-t
   scorer's zeroed scores and the pool staging). Such a point is one the model does not reach (a lattice detection a

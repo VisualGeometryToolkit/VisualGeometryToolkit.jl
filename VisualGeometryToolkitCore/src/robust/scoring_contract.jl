@@ -358,3 +358,23 @@ function _score_model!(buf, scoring, problem, θ, n, sample, reuse_residuals, bo
 end
 _score_model!(buf, scoring, problem, θ::Uncertain, n, sample, _reuse_residuals, bound) =
     score!(buf.scoring_ws, scoring, buf.scores, buf.residuals, problem, θ, n; sample, bound)
+
+# =============================================================================
+# A minimal sample's points
+# =============================================================================
+
+# Forced in, its Inf residual made the consensus scale Inf (RadiometricCamera's grid index,
+# 2026-11-12: 86 of 142 photographs of one set).
+"""
+    sample_point_held(x) -> Bool
+
+THE rule of a minimal sample's points, every scorer's (the threshold families'
+consensus partition and score correction, the Student-t scorer's zeroed scores, the
+predictive scorer's scores and penalties — one decision per point, from its score — and
+the pool staging, through `zero_sample!`): a sample point is held
+at zero residual — its model fits it by construction — only where its value `x` (a
+residual, its square, a score) is finite. A non-finite one is a point the model does
+not reach (a lattice detection a pose leaves unassigned, its distance Inf), and it
+stays an outlier: out of the consensus set, its RSS and its dof.
+"""
+@inline sample_point_held(x) = isfinite(x)

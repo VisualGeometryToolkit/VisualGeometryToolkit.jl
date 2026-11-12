@@ -334,9 +334,9 @@ function score_sq_residuals!(sws::ScoringWorkspace, q::AbstractVector{T},
         sws.sort_key[i] = q[i]
     end
     # Sample points satisfy constraints exactly — their prediction variance
-    # is zero (model is determined by them), so their penalty is spurious.
-    zero_sample!(q, sample_idx)
-    zero_sample!(sws.penalties, sample_idx)
+    # is zero (model is determined by them), so their penalty is spurious. Held is
+    # decided once, from q, for both buffers (`sample_point_held`).
+    zero_sample!(q, sws.penalties, sample_idx)
     @inbounds for i in n+1:length(q)
         q[i] = typemax(T)
         sws.sort_key[i] = typemax(T)

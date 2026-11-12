@@ -383,7 +383,7 @@ mount_dir(cat::DataCatalog, name::AbstractString) = String(get(cat.artifacts[fir
     catalog_view(cat; dir = "", default = required_artifacts(cat)) -> ArtifactView
 
 The project's artifact view of its catalog: its Artifacts.toml, each artifact mounted at its [`mount_dir`](@ref),
-installing `default` when asked for no tier in particular. The binding a project passes to
+installing `default` when asked for no tier in particular. The binding a project gives
 `Experiments.set_project_root!(…; artifacts = catalog_view(project_catalog()))`.
 """
 catalog_view(cat::DataCatalog; dir::AbstractString = "", default = required_artifacts(cat)) =

@@ -1,11 +1,14 @@
 # 0.9.3 docs pass (julia-docs-pass) — release-0.9.3
 
-The packages released: VisualGeometryToolkitCore 0.9.3 and VisualGeometryToolkitIO 0.9.2, both patches with no API
-change. The others are unchanged. The baseline is 9dc838a1 (the 0.9.2 release); the earlier passes are below.
+The packages released: VisualGeometryToolkitCore 0.9.3 (one public name added), VisualGeometryToolkitIO 0.9.2 and
+VisualGeometryToolkitFeatures 0.8.1, all three patches. The others are unchanged. The baseline is 9dc838a1 (the 0.9.2
+release); the earlier passes are below.
 
 ## 1. Public API since 9dc838a1
 
-None added, removed or renamed in either package. Core changes: the MappedSurface root computes with explicit fused
+Core adds the public `require_extension` (base/utils.jl, docstring on api/core.md through its `base/utils.jl`
+`@autodocs`): the stack's one check for a package extension, hoisted from Features' and BlobBoards' private copies.
+Nothing else is added, removed or renamed in any package. Core changes: the MappedSurface root computes with explicit fused
 products, its bits now the same at every call site (a fix); the private `_chart_affine` is deleted. IO: an embedded old
 grid camera body is now read (a fix).
 
@@ -13,9 +16,9 @@ grid camera body is now read (a fix).
 
 | check | result |
 |---|---|
-| docstrings and pages | no public name added; docstrings changed in place: `camera_from_json` (IO: the old embedded body, read in colmap), the IO kinds page |
+| docstrings and pages | `require_extension`: a docstring with both signatures and an example, on api/core.md (that page is ~177 KiB rendered; the docstring adds ~2 KiB). Changed in place: docstrings changed in place: `camera_from_json` (IO: the old embedded body, read in colmap), the IO kinds page |
 | CHANGELOG | Core 0.9.3 and IO 0.9.2 sections; the registered headings dated 2026-11-12 (Core 0.9.2, IO 0.9.1, Estimation 0.9.1, Features 0.8.0) |
-| versions | Core 0.9.3, IO 0.9.2 |
+| versions | Core 0.9.3, IO 0.9.2, Features 0.8.1 (its Core floor "0.9.3" in package, docs and test environments) |
 | in-repo compat | none needs moving: every package's Core compat admits 0.9.3, and Eval's IO compat "0.9" admits 0.9.2 |
 
 ## 3. Executed on the final RC

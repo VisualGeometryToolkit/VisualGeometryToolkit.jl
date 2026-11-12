@@ -1,5 +1,14 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.8.1 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.3 (`[compat]` VisualGeometryToolkitCore 0.9.3).
+
+- **`detect_image_circle`'s extension checks are VisualGeometryToolkitCore's `require_extension`.** The private
+  `_require_extension` is deleted. The message without the extension is unchanged. The hooks' fallbacks
+  (`_fit_image_circle`, `_l0_smooth!`) now raise the `MethodError` of arguments that the loaded extension does not take,
+  where they used to name the package to load even when it was loaded.
+
 ## 0.8.0 (2026-11-12)
 
 Breaking. The sensor image moves to VisualGeometryToolkitCore 0.9.2 (`[compat]` VisualGeometryToolkitCore 0.9.2), and

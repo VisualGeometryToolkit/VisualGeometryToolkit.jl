@@ -452,6 +452,7 @@ public filter_kwargs, validate_dir
 public stable_seed   # the seed of every random stream, keyed by name (base/utils.jl)
 public sha256_hex    # lower-case hex SHA-256 of a string's bytes, a byte vector or a stream (a file: `open(sha256_hex, path)`)
 public RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (base/utils.jl)
+public require_extension   # the one check for a package extension a call needs: its message, or the MethodError (base/utils.jl)
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Serialization traits (DimTrait, canon_value, etc.) moved to VisualGeometryToolkitFeatures

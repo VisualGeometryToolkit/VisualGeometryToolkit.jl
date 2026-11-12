@@ -120,7 +120,8 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
         throw(ArgumentError("detect_image_circle: outlier_halfwidth must be > 0 px, got $outlier_halfwidth"))
     (isfinite(min_hole_area) && min_hole_area >= 0) ||
         throw(ArgumentError("detect_image_circle: min_hole_area must be ≥ 0 px², got $min_hole_area"))
-    _require_extension(:VisualGeometryToolkitFeaturesEstimationExt, "VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)")
+    require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
+                      @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
     upper, S = nothing, nothing                                       # 1. the per-pixel maximum, one frame at a time
     for f in frames
         plane, Sf = _measured_plane(f)
@@ -138,7 +139,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
     smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     levels = Matrix{Gray{N0f8}}(undef, H, W)                          # 2. VLFeat's 8 bits (after an L0 smoothing only when asked)
     if smoothing_weight > 0
-        _require_extension(:VisualGeometryToolkitFeaturesImageSmoothExt, "ImageSmooth", "the L0 smoothing (smoothing_weight > 0)")
+        require_extension(() -> _missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"), @__MODULE__, :VisualGeometryToolkitFeaturesImageSmoothExt)
         _l0_smooth!(levels, upper, Float64(smoothing_weight))
     else
         levels .= Gray{N0f8}.(clamp.(upper, 0, 1))
@@ -192,10 +193,12 @@ _inside_frame(poly, W, H) = [p for p in poly if 0.5 < p[1] < W - 0.5 && 0.5 < p[
 
 # The extension hooks. VisualGeometryToolkitFeaturesEstimationExt adds `_fit_image_circle` for `Circle` and `Ellipse`
 # (the RANSAC on the contour); VisualGeometryToolkitFeaturesImageSmoothExt adds `_l0_smooth!`. Without them loaded the
-# call stops before any work, naming the package to load (`_require_extension`); the fallbacks name it too.
+# call stops before any work, naming the package to load (VisualGeometryToolkitCore's `require_extension`); the fallbacks
+# name it too, or raise the MethodError of arguments the loaded extension does not take.
 _missing_extension(pkg, what) = ArgumentError("detect_image_circle: $what needs `using $pkg` (its package extension is not loaded)")
-_require_extension(ext::Symbol, pkg, what) =
-    Base.get_extension(@__MODULE__, ext) === nothing && throw(_missing_extension(pkg, what))
-_fit_image_circle(::Type, contour; outlier_halfwidth, rng) =
-    throw(_missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"))
-_l0_smooth!(levels, upper, λ) = throw(_missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"))
+_fit_image_circle(T::Type, contour; outlier_halfwidth, rng) =
+    require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
+                      _fit_image_circle, (T, contour), @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
+_l0_smooth!(levels, upper, λ) =
+    require_extension(() -> _missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"),
+                      _l0_smooth!, (levels, upper, λ), @__MODULE__, :VisualGeometryToolkitFeaturesImageSmoothExt)

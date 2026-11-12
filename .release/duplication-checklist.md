@@ -99,7 +99,11 @@ Downstream copies, outside this release (listed for their owners; not release it
 - [x] Features 0.8.0 re-exports no Core name: no package reaches one through Features (a review checked every
   monorepo package, test, example and docs page).
 
-## 0.9.3 / IO 0.9.2
+## 0.9.3 / IO 0.9.2 / Features 0.8.1
+
+- [x] ONE check for a package extension: Core's public `require_extension`, the up-front check and the fallback
+  (the MethodError of a loaded extension at the caller's world age). Features' private `_require_extension` is
+  deleted. BlobBoards' copy (`src/extensions.jl`) moves onto it on BlobBoards' own branch.
 
 - [x] ONE set of explicit fused products: `_fma_dot`, `_fma_mul`, `_fma_tmul` in Core `base/fused_products.jl`. The
   spline lenses' 2-D LM, the MappedSurface root and a `Quad`'s plane coordinates compute with them.

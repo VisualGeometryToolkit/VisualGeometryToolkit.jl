@@ -192,3 +192,37 @@ successor `new`.
 refuse_retired_keyword(::RetiredKeyword, _old, _new) = nothing
 refuse_retired_keyword(_value, old, new) =
     throw(ArgumentError("the keyword `$old` is retired: give `$new`"))
+
+"""
+    require_extension(missing_error, parent::Module, extension::Symbol) -> nothing
+    require_extension(missing_error, f, args::Tuple, parent::Module, extension::Symbol)
+
+The stack's one check for a package extension a call needs. `missing_error` is a
+zero-argument function returning the exception to throw when the extension is not
+loaded: the caller's own message, naming what to install and load (`using X`),
+built only on that path.
+
+- `require_extension(missing_error, parent, extension)`: `nothing` when `parent`'s
+  extension `extension` is loaded (`Base.get_extension(parent, extension)`), else
+  `throw(missing_error())`. A function calls it first, before any work that would end in
+  the extension.
+- `require_extension(missing_error, f, args, parent, extension)`: the fallback method of
+  a function `f` whose methods live in the extension, called with the arguments
+  `args` it received. Without the extension it throws `missing_error()`. With the
+  extension loaded the arguments fit none of its methods, so it throws the
+  `MethodError(f, args)` the call would have raised, at the caller's world age
+  (`Base.tls_world_age()`), so that a call compiled before the extension loaded
+  keeps Julia's "method too new" hint.
+
+```julia
+_fit(args...; kwargs...) = require_extension(_fit, args, @__MODULE__, :MyPackageEstimationExt) do
+    ArgumentError("_fit needs `using VisualGeometryToolkitEstimation` (its package extension is not loaded)")
+end
+```
+"""
+require_extension(missing_error, parent::Module, extension::Symbol) =
+    Base.get_extension(parent, extension) === nothing ? throw(missing_error()) : nothing
+function require_extension(missing_error, f, args::Tuple, parent::Module, extension::Symbol)
+    Base.get_extension(parent, extension) === nothing && throw(missing_error())
+    throw(MethodError(f, args, Base.tls_world_age()))
+end

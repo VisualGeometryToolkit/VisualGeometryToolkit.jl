@@ -2,25 +2,31 @@
 
 ## 0.9.3 (unreleased)
 
-A patch: no API change.
+A patch. Additive: `require_extension`; otherwise no API change.
 
-- **Fixed: one surface and one ray have one hit, whatever code calls it.** The `MappedSurface` root (`intersection`,
-  `chart`, `normal`, `surface_point`) is inlined into its callers, and its arithmetic was built on operations LLVM may
-  contract into FMAs as each compiled copy decides (StaticArrays' `muladd` products, its `@simd` `dot`, the LM
-  increment's `muladd`s): two hits of the same surface and ray in one function came out 2–3 ulp apart (a height field
-  alone or composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). The root now reads the chart map
-  through its own traversal with explicit fused products (`fma` chains in a fixed order; everything else plain
+- **New: `require_extension`, public** (the owner's ruling, 2026-11-12): the stack's one check for a package extension a
+  call needs, hoisted from VisualGeometryToolkitFeatures' and BlobBoards' private copies.
+  `require_extension(missing_error, parent, extension)` returns `nothing` when `parent`'s extension is loaded and
+  otherwise throws `missing_error()`, the caller's own exception naming what to install and load.
+  `require_extension(missing_error, f, args, parent, extension)` is the fallback method of a function whose methods live
+  in the extension. Without the extension it throws `missing_error()`; with it loaded, the arguments fit no method of
+  the extension, so it throws their `MethodError(f, args)` at the caller's world age, which keeps Julia's "method too
+  new" hint. - **Fixed: one surface and one ray have one hit, whatever code calls it.** The `MappedSurface` root
+  (`intersection`, `chart`, `normal`, `surface_point`) is inlined into its callers, and its arithmetic was built on
+  operations LLVM may contract into FMAs as each compiled copy decides (StaticArrays' `muladd` products, its `@simd`
+  `dot`, the LM increment's `muladd`s): two hits of the same surface and ray in one function came out 2–3 ulp apart (a
+  height field alone or composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). The root now reads the
+  chart map through its own traversal with explicit fused products (`fma` chains in a fixed order; everything else plain
   arithmetic, which Julia never contracts), as does the 2-D LM it shares with the spline lenses' projection, so it stays
   inlined — a device kernel's evaluation keeps its speed — and gives the same bits in every copy. Hits, and the spline
   lenses' projections (the same 2-D LM), move by rounding only against 0.9.2; their bits no longer depend on the call
-  site. Tested bit for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`),
-  a Dual call (the heights differentiated) included.
-- **One copy of each piece of that fix.** The fused products (`_fma_dot`, `_fma_mul`, `_fma_tmul`) live in
-  `base/fused_products.jl`, and a `Quad`'s plane coordinates have one body (`_plane_coordinates`, now with the fused
-  dot; the root's copy of it is gone), so `chart(::Quad)` moves by rounding only. The root's traversal of the chart
-  map is tested against the map's own call and `transform_deriv`, member by member
-  (`mapped_surface_traversal_tests.jl`). The private `_chart_affine`, unused since the height path reads the chart map
-  directly, is deleted.
+  site. Tested bit for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`), a
+  Dual call (the heights differentiated) included. - **One copy of each piece of that fix.** The fused products
+  (`_fma_dot`, `_fma_mul`, `_fma_tmul`) live in `base/fused_products.jl`, and a `Quad`'s plane coordinates have one body
+  (`_plane_coordinates`, now with the fused dot; the root's copy of it is gone), so `chart(::Quad)` moves by rounding
+  only. The root's traversal of the chart map is tested against the map's own call and `transform_deriv`, member by
+  member (`mapped_surface_traversal_tests.jl`). The private `_chart_affine`, unused since the height path reads the
+  chart map directly, is deleted.
 
 ## 0.9.2 (2026-11-12)
 

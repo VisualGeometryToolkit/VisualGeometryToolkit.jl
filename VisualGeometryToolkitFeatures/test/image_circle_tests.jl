@@ -214,18 +214,22 @@ end
 end
 
 @testitem "detect_image_circle: the extension hooks name the package to load" begin
-    # the fit and the smoothing are package extensions; without one loaded the call stops before any work with an
-    # ArgumentError naming the package (the fallbacks; a loaded extension cannot be unloaded, so they are called directly)
+    # the fit and the smoothing are package extensions (VisualGeometryToolkitCore's `require_extension`): without one
+    # loaded the call stops before any work with an ArgumentError naming the package; with it loaded, a fallback reached
+    # by arguments no method of the extension takes raises their MethodError (a loaded extension cannot be unloaded, so
+    # the not-loaded message is checked on an extension that does not exist)
+    using Test
+    import VisualGeometryToolkitEstimation, ImageSmooth   # both extensions load
     import VisualGeometryToolkitFeatures as VgtkFeatures
-    function msg(f)
-        try
-            f()
-        catch e
-            return e isa ArgumentError ? e.msg : ""
-        end
-        return ""
+    import VisualGeometryToolkitCore as VgtkCore
+    @test Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesEstimationExt) !== nothing
+    @test Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesImageSmoothExt) !== nothing
+    @test_throws MethodError VgtkFeatures._fit_image_circle(Int, Float64[]; outlier_halfwidth = 1.0, rng = nothing)
+    @test_throws MethodError VgtkFeatures._l0_smooth!(nothing, nothing, 1)
+    e = try
+        VgtkCore.require_extension(() -> VgtkFeatures._missing_extension("SomePackage", "a part"), VgtkFeatures, :NoSuchExtension)
+    catch err
+        err
     end
-    @test occursin("using VisualGeometryToolkitEstimation", msg(() -> VgtkFeatures._fit_image_circle(Int, Float64[]; outlier_halfwidth = 1.0, rng = nothing)))
-    @test occursin("using ImageSmooth", msg(() -> VgtkFeatures._l0_smooth!(nothing, nothing, 1)))
-    @test occursin("using SomePackage", msg(() -> VgtkFeatures._require_extension(:NoSuchExtension, "SomePackage", "a part")))
+    @test e isa ArgumentError && occursin("a part needs `using SomePackage`", e.msg)
 end

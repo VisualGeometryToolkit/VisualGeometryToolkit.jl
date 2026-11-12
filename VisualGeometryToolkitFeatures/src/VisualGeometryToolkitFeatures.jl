@@ -35,7 +35,7 @@ using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using Distributions: FDist, quantile   # the F-test of detect_foerstner
 using Random: Random, AbstractRNG   # detect_image_circle's RANSAC draws (image_circle.jl)
-using VisualGeometryToolkitCore: Circle, found_model, estimate, inlier_mask, map_estimate, unlabel, signed_area   # detect_image_circle: its models, the fit's accessors, the RAW cells' map (image_circle.jl)
+using VisualGeometryToolkitCore: Circle, found_model, estimate, inlier_mask, map_estimate, unlabel, signed_area, require_extension   # detect_image_circle: its models, the fit's accessors, the RAW cells' map (image_circle.jl)
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)

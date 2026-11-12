@@ -58,12 +58,12 @@ Final RC: 9c74e264 (the version bump 1d816a22 and the release records; this file
 Features ASIFT singular-covariance drop (F6 ruling), `is_stationary`'s gradient form, `pooled_noise_scale` (F8),
 CountedLO's log hook (F9), the lens-circle hoist (F10).
 
-## 0.9.2 / Features 0.7.1: the Bayer port (branch `bayer-port`)
+## 0.9.2 / Features 0.8.0: the Bayer port (branch `bayer-port`)
 
 The sensor image moved to Core (owner ruling 2026-11-12); the gate of the photosite-radiometry spec:
 
-- [x] ONE stored RAW type: `RawMosaic`, defined in Core only (Features re-exports the binding; `VgtkFeatures.RawMosaic ===
-  VgtkCore.RawMosaic`, a test). No second image-with-frame type (`FramedImage` stays a warp's canvas).
+- [x] ONE stored RAW type: `RawMosaic`, defined and exported in Core only (Features 0.8.0 re-exports none of the moved
+  names, nor Core's `feature_frame`, `Cspond`, `csponds`). No second image-with-frame type (`FramedImage` stays a warp's canvas).
 - [x] ONE phase rule: `_photosite_color`, `_QUAD_SITES`, `_site_offset` and the one sample-lattice map `_sample_map`
   (Core `src/raw/raw_mosaic.jl`); `channelview(::RawMosaic)`, `bayer_plane_map` of a mosaic and of a `LinearRaw`,
   `green_cell_sites` and the cell kernel read them. The R/B channel maps ARE the bin2 plane maps (`===`, a test).

@@ -19,7 +19,7 @@ after the decode is Core's: the mosaic's colour phase and its photosites
 channel-first (`channelview`), the linear values on the 2×2 cells
 (`LinearRaw`) and the exact maps onto the sensor (`raw_frame_map`,
 `bayer_plane_map`, `green_cell_sites`, `raw_coordinates`). Those names are
-re-exported here, the same bindings; their reference and design are Core's
+exported by Core only (`using VisualGeometryToolkitCore`); their reference and design are Core's
 "Camera RAW" API page and "Raw images" guide, and this package's
 [Raw images](@ref) page says what is left here.
 

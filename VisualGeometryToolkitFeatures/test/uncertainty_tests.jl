@@ -102,6 +102,7 @@ end
 end
 
 @testitem "keypoint covariance: API, off path unchanged, round trips" setup = [Fixtures, UncFixtures] begin
+    using VisualGeometryToolkitCore: feature_frame
     using VisualGeometryToolkitFeatures: ImasFeatureKA
     using VisualGeometryToolkitCore: Uncertain, CovMat, UnlabeledFrame, cov, geom
     using StaticArrays: SMatrix

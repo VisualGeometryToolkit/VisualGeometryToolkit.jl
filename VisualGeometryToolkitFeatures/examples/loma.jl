@@ -23,7 +23,7 @@ import GLMakie
 
 using VisualGeometryToolkitFeatures
 using VisualGeometryToolkitFeatures: loma_provenance, resolve_execution_provider
-using VisualGeometryToolkitCore: Point2, Rect, centroid, imshow, imshow!, matches!
+using VisualGeometryToolkitCore: Point2, Rect, centroid, imshow, imshow!, matches!, csponds
 
 const execution_provider = resolve_execution_provider(Symbol(get(ENV, "LOMA_PROVIDER", "auto")))
 

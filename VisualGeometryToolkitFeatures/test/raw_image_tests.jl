@@ -1,22 +1,9 @@
 # load_raw: the decoder (LibRaw_jll), the display demosaic — of a file and of a mosaic in memory —
 # the detection image's refusal of the display image, the black-level rule, the EXIF fields and
 # the decode cache. The sensor image the decoder produces (RawMosaic, LinearRaw, their maps) is
-# VisualGeometryToolkitCore's since 0.9.2, tested there (test/raw_mosaic_tests.jl); here, that
-# Features re-exports those bindings, the same objects. CI has no RAW file: a real-file check
+# VisualGeometryToolkitCore's since Core 0.9.2, exported by Core only and tested there
+# (test/raw_mosaic_tests.jl). CI has no RAW file: a real-file check
 # runs when VGTK_RAW_TEST_FILE names one, and is recorded as a skip otherwise.
-
-@testitem "raw: the sensor image is Core's, re-exported (the same bindings)" begin
-    import VisualGeometryToolkitFeatures as VgtkFeatures
-    import VisualGeometryToolkitCore as VgtkCore
-    for name in (:RawMosaic, :LinearRaw, :BayerCellFrame, :raw_frame_map, :bayer_plane_map, :green_cell_sites,
-                 :raw_coordinates, :raw_provenance, :cfa_string, :photosite_colors)
-        @test getfield(VgtkFeatures, name) === getfield(VgtkCore, name)
-        @test parentmodule(getfield(VgtkFeatures, name)) === VgtkCore     # defined there, not here
-    end
-    exported = names(VgtkFeatures)
-    @test all(in(exported), (:RawMosaic, :LinearRaw, :BayerCellFrame, :raw_frame_map, :bayer_plane_map, :green_cell_sites, :raw_coordinates))
-    @test all(n -> Base.ispublic(VgtkFeatures, n), (:raw_provenance, :cfa_string, :photosite_colors))
-end
 
 @testitem "raw: the decoder needs its package" begin
     using VisualGeometryToolkitFeatures
@@ -35,8 +22,8 @@ end
 end
 
 @testitem "raw: the display demosaic keeps the sensor orientation (LibRaw_jll)" begin
+    using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance
     using VisualGeometryToolkitFeatures
-    using VisualGeometryToolkitFeatures: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance
     using LibRaw_jll: LibRaw_jll, libraw
     VGF = VisualGeometryToolkitFeatures
     X = Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt)
@@ -126,12 +113,14 @@ end
 end
 
 @testitem "raw: the display image has no green cells to stabilize" begin
-    using VisualGeometryToolkitFeatures: LinearRaw, variance_stabilize
+    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitFeatures: variance_stabilize
     display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
     @test_throws ArgumentError variance_stabilize(display_image; electrons_per_dn = 2.5, read_noise = 3.0)
 end
 
 @testitem "raw: LibRaw_jll decoder" begin
+    using VisualGeometryToolkitCore: LinearRaw
     using VisualGeometryToolkitFeatures
     using LibRaw_jll
     # the version check ran at load; a file LibRaw cannot read fails with its message
@@ -254,11 +243,12 @@ end
 end
 
 @testitem "raw: a decode cache — each RAW decoded once per content and settings" begin
+    using VisualGeometryToolkitCore: RawMosaic
     # The decoded-RAW cache PanoramaStitching's example kept as code-sum PNGs is
     # the package's one persistent cache (FileCache, JLD2): `load_raw(path; cache)`
     # keys an entry by the file's SHA-256 and the decode settings.
     using VisualGeometryToolkitFeatures
-    using VisualGeometryToolkitFeatures: RawDecoder, RawMosaic, open_cache, close_cache
+    using VisualGeometryToolkitFeatures: RawDecoder, open_cache, close_cache
     mosaic(raw) = RawMosaic(raw, UInt8[0 1; 3 2], (512.0, 500.0, 520.0, 508.0), 16383.0, (0, 0), size(raw), (; model = "synthetic"))
     using JLD2: JLD2
     struct CountingDecoder <: RawDecoder

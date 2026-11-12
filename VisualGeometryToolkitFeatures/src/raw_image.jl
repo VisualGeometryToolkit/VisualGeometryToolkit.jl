@@ -14,12 +14,11 @@
 #              only runs LibRaw's own interpolation (of a file, or of a mosaic
 #              in memory).
 #   process  — every number after that, in VisualGeometryToolkitCore (moved
-#              there in Core 0.9.2 / Features 0.7.1): the colour phase, the
+#              there in Core 0.9.2 / Features 0.8.0): the colour phase, the
 #              photosite views (`channelview`), the linear scaling, the 2×2 Bayer
 #              cells (`:bin2`, `:green_cells`), the saturation flags, the true
 #              sample positions and the exact frame maps (`LinearRaw(mosaic;
-#              mode, gain)`). This package re-exports those bindings, the same
-#              objects.
+#              mode, gain)`), exported by Core only.
 #
 # The green-cell image is THE image for geometry and radiometry; `:bin2` adds
 # the cell's red and blue; `:demosaic` (LibRaw's interpolation, full
@@ -132,7 +131,7 @@ end
     load_raw_mosaic(path; decoder::RawDecoder = LibRawDecoder()) -> RawMosaic
 
 Decode a camera RAW file (any format LibRaw reads: ARW, CR2, NEF, DNG, …) to
-its mosaic, VisualGeometryToolkitCore's `RawMosaic` (re-exported here). Only flat Bayer sensors (one colour per photosite) are
+its mosaic, VisualGeometryToolkitCore's `RawMosaic`. Only flat Bayer sensors (one colour per photosite) are
 supported. The decoder's package must be loaded: `using LibRaw_jll` for
 [`LibRawDecoder`](@ref).
 """
@@ -150,7 +149,7 @@ end
 A camera RAW file — or a mosaic already in memory, decoded or corrected
 (vignetting applied per photosite, say) — as linear values, in the sensor's
 orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
-`RawMosaic` and the frame maps are VisualGeometryToolkitCore's, re-exported here.
+`RawMosaic` and the frame maps are VisualGeometryToolkitCore's (exported by it).
 `mode`:
 
 - `:green_cells` or `:bin2` — exact: [`load_raw_mosaic`](@ref) (for a file),

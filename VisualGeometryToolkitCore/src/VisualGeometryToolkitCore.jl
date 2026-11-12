@@ -400,8 +400,8 @@ export AffineMap, Translation
 # -----------------------------------------------------------------------------
 # 3b. THE SENSOR IMAGE - a Bayer RAW mosaic, its photosite views and linear values (raw/)
 # -----------------------------------------------------------------------------
-# Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features keeps the LibRaw decoder and the
-# display demosaic, and re-exports these bindings).
+# Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features 0.8.0 keeps the LibRaw decoder and the
+# display demosaic, and does not re-export these names: Core alone exports them).
 export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
 export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)

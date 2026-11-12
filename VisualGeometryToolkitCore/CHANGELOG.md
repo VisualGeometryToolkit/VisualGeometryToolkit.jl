@@ -2,8 +2,8 @@
 
 ## 0.9.2 (unreleased)
 
-Additive. The sensor image moves here from VisualGeometryToolkitFeatures (Features 0.7.1 keeps the LibRaw decoder and
-the display demosaic, and re-exports these names: the same bindings, no alias), so every package below Features reads a
+Additive. The sensor image moves here from VisualGeometryToolkitFeatures (Features 0.8.0 keeps the LibRaw decoder and
+the display demosaic; it no longer exports these names, Core alone does), so every package below Features reads a
 RAW image without the decoder, and it gains a channel-first photosite view with an exact map per channel (the Bayer
 photosite radiometry spec, 2026-11-12, §1 and §4.1).
 

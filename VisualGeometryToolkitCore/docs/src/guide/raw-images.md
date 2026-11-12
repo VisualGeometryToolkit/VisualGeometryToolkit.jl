@@ -9,8 +9,8 @@ colour phase, its photosite views, its linear values and the exact maps of
 every sample onto the sensor. Decoding a RAW file is
 VisualGeometryToolkitFeatures' (`load_raw_mosaic`, LibRaw through
 `LibRaw_jll`), and so is the display demosaic (`load_raw(path or mosaic; mode
-= :demosaic)`); Features re-exports the names below, the same bindings, so
-code written against Features' names reaches these objects.
+= :demosaic)`). The names below are exported by Core alone (Features
+0.8.0 no longer re-exports them): `using VisualGeometryToolkitCore`.
 
 Julia has no convention for raw (Bayer) images: JuliaImages reads none, and
 BayeredImages.jl (unregistered) wraps a plain matrix as a `CFAImage <:

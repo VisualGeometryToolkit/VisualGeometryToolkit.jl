@@ -663,7 +663,7 @@ end
             @test (cv[g[1], :, :] .+ cv[g[2], :, :]) ./ 2 == Array(LinearRaw(d; mode = :green_cells).image[:, :, 1])
             sd = saturationview(d)
             @test copy(sd) isa CUDA.CuArray{Bool, 2} && Array(copy(sd)) == copy(saturationview(h))   # a broadcast on the device
-            @test Array(dropdims(any(channelview(copy(sd)); dims = 1); dims = 1)) == LinearRaw(h; mode = :bin2).saturated
+            @test dropdims(any(adapt(Array, channelview(sd)); dims = 1); dims = 1) == LinearRaw(h; mode = :bin2).saturated   # the channel view, moved whole
         end
     else
         @test_skip CUDA.functional()

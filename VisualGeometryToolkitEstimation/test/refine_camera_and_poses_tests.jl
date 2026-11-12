@@ -300,7 +300,7 @@ end
     @test err(ls) > 3.0 && isnan(ls.scale) && scale_source(ls) === ScaleNone && isnan(ls.loss_width)
     @test all(==(1.0), ls.weights) && weight_kind(ls) === BinaryWeights() && sizeof(weights(ls)) < 64
     @test_throws ArgumentError noise_scale(ls)
-    @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == hypot(ls.residuals[13], ls.residuals[14])
+    @test length(ls.residual_norms) == 300 && ls.residual_norms[7] == sqrt(ls.residuals[13]^2 + ls.residuals[14]^2)
     # the default is the refine contract's: Triggs{Welsch}, so it needs exactly one of scale or width
     @test_throws r"scale = σ" refine_camera_and_poses(cam0, poses0, noisy)
     rd = refine_camera_and_poses(cam0, poses0, noisy; scale = 0.2)

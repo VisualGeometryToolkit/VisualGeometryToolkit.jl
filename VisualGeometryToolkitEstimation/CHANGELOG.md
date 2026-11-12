@@ -5,6 +5,15 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **`with_extent(problem, extent)`, public** (was `_with_extent`): a `find_*`'s `extent` keyword applied to a problem
+  (`BoundedProblem(problem, extent)`, or the problem itself for `nothing`), for a caller's own `locally_optimize`.
+- **`RetiredKeyword` and `refuse_retired_keyword` are VisualGeometryToolkitCore's** (the private `_RetiredKeyword` and
+  `_refuse_retired_keyword` deleted); the strategy constant is Core's `efficiency_constant(lo, d)` and the estimate
+  mapping Core's `map_estimate`.
+- **Moved numbers:** `uncertain_rotation`'s covariance (and so `fit_rotation_averaging` over such edges) is read into the
+  so(3) chart by Core's `transform_covariance` (`J⁺·Σ·J⁺ᵀ`, an SVD pseudo-inverse) instead of `Jᵀ·Σ·J/4`: last-ulp
+  changes. `refine_camera_and_poses`' and the rotation-centre refine's `residual_norms` are Core's `point_norms!`
+  (`√(x² + y²)`) instead of `hypot`: last-ulp changes, recorded metadata only.
 - **Refusal messages:** a refine's least-squares refusal names its class (`refine (<class>): …`), `refine_camera`'s is
   `bundle_loss`'s ("plain least squares … reads no scale"), and a TLS refusal names the strategy type, since one reader
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.

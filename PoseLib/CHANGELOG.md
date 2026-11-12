@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`refine_relpose` refuses a non-finite bearing** by name (a pixel past a fisheye's fold back-projects to NaN), as
+  VisualGeometryToolkitEstimation's bearing gate does; before, `NaN` passed the unit-norm test. The strategy constant is
+  VisualGeometryToolkitCore's `efficiency_constant(lo, d)` (the private copy deleted; the refusal of a truncation's
+  missing constant now reads "TLS (TLSShape) has no efficiency constant (it is a truncation): …").
+
 - **Breaking: the refiners record their termination** (VisualGeometryToolkitCore's §14 record, in the FitResult core):
   `(ReturnCode.Success, NoRule)` before the iteration cap (the owner's ruling: PoseLib reports no stop rule, so none is
   claimed; `retcode_symbol` `:converged`), `(ReturnCode.MaxIters, IterationCap)` at it. `retcode(r)` is the

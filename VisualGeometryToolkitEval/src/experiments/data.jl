@@ -95,8 +95,6 @@ end
 "The project the drivers run from: [`set_project_root!`](@ref)'s root, else DrWatson's `projectdir()`."
 project_root() = isempty(_BINDING.root) ? projectdir() : _BINDING.root
 
-const ARTIFACT_VIEW_MARKER = ".artifact_view"     # the runner reads it too (src/code_identity.jl `_VIEW_MARKER`; a test holds them equal)
-
 "Whether `dir` is an artifact view (a directory carrying the `.artifact_view` marker)."
 is_artifact_view(dir::AbstractString) = isfile(joinpath(dir, ARTIFACT_VIEW_MARKER))
 

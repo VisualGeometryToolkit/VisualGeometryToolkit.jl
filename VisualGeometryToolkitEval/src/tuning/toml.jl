@@ -155,19 +155,6 @@ parameter change moves it.
 """
 tuning_hash(x::Union{TuningSpec,TuningScheme}) = _toml_hash(Dict{String,Any}("scheme" => tuning_table(x)))
 
-"""
-    _toml_hash(d::AbstractDict) -> String
-
-The content hash of the evaluation stack: the SHA-256 (hex, first 16) of `d`
-printed as sorted TOML. Independent of key order and fixed across Julia
-versions (unlike `Base.hash`); a TOML round trip of `d` reproduces it. Behind
-[`tuning_hash`](@ref) and Experiments `run_key`.
-"""
-function _toml_hash(d::AbstractDict)
-    io = IOBuffer()
-    TOML.print(io, d; sorted = true)
-    return sha256_hex(take!(io))[1:16]
-end
 
 # -----------------------------------------------------------------------------
 # Reader: TOML table (+ inherited defaults) → type

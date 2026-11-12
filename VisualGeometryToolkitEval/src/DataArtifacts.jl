@@ -474,11 +474,11 @@ function fetch_artifacts!(cat::DataCatalog, names::AbstractVector = required_art
     out = NamedTuple[]
     for name in _bound_names(cat, names)
         tree = install_artifact(name, cat.artifacts_toml)
-        mount = cat.artifacts[first(_entry_of(cat, name))]["mount"]
+        a = cat.artifacts[first(_entry_of(cat, name))]
+        mount = a["mount"]
         dst = mount == "data" ? _data_view!() : mount == "results" ? _results_dir!() :
               error("artifact $name: mount must be data | results (got $mount)")
-        md = mount_dir(cat, name)
-        dst === nothing || isempty(md) || (dst = joinpath(dst, md))
+        dst === nothing || (dst = _at_mount_dir(dst, a))
         linked = dst === nothing ? 0 : link_tree!(tree, dst)
         dst === nothing || _reassemble!(tree, dst)
         push!(out, (; name, tree, mount, dst, linked))

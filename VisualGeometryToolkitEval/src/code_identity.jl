@@ -46,6 +46,36 @@ function file_sha256(path::AbstractString)
     return h
 end
 
+"""
+    scratch_run(env = ENV) -> Bool
+
+Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment (`env`: the runner passes the launch's). A run of
+record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
+refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
+committed code.
+
+A scratch run is kept apart from the runs of record: its record says `scratch = true` ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.write_provenance),
+[`cached_result`](@ref VisualGeometryToolkitEval.Experiments.cached_result)); its keys fold `scratch` ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)), so it never shares a keyed directory or a
+cache file with a run of record; and its output is refused as an input of record ([`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs),
+[`input_path`](@ref VisualGeometryToolkitEval.Experiments.input_path), `missing_inputs`), an upstream run of record ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)'s `upstream`), an input of a
+run of record ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.write_provenance)'s `inputs`) and a promoted run ([`promote_run`](@ref VisualGeometryToolkitEval.Experiments.promote_run)).
+"""
+scratch_run(env = ENV) = get(env, "VGTK_SCRATCH", "") == "1"
+
+"""
+    _toml_hash(d::AbstractDict) -> String
+
+The content hash of the evaluation stack: the SHA-256 (hex, first 16) of `d`
+printed as sorted TOML. Independent of key order and fixed across Julia
+versions (unlike `Base.hash`); a TOML round trip of `d` reproduces it. Behind
+Tuning `tuning_hash`, Experiments `run_key` and the runner's stage key.
+"""
+function _toml_hash(d::AbstractDict)
+    io = IOBuffer()
+    TOML.print(io, d; sorted = true)
+    return bytes2hex(sha256(take!(io)))[1:16]
+end
+
 # The registered stack packages, identified by their Manifest `git-tree-sha1` when the environment loads a released
 # version (a package loaded from a path, `[sources]` or `Pkg.develop`, is identified by its own repository's trees,
 # whatever its name). The published packages of VisualGeometryToolkitCore's configs/stack_dependencies.toml, whose
@@ -278,8 +308,10 @@ every character other than a letter or a digit made `_` (`blobcalib_202609` → 
 tier_variable(tier::AbstractString; prefix::AbstractString = "VGTK_DATA_ROOT") =
     prefix * "_" * uppercase(replace(tier, r"[^A-Za-z0-9]" => "_"))
 
-# The file that marks a directory as an artifact view (Experiments' ARTIFACT_VIEW_MARKER).
-const _VIEW_MARKER = ".artifact_view"
+# The file that marks a directory as an artifact view (the runner's and Experiments' `is_artifact_view`), and a run's
+# record (Experiments' `write_provenance`; `scratch_record` reads it).
+const ARTIFACT_VIEW_MARKER = ".artifact_view"
+const PROVENANCE_FILE = "_provenance.toml"
 
 """
     tier_data_root(tier, data_root; env = ENV, tiers = nothing, workdir = "", prefix = "VGTK_DATA_ROOT",
@@ -330,7 +362,7 @@ is no view or there is no catalog. A project builds its view from the same catal
 so the runner and the drivers resolve a view tier to the same directory.
 """
 function catalog_view_mount(data_root::AbstractString, catalog::AbstractString)
-    (isfile(joinpath(data_root, _VIEW_MARKER)) && isfile(catalog)) || return nothing
+    (isfile(joinpath(data_root, ARTIFACT_VIEW_MARKER)) && isfile(catalog)) || return nothing
     entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
     return t -> haskey(entries, t) ? String(get(entries[t], "mount_dir", "")) : nothing
 end
@@ -346,7 +378,7 @@ run. A path under no record is no scratch output.
 function scratch_record(path::AbstractString)
     d = abspath(isdir(path) ? path : dirname(path))
     while true
-        f = joinpath(d, "_provenance.toml")
+        f = joinpath(d, PROVENANCE_FILE)
         isfile(f) && return get(TOML.parsefile(f), "scratch", false) === true
         p = dirname(d)
         p == d && return false

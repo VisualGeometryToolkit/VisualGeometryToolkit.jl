@@ -48,8 +48,6 @@ function _tag!(d::AbstractDict; gitpath::AbstractString)
     return d
 end
 
-const PROVENANCE_FILE = "_provenance.toml"
-
 # Keys the writer owns; a caller field of the same name is refused.
 const _PROVENANCE_RESERVED = ("driver", "timestamp", "hostname", "julia", "gitcommit", "gitpatch", "uncommitted_files", "inputs",
                               "code_trees", "scratch")
@@ -69,22 +67,6 @@ current_code_trees(gitpath::AbstractString = project_root()) = _code_identity(gi
 _code_identity(gitpath::AbstractString) = isempty(gitpath) ?
     (; trees = Dict{String,String}(), dirty = String[], project_paths = String[]) :
     code_trees(gitpath; julia_project = gitpath)
-
-"""
-    scratch_run() -> Bool
-
-Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment. A run of
-record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
-refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
-committed code.
-
-A scratch run is kept apart from the runs of record: its record says `scratch = true` ([`write_provenance`](@ref),
-[`cached_result`](@ref)); its keys fold `scratch` ([`run_key`](@ref)), so it never shares a keyed directory or a
-cache file with a run of record; and its output is refused as an input of record ([`verify_inputs`](@ref),
-[`input_path`](@ref), `missing_inputs`), an upstream run of record ([`run_key`](@ref)'s `upstream`), an input of a
-run of record ([`write_provenance`](@ref)'s `inputs`) and a promoted run ([`promote_run`](@ref)).
-"""
-scratch_run() = get(ENV, "VGTK_SCRATCH", "") == "1"
 
 # The code trees a result being recorded now carries: refused for a run of record when the code is not committed
 # (the runner's refusal, `refuse_uncommitted_code`), warned for a scratch run; a project whose own code is not

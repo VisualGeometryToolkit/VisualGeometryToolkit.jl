@@ -15,7 +15,6 @@
 # (reproduce/run_results_branch.jl), which is not dependency-free and lives in the module only.
 # =============================================================================
 using TOML: TOML
-using SHA: sha256
 using Dates: Dates
 
 """
@@ -529,14 +528,11 @@ struct ReproducePlan
     code_paths::Vector{String}
 end
 
-_sha_text(s) = bytes2hex(sha256(s))
-
 # The commit and whether tracked files changed (anywhere: the code's own state is `code_trees`).
 function _git_state(dir)
-    run_git(args...) = try readchomp(pipeline(`git -C $dir $args`; stderr = devnull)) catch; "" end
-    commit = run_git("rev-parse", "HEAD")
+    commit = something(_git_line(dir, ["rev-parse", "HEAD"]), "")
     isempty(commit) && return ("(not a git checkout)", false)
-    return (commit, !isempty(run_git("status", "--porcelain", "--untracked-files=no")))
+    return (commit, !isempty(something(_git_line(dir, ["status", "--porcelain", "--untracked-files=no"]), "")))
 end
 
 """
@@ -669,8 +665,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         end
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => e, "command" => cmd, "site" => site.name)
-        get(env, "VGTK_SCRATCH", "") == "1" && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
-        key = first(_sha_text(sprint(io -> TOML.print(io, keyed; sorted = true))), 16)
+        scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
+        key = _toml_hash(keyed)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end

@@ -98,7 +98,6 @@
     end
 
     @testset "one tier resolver, read and write: the view's mount only under the view; producers never install" begin
-        @test E.ARTIFACT_VIEW_MARKER == VgtkEval._VIEW_MARKER                       # the runner's copy of the marker name
         dir = mktempdir(); toml = joinpath(dir, "Artifacts.toml")
         h = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
         bind_artifact!(toml, "tier_e", h; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])

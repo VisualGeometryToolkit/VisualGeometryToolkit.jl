@@ -156,7 +156,7 @@ integrated squared pixel error of the round trip, `∫ ‖π_T(π⁻¹_source(u)
 over the region. The target type selects the family and the solve:
 
 - **a lens family `L <: AbstractLensModel`** (`fit_camera(L, source::CameraModel,
-  region; weight = :image)`): a `CameraModel` with lens `L`, its focal rescale `s`
+  region; weight = :image, fixed = ())`): a `CameraModel` with lens `L`, its focal rescale `s`
   (`fx′ = s·fx₀`, the skew with it) and its coefficients from the samples' radial
   relation — radius `ρ` against view angle `θ` — in one solve. The family's class
   decides the linear system:
@@ -204,6 +204,14 @@ over the region. The target type selects the family and the solve:
     result's `rms` their weighted root mean square). The `retcode` is `:solved`, `iterations`
     0; a degenerate solve (a non-positive or non-finite rescale) is `:solve_failed` (its
     camera's focals non-finite), never a throw.
+  - **`fixed`** (`fixed = ()`: every coefficient and the focal solved) holds parameters by name or group, resolved by
+    Core's `free_parameter_names` as [`refine_camera`](@ref)'s: a held coefficient's column leaves the ONE linear solve
+    and keeps the target's value — the family's anchor (zero) for a type `L`, or a given LENS's,
+    `fit_camera(target::AbstractLensModel, source, region; fixed)` (the target lens's family, its held values its own:
+    a calibration's lens target); `:f` held is the source's focal (`s = 1`); `fixed` covering everything returns the
+    target unchanged. The decentering deltas the radial relation does not see keep the target's values. A lift's
+    linear form rescales every coefficient with the focal, so a lift holding a coefficient must hold `:f` too (an
+    `ArgumentError` otherwise). The keywords `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   - `Division` alone fits `Division{1}`; any other type must carry its arities
     (`KannalaBrandt{4}`). A non-central source (`NoncentralSplineModel`) is an
     `ArgumentError`: not supported yet.
@@ -305,7 +313,25 @@ function _linear_form(::Type{L}) where {L <: Lens}
 end
 _linear_form(::Type) = _NoLinearForm()
 
-function fit_camera(::Type{L}, source::CameraModel, region; weight::Symbol = :image) where {L <: AbstractLensModel}
+function fit_camera(
+        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
+        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+    ) where {L <: AbstractLensModel}
+    _refuse_held_spellings(free, fix, fixed_params, hold)
+    return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed)
+end
+# A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
+function fit_camera(
+        target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
+        free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
+    )
+    _refuse_held_spellings(free, fix, fixed_params, hold)
+    return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed)
+end
+fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), region; kwargs...)
+fit_camera(target::AbstractLensModel, source::NoncentralSplineModel, region; kwargs...) = fit_camera(typeof(target), source, region; kwargs...)
+
+function _checked_linear_form(::Type{L}) where {L}
     form = _linear_form(L)
     form isa _NoLinearForm && throw(
         ArgumentError(
@@ -313,13 +339,22 @@ function fit_camera(::Type{L}, source::CameraModel, region; weight::Symbol = :im
                 "refine a guess, `refine_camera(guess, source, region)`, or start from the family's anchor, `approximate_camera($L, source, region)`"
         )
     )
+    return form
+end
+
+# The one linear fit of the lens `target`'s family onto `source`: the coefficients and the focal rescale not `fixed`
+# (Core's `free_parameter_names` on the camera of the source's K and `target`: names and group stems), the `fixed`
+# ones at `target`'s values (its focal: the source's, `s = 1`).
+function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, region, weight::Symbol, fixed)
+    L = typeof(target)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
+    moving = VgtkCore.free_parameter_names(_anchor_camera(target, source), fixed)
     pr = _profile_samples(role, L, source, region, K0, weight)
-    s, fitted = _linear_lens(form, _target_anchor(L), pr.rA, pr.angles, pr.w)
+    s, fitted = _linear_lens(form, target, pr.rA, pr.angles, pr.w, moving)
     code = :solved
     if !(isfinite(s) && s > 0)                       # a degenerate solve: reported, never a throw
-        s, fitted, code = NaN, _target_anchor(L), :solve_failed
+        s, fitted, code = NaN, target, :solve_failed
     end
     fit = (; s, a = 1.0, δ = zero(SVector{2, Float64}), R = nothing, lens = fitted)
     M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
@@ -378,9 +413,47 @@ end
 # Its residual is |ray|·sin(θ_B − θ) with |ray| = ρN / sin θ_B, so a row weighted by sin θ is the angle residual times
 # the radius (refine_camera's lift residual) to first order where N ≈ 1 (exactly the division and Scaramuzza
 # models, whose numerator is 1). The focal rescale and the lens.
-function _linear_lens(::_LiftForm, a::LiftLens, ρ, θ, w)
+function _linear_lens(::_LiftForm, a::LiftLens, ρ, θ, w, free)
     r = a.radial
     P, Q = length(r.k), length(r.d)
+    kf = [i for i in 1:P if Symbol(:k, i) in free]
+    df = [j for j in 1:Q if Symbol(:d, j) in free]
+    if :f in free
+        (length(kf) == P && length(df) == Q) || throw(
+            ArgumentError(
+                "fit_camera: a lift's linear form rescales every coefficient with the focal; holding a coefficient " *
+                    "with the focal free is no linear problem: hold the focal too (`:f` in `fixed`), or refine, `refine_camera(guess, source, region; fixed)`"
+            )
+        )
+        return _linear_lift_scaled(a, r, P, Q, ρ, θ, w)
+    end
+    # the focal held (s = 1): `ρ cos θ N(ρ) = sin θ D(ρ)`, the held coefficients at the target's values on the right
+    n = length(kf) + length(df)
+    n == 0 && return 1.0, a
+    A = zeros(length(ρ), n)
+    b = zeros(length(ρ))
+    c = zeros(length(ρ))
+    for i in eachindex(ρ)
+        sθ, cθ = sincos(θ[i])
+        for (col, k) in enumerate(kf)
+            A[i, col] = ρ[i] * cθ * ρ[i]^_basis_degree(r, k)
+        end
+        for (col, j) in enumerate(df)
+            A[i, length(kf) + col] = -sθ * ρ[i]^_basis_degree(r, j)
+        end
+        Nh = 1 + sum((r.k[k] * ρ[i]^_basis_degree(r, k) for k in 1:P if !(k in kf)); init = 0.0)
+        Dh = 1 + sum((r.d[j] * ρ[i]^_basis_degree(r, j) for j in 1:Q if !(j in df)); init = 0.0)
+        b[i] = sθ * Dh - ρ[i] * cθ * Nh
+        c[i] = sqrt(w[i]) * sθ
+    end
+    u = _row_weighted_lstsq(A, b, c)
+    all(isfinite, u) || return NaN, a
+    k = ntuple(i -> (q = findfirst(==(i), kf); q === nothing ? Float64(r.k[i]) : u[q]), P)
+    d = ntuple(j -> (q = findfirst(==(j), df); q === nothing ? Float64(r.d[j]) : u[length(kf) + q]), Q)
+    return 1.0, _linear_with_coefficients(a, 1.0, k, d)
+end
+# Every coefficient and the focal free: one solve in `s`, `cⱼ` and `aᵢ` (above).
+function _linear_lift_scaled(a, r, P, Q, ρ, θ, w)
     A = zeros(length(ρ), 1 + Q + P)
     b = zeros(length(ρ))
     c = zeros(length(ρ))
@@ -409,42 +482,59 @@ end
 # Without a denominator its residual is the pixel error itself (exactly the integral's least squares at a physical
 # K's samples); with one it is the pixel error times D, so the rows are divided by the denominator of a first solve
 # (one reweighting, Steiglitz–McBride's; the second solve is the fit). The focal rescale and the lens.
-function _linear_lens(::_ProjectionForm, a::Lens, ρ, θ, w)
+function _linear_lens(::_ProjectionForm, a::Lens, ρ, θ, w, free)
     r = VgtkCore.Cameras._bounding_radial(a)
     P, Q = r === nothing ? (0, 0) : (length(r.k), length(r.d))
+    k̄ = r === nothing ? () : Tuple(Float64.(r.k))     # the target's values: the held coefficients keep them
+    d̄ = r === nothing ? () : Tuple(Float64.(r.d))
+    sfree = :f in free
+    kf = [i for i in 1:P if Symbol(:k, i) in free]
+    df = [j for j in 1:Q if Symbol(:d, j) in free]
+    o = sfree ? 1 : 0
+    n = o + length(kf) + length(df)
+    n == 0 && return 1.0, a                             # everything held: the target itself, at the source's focal
     proj = Lens(a.projection)
     g = map(t -> Float64(projected_radius(proj, t)), θ)
-    A = zeros(length(ρ), 1 + P + Q)
-    for i in eachindex(ρ)
-        A[i, 1] = g[i]
-        for k in 1:P
-            A[i, 1 + k] = g[i]^(2k + 1)
-        end
-        for j in 1:Q
-            A[i, 1 + P + j] = -ρ[i] * g[i]^(2j)
-        end
-    end
+    A = zeros(length(ρ), n)
     b = collect(Float64, ρ)
+    for i in eachindex(ρ)
+        # s's coefficient: g and the held numerator terms; the held denominator terms on the right
+        gs = g[i] + sum((k̄[k] * g[i]^(2k + 1) for k in 1:P if !(k in kf)); init = 0.0)
+        sfree ? (A[i, 1] = gs) : (b[i] -= gs)          # a held focal: s = 1
+        for (col, k) in enumerate(kf)
+            A[i, o + col] = g[i]^(2k + 1)
+        end
+        for (col, j) in enumerate(df)
+            A[i, o + length(kf) + col] = -ρ[i] * g[i]^(2j)
+        end
+        b[i] += sum((d̄[j] * ρ[i] * g[i]^(2j) for j in 1:Q if !(j in df)); init = 0.0)
+    end
     c = sqrt.(w)
+    # the denominator at a solve's unknowns (the held terms at the target's values)
+    den(x) = map(g) do gi
+        1 + sum((j in df ? x[o + length(kf) + findfirst(==(j), df)] : d̄[j]) * gi^(2j) for j in 1:Q; init = 0.0)
+    end
     u1 = _row_weighted_lstsq(A, b, c)
-    D = Q > 0 ? _denominators(u1, P, Q, g) : g
+    D = Q > 0 ? den(u1) : g
     u = Q > 0 && all(x -> isfinite(x) && x > 0, D) ? _row_weighted_lstsq(A, b, c ./ D) : u1
-    s = u[1]
-    return s, _linear_with_coefficients(a, s, ntuple(k -> u[1 + k] / s, P), ntuple(j -> u[1 + P + j], Q))
+    all(isfinite, u) || return NaN, a
+    s = sfree ? u[1] : 1.0
+    k = ntuple(i -> (q = findfirst(==(i), kf); q === nothing ? k̄[i] : u[o + q] / s), P)
+    d = ntuple(j -> (q = findfirst(==(j), df); q === nothing ? d̄[j] : u[o + length(kf) + q]), Q)
+    return s, _linear_with_coefficients(a, s, k, d)
 end
 
-# The rational factor's denominator D(g) = 1 + Σⱼ dⱼ g²ʲ at the projection radii `g`, from a solve's unknowns `u`.
-_denominators(u, P, Q, g) = map(gi -> 1 + sum(j -> u[1 + P + j] * gi^(2j), 1:Q), g)
-
-# The anchor lens `a` with its radial factor's coefficients `k` (numerator) and `d` (denominator) by name, every other
-# coefficient (the decentering deltas) at zero.
+# The target lens `a` with its radial factor's coefficients `k` (numerator) and `d` (denominator) by name, every other
+# coefficient (the decentering deltas, which the radial relation does not see) at `a`'s own values (zero for a
+# family's anchor).
 function _linear_with_coefficients(a, s, k::Tuple, d::Tuple)
     (isfinite(s) && s > 0) || return a
     names = parameter_names(a)
-    θ = map(names) do n
+    own = parameter_vector(a)
+    θ = map(enumerate(names)) do (idx, n)
         str = String(n)
         m = match(r"^([kd])(\d+)$", str)
-        m === nothing && return 0.0
+        m === nothing && return Float64(own[idx])
         i = parse(Int, m.captures[2])
         return m.captures[1] == "k" ? k[i] : d[i]
     end

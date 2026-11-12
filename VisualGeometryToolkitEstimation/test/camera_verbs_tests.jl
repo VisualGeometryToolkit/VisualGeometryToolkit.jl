@@ -158,7 +158,9 @@ end
     cd = parameters(lens(estimate(rd)))
     @test cd.d1 != cg.d1 && rms(rd) < rms(rh)
     @test rms(approximate_camera(RAT, kb, region)) == rms(rd)
-    @test lens(estimate(approximate_camera(RAT, kb, region; fixed = (:d,)))) == lens(estimate(rh))
+    # approximate_camera forwards `fixed` to both stages: the linear start holds the denominator too
+    @test lens(estimate(approximate_camera(RAT, kb, region; fixed = (:d,)))) ==
+        lens(estimate(refine_camera(estimate(fit_camera(RAT, kb, region; fixed = (:d,))), kb, region; fixed = (:d,))))
     # everything held: the guess, unmoved
     r0 = refine_camera(g, kb, region; fixed = (:f, :k, :d))
     @test lens(estimate(r0)) == lens(g) && calibration_matrix(estimate(r0)) == calibration_matrix(g)
@@ -200,7 +202,11 @@ end
     @test (c.p1, c.p2, c.d1, c.d2, c.d3) === (1.0e-4, -2.0e-4, 0.0, 0.0, 0.0)
     @test maximum(abs, (c.k1 + 0.12, c.k2 - 0.03, c.k3 - 0.004)) < 1.0e-8
     @test abs(calibration_matrix(estimate(r))[1, 1] - 900.0) < 1.0e-6
-    @test sort(metadata(r).residuals)[end ÷ 2] < 1.0e-6 && metadata(r).max_px < 1.0e-6          # px
+    # the residual is the held tangential terms' alone (the target's p, not the source's: ~p·r² at the samples' azimuth
+    # 0), so the median is sane, not CaliBlobs' 19.7 px; with them at zero the fit is exact
+    @test sort(metadata(r).residuals)[end ÷ 2] < 1.0 && metadata(r).max_px < 2.0                # px
+    r00 = fit_camera(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0))), src, disc; fixed = (:p, :d))
+    @test metadata(r00).max_px < 1.0e-6
     # everything held: the target, unchanged, at the source's focal
     r0 = fit_camera(target, src, disc; fixed = parameter_names(CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = target)))
     @test lens(estimate(r0)) == target && calibration_matrix(estimate(r0)) == calibration_matrix(src)

@@ -31,13 +31,11 @@ end
 # component is silently overwritten with 1.
 @inline _lift_image_point(u::StaticVector{2}, ::Type{T}) where {T} = SVector{3, T}(u[1], u[2], one(T))
 
-@inline _hartley_identity(::Type{T}, ::Val{2} = Val(2)) where {T} =
+@inline _hartley_identity(::Type{T}) where {T} =
     AffineMap(
     LinearAlgebra.Diagonal(SVector{2, T}(one(T), one(T))),
     zero(Vec2{T})
 )
-@inline _hartley_identity(::Type{T}, ::Val{3}) where {T} =
-    AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))
 
 # The weight predicate of the single Hartley-map body: each weights variant
 # inlines to its own loop. The normalizer is Σ(effective weight) — the count
@@ -61,43 +59,63 @@ end
 @inline _selection(idx, u₁, u₂) = idx
 
 # The Hartley map of `pts` over the selected indices `sel` (the one body: every
-# weights variant inlines to its own loop, and every dimension D shares it) —
-# translation to the weighted centroid, or to `center` when given; scale √D over
-# the weighted mean distance from it (Hartley & Zisserman §4.4: √2 for image
-# points, √3 for 3-D points). Indexing is checked: an index list is the caller's.
+# weights variant inlines to its own loop) — translation to the weighted
+# centroid, or to `center` when given; scale √2 over the weighted mean distance
+# from it. Indexing is checked: an index list is the caller's.
 function _hartley_map(
-        pts::AbstractVector{<:StaticVector{D, T}},
+        pts::AbstractVector{<:StaticVector{2, T}},
         sel,
         w::Union{Nothing, AbstractVector},
         center
-    ) where {D, T}
-    c = zero(SVector{D, T}); sw = zero(T)
+    ) where {T}
+    cx = zero(T); cy = zero(T); sw = zero(T)
     for i in sel
         acc, wi = _hartley_accept(w, i, T)
         acc || continue
-        sw += wi; c = c + wi * SVector{D, T}(pts[i])
+        sw += wi; cx += wi * pts[i][1]; cy += wi * pts[i][2]
     end
     # Uniform degenerate guard: empty input, empty selection, or all-zero
     # weights yield the identity frame.
-    sw < eps(T) && return _hartley_identity(T, Val(D))
-    c = center === nothing ? c / sw : SVector{D, T}(center)
+    sw < eps(T) && return _hartley_identity(T)
+    if center === nothing
+        cx /= sw; cy /= sw
+    else
+        cx = T(center[1]); cy = T(center[2])
+    end
     d = zero(T)
     for i in sel
         acc, wi = _hartley_accept(w, i, T)
         acc || continue
-        d += wi * _hartley_distance(SVector{D, T}(pts[i]), c)
+        dx = pts[i][1] - cx; dy = pts[i][2] - cy
+        d += wi * hypot(dx, dy)
     end
     d /= sw
-    s = d > eps(T) ? sqrt(T(D)) / d : one(T)
-    return _hartley_affine(T, s, c)
+    s = d > eps(T) ? sqrt(T(2)) / d : one(T)
+    return _hartley_affine(T, s, cx, cy)
 end
-# The distance from the centre: `hypot` in the plane (the 2-D map's arithmetic since
-# it was written), the norm in 3-D.
-@inline _hartley_distance(p::SVector{2}, c::SVector{2}) = hypot(p[1] - c[1], p[2] - c[2])
-@inline _hartley_distance(p::SVector{3}, c::SVector{3}) = norm(p - c)
-@inline _hartley_affine(::Type{T}, s::T, c::SVector{2, T}) where {T} = _hartley_affine(T, s, c[1], c[2])
-@inline _hartley_affine(::Type{T}, s::T, c::SVector{3, T}) where {T} =
-    AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(s, s, s)), Vec3{T}(-s * c[1], -s * c[2], -s * c[3]))
+
+# The 3-D Hartley map (a least squares over lengths): translation to the weighted
+# centroid, scale √3 over the weighted mean distance from it (Hartley & Zisserman
+# §4.9.2); the same weights rule and degenerate guard as the 2-D map above.
+function _hartley_map_3d(pts::AbstractVector{<:StaticVector{3, T}}, w::Union{Nothing, AbstractVector}) where {T}
+    c = zero(SVector{3, T}); sw = zero(T)
+    for i in eachindex(pts)
+        acc, wi = _hartley_accept(w, i, T)
+        acc || continue
+        sw += wi; c += wi * SVector{3, T}(pts[i])
+    end
+    sw < eps(T) && return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))
+    c /= sw
+    d = zero(T)
+    for i in eachindex(pts)
+        acc, wi = _hartley_accept(w, i, T)
+        acc || continue
+        d += wi * norm(SVector{3, T}(pts[i]) - c)
+    end
+    d /= sw
+    s = d > eps(T) ? sqrt(T(3)) / d : one(T)
+    return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(s, s, s)), Vec3{T}(-s * c[1], -s * c[2], -s * c[3]))
+end
 
 
 # =============================================================================
@@ -172,7 +190,7 @@ CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector
 function CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{3}},
                                              w::Union{Nothing, AbstractVector} = nothing)
     s.center === nothing || throw(ArgumentError("HartleyNormalization: a known centre is two-dimensional; 3-D points normalize about their centroid"))
-    return _hartley_map(pts, eachindex(pts), w, nothing)
+    return _hartley_map_3d(pts, w)
 end
 CoordinateTransformations.AffineMap(d::DiagonalNormalization) =
     _hartley_affine(Float64, one(Float64) / (hypot(d.width, d.height) / 2), d.center[1], d.center[2])

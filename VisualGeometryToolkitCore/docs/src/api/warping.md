@@ -23,7 +23,10 @@ texture in its unit-square (half-texel) chart, extends its edges, returns
 several channels and differentiates in the position (a printed board's
 albedo under ForwardDiff); [`bilinear_sample_clamped`](@ref) reads 1-based
 array positions, rejects one off the image, and is exact at integers (a
-pixel scan). [`image_sample!`](@ref) is `image_warp!`'s tap at points the
+pixel scan). [`bilinear_weights`](@ref) is `bilinear_sample`'s texel block
+and fractions for a caller that spreads a position itself, and
+[`is_inside_texel_centres`](@ref) says whether a position needs no edge
+extension (for a caller that drops it instead). [`image_sample!`](@ref) is `image_warp!`'s tap at points the
 caller holds (the projections of a set of directions), with its boundary.
 
 ```@autodocs

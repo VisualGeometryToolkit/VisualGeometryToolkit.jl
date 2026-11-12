@@ -879,7 +879,7 @@ public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_field
     toml_field_name, parse_defaults
 public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, dilog, lu_solve!, tree_sum!,
-    bilinear_sample_clamped, bilinear_sample, bilinear_weights
+    bilinear_sample_clamped, bilinear_sample, bilinear_weights, is_inside_texel_centres
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages
 # (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RANSACScoringDoneRight, BlobBoards,

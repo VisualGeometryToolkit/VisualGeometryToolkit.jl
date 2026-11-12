@@ -1,5 +1,15 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.4 (unreleased)
+
+A patch. Additive: `is_inside_texel_centres`; otherwise no API change.
+
+- **New: `is_inside_texel_centres(uv, (W, H))`** (public): whether `uv` lies in the closed rectangle of the texel
+  centres of `bilinear_sample`'s half-texel chart, exactly the positions where `bilinear_weights` interpolates
+  without extending the edge. It reads the same private chart (size check, centre coordinates, clamp) as
+  `bilinear_weights`, whose arithmetic is unchanged; RadiometricCamera's `texel_weights` restated the chart beside
+  its `bilinear_weights` call.
+
 ## 0.9.3 (unreleased)
 
 A patch. Additive: `require_extension`; otherwise no API change.

@@ -97,6 +97,48 @@ end
     @test allocs(bilinear_weights, SVector(0.3, 0.6), (8, 4)) == 0
 end
 
+@testitem "is_inside_texel_centres: exactly where bilinear_weights does not extend the edge" begin
+    using Test, StaticArrays, Random, ForwardDiff
+    using VisualGeometryToolkitCore: bilinear_weights, is_inside_texel_centres
+    allocs(f, args...) = (f(args...); @allocated f(args...))
+
+    # Unclamped, the block and fractions reproduce the position's 0-based centre coordinates exactly
+    # (x − x0 is exact for x ∈ [x0, x0 + 1]); clamping moves them. So the predicate must equal "reproduces".
+    reproduces(uv, (W, H)) = ((i, j, fx, fy) = bilinear_weights(uv, (W, H));
+        (i - 1) + fx == uv[1] * W - one(eltype(uv)) / 2 && (j - 1) + fy == uv[2] * H - one(eltype(uv)) / 2)
+    for T in (Float32, Float64), (W, H) in ((8, 4), (2, 2), (24, 30))
+        rng = Xoshiro(11)
+        uvs = [SVector{2, T}(T(1.4) * rand(rng, T) - T(0.2), T(1.4) * rand(rng, T) - T(0.2)) for _ in 1:2000]
+        # the edges, the corners and every texel centre (dyadic for W, H powers of two: exact), and one ulp past each edge
+        cs(n) = [(T(k) - T(0.5)) / T(n) for k in 1:n]
+        for x in cs(W), y in cs(H); push!(uvs, SVector(x, y)); end
+        lo = (T(0.5) / T(W), T(0.5) / T(H)); hi = ((T(W) - T(0.5)) / T(W), (T(H) - T(0.5)) / T(H))
+        for x in (lo[1], hi[1], prevfloat(lo[1]), nextfloat(hi[1]), T(0.5)), y in (lo[2], hi[2], prevfloat(lo[2]), nextfloat(hi[2]), T(0.5))
+            push!(uvs, SVector(x, y))
+        end
+        for uv in uvs
+            @test is_inside_texel_centres(uv, (W, H)) == reproduces(uv, (W, H))
+        end
+        if ispow2(W) && ispow2(H)       # the boundary itself, exactly: centres and edges in, one ulp past out
+            @test all(is_inside_texel_centres(SVector(x, y), (W, H)) for x in cs(W), y in cs(H))
+            @test is_inside_texel_centres(SVector(lo...), (W, H)) && is_inside_texel_centres(SVector(hi...), (W, H))
+            @test is_inside_texel_centres(SVector(lo[1], hi[2]), (W, H)) && is_inside_texel_centres(SVector(hi[1], lo[2]), (W, H))
+            @test !is_inside_texel_centres(SVector(prevfloat(lo[1]), T(0.5)), (W, H))
+            @test !is_inside_texel_centres(SVector(nextfloat(hi[1]), T(0.5)), (W, H))
+            @test !is_inside_texel_centres(SVector(T(0.5), prevfloat(lo[2])), (W, H))
+            @test !is_inside_texel_centres(SVector(T(0.5), nextfloat(hi[2])), (W, H))
+        end
+        @test !is_inside_texel_centres(SVector(T(NaN), T(0.5)), (W, H)) && !is_inside_texel_centres(SVector(T(0.5), T(Inf)), (W, H))
+        @test !is_inside_texel_centres(SVector(zero(T), zero(T)), (W, H)) && !is_inside_texel_centres(SVector(one(T), one(T)), (W, H))
+    end
+    # on the value under a Dual, as bilinear_weights chooses its block
+    d = ForwardDiff.Dual(0.3, 1.0)
+    @test is_inside_texel_centres(SVector(d, 0.5), (8, 4)) && !is_inside_texel_centres(SVector(ForwardDiff.Dual(0.01, 1.0), 0.5), (8, 4))
+    @test is_inside_texel_centres(SVector(0.5, 0.5), (8, 4)) isa Bool
+    @test_throws ArgumentError is_inside_texel_centres(SVector(0.5, 0.5), (1, 4))
+    @test allocs(is_inside_texel_centres, SVector(0.3, 0.6), (8, 4)) == 0
+end
+
 @testitem "julia_blocks: a page's Julia examples" begin
     using Test
     using VisualGeometryToolkitCore: julia_blocks

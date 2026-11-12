@@ -521,7 +521,7 @@ end
 
 
 # The refine's keywords, shared by every parametrization: parsed once (the retired spellings refused; the strategy, its
-# scale input and its loss: `_bundle_loss`).
+# scale input and its loss: `bundle_loss`).
 function _bundle_keywords(;
         fixed::Tuple{Vararg{Symbol}} = (),
         free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
@@ -538,7 +538,7 @@ function _bundle_keywords(;
     _refuse_retired_keyword(robust, :robust, :optimization_strategy)
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    lo, input, loss = _bundle_loss("refine_camera_and_poses", optimization_strategy, scale, width)
+    lo, input, loss = bundle_loss(optimization_strategy; scale, width, caller = "refine_camera_and_poses")
     return (; fixed, box, max_iter, ftol, xtol, max_time, lo, input, loss)
 end
 

@@ -64,4 +64,16 @@
             @test_throws ArgumentError scale_input(nothing, bad)
         end
     end
+
+    @testset "a scale input answers the accessor pair, as a result does" begin
+        # a stage records what it was given through noise_scale / scale_source, never the fields
+        for (inp, src) in ((scale_input(2.0, nothing), ScaleGiven), (scale_input(result(0.4, ScaleEstimated), nothing), ScaleUpstream))
+            @test @inferred(scale_source(inp)) === src
+            @test @inferred(noise_scale(inp)) === inp.scale
+        end
+        w = scale_input(nothing, 3.0)
+        @test @inferred(scale_source(w)) === ScaleNone
+        @test_throws ArgumentError noise_scale(w)            # a width hands on no scale
+        @test scale_source(nothing) === ScaleNone            # no input (least squares)
+    end
 end

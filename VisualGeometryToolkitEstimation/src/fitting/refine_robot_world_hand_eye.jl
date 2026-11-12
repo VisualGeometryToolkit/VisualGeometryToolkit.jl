@@ -116,7 +116,7 @@ function refine_robot_world_hand_eye(
         scale = nothing, width = nothing, local_optimization = _RetiredKeyword(),
     ) where {K}
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    strategy = _bundle_loss("refine_robot_world_hand_eye", optimization_strategy, scale, width)
+    strategy = bundle_loss(optimization_strategy; scale, width, caller = "refine_robot_world_hand_eye")
     ids = block_order(markers, guess.X)             # the key sets must match: every marker of the guess is refined
     M = length(ids)
     # Flattened marker by marker in `ids` order: each element's rig pose once
@@ -310,7 +310,7 @@ function _refine_robot_world_hand_eye(
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
         retcode, iterations = iters, rms_rows = n, strategy = lo, weights,
-        scale = input === nothing ? NaN : Float64(input.scale), scale_source = input === nothing ? ScaleNone : input.source,
+        scale = VgtkCore.scale_source(input) === ScaleNone ? NaN : Float64(VgtkCore.noise_scale(input)), scale_source = VgtkCore.scale_source(input),
         loss_width = sqrt(_sq_loss_width(loss))
     )
 end

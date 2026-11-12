@@ -127,11 +127,7 @@ function refine_camera_and_poses(
     vars0 = Union{SVector{3, Float64}, _ViewRotationChart}[views.center, views.offset]
     foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
     poses = [_rotation_center_pose(_ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k])), views.center, views.offset) for k in ids]
-    blocks, spline = _rotation_center_blocks(VgtkCore.Cameras.IntrinsicsRole(cm.lens), cm, poses, ids, csponds)
-    p = 6 + 3N
-    n = length(blocks)
-    2n > p || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
-    sol = _solve_bundle(blocks, vars0, p, kw)
+    sol, n, spline = _rotation_center_solve(VgtkCore.Cameras.IntrinsicsRole(cm.lens), cm, poses, ids, csponds, vars0, 6 + 3N, kw)
     c, d = sol.variables[1]::SVector{3, Float64}, sol.variables[2]::SVector{3, Float64}
     Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(sol.variables[2 + v]::_ViewRotationChart)))
                                              for (v, k) in enumerate(ids))
@@ -141,11 +137,37 @@ function refine_camera_and_poses(
                      _bundle_metadata(sol, free, kw; spline))
 end
 
-# The blocks of the rotation-centre views at their guess `poses` (block order `ids`), and what the metadata's `spline`
-# reports. A parametric camera: the bundle's own residual block per correspondence (the view `:rotation_center`, the held
-# identity board), every point projected at the guess; `nothing`. A SplineLens camera: the held spline route's block
-# per correspondence on the same three variables (`_spline_center_blocks`, refine_spline_camera_and_poses.jl: its
-# implicit projection Jacobian), and that route's counts of the correspondences it does not make a row.
+# The rotation-centre solve from the variables `vars0` (`p` unknowns) at their guess `poses` (block order `ids`):
+# `(sol, n, spline)`, the bundle's solve (`_solve_bundle`), its `n` (the weights' support, B1's rule) and what the metadata's `spline`
+# reports. A parametric camera: the bundle's own residual block per correspondence (`_rotation_center_blocks`), one
+# solve; `nothing`. A SplineLens camera: the held spline route's block per correspondence on the same three variables
+# (`_spline_center_problem`, refine_spline_camera_and_poses.jl: its implicit projection Jacobian), solved in the route's
+# window-rebuild rounds (`_window_rounds`: a dot whose projection moved to another cell reads another window, so the
+# blocks are rebuilt at the estimate and solved again until every window is the estimate's own); the route's counts of
+# the correspondences it makes no row of, the rounds and whether the windows settled.
+function _rotation_center_solve(role::VgtkCore.Cameras.FreeIntrinsics, cm, poses, ids, csponds, vars0, p, kw)
+    blocks, _ = _rotation_center_blocks(role, cm, poses, ids, csponds)
+    _check_determined(length(blocks), p)
+    sol = _solve_bundle(blocks, vars0, p, kw)
+    return sol, sol.n, nothing
+end
+function _rotation_center_solve(_role, cm, poses, ids, csponds, vars0, p, kw)
+    views = [csponds[k] for k in ids]
+    q0 = _spline_center_problem(cm, poses, views, vars0)
+    _check_determined(length(q0.blocks), p)
+    rebuild(q, solved, round) = (_check_determined(length(q.blocks), p);
+        _spline_center_problem(cm, [_rotation_center_pose(solved[2 + v]::_ViewRotationChart, solved[1], solved[2]) for v in eachindex(ids)], views,
+                               solved; stage = :round, round, seeds = q.xs))
+    solve(q) = (sol = _solve_bundle(q.blocks, q.variables, p, kw); (sol, sol.variables, sol.iterations, sol.code === :max_time, NaN))
+    st = _window_rounds(q0, solve, rebuild)
+    st isa _NotProjected && throw(ArgumentError(_not_projected_message(st)))
+    sol = merge(st.out, (; iterations = st.iterations))
+    return sol, sol.n, (; st.p.counts..., rounds = st.rounds, windows_settled = st.settled)
+end
+_check_determined(n, p) = 2n > p || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
+
+# A parametric camera's blocks of the rotation-centre views: the bundle's own residual block per correspondence (the
+# view `:rotation_center`, the held identity board), every point projected at the guess.
 function _rotation_center_blocks(::VgtkCore.Cameras.FreeIntrinsics, cm, poses, ids, csponds)
     world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))   # the held board
     F = (false, :rotation_center, false)
@@ -158,4 +180,3 @@ function _rotation_center_blocks(::VgtkCore.Cameras.FreeIntrinsics, cm, poses, i
     end
     return blocks, nothing
 end
-_rotation_center_blocks(_role, cm, poses, ids, csponds) = _spline_center_blocks(cm, poses, [csponds[k] for k in ids])

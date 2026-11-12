@@ -582,23 +582,39 @@ _with_λ(p, λ::Float64) = merge(p, (; λ, smooth = Any[typeof(s)(s.varind, s.sl
 # start (NLLSsolver's start cost), and the problem rebuilt at the estimate (`next`: a warm
 # start) — or the `_NotProjected` of a rebuild.
 function _spline_rounds(p, back::CameraModel, views, max_iter, ftol, xtol, deadline::Float64)
+    solve(q) = ((result, solved) = _spline_solve!(q, max_iter, ftol, xtol, _remaining(deadline));
+                (result, solved, result.niterations, _timed_out(result), result.startcost))
+    st = _window_rounds(p, solve, (q, solved, round) -> _rebuilt_problem(q, solved, back, views, :round, round); rebuilds = p.nP > 0)
+    st isa _NotProjected && return st
+    return (; st.p, st.solved, result = st.out, st.rounds, st.settled, st.iterations, st.timed_out, st.cost_start, st.next)
+end
+
+# THE window-rebuild rounds of the spline blocks (the spline route's and the rotation-centre views'): solve the problem
+# `p` (`solve(p) -> (out, solved, iterations, timed_out, startcost)`), then rebuild it at the estimate (`rebuild(p,
+# solved, round)`: a point whose x* moved to another cell reads another window — the held one only extrapolates — or
+# a `_NotProjected`), and solve again until every window is the estimate's own (`windows` unchanged), at most
+# `_SPLINE_REFINE_ROUNDS` solves. Without `rebuilds`, or once a solve stops on its deadline, the first solve is the last
+# (not settled when cut short). At the cap the problem rebuilt at the estimate is the one reported (the camera's own
+# windows). Returns the problem solved last, its solved variables and `out`, the rounds, whether the windows settled, the
+# iterations, whether a solve stopped on the deadline, the first solve's start cost and the problem rebuilt at the
+# estimate (`next`: a warm start) — or the `_NotProjected` of a rebuild.
+function _window_rounds(p, solve, rebuild; rebuilds::Bool = true)
     iterations = 0
     timed_out = false
     cost_start = NaN
-    # at most `_SPLINE_REFINE_ROUNDS` solves, whatever the deadline (`Inf` by default)
     for rounds in 1:_SPLINE_REFINE_ROUNDS
-        result, solved = _spline_solve!(p, max_iter, ftol, xtol, _remaining(deadline))
-        rounds == 1 && (cost_start = result.startcost)
-        iterations += result.niterations
-        timed_out |= _timed_out(result)
-        (p.nP > 0 && !timed_out) ||
-            return (; p, solved, result, rounds, settled = !timed_out, iterations, timed_out, cost_start, next = p)
-        q = _rebuilt_problem(p, solved, back, views, :round, rounds)
+        out, solved, its, cut, startcost = solve(p)
+        rounds == 1 && (cost_start = startcost)
+        iterations += its
+        timed_out |= cut
+        (rebuilds && !timed_out) ||
+            return (; p, solved, out, rounds, settled = !timed_out, iterations, timed_out, cost_start, next = p)
+        q = rebuild(p, solved, rounds)
         q isa _NotProjected && return q
-        q.windows == p.windows && return (; p, solved, result, rounds, settled = true, iterations, timed_out, cost_start, next = q)
+        q.windows == p.windows && return (; p, solved, out, rounds, settled = true, iterations, timed_out, cost_start, next = q)
         p = q
         rounds == _SPLINE_REFINE_ROUNDS &&
-            return (; p, solved = collect(p.variables), result, rounds, settled = false, iterations, timed_out, cost_start, next = p)
+            return (; p, solved = collect(p.variables), out, rounds, settled = false, iterations, timed_out, cost_start, next = p)
     end
     error("unreachable: the last round returns")
 end
@@ -852,13 +868,19 @@ function NLLSsolver.computeresjac(varflags, r::_SplineCenterBlock, ch, c, d)
     return r.sqrt_weight * (_spline_pixel(b, x) - b.u), Matrix{Float64}(r.sqrt_weight * J)
 end
 
-# The rotation-centre blocks of a held SplineLens camera `cm` at the views' guess `poses` (block order): the held
-# route's problem (`_spline_problem`, the forward dropped as that route drops it; a correspondence on an absent window,
-# or one it does not project within a cell of one, is counted, not a row), each block re-keyed onto the view's rotation
-# chart (variable 2 + v), the centre (1) and the offset (2); and the counts, as the held route reports them.
-function _spline_center_blocks(cm::CameraModel, poses::AbstractVector, views::AbstractVector)
-    p = _spline_problem(_without_forward(cm), poses, views, false, 0.0)
-    p isa _NotProjected && throw(ArgumentError(_not_projected_message(p)))
+# The rotation-centre problem of a held SplineLens camera `cm` at the views' poses `poses` (block order) and the
+# variables `variables` they come from: the held route's problem (`_spline_problem`, the forward dropped as that route
+# drops it, warm-started at `seeds`; a correspondence on an absent window, or one it does not project within a cell of
+# one, is counted, not a row), each block re-keyed onto the view's rotation chart (variable 2 + v), the centre (1) and
+# the offset (2): `(; blocks, variables, windows, xs, counts)`, the counts as the held route reports them; at the guess
+# a correspondence it does not project is an `ArgumentError`, at a rebuild round its `_NotProjected`.
+function _spline_center_problem(cm::CameraModel, poses::AbstractVector, views::AbstractVector, variables::AbstractVector;
+                                stage::Symbol = :guess, round::Int = 0, seeds = nothing)
+    p = _spline_problem(_without_forward(cm), poses, views, false, 0.0; stage, round, seeds)
+    if p isa _NotProjected
+        stage === :guess && throw(ArgumentError(_not_projected_message(p)))
+        return p
+    end
     blocks = [_SplineCenterBlock(SVector(2 + b.varind[1], 1, 2), b) for b in p.costs]
-    return blocks, (; n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected)
+    return (; blocks, variables = copy(variables), p.windows, p.xs, counts = (; n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected))
 end

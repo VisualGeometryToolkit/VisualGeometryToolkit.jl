@@ -941,7 +941,20 @@ end
         # centre), each converged below its tolerance: measured rms 1.4e-5 px, c and d 1.7e-7 m, R 3.1e-7
         @test norm(est.views.center - t.c) < 2.0e-6 && norm(est.views.offset - t.d) < 2.0e-6 && rot_err(est) < 3.0e-6
         @test r.n == 5 * 63 && r.ν == 2 * 5 * 63 - (6 + 3 * 5) && r.rms < 1.0e-4
-        @test metadata(r).spline == (; n_dropped_window = 0, n_dropped_unprojected = 0)
+        sp = metadata(r).spline
+        @test (sp.n_dropped_window, sp.n_dropped_unprojected) == (0, 0) && sp.windows_settled && sp.rounds >= 1
+    end
+    @testset "a start far enough that the dots change windows: the blocks rebuilt at the estimate until every window is its own" begin
+        # the rotations 0.03 rad and the centre 3 cm off: the projections move by up to tens of pixels, across the 107 px cells, so
+        # a block built at the start reads a window its dot has left (the held one only extrapolates); the route's rebuild rounds
+        # (`_window_rounds`, the spline route's own) re-find the windows until they settle, and the truth comes back exactly
+        far = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.03, -0.02, 0.025))) * R for (k, R) in t.R),
+                                  t.c + SVector(0.03, -0.025, 0.03), t.d + SVector(-0.01, 0.01, 0.012))
+        r = refine_camera_and_poses(cam, far, exact; fixed = (:controls,), optimization_strategy = nothing)
+        sp = metadata(r).spline
+        @test converged(r) && sp.rounds >= 2 && sp.windows_settled
+        est = estimate(r)
+        @test norm(est.views.center - t.c) < 2.0e-6 && norm(est.views.offset - t.d) < 2.0e-6 && r.rms < 1.0e-4
     end
     @testset "noisy pixels: Triggs{Huber} at a given scale, Irls{Huber}, and an absolute width" begin
         noisy = center_views(cam, t; σ = 0.3, rng = Xoshiro(5))
@@ -984,7 +997,8 @@ end
     @testset "the block: its Jacobian matches finite differences of its residual; type-stable" begin
         ids = sort(collect(keys(t.R)))
         poses = [VE._rotation_center_pose(VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k])), start.center, start.offset) for k in ids]
-        blocks, counts = VE._spline_center_blocks(cam, poses, [exact[k] for k in ids])
+        q0 = VE._spline_center_problem(cam, poses, [exact[k] for k in ids], Any[])
+        blocks, counts = q0.blocks, q0.counts
         @test length(blocks) == 5 * 63 && counts == (; n_dropped_window = 0, n_dropped_unprojected = 0)
         vars = Union{SVector{3, Float64}, VE._ViewRotationChart}[start.center, start.offset]
         foreach(k -> push!(vars, VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)

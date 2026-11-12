@@ -18,7 +18,7 @@
 #
 # TWO DISTINCT relpose refit PATHS — not redundant (they solve different
 # objectives and serve different consumers):
-#   • `bundle_refine_relpose` (THIS file; NLLSsolver, the stack's LM, with
+#   • `refine_relative_pose` (THIS file; NLLSsolver, the stack's LM, with
 #     the structure eliminated through the Schur complement): the RelposeBundleProblem's
 #     own refit — the EXACT full-3D two-view reprojection MLE (per-point 3D
 #     landmarks jointly optimized then profiled out via Schur). Live consumer:
@@ -256,7 +256,7 @@ end
 # PARALLEL RAYS: VGC's `triangulate` returns NaN there (nothing was
 # triangulated, the honest answer for cheirality). A bundle cannot start from
 # NaN — one far point, or one baseline-parallel outlier, made the whole refit
-# and every residual NaN, so `bundle_refine_relpose` returned `nothing` even
+# and every residual NaN, so `refine_relative_pose` returned `nothing` even
 # with that point at weight 0. The pixel DLT this replaced was finite there.
 # So a parallel pair is placed FAR along the first ray (`_PARALLEL_DEPTH`
 # baselines, ‖t‖ = 1): reprojection error ~ f/_PARALLEL_DEPTH px, finite, and a
@@ -309,7 +309,7 @@ function _cheiral_relpose(p, E)
 end
 
 """
-    bundle_refine_relpose(pose::PlainEuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
+    refine_relative_pose(pose::PlainEuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
         -> Union{EuclideanMap{3}, Nothing}
 
 Robust full-3D two-view bundle adjustment of a relative pose: the exact
@@ -328,7 +328,7 @@ relative pose only up to scale, so its translation is a direction — read
 unit-normalized, returned with unit norm — and no length enters or leaves. A
 physical seed is stripped by the caller in any unit (`ustrip(m, pose)`).
 """
-function bundle_refine_relpose(
+function refine_relative_pose(
         pose::PlainEuclideanMap{3}, K1::AbstractMatrix, K2::AbstractMatrix,
         cs::AbstractVector{<:Pair}; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER
     )
@@ -340,7 +340,7 @@ function bundle_refine_relpose(
     # column, never a keyword).
     w = VgtkCore.weights_column(cs)
     sqrtw = w === nothing ? ones(N) : fill_sqrt_weights!(Vector{Float64}(undef, N), w, N)
-    res = _bundle_refine_relpose(
+    res = _refine_relative_pose(
         SMatrix{3, 3, Float64, 9}(rotation(pose)), SVector{3, Float64}(translation(pose)),
         K1, K2, _inv3(K1), _inv3(K2), u1, u2, sqrtw; max_iter
     )
@@ -363,7 +363,7 @@ end
 # fallback test runs it); `callback` is NLLSsolver's per-iteration callback
 # (the task's kept run is not reentrant from it: see `_BundleRun`).
 # -----------------------------------------------------------------------------
-function _bundle_refine_relpose(
+function _refine_relative_pose(
         R₀::AbstractMatrix, t₀::AbstractVector,
         K1::AbstractMatrix, K2::AbstractMatrix,
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
@@ -496,7 +496,7 @@ function refine!(_ws, p::RelposeBundleProblem, θ::EssentialMat, weights::Abstra
     u1 = sources(p.cs); u2 = targets(p.cs)
     R₀, t₀ = _cheiral_relpose(p, θ)
     sqrtw = fill_sqrt_weights!(Vector{Float64}(undef, length(weights)), weights, length(weights))
-    res = _bundle_refine_relpose(R₀, t₀, p.K1, p.K2, p.iK1, p.iK2, u1, u2, sqrtw)
+    res = _refine_relative_pose(R₀, t₀, p.K1, p.K2, p.iK1, p.iK2, u1, u2, sqrtw)
     res === nothing && return nothing
     return EssentialMat(res.R, res.t)
 end

@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: the strategy registry is `OPTIMIZATION_STRATEGY_TAGS`** (was `LO_TAGS`; the owner's ruling, after the
+  strategy keyword rename): the tags of `optimization_strategy_from_toml`, `lo_from_toml` and `lo_concrete`, and the
+  downstream merges `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`
+  and `merge(…, PoseLib.POSELIB_STRATEGY_TAGS)`. No alias: the old name is retired in VisualGeometryToolkitCore's `check_naming`.
 - **The view-graph filters take Uncertain edges**: `rotation_loop_angle` (`filter_cycles`' residual),
   `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
   rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the
@@ -24,7 +28,27 @@ non-central one is a `NoncentralSplineModel`).
   covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
   rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
-
+- **Docs: the `find_*`/`refine_*` docstrings state no literal defaults**: their signatures name `scoring`,
+  `max_trials`, `min_trials` and the strategy keyword without a value, and the text points at the
+  `configs/default.toml` table that holds it (`[ransac]`, `[pipelines.<class>]`) instead of restating
+  `MsacScoring(problem; threshold = …)`, `Irls{TLSShape}()` or `Triggs{WelschShape}(efficiency_constant = 2.5)`,
+  which could drift from the file.
+- **`fit_robot_world_hand_eye` solves its translations normalized** (the stack's normalize-LS rule): the joint
+  `[t_Y; t_X…]` least squares runs on each side's translations about their centroid at one isotropic scale (the rig
+  side's 3-D `HartleyNormalization`), unnormalized on the way out. The design's rotation blocks, and so its singular
+  values, are unchanged; the right-hand side no longer cancels when a frame sits far from its origin. Results move at
+  rounding level only.
+- **Breaking: two names take the verb of their kind** (conventions/naming.md): the relative-pose bundle, which needs
+  a seed, is `refine_relative_pose(pose, K1, K2, cs; max_iter)` (was `bundle_refine_relpose`; public, as before), and
+  the averaging behind the view-graph filters, a staged fit, is `fit_filtered_rotation_averaging(vg; cycle_tol,
+  orientation_tol, kwargs...)` (was `filtered_rotation_averaging`; exported, as before). Same arguments and results;
+  no aliases (the old names are retired in VisualGeometryToolkitCore's `check_naming`).
+- **The strategy keywords' internal names follow them** (no aliases): `default_local_optimization(scoring)` (the
+  `ransac`/`locally_optimize` keyword's default) is `default_local_optimization_strategy`, and the fits' private
+  default reader (B2's `_fit_strategy_default`) no longer spells `_fit_local_optimization`. Both old names are retired in VisualGeometryToolkitCore's
+  `check_naming`.
+- **`[fit_division_camera] seed_nu = 1.0e4`**: the median-seeded posterior's start ν, which VisualGeometryToolkitCore's
+  `median_seeded_posterior` no longer defaults (its priors are required). Unchanged in value.
 - **Breaking: parameters are held by `fixed`, the stack's one parameter-holding keyword** (the owner's ruling;
   NLLSsolver's word, OpenCV's `CALIB_FIX_*`). `refine_camera_and_poses` takes `fixed = ()` (every parameter refined but
   the gauge, the skew, held by construction), naming the parameters held: the former `free = X` is `fixed =` its
@@ -40,7 +64,7 @@ non-central one is a `NoncentralSplineModel`).
   `lo_absent`, `lo_validate`, `lo_efficiency_constant_shape`), `strategy_loss`, `lo_loss`, `lo_width_value`,
   `fixed_width` and `refine!` are reached as `VgtkCore.…` (`VgtkEstimation.Irls` still resolves, but it is not
   public there, so the public-names gate flags it), and `using VisualGeometryToolkitEstimation` no longer brings `Irls`/`Triggs`
-  into scope (`using VisualGeometryToolkitCore` does). Its `LO_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
+  into scope (`using VisualGeometryToolkitCore` does). Its `OPTIMIZATION_STRATEGY_TAGS` is Core's `STRATEGY_TAGS` merged with its own (`"terminal_lo"`, `"none"`). The machinery's hooks are
   Core's contract generics; this package's `CONTRACT_GENERICS` keeps its TOML reader's (`lo_concrete`,
   `lo_resolve_efficiency_constant`), the writer and the placement. The `[optimization_strategy.irls]` defaults moved
   to Core's `configs/default.toml`.
@@ -464,7 +488,7 @@ non-central one is a `NoncentralSplineModel`).
 
 - **Text: LocalOptimizationDoneRight's strategy registry is `STRATEGY_TAGS`** (renamed from `LO_TAGS` in its 0.9): the
   `scale_multiple = "cross_validated"` refusal of `local_optimization_from_toml`, its docstring, the guides and
-  CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.
+  CLAUDE.md name the merge `merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.STRATEGY_TAGS)`.
 - **Breaking: a SplineLens refine's gauge is fixed by its parametrization, and only the live controls are variables.**
   `refine_camera_and_poses` on a SplineLens camera held its rotation and scale gauges with zero-cost pin blocks and its
   unread coordinates (pad slots, absent nodes, nodes no row reads) with anchor rows `coordinate − guess`. Now each patch

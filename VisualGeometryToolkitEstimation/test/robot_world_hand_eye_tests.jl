@@ -49,6 +49,22 @@ _nobs(markers) = sum(length, values(markers))
         @test est.s2 < 1.0e-12
     end
 
+    @testset "noiseless recovery far from the origin (the translations' normalized solve)" begin
+        # the rig base 10 km from the world origin: A′ = T∘A, Y′ = T∘Y, B unchanged. The joint
+        # translation solve runs about each side's centroid at one Hartley scale, so the
+        # offset leaves the recovery at the noiseless test's tolerance.
+        rng = StableRNG(1)
+        markers, Ygt, Xgt = _synth(rng; N = 12, M = 3)
+        off = SVector(1.0e4, -7.0e3, 2.5e3)
+        far = Dict(m => [EuclideanMap(rotation(a), translation(a) + off) => b for (a, b) in cs] for (m, cs) in markers)
+        est = fit_robot_world_hand_eye(far)
+        @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 1.0e-6
+        @test norm(translation(estimate(est).Y) - (translation(Ygt) + off)) < 1.0e-6
+        for m in 1:3
+            @test norm(translation(estimate(est).X[m]) - translation(Xgt[m])) < 1.0e-6
+        end
+    end
+
     @testset "moderate noise (1 mrad / 1 mm)" begin
         rng = StableRNG(2)
         markers, Ygt, Xgt = _synth(rng; N = 40, M = 5, σ_R = 1.0e-3, σ_t = 1.0e-3, drop = 0.2)

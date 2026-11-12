@@ -8,7 +8,7 @@
 
 """
     find_radial_homography(correspondences; center,
-        scoring = MsacScoring(problem; threshold = 3.0), extent=nothing,
+        scoring, extent=nothing,
         workspace=nothing, extra_check=nothing, minimal=:radial,
         local_optimization_strategy, max_trials, min_trials, config=nothing, rng=...)
 
@@ -67,7 +67,7 @@ function find_radial_homography(
 end
 
 """
-    refine_radial_homography(model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_radial_homography(model, correspondences; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The radially distorted homography `model` (VisualGeometryToolkitCore

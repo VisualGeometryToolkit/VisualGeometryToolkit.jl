@@ -8,8 +8,8 @@
 # =============================================================================
 
 """
-    find_rotation(camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0), max_trials, min_trials,
-        local_optimization_strategy = Irls{TLSShape}(), config = nothing, rng)
+    find_rotation(camera1, camera2, pixel_cs; scoring, max_trials, min_trials,
+        local_optimization_strategy, config = nothing, rng)
     find_rotation(bearings::Csponds; kwargs...)
 
 Robust estimation of the rotation `R` between two views of a camera that only
@@ -20,7 +20,7 @@ distance of the joint measurement (both images' pixels, Σ = I) to the transfer
 constraint on bearings, in PIXELS through the views' back-projection Jacobians, and the local optimization's chart-LM refit on the
 rotation chart. A sampler (it draws hypotheses and verifies them), so a `find_*`.
 
-Every default shown is `configs/default.toml`'s (`[ransac]`,
+Every default is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.rotation]`); a keyword overrides. The keywords are
 [`find_homography`](@ref)'s; a scorer or local optimization from another package
 (RANSACScoringDoneRight's `StudentTUniformScoring(RotationProblem, a)`,
@@ -49,7 +49,7 @@ function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
 end
 
 """
-    refine_rotation(R, camera1, camera2, pixel_cs; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_rotation(R, camera1, camera2, pixel_cs; optimization_strategy, scale | width, workspace = nothing)
     refine_rotation(R, bearings::Csponds; kwargs...)
         -> FitResult{M, RefineMetadata}
 

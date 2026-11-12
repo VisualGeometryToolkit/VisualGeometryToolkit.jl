@@ -57,7 +57,7 @@ count uses the hypergeometric distribution (the stopping criterion).
   (a paper's: RANSACScoringDoneRight's Student-t + uniform marginal)
 
 # Keyword Arguments
-- `local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy}=default_local_optimization(scoring)`:
+- `local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy}=default_local_optimization_strategy(scoring)`:
   the LO-RANSAC refinement strategy (default `nothing`, no local optimization); dispatched
   in the loop's Phase 2 via `locally_optimize!`, or — a [`TerminalLO`](@ref)
   ([`lo_placement`](@ref)) — once on the final incumbent of a raw race
@@ -100,7 +100,7 @@ result = ransac(problem, MsacScoring(problem; threshold = 2.0); local_optimizati
 function ransac(
         problem::AbstractRansacProblem,
         scoring::AbstractScoring;
-        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization(scoring),
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization_strategy(scoring),
         local_optimization = _RetiredKeyword(),   # refused, naming its successor
         config::RansacConfig = RansacConfig(),
         workspace = nothing,
@@ -134,7 +134,7 @@ preallocated `result` buffers — the returned estimate's `residuals` and
 function ransac!(
         result::RansacResultBuffers, ws::RansacWorkspace, problem::AbstractRansacProblem,
         scoring::AbstractScoring;
-        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization(scoring),
+        local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = default_local_optimization_strategy(scoring),
         config::RansacConfig = RansacConfig(),
         on_improvement = nothing,
         on_hypothesis = nothing,

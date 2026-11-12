@@ -56,19 +56,19 @@ default expression calls. A default that is not in the file throws BY DESIGN.
   `outlier_halfwidth` is no keyword of the core entries (`ArgumentError`): it
   belongs to a marginal scorer supplied as `scoring`.
 - **Use another file:** `RansacConfig(path)` loads a file's `[ransac]` table and
-  `optimization_strategy_from_toml(table; class, tags = LO_TAGS)` a strategy table; absent keys
+  `optimization_strategy_from_toml(table; class, tags = OPTIMIZATION_STRATEGY_TAGS)` a strategy table; absent keys
   inherit the shipped file, present keys override, UNKNOWN keys/tags are an
   `ArgumentError`, never ignored. (There is no whole-file loader: the
   `PipelineConfig`/`RvgConfig` pair, `load_config` and `write_config` were
   deleted 2026-09-21 — only tests used them.)
 - **Select a strategy in TOML:** `local_optimization_strategy = { type = "irls", loss =
   "tls" }` (no width key: follow the scorer; or `efficiency_constant = m` /
-  `loss_width = w`) — tags in the `TagRegistry` values `LO_TAGS` / `LOSS_TAGS`
+  `loss_width = w`) — tags in the `TagRegistry` values `OPTIMIZATION_STRATEGY_TAGS` / `LOSS_TAGS`
   (`src/config_toml.jl`, `scoring_glue.jl`). The core registry holds
   `"none"` (`nothing`), `"irls"`, `"triggs"` and `"terminal_lo"` (`TerminalLO`, the
   terminal placement: `{ type = "terminal_lo", inner = { … } }`); LocalOptimizationDoneRight's
   strategies load through an explicit merge,
-  `tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`,
+  `tags = merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`,
   which also resolves `efficiency_constant = "cross_validated"` (the core refuses
   it, naming the merge). A loss the mechanism cannot run (a Barron shape
   without its α) is refused at load.
@@ -122,7 +122,7 @@ src/
 │   ├── types.jl               # RansacConfig, RansacMetadata/RansacEstimate, DltWorkspace, LoBuffers, RansacWorkspace{K,M,T,W,L}, RansacResultBuffers
 │   ├── samplers.jl            # UniformSampler, ProsacSampler, GaussianSampler
 │   ├── interface.jl           # AbstractRansacProblem{K} API, refine_workspace, lo_workspace, RansacWorkspace constructors
-│   ├── scoring_glue.jl        # core strategy types (Irls{K,W}, Triggs{K,W}) + width modes, PosteriorLikelihood, LO_TAGS
+│   ├── scoring_glue.jl        # core strategy types (Irls{K,W}, Triggs{K,W}) + width modes, PosteriorLikelihood, OPTIMIZATION_STRATEGY_TAGS
 │   ├── loop.jl                # the contract-only RANSAC loop: ransac/ransac!, _try_model!, locally_optimize, _finalize
 │   ├── local_optimization.jl  # the core strategies' locally_optimize!, PosteriorIrlsMethod, consensus_posterior
 │   ├── hypotheses.jl          # draw_hypotheses: the RANSAC trial, repeated, no scoring
@@ -161,7 +161,7 @@ src/
 │   ├── robot_world_hand_eye.jl          # fit_robot_world_hand_eye, RobotWorldHandEyeCalibration
 │   ├── refine_robot_world_hand_eye.jl  # refine_robot_world_hand_eye
 │   └── residual_mixture.jl    # fit_residual_mixture, MixtureEmConfig (a held model's residuals → mixture EM → MAP labels)
-└── config_toml.jl             # TOML loaders, LO_TAGS/LOSS_TAGS registries, writer (included LAST)
+└── config_toml.jl             # TOML loaders, OPTIMIZATION_STRATEGY_TAGS/LOSS_TAGS registries, writer (included LAST)
 ```
 
 ### Include Order

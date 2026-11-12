@@ -16,7 +16,7 @@ using Test, LinearAlgebra, Random, StaticArrays, Rotations
 using StableRNGs
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: bundle_refine_relpose, _bundle_refine_relpose, _BundleData, _BundleRows,
+using VisualGeometryToolkitEstimation: refine_relative_pose, _refine_relative_pose, _BundleData, _BundleRows,
     _BundlePoint, _BundlePose, _triangulate_optimal, _reprojection_error, _POSE_DOF, _inv3
 using VisualGeometryToolkitCore: EssentialManifold5, recenter_pose
 import NLLSsolver
@@ -106,7 +106,7 @@ end
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
-    run(; kw...) = _bundle_refine_relpose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, retcode = true, kw...)
+    run(; kw...) = _refine_relative_pose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, retcode = true, kw...)
     fast = run(); slow = run(; schur = false)
     # With #60 loaded `fast` is the Schur system; without it both runs take the
     # sparse LDL and agree trivially — the comparison holds either way.
@@ -168,7 +168,7 @@ struct _CostLog
 end
 (cb::_CostLog)(cost, problem, data, iteratedata) = (push!(cb.F, 2cost); (cost, 0))
 
-# `_bundle_refine_relpose`'s run (unit weights), with the cost trajectory:
+# `_refine_relative_pose`'s run (unit weights), with the cost trajectory:
 # (R, t, F, retcode, NLLSsolver iterations, the first iteration within 1e-6 of
 # the final cost). The seed is read from the pose exactly as the public entry
 # reads it.
@@ -176,7 +176,7 @@ function _recorded_bundle(seed, u1, u2, tol)
     N = length(u1)
     R0 = SMatrix{3, 3, Float64, 9}(rotation(seed)); t0 = Vec3{Float64}(normalize(SVector{3, Float64}(translation(seed))))
     log = _CostLog(Float64[])
-    out = _bundle_refine_relpose(
+    out = _refine_relative_pose(
         R0, t0, KP1, KP2, _inv3(KP1), _inv3(KP2), u1, u2, ones(N);
         retcode = true, stationarity_tol = tol, callback = log
     )
@@ -228,7 +228,7 @@ end
         R0, t0, u1, u2 = _harness_scene(N)
         b = BASELINE[N]
         seed = rigid(R0, t0)
-        res = bundle_refine_relpose(seed, KP1, KP2, csponds(u1, u2))
+        res = refine_relative_pose(seed, KP1, KP2, csponds(u1, u2))
         R = SMatrix{3, 3, Float64, 9}(rotation(res)); t = SVector{3, Float64}(translation(res))
         @test rotdeg(R, SMatrix{3, 3, Float64, 9}(b.R)) <= 1.0e-6
         @test dirdeg(t, SVector(b.t)) <= 1.0e-6
@@ -273,8 +273,8 @@ end
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)
         cs = csponds(u1, u2); seed = rigid(R0, t0)
-        bundle_refine_relpose(seed, KP1, KP2, cs)
-        Base.@allocations bundle_refine_relpose(seed, KP1, KP2, cs)
+        refine_relative_pose(seed, KP1, KP2, cs)
+        Base.@allocations refine_relative_pose(seed, KP1, KP2, cs)
     end
     @test all(<=(ALLOCS_BOUND), counts)
     @test maximum(counts) - minimum(counts) <= 4     # flat in N
@@ -302,7 +302,7 @@ end
         for N in (100, 120, 100, 150)
             R0, t0, u1, u2 = _harness_scene(N)
             cs = csponds(u1, u2)
-            @test bundle_refine_relpose(rigid(R0, t0), KP1, KP2, cs) !== nothing
+            @test refine_relative_pose(rigid(R0, t0), KP1, KP2, cs) !== nothing
             runs = _kept_bundle_runs()
             @test length(runs) == 1
             d = only(runs).data
@@ -359,7 +359,7 @@ end
     rng = StableRNG(3); N = 30
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.0)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, csponds(u1, u2); max_iter = 200)
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2); max_iter = 200)
     @test res !== nothing
     R, t = rotation(res), translation(res); Rerr, terr = _pose_errs(R, t, Rgt, tgt)
     @test Rerr < 1.0e-6
@@ -371,7 +371,7 @@ end
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.05, -0.04, 0.06), s = 0.12)
     seedR, seedt = _pose_errs(R0, t0, Rgt, tgt)
-    res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
     R, t = rotation(res), translation(res)
     finR, fint = _pose_errs(R, t, Rgt, tgt)
     @test finR < seedR
@@ -382,7 +382,7 @@ end
     rng = StableRNG(5); N = 40
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
     R, t = SMatrix{3, 3, Float64, 9}(rotation(res)), Vec3{Float64}(translation(res))
     # The inverses are hoisted here exactly as production hoists them:
     # `_triangulate_optimal` takes K⁻¹ rather than inverting per call, because
@@ -416,7 +416,7 @@ end
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     for w_far in (0.0, 1.0)
         w = vcat(ones(N), w_far)
-        res = bundle_refine_relpose(rigid(R0, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+        res = refine_relative_pose(rigid(R0, t0), KC1, KC2, Csponds(u1, u2; weights = w))
         @test res !== nothing
         @test all(isfinite, SMatrix{3, 3, Float64, 9}(rotation(res)))
     end
@@ -435,12 +435,12 @@ end
     # was re-checked inside the triangulation and threw before the solver's
     # `try`. The bundle takes the caller's pose as given.
     Rdrift = 1.001 * SMatrix{3, 3, Float64, 9}(Rgt)
-    @test bundle_refine_relpose(rigid(Rdrift, t0), KC1, KC2, csponds(u1, u2)) !== nothing
+    @test refine_relative_pose(rigid(Rdrift, t0), KC1, KC2, csponds(u1, u2)) !== nothing
     # RB3: a negative (or non-finite) weight is named, not a `sqrt` DomainError.
     w = ones(N); w[4] = -0.5
-    @test_throws ArgumentError bundle_refine_relpose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
     w[4] = NaN
-    @test_throws ArgumentError bundle_refine_relpose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
     # RB4: bearings of different lengths are refused, not read out of bounds.
     f = [normalize(SVector(randn(rng), randn(rng), 3.0)) for _ in 1:6]
     E = EssentialMat(Rgt, tgt)

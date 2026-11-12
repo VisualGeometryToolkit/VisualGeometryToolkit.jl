@@ -112,11 +112,11 @@ function consensus_s2!(ws::RansacWorkspace, problem, scoring, model)
 end
 
 """
-    default_local_optimization(scoring::AbstractScoring) -> AbstractOptimizationStrategy
+    default_local_optimization_strategy(scoring::AbstractScoring) -> AbstractOptimizationStrategy
 
 Default local-optimization strategy for a scoring function: `nothing` (no local optimization).
 """
-default_local_optimization(::AbstractScoring) = nothing
+default_local_optimization_strategy(::AbstractScoring) = nothing
 
 # -----------------------------------------------------------------------------
 # PosteriorLikelihood — AbstractWeightPolicy adapter for the `block_coordinate_descent!` loop
@@ -257,7 +257,7 @@ const _LO_REGISTRY = (
 )
 
 """
-    LO_TAGS
+    OPTIMIZATION_STRATEGY_TAGS
 
 The optimization-strategy registry (VisualGeometryToolkitCore's `TagRegistry`):
 TOML tag → strategy type or loss-parametric family — VisualGeometryToolkitCore's
@@ -266,4 +266,4 @@ TOML tag → strategy type or loss-parametric family — VisualGeometryToolkitCo
 optimization). The tag is `snake_case` of the type's name; retired tags name
 their successor.
 """
-const LO_TAGS = merge(STRATEGY_TAGS, @lo_registry _LO_REGISTRY defaults = _TOML_DEFAULTS["optimization_strategy"] retired = ("no_local_optimization" => "none",) none = true)
+const OPTIMIZATION_STRATEGY_TAGS = merge(STRATEGY_TAGS, @lo_registry _LO_REGISTRY defaults = _TOML_DEFAULTS["optimization_strategy"] retired = ("no_local_optimization" => "none",) none = true)

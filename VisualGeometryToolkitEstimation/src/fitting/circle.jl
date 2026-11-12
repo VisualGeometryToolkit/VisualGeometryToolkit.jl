@@ -9,9 +9,9 @@
 # =============================================================================
 
 """
-    find_circle(points; scoring = MsacScoring(problem; threshold = 1.0),
-        max_trials = 10000, min_trials = 100,
-        local_optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), config = nothing)
+    find_circle(points; scoring,
+        max_trials, min_trials,
+        local_optimization_strategy, config = nothing)
 
 Robust estimation of a 2D circle through points (a contour, edge points) by
 RANSAC on the [`CircleProblem`](@ref): 3-point samples (VisualGeometryToolkitCore's
@@ -21,7 +21,7 @@ as local optimization, the robustified LM ([`Triggs`](@extref VisualGeometryTool
 and log radius: one Levenberg–Marquardt solve from the hypothesis over all the
 points under the Welsch loss at `efficiency_constant·ŝ`, ŝ the Student-t scale of the
 hypothesis's Sampson errors. Every default
-shown is `configs/default.toml`'s (`[ransac]`, `[pipelines.circle]`); a keyword
+is `configs/default.toml`'s (`[ransac]`, `[pipelines.circle]`); a keyword
 overrides.
 
 Returns a `RansacEstimate` (its `estimate` a `Circle{Float64}`), the `:no_model` result (`iterations` 0) for
@@ -34,7 +34,7 @@ drawn); test `converged(result)` before reading the model (see
   storage canonicalized internally), plain: unit isotropic noise.
 - `scoring`: the scorer, its width **in PIXELS** (the points' unit), as [`find_homography`](@ref); default `[pipelines.circle] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] CircleProblem, n_data)`.
-- `local_optimization_strategy`: default `Triggs{WelschShape}(efficiency_constant = 2.5)`; any
+- `local_optimization_strategy`: default `[pipelines.circle] local_optimization_strategy`; any
   other strategy as [`find_homography`](@ref).
 - the other keywords as [`find_homography`](@ref).
 """
@@ -43,7 +43,7 @@ function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Rea
 end
 
 """
-    refine_circle(circle, points; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_circle(circle, points; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{M, RefineMetadata}
 
 The 2D circle through `points` refined from the given `circle` (the points'

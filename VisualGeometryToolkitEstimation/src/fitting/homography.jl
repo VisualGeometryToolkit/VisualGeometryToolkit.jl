@@ -14,13 +14,13 @@
 # =============================================================================
 
 """
-    find_homography(correspondences; scoring = MsacScoring(problem; threshold = 3.0),
+    find_homography(correspondences; scoring,
         extent=nothing, workspace=nothing,
-        max_trials=10000, min_trials=100,
-        local_optimization_strategy=Irls{TLSShape}(), config=nothing)
+        max_trials, min_trials,
+        local_optimization_strategy, config=nothing)
 
 Robust homography estimation via RANSAC with MSAC scoring and least-squares-on-the-inliers local optimization.
-Every default shown is `configs/default.toml`'s (`[ransac]`,
+Every default is `configs/default.toml`'s (`[ransac]`,
 `[pipelines.homography]`); a keyword overrides.
 
 Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer than 4 correspondences.
@@ -38,7 +38,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   `find_homography(exact.(board) .=> pixels)` scores the transfer error in
   pixels whatever the board's units (a plain metre board would be scored in
   metres, its threshold silently scaled by the board→image scale).
-- `scoring`: the RANSAC scorer, an object of VisualGeometryToolkitCore's scoring contract carrying its own width **in PIXELS** — the unit of this problem's residuals (every pixel-data `find_*` pipeline states its width by reference to this paragraph): a threshold scorer's `threshold` (`MsacScoring(HomographyProblem; threshold = 2.0)`, `RansacScoring`), the Student-t + uniform scorer's `outlier_halfwidth` (`StudentTUniformScoring(HomographyProblem, 5.0; scale_prior, label_prior)`), a paper's scorer (RANSACScoringDoneRight's families). Default: the class's scorer of record, `configs/default.toml` `[pipelines.homography] scoring` (`{ type = "msac", threshold = 3.0 }`: OpenCV's convention, not a tuned value), read by [`scoring_from_toml`](@ref). A bare `threshold` or `outlier_halfwidth` keyword is refused (`ArgumentError`): a width belongs to its scorer.
+- `scoring`: the RANSAC scorer, an object of VisualGeometryToolkitCore's scoring contract carrying its own width **in PIXELS** — the unit of this problem's residuals (every pixel-data `find_*` pipeline states its width by reference to this paragraph): a threshold scorer's `threshold` (`MsacScoring(HomographyProblem; threshold = 2.0)`, `RansacScoring`), the Student-t + uniform scorer's `outlier_halfwidth` (`StudentTUniformScoring(HomographyProblem, 5.0; scale_prior, label_prior)`), a paper's scorer (RANSACScoringDoneRight's families). Default: the class's scorer of record, `configs/default.toml` `[pipelines.homography] scoring` (OpenCV's convention, not a tuned value), read by [`scoring_from_toml`](@ref). A bare `threshold` or `outlier_halfwidth` keyword is refused (`ArgumentError`): a width belongs to its scorer.
 - `extent`: optional `HyperRectangle{2}` world-plane region; when given the problem
   is wrapped in `BoundedProblem` so the fitted H is validated over the rectangle.
 - `workspace`: optional pre-allocated `RansacWorkspace` to reuse —
@@ -49,7 +49,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
   workspace against its scoring (VisualGeometryToolkitCore `check_workspace`).
 - `max_trials`, `min_trials`: RANSAC trial bounds (`[ransac]`).
 - `local_optimization_strategy`: LO-RANSAC strategy (default: the class's
-  `[pipelines.<class>]` strategy — here `Irls{TLSShape}()`, least squares on
+  `[pipelines.<class>]` strategy — here least squares (`Irls` with the TLS loss) on
   the inliers with its truncation at the scorer's decision point: a threshold
   scorer's threshold, the Student-t scorer's MAP crossover at the consensus
   partition's scale; any other
@@ -88,7 +88,7 @@ function find_homography(
 end
 
 """
-    refine_homography(H, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_homography(H, correspondences; optimization_strategy, scale | width, workspace = nothing)
         -> FitResult{HomographyMat{Float64}, RefineMetadata}
 
 The homography `H` refined against `correspondences` from `H` itself — a refine:

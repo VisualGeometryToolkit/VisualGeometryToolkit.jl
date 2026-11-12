@@ -168,18 +168,17 @@ function _copy_sq_distances!(sq_r, sq_distances, n::Int)
 end
 
 """
-    PosteriorWeightState(n; ν, s_hat_sq, log_two_outlier_halfwidth, codimension = 1, inlier_prior = 1/2,
-                         prior = JeffreysPrior())
+    PosteriorWeightState(n; ν, s_hat_sq, log_two_outlier_halfwidth, prior, codimension = 1, inlier_prior = 1/2)
 
 A state with FRESH length-`n` buffers at the given mixture, for a caller that
 fills the residuals itself and runs the E-step (e.g. [`mixture_ecm!`](@ref))
 before reading any weight. The buffers are uninitialised; `ŝ²` is floored at
 eps and the inlier prior clamped to `[1e-3, 1 − 1e-3]` (the one clamp,
-`update_inlier_prior!`'s).
+`update_inlier_prior!`'s). The scale prior `prior` (an [`IGPrior`](@ref)) is required:
+the stack's default prior is a configuration's, not this constructor's.
 """
 function PosteriorWeightState(n::Int; ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real,
-                              codimension::Int = 1, inlier_prior::Real = 0.5,
-                              prior::IGPrior = JeffreysPrior())
+                              prior::IGPrior, codimension::Int = 1, inlier_prior::Real = 0.5)
     return PosteriorWeightState(
         Vector{Float64}(undef, n), Vector{Float64}(undef, n), Vector{Float64}(undef, n),
         Float64(ν), max(Float64(s_hat_sq), eps()), Float64(log_two_outlier_halfwidth), codimension, prior,
@@ -188,16 +187,16 @@ function PosteriorWeightState(n::Int; ν::Real, s_hat_sq::Real, log_two_outlier_
 end
 
 """
-    reset_posterior!(pws; ν, s_hat_sq, log_two_outlier_halfwidth, codimension = 1,
-                     inlier_prior = 0.5, prior = JeffreysPrior()) -> pws
+    reset_posterior!(pws; ν, s_hat_sq, log_two_outlier_halfwidth, prior, codimension = 1,
+                     inlier_prior = 0.5) -> pws
 
 [`PosteriorWeightState`](@ref)`(n; …)` IN PLACE: the same parameters (ŝ² floored
 at eps, π clamped) on `pws`'s existing buffers, whose contents are left as
 they are — that constructor's buffers are uninitialized, so nothing may read
-them before writing.
+them before writing. `prior` is required, as there.
 """
 function reset_posterior!(pws::PosteriorWeightState; ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real,
-                          codimension::Int = 1, inlier_prior::Real = 0.5, prior::IGPrior = JeffreysPrior())
+                          prior::IGPrior, codimension::Int = 1, inlier_prior::Real = 0.5)
     pws.ν = Float64(ν); pws.s_hat_sq = max(Float64(s_hat_sq), eps())
     pws.log_two_outlier_halfwidth = Float64(log_two_outlier_halfwidth); pws.d_g = codimension
     pws.prior = prior; pws.inlier_prior = _clamp_inlier_prior(inlier_prior)
@@ -205,23 +204,22 @@ function reset_posterior!(pws::PosteriorWeightState; ν::Real, s_hat_sq::Real, l
 end
 
 """
-    median_seeded_posterior(sq, n; outlier_halfwidth, codimension = 2, ν = 1e4,
-                            prior = IGPrior()) -> PosteriorWeightState
+    median_seeded_posterior(sq, n; outlier_halfwidth, ν, prior, codimension = 2) -> PosteriorWeightState
 
 A `PosteriorWeightState` seeded from the MEDIAN residual, for a caller with no
 partition to seed from. Every point starts an inlier candidate at the scale
-`ŝ² = median(r²)/median(χ²_d)` (floored at eps), with `ν` large (a
-near-Gaussian start) and the E-step run once. Allocates its own buffers
-(`sq[1:n]` is copied). `codimension` is 1 or 2; `median(χ²_d)` is
-[`chisq_median`](@ref).
+`ŝ² = mad_scale²` — the median residual norm over the median of `χ_d`
+([`mad_scale`](@ref), on the norms `√sq`), floored at eps — at the caller's start `ν` (large for a
+near-Gaussian start) under the scale prior `prior`, both required (a
+configuration's values, not this function's), and the E-step run once.
+Allocates its own buffers (`sq[1:n]` is copied). `codimension` is 1 or 2.
 """
 function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
-                                 outlier_halfwidth::Real, codimension::Int = 2,
-                                 ν::Real = 1.0e4, prior::IGPrior = IGPrior(0.0, 0.0))
+                                 outlier_halfwidth::Real, ν::Real, prior::IGPrior, codimension::Int = 2)
     codimension in (1, 2) || throw(ArgumentError("codimension must be 1 or 2"))
-    m_d = chisq_median(codimension)
+    s = _mad_scale_norms(; norms = (sqrt(x) for x in view(sq, 1:n)), codimension)
     pws = PosteriorWeightState(
-        n; ν, s_hat_sq = Statistics.median(view(sq, 1:n)) / m_d,
+        n; ν, s_hat_sq = s * s,
         log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth)), codimension, prior
     )
     _copy_sq_distances!(pws.sq_distances, sq, n)
@@ -485,8 +483,8 @@ robust_weight(pws::PosteriorWeightState) = pws.w
 end
 
 """
-    posterior_weights!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth,
-                       codimension = 1, prior = JeffreysPrior())
+    posterior_weights!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
+                       codimension = 1)
 
 Student-t posterior weights `w[i] = P(inlier | rᵢ) · uᵢ` of the hard partition
 `order[1:k]` of the squared residuals: the partition's Student-t
@@ -499,7 +497,7 @@ entry of `w`.
 function posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
                             order::AbstractVector{Int}, k::Int;
                             model_dof::Int, log_two_outlier_halfwidth::Float64,
-                            codimension::Int = 1, prior::IGPrior = JeffreysPrior())
+                            prior::IGPrior, codimension::Int = 1)
     m = _partition_mixture(sq_distances, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
     @inbounds for i in eachindex(w)
         w[i] = posterior_weight(m, Float64(sq_distances[i]))
@@ -508,8 +506,8 @@ function posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
 end
 
 """
-    posterior_inlier_probs!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth,
-                            codimension = 1, prior = JeffreysPrior())
+    posterior_inlier_probs!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
+                            codimension = 1)
 
 Posterior inlier probabilities `w[i] ∈ [0, 1]` of the hard partition
 `order[1:k]`, without the IRLS weight factor — the same mixture as
@@ -518,7 +516,7 @@ Posterior inlier probabilities `w[i] ∈ [0, 1]` of the hard partition
 function posterior_inlier_probs!(w::AbstractVector, sq_distances::AbstractVector,
                                  order::AbstractVector{Int}, k::Int;
                                  model_dof::Int, log_two_outlier_halfwidth::Float64,
-                                 codimension::Int = 1, prior::IGPrior = JeffreysPrior())
+                                 prior::IGPrior, codimension::Int = 1)
     m = _partition_mixture(sq_distances, order, k, codimension, model_dof, log_two_outlier_halfwidth, prior)
     @inbounds for i in eachindex(w)
         w[i] = inlier_posterior(m, Float64(sq_distances[i]))

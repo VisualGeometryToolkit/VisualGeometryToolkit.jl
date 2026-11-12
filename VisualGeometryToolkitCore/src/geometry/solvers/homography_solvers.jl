@@ -94,6 +94,29 @@ function _hartley_map(
     return _hartley_affine(T, s, cx, cy)
 end
 
+# The 3-D Hartley map (a least squares over lengths): translation to the weighted
+# centroid, scale √3 over the weighted mean distance from it (Hartley & Zisserman
+# §4.9.2); the same weights rule and degenerate guard as the 2-D map above.
+function _hartley_map_3d(pts::AbstractVector{<:StaticVector{3, T}}, w::Union{Nothing, AbstractVector}) where {T}
+    c = zero(SVector{3, T}); sw = zero(T)
+    for i in eachindex(pts)
+        acc, wi = _hartley_accept(w, i, T)
+        acc || continue
+        sw += wi; c += wi * SVector{3, T}(pts[i])
+    end
+    sw < eps(T) && return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))
+    c /= sw
+    d = zero(T)
+    for i in eachindex(pts)
+        acc, wi = _hartley_accept(w, i, T)
+        acc || continue
+        d += wi * norm(SVector{3, T}(pts[i]) - c)
+    end
+    d /= sw
+    s = d > eps(T) ? sqrt(T(3)) / d : one(T)
+    return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(s, s, s)), Vec3{T}(-s * c[1], -s * c[2], -s * c[3]))
+end
+
 
 # =============================================================================
 # Normalization strategies — `<Method>Normalization`, applied as an AffineMap
@@ -144,20 +167,34 @@ _pixel_extent(x) = Float64(_strip_pixels(x))   # a plain number or px; a length 
 
 """
     AffineMap(s::HartleyNormalization, points, mask = nothing, weights = nothing) -> AffineMap
+    AffineMap(s::HartleyNormalization, points3d, weights = nothing) -> AffineMap
     AffineMap(s::DiagonalNormalization) -> AffineMap
 
-Apply a normalization strategy: the 2D affine map `x ↦ σ·(x − c)` it
+Apply a normalization strategy: the affine map `x ↦ σ·(x − c)` it
 prescribes (a `Diagonal` linear part, uniform scale). For Hartley the centre
 and scale come from `points` — `mask` (a `BitVector`) and `weights` restrict
 and weight the statistics, an empty selection gives the identity; the
-diagonal strategy needs no data.
+diagonal strategy needs no data. Hartley applies to image points (mean
+distance √2) and to 3-D points (`StaticVector{3}`: about their centroid, mean
+distance √3 — the normalization of a least squares over lengths, such as
+translations); the diagonal strategy is 2-D.
 """
 CoordinateTransformations.AffineMap(
-    s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}},
+    s::HartleyNormalization, pts::AbstractVector{<:StaticVector},
     mask::Union{Nothing, BitVector} = nothing, w::Union{Nothing, AbstractVector} = nothing
-) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
-CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector{2}}, w::AbstractVector) =
-    _hartley_map(pts, eachindex(pts), w, s.center)
+) = _hartley_strategy_map(s, pts, mask, w)
+CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector}, w::AbstractVector) =
+    _hartley_strategy_map(s, pts, nothing, w)
+# The dimension is dispatched here, behind the same AffineMap methods (no further method
+# of a CoordinateTransformations constructor): image points (the radial models' known
+# centre allowed), or 3-D points (a least squares over lengths: translations, world
+# points) about their centroid at mean distance √3.
+_hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{2}}, mask, w) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
+function _hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{3}}, mask, w)
+    s.center === nothing || throw(ArgumentError("HartleyNormalization: a known centre is two-dimensional; 3-D points normalize about their centroid"))
+    mask === nothing || throw(ArgumentError("HartleyNormalization: 3-D points take weights, not a mask"))
+    return _hartley_map_3d(pts, w)
+end
 CoordinateTransformations.AffineMap(d::DiagonalNormalization) =
     _hartley_affine(Float64, one(Float64) / (hypot(d.width, d.height) / 2), d.center[1], d.center[2])
 

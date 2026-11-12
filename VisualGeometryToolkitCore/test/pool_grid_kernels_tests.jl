@@ -66,5 +66,40 @@
                                stage_selection(:pool, pairs, Rs))
         ref = [best_pool_model(VgtkCore.with_width(sc, VgtkCore.LossWidth(w)), p, R) for (p, R) in zip(pairs, Rs), w in grid]
         @test idxs == ref && all(idxs[end, :] .== 0) && all(idxs[1:(end - 1), :] .> 0)
+        # a supplied backend is the one the kernels run on (the host's: the same selections)
+        st = stage_selection(:pool, pairs, Rs; backend = KA.CPU())
+        @test st.backend === KA.CPU()
+        @test select_on_grid!(Matrix{Int32}(undef, length(pairs), length(grid)), _GKProblem, sc, grid, st) == ref
+    end
+
+    # GPU-first: the :pool staging's backend is `default_device()` unless the caller supplies one
+    old_resolver, old_device = VgtkCore._DEVICE_RESOLVER[], VgtkCore._DEFAULT_DEVICE[]
+    calls = Ref(0)
+    try
+        VgtkCore._DEVICE_RESOLVER[] = () -> (calls[] += 1; KA.CPU())
+        VgtkCore.reset_default_device!()
+        @test stage_selection(:pool, pairs, Rs).backend === KA.CPU() && calls[] == 1
+    finally
+        VgtkCore._DEVICE_RESOLVER[] = old_resolver; VgtkCore._DEFAULT_DEVICE[] = old_device
+    end
+end
+
+@testitem "CSRMatrix defaults to default_device()" begin
+    using SparseArrays: sparse
+    using LinearAlgebra: mul!
+    import VisualGeometryToolkitCore as VgtkCore
+    import KernelAbstractions as KA
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, -1.0, 0.5, 4.0], 3, 3)
+    old_resolver, old_device = VgtkCore._DEVICE_RESOLVER[], VgtkCore._DEFAULT_DEVICE[]
+    calls = Ref(0)
+    try
+        VgtkCore._DEVICE_RESOLVER[] = () -> (calls[] += 1; KA.CPU())
+        VgtkCore.reset_default_device!()
+        C = VgtkCore.CSRMatrix(A)
+        @test calls[] == 1
+        x = [1.0, 2.0, 3.0]
+        @test mul!(zeros(3), C, x) == A * x
+    finally
+        VgtkCore._DEVICE_RESOLVER[] = old_resolver; VgtkCore._DEFAULT_DEVICE[] = old_device
     end
 end

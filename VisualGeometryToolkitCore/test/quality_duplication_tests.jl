@@ -56,6 +56,19 @@
     filecopy = repo("test/a.jl" => "# one\n" * body("misfit", "x", "y"), "test/b.jl" => "# two\n" * body("misfit", "x", "y"))
     @test checks(check_duplication(filecopy; stack = String[])) == [:file, :similar]
 
+    # a SUBDIRECTORY of a repository (a paper project inside a package's repository) lies inside
+    # the repository's own tree: each file is scanned once, by its real path, and never pairs
+    # with itself (BB's bmvc2026 reported every file as `X ⇔ X`)
+    nested = repo("src/p.jl" => other, "paper/Project.toml" => "name = \"Paper\"\n",
+                  "paper/src/a.jl" => body("misfit", "x", "y"), "paper/scripts/b.jl" => "run_all(dir) = foreach(f -> include(joinpath(dir, f)), filter(endswith(\".jl\"), readdir(dir)))\nconst N_RUNS = 3\n")
+    found = check_duplication(joinpath(nested, "paper"); stack = String[])
+    @test !any(v -> v.file == first(split(v.other, ':')), found)
+    @test isempty(found)
+    # a real copy across the subdirectory and the rest of the repository is still found
+    nested_copy = repo("src/p.jl" => "# here\n" * body("misfit", "x", "y"), "paper/Project.toml" => "name = \"Paper\"\n",
+                       "paper/src/a.jl" => "# there\n" * body("misfit", "x", "y"))
+    @test :similar in checks(check_duplication(joinpath(nested_copy, "paper"); stack = String[]))
+
     # against another stack repository: named by its project, absent ones skipped
     upstream = repo("src/m.jl" => body("misfit", "x", "y"); name = "Upstream")
     mine = repo("src/n.jl" => body("my_misfit", "p", "q"))

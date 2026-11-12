@@ -97,7 +97,7 @@ end
 #
 #     local_optimization_strategy = { type = "irls", loss = "tls" }
 #
-# `type` selects the strategy from a tag registry (LO_TAGS, or a merge of it
+# `type` selects the strategy from a tag registry (OPTIMIZATION_STRATEGY_TAGS, or a merge of it
 # with a downstream package's); `loss` (Irls) selects the robust loss from
 # LOSS_TAGS. A strategy with a width takes it as `efficiency_constant` (the loss
 # width as a multiple of the consensus scale, VGC's `EfficiencyConstant`) or
@@ -111,7 +111,7 @@ end
 
 # `LOSS_TAGS`, the loss-shape registry, is VisualGeometryToolkitCore's (robust/strategies.jl).
 
-# `LO_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
+# `OPTIMIZATION_STRATEGY_TAGS` (scoring_glue.jl) is the strategy registry, built by `@lo_registry`
 # from the one row per strategy (`_LO_REGISTRY`), which also gives every
 # strategy type its `toml_skip_fields` (the width is written and read as its
 # two keys, `efficiency_constant` | `loss_width`, never as `width`).
@@ -138,7 +138,7 @@ lo_resolve_efficiency_constant(::Type, ::Type, v::Real; class::Symbol) = Float64
 lo_resolve_efficiency_constant(::Type, ::Type, v::AbstractString; class::Symbol) = throw(ArgumentError(
     v == "cross_validated" ?
     "efficiency_constant = \"cross_validated\" is resolved by LocalOptimizationDoneRight's tuning " *
-        "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.LO_TAGS, " *
+        "constants: load the strategy through its tags (tags = merge(VisualGeometryToolkitEstimation.OPTIMIZATION_STRATEGY_TAGS, " *
         "LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)), or give a number" :
     "efficiency_constant must be a number, got $(repr(v))"))
 
@@ -149,18 +149,18 @@ function _loss_of(d::AbstractDict, section)
 end
 
 """
-    optimization_strategy_from_toml(table; class::Symbol, section = "optimization_strategy", tags = LO_TAGS) -> AbstractOptimizationStrategy
+    optimization_strategy_from_toml(table; class::Symbol, section = "optimization_strategy", tags = OPTIMIZATION_STRATEGY_TAGS) -> AbstractOptimizationStrategy
 
 Build a local-optimization strategy from its TOML table (see the registry
 comment above). `tags` is the strategy registry the `type` is looked up in —
-[`LO_TAGS`](@ref), or its merge with a downstream package's
-(`merge(LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`); the entry is then
+[`OPTIMIZATION_STRATEGY_TAGS`](@ref), or its merge with a downstream package's
+(`merge(OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS)`); the entry is then
 built by [`lo_from_toml`](@ref). `class` is the pipeline's model class (a
 downstream `efficiency_constant = "cross_validated"` resolves through it). Unknown
 `type`, `loss`, or keys are refused.
 """
 function optimization_strategy_from_toml(d::AbstractDict; class::Symbol, section::AbstractString = "optimization_strategy",
-                                      tags::TagRegistry = LO_TAGS)
+                                      tags::TagRegistry = OPTIMIZATION_STRATEGY_TAGS)
     haskey(d, "type") || throw(ArgumentError("[$section] needs a `type` (one of $(sort(collect(keys(tags)))))"))
     T = tags[d["type"]]     # an unknown or retired tag is refused here, a retired one naming its successor
     T === nothing && (_check_keys(d, ("type",), section); return nothing)   # "none": no local optimization
@@ -178,11 +178,11 @@ missing or unknown loss is an `ArgumentError` listing the loss tags),
 `tags` is the strategy registry the table was read through, for a strategy
 that wraps another named by tag. `section` names the table in messages.
 """
-lo_concrete(::Type{T}, d::AbstractDict, sec::AbstractString; tags::TagRegistry = LO_TAGS) where {T} =
+lo_concrete(::Type{T}, d::AbstractDict, sec::AbstractString; tags::TagRegistry = OPTIMIZATION_STRATEGY_TAGS) where {T} =
     lo_parametric(T) ? (T{_loss_of(d, sec)}, ("type", "loss")) : (T, ("type",))
 
 """
-    lo_from_toml(T, table; class::Symbol, section = "optimization_strategy", tags = LO_TAGS) -> AbstractOptimizationStrategy
+    lo_from_toml(T, table; class::Symbol, section = "optimization_strategy", tags = OPTIMIZATION_STRATEGY_TAGS) -> AbstractOptimizationStrategy
 
 The strategy of registry entry `T` (a type or a loss-parametric family,
 registered by any package with [`@lo_registry`](@extref `VisualGeometryToolkitCore.@lo_registry-Tuple{Any, Vararg{Any}}`)) from its TOML table —
@@ -195,7 +195,7 @@ goes through [`lo_resolve_efficiency_constant`](@ref) at
 [`lo_efficiency_constant_shape`](@extref VisualGeometryToolkitCore.lo_efficiency_constant_shape).
 """
 function lo_from_toml(T::Type, d::AbstractDict; class::Symbol, section::AbstractString = "optimization_strategy",
-                      tags::TagRegistry = LO_TAGS)
+                      tags::TagRegistry = OPTIMIZATION_STRATEGY_TAGS)
     tag = d["type"]
     sec = "$section.$tag"
     # The concrete strategy type and the keys the table may carry beyond its fields.
@@ -226,7 +226,7 @@ end
 # read through the same registry (so a downstream inner strategy loads when
 # its tags are merged in); `type` and `inner` are its only keys.
 function lo_from_toml(::Type{<:TerminalLO}, d::AbstractDict; class::Symbol,
-                      section::AbstractString = "optimization_strategy", tags::TagRegistry = LO_TAGS)
+                      section::AbstractString = "optimization_strategy", tags::TagRegistry = OPTIMIZATION_STRATEGY_TAGS)
     sec = "$section.$(d["type"])"
     _check_keys(d, ["type", "inner"], sec)
     haskey(d, "inner") || throw(ArgumentError("[$sec] needs an `inner` strategy table ({ type = …, … })"))

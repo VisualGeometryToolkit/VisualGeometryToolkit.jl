@@ -24,7 +24,7 @@ using VisualGeometryToolkitCore: inlier_mask, is_inlier, inlier_weight, robust_w
 # state's accessors and updates, and the nuisance-part policies.
 using VisualGeometryToolkitCore: s_hat_sq, student_t_dof, inlier_prior, sq_distances, update_scale!, update_nu!,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof
-using VisualGeometryToolkitCore: MsacScoring, median_seeded_posterior
+using VisualGeometryToolkitCore: MsacScoring, median_seeded_posterior, JeffreysPrior
 using VisualGeometryToolkitCore: weights, weight_kind, PosteriorWeights, noise_scale, scale_source, ScaleEstimated
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: PosteriorLikelihood, MixtureEmConfig, KeepModel, WeightedRefine,
@@ -68,7 +68,7 @@ function VgtkCore.score!(W::HalfwidthScoringWorkspace, s::HalfwidthScoring, scor
     return Float64(k)
 end
 # A posterior seeded at the residuals' median (VisualGeometryToolkitCore's seed).
-median_posterior(r, n) = median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, codimension = 2)
+median_posterior(r, n) = median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, ν = 1.0e4, prior = JeffreysPrior(), codimension = 2)
 
 # Codimension-2 reprojection residual NORMS: Rayleigh inliers at σ, gross
 # outliers uniform over the ±halfwidth square (the mixture's outlier support).

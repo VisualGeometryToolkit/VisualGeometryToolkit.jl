@@ -25,7 +25,6 @@ fit_hypothesis
 test_sample
 test_model
 test_consensus
-refine!
 draw_sample!
 constraint_with_jacobians
 solver_covariance
@@ -33,6 +32,7 @@ solver_covariance
 
 The rest of the problem protocol is VisualGeometryToolkitCore's, documented in
 its manual: [`data_size`](@extref VisualGeometryToolkitCore.data_size),
+[`refine!`](@extref VisualGeometryToolkitCore.refine!) (the local-optimization step this package's problems implement),
 [`model_type`](@extref VisualGeometryToolkitCore.model_type),
 [`codimension`](@extref VisualGeometryToolkitCore.codimension),
 [`mahalanobis_distances!`](@extref VisualGeometryToolkitCore.mahalanobis_distances!),
@@ -124,7 +124,7 @@ extent_trait
 
 ```@docs
 RelposeBundleProblem
-bundle_refine_relpose
+refine_relative_pose
 ```
 
 ## Configuration and Results
@@ -232,7 +232,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }     # no width key
 #              or  { type = "irls", loss = "welsch", loss_width = 2.0 }   (both keys: ArgumentError)
 ```
 
-`type` is a tag of the strategy registry — the core [`LO_TAGS`](@ref)
+`type` is a tag of the strategy registry — the core [`OPTIMIZATION_STRATEGY_TAGS`](@ref)
 (`"none"` for `nothing`, `"irls"`, `"triggs"`, `"terminal_lo"`), or its explicit merge with a downstream
 package's — and `loss` a tag of [`LOSS_TAGS`](@extref VisualGeometryToolkitCore.LOSS_TAGS). The registries are
 VisualGeometryToolkitCore `TagRegistry` values; a retired tag is refused with its
@@ -240,11 +240,11 @@ successor's name. The paper strategies and their cross-validated operating
 points (`efficiency_constant = "cross_validated"`) are LocalOptimizationDoneRight's:
 
 ```julia
-using VisualGeometryToolkitEstimation: optimization_strategy_from_toml, LO_TAGS
+using VisualGeometryToolkitEstimation: optimization_strategy_from_toml, OPTIMIZATION_STRATEGY_TAGS
 import LocalOptimizationDoneRight
 
 lo = optimization_strategy_from_toml(table; class = :homography,
-                                  tags = merge(LO_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS))
+                                  tags = merge(OPTIMIZATION_STRATEGY_TAGS, LocalOptimizationDoneRight.LODR_STRATEGY_TAGS))
 ```
 
 The scorer is selected the same way, by one reader through a tag registry
@@ -295,7 +295,7 @@ lo_from_toml
 scoring_from_toml
 config_dict
 lo_config_dict
-LO_TAGS
+OPTIMIZATION_STRATEGY_TAGS
 lo_concrete
 lo_resolve_efficiency_constant
 MODEL_UPDATE_TAGS

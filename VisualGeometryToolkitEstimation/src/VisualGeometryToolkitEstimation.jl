@@ -67,6 +67,7 @@ using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleIn
 using FlexUnits: Quantity
 using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
 using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
+using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type
 # whose problem argument is RVG's) and builds its pool-frame problems.
@@ -280,7 +281,7 @@ export optical_axis           # the radially symmetric camera closest to a camer
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rigid_alignment    # the robust rigid transform between two point sets (an ATE alignment)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
-export filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
+export fit_filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
 public views, edgelist, nedges, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
@@ -358,12 +359,12 @@ public ManifoldLiftProvider, LiftableProblem
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
-public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
+public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS
+public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
 # The strategy machinery every package registers its strategies with — the
 # registry macro `@lo_registry`, `lo_construct`, `LOSS_TAGS` and the registry
 # hooks — is VisualGeometryToolkitCore's (its CONTRACT_GENERICS); a name is

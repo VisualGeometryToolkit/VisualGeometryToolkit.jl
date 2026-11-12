@@ -621,7 +621,7 @@
         # the generic method is the :pool staging's, column by column
         idxs = Matrix{Int32}(undef, 3, length(loss_widths))
         st = stage_selection(:pool, pairs, Rs)
-        @test st == (; pairs, residuals = Rs)
+        @test st == (; pairs, residuals = Rs, backend = VgtkCore.default_device())   # GPU-first: the staging names its device
         @test select_on_grid!(idxs, P, msac, loss_widths, st) === idxs
         @test idxs == Int32[best_pool_model(MsacScoring(1; threshold = w), pairs[p], Rs[p]) for p in 1:3, w in loss_widths]
     end

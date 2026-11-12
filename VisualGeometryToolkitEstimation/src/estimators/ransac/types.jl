@@ -101,6 +101,10 @@ every point of non-negligible posterior, each counted at its weight.
   (effective trials / `iterations`); low values mean frequent sample degeneracy
 - `lo_retcode::Symbol`: why the local-optimization loop stopped for the best
   model (see [`lo_estimate`](@extref VisualGeometryToolkitCore.lo_estimate)); `:not_run` when no LO ran
+- `nonfinite_scale::Bool`: the consensus partition's scale came out non-finite (an
+  overflowing RSS) and was dropped: `scale_source` `ScaleNone`, `scale` `NaN`, `dof`
+  the partition's. An estimated scale is finite: `ScaleEstimated` never carries a
+  non-finite one
 
 `quality` and `scale` are `Float64` regardless of `T`: scalars carry no
 footprint argument, and these are the numbers downstream thresholds compare.
@@ -114,7 +118,11 @@ struct RansacMetadata{T, S}
     dof::Int
     sample_acceptance_rate::Float64
     lo_retcode::Symbol
+    nonfinite_scale::Bool
 end
+# A result whose scale was not dropped (every result before the field, and every search with no model).
+RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode) where {T, S} =
+    RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, false)
 
 # The weights' kind is the scorer's, from the metadata's type (Core's trait).
 VgtkCore.weight_kind(::Type{<:RansacMetadata{<:Any, S}}) where {S} = VgtkCore.weight_kind(S)

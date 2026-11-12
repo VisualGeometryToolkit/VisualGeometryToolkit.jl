@@ -159,14 +159,30 @@ function square_distances!(sq::AbstractVector{T}, r::AbstractVector, n::Int) whe
     return sq
 end
 
+# Forced in, its Inf residual made the consensus scale Inf (RadiometricCamera's grid index,
+# 2026-11-12: 86 of 142 photographs of one set).
+"""
+    sample_point_held(x) -> Bool
+
+THE rule of a minimal sample's points, every scorer's (the threshold families'
+consensus partition and score correction, the Student-t scorer's zeroed scores and
+penalties, the pool staging, through `zero_sample!`): a sample point is held
+at zero residual — its model fits it by construction — only where its value `x` (a
+residual, its square, a score) is finite. A non-finite one is a point the model does
+not reach (a lattice detection a pose leaves unassigned, its distance Inf), and it
+stays an outlier: out of the consensus set, its RSS and its dof.
+"""
+@inline sample_point_held(x) = isfinite(x)
+
 # A minimal sample's points satisfy their constraints exactly: zero their
-# entries of `v` (a score or a penalty buffer). Bounds-checked on purpose (a
-# handful of writes): an invalid sample index THROWS rather than writing outside
-# `v` or being skipped. `nothing` = no minimal sample.
+# entries of `v` (a score or a penalty buffer) where they are held
+# (`sample_point_held`; a non-finite entry is left as it is). Bounds-checked on
+# purpose (a handful of reads and writes): an invalid sample index THROWS rather
+# than writing outside `v` or being skipped. `nothing` = no minimal sample.
 zero_sample!(v::AbstractVector, ::Nothing) = v
 function zero_sample!(v::AbstractVector, sample_idx)
     for idx in sample_idx
-        v[idx] = zero(eltype(v))
+        sample_point_held(v[idx]) && (v[idx] = zero(eltype(v)))
     end
     return v
 end

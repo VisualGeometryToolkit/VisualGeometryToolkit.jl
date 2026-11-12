@@ -180,6 +180,13 @@ score_bound(::_ThresholdScoring{<:Any, Float64}) = 1.0
     return false
 end
 
+# Whether a minimal-sample point's residual `d` is held (its square finite:
+# `sample_point_held`), and whether point `i` is in the consensus set: a held
+# sample point, or a finite square below τ².
+@inline _held_sample_point(d) = sample_point_held(Float64(d * d))
+@inline _in_consensus(sample, d, i, τ2) =
+    (_in_sample(sample, i) && _held_sample_point(d)) || (isfinite(d) && Float64(d * d) < τ2)
+
 # One point's quality: `d` squared in its own precision, a non-finite square an
 # outlier (quality 0) — a non-finite `d`, and a finite one whose square
 # overflows, alike.
@@ -221,22 +228,22 @@ function score!(W::ThresholdScoringWorkspace, sc::AbstractThresholdScoring{Float
     end
     if sample !== nothing
         for i in sample   # bounds-checked: an invalid sample index throws (a handful of reads)
-            s += q0 - _threshold_quality(sc, residuals[i], τ)
+            d = residuals[i]
+            _held_sample_point(d) || continue      # a non-finite square stays an outlier (`sample_point_held`)
+            s += q0 - _threshold_quality(sc, d, τ)
             scores[i] = q0
         end
     end
-    # The consensus set: d² < τ² (strict, the grids' test), sample points in it;
-    # a stable partition, inliers first.
+    # The consensus set: d² < τ² (strict, the grids' test), the held sample points
+    # in it; a stable partition, inliers first.
     @inbounds for i in 1:n
-        d = residuals[i]
-        (_in_sample(sample, i) || (isfinite(d) && Float64(d * d) < τ2)) || continue
+        _in_consensus(sample, residuals[i], i, τ2) || continue
         k += 1
         order[k] = i
     end
     lo = k
     @inbounds for i in 1:n
-        d = residuals[i]
-        (_in_sample(sample, i) || (isfinite(d) && Float64(d * d) < τ2)) && continue
+        _in_consensus(sample, residuals[i], i, τ2) && continue
         lo += 1
         order[lo] = i
     end

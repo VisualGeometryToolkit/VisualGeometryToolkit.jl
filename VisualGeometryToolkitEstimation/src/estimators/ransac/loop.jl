@@ -681,9 +681,10 @@ function _finalize(scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, 
     # The scorer ORIGINATES the scale: the consensus set's Student-t scale under
     # its prior at the model's own dof (`consensus_s2` at m): √(RSS/ν) under
     # Jeffreys, floored at √eps. There is no set to scale at ν ≤ 0: ScaleNone.
+    # An estimated scale is finite: a non-finite one (an overflowing RSS) is
+    # dropped to ScaleNone and recorded (`nonfinite_scale`).
     s2 = consensus_s2(scoring, ws.best_residuals, ws.best_order, n_in; model_dof = p, d_g)
-    scale = nu > 0 ? sqrt(s2) : NaN
-    source = nu > 0 ? ScaleEstimated : ScaleNone
+    scale, source, nonfinite_scale = _estimated_scale(nu, s2)
 
     # The weights wᵢ ∈ [0, 1], of the scorer's kind: its posterior, or 0/1.
     inlier_probabilities!(result.weights, scoring, ws.best_scores, ws.best_order, n_in; model_dof = p, d_g)
@@ -695,9 +696,18 @@ function _finalize(scoring::S, ws, problem::AbstractRansacProblem, best::Tuple, 
         model, :converged, trial, rms, n,
         RansacMetadata{T, S}(
             result.residuals, result.weights,
-            best_score, scale, source, nu, sar, ws.best_lo_retcode
+            best_score, scale, source, nu, sar, ws.best_lo_retcode, nonfinite_scale
         )
     )
+end
+
+# The scale a result records from its partition's `s2` at `nu` dof: `(scale, source, nonfinite_scale)` —
+# `(√s2, ScaleEstimated, false)`, or `(NaN, ScaleNone, false)` with no set to scale (ν ≤ 0), or
+# `(NaN, ScaleNone, true)` where `√s2` is not finite: an estimated scale is finite.
+function _estimated_scale(nu::Integer, s2::Real)
+    nu > 0 || return NaN, ScaleNone, false
+    σ = sqrt(Float64(s2))
+    return isfinite(σ) ? (σ, ScaleEstimated, false) : (NaN, ScaleNone, true)
 end
 
 # The FitResult's `n` and `rms` from the weights (the contract, §12): `n` the

@@ -9,6 +9,13 @@ non-central one is a `NoncentralSplineModel`).
   `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
   rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the
   edges `fit_rotation_averaging` accepts) and an `Uncertain` absolute rotation no longer throw `DimensionMismatch`.
+- **A RANSAC result's estimated scale is finite.** `_finalize` records `ScaleEstimated` only for a finite scale; a
+  non-finite one (an overflowing RSS) is dropped to `ScaleNone` (scale `NaN`, the contract's) and recorded in
+  `RansacMetadata`'s new field `nonfinite_scale` (the 8-field constructor records `false`). With Core's sample-point
+  rule (a minimal-sample point with a non-finite residual is no longer in the consensus set, its dof not counted),
+  the case that produced an Inf `ScaleEstimated` scale — a spurious detection in the winning sample — is gone at the
+  source.
+
 - **`fit_camera(L, source, region; fixed = ())` holds coefficients too** (found by the CaliBlobs port: its OpenCV target
   held p and d while the linear start fitted them, and resetting them after the fit left a 19.7 px median). The names
   and groups resolve through Core's `free_parameter_names`, as `refine_camera`'s. A held coefficient's column leaves the

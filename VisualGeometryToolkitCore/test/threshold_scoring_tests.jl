@@ -23,7 +23,9 @@
         1.0 - VgtkCore.ρ(CauchyShape(), d2, w * w) / (w * w)
 
     # The score written out: Σ quality in index order, a non-finite square an
-    # outlier (quality 0), then each sample point corrected to zero residual.
+    # outlier (quality 0), then each sample point whose square is finite corrected
+    # to zero residual (a non-finite one stays an outlier: `sample_point_held`).
+    held(d) = isfinite(Float64(d * d))
     function reference_score(sc, τ, r, sample)
         q(d) = (d2 = Float64(d * d); isfinite(d2) ? residual_quality(sc, d2, τ) : 0.0)
         s = 0.0
@@ -32,7 +34,7 @@
         end
         if sample !== nothing
             for i in sample
-                s += residual_quality(sc, 0.0, τ) - q(r[i])
+                held(r[i]) && (s += residual_quality(sc, 0.0, τ) - q(r[i]))
             end
         end
         return s
@@ -48,12 +50,12 @@
         for sc in (RansacScoring(1; threshold = τ), MsacScoring(1; threshold = τ), CauchyCostScoring(τ))
             W = scoring_workspace(sc, n, 1)
             @test W isa ThresholdScoringWorkspace
-            for sample in (nothing, [2, 5, 9, 20], [3, 13, 21, 40])   # the last with a NaN and an overflowing point
+            for sample in (nothing, [2, 5, 9, 20], [3, 13, 21, 40], [7, 2, 13, 5])   # the last two with a NaN, an Inf and an overflowing point
                 scores = zeros(n)
                 S = score!(W, sc, scores, r, n; sample)
                 @test S === reference_score(sc, τ, r, sample)
                 k = inlier_count(sc, W)
-                inl = Set(i for i in 1:n if (sample !== nothing && i in sample) ||
+                inl = Set(i for i in 1:n if (sample !== nothing && i in sample && held(r[i])) ||
                                                (isfinite(r[i]) && Float64(r[i] * r[i]) < τ^2))
                 @test k == length(inl) && Set(consensus_order(sc, W)[1:k]) == inl
                 @test sort(consensus_order(sc, W)) == 1:n
@@ -95,4 +97,33 @@
         end
         @test best_j == findfirst(==(maximum(full)), full) && best === maximum(full)
     end
+end
+
+@testitem "threshold_scoring, student_t_uniform, zero_sample!: a minimal-sample point with a non-finite residual is not held" begin
+    # A spurious sample point: a detection the final model does not reach (RadiometricCamera's grid index, a lattice
+    # pose leaving it unassigned), its distance Inf. Forced into the consensus set it made the set's scale Inf
+    # (`consensus_s2`: the RSS of its plain residuals) and counted a dof it does not have.
+    using Test
+    using Random: MersenneTwister
+    using VisualGeometryToolkitCore: RansacScoring, MsacScoring, StudentTUniformScoring, JeffreysPrior, FlatLabelPrior,
+        scoring_workspace, score!, inlier_count, consensus_order, consensus_s2, zero_sample!, sample_point_held
+    marginal = StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    rng = MersenneTwister(4)
+    n = 60
+    r = 0.3 .* abs.(randn(rng, n)); r[[17, 41]] .= Inf      # two points no model reaches; 17 drawn into the sample
+    sample = [3, 17, 29]
+    for sc in (RansacScoring(1; threshold = 8.0), MsacScoring(1; threshold = 8.0), marginal)
+        W = scoring_workspace(sc, n, 1)
+        score!(W, sc, zeros(n), r, n; sample)
+        k = inlier_count(sc, W)
+        set = consensus_order(sc, W)[1:k]
+        @test k == n - 2 && 17 ∉ set && 41 ∉ set && 3 in set && 29 in set
+        s2 = consensus_s2(sc, r, consensus_order(sc, W), k; model_dof = 2, d_g = 1)
+        @test isfinite(s2) && sqrt(s2) < 1.0
+    end
+    # the one rule, and zero_sample! by it: a held point zeroed, a non-finite one left (an invalid index still throws)
+    @test sample_point_held(0.4) && !sample_point_held(Inf) && !sample_point_held(NaN)
+    v = [1.0, Inf, 2.0, NaN]
+    @test isequal(zero_sample!(copy(v), [1, 2, 4]), [0.0, Inf, 2.0, NaN])
+    @test_throws BoundsError zero_sample!(copy(v), [5])
 end

@@ -280,12 +280,12 @@ end
     using Rotations: AngleAxis
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: CameraModel, parameter_vector, with_parameters, Irls, HuberShape, ReturnCode, retcode,
+    using VisualGeometryToolkitCore: CameraModel, parameter_vector, with_parameters, Triggs, HuberShape, ReturnCode, retcode,
         converged, project
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, refine_robot_world_hand_eye, RobotWorldHandEyeCalibration
 
     seen = Set{Symbol}()
-    # the parametric bundle: least squares, a robust Irls (and its cycle cap), the board form
+    # the parametric bundle: least squares, the robust Triggs (and its LM's iteration cap), the board form
     cam = pinhole_camera(); Es = truth_poses(5)
     views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
@@ -293,9 +293,9 @@ end
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     l2 = record!(seen, :refine_camera_and_poses, refine_camera_and_poses(cam0, poses0, views; optimization_strategy = nothing))
     @test converged(l2)
-    record!(seen, :refine_camera_and_poses, refine_camera_and_poses(cam0, poses0, views; optimization_strategy = Irls{HuberShape}(), scale = 0.2))
+    record!(seen, :refine_camera_and_poses, refine_camera_and_poses(cam0, poses0, views; optimization_strategy = Triggs{HuberShape}(), scale = 0.2))
     capped = record!(seen, :refine_camera_and_poses,
-        refine_camera_and_poses(cam0, poses0, views; optimization_strategy = Irls{HuberShape}(max_iter = 1), scale = 0.2))
+        refine_camera_and_poses(cam0, poses0, views; optimization_strategy = Triggs{HuberShape}(), scale = 0.2, max_iter = 1))
     @test retcode(capped) == ReturnCode.MaxIters && !converged(capped)
     record!(seen, :refine_camera_and_poses, refine_camera_and_poses(cam0, poses0, views; optimization_strategy = nothing, max_iter = 1))
     boards = truth_boards(); vposes = view_poses()
@@ -337,7 +337,7 @@ end
     seed = RobotWorldHandEyeCalibration(perturb_pose(rng, Y; σ_R = 0.01, σ_t = 0.01),
                                         Dict(m => perturb_pose(rng, X[m]; σ_R = 0.01, σ_t = 0.01) for m in 1:2))
     record!(seen, :refine_robot_world_hand_eye, refine_robot_world_hand_eye(seed, camera, markers; optimization_strategy = nothing))
-    record!(seen, :refine_robot_world_hand_eye, refine_robot_world_hand_eye(seed, camera, markers; optimization_strategy = Irls{HuberShape}(), scale = 0.3))
+    record!(seen, :refine_robot_world_hand_eye, refine_robot_world_hand_eye(seed, camera, markers; optimization_strategy = Triggs{HuberShape}(), scale = 0.3))
     check_covered(seen, (:refine_camera_and_poses, :refine_robot_world_hand_eye, :BundleMetadata))
 end
 

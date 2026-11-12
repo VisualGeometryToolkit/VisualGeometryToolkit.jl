@@ -57,8 +57,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
-# through FitResult's constructor; a loop that reports a Symbol records `retcode_from_symbol(s, rule)`.
-using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_from_symbol, retcode_symbol,
+# through FitResult's constructor.
+using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_symbol,
     worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, TimeCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
@@ -207,7 +207,7 @@ using VisualGeometryToolkitCore: EssentialManifold5,
     radial_ray                                                     # the radial-H centred ray T₋c·H·s̃ (k seed, extent gate)
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
 # `import`. (`import` advertises an extension point that does not exist.)
-using VisualGeometryToolkitCore: weight, ρ
+using VisualGeometryToolkitCore: weight
 import VisualGeometryToolkitCore:
     SvdWorkspace, # used by RANSAC + solvers
     test_model, # RANSAC problems extend this

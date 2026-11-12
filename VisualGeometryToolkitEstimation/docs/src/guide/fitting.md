@@ -53,8 +53,9 @@ noise_scale(h) == noise_scale(r)                # the scale it ran with, handed 
 
 The strategy is `optimization_strategy`: `Triggs{Shape}` (the default,
 `Triggs{WelschShape}()`, `configs/default.toml [refine.<class>]`), one
-robustified chart LM; `Irls{Shape}`, chart LMs at the loss weights ρ′ while the
-robust cost decreases; or `nothing`, plain least squares. A robust strategy
+robustified chart LM, the one fixed-scale robust path (an `Irls{Shape}` is
+refused, naming its `Triggs{Shape}`: a refine runs no reweighting cycles); or
+`nothing`, plain least squares. A robust strategy
 needs EXACTLY ONE of `scale = σ` (a number, or an upstream result whose
 `noise_scale` it takes) and `width = w` (the loss width itself); least squares
 takes neither. The loss width is the strategy's efficiency constant times the

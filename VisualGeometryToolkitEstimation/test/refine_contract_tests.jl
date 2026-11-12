@@ -130,7 +130,11 @@
         rl = @inferred refine_homography(H0, cs; optimization_strategy = nothing)
         @test weight_kind(rl) === BinaryWeights() && all(==(1), weights(rl)) && sizeof(weights(rl)) < 64
         @test rl.n == length(cs) && all(inlier_mask(rl))
-        @test (@inferred weight_kind(refine_homography(H0, cs; optimization_strategy = Irls{HuberShape}(), scale = σ))) === IrlsWeights()
+        @test (@inferred weight_kind(refine_homography(H0, cs; optimization_strategy = Triggs{HuberShape}(), scale = σ))) === IrlsWeights()
+        # a refine's one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming the
+        # Triggs of its loss
+        e = try refine_homography(H0, cs; optimization_strategy = Irls{HuberShape}(), scale = σ); nothing; catch err; err; end
+        @test e isa ArgumentError && occursin("Triggs{HuberShape}", e.msg) && occursin("ONE robustified LM", e.msg)
         @test isconcretetype(typeof(VgtkCore.metadata(r)))
         # too few data: the guess, unrefined, of the same type
         rf = refine_homography(H0, cs[1:3]; scale = σ)
@@ -141,8 +145,7 @@
     @testset "every strategy recovers the truth from a perturbed guess on contaminated data" begin
         pts, _ = circle_scene(Xoshiro(41), 800)
         g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
-        for (lo, kw) in ((Triggs{WelschShape}(), (; scale = 0.5)), (Irls{WelschShape}(), (; scale = 0.5)),
-                         (Triggs{TLSShape}(), (; width = 1.5)))
+        for (lo, kw) in ((Triggs{WelschShape}(), (; scale = 0.5)), (Triggs{TLSShape}(), (; width = 1.5)))
             cr = estimate(refine_circle(g, pts; optimization_strategy = lo, kw...))
             @test norm(SVector(cr.center[1], cr.center[2]) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
         end
@@ -224,6 +227,7 @@ end
         @test err(() -> f(; scale = 1.0, width = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = nothing, scale = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = Irls{VgtkCore.GaussianShape}(), scale = 1.0)) isa ArgumentError
+        @test occursin("Triggs{HuberShape}", err(() -> f(; optimization_strategy = Irls{VgtkCore.HuberShape}(), scale = 1.0)).msg)
         # the result: a refine's, of a concrete type, its accessors inferred; least squares records no scale, a robust
         # strategy the given one
         r = f(; scale = 1.0)
@@ -243,16 +247,16 @@ end
 # The refine weights are Core's IrlsWeights, "normalized to a maximum of 1" (robust/weights.jl): the fits' one rule
 # ρ′(r²)/ρ′(0) (irls_weights.jl `_irls_weight`), below eps an exact 0. SmoothTLS is the shape whose ρ′(0) is 2: its
 # refine weights reached 2 before they shared the fits' rule.
-@testitem "refine_contract: Irls and Triggs weights are normalized to a maximum of 1" setup = [HomographyScenes] begin
+@testitem "refine_contract: Triggs weights are normalized to a maximum of 1" setup = [HomographyScenes] begin
     using Test, StructArrays, StableRNGs
-    using VisualGeometryToolkitCore: SmoothTLSShape, HuberShape, Irls, Triggs, weights, weight_kind, IrlsWeights, weight,
+    using VisualGeometryToolkitCore: SmoothTLSShape, HuberShape, Triggs, weights, weight_kind, IrlsWeights, weight,
         estimate, metadata
     using VisualGeometryToolkitEstimation: refine_homography, find_homography
     src, dst = homography_pairs(StableRNG(11), H_PX; n_in = 80, n_out = 0, σ = 0.3, source = gaussian_source)
     cs = StructArray(src .=> dst)
     H0 = estimate(find_homography(cs; rng = StableRNG(1)))
     c = 3.0
-    for lo in (Irls{SmoothTLSShape}(), Triggs{SmoothTLSShape}(), Irls{HuberShape}())
+    for lo in (Triggs{SmoothTLSShape}(), Triggs{HuberShape}())   # an Irls refine is refused (_refine.jl)
         r = refine_homography(H0, cs; optimization_strategy = lo, width = c)
         w = weights(r)
         @test weight_kind(r) isa IrlsWeights

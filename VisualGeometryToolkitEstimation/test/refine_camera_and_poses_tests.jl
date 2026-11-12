@@ -272,9 +272,9 @@ end
 end
 
 # A robust refine (`optimization_strategy`, the refine contract): Triggs{Shape} (the default, Triggs{Welsch}) or
-# Irls{Shape} at the caller's `scale` times the strategy's efficiency constant, or at the caller's `width`, from the
+# Triggs{Huber} at the caller's `scale` times the strategy's efficiency constant, or at the caller's `width`, from the
 # caller's start (no least-squares stage); a refine estimates no scale; `nothing` is plain least squares; the refusals.
-@testitem "refine_camera_and_poses: optimization_strategy = Irls{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
+@testitem "refine_camera_and_poses: optimization_strategy = Triggs{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using LinearAlgebra: normalize
@@ -309,36 +309,38 @@ end
     @test (@inferred noise_scale(rd)) === 0.2 && (@inferred scale_source(rd)) === ScaleGiven && weight_kind(rd) === IrlsWeights()
     # A robust refine runs NO least-squares stage (the owner's ruling) and estimates no scale: its width is the
     # strategy's efficiency constant times the caller's `scale` (the detections' σ). From this far start (every residual
-    # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Irls{Huber} 0.175 px; Triggs{Welsch}
+    # 20–80 px, median 30): the truth, to the noise; the outliers' weights low (Triggs{Huber} 0.175 px; Triggs{Welsch}
     # 0.30 px: one Welsch LM from a start 25 px off)
-    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
+    for lo in (Triggs{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         rs = refine_camera_and_poses(cam0, poses0, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode_symbol(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
-        @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
+        @test rs.loss_width ≈ (lo isa Triggs{HuberShape} ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
         # `n` the weights' support and `rms` the weighted one (the stack's one rule): Welsch gives the 20–60 px outliers
         # no weight at all, so the support is short of the 300 correspondences
         w = rs.weights
-        @test rs.n == count(>(0), w) && (lo isa Triggs ? rs.n < 300 : true)
+        @test rs.n == count(>(0), w) && (lo isa Triggs{WelschShape} ? rs.n < 300 : true)
         @test rs.rms ≈ sqrt(sum(w .* rs.residual_norms .^ 2) / sum(w))
     end
     # least squares: every correspondence, the plain rms
     @test ls.n == 300 && ls.rms ≈ sqrt(sum(abs2, ls.residuals) / 300)
     # From a start near the data (f 0.5 %, 1 px, poses 2 mrad / 5 mm off: residuals median 3.3 px, a caller's linear
-    # calibration's), at the caller's σ (Irls{Huber} 0.175 px, Triggs{Welsch} 0.202 px)
+    # calibration's), at the caller's σ (Triggs{Huber} 0.175 px, Triggs{Welsch} 0.202 px)
     near(E, v) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015v / 4, 0.002)) * E.R),
                               E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
     cam1 = with_parameters(cam, θ .* SVector(1.005, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 1.0, -1.0))
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
-    for lo in (Irls{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
+    for lo in (Triggs{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         r = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode_symbol(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
-    # an Irls run that reaches its `max_iter` cycles is capped, never `:converged` (whatever its last solve)
-    @test retcode_symbol(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(max_iter = 1), scale = 0.2)) ===
+    # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs;
+    # the record is the LM's own (NLLSsolver's bits, Core's nlls_termination), its iteration cap included
+    @test_throws r"Triggs\{HuberShape\}" refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), scale = 0.2)
+    @test retcode_symbol(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Triggs{HuberShape}(), scale = 0.2, max_iter = 1)) ===
         :max_iterations
     # a width alone: the loss at it, no scale recorded; the same loss as the scale that gives it (the record aside)
-    rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), width = 1.345 * 0.2)
+    rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Triggs{HuberShape}(), width = 1.345 * 0.2)
     @test retcode_symbol(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.loss_width ≈ 1.345 * 0.2
     @test_throws ArgumentError noise_scale(rw)
     ru = refine_camera_and_poses(cam1, poses1, noisy; scale = rd)       # an upstream result's scale, handed on
@@ -906,13 +908,15 @@ end
         @test count(<(1), r.weights) >= 10                                           # the outliers down-weighted
         ls = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = nothing)   # least squares: pulled by them
         @test norm(estimate(ls).views.center - t.c) > norm(est.views.center - t.c)
-        # Irls at a given scale (ScaleGiven), and a strategy at an absolute width (ScaleNone, the width recorded): the same views
-        ri = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Irls{HuberShape}(efficiency_constant = 1.345), scale = 0.3)
+        # Triggs{Huber} at 1.345σ given (ScaleGiven), and a strategy at an absolute width (ScaleNone, the width recorded): the
+        # same views. (`ri`'s references were an Irls{Huber}'s at the same width until 0.9: one robustified LM lands within
+        # 6e-8 m of it, the rms within 2e-8 relative.)
+        ri = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(efficiency_constant = 1.345), scale = 0.3)
         @test converged(ri) && scale_source(ri) === ScaleGiven && noise_scale(ri) == 0.3 && ri.loss_width ≈ 1.345 * 0.3
-        # The bound is this draw's (Xoshiro(2): Irls 3.0 mm, Triggs 0.34 mm, least squares 128 mm), with a 1.6× margin. The centre
+        # The bound is this draw's (Xoshiro(2): Huber at 1.345σ 2.9 mm, at 3σ 0.34 mm, least squares 128 mm), with a 1.6× margin. The centre
         # is weakly fixed here: it slides with the offset (their errors equal) under rotations of at most 0.1 rad, so over 20
         # draws of this set (σ = 0.3 px, 6 × 63 points, 5% outliers at 39 px) both robust fits spread 0.3–13 mm while least
-        # squares spreads 25–168 mm (at least 4.9× an Irls error). What holds over draws is the second clause: closer than least squares.
+        # squares spreads 25–168 mm (at least 4.9× a robust error). What holds over draws is the second clause: closer than least squares.
         @test norm(estimate(ri).views.center - t.c) < min(5.0e-3, norm(estimate(ls).views.center - t.c))
         @test norm(estimate(ri).views.offset - t.d) < 5.0e-3
         rw = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(), width = 0.9)
@@ -920,16 +924,16 @@ end
         @test norm(estimate(rw).views.center - t.c) < 2.0e-3 && norm(estimate(rw).views.offset - t.d) < 2.0e-3
         # Against the pixel residual this refine had until 2026-11-12 (125d80dc, measured on this draw): the bearing residual
         # (the tangent angle whitened into pixels by the back-projection Jacobian) agrees with it to first order, so the robust
-        # estimates move by at most 0.15 mm (Triggs 0.14 mm, Irls 0.10 mm; their errors from the truth ~ 1–3 mm), held here to
+        # estimates move by at most 0.15 mm (Huber at 3σ 0.14 mm, at 1.345σ 0.10 mm; their errors from the truth ~ 1–3 mm), held here to
         # 0.3 mm, and the rms by under 0.2%; least squares, pulled by the 39 px outliers where the two whitenings differ at second
         # order, moves 4.7 mm of its 128 mm error, held to 6 mm.
         pixel = (; triggs = (SVector(0.004072459394970187, 0.05969235118380859, 0.550116422376878), SVector(0.0039358994868110035, -0.06000631028468068, 0.04992637853293849), 1.3127269696967419),
-                   irls = (SVector(0.0047630306346337584, 0.0604612519022046, 0.552897911548909), SVector(0.0045601818109889, -0.060655537831177345, 0.04710058584120184), 0.9567499158517401),
+                   narrow = (SVector(0.0047630306346337584, 0.0604612519022046, 0.552897911548909), SVector(0.0045601818109889, -0.060655537831177345, 0.04710058584120184), 0.9567499158517401),
                    ls = (SVector(-0.018633388942561075, 0.021148500989788353, 0.4300183992280283), SVector(-0.016167986091148567, -0.023189031771895668, 0.17070093401990608), 7.7416495908487235))
-        for (res, ref, tol) in ((r, pixel.triggs, 3.0e-4), (rw, pixel.triggs, 3.0e-4), (ri, pixel.irls, 3.0e-4), (ls, pixel.ls, 6.0e-3))
+        for (res, ref, tol) in ((r, pixel.triggs, 3.0e-4), (rw, pixel.triggs, 3.0e-4), (ri, pixel.narrow, 3.0e-4), (ls, pixel.ls, 6.0e-3))
             @test norm(estimate(res).views.center - ref[1]) < tol && norm(estimate(res).views.offset - ref[2]) < tol
         end
-        @test abs(r.rms - pixel.triggs[3]) < 2.0e-3 * pixel.triggs[3] && abs(ri.rms - pixel.irls[3]) < 2.0e-3 * pixel.irls[3]
+        @test abs(r.rms - pixel.triggs[3]) < 2.0e-3 * pixel.triggs[3] && abs(ri.rms - pixel.narrow[3]) < 2.0e-3 * pixel.narrow[3]
     end
     @testset "least squares on outlier-free, low-noise pixels: the bearing residual's estimate is the pixel residual's" begin
         # σ = 0.1 px, no outliers (Xoshiro(7)): the two whitenings differ only at second order in the residual, so the least-
@@ -1015,10 +1019,10 @@ end
         est = estimate(r)
         @test norm(est.views.center - t.c) < 1.0e-6 && norm(est.views.offset - t.d) < 1.0e-6 && rot_err(est) < 1.0e-6 && r.rms < 1.0e-4
     end
-    @testset "noisy pixels: Triggs{Huber} at a given scale, Irls{Huber}, and an absolute width" begin
+    @testset "noisy pixels: Triggs{Huber} at two given scales' widths, and an absolute width" begin
         noisy = center_views(cam, t; σ = 0.3, rng = Xoshiro(5))
         for (strategy, input) in ((Triggs{HuberShape}(efficiency_constant = 3.0), (; scale = 0.3)),
-                                  (Irls{HuberShape}(efficiency_constant = 1.345), (; scale = 0.3)),
+                                  (Triggs{HuberShape}(efficiency_constant = 1.345), (; scale = 0.3)),
                                   (Triggs{HuberShape}(), (; width = 0.9)))
             r = refine_camera_and_poses(cam, start, noisy; fixed = (:controls,), optimization_strategy = strategy, input...)
             @test converged(r)

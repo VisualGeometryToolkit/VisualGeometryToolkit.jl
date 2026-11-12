@@ -17,7 +17,9 @@
     @test bundle_loss(Triggs{WelschShape}(); scale = 1.5, width = nothing, codimension = 1, caller = "b").loss ==
           deploy(WelschShape(), 1.5^2; efficiency_constant = efficiency_constant(WelschShape, 1))
     # the strategy's own constant, the plain multiple
-    @test sqrt(sq_loss_width(bundle_loss(Irls{HuberShape}(efficiency_constant = 2.0); scale = 3.0, width = nothing, caller = "b").loss)) ≈ 6.0
+    @test sqrt(sq_loss_width(bundle_loss(Triggs{HuberShape}(efficiency_constant = 2.0); scale = 3.0, width = nothing, caller = "b").loss)) ≈ 6.0
+    # the one fixed-scale robust path is one robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs
+    @test_throws r"Triggs\{HuberShape\}" bundle_loss(Irls{HuberShape}(efficiency_constant = 2.0); scale = 3.0, width = nothing, caller = "b")
     # at a width: the loss width itself; a strategy stating a constant too is refused
     rw = bundle_loss(Triggs{WelschShape}(); scale = nothing, width = 4.0, caller = "b")
     @test sqrt(sq_loss_width(rw.loss)) ≈ 4.0 && scale_source(rw.input) === ScaleNone

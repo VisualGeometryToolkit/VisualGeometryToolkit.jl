@@ -101,9 +101,8 @@ scorer, its consensus set, the strategy anchored on it — is
 
 Returns a `FitResult` with [`RefineMetadata`](@ref): the refined model, its
 termination record (`retcode`, `stop_rule`: the LM's, whose `retcode_symbol` is
-`:converged`, `:max_iterations`, `:stalled` or `:solve_failed`; an Irls run's
-`(Success, CostDecrease)` or `(MaxIters, IterationCap)`), `iterations` (the LM's accepted
-iterations; an Irls run's cycles), `rms` the weighted residual rms
+`:converged`, `:max_iterations`, `:stalled` or `:solve_failed`), `iterations` (the LM's accepted
+iterations), `rms` the weighted residual rms
 `√(Σ wᵢrᵢ² / Σ wᵢ)` and `n` the support (`count(w > 0)`), and in the metadata
 the per-datum `weights` and `residuals` at the estimate and the scale record
 (`noise_scale(result)`, `scale_source(result)`, `loss_width`). There is no inlier
@@ -115,11 +114,11 @@ Fewer than 4 correspondences: the guess back unrefined, record `(ReturnCode.Init
 - `optimization_strategy`: `Triggs{Shape}(…)` — ONE robustified chart LM over
   every datum (Core's `loss_robustifier`, handed to NLLSsolver); the default,
   `Triggs{WelschShape}()`, is the class's `configs/default.toml
-  [refine.<class>] optimization_strategy` — `Irls{Shape}(…)` — chart LMs at the
-  loss weights ρ′, repeated while the robust cost decreases, at most its
-  `max_iter` cycles — or `nothing`, plain least squares over every datum (one
-  chart LM). Any other strategy needs a consensus set: an `ArgumentError`
-  naming `locally_optimize`. Least squares is spelled `nothing`, not a Gaussian
+  [refine.<class>] optimization_strategy` — or `nothing`, plain least squares
+  over every datum (one chart LM). An `Irls{Shape}(…)` is an `ArgumentError`
+  naming `Triggs{Shape}` (a refine runs one LM, no reweighting cycles); any
+  other strategy needs a consensus set: an `ArgumentError` naming
+  `locally_optimize`. Least squares is spelled `nothing`, not a Gaussian
   shape.
 - `scale` or `width`: EXACTLY ONE for a robust strategy, neither for least
   squares; anything else is an `ArgumentError` (Core's `scale_input`).

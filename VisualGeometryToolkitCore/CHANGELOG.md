@@ -1,5 +1,11 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.2 (unreleased)
+
+- **The dependency allow-list names VisualGeometryToolkitEstimation for VisualGeometryToolkitFeatures**
+  (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
+  (VisualGeometryToolkitFeatures 0.7.1). No API change.
+
 ## 0.9.1
 
 A patch: the test extension's naming checker, and tests hardened for Julia 1.12. No API change.

@@ -6,6 +6,8 @@ Feature detection and descriptor matching.
 - **Detection:** ASIFT (IMAS-25) on KernelAbstractions. [`asift_detect`](@ref) runs on the
   CPU or any KernelAbstractions GPU backend and returns [`Detection`](@ref)s (a frame plus
   metadata). VisualGeometryToolkitIO writes and reads them as JSON (`json_value`, `from_json`).
+  The image circle of a lens, measured from photographs ([`detect_image_circle`](@ref): dark
+  MSERs and their hull here, the RANSAC fit through the VisualGeometryToolkitEstimation extension).
 - **Matching:** nearest-neighbour descriptor matching, one KernelAbstractions
   implementation on the CPU or any GPU backend ([`nn_match`](@ref), `match`), and a
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
@@ -31,6 +33,8 @@ using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using Distributions: FDist, quantile   # the F-test of detect_foerstner
+using Random: Random, AbstractRNG   # detect_image_circle's RANSAC draws (image_circle.jl)
+using VisualGeometryToolkitCore: Circle, found_model, estimate, inlier_mask, map_estimate, unlabel, scale   # detect_image_circle: its models, the fit's accessors, the RAW cells' map (image_circle.jl)
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
 
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
@@ -103,6 +107,7 @@ include("described_feature.jl")
 include("onnx_runtime.jl")   # ONNX Runtime sessions: the execution provider (the CUDA 12 libraries) and the thread pools
 include("loma.jl")
 include("spread.jl")         # spread_strongest — SSC (Bailo et al. 2018): N detections spread over the image, on KernelAbstractions
+include("image_circle.jl")   # detect_image_circle — a lens's image circle measured from photographs (the fit: the VisualGeometryToolkitEstimation extension)
 include("visualization_stubs.jl")
 
 include("cache.jl")
@@ -170,6 +175,7 @@ export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours
 export detect_foerstner        # the Förstner interest operator: labelled corner / circular points
+export detect_image_circle    # a lens's image circle measured from photographs: dark MSERs, their hull, the RANSAC ellipse (Estimation extension)
 
 # -----------------------------------------------------------------------------
 # 3. MATCHING - strategies, metrics, NN matching on any KA backend

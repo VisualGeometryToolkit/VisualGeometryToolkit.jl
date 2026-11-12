@@ -44,6 +44,7 @@ pixel centres of that image; positions on the green cells go to the sensor
 through the image's map:
 
 ```julia
+using VisualGeometryToolkitFeatures            # load_raw
 using VisualGeometryToolkitCore                # raw_coordinates, LinearRaw, …
 L = load_raw(path; mode = :green_cells)
 xs = detect(L.image[:, :, 1])                  # any detector: COLMAP centres of the cell grid

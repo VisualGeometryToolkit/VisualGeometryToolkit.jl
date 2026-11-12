@@ -43,7 +43,7 @@ julia> length(nn_match(D1, D2, NN()))    # row 3 matches too, one way
 
 ## Matches as correspondences
 
-An [`NNMatch`](@ref) holds indices. `csponds(features1, features2, matches)`
+An [`NNMatch`](@ref) holds indices. VisualGeometryToolkitCore's `csponds(features1, features2, matches)`
 turns them into VisualGeometryToolkitCore correspondences between the matched
 features, with each match's score and ratio as attribute columns, ready for a
 robust estimator.

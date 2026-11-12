@@ -86,7 +86,7 @@ types, ordered by degrees of freedom:
 | `AffineFrame` | 6 | centre and full affine shape |
 
 `asift_detect` returns `Detection{EllipticFrame}`. The accessor is
-`feature_frame(d)`. Properties of the frame and of the metadata read directly:
+VisualGeometryToolkitCore's `feature_frame(d)`. Properties of the frame and of the metadata read directly:
 `d.center`, `d.σ` (the characteristic scale), `d.Σ` (the shape matrix),
 `d.response`.
 

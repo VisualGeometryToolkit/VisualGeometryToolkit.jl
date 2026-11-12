@@ -76,10 +76,26 @@ The sensor image moved to Core (owner ruling 2026-11-12); the gate of the photos
   `image_circle.jl`, `bbox.jl`).
 - [x] No second demosaic: `load_raw(mosaic; mode = :demosaic)` runs LibRaw's one AHD on the mosaic's buffer
   (`libraw_open_bayer`), bit-identical to the same buffer's file-path demosaic (a test).
-- [ ] Downstream copies (not this branch; listed for their owners): RC `cvpr2027/frontends/scripts/convert_raw.py` (+
+Downstream copies, outside this release (listed for their owners; not release items, so no box): RC `cvpr2027/frontends/scripts/convert_raw.py` (+
   `_night06/_night07` copies: rawpy decode, `(img - black)/(white - black)`, 2×2 binning, `"RGBG"` CFA string, raw-grid
   green mask), `detect_aprilgrid.py` and `green_copy.py` (rawpy demosaic as detection input), `cvpr2027/src/drivers.jl:375`
   (`cfa_string`'s body), `src/calibration_pipeline/io.jl:61-70` `_camera_at` (the size-ratio rescale standing in for
   `raw_frame_map`; spec §4.2); PS `examples/panorama_vignetting/run.jl:530,537`, `src/precompile.jl:14`,
   `test/registration_tests.jl:96` (hard-coded `x ↦ 2x` beside an available `frame_map`); Features
   `test/variance_stabilization_tests.jl:30` (a hand phase tiling in a test fixture).
+
+## 0.9.2 / Features 0.8.0: the other branches
+
+- [x] rc-hoists (041f3665): each new public name is the ONE body Core's or the package's own callers use, the private
+  name gone with no alias. `normalized_point`, `bilinear_weights`, `julia_blocks` and `with_parameters(::MappedSurface)`
+  in Core; `metres` and `with_provenance` in IO; `image_size` in Estimation. A review searched for a second
+  normalized-point map, bilinear helper or image-size reader and found none.
+- [x] features-image-circle (dfbe5fc6): `detect_image_circle` moved from RadiometricCamera (one copy, Features). Its
+  green plane is `LinearRaw(m; mode = :green_cells).image[:, :, 1]` (its `_green_cell_plane` dropped). Its fit is
+  Estimation's `find_ellipse`/`find_circle`, and the map is Core's `raw_frame_map`/`map_estimate`.
+- [x] ONE shoelace sum: Core's `signed_area(ring)`, public (was `_shoelace_signed_area`). It is the body of
+  `area(::Polygon)`, of the view-overlap clip's orientation, and of `detect_image_circle`'s hole size; Features'
+  `_polygon_area` copy is deleted (12f7ce8e, bit for bit: the same loop and order).
+- [x] Features 0.8.0 re-exports no Core name: no package reaches one through Features (a review checked every
+  monorepo package, test, example and docs page).
+

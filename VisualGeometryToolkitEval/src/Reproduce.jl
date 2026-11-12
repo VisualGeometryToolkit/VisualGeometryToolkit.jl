@@ -48,7 +48,7 @@ using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
 using ..Tuning: _git_identity                  # results_branches.jl: a checkout's HEAD and its dirtiness, the package's one rule
 import ..cli_option                             # src/cli.jl: runner.jl reads its options through it
-import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root   # src/code_identity.jl: the code identity of a launch, an input's hash and root (runner.jl)
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..inspect_input   # src/code_identity.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
 using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
 using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
 
@@ -74,6 +74,6 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     slurm_job_states, slurm_queue_states, stage_markers_dir, stage_markers, stage_run_state, submit_slurm!, run_local!, reproduce_status, reproduce_main, results_branch_assets,
     results_branch_of_run, reproduce_script, write_reproduce_script
 
-public VERIFY_REPORT, RESULTS_MANIFEST, RESULTS_COMPARISON, SITES_DIR, REPRODUCE_USAGE, REPRODUCE_SCRIPT_TEMPLATE
+public VERIFY_REPORT, RESULTS_MANIFEST, RESULTS_COMPARISON, SITES_DIR, REPRODUCE_USAGE, REPRODUCE_SCRIPT_TEMPLATE, UNPUBLISHED_TIER
 
 end # module Reproduce

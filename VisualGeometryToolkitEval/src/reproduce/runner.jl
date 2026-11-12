@@ -129,10 +129,21 @@ const _GRAPH_KEYS = Dict(
     "sites" => nothing, "stage" => nothing,
     "results_branch" => ("project", "assets", "artifacts"))
 const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_branch", "driver", "config", "env", "job_name",
-                     "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres")
+                     "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s")
 const _SITE_ROOT_KEYS = ("data_root", "results_root", "env", "tiers")
+
+"""
+    UNPUBLISHED_TIER
+
+The reserved input tier `"unpublished"`: data of record that is not (yet) published as a data artifact, so nothing
+can fetch it — a capture kept on one machine. An `[inputs.<id>]` of this tier (its root through
+`VGTK_DATA_ROOT_UNPUBLISHED` or `[sites.<site>.tiers]` like any tier) is checked to be there, and its `sha256` when
+given; the dry run lists every such input apart, present or absent ([`print_plan`](@ref)), and a missing one is
+reported as never fetched.
+"""
+const UNPUBLISHED_TIER = "unpublished"
 
 """
     StageSpec
@@ -150,7 +161,9 @@ each path relative to `base` under the workdir), for a stage that runs other dri
 and that the stage's launcher reads, and `max_time` (a dotted key of each case, seconds) plus `time_margin_s` sizes
 its `--time`. `env` is exported to the stage, `job_name` and `time` override the launcher's, `gpu` marks a GPU stage
 (`gres`, `CUDA_VISIBLE_DEVICES`, the site's `gpu_limit`), and `default = false` keeps it out of a run without `--only`.
-`cpus_per_task`, `mem_per_cpu` and `gres` are the stage's own resources, over the site's (`0`/`""`: the site's): a
+`cpus_per_task`, `mem_per_cpu` and `gres` are the stage's own resources, over the site's (`0`/`""`: the site's;
+validated: a count, `8G`/`4000M`, `gpu:4`), and `ntasks` and `nodes` its tasks and nodes (a distributed stage;
+`0`: one task, Slurm's default): a
 stage that needs 4 GPUs or 2 CPUs says so in the graph, not in its launcher; `gres` makes a stage a GPU stage. On a
 local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads.
 """
@@ -178,6 +191,8 @@ struct StageSpec
     cpus_per_task::Int
     mem_per_cpu::String
     gres::String
+    ntasks::Int
+    nodes::Int
 end
 
 """
@@ -235,11 +250,16 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      get(t, "job_name", ""), get(t, "gpu", false), get(t, "default", true), get(t, "time", ""),
                      String.(get(a, "items", String[])), get(a, "from", ""), get(a, "select_env", ""),
                      get(a, "max_time", ""), get(a, "time_margin_s", 0), !isempty(a), from,
-                     _cpus_count(name, get(t, "cpus_per_task", 0)), string(get(t, "mem_per_cpu", "")), string(get(t, "gres", "")))
+                     _cpus_count(name, get(t, "cpus_per_task", 0), "cpus_per_task"),
+                     _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
+                     _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
+                     _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"))
 end
 
-_cpus_count(name, v) = (v isa Integer && v >= 0) ? Int(v) :
-    throw(ArgumentError("stage $name: cpus_per_task = $(repr(v)) is not a count"))
+_cpus_count(name, v, key = "cpus_per_task") = (v isa Integer && v >= 0) ? Int(v) :
+    throw(ArgumentError("stage $name: $key = $(repr(v)) is not a count"))
+_resource(name, key, v, re) = (v isa AbstractString && (isempty(v) || occursin(re, v))) ? String(v) :
+    throw(ArgumentError("stage $name: $key = $(repr(v)) is not a Slurm $(key == "gres" ? "gres (gpu:4, gpu:b200:2)" : "memory (8G, 4000M)")"))
 
 # Kahn's order, ties in declaration order; a cycle or an unknown dependency is an error.
 function _dependency_order(stages::Vector{StageSpec})
@@ -377,7 +397,7 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    missing_inputs(g, stages; data_root, env = ENV, site = "") -> Vector{NamedTuple}
+    missing_inputs(g, stages; data_root, env = ENV, site = "", unpublished = nothing) -> Vector{NamedTuple}
 
 Every input of the selected `stages` that is not there, as data, before anything runs: one row
 `(; path, tier, used_by)` per missing path (`used_by` every stage and config that reads it). A stage's inputs are its
@@ -388,7 +408,10 @@ as declared).
 Each input's path is relative to ITS TIER's root ([`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)):
 `env`'s `<data_env>_<TIER>`, else the graph's `[sites.<site>.tiers]` table, else `data_root`. A tier root that is
 named but not there makes each of its inputs a row whose tier says so (`"mocap (root /x, from VGTK_DATA_ROOT_MOCAP,
-is not there)"`).
+is not there)"`). Each input is checked by `inspect_input` (src/code_identity.jl), the one check a driver's
+`verify_inputs` makes too: a scratch run's output is refused like another content. An input of the reserved tier
+[`UNPUBLISHED_TIER`](@ref) is reported missing as never fetched; with `unpublished` (a vector), each such input is
+also pushed there, `(; path, present, used_by)`, for the dry run to list.
 
 An input with a `sha256` (64 hex digits, of a file) is verified: an input that is there with another content is
 REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
@@ -397,7 +420,7 @@ cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryT
 read once per process, and a launch that checks the same input from several configs reads it once.
 """
 function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV,
-                        site::AbstractString = "")
+                        site::AbstractString = "", unpublished = nothing)
     rows = Dict{String, Tuple{String, Vector{String}}}()
     tiers = get(get(g.site_roots, site, Dict{String, Any}()), "tiers", nothing)
     wrong = String[]
@@ -409,21 +432,21 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
             (t isa AbstractDict && haskey(t, "path")) || continue
             tier = String(get(t, "tier", ""))
             root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env)
-            if from != "data root" && !isdir(root)
-                add!(t["path"], "$tier (root $root, from $(from == "env" ? tier_variable(tier; prefix = g.data_env) : "[sites.$site.tiers]"), is not there)", user)
-                continue
+            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : "[sites.$site.tiers]"
+            r = inspect_input(id, t, root; root_source = from, root_name = name)        # the one check (src/code_identity.jl)
+            if tier == UNPUBLISHED_TIER && unpublished !== nothing
+                k = findfirst(u -> u.path == t["path"], unpublished)
+                k === nothing ? push!(unpublished, (; path = String(t["path"]), present = r.state !== :missing && r.state !== :root_missing,
+                                                     used_by = [user])) :
+                                (user in unpublished[k].used_by || push!(unpublished[k].used_by, user))
             end
-            full = isempty(root) ? "" : joinpath(root, t["path"])
-            if isempty(full) || !ispath(full)
-                add!(t["path"], tier, user)
-                continue
+            if r.state === :root_missing
+                add!(t["path"], r.problem, user)
+            elseif r.state === :missing
+                add!(t["path"], tier == UNPUBLISHED_TIER ? "$tier (never fetched: provide it on this machine)" : tier, user)
+            elseif r.state === :refused
+                push!(wrong, "input $id of $cfg ($(t["path"]), used by $user): $(r.problem)")
             end
-            haskey(t, "sha256") || continue
-            want = lowercase(string(t["sha256"]))
-            occursin(r"^[0-9a-f]{64}$", want) || throw(ArgumentError("input $id of $cfg: sha256 = \"$(t["sha256"])\" is no SHA-256 (64 hex digits)"))
-            isfile(full) || throw(ArgumentError("input $id of $cfg ($(t["path"])): a sha256 names a file's content, and it is a directory"))
-            got = file_sha256(full)
-            got == want || push!(wrong, "input $id of $cfg ($(t["path"]), used by $user): sha256 expected $want, actual $got")
         end
     end
     for n in stages
@@ -504,7 +527,7 @@ struct ReproducePlan
     code_paths::Vector{String}
 end
 
-_sha_file(path) = bytes2hex(open(sha256, path))
+_sha_file(path) = file_sha256(path)                    # the one file hash (src/code_identity.jl)
 _sha_text(s) = bytes2hex(sha256(s))
 
 # The commit and whether tracked files changed (anywhere: the code's own state is `code_trees`).
@@ -545,6 +568,8 @@ function _slurm_options(site::Site, s::StageSpec)
     _stage_cpus(site, s) > 0 && push!(o, "--cpus-per-task=$(_stage_cpus(site, s))")
     mem = isempty(s.mem_per_cpu) ? site.mem_per_cpu : s.mem_per_cpu
     isempty(mem) || push!(o, "--mem-per-cpu=$mem")
+    s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
+    s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
     append!(o, site.extra)
     return o
 end
@@ -952,14 +977,15 @@ function _dependency(plan::ReproducePlan, st::PlannedStage; ids = nothing)
 end
 
 """
-    print_plan(io, plan; missing = nothing)
+    print_plan(io, plan; missing = nothing, unpublished = nothing)
 
 The job graph of a launch, as the dry run prints it: the commit, the roots, the site, then per stage its items,
 dependencies, the driver's own command line (when the stage names a driver and config), the command the backend runs
 (on a Slurm site the sbatch line, a dependency on a stage of this launch written `\$<stage>`), and whether an earlier
-run is reused; then the missing inputs.
+run is reused; then the missing inputs, and the inputs of the tier [`UNPUBLISHED_TIER`](@ref), present or ABSENT
+(`unpublished`, from [`missing_inputs`](@ref)).
 """
-function print_plan(io::IO, plan::ReproducePlan; missing = nothing)
+function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished = nothing)
     g, site = plan.graph, plan.site
     println(io, "reproduce $(g.name) on $(site.name) ($(site.backend)): $(length(plan.stages)) stage(s)")
     println(io, "  commit   $(plan.commit)$(plan.dirty ? " (dirty: uncommitted changes to tracked files)" : "")")
@@ -1002,6 +1028,12 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing)
     if missing !== nothing
         println(io)
         print_missing(io, missing; data_root = plan.data_root, data_env = g.data_env)
+    end
+    if unpublished !== nothing && !isempty(unpublished)
+        println(io, "unpublished inputs: $(length(unpublished)) (tier $UNPUBLISHED_TIER: never fetched, kept on the machine)")
+        for u in sort(unpublished; by = u -> u.path)
+            println(io, u.present ? "present" : "ABSENT ", '\t', u.path, '\t', join(u.used_by, "; "))
+        end
     end
 end
 
@@ -1458,9 +1490,11 @@ function reproduce_main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = 
         plan = plan_reproduction(g, site; only = String.(split(only, ','; keepempty = false)), deps = !("--no-deps" in args),
                                  data_root = _cli_value(args, "data-root"), results_root = _cli_value(args, "results-root"),
                                  job_name_prefix = _cli_value(args, "job-name-prefix"), env, queue_states)
-        miss = missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name)
+        unpub = NamedTuple[]
+        miss = missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name,
+                              unpublished = unpub)
         if "--dry-run" in args
-            print_plan(io, plan; missing = miss)
+            print_plan(io, plan; missing = miss, unpublished = unpub)
             println(io, "\ndry run: nothing submitted or run")
             return 0
         end

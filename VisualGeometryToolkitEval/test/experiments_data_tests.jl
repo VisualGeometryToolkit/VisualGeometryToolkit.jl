@@ -388,6 +388,63 @@
         end
     end
 
+    @testset "a scratch run is kept apart: marked, keyed apart, and refused as an input, upstream or promoted run" begin
+        data = mktempdir(); res = mktempdir()
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SCRATCH" => nothing) do
+            E.set_project_root!(mktempdir())
+            cfg = Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d", "matcher" => "m", "problem" => "p"), "n" => 1)
+            rec_dir = E.keyed_cell_dir(cfg, "e", "run")
+            E.write_provenance(rec_dir, Dict("run_key" => E.run_key(cfg)); driver = "d")
+            @test E.read_provenance(rec_dir)["scratch"] === false && !VgtkEval.scratch_record(rec_dir)
+            scr_dir, scr_key, scr_file = withenv("VGTK_SCRATCH" => "1") do
+                d = E.keyed_cell_dir(cfg, "e", "run")
+                E.write_provenance(d, Dict("run_key" => E.run_key(cfg)); driver = "d")
+                _, f = E.cached_result(c -> Dict{String,Any}("v" => 1), "r", cfg, joinpath(res, "cache"))
+                d, E.run_key(cfg), f
+            end
+            # marked, and never the directory, key or cache file of the run of record
+            @test E.read_provenance(scr_dir)["scratch"] === true && VgtkEval.scratch_record(scr_dir)
+            @test VgtkEval.scratch_record(joinpath(scr_dir, "anything.csv"))                  # a file in a scratch run's directory
+            @test scr_dir != rec_dir && scr_key != E.run_key(cfg)
+            @test occursin("r-scratch_", basename(scr_file))
+            _, f2 = E.cached_result(c -> Dict{String,Any}("v" => 2), "r", cfg, joinpath(res, "cache"))
+            @test f2 != scr_file && E.cached_result(c -> error("cached"), "r", cfg, joinpath(res, "cache"))[1]["scratch"] === false
+            # refused to a run of record: as an upstream run, an input of its record, a promoted run, a config input
+            @test_throws r"scratch run's output .*never an upstream run of record" E.run_key(cfg; upstream = Dict("poses" => scr_dir))
+            @test E.run_key(cfg; upstream = Dict("poses" => rec_dir)) == E.run_key(cfg; upstream = Dict("poses" => E.run_key(cfg)))
+            @test_throws r"a run of record reads no scratch output" E.write_provenance(joinpath(res, "next"); driver = "d", inputs = [scr_dir])
+            @test_throws r"promote_run: .* is a scratch run's output" E.promote_run(scr_dir, "runs_of_record")
+            mkpath(joinpath(data, "runs")); cp(scr_dir, joinpath(data, "runs", "s"))
+            c = Dict{String,Any}("inputs" => Dict{String,Any}("s" => Dict{String,Any}("tier" => "runs", "path" => "runs/s")))
+            @test_throws r"input s \(runs/s\): a scratch run's output" E.verify_inputs(c)
+            @test_throws r"a scratch run's output" E.input_path(c, "s")
+            withenv("VGTK_SCRATCH" => "1") do                                                      # a scratch run may read one
+                @test E.input_path(c, "s") == joinpath(data, "runs", "s")
+                @test E.run_key(cfg; upstream = Dict("poses" => scr_dir)) isa String
+            end
+            E.set_project_root!("")
+        end
+    end
+
+    @testset "cached_result through another codec; write_run_records with a payload" begin
+        E.set_project_root!(mktempdir())
+        dir = mktempdir(); cfg = Dict{String,Any}("a" => 1)
+        codec = (; ext = ".toml", load = TOML.parsefile, save = (f, d) -> open(io -> TOML.print(io, d), f, "w"))
+        d1, f1 = E.cached_result(c -> Dict{String,Any}("pose" => [1.0, 2.0]), "he", cfg, dir; codec...)
+        @test endswith(f1, ".toml") && TOML.parsefile(f1)["pose"] == [1.0, 2.0] && haskey(TOML.parsefile(f1), "code_trees")
+        @test E.cached_result(c -> error("cached"), "he", cfg, dir; codec...)[1]["pose"] == [1.0, 2.0]
+        d3, _ = E.cached_result(c -> Dict{String,Any}("pose" => [3.0]), "he", cfg, dir; force = true, codec...)
+        @test d3["pose"] == [3.0] && isfile(replace(f1, ".toml" => "_#1.toml"))                   # the previous version kept
+        out = joinpath(mktempdir(), "run")
+        E.write_run_records(out, Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d")); driver = "d",
+                            config_source = "c.toml", key = "k", fields = Dict("folds" => 5, "replayed" => "detection_cv"))
+        r = E.read_provenance(out)
+        @test r["folds"] == 5 && r["replayed"] == "detection_cv" && r["run_key"] == "k"
+        @test_throws r"are the records' own" E.write_run_records(out, Dict{String,Any}(); driver = "d", config_source = "c",
+                                                                  key = "k", fields = Dict("run_key" => "x"))
+        E.set_project_root!("")
+    end
+
     @testset "keyed cache" begin
         repo = gitrepo()
         E.set_project_root!(repo)

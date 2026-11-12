@@ -361,6 +361,38 @@ end
         @test occursin("arg --graph=proj/configs/reproduce.toml", out) && occursin("arg --site=desktop", out) && occursin("arg --dry-run", out)
     end
 
+    @testset "unpublished inputs, a scratch input refused, distributed stages and validated resources" begin
+        f = runner_project()
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        write(cfg, read(cfg, String) * "\n[inputs.capture]\ntier = \"unpublished\"\npath = \"captures/2026-09\"\n")
+        g = load_stage_graph(f.graph)
+        rows = missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        @test only(rows).path == "captures/2026-09" && only(rows).tier == "unpublished (never fetched: provide it on this machine)"
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("unpublished inputs: 1 (tier unpublished: never fetched", out) && occursin("ABSENT \tcaptures/2026-09", out)
+        mkpath(joinpath(f.data, "captures", "2026-09"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("present\tcaptures/2026-09\tchrome_prepare (configs/experiments/chrome.toml)", out)
+        @test Reproduce.UNPUBLISHED_TIER == "unpublished"
+        # a scratch run's output is no input of record
+        write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
+        @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # a distributed stage: ntasks and nodes; resources validated
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
+        plan = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test occursin("--mem-per-cpu=8G --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
+        for (k, v) in (("gres", "\"gpu 4\""), ("mem_per_cpu", "\"lots\""), ("mem_per_cpu", "8"), ("ntasks", "-1"))
+            write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\n$k = $v\n"; count = 1))
+            @test_throws ArgumentError load_stage_graph(f.graph)
+        end
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nmem_per_cpu = \"4000M\"\ngres = \"gpu:b200:2\"\n"; count = 1))
+        @test load_stage_graph(f.graph) isa StageGraph
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nmem_per_cpu = \"lots\"\n"; count = 1))
+        @test_throws r"mem_per_cpu = \"lots\" is not a Slurm memory" load_stage_graph(f.graph)
+    end
+
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
         f = runner_project()
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)

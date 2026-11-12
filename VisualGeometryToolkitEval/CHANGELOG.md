@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A scratch run is kept apart from the runs of record.** Its record says `scratch = true` (`write_provenance`,
+  `cached_result`; a run of record says `false`); `run_key` folds `scratch`, so its keyed directories never are a run
+  of record's, and `cached_result` names its file `<prefix>-scratch_<key>`. Its output (`scratch_record`) is refused as
+  an input of record (`missing_inputs`, `verify_inputs`, `input_path`, except to another scratch run), as an upstream
+  run of record (`run_key(…; upstream = <run dir>)`, which now also takes a run directory and folds its recorded
+  `run_key`), as an input of a run of record's record (`write_provenance(…; inputs)`) and by `promote_run`.
+- **One input check.** `VisualGeometryToolkitEval.inspect_input` (src/code_identity.jl) is the check of an
+  `[inputs.<id>]` under its tier's root (there, its `sha256`, not a scratch output) that the runner's
+  `missing_inputs` and a driver's `verify_inputs`/`input_path` both call; `data_root(; tier)` resolves through
+  `tier_data_root`; the runner's file hashes are `file_sha256`.
+- **New: the reserved input tier `"unpublished"`** (`Reproduce.UNPUBLISHED_TIER`): data of record kept on a machine,
+  never fetched. The dry run lists its inputs apart, present or ABSENT, and a missing one is reported as never fetched.
+- **New: `cached_result(…; ext, load, save)`**, any format cached through a codec (a vgio record), the previous version
+  kept as safesave keeps it; **`write_run_records(…; fields)`**, a further payload of the record; **`ntasks` and
+  `nodes` in a `[[stage]]`** for a distributed stage. A stage's `gres` and `mem_per_cpu` are validated.
+
 - **Fixed: data-policy rule D3 flags only the bare `oracle_floors_path()`** (the unkeyed
   `<results root>/oracle_floors.jld2` every run rewrites), not `oracle_floors_path(keyed_dir)`, the documented keyed use.
 

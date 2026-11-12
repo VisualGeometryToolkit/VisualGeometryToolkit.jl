@@ -296,6 +296,16 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `VGTK_SITE`), and a driver resolves one with
   [`data_root(; tier)`](@ref VisualGeometryToolkitEval.Experiments.data_root).
   A tier root that is named but missing is reported as such.
+- **Unpublished inputs.** Data of record that no artifact publishes (a
+  capture kept on one machine) takes the reserved tier `unpublished`
+  ([`UNPUBLISHED_TIER`](@ref VisualGeometryToolkitEval.Reproduce.UNPUBLISHED_TIER)):
+  nothing fetches it, the dry run lists each such input apart, present or
+  ABSENT, and a missing one is reported as never fetched. Its root resolves
+  like any tier's (`VGTK_DATA_ROOT_UNPUBLISHED`, `[sites.<site>.tiers]`).
+- **Scratch outputs are no inputs.** A run of `VGTK_SCRATCH=1` records
+  `scratch = true` and keys apart from the runs of record; its output is
+  refused as an input of record, an upstream run of record and a promoted
+  run.
 - **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
   (an array over its items, sized from the config's cases or a list, `--time`
   from the cases' `max_time`), after the jobs of the stages it depends on

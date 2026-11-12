@@ -52,7 +52,7 @@ const PROVENANCE_FILE = "_provenance.toml"
 
 # Keys the writer owns; a caller field of the same name is refused.
 const _PROVENANCE_RESERVED = ("driver", "timestamp", "hostname", "julia", "gitcommit", "gitpatch", "uncommitted_files", "inputs",
-                              "code_trees")
+                              "code_trees", "scratch")
 
 """
     current_code_trees(gitpath = project_root()) -> Dict{String,String}
@@ -77,6 +77,12 @@ Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH
 record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
 refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
 committed code.
+
+A scratch run is kept apart from the runs of record: its record says `scratch = true` ([`write_provenance`](@ref),
+[`cached_result`](@ref)); its keys fold `scratch` ([`run_key`](@ref)), so it never shares a keyed directory or a
+cache file with a run of record; and its output is refused as an input of record ([`verify_inputs`](@ref),
+[`input_path`](@ref), `missing_inputs`), an upstream run of record ([`run_key`](@ref)'s `upstream`), an input of a
+run of record ([`write_provenance`](@ref)'s `inputs`) and a promoted run ([`promote_run`](@ref)).
 """
 scratch_run() = get(ENV, "VGTK_SCRATCH", "") == "1"
 
@@ -139,8 +145,9 @@ touches) and `code_trees`, the git trees of the code the run loaded
 ([`current_code_trees`](@ref)). `inputs` (paths) are recorded relative to the
 results or data root they live under, the roots beside them
 (`inputs = {data = […], data_root = …}`). Refuses to write into the data root
-unless `producer` ([`assert_not_input`](@ref)), and refuses a run of record of
-uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
+unless `producer` ([`assert_not_input`](@ref)), records `scratch` (whether this
+is a [`scratch_run`](@ref); a run of record refuses `inputs` that are a scratch
+run's output), and refuses a run of record of uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
 staged, deleted or untracked file in the project's `src` or a package it loads
 from a path, or code in no git checkout); a [`scratch_run`](@ref) records it
 with a warning, its trees marked `+uncommitted`. Returns the record's path.
@@ -156,7 +163,14 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     prov["timestamp"] = string(Dates.now())
     prov["hostname"] = gethostname()
     prov["julia"] = string(VERSION)
-    inputs === nothing || (prov["inputs"] = _relative_inputs(inputs))
+    if inputs !== nothing
+        scratch_in = filter(scratch_record, String.(inputs))
+        scratch_run() || isempty(scratch_in) ||
+            throw(ArgumentError("a run of record reads no scratch output, and $(join(scratch_in, ", ")) " *
+                                "$(length(scratch_in) == 1 ? "is one" : "are") (its record says scratch = true): run it as a run of record first"))
+        prov["inputs"] = _relative_inputs(inputs)
+    end
+    prov["scratch"] = scratch_run()
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
     prov["code_trees"] = _recorded_code_trees(gitpath, "the record of $dir")
@@ -297,7 +311,7 @@ legacy_hash_key(x) = string(hash(x))
 
 """
     cached_result(f, prefix, cfg, dir; key = legacy_hash_key, force = false,
-                  gitpath = project_root()) -> (data, file)
+                  gitpath = project_root(), ext = ".jld2", load = wload, save = nothing) -> (data, file)
 
 The keyed result cache: `<dir>/<prefix>_<key(cfg)>.jld2` is loaded (DrWatson
 `wload`) when present and its `code_trees` are the current ones
@@ -312,16 +326,27 @@ exactly the one DrWatson's `produce_or_load(…; filename = hash, prefix)` build
 so its existing caches are found. Justified extension: `produce_or_load` itself
 swallows save errors (DrWatson saving_files.jl:107-116 — a failed write returns
 the data as if cached) and forces `safe = false`; here a save error propagates.
+
+Another format (a vgio record) is cached through a codec: `ext` names the file's
+extension, `load(file) -> Dict` reads it back and `save(file, data)` writes the
+String-keyed Dict (code trees and DrWatson's tag included); the previous version
+is kept as safesave keeps it (`<name>_#<n><ext>`). A [`scratch_run`](@ref)
+caches as `<prefix>-scratch_<key><ext>`, never in a run of record's file, and
+its data say `scratch = true`.
 """
 function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
                        key = legacy_hash_key, force::Bool = false,
-                       gitpath::AbstractString = project_root())
+                       gitpath::AbstractString = project_root(),
+                       ext::AbstractString = ".jld2", load = wload, save = nothing)
     assert_not_input(dir)
-    file = joinpath(dir, string(prefix, "_", key(cfg), ".jld2"))
+    scratch = scratch_run()
+    # a scratch run's cache is never a run of record's file
+    file = joinpath(dir, string(prefix, scratch ? "-scratch" : "", "_", key(cfg), ext))
     if !force && isfile(file)
         trees = current_code_trees(gitpath)
-        stored = wload(file)
+        stored = load(file)
         changes = code_tree_changes(get(stored, "code_trees", nothing), trees)
+        get(stored, "scratch", false) === scratch || push!(changes, "scratch: $(get(stored, "scratch", false)) → $scratch")
         isempty(changes) && return stored, file
         @info "recomputing $file: its code changed" changes = join(changes, "; ")
     end
@@ -330,6 +355,22 @@ function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
     mkpath(dir)
     data = _tag!(data; gitpath)
     data["code_trees"] = trees
-    safesave(file, copy(data))
+    data["scratch"] = scratch
+    if save === nothing
+        safesave(file, copy(data))
+    else
+        isfile(file) && mv(file, _backup_name(file))                  # safesave's versioning, for any codec
+        save(file, copy(data))
+    end
     return data, file
+end
+
+# DrWatson safesave's name for the previous version of `file`: `<name>_#<n><ext>`, the first n free.
+function _backup_name(file::AbstractString)
+    base, ext = splitext(file)
+    n = 1
+    while isfile("$(base)_#$(n)$(ext)")
+        n += 1
+    end
+    return "$(base)_#$(n)$(ext)"
 end

@@ -215,13 +215,15 @@ keys it here instead of in a private hash:
 - `files`: `name => path`, each file's content hash (`file_sha256`: streamed,
   cached by path, size and mtime) — a calibration file, a board definition;
 - `upstream`: `name => key`, the run keys of the runs it reads (a pose run's
-  key in the key of the evaluation that reads its poses);
+  key in the key of the evaluation that reads its poses), or `name => run
+  directory`, read for its recorded `run_key` (a scratch run's is refused);
 - `parts`: `name => value` (a `Dict` or a `NamedTuple`, TOML values), a choice
   of the run that is not in its config (a frame limit of a smoke run).
 
 They are keyed as the table `keyed_with` (`files`, `upstream`, `parts`, each
-present when given), which a config therefore may not hold; without them the
-key is the config's alone, as before. A value of record belongs in the config:
+present when given; and `scratch` in a [`scratch_run`](@ref), so its outputs
+never share a run of record's directory), which a config therefore may not
+hold; without them the key is the config's alone, as before. A value of record belongs in the config:
 `parts` is for a choice made on the command line of a driver.
 """
 function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts = nothing)
@@ -229,10 +231,23 @@ function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts =
     haskey(d, "keyed_with") && throw(ArgumentError("run_key: a config may not hold `keyed_with`, the table of what the key folds in"))
     folded = Dict{String,Any}()
     files === nothing || (folded["files"] = Dict{String,Any}(String(k) => file_sha256(String(p)) for (k, p) in pairs(files)))
-    upstream === nothing || (folded["upstream"] = Dict{String,Any}(String(k) => String(v) for (k, v) in pairs(upstream)))
+    upstream === nothing || (folded["upstream"] = Dict{String,Any}(String(k) => _upstream_key(String(k), String(v)) for (k, v) in pairs(upstream)))
+    scratch_run() && (folded["scratch"] = true)          # a scratch run never shares a run of record's key
     parts === nothing || (folded["parts"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(parts)))
     isempty(folded) || (d["keyed_with"] = folded)
     return _toml_hash(d)
+end
+
+# An upstream run as a key: a key as given, or a run directory, read for its recorded `run_key`; a scratch run's
+# directory is refused to a run of record.
+function _upstream_key(name::AbstractString, v::AbstractString)
+    isdir(v) || return v
+    isfile(joinpath(v, PROVENANCE_FILE)) || throw(ArgumentError("run_key: upstream $name = $v is a directory with no $PROVENANCE_FILE"))
+    !scratch_run() && scratch_record(v) &&
+        throw(ArgumentError("run_key: upstream $name = $v is a scratch run's output (scratch = true), never an upstream run of record"))
+    k = get(read_provenance(v), "run_key", "")
+    isempty(k) && throw(ArgumentError("run_key: upstream $name = $v records no run_key"))
+    return String(k)
 end
 
 """
@@ -299,11 +314,14 @@ a data artifact of that tier publishes it (an [`ArtifactView`](@ref) installs it
 like any tier). A run read by another run belongs there, not in the results
 root and not in a directory named by a date. Refuses a run without its record,
 and a destination that holds a different run (another `run_key` in its
-record); the same run again is left as it is. Returns the destination.
+record), and a scratch run's output; the same run again is left as it is.
+Returns the destination.
 """
 function promote_run(run_dir::AbstractString, tier::AbstractString; name::AbstractString = basename(rstrip(run_dir, '/')))
     isfile(joinpath(run_dir, PROVENANCE_FILE)) ||
         throw(ArgumentError("promote_run: $run_dir holds no $PROVENANCE_FILE: only a recorded run is an input of record"))
+    scratch_record(run_dir) &&
+        throw(ArgumentError("promote_run: $run_dir is a scratch run's output (scratch = true): only a run of record is an input of record"))
     key = get(read_provenance(run_dir), "run_key", "")
     dst = joinpath(data_root(), tier, name)
     if isdir(dst)
@@ -323,24 +341,25 @@ end
 The `[inputs.<id>]` of a config, checked as the runner checks them
 (`missing_inputs`): each `path` (relative to its tier's root,
 [`data_root`](@ref)`(; tier)`, or to `root` for every input when given) is there, and one with a
-`sha256` has that content (streamed, cached: `file_sha256`). Returns `id =>`
-absolute path; an `ArgumentError` names every missing input (id, tier, path)
-and every other content (id, path, expected and actual hash).
+`sha256` has that content (streamed, cached: `file_sha256`), through the one
+check the runner makes (`inspect_input`). A scratch run's output is refused as
+an input, except to a scratch run ([`scratch_run`](@ref)). Returns `id =>`
+absolute path; an `ArgumentError` names every missing input (id, tier, path),
+every other content (id, path, expected and actual hash) and every scratch
+output.
 """
 function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = nothing)
     out, bad = Dict{String,String}(), String[]
     for (id, t) in get(cfg, "inputs", Dict{String,Any}())
         (t isa AbstractDict && haskey(t, "path")) || continue
         r = root === nothing ? data_root(; tier = String(get(t, "tier", ""))) : root
-        p = joinpath(r, t["path"])
-        if !ispath(p)
-            push!(bad, "input $id ($(get(t, "tier", "?"))): $(t["path"]) is not under $r")
-        elseif haskey(t, "sha256")
-            want = lowercase(string(t["sha256"]))
-            got = isfile(p) ? file_sha256(p) : "a directory"
-            got == want || push!(bad, "input $id ($(t["path"])): sha256 expected $want, actual $got")
+        x = inspect_input(String(id), t, r; allow_scratch = scratch_run())       # the runner's check (src/code_identity.jl)
+        if x.state === :missing
+            push!(bad, "input $id ($(get(t, "tier", "?"))): $(x.problem)")
+        elseif x.state === :refused
+            push!(bad, "input $id ($(t["path"])): $(x.problem)")
         end
-        out[String(id)] = p
+        out[String(id)] = joinpath(r, t["path"])
     end
     isempty(bad) || throw(ArgumentError("refused: the inputs are not the data of record\n  " * join(sort!(bad), "\n  ")))
     return out
@@ -375,18 +394,24 @@ config_of_record(name::AbstractString; root::AbstractString = project_root()) =
     load_run_config(joinpath(root, "configs", name * ".toml"))
 
 """
-    write_run_records(outdir, cfg; driver, config_source, key, inputs = String[], producer = false)
+    write_run_records(outdir, cfg; driver, config_source, key, inputs = String[], producer = false, fields = Dict())
 
 Write the run's `_config.toml` (the effective config, its tuning specs
 resolved to their complete tables) and its provenance record
 ([`write_provenance`](@ref): `config_source`, `run_key`, the declared `inputs`
 relative to their roots, and DrWatson's git record). `producer = true` is a
 pool generator's declaration that `outdir` is a NEW tree under the data root.
+`fields` is a further payload of the record (a replay's own counts, a detection
+CV's folds): written beside `config_source` and `run_key`, which it may not
+name.
 """
 function write_run_records(outdir::AbstractString, cfg::AbstractDict;
                            driver::AbstractString, config_source::AbstractString,
                            key::AbstractString,
-                           inputs::Vector{String} = String[], producer::Bool = false)
+                           inputs::Vector{String} = String[], producer::Bool = false,
+                           fields::AbstractDict = Dict{String,Any}())
+    clash = intersect(String.(collect(keys(fields))), ("config_source", "run_key"))
+    isempty(clash) || throw(ArgumentError("write_run_records: field(s) $(sort(clash)) are the records' own"))
     assert_not_input(outdir; producer)
     mkpath(outdir)
     open(joinpath(outdir, "_config.toml"), "w") do io
@@ -394,7 +419,8 @@ function write_run_records(outdir::AbstractString, cfg::AbstractDict;
         println(io, "# file is intent and keeps evolving in git). Source: $(config_source)")
         TOML.print(io, resolve_tuning!(deepcopy(cfg)); sorted = true)
     end
-    write_provenance(outdir, Dict{String,Any}("config_source" => abspath(config_source), "run_key" => key);
+    write_provenance(outdir, merge(Dict{String,Any}(String(k) => v for (k, v) in fields),
+                                   Dict{String,Any}("config_source" => abspath(config_source), "run_key" => key));
                      driver, inputs, producer)
     return outdir
 end

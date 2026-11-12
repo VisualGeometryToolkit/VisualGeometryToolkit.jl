@@ -136,10 +136,9 @@ data root above. An `[inputs.<id>]` path is relative to its tier's root.
 """
 function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union{Nothing,AbstractString} = nothing)
     if tier !== nothing
-        v = get(ENV, tier_variable(tier), "")
-        isempty(v) || return v
-        t = _site_tier_root(tier)
-        t === nothing || return t
+        tiers, workdir = _site_tiers()
+        r, from = tier_data_root(tier, ""; env = ENV, tiers, workdir)     # the one order (src/code_identity.jl)
+        from == "data root" || return r
     end
     r = _bound_data_root()
     av = _BINDING.artifacts
@@ -310,18 +309,17 @@ end
 
 _is_under(p, root) = (c = _resolved_path(p); r = _resolved_path(root); c == r || startswith(c, rstrip(r, '/') * "/"))
 
-# A tier's root from the project's stage graph, for the site `VGTK_SITE` names; nothing without one.
-function _site_tier_root(tier::AbstractString)
+# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, and the graph's workdir (a
+# relative root's base); `(nothing, "")` without one.
+function _site_tiers()
     site = get(ENV, "VGTK_SITE", "")
     root = project_root()
-    (isempty(site) || isempty(root)) && return nothing
+    (isempty(site) || isempty(root)) && return (nothing, "")
     g = joinpath(root, "configs", "reproduce.toml")
-    isfile(g) || return nothing
+    isfile(g) || return (nothing, "")
     d = TOML.parsefile(g)
-    tiers = get(get(get(d, "sites", Dict{String,Any}()), site, Dict{String,Any}()), "tiers", Dict{String,Any}())
-    haskey(tiers, tier) || return nothing
-    workdir = normpath(joinpath(dirname(g), get(get(d, "project", Dict{String,Any}()), "workdir", ".")))
-    return first(tier_data_root(tier, ""; env = Dict{String,String}(), tiers, workdir))
+    tiers = get(get(get(d, "sites", Dict{String,Any}()), site, Dict{String,Any}()), "tiers", nothing)
+    return (tiers, normpath(joinpath(dirname(g), get(get(d, "project", Dict{String,Any}()), "workdir", "."))))
 end
 
 """

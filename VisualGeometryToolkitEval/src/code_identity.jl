@@ -250,3 +250,46 @@ function tier_data_root(tier::AbstractString, data_root::AbstractString; env = E
     end
     return (String(data_root), "data root")
 end
+
+"""
+    scratch_record(path) -> Bool
+
+Whether `path` (a run directory, or a file in one) is the output of a scratch run: the `_provenance.toml` beside
+it says `scratch = true` (`Experiments.scratch_run`). A scratch output is never an input of record, an upstream run
+of record, or a promoted run.
+"""
+function scratch_record(path::AbstractString)
+    f = joinpath(isdir(path) ? path : dirname(path), "_provenance.toml")
+    return isfile(f) && get(TOML.parsefile(f), "scratch", false) === true
+end
+
+"""
+    inspect_input(id, table, root; root_source = "data root", root_name = "", allow_scratch = false)
+        -> (; state, path, problem)
+
+THE check of one `[inputs.<id>]` table under its tier's `root` ([`tier_data_root`](@ref)), for the runner's
+`missing_inputs` and a driver's `verify_inputs` alike. `state` is `:present`; `:root_missing` (a tier root other
+than the data root, named by `root_name`, that is not there); `:missing` (no `path` under `root`); or `:refused`
+(another content than its `sha256`, or a scratch run's output, [`scratch_record`](@ref), unless `allow_scratch`).
+`problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or one on a directory, is an
+`ArgumentError` (a config error).
+"""
+function inspect_input(id::AbstractString, t::AbstractDict, root::AbstractString; root_source::AbstractString = "data root",
+                       root_name::AbstractString = "", allow_scratch::Bool = false)
+    rel, tier = String(t["path"]), String(get(t, "tier", ""))
+    root_source != "data root" && !isdir(root) &&
+        return (; state = :root_missing, path = "", problem = "$tier (root $root, from $root_name, is not there)")
+    full = isempty(root) ? "" : joinpath(root, rel)
+    (isempty(full) || !ispath(full)) &&
+        return (; state = :missing, path = full, problem = "$rel is not under $(isempty(root) ? "<no root>" : root)")
+    if haskey(t, "sha256")
+        want = lowercase(string(t["sha256"]))
+        occursin(r"^[0-9a-f]{64}$", want) || throw(ArgumentError("input $id: sha256 = \"$(t["sha256"])\" is no SHA-256 (64 hex digits)"))
+        isfile(full) || throw(ArgumentError("input $id ($rel): a sha256 names a file's content, and it is a directory"))
+        got = file_sha256(full)
+        got == want || return (; state = :refused, path = full, problem = "sha256 expected $want, actual $got")
+    end
+    !allow_scratch && scratch_record(full) &&
+        return (; state = :refused, path = full, problem = "a scratch run's output (its record says scratch = true), never an input of record")
+    return (; state = :present, path = full, problem = "")
+end

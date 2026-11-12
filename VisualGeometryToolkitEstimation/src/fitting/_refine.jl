@@ -176,20 +176,45 @@ function _refine_spec(::Type{P}, class::Val;
     return _RefineSpec(lo, input, _refine_loss(lo, input, codimension(P)), workspace)
 end
 
-# The strategies a bundle refine runs: `Triggs{K}` (the default, its TOML table's `optimization_strategy`), `Irls{K}`
-# or `nothing` (least squares), refused otherwise as on every refine (`_refine_strategy`), and the loss a robust one
-# deploys at the reprojection residual's codimension 2 from the caller's `scale` or `width` (`_refine_loss`). A
-# refine estimates no scale; least squares reads none.
-function _bundle_loss(fname, lo, scale, width)
+"""
+    bundle_loss(optimization_strategy; scale | width, codimension = 2, caller = "bundle_loss")
+        -> (; strategy, input, loss)
+
+The robust loss a bundle adjustment deploys, from its keywords, by the refine contract
+every `refine_*` follows: `optimization_strategy` a `Triggs{K}` (a bundle's default,
+its TOML table's), an `Irls{K}`, or `nothing` (plain least squares), refused otherwise
+— as is a `GaussianShape` strategy (least squares is `nothing`) and a strategy holding
+an absolute `loss_width` (that is the `width` keyword); and EXACTLY ONE of `scale = σ`
+(the observations' noise scale, or an upstream result; VisualGeometryToolkitCore's
+`scale_input`) or `width = w` for a robust strategy, NEITHER for least squares (a
+bundle refine estimates no scale). The loss is the strategy's shape deployed at the
+residual's `codimension` (2 for a pixel reprojection error): at `c × scale`, `c` the
+strategy's efficiency constant (the one it states, the plain multiple, or Core's
+`efficiency_constant(K, codimension)`; a truncation states one), or at `width` — which
+refuses a strategy that also states a constant. `caller` names the bundle in the
+messages (`refine_camera_and_poses: …`).
+
+Returns `strategy` (the strategy, or `nothing`), `input` (the `ScaleInput`, or
+`nothing`) and `loss` (VisualGeometryToolkitCore's `DeployedLoss`, or `nothing`): a
+bundle robustifies its rows with `loss_robustifier(strategy_loss(strategy)(),
+sqrt(sq_loss_width(loss)))` and records the scale it was given through the stack's
+accessors: `scale_source(input)` (`ScaleNone` for least squares, `input === nothing`, and for a
+`width`) and, when that is not `ScaleNone`, `noise_scale(input)`.
+Shared by [`refine_camera_and_poses`](@ref), [`refine_robot_world_hand_eye`](@ref) and
+downstream bundles (PanoramaStitching's rotation bundle), so one keyword set means one
+loss everywhere.
+"""
+function bundle_loss(lo; scale = nothing, width = nothing, codimension::Integer = 2,
+                     caller::AbstractString = "bundle_loss")
     lo = _refine_strategy(lo)
     if lo === nothing
         (scale === nothing && width === nothing) || throw(ArgumentError(
-            "$fname: plain least squares (optimization_strategy = nothing) reads no scale; got " *
+            "$caller: plain least squares (optimization_strategy = nothing) reads no scale; got " *
                 (scale === nothing ? "width = $width" : "scale = $(repr(scale))")))
-        return lo, nothing, nothing
+        return (; strategy = lo, input = nothing, loss = nothing)
     end
     input = scale_input(scale, width)
-    return lo, input, _refine_loss(lo, input, 2)
+    return (; strategy = lo, input, loss = _refine_loss(lo, input, codimension))
 end
 
 # The strategy of record of a refine class (or bundle): configs/default.toml

@@ -93,7 +93,8 @@ for a result whose source is `ScaleNone` (a plain least-squares stage given
 no scale, or a stage given only a width), so its `NaN` is never handed on.
 
 A metadata type answers through its fields `scale` and `scale_source`; one that
-records the scale otherwise adds a method on its metadata type.
+records the scale otherwise adds a method on its metadata type. A stage's parsed [`scale_input`](@ref) answers
+too: the scale it was given (refused for a `width`, whose source is `ScaleNone`).
 """
 noise_scale(r::FitResult) = noise_scale(r.metadata)
 noise_scale(::Nothing) = throw(ArgumentError(
@@ -108,8 +109,14 @@ end
 """
     scale_source(result) -> ScaleSource
 
-Where a robust result's [`noise_scale`](@ref) came from ([`ScaleSource`](@ref)).
+Where a robust result's [`noise_scale`](@ref) came from ([`ScaleSource`](@ref)); of a
+stage's parsed [`scale_input`](@ref), where its scale came from (`ScaleNone` for a
+`width`); of `nothing` (no input: a least-squares stage), `ScaleNone`.
 """
 scale_source(r::FitResult) = scale_source(r.metadata)
 scale_source(m) = m.scale_source
 scale_source(::Nothing) = ScaleNone
+# A stage's parsed scale input (`scale_input`) answers the same pair: its source, and its
+# scale through `noise_scale` (refused for a width, `ScaleNone`, as for a result), so a
+# stage records what it was given through the accessors, never its fields.
+scale_source(m::ScaleInput) = m.source

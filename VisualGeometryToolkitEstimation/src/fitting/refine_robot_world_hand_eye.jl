@@ -116,7 +116,7 @@ function refine_robot_world_hand_eye(
         scale = nothing, width = nothing, local_optimization = _RetiredKeyword(),
     ) where {K}
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    strategy = _bundle_loss("refine_robot_world_hand_eye", optimization_strategy, scale, width)
+    strategy = bundle_loss(optimization_strategy; scale, width, caller = "refine_robot_world_hand_eye")
     ids = block_order(markers, guess.X)             # the key sets must match: every marker of the guess is refined
     M = length(ids)
     # Flattened marker by marker in `ids` order: each element's rig pose once

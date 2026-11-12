@@ -74,7 +74,7 @@ const RETIRED_NAMES = String[
     # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",
     "NoLocal" * "Optimization",   # no local optimization is `nothing` (TOML "none")
-    "_check_local" * "_optimization",   # refine_camera_and_poses' strategy check is the refine contract's (`_bundle_loss`)
+    "_check_local" * "_optimization",   # refine_camera_and_poses' strategy check is the refine contract's (`bundle_loss`)
     "default_local" * "_optimization",   # the ransac keyword's default: `default_local_optimization_strategy(scoring)` (VisualGeometryToolkitEstimation)
     "_fit_local" * "_optimization",      # a fit's `optimization_strategy` default: `_fit_strategy_default(fit)` (VisualGeometryToolkitEstimation)
     # the verb states the kind (conventions/naming.md): a seeded bundle is a refine, the filtered averaging a fit

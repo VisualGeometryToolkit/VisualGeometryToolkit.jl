@@ -99,3 +99,17 @@ Downstream copies, outside this release (listed for their owners; not release it
 - [x] Features 0.8.0 re-exports no Core name: no package reaches one through Features (a review checked every
   monorepo package, test, example and docs page).
 
+## 0.9.3 / IO 0.9.2
+
+- [x] ONE set of explicit fused products: `_fma_dot`, `_fma_mul`, `_fma_tmul` in Core `base/fused_products.jl`. The
+  spline lenses' 2-D LM, the MappedSurface root and a `Quad`'s plane coordinates compute with them.
+- [x] ONE body for a `Quad`'s plane coordinates: `_plane_coordinates`, with the fused dot. The root's copy,
+  `_frame_coordinates`, is deleted.
+- [x] The chart map's fused traversal (`_map_value`, `_calibration_value`) is a second evaluation path, kept for the
+  determinism and held to the map's own call and `transform_deriv`, member by member, by a test
+  (`mapped_surface_traversal_tests.jl`).
+- [x] Dead code: the private `_chart_affine` is deleted, with its test.
+- [x] ONE conversion of an old grid camera body: `_current_grid_body`, shared by IO's embedded-body reader and the rig
+  v8 → v9 step. ONE test of the old grid type: `_is_old_grid_type`, used by the migration, the rig intrinsics supply and
+  the Schöps reader.
+

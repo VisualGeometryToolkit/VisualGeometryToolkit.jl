@@ -1,3 +1,29 @@
+# 0.9.3 docs pass (julia-docs-pass) — release-0.9.3
+
+The packages released: VisualGeometryToolkitCore 0.9.3 and VisualGeometryToolkitIO 0.9.2, both patches with no API
+change. The others are unchanged. The baseline is 9dc838a1 (the 0.9.2 release); the earlier passes are below.
+
+## 1. Public API since 9dc838a1
+
+None added, removed or renamed in either package. Core changes: the MappedSurface root computes with explicit fused
+products, its bits now the same at every call site (a fix); the private `_chart_affine` is deleted. IO: an embedded old
+grid camera body is now read (a fix).
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | no public name added; docstrings changed in place: `camera_from_json` (IO: the old embedded body, read in colmap), the IO kinds page |
+| CHANGELOG | Core 0.9.3 and IO 0.9.2 sections; the registered headings dated 2026-11-12 (Core 0.9.2, IO 0.9.1, Estimation 0.9.1, Features 0.8.0) |
+| versions | Core 0.9.3, IO 0.9.2 |
+| in-repo compat | none needs moving: every package's Core compat admits 0.9.3, and Eval's IO compat "0.9" admits 0.9.2 |
+
+## 3. Executed on the final RC
+
+To be filled from the final gate (Julia 1.13 and 1.12; GPU six, CPU six, docs).
+
+---
+
 # 0.9.2 docs pass (julia-docs-pass) — release-0.9.2
 
 The packages released: VisualGeometryToolkitCore 0.9.2, VisualGeometryToolkitIO 0.9.1, VisualGeometryToolkitFeatures

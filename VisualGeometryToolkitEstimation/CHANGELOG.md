@@ -24,6 +24,11 @@ non-central one is a `NoncentralSplineModel`).
   covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
   rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
+- **Breaking: two names take the verb of their kind** (conventions/naming.md): the relative-pose bundle, which needs
+  a seed, is `refine_relative_pose(pose, K1, K2, cs; max_iter)` (was `bundle_refine_relpose`; public, as before), and
+  the averaging behind the view-graph filters, a staged fit, is `fit_filtered_rotation_averaging(vg; cycle_tol,
+  orientation_tol, kwargs...)` (was `filtered_rotation_averaging`; exported, as before). Same arguments and results;
+  no aliases (the old names are retired in VisualGeometryToolkitCore's `check_naming`).
 - **The strategy keywords' internal names follow them** (no aliases): `default_local_optimization(scoring)` (the
   `ransac`/`locally_optimize` keyword's default) is `default_local_optimization_strategy`, and the fits' private
   default reader is `_fit_optimization_strategy`. Both old names are retired in VisualGeometryToolkitCore's

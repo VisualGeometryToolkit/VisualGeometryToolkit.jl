@@ -124,7 +124,7 @@ extent_trait
 
 ```@docs
 RelposeBundleProblem
-bundle_refine_relpose
+refine_relative_pose
 ```
 
 ## Configuration and Results

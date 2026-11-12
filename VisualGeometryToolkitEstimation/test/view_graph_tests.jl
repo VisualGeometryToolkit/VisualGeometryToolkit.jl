@@ -189,9 +189,9 @@ end
     @test_throws ArgumentError covisibility(og; side = :boards)
 end
 
-@testitem "filtered_rotation_averaging: the cycle and orientation filters around the averaging" begin
+@testitem "fit_filtered_rotation_averaging: the cycle and orientation filters around the averaging" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
-    using VisualGeometryToolkitEstimation: filtered_rotation_averaging, fit_rotation_averaging, ViewGraph, edgelist, nedges
+    using VisualGeometryToolkitEstimation: fit_filtered_rotation_averaging, fit_rotation_averaging, ViewGraph, edgelist, nedges
     using VisualGeometryToolkitCore: estimate, Attributed
 
     rng = Xoshiro(23)
@@ -204,17 +204,22 @@ end
     err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
 
     # no filter: the plain fit on the whole graph
-    plain = filtered_rotation_averaging(vg; scale = 1.0e-3)
+    plain = fit_filtered_rotation_averaging(vg; scale = 1.0e-3)
     @test plain.graph === vg && estimate(plain.fit) == estimate(fit_rotation_averaging(vg; scale = 1.0e-3))
     # the orientation filter removes the wrong pair and refits on the rest
-    o = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0), scale = 1.0e-3)
+    o = fit_filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0), scale = 1.0e-3)
     @test !haskey(o.graph, 4, 6) && nedges(o.graph) == length(pairs) - 1
     @test err(estimate(o.fit)) < 5.0e-3
     # the cycle filter removes it before averaging
-    c = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), scale = 1.0e-3)
+    c = fit_filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), scale = 1.0e-3)
     @test !haskey(c.graph, 4, 6) && err(estimate(c.fit)) < 5.0e-3
-    @test_throws ArgumentError filtered_rotation_averaging(vg; cycle_tol = -1.0, scale = 1.0e-3)
-    @test_throws ArgumentError filtered_rotation_averaging(vg; orientation_tol = 0.0, scale = 1.0e-3)
+    @test_throws ArgumentError fit_filtered_rotation_averaging(vg; cycle_tol = -1.0, scale = 1.0e-3)
+    @test_throws ArgumentError fit_filtered_rotation_averaging(vg; orientation_tol = 0.0, scale = 1.0e-3)
+    # the verb states the kind: the old names are gone, no aliases (retired in check_naming)
+    @test !isdefined(VisualGeometryToolkitEstimation, Symbol("filtered_rotation" * "_averaging"))
+    @test !isdefined(VisualGeometryToolkitEstimation, Symbol("bundle_refine" * "_relpose"))
+    @test :fit_filtered_rotation_averaging in names(VisualGeometryToolkitEstimation)
+    @test Base.ispublic(VisualGeometryToolkitEstimation, :refine_relative_pose)
 end
 
 # B2's Uncertain edges, `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))`, are the edges the
@@ -222,7 +227,7 @@ end
 # made an `SMatrix` of the Uncertain value, a DimensionMismatch).
 @testitem "the view-graph filters take Uncertain edges" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
-    using VisualGeometryToolkitEstimation: filtered_rotation_averaging, filter_cycles, filter_by_orientation,
+    using VisualGeometryToolkitEstimation: fit_filtered_rotation_averaging, filter_cycles, filter_by_orientation,
         rotation_loop_angle, ViewGraph, nedges
     using VisualGeometryToolkitCore: estimate, Attributed, Uncertain, CovMat
 
@@ -245,8 +250,8 @@ end
     @test !haskey(o, 4, 6) && nedges(o) == length(pairs) - 1
     @test nedges(filter_by_orientation(vg, Dict(k => Uncertain(R[k], CovMat(Σ)) for k in 1:n); tol = deg2rad(2.0))) == length(pairs) - 1
     # the filtered averaging at its tolerances: the wrong pair removed, the rest fitted (no scale: the covariances carry it)
-    fo = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
+    fo = fit_filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
     @test !haskey(fo.graph, 4, 6) && err(estimate(fo.fit)) < 5.0e-3
-    fc = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), orientation_tol = deg2rad(2.0))
+    fc = fit_filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), orientation_tol = deg2rad(2.0))
     @test !haskey(fc.graph, 4, 6) && err(estimate(fc.fit)) < 5.0e-3
 end

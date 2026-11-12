@@ -24,6 +24,8 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
+- **`check_naming` retires `bundle_refine_relpose` and `filtered_rotation_averaging`** (VisualGeometryToolkitEstimation's
+  `refine_relative_pose` and `fit_filtered_rotation_averaging`); conventions/units.md names the new one.
 - **`check_naming` retires `default_local_optimization` and `_fit_local_optimization`** (VisualGeometryToolkitEstimation's
   renames to the strategy keywords' spelling).
 - **Breaking: the Student-t priors are required everywhere** (the owner's ruling (c), 2026-11-11), as the public

@@ -276,7 +276,7 @@ ftol = 1.0e-10
 stationarity_tol = 0.05
 
 [relpose_bundle]
-# the relative-pose bundle's LM cap (its `refine!` and `bundle_refine_relpose`) on
+# the relative-pose bundle's LM cap (its `refine!` and `refine_relative_pose`) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
 # candidate steps; see [chart_lm]
 max_iter = 100

@@ -315,7 +315,7 @@ function fit_rotation_averaging(vg::ViewGraph; kwargs...)
 end
 
 """
-    filtered_rotation_averaging(vg::ViewGraph; cycle_tol = nothing, orientation_tol = nothing, kwargs...)
+    fit_filtered_rotation_averaging(vg::ViewGraph; cycle_tol = nothing, orientation_tol = nothing, kwargs...)
         -> (; fit, graph)
 
 Rotation averaging behind the two view-graph filters, as Theia's global
@@ -329,10 +329,10 @@ view graph it was fitted on (`graph`: a caller drops whatever it keyed by a
 removed edge, a sequence's tracks). A graph a filter disconnects is an
 `ArgumentError` naming that filter ([`require_connected`](@ref)).
 """
-function filtered_rotation_averaging(vg::ViewGraph; cycle_tol::Union{Nothing, Real} = nothing,
+function fit_filtered_rotation_averaging(vg::ViewGraph; cycle_tol::Union{Nothing, Real} = nothing,
                                      orientation_tol::Union{Nothing, Real} = nothing, kwargs...)
     for (name, t) in (("cycle_tol", cycle_tol), ("orientation_tol", orientation_tol))
-        t === nothing || t > 0 || throw(ArgumentError("filtered_rotation_averaging: $name = $t is not positive"))
+        t === nothing || t > 0 || throw(ArgumentError("fit_filtered_rotation_averaging: $name = $t is not positive"))
     end
     graph = cycle_tol === nothing ? vg :
         require_connected(filter_cycles(vg; tol = cycle_tol); what = "view graph after the cycle filter")

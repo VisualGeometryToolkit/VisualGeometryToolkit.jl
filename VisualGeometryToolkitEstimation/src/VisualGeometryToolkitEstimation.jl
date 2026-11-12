@@ -280,7 +280,7 @@ export optical_axis           # the radially symmetric camera closest to a camer
 export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
 export fit_rigid_alignment    # the robust rigid transform between two point sets (an ATE alignment)
 export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
-export filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
+export fit_filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
 public views, edgelist, nedges, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
@@ -358,7 +358,7 @@ public ManifoldLiftProvider, LiftableProblem
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
-public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
+public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a

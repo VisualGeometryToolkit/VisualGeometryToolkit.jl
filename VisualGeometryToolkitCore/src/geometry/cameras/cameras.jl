@@ -1268,5 +1268,11 @@ MacroTools.@forward BoundedCamera.camera (
     valid_rect, undistorted_rect, division_bounded, undistort,
     p3p, transfer, radial_homography,
 )
+# A mutating verb takes its destination first and the camera after it (Julia's order), which `@forward` cannot reach:
+# `undistort!` (and its typed and rect forms) reaches the wrapped camera by hand.
+undistort!(dst::AbstractMatrix, bc::BoundedCamera, src::AbstractMatrix, args...; kwargs...) =
+    undistort!(dst, bc.camera, src, args...; kwargs...)
+undistort!(dst::AbstractMatrix, ::Type{T}, bc::BoundedCamera, src::AbstractMatrix, args...; kwargs...) where {T <: AbstractFloat} =
+    undistort!(dst, T, bc.camera, src, args...; kwargs...)
 
 end # module Cameras

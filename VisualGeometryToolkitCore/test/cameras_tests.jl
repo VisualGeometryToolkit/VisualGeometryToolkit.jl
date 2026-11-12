@@ -223,6 +223,23 @@ end
     end
     @test all(s -> haskey(verbs, s), keys(not_forwarded))                         # every exception is a verb the scan finds
     @test !any(s -> haskey(verbs, s) && takes(BoundedCamera, verbs[s]), keys(not_forwarded))   # and none is forwarded
+    # A mutating verb (destination first, the camera after it, after an optional float type: `undistort!(dst, [T,]
+    # camera, src)`), which `@forward` cannot reach: each reaches a BoundedCamera by hand.
+    camera_arg(m, i) = (sig = Base.unwrap_unionall(m.sig); length(sig.parameters) > i ?
+        Base.rewrap_unionall(sig.parameters[i + 1], m.sig) : Union{})
+    takes_at(::Type{C}, f, i) where {C} = any(m -> (A = camera_arg(m, i); A isa Type && A !== Union{} && A !== Any &&   # a Vararg is no camera
+        (C === BoundedCamera ? BoundedCamera <: A : A <: C)), methods(f))
+    mutating = Dict{Symbol, Function}()
+    for M in (VgtkCore, VgtkCore.Cameras), s in names(M)
+        isdefined(M, s) || continue
+        f = getfield(M, s)
+        f isa Function && !(f isa Type) && endswith(String(s), "!") &&
+            any(i -> takes_at(VgtkCore.CameraModel, f, i), 2:3) && (mutating[s] = f)
+    end
+    @test haskey(mutating, :undistort!)                                           # the scan sees it
+    for (s, f) in sort!(collect(mutating); by = first)
+        @test (s, any(i -> takes_at(BoundedCamera, f, i), 2:3)) == (s, true)
+    end
 
     # a parametric and a SplineLens camera, bounded: the forwarded verbs are the camera's, inferred
     cm = CameraModel(300.0px, SA[320.0px, 240.0px]; lens = Lens(Equidistant()))
@@ -235,4 +252,9 @@ end
         @test backproject_with_jacobian(bc, [u, u]; device = KA.CPU()) == backproject_with_jacobian(cam, [u, u]; device = KA.CPU())
         @test calibration_matrix(bc) == calibration_matrix(cam)
     end
+    # the mutating verb: the bounded camera's in-place undistortion is its camera's, in every form
+    bc = BoundedCamera(cm, Size2(640, 480))
+    src = rand(Float32, 480, 640)
+    @test VgtkCore.undistort!(similar(src), bc, src) == VgtkCore.undistort!(similar(src), cm, src)
+    @test VgtkCore.undistort!(similar(src), Float32, bc, src) == VgtkCore.undistort!(similar(src), Float32, cm, src)
 end

@@ -11,10 +11,11 @@ Feature detection and descriptor matching.
   stacked matcher over many galleries ([`nn_match_stacked`](@ref)).
 - **LoMa:** the learned DeDoDe descriptors and LoMa matchers, from the authors' ONNX
   exports ([`LoMaDescriptor`](@ref), [`LoMaMatcher`](@ref)).
-- **Camera RAW:** the stack's one RAW path. [`load_raw`](@ref) reads a Bayer RAW file as
-  exact linear values on the 2×2 Bayer cells (the green-cell image for geometry and
-  radiometry, or R G B), with saturation flags, true sample positions and the exact frame
-  map onto the raw ([`raw_frame_map`](@ref)); a display-only demosaic for figures.
+- **Camera RAW:** the stack's one RAW path. [`load_raw`](@ref) decodes a Bayer RAW file
+  (LibRaw) into VisualGeometryToolkitCore's `RawMosaic` and its exact linear values on the
+  2×2 Bayer cells (`LinearRaw`: the green-cell image for geometry and radiometry, or R G B),
+  with saturation flags, true sample positions and the exact frame map onto the raw (Core's
+  `raw_frame_map`, re-exported); a display-only demosaic for figures, of a file or a mosaic.
 - **Extensions:** JLD2 backs [`FileCache`](@ref); Makie draws detections and correspondences;
   LibRaw_jll is the RAW decoder.
 """
@@ -45,8 +46,11 @@ using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, 
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
-using VisualGeometryToolkitCore: Frame, PixelFrame, SimilarityMap, LinearMap, Translation, relabel, scale, translation, pixel_centre   # the RAW cell grid's frame map and pixel centres (raw_image.jl)
-using LinearAlgebra: UniformScaling, isposdef
+# The sensor image, Core's since 0.9.2 (moved from raw_image.jl; Features keeps the decoder and the display demosaic):
+# imported to re-export, the same bindings, so every caller of Features' names reaches Core's objects.
+using VisualGeometryToolkitCore: RawMosaic, LinearRaw, BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites,
+    raw_coordinates, raw_provenance, cfa_string, photosite_colors, green_cells
+using LinearAlgebra: isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
@@ -156,13 +160,15 @@ export gray_f32, gray_u8        # the input ladders every detector-side entry po
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
 export srgb_image               # the one display encoding: exposure, white balance, NaN → background, tone, clamp, sRGB, N0f8/N0f16
 public srgb_to_linear, linear_to_srgb, box_downsample, gaussian_blur   # the sRGB decode and encode; gaussian_blur: the (masked) separable Gaussian of a linear image
-export load_raw, load_raw_mosaic   # a camera RAW file as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
-export LinearRaw, RawMosaic, RawDecoder, LibRawDecoder
+export load_raw, load_raw_mosaic   # a camera RAW file (or a mosaic) as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
+export RawDecoder, LibRawDecoder
+# Re-exported from VisualGeometryToolkitCore (the same bindings: moved there in 0.9.2, so no caller of Features breaks)
+export LinearRaw, RawMosaic
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
-export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the cell grid's and each plane's exact map onto the raw, a green cell's footprint
-export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
-public raw_provenance        # decoder, mode, LibRaw version and frame map, as plain data
-public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
+export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # Core's (re-exported): a plane's frame, its exact map onto the raw, a green cell's footprint
+export raw_coordinates          # Core's (re-exported): THE accessor of an image's sensor-pixel coordinates
+public raw_provenance        # Core's (re-exported): decoder, mode, LibRaw version and frame map, as plain data
+public cfa_string, photosite_colors   # Core's (re-exported): the pattern as letters; each photosite's colour index
 export load_raw_metadata        # a RAW file's EXIF fields alone (no photosites decoded)
 public exposure_settings, lens_settings, body_identity, lens_identity, capture_time   # a RAW's EXIF as Core's typed values
 export extract_capture_settings # frame index → RAW metadata in, Core's CaptureSettings out

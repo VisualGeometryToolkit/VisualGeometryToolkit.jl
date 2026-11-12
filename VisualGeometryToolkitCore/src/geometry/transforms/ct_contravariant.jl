@@ -207,6 +207,38 @@ region a lens without an image circle images (`valid_domain`), beside the
 `Circle` and `Ellipse` actions, so a region is mapped without testing its type.
 """
 @inline (S::SimilarityMap{2})(w::WholePlane) = w
+
+"""
+    (S::SimilarityMap{2})(r::Rect{2}) -> Rect{2, Float64}
+    (S::SimilarityMap{2})(s::RegionIntersection) -> RegionIntersection
+
+The similarity's action on a region: a `Rect`'s image is the axis-aligned
+`Rect` of its mapped corners, defined when the rotation is exactly a multiple of
+90° (its matrix entries are `0` and `±1`: the scalings, translations and
+quarter turns of the pixel-frame maps, a Bayer plane's map among them). Its widths are
+`s` times the widths (swapped by a quarter turn), exactly. Any other rotation
+turns a rectangle off the axes, which a `Rect` cannot hold: an
+`ArgumentError`. An intersection maps part by part (`S(a ∩ b) = S(a) ∩ S(b)`,
+each part by its own action, so `p ∈ s ⟺ S(p) ∈ S(s)` up to rounding), and
+with the `Ellipse`, `Circle` and [`WholePlane`](@ref
+VisualGeometryToolkitCore.Primitives.WholePlane) actions every region
+[`pixel_mask`](@ref) reads maps without testing its type.
+"""
+@inline function (S::SimilarityMap{2})(r::Rect{2})
+    R = SMatrix{2, 2}(S.R)
+    all(x -> x == 0 || abs(x) == 1, R) || _refuse_turned_rect(S)
+    o = SVector{2, Float64}(GeometryBasics.origin(r))
+    w = SVector{2, Float64}(GeometryBasics.widths(r))
+    a, b = S(o), S(o + w)
+    lo = min.(a, b)
+    wd = S.s * (abs.(R) * w)
+    return Rect{2, Float64}(Vec2{Float64}(lo[1], lo[2]), Vec2{Float64}(wd[1], wd[2]))
+end
+@noinline _refuse_turned_rect(S) = throw(ArgumentError(
+    "a SimilarityMap acts on a Rect only when its rotation is a multiple of 90° (the image is then axis-aligned); " *
+        "this one turns by $(rad2deg(_rigid_angle(S.R)))°: map the corners, or an Ellipse"
+))
+@inline (S::SimilarityMap{2})(s::RegionIntersection) = RegionIntersection(S(s.a), S(s.b))
 @inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
     V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
     n′ = S.R * normal(l)

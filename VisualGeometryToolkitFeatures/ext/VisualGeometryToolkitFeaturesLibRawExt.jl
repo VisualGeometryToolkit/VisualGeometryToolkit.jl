@@ -46,6 +46,7 @@ module VisualGeometryToolkitFeaturesLibRawExt
 
 using LibRaw_jll: LibRaw_jll, libraw
 using VisualGeometryToolkitFeatures: VisualGeometryToolkitFeatures, LibRawDecoder, RawMosaic
+using VisualGeometryToolkitCore: photosite_colors   # a mosaic's colour phase, Core's one rule (the in-memory demosaic)
 
 # ---- mirrored structures (libraw_types.h, LibRaw 0.22) ----------------------
 
@@ -285,6 +286,64 @@ end
 VisualGeometryToolkitFeatures._decode_demosaic(::LibRawDecoder, path::AbstractString) = _with_libraw(path, "load_raw") do lr
     _unpack(lr, path)
     return _demosaiced(lr, path)
+end
+
+# The display demosaic of a mosaic in memory (a decoded one, or one corrected per photosite): its photosites handed to
+# LibRaw as a Bayer buffer (`libraw_open_bayer`, the visible area itself, no margins), its colour phase at its first
+# photosite (Core's `photosite_colors`), and its levels written where LibRaw reads them (`color.black`, `cblack[0…3]`,
+# `maximum`, in the unpacked `rawdata` copy that `dcraw_process` restores from and in the live structures that the
+# mosaic's layout checks compare it with); then the one demosaic, `_demosaiced`. The layout LibRaw then reports — the
+# colour phase, the per-channel black levels (`_per_channel_black`), the white level — must be the mosaic's: a check, so
+# a buffer LibRaw read otherwise is refused, never demosaiced.
+const _OPENBAYER = Dict("RGGB" => 0x94, "BGGR" => 0x16, "GRBG" => 0x61, "GBRG" => 0x49)   # LIBRAW_OPENBAYER_*
+
+VisualGeometryToolkitFeatures._decode_demosaic(::LibRawDecoder, m::RawMosaic) = _demosaic_mosaic(m)
+
+function _demosaic_mosaic(m::RawMosaic)
+    H, W = size(m)
+    H >= 2 && W >= 2 || throw(ArgumentError("load_raw: a $(H)×$(W) mosaic holds no 2×2 cell to demosaic"))
+    letters(c) = "RGBG"[Int(c) + 1]
+    cell = photosite_colors(view(m, 1:2, 1:2))
+    phase = String([letters(cell[1, 1]), letters(cell[1, 2]), letters(cell[2, 1]), letters(cell[2, 2])])
+    code = get(_OPENBAYER, phase, nothing)
+    code === nothing && throw(ArgumentError("load_raw: LibRaw demosaics a 2×2 Bayer mosaic; this one's cell reads $phase"))
+    whole(x) = isinteger(x) && 0 <= x <= typemax(UInt16)
+    all(whole, m.black) && whole(m.white) ||
+        throw(ArgumentError("load_raw: LibRaw holds whole black and white levels (codes); this mosaic's are $(m.black) and $(m.white)"))
+    common = minimum(m.black)
+    buf = collect(reinterpret(UInt8, vec(permutedims(Array(parent(m))))))   # row-major, little-endian UInt16 (LibRaw's Bayer buffer)
+    lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
+    lr == C_NULL && error("load_raw: libraw_init failed")
+    what = "a $(H)×$(W) mosaic in memory"
+    try
+        GC.@preserve buf begin
+            rc = @ccall libraw.libraw_open_bayer(lr::Ptr{Cvoid}, buf::Ptr{UInt8}, length(buf)::Cuint, W::Cushort, H::Cushort,
+                0::Cushort, 0::Cushort, 0::Cushort, 0::Cushort, 0::Cuchar, code::Cuchar, 0::Cuint, 0::Cuint, UInt32(common)::Cuint)::Cint
+            rc == 0 || error("load_raw: LibRaw cannot open $what: $(_strerror(rc))")
+            _unpack(lr, what)
+            s = _structures(lr)
+            rcolor_p = _fieldptr(_rawdata_ptr(s.other_p), RawData, :color)
+            for color_p in (s.color_p, rcolor_p)
+                unsafe_store!(Ptr{UInt32}(_fieldptr(color_p, ColorData, :black)), UInt32(common))
+                unsafe_store!(Ptr{UInt32}(_fieldptr(color_p, ColorData, :maximum)), UInt32(m.white))
+                cb_p = Ptr{UInt32}(_fieldptr(color_p, ColorData, :cblack))
+                for c in 0:3                                         # cblack[c] of colour index c; no spatial pattern
+                    unsafe_store!(cb_p, UInt32(m.black[c + 1] - common), c + 1)
+                end
+                unsafe_store!(cb_p, UInt32(0), 5); unsafe_store!(cb_p, UInt32(0), 6)
+            end
+            layout = _mosaic_layout(lr, what)
+            same(p) = map(c -> c == 0x03 ? 0x01 : c, p)              # LibRaw marks a second green 3, or not
+            tile(p) = [p[mod1(i, size(p, 1)), mod1(j, size(p, 2))] for i in 1:2, j in 1:2]
+            (same(tile(layout.pattern)) == same(cell) && layout.black == m.black && layout.white == m.white) ||
+                error("load_raw: LibRaw read $what as $(layout.pattern) with levels $(layout.black), $(layout.white); " *
+                      "the mosaic's are $cell, $(m.black), $(m.white)")
+            rgb, _ = _demosaiced(lr, what)
+            return rgb, m.metadata
+        end
+    finally
+        @ccall libraw.libraw_close(lr::Ptr{Cvoid})::Cvoid
+    end
 end
 
 # The file's metadata alone: the headers, no unpack.

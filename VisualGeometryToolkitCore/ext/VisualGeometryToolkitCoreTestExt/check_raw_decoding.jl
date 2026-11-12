@@ -3,7 +3,9 @@
 # =============================================================================
 #
 # Every RAW → image step lives in VisualGeometryToolkitFeatures' raw module
-# (src/raw_image.jl, ext/VisualGeometryToolkitFeaturesLibRawExt.jl). This scan
+# (src/raw_image.jl, ext/VisualGeometryToolkitFeaturesLibRawExt.jl: the decoder and
+# the display demosaic) or in VisualGeometryToolkitCore's sensor image (src/raw/:
+# the mosaic and its linear values). This scan
 # flags a decoding library or a colour-filter interpolation used anywhere else,
 # line by line, in code only: Julia files without their comments and
 # docstrings (Julia's own tokenizer separates them), Python, shell, TOML and
@@ -71,15 +73,19 @@ end
 _allowed(f, a::AbstractString) = f == a
 _allowed(f, a::Regex) = occursin(a, f)
 
-# The one allowed place: the raw module of the package that owns it, and its tests.
-const _RAW_MODULE_PACKAGE = "VisualGeometryToolkitFeatures"
-const _RAW_MODULE_FILES = ("src/raw_image.jl", "ext/VisualGeometryToolkitFeaturesLibRawExt.jl", "test/raw_image_tests.jl")
+# The one allowed place, per owning package: Features' decoder and display demosaic (its raw module, the LibRaw_jll
+# extension, their tests), and Core's sensor image (the mosaic, its linear values and their tests), which names the
+# display mode it refuses.
+const _RAW_MODULE_FILES = Dict(
+    "VisualGeometryToolkitFeatures" => ("src/raw_image.jl", "ext/VisualGeometryToolkitFeaturesLibRawExt.jl", "test/raw_image_tests.jl"),
+    "VisualGeometryToolkitCore" => ("src/raw/raw_mosaic.jl", "src/raw/linear_raw.jl", "test/raw_mosaic_tests.jl"),
+)
 
 function check_raw_decoding(dir::AbstractString; allow = ())
     allow isa Union{AbstractString, Regex} && (allow = (allow,))   # one exception, given bare
     (; files) = naming_scope(dir)
     # (`_package_name` is check_naming's reader of the Project.toml name)
-    allowed = _package_name(dir) == _RAW_MODULE_PACKAGE ? Set(_RAW_MODULE_FILES) : Set{String}()
+    allowed = Set{String}(get(_RAW_MODULE_FILES, _package_name(dir), ()))
     out = RawDecodingViolation[]
     for f in files
         any(e -> endswith(f, e), _RAW_CODE_EXTENSIONS) || continue

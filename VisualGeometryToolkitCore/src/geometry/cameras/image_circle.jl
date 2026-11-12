@@ -214,6 +214,21 @@ pixel_mask(region, width::Integer, height::Integer) =
     BitMatrix([_pixel_centre(u, v) ∈ region for v in 1:Int(height), u in 1:Int(width)])
 
 """
+    pixel_mask(region, frame_map, width, height) -> BitMatrix
+
+The pixels of a `width × height` image whose centres, mapped by `frame_map` into
+the frame `region` is stated in, lie in it: `mask[v, u]` is
+`frame_map((u − ½, v − ½)) ∈ region`. For an image on another pixel lattice than
+the region's — a Bayer plane or channel against a region on the sensor
+(`pixel_mask(imaged_region(camera), bayer_plane_map(L, c), w, h)`), a window of
+a mosaic (`raw_frame_map(m)`) — the membership is decided in the region's own
+frame, at each pixel's mapped centre, never by mapping the region. Without a
+map it is [`pixel_mask`](@ref)`(region, width, height)` (the identity).
+"""
+pixel_mask(region, frame_map::CoordinateTransformations.Transformation, width::Integer, height::Integer) =
+    BitMatrix([Point2{Float64}(frame_map(SVector{2, Float64}(_pixel_centre(u, v)))) ∈ region for v in 1:Int(height), u in 1:Int(width)])
+
+"""
     pixel_centres(region, us, vs) -> Vector{SVector{2, Float64}}
 
 The COLMAP centres `(u − ½, v − ½)` of the pixels `(u, v)`, `u ∈ us`, `v ∈ vs`

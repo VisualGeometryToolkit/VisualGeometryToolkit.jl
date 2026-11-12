@@ -206,10 +206,9 @@ function _robot_world_hand_eye_result(
     dof, RSS, rms, support = if strategy === nothing
         length(r) - N, sum(abs2, r), sqrt(sum(abs2, r) / rms_rows), n
     else
-        rss_w = sum(weights[k] * sum(abs2, view(r, (w * (k - 1) + 1):(w * k))) for k in 1:n if weights[k] > 0; init = 0.0)
-        sum_w = sum(weights)
+        used, sum_w, rss_w = _weighted_support(weights, (sum(abs2, view(r, (w * (k - 1) + 1):(w * k))) for k in 1:n))
         dof_w = w * sum_w - N
-        round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), count(>(0), weights)
+        round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), used
     end
     s2 = strategy === nothing ? RSS / dof : RSS / max(w * sum(weights) - N, eps())
     λ_min, v_min, cov = if all(isfinite, J)

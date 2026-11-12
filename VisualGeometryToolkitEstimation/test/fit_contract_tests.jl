@@ -8,7 +8,7 @@
 @testsetup module FitContractScenes
     using Random, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ, rotation_angle
-    export contract_linear, contract_rotation, contract_averaging, contract_points, CONTRACT_FITS
+    export contract_linear, contract_rotation, contract_averaging, contract_points, contract_handeye, CONTRACT_FITS
     export Xoshiro, normalize, norm, SVector, SMatrix, RotMatrix, RotXYZ, rotation_angle,
         Csponds, EuclideanMap, rotation, translation, estimate, VgtkCore, VgtkEstimation
     using VisualGeometryToolkitCore: Csponds, EuclideanMap, rotation, translation, estimate
@@ -36,12 +36,30 @@
         as = [SVector{3, Float64}(4 .* randn(rng, 3)) for _ in 1:n]
         return Csponds(as, [R * a + t for a in as]), R, t
     end
-    # fit(scale/width keywords...) for each of the five fits, on clean data
+    # robot-world hand-eye: N frames × M markers, a little pose noise (1e-4 rad / 1e-4); its robust fit whitens by the
+    # given σ_rot = σ_trans = σ (1e-2), so scale and width are in whitened units and the clean residuals sit well inside
+    # the widths the contract items use
+    function contract_handeye(; seed = 4, N = 12, M = 2, noise = 1.0e-4, σ = 1.0e-2)
+        rng = Xoshiro(seed)
+        rot(s) = SMatrix{3, 3, Float64, 9}(RotMatrix(RotXYZ((s .* randn(rng, 3))...)))
+        E(R, t) = EuclideanMap(R, SVector{3, Float64}(t))
+        Y = E(rot(1.0), 0.5 .* randn(rng, 3)); X = [E(rot(0.5), 0.3 .* randn(rng, 3)) for _ in 1:M]
+        A = [E(rot(1.0), randn(rng, 3)) for _ in 1:N]
+        markers = Dict(m => [let B = inv(Y) ∘ A[i] ∘ X[m]
+                                 A[i] => E(SMatrix{3, 3, Float64, 9}(VgtkCore.exp_so3(noise .* randn(rng, SVector{3, Float64}))) * rotation(B),
+                                           translation(B) + noise .* randn(rng, SVector{3, Float64}))
+                             end for i in 1:N] for m in 1:M)
+        return markers, σ
+    end
+    # fit(scale/width keywords...) for each of the five fits, on clean data (the hand-eye at its whitening σ)
     const CONTRACT_FITS = (
         (:fit_linear, 1, kw -> VgtkEstimation.fit_linear(contract_linear()...; kw...)),
         (:fit_rotation, 2, kw -> VgtkEstimation.fit_rotation(contract_rotation(); kw...)),
         (:fit_rotation_averaging, 3, kw -> VgtkEstimation.fit_rotation_averaging(contract_averaging(); kw...)),
         (:fit_rigid_alignment, 3, kw -> VgtkEstimation.fit_rigid_alignment(first(contract_points()); kw...)),
+        (:fit_robot_world_hand_eye, 6, kw -> let (markers, σ) = contract_handeye()
+            VgtkEstimation.fit_robot_world_hand_eye(markers; σ_rot = σ, σ_trans = σ, kw...)
+        end),
     )
 end
 
@@ -80,7 +98,14 @@ end
 
 @testitem "fit contract: the scale record, the width rule, the weights and their kind" setup = [FitContractScenes] begin
     using Test
-    using VisualGeometryToolkitEstimation: Irls
+    using VisualGeometryToolkitEstimation: Irls, LinearFitMetadata, RotationFitMetadata, RigidAlignmentMetadata,
+        RotationAveragingMetadata
+    # each metadata through its outer constructor (the strategy type given, the weights' type inferred)
+    _remade(m::LinearFitMetadata{L}) where {L} = LinearFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
+    _remade(m::RotationFitMetadata{L}) where {L} = RotationFitMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
+    _remade(m::RigidAlignmentMetadata{L}) where {L} = RigidAlignmentMetadata{L}(m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
+    _remade(m::RotationAveragingMetadata{K, L}) where {K, L} =
+        RotationAveragingMetadata{K, L}(m.edges, m.weights, m.residuals, m.scale, m.scale_source, m.loss_width)
     using VisualGeometryToolkitCore: HuberShape, WelschShape, TLSShape, noise_scale, scale_source, weights, weight_kind,
         inlier_mask, ScaleGiven, ScaleUpstream, ScaleNone, BinaryWeights, IrlsWeights, efficiency_constant
     for (name, d, fit) in CONTRACT_FITS
@@ -118,6 +143,18 @@ end
                 @inferred weight_kind(x)
             end
             @test (@inferred noise_scale(r)) === 0.02
+            # the metadata constructors are inferable (the robust record and the least-squares one)
+            # n and rms are the stack's one weighted support/rms rule (unit priors here: the solve weights are the weights)
+            if name !== :fit_robot_world_hand_eye
+                sq = name === :fit_rotation_averaging ? [abs2(r.residuals[e]) for e in r.edges] : abs2.(r.residuals)
+                @test (r.n, r.rms) === VgtkEstimation._weighted_support_rms(weights(r), sq)
+            end
+            if name !== :fit_robot_world_hand_eye                     # its metadata is _robot_world_hand_eye_result's
+                for x in (r, l2)
+                    m = x.metadata
+                    @test (@inferred _remade(m)) isa typeof(m)
+                end
+            end
         end
     end
 end
@@ -216,7 +253,7 @@ end
     using VisualGeometryToolkitEstimation: Irls, optimization_strategy_from_toml, _dflt
     using VisualGeometryToolkitCore: HuberShape
     for (name, _, fit) in CONTRACT_FITS
-        name === :fit_rigid_alignment && continue                       # its default is least squares (no table strategy)
+        name in (:fit_rigid_alignment, :fit_robot_world_hand_eye) && continue   # their default is least squares (no table strategy)
         lo = optimization_strategy_from_toml(_dflt(String(name), "optimization_strategy"); class = name)
         @test lo isa Irls{HuberShape}                                   # Huber where accuracy matters (owner's ruling)
         @test lo.max_iter == (name === :fit_rotation_averaging ? 100 : 50)  # the table's, not a bare Irls's 25

@@ -128,8 +128,7 @@ function fit_linear(
     end
     _irls_weights!(w, f, r)                   # the metadata at the returned coefficients
     sw = _solve_weights(p, w)
-    used = count(>(0), sw)
-    rms = sqrt(sum(sw[i] * abs2(r[i]) for i in eachindex(r) if sw[i] > 0; init = 0.0) / max(sum(sw), eps()))
+    used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
     return FitResult(x, retcode, iter, rms, used, LinearFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 

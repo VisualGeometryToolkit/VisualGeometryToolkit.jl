@@ -123,8 +123,8 @@ function fit_rigid_alignment(
     end
     _irls_weights!(w, f, r)                           # the metadata at the returned transform
     sw = _solve_weights(prior, w)
-    rms = sqrt(sum(sw[i] * abs2(r[i]) for i in eachindex(r) if sw[i] > 0; init = 0.0) / max(sum(sw), eps()))
-    return FitResult(T, retcode, iter, rms, count(>(0), sw),
+    used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
+    return FitResult(T, retcode, iter, rms, used,
                      RigidAlignmentMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 

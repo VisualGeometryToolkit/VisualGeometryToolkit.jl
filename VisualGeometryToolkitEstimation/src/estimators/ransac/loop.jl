@@ -711,28 +711,39 @@ end
 _support_rms!(::PosteriorWeights, w::AbstractVector, r::AbstractVector, _order, _residuals, _k::Int) =
     _posterior_support_rms!(w, (abs2(Float64(x)) for x in r))
 
-# The `n` and `rms` of a result whose weights are posteriors (the contract, §12),
-# the one rule of the `find_*` results under a posterior scorer and of the EM fits
-# (`fit_residual_mixture`, `fit_division_camera`): a weight below `eps(T)` is stored
-# in `w` as an exact 0 (out of the support), then `n` is the support and
-# `rms = √(Σ wᵢ sqᵢ / Σ wᵢ)` over it, the sums in Float64; `sq` holds the squared
-# residuals (Float64), one per weight.
-function _posterior_support_rms!(w::AbstractVector{T}, sq) where {T}
+# The `n` and `rms` of every weighted result (the contract, §12) — the ONE rule, shared
+# by the `find_*` results under a posterior scorer, the EM fits and the reweighted fits
+# (fit_linear, fit_rotation, fit_rotation_averaging, fit_rigid_alignment,
+# fit_robot_world_hand_eye): over the support (every weight but an exact 0; weights
+# are non-negative, so a NaN counts and makes the rms NaN), in index order and in
+# Float64, `n` the support, `sw = Σ wᵢ` and `swsq = Σ wᵢ sqᵢ`; `sq` holds the squared
+# residuals, one per weight. Pure: it reads `w`.
+function _weighted_support(w::AbstractVector, sq)
     length(sq) == length(w) || throw(DimensionMismatch("$(length(w)) weights, $(length(sq)) squared residuals"))
     n = 0
     sw = 0.0
-    swr2 = 0.0
+    swsq = 0.0
     @inbounds for (i, s) in zip(eachindex(w), sq)
         wi = w[i]
-        if wi < eps(T)
-            w[i] = zero(T)
-            continue
-        end
+        iszero(wi) && continue
         n += 1
         sw += Float64(wi)
-        swr2 += Float64(wi) * s
+        swsq += Float64(wi) * s
     end
-    return n, (sw > 0 ? sqrt(swr2 / sw) : NaN)
+    return n, sw, swsq
+end
+# `n` and `rms = √(Σ wᵢ sqᵢ / Σ wᵢ)` (NaN without support).
+function _weighted_support_rms(w::AbstractVector, sq)
+    n, sw, swsq = _weighted_support(w, sq)
+    return n, (sw > 0 ? sqrt(swsq / sw) : NaN)
+end
+# Posterior weights: a posterior below `eps(T)` is first stored in `w` as an exact 0
+# (out of the support), then the one rule.
+function _posterior_support_rms!(w::AbstractVector{T}, sq) where {T}
+    @inbounds for i in eachindex(w)
+        w[i] < eps(T) && (w[i] = zero(T))
+    end
+    return _weighted_support_rms(w, sq)
 end
 
 # =============================================================================

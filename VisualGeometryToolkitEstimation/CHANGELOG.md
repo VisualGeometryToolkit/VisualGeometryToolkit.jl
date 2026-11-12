@@ -34,6 +34,12 @@ non-central one is a `NoncentralSplineModel`).
   retired: `plain_scale_multiple` and `deployed_shape` are removed, and `Irls{GemanMcclureShape}(efficiency_constant = c)`
   deploys at `c·ŝ`. Stored Geman–McClure values were migrated at full precision (`decision_width(GM, m)`; the
   `currency migration` test item lists every one, the ports' included), so results are bit-identical.
+- **One weighted support/rms rule** (the owner's dedup rule): `fit_linear`, `fit_rotation`, `fit_rotation_averaging`,
+  `fit_rigid_alignment` and the robust `fit_robot_world_hand_eye` compute `n` (the support, every non-zero solve
+  weight) and `rms` (√(Σ wᵢrᵢ²/Σ wᵢ) over it, the sums in Float64 in index order) with the one helper the `find_*`
+  posterior results and the EM fits use (whose posterior form stores a weight below eps as 0 first). `n` is unchanged;
+  `rms` moves by at most 3 ulp (relative 5.6e-16) on B2's scenes (Σ wᵢ is now summed in order, as the posterior rule always did, where
+  the fits summed it with Base's pairwise `sum`). The least-squares hand-eye report is unchanged.
 - **`fit_rotation_averaging(…; optimization_strategy = nothing)` is the plain least squares** (the owner's ruling,
   "nothing = L2"): the Lie-algebra iterations from the seed at unit loss weights, at most `[fit_rotation_averaging]
   max_iter` (new key, 100), retcode `:converged`/`:max_iterations`. It no longer returns the seed alone; the seed is

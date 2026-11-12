@@ -127,8 +127,8 @@ function fit_rotation(
     end
     _irls_weights!(w, f, r)                    # the metadata at the returned rotation
     sw = _solve_weights(prior, w)
-    rms = sqrt(sum(sw[i] * abs2(r[i]) for i in eachindex(r) if sw[i] > 0; init = 0.0) / max(sum(sw), eps()))
-    return FitResult(R, retcode, iter, rms, count(>(0), sw), RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+    used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
+    return FitResult(R, retcode, iter, rms, used, RotationFitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 function _unit_direction(v, i)

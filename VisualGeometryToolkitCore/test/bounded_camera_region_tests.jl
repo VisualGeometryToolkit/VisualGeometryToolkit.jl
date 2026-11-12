@@ -172,3 +172,35 @@ end
         end
     end
 end
+
+# The lens coverage less a rim margin (cameras.jl, hoisted from PanoramaStitching's frame region and RadiometricCamera's
+# image circle less its rim): the kind kept, a circle's radius and an ellipse's semi-axes less the margin, a Rect inset
+# only on a side inside the sensor (the sensor's own edge is not the lens's), `nothing` when nothing is left.
+@testitem "lens_coverage less a rim margin" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: lens_coverage, with_lens_coverage
+    using StaticArrays
+
+    m = CameraModel(1754.7px, SA[2133.6px, 1422.5px]; lens = KannalaBrandt(0.2468, 0.1505, -0.0214, 0.1308))
+    W, H = 4256, 2848
+    circ = BoundedCamera(m, Size2(W, H); lens_coverage = Circle(Point2(2131.1, 1407.9), 1680.1))
+    c = lens_coverage(circ, 24.0)
+    @test c isa Circle{Float64} && c.center == Point2(2131.1, 1407.9) && c.r == 1680.1 - 24.0
+    @test lens_coverage(circ, 0.0) == lens_coverage(circ)
+    @test lens_coverage(circ, 1680.1) === nothing
+    ell = BoundedCamera(m, Size2(W, H); lens_coverage = Ellipse(Point2(2133.9, 1423.7), 1611.8, 1607.8, 1.5777))
+    e = lens_coverage(ell, 10)
+    @test e isa Ellipse{Float64} && e.a == lens_coverage(ell).a - 10 && e.b == lens_coverage(ell).b - 10 && e.θ == lens_coverage(ell).θ && e.center == Point2(2133.9, 1423.7)
+    @test lens_coverage(ell, 1607.8) === nothing
+    # the whole sensor lit: nothing lost to the margin
+    whole = BoundedCamera(m, Size2(W, H))
+    @test lens_coverage(whole, 24.0) == Rect2{Float64}(0, 0, W, H)
+    # a lit Rect inside the sensor on its left and top: inset there only
+    part = BoundedCamera(m, Size2(W, H); lens_coverage = Rect2{Float64}(100, 50, W - 100, H - 50))
+    @test lens_coverage(part, 24.0) == Rect2{Float64}(124, 74, W - 124, H - 74)
+    @test lens_coverage(BoundedCamera(m, Size2(W, H); lens_coverage = Rect2{Float64}(100, 50, 30, 30)), 24.0) === nothing
+    # what the camera images away from the rim: the imaged region of the camera with that coverage
+    r = imaged_region(with_lens_coverage(circ, c))
+    @test Point2(2131.1, 1407.9) ∈ r && !(Point2(2131.1 + 1680.1 - 20.0, 1407.9) ∈ r) && Point2(2131.1 + 1680.1 - 20.0, 1407.9) ∈ imaged_region(circ)
+end

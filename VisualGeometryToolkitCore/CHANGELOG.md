@@ -14,6 +14,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **`Attributed` delegates by `MacroTools.@forward`**, the stack's one idiom (as `BoundedCamera`): the hand-written
   `iterate` of a wrapped Pair and `getindex`/`length`/`size` of a wrapped vector are two `@forward` lines. Behaviour is
   unchanged (the same types; `a.value` is `getfield(a, :value)`).
+- **`chisq_median` is retired** (refused by name, `check_naming`'s retired list): the median of `χ²_d` is
+  Distributions' `quantile(Chisq(d), 0.5)`, called directly as every χ² quantile in the stack is (owner, 2026-11-12: one
+  χ² quantile, Distributions'). `mad_scale` and `_mad_scale_norms` compute it inline, bit-identical (the same call).
 - **`check_naming` retires `LO_TAGS`** (VisualGeometryToolkitEstimation's strategy registry, now
   `OPTIMIZATION_STRATEGY_TAGS`; beside LocalOptimizationDoneRight's `LODR_STRATEGY_TAGS` and PoseLib's
   `POSELIB_STRATEGY_TAGS`).

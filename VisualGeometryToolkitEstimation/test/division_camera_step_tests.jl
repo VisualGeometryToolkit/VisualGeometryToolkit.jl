@@ -5,6 +5,7 @@
 @testitem "division_camera_step" setup = [DivisionBoards] begin
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test
+    using Distributions: Chisq, quantile
     using StaticArrays: SVector, SMatrix, @SMatrix
     using Rotations: RotXYZ
     using VisualGeometryToolkitCore: HomographyMat, LogicalIntrinsics, CameraModel, intrinsics, lens, focal_length,
@@ -174,7 +175,7 @@
             # the trimmed refits keep the rows inside a TLS loss at efficiency_constant × σ̂ (σ̂ Core's mad_scale of
             # the lift's residual norms, codimension 2), the multiple the file's, three medians of the norms
             msm = RVG._dflt("fit_division_camera", "branch_audit_efficiency_constant")
-            @test msm ≈ 3 * sqrt(RVG.VgtkCore.chisq_median(2)) rtol = 1.0e-15
+            @test msm ≈ 3 * sqrt(quantile(Chisq(2), 0.5)) rtol = 1.0e-15
             bo = copy(b1); bo[1:5] .= [p.first => p.second .+ 40.0 for p in bo[1:5]]   # five gross outliers
             score, _ = RVG._branch_residual(cands[itrue]..., bo, f0, λs)
             r² = zeros(length(bo)); use = trues(length(bo))

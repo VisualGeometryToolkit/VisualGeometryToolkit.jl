@@ -9,16 +9,16 @@
     using StaticArrays
     using Random
     using Statistics
-    using Distributions: Chi, Normal, pdf, quantile
+    using Distributions: Chi, Chisq, Normal, pdf, quantile
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: mad_scale, chisq_median, efficiency_constant, weight,
+    using VisualGeometryToolkitCore: mad_scale, efficiency_constant, weight,
         WelschShape, CauchyShape, GemanMcclureShape
     const CHar = VgtkCore.Synthetic
 
     @testset "mad_scale: calibrated against its asymptotic variance (d = 1, 2, 6)" begin
-        # σ̂ = median‖r‖/√q, q = chisq_median(d): the sample median of σ·χ_d norms has
+        # σ̂ = median‖r‖/√q, q = quantile(Chisq(d), 0.5): the sample median of σ·χ_d norms has
         # asymptotic variance 1/(4n·f(m)²), so Var(σ̂) = σ²/(4n·q·f_χd(√q)²)
-        predicted_var(σ, n, d) = (q = chisq_median(d); f = pdf(Chi(d), sqrt(q)); σ^2 / (4 * n * q * f^2))
+        predicted_var(σ, n, d) = (q = quantile(Chisq(d), 0.5); f = pdf(Chi(d), sqrt(q)); σ^2 / (4 * n * q * f^2))
         sigma_trial(d, n, σ) = rng -> begin
             residuals = [SVector{d}(σ * randn(rng, d)) for _ in 1:n]
             ([mad_scale(residuals) - σ], fill(predicted_var(σ, n, d), 1, 1))
@@ -49,11 +49,11 @@
 
     @testset "mad_scale: residual vectors, centred on the model" begin
         rs = [SVector(3.0, 4.0), SVector(0.0, 1.0), SVector(6.0, 8.0)]          # norms 5, 1, 10
-        @test @inferred(mad_scale(rs)) == 5.0 / sqrt(chisq_median(2))
+        @test @inferred(mad_scale(rs)) == 5.0 / sqrt(quantile(Chisq(2), 0.5))
         @test mad_scale(rs) === VgtkCore._mad_scale_norms(; norms = [5.0, 1.0, 10.0], codimension = 2)   # the internal norms form
         @test_throws MethodError mad_scale(; norms = [5.0, 1.0, 10.0], codimension = 2)                   # no public norms form
-        @test mad_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(chisq_median(1))   # d = 1: |r|, no centring
-        @test mad_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(chisq_median(2))
+        @test mad_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(quantile(Chisq(1), 0.5))   # d = 1: |r|, no centring
+        @test mad_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(quantile(Chisq(2), 0.5))
         x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9
         @test mad_scale(SVector{1}.(x)) > 3 * 0.37                                  # a bias counts as noise
         # no scalar form: the retired centred MAD's call shape is refused, not silently re-meant

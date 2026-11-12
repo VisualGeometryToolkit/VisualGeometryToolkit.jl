@@ -60,9 +60,6 @@ public ρ, ψ, weight, conjugate, conjugate_curvature, zblock, cost, cost_scale,
 # variable names at every call site) but intended API: VisualGeometryToolkitEstimation
 # imports `sq_loss_width` by name.
 public sq_loss_width, loss_width
-# The χ²_d median behind every median-seeded scale (ŝ² = median(r²)/chisq_median(d));
-# RANSACScoringDoneRight imports it by name.
-public chisq_median
 
 """
     AbstractMEstimator <: AbstractLossShape
@@ -404,7 +401,7 @@ the Geman–Reynolds literature also calls ψ — that one takes a WEIGHT.
 # outward with d (mean ~ sqrt(d)) — the same multiple of sigma therefore retains
 # a different fraction of the inlier population at d = 2 than at d = 1. It is
 # the same correction the scale seeding already carries as the chi^2_d median
-# (`chisq_median`), and as 1.1774 (Rayleigh) rather than 0.6745 (half-normal).
+# (`quantile(Chisq(d), 0.5)`), and as 1.1774 (Rayleigh) rather than 0.6745 (half-normal).
 #
 # THE CONSTANTS ARE PARAMETERISATION-DEPENDENT, which is a live trap: published
 # Welsch constants appear as BOTH 2.985 and 2.110, because exp(-r^2/c^2) and
@@ -537,34 +534,18 @@ codimension_factor(K::Type{<:AbstractLossShape}, d::Integer) =
 #
 # A loss width takes sigma as an input, and the choice of estimator is
 # the caller's: MAD, RMS, a median of norms, Qn/Sn, an IRLS-updated scale, or a
-# value carried in from calibration (`FixedScale`). `chisq_median` and
-# `mad_scale` below are the median-of-norms option, provided because it is the
-# one that pairs with the chi lift in `codimension_factor`. They are
-# deliberately UNEXPORTED — call them qualified — so that reaching for them is a
+# value carried in from calibration (`FixedScale`). `mad_scale` below is the
+# median-of-norms option, provided because it is the one that pairs with the
+# chi lift in `codimension_factor`. It is deliberately UNEXPORTED — call it
+# qualified — so that reaching for it is a
 # decision rather than a default.
-
-"""
-    chisq_median(codim::Integer) -> Float64
-
-Median of `chi^2_d`, for ANY codimension: `0.4549` at d = 1, `2 log 2 = 1.3863`
-at d = 2. Its square root is `0.6745` at d = 1 and `1.1774` (the Rayleigh
-median) at d = 2.
-
-`0.6745` is `Phi^-1(0.75)`, the SAME constant that scales a MAD — but sharing a
-constant is not being the same estimator; see [`mad_scale`](@ref).
-
-Answers for every `d` on purpose — a hand-tabulated d ∈ {1, 2} would throw on
-the very call pattern this interface exists for, `mad_scale` of a problem's
-residuals at `codimension(problem)`, where a hand-eye problem reports d = 6.
-"""
-chisq_median(d::Integer) = Distributions.quantile(Distributions.Chisq(d), 0.5)
 
 """
     mad_scale(residuals) -> Float64
 
 The robust noise scale σ̂ of residual VECTORS `residuals` (`StaticVector{d}`s,
 `d` read from their type): the median of their norms over the median of `χ_d`,
-`median(‖rᵢ‖) / √chisq_median(d)`. If `r ~ N(0, σ²I_d)` then `‖r‖/σ ~ χ_d`, so
+`median(‖rᵢ‖) / √quantile(Chisq(d), 0.5)` (the median of `χ²_d`, Distributions'). If `r ~ N(0, σ²I_d)` then `‖r‖/σ ~ χ_d`, so
 dividing the median norm by that distribution's median inverts to `σ`; the
 median gives it 50% breakdown, so the gross errors a loss exists to reject do
 not inflate it as they would an RMS.
@@ -591,7 +572,7 @@ mad_scale(residuals::AbstractVector{<:StaticVector{D}}) where {D} =
 # qualified, the one sanctioned `_` name it reaches): `mad_scale` of residuals of
 # codimension `codimension` given only their NORMS, named at the call so nothing
 # reads as re-centred. Residual vectors go through `mad_scale(residuals)`.
-_mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(chisq_median(codimension))
+_mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(Distributions.quantile(Distributions.Chisq(codimension), 0.5))
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width

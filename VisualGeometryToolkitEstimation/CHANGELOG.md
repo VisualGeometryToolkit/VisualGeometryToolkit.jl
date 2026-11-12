@@ -5,6 +5,8 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Breaking: VisualGeometryToolkitCore's `chisq_median` is retired**; SIMFIT++'s naive variance (`unbiased_median_variance`)
+  divides by Distributions' `quantile(Chisq(dg), 0.5)`, bit-identical (the same call).
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
   `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and

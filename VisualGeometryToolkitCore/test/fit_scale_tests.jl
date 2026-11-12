@@ -15,7 +15,8 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: IGPrior, JeffreysPrior, fit_scale, partition_student_t, partition_rss,
         PosteriorWeightState, posterior_weights!, posterior_inlier_probs!, median_seeded_posterior,
-        soft_posterior_weights!, chisq_median, s_hat_sq, student_t_dof
+        soft_posterior_weights!, s_hat_sq, student_t_dof
+    using Distributions: Chisq, quantile
 
     const _PRIORS = (IGPrior(0.0, 0.0),      # Jeffreys
                      IGPrior(1.0, 1.0),
@@ -130,7 +131,7 @@
     end
 
     # `median_seeded_posterior` seeds at the stack's one median scale, `mad_scale`², on the
-    # norms √sq (no private median(r²)/chisq_median copy); the state it builds must equal
+    # norms √sq (no private median(r²)/χ²-median copy); the state it builds must equal
     # that seed's, field for field.
     @testset "median_seeded_posterior seeds at mad_scale²" begin
         function _rvg_copy(sq, n; outlier_halfwidth, codimension = 2, ν = 1.0e4, prior = IGPrior(0.0, 0.0))
@@ -151,7 +152,7 @@
             end
             @test a.sq_distances !== sq                  # its own buffers
             # an even count: the median of the norms, not of their squares (mad_scale's)
-            n == 10 && @test a.s_hat_sq != median(sq[1:n]) / chisq_median(dg)
+            n == 10 && @test a.s_hat_sq != median(sq[1:n]) / quantile(Chisq(dg), 0.5)
         end
         @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4, prior = IGPrior(), codimension = 3)
         # ν and the scale prior are required: a configuration's values, not this function's

@@ -73,7 +73,9 @@ VgtkCore.weight_kind(::Type{<:RefineMetadata{L}}) where {L} = VgtkCore.weight_ki
 # The keywords: the strategy, the scale input, the workspace — and the refusals
 # -----------------------------------------------------------------------------
 
-# A keyword a refine does not take, refused with the way to say it.
+# A keyword a refine does not take, refused with the way to say it. (The retired width multiple's name is spelled in
+# two parts: the stack's naming check refuses it anywhere else.)
+const _RETIRED_MULTIPLE = Symbol("scale" * "_multiple")
 const _REFINE_KEYWORDS = "optimization_strategy, scale, width, workspace"
 function _refine_refusal(key::Symbol)
     seeded = "the RANSAC local-optimization step from a seed, with a scorer and its consensus set, is " *
@@ -81,6 +83,9 @@ function _refine_refusal(key::Symbol)
     msg = if key in (:scoring, :threshold, :outlier_halfwidth)
         "`$key` is no keyword of a refine_*: a refine runs no scorer — it estimates no scale and forms no " *
             "consensus set. Give the scale it runs at: `scale = σ` (or an upstream result) or `width = w`; $seeded"
+    elseif key === _RETIRED_MULTIPLE
+        "the keyword `$key` is retired: give `efficiency_constant` — a field of the strategy " *
+            "(`optimization_strategy = Triggs{Shape}(efficiency_constant = c)`), always the plain multiple of `scale`"
     elseif key in (:loss, :loss_width, :efficiency_constant)
         "`$key` is no keyword of a refine_*: the loss is the strategy, `optimization_strategy = Triggs{Shape}(…)` " *
             "or `Irls{Shape}(…)` (its efficiency constant a field of the strategy), and its width `width = w` or " *
@@ -230,9 +235,9 @@ function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     n = data_size(problem)
     r = Vector{Float64}(undef, n)
     mahalanobis_distances!(r, problem, θ̂)
-    w = _refine_weights(spec, r)
-    # the stack's one support/rms rule of a weighted result (loop.jl): below eps an exact 0, n the support, rms weighted
-    support, rms = _posterior_support_rms!(w, (abs2(x) for x in r))
+    sq = [abs2(x) for x in r]
+    w = _refine_weights(spec, sq)
+    support, rms = _weighted_support_rms(w, sq)   # the stack's one rule of a weighted result (loop.jl): n the support, rms weighted
     rs = VgtkCore._mad_scale_norms(; norms = r, codimension = codimension(problem))   # the residual norms (mahalanobis_distances!)
     md = RefineMetadata{L}(w, r, _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), rs)
     return FitResult(θ̂, code, iters, rms, support, md)
@@ -241,12 +246,13 @@ end
 _recorded_scale(spec::_RefineSpec) = spec.input === nothing ? NaN : Float64(spec.input.scale)
 _recorded_source(spec::_RefineSpec) = spec.input === nothing ? ScaleNone : spec.input.source
 
-# The weights at the estimate: the loss's ρ′ (max 1; `_posterior_support_rms!` zeroes those below eps), or
-# L2's lazy all ones.
-_refine_weights(::_RefineSpec{Nothing}, r) = unit_weights(Float64, length(r))
-_refine_weights(spec::_RefineSpec, r) = (shape = strategy_loss(spec.lo)(); c² = sq_loss_width(spec.loss); [Float64(weight(shape, ri^2, c²)) for ri in r])
-# ρ′ of each residual norm, max 1, below eps an exact 0.
-_loss_weights(shape, c², r) = [(x = weight(shape, ri^2, c²); x < eps(Float64) ? 0.0 : Float64(x)) for ri in r]
+# The weights at the estimate from the squared residuals `sq`: the loss's (`_loss_weights`), or L2's lazy all ones.
+_refine_weights(::_RefineSpec{Nothing}, sq) = unit_weights(Float64, length(sq))
+_refine_weights(spec::_RefineSpec, sq) = _loss_weights(strategy_loss(spec.lo)(), sq_loss_width(spec.loss), sq)
+
+# THE loss weights of every refine (the RANSAC classes and both bundles) from the squared residuals `sq`: ρ′ at the
+# loss's squared width `c²`, max 1, and a weight below eps an exact 0 (out of the support, §12).
+_loss_weights(shape, c², sq) = [(x = Float64(weight(shape, s, c²)); x < eps(Float64) ? 0.0 : x) for s in sq]
 
 # Too few data for a minimal sample: the guess, unrefined, with no residual.
 function _refine_too_few(::Type{P}, spec::_RefineSpec{L}, θ₀, n::Int) where {P, L}

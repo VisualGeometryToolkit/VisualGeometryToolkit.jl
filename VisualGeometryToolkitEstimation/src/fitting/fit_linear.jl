@@ -49,7 +49,7 @@ struct LinearFitMetadata{L, W <: AbstractVector{Float64}}
     loss_width::Float64
 end
 LinearFitMetadata{L}(w::W, r, s, src, lw) where {L, W} = LinearFitMetadata{L, W}(w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:LinearFitMetadata{L}}) where {L} = _strategy_weight_kind(L)
+VgtkCore.weight_kind(::Type{<:LinearFitMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
 
 """
     fit_linear(A, y[, prior]; optimization_strategy, scale | width, tol)

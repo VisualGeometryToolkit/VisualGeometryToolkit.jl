@@ -584,8 +584,8 @@ function _refine_bundle(
     end
     # Least squares is the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
     # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
-    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (NLLSsolver's Triggs
-    # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
+    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's
+    # `loss_robustifier`); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
     # (relative) or `max_iter` cycles. A refine estimates no scale.
     stationarity_blocks = costs
     irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
@@ -620,7 +620,7 @@ function _refine_bundle(
                 iters += result.niterations
             end
         end
-        weights = [weight(shape, x, sq) for x in sqnorms(problem.variables)]   # ρ′ (exactly as the stationarity rows read it)
+        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′ (exactly as the stationarity rows read it)
         # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end
@@ -639,7 +639,10 @@ function _refine_bundle(
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
     meta = CameraPosesRefineMetadata{typeof(lo)}(r, S / ν, ν, free, nothing, _row_norms(r), weights,
         input === nothing ? NaN : input.scale, input === nothing ? ScaleNone : input.source, sqrt(_sq_loss_width(loss)))
+    # `n` the weights' support and `rms` the weighted one (the stack's one rule, loop.jl): under least squares every
+    # correspondence and √(S/n)
+    support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
     return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), code,
-        iters, sqrt(S / n), n, meta
+        iters, rms, support, meta
 end
 

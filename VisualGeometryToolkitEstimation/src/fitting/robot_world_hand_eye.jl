@@ -167,11 +167,9 @@ struct RobotWorldHandEyeMetadata{K, S <: Union{Float64, Nothing}, L, W <: Abstra
 end
 
 # The weights' kind, read off the strategy type `L` (§12 of the robust-estimation
-# contract): least squares carries binary all-ones weights, Irls and Triggs the
-# loss's weights.
-VgtkCore.weight_kind(::Type{<:RobotWorldHandEyeMetadata{K, S, L}}) where {K, S, L} = _strategy_weight_kind(L)
-_strategy_weight_kind(::Type{Nothing}) = VgtkCore.weight_kind(Nothing)
-_strategy_weight_kind(::Type{<:Union{Irls, Triggs}}) = VgtkCore.IrlsWeights()
+# contract, Core's trait of the strategy): least squares carries binary all-ones
+# weights, Irls and Triggs the loss's weights.
+VgtkCore.weight_kind(::Type{<:RobotWorldHandEyeMetadata{K, S, L}}) where {K, S, L} = VgtkCore.weight_kind(L)
 
 # Below this ratio of JᵀJ's smallest to largest eigenvalue the normal matrix is
 # numerically singular: an inverse at condition number ≥ 10¹² keeps no more than

@@ -347,11 +347,12 @@ end
 @testset "refine_*: from the raw incumbent at its find_*'s scale, every class" begin
     # Each class's find_* scene; the guess is the RANSAC incumbent with NO local
     # optimization (a minimal-sample model) and the scale handed on is that
-    # search's ŝ (`scale = <the find result>`, the documented hand-off). The
-    # refine (the default Triggs{Welsch}, and Irls{Huber}) lands on find_*'s
-    # model to the noise level: the residual rms on find_*'s inliers within
-    # `rms_tol` of find_*'s own, and their weights the consensus but for a few
-    # boundary points.
+    # search's ŝ (`scale = <the find result>`, the documented hand-off). Under
+    # the default Triggs{Welsch} and a Triggs{Cauchy} at the plain multiple 2.5,
+    # the refine lands on find_*'s model to the noise level, as the RANSAC-step
+    # refine did: every residual on find_*'s inliers within 30% of find_*'s rms
+    # of find_*'s own, their rms within 2%, and the loss weights agreeing with
+    # find_*'s consensus (w > ½ ⇔ inlier) but for the points at its threshold.
     pts, _ = circle_scene(Xoshiro(5), 600)
     epts, _ = ellipse_scene(Xoshiro(6), 600)
     hcs, _ = h_scene()
@@ -362,7 +363,6 @@ end
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
-    rms_tol = 0.05
     cases = (
         (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...)),
         (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...)),
@@ -380,17 +380,13 @@ end
         raw = estimate(raw_r)
         f = find(; rng = StableRNG(3))
         m = inlier_mask(f)
-        for kws in ((;),)          # the default, Triggs{Welsch} (Irls and the other losses: refine_contract_tests.jl)
+        for kws in ((;), (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5)))
             r = refine(raw; scale = raw_r, kws...)   # the search's own scale, handed on
-            # (F: the robustified LM from the raw minimal-sample model reaches the chart LM's cap, 1000 accepted
-            # iterations, at find_*'s rms to 2 %; from find_*'s own model it converges in 24)
-            @test converged(r) || (class === :fundmat && retcode(r) === :max_iterations)
+            @test converged(r)
             @test VgtkCore.scale_source(r) === VgtkCore.ScaleUpstream && VgtkCore.noise_scale(r) == VgtkCore.noise_scale(raw_r)
-            mask_rms = sqrt(sum(abs2, Float64.(r.residuals[m])) / count(m))
-            @test mask_rms < (1 + rms_tol) * f.rms
-            # find_*'s outliers carry no more than half weight, but for those just past its threshold (Welsch's
-            # half weight lies at 0.83 × its width: past a 1 px MSAC threshold at ŝ 0.42 px for the rotation)
-            @test count(VgtkCore.inlier_mask(r, 0.5) .& .!m) <= max(3, round(Int, 0.1 * count(m)))
+            @test maximum(abs, Float64.(r.residuals[m]) .- Float64.(f.residuals[m])) < 0.3 * f.rms
+            @test isapprox(sqrt(sum(abs2, Float64.(r.residuals[m])) / count(m)), f.rms; rtol = 0.02)
+            @test count(VgtkCore.inlier_mask(r, 0.5) .!= m) <= max(3, round(Int, 0.03 * count(m)))
         end
     end
 end

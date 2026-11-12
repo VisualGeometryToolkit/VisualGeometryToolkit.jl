@@ -122,7 +122,7 @@ A `scale` or `width` is in the poses' length unit.
 # Units
 As [`find_hand_eye`](@ref): plain or physical poses, all one form (`X` too);
 physical ones are read in metres and `X` comes back in metres, a supplied
-`char_length` then a length and a supplied scorer's width a plain number in metres.
+`char_length` then a length and a `scale` or `width` a plain number in metres.
 """
 function refine_hand_eye(
         X::PlainEuclideanMap{3}, cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};

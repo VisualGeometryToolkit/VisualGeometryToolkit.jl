@@ -278,7 +278,7 @@ function _refine_robot_world_hand_eye(
                 iters += result.niterations
             end
         end
-        weights = _loss_weights(shape, sq, sqrt.(sqnorms(problem.variables)))
+        weights = _loss_weights(shape, sq, sqnorms(problem.variables))
         # the stationarity of the robust cost and its covariance: the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end

@@ -156,3 +156,81 @@
         @test VgtkCore.converged(r) && count(inlier_mask(r)) >= 115
     end
 end
+
+# The contract on EVERY refine_* class (the 11 RANSAC classes, the rotation's two forms and the camera and bearing
+# forms of the pose): the refusals and their messages, the default's need of a scale, least squares, and the result's
+# type inferred — on too few data for a minimal sample (the refine parses every keyword first, so the too-few path is
+# the contract's, cheaply), and hand-eye (whose problem needs 3 poses to exist) on 3.
+@testitem "refine_contract: every refine_* class" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test, LinearAlgebra, StaticArrays
+    using Rotations: RotMatrix, RotXYZ
+    using StableRNGs: StableRNG
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Csponds, csponds, HomographyMat, FundMat,
+        EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, EuclideanMap, MsacScoring, WelschShape,
+        retcode, estimate, ScaleGiven, ScaleNone, scale_source, weight_kind, IrlsWeights, BinaryWeights
+    using VisualGeometryToolkitEstimation: refine_homography, refine_fundmat, refine_essential, refine_rotation,
+        refine_circle, refine_ellipse, refine_radial_homography, refine_radial_camera, refine_absolute_pose,
+        refine_hand_eye, RefineMetadata, Triggs, Irls, HomographyProblem
+
+    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
+    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    I3 = SMatrix{3, 3, Float64}(I)
+    H = HomographyMat{Float64}(Tuple(I3))
+    X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
+    cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
+    c = Point2(500.0, 400.0)
+    Xs = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
+    us = [SA[400.0, 300.0], SA[500.0, 350.0]]
+    pose = Extrinsics3(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0))
+    rigid(R, t) = EuclideanMap(RotMatrix{3, Float64}(R), SVector{3, Float64}(t))
+    A = [rigid(RotXYZ(0.3i, -0.2i, 0.1i^2), SVector(0.1i, -0.05i, 0.02i)) for i in 1:3]
+    Xhe = rigid(RotXYZ(0.1, 0.2, -0.3), SVector(0.05, 0.0, 0.1))
+    hecs = [Ai => inv(Xhe) ∘ Ai ∘ Xhe for Ai in A]
+    cases = (
+        :homography => (; kw...) -> refine_homography(H, cs(3); kw...),
+        :fundmat => (; kw...) -> refine_fundmat(FundMat{Float64}(Tuple(X3)), cs(6); kw...),
+        :essential => (; kw...) -> refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4); kw...),
+        :rotation => (; kw...) -> refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1); kw...),
+        :rotation_bearings => (; kw...) -> refine_rotation(one(RotMatrix{3, Float64}), Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]]); kw...),
+        :circle => (; kw...) -> refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(2); kw...),
+        :ellipse => (; kw...) -> refine_ellipse(Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), pts(4); kw...),
+        :radial_homography => (; kw...) -> refine_radial_homography(RadialHomography{Float64}(H, 0.0), cs(4); kw...),
+        :radial_camera => (; kw...) -> refine_radial_camera(RadialCamera(H, c), cs(4); kw...),
+        :absolute_pose => (; kw...) -> refine_absolute_pose(pose, cam, Xs .=> us; kw...),
+        :bearing_pose => (; kw...) -> refine_absolute_pose(pose, Csponds(Xs, [normalize(x) for x in Xs]); kw...),
+        :hand_eye => (; kw...) -> refine_hand_eye(Xhe, hecs; kw...),
+    )
+    err(f) = try
+        f(); nothing
+    catch e
+        e
+    end
+    refused = (:scoring => MsacScoring(HomographyProblem; threshold = 3.0), :threshold => 3.0, :outlier_halfwidth => 20.0,
+               :loss => WelschShape(), :loss_width => 1.0, :efficiency_constant => 2.5,
+               Symbol("scale" * "_multiple") => 2.5, :local_optimization => Triggs{WelschShape}(),
+               :local_optimization_strategy => Triggs{WelschShape}(), :robust => true, :extent => nothing,
+               :max_trials => 10, :min_trials => 1, :rng => StableRNG(1), :nonsense => 1)
+    # the messages are the contract's, the same for every class: read them off the homography
+    msg(k, v) = err(() -> cases[1][2](; scale = 1.0, (; k => v)...)).msg
+    for (class, f) in cases
+        for (k, v) in refused
+            e = err(() -> f(; scale = 1.0, (; k => v)...))
+            @test e isa ArgumentError && e.msg == msg(k, v)
+        end
+        # the default is Triggs{Welsch}: it needs exactly one of scale and width
+        @test err(() -> f()) isa ArgumentError
+        @test err(() -> f(; scale = 1.0, width = 1.0)) isa ArgumentError
+        @test err(() -> f(; optimization_strategy = nothing, scale = 1.0)) isa ArgumentError
+        @test err(() -> f(; optimization_strategy = Irls{VgtkCore.GaussianShape}(), scale = 1.0)) isa ArgumentError
+        # the result: a refine's, its type inferred; least squares records no scale, a robust strategy the given one
+        r = @inferred f(; scale = 1.0)
+        @test r isa VgtkCore.FitResult{<:Any, <:RefineMetadata} && scale_source(r) === ScaleGiven && weight_kind(r) === IrlsWeights()
+        l2 = @inferred f(; optimization_strategy = nothing)
+        @test l2 isa VgtkCore.FitResult{<:Any, <:RefineMetadata{Nothing}} && scale_source(l2) === ScaleNone &&
+            weight_kind(l2) === BinaryWeights()
+        class === :hand_eye || @test retcode(r) === :degenerate && retcode(l2) === :degenerate
+    end
+    # the retired width multiple names its successor
+    @test occursin("give `efficiency_constant`", msg(Symbol("scale" * "_multiple"), 2.5))
+end

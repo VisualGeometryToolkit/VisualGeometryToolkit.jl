@@ -312,7 +312,14 @@ end
         @test retcode(rs) === :converged && err(rs) < 0.5 && rs.scale == 0.2
         @test rs.loss_width ≈ (lo isa Irls ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), rs.weights) >= 20 && length(rs.weights) == 300
+        # `n` the weights' support and `rms` the weighted one (the stack's one rule): Welsch gives the 20–60 px outliers
+        # no weight at all, so the support is short of the 300 correspondences
+        w = rs.weights
+        @test rs.n == count(>(0), w) && (lo isa Triggs ? rs.n < 300 : true)
+        @test rs.rms ≈ sqrt(sum(w .* rs.residual_norms .^ 2) / sum(w))
     end
+    # least squares: every correspondence, the plain rms
+    @test ls.n == 300 && ls.rms ≈ sqrt(sum(abs2, ls.residuals) / 300)
     # From a start near the data (f 0.5 %, 1 px, poses 2 mrad / 5 mm off: residuals median 3.3 px, a caller's linear
     # calibration's), at the caller's σ (Irls{Huber} 0.175 px, Triggs{Welsch} 0.202 px)
     near(E, v) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015v / 4, 0.002)) * E.R),

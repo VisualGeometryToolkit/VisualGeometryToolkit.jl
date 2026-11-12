@@ -50,7 +50,7 @@ struct RotationAveragingMetadata{K, L, W <: AbstractVector{Float64}}
     loss_width::Float64
 end
 RotationAveragingMetadata{K, L}(e, w::W, r, s, src, lw) where {K, L, W} = RotationAveragingMetadata{K, L, W}(e, w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:RotationAveragingMetadata{K, L}}) where {K, L} = _strategy_weight_kind(L)
+VgtkCore.weight_kind(::Type{<:RotationAveragingMetadata{K, L}}) where {K, L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
 
 """
     fit_rotation_averaging(relative; optimization_strategy, scale | width, tol, seed = :spectral)

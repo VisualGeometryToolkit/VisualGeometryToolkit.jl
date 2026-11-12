@@ -44,7 +44,7 @@ struct RigidAlignmentMetadata{L, W <: AbstractVector{Float64}}
     loss_width::Float64
 end
 RigidAlignmentMetadata{L}(w::W, r, s, src, lw) where {L, W} = RigidAlignmentMetadata{L, W}(w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:RigidAlignmentMetadata{L}}) where {L} = _strategy_weight_kind(L)
+VgtkCore.weight_kind(::Type{<:RigidAlignmentMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
 
 """
     fit_rigid_alignment(cs; optimization_strategy = nothing, scale | width, tol)

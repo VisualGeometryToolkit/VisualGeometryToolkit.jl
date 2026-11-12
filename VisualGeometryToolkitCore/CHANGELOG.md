@@ -17,11 +17,9 @@ sensor — so every consumer asks the camera what it images instead of supplying
   thread per workgroup (RANSACScoringDoneRight's grids on a B200, 128 pairs × 800 points × 48 models: the Student-t
   grid 1.55 ms at the backend's choice, 30.6 at one item, 1.35 at one warp; its mixture marginal 90.4, 62.1, 17.7). Every other
   launch keeps its workgroup. Results bit for bit (every launch site, CPU and CUDA, before and after).
-  Open after the release (a performance item, nothing slower than the last released behaviour): on a B200 the
-  Welsch and mixture marginals of RANSACScoringDoneRight run as at its last release (86.6 / 90.4 ms at the
-  backend's choice) but slower than at one item per workgroup (67.7 / 62.1 ms); one warp per workgroup for a
-  one-item kernel measured faster than both on all five of its grids (Student-t 1.35, MSAC 6.5, MAGSAC++ 15.6,
-  Welsch 30.6, mixture 17.7 ms; 64, 128 and 256 within 15 % of it).
+  One warp rather than the backend's choice: at the backend's choice RANSACScoringDoneRight's Welsch and mixture
+  marginals ran as at its last release (86.6 / 90.4 ms) but slower than at one item per workgroup (67.7 / 62.1 ms);
+  at one warp all five of its grids are faster than both (64, 128 and 256 items within 15 % of 32).
 
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),

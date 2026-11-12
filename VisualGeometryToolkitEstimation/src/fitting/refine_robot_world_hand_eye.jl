@@ -285,7 +285,7 @@ function _refine_robot_world_hand_eye(
     end
     charts = collect(problem.variables)   # each anchored at its estimate
     poses = map(model, charts)
-    all(p -> all(isfinite, rotation(p)) && all(isfinite, translation(p)), poses) ||
+    all(_finite_pose, poses) ||   # refine_camera_and_poses.jl
         throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))
 
     # the reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts' origins — the covariance's and the
@@ -314,7 +314,7 @@ function _refine_robot_world_hand_eye(
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
         termination, iterations = iters, rms_rows = n, strategy = lo, weights,
-        scale = VgtkCore.scale_source(input) === ScaleNone ? NaN : Float64(VgtkCore.noise_scale(input)), scale_source = VgtkCore.scale_source(input),
+        scale = _recorded_scale(input), scale_source = VgtkCore.scale_source(input),
         loss_width = sqrt(_sq_loss_width(loss))
     )
 end

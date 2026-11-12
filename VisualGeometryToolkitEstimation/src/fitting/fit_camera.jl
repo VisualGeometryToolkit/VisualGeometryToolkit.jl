@@ -1311,7 +1311,7 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     grid_size === nothing || throw(
         ArgumentError("fit_camera(SplineLens, …): the source is a SplineLens camera, whose backward is kept as it is; a `grid_size` has no lattice to choose")
     )
-    cam = CameraModel(src.intrinsics, SplineLens(src.lens.backward; present = src.lens.present))
+    cam = _without_forward(src)   # refine_spline_camera_and_poses.jl
     q = _image_quadrature(cam, region; device)
     held = _held_out(SplineLens, cam, q, cam.intrinsics, device)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)

@@ -151,9 +151,7 @@ import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinat
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
     block_coordinate_result, current_cost, current_s2
 using VisualGeometryToolkitCore: StoppingCriterion
-# The robust-estimation contract's record of the EM fits (fit_division_camera, fit_residual_mixture): their
-# scale's source and their weights' kind (VGC base/scale_source.jl, robust/weights.jl).
-using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, PosteriorWeights
+# The EM fits' (fit_division_camera, fit_residual_mixture) scale source and weight kind: imported above.
 import VisualGeometryToolkitCore: weight_kind
 # The chart-rows contract (VGC robust/rows.jl: the rows a lifted local
 # optimizer reads, and the one task-local reuse policy) — RVG's chart problems

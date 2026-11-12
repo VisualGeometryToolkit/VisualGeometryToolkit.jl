@@ -438,12 +438,7 @@ building block of a strategy that refits at a scoring of its own inside a loop
 """
 function locally_optimize_rescored!(L, lo, problem, θ, buf::ScoreBuffers, scoring)
     score, k = score_model!(buf, scoring, problem, θ)
-    _holds_stable_partition(problem, k) || return lo_estimate(θ, ReturnCode.InitialFailure, NoRule)
-    cs = consensus_set(
-        scoring, buf.scoring_ws, buf.residuals;
-        model_dof = minimal_sample_size(problem) + 1, d_g = codimension(problem), epoch = buf.epoch, score
-    )
-    return locally_optimize!(L, lo, problem, θ, cs, buf, scoring)
+    return _lo_on_partition!((; buf, lo_ws = L), problem, θ, scoring, k, lo, score)   # the loop's own Phase-2 step
 end
 
 # Phases 2–3 of a model whose Phase-1 score (k* = `k`) is in the buffers — THE

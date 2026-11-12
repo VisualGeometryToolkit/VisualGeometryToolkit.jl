@@ -331,18 +331,17 @@ end
 
 @testitem "termination record: fit_division_camera audits no failed leg" begin
     # A leg whose solve failed mid-loop (the IRLS step's InternalLinearSolveFailed, the owner's ruling) is neither
-    # branch-audited nor resumed, as under the former Symbol `:solve_failed`: the failed-leg predicate names exactly the
-    # records `retcode_symbol` maps to `:solve_failed`, so no failure code (a non-finite start, a failed solve) is audited.
+    # branch-audited nor resumed: the failed-leg predicate is `retcode_symbol(record...) === :solve_failed` (Core's one
+    # map), so no failure code (a non-finite start, a failed solve) is audited.
     using VisualGeometryToolkitEstimation
     import VisualGeometryToolkitCore as VgtkCore
-    failed = VisualGeometryToolkitEstimation._leg_failed
+    failed(code, rule) = VgtkCore.retcode_symbol(code, rule) === :solve_failed
     @test failed(VgtkCore.ReturnCode.InternalLinearSolveFailed, VgtkCore.NoRule)
     @test failed(VgtkCore.ReturnCode.Failure, VgtkCore.NoRule)
     @test failed(VgtkCore.ReturnCode.InitialFailure, VgtkCore.NonFinite)
     @test !failed(VgtkCore.ReturnCode.Success, VgtkCore.ParameterChange)
     @test !failed(VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
     @test !failed(VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
-    for code in instances(VgtkCore.ReturnCode.T), rule in instances(VgtkCore.StopRule)
-        @test failed(code, rule) == (VgtkCore.retcode_symbol(code, rule) === :solve_failed)
-    end
+    @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
+    @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.SeedKept)
 end

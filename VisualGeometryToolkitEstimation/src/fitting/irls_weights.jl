@@ -46,11 +46,7 @@ end
 # A fit's default strategy: the `optimization_strategy` table of its
 # configs/default.toml table `fit`, read by the one strategy reader and checked
 # an Irls.
-function _fit_strategy_default(fit::AbstractString)
-    lo = optimization_strategy_from_toml(_dflt(fit, "optimization_strategy"); class = Symbol(fit),
-                                         section = "$fit.optimization_strategy")
-    return _check_irls_strategy(fit, lo)
-end
+_fit_strategy_default(fit::AbstractString) = _check_irls_strategy(fit, _dflt_strategy(fit, Symbol(fit)))   # fitting/_refine.jl
 
 _check_irls_strategy(_fit, ::Nothing) = nothing
 function _check_irls_strategy(fit::AbstractString, lo::AbstractOptimizationStrategy)
@@ -97,22 +93,9 @@ function _fit_irls(fit::AbstractString, strategy::AbstractOptimizationStrategy, 
     K = strategy_loss(lo)
     shape = K()
     loss_width = isfinite(input.width) ? Float64(input.width) :
-        Float64(_fit_efficiency_constant(fit, lo, codim)) * Float64(input.scale)
+        Float64(_refine_constant(lo, codim)) * Float64(input.scale)   # the strategy's constant, else Core's table (fitting/_refine.jl)
     sq = loss_width^2
-    return FitIrls(shape, sq, Float64(weight(shape, 0.0, sq)), Float64(input.scale), input.source, loss_width)
-end
-
-# The efficiency constant the fit's width multiplies the scale by: the
-# strategy's own (its EfficiencyConstant width mode — the plain multiple,
-# `width = c · scale`, for every shape), or with none the shape's at the fit's
-# residual codimension (Core's table, §13). TLS has none.
-_fit_efficiency_constant(fit, lo::Irls, codim) = _fit_efficiency_constant(fit, lo_width(lo), lo, codim)
-_fit_efficiency_constant(_fit, w::EfficiencyConstant{Float64}, _lo, _codim) = w.value
-function _fit_efficiency_constant(fit, ::Nothing, lo::Irls{K}, codim) where {K}
-    applicable(VgtkCore.efficiency_constant, K) || throw(ArgumentError(
-        "$fit: the loss $(nameof(K)) has no efficiency constant; give the strategy one, " *
-        "Irls{$(nameof(K))}(efficiency_constant = c), or the fit a `width = w`"))
-    return VgtkCore.efficiency_constant(K, codim)
+    return FitIrls(shape, sq, Float64(weight(shape, 0.0, sq)), Float64(input.scale), VgtkCore.scale_source(input), loss_width)
 end
 
 # The normalized loss weight ρ′(r²)/ρ′(0) ∈ [0, 1] of a residual NORM `r`.

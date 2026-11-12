@@ -144,7 +144,7 @@ function refine_camera_and_poses(
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
     md = RotationCenterRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
-        kw.input === nothing ? NaN : kw.input.scale, kw.input === nothing ? ScaleNone : kw.input.source, sqrt(_sq_loss_width(kw.loss)),
+        _recorded_scale(kw.input), VgtkCore.scale_source(kw.input), sqrt(_sq_loss_width(kw.loss)),
         length(without), without)
     return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, sol.iterations, sol.rms, sol.n, md)
 end

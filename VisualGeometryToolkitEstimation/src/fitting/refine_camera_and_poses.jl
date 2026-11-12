@@ -668,6 +668,6 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
     return (; variables = problem.variables, code, rule, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
 _bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
-    _row_norms(sol.residuals), sol.weights, kw.input === nothing ? NaN : kw.input.scale, kw.input === nothing ? ScaleNone : kw.input.source,
+    _row_norms(sol.residuals), sol.weights, _recorded_scale(kw.input), VgtkCore.scale_source(kw.input),
     sqrt(_sq_loss_width(kw.loss)))
 

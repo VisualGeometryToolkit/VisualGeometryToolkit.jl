@@ -138,7 +138,7 @@ function fit_rotation_averaging(
     p = [last(x) for x in meas]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
     any(>(0), p) || throw(ArgumentError("fit_rotation_averaging: every edge weight is zero"))
-    Rrel = [SMatrix{3, 3, Float64, 9}(_edge_rotation(first(x))) for x in meas]
+    Rrel = [_m3(first(x)) for x in meas]   # graphs/view_graph.jl: Core's `geom`, an Uncertain's value
     Σrel = _edge_covariances([first(x) for x in meas], Rrel)          # nothing: every edge plain (Σ = I), today's path
     start = _averaging_seed(seed, edges, Rrel, p)
     frames = sort!(K[k for k in keys(start)])                         # the seeds' Dicts differ in type: K and SMatrix pin them
@@ -219,8 +219,6 @@ end
 # plain, nothing is whitened (today's path, bit for bit).
 _edge_measurement(e::VgtkCore.Uncertain) = (e, 1.0)
 _edge_measurement(e) = (VgtkCore.value_of(e), Float64(VgtkCore.weight_of(e)))
-_edge_rotation(x::VgtkCore.Uncertain) = VgtkCore.value_of(x)
-_edge_rotation(x) = x
 
 _edge_covariances(xs, Rrel) = any(x -> x isa VgtkCore.Uncertain, xs) ? _edge_covariances(VgtkCore.Uncertain[x for x in xs], Rrel) : nothing
 _edge_covariances(xs::AbstractVector{<:VgtkCore.Uncertain}, Rrel) =

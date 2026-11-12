@@ -309,7 +309,8 @@ refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs.
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
 
-# The L2 refine's keywords: no loss, so no scale input (one given would be ignored, so it is refused).
+# The L2 refine's keywords: no loss, so no scale input (one given would be ignored, so it is refused by the bundles'
+# one reader, `bundle_loss`, whose least squares takes none).
 function _check_l2_refine(optimization_strategy, scale, width)
     optimization_strategy === nothing || throw(
         ArgumentError(
@@ -317,9 +318,7 @@ function _check_l2_refine(optimization_strategy, scale, width)
                 "its samples are a source model's, with no outliers to weigh down, got $(nameof(typeof(optimization_strategy)))"
         )
     )
-    (scale === nothing && width === nothing) || throw(
-        ArgumentError("refine_camera: an L2 refine (`optimization_strategy = nothing`) takes no `scale` or `width`; one given would be ignored")
-    )
+    bundle_loss(nothing; scale, width, caller = "refine_camera")
     return nothing
 end
 

@@ -394,11 +394,7 @@ lo_config_dict(lo::TerminalLO) = Dict{String, Any}("type" => lo_tag(lo), "inner"
 # absolute width, `√s2` of `LossWidth(w) = (1, w²)`); no width writes nothing.
 _width_to_toml!(d, ::Nothing) = d
 _width_to_toml!(d, w::EfficiencyConstant{Float64}) = (d["efficiency_constant"] = w.value; d)
-function _width_to_toml!(d, w::LossWidth{NTuple{2, Float64}})
-    m, s2 = w.value
-    d["loss_width"] = m * sqrt(s2)
-    return d
-end
+_width_to_toml!(d, w::LossWidth{NTuple{2, Float64}}) = (d["loss_width"] = VgtkCore.loss_width(w); d)
 
 # -----------------------------------------------------------------------------
 # [mixture_em] → MixtureEmConfig — the model-update and nuisance-part tags

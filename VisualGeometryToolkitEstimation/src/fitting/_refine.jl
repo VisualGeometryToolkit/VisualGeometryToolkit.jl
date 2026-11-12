@@ -161,19 +161,13 @@ function _refine_loss(lo, input::ScaleInput, d::Integer)
     return deploy(shape, max(Float64(input.width)^2, eps()); efficiency_constant = 1.0)
 end
 
-function _refine_spec(::Type{P}, class::Val;
+function _refine_spec(::Type{P}, class::Val{C};
                       optimization_strategy = _refine_default(class), scale = nothing, width = nothing,
-                      workspace = nothing, rest...) where {P}
+                      workspace = nothing, rest...) where {P, C}
     _refuse_refine_keywords(rest)
-    lo = _refine_strategy(optimization_strategy)
-    if lo === nothing
-        (scale === nothing && width === nothing) || throw(ArgumentError(
-            "plain least squares (optimization_strategy = nothing) reads no scale; got " *
-                (scale === nothing ? "width = $width" : "scale = $(repr(scale))")))
-        return _RefineSpec(lo, nothing, nothing, workspace)
-    end
-    input = scale_input(scale, width)
-    return _RefineSpec(lo, input, _refine_loss(lo, input, codimension(P)), workspace)
+    (; strategy, input, loss) = bundle_loss(optimization_strategy; scale, width, codimension = codimension(P),
+                                            caller = "refine ($C)")
+    return _RefineSpec(strategy, input, loss, workspace)
 end
 
 """
@@ -266,12 +260,13 @@ function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     w = _refine_weights(spec, sq)
     support, rms = _weighted_support_rms(w, sq)   # the stack's one rule of a weighted result (loop.jl): n the support, rms weighted
     rs = VgtkCore._mad_scale_norms(; norms = r, codimension = codimension(problem))   # the residual norms (mahalanobis_distances!)
-    md = RefineMetadata{L}(w, r, _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), rs)
+    md = RefineMetadata{L}(w, r, _recorded_scale(spec.input), VgtkCore.scale_source(spec.input), _loss_width(spec), rs)
     return FitResult(θ̂, code, rule, iters, rms, support, md)
 end
 
-_recorded_scale(spec::_RefineSpec) = spec.input === nothing ? NaN : Float64(spec.input.scale)
-_recorded_source(spec::_RefineSpec) = spec.input === nothing ? ScaleNone : spec.input.source
+# The scale a stage records from its parsed scale input (`scale_input`): NaN for least squares (`nothing`) and for a
+# `width` (its scale is NaN); its source is `scale_source(input)`.
+_recorded_scale(input) = input === nothing ? NaN : Float64(input.scale)
 
 # The weights at the estimate from the squared residuals `sq`: the loss's (`_loss_weights`), or L2's lazy all ones.
 _refine_weights(::_RefineSpec{Nothing}, sq) = unit_weights(Float64, length(sq))
@@ -284,7 +279,7 @@ _loss_weights(shape, c², sq) = [(x = Float64(weight(shape, s, c²)); x < eps(Fl
 # Too few data for a minimal sample: the guess, unrefined, with no residual.
 function _refine_too_few(::Type{P}, spec::_RefineSpec{L}, θ₀, n::Int) where {P, L}
     w = L === Nothing ? unit_weights(Float64, n) : zeros(n)   # L2's weights are its unit weights; nothing was fitted (n = 0)
-    md = RefineMetadata{L}(w, fill(NaN, n), _recorded_scale(spec), _recorded_source(spec), _loss_width(spec), NaN)
+    md = RefineMetadata{L}(w, fill(NaN, n), _recorded_scale(spec.input), VgtkCore.scale_source(spec.input), _loss_width(spec), NaN)
     return FitResult(_seed_convert(model_type(P), θ₀), ReturnCode.InitialFailure, NoRule, 0, NaN, 0, md)
 end
 

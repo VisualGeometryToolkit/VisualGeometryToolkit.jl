@@ -402,7 +402,7 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     den = ntuple(k -> m.white - black[k], Val(4))
     # photosite (di, dj) of a cell is at raw COLMAP (2j − 1.5 + dj, 2i − 1.5 + di):
     # (dj − ½, di − ½) raw pixels from the cell centre, half that in cell pixels
-    site_offset(k) = SVector(_QUAD_SITES[k][2] - 0.5, _QUAD_SITES[k][1] - 0.5)
+    site_offset(k) = pixel_centre(CartesianIndex(_QUAD_SITES[k]))   # the 0-based site's centre (Core's conversion)
     green_offsets = (site_offset(g[1]), site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
@@ -525,7 +525,7 @@ the mean of the two — what a renderer models to predict it exactly. A
 """
 function green_cell_sites(L::LinearRaw, row::Integer, column::Integer)
     o = _geometry(L, "green_cell_sites").green_offsets
-    c = raw_frame_map(L)(SVector(column - 0.5, row - 0.5))
+    c = raw_frame_map(L)(pixel_centre(CartesianIndex(row, column)))   # Core's one index → COLMAP centre
     return (c + o[1], c + o[2])
 end
 

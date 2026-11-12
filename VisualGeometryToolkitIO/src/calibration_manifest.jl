@@ -122,8 +122,6 @@ const _CALIBRATION_SPEC = _CheckedSpec(
     _manifest_model_check,
 )
 
-_file_sha256(path) = sha256_hex(read(path, String))
-
 # A file entry as the writer takes it: a path (an authority), or `(; path[, role, derived_from])`.
 function _manifest_entry(dir, e)
     path, role, from = e isa AbstractString ? (e, "authority", String[]) :
@@ -134,7 +132,7 @@ function _manifest_entry(dir, e)
     isfile(full) || throw(ArgumentError("save_manifest: $(full) is not a file"))
     s = _peek_schema(full)
     _split_schema(s) === nothing && throw(ArgumentError("$(full): not a vgio record (schema $(repr(s))); a manifest binds vgio records"))
-    return (path = String(path), sha256 = _file_sha256(full), kind = s, role = role, derived_from = from)
+    return (path = String(path), sha256 = open(sha256_hex, full), kind = s, role = role, derived_from = from)
 end
 
 """
@@ -212,7 +210,7 @@ function _check_manifest_files(dir, d, mpath)
         _realpath_inside(full, dir) || throw(
             ArgumentError("$(full): resolves outside $(dir) (a symlink leaves the manifest's directory); a manifest binds files inside its directory")
         )
-        got = _file_sha256(full)
+        got = open(sha256_hex, full)
         got == f.sha256 || throw(
             ArgumentError("$(full): its SHA-256 is $(got), but $(mpath) records $(f.sha256) — the file changed since the manifest was written")
         )

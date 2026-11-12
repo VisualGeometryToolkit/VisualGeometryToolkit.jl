@@ -495,16 +495,15 @@ _poselib_loss_type(lo) = throw(ArgumentError(
     "`optimization_strategy` must be Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, LeZach() or `nothing` " *
         "(least squares); got $(repr(lo))"))
 
-# The loss shape a strategy deploys, whose efficiency constant converts a scale to a width.
-_strategy_shape(::Irls{K}) where {K} = K()
-_strategy_shape(::LeZach) = TLSShape()
-
 # The efficiency constant of a strategy at the residual's codimension `d`: the
 # strategy's own (`Irls{K}`'s width mode, `EfficiencyConstant(c)`), else the shape's
 # default, `efficiency_constant(shape, d)`. An absolute width in the strategy
 # is refused: it is the `width` keyword's.
-_strategy_constant(lo::Irls, d::Int) = _strategy_constant(lo.width, _strategy_shape(lo), d)
-_strategy_constant(lo::LeZach, d::Int) = _strategy_constant(nothing, _strategy_shape(lo), d)
+# The shape is the one Core reads a strategy's `efficiency_constant` for (`lo_efficiency_constant_shape`: `Irls{K}`'s
+# `K`, LeZach's registry row `TLSShape`).
+_strategy_constant(lo::Irls, d::Int) =
+    _strategy_constant(VgtkCore.lo_width(lo), VgtkCore.lo_efficiency_constant_shape(typeof(lo))(), d)
+_strategy_constant(lo::LeZach, d::Int) = _strategy_constant(nothing, VgtkCore.lo_efficiency_constant_shape(LeZach)(), d)
 _strategy_constant(c::EfficiencyConstant{Float64}, _shape, _d::Int) = c.value
 _strategy_constant(::Nothing, shape, d::Int) =
     hasmethod(VgtkCore.efficiency_constant, Tuple{Type{typeof(shape)}}) ? Float64(VgtkCore.efficiency_constant(shape, d)) :

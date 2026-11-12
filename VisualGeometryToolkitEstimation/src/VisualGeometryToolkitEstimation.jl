@@ -361,6 +361,7 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
+public RotationCenterViews   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
 public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, config_dict, LO_TAGS, CONTRACT_GENERICS
@@ -443,6 +444,7 @@ include("fitting/hand_eye.jl")
 include("fitting/robot_world_hand_eye.jl")
 include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of a RobotWorldHandEyeCalibration (static-N chart LM; uses robot_world_hand_eye.jl's type)
 include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
+include("fitting/rotation_center_views.jl")      # refine_camera_and_poses' rotation-centre views: one rotation per view, a shared centre and offset
 include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
 include("synthetic_scenes.jl")                    # synthetic_scenes: entry point (the scenes are the Test extension)
 include("fitting/irls_weights.jl")           # the fixed-scale IRLS of the reweighted fits: scale input, loss width, weights

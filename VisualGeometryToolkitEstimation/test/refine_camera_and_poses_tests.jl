@@ -833,3 +833,82 @@ end
     @test_throws ArgumentError check_penalty_weight(-1.0, "w")
     @test_throws ArgumentError check_penalty_weight(:aic, "w")
 end
+# The rotation-centre views (fitting/rotation_center_views.jl): a held camera turned about one fixed point, x_k =
+# R_k (X − c) + d — one rotation per view, the centre c and the offset d shared. From exact pixels and a perturbed
+# start the truth is recovered; from noisy, contaminated pixels a robust refine at an upstream scale recovers it to the
+# noise and records ScaleUpstream; a one-axis set, two views, a free camera and mismatched keys are refused.
+@testsetup module RotationCenterScenes
+    using StaticArrays: SVector, SMatrix
+    using Random: Xoshiro
+    using VisualGeometryToolkitCore: exp_so3, project
+    export center_truth, center_views
+    # a 9 × 7 board at 4 cm (z = 0); the camera ≈ 0.6 m in front, its projection centre 5 cm off the rotation centre
+    const R0 = SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, -1, 0, 0, 0, -1)
+    center_truth(axes) = (c = R0' * (SVector(0.004, -0.06, 0.05) - SVector(0.0, 0.0, 0.6)), d = SVector(0.004, -0.06, 0.05),
+                          R = Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(ω)) * R0 for (k, ω) in enumerate(axes)))
+    function center_views(camera, t; σ = 0.0, outliers = 0.0, rng = Xoshiro(2))
+        X = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
+        return Dict(k => [x => SVector{2, Float64}(project(camera, R * (x - t.c) + t.d)) + σ * SVector(randn(rng), randn(rng)) +
+                              (rand(rng) < outliers ? SVector(25.0, -30.0) : zero(SVector{2, Float64})) for x in X]
+                    for (k, R) in t.R)
+    end
+end
+
+@testitem "refine_camera_and_poses: rotation-centre views — the centre, the offset and the rotations recovered" setup = [CameraPoseScenes, RotationCenterScenes] begin
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
+        ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
+    cam = pinhole_camera(); held = Tuple(parameter_names(cam))
+    axes = [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04),
+            SVector(0.0, 0.0, 0.1)]
+    t = center_truth(axes)
+    start = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),
+                                t.c + SVector(0.01, -0.008, 0.012), t.d + SVector(-0.005, 0.004, 0.006))
+    rot_err(est) = maximum(norm(est.views.rotations[k] - R) for (k, R) in t.R)
+    @testset "exact pixels: the truth, to the LM's tolerance" begin
+        r = refine_camera_and_poses(cam, start, center_views(cam, t); fixed = held, optimization_strategy = nothing)
+        @test converged(r)
+        est = estimate(r)
+        @test est.camera === cam
+        @test norm(est.views.center - t.c) < 1.0e-8 && norm(est.views.offset - t.d) < 1.0e-8 && rot_err(est) < 1.0e-9
+        @test r.ν == 2 * 6 * 63 - (6 + 3 * 6) && r.rms < 1.0e-8 && scale_source(r) === ScaleNone
+        @test sort(collect(keys(est.views.rotations))) == collect(1:6)
+    end
+    @testset "noisy pixels with 5% outliers: Triggs{Huber} at an upstream scale" begin
+        upstream = FitResult(0.3, :pooled, 0, NaN, 6, (; scale = 0.3, scale_source = ScaleEstimated))
+        views = center_views(cam, t; σ = 0.3, outliers = 0.05)
+        r = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(efficiency_constant = 3.0),
+                                    scale = upstream)
+        @test converged(r) && scale_source(r) === ScaleUpstream && noise_scale(r) == 0.3 && r.loss_width ≈ 0.9
+        est = estimate(r)
+        @test norm(est.views.center - t.c) < 2.0e-3 && norm(est.views.offset - t.d) < 2.0e-3
+        @test count(<(1), r.weights) >= 10                                           # the outliers down-weighted
+        ls = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = nothing)   # least squares: pulled by them
+        @test norm(estimate(ls).views.center - t.c) > norm(est.views.center - t.c)
+        # Irls at a given scale (ScaleGiven), and a strategy at an absolute width (ScaleNone, the width recorded): the same views
+        ri = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Irls{HuberShape}(efficiency_constant = 1.345), scale = 0.3)
+        @test converged(ri) && scale_source(ri) === ScaleGiven && noise_scale(ri) == 0.3 && ri.loss_width ≈ 1.345 * 0.3
+        # The bound is this draw's (Xoshiro(2): Irls 3.0 mm, Triggs 0.34 mm, least squares 128 mm), with a 1.6× margin. The centre
+        # is weakly fixed here: it slides with the offset (their errors equal) under rotations of at most 0.1 rad, so over 20
+        # draws of this set (σ = 0.3 px, 6 × 63 points, 5% outliers at 39 px) both robust fits spread 0.3–13 mm while least
+        # squares spreads 25–168 mm (at least 4.9× an Irls error). What holds over draws is the second clause: closer than least squares.
+        @test norm(estimate(ri).views.center - t.c) < min(5.0e-3, norm(estimate(ls).views.center - t.c))
+        @test norm(estimate(ri).views.offset - t.d) < 5.0e-3
+        rw = refine_camera_and_poses(cam, start, views; fixed = held, optimization_strategy = Triggs{HuberShape}(), width = 0.9)
+        @test converged(rw) && scale_source(rw) === ScaleNone && rw.loss_width ≈ 0.9
+        @test norm(estimate(rw).views.center - t.c) < 2.0e-3 && norm(estimate(rw).views.offset - t.d) < 2.0e-3
+    end
+    @testset "the gauge: a one-axis set and two views are refused; a free camera; the keys" begin
+        one_axis = center_truth([SVector(0.0, 0.0, a) for a in -0.1:0.05:0.1])
+        s1 = RotationCenterViews(one_axis.R, one_axis.c, one_axis.d)
+        @test_throws r"turned about one axis" refine_camera_and_poses(cam, s1, center_views(cam, one_axis); fixed = held, optimization_strategy = nothing)
+        two = center_truth(axes[1:2])
+        @test_throws r"at least 3 views" refine_camera_and_poses(cam, RotationCenterViews(two.R, two.c, two.d), center_views(cam, two);
+                                                                 fixed = held, optimization_strategy = nothing)
+        @test_throws r"HELD camera" refine_camera_and_poses(cam, start, center_views(cam, t); optimization_strategy = nothing)
+        @test_throws ArgumentError refine_camera_and_poses(cam, start, Dict(k => v for (k, v) in center_views(cam, t) if k != 3);
+                                                           fixed = held, optimization_strategy = nothing)
+    end
+end

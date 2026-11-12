@@ -27,15 +27,13 @@ if [ "${1:-}" = "--summary" ]; then
   done
   exit $status
 fi
-source ci/slurm/packages.sh
+source ci/slurm/common.sh   # the packages, sbatch_site_options
 COMMIT=$(git rev-parse HEAD)
 LOGS=${VGTK_SUITE_LOGS:-ci/slurm/logs}
 source ci/slurm/logdir.sh
 VGTK_DOCS_LOGDIR=$(new_logdir "$LOGS" "${COMMIT:0:8}-docs"); export VGTK_DOCS_LOGDIR
 OPTS=(--parsable --mem-per-cpu="${MEM_PER_CPU:-8480}M" --output="$VGTK_DOCS_LOGDIR/slurm-%A_%a.out")
-[ -n "${VGTK_SLURM_PARTITION:-}" ] && OPTS+=(--partition="$VGTK_SLURM_PARTITION")
-[ -n "${VGTK_SLURM_ACCOUNT:-}" ] && OPTS+=(--account="$VGTK_SLURM_ACCOUNT")
-read -ra EXTRA <<< "${SBATCH_EXTRA:-}"
+sbatch_site_options
 CORE=${VGTK_ALL_PACKAGES[0]}
 REST=("${VGTK_ALL_PACKAGES[@]:1}")
 J1=$(VGTK_DOCS_PACKAGES="$CORE" sbatch "${OPTS[@]}" --array=0 ${EXTRA[@]+"${EXTRA[@]}"} ci/slurm/docs.sbatch); J1=${J1%%;*}

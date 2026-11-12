@@ -34,7 +34,7 @@ function _ransac_pipeline(
         scoring::Union{AbstractScoring, Nothing} = nothing,
         # The class's strategy of record (configs/default.toml [pipelines.<class>]).
         local_optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _dflt_lo(class),
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         # Defaults are configs/default.toml [ransac] — the same authority
         # RansacConfig() reads, so there is no second "default" to disagree.
         max_trials::Int = _dflt("ransac", "max_trials"),
@@ -45,7 +45,7 @@ function _ransac_pipeline(
         threshold = nothing, outlier_halfwidth = nothing,   # refused, with the way to say it (`_refuse_width_keywords`)
     )
     _refuse_width_keywords(threshold, outlier_halfwidth)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
     scoring = _class_scoring(problem, class, scoring)
     config = something(config, RansacConfig(; max_trials, min_trials))
     problem isa _TooFew && return _too_few(problem, scoring, workspace)
@@ -111,13 +111,17 @@ _guarded_ransac(problem, ::Type{P}, n::Integer, class::Symbol; kwargs...) where 
 _storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 
-# The `extent` keyword of the `find_*` pipelines: when given, the problem is
-# wrapped in `BoundedProblem`, whose `extent_trait` makes RANSAC's post-IRLS
-# extent-consensus hook validate the fitted model over the region (the
-# `_check_extent` method for the model class, extent_traits.jl and the problem
-# files).
-_with_extent(p, ::Nothing) = p
-_with_extent(p, extent) = BoundedProblem(p, extent)
+"""
+    with_extent(problem, extent) -> problem or BoundedProblem
+
+The `extent` keyword of a `find_*` pipeline (and of a caller's own
+`locally_optimize`) applied to `problem`: unchanged for `extent = nothing`, else
+[`BoundedProblem`](@ref)`(problem, extent)`, whose `extent_trait` makes RANSAC's
+post-IRLS extent-consensus hook validate the fitted model over the region (the
+`_check_extent` method for the model class).
+"""
+with_extent(p, ::Nothing) = p
+with_extent(p, extent) = BoundedProblem(p, extent)
 
 # A supplied workspace carries the workspace of the scorer it was built for —
 # `RansacWorkspace(P, n_data)` the default MSAC scoring's. Each entry checks it

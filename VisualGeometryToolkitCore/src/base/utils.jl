@@ -165,3 +165,30 @@ the stream form, `open(sha256_hex, path)`.
 sha256_hex(s::AbstractString) = sha256_hex(codeunits(s))
 sha256_hex(bytes::AbstractVector{UInt8}) = bytes2hex(sha256(bytes))
 sha256_hex(io::IO) = bytes2hex(sha256(io))
+
+"""
+    RetiredKeyword()
+    refuse_retired_keyword(value, old, new) -> nothing
+
+The stack's one refusal of a retired keyword, never an alias: a function keeps the
+retired keyword `old` with the default `RetiredKeyword()` and calls
+`refuse_retired_keyword(old_value, :old, successor)` first, which throws
+`ArgumentError("the keyword `old` is retired: give `new`")` for any value a caller
+supplies and returns `nothing` for the default. `new` names what replaces it (a
+keyword, or the argument that now carries it). `LensSpec` refuses `free` this way
+(it takes `fixed`), every `find_*`, `ransac` and `locally_optimize` refuses
+`local_optimization` (it takes `local_optimization_strategy`), every `refine_*`
+and `fit_*` the strategy spellings (the owner's ruling, 2026-11-11); a downstream
+package refuses its own retired keywords through the same pair.
+"""
+struct RetiredKeyword end
+"""
+    refuse_retired_keyword(value, old, new) -> nothing
+
+`nothing` for [`RetiredKeyword`](@ref)`()`, the retired keyword's default; for any
+other `value` an `ArgumentError` naming the retired keyword `old` and its
+successor `new`.
+"""
+refuse_retired_keyword(::RetiredKeyword, _old, _new) = nothing
+refuse_retired_keyword(_value, old, new) =
+    throw(ArgumentError("the keyword `$old` is retired: give `$new`"))

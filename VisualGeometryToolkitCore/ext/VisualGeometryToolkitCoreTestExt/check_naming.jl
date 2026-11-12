@@ -1353,32 +1353,46 @@ const _TOML_DEPENDENCY_TABLES = Set([
     "pypi-dependencies", "pip",
 ])
 
-# Every key of a TOML file, at the line that spells it first (a header or a `key =`).
-function _toml_names(src::AbstractString)
-    acc = Tuple{Symbol, Int, Symbol}[]
+# A TOML source parsed, with its lines; `nothing` when it does not parse. The one reader of the rules' TOML walks.
+function _toml_doc(src::AbstractString)
     doc = try
         TOML.parse(src)
     catch
         return nothing
     end
-    lines = collect(eachline(IOBuffer(src)))
+    return doc, collect(eachline(IOBuffer(src)))
+end
+
+# Every key of a parsed TOML table, depth first in the table's order: `visit(d, k, path, table)`, with `d` the table
+# holding `k`, `path` the dotted path of `d` ("" at the top) and `table` the key `d` was reached by ("" at the top). An
+# array's tables are walked as tables of its key. The one walk of the rules' TOML checks.
+function _walk_toml(visit, d::AbstractDict, path::AbstractString = "", table::AbstractString = "")
+    for (k, v) in d
+        visit(d, k, path, table)
+        p = isempty(path) ? k : path * "." * k
+        if v isa AbstractDict
+            _walk_toml(visit, v, p, k)
+        elseif v isa AbstractVector
+            foreach(x -> x isa AbstractDict && _walk_toml(visit, x, p, k), v)
+        end
+    end
+    return nothing
+end
+
+# Every key of a TOML file, at the line that spells it first (a header or a `key =`).
+function _toml_names(src::AbstractString)
+    acc = Tuple{Symbol, Int, Symbol}[]
+    parsed = _toml_doc(src)
+    parsed === nothing && return nothing
+    doc, lines = parsed
     function lineof(key)
         re = Regex("(?<![\\w-])" * replace(key, r"[\\^$.|?*+()\[\]{}]" => s -> "\\" * s) * "(?![\\w-])")
         k = findfirst(l -> (h = replace(l, r"#.*$" => ""); occursin(re, first(split(h, '='))) || startswith(strip(h), "[") && occursin(re, h)), lines)
         return something(k, 1)
     end
-    function walk(d::AbstractDict, table)
-        for (k, v) in d
-            table in _TOML_DEPENDENCY_TABLES || push!(acc, (Symbol(k), lineof(k), :key))
-            if v isa AbstractDict
-                walk(v, k)
-            elseif v isa AbstractVector
-                foreach(x -> x isa AbstractDict && walk(x, k), v)
-            end
-        end
-        return
+    _walk_toml(doc) do _d, k, _path, table
+        table in _TOML_DEPENDENCY_TABLES || push!(acc, (Symbol(k), lineof(k), :key))
     end
-    walk(doc, "")
     return acc
 end
 
@@ -1679,7 +1693,7 @@ end
 #   - Julia: a keyword argument so named in a CALL or a SIGNATURE of a
 #     parameter-selecting function (`_R13_CALLEES`: `fit_*`, `refine_*`, their
 #     `_`-prefixed internals, `LensSpec` and CaliBlobs' `LensTarget`). A signature's refusal
-#     slot (`free = _RetiredKeyword()`) and a call inside `@test_throws` (the
+#     slot (`free = RetiredKeyword()`) and a call inside `@test_throws` (the
 #     test of the refusal) are the refusal itself, not a use. Comments
 #     ("CUDA-free", "free memory", "for free"), a local `free`, a struct field
 #     (a result's record of what was refined) and Base's or a package's own
@@ -1692,7 +1706,8 @@ end
 const _R13_SPELLINGS = (:free, :fix, :fixed_params, :hold)
 const _R13_CALLEES = r"^_*(fit|refine)_|^_*refine$|^(LensSpec|LensTarget)$"
 const _R13_TABLES = r"(^|\.)(\w*refine\w*|lm)(\.|$)"
-_r13_refusal(v) = Meta.isexpr(v, :call) && v.args[1] in (:_RetiredKeyword, :_NoFree)
+_r13_refusal(v) = Meta.isexpr(v, :call) && (v.args[1] === :RetiredKeyword ||
+    (Meta.isexpr(v.args[1], :.) && v.args[1].args[end] == QuoteNode(:RetiredKeyword)))   # qualified, as a downstream package writes it
 function _r13_keywords!(acc, ex, line::Int)
     ex isa Expr || return acc
     if Meta.isexpr(ex, :macrocall) && ex.args[1] in (Symbol("@test_throws"),)
@@ -1726,24 +1741,15 @@ function _fixed_keyword_rules!(out, f, src::AbstractString, parsed)
             push!(out, NamingViolation(f, line, String(name), :R13))
         end
     elseif endswith(f, ".toml")
-        doc = try
-            TOML.parse(src)
-        catch
-            return out
-        end
-        lines = collect(eachline(IOBuffer(src)))
-        function walk(d::AbstractDict, path)
-            for (k, v) in d
-                p = isempty(path) ? k : path * "." * k
-                if Symbol(k) in _R13_SPELLINGS && (occursin(_R13_TABLES, path) || haskey(d, "lens"))
-                    line = something(findfirst(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines), 1)
-                    push!(out, NamingViolation(f, line, k, :R13))
-                end
-                v isa AbstractDict && walk(v, p)
-                v isa AbstractVector && foreach(x -> x isa AbstractDict && walk(x, p), v)
+        toml = _toml_doc(src)
+        toml === nothing && return out
+        doc, lines = toml
+        _walk_toml(doc) do d, k, path, _table
+            if Symbol(k) in _R13_SPELLINGS && (occursin(_R13_TABLES, path) || haskey(d, "lens"))
+                line = something(findfirst(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines), 1)
+                push!(out, NamingViolation(f, line, k, :R13))
             end
         end
-        walk(doc, "")
     end
     return out
 end

@@ -495,23 +495,6 @@ _poselib_loss_type(lo) = throw(ArgumentError(
     "`optimization_strategy` must be Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, LeZach() or `nothing` " *
         "(least squares); got $(repr(lo))"))
 
-# The efficiency constant of a strategy at the residual's codimension `d`: the
-# strategy's own (`Irls{K}`'s width mode, `EfficiencyConstant(c)`), else the shape's
-# default, `efficiency_constant(shape, d)`. An absolute width in the strategy
-# is refused: it is the `width` keyword's.
-# The shape is the one Core reads a strategy's `efficiency_constant` for (`lo_efficiency_constant_shape`: `Irls{K}`'s
-# `K`, LeZach's registry row `TLSShape`).
-_strategy_constant(lo::Irls, d::Int) =
-    _strategy_constant(VgtkCore.lo_width(lo), VgtkCore.lo_efficiency_constant_shape(typeof(lo))(), d)
-_strategy_constant(lo::LeZach, d::Int) = _strategy_constant(nothing, VgtkCore.lo_efficiency_constant_shape(LeZach)(), d)
-_strategy_constant(c::EfficiencyConstant{Float64}, _shape, _d::Int) = c.value
-_strategy_constant(::Nothing, shape, d::Int) =
-    hasmethod(VgtkCore.efficiency_constant, Tuple{Type{typeof(shape)}}) ? Float64(VgtkCore.efficiency_constant(shape, d)) :
-        throw(ArgumentError("$(nameof(typeof(shape))) has no efficiency constant (a truncation): give `width = w`, " *
-            "or the strategy's own efficiency constant"))
-_strategy_constant(w, _shape, _d::Int) = throw(ArgumentError(
-    "PoseLib takes an absolute width as the `width` keyword, not in the strategy (got $(repr(w)))"))
-
 # Whether a strategy carries its own efficiency constant (then a `width` would
 # silently override it).
 _carries_constant(lo::Irls) = lo.width !== nothing
@@ -577,7 +560,7 @@ function _refine_width(lo, scale, width, d::Int)
         return w, PoseLibRefineMetadata(NaN, si.source, w)
     end
     s = Float64(si.scale)
-    w = _strategy_constant(lo, d) * s
+    w = VgtkCore.efficiency_constant(lo, d) * s   # the strategy's own constant, else the table's (Core)
     return w, PoseLibRefineMetadata(s, si.source, w)
 end
 
@@ -592,8 +575,8 @@ _refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::
                                               (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
               iterations, NaN, n, meta)
 
-# Unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
-# `_assert_unit_bearings` (`problems/cspond.jl`) in tolerance and in what the
+# Finite, unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
+# `_assert_unit_bearings` (`problems/cspond.jl`) in its finite check, tolerance and in what the
 # message has to tell the caller — the stack settled this shape, so this
 # binding follows it rather than inventing a second one.
 #
@@ -610,6 +593,12 @@ _refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::
 function _assert_unit_bearings(fs, which::AbstractString)
     worst = 0.0; at = 0
     @inbounds for i in eachindex(fs)
+        # FINITE first, as cspond.jl's: `NaN > worst` is false, so a NaN bearing (a pixel the camera cannot
+        # back-project, e.g. past a fisheye's fold) would pass the norm test below.
+        all(isfinite, fs[i]) || throw(ArgumentError(
+            "refine_relpose needs finite bearings; the $which at index $i is $(Tuple(fs[i])). A camera returns NaN " *
+                "for a pixel it cannot back-project (e.g. past a fisheye's fold) — drop that correspondence."
+        ))
         d = abs(sqrt(fs[i][1]^2 + fs[i][2]^2 + fs[i][3]^2) - 1)
         d > worst && (worst = d; at = i)
     end
@@ -994,12 +983,10 @@ points, or the reverse, is an `ArgumentError`.
 function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, cs::_PhysicalPoints3; kwargs...)
     seed = convert(Rigid3, VgtkCore.unlabel(ustrip(VgtkCore.m, pose)))   # a labeled pose (an estimate's CameraExtrinsics) too
     plain = [_metres_point(first(c)) => last(c) for c in cs]
-    r = refine_absolute_pose(seed, K, plain; kwargs...)
-    refined = r.estimate
     # rebuilt through the checked constructor (the refined rotation is verified, as
     # before), then read in metres; the rest of the result is the plain refinement's
-    pose_m = VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m)
-    return FitResult(pose_m, VgtkCore.retcode(r), VgtkCore.stop_rule(r), r.iterations, r.rms, r.n, r.metadata)
+    return VgtkCore.map_estimate(refined -> VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m),
+                                 refine_absolute_pose(seed, K, plain; kwargs...))
 end
 
 refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(

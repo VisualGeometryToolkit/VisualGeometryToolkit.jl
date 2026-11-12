@@ -281,12 +281,20 @@ function run_complete(outdir::AbstractString; sidecar::AbstractString, gitpath::
     isfile(joinpath(outdir, sidecar)) || return false
     isfile(joinpath(outdir, PROVENANCE_FILE)) || return false
     prov = try read_provenance(outdir) catch; return false end
-    changes = code_tree_changes(get(prov, "code_trees", nothing), current_code_trees(gitpath))
-    # a scratch run's result never completes a run of record, nor the reverse
-    get(prov, "scratch", false) === scratch_run() || push!(changes, "scratch: $(get(prov, "scratch", false)) → $(scratch_run())")
+    changes = _reuse_changes(prov, current_code_trees(gitpath), scratch_run())
     isempty(changes) && return true
     @info "rerunning $outdir: its code changed" changes = join(changes, "; ")
     return false
+end
+
+# Why a stored result (its record `rec`: a run's provenance, a cached file's data) is not reused now: the code trees
+# that changed since it was computed (`code_tree_changes` against `trees`), and a scratch flag that differs from
+# `scratch` (a scratch run's result never stands for a run of record, nor the reverse). Empty: reuse it. The one reuse
+# rule of `run_complete` and `cached_result`.
+function _reuse_changes(rec, trees, scratch::Bool)
+    changes = code_tree_changes(get(rec, "code_trees", nothing), trees)
+    get(rec, "scratch", false) === scratch || push!(changes, "scratch: $(get(rec, "scratch", false)) → $scratch")
+    return changes
 end
 
 """
@@ -336,8 +344,7 @@ function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
     if !force && isfile(file)
         trees = current_code_trees(gitpath)
         stored = load(file)
-        changes = code_tree_changes(get(stored, "code_trees", nothing), trees)
-        get(stored, "scratch", false) === scratch || push!(changes, "scratch: $(get(stored, "scratch", false)) → $scratch")
+        changes = _reuse_changes(stored, trees, scratch)
         isempty(changes) && return stored, file
         @info "recomputing $file: its code changed" changes = join(changes, "; ")
     end

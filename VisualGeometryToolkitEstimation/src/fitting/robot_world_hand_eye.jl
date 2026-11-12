@@ -231,13 +231,12 @@ end
 # -----------------------------------------------------------------------------
 
 # A rigid transform as static Float64 (R, t), `unlabel`ed at the boundary; a
-# non-finite one is named (`what` of marker `id`'s element `j`).
-function _finite_pose(T::PlainEuclideanMap{3}, id, j, what)
+# non-finite one (`_finite_pose`, refine_camera_and_poses.jl) is named (`what` of
+# marker `id`'s element `j`).
+function _static_rt(T::PlainEuclideanMap{3}, id, j, what)
     a = unlabel(T)
-    R = SMatrix{3, 3, Float64, 9}(rotation(a)); t = SVector{3, Float64}(translation(a))
-    (all(isfinite, R) && all(isfinite, t)) ||
-        throw(ArgumentError("marker $id, element $j: non-finite $what"))
-    return R, t
+    _finite_pose(a) || throw(ArgumentError("marker $id, element $j: non-finite $what"))
+    return SMatrix{3, 3, Float64, 9}(rotation(a)), SVector{3, Float64}(translation(a))
 end
 
 # Walk `markers` marker by marker in `ids` order — the block order every
@@ -249,7 +248,7 @@ function _flatten_rig_observations(visit, markers, ids, rows::AbstractString)
     counts = zeros(Int, length(ids))
     for (m, id) in enumerate(ids)
         for (j, c) in enumerate(markers[id])
-            RA, tA = _finite_pose(first(c), id, j, "rig pose")
+            RA, tA = _static_rt(first(c), id, j, "rig pose")
             counts[m] += visit(m, id, j, RA, tA, last(c))
         end
         counts[m] > 0 || throw(ArgumentError("marker $id has no $rows"))
@@ -585,11 +584,11 @@ function fit_robot_world_hand_eye(
         σ_trans::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("robot_world_hand_eye", "tol"),
     ) where {K}
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     f = _fit_irls("fit_robot_world_hand_eye", optimization_strategy, scale, width, 6)
     f === nothing || (σ_rot !== nothing && σ_trans !== nothing) || throw(ArgumentError(
         "fit_robot_world_hand_eye: a robust fit needs `σ_rot` and `σ_trans` — the whitening its scale is in; " *
@@ -606,7 +605,7 @@ function fit_robot_world_hand_eye(
     RB = RotMatrix{3, Float64, 9}[]; tB = SVector{3, Float64}[]
     obs_marker = Int[]
     counts = _flatten_rig_observations(markers, ids, "observations") do m, id, j, RAk, tAk, b
-        RBk, tBk = _finite_pose(b, id, j, "marker pose")
+        RBk, tBk = _static_rt(b, id, j, "marker pose")
         push!(RA, RotMatrix{3, Float64}(RAk)); push!(tA, tAk)
         push!(RB, RotMatrix{3, Float64}(RBk)); push!(tB, tBk)
         push!(obs_marker, m)

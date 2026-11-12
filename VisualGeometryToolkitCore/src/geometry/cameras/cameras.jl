@@ -65,6 +65,7 @@ using Adapt: Adapt, adapt   # device upload of the controls and rays; the spline
 
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 import KernelAbstractions as KA   # the spline models' batched kernels
+using ..VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # LensSpec refuses `free` (base/utils.jl)
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3

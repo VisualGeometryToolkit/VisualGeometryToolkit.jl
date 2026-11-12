@@ -86,12 +86,12 @@ the transform comes back physical; the metadata are then in metres.
 function fit_rigid_alignment(
         cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
-        local_optimization = _RetiredKeyword(),   # refused, naming its successor
+        local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
         tol::Real = _dflt("fit_rigid_alignment", "tol"),
     )
     n = length(cs)
-    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     f = _fit_irls("fit_rigid_alignment", optimization_strategy, scale, width, 3)
     as = SVector{3, Float64}[SVector{3, Float64}(a) for a in sources(cs)]
     bs = SVector{3, Float64}[SVector{3, Float64}(b) for b in targets(cs)]

@@ -96,7 +96,7 @@ end
     pose = VgtkCore.Extrinsics3(RotMatrix{3, Float64}(RotZ(0.1)), VgtkCore.Vec3{Float64}(0.0, 0.0, 1.0))
     framed = no_model(VgtkEstimation._with_frames(r, pose))
     @test iterations(framed) == iterations(r)
-    @test VgtkEstimation._map_estimate(identity, r).metadata === r.metadata
+    @test VgtkCore.map_estimate(identity, r).metadata === r.metadata
 end
 
 @testitem "ransac: too few points is the no-model result" setup = [TooFewData] begin
@@ -222,4 +222,16 @@ end
         @test enough_err isa Union{ArgumentError, MethodError}
         @test same(caught(() -> call(few)(kw)), enough_err)
     end
+end
+
+@testitem "with_extent: the problem itself without an extent, a BoundedProblem with one" begin
+    using VisualGeometryToolkitEstimation, StaticArrays
+    using VisualGeometryToolkitEstimation: with_extent, BoundedProblem, HomographyProblem
+    import VisualGeometryToolkitCore as VgtkCore
+    pairs = [SVector(Float64(i), Float64(i^2 % 7)) => SVector(2.0 * i, Float64(i % 5)) for i in 1:8]
+    p = HomographyProblem(pairs)
+    @test with_extent(p, nothing) === p
+    rect = VgtkCore.Rect(0.0, 0.0, 200.0, 150.0)
+    b = with_extent(p, rect)
+    @test b isa BoundedProblem && b.inner === p && b.extent == rect
 end

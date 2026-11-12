@@ -71,6 +71,7 @@ using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleIn
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
 using FlexUnits: Quantity
 using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
+using VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (Core base/utils.jl)
 using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
@@ -332,7 +333,7 @@ public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of
 # PoseLib has its own). The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
 public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
-    BoundedProblem, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
+    BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
     fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
 # measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).

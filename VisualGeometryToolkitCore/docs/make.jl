@@ -103,8 +103,8 @@ makedocs(;
     # Rate-limited or bot-blocking hosts that answer a crawler with 403/429
     # (github.com gave 429 on CITATION.cff, 2026-11-04); lychee
     # (.github/workflows/Links.yml) checks them with a token.
-    # VGTK_DOCS_LOCAL=1: an @extref into a sibling package built here points at anchors not yet published
-    linkcheck_ignore = [(get(ENV, "VGTK_DOCS_LOCAL", "") == "1" ? [r"^https://visualgeometrytoolkit\.github\.io/"] : Regex[])..., r"^https://github\.com/", r"^https://doi\.org/", r"^https://(www\.)?sciencedirect\.com/", r"^https://ieeexplore\.ieee\.org/", r"^https://dl\.acm\.org/"],
+    # a local build (VGTK_DOCS_LOCAL=1) does not check the published sibling docs (ci/docs_inventory.jl)
+    linkcheck_ignore = [vgtk_local_linkcheck_ignore()..., r"^https://github\.com/", r"^https://doi\.org/", r"^https://(www\.)?sciencedirect\.com/", r"^https://ieeexplore\.ieee\.org/", r"^https://dl\.acm\.org/"],
     pages = [
         "Home" => "index.md",
         "Getting Started" => "guide/getting-started.md",

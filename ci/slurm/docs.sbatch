@@ -17,10 +17,9 @@ log=$VGTK_DOCS_LOGDIR/$PKG.log
 unset CI GITHUB_ACTIONS GITHUB_TOKEN DOCUMENTER_KEY TRAVIS GITLAB_CI
 export VGTK_DOCS_LOCAL=1 JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=
 t0=$(date +%s)
-echo "[$(date +%T)] package=$PKG commit=$(git rev-parse HEAD) docs host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}" > "$log"
+log_header "$PKG" "$log" docs
 # The workspace Manifest is the root's (docs projects are workspace members): resolved once at a time, like the suites.
-{ flock 9; "$JULIA" --startup-file=no --project=. -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'; } \
-  9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$log" 2>&1
+locked_instantiate . "$log"
 "$JULIA" --startup-file=no --project="$PKG/docs" "$PKG/docs/make.jl" >> "$log" 2>&1
 rc=$?
 # Core's inventory is what the other five link against: a failed strict Core build is rebuilt once with every check a warning
@@ -30,5 +29,5 @@ if [ $rc -ne 0 ] && [ "$PKG" = "${VGTK_ALL_PACKAGES[0]}" ]; then
   VGTK_DOCS_INVENTORY_ONLY=1 "$JULIA" --startup-file=no --project="$PKG/docs" "$PKG/docs/make.jl" > "$log.inventory" 2>&1
   echo "[$(date +%T)] inventory-only rebuild exit=$? (log $log.inventory)" >> "$log"
 fi
-echo "[$(date +%T)] package=$PKG docs wall=$(( $(date +%s) - t0 ))s exit=$rc" >> "$log"
+log_trailer "$PKG" "$log" "$t0" "$rc" docs
 exit $rc

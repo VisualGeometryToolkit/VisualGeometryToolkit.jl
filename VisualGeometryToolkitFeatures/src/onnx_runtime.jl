@@ -373,14 +373,21 @@ function _onnx_device_free()
     return f == typemax(Int) ? nothing : f
 end
 
+# `f()` with the device's free memory (`free`: bytes, or nothing without a query) read around it: its value and the
+# drop in free memory, `nothing` without a query. The one arena-growth measurement (a run's, a session's creation).
+function _measure_growth(f, free::Function)
+    before = free()
+    out = f()
+    after = before === nothing ? nothing : free()
+    return out, (after === nothing ? nothing : before - after)
+end
+
 # A run of the session `s` on `inputs`; on a tracked CUDA session the arena's growth is measured around it (`free`, the
 # device's free memory or nothing).
 function _onnx_run(s::ORT.InferenceSession, inputs, free::Function = _onnx_device_free)
     s.execution_provider === :cuda || return s(inputs)
-    before = free()
-    out = s(inputs)
-    after = before === nothing ? nothing : free()
-    after === nothing || _arena_grew!(s.session, before - after)
+    out, grown = _measure_growth(() -> s(inputs), free)
+    grown === nothing || _arena_grew!(s.session, grown)
     return out
 end
 
@@ -433,14 +440,13 @@ function _onnx_session(path::AbstractString, execution_provider::Symbol, threads
         cuda = capi.OrtCUDAProviderOptions(; gpu_mem_limit = Int(gpu_mem_limit), arena_extend_strategy = 1)
         capi.SessionOptionsAppendExecutionProvider_CUDA(api, options, cuda)
     end
-    track = execution_provider === :cuda && reserve
-    before = track ? _onnx_device_free() : nothing
-    session = capi.CreateSession(api, env, path, options)
-    if track
+    if execution_provider === :cuda && reserve
+        session, grown = _measure_growth(() -> capi.CreateSession(api, env, path, options), _onnx_device_free)
         _reserve_arena!(session, gpu_mem_limit)
-        after = before === nothing ? nothing : _onnx_device_free()
-        after === nothing || _arena_grew!(session, before - after)   # the initializers the arena took
+        grown === nothing || _arena_grew!(session, grown)   # the initializers the arena took
         clear_asift_plans!()
+    else
+        session = capi.CreateSession(api, env, path, options)
     end
     meminfo = capi.CreateCpuMemoryInfo(api)
     allocator = capi.CreateAllocator(api, session, meminfo)

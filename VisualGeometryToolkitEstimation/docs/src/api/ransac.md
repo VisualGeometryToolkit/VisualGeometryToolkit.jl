@@ -114,6 +114,7 @@ consensus check then counts only the points inside it.
 
 ```@docs
 BoundedProblem
+with_extent
 ExtentTrait
 NoExtent
 WithExtent

@@ -592,7 +592,12 @@ a problem of `n` points with codimension `dg`, committed to `scale_prior` (the
 log Γ table's `α₀`) and `label_prior` (e.g. `FlatLabelPrior()`), both required —
 the stack's default priors are a configuration's, not this function's.
 """
-function default_scoring_workspace(n::Int; dg::Int = 1, scale_prior::IGPrior, label_prior::AbstractLabelPrior)
+default_scoring_workspace(n::Int; dg::Int = 1, scale_prior::IGPrior, label_prior::AbstractLabelPrior) =
+    _scoring_workspace(n, dg, scale_prior, label_prior, Float64[])
+
+# The one buffer layout of a sweep's workspace for `n` points of codimension `dg`: the log Γ table at `scale_prior`'s
+# `α₀`, `label_prior`'s table, and `tail`, the estimated-support sweep's buffers (empty for a supplied half-width).
+_scoring_workspace(n::Int, dg::Int, scale_prior::IGPrior, label_prior::AbstractLabelPrior, tail::Vector{Float64}) =
     ScoringWorkspace(
         Vector{Int}(undef, n),
         Vector{Int}(undef, n),
@@ -602,8 +607,8 @@ function default_scoring_workspace(n::Int; dg::Int = 1, scale_prior::IGPrior, la
         label_prior_table(n, label_prior),
         scale_prior;
         label_prior,
+        tail,
     )
-end
 
 # =============================================================================
 # Per-partition score (single formula; subsumes Jeffreys at α₀=β₀=0)

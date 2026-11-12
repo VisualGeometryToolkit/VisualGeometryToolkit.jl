@@ -32,8 +32,8 @@ makedocs(;
     # github.com rate-limits a crawler (429 on CITATION.cff in
     # VisualGeometryToolkitCore's build, 2026-11-04); lychee
     # (.github/workflows/Links.yml) checks its links with a token.
-    # VGTK_DOCS_LOCAL=1: an @extref into a sibling package built here points at anchors not yet published
-    linkcheck_ignore = [(get(ENV, "VGTK_DOCS_LOCAL", "") == "1" ? [r"^https://visualgeometrytoolkit\.github\.io/"] : Regex[])..., r"^https://github\.com/"],
+    # a local build (VGTK_DOCS_LOCAL=1) does not check the published sibling docs (ci/docs_inventory.jl)
+    linkcheck_ignore = [vgtk_local_linkcheck_ignore()..., r"^https://github\.com/"],
     pages = [
         "Home" => "index.md",
         "Getting started" => "guide/getting-started.md",

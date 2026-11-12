@@ -81,6 +81,7 @@ using Pkg.Artifacts: bind_artifact!, create_artifact, archive_artifact, remove_a
 using Artifacts: with_artifacts_directory
 using ..Experiments: data_root, results_root, project_root, load_run_config, install_artifact,
     link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER, ArtifactView
+import .._entry_mount_dir   # src/code_identity.jl: a catalog entry's mount_dir, the runner's reader too
 using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
 
@@ -299,7 +300,7 @@ end
 _whole(root, files) = [Piece(f, f, 0, filesize(joinpath(root, f))) for f in files]
 
 # The author's root, or `nothing` where the mount does not resolve.
-_at_mount_dir(root, a) = (md = String(get(a, "mount_dir", "")); isempty(md) ? root : joinpath(root, md))
+_at_mount_dir(root, a) = (md = _entry_mount_dir(a); isempty(md) ? root : joinpath(root, md))
 _author_root(a) = try _at_mount_dir(_mount_root(a["mount"]), a) catch; nothing end
 
 # [(bound name, part, sub)] of a split entry: part = "meta" or a scene; sub = 0
@@ -377,7 +378,7 @@ Where artifact (or part) `name` mounts under its mount root: the catalog entry's
 directory, `"absolute_pose_experiments"`), `""` (the root itself) when it names none. A tier's paths are relative
 to it ([`catalog_view`](@ref), `Experiments.data_root(; tier)`), so a project carries no mount helper of its own.
 """
-mount_dir(cat::DataCatalog, name::AbstractString) = String(get(cat.artifacts[first(_entry_of(cat, name))], "mount_dir", ""))
+mount_dir(cat::DataCatalog, name::AbstractString) = _entry_mount_dir(cat.artifacts[first(_entry_of(cat, name))])
 
 """
     catalog_view(cat; dir = "", default = required_artifacts(cat)) -> ArtifactView

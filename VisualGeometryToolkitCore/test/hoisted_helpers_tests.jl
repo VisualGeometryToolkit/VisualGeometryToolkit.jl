@@ -276,3 +276,53 @@ end
           retcode_symbol(VgtkCore.nlls_termination(1 << 7, true)...) === :converged &&
           retcode_symbol(VgtkCore.nlls_termination(1 << 8, true)...) === :max_iterations
 end
+
+@testitem "tree_sum!: a workgroup's sum on the CPU (a group of one) and on CUDA (256, a partial group; availability-gated)" begin
+    using Test
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @localmem, @synchronize, @groupsize, @context, @uniform, @Const
+    using VisualGeometryToolkitCore: tree_sum!
+    # each group sums its slice of `x` (the stack's per-blob pattern: write, barrier, tree_sum!, the first item writes)
+    @kernel function group_sums!(out, @Const(x), n_per)
+        g = @index(Group, Linear); tid = @index(Local, Linear)
+        @uniform nt = @groupsize()[1]
+        smem = @localmem Float64 (256,)
+        acc = 0.0
+        i = tid
+        while i <= n_per
+            acc += x[(g - 1) * n_per + i]
+            i += nt
+        end
+        smem[tid] = acc
+        @synchronize()
+        tree_sum!(@context, smem, tid, Int32(nt))
+        if tid == 1
+            out[g] = smem[1]
+        end
+    end
+    n_per, groups = 300, 7
+    x = collect(1.0:(n_per * groups))
+    expect = [sum(x[(g - 1) * n_per + 1:g * n_per]) for g in 1:groups]
+    out = zeros(groups)
+    group_sums!(KA.CPU(), 1)(out, x, n_per; ndrange = groups)
+    KA.synchronize(KA.CPU())
+    @test out == expect                       # integers in Float64: exact in any order
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        for nt in (256, 100)              # a full group, and one smaller than the 256-slot buffer
+            xd = KA.allocate(gpu, Float64, length(x)); copyto!(xd, x)
+            od = KA.zeros(gpu, Float64, groups)
+            Base.invokelatest(group_sums!(gpu, nt), od, xd, n_per; ndrange = groups * nt)
+            KA.synchronize(gpu)
+            @test Array(od) == expect
+        end
+    end
+end

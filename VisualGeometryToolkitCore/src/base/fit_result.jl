@@ -170,6 +170,24 @@ also reachable directly on `r` as properties.
 """
 metadata(r::FitResult) = r.metadata
 
+"""
+    map_estimate(f, r::FitResult) -> FitResult
+
+`r` with `f` applied to its estimate, everything else as it was (the
+termination record, `iterations`, `rms`, `n`, the metadata): the one way a
+stage hands on a result whose model it re-expresses (a unit attached, frame
+labels restored). A RANSAC result's estimate is `Union{M, Nothing}`: `f` maps
+a present model, an absent one stays `nothing`, and the result keeps the union
+over `f`'s image of `M` (`f` needs no method for `nothing`). Any other
+result's estimate is concrete and simply mapped.
+"""
+function map_estimate(f, r::FitResult{P, R}) where {P, R}
+    E = estimate(r)
+    Nothing <: P || return FitResult(f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
+    N = Base.promote_op(f, P)
+    return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
+end
+
 # -----------------------------------------------------------------------------
 # Property forwarding into metadata — derived from `fieldnames(M)`, so a new
 # metadata type gets its accessors for free and nothing is hand-listed.

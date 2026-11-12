@@ -378,7 +378,7 @@ function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = 
         elseif x.state === :refused
             push!(bad, "input $id ($(t["path"])): $(x.problem)")
         end
-        out[String(id)] = root === nothing ? tier_path(tier, t["path"]) : joinpath(root, t["path"])   # the one tier-path join
+        out[String(id)] = joinpath(r, t["path"])   # under the root just checked (`tier_path`'s join, the tier's root read once)
     end
     isempty(bad) || throw(ArgumentError("refused: the inputs are not the data of record\n  " * join(sort!(bad), "\n  ")))
     return out

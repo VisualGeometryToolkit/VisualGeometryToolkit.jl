@@ -47,6 +47,7 @@ metadata
 weights
 dof
 nested_metadata
+map_estimate
 ```
 
 A robust result records ONE scale — the one it ran with, or the one it

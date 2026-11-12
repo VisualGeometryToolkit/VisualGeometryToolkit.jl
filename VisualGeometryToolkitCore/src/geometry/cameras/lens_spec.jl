@@ -166,14 +166,9 @@ function _validated(spec::LensSpec)
     return spec
 end
 
-# The retired spelling (the owner's ruling, 2026-11-11): `fixed` names the held coefficients.
-struct _NoFree end
-_refuse_free(::_NoFree) = nothing
-_refuse_free(_) = throw(ArgumentError(
-    "LensSpec: the keyword `free` is retired: give `fixed`, the coefficients held (every other one moves)"))
-
-function LensSpec(family::Symbol; fixed = (), free = _NoFree(), kwargs...)
-    _refuse_free(free)
+# `free` is a retired spelling (the owner's ruling, 2026-11-11): `fixed` names the held coefficients.
+function LensSpec(family::Symbol; fixed = (), free = RetiredKeyword(), kwargs...)
+    refuse_retired_keyword(free, :free, :fixed)
     return LensSpec(family, NamedTuple(kwargs), fixed, nothing)
 end
 
@@ -183,8 +178,8 @@ _canonical_record(d::AbstractDict) = lens_record(lens_from_record(d))
 _record_spec(record::AbstractDict, fixed) =
     LensSpec(:record, (;), fixed, _canonical_record(record))
 
-function LensSpec(l::AbstractLensModel; fixed = (), free = _NoFree())
-    _refuse_free(free)
+function LensSpec(l::AbstractLensModel; fixed = (), free = RetiredKeyword())
+    refuse_retired_keyword(free, :free, :fixed)
     named = _named_structure(l)
     if named !== nothing
         family, structure = named

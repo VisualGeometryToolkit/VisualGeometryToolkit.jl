@@ -63,7 +63,7 @@ function find_radial_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_radial_homography")
-    return _guarded_ransac(() -> _with_extent(RadialHomographyProblem(pairs; center, extra_check, minimal), extent), RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(minimal)}, length(pairs), :radial_homography; kwargs...)
+    return _guarded_ransac(() -> with_extent(RadialHomographyProblem(pairs; center, extra_check, minimal), extent), RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(minimal)}, length(pairs), :radial_homography; kwargs...)
 end
 
 """

@@ -45,6 +45,36 @@ gpu_label() {
   nvidia-smi --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | paste -sd ';' - || echo "unknown"
 }
 
+# sbatch_site_options: the site's sbatch options of every launch, appended to the caller's array OPTS (--partition and
+# --account from VGTK_SLURM_PARTITION and VGTK_SLURM_ACCOUNT), and SBATCH_EXTRA's words into the array EXTRA, which the
+# caller passes last
+sbatch_site_options() {
+  [ -n "${VGTK_SLURM_PARTITION:-}" ] && OPTS+=(--partition="$VGTK_SLURM_PARTITION")
+  [ -n "${VGTK_SLURM_ACCOUNT:-}" ] && OPTS+=(--account="$VGTK_SLURM_ACCOUNT")
+  read -ra EXTRA <<< "${SBATCH_EXTRA:-}"
+}
+
+# log_header <pkg> <log> [kind]: the first line of a task's log (truncating it): what ran where; `kind` (docs) after the
+# commit. log_trailer <pkg> <log> <t0> <rc> [kind]: its last line, `package=<pkg>[ kind] wall=<s>s exit=<rc>`, which
+# summarize.sh and submit_docs.sh --summary read.
+log_header() {
+  echo "[$(date +%T)] package=$1 commit=$(git rev-parse HEAD)${3:+ $3} host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}" > "$2"
+}
+log_trailer() {
+  echo "[$(date +%T)] package=$1${5:+ $5} wall=$(( $(date +%s) - $3 ))s exit=$4" >> "$2"
+}
+
+# locked_instantiate <project> <log>: resolve and instantiate <project> into <log>. The workspace has one Manifest at the
+# root (untracked): it is resolved first, so a [deps] change since its last resolve (a package that gained a dependency)
+# is picked up, then instantiated; the tasks of an array do this one at a time (a lock in the git directory). Returns
+# julia's exit code.
+locked_instantiate() {
+  {
+    flock 9
+    "$JULIA" --startup-file=no --project="$1" -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
+  } 9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$2" 2>&1
+}
+
 # run_package <dir> <logdir> <cpus>: instantiate <dir>/test, then Pkg.test() of <dir>, into <logdir>/<dir>.log. The first and the
 # last lines of the log are this function's: what ran where, and `wall=<s>s exit=<code>`. Returns Pkg.test's exit code.
 run_package() {
@@ -55,17 +85,9 @@ run_package() {
   [ -n "${LO_TIMING_GATE:-}" ] && export LO_TIMING_GATE
   [ -n "${VGTK_BENCHMARK_TESTS:-}" ] && export VGTK_BENCHMARK_TESTS
   t0=$(date +%s)
-  {
-    echo "[$(date +%T)] package=$pkg commit=$(git rev-parse HEAD) host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}"
-    echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-} test_args=${VGTK_SUITE_TEST_ARGS:-}"
-  } > "$log"
-  # The workspace has one Manifest at the root (untracked): it is resolved first, so a [deps] change since its last resolve
-  # (a package that gained a dependency) is picked up, then instantiated; the tasks of an array do this one at a time (a lock
-  # in the git directory).
-  {
-    flock 9
-    "$JULIA" --startup-file=no --project="$pkg/test" -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
-  } 9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$log" 2>&1
+  log_header "$pkg" "$log"
+  echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-} test_args=${VGTK_SUITE_TEST_ARGS:-}" >> "$log"
+  locked_instantiate "$pkg/test" "$log"
   rc=$?
   if [ $rc -eq 0 ]; then
     # VGTK_SUITE_TEST_ARGS (space-separated) reaches the suite as test_args: a ReTestItems runtests.jl reads them as a
@@ -76,6 +98,6 @@ run_package() {
   else
     echo "[$(date +%T)] instantiate of $pkg/test failed (exit $rc): no tests run" >> "$log"
   fi
-  echo "[$(date +%T)] package=$pkg wall=$(( $(date +%s) - t0 ))s exit=$rc" >> "$log"
+  log_trailer "$pkg" "$log" "$t0" "$rc"
   return $rc
 }

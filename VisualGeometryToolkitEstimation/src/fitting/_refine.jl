@@ -120,19 +120,6 @@ _refine_strategy(lo) = throw(ArgumentError(
         "squares), got $(nameof(typeof(lo))): it needs a scorer's consensus set, which a refine has none — " *
         "run it from the seed with `locally_optimize(problem, θ₀; scoring, local_optimization_strategy)`"))
 
-# The efficiency constant a refine's strategy `lo` multiplies the scale by, at
-# the problem's codimension `d`: the strategy's own (stated on it, ALWAYS the
-# plain multiple, `loss_width = c × scale`), or Core's `efficiency_constant(K, d)`
-# for a strategy that states none. A shape with no constant (TLS: a truncation)
-# needs one stated, or `width`.
-_refine_constant(lo, d::Integer) = _refine_constant(lo_width(lo), strategy_loss(lo), d)
-_refine_constant(w::EfficiencyConstant{Float64}, _K, _d) = w.value
-function _refine_constant(::Nothing, K, d)
-    hasmethod(VgtkCore.efficiency_constant, Tuple{Type{K}}) || throw(ArgumentError(
-        "$(VgtkCore.loss_label(K)) ($(nameof(K))) has no efficiency constant (it is a truncation): state one on the strategy, or give `width = w`"))
-    return VgtkCore.efficiency_constant(K, d)
-end
-
 # The parsed keywords: the strategy, its scale input and the loss it deploys
 # (`nothing` both for L2), the workspace.
 struct _RefineSpec{L, S, D, W}
@@ -154,7 +141,7 @@ _sq_loss_width(loss) = sq_loss_width(loss)
 function _refine_loss(lo, input::ScaleInput, d::Integer)
     shape = strategy_loss(lo)()
     isnan(input.width) &&
-        return deploy(shape, max(Float64(input.scale)^2, eps()); efficiency_constant = _refine_constant(lo, d))
+        return deploy(shape, max(Float64(input.scale)^2, eps()); efficiency_constant = VgtkCore.efficiency_constant(lo, d))
     lo_width(lo) === nothing || throw(ArgumentError(
         "`width = $(input.width)` is the loss width itself: the strategy's efficiency constant would be ignored — " *
             "give the strategy none, or give `scale`"))

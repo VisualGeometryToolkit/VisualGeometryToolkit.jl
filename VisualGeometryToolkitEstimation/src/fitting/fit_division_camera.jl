@@ -421,11 +421,11 @@ function fit_division_camera(
         weighting::StudentTUniformScoring = _division_weighting_default(),
         mixture_em::MixtureEmConfig = _division_mixture_em_default(),
         verbose::Bool = false,
-        scoring = _RetiredKeyword(),   # refused, with the way to say it (the fit's `weighting`)
+        scoring = RetiredKeyword(),   # refused, with the way to say it (the fit's `weighting`)
         outlier_halfwidth = nothing,   # refused, with the way to say it (the weighting's)
         max_iter = nothing,            # refused, with the way to say it (the EM's)
     ) where {K}
-    scoring isa _RetiredKeyword || throw(_scoring_is_weighting("fit_division_camera"))
+    scoring isa RetiredKeyword || throw(_scoring_is_weighting("fit_division_camera"))
     _refuse_division_keyword(outlier_halfwidth, :outlier_halfwidth)
     _refuse_division_keyword(max_iter, :max_iter)
     _check_division_config(weighting, mixture_em)

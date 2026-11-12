@@ -37,7 +37,7 @@ function find_radial_camera(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_radial_camera")
-    return _guarded_ransac(() -> _with_extent(RadialCameraProblem(pairs; center), extent), RadialCameraProblem{Float64}, length(pairs), :radial_camera; kwargs...)
+    return _guarded_ransac(() -> with_extent(RadialCameraProblem(pairs; center), extent), RadialCameraProblem{Float64}, length(pairs), :radial_camera; kwargs...)
 end
 
 """

@@ -159,15 +159,19 @@ function square_distances!(sq::AbstractVector{T}, r::AbstractVector, n::Int) whe
     return sq
 end
 
-# THE rule of a minimal sample's points, every scorer's (the threshold families'
-# consensus partition and score correction, the Student-t scorer's zeroed scores and
-# penalties, the pool staging): a sample point is held at zero residual — its model
-# fits it by construction — only where its value `x` (a residual, its square, a
-# score) is finite. A non-finite one is a point the model does not reach (a lattice
-# detection a pose leaves unassigned, its distance Inf), and it stays an outlier:
-# out of the consensus set, its RSS and its dof. Forced in, its Inf residual made
-# the consensus scale Inf (RadiometricCamera's grid index, 2026-11-12: 86 of 142
-# photographs of one set).
+# Forced in, its Inf residual made the consensus scale Inf (RadiometricCamera's grid index,
+# 2026-11-12: 86 of 142 photographs of one set).
+"""
+    sample_point_held(x) -> Bool
+
+THE rule of a minimal sample's points, every scorer's (the threshold families'
+consensus partition and score correction, the Student-t scorer's zeroed scores and
+penalties, the pool staging, through `zero_sample!`): a sample point is held
+at zero residual — its model fits it by construction — only where its value `x` (a
+residual, its square, a score) is finite. A non-finite one is a point the model does
+not reach (a lattice detection a pose leaves unassigned, its distance Inf), and it
+stays an outlier: out of the consensus set, its RSS and its dof.
+"""
 @inline sample_point_held(x) = isfinite(x)
 
 # A minimal sample's points satisfy their constraints exactly: zero their

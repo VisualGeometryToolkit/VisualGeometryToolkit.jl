@@ -107,12 +107,12 @@ end
     using Random: MersenneTwister
     using VisualGeometryToolkitCore: RansacScoring, MsacScoring, StudentTUniformScoring, JeffreysPrior, FlatLabelPrior,
         scoring_workspace, score!, inlier_count, consensus_order, consensus_s2, zero_sample!, sample_point_held
+    marginal = StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
     rng = MersenneTwister(4)
     n = 60
     r = 0.3 .* abs.(randn(rng, n)); r[[17, 41]] .= Inf      # two points no model reaches; 17 drawn into the sample
     sample = [3, 17, 29]
-    for sc in (RansacScoring(1; threshold = 8.0), MsacScoring(1; threshold = 8.0),
-               StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()))
+    for sc in (RansacScoring(1; threshold = 8.0), MsacScoring(1; threshold = 8.0), marginal)
         W = scoring_workspace(sc, n, 1)
         score!(W, sc, zeros(n), r, n; sample)
         k = inlier_count(sc, W)

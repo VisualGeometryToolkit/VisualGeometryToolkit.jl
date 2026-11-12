@@ -5,7 +5,7 @@
 # trial is a rejected step.
 import VisualGeometryToolkitCore as VgtkCore
 using Test, LinearAlgebra, StaticArrays
-using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, lm_retcode, nlls_features, nlls_options
+using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, retcode_symbol, nlls_features, nlls_options
 import NLLSsolver
 
 # A 4-parameter nonlinear fit with a closed-form Jacobian: y = a·exp(b·s) + c·s + d.
@@ -54,10 +54,10 @@ end
     for (k, ptrue) in enumerate((SVector(1.5, -0.8, 0.3, 0.2), SVector(0.4, 1.1, -0.5, 1.0), SVector(2.0, 0.2, 0.0, -1.0)))
         y = [ptrue[1] * exp(ptrue[2] * si) + ptrue[3] * si + ptrue[4] + 1.0e-3 * sin(7k * si) for si in s]
         lm = _ExpFitLm(s, y, SVector(1.0, 0.0, 0.0, 0.0))
-        x1, F1, c1, it1 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+        x1, F1, c1, it1, r1 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
         k == 1 ? (run₁ = ws.run; @test(run₁ !== nothing)) : @test(ws.run === run₁)   # the run is reused
-        x2, F2, c2, it2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10)
-        @test lm_retcode(c1) === :converged && lm_retcode(c2) === :converged
+        x2, F2, c2, it2, r2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+        @test retcode_symbol(r1...) === :converged && retcode_symbol(r2...) === :converged
         @test isapprox(x1, x2; rtol = 1.0e-10, atol = 1.0e-12)
         @test isapprox(F1, F2; rtol = 1.0e-10)
         @test it1 == it2
@@ -103,8 +103,9 @@ end
     @test code((1 << 8) | (1 << 2)) == 1 && code((1 << 8) | (1 << 6)) == 2
     @test code((1 << 0) | (1 << 6)) == 2 && code((1 << 1) | (1 << 6)) == 2
     @test code((1 << 1) | (1 << 8) | (1 << 9)) == -3
-    @test lm_retcode(4) === :converged               # once the postcondition holds
-    @test lm_retcode(-3) === :solve_failed && lm_retcode(-4) === :max_time
+    term = VgtkCore.nlls_termination
+    @test retcode_symbol(term(1 << 7, true)...) === :converged               # once the postcondition holds
+    @test retcode_symbol(term(1 << 0, true)...) === :solve_failed && retcode_symbol(term(1 << 9, true)...) === :max_time
     # public, with the bits named
     @test Base.ispublic(VgtkCore, :nlls_stop_code) && Base.ispublic(VgtkCore, :nlls_stop_reasons)
     @test VgtkCore.nlls_stop_reasons(0) == Symbol[]
@@ -120,7 +121,7 @@ end
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall; stationarity_tol = 0.05, ftol = 1.0e-10)
     @test isfinite(F) && x[3] <= 0.25
-    @test lm_retcode(c) === :stalled
+    @test retcode_symbol(term...) === :stalled
     # the termination record agrees: a step-size stop that fails the postcondition
     @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
 end

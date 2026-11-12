@@ -175,14 +175,12 @@ strategy_loss(lo::AbstractOptimizationStrategy) = strategy_loss(typeof(lo))
 # path (VGC path_marker). Sole exception: the bare-L2 arm keeps its historical
 # "$\ell_2$" label and :x marker (a degenerate loss, not a loss column) and
 # consumes no scale.
-lo_label(lo::Irls) =
+# (Cauchy-IRLS beside Cauchy-Triggs: one composition for both paths.)
+lo_label(lo::Union{Irls, Triggs}) =
     loss_label(strategy_loss(lo)) * "-" * path_suffix(optimization_path(lo))
 lo_label(::Irls{GaussianShape}) = raw"$\ell_2$"
 lo_marker(::Irls{GaussianShape}) = :x
-loss_family(lo::Irls) = loss_family(strategy_loss(lo))
-# Loss-Path label, as IRLS composes it (Cauchy-Triggs beside Cauchy-IRLS).
-lo_label(lo::Triggs) = loss_label(strategy_loss(lo)) * "-" * path_suffix(optimization_path(lo))
-loss_family(lo::Triggs) = loss_family(strategy_loss(lo))
+loss_family(lo::Union{Irls, Triggs}) = loss_family(strategy_loss(lo))
 
 
 """
@@ -213,11 +211,11 @@ _efficiency_constant_of(w::EfficiencyConstant{Float64}) = w.value
 _efficiency_constant_of(w) = throw(ArgumentError("fixed_width: the strategy's width mode is $(w), not a EfficiencyConstant"))
 
 
-# The width mode of `Irls{K}` (VisualGeometryToolkitCore's `lo_width`), its derived
-# scale-interface label, and the one setter: the width mode is a type
+# The width mode of `Irls{K}` and `Triggs{K}` (VisualGeometryToolkitCore's `lo_width`), its
+# derived scale-interface label, and the one setter each: the width mode is a type
 # parameter, so `with_width` rebuilds the strategy at a new mode.
-lo_width(lo::Irls) = lo.width
-scale_interface(lo::Irls) = width_scale_interface(lo.width)
+lo_width(lo::Union{Irls, Triggs}) = lo.width
+scale_interface(lo::Union{Irls, Triggs}) = width_scale_interface(lo.width)
 
 """
     lo_width_value(w) -> w
@@ -238,8 +236,6 @@ with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_value(w))
 # The robustified LM's width mode — an efficiency constant, always supplied, at the
 # keyword and TOML boundary (`lo_field`); `with_width` also takes the absolute
 # width `fixed_width` freezes it at, which no caller spells.
-lo_width(lo::Triggs) = lo.width
-scale_interface(lo::Triggs) = width_scale_interface(lo.width)
 with_width(::Triggs{K}, w) where {K} = Triggs{K}(_triggs_width(Triggs{K}, w))
 _triggs_width(::Type{T}, w) where {T <: Triggs} = lo_field(T, Val(:width), w)
 _triggs_width(::Type{<:Triggs}, w::LossWidth{NTuple{2, Float64}}) = w

@@ -336,7 +336,7 @@ end
 
 THE decoder of NLLSsolver's termination bits (`result.termination`, listed at
 [`nlls_stop_reasons`](@ref)) into one stop code — the one both the chart LM's code
-(`lmsolve_chart!`, read by [`lm_retcode`](@ref)) and [`nlls_termination`](@ref) are views
+(`lmsolve_chart!`'s `converged`) and [`nlls_termination`](@ref) are views
 of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 [`nlls_stop_reasons`](@ref) for every bit that is set). One order, the first
 that applies:
@@ -437,8 +437,8 @@ end
 _holds(p::Bool) = p
 _holds(p) = p()::Bool
 
-# The decoder's two codes beyond the stop codes 1, 2, 4 and −1 (`lm_retcode`
-# reads them): a failed solve and the time cap.
+# The decoder's two codes beyond the stop codes 1, 2, 4 and −1: a failed solve
+# and the time cap.
 const _LM_FAILED = -3
 const _LM_MAX_TIME = -4
 
@@ -447,7 +447,7 @@ const _LM_MAX_TIME = -4
 
 The code [`lmsolve_chart!`](@ref) returns in place of a step-size or
 tolerance-free stop (`2`, `4`) when the returned point fails the stationarity
-test: `-2`. [`lm_retcode`](@ref) maps it to `:stalled`.
+test: `-2`; its record is `ReturnCode.Stalled`.
 """
 const _LM_STALLED = -2
 
@@ -459,7 +459,8 @@ THE chart LM: NLLSsolver's Levenberg–Marquardt (Marquardt's DᵀD damping)
 minimizing `‖r(x)‖²`, with `r` the [`residual_rows!`](@ref) of the
 linearization state `lm` and its Jacobian [`residual_jacobian_rows!`](@ref),
 from the chart origin `x = 0`. `x` is the solution chart vector, `F` the final
-cost `‖r(x)‖²`, [`lm_retcode`](@ref)`(converged)` the estimator's retcode and
+cost `‖r(x)‖²`, `converged` the stop code ([`nlls_stop_code`](@ref)'s, or
+`_LM_STALLED`) and
 `iterations` NLLSsolver's iteration count (one accepted step each; a start at
 a stationary point takes one zero step, and only a start whose cost or
 gradient is not finite stops at 0, `:solve_failed`).
@@ -575,7 +576,7 @@ NLLSsolver `robustifier` — a stack loss through
 [`loss_robustifier`](@ref)`(shape, loss_width)`. NLLSsolver applies the
 robustifier per datum (its robustified Hessian), so one solve is the robust
 M-estimate — no reweighting loop. `F` is `Σᵢ ρ(‖rᵢ‖²)` at `x` (NLLSsolver's cost is `½ρ`); the knobs, the
-returned code and its retcode ([`lm_retcode`](@ref)) are the plain chart LM's,
+returned code and record are the plain chart LM's,
 its stall postcondition the cosine of the rows weighted by `ρ′` (the robust
 gradient's weights); its exact-fit test succeeds on the unweighted cost, or on
 the weighted cost when some datum carries weight (every datum past a
@@ -716,24 +717,6 @@ function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Re
     n = size(J, 2)
     return _residual_cosine!(similar(f, n), similar(f, n), J, f) <= tol
 end
-
-"""
-    lm_retcode(converged::Int) -> Symbol
-
-The retcode of a chart-LM refit from the code [`lmsolve_chart!`](@ref)
-returns (`nlls_stop_code`'s): `:max_iterations` when it stopped at `maxit`
-(`-1`); `:max_time` at the time cap (`-4`); `:solve_failed` when the cost or
-the step went non-finite outside a step-size stop (`-3`); `:stalled` when it
-stopped on its step size, or without a tolerance, at a point that is NOT
-stationary (`_LM_STALLED`: the damping grew until no step reduced the cost —
-the estimate is wherever the run stopped, not a minimizer); `:converged` for
-the tolerance stops (`1` a cost decrease below ftol·F; `2` a step below xtol
-and `4` a stop without a tolerance, once the stationarity postcondition
-holds).
-"""
-lm_retcode(converged::Int) =
-    converged == -1 ? :max_iterations : converged == _LM_STALLED ? :stalled :
-    converged == _LM_FAILED ? :solve_failed : converged == _LM_MAX_TIME ? :max_time : :converged
 
 """
     nlls_rows_and_jacobian(blocks, variables) -> (r, J::SparseMatrixCSC)

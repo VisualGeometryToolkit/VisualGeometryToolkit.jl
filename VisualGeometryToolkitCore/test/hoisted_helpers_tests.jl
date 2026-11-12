@@ -240,7 +240,7 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, lm_retcode, check_rows_jacobian
+    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, retcode_symbol, check_rows_jacobian
     using FiniteDiff: FiniteDiff
 
     pts = circle_points()
@@ -248,11 +248,11 @@ end
     # the default is ForwardDiff, so the reference is AD-independent: central differences
     @test check_rows_jacobian(lm, SVector(0.1, 0.0, -0.2), 12; rtol = 1.0e-7, reference = (f, θ) -> FiniteDiff.finite_difference_jacobian(f, θ, Val(:central)))
     stationarity_tol = 0.05       # the caller's configuration owns it (VisualGeometryToolkitEstimation ships 0.05, [chart_lm])
-    x, F, conv, iterations = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm; stationarity_tol)
+    x, F, conv, iterations, rec = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm; stationarity_tol)
     @test x ≈ SVector(0.5, 0.2, -0.5) atol = 1.0e-8
-    @test F < 1.0e-20 && lm_retcode(conv) === :converged && 0 < iterations < 50
-    x1, _, conv1, it1 = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm; maxit = 1, stationarity_tol)
-    @test lm_retcode(conv1) === :max_iterations && it1 == 1
+    @test F < 1.0e-20 && retcode_symbol(rec...) === :converged && 0 < iterations < 50
+    x1, _, conv1, it1, rec1 = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm; maxit = 1, stationarity_tol)
+    @test retcode_symbol(rec1...) === :max_iterations && it1 == 1
 
     # The stall postcondition: an LM reports a step-size stop (2) when the
     # damping grew until no step reduced the cost, which is not convergence.
@@ -266,11 +266,13 @@ end
     struct _NanWallLm end
     VgtkCore.residual_rows!(f, ::_NanWallLm, x) = (f[1] = x[1] > 0.5 ? NaN : x[1] - 3.0; f)
     VgtkCore.residual_jacobian_rows!(J, ::_NanWallLm, x) = (J[1, 1] = 1.0; J)
-    xw, Fw, cw, _ = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _WrongSignLm(); stationarity_tol)
+    xw, Fw, cw, _, recw = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _WrongSignLm(); stationarity_tol)
     @test cw == VgtkCore._LM_STALLED     # the stop's code is 2 (the step-size stop); the postcondition rewrites it
-    @test xw == SVector(0.0) && Fw == 9.0 && lm_retcode(cw) === :stalled
-    xn, Fn, cn, _ = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _NanWallLm(); stationarity_tol)
-    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && lm_retcode(cn) === :stalled
+    @test xw == SVector(0.0) && Fw == 9.0 && retcode_symbol(recw...) === :stalled
+    xn, Fn, cn, _, recn = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _NanWallLm(); stationarity_tol)
+    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && retcode_symbol(recn...) === :stalled
     # the stop codes themselves, without the postcondition, read `:converged`
-    @test lm_retcode(2) === :converged && lm_retcode(4) === :converged && lm_retcode(-1) === :max_iterations
+    @test retcode_symbol(VgtkCore.nlls_termination(1 << 6, true)...) === :converged &&
+          retcode_symbol(VgtkCore.nlls_termination(1 << 7, true)...) === :converged &&
+          retcode_symbol(VgtkCore.nlls_termination(1 << 8, true)...) === :max_iterations
 end

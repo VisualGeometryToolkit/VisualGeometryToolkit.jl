@@ -624,9 +624,11 @@ end
         green = (col .== 0x01) .| (col .== 0x03)
         G = LinearRaw(m; mode = :green_cells)
         h, w = size(G.image, 1), size(G.image, 2)
-        sites = Set((Int(s[2] + 0.5), Int(s[1] + 0.5)) for i in 1:h, j in 1:w for s in green_cell_sites(G, i, j))
+        wo = m.window_origin                                       # green_cell_sites are on the visible raw: less the window's offset
+        sites = Set((Int(s[2] + 0.5) - wo[1], Int(s[1] + 0.5) - wo[2]) for i in 1:h, j in 1:w for s in green_cell_sites(G, i, j))
         @test sites == Set(Tuple(I) for I in findall(green[1:(2h), 1:(2w)]))
-        @test G.saturated == dropdims(any(channelview(sv .& green); dims = 1); dims = 1)
+        cs = channelview(sv)
+        @test G.saturated == cs[g[1], :, :] .| cs[g[2], :, :]
     end
 end
 

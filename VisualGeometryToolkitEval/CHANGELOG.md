@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **New: `Experiments.input_path(cfg, id; root)`**, the one reader of a config's input: its `[inputs.<id>]` path
+  under its tier's root (`data_root(; tier)`), checked to be there and, with a `sha256`, to have that content. A
+  project's own `input_path`/`input_table` (`data_root` + `require_input`) becomes this.
+- **New: per-stage resources in the stage graph.** A `[[stage]]` takes `cpus_per_task`, `mem_per_cpu` and `gres`
+  over the site's (`gres` makes it a GPU stage); on a local site `cpus_per_task` is its `SLURM_CPUS_PER_TASK`.
+- **New: the runner bootstrap is Eval's.** `templates/reproduce/reproduce.sh` (`Reproduce.REPRODUCE_SCRIPT_TEMPLATE`)
+  is the one copy of a project's `scripts/reproduce/reproduce.sh`; `Reproduce.reproduce_script(; julia_project,
+  graph, path)` fills it and `write_reproduce_script(root; …)` writes it (a project's suite compares its copy with
+  `reproduce_script`). RadiometricCamera's cvpr2027 and RSDR's copies are this text.
+- `keyed_cell_dir(cfg, "figures", name; base = results_root())` is the directory of a run over several datasets
+  (figures, numbers): `<results root>/figures/<name>-<key>`.
+
 - **New: per-tier input roots.** An input tier may live outside the data root on a machine (a capture on another
   disk). Its root resolves in one order, for the runner and the drivers alike (`VisualGeometryToolkitEval.tier_data_root`):
   the environment's `VGTK_DATA_ROOT_<TIER>` (`tier_variable`: the tier upper-cased, other characters `_`), then the

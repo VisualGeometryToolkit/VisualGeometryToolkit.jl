@@ -311,7 +311,7 @@
             @test E.keyed_cell_dir(lay, "selfcal", "run") == joinpath(res, "mocap", "cam0", "selfcal", "run-" * E.run_key(lay))
             b = joinpath(res, "absolute_pose_experiments", "set1")
             @test E.keyed_cell_dir(cfg, "tune_radial_camera", "run"; base = b) == joinpath(b, "tune_radial_camera", "run-" * k0)
-            @test E.keyed_cell_dir(cfg, "x", "run"; base = res) == joinpath(res, "x", "run-" * k0)
+            @test E.keyed_cell_dir(cfg, "figures", "fig_sensitivity"; base = res) == joinpath(res, "figures", "fig_sensitivity-" * k0)   # a run over several datasets
             @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = mktempdir())
             @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = joinpath(res, "..", "elsewhere"))
             for bad in (String[], ["a", ".."], ["/abs"], ["a/b"], [""], "mocap")
@@ -375,6 +375,11 @@
                     h = first(split(read(`sha256sum $(joinpath(mocap, "take.csv"))`, String)))
                     c = Dict{String,Any}("inputs" => Dict{String,Any}("take" => Dict{String,Any}("tier" => "mocap", "path" => "take.csv", "sha256" => h)))
                     @test E.verify_inputs(c) == Dict("take" => joinpath(mocap, "take.csv"))
+                    @test E.input_path(c, "take") == joinpath(mocap, "take.csv")            # the one reader
+                    @test_throws r"declares no \[inputs.gone\]" E.input_path(c, "gone")
+                    c["inputs"]["take"]["sha256"] = "0"^64
+                    @test_throws r"sha256 expected 0{64}" E.input_path(c, "take")
+                    c["inputs"]["take"]["sha256"] = h
                     @test_throws r"is not under" E.verify_inputs(c; root = data)
                     @test_throws r"input tier \(VGTK_DATA_ROOT_MOCAP" E.assert_not_input(joinpath(mocap, "out"))
                 end

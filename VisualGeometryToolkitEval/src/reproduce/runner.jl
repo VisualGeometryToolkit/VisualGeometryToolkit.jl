@@ -129,7 +129,7 @@ const _GRAPH_KEYS = Dict(
     "sites" => nothing, "stage" => nothing,
     "results_branch" => ("project", "assets", "artifacts"))
 const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_branch", "driver", "config", "env", "job_name",
-                     "gpu", "default", "time", "array", "inputs_from")
+                     "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s")
 const _SITE_ROOT_KEYS = ("data_root", "results_root", "env", "tiers")
@@ -150,6 +150,9 @@ each path relative to `base` under the workdir), for a stage that runs other dri
 and that the stage's launcher reads, and `max_time` (a dotted key of each case, seconds) plus `time_margin_s` sizes
 its `--time`. `env` is exported to the stage, `job_name` and `time` override the launcher's, `gpu` marks a GPU stage
 (`gres`, `CUDA_VISIBLE_DEVICES`, the site's `gpu_limit`), and `default = false` keeps it out of a run without `--only`.
+`cpus_per_task`, `mem_per_cpu` and `gres` are the stage's own resources, over the site's (`0`/`""`: the site's): a
+stage that needs 4 GPUs or 2 CPUs says so in the graph, not in its launcher; `gres` makes a stage a GPU stage. On a
+local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads.
 """
 struct StageSpec
     name::String
@@ -172,6 +175,9 @@ struct StageSpec
     time_margin_s::Int
     is_array::Bool
     inputs_from::Vector{Dict{String, Any}}
+    cpus_per_task::Int
+    mem_per_cpu::String
+    gres::String
 end
 
 """
@@ -228,8 +234,12 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      get(t, "config", ""), Dict{String, String}(k => string(v) for (k, v) in get(t, "env", Dict())),
                      get(t, "job_name", ""), get(t, "gpu", false), get(t, "default", true), get(t, "time", ""),
                      String.(get(a, "items", String[])), get(a, "from", ""), get(a, "select_env", ""),
-                     get(a, "max_time", ""), get(a, "time_margin_s", 0), !isempty(a), from)
+                     get(a, "max_time", ""), get(a, "time_margin_s", 0), !isempty(a), from,
+                     _cpus_count(name, get(t, "cpus_per_task", 0)), string(get(t, "mem_per_cpu", "")), string(get(t, "gres", "")))
 end
+
+_cpus_count(name, v) = (v isa Integer && v >= 0) ? Int(v) :
+    throw(ArgumentError("stage $name: cpus_per_task = $(repr(v)) is not a count"))
 
 # Kahn's order, ties in declaration order; a cycle or an unknown dependency is an error.
 function _dependency_order(stages::Vector{StageSpec})
@@ -523,12 +533,18 @@ end
 
 _julia(site::Site, env) = get(site.env, "JULIA", get(env, "JULIA", "julia"))
 
+# A stage's own resources over the site's.
+_stage_gpu(s::StageSpec) = s.gpu || !isempty(s.gres)
+_stage_cpus(site::Site, s::StageSpec) = s.cpus_per_task > 0 ? s.cpus_per_task : site.cpus_per_task
+
 function _slurm_options(site::Site, s::StageSpec)
     o = String[]
     isempty(site.partition) || push!(o, "--partition=$(site.partition)")
-    s.gpu && !isempty(site.gres) && push!(o, "--gres=$(site.gres)")
-    site.cpus_per_task > 0 && push!(o, "--cpus-per-task=$(site.cpus_per_task)")
-    isempty(site.mem_per_cpu) || push!(o, "--mem-per-cpu=$(site.mem_per_cpu)")
+    gres = isempty(s.gres) ? site.gres : s.gres
+    _stage_gpu(s) && !isempty(gres) && push!(o, "--gres=$gres")
+    _stage_cpus(site, s) > 0 && push!(o, "--cpus-per-task=$(_stage_cpus(site, s))")
+    mem = isempty(s.mem_per_cpu) ? site.mem_per_cpu : s.mem_per_cpu
+    isempty(mem) || push!(o, "--mem-per-cpu=$mem")
     append!(o, site.extra)
     return o
 end
@@ -564,7 +580,7 @@ function _plan_command(g::StageGraph, site::Site, s::StageSpec, items, minutes, 
                                 prefix * _base_job_name(g, s)
     isempty(jobname) || push!(c, "--job-name=$jobname")
     if s.is_array
-        push!(c, "--array=0-$(length(items) - 1)" * (s.gpu && site.gpu_limit > 0 ? "%$(site.gpu_limit)" : ""))
+        push!(c, "--array=0-$(length(items) - 1)" * (_stage_gpu(s) && site.gpu_limit > 0 ? "%$(site.gpu_limit)" : ""))
     end
     minutes > 0 ? push!(c, "--time=$minutes") : !isempty(s.time) && push!(c, "--time=$(s.time)")
     if isempty(s.sbatch)
@@ -616,8 +632,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         isempty(s.select_env) || (e[s.select_env] = join(items, ","))
         if site.backend === :local
             e["SLURM_SUBMIT_DIR"] = g.workdir
-            site.cpus_per_task > 0 && (e["SLURM_CPUS_PER_TASK"] = string(site.cpus_per_task))
-            e["CUDA_VISIBLE_DEVICES"] = s.gpu ? site.cuda_visible_devices : ""
+            _stage_cpus(site, s) > 0 && (e["SLURM_CPUS_PER_TASK"] = string(_stage_cpus(site, s)))
+            e["CUDA_VISIBLE_DEVICES"] = _stage_gpu(s) ? site.cuda_visible_devices : ""
         end
         cmd = _plan_command(g, site, s, items, minutes, manifest, env)
         files = Dict{String, String}()
@@ -1199,7 +1215,7 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         deps = _dependency(plan, st; ids)
         c = copy(st.command)
         dep = isempty(deps) ? "" : "afterok:" * join(deps, ":")
-        if s.gpu && s.is_array && site.gpu_limit > 0 && !isempty(last_gpu)
+        if _stage_gpu(s) && s.is_array && site.gpu_limit > 0 && !isempty(last_gpu)
             dep = (isempty(dep) ? "" : dep * ",") * "afterany:" * last_gpu
         end
         isempty(dep) || insert!(c, 3, "--dependency=$dep")
@@ -1221,7 +1237,7 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         end
         id = String(first(split(txt, ';')))
         ids[s.name] = id
-        s.gpu && s.is_array && (last_gpu = id)
+        _stage_gpu(s) && s.is_array && (last_gpu = id)
         records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers)
         _write_manifest(plan, records)
         println(io, rpad(s.name, 32), " ", id, s.is_array ? "  (array 0-$(length(st.items) - 1): $(join(st.items, " ")))" : "")

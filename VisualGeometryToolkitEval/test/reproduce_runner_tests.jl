@@ -324,6 +324,43 @@ end
             write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntier = 1\n")); f.graph end)
     end
 
+    @testset "per-stage resources: a stage's cpus_per_task, mem_per_cpu and gres over the site's" begin
+        f = runner_project()
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 2\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
+                               count = 1) |> t -> replace(t, "name = \"pdf\"\n" => "name = \"pdf\"\ngres = \"gpu:1\"\n"))
+        g = load_stage_graph(f.graph)
+        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
+        cmd(n) = plan.stages[findfirst(st -> st.spec.name == n, plan.stages)].command
+        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=2 --mem-per-cpu=4G", join(cmd("setup"), " "))
+        @test occursin("--gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("pdf"), " "))      # gres: a GPU stage
+        @test occursin("--partition=gpu --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("chrome_prepare"), " "))   # the site's
+        local_plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "2" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = \"many\"\n"; count = 1))
+        @test_throws r"cpus_per_task = \"many\" is not a count" load_stage_graph(f.graph)
+    end
+
+    @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
+        @test isfile(Reproduce.REPRODUCE_SCRIPT_TEMPLATE)
+        t = reproduce_script(; julia_project = "cvpr2027")
+        @test occursin("--project=cvpr2027 -e", t) && occursin("-- --graph=cvpr2027/configs/reproduce.toml \"\$@\"", t)
+        @test occursin("bash cvpr2027/scripts/reproduce/reproduce.sh --site=", t) && !occursin("@@", t)
+        @test_throws r"not a path relative" reproduce_script(; julia_project = "/abs")
+        @test_throws r"not a path relative" reproduce_script(; julia_project = "a b")
+        # written into a repository and run from inside it: the runner's command line, from the repository root
+        f = runner_project()
+        p = write_reproduce_script(f.repo; julia_project = "proj")
+        @test p == joinpath(f.repo, "proj", "scripts", "reproduce", "reproduce.sh") && Sys.isexecutable(p)
+        @test read(p, String) == reproduce_script(; julia_project = "proj")
+        @test success(`bash -n $p`)
+        stub = joinpath(mktempdir(), "julia")
+        write(stub, "#!/bin/bash\necho \"cwd=\$(pwd)\"\nfor a in \"\$@\"; do case \$a in --*|status) echo \"arg \$a\";; esac; done\n"); chmod(stub, 0o755)
+        out = read(Cmd(`bash $p --site=desktop --dry-run`; env = merge(env0, Dict("JULIA" => stub)), dir = joinpath(f.proj, "slurm")), String)
+        @test occursin("cwd=$(realpath(f.repo))", out) && occursin("arg --project=proj", out)
+        @test occursin("arg --graph=proj/configs/reproduce.toml", out) && occursin("arg --site=desktop", out) && occursin("arg --dry-run", out)
+    end
+
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
         f = runner_project()
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)

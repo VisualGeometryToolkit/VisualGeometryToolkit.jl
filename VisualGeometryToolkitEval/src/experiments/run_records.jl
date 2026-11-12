@@ -347,6 +347,24 @@ function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = 
 end
 
 """
+    input_path(cfg, id; root = nothing) -> String
+
+The absolute path of the config's input `[inputs.<id>]`: its `path` under its
+tier's root ([`data_root`](@ref)`(; tier)`: `VGTK_DATA_ROOT_<TIER>`, the stage
+graph's `[sites.<site>.tiers]`, the data root), or under `root` when given;
+checked to be there and, with a `sha256`, to have that content (streamed,
+cached). The one reader a driver opens an input with; an `ArgumentError` for
+an id the config does not declare, a missing input or another content.
+"""
+function input_path(cfg::AbstractDict, id::AbstractString; root::Union{Nothing,AbstractString} = nothing)
+    ins = get(cfg, "inputs", Dict{String,Any}())
+    t = get(ins, id, nothing)
+    (t isa AbstractDict && haskey(t, "path")) ||
+        throw(ArgumentError("input_path: the config declares no [inputs.$id] with a path (it declares: $(join(sort!(String.(collect(keys(ins)))), ", ")))"))
+    return verify_inputs(Dict{String,Any}("inputs" => Dict{String,Any}(String(id) => t)); root)[String(id)]
+end
+
+"""
     config_of_record(name; root = project_root()) -> Dict
 
 The config of record `name` of the project at `root` (`configs/<name>.toml`),

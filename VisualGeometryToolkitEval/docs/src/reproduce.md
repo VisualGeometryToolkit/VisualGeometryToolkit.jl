@@ -410,6 +410,20 @@ needs nothing new: its drivers' `write_provenance`/`write_run_records` and
 project's own code. List the code a stage runs there, not the docs: a path in
 `code` that holds the paper reruns every stage on a text edit.
 
+A stage may set its own resources over the site's: `cpus_per_task`,
+`mem_per_cpu` and `gres` in its `[[stage]]` (a `gres` makes it a GPU stage).
+
+A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
+written by hand:
+`Reproduce.write_reproduce_script(repo_root; julia_project = "cvpr2027")`
+writes the one template shipped here
+([`REPRODUCE_SCRIPT_TEMPLATE`](@ref VisualGeometryToolkitEval.Reproduce.REPRODUCE_SCRIPT_TEMPLATE)),
+and the project's suite checks its copy with
+[`reproduce_script`](@ref VisualGeometryToolkitEval.Reproduce.reproduce_script).
+A driver reads an input of its config with
+[`input_path`](@ref VisualGeometryToolkitEval.Experiments.input_path)`(cfg, id)`
+(its tier's root, its `sha256` checked).
+
 `src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; and
 `src/cli.jl`, included before it, which brings `src/code_identity.jl`), so a launcher runs it by path from a bare
 `julia` before the project's environment exists; the setup stage then

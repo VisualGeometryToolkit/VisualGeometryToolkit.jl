@@ -25,7 +25,6 @@ fit_hypothesis
 test_sample
 test_model
 test_consensus
-refine!
 draw_sample!
 constraint_with_jacobians
 solver_covariance
@@ -33,6 +32,7 @@ solver_covariance
 
 The rest of the problem protocol is VisualGeometryToolkitCore's, documented in
 its manual: [`data_size`](@extref VisualGeometryToolkitCore.data_size),
+[`refine!`](@extref VisualGeometryToolkitCore.refine!) (the local-optimization step this package's problems implement),
 [`model_type`](@extref VisualGeometryToolkitCore.model_type),
 [`codimension`](@extref VisualGeometryToolkitCore.codimension),
 [`mahalanobis_distances!`](@extref VisualGeometryToolkitCore.mahalanobis_distances!),

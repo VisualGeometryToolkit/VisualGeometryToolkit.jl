@@ -244,3 +244,31 @@ end
     res = refine_absolute_pose(Ep, withattrs(Csponds([X .* m for X in Xs], fo); origins = [o .* m for o in os]); optimization_strategy = nothing)
     @test maximum(abs, ustrip(m, estimate(res)).t - E.t) < 1.0e-9
 end
+
+@testitem "refine_absolute_pose: a SplineLens camera (its projection differentiated by the solve's implicit derivative)" setup = [PixelPoseScenes] begin
+    # The pose refine's rows through a SplineLens BoundedCamera: ForwardDiff through `project` (Core's Dual method: the
+    # plain solve, the partials by `_projection_jacobians`), the pose recovered from exact pixels as for the parametric
+    # lenses; and with a fitted forward spline (the value and the partials the forward's).
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, BoundedCamera, Size2, estimate, converged, rms, model, imaged_region, project
+    import ForwardDiff
+    using VisualGeometryToolkitEstimation: refine_absolute_pose, fit_camera
+    E = true_pose()
+    src = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
+    cam = BoundedCamera(CameraModel(SplineLens, src, Size2(1280, 960); grid_size = (12, 10)), Size2(1280, 960))
+    fwd = BoundedCamera(estimate(fit_camera(SplineLens, cam, imaged_region(cam); tolerance = 1.0e-3)), Size2(1280, 960))
+    # with a forward the value and the partials are both the forward's: one map, so the same 1e-9 as the backward's solve
+    J(c, X) = ForwardDiff.jacobian(t -> project(model(c), t), X)
+    Xt = SVector(0.2, -0.1, 1.0); h = 1.0e-6
+    Jfd(c, X) = reduce(hcat, [(project(model(c), X + h * e) - project(model(c), X - h * e)) / 2h for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))])
+    @test isapprox(J(fwd, Xt), Jfd(fwd, Xt); rtol = 1.0e-6) && isapprox(J(cam, Xt), Jfd(cam, Xt); rtol = 1.0e-6)
+    for (c, tol) in ((cam, 1.0e-9), (fwd, 1.0e-9))
+        cs = pixel_pairs(model(c), E, scene_points(E, deg2rad(70)))
+        @test length(cs) >= 30
+        res = refine_absolute_pose(perturbed(E), model(c), cs; optimization_strategy = nothing)
+        @test converged(res)
+        eR, et = pose_errors(estimate(res), E)
+        @test eR < tol && et < tol
+        @test rms(res) < 1.0e-6
+    end
+end

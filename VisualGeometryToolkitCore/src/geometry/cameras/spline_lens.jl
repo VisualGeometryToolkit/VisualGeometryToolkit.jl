@@ -939,6 +939,29 @@ backward area's centre; NaN unless it converges onto a point whose window is pre
 @inline project(l::SplineLens, X::StaticVector{3}) =
     first(_project_lens(l, X, _cold_start(l, X), _PROJECT_MAXITER, _PROJECT_TOL^2))
 
+# A ray carrying ForwardDiff Duals (a pose refine's `transform_deriv`, `ForwardDiff.jacobian` of a projection): the
+# value and its partials from the SAME map. With a forward spline, that map: the ray's chart point and the forward's
+# value at it, the Duals straight through both (eltype-generic), where the plain projection images the ray (the
+# imaged mask is `project`'s). Without one, the backward's solve: the projection of the ray's next layer's values (the
+# plain solve at the bottom: no dual enters the LM inverse), its partials by the implicit function theorem one layer at
+# a time (`_outer_value`, as the board surfaces' roots), through THE implicit derivative of the solve,
+# `_projection_jacobians`' `∂x/∂t` at that point: so nested Duals differentiate exactly to every order. Where the lens
+# does not image the ray: a NaN value with ZERO partials. The forward's chart (`_FORWARD_CHART`, an equidistant lens
+# after a fixed rotation) and its spline evaluation are eltype-generic; its fitted-chart test (`_in_fitted_chart`) is
+# `project`'s mask, read on the ray's plain values, so no Dual reaches it.
+@inline function project(l::SplineLens, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
+    t = _outer_value(D, X)
+    x = project(l, t)
+    all(v -> isfinite(_primal(v)), x) || return SVector{2, D}(_lift_dual(D, x[1]), _lift_dual(D, x[2]))   # not imaged: NaN, no partials
+    if l.forward !== nothing
+        y = l.forward(_FORWARD_CHART(X))
+        return SVector{2, D}(y[1], y[2])
+    end
+    Dt = first(_projection_jacobians(l.backward.controls, l.backward.area, x, t))
+    P = map(ForwardDiff.partials, X)
+    return SVector{2, D}(ntuple(i -> _with_value(D, x[i], Dt[i, 1] * P[1] + Dt[i, 2] * P[2] + Dt[i, 3] * P[3]), Val(2)))
+end
+
 # THE batched projection: per ray `_project_lens` from its seed — `seed_map` of
 # `seeds[i]` (the pixel seed's normalized point, or a normalized seed as it is), the
 # cold start (`_cold_start`) where that is not finite or without seeds — and the point

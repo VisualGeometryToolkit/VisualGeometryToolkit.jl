@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
+  values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),
+  one Dual layer at a time, so nested Duals differentiate exactly; no Dual enters the LM inverse. With a forward spline the
+  value and its partials are the forward's, the Duals straight through its chart and spline. A pose refine on a
+  SplineLens camera (`refine_absolute_pose`, its `transform_deriv`) threw a MethodError in the Float64 cold start.
+
 - **`Attributed` delegates by `MacroTools.@forward`**, the stack's one idiom (as `BoundedCamera`): the hand-written
   `iterate` of a wrapped Pair and `getindex`/`length`/`size` of a wrapped vector are two `@forward` lines. Behaviour is
   unchanged (the same types; `a.value` is `getfield(a, :value)`).

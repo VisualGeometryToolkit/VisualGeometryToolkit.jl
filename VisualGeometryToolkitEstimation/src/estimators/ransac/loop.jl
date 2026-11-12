@@ -19,32 +19,9 @@
 #            optimizer left them current) → gate S > S_lo → test_consensus
 # =============================================================================
 
-"""
-    RetiredKeyword()
-    refuse_retired_keyword(value, old, new) -> nothing
-
-The stack's one refusal of a retired keyword, never an alias: a function keeps the
-retired keyword `old` with the default `RetiredKeyword()` and calls
-`refuse_retired_keyword(old_value, :old, successor)` first, which throws
-`ArgumentError("the keyword `old` is retired: give `new`")` for any value a caller
-supplies and returns `nothing` for the default. `new` names what replaces it (a
-keyword, or the argument that now carries it). Every `find_*`, `ransac` and
-`locally_optimize` refuses `local_optimization` this way (it takes
-`local_optimization_strategy`), every `refine_*` and `fit_*` the strategy
-spellings (the owner's ruling, 2026-11-11); a downstream package refuses its own
-retired keywords through the same pair.
-"""
-struct RetiredKeyword end
-"""
-    refuse_retired_keyword(value, old, new) -> nothing
-
-`nothing` for [`RetiredKeyword`](@ref)`()`, the retired keyword's default; for any
-other `value` an `ArgumentError` naming the retired keyword `old` and its
-successor `new`.
-"""
-refuse_retired_keyword(::RetiredKeyword, _old, _new) = nothing
-refuse_retired_keyword(_value, old, new) =
-    throw(ArgumentError("the keyword `$old` is retired: give `$new`"))
+# A retired strategy keyword (the owner's ruling, 2026-11-11): `find_*`, `ransac` and
+# `locally_optimize` take `local_optimization_strategy`, every `refine_*` and `fit_*`
+# `optimization_strategy`; refused through Core's `RetiredKeyword`, never aliased.
 # The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word),
 # naming the exceptions; the other spellings are refused, never aliased.
 function _refuse_held_spellings(free, fix, fixed_params, hold)

@@ -13,6 +13,19 @@ sensor — so every consumer asks the camera what it images instead of supplying
 - **New: `install_artifact` and `huggingface_token` are Core's** (base/artifacts.jl, moved from
   VisualGeometryToolkitEval, which re-exports the same bindings). Core gains the stdlibs `Artifacts`, `Downloads` and
   `Pkg` as dependencies. `huggingface_token` reads `HF_TOKEN`, then `$HF_HOME/token`, and is sent only to huggingface.co.
+- **`efficiency_constant(lo::AbstractOptimizationStrategy, d)`**: the efficiency constant a strategy deploys at a
+  scale, codimension `d` — its own `EfficiencyConstant(c)`, else the table's `efficiency_constant(K, d)` of its shape
+  (`lo_efficiency_constant_shape`); refused for a truncation that states none and for an absolute `LossWidth`. The one
+  rule of Estimation's refines and fits and PoseLib's refiners (their private copies deleted); values bit-identical.
+- **`map_estimate(f, r::FitResult)`, public**: a result with its estimate mapped, the rest as it was (a RANSAC
+  result's `nothing` kept); Estimation's metre and frame re-wrappers and PoseLib's physical `refine_absolute_pose` use it.
+- **`RetiredKeyword()` and `refuse_retired_keyword(value, old, new)`, public** (were Core's `_NoFree` and Estimation's
+  `_RetiredKeyword`): the stack's one refusal of a retired keyword. `LensSpec(…; free)`'s refusal now reads
+  "the keyword `free` is retired: give `fixed`" (was "LensSpec: … the coefficients held (every other one moves)").
+  `check_naming`'s R13 reads the refusal slot qualified too (`VgtkCore.RetiredKeyword()`).
+- **`tree_sum!` on a group of one** (`nt == 1`) returns at once, taking no barrier: KernelAbstractions' CPU backend
+  splits a kernel only at a `@synchronize` written in its body, so a CPU kernel calls the helper with one work item a
+  group (the stack's CPU group size for its per-blob kernels); it errored there before. Tested on the CPU and on CUDA.
 - **Breaking: `lm_retcode` is removed** (public in 0.8; the termination record is the one map). The chart LM's outcome is
   the `(code, rule)` record `lmsolve_chart!` returns (from `nlls_termination`); a caller that still wants the former
   Symbol reads `retcode_symbol(code, rule)`.
@@ -116,6 +129,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.
   The two agree for an odd count up to rounding; for an even count the median of the norms averages the two middle
   norms, not their squares, so the seed moves slightly (the EM it starts converges to the same fixed point).
+  Measured (dup-items-a probe, the DivisionBoards scene of the tests): `fit_division_camera`'s focal 1219.8623257467295 →
+  1219.8623257468823 px, its division coefficient −0.9621859413513908 → −0.9621859413516484, rms 0.5449892554591349 →
+  0.5449892554590682 px, noise scale 0.38533670719050517 → 0.38533670719045765 (24 iterations either way); a seed at an
+  even count moves by ~1.5e-5 relative (0.08892803174088 → 0.08892669060497886, n = 40), at an odd count by an ulp.
+  Estimation's SimFitPP keeps the median of the SQUARED kept residuals: there it is the truncated-median quantile
+  correction's own statistic (`unbiased_median_variance`), not this seed.
 - **Breaking: `CSRMatrix` and the `:pool` grid selection default to `default_device()`, and the `:pool` result gains a
   `backend` field** (a caller comparing a whole `stage_selection(:pool, …)` result with `==` changes) (the stack's GPU-first rule):
   `CSRMatrix(A; device = default_device())` (was `KA.CPU()`), and `stage_selection(:pool, pairs, residuals; backend)`

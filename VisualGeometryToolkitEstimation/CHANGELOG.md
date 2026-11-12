@@ -7,6 +7,15 @@ non-central one is a `NoncentralSplineModel`).
 
 - **New: `irls_termination`** (public, was the internal `_irls_record`): the termination record of a reweighted fit's
   run, the one rule every IRLS fit records through.
+- **`with_extent(problem, extent)`, public** (was `_with_extent`): a `find_*`'s `extent` keyword applied to a problem
+  (`BoundedProblem(problem, extent)`, or the problem itself for `nothing`), for a caller's own `locally_optimize`.
+- **`RetiredKeyword` and `refuse_retired_keyword` are VisualGeometryToolkitCore's** (the private `_RetiredKeyword` and
+  `_refuse_retired_keyword` deleted); the strategy constant is Core's `efficiency_constant(lo, d)` and the estimate
+  mapping Core's `map_estimate`.
+- **Moved numbers:** `uncertain_rotation`'s covariance (and so `fit_rotation_averaging` over such edges) is read into the
+  so(3) chart by Core's `transform_covariance` (`J⁺·Σ·J⁺ᵀ`, an SVD pseudo-inverse) instead of `Jᵀ·Σ·J/4`: last-ulp
+  changes. `refine_camera_and_poses`' and the rotation-centre refine's `residual_norms` are Core's `point_norms!`
+  (`√(x² + y²)`) instead of `hypot`: last-ulp changes, recorded metadata only.
 - **Refusal messages:** a refine's least-squares refusal names its class (`refine (<class>): …`), `refine_camera`'s is
   `bundle_loss`'s ("plain least squares … reads no scale"), and a TLS refusal names the strategy type, since one reader
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.
@@ -39,8 +48,6 @@ non-central one is a `NoncentralSplineModel`).
   `refine_camera_and_poses`' forward refit; the private `_spline_record` is deleted). An earlier stage's failure is no
   longer replaced by a later, less severe one (a capped backward search followed by a Stalled gauge was `Stalled`, now
   `(MaxIters, IterationCap)`), and on a tie the later stage's rule is kept, as `worst_retcode` states.
-- **`RetiredKeyword` and `refuse_retired_keyword(value, old, new)`, public** (were `_RetiredKeyword` and
-  `_refuse_retired_keyword`): the stack's one refusal of a retired keyword, for a downstream package's own too.
 - **`default_student_t_uniform_scoring(P, outlier_halfwidth)`, public**: the Student-t + uniform scorer of record at a
   half-width, its priors the defaults table's (hoisted from BlobBoards' `_scoring` and CaliBlobs' copy);
   `fit_division_camera`'s refusal of `outlier_halfwidth` names it.

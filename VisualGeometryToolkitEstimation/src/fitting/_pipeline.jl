@@ -111,13 +111,17 @@ _guarded_ransac(problem, ::Type{P}, n::Integer, class::Symbol; kwargs...) where 
 _storage_eltype(::Nothing) = _DEFAULT_STORAGE_ELTYPE   # RansacWorkspace([T = Float32,] P, n_data)
 _storage_eltype(::RansacWorkspace{<:Any, <:Any, T}) where {T} = T
 
-# The `extent` keyword of the `find_*` pipelines: when given, the problem is
-# wrapped in `BoundedProblem`, whose `extent_trait` makes RANSAC's post-IRLS
-# extent-consensus hook validate the fitted model over the region (the
-# `_check_extent` method for the model class, extent_traits.jl and the problem
-# files).
-_with_extent(p, ::Nothing) = p
-_with_extent(p, extent) = BoundedProblem(p, extent)
+"""
+    with_extent(problem, extent) -> problem or BoundedProblem
+
+The `extent` keyword of a `find_*` pipeline (and of a caller's own
+`locally_optimize`) applied to `problem`: unchanged for `extent = nothing`, else
+[`BoundedProblem`](@ref)`(problem, extent)`, whose `extent_trait` makes RANSAC's
+post-IRLS extent-consensus hook validate the fitted model over the region (the
+`_check_extent` method for the model class).
+"""
+with_extent(p, ::Nothing) = p
+with_extent(p, extent) = BoundedProblem(p, extent)
 
 # A supplied workspace carries the workspace of the scorer it was built for —
 # `RansacWorkspace(P, n_data)` the default MSAC scoring's. Each entry checks it

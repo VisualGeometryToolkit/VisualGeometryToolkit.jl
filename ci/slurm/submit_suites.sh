@@ -59,9 +59,7 @@ CPUS=${CPUS_PER_TASK:-$(( NODE_CPUS / NALL > 4 ? NODE_CPUS / NALL : 4 ))}
 MEM=${MEM_PER_CPU:-$(( NODE_MEM / NODE_CPUS ))}
 OPTS=(--parsable --array=0-$(( N - 1 )) --cpus-per-task="$CPUS" --mem-per-cpu="${MEM}M" --time="${TIME_LIMIT:-03:00:00}"
       --output="$VGTK_SUITE_LOGDIR/slurm-%A_%a.out")
-[ -n "${VGTK_SLURM_PARTITION:-}" ] && OPTS+=(--partition="$VGTK_SLURM_PARTITION")
-[ -n "${VGTK_SLURM_ACCOUNT:-}" ] && OPTS+=(--account="$VGTK_SLURM_ACCOUNT")
-read -ra EXTRA <<< "${SBATCH_EXTRA:-}"
+sbatch_site_options
 JOB=$(sbatch "${OPTS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} ci/slurm/suites.sbatch)
 JOB=${JOB%%;*}
 echo "$JOB" > "$VGTK_SUITE_LOGDIR/JOB_ID"

@@ -61,7 +61,7 @@ function find_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    return _guarded_ransac(() -> _with_extent(AbsolutePoseProblem(camera_model, pairs), extent), AbsolutePoseProblem, length(pairs), :absolute_pose; kwargs...)
+    return _guarded_ransac(() -> with_extent(AbsolutePoseProblem(camera_model, pairs), extent), AbsolutePoseProblem, length(pairs), :absolute_pose; kwargs...)
 end
 
 # Physical world points: stripped in metres once, the plain search, the pose
@@ -171,6 +171,6 @@ end
 # frames.md rule 1, frame in = frame out: the refined pose carries the guess's
 # frame labels (the problem's workspace labels its models `Extrinsics3`'s own).
 # A failed result (no estimate) stays failed.
-_with_frames(r::FitResult, pose::EuclideanMap{3}) = _map_estimate(
+_with_frames(r::FitResult, pose::EuclideanMap{3}) = VgtkCore.map_estimate(
     E -> relabel(VgtkCore.map_frames(pose)..., EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))), r
 )

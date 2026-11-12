@@ -12,14 +12,6 @@ ransac!
 locally_optimize
 ```
 
-A retired keyword (the strategy spellings, a downstream package's own) is
-refused through one pair, never aliased:
-
-```@docs
-RetiredKeyword
-refuse_retired_keyword
-```
-
 ## Problem Interface
 
 ```@docs
@@ -122,6 +114,7 @@ consensus check then counts only the points inside it.
 
 ```@docs
 BoundedProblem
+with_extent
 ExtentTrait
 NoExtent
 WithExtent

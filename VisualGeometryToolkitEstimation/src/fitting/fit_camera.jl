@@ -357,13 +357,21 @@ function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, 
         s, fitted, record = NaN, target, (ReturnCode.Failure, NonFinite)
     end
     fit = (; s, a = 1.0, δ = zero(SVector{2, Float64}), R = nothing, lens = fitted)
-    M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
+    M = _offset_matrix(K0)
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the fitted lens's domain
     # (a lift's, and a forward lens's whose linear fit folds before the source's domain ends), on the host
-    θend = VgtkCore.successful_retcode(record[1]) ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
-    θcap = L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf     # (a lens at the source's own fold, to its rounding: not capped)
+    θcap = _domain_cap(L, fitted, VgtkCore.successful_retcode(record[1]), pr.θ_max)
     e = map((d, θ, y) -> K0[1, 1] * _pixel_offset(fit, M, d, θ, y, θcap), pr.rays, pr.angles, pr.points)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, 0)
+end
+# K₀₂ / fx₀: a normalized offset in pixels / fx₀ (fit_camera's linear fit and refine_camera share it).
+_offset_matrix(K0) = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])
+# The radius cap of a round trip's errors inside a fitted lens's domain (`ok`: the fit produced a lens): its view-angle
+# limit for a lift, and for a forward lens that folds before the source's domain ends (`θ_max`); a lens at the source's
+# own fold, to its rounding (1e-6 rad), and a failed fit are not capped.
+function _domain_cap(::Type{L}, fitted, ok::Bool, θ_max) where {L}
+    θend = ok ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
+    return L <: LiftLens || θend < θ_max - 1.0e-6 ? θend : Inf
 end
 # A bounded camera's model is the source (its image does not enter: the region bounds the fit).
 fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = fit_camera(L, model(source), region; kwargs...)

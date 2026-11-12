@@ -226,6 +226,7 @@ public saturation_bounds
 export FitResult, BundleMetadata
 export estimate, retcode, converged, iterations, rms, metadata, weights, dof
 public nested_metadata   # contract generic: a metadata type lists its nested metadata fields
+public map_estimate   # a result with its estimate mapped, the rest as it was
 public homogeneous_w, maps_within
 
 
@@ -427,6 +428,7 @@ export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
 public stable_seed   # the seed of every random stream, keyed by name (base/utils.jl)
 public sha256_hex    # lower-case hex SHA-256 of a string's bytes, a byte vector or a stream (a file: `open(sha256_hex, path)`)
+public RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (base/utils.jl)
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Serialization traits (DimTrait, canon_value, etc.) moved to VisualGeometryToolkitFeatures

@@ -210,22 +210,9 @@ model estimates the support. The scoring contract's
 alloc_scoring_workspace(problem::AbstractConstraintProblem, scoring::StudentTUniformScoring) =
     alloc_scoring_workspace(data_size(problem), codimension(problem), scoring)
 
-function alloc_scoring_workspace(n::Int, dg::Int, scoring::StudentTUniformScoring)
-    lg = log_gamma_table(n, dg; alpha0 = scoring.scale_prior.alpha0)
-    pt = label_prior_table(n, scoring.label_prior)
-    tail = estimates_outlier_support(scoring.outlier_model) ? Vector{Float64}(undef, 3n + 2) : Float64[]
-    ScoringWorkspace(
-        Vector{Int}(undef, n),
-        Vector{Int}(undef, n),
-        lg,
-        zeros(Float64, n),
-        Vector{Float64}(undef, n),
-        pt,
-        scoring.scale_prior;
-        label_prior = scoring.label_prior,
-        tail,
-    )
-end
+alloc_scoring_workspace(n::Int, dg::Int, scoring::StudentTUniformScoring) =
+    _scoring_workspace(n, dg, scoring.scale_prior, scoring.label_prior,
+                       estimates_outlier_support(scoring.outlier_model) ? Vector{Float64}(undef, 3n + 2) : Float64[])
 
 """
     score_sq_residuals!(sws, q, scoring, problem, model, n) -> (S, k)

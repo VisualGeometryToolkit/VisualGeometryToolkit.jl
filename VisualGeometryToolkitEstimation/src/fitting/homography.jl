@@ -84,7 +84,7 @@ function find_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_homography")
-    return _guarded_ransac(() -> _with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography; kwargs...)
+    return _guarded_ransac(() -> with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography; kwargs...)
 end
 
 """

@@ -165,7 +165,35 @@ end
 # Whether a shape has a decision width / a table efficiency constant: read off the methods themselves, so a shape that
 # gains one (Barron's decision width, losses.jl) is followed without a hand-kept list.
 _has_decision_width(shape::AbstractLossShape) = hasmethod(decision_width, Tuple{typeof(shape), Float64})
-_has_efficiency_constant(shape::AbstractLossShape) = hasmethod(efficiency_constant, Tuple{Type{typeof(shape)}})
+_has_efficiency_constant(shape::AbstractLossShape) = _has_efficiency_constant(typeof(shape))
+_has_efficiency_constant(::Type{K}) where {K <: AbstractLossShape} = hasmethod(efficiency_constant, Tuple{Type{K}})
+
+"""
+    efficiency_constant(lo::AbstractOptimizationStrategy, d::Integer) -> Float64
+
+The efficiency constant strategy `lo` multiplies a noise scale by at the residual's
+codimension `d` (`loss_width = c × scale`, `c` always the plain multiple): the
+strategy's own (its width mode `EfficiencyConstant(c)`), else the table's
+`efficiency_constant(K, d)` of the shape `K` a strategy's constant is read for
+([`lo_efficiency_constant_shape`](@ref): `Irls{K}`'s and `Triggs{K}`'s `K`, a
+fixed-loss arm's registry shape). An `ArgumentError` for a shape with no constant
+(a truncation: TLS, Le–Zach) when the strategy states none, and for an absolute
+width in the strategy (`LossWidth`, which no scale multiplies). The one rule of
+every stage that deploys a strategy at a given scale (Estimation's refines and
+fits, PoseLib's refiners).
+"""
+efficiency_constant(lo::AbstractOptimizationStrategy, d::Integer) =
+    _strategy_constant(lo_width(lo), lo_efficiency_constant_shape(typeof(lo)), d)
+_strategy_constant(w::EfficiencyConstant{Float64}, _K, _d) = w.value
+function _strategy_constant(::Union{Nothing, Missing}, ::Type{K}, d) where {K}
+    _has_efficiency_constant(K) || throw(ArgumentError(
+        "$(loss_label(K)) ($(nameof(K))) has no efficiency constant (it is a truncation): state one on the strategy, " *
+            "or give `width = w`"))
+    return Float64(efficiency_constant(K, d))
+end
+_strategy_constant(w, _K, _d) = throw(ArgumentError(
+    "the strategy's width $(repr(w)) is an absolute width, which no scale multiplies: give it as `width = w`, or " *
+        "give the strategy an efficiency constant or none"))
 
 function _loss_at(sm::EfficiencyConstant{Float64}, lo, shape, cs, scoring, buf)
     s2 = max(scale_s2(cs), eps())

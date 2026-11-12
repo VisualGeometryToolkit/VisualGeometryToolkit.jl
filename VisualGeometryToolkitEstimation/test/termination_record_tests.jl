@@ -356,6 +356,18 @@ end
     @test !failed(VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.SeedKept)
+    # every record against the ruling written out on its own (not through retcode_symbol): a leg failed when its code
+    # is a failure — not a stop that kept a usable estimate (Success, Terminated, the caps, Stalled), not a run that
+    # never started (Default) — and its rule is not a guard that kept the seed, not a no-model verdict (a trial budget
+    # or count exhausted, a sampler's) and, for InitialFailure, a non-finite start (a degenerate one is no solve)
+    RC = VgtkCore.ReturnCode
+    kept = (RC.Default, RC.Success, RC.Terminated, RC.MaxIters, RC.MaxTime, RC.Stalled)
+    expected(code, rule) = !(code in kept) && rule != VgtkCore.SeedKept &&
+        !(code == RC.Failure && rule in (VgtkCore.TrialBudget, VgtkCore.AdaptiveCount)) &&
+        !(code == RC.InitialFailure && rule != VgtkCore.NonFinite)
+    for code in instances(RC.T), rule in instances(VgtkCore.StopRule)
+        @test failed(code, rule) == expected(code, rule)
+    end
 end
 
 # The reweighted fits' termination record is public (the owner's ruling on the BlobBoards duplication audit, ask 6):

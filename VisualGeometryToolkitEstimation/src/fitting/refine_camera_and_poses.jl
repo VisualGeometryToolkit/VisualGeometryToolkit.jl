@@ -102,7 +102,8 @@ CameraPosesRefineMetadata(residuals::Vector{Float64}, s²::Real, ν::Integer, fr
                                        unit_weights(Float64, length(residuals) ÷ 2), NaN, ScaleNone, NaN)
 # The weights' kind is the strategy's: a robust loss's ρ′, or L2's unit weights.
 VgtkCore.weight_kind(::Type{<:CameraPosesRefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)
-_row_norms(r) = [hypot(r[2k - 1], r[2k]) for k in 1:(length(r) ÷ 2)]
+# The norm of each correspondence's two residual rows (Core's `point_norms!`).
+_row_norms(r) = (n = length(r) ÷ 2; point_norms!(Vector{Float64}(undef, n), r, n, 2))
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
 const _RefinedCamera = Union{CameraModel, BoundedCamera{<:CameraModel}}

@@ -138,12 +138,14 @@ end
 provides_solver_covariance(::Type{<:RotationProblem}) = true
 
 # A rotation covariance in the so(3) chart of `SO3Manifold(R)` (left exp): a 3×3
-# is already there; a 9×9 over vec(R) (solver_covariance's) is read in as
-# `Jᵀ·Σ·J/4`, `J` the chart's `retract_jacobian` (orthogonal columns of norm √2).
+# is already there; a 9×9 over vec(R) (solver_covariance's, the chart's ambient
+# coordinates) is pulled into the chart by Core's `transform_covariance` from the
+# ambient chart: `J⁺·Σ·J⁺ᵀ`, `J` the chart's `retract_jacobian` (orthogonal
+# columns of norm √2, so `J⁺ = Jᵀ/2` up to rounding).
 _rotation_chart_covariance(Σ::SMatrix{3, 3, Float64}, _R) = Σ
 function _rotation_chart_covariance(Σ::SMatrix{9, 9, Float64}, R)
-    J = VgtkCore.retract_jacobian(VgtkCore.SO3Manifold(R))
-    return SMatrix{3, 3, Float64, 9}(VgtkCore.propagate(J' / 2, Σ))
+    ch = VgtkCore.SO3Manifold(R)
+    return SMatrix{3, 3, Float64, 9}(VgtkCore.transform_covariance(EuclideanManifold(ch), ch, Σ))
 end
 _rotation_chart_covariance(Σ, _R) = throw(ArgumentError(
     "a rotation covariance is 3×3 (the so(3) chart) or 9×9 (vec(R), solver_covariance's), got $(size(Σ))"))

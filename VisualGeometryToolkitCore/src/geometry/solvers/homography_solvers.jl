@@ -58,6 +58,18 @@ end
 end
 @inline _selection(idx, u₁, u₂) = idx
 
+# Σᵢ wᵢ·f(ptsᵢ) from `s₀` and Σᵢ wᵢ over the accepted indices of `sel`
+# (`_hartley_accept`): the one weighted sum of both Hartley maps, left to right.
+function _hartley_sum(f, s₀, pts, sel, w, ::Type{T}) where {T}
+    s = s₀; sw = zero(T)
+    for i in sel
+        acc, wi = _hartley_accept(w, i, T)
+        acc || continue
+        sw += wi; s += wi * f(pts[i])
+    end
+    return s, sw
+end
+
 # The Hartley map of `pts` over the selected indices `sel` (the one body: every
 # weights variant inlines to its own loop) — translation to the weighted
 # centroid, or to `center` when given; scale √2 over the weighted mean distance
@@ -68,27 +80,12 @@ function _hartley_map(
         w::Union{Nothing, AbstractVector},
         center
     ) where {T}
-    cx = zero(T); cy = zero(T); sw = zero(T)
-    for i in sel
-        acc, wi = _hartley_accept(w, i, T)
-        acc || continue
-        sw += wi; cx += wi * pts[i][1]; cy += wi * pts[i][2]
-    end
+    c, sw = _hartley_sum(p -> SVector{2, T}(p), zero(SVector{2, T}), pts, sel, w, T)
     # Uniform degenerate guard: empty input, empty selection, or all-zero
     # weights yield the identity frame.
     sw < eps(T) && return _hartley_identity(T)
-    if center === nothing
-        cx /= sw; cy /= sw
-    else
-        cx = T(center[1]); cy = T(center[2])
-    end
-    d = zero(T)
-    for i in sel
-        acc, wi = _hartley_accept(w, i, T)
-        acc || continue
-        dx = pts[i][1] - cx; dy = pts[i][2] - cy
-        d += wi * hypot(dx, dy)
-    end
+    cx, cy = center === nothing ? (c[1] / sw, c[2] / sw) : (T(center[1]), T(center[2]))
+    d, _ = _hartley_sum(p -> hypot(p[1] - cx, p[2] - cy), zero(T), pts, sel, w, T)
     d /= sw
     s = d > eps(T) ? sqrt(T(2)) / d : one(T)
     return _hartley_affine(T, s, cx, cy)
@@ -96,22 +93,12 @@ end
 
 # The 3-D Hartley map (a least squares over lengths): translation to the weighted
 # centroid, scale √3 over the weighted mean distance from it (Hartley & Zisserman
-# §4.9.2); the same weights rule and degenerate guard as the 2-D map above.
+# §4.9.2); the same weighted sums and degenerate guard as the 2-D map above.
 function _hartley_map_3d(pts::AbstractVector{<:StaticVector{3, T}}, w::Union{Nothing, AbstractVector}) where {T}
-    c = zero(SVector{3, T}); sw = zero(T)
-    for i in eachindex(pts)
-        acc, wi = _hartley_accept(w, i, T)
-        acc || continue
-        sw += wi; c += wi * SVector{3, T}(pts[i])
-    end
+    c, sw = _hartley_sum(p -> SVector{3, T}(p), zero(SVector{3, T}), pts, eachindex(pts), w, T)
     sw < eps(T) && return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(one(T), one(T), one(T))), zero(Vec3{T}))
     c /= sw
-    d = zero(T)
-    for i in eachindex(pts)
-        acc, wi = _hartley_accept(w, i, T)
-        acc || continue
-        d += wi * norm(SVector{3, T}(pts[i]) - c)
-    end
+    d, _ = _hartley_sum(p -> norm(SVector{3, T}(p) - c), zero(T), pts, eachindex(pts), w, T)
     d /= sw
     s = d > eps(T) ? sqrt(T(3)) / d : one(T)
     return AffineMap(LinearAlgebra.Diagonal(SVector{3, T}(s, s, s)), Vec3{T}(-s * c[1], -s * c[2], -s * c[3]))

@@ -282,7 +282,7 @@ function refine_camera(
     moving = VgtkCore.free_parameter_names(guess, fixed)   # Core's one resolution of `fixed` (names and groups; the skew held)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
-    M = SMatrix{2, 2, Float64}(1.0, 0.0, K0[1, 2] / K0[1, 1], K0[2, 2] / K0[1, 1])   # K₀₂ / fx₀: a normalized offset in pixels / fx₀
+    M = _offset_matrix(K0)   # K₀₂ / fx₀ (fit_camera.jl)
     start = _refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
     pr = _profile_samples(role, L, source, region, K0, weight)
     P = _regression_manifold(role, _lens_family_manifold(role, gl, moving), start, moving)
@@ -299,8 +299,7 @@ function refine_camera(
     # a regression that ends non-finite did not converge: its FitResult reports it
     isfinite(fit.s) || (record = (ReturnCode.Failure, NonFinite))
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the refined lens's domain
-    θend = isfinite(fit.s) ? Float64(view_angle_limit(fit.lens)) - 1.0e-9 : Inf
-    e = K0[1, 1] .* _sample_errors(lm, p, L <: LiftLens || θend < pr.θ_max - 1.0e-6 ? θend : Inf)
+    e = K0[1, 1] .* _sample_errors(lm, p, _domain_cap(L, fit.lens, isfinite(fit.s), pr.θ_max))   # (fit_camera.jl)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
 end
 # A bounded camera's model is the source (its image does not enter: the region bounds the fit).

@@ -92,7 +92,7 @@ function _fit_irls(fit::AbstractString, strategy::AbstractOptimizationStrategy, 
     K = strategy_loss(lo)
     shape = K()
     loss_width = isfinite(input.width) ? Float64(input.width) :
-        Float64(_refine_constant(lo, codim)) * Float64(input.scale)   # the strategy's constant, else Core's table (fitting/_refine.jl)
+        Float64(VgtkCore.efficiency_constant(lo, codim)) * Float64(input.scale)   # the strategy's constant, else Core's table
     sq = loss_width^2
     return FitIrls(shape, sq, Float64(input.scale), VgtkCore.scale_source(input), loss_width)
 end

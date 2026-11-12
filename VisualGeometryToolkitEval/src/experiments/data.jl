@@ -296,7 +296,7 @@ function _tier_root(tier::AbstractString; write::Bool)
     end
     source in ("env", "site") && return r
     # installed (an entry the view's Artifacts.toml binds; a split entry's parts are fetched by `fetch_artifacts!`), then its mount
-    source == "view" && (_view_has(av, tier) && data_root(; tiers = String[tier]); return r)
+    source == "view" && (av !== nothing && _view_has(av, tier) && data_root(; tiers = String[tier]); return r)
     return data_root()
 end
 

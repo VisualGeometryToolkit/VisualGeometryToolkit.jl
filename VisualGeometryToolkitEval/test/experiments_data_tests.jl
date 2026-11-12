@@ -497,6 +497,9 @@
             workdir = ".."
             [sites.m]
             tiers = { mocap = "rel/mocap", abs = "$mocap" }
+            [[stage]]
+            name = "s"
+            command = ["true"]
             """)
         withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SITE" => nothing, "VGTK_DATA_ROOT_MOCAP" => nothing) do
             E.set_project_root!(proj)

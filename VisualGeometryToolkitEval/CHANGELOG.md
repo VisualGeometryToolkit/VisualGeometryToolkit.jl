@@ -14,9 +14,12 @@
   publishes the tier: its mount, the catalog's `mount_dir`; the runner reads it through `catalog_view_mount`), the
   data root. The view's mount applies only under the view, never to a `VGTK_DATA_ROOT`, an author's own
   `data/exp_raw` or a fallback, so flat layouts and producers' locations do not move.
-- **A producer never installs an artifact and never writes into a read-only view tier**: `keyed_data_dir` and
-  `promote_run` resolve a write root, and a tier the view publishes is refused ("tier X is published read-only by the
-  artifact view; bind VGTK_DATA_ROOT_X or a site tier to produce it") until its root is bound.
+- **A producer never installs an artifact and never writes into an artifact view**: `keyed_data_dir` and
+  `promote_run` resolve a write root; a tier the view publishes is refused ("tier X is published read-only by the
+  artifact view; bind VGTK_DATA_ROOT_X or a site tier to produce it"), and so is any tier whose root is the view or
+  inside it — the view's own directory, a `VGTK_DATA_ROOT` or a tier root that is one ("the data root is an artifact
+  view (read-only); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_<TIER> to a writable root"). `assert_not_input` guards the
+  site table's tier roots as it guards `VGTK_DATA_ROOT_<TIER>`.
 - **A scratch run never completes a run of record**: `run_complete` compares the record's `scratch` flag with this
   process's, as `cached_result` does; with the keys (`run_key`) and `promote_run`, a `VGTK_SCRATCH=1` result is never
   reused or promoted as a run of record, nor the reverse.

@@ -681,7 +681,9 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     for (tier, _) in get(get(g.site_roots, site.name, Dict{String, Any}()), "tiers", Dict{String, Any}())
         var = tier_variable(tier; prefix = g.data_env)
         haskey(base, var) || (base[var] = first(tier_data_root(tier, data; env = base, workdir = g.workdir, prefix = g.data_env,
-                                                              tiers = g.site_roots[site.name]["tiers"])))
+                                                              tiers = g.site_roots[site.name]["tiers"],
+                                                              view_mount = isempty(data) ? nothing :
+                                                                  catalog_view_mount(data, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml")))))
     end
     base["VGTK_SITE"] = site.name
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,

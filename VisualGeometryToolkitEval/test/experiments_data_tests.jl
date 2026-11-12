@@ -134,7 +134,14 @@
             @test_throws r"tier tier_e is published read-only" E.keyed_data_dir(cfg, "tier_e", "k")
             run = joinpath(mktempdir(), "run"); mkpath(run); E.write_provenance(run, Dict("run_key" => k); driver = "d")
             @test_throws r"tier tier_e is published read-only" E.promote_run(run, "tier_e")
-            @test E.keyed_data_dir(cfg, "local_tier", "k") == joinpath(root, "local_tier", "k-" * k)   # not the view's: its root
+            # a tier the view does not publish: the data root IS the view, read-only, so producing it is refused too
+            @test_throws r"the data root is an artifact view \(read-only\); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_LOCAL_TIER" E.keyed_data_dir(cfg, "local_tier", "k")
+            @test_throws r"the data root is an artifact view" E.promote_run(run, "local_tier")
+            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT" => root)
+            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"),
+                                                                      "VGTK_DATA_ROOT_LOCAL_TIER" => joinpath(root, "sub"))   # a root inside the view
+            writable = mktempdir()
+            @test withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT_LOCAL_TIER" => writable) == joinpath(writable, "local_tier", "k-" * k)
             withenv("VGTK_DATA_ROOT_TIER_N" => envdir) do
                 @test E.keyed_data_dir(cfg, "tier_n", "k") == joinpath(envdir, "tier_n", "k-" * k)
             end

@@ -323,6 +323,17 @@ function _view_has(av::ArtifactView, name::AbstractString)
     return name in c[2]
 end
 
+# Whether `path` is an artifact view or lies inside one (its marker at or above the nearest existing ancestor).
+function _inside_view(path::AbstractString)
+    d = _resolved_path(path)
+    while true
+        isdir(d) && is_artifact_view(d) && return true
+        p = dirname(d)
+        p == d && return false
+        d = p
+    end
+end
+
 # A tier's root through THE resolver (`tier_data_root`, src/code_identity.jl): the environment, the site table, the
 # artifact view when the data root is one (installing the tier to read it; refused to a producer), the data root.
 # `write = true` is a producer's root: it never installs an artifact.
@@ -334,11 +345,17 @@ function _tier_root(tier::AbstractString; write::Bool)
     main = bound !== nothing ? bound : av !== nothing ? _view_dir(av) : ""
     view_mount = from_view ? (t -> _view_has(av, t) ? String(av.mount(t)) : nothing) : nothing
     r, source = tier_data_root(tier, main; env = ENV, tiers = site_tiers, workdir, view_mount, write)
-    source in ("env", "site") && return r
     if write
-        isempty(main) && error("no data root to produce tier $tier into: set VGTK_DATA_ROOT, $(tier_variable(tier)) or a site tier")
+        isempty(r) && error("no data root to produce tier $tier into: set VGTK_DATA_ROOT, $(tier_variable(tier)) or a site tier")
+        # a producer never writes into an artifact view, whatever named its root (the view's own directory, a
+        # VGTK_DATA_ROOT or a tier root that is one, or a directory inside one)
+        if (from_view && source == "data root") || _inside_view(r)
+            throw(ArgumentError("the data root is an artifact view (read-only); bind VGTK_DATA_ROOT or " *
+                                "$(tier_variable(tier)) to a writable root to produce tier $tier"))
+        end
         return r
     end
+    source in ("env", "site") && return r
     source == "view" && (data_root(; tiers = String[tier]); return r)      # installed, then its mount
     return data_root()
 end
@@ -372,6 +389,14 @@ function assert_not_input(path::AbstractString; producer::Bool = false)
     for (k, v) in ENV
         (startswith(k, "VGTK_DATA_ROOT_") && !isempty(v) && _is_under(path, v)) &&
             error("refusing to write $path: it is under the root of an input tier ($k = $v), read-only input")
+    end
+    site_tiers, workdir = _site_tiers()                # the resolver's table: the site's tier roots are input too
+    if site_tiers !== nothing
+        for (t, _) in site_tiers
+            r = first(tier_data_root(String(t), ""; env = Dict{String,String}(), tiers = site_tiers, workdir))
+            isempty(r) || !_is_under(path, r) ||
+                error("refusing to write $path: it is under the root of the input tier $t ([sites.<site>.tiers]), read-only input")
+        end
     end
     droot = _bound_data_root()
     droot === nothing && return nothing

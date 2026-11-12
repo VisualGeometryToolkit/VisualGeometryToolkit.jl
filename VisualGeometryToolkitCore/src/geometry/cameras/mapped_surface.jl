@@ -75,7 +75,33 @@ _member_numbers(f, c) = with_parameters(c, map(f, parameter_vector(c)))      # t
 @inline _similarity(s, R::SMatrix{N, N}, t::StaticVector{N}) where {N} =
     SimilarityMap{N, eltype(R), typeof(s), RotMatrix{N, eltype(R), N * N}, SVector{N, eltype(t)}}(s, RotMatrix{N, eltype(R)}(R), SVector{N}(t))
 bounds(s::MappedSurface) = bounds(s.frame)
-surface_point(s::MappedSurface, p::StaticVector{2}) = s.map(p)
+surface_point(s::MappedSurface, p::StaticVector{2}) = _map_value(s.map, p)
+
+# The chart map's point and Jacobian at a chart point, through its members, with the explicit fused products
+# (`_fma_mul`, spline_lens.jl) — CT's own `t1(t2(x))` and chain rule `transform_deriv(t1, t2(x)) * transform_deriv(t2, x)` are
+# StaticArrays' products, which fuse as each compiled copy decides. The root (`_hit_residual`, `_chart_residual`, the height
+# fast path) reads the map through these only, so it is one function of its arguments wherever it is inlined.
+# `_map_value` is `_map_value_jacobian`'s point, operation for operation. A member of another kind takes its own call and
+# `transform_deriv`.
+@inline function _map_value_jacobian(m::CoordinateTransformations.ComposedTransformation, x)
+    y, J2 = _map_value_jacobian(m.t2, x)
+    z, J1 = _map_value_jacobian(m.t1, y)
+    return z, _fma_mul(J1, J2)
+end
+@inline _map_value(m::CoordinateTransformations.ComposedTransformation, x) = _map_value(m.t1, _map_value(m.t2, x))
+@inline _map_value_jacobian(E::EuclideanMap, x) = (R = SMatrix(rotation(E)); (_fma_mul(R, x) + translation(E), R))
+@inline _map_value(E::EuclideanMap, x) = _fma_mul(SMatrix(rotation(E)), x) + translation(E)
+@inline _map_value_jacobian(S::SimilarityMap, x) = (R = SMatrix(S.R); (S.s * _fma_mul(R, x) + S.t, S.s * R))
+@inline _map_value(S::SimilarityMap, x) = S.s * _fma_mul(SMatrix(S.R), x) + S.t
+@inline _map_value_jacobian(L::CoordinateTransformations.LinearMap{<:StaticMatrix}, x) = (_fma_mul(L.linear, x), L.linear)
+@inline _map_value(L::CoordinateTransformations.LinearMap{<:StaticMatrix}, x) = _fma_mul(L.linear, x)
+@inline _map_value_jacobian(m, x) = (m(x), transform_deriv(m, x))
+@inline _map_value(m, x) = m(x)
+# the metric plane coordinates of x in the frame (`_plane_coordinates`, with the fused dot)
+@inline _frame_coordinates(q::Quad, x::StaticVector{3}) = (δ = x - q.origin; SVector(_fma_dot(δ, q.e_u), _fma_dot(δ, q.e_v)))
+# the components of v across the ray (u₁ᵀv, u₂ᵀv), and of each column of J
+@inline _across(u1, u2, v::StaticVector{3}) = SVector(_fma_dot(u1, v), _fma_dot(u2, v))
+@inline _across(u1, u2, J::StaticMatrix{3}) = _fma_tmul(hcat(u1, u2), J)
 
 # The iteration budget of a board root, its box and its scale: the chart's
 # rectangle (in primal Float64: a Dual pose's frame contributes its values), its
@@ -102,32 +128,24 @@ _primal_float(::Quad{T}) where {T} = primal_float(T)
     b1, b2 = s2_tangent_basis(d)
     u1, u2 = oftype(d, b1), oftype(d, b2)
     function fj(p)
-        X = s.map(p)
-        J = transform_deriv(s.map, p)
-        δ = X - o
-        return SVector(dot(u1, δ), dot(u2, δ)), vcat(u1' * J, u2' * J), X
+        X, J = _map_value_jacobian(s.map, p)
+        return _across(u1, u2, X - o), _across(u1, u2, J), X
     end
     return fj
 end
-@inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> (X = s.map(p); (X - x, transform_deriv(s.map, p), X))
+@inline _chart_residual(s::MappedSurface, x::StaticVector{3}) = p -> ((X, J) = _map_value_jacobian(s.map, p); (X - x, J, X))
 # The same residuals without their Jacobian (`_value_residual(residual)`): the implicit-function step's one evaluation on the
 # Dual parts needs the residual's partials only — the chart map's Jacobian there would carry every partial for nothing.
 @inline function _hit_value(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3})
     b1, b2 = s2_tangent_basis(d)
     u1, u2 = oftype(d, b1), oftype(d, b2)
-    return p -> (δ = s.map(p) - o; SVector(dot(u1, δ), dot(u2, δ)))
+    return p -> _across(u1, u2, _map_value(s.map, p) - o)
 end
-@inline _chart_value(s::MappedSurface, x::StaticVector{3}) = p -> s.map(p) - x
+@inline _chart_value(s::MappedSurface, x::StaticVector{3}) = p -> _map_value(s.map, p) - x
 @inline _value_residual(::typeof(_hit_residual)) = _hit_value
 @inline _value_residual(::typeof(_chart_residual)) = _chart_value
 
-# ONE compiled root per argument types: `intersection`, `chart` and `normal` of a MappedSurface are never inlined. Their
-# arithmetic is full of operations LLVM may contract into FMAs as it sees fit — StaticArrays' small products (`muladd`),
-# its `dot` (`@simd`), the LM increment's own `muladd`s — and it decides per compiled copy. Inlined, every caller compiled
-# its own copy, so one surface and one ray had hits 2–3 ulp apart between two call sites (two hits in one function: 1 ray
-# in 200 of a composed calibration, Julia 1.12 and 1.13, --check-bounds=yes). Behind the barrier the bits depend on the
-# arguments' types only (test/mapped_surface_determinism_tests.jl); the call costs nanoseconds against a µs root.
-@noinline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
+@inline intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) = _mapped_intersection(s, o, d)
 # (the generic root; a height field over an affine chart has a 1-D fast path, target_surfaces.jl)
 # `seed`: a chart point to start the root at instead of the plane hit's when `use_seed` (a fast path's hit of the primal
 # surface, `intersection` of a height field with Duals).
@@ -135,28 +153,26 @@ end
     _mapped_intersection(s, o, d, zero(SVector{2, Float64}), false)
 @inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}, seed::StaticVector{2}, use_seed::Bool)
     t0, x0 = _plane_hit(s.frame, o, d)
-    p0 = map(_primal, _plane_coordinates(s.frame, x0))
+    p0 = map(_primal, _frame_coordinates(s.frame, x0))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     seed_ok = all(isfinite, p0)
     x₀ = ifelse(use_seed, oftype(p0, seed), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)))
     p, ok, X = _board_root(_hit_residual, (s, o, d), x₀, lb, ub, sc, tol2, L)
     x = _root_point(X, s, p)
-    t = dot(x - o, d) / dot(d, d)
+    t = _fma_dot(x - o, d) / _fma_dot(d, d)
     return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
 end
 
-# one compiled root, never inlined (see `intersection` above)
-@noinline function chart(s::MappedSurface, x::StaticVector{3})
-    p0 = map(_primal, _plane_coordinates(s.frame, x))
+@inline function chart(s::MappedSurface, x::StaticVector{3})
+    p0 = map(_primal, _frame_coordinates(s.frame, x))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     p, ok, _ = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
     nan = oftype(p[1], NaN)
     return ifelse(ok, p, SVector(nan, nan))
 end
 
-# one compiled root, never inlined (see `intersection` above)
-@noinline function normal(s::MappedSurface, x::StaticVector{3})
-    J = transform_deriv(s.map, chart(s, x))
+@inline function normal(s::MappedSurface, x::StaticVector{3})
+    _, J = _map_value_jacobian(s.map, chart(s, x))
     return LinearAlgebra.normalize(cross(J[:, 1], J[:, 2]))
 end
 
@@ -187,7 +203,7 @@ end
 @inline _root_numbers(::Type{<:Tuple{R, J, Vararg}}) where {R <: StaticArrays.StaticArray, J <: StaticArrays.StaticArray} = promote_type(eltype(R), eltype(J))
 @inline _root_numbers(::Type) = nothing
 @inline _root_point(X, s, p) = X
-@inline _root_point(::Nothing, s, p) = s.map(p)
+@inline _root_point(::Nothing, s, p) = _map_value(s.map, p)
 @inline function _board_root(::Type{T}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {T <: AbstractFloat, R}
     fj = residual(parts...)
     fT(p) = (rJ = fj(p); (SVector{length(rJ[1]), T}(rJ[1]), SMatrix{size(rJ[2], 1), 2, T}(rJ[2]), rJ[3]))
@@ -208,7 +224,7 @@ end
 @inline function _implicit_partials(::Type{D}, residual::R, parts::Tuple, vparts::Tuple, pV::StaticVector{2}) where {D <: ForwardDiff.Dual, R}
     Jv = residual(vparts...)(pV)[2]               # the values' Jacobian at their root: no Dual arithmetic
     rD = _value_residual(residual)(parts...)(map(v -> _lift_dual(D, v), pV))   # the residual's partials: one Dual evaluation
-    G = inv(Jv' * Jv) * Jv'                       # 2 × R: the least-squares inverse (J⁻¹ for a square J)
+    G = _fma_mul(inv(_fma_tmul(Jv, Jv)), Jv')   # 2 × R: the least-squares inverse (J⁻¹ for a square J)
     ∂(i) = -sum(ntuple(k -> G[i, k] * ForwardDiff.partials(rD[k]), Val(length(rD))))
     return SVector(_with_value(D, pV[1], ∂(1)), _with_value(D, pV[2], ∂(2)))
 end

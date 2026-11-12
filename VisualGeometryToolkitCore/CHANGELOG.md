@@ -2,13 +2,15 @@
 
 ## Unreleased (next patch)
 
-- **Fixed: one surface and one ray have one hit, whatever code calls it.** `intersection`, `chart` and `normal` of a
-  `MappedSurface` were `@inline`, so every caller compiled its own copy of the root, and LLVM resolved the contractions
-  the root's arithmetic allows (StaticArrays' `muladd` products, its `@simd` `dot`, the LM increment's `muladd`s)
-  differently per copy: two hits of the same surface and ray in one function came out 2–3 ulp apart (a height field
-  alone or composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). They are now `@noinline`: the bits
-  depend on the arguments' types only. Tested bit for bit over 10⁴ calls from five call sites per surface
-  (`mapped_surface_determinism_tests.jl`).
+- **Fixed: one surface and one ray have one hit, whatever code calls it.** The `MappedSurface` root (`intersection`,
+  `chart`, `normal`, `surface_point`) is inlined into its callers, and its arithmetic was built on operations LLVM may
+  contract into FMAs as each compiled copy decides (StaticArrays' `muladd` products, its `@simd` `dot`, the LM increment's
+  `muladd`s): two hits of the same surface and ray in one function came out 2–3 ulp apart (a height field alone or
+  composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). The root now reads the chart map through its own
+  traversal with explicit fused products (`fma` chains in a fixed order; everything else plain arithmetic, which Julia
+  never contracts), as does the 2-D LM it shares with the spline lenses' projection, so it stays inlined — a device
+  kernel's evaluation keeps its speed — and gives the same bits in every copy. Hits move by rounding only. Tested bit
+  for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`).
 
 ## 0.9.1
 

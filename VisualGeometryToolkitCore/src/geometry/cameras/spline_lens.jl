@@ -570,6 +570,48 @@ convert_eltype(::Type{T}, l::SplineLens) where {T <: AbstractFloat} =
 const _PROJECT_MAXITER = 100
 const _PROJECT_TOL = 1.0e-6
 
+# ------------------------------------------------------------------------------
+# Explicit fused products: the same bits in every compiled copy
+# ------------------------------------------------------------------------------
+#
+# `muladd`, StaticArrays' small products (built on `muladd`) and its `dot`
+# (`@simd`) let LLVM fuse a multiply and an add, or not, as it sees fit — and it
+# decides per compiled copy. A root inlined into two callers (two hits of one
+# surface in one function) then converged 2–3 ulp apart on one ray
+# (MappedSurface, Julia 1.12 and 1.13; test/mapped_surface_determinism_tests.jl).
+# These forms leave LLVM no choice: every product-sum is an explicit `fma`
+# chain in a fixed order (an `fma` is one rounding on every target, the device
+# included), and everything else plain arithmetic, which Julia never contracts.
+# The LM below and the MappedSurface root (mapped_surface.jl, target_surfaces.jl)
+# compute with them, so they stay inlined (on the device too) and give
+# one answer.
+@generated function _fma_dot(a::StaticVector{N}, b::StaticVector{N}) where {N}
+    ex = :(a[1] * b[1])
+    for k in 2:N
+        ex = :(fma(a[$k], b[$k], $ex))
+    end
+    return :(@inbounds $ex)
+end
+# A B, as one fused chain per entry (column-major)
+@generated function _fma_mul(A::StaticMatrix{M, K}, B::StaticMatrix{K, N}) where {M, K, N}
+    entry(i, j) = foldl((ex, k) -> :(fma(A[$i, $k], B[$k, $j], $ex)), 2:K; init = :(A[$i, 1] * B[1, $j]))
+    return :(@inbounds SMatrix{$M, $N}($([entry(i, j) for j in 1:N for i in 1:M]...)))
+end
+# A x
+@generated function _fma_mul(A::StaticMatrix{M, K}, x::StaticVector{K}) where {M, K}
+    entry(i) = foldl((ex, k) -> :(fma(A[$i, $k], x[$k], $ex)), 2:K; init = :(A[$i, 1] * x[1]))
+    return :(@inbounds SVector{$M}($([entry(i) for i in 1:M]...)))
+end
+# Aᵀ B and Aᵀ x
+@generated function _fma_tmul(A::StaticMatrix{K, M}, B::StaticMatrix{K, N}) where {M, K, N}
+    entry(i, j) = foldl((ex, k) -> :(fma(A[$k, $i], B[$k, $j], $ex)), 2:K; init = :(A[1, $i] * B[1, $j]))
+    return :(@inbounds SMatrix{$M, $N}($([entry(i, j) for j in 1:N for i in 1:M]...)))
+end
+@generated function _fma_tmul(A::StaticMatrix{K, M}, x::StaticVector{K}) where {M, K}
+    entry(i) = foldl((ex, k) -> :(fma(A[$k, $i], x[$k], $ex)), 2:K; init = :(A[1, $i] * x[1]))
+    return :(@inbounds SVector{$M}($([entry(i) for i in 1:M]...)))
+end
+
 # THE two-unknown LM of the spline models: `fj(p) -> (r, ∂r/∂p)`, the residual and
 # its Jacobian from ONE evaluation at `p` (a spline's basis weights once per point:
 # every trial point's Jacobian is the next iteration's when the step is accepted),
@@ -614,8 +656,9 @@ const _PROJECT_TOL = 1.0e-6
 # ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
 # [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
 # unrolled 2 × 2 Cholesky, the ftol = gtol = eps and xtol = 1e-10 stops (at
-# s = 1). NOT the same bits as a run of that routine: `muladd` and
-# StaticArrays' small products fuse as LLVM decides per compilation context.
+# s = 1). NOT the same bits as a run of that routine: its products are the
+# explicit fused ones above (`_fma_dot`, `_fma_mul`, `_fma_tmul`, the increment's
+# `fma`s), the same in every compiled copy, where the routine's fuse as LLVM decides.
 # Measured against a recorded run of it on 1000 seeded problems
 # (test/fixtures/pixel_lm), at s = 1: at most 5.5e-12 px (Julia 1.13) /
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
@@ -635,9 +678,9 @@ const _PROJECT_TOL = 1.0e-6
     f, Jx = ex[1], ex[2]
     F = sum(abs2, f)
     F < ϵF && return x, F < tol2, Jx, ex
-    g = Jx' * f
+    g = _fma_tmul(Jx, f)
     norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex
-    JtJ = Jx' * Jx
+    JtJ = _fma_tmul(Jx, Jx)
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
     iter = 0
@@ -671,7 +714,7 @@ const _PROJECT_TOL = 1.0e-6
             Fk = sum(abs2, fk)
             if Fk < F
                 ac = F - Fk
-                pr = dot(p, (@. λ * DtD * p + g))
+                pr = _fma_dot(p, (@. λ * DtD * p + g))
                 ρ = ac / pr
                 accepted = true
             end
@@ -691,9 +734,9 @@ const _PROJECT_TOL = 1.0e-6
             ex = ek
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
             abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
-            g = Jx' * f
+            g = _fma_tmul(Jx, f)
             norm(g, Inf) < ϵG && break
-            JtJ = Jx' * Jx
+            JtJ = _fma_tmul(Jx, Jx)
             DtD = clamp.(diag(JtJ), DtD, DtD_max)
             if ρ > T(0.75)
                 λ *= T(1 / 13)
@@ -722,15 +765,15 @@ end
 @inline function _spline_lm_increment(JtJ, λ, DtD, g)
     x1 = g[1]
     x2 = g[2]
-    A11 = muladd(λ, DtD[1], JtJ[1, 1])
+    A11 = fma(λ, DtD[1], JtJ[1, 1])
     A11 >= zero(A11) || return zero(SVector{2, typeof(A11)}), 1
     A21 = JtJ[2, 1]
-    A22 = muladd(λ, DtD[2], JtJ[2, 2])
+    A22 = fma(λ, DtD[2], JtJ[2, 2])
     A22 >= zero(A22) || return zero(SVector{2, typeof(A22)}), 2
-    A22 = muladd(-A21, A21 / A11, A22)
-    x2 = muladd(-x1, A21 / A11, x2)
+    A22 = fma(-A21, A21 / A11, A22)
+    x2 = fma(-x1, A21 / A11, x2)
     x2 /= A22
-    x1 = muladd(-x2, A21, x1)
+    x1 = fma(-x2, A21, x1)
     x1 /= A11
     return SVector(x1, x2), 0
 end

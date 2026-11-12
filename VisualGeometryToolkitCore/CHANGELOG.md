@@ -103,6 +103,9 @@ private names. Each is the function Core's own callers use, unchanged; the priva
   the four texels itself.
 - **`julia_blocks(path)`, public** (the Test extension; was a closure of `test_readme_example`, over a page's text):
   the code of a page's `julia` fenced blocks, in order.
+- **The dependency allow-list names VisualGeometryToolkitEstimation for VisualGeometryToolkitFeatures**
+  (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
+  (VisualGeometryToolkitFeatures 0.7.1). No API change.
 
 ## 0.9.1
 

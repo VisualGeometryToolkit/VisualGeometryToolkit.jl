@@ -9,7 +9,8 @@
 
 VisualGeometryToolkitCore = []
 VisualGeometryToolkitIO = ["VisualGeometryToolkitCore"]
-VisualGeometryToolkitFeatures = ["VisualGeometryToolkitCore"]
+# VisualGeometryToolkitEstimation is a weak dependency here (detect_image_circle's fit, an extension).
+VisualGeometryToolkitFeatures = ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"]
 VisualGeometryToolkitEval = ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"]
 PoseLib = ["VisualGeometryToolkitCore"]
 # Never RANSACScoringDoneRight or LocalOptimizationDoneRight — not even in [extras].

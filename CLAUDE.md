@@ -15,7 +15,7 @@ name, the Registrator `subdir`, the TagBot tag prefix `<Name>-v…` and the docs
 |---|---|---|
 | `VisualGeometryToolkitCore/` | types, frames, cameras, kernels, the robust-estimation contracts | — |
 | `VisualGeometryToolkitIO/` | file formats and schemas | VisualGeometryToolkitCore |
-| `VisualGeometryToolkitFeatures/` | feature detection and matching | VisualGeometryToolkitCore |
+| `VisualGeometryToolkitFeatures/` | feature detection and matching | VisualGeometryToolkitCore; VisualGeometryToolkitEstimation (weak: `detect_image_circle`'s fit) |
 | `VisualGeometryToolkitEstimation/` | the RANSAC loop and robust estimators | VisualGeometryToolkitCore |
 | `VisualGeometryToolkitEval/` | evaluation protocol, pools, paper-project template | VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitEstimation |
 | `PoseLib/` | wrapper of the PoseLib C++ solvers (binaries: `PoseLib_jll`) | VisualGeometryToolkitCore |

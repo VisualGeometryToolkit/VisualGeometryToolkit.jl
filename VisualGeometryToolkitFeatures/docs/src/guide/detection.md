@@ -133,3 +133,37 @@ Carlo study that calibrates it is `benchmark/mc/keypoint_uncertainty_mc.jl`,
 and `benchmark/mc/zeisl_comparison.jl` compares it with the covariance of
 Zeisl et al. (BMVC 2009). The default, `uncertainty = nothing`, compiles the
 detector exactly as without the option.
+
+## The image circle of a lens
+
+[`detect_image_circle`](@ref) measures where light falls on the sensor, the lit
+region a lens's field stop leaves on a dark surround, from photographs of one
+camera, lens and focus. No lens model predicts it. Each frame lights a different
+part of the rim, and their per-pixel maximum is the union of their light. Its
+dark maximally stable regions ([`detect_mser`](@ref), every region up to the
+whole image, duplicates kept) carry the rim as the boundary of the surround.
+The convex hull of every region's boundary, without the frame's border, small
+holes and vertices within `border_margin` of the border, is the rim's contour.
+The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit through
+that contour, scored by the Student-t + uniform marginal at the caller's
+`outlier_halfwidth`.
+
+The detection is this package's. The fit is VisualGeometryToolkitEstimation's
+`find_ellipse` / `find_circle`, reached through a package extension, so load
+that package first. The optional L0 smoothing (`smoothing_weight > 0`) is
+ImageSmooth's, also an extension:
+
+```julia
+using VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation
+using Random: Xoshiro
+
+res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 1000, min_hole_area = 256)
+res === nothing || (res.circle, res.rim_gap < π)   # the circle; whether the rim was seen all round
+```
+
+A RAW frame (a `LinearRaw` or a `RawMosaic`) is measured on its green cells,
+the geometry image. The circle and the contour come back in the raw's pixels
+through the cells' `raw_frame_map`, and the keywords are given in raw pixels as
+well. The circle is about 1 px outside the true rim, because the hull follows
+the dark side of the rim's partial-coverage band. Treat it as a mask that errs
+toward including the rim's last pixels.

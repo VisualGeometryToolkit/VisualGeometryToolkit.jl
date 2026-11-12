@@ -179,7 +179,7 @@ end
     @test t == Dict(
         "VisualGeometryToolkitCore" => String[],
         "VisualGeometryToolkitIO" => ["VisualGeometryToolkitCore"],
-        "VisualGeometryToolkitFeatures" => ["VisualGeometryToolkitCore"],
+        "VisualGeometryToolkitFeatures" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"],
         "VisualGeometryToolkitEval" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"],
         "PoseLib" => ["VisualGeometryToolkitCore"],
         "VisualGeometryToolkitEstimation" => ["VisualGeometryToolkitCore"],

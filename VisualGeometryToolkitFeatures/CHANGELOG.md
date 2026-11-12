@@ -19,7 +19,22 @@ caller breaks. This package keeps what needs LibRaw: `load_raw_mosaic`/`LibRawDe
   the raw module's private accessors.
 - **`CACHE_FORMAT` 4**: a cached `LinearRaw` was stored as `VisualGeometryToolkitFeatures.LinearRaw`; the type is
   Core's now, so earlier entries are misses (decoded again), never a load that fails.
-- **Adapt is no longer a dependency** (it served the mosaic's device form, now Core's).
+- **Adapt is no longer a dependency** (it served the mosaic's device form, now Core's). VisualGeometryToolkitCore
+  0.9.2's dependency allow-list names VisualGeometryToolkitEstimation for this package (the weak dependency below).
+- **New: `detect_image_circle([rng,] [T = Ellipse,] frames; smoothing_weight = 0, outlier_halfwidth, min_hole_area,
+  border_margin = 5)`** (exported; moved from RadiometricCamera, the same signature and, on its tests, the same results
+  bit for bit): the image circle of a lens measured from photographs — the frames' per-pixel maximum as `N0f8`, its
+  dark MSERs (`detect_mser`, `max_area = 1`, duplicates kept), every region boundary less the holes smaller than
+  `min_hole_area` and the border's vertices, their convex hull, and a RANSAC `Ellipse` or `Circle` through the hull's
+  vertices off the border, scored by the Student-t + uniform marginal at `outlier_halfwidth`. Returns `(; circle, fit,
+  contour, cut, rim_gap)` or `nothing`. A RAW frame (`LinearRaw` `:green_cells`/`:bin2`, or a `RawMosaic`) is measured
+  on its green cells and its circle and contour come back in the raw's pixels through the cells' `raw_frame_map`; the
+  keywords are in the caller's (raw) pixels, and `fit`'s estimate is mapped while its `rms` and residuals stay in
+  green-cell pixels. A cell image on a device is read to the host (the result bit for bit the host's, a GPU test).
+- **New dependencies:** DelaunayTriangulation (the convex hull) and Random. **New weak dependencies and extensions:**
+  VisualGeometryToolkitEstimation (`VisualGeometryToolkitFeaturesEstimationExt`: the fit, `find_ellipse` /
+  `find_circle`; without it `detect_image_circle` is an `ArgumentError` naming the package) and ImageSmooth
+  (`VisualGeometryToolkitFeaturesImageSmoothExt`: the optional L0 smoothing, `smoothing_weight > 0`).
 
 ## 0.7.0 (unreleased)
 

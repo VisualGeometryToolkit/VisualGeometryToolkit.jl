@@ -452,7 +452,15 @@ function _static_violations(dir, root, stack, entries; similarity, shingle, min_
         end
     end
     code = Tuple{String, String}[]          # the own files for the pattern table
+    # Each file is scanned once, by its real path: `dir` may lie inside a tree that is also
+    # scanned (a subdirectory of a single-package repository — a paper project — is inside the
+    # repository's own tree), and a file compared with itself is every finding `X ⇔ X`. The own
+    # tree is first in `trees`, so a file keeps its own side.
+    seen = Set{String}()
     for (tree, prefix, own) in trees, (label, path) in _scope_files(tree, prefix)
+        rp = realpath(path)
+        rp in seen && continue
+        push!(seen, rp)
         endswith(path, ".jl") && _scan_julia!(defs, files, path, label, own, ids, shingle)
         own && any(e -> endswith(path, e), _RAW_CODE_EXTENSIONS) && push!(code, (label, path))
     end

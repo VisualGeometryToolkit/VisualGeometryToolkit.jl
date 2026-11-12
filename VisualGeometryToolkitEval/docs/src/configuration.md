@@ -7,7 +7,7 @@ read through one function. An unknown key or tag is refused.
 
 | File | Holds | Read by |
 |---|---|---|
-| `configs/default.toml` | every value that changes a reported statistic, a rendered panel or a raw dataset read: the `[metrics]`, `[render]`, `[pool.<dataset>]`, `[gt.<dataset>.<matcher>]`, `[datasets.<dataset>]`, `[local_optimization]`, `[refit]` and `[selection]` tables | the package's internal default lookup, which throws on a missing table or key |
+| `configs/default.toml` | every value that changes a reported statistic, a rendered panel or a raw dataset read: the `[metrics]`, `[render]`, `[pool.<dataset>]`, `[gt.<dataset>.<matcher>]`, `[datasets.<dataset>]`, `[local_optimization_strategy]`, `[refit]` and `[selection]` tables | the package's internal default lookup, which throws on a missing table or key |
 | `configs/tuning.toml` | every cross-validation parameter: grid spacings, window rules, extension rules, the objective, the cross-validation and the budget draws | [`tuning_spec`](@ref) (see [The `[tuning]` schema](@ref)) |
 | `configs/splits.toml` | every scene list of the stack, named by a spec's `cross_validation.scene_split` and never restated | [`registered_split`](@ref) |
 

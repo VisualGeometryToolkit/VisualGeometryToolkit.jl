@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Breaking: the LO budget's table is `[local_optimization_strategy]`** (`iteration_budget`; was `[local_optimization]`,
+  the retired keyword spelling). `lo_iteration_budget()` reads it; the value is unchanged.
 - **Breaking: the strategy names follow VisualGeometryToolkitCore/Estimation**: arms, specs and runners take
   `AbstractOptimizationStrategy` or `nothing` (no local optimization; was `NoLocalOptimization()`), and call
   `ransac`/`locally_optimize` with `local_optimization_strategy`.

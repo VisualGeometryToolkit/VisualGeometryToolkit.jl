@@ -108,7 +108,7 @@ The contract is VisualGeometryToolkitCore's:
 
 ```@docs
 VisualGeometryToolkitCore.locally_optimize!
-default_local_optimization
+default_local_optimization_strategy
 ```
 
 ### Placement and instrumentation

@@ -112,11 +112,11 @@ function consensus_s2!(ws::RansacWorkspace, problem, scoring, model)
 end
 
 """
-    default_local_optimization(scoring::AbstractScoring) -> AbstractOptimizationStrategy
+    default_local_optimization_strategy(scoring::AbstractScoring) -> AbstractOptimizationStrategy
 
 Default local-optimization strategy for a scoring function: `nothing` (no local optimization).
 """
-default_local_optimization(::AbstractScoring) = nothing
+default_local_optimization_strategy(::AbstractScoring) = nothing
 
 # -----------------------------------------------------------------------------
 # PosteriorLikelihood — AbstractWeightPolicy adapter for the `block_coordinate_descent!` loop

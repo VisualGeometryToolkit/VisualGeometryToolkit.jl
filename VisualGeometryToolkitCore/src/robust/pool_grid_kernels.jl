@@ -52,7 +52,7 @@ accumulated in Float64. A non-finite residual is an outlier (skipped); the loop 
 `support_sq` ([`support_sq_loss_width`](@ref)). Chunk row `p` is pair `p + p_offset`; a model
 beyond `M_per_pair[p]` is left alone. A work item is a loop over the model's residuals: launch it
 at one item per workgroup through [`OnBackend`](@ref), the stack's launch policy (every thread on
-the CPU, the backend's choice on a device).
+the CPU, one warp per workgroup on a device).
 """
 @kernel function exact_pm_score_kernel!(
         scores_out,                       # (chunk_size, M_max, T) Float64

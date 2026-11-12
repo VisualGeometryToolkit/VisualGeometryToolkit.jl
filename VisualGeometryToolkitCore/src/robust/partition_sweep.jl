@@ -675,8 +675,8 @@ marginal grid, penalty- and prior-free, no k) and [`sweep!`](@ref) (one work
 item on the CPU backend over its sorted column) both launch it. Work-items
 beyond a pair's model count write nothing. A work item is a loop over the
 model's residuals: launch it at one item per workgroup through
-[`OnBackend`](@ref), the stack's launch policy (every thread on the CPU, the
-backend's choice on a device).
+[`OnBackend`](@ref), the stack's launch policy (every thread on the CPU, one
+warp per workgroup on a device).
 """
 @kernel function ig_sweep_kernel!(
         scores_out,              # (chunk, M_max, T) Float64

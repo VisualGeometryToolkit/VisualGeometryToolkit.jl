@@ -10,11 +10,12 @@ sensor — so every consumer asks the camera what it images instead of supplying
   ndrange)` for a statically sized one), and every stack kernel is instantiated through it: Core's `pointwise!`, row,
   conversion, CSR, warp, sample, chart-spline, spline-lens, pool-selection and sweep kernels, VisualGeometryToolkitFeatures'
   and RANSACScoringDoneRight's. The workgroup is per backend: `nothing` the backend's choice; ONE work item (`1`,
-  `(1, 1)`, …) one item per workgroup on the CPU (a kernel whose item is a long loop then runs on every thread) and the
-  backend's choice on a device (RANSACScoringDoneRight's deleted `_ka_kernel` rule); any other size as given. The pool
+  `(1, 1)`, …) one item per workgroup on the CPU (a kernel whose item is a long loop then runs on every thread) and one
+  warp (32 items) per workgroup on a device; any other size as given. The pool
   kernels (`exact_pm_score_kernel!`, `argmax_models_kernel!`, `ig_sweep_kernel!`) are launched at one item: on the CPU
   unchanged, on a device `select_on_grid!`'s exact selection and RANSACScoringDoneRight's grids no longer run one
-  thread per workgroup (its Student-t grid on a B200 went 1.54 → 30.6 ms at one item per workgroup). Every other
+  thread per workgroup (RANSACScoringDoneRight's grids on a B200, 128 pairs × 800 points × 48 models: the Student-t
+  grid 1.55 ms at the backend's choice, 30.6 at one item, 1.35 at one warp; its mixture marginal 90.4, 62.1, 17.7). Every other
   launch keeps its workgroup. Results bit for bit (every launch site, CPU and CUDA, before and after).
   Open after the release (a performance item, nothing slower than the last released behaviour): on a B200 the
   Welsch and mixture marginals of RANSACScoringDoneRight run as at its last release (86.6 / 90.4 ms at the

@@ -27,10 +27,12 @@ options hold (`CUDABackend(; always_inline = true)`), with the workgroup
 - one work item (`1`, `(1, 1)`, `(1, 1, 1)`): one item per workgroup on the
   CPU, so a kernel whose work item is a long loop (a pool's (pair, model[, grid
   point]) item) runs its items on every thread where the default's 1024-item
-  groups leave most threads idle; on a device, the backend's choice, since one
-  item per workgroup leaves all but one lane of every warp idle
-  (RANSACScoringDoneRight's Student-t grid on a B200: 1.54 ms at the backend's
-  choice, 30.6 ms at one item per workgroup).
+  groups leave most threads idle; on a device, one warp (32 items) per
+  workgroup: one item would leave 31 of 32 lanes idle, and the backend's own
+  choice puts these small ranges of long items on few multiprocessors
+  (RANSACScoringDoneRight's grids on a B200: the Student-t grid 30.6 ms at one
+  item, 1.55 at the backend's choice, 1.35 at one warp; its mixture marginal
+  62.1, 90.4 and 17.7 ms).
 - any other size (a kernel's tile, a measured device size): that size, on
   every backend.
 
@@ -48,9 +50,15 @@ struct OnBackend{B <: KernelAbstractions.Backend, W}
     workgroupsize::W
 end
 OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing) = OnBackend(backend, workgroupsize)
+# A one-item kernel's workgroup on a device is one warp, 32 items. Measured on a B200 (RANSACScoringDoneRight's five grids,
+# 128 pairs × 800 points × 48 models, min of 7): Student-t 1.55 / 30.6 / 1.35 ms, MSAC 10.9 / 19.6 / 6.5 ms,
+# MAGSAC++ 18.6 / 26.9 / 15.6 ms, Welsch marginal 86.6 / 67.7 / 30.6 ms, mixture marginal 90.4 / 62.1 / 17.7 ms at the
+# backend's choice / one item / 32. The backend's choice fills few multiprocessors with large workgroups over these
+# small ndranges of long items; one item per workgroup leaves 31 of 32 lanes idle.
 @inline function (p::OnBackend)(kernel)
     w = p.workgroupsize
-    (w === nothing || (!(p.backend isa KernelAbstractions.CPU) && all(isone, w))) && return kernel(p.backend)
+    w === nothing && return kernel(p.backend)
+    !(p.backend isa KernelAbstractions.CPU) && all(isone, w) && return kernel(p.backend, 32)
     return kernel(p.backend, w)
 end
 @inline (p::OnBackend)(kernel, ndrange) = kernel(p.backend, p.workgroupsize, ndrange)

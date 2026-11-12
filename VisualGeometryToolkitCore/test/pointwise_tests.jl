@@ -181,10 +181,11 @@
                 Base.invokelatest(KernelAbstractions.synchronize, cbe)
                 @test isequal(Base.invokelatest(Array, dev), Base.invokelatest(Array, bcast))
             end
-            # the one launch policy on a device: one work item per workgroup is the backend's choice there; a size as given
+            # the one launch policy on a device: one work item per workgroup is one warp there; a size as given
             dwg(k) = KernelAbstractions.workgroupsize(k)
-            @test dwg(OnBackend(cbe; workgroupsize = 1)(VisualGeometryToolkitCore._row_kernel!)) <: KernelAbstractions.NDIteration.DynamicSize
-            @test dwg(OnBackend(cbe; workgroupsize = (1, 1))(VisualGeometryToolkitCore._row_kernel!)) <: KernelAbstractions.NDIteration.DynamicSize
+            @test dwg(OnBackend(cbe)(VisualGeometryToolkitCore._row_kernel!)) <: KernelAbstractions.NDIteration.DynamicSize
+            @test KernelAbstractions.get(dwg(OnBackend(cbe; workgroupsize = 1)(VisualGeometryToolkitCore._row_kernel!))) == (32,)
+            @test KernelAbstractions.get(dwg(OnBackend(cbe; workgroupsize = (1, 1))(VisualGeometryToolkitCore._row_kernel!))) == (32,)
             @test KernelAbstractions.get(dwg(OnBackend(cbe; workgroupsize = 128)(VisualGeometryToolkitCore._row_kernel!))) == (128,)
             # functors holding a device array, launched as their fields: the array arrives as the kernel's form of it, the type
             # parameters bound in their declared order (a parameter no field declares, here equal to the array's type, kept)

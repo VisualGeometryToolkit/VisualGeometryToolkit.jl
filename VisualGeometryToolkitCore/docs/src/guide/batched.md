@@ -28,7 +28,7 @@ the launch has finished on return; on a device it does not wait: synchronize
 the backend before reading. `OnBackend` is the stack's one kernel-launch policy: every stack
 kernel is instantiated through it, `OnBackend(backend; workgroupsize)(kernel)`,
 the workgroup per backend (the backend's choice; one work item per workgroup on
-the CPU and the backend's choice on a device; or a size as given). (The host's broadcast policies, `Serial`,
+the CPU and one warp on a device; or a size as given). (The host's broadcast policies, `Serial`,
 `Threaded` and `Auto`, are retired: the owner's one-kernel policy, 2026-11-11.)
 
 ## Failure

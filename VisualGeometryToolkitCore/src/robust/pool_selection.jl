@@ -121,7 +121,7 @@ _width_of(::EfficiencyConstant, m::Float64) = EfficiencyConstant(m)
 
 # The exact selection of a residual-quality family, pair by pair on `backend`: the score kernel
 # over the pair's models at every width, then the argmax kernel over its widths (one work item
-# per workgroup on the CPU, so it spreads the items over its threads; the backend's choice on a device: `OnBackend`). The kernels' inputs go to
+# per workgroup on the CPU, so it spreads the items over its threads; one warp per workgroup on a device: `OnBackend`). The kernels' inputs go to
 # `backend` through `on_device` (the host arrays themselves on the CPU) and the selections come
 # back to the host. A pair without a model selects 0.
 function _select_exact!(idxs::AbstractMatrix{Int32}, backend::KA.Backend, scoring, loss_widths::Vector{Float64}, pairs, Rs)

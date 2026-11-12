@@ -5,6 +5,12 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New: `prefix_sweep`** (public): the device-callable prefix sweep of a sorted column, the one body behind
+  `ig_sweep_kernel!` and the host `sweep!` (equal output, `===`, tested on the CPU and a CUDA kernel).
+- **New: `check_keys(...; renamed = (old => new, …))`** refuses a renamed TOML key by naming its successor (no alias).
+- **New: `install_artifact` and `huggingface_token` are Core's** (base/artifacts.jl, moved from
+  VisualGeometryToolkitEval, which re-exports the same bindings). Core gains the stdlibs `Artifacts`, `Downloads` and
+  `Pkg` as dependencies. `huggingface_token` reads `HF_TOKEN`, then `$HF_HOME/token`, and is sent only to huggingface.co.
 - **Breaking: `lm_retcode` is removed** (public in 0.8; the termination record is the one map). The chart LM's outcome is
   the `(code, rule)` record `lmsolve_chart!` returns (from `nlls_termination`); a caller that still wants the former
   Symbol reads `retcode_symbol(code, rule)`.

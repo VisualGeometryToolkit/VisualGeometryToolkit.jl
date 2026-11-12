@@ -5,6 +5,8 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: `irls_termination`** (public, was the internal `_irls_record`): the termination record of a reweighted fit's
+  run, the one rule every IRLS fit records through.
 - **Refusal messages:** a refine's least-squares refusal names its class (`refine (<class>): …`), `refine_camera`'s is
   `bundle_loss`'s ("plain least squares … reads no scale"), and a TLS refusal names the strategy type, since one reader
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.

@@ -24,7 +24,8 @@ non-central one is a `NoncentralSplineModel`).
   covering everything returns the target unchanged. A lift holding a coefficient must hold `:f` too (its linear form
   rescales every coefficient with the focal). `free`, `fix`, `fixed_params` and `hold` are refused, naming `fixed`.
   `approximate_camera` forwards `fixed` to both stages. With `fixed = ()` every fit is unchanged.
-
+- **`[fit_division_camera] seed_nu = 1.0e4`**: the median-seeded posterior's start ν, which VisualGeometryToolkitCore's
+  `median_seeded_posterior` no longer defaults (its priors are required). Unchanged in value.
 - **Breaking: parameters are held by `fixed`, the stack's one parameter-holding keyword** (the owner's ruling;
   NLLSsolver's word, OpenCV's `CALIB_FIX_*`). `refine_camera_and_poses` takes `fixed = ()` (every parameter refined but
   the gauge, the skew, held by construction), naming the parameters held: the former `free = X` is `fixed =` its

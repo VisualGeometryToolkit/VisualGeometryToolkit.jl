@@ -98,7 +98,7 @@ end
                                                JeffreysPrior(), Int32(0), nothing, nothing, bk; ndrange = (1, 3, 1))
     KernelAbstractions.synchronize(KernelAbstractions.CPU())
     for j in 1:3
-        sws = default_scoring_workspace(40; dg = 1, scale_prior = JeffreysPrior())
+        sws = default_scoring_workspace(40; dg = 1, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
         @test (out[1, j, 1], Int(bk[1, j, 1])) ==
               sweep!(sws, Float64.(flat[(j - 1) * 40 + 1:j * 40]), 40; model_dof = 2, log_two_outlier_halfwidth = h[1])
     end
@@ -125,6 +125,10 @@ end
     @test_throws UndefKeywordError StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior())
     @test_throws UndefKeywordError StudentTUniformScoring(2, 25.0; label_prior = FlatLabelPrior())
     @test_throws UndefKeywordError default_scoring_workspace(10)
+    @test_throws UndefKeywordError default_scoring_workspace(10; scale_prior = JeffreysPrior())   # the label prior too
+    let sws = default_scoring_workspace(10; scale_prior = JeffreysPrior(), label_prior = BetaLabelPrior(2.0, 3.0))
+        @test sws.label_prior == BetaLabelPrior(2.0, 3.0) && sws.prior_table == label_prior_table(10, BetaLabelPrior(2.0, 3.0))
+    end
     @test_throws MethodError BetaLabelPrior()
     # the registries: the scorer's tag, the label priors' tags
     @test SCORING_TAGS["student_t_uniform"] === StudentTUniformScoring

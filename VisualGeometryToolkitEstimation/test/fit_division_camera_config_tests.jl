@@ -22,7 +22,8 @@
 
     tbl = TOML.parsefile(default_config_path())["fit_division_camera"]
     # the table keeps the fit's own keys and refers to the shared tables
-    @test Set(keys(tbl)) == Set(["ncoef", "weighting", "mixture_em", "branch_audit_efficiency_constant"])
+    @test Set(keys(tbl)) == Set(["ncoef", "weighting", "mixture_em", "branch_audit_efficiency_constant", "seed_nu"])
+    @test VgtkEstimation._DIVISION_SEED_NU == tbl["seed_nu"] == 1.0e4   # the E-step's start ν, a TOML value
     @test !haskey(tbl, "outlier_halfwidth") && !haskey(tbl, "max_iter") && !haskey(tbl, "scoring")
     # the new form round-trips: scorer and EM read, written back, read back
     sc = scoring_from_toml(tbl["weighting"]; problem = DivisionCameraProblem)

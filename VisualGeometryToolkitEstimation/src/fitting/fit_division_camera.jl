@@ -502,6 +502,9 @@ function fit_division_camera(
     )
 end
 
+# The median-seeded posterior's start ν: configs/default.toml [fit_division_camera] seed_nu.
+const _DIVISION_SEED_NU = Float64(_dflt("fit_division_camera", "seed_nu"))
+
 # The stack's posterior-weight iteration, set up: iteration 0 — the step whitened
 # at the seed focal `fseed` (weights only), robustly unweighted — its posterior
 # seeded at the median residual under the scorer's outlier half-width and scale
@@ -515,7 +518,7 @@ function _division_irls(problem::DivisionCameraProblem, weighting::StudentTUnifo
     n = data_size(problem)
     r = mahalanobis_distances!(Vector{Float64}(undef, n), problem, state0)
     rws = median_seeded_posterior(square_distances!(Vector{Float64}(undef, n), r, n), n;
-                                  outlier_halfwidth = required_outlier_halfwidth(weighting),
+                                  outlier_halfwidth = required_outlier_halfwidth(weighting), ν = _DIVISION_SEED_NU,
                                   codimension = codimension(weighting), prior = scale_prior(weighting))
     nu = mixture_em.nuisance
     lh = PosteriorLikelihood(rws, n; scale_update = nu.scale, prior_update = nu.inlier_prior, nu_update = nu.nu)

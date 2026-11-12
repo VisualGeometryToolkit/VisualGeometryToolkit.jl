@@ -65,7 +65,8 @@ function mixture_arm()
     r = vcat([0.8 * hypot(randn(rng), randn(rng)) for _ in 1:300],
              [hypot(40.0 * (2rand(rng) - 1), 40.0 * (2rand(rng) - 1)) for _ in 1:60])
     n = length(r)
-    rws = VgtkEstimation.median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, codimension = 2)
+    rws = VgtkEstimation.median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, ν = 1.0e4,
+                                                  prior = VisualGeometryToolkitCore.JeffreysPrior(), codimension = 2)
     state = VgtkEstimation.PosteriorIrlsState(rws, copy(r), copy(r), r, VgtkEstimation.mixture_nll(rws, r, n))
     return state, VgtkEstimation.PosteriorLikelihood(rws, n), VgtkEstimation.PosteriorIrlsMethod(nothing, VgtkEstimation.MixtureEmConfig().model_update),
         VgtkEstimation._FixedDistances(r), r, 30

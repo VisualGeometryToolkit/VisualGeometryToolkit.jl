@@ -24,6 +24,13 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
+- **Breaking: the Student-t priors are required everywhere** (the owner's ruling (c), 2026-11-11), as the public
+  scorer already required them: `PosteriorWeightState(n; …, prior)`, `reset_posterior!(pws; …, prior)`,
+  `posterior_weights!`/`posterior_inlier_probs!(…; prior)`, `median_seeded_posterior(sq, n; outlier_halfwidth, ν,
+  prior)` (its `ν = 1e4` and `IGPrior(0, 0)` defaults removed too) and `default_scoring_workspace(n; dg, scale_prior,
+  label_prior)` (its label prior was hard-wired flat) have no prior defaults; leaving one out is an
+  `UndefKeywordError`. A caller that relied on the default passes `prior = JeffreysPrior()` /
+  `label_prior = FlatLabelPrior()`, bit for bit.
 - **`median_seeded_posterior` seeds at `mad_scale`²** (the no-duplication rule): its seed scale is the median residual
   NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.
   The two agree for an odd count up to rounding; for an even count the median of the norms averages the two middle

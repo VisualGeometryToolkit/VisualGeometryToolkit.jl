@@ -15,7 +15,7 @@
     using Test
     using Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: RadixPermBuffers, radix_sortperm!, radix_key, JeffreysPrior,
+    using VisualGeometryToolkitCore: RadixPermBuffers, radix_sortperm!, radix_key, JeffreysPrior, FlatLabelPrior,
         default_scoring_workspace, sweep!
 
     # The sortperm!-identity contract is a FULL-PRECISION claim, so it is checked
@@ -141,14 +141,14 @@
                 @test (@inferred radix_sortperm!(perm, v, rb, 8)) === nothing
             end
             # the scoring workspace carries the width in its type (no abstract field)
-            sws32 = default_scoring_workspace(16; dg = 1, scale_prior = JeffreysPrior())
+            sws32 = default_scoring_workspace(16; dg = 1, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
             @test isconcretetype(typeof(sws32))
             @test typeof(sws32).parameters[1] === UInt32
         end
 
         @testset "sweep! radix path ≡ sortperm! path; the sort allocation-free, the sweep its kernel's column" begin
             for n in (50, 257, 2500)
-                sws = default_scoring_workspace(n; scale_prior = JeffreysPrior())
+                sws = default_scoring_workspace(n; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
                 scores = abs2.(randn(rng, n))
                 scores[rand(rng, 1:n, n ÷ 5)] .= 0.0                  # ties in the sort target
                 s_radix, k_radix = sweep!(sws.perm, sws.lg_table, 5, log(40.0), 1,

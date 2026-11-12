@@ -110,6 +110,9 @@
             posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg, prior)
             @test p ≈ pws.inlier_posterior rtol = 1e-12
             @test w ≈ pws.w rtol = 1e-12
+            # the scale prior is required (the owner's ruling (c), 2026-11-11): no Jeffreys default in code
+            @test_throws UndefKeywordError posterior_weights!(w, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
+            @test_throws UndefKeywordError posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
             # against the mixture from its definition, at the MAP scale
             ν_data = (k - model_dof) * dg
             s2_ref = map_scale_oracle(prior, rss, ν_data)
@@ -141,7 +144,7 @@
         end
         sq = [0.01, 0.04, 0.02, 0.09, 0.03, 4.0, 9.0, 0.05, 16.0, 0.06, 99.0]
         for dg in (1, 2), n in (5, 10, 11), prior in (IGPrior(), IGPrior(2.0, 0.1))
-            a = median_seeded_posterior(sq, n; outlier_halfwidth = 3.0, codimension = dg, prior)
+            a = median_seeded_posterior(sq, n; outlier_halfwidth = 3.0, ν = 1.0e4, codimension = dg, prior)
             b = _rvg_copy(sq, n; outlier_halfwidth = 3.0, codimension = dg, prior)
             for f in fieldnames(PosteriorWeightState)
                 @test getfield(a, f) == getfield(b, f)
@@ -150,6 +153,17 @@
             # an even count: the median of the norms, not of their squares (mad_scale's)
             n == 10 && @test a.s_hat_sq != median(sq[1:n]) / chisq_median(dg)
         end
-        @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, codimension = 3)
+        @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4, prior = IGPrior(), codimension = 3)
+        # ν and the scale prior are required: a configuration's values, not this function's
+        @test_throws UndefKeywordError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, prior = IGPrior())
+        @test_throws UndefKeywordError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4)
+        # nor the fresh-buffer constructor's and its in-place form's
+        @test_throws UndefKeywordError PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0)
+        let pws = PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0, prior = IGPrior(2.0, 0.1))
+            @test pws.prior === IGPrior(2.0, 0.1)
+            @test_throws UndefKeywordError VisualGeometryToolkitCore.reset_posterior!(pws; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0)
+            @test VisualGeometryToolkitCore.reset_posterior!(pws; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0,
+                                                            prior = JeffreysPrior()).prior === JeffreysPrior()
+        end
     end
 end

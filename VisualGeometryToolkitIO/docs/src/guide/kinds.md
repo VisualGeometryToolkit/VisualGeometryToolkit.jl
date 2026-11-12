@@ -368,7 +368,10 @@ bounded camera's `camera_json(camera::BoundedCamera, frame; length_unit)` — it
 model's body with the sensor's pitch and the lens coverage, the body a camera
 store, a rig sensor and the non-central record embed —, read back by
 `camera_from_json(body, frame; length_unit)` (the model and its extent) and
-`camera_from_json(BoundedCamera, body, frame; length_unit)`.
+`camera_from_json(BoundedCamera, body, frame; length_unit)`. Both read an old
+central grid body that another package's record embeds (RadiometricCamera's
+`rc/calibration_state/v1` camera) as the camera it migrates to, through the
+same conversion as an old central grid file.
 
 ## Run logs
 

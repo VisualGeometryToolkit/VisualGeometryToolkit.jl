@@ -11,6 +11,15 @@ private names; behaviour unchanged, the private names gone (no alias).
 - **`metres(x, u::Units)`, public** (was `_metres`): a file number in the unit `u` as plain metres, `read_length`
   stripped (decimal-exact for a power-of-ten unit).
 
+### Fixed
+
+- **An old central grid body embedded in a record reads.** `camera_from_json` (both forms) took any body with a
+  `type` for a non-central one, so the old central grid body (`"type": "CentralGenericModel"`, `direction_grid`,
+  `present`, `nominal_intrinsics`, `domain`) that RadiometricCamera's `rc/calibration_state/v1` stores as its camera
+  failed with `KeyError: key "spline" not found`. It now reads as the camera it migrates to, a `CameraModel` with a
+  `SplineLens` (the domain its lens coverage), through the one conversion an old central grid file
+  (`vgio/generic_camera/v2`/`v3`) takes: bit for bit the camera the whole-file migration of the same body gives.
+
 ## 0.9.0 (2026-11-12)
 
 On VisualGeometryToolkitCore 0.9 (a bounded camera's lens coverage).

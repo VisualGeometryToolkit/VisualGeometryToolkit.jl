@@ -918,7 +918,9 @@ end
     using LinearAlgebra: norm
     using Random: Xoshiro
     import NLLSsolver
-    using VisualGeometryToolkitCore: estimate, converged, metadata, exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs
+    using VisualGeometryToolkitCore: estimate, converged, metadata, exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs,
+        lens, with_present, spline_window
+    import VisualGeometryToolkitCore
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
     cam = spline_truth()
@@ -953,6 +955,31 @@ end
             est = estimate(r)
             @test norm(est.views.center - t.c) < 6.0e-3 && norm(est.views.offset - t.d) < 6.0e-3 && rot_err(est) < 8.0e-3
         end
+    end
+    @testset "5% outliers: Triggs{Huber} down-weights them, least squares is pulled" begin
+        bad = center_views(cam, t; σ = 0.3, outliers = 0.05, rng = Xoshiro(3))
+        r = refine_camera_and_poses(cam, start, bad; fixed = (:controls,), optimization_strategy = Triggs{HuberShape}(efficiency_constant = 3.0), scale = 0.3)
+        ls = refine_camera_and_poses(cam, start, bad; fixed = (:controls,), optimization_strategy = nothing)
+        @test converged(r) && count(<(1), r.weights) >= 10
+        @test norm(estimate(r).views.center - t.c) < norm(estimate(ls).views.center - t.c)
+    end
+    @testset "a masked lattice: the correspondences on an absent window make no row and are counted" begin
+        present = trues(10, 12); present[8, 10] = false          # one node toward the lower-right corner: its 16 windows absent
+        masked = with_present(cam, present)
+        b = lens(masked).backward
+        absent(u) = (w = spline_window(b.area, size(b.controls), VisualGeometryToolkitCore.Cameras._normalized_point(masked.intrinsics, u));
+                     !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
+        n_absent = count(absent(last(x)) for cs in values(exact) for x in cs)
+        @test n_absent > 0
+        r = refine_camera_and_poses(masked, start, exact; fixed = (:controls,), optimization_strategy = nothing)
+        sp = metadata(r).spline
+        @test sp.n_dropped_window == n_absent && r.n == 5 * 63 - n_absent - sp.n_dropped_unprojected
+        @test converged(r) && norm(estimate(r).views.center - t.c) < 2.0e-6 && estimate(r).camera === masked
+    end
+    @testset "refusals: a free camera, a box, a `fixed` that is not the controls" begin
+        @test_throws r"HELD camera" refine_camera_and_poses(cam, start, exact; fixed = (), optimization_strategy = nothing)
+        @test_throws r"box" refine_camera_and_poses(cam, start, exact; fixed = (:controls,), box = (; f = (100.0, 900.0)), optimization_strategy = nothing)
+        @test_throws r"one parameter group is its controls" refine_camera_and_poses(cam, start, exact; fixed = (:controls, :f), optimization_strategy = nothing)
     end
     @testset "the block: its Jacobian matches finite differences of its residual; type-stable" begin
         ids = sort(collect(keys(t.R)))

@@ -73,7 +73,10 @@ _held_camera_parameters(cm, kw) = _held_camera_parameters(VgtkCore.Cameras.Intri
 _held_camera_parameters(::VgtkCore.Cameras.FreeIntrinsics, cm, kw) = first(_camera_chart(cm, kw.fixed, kw.box))
 function _held_camera_parameters(_role, cm, kw)
     kw.box === nothing || throw(ArgumentError("refine_camera_and_poses: a `box` bounds a camera's refined parameters, and a rotation-centre refine holds the camera"))
-    return kw.fixed == (:controls,) ? () : (:controls,)
+    kw.fixed == (:controls,) && return ()
+    kw.fixed == () && return (:controls,)          # the camera free: refused by the caller, naming what is free
+    throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's one parameter group is its controls: `fixed = (:controls,)` " *
+                        "holds the camera, got fixed = $(kw.fixed)"))
 end
 
 """

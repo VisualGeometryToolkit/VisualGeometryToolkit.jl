@@ -668,6 +668,10 @@ end
 # forward the given camera held is stale once the controls turn: refitted or dropped, never
 # kept. Then, a diagnostic only, the refined camera's own optical axis: how far its image is
 # from the held principal point (px) and its symmetry residual; nothing is re-gauged from it.
+# A SplineLens camera as the route refines it: its forward spline dropped (the projection is the backward's solve), the
+# camera itself without one.
+_without_forward(cam::CameraModel) = (l = cam.lens; l.forward === nothing ? cam : CameraModel(cam.intrinsics, SplineLens(l.backward; present = l.present)))
+
 function _refine_spline_camera_and_poses(camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...)
     entry = optical_axis(camera)
     K = calibration_matrix(estimate(entry))
@@ -721,7 +725,7 @@ function _refine_spline_axis_gauged(
     )
     V = length(views)
     V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
-    back = l.forward === nothing ? cam : CameraModel(cam.intrinsics, SplineLens(l.backward; present = l.present))   # the forward dropped
+    back = _without_forward(cam)
     # The solve in three stages, each from the last. A node's log-scale is weakly observed
     # (it moves x* only by the angle between its control and the ray) and nearly collinear
     # with its own direction coordinates (their data columns at a median cosine of 0.86 on
@@ -853,9 +857,7 @@ end
 # or one it does not project within a cell of one, is counted, not a row), each block re-keyed onto the view's rotation
 # chart (variable 2 + v), the centre (1) and the offset (2); and the counts, as the held route reports them.
 function _spline_center_blocks(cm::CameraModel, poses::AbstractVector, views::AbstractVector)
-    l = cm.lens
-    back = l.forward === nothing ? cm : CameraModel(cm.intrinsics, SplineLens(l.backward; present = l.present))
-    p = _spline_problem(back, poses, views, false, 0.0)
+    p = _spline_problem(_without_forward(cm), poses, views, false, 0.0)
     p isa _NotProjected && throw(ArgumentError(_not_projected_message(p)))
     blocks = [_SplineCenterBlock(SVector(2 + b.varind[1], 1, 2), b) for b in p.costs]
     return blocks, (; n_dropped_window = p.dropped, n_dropped_unprojected = p.unprojected)

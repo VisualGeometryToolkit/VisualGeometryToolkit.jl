@@ -529,7 +529,12 @@ const RETIRED_NAMES = String[
 #   (`.yaml`, `.yml`, `.json`);
 # - `:c_source`, a library's function: in a C/C++ source (`_C_SOURCE_EXTENSIONS`), the
 #   wrapper that calls the library (built into a prebuilt artifact, so it is not edited
-#   for a Julia rename).
+#   for a Julia rename);
+# - `:cli_argument`, a foreign program's command-line value: the value of a `--flag`
+#   (`--flag value`, `--flag=value`) on a command line in a shell script (`.sh`, its
+#   code, not a comment), or inside a TOML string (a command line quoted as a
+#   provenance record). Every hit on the line must be such a value; a TOML key, a
+#   Julia file, prose and any other file still refuse it.
 # (Built from fragments, as the lists above.)
 const FOREIGN_FORMAT_TOKENS = [
     "Central" * "GenericModel" => (; owner = "the `type` of Schöps et al.'s camera_calibration intrinsics0.yaml, and of the old vgio grid " *
@@ -542,6 +547,8 @@ const FOREIGN_FORMAT_TOKENS = [
     "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
     "inlier" * "_threshold" => (; owner = "RansacLib's and SupeRANSAC's settings field (C++ and pysuperansac), set by name in a string",
         accepted_in = :format_literal),
+    "central" * "_generic" => (; owner = "the `--model` value of Schöps et al.'s camera_calibration program (its central generic model), " *
+        "in the shell drivers that run it and the TOML provenance that quotes their command line", accepted_in = :cli_argument),
 ]
 _is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
@@ -550,9 +557,20 @@ _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
 function _foreign_token(f, r, re, line, strings)
     k = findfirst(t -> first(t) == r, FOREIGN_FORMAT_TOKENS)
     k === nothing && return false
-    last(FOREIGN_FORMAT_TOKENS[k]).accepted_in === :c_source && return _is_c_source(f)
+    accepted_in = last(FOREIGN_FORMAT_TOKENS[k]).accepted_in
+    accepted_in === :c_source && return _is_c_source(f)
+    accepted_in === :cli_argument && return _cli_argument(f, re, line)
     _is_data_fixture(f) && return true
     return endswith(f, ".jl") && count(re, line) == count(re, strings)
+end
+# Whether every hit of `re` on `line` is a `--flag`'s value on a command line: in a
+# shell script's code (comments blanked), or in a TOML file inside a quoted string.
+function _cli_argument(f, re, line)
+    is_shell = endswith(f, ".sh")
+    is_shell || endswith(f, ".toml") || return false
+    flag_value = Regex("--[A-Za-z][\\w-]*(?:\\s+|=)" * re.pattern)
+    count(re, line) == count(flag_value, _hash_code(line)) || return false
+    return is_shell || !occursin(re, _hash_code(line; strings = false))
 end
 
 # Rule 10: the width quantities are bound by their full names. One name per
@@ -744,8 +762,12 @@ _is_under(f, d) = f == d || startswith(f, d * "/")
 The in-scope files of the package at `dir` (relative paths), and the directory
 trees excluded as third-party source, each as `tree => reason`. Scope is every
 git-tracked file (every file, outside a git checkout) with a stack-text
-extension, less `Manifest.toml`, `docs/build/`, `docs/superpowers/` (plans and
-process records, which name retired APIs on purpose) and the declared vendored trees.
+extension, less `Manifest.toml`, `docs/build/`, the process records (plans and
+release records, which name retired APIs and banned words on purpose:
+`docs/superpowers/`, and the top-level `.release/`, where the release tooling
+keeps its records, their first lines in its own fixed format) and the declared
+vendored trees. Only the root's
+`.release/` is a record; a `.release/` deeper in the tree is scanned.
 Paper sources are out of scope by extension (`.tex`, `.bib` and figure data are
 not scanned); the code and docs beside a paper are in scope.
 
@@ -801,6 +823,7 @@ function naming_scope(dir::AbstractString)
         any(endswith(base, e) for e in _NAMING_EXTENSIONS) || continue
         (startswith(base, "Manifest") || startswith(base, "JuliaManifest")) && endswith(base, ".toml") && continue
         length(parts) >= 2 && parts[1] == "docs" && parts[2] in ("build", "superpowers") && continue
+        length(parts) >= 2 && parts[1] == ".release" && continue
         any(d -> _is_under(f, d), keys(decl.vendored)) && continue
         push!(files, f)
     end

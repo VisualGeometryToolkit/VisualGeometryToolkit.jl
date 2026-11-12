@@ -184,10 +184,22 @@ function _block_comment_prose!(emit, flush_line!, buf, body, comments)
         end
     end
 end
+# The kinds a macro's name token can carry after `@`. `tokenize` runs the parser,
+# and Base's JuliaSyntax 1.x (Julia 1.12) resets a macro name's token to
+# `MacroName`; 2.x (Julia 1.13) keeps `Identifier` under a `macro_name` node and
+# has no `MacroName` kind. Both are accepted; the kind is looked up by name so
+# the lexer loads on either.
+const _MACRO_NAME_KINDS = let ks = [_JS.K"Identifier"]
+    try
+        push!(ks, _JS.Kind("MacroName"))
+    catch
+    end
+    Tuple(ks)
+end
 # Whether the string opening after token `prev` is a test's name: the code before it
 # (spaces skipped) is `@testset` or `@testitem`.
 _names_a_test(toks, prev) =
-    prev >= 2 && toks[prev].kind == _JS.K"Identifier" && toks[prev].text in ("testset", "testitem") && toks[prev - 1].kind == _JS.K"@"
+    prev >= 2 && toks[prev].kind in _MACRO_NAME_KINDS && toks[prev].text in ("testset", "testitem") && toks[prev - 1].kind == _JS.K"@"
 
 # A `#`-commented source (Python, shell, TOML, YAML) with its comments blanked and,
 # with `strings = false`, its quoted runs too (single, double or triple quotes, a

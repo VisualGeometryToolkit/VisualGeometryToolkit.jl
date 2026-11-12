@@ -14,7 +14,9 @@
 #       in different orders, so the agreement is a TOLERANCE: measured
 #       2026-10-27 over this sweep (Julia 1.13), ‖Δx‖∞ = 1.2e-11 / 8.2e-12 / 5.3e-16 /
 #       1.3e-12 (n = 8 / 20 / 100 / 400; 4 / 5 / 4 / 4 iterations both)
-#       against ‖x‖∞ = 9.4e-3 / 1.3e-2 / 4.2e-3 / 2.8e-3, gated at atol 1e-9, rtol 1e-9.
+#       against ‖x‖∞ = 9.4e-3 / 1.3e-2 / 4.2e-3 / 2.8e-3, gated at atol 1e-8, rtol 1e-8
+#       (1e-9 until 2026-11-12: some of CI's runners, Julia 1.12.7, missed it by ~6e-10;
+#       the two sums' rounding moves with the CPU and the compiler).
 #       The problems are deliberately WELL-CONDITIONED (convergence in tens of
 #       iterations, guarded below): a fit that crawls amplifies benign ulp
 #       differences and would test the compiler.
@@ -81,7 +83,7 @@ end
         @test iters_a ≤ 60 && iters ≤ 60
 
         # (1) agreement with the reference layout at the measured level (see header)
-        @test isapprox(x_b, x_a; rtol = 1.0e-9, atol = 1.0e-9)
+        @test isapprox(x_b, x_a; rtol = 1.0e-8, atol = 1.0e-8)
 
         # (2) the run's allocations do not grow with n
         lmsolve_chart!(ews, lm; stationarity_tol)                 # warm

@@ -1,5 +1,25 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.1
+
+A patch: the test extension's naming checker, and tests hardened for Julia 1.12. No API change.
+
+- **Fixed: `check_naming` no longer scans `.release/`** (the top-level directory only), the release tooling's records,
+  as it already skipped `docs/superpowers/`: a record's first line is in the tooling's fixed format, which rule R7's
+  banned stem cannot rename, so a root-repo package's own naming test failed on it. A `.release/` deeper in a tree is
+  still scanned (`naming_scope`'s docstring; tested).
+- **Fixed: R9 flags a retired name in a `@testset`/`@testitem` name on Julia 1.12 too.** Base's JuliaSyntax 1.x (Julia
+  1.12) gives a macro's name the token kind `MacroName`, 2.x (Julia 1.13) `Identifier`; the lexer accepted only the
+  latter, so on 1.12 a test's name was read as a plain string and the retired name went unflagged.
+- **New: a foreign program's command-line value** (`FOREIGN_FORMAT_TOKENS`, `accepted_in = :cli_argument`): the retired
+  `central_generic` is accepted as the value of a `--flag` (`--model central_generic`, Schöps et al.'s
+  camera_calibration model) on a shell script's command line (`.sh`, not a comment) and inside a TOML string (a quoted
+  command line); every other use (a Julia name or string, a TOML key or plain value, a comment, prose) is still refused.
+- **Tests hardened for Julia 1.12** (CI runs 1.12.7): three bit-for-bit comparisons that the compiler's floating-point
+  contraction moves by an ulp now hold to a few eps (`whitened_residuals!` of a vector constraint, the `SplineLens`
+  Dual projection's value, the `MappedSurface` intersection in a KernelAbstractions kernel; its NaN-miss pattern still
+  exact).
+
 ## 0.9.0 (unreleased)
 
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its

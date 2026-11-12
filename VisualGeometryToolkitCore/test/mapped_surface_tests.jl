@@ -440,7 +440,12 @@ end
             hits!(backend, 64)(t, x, oF, dF, sF; ndrange = length(os))
             KernelAbstractions.synchronize(backend)
             ref = [intersection(sF, a, b) for (a, b) in zip(oF, dF)]
-            @test isequal(t, first.(ref)) && isequal(x, last.(ref))         # bit for bit, NaN misses included
+            tr, xr = first.(ref), last.(ref)
+            # the host's misses exactly (NaN where it misses), its hits to a few ulps: the
+            # kernel is compiled apart, and the compiler may contract (FMA) differently
+            @test isequal(isnan.(t), isnan.(tr)) && isequal(map(v -> isnan.(v), x), map(v -> isnan.(v), xr))
+            @test maximum(abs, filter(isfinite, t - tr)) <= 8 * eps(F)
+            @test maximum(abs, filter(isfinite, reinterpret(F, x - xr))) <= 8 * eps(F)
         end
         cuda = try
             m = Base.require(Main, :CUDA)

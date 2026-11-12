@@ -109,7 +109,7 @@
             @test wv isa SVector{2, Float64}
             @test wv ≈ cholesky(Symmetric(Gx * Gx')).L \ g rtol = 1e-14
             @test VgtkCore.mahalanobis_distance(pv, nothing, 1) === norm(wv)
-            @test VgtkCore.whitened_residuals!(zeros(4), pv, nothing) == vcat(wv, VgtkCore.whitened_residual(pv, nothing, 2))
+            @test VgtkCore.whitened_residuals!(zeros(4), pv, nothing) ≈ vcat(wv, VgtkCore.whitened_residual(pv, nothing, 2)) rtol = 4eps()
             @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(3), pv, nothing)   # not whole points
             @test_throws DimensionMismatch VgtkCore.whitened_residuals!(zeros(2), pv, nothing)   # not every point
             # a model that is itself a vector: the problem-level rows, not the model-level form

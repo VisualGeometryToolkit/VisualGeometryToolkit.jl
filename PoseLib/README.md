@@ -107,6 +107,6 @@ is the source of this entry:
 PoseLib.jl is released under the MIT license (see [LICENSE](LICENSE)). The
 prebuilt library it loads contains upstream
 [PoseLib](https://github.com/PoseLib/PoseLib), released under the
-BSD-3-Clause license, and [Eigen](https://eigen.tuxfamily.org), released under
+BSD-3-Clause license, and [Eigen](https://libeigen.gitlab.io/), released under
 the Mozilla Public License 2.0. Their license texts ship inside `PoseLib_jll`'s
 artifact, under `share/licenses/PoseLib/`.

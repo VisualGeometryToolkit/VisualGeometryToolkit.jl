@@ -63,7 +63,9 @@ end
 # The refined models of PoseLib 0.1.9 (VisualGeometryToolkit robust-core 3eabba46), captured with
 # the retired API (`loss = <shape or LeZachTruncation()>`, `loss_width = w`, `max_iter = 25`; w = 2 px,
 # 40 px for the absolute pose; `loss = GaussianShape()` for least squares) on `_baseline_data()`:
-# `vec(R)` then `t` for a pose, `vec(M)` for a matrix. Every value round-trips exactly.
+# `vec(R)` then `t` for a pose, `vec(M)` for a matrix. Every value round-trips exactly; a refine
+# matches them to 1e-12 relative, not bit for bit: the last ulps move with the Julia version and
+# the CPU (Julia 1.12 on CI's runners differs from 1.13 by ~1e-15 relative).
 const _BASELINES = Dict(
     (:relpose_cam, :tls) => [0.9816974941998087, 0.024378765315571177, -0.18888013575679422, -0.013505989592662667, 0.9981878707128492, 0.05863926165011883, 0.18996741332907494, -0.05501500307585662, 0.9802477907700807, 0.9940280754023516, 0.09940280754335151, 0.049701403761826156],
     (:relpose_cam, :huber) => [0.9836115945638042, 0.023682076144842395, -0.17873832915499788, -0.013947800008865693, 0.9983600041332971, 0.05552261721024929, 0.17976008988249637, -0.052119683579556306, 0.9823287884761415, 1.0025352440354482, 0.06483370169376906, -0.020171296942220644],
@@ -109,11 +111,11 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
     d = _baseline_data()
     calls = _baseline_calls(d)
 
-    @testset "the baselines refine bit-identically: $name, $l" for name in keys(calls), l in keys(_STRATEGIES)
+    @testset "the baselines refine to 1e-12: $name, $l" for name in keys(calls), l in keys(_STRATEGIES)
         lo = _STRATEGIES[l]
         w = name === :absolute_pose ? 40.0 : 2.0
         r = lo === nothing ? calls[name]((; optimization_strategy = lo)) : calls[name]((; optimization_strategy = lo, width = w))
-        @test _flat(estimate(r)) == _BASELINES[(name, l)]
+        @test _flat(estimate(r)) ≈ _BASELINES[(name, l)] rtol = 1.0e-12
         # `scale = σ` runs at efficiency_constant(shape, d)·σ: the same refinement as that width
         if lo isa Irls{<:Union{HuberShape, CauchyShape}}
             σ = 0.75

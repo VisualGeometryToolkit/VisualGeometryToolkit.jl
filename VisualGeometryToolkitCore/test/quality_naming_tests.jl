@@ -70,13 +70,33 @@ end
 
     @testset "R9: a foreign library's function is accepted in a C/C++ source, nowhere else" begin
         name = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :c_source, NC.FOREIGN_FORMAT_TOKENS)])
-        @test all(t -> last(t).accepted_in in (:format_literal, :c_source), NC.FOREIGN_FORMAT_TOKENS)
+        @test all(t -> last(t).accepted_in in (:format_literal, :c_source, :cli_argument), NC.FOREIGN_FORMAT_TOKENS)
         @test all(e -> e in NC._NAMING_EXTENSIONS, NC._C_SOURCE_EXTENSIONS)                      # every C source is scanned
         @test name in NC.RETIRED_NAMES
         @test quiet("wrapper/w.cpp" => "    auto s = poselib::$(name)(p, P, &image, opt);   // every $(name) overload\n", "wrapper/w.hpp" => "int $(name)();\n")
         @test rules("src/a.jl" => "f(x) = \"$(name)\"\n") == [:R9]                                   # a Julia file
         @test rules("docs/a.md" => "the $(name) call\n") == [:R9]                                      # prose
         @test rules("test/fixtures/a.yaml" => "f: $(name)\n") == [:R9]                              # a data fixture: not a format token
+    end
+
+    @testset "R9: a foreign program's command-line value is accepted after its flag in a shell script and a TOML string, nowhere else" begin
+        val = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :cli_argument, NC.FOREIGN_FORMAT_TOKENS)])
+        @test val in NC.RETIRED_NAMES
+        @test quiet(
+            "drivers/run.sh" => "J=\$(sbatch -- bash -c \"\$SCH --images \$D --model $(val) --cells 150 > \$K/run.log\")\n",
+            "drivers/eq.sh" => "\$SCH --model=$(val)\n",
+            "configs/a.toml" => "provenance = \"the detections (camera_calibration --model $(val) --cells 18)\"\n"
+        )
+        @test rules("drivers/run.sh" => "MODEL=$(val)\n") == [:R9]                        # a shell value, not a flag's
+        @test rules("drivers/run.sh" => "x=1   # --model $(val)\n") == [:R9]            # in a comment
+        @test rules("drivers/run.sh" => "\$SCH --model $(val)   # the $(val) model\n") == [:R9]   # a second hit, in prose
+        @test rules("drivers/run.sbatch" => "\$SCH --model $(val)\n") == [:R9]          # only a `.sh` script
+        @test rules("src/a.jl" => "f(x) = \"--model $(val)\"\n") == [:R9]              # a Julia string
+        @test rules("src/a.jl" => "$(val)(x) = x\n") == [:R9]                            # a Julia identifier
+        @test rules("configs/a.toml" => "$(val) = 1\n") == [:R9]                         # a TOML key
+        @test rules("configs/a.toml" => "model = \"$(val)\"\n") == [:R9]               # a TOML value, not a command line
+        @test rules("configs/a.toml" => "cmd = \"run\"   # --model $(val)\n") == [:R9]    # a TOML comment
+        @test rules("docs/a.md" => "run with `--model $(val)`\n") == [:R9]               # prose
     end
 
     @testset "R3: update_ ends in !" begin
@@ -546,6 +566,15 @@ end
             "Manifest.toml" => "# $P\n",
             "notes.txt" => "$P\n"
         )
+        # process records: plans, and the release tooling's records at the root
+        @test quiet(
+            "docs/superpowers/plans/p.md" => "the $P\n",
+            ".release/docs-$P.md" => "docs-$P: 0123abc\nthe $P\n",
+            ".release/sub/notes.md" => "the $P\n"
+        )
+        # only the top-level `.release/` is a record
+        @test rules("docs/.release/a.md" => "the $P\n") == [:R7]
+        @test rules("src/.release/a.jl" => "x = 1   # the $P\n") == [:R7]
         # the code, scripts and docs beside a paper are stack text
         @test rules("papers/demo/run.jl" => "x = 1   # the second $P\n") == [:R7]
         @test rules("paper/README.md" => "a multi-$P fit\n") == [:R7]

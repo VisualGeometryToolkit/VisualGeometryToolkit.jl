@@ -847,11 +847,12 @@ end
         h = 1.0e-6
         Jfd = reduce(hcat, [(project(l, X + h * e) - project(l, X - h * e)) / 2h for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))])
         @test norm(J - Jfd) <= 1.0e-6 * norm(J)
-        # through the camera (the pixel affinity), and the value is the plain projection's, bit for bit
+        # through the camera (the pixel affinity), and the value is the plain projection's (to an ulp or two:
+        # the Dual path is compiled apart, and the compiler may contract (FMA) differently)
         @test ForwardDiff.jacobian(t -> project(cam, t), X) ≈ reduce(hcat, [(project(cam, X + h * e) - project(cam, X - h * e)) / 2h
                                                                               for e in (SVector(1.0, 0, 0), SVector(0, 1.0, 0), SVector(0, 0, 1.0))]) rtol = 1.0e-6
         D = ForwardDiff.Dual{Nothing}.(X, (ForwardDiff.Partials((1.0, 0.0)), ForwardDiff.Partials((0.0, 1.0)), ForwardDiff.Partials((0.0, 0.0))))
-        @test ForwardDiff.value.(@inferred(project(l, D))) == project(l, X)
+        @test ForwardDiff.value.(@inferred(project(l, D))) ≈ project(l, X) rtol = 4eps()
         # nested Duals (a Hessian) differentiate exactly: the second derivative against differences of the first
         H = ForwardDiff.jacobian(t -> ForwardDiff.jacobian(s -> project(l, s), t)[:, 1], X)
         Hfd = reduce(hcat, [(ForwardDiff.jacobian(s -> project(l, s), X + h * e)[:, 1] - ForwardDiff.jacobian(s -> project(l, s), X - h * e)[:, 1]) / 2h

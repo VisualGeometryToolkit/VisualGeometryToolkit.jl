@@ -78,7 +78,7 @@ bounds(s::MappedSurface) = bounds(s.frame)
 surface_point(s::MappedSurface, p::StaticVector{2}) = _map_value(s.map, p)
 
 # The chart map's point and Jacobian at a chart point, through its members, with the explicit fused products
-# (`_fma_mul`, spline_lens.jl) — CT's own `t1(t2(x))` and chain rule `transform_deriv(t1, t2(x)) * transform_deriv(t2, x)` are
+# (`_fma_mul`, base/fused_products.jl) — CT's own `t1(t2(x))` and chain rule `transform_deriv(t1, t2(x)) * transform_deriv(t2, x)` are
 # StaticArrays' products, which fuse as each compiled copy decides. The root (`_hit_residual`, `_chart_residual`, the height
 # fast path) reads the map through these only, so it is one function of its arguments wherever it is inlined.
 # `_map_value` is `_map_value_jacobian`'s point, operation for operation. A member of another kind takes its own call and
@@ -97,8 +97,6 @@ end
 @inline _map_value(L::CoordinateTransformations.LinearMap{<:StaticMatrix}, x) = _fma_mul(L.linear, x)
 @inline _map_value_jacobian(m, x) = (m(x), transform_deriv(m, x))
 @inline _map_value(m, x) = m(x)
-# the metric plane coordinates of x in the frame (`_plane_coordinates`, with the fused dot)
-@inline _frame_coordinates(q::Quad, x::StaticVector{3}) = (δ = x - q.origin; SVector(_fma_dot(δ, q.e_u), _fma_dot(δ, q.e_v)))
 # the components of v across the ray (u₁ᵀv, u₂ᵀv), and of each column of J
 @inline _across(u1, u2, v::StaticVector{3}) = SVector(_fma_dot(u1, v), _fma_dot(u2, v))
 @inline _across(u1, u2, J::StaticMatrix{3}) = _fma_tmul(hcat(u1, u2), J)
@@ -153,7 +151,7 @@ end
     _mapped_intersection(s, o, d, zero(SVector{2, Float64}), false)
 @inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}, seed::StaticVector{2}, use_seed::Bool)
     t0, x0 = _plane_hit(s.frame, o, d)
-    p0 = map(_primal, _frame_coordinates(s.frame, x0))
+    p0 = map(_primal, _plane_coordinates(s.frame, x0))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     seed_ok = all(isfinite, p0)
     x₀ = ifelse(use_seed, oftype(p0, seed), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)))
@@ -164,7 +162,7 @@ end
 end
 
 @inline function chart(s::MappedSurface, x::StaticVector{3})
-    p0 = map(_primal, _frame_coordinates(s.frame, x))
+    p0 = map(_primal, _plane_coordinates(s.frame, x))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     p, ok, _ = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
     nan = oftype(p[1], NaN)

@@ -13,7 +13,14 @@ A patch: no API change.
   arithmetic, which Julia never contracts), as does the 2-D LM it shares with the spline lenses' projection, so it stays
   inlined — a device kernel's evaluation keeps its speed — and gives the same bits in every copy. Hits, and the spline
   lenses' projections (the same 2-D LM), move by rounding only against 0.9.2; their bits no longer depend on the call
-  site. Tested bit for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`).
+  site. Tested bit for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`),
+  a Dual call (the heights differentiated) included.
+- **One copy of each piece of that fix.** The fused products (`_fma_dot`, `_fma_mul`, `_fma_tmul`) live in
+  `base/fused_products.jl`, and a `Quad`'s plane coordinates have one body (`_plane_coordinates`, now with the fused
+  dot; the root's copy of it is gone), so `chart(::Quad)` moves by rounding only. The root's traversal of the chart
+  map is tested against the map's own call and `transform_deriv`, member by member
+  (`mapped_surface_traversal_tests.jl`). The private `_chart_affine`, unused since the height path reads the chart map
+  directly, is deleted.
 
 ## 0.9.2 (2026-11-12)
 

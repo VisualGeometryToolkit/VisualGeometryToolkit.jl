@@ -3,7 +3,7 @@
     using ForwardDiff        # loaded, as in every worker that differentiates a hit
     using Rotations: RotMatrix, RotXYZ
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: intersection, chart, normal, grid_nodes
+    using VisualGeometryToolkitCore: intersection, chart, normal, grid_nodes, parameter_vector, with_parameters
 
     # One surface and one ray have one hit, whatever code calls `intersection`. Two copies of the root compiled into
     # one caller (two surfaces of the same numbers hit in one function) were measured 2–3 ulp apart on a composed
@@ -58,4 +58,22 @@
         nref = [bits(normal(s, SVector{3}(x))) for x in hits]
         @test all(bits(normal(s′, SVector{3}(x))) == nref[i] for (i, x) in enumerate(hits))
     end
+
+    # A Dual call (the heights differentiated: the implicit-function step on the hit) from the same sites: the value
+    # and the partials, the same bits at every one
+    s = MappedSurface(X, H ∘ T, P, rect)
+    θ = parameter_vector(H ∘ T)
+    sd, sd′ = with_parameters(s, ForwardDiff.Dual{:h}.(θ, 1.0)), with_parameters(s, ForwardDiff.Dual{:h}.(θ, 1.0))
+    dbits(x::Real) = (reinterpret(UInt64, ForwardDiff.value(x)), reinterpret.(UInt64, Tuple(ForwardDiff.partials(x))))
+    dbits(r::Tuple) = (dbits(r[1]), map(dbits, Tuple(r[2])))
+    dref = [dbits(reference(sd, o, d)) for (o, d) in rays]
+    @test count(r -> isfinite(reinterpret(Float64, r[1][1])), dref) > 50
+    ddiffer = 0
+    for (k, (o, d)) in enumerate(rays), _ in 1:2
+        a, b = pair(sd, sd′, o, d)
+        ddiffer += (dbits(a) != dref[k]) + (dbits(b) != dref[k])
+        a, b = twice(sd′, o, d)
+        ddiffer += (dbits(a) != dref[k]) + (dbits(b) != dref[k])
+    end
+    @test ddiffer == 0
 end

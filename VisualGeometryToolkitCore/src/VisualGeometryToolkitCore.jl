@@ -907,6 +907,7 @@ include("base/artifacts.jl")    # install_artifact, huggingface_token: the one a
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
 include("base/duals.jl")    # ForwardDiff value helpers: _primal (every layer), _outer_value / _with_value (one layer)
+include("base/fused_products.jl")   # _fma_dot, _fma_mul, _fma_tmul: product-sums as explicit fma chains (one rounding order in every compiled copy)
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations
 include("base/measurement_noise.jl")  # exact, pair_covariance, noise_columns: the measurement-noise rule

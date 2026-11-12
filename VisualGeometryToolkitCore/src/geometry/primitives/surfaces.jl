@@ -198,10 +198,11 @@ Base.hash(q::Quad, h::UInt) = hash(_quad_fields(q), hash(:Quad, h))
 normal(q::Quad) = normal(q.plane)
 normal(q::Quad, x::StaticVector{3}) = normal(q.plane)
 bounds(q::Quad) = q.rect
-# the metric plane coordinates m of x
+# the metric plane coordinates m of x (explicit fused dots, base/fused_products.jl: one rounding order wherever it is
+# inlined, as the MappedSurface root reading its frame needs)
 @inline function _plane_coordinates(q::Quad, x::StaticVector{3})
     δ = x - q.origin
-    return SVector(dot(δ, q.e_u), dot(δ, q.e_v))
+    return SVector(_fma_dot(δ, q.e_u), _fma_dot(δ, q.e_v))
 end
 @inline chart(q::Quad, x::StaticVector{3}) = q.A_inv * (_plane_coordinates(q, x) - q.b)
 @inline function surface_point(q::Quad, uv::StaticVector{2})

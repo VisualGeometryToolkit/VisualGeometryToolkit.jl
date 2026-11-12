@@ -792,11 +792,10 @@ end
     @test (@allocated surface(ptu)) < 16_384
 end
 
-@testitem "target calibration: is_affine, and the surface chart read off it" begin
+@testitem "target calibration: is_affine" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: grid_nodes, is_affine, transform_deriv
+    using VisualGeometryToolkitCore: grid_nodes, is_affine
     using Rotations: RotMatrix
     nodes = grid_nodes(3; lo = 0.0, hi = 1.0)
     E = EuclideanMap(RotMatrix{2}(0.02), SVector(0.004, -0.002))
@@ -806,10 +805,6 @@ end
     @test is_affine(Rigid()) && is_affine(K) && is_affine(H) && is_affine(H ∘ K) && is_affine(Aspect(0.1))
     @test !is_affine(T) && !is_affine(H ∘ T)
     @test is_affine(typeof(H ∘ K))                                       # a function of the type
-    # the chart's affine: the calibration's image of the design origin and its point Jacobian there
-    o = SVector(0.0, 0.0)
-    M, b = VgtkCore.Cameras._chart_affine(K)
-    @test M ≈ transform_deriv(K, o) && b ≈ K(o) && b ≈ SVector(0.004, -0.002)
 end
 
 @testitem "target calibration: length_mask" begin

@@ -164,15 +164,6 @@ function _grown_rect(lo::StaticVector{2}, hi::StaticVector{2})
 end
 _grown_rect(r::Rect2) = _grown_rect(SVector{2}(r.origin), SVector{2}(r.origin + r.widths))
 
-# A planar affine calibration as the chart's affine, m = A c + b, read off the
-# calibration itself: b its image of the design origin, A its point Jacobian
-# there — the calibration's own composition, so a new affine kind needs no
-# method here.
-function _chart_affine(c::TargetCalibration)
-    o = zero(SVector{2, Float64})
-    return _point_jacobian(c, o), _apply(c, o)
-end
-
 # ------------------------------------------------------------------------------
 # The 1-D fast path of a height field over an affine chart
 # ------------------------------------------------------------------------------
@@ -264,7 +255,7 @@ end
     cd = SVector(_fma_dot(d, q.e_u), _fma_dot(d, q.e_v))   # the plane velocity of the ray
     # the surface's height z_S(m) at plane coordinates m and its gradient, through the members (the fused traversal)
     function terms(t, x)
-        y, Ji = _map_value_jacobian(S₂⁻¹, _frame_coordinates(q, x))
+        y, Ji = _map_value_jacobian(S₂⁻¹, _plane_coordinates(q, x))
         Y, Jf = _map_value_jacobian(field, y)
         Z, JS = _map_value_jacobian(S, Y)
         gz = _fma_tmul(Ji, _fma_tmul(Jf, SVector(JS[3, 1], JS[3, 2], JS[3, 3])))   # row 3 of JS Jf Ji: ∇ of the height
@@ -296,6 +287,6 @@ end
     end
     converged |= last <= sqrt(ε)
     # the design point: y = J c + β of the affine factors, p = S₂(c)
-    p = _map_value(S₂, J \ (_map_value(S₂⁻¹, _frame_coordinates(q, x)) - β))
+    p = _map_value(S₂, J \ (_map_value(S₂⁻¹, _plane_coordinates(q, x)) - β))
     return t, x, p, converged & (t >= 0) & _in_rect(q.rect, p)
 end

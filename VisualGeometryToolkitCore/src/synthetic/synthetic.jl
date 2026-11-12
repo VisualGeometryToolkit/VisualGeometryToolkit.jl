@@ -68,7 +68,7 @@ using ..VisualGeometryToolkitCore: FundMat, Rect2, Line2D, LineConfidenceBand, e
 # ... and the bearing machinery the CAMERA-AWARE E trials need: the harness
 # hands an E problem what an E problem takes (3-vector bearings plus their pixel
 # Jacobians), with the noise model moving into the same frame.
-using ..VisualGeometryToolkitCore: backproject_with_jacobian, bearing_csponds, project, Csponds, withattrs, sources, targets
+using ..VisualGeometryToolkitCore: bearing_csponds, project, Csponds, withattrs, sources, targets
 using ..VisualGeometryToolkitCore: cd_pair, _chart_rows   # a correspondence's per-pair constraint factors (manifolds/covariance.jl)
 using ..VisualGeometryToolkitCore.Cameras: _pixel_K   # the pixel K literal (cameras/calibration.jl)
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (calibration.jl)

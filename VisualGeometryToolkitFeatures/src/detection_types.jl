@@ -165,7 +165,7 @@ camera's pixels, say): its centre with the position block — the top-left 2 × 
 (x, y) — of its frame's `(x, y, log σ)` covariance ([`FeatureCovariance`](@ref)),
 carried through `m` by VisualGeometryToolkitCore's `propagate(m, ::Uncertain)`.
 """
-function propagate(m, d::Attributed{<:_UncertainFrame})
+function propagate(m, d::Attributed{<:_UncertainFrame, <:NamedTuple})
     Σ = cov(d)
     return propagate(m, Uncertain(SVector{2, Float64}(d.center[1], d.center[2]),
                                   CovMat(SMatrix{2, 2, Float64, 4}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]))))

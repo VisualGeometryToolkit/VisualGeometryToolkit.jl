@@ -15,12 +15,14 @@
 #   VGTK_SLURM_PARTITION, VGTK_SLURM_ACCOUNT   --partition / --account (default: none, the site's defaults; Slurm's own
 #                   SBATCH_PARTITION and SBATCH_ACCOUNT work as well)
 #   SBATCH_EXTRA    further sbatch options, appended last
+#   VGTK_SUITE_TEST_ARGS  space-separated test_args for Pkg.test (a ReTestItems suite: a testitem-name filter), to split
+#                   one package into several jobs; VGTK_SUITE_GROUP names the split in the log directory
 # The suites' own variables (RETESTITEMS_NWORKERS, LO_TIMING_GATE, VGTK_BENCHMARK_TESTS, JULIA) are read by common.sh; the jobs
 # inherit this shell's environment (sbatch's default --export=ALL).
 set -euo pipefail
 [ -f ci/slurm/common.sh ] || { echo "run from the repository root"; exit 2; }
 LOCAL=0; NAMES=()
-for a in "$@"; do case $a in --local) LOCAL=1 ;; -h|--help) sed -n '2,22p' "$0"; exit 0 ;; *) NAMES+=("$a") ;; esac; done
+for a in "$@"; do case $a in --local) LOCAL=1 ;; -h|--help) sed -n '2,21p' "$0"; exit 0 ;; *) NAMES+=("$a") ;; esac; done
 source ci/slurm/common.sh
 mapfile -t PKGS < <(selected_packages ${NAMES[@]+"${NAMES[@]}"})
 [ ${#PKGS[@]} -gt 0 ] || { echo "no package selected"; exit 2; }
@@ -28,7 +30,7 @@ export VGTK_SUITE_PACKAGES="${PKGS[*]}"
 
 COMMIT=$(git rev-parse HEAD)
 LOGS=${VGTK_SUITE_LOGS:-ci/slurm/logs}
-export VGTK_SUITE_LOGDIR=$LOGS/$(date +%Y%m%d-%H%M%S)-${COMMIT:0:8}
+export VGTK_SUITE_LOGDIR=$LOGS/$(date +%Y%m%d-%H%M%S)-${COMMIT:0:8}${VGTK_SUITE_GROUP:+-$VGTK_SUITE_GROUP}
 mkdir -p "$VGTK_SUITE_LOGDIR"
 VGTK_SUITE_LOGDIR=$(cd "$VGTK_SUITE_LOGDIR" && pwd)
 echo "commit   $COMMIT ($(git status --porcelain --untracked-files=no | wc -l) modified tracked files)"

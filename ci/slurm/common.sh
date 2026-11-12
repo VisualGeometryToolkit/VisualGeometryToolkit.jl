@@ -57,7 +57,7 @@ run_package() {
   t0=$(date +%s)
   {
     echo "[$(date +%T)] package=$pkg commit=$(git rev-parse HEAD) host=$(hostname) job=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-local}}_${SLURM_ARRAY_TASK_ID:-}"
-    echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-}"
+    echo "[$(date +%T)] cpus=$cpus workers=$RETESTITEMS_NWORKERS gpu=$(gpu_label) LO_TIMING_GATE=${LO_TIMING_GATE:-} VGTK_BENCHMARK_TESTS=${VGTK_BENCHMARK_TESTS:-} test_args=${VGTK_SUITE_TEST_ARGS:-}"
   } > "$log"
   # The workspace has one Manifest at the root (untracked): it is resolved first, so a [deps] change since its last resolve
   # (a package that gained a dependency) is picked up, then instantiated; the tasks of an array do this one at a time (a lock
@@ -68,7 +68,10 @@ run_package() {
   } 9> "$(git rev-parse --git-dir)/vgtk-suite-instantiate.lock" >> "$log" 2>&1
   rc=$?
   if [ $rc -eq 0 ]; then
-    "$JULIA" --startup-file=no --project="$pkg" -e 'using Pkg; Pkg.test()' >> "$log" 2>&1
+    # VGTK_SUITE_TEST_ARGS (space-separated) reaches the suite as test_args: a ReTestItems runtests.jl reads them as a
+    # testitem-name filter, so one package's suite can run as several smaller jobs. Unset: every item.
+    VGTK_SUITE_TEST_ARGS="${VGTK_SUITE_TEST_ARGS:-}" "$JULIA" --startup-file=no --project="$pkg" \
+      -e 'using Pkg; Pkg.test(; test_args = String.(split(ENV["VGTK_SUITE_TEST_ARGS"])))' >> "$log" 2>&1
     rc=$?
   else
     echo "[$(date +%T)] instantiate of $pkg/test failed (exit $rc): no tests run" >> "$log"

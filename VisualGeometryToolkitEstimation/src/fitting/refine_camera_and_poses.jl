@@ -508,13 +508,9 @@ function _refine_camera_and_poses(
 end
 
 
-# The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
-# (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
-# problem: the camera's chart (when anything is free), a pose chart per free view and per free board, one residual
-# block per correspondence.
-function _refine_bundle(
-        bounded::_RefinedCamera, poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
-        held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool};
+# The refine's keywords, shared by every parametrization: parsed once (the retired spellings refused; the strategy, its
+# scale input and its loss: `_bundle_loss`).
+function _bundle_keywords(;
         fixed::Tuple{Vararg{Symbol}} = (),
         free = _RetiredKeyword(), fix = _RetiredKeyword(), fixed_params = _RetiredKeyword(), hold = _RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
@@ -531,15 +527,30 @@ function _refine_bundle(
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
     lo, input, loss = _bundle_loss("refine_camera_and_poses", optimization_strategy, scale, width)
-    camera = _camera_model(bounded)
-    V, B = length(poses), length(boards)
-    names = parameter_names(camera)
-    # every parameter is refined but the `fixed` ones (names or groups: `:k` holds k1…) and the gauge (the skew,
-    # held by construction): the stack's one expansion
-    free = VgtkCore.free_parameter_names(names, fixed)
+    return (; fixed, box, max_iter, ftol, xtol, max_time, lo, input, loss)
+end
+
+# The camera's chart: every parameter refined but the `fixed` ones (names or groups: `:k` holds k1…) and the gauge (the
+# skew, held by construction): the stack's one expansion; `nothing` when every parameter is held.
+function _camera_chart(camera, fixed, box)
+    free = VgtkCore.free_parameter_names(parameter_names(camera), fixed)
     isempty(free) && box !== nothing &&
         throw(ArgumentError("refine_camera_and_poses: a `box` bounds the camera's refined parameters, and `fixed` holds every one"))
-    chc = isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
+    return free, isempty(free) ? nothing : restrict(ParameterManifold(camera; box), free)
+end
+
+# The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
+# (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
+# problem: the camera's chart (when anything is free), a pose chart per free view and per free board, one residual
+# block per correspondence; solved by `_solve_bundle`.
+function _refine_bundle(
+        bounded::_RefinedCamera, poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
+        held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool}; kwargs...
+    )
+    kw = _bundle_keywords(; kwargs...)
+    camera = _camera_model(bounded)
+    V, B = length(poses), length(boards)
+    free, chc = _camera_chart(camera, kw.fixed, kw.box)
     nd = chc === nothing ? 0 : tangent_size(chc)
     view_charts = _pose_charts(poses); board_charts = _pose_charts(boards)
     # the variables: the camera's chart, then the free views', then the free boards'
@@ -562,8 +573,6 @@ function _refine_bundle(
         push!(blocks, _BoardViewResidual{count(F), F, typeof(camera)}(ind, camera, plain(view_charts[v]), plain(board_charts[b]), X, u;
                                                                      chart = chc === nothing ? Nothing : typeof(chc)))
     end
-    RT = Union{unique(typeof.(blocks))...}
-    costs = convert(Vector{RT}, blocks)
     n = length(obs)
     p = nd + 6 * (count(!, held_views) + count(!, held_boards))
     2n > p || throw(ArgumentError("refine_camera_and_poses: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
@@ -574,7 +583,35 @@ function _refine_bundle(
     chc === nothing || push!(vars0, chc)
     foreach(v -> held_views[v] || push!(vars0, view_charts[v]), 1:V)
     foreach(b -> held_boards[b] || push!(vars0, board_charts[b]), 1:B)
-    options = nlls_options(; max_iter, ftol, xtol, max_time)
+    sol = _solve_bundle(blocks, vars0, p, kw)
+    variables = sol.variables
+    camera_out = chc === nothing ? camera : model(variables[1])
+    pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(variables[var[i]]::_CameraPosePose)
+    poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in 1:V]
+    boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in 1:B]
+    all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||
+        throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
+    camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
+    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code,
+        sol.iterations, sol.rms, sol.n, _bundle_metadata(sol, free, kw)
+end
+
+# The shared solve of every parametrization: the residual blocks `blocks` (2 rows each, one per correspondence, each
+# answering `_with_robust`) on the variables `vars0` (`p` unknowns), under the parsed keywords `kw`. Least squares is
+# the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
+# ruling, 2026-11-11): the strategy's solve starts from the caller's start, its loss at its width over the caller's
+# frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's `loss_robustifier`); Irls, weighted
+# solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol` (relative) or `max_iter` cycles. A
+# refine estimates no scale. Returns the variables at the estimate, the retcode, the iterations, the reprojection rows,
+# their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
+# loop.jl: under least squares every correspondence and √(S/n)).
+function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer, kw)
+    lo, loss, ftol = kw.lo, kw.loss, kw.ftol
+    RT = Union{unique(typeof.(blocks))...}
+    costs = convert(Vector{RT}, blocks)
+    n = length(costs)
+    VT = eltype(vars0)
+    options = nlls_options(; max_iter = kw.max_iter, ftol, xtol = kw.xtol, max_time = kw.max_time)
     function solve(blocks, start)
         RTb = Union{unique(typeof.(blocks))...}
         pr = NLLSsolver.NLLSProblem(VT, RTb)
@@ -582,11 +619,6 @@ function _refine_bundle(
         foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
         return pr, NLLSsolver.optimize!(pr, options)
     end
-    # Least squares is the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
-    # ruling, 2026-11-11): the strategy's solve starts from the caller's start (camera and poses), its loss at its width
-    # over the caller's frozen `scale` or at its absolute width: Triggs, one robustified LM (Core's
-    # `loss_robustifier`); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
-    # (relative) or `max_iter` cycles. A refine estimates no scale.
     stationarity_blocks = costs
     irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
@@ -624,25 +656,14 @@ function _refine_bundle(
         # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
         stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     end
-    camera_out = chc === nothing ? camera : model(problem.variables[1])
-    pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(problem.variables[var[i]]::_CameraPosePose)
-    poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in 1:V]
-    boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in 1:B]
-    all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||
-        throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
-
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
     code = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
-    ν = 2n - p
-    camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
-    meta = CameraPosesRefineMetadata{typeof(lo)}(r, S / ν, ν, free, nothing, _row_norms(r), weights,
-        input === nothing ? NaN : input.scale, input === nothing ? ScaleNone : input.source, sqrt(_sq_loss_width(loss)))
-    # `n` the weights' support and `rms` the weighted one (the stack's one rule, loop.jl): under least squares every
-    # correspondence and √(S/n)
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
-    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), code,
-        iters, rms, support, meta
+    return (; variables = problem.variables, code, iterations = iters, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
+_bundle_metadata(sol, free, kw) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, nothing,
+    _row_norms(sol.residuals), sol.weights, kw.input === nothing ? NaN : kw.input.scale, kw.input === nothing ? ScaleNone : kw.input.source,
+    sqrt(_sq_loss_width(kw.loss)))
 

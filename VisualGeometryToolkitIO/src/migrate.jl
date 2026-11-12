@@ -1290,18 +1290,24 @@ _holds_k(path, what) = throw(
     ArgumentError("$(path): $(what) holds its K; `intrinsics` supplies K only to an old grid body that stores none")
 )
 
-# An old central grid body: a central vgio/generic_camera/v2 or v3 record's, or one another record embeds.
+# An old grid body (central or non-central): a vgio/generic_camera/v2 or v3 record's, a rig/v6–v8 sensor's, or one
+# another record embeds; and the central one.
+_is_old_grid_body(b) = b isa AbstractDict && get(b, :type, nothing) in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)
 _is_old_central_body(b) = b isa AbstractDict && get(b, :type, nothing) == _OLD_CENTRAL_TYPE
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
 _is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS && _is_old_central_body(d)
-# A camera body as the camera readers read it, with the style to read it in: an old central grid body
-# EMBEDDED in a record that is no old grid file (RadiometricCamera's rc/calibration_state/v1 camera) becomes
-# the camera body it migrates to — `_central_grid_body`, the one conversion an old central grid file takes
-# too — parsed as a reader meets a body and read in the canonical pixel frame its numbers are in (every old
-# grid's); any other body is read as it stands.
+# An old grid body (lowered) as the body it migrates to: a central one's camera body, a non-central one's
+# non-central body — the one conversion every reader of an old body takes.
+_current_grid_body(b::AbstractDict) = b["type"] == _OLD_CENTRAL_TYPE ? _central_grid_body(b) : _noncentral_grid_body(b)
+# A camera body as the camera readers read it, with the style to read it in: an old grid body EMBEDDED in a
+# record that is no old grid file (RadiometricCamera's rc/calibration_state/v1 camera) becomes the body it
+# migrates to (`_current_grid_body`, the conversion an old grid file and an old rig sensor take too), parsed
+# as a reader meets a body. It is read in the colmap pixel frame (CANONICAL_PIXEL_FRAME), whatever frame the
+# enclosing record declares — the frame the old grid code reads every old grid body's numbers in — and a
+# non-central one's line points in the enclosing record's length unit. Any other body is read as it stands.
 function _current_camera_body(s::VgioStyle, b)
-    _is_old_central_body(b) || return s, b
-    body = _parse_vgio_text(JSON.json(_central_grid_body(_lower(b))), "an old central grid body")
+    _is_old_grid_body(b) || return s, b
+    body = _parse_vgio_text(JSON.json(_current_grid_body(_lower(b))), "an old grid body")
     return VgioStyle(; length_unit = s.length_unit, pixel_frame = CANONICAL_PIXEL_FRAME), body
 end
 # …as the vgio/cameras record of its one camera, named after the file (`fisheye_14mm.json` → `fisheye_14mm`;
@@ -1330,7 +1336,7 @@ function _rig_v8_to_v9(old)
     t = _map_rig_sensors(old) do c
         haskey(c, "lens_coverage") && _not_written_by("a vgio/rig/v8 sensor", "holds no \"lens_coverage\" (a sensor's lens coverage is rig v9)")
         haskey(c, "type") || return c
-        return c["type"] == _OLD_CENTRAL_TYPE ? _central_grid_body(c) : _noncentral_grid_body(c)
+        return _current_grid_body(c)
     end
     t["schema"] = "vgio/rig/v9"
     return t

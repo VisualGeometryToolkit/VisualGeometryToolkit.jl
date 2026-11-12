@@ -28,5 +28,5 @@ of `fit_rotation`.
 
 ```@docs
 fit_linear
-LinearFitMetadata
+FitMetadata
 ```

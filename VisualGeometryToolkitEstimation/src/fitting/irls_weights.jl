@@ -125,6 +125,37 @@ _fit_weights_storage(::FitIrls, n::Integer) = ones(n)
 _fit_scale_record(::Nothing) = (NaN, VgtkCore.ScaleNone, NaN)
 _fit_scale_record(f::FitIrls) = (f.scale, f.scale_source, f.loss_width)
 
+"""
+    FitMetadata{L, W}
+
+`FitResult` metadata of the reweighted fits [`fit_linear`](@ref),
+[`fit_rotation`](@ref) and [`fit_rigid_alignment`](@ref), all at the returned
+estimate (`L` the `optimization_strategy`'s type, `Nothing` for least squares):
+
+- `weights::W` — the loss weight `ρ′(r²)` of every datum, normalized to a
+  maximum of 1 (`IrlsWeights`); a lazy all-ones vector for least squares
+  (`BinaryWeights`). The solve's weight of a datum is its prior times this.
+- `residuals` — every datum's residual at the estimate, in the fit's unit:
+  `y − A·x` (`fit_linear`), the angle `∠(R·aᵢ, bᵢ)` in radians
+  (`fit_rotation`), the distance `‖bᵢ − (R·aᵢ + t)‖` in the points' unit
+  (`fit_rigid_alignment`).
+- `scale`, `scale_source` — the scale record (`noise_scale(result)`,
+  `scale_source(result)`), in the residuals' unit: the scale given
+  (`ScaleGiven`, `ScaleUpstream`), or `NaN` and `ScaleNone` for least squares
+  or a `width`-only fit.
+- `loss_width` — the loss width the weights were computed at (`NaN` for
+  least squares).
+"""
+struct FitMetadata{L, W <: AbstractVector{Float64}}
+    weights::W
+    residuals::Vector{Float64}
+    scale::Float64
+    scale_source::VgtkCore.ScaleSource
+    loss_width::Float64
+end
+FitMetadata{L}(w::W, r, s, src, lw) where {L, W} = FitMetadata{L, W}(w, r, s, src, lw)
+VgtkCore.weight_kind(::Type{<:FitMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
+
 # The IRLS strategy's iteration cap (least squares: one solve).
 _fit_max_iter(::Nothing) = 0
 _fit_max_iter(lo::Irls) = lo.max_iter

@@ -280,9 +280,11 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   [`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs).
 - **Tier roots.** An input's `path` is relative to its *tier's* root, which
   is the data root unless the machine puts that tier elsewhere: first the
-  environment's `VGTK_DATA_ROOT_<TIER>` (`blobcalib_202609` →
-  `VGTK_DATA_ROOT_BLOBCALIB_202609`), then the graph's site table, then the
-  data root ([`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)).
+  environment's `<data_env>_<TIER>` (the graph's `data_env`, default
+  `VGTK_DATA_ROOT`: `blobcalib_202609` → `VGTK_DATA_ROOT_BLOBCALIB_202609`),
+  then the graph's site table, then the data root, or where an artifact view
+  mounts a tier the project's catalog lists
+  ([`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)).
   A config never names a machine path; the machine's paths are its site's:
 
   ```toml
@@ -292,9 +294,10 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   tiers = { blobcalib_202609 = "/raid/data/me/datasets/202609_BlobCalib" }
   ```
 
-  The runner gives its jobs the same roots (`VGTK_DATA_ROOT_<TIER>`,
+  The runner gives its jobs the same roots (`<data_env>_<TIER>`,
   `VGTK_SITE`), and a driver resolves one with
-  [`data_root(; tier)`](@ref VisualGeometryToolkitEval.Experiments.data_root).
+  [`data_root(; tier)`](@ref VisualGeometryToolkitEval.Experiments.data_root),
+  reading the graph with the runner's own reader.
   A tier root that is named but missing is reported as such.
 - **Directory inputs.** A directory's `sha256` is its tree digest,
   [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256): the SHA-256 of

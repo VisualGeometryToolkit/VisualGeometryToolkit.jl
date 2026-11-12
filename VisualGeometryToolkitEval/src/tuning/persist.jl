@@ -13,8 +13,8 @@
 #                                         from them, bit-exactly
 #   sampling_unit                         what its cross-validation sampled
 #                                         (the data's `sampling_unit`)
-#   code_identity                         version + git commit of this package
-#                                         and of every module the CALLER names
+#   code_identity                         version of this package and of every
+#                                         module the CALLER names
 #                                         as the code its result came from
 #
 # and the run's own data. A file of an older format is refused (regenerate it
@@ -22,36 +22,26 @@
 # version step (below); a stored spec whose hash does not match its table is refused.
 # =============================================================================
 
-# A checkout's HEAD commit, "-dirty" when its tracked files differ — through
-# LibGit2 and DrWatson's `isdirty`, not a `git` subprocess. "" outside a
-# checkout of its own (a registry-installed package has no .git).
-function _git_identity(dir)
-    dir === nothing && return ""
-    isdir(joinpath(dir, ".git")) || isfile(joinpath(dir, ".git")) || return ""
-    sha = try string(LibGit2.head_oid(LibGit2.GitRepo(string(dir)))) catch; return "" end
-    dirty = try isdirty(dir) catch; false end
-    return dirty ? sha * "-dirty" : sha
-end
-
 """
     code_identity(code) -> Dict{String,Any}
 
 The code a tuning result came from: for this package and every module of
 `code` (the caller's packages whose code determines the result — the
 estimator and scorer packages it ran, say), `version` (the loaded package
-version) and `git` (the checkout's HEAD commit, suffixed `-dirty` for
-uncommitted changes; empty outside a git checkout); and the `julia` version
+version); and the `julia` version
 with the RNG algorithms the run may draw from (`rng`, [`RNG_ALGORITHMS`](@ref)) —
 the streams are StableRNG's, but a bootstrap CI resamples from Julia's own
 default stream (Stats `bootstrap_ci`), which only the Julia version pins.
+The code's git state is the run's record, not this one: the `code_trees`
+([`code_trees`](@ref VisualGeometryToolkitEval.code_trees)) its run records and
+`_provenance.toml` keep, the one rule a stored result is reused by.
 """
 function code_identity(code)
     out = Dict{String,Any}("julia" => Dict{String,Any}("version" => string(VERSION),
                                                        "rng" => sort!(collect(keys(RNG_ALGORITHMS)))))
     for m in unique((parentmodule(@__MODULE__), code...))
         m isa Module || throw(ArgumentError("code_identity: $(repr(m)) is not a Module"))
-        out[String(nameof(m))] = Dict{String,Any}("version" => string(pkgversion(m)),
-                                                  "git" => _git_identity(pkgdir(m)))
+        out[String(nameof(m))] = Dict{String,Any}("version" => string(pkgversion(m)))
     end
     return out
 end

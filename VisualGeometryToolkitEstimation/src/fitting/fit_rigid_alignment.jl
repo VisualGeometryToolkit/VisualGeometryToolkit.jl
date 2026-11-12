@@ -25,30 +25,8 @@
 # =============================================================================
 
 """
-    RigidAlignmentMetadata{L, W}
-
-`FitResult` metadata of [`fit_rigid_alignment`](@ref) at the returned
-transform (`L` the `optimization_strategy`'s type, `Nothing` for least
-squares): `weights::W`, the loss weight `ρ′(r²)` of every pair normalized to
-a maximum of 1 (`IrlsWeights`; a lazy all-ones vector, `BinaryWeights`, for
-least squares — the solve's weight is the pair's prior times this);
-`residuals`, the distance `‖bᵢ − (R·aᵢ + t)‖` of every pair (the points'
-unit); `scale`, `scale_source` (the scale record, `noise_scale(result)`);
-`loss_width` (`NaN` for least squares).
-"""
-struct RigidAlignmentMetadata{L, W <: AbstractVector{Float64}}
-    weights::W
-    residuals::Vector{Float64}
-    scale::Float64
-    scale_source::VgtkCore.ScaleSource
-    loss_width::Float64
-end
-RigidAlignmentMetadata{L}(w::W, r, s, src, lw) where {L, W} = RigidAlignmentMetadata{L, W}(w, r, s, src, lw)
-VgtkCore.weight_kind(::Type{<:RigidAlignmentMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's trait of the strategy (Irls: IrlsWeights; nothing: binary)
-
-"""
     fit_rigid_alignment(cs; optimization_strategy = nothing, scale | width, tol)
-        -> FitResult{EuclideanMap{3}, RigidAlignmentMetadata}
+        -> FitResult{EuclideanMap{3}, FitMetadata}
 
 The rigid transform `T` (`T(a) = R·a + t`) with `bᵢ ≈ T(aᵢ)` from point pairs
 `cs` (`aᵢ => bᵢ`, 3-vectors): the alignment of an estimated trajectory's
@@ -125,7 +103,7 @@ function fit_rigid_alignment(
     sw = _solve_weights(prior, w)
     used, rms = _weighted_support_rms(sw, (abs2(x) for x in r))
     return FitResult(T, irls_termination(tol_met, f === nothing)..., iter, rms, used,
-                     RigidAlignmentMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
+                     FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
 # Physical points: stripped in metres once, the plain fit, the transform read
@@ -163,4 +141,4 @@ _rigid_residuals(T, as, bs) = [norm(b - (rotation(T) * a + translation(T))) for 
 # solve that could not be solved `(InternalLinearSolveFailed, NoRule)`.
 _rigid_degenerate(strategy, f, n, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
     FitResult(EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}); check = false), record..., 0, NaN, 0,
-              RigidAlignmentMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))
+              FitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))

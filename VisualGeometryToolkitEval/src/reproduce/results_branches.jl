@@ -336,8 +336,8 @@ function results_branch(dir::AbstractString, assets::AbstractVector{<:Pair};
     base_commit = _git(top, "rev-parse", "--verify", "refs/heads/" * base * "^{commit}")
     given = something(commit, "HEAD")
     commit = _git(top, "rev-parse", "--verify", chopsuffix(given, "-dirty") * "^{commit}")
-    head = _git_identity(top)                         # the checkout's HEAD, "-dirty" when its tracked files differ (the package's one rule)
-    dirty = endswith(given, "-dirty") || (commit == chopsuffix(head, "-dirty") && endswith(head, "-dirty"))
+    head, head_dirty = _git_state(top)                # the checkout's HEAD and whether its tracked files differ (the runner's reader, runner.jl)
+    dirty = endswith(given, "-dirty") || (commit == head && head_dirty)
     stamp_s = Dates.format(stamp, "yyyymmdd_HHMMSS")
     branch = _RESULTS_PREFIX * stamp_s * "-" * commit[1:7]
     root = abspath(something(scratch_root, _default_scratch(top)))

@@ -1000,8 +1000,8 @@ function _spline_projections(
     if N > 0
         dl = Adapt.adapt(device, l)
         ds = seeds === nothing ? nothing : on_device(device, _concrete_points(seeds))
-        _spline_project_kernel!(device, 64)(x, ok, dl, identity, identity, on_device(device, _concrete_points(rays)), ds, iters, Float64(tol)^2; ndrange = N)
-        fold && _spline_fold_kernel!(device, 64)(g, dl.backward.controls, dl.backward.area, x, ok; ndrange = N)
+        OnBackend(device; workgroupsize = 64)(_spline_project_kernel!)(x, ok, dl, identity, identity, on_device(device, _concrete_points(rays)), ds, iters, Float64(tol)^2; ndrange = N)
+        fold && OnBackend(device; workgroupsize = 64)(_spline_fold_kernel!)(g, dl.backward.controls, dl.backward.area, x, ok; ndrange = N)
         KA.synchronize(device)
     end
     back = get_backend(rays)
@@ -1042,7 +1042,7 @@ function project(
     ok = KA.allocate(device, Bool, N)
     if N > 0
         intr = cam.intrinsics
-        _spline_project_kernel!(device, 64)(
+        OnBackend(device; workgroupsize = 64)(_spline_project_kernel!)(
             px, ok, Adapt.adapt(device, cam.lens), _pixel_affine(intr), p -> _normalized_point(intr, p), on_device(device, rs),
             on_device(device, ss), iters, Float64(tol)^2; ndrange = N
         )
@@ -1088,7 +1088,7 @@ function backproject(
     rays = KA.allocate(device, SVector{3, promote_type(Tx, eltype(eltype(l.backward.controls)))}, length(pixels))
     if !isempty(pixels)
         s = _lattice_scales(Tx, l.backward.area, size(l.backward.controls))
-        _spline_backproject_kernel!(device, 64)(rays, l, intr, s, on_device(device, pts); ndrange = length(pixels))
+        OnBackend(device; workgroupsize = 64)(_spline_backproject_kernel!)(rays, l, intr, s, on_device(device, pts); ndrange = length(pixels))
         KA.synchronize(device)
     end
     return on_device(get_backend(pixels), rays)

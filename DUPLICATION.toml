@@ -36,6 +36,11 @@ function = "__init__"
 reason = "not a CPU/GPU twin of any code: the CUDA extension registers the device queries (free memory, reclaim) a KernelAbstractions backend cannot answer, and answers them for its own backend only; the policy's allowed device-query helpers"
 
 [[backend]]
+file = "VisualGeometryToolkitCore/src/geometry/transforms/pointwise.jl"
+function = "p::OnBackend"
+reason = "not a CPU/GPU twin of any computation: the stack's one kernel-launch policy (the owner's ruling, 2026-11-12) instantiates the SAME kernel on every backend and chooses only its workgroup per backend — a one-item kernel runs one item per workgroup on the CPU (every thread busy) and one warp per workgroup on a device (one item there would idle 31 of 32 lanes)"
+
+[[backend]]
 file = "VisualGeometryToolkitFeatures/src/asift/driver.jl"
 function = "_chunk_warps"
 reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay resident (an allocation), and only the free memory differs by backend — the host's on the CPU, the device's less the room the ONNX Runtime CUDA sessions' arenas may still take on a GPU (those arenas are device memory; the CPU's warps share no device with them); the same kernels run on every backend"

@@ -25,7 +25,10 @@ backend. The `exec` keyword, [`OnBackend`](@ref)`(backend; workgroupsize)`,
 launches it on a backend value the caller gives, so its compiler options hold
 (`CUDABackend(; always_inline = true)`), with a fixed workgroup size. On the CPU
 the launch has finished on return; on a device it does not wait: synchronize
-the backend before reading. (The host's broadcast policies, `Serial`,
+the backend before reading. `OnBackend` is the stack's one kernel-launch policy: every stack
+kernel is instantiated through it, `OnBackend(backend; workgroupsize)(kernel)`,
+the workgroup per backend (the backend's choice; one work item per workgroup on
+the CPU and one warp on a device; or a size as given). (The host's broadcast policies, `Serial`,
 `Threaded` and `Auto`, are retired: the owner's one-kernel policy, 2026-11-11.)
 
 ## Failure

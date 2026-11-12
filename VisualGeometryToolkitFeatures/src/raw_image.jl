@@ -411,7 +411,7 @@ function _cells(m::RawMosaic, gain::Float64, mode::Symbol)
     img = similar(raw, Float64, H2, W2, P)
     sat = similar(raw, Bool, H2, W2)
     backend = KA.get_backend(raw)
-    _cells_kernel!(backend)(img, sat, raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
+    OnBackend(backend)(_cells_kernel!)(img, sat, raw, used, sites, black, den, gain, m.white; ndrange = (H2, W2))
     KA.synchronize(backend)
     # each plane's samples from the cell centre, in cell pixels (the frame map's
     # scale, the one place it is stated), as the plane's translation onto the grid, and the

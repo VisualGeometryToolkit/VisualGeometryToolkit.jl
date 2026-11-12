@@ -709,7 +709,7 @@ end
 # =============================================================================
 
 """
-    ig_sweep_kernel!(backend[, workgroupsize[, ndrange]])(scores_out, sorted_sq_flat, pair_offset, K_per_pair,
+    OnBackend(backend; workgroupsize = 1)(ig_sweep_kernel!)(scores_out, sorted_sq_flat, pair_offset, K_per_pair,
                      M_per_pair, lg_table, log_two_outlier_halfwidth_grid, model_dof, dg, prior, p_offset,
                      sorted_penalties, prior_table, best_k_out; ndrange = (n, M_max, T))
 
@@ -727,7 +727,10 @@ to `best_k_out[p_local, m, t]` (0 when no partition scores above −Inf). This
 is the stack's ONE prefix sweep: a pool grid (RANSACScoringDoneRight's
 marginal grid, penalty- and prior-free, no k) and [`sweep!`](@ref) (one work
 item on the CPU backend over its sorted column) both launch it. Work-items
-beyond a pair's model count write nothing.
+beyond a pair's model count write nothing. A work item is a loop over the
+model's residuals: launch it at one item per workgroup through
+[`OnBackend`](@ref), the stack's launch policy (every thread on the CPU, one
+warp per workgroup on a device).
 """
 @kernel function ig_sweep_kernel!(
         scores_out,              # (chunk, M_max, T) Float64
@@ -888,7 +891,7 @@ function sweep!(perm::Vector{Int}, lg_table::Vector{Float64},
         end
     end
     L.count[1] = Int32(n); L.log_two_outlier_halfwidth[1] = log_two_outlier_halfwidth
-    ig_sweep_kernel!(KernelAbstractions.CPU(), (1, 1, 1), (1, 1, 1))(
+    OnBackend(KernelAbstractions.CPU(), (1, 1, 1))(ig_sweep_kernel!, (1, 1, 1))(
         L.best, sorted, L.pair_offset, L.count, L.models, lg_table, L.log_two_outlier_halfwidth,
         Int32(model_dof), Int32(dg), scale_prior, Int32(0), sorted_pen, prior_table, L.best_k)
     return L.best[1, 1, 1], Int(L.best_k[1, 1, 1])

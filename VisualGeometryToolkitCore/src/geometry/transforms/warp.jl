@@ -353,7 +353,7 @@ function image_warp!(
     # beside the destination; an isbits chain, or a vector already there, is
     # unchanged), launched with the backend's own workgroup (a lens's iterative solve
     # in the warp needs registers a fixed 32 × 32 group exceeds on a GPU).
-    _warp_kernel!(backend)(dst, src, (Adapt.adapt(backend, bm),), fv; ndrange = size(dst))
+    OnBackend(backend)(_warp_kernel!)(dst, src, (Adapt.adapt(backend, bm),), fv; ndrange = size(dst))
     KernelAbstractions.synchronize(backend)
     return dst
 end
@@ -419,7 +419,7 @@ function image_warp_batch_to!(
     )
     backend = get_backend(out)
     fv = _sample_type(T)(fillvalue)
-    _warp_kernel!(backend)(out, src, Adapt.adapt(backend, warps), fv; ndrange = size(out))
+    OnBackend(backend)(_warp_kernel!)(out, src, Adapt.adapt(backend, warps), fv; ndrange = size(out))
     KernelAbstractions.synchronize(backend)
     return out
 end

@@ -301,7 +301,7 @@ function (cs::ChartSpline{K, T})(points::AbstractVector{<:StaticVector{2, <:Real
     S = SVector{K, promote_type(T, float(eltype(eltype(points))))}
     out = KA.allocate(backend, S, length(points))
     isempty(points) && return out
-    _chart_spline_kernel!(backend, 64)(out, adapt(backend, cs.controls), points, cs.area; ndrange = length(points))
+    OnBackend(backend; workgroupsize = 64)(_chart_spline_kernel!)(out, adapt(backend, cs.controls), points, cs.area; ndrange = length(points))
     KA.synchronize(backend)
     return out
 end

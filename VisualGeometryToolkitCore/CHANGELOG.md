@@ -59,6 +59,21 @@ sensor — so every consumer asks the camera what it images instead of supplying
   PanoramaStitching's rotation bundle cut its held columns for. `lens_coverage(camera, rim_margin)`: the lens coverage
   less a rim margin at the lens's edge (a `Circle`'s radius, an `Ellipse`'s semi-axes, a `Rect`'s sides inside the
   sensor), or `nothing` — PanoramaStitching's frame-region rim and RadiometricCamera's image circle less its rim.
+- **One kernel-launch policy for the stack: `OnBackend(backend; workgroupsize)(kernel)`** (the owner's ruling, 2026-11-12).
+  The public `OnBackend` now instantiates a KernelAbstractions kernel (a call method; `(exec::OnBackend)(kernel,
+  ndrange)` for a statically sized one), and every stack kernel is instantiated through it: Core's `pointwise!`, row,
+  conversion, CSR, warp, sample, chart-spline, spline-lens, pool-selection and sweep kernels, VisualGeometryToolkitFeatures'
+  and RANSACScoringDoneRight's. The workgroup is per backend: `nothing` the backend's choice; ONE work item (`1`,
+  `(1, 1)`, …) one item per workgroup on the CPU (a kernel whose item is a long loop then runs on every thread) and one
+  warp (32 items) per workgroup on a device; any other size as given. The pool
+  kernels (`exact_pm_score_kernel!`, `argmax_models_kernel!`, `ig_sweep_kernel!`) are launched at one item: on the CPU
+  unchanged, on a device `select_on_grid!`'s exact selection and RANSACScoringDoneRight's grids no longer run one
+  thread per workgroup (RANSACScoringDoneRight's grids on a B200, 128 pairs × 800 points × 48 models: the Student-t
+  grid 1.55 ms at the backend's choice, 30.6 at one item, 1.35 at one warp; its mixture marginal 90.4, 62.1, 17.7). Every other
+  launch keeps its workgroup. Results bit for bit (every launch site, CPU and CUDA, before and after).
+  One warp rather than the backend's choice: at the backend's choice RANSACScoringDoneRight's Welsch and mixture
+  marginals ran as at its last release (86.6 / 90.4 ms) but slower than at one item per workgroup (67.7 / 62.1 ms);
+  at one warp all five of its grids are faster than both (64, 128 and 256 items within 15 % of 32).
 
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),

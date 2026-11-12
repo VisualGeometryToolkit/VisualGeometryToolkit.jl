@@ -206,7 +206,7 @@ function _convert_on(::Type{T}, dev, A::AbstractArray{S}) where {T, S}
     src = on_device(S, dev, A)                    # the narrow eltype crosses as it is (on the host: the image itself)
     out = KA.allocate(dev, T, size(A)...)
     isempty(out) && return out                    # no launch over an empty ndrange (CUDA's partition divides by it)
-    _convert_elements!(dev)(out, src; ndrange = length(out))
+    OnBackend(dev)(_convert_elements!)(out, src; ndrange = length(out))
     KA.synchronize(dev)
     return out
 end
@@ -278,7 +278,7 @@ included), followed by a synchronize. The kernel takes the job as one tuple,
 function _launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
     n > 0 || return out
     backend = get_backend(out)
-    _row_kernel!(backend)((row!, out, args...); ndrange = n)
+    OnBackend(backend)(_row_kernel!)((row!, out, args...); ndrange = n)
     KA.synchronize(backend)
     return out
 end

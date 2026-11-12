@@ -166,10 +166,11 @@ function detect_foerstner(
     return _foerstner_points(found, significance_level, _undouble)
 end
 
-# A kernel launch, completed before the next: KernelAbstractions launches are
-# asynchronous (on the CPU backend too).
+# A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
+# `OnBackend`, the backend's choice of workgroup), completed before the next:
+# KernelAbstractions launches are asynchronous (on the CPU backend too).
 function _launch!(kernel!, device, args...; ndrange)
-    kernel!(device)(args...; ndrange)
+    OnBackend(device)(kernel!)(args...; ndrange)
     KA.synchronize(device)
     return nothing
 end

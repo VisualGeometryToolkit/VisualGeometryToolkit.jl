@@ -208,9 +208,10 @@ end
 
 # The extension hooks. VisualGeometryToolkitFeaturesEstimationExt adds `_fit_image_circle` for `Circle` and `Ellipse`
 # (the RANSAC on the contour); VisualGeometryToolkitFeaturesImageSmoothExt adds `_l0_smooth!`. Without them loaded the
-# call stops before any work, naming the package to load.
-function _fit_image_circle end
-function _l0_smooth! end
-_require_extension(ext::Symbol, pkg, what) = Base.get_extension(@__MODULE__, ext) === nothing && throw(ArgumentError(
-    "detect_image_circle: $what needs `using $pkg` (its package extension is not loaded)"
-))
+# call stops before any work, naming the package to load (`_require_extension`); the fallbacks name it too.
+_missing_extension(pkg, what) = ArgumentError("detect_image_circle: $what needs `using $pkg` (its package extension is not loaded)")
+_require_extension(ext::Symbol, pkg, what) =
+    Base.get_extension(@__MODULE__, ext) === nothing && throw(_missing_extension(pkg, what))
+_fit_image_circle(::Type, contour; outlier_halfwidth, rng) =
+    throw(_missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"))
+_l0_smooth!(levels, upper, λ) = throw(_missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"))

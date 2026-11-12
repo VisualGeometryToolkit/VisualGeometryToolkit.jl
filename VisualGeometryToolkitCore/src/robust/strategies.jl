@@ -75,7 +75,10 @@ The loss width is **frozen** at the start of the call, set by the width mode
   Student-t scale ŝ — `m` the plain multiple, for every loss;
 - `loss_width = w` (`LossWidth(w)`): the absolute width `w`;
 - neither (`nothing`, the default): the scorer's decision point
-  (`decision_boundary`) — MSAC with `Irls{TLSShape}` refits at MSAC's threshold.
+  (`decision_boundary`) for a shape with a decision width — MSAC with
+  `Irls{TLSShape}` refits at MSAC's threshold —, and for one without (Huber)
+  the table's `efficiency_constant(K, d)` times the consensus scale ŝ, `d` the
+  scorer's codimension (a shape with neither is an `ArgumentError`).
 
 # Fields
 - `max_iter::Int=25`: max IRLS iterations per hypothesis

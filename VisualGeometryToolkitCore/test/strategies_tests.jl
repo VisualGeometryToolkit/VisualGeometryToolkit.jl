@@ -90,3 +90,30 @@
         @test_throws ArgumentError with_width(Triggs{GaussianShape}(), fixed_width(Irls{CauchyShape}(efficiency_constant = 2.5), 4.0))
     end
 end
+
+# A strategy with no width follows the scorer (`loss_at`): a shape with a decision width at the scorer's decision point,
+# unchanged; one without (Huber) at the table's efficiency_constant(K, d) times the consensus scale (the owner's
+# ruling, 2026-11-12); a shape with neither is refused by name, never a MethodError.
+@testitem "strategies: a no-width strategy follows the scorer" begin
+    using Test
+    using VisualGeometryToolkitCore: Irls, Triggs, loss_at, ConsensusSet, MsacScoring, HuberShape, WelschShape, TLSShape,
+        CauchyShape, BarronShape, sq_loss_width, efficiency_constant, decision_width, decision_boundary
+    cs = ConsensusSet(; count = 50, s2 = 0.25, epoch = 0)          # ŝ = 0.5
+    sc = MsacScoring(2; threshold = 3.0)                            # codimension 2, a 3 px threshold
+    for lo in (Irls{HuberShape}(), Triggs{HuberShape}())
+        loss = @inferred loss_at(lo, HuberShape(), cs, sc, nothing)
+        @test sqrt(sq_loss_width(loss)) ≈ efficiency_constant(HuberShape, 2) * 0.5
+    end
+    # the decision-width shapes: the scorer's decision point, as before
+    for K in (WelschShape, CauchyShape, TLSShape)
+        loss = loss_at(Irls{K}(), K(), cs, sc, nothing)
+        @test sqrt(sq_loss_width(loss)) ≈ decision_width(K(), decision_boundary(sc, nothing))
+    end
+    # a shape with neither a decision width nor an efficiency constant: refused, naming it and the remedy
+    e = try
+        VisualGeometryToolkitCore._follow_scorer(BarronShape(1.0), cs, sc, nothing); nothing
+    catch err
+        err
+    end
+    @test e isa ArgumentError && occursin("BarronShape", e.msg) && occursin("efficiency_constant", e.msg)
+end

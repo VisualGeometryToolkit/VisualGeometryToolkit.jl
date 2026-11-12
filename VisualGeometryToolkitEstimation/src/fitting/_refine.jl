@@ -301,16 +301,18 @@ _refine_lm_ws(L::LoBuffers) = L.refine
 _refine_lm_ws(ws) = ws
 
 # -----------------------------------------------------------------------------
-# The two strategies — (model, (code, rule), iterations): the termination record
+# The three strategies — (model, (code, rule), iterations): the termination record
 # -----------------------------------------------------------------------------
 
-# Plain least squares: ONE chart LM from θ over every datum at unit weight.
+# Plain least squares: ONE chart LM from θ over every datum at unit weight, on the rows Triggs robustifies
+# (`_triggs_state`, manifold_providers.jl: the residual's own unit, a pinhole PnP's pixels), so L2 and Triggs at an
+# unbounded width minimise the same cost.
 function _refine_run(::Nothing, problem, θ, spec::_RefineSpec)
     ch = _chart(problem, _as_model(problem, θ))
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(_refine_lm_ws(spec.workspace), rows, dof)
     fill!(sqrt_weights(ews), 1.0)
-    lm = _refit_state(problem, ch, sqrt_weights(ews))
+    lm = _triggs_state(problem, ch, sqrt_weights(ews))
     x, _, _, n_iter, record = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
                                              ftol = _CHART_LM_FTOL)
     any(isnan, x) && return θ, (ReturnCode.Failure, NonFinite), n_iter

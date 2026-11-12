@@ -326,14 +326,14 @@ made from a whole mosaic (no window) records the same `mode` and `frame_map`,
 `==` field for field, whatever its Bayer phase or visible origin. For a result
 whose frames have no RAW behind them that records the frame they are on.
 """
-raw_provenance(::Type{<:LinearRaw{:green_cells}}) = _mode_provenance(LinearRaw{:green_cells}, "green_cells")
-raw_provenance(::Type{<:LinearRaw{:bin2}}) = _mode_provenance(LinearRaw{:bin2}, "bin2")
+raw_provenance(::Type{<:LinearRaw{:green_cells}}) =
+    (mode = "green_cells", frame_map = _frame_map_record(raw_frame_map(LinearRaw{:green_cells})))
+raw_provenance(::Type{<:LinearRaw{:bin2}}) = (mode = "bin2", frame_map = _frame_map_record(raw_frame_map(LinearRaw{:bin2})))
 raw_provenance(::Type{<:LinearRaw{:demosaic}}) = (mode = "demosaic", frame_map = nothing)
-_mode_provenance(T, mode) = (; mode, frame_map = _frame_map_record(raw_frame_map(T)))
 
 # THE record of a cell image's frame map (raw_frame_map, BayerCellFrame{:G} → PixelFrame{:colmap}) as plain data: the
 # mode's and an image's provenance both write it.
 _provenance_frame_map(::LinearRaw{:demosaic}) = nothing
 _provenance_frame_map(L::LinearRaw) = _frame_map_record(raw_frame_map(L))
-_frame_map_record(S) =
+_frame_map_record(S::SimilarityMap) =
     (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))

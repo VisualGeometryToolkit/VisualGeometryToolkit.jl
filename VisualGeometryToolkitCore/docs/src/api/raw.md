@@ -12,7 +12,8 @@ method of ImageCore's `channelview` (a view, on the mosaic's device), and
 of every plane and channel onto the sensor. Decoding a file is
 VisualGeometryToolkitFeatures' (`load_raw_mosaic`, LibRaw), and so is the
 display demosaic. A cell mode's frame map is also read without an image,
-`raw_frame_map(LinearRaw{:green_cells})`, for a frame with no RAW behind it. See the
+`raw_frame_map(LinearRaw{:green_cells})`, and its provenance record,
+`raw_provenance(LinearRaw{:green_cells})`, for a frame with no RAW behind it. See the
 [Raw images](../guide/raw-images.md) guide.
 
 ## The mosaic and its photosite views

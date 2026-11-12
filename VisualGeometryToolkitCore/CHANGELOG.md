@@ -2,7 +2,8 @@
 
 ## 0.9.4 (unreleased)
 
-A patch. Additive: `is_inside_texel_centres` and the mode method of `raw_frame_map`; otherwise no API change.
+A patch. Additive: `is_inside_texel_centres` and the mode methods of `raw_frame_map` and `raw_provenance`; otherwise no
+API change.
 
 - **New: `is_inside_texel_centres(uv, (W, H))`** (public): whether `uv` lies in the closed rectangle of the texel
   centres of `bilinear_sample`'s half-texel chart, exactly the positions where `bilinear_weights` interpolates
@@ -15,6 +16,12 @@ A patch. Additive: `is_inside_texel_centres` and the mode method of `raw_frame_m
   a mosaic) is built as `raw_frame_map(mosaic) ∘ raw_frame_map(LinearRaw{mode})`, so a whole mosaic's image has the mode's
   map bit for bit (tested over every Bayer phase, visible-origin parity and window parity). RadiometricCamera read the
   map off a hand-made one-cell mosaic for frames with no RAW behind them.
+- **New: `raw_provenance(::Type{LinearRaw{mode}})`**, a method of the public `raw_provenance`: the part of an image's
+  provenance the mode alone determines, `(; mode, frame_map)`, without an image (`frame_map` the record of
+  `raw_frame_map(LinearRaw{mode})`; `nothing` for `:demosaic`). An image's `raw_provenance` takes its `mode` from it and
+  writes its `frame_map` by the same private rule (`_frame_map_record`), so every whole-mosaic image records the mode's
+  `mode` and `frame_map` field for field (tested over every Bayer phase and visible-origin parity); a window's record differs
+  only by its offset in `translation`. RadiometricCamera built its one-cell probe mosaic for this record too.
 
 ## 0.9.3 (unreleased)
 

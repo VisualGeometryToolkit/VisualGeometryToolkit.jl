@@ -427,6 +427,30 @@ end
                 frame_map = (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = 2.0, translation = [0.0, 0.0]))
 end
 
+@testitem "raw: the mode's provenance without an image is every whole-mosaic image's" setup = [RawFixtures] begin
+    using VisualGeometryToolkitCore: LinearRaw, raw_provenance, raw_frame_map, translation
+    raw = UInt16[1000 + 37 * i + 11 * j for i in 1:10, j in 1:14]
+    for mode in (:green_cells, :bin2)
+        P = raw_provenance(LinearRaw{mode})
+        @test P == (mode = String(mode),
+                    frame_map = (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = 2.0, translation = [0.0, 0.0]))
+        for cell in LAYOUTS, origin in ORIGINS
+            m = mosaic(raw, cell; origin)
+            p = raw_provenance(LinearRaw(m; mode, gain = 2))
+            @test p.mode == P.mode && p.frame_map == P.frame_map              # field for field
+            @test raw_provenance(typeof(LinearRaw(m; mode))) == P
+            for r0 in (1, 2), c0 in (1, 2)                                    # a window: the same record but its offset
+                w = view(m, r0:(r0 + 7), c0:(c0 + 11))
+                q = raw_provenance(LinearRaw(w; mode)).frame_map
+                @test q.from == P.frame_map.from && q.to == P.frame_map.to && q.scale == P.frame_map.scale
+                @test q.translation == collect(translation(raw_frame_map(LinearRaw(w; mode))))
+                @test q.translation == [c0 - 1.0, r0 - 1.0]
+            end
+        end
+    end
+    @test raw_provenance(LinearRaw{:demosaic}) == (mode = "demosaic", frame_map = nothing)
+end
+
 
 # -----------------------------------------------------------------------------
 # channelview: the photosites channel-first, a view, and the one phase rule (0.9.2)

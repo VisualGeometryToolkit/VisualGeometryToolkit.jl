@@ -303,14 +303,37 @@ end
 How the image was made, as plain data a result records: `decoder`,
 `libraw_version` (from the mosaic's metadata; `nothing` where it states none),
 `mode`, `gain` and `frame_map` (`(; from, to, scale, translation)` of
-[`raw_frame_map`](@ref), `nothing` for `:demosaic`).
+[`raw_frame_map`](@ref)`(L)`, `nothing` for `:demosaic`). Its `mode` is the
+mode's own record's ([`raw_provenance`](@ref)`(LinearRaw{mode})`), and both
+records' `frame_map` are written by one rule from the map, so an image of a
+whole mosaic records the mode's `frame_map`; a window's records its offset in
+`translation`.
 """
 function raw_provenance(L::LinearRaw)
+    by_mode = raw_provenance(typeof(L))
     return (decoder = get(L.metadata, :decoder, nothing), libraw_version = get(L.metadata, :libraw_version, nothing),
-            mode = String(_mode(L)), gain = L.gain, frame_map = _provenance_frame_map(L))
+            mode = by_mode.mode, gain = L.gain, frame_map = _provenance_frame_map(L))
 end
+
+"""
+    raw_provenance(::Type{LinearRaw{mode}}) -> (; mode, frame_map)
+
+The part of [`raw_provenance`](@ref)`(L)` that the mode alone determines, without
+an image: `mode` (`"green_cells"`, `"bin2"`, `"demosaic"`) and `frame_map`, the
+record of [`raw_frame_map`](@ref)`(LinearRaw{mode})` (`(; from, to, scale,
+translation)`; `nothing` for `:demosaic`, which holds no geometry). An image
+made from a whole mosaic (no window) records the same `mode` and `frame_map`,
+`==` field for field, whatever its Bayer phase or visible origin. For a result
+whose frames have no RAW behind them that records the frame they are on.
+"""
+raw_provenance(::Type{<:LinearRaw{:green_cells}}) = _mode_provenance(LinearRaw{:green_cells}, "green_cells")
+raw_provenance(::Type{<:LinearRaw{:bin2}}) = _mode_provenance(LinearRaw{:bin2}, "bin2")
+raw_provenance(::Type{<:LinearRaw{:demosaic}}) = (mode = "demosaic", frame_map = nothing)
+_mode_provenance(T, mode) = (; mode, frame_map = _frame_map_record(raw_frame_map(T)))
+
+# THE record of a cell image's frame map (raw_frame_map, BayerCellFrame{:G} → PixelFrame{:colmap}) as plain data: the
+# mode's and an image's provenance both write it.
 _provenance_frame_map(::LinearRaw{:demosaic}) = nothing
-function _provenance_frame_map(L::LinearRaw)
-    S = raw_frame_map(L)
-    return (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))
-end
+_provenance_frame_map(L::LinearRaw) = _frame_map_record(raw_frame_map(L))
+_frame_map_record(S) =
+    (from = "BayerCellFrame{:G}", to = "PixelFrame{:colmap}", scale = Float64(scale(S)), translation = collect(Float64, translation(S)))

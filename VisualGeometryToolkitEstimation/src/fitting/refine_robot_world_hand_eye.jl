@@ -310,7 +310,7 @@ function _refine_robot_world_hand_eye(
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
         retcode, iterations = iters, rms_rows = n, strategy = lo, weights,
-        scale = input === nothing ? NaN : Float64(input.scale), scale_source = input === nothing ? ScaleNone : input.source,
+        scale = VgtkCore.scale_source(input) === ScaleNone ? NaN : Float64(VgtkCore.noise_scale(input)), scale_source = VgtkCore.scale_source(input),
         loss_width = sqrt(_sq_loss_width(loss))
     )
 end

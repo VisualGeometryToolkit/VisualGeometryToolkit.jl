@@ -216,3 +216,37 @@ end
     @test_throws ArgumentError filtered_rotation_averaging(vg; cycle_tol = -1.0, scale = 1.0e-3)
     @test_throws ArgumentError filtered_rotation_averaging(vg; orientation_tol = 0.0, scale = 1.0e-3)
 end
+
+# B2's Uncertain edges, `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))`, are the edges the
+# averaging accepts: the filters read their rotation (Core's `geom`), never the covariance (they
+# made an `SMatrix` of the Uncertain value, a DimensionMismatch).
+@testitem "the view-graph filters take Uncertain edges" begin
+    using Test, Random, LinearAlgebra, StaticArrays, Rotations
+    using VisualGeometryToolkitEstimation: filtered_rotation_averaging, filter_cycles, filter_by_orientation,
+        rotation_loop_angle, ViewGraph, nedges
+    using VisualGeometryToolkitCore: estimate, Attributed, Uncertain, CovMat
+
+    rng = Xoshiro(29)
+    n = 10
+    R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
+    pairs = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
+    rel = Dict(p => RotMatrix(RotationVec((1.0e-3 .* randn(rng, 3))...)) * R[p[2]]' * R[p[1]] for p in pairs)
+    rel[(4, 6)] = RotMatrix(RotationVec(0.8, -0.4, 0.3)) * rel[(4, 6)]                   # one wrong pair
+    Σ = SMatrix{3, 3, Float64}(1.0e-6I)
+    vg = ViewGraph(Dict(p => Attributed(Uncertain(rel[p], CovMat(Σ)), (; weight = 100.0)) for p in pairs))
+    err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
+
+    # the residual and both filters on the Uncertain edges, and on bare Uncertain rotations
+    @test rotation_loop_angle(vg[1, 2], vg[2, 3], vg[1, 3]) < 1.0e-2
+    @test rotation_loop_angle(Uncertain(rel[(1, 2)], CovMat(Σ)), rel[(2, 3)], rel[(1, 3)]) < 1.0e-2
+    c = filter_cycles(vg; tol = deg2rad(2.0))
+    @test !haskey(c, 4, 6) && haskey(c, 4, 5)
+    o = filter_by_orientation(vg, R; tol = deg2rad(2.0))
+    @test !haskey(o, 4, 6) && nedges(o) == length(pairs) - 1
+    @test nedges(filter_by_orientation(vg, Dict(k => Uncertain(R[k], CovMat(Σ)) for k in 1:n); tol = deg2rad(2.0))) == length(pairs) - 1
+    # the filtered averaging at its tolerances: the wrong pair removed, the rest fitted (no scale: the covariances carry it)
+    fo = filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
+    @test !haskey(fo.graph, 4, 6) && err(estimate(fo.fit)) < 5.0e-3
+    fc = filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), orientation_tol = deg2rad(2.0))
+    @test !haskey(fc.graph, 4, 6) && err(estimate(fc.fit)) < 5.0e-3
+end

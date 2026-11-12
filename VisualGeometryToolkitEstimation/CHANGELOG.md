@@ -5,6 +5,10 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **The view-graph filters take Uncertain edges**: `rotation_loop_angle` (`filter_cycles`' residual),
+  `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
+  rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the
+  edges `fit_rotation_averaging` accepts) and an `Uncertain` absolute rotation no longer throw `DimensionMismatch`.
 - **`fit_camera(L, source, region; fixed = ())` holds coefficients too** (found by the CaliBlobs port: its OpenCV target
   held p and d while the linear start fitted them, and resetting them after the fit left a 19.7 px median). The names
   and groups resolve through Core's `free_parameter_names`, as `refine_camera`'s. A held coefficient's column leaves the

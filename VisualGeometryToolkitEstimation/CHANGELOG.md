@@ -41,7 +41,7 @@ non-central one is a `NoncentralSplineModel`).
   no aliases (the old names are retired in VisualGeometryToolkitCore's `check_naming`).
 - **The strategy keywords' internal names follow them** (no aliases): `default_local_optimization(scoring)` (the
   `ransac`/`locally_optimize` keyword's default) is `default_local_optimization_strategy`, and the fits' private
-  default reader is `_fit_optimization_strategy`. Both old names are retired in VisualGeometryToolkitCore's
+  default reader (B2's `_fit_strategy_default`) no longer spells `_fit_local_optimization`. Both old names are retired in VisualGeometryToolkitCore's
   `check_naming`.
 - **`[fit_division_camera] seed_nu = 1.0e4`**: the median-seeded posterior's start ν, which VisualGeometryToolkitCore's
   `median_seeded_posterior` no longer defaults (its priors are required). Unchanged in value.

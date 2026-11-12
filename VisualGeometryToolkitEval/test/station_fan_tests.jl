@@ -49,12 +49,17 @@ end
 @testitem "station_fan: colorbar" begin
     using Test
     using PlotUtils: cgrad
-    using VisualGeometryToolkitEval.Render: write_station_fan_colorbar
+    using VisualGeometryToolkitEval.Render: write_station_fan_colorbar, pgf_colormap
     fixture(name) = read(joinpath(@__DIR__, "data", "station_fan", name), String)
     colormap = let g = cgrad(:RdYlGn)
         t -> get(g, t)
     end
     bar(; kw...) = sprint(io -> write_station_fan_colorbar(colormap, io; colormap_name = "rdylgn", kw...))
+    # the colormap body, public: the bar's own definition, reversed and not; 15 samples by default
+    @test occursin("colormap={rdylgn}{$(pgf_colormap(colormap))}", bar(; span = (0, 1), ticks = [0, 1], label = "x"))
+    @test occursin("colormap={rdylgnrev}{$(pgf_colormap(colormap; reverse = true))}", bar(; span = (0, 1), ticks = [0, 1], label = "x"))
+    @test count("rgb=", pgf_colormap(colormap)) == 15 && count("rgb=", pgf_colormap(colormap; samples = 3)) == 3
+    @test startswith(pgf_colormap(colormap; samples = 2), "rgb=(" * string(round(colormap(0).r; digits = 4)))
     bmvc(m) = "floorplan colorbar: $(m) — generated, edit freely"
     @test bar(; span = (2, 120), logarithmic = true, reverse = true, ticks = [2, 5, 10, 25, 60, 120],
               label = raw"trans.~error [mm]", comment = bmvc("trans")) == fixture("bmvc2026_cbar_trans.tex")

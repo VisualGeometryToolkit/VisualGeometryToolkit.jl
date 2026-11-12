@@ -164,6 +164,17 @@
         end
     end
 
+    @testset "tier_path: a path in a tier, under its tier's root" begin
+        data = mktempdir(); derived = mktempdir()
+        withenv("VGTK_DATA_ROOT" => data, "VGTK_DATA_ROOT_DERIVED" => derived, "VGTK_SITE" => nothing) do
+            E.set_project_root!(mktempdir())
+            @test E.tier_path("derived", "derived", "pool-k", "pool.jld2") == joinpath(derived, "derived", "pool-k", "pool.jld2")
+            @test E.tier_path("boards", "a4.toml") == joinpath(data, "a4.toml")               # no tier root: the data root
+            @test E.tier_path("boards") == data
+            E.set_project_root!("")
+        end
+    end
+
     @testset "a scratch run never completes, caches or promotes a run of record, nor the reverse" begin
         out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
         withenv("VGTK_SCRATCH" => nothing) do
@@ -426,9 +437,7 @@
                 mkpath(out); write(joinpath(out, "pool.jld2"), "p")
                 c = Dict{String,Any}("inputs" => Dict{String,Any}("pool" => Dict{String,Any}("tier" => "derived", "path" => "derived/pool-" * k0)))
                 @test E.input_path(c, "pool") == out
-                @test E.tier_path("derived", "derived", "pool-" * k0, "pool.jld2") == joinpath(out, "pool.jld2")
             end
-            @test E.tier_path("boards", "a4.toml") == joinpath(data, "a4.toml")                    # no tier root: the data root
             # a run of record made an input of record
             run = joinpath(res, "fig", "run-" * k0); mkpath(run); write(joinpath(run, "r.csv"), "1\n")
             @test_throws r"no _provenance.toml" E.promote_run(run, "runs_of_record")

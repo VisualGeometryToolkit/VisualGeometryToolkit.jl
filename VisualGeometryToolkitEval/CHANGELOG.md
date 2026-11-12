@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New public names for helpers projects restated:** `Reproduce.provenance_token(s)` (a provenance field's
+  spelling: spaces and `;` made `_`), `Reproduce.project_relative_path(path, root = project_root())` (a path as a
+  provenance comment cites it) and `Render.pgf_colormap(colormap; reverse, samples = 15)` (a colormap as pgfplots'
+  colormap body, the one `write_station_fan_colorbar` defines). They were the private `_provenance_token`,
+  `_project_relative` and `_pgf_colormap`.
+
 - **One tier resolver, read and write** (`tier_data_root`): the runner's `missing_inputs`, `data_root(; tier)`,
   `input_path`, `verify_inputs`, `tier_path`, `keyed_data_dir` and `promote_run` all resolve a tier through it, in one
   order: `VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the artifact view (when the data root IS one and

@@ -11,13 +11,23 @@
 # number_macros.jl.
 # =============================================================================
 
-# A provenance field as the comment holds it: a space or a `;` (the comment's
-# separators) becomes `_`.
-_provenance_token(s) = replace(String(s), r"[\s;]" => "_")
+"""
+    provenance_token(s) -> String
 
-# A path as a provenance comment cites it: relative to the project `root`.
-_project_relative(path::AbstractString, root::AbstractString) =
-    _provenance_token(isabspath(path) ? relpath(path, root) : path)
+A provenance field as a number macro's comment holds it (`PaperNumbers`'s `run_key`, `commit`, `config`): every
+space and `;` (the comment's separators) made `_`. The one spelling [`checkout_commit`](@ref) and
+[`number_provenance`](@ref) write; a project that records a field of its own uses it too.
+"""
+provenance_token(s) = replace(String(s), r"[\s;]" => "_")
+
+"""
+    project_relative_path(path, root = project_root()) -> String
+
+A path as a provenance comment cites it: relative to the project `root` when absolute, as given otherwise, made a
+[`provenance_token`](@ref) (`number_provenance`'s `config`).
+"""
+project_relative_path(path::AbstractString, root::AbstractString = project_root()) =
+    provenance_token(isabspath(path) ? relpath(path, root) : path)
 
 """
     checkout_commit(root = project_root()) -> String
@@ -30,7 +40,7 @@ read from a run carry the run's recorded commit instead
 ([`number_provenance`](@ref)).
 """
 checkout_commit(root::AbstractString = project_root()) =
-    _provenance_token(something(gitdescribe(root), "unknown"))
+    provenance_token(something(gitdescribe(root), "unknown"))
 
 """
     number_provenance(run_dir; root = project_root()) -> NamedTuple
@@ -47,8 +57,8 @@ after the splat wins).
 function number_provenance(run_dir::AbstractString; root::AbstractString = project_root())
     p = read_provenance(run_dir)
     out = (;)
-    haskey(p, "run_key") && (out = merge(out, (; run_key = _provenance_token(p["run_key"]))))
-    haskey(p, "gitcommit") && (out = merge(out, (; commit = _provenance_token(p["gitcommit"]))))
-    haskey(p, "config_source") && (out = merge(out, (; config = _project_relative(String(p["config_source"]), root))))
+    haskey(p, "run_key") && (out = merge(out, (; run_key = provenance_token(p["run_key"]))))
+    haskey(p, "gitcommit") && (out = merge(out, (; commit = provenance_token(p["gitcommit"]))))
+    haskey(p, "config_source") && (out = merge(out, (; config = project_relative_path(String(p["config_source"]), root))))
     return out
 end

@@ -72,11 +72,18 @@ end
 # A span or a set of ticks on the colour axis: log10 of the statistic's units when `logarithmic`.
 _colour_axis(x, logarithmic::Bool) = logarithmic ? log10.(Float64.(x)) : Float64.(x)
 
-# A colormap sampled at 15 points as pgfplots' `rgb=(r,g,b) …`, reversed when `reverse`.
-_pgf_colormap(colormap, reverse::Bool) = join(
+"""
+    pgf_colormap(colormap; reverse = false, samples = 15) -> String
+
+The colormap `colormap` (`t ∈ [0, 1] -> colour` with fields `r`, `g`, `b`) as pgfplots' colormap body, `rgb=(r,g,b)
+rgb=(…) …`: sampled at `samples` evenly spaced points, each channel rounded to 4 digits, reversed (`1 - t`) when
+`reverse`. The text [`write_station_fan_colorbar`](@ref) defines its `\\pgfplotsset{colormap={<name>}{…}}` with; a
+figure that defines the same colormap for its own axis writes it here.
+"""
+pgf_colormap(colormap; reverse::Bool = false, samples::Integer = 15) = join(
     [let c = colormap(reverse ? 1 - t : t)
          "rgb=($(round(c.r; digits = 4)),$(round(c.g; digits = 4)),$(round(c.b; digits = 4)))"
-     end for t in range(0, 1, 15)], " ")
+     end for t in range(0, 1, samples)], " ")
 
 """
     write_station_fan_colorbar(colormap, io::IO; span, ticks, tick_labels = <the ticks>, label = nothing,
@@ -116,8 +123,8 @@ function write_station_fan_colorbar(colormap, io::IO; span::Tuple{Real, Real}, t
     meta = "point meta min=$(round(lo; digits = 4)), point meta max=$(round(hi; digits = 4)),"
     println(io, "% ", comment)
     println(io, "\\begin{tikzpicture}[baseline=(current bounding box.north)]")
-    println(io, "\\pgfplotsset{colormap={$(colormap_name)rev}{$(_pgf_colormap(colormap, true))}, ",
-                "colormap={$(colormap_name)}{$(_pgf_colormap(colormap, false))}}")
+    println(io, "\\pgfplotsset{colormap={$(colormap_name)rev}{$(pgf_colormap(colormap; reverse = true))}, ",
+                "colormap={$(colormap_name)}{$(pgf_colormap(colormap))}}")
     if orientation === :vertical
         println(io, "\\begin{axis}[hide axis, scale only axis, width=0pt, height=$(length),")
         println(io, "  colormap name=$(name), colorbar, $(meta)")

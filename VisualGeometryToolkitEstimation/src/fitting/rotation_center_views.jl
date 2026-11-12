@@ -152,9 +152,10 @@ end
 """
     RotationCenterRefineMetadata
 
-The metadata of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref): the bundle's robust record — the
-bearing rows (each dot's tangent residual whitened into pixels) `residuals`, `s²`, `ν`, `residual_norms`, `weights`,
-`scale`, `scale_source` and `loss_width`, as [`CameraPosesRefineMetadata`](@ref)'s — and the dots without a bearing
+The metadata of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref): the bundle's robust record, as
+[`CameraPosesRefineMetadata`](@ref)'s and in its units, PIXELS — each dot's bearing row is its tangent residual whitened
+into pixels by the back-projection Jacobian, so `residuals` (px), `s²` (px²), `ν`, `residual_norms` (one per
+correspondence, px), `weights`, `scale` (px) and `loss_width` (px), with `scale_source` — and the dots without a bearing
 (the camera does not back-project them, or their back-projection Jacobian cannot whiten the residual), which make no
 row: read by [`n_without_bearing`](@ref) and [`without_bearing`](@ref) (their `(view, correspondence index)` pairs).
 """

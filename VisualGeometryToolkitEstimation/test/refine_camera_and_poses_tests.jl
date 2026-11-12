@@ -935,6 +935,11 @@ end
         d_px = SVector(0.004393079564646457, -0.05981001254314642, 0.0500520758028424)
         @test converged(r) && norm(estimate(r).views.center - c_px) < 1.0e-5 && norm(estimate(r).views.offset - d_px) < 1.0e-5
         @test abs(r.rms - 0.13627333865447266) < 1.0e-4 * 0.13627333865447266
+        # the record is in pixels (the bearing rows whitened into px): at σ = 0.1 px a dot's 2-vector residual has rms
+        # σ√2 ≈ 0.14 px, so the rms, √s² and the per-dot norms read in pixels (a tangent angle would read ~1e-4)
+        md = r.metadata
+        @test 0.5 * 0.1 * sqrt(2) < r.rms < 2 * 0.1 * sqrt(2) && 0.5 * 0.1 * sqrt(2) < sqrt(md.s²) < 2 * 0.1 * sqrt(2)
+        @test length(md.residual_norms) == r.n && 0.5 * 0.1 < sum(md.residual_norms) / r.n < 4 * 0.1
     end
     @testset "the gauge: a one-axis set and two views are refused; a free camera; the keys" begin
         one_axis = center_truth([SVector(0.0, 0.0, a) for a in -0.1:0.05:0.1])

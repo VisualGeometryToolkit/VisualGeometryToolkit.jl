@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Device buffers are released through VisualGeometryToolkitCore's `free_device_buffers!`** (an evicted ASIFT plan's,
+  the matcher's score blocks), no longer KernelAbstractions' `unsafe_free!`, which CUDA.jl does not extend: on a GPU
+  they were not released until the collector ran. Now they are, at once.
+
 - **ASIFT with `FeatureCovariance` drops a detection whose covariance is singular or NaN** (the owner's ruling,
   2026-11-12), exactly as it drops a failed sub-pixel refinement, before the cross-warp NMS, and counts it in
   `plan.refine_dropped`. Every returned keypoint's covariance is finite and positive definite. Without

@@ -79,6 +79,7 @@ using FlexUnits: Quantity, Units, ustrip, uconvert, dimension, ubase,
 # Functional updates
 using Accessors: Accessors
 using Adapt: Adapt   # a warp's device form (BoundedMap's adapt_structure, geometry/transforms/bounded_map.jl)
+using GPUArrays: GPUArrays   # an eager release of a device buffer (`free_device_buffers!`, base/device.jl): GPUArrays owns `unsafe_free!`
 
 # Colors (still needed for image types, independent of plotting)
 using Colors: Colors, Gray
@@ -118,7 +119,7 @@ export bbox
 # Compute backend dispatch tags (shared across the package family)
 export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
-public device_free_bytes, reclaim_device!, device_names   # the accelerator's memory and devices, the extension's queries (base/device.jl)
+public device_free_bytes, reclaim_device!, device_names, free_device_buffers!   # the accelerator's memory and devices, the extension's queries (base/device.jl)
 export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
 public device_zeros   # a zero array on a backend (base/device.jl; KernelAbstractions' `zeros` is not public)
 

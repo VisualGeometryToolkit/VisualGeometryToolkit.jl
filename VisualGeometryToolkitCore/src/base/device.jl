@@ -112,6 +112,22 @@ function reclaim_device!(dev)
 end
 
 """
+    free_device_buffers!(xs::AbstractArray...) -> nothing
+
+Release each device array's memory NOW (GPUArrays' `unsafe_free!`), rather
+than when the collector finalizes its few-byte host wrapper — which, with no
+host memory pressure, it has no reason to do while the device fills. A host
+array is left alone. Only for buffers the caller allocated and never reads
+again: a freed array must not be used (GPUArrays throws on its next use). An
+array derived from another (a `reshape`) shares its memory, which is released
+when the last of them is freed. KernelAbstractions' `unsafe_free!` is not used:
+CUDA.jl does not extend it, so it freed nothing on the GPU.
+"""
+free_device_buffers!(xs::AbstractArray...) = (foreach(_free_device_buffer!, xs); nothing)
+@inline _free_device_buffer!(x::GPUArrays.AbstractGPUArray) = GPUArrays.unsafe_free!(x)
+@inline _free_device_buffer!(::AbstractArray) = nothing
+
+"""
     device_names() -> Vector{String}
 
 The names of the accelerator devices this process sees (the extension's query: CUDA's

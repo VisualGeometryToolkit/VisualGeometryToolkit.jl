@@ -5,6 +5,15 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **New dependency: GPUArrays** (11.5), for `free_device_buffers!(xs...)` (public): the ONE eager release of a device
+  buffer (GPUArrays' `unsafe_free!`; a host array untouched), hoisted from RANSACScoringDoneRight. KernelAbstractions'
+  `unsafe_free!`, which VisualGeometryToolkitFeatures called, is not extended by CUDA.jl 5.11 and freed nothing on the GPU.
+- **`@threshold_scoring_constructors S`, public**: a threshold-scorer family's constructors (`S{DG}()`, `S()`,
+  `S(dg; threshold)`, `S(problem; threshold)`, `S(P; threshold)`) and its `with_width`, generated once; `RansacScoring`
+  and `MsacScoring` are built by it (bit-identical), and a downstream family by the same line.
+- **`RadixPermBuffers{K, I}`**: the radix sort's permutation of any integer type `I` (`radix_sortperm!(perm::Vector{I},
+  …)`); `RadixPermBuffers{K}(n)` is `I = Int`, bit-identical.
+
 - **New methods of existing functions (hoists from downstream copies).** `is_stationary(blocks, variables, free; tol,
   ftol)`: the stall postcondition of an NLLSsolver problem's residual blocks in the columns of its free variables, the
   √ρ′-weighted gradient and column norms accumulated block by block (each block's `robustkernel`), the problem's

@@ -30,9 +30,8 @@ export VGTK_SUITE_PACKAGES="${PKGS[*]}"
 
 COMMIT=$(git rev-parse HEAD)
 LOGS=${VGTK_SUITE_LOGS:-ci/slurm/logs}
-export VGTK_SUITE_LOGDIR=$LOGS/$(date +%Y%m%d-%H%M%S)-${COMMIT:0:8}${VGTK_SUITE_GROUP:+-$VGTK_SUITE_GROUP}
-mkdir -p "$VGTK_SUITE_LOGDIR"
-VGTK_SUITE_LOGDIR=$(cd "$VGTK_SUITE_LOGDIR" && pwd)
+source ci/slurm/logdir.sh
+VGTK_SUITE_LOGDIR=$(new_logdir "$LOGS" "${COMMIT:0:8}${VGTK_SUITE_GROUP:+-$VGTK_SUITE_GROUP}"); export VGTK_SUITE_LOGDIR
 echo "commit   $COMMIT ($(git status --porcelain --untracked-files=no | wc -l) modified tracked files)"
 echo "packages ${PKGS[*]}"
 echo "logs     $VGTK_SUITE_LOGDIR"

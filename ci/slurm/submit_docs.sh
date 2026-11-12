@@ -30,8 +30,8 @@ fi
 source ci/slurm/packages.sh
 COMMIT=$(git rev-parse HEAD)
 LOGS=${VGTK_SUITE_LOGS:-ci/slurm/logs}
-export VGTK_DOCS_LOGDIR=$LOGS/$(date +%Y%m%d-%H%M%S)-${COMMIT:0:8}-docs
-mkdir -p "$VGTK_DOCS_LOGDIR"; VGTK_DOCS_LOGDIR=$(cd "$VGTK_DOCS_LOGDIR" && pwd)
+source ci/slurm/logdir.sh
+VGTK_DOCS_LOGDIR=$(new_logdir "$LOGS" "${COMMIT:0:8}-docs"); export VGTK_DOCS_LOGDIR
 OPTS=(--parsable --mem-per-cpu="${MEM_PER_CPU:-8480}M" --output="$VGTK_DOCS_LOGDIR/slurm-%A_%a.out")
 [ -n "${VGTK_SLURM_PARTITION:-}" ] && OPTS+=(--partition="$VGTK_SLURM_PARTITION")
 [ -n "${VGTK_SLURM_ACCOUNT:-}" ] && OPTS+=(--account="$VGTK_SLURM_ACCOUNT")

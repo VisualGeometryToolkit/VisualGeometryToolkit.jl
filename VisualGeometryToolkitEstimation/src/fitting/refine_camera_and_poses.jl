@@ -588,6 +588,7 @@ function _refine_bundle(
     # correction); Irls, weighted solves at the loss's weights ρ′ until the robust cost decreases by less than `ftol`
     # (relative) or `max_iter` cycles. A refine estimates no scale.
     stationarity_blocks = costs
+    irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
         problem, result = solve(costs, vars0)
         iters = result.niterations
@@ -609,10 +610,11 @@ function _refine_bundle(
             prev = sum(x -> VgtkCore.ρ(shape, x, sq), q)
             problem, result = weighted_solve(vars0, q)
             iters += result.niterations
+            irls_capped = true          # until a cycle's robust cost stops decreasing
             for _ in 2:lo.max_iter
                 q = sqnorms(problem.variables)
                 cost = sum(x -> VgtkCore.ρ(shape, x, sq), q)
-                prev - cost <= ftol * abs(cost) && break
+                prev - cost <= ftol * abs(cost) && (irls_capped = false; break)
                 prev = cost
                 problem, result = weighted_solve(problem.variables, q)
                 iters += result.niterations
@@ -630,7 +632,7 @@ function _refine_bundle(
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 
     r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    code = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
+    code = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol)
     lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
     S = sum(abs2, r)
     ν = 2n - p

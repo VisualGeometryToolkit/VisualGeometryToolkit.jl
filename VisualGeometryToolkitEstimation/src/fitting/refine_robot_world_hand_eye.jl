@@ -251,6 +251,7 @@ function _refine_robot_world_hand_eye(
     # no least-squares stage: Triggs, one robustified LM; Irls, weighted LMs at the loss weights ρ′ until the robust
     # cost stops decreasing or `max_iter` cycles. The loss runs at the caller's frozen scale or width.
     stationarity_blocks = costs
+    irls_capped = false             # an Irls run that reached its `max_iter` cycles is capped, whatever its last solve
     if lo === nothing
         problem, result = solve(costs, copy(poses0))
         iters = result.niterations
@@ -267,10 +268,11 @@ function _refine_robot_world_hand_eye(
             prev = sum(x -> ρ(shape, x, sq), q)
             problem, result = solve(weighted(q), copy(poses0))
             iters = result.niterations
+            irls_capped = true          # until a cycle's robust cost stops decreasing
             for _ in 2:lo.max_iter
                 q = sqnorms(problem.variables)
                 cost = sum(x -> ρ(shape, x, sq), q)
-                cost < prev || break
+                cost < prev || (irls_capped = false; break)
                 prev = cost
                 problem, result = solve(weighted(q), collect(problem.variables))
                 iters += result.niterations
@@ -290,7 +292,7 @@ function _refine_robot_world_hand_eye(
     # robust strategy: the stall postcondition, the eigen-diagnostics and the covariance are the weighted problem's
     r, Js = nlls_rows_and_jacobian(stationarity_blocks, charts)
     J = Matrix(Js)
-    retcode = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
+    retcode = irls_capped ? :max_iterations : nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-

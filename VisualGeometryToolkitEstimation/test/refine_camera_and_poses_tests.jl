@@ -323,6 +323,9 @@ end
         r = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = lo, scale = 0.2)
         @test retcode(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
+    # an Irls run that reaches its `max_iter` cycles is capped, never `:converged` (whatever its last solve)
+    @test retcode(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(max_iter = 1), scale = 0.2)) ===
+        :max_iterations
     # a width alone: the loss at it, no scale recorded; the same loss as the scale that gives it (the record aside)
     rw = refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), width = 1.345 * 0.2)
     @test retcode(rw) === :converged && err(rw) < 0.4 && isnan(rw.scale) && rw.loss_width ≈ 1.345 * 0.2

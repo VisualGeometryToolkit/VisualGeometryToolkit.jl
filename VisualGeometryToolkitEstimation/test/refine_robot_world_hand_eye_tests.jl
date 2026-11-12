@@ -169,6 +169,9 @@ end
         ri = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(), scale = 0.5)
         @test retcode(ri) === :converged && err(ri) < err(ls) / 2
         @test weight_kind(ls) === BinaryWeights() && scale_source(ls) === ScaleNone && all(==(1), weights(ls))
+        # an Irls run that reaches its `max_iter` cycles is capped, never `:converged`
+        @test retcode(refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(max_iter = 1),
+                                                  scale = 0.5)) === :max_iterations
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword
         @test_throws r"reads no scale" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = nothing, scale = 0.5)

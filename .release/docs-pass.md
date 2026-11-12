@@ -22,9 +22,23 @@ method respectively).
 | versions | Core 0.9.4; no other package moves |
 | in-repo compat | none needs moving: every Core compat in the repo ("0.9", "0.9.2", "0.9.3") admits 0.9.4, and no in-repo package uses either addition |
 
-## 3. Executed on the RC
+## 3. Executed on the final RC
 
-To be filled from the gate (Julia 1.13 and 1.12; Core GPU, CPU, docs), then the fresh-clone final gate after 0.9.3 is pushed.
+The final RC is eff6ff34 (0.9.4 on 1c7581ec). Rebased onto the pushed 0.9.3 main, b7ad736e, it is ebc41b49, with the same tree
+outside `.release/` (`git diff eff6ff34 ebc41b49 -- ':!.release'` is empty). The gate ran on two fresh clones, one per Julia
+version: a `git clone` with no Manifest, its workspace resolved from scratch. Counts are pass / fail / error / broken.
+
+| Package | 1.13.3 GPU (10511) | 1.13.3 CPU (10512) | 1.12.7 GPU (10515) | 1.12.7 CPU (10516) | docs 1.13 / 1.12 |
+|---|---|---|---|---|---|
+| VisualGeometryToolkitCore | 410869 / 0 / 0 / 2 | 409291 / 0 / 0 / 30 | 410866 / 0 / 0 / 2 | 409288 / 0 / 0 / 30 | 0 / 0 (10513, 10517) |
+| VisualGeometryToolkitIO | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 30541 / 0 / 0 / 4 | 0 / 0 (10514, 10518) |
+| VisualGeometryToolkitEstimation | 20961 / 0 / 0 / 3 | 20951 / 0 / 0 / 3 | 20949 / 0 / 0 / 3 | 20939 / 0 / 0 / 3 | 0 / 0 |
+| VisualGeometryToolkitFeatures | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | 3071 / 0 / 0 / 2 | 3014 / 0 / 0 / 8 | 0 / 0 |
+| VisualGeometryToolkitEval | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 0 / 0 |
+| PoseLib | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 373 / 0 / 0 / 1 | 0 / 0 |
+
+No failures or errors anywhere. The 0.9.4 delta's own Core suites on the worktree, on the pre-rebase base 9762b9b4 (CPU 10425/10429,
+GPU 10426/10430), failed only the base's `require_extension` world-age item that 1c7581ec fixes; the new items passed on all four.
 
 ---
 

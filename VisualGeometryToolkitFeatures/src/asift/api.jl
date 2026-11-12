@@ -233,7 +233,8 @@ CPU (pinned by the test suite):
 - every detection is refined: extrema are searched on the interior scale slices
   only (each with a slice above and below), and an extremum whose refinement
   fails is dropped (`plan.refine_dropped` counts them), never returned on the
-  octave's pixel grid.
+  octave's pixel grid; with `uncertainty = FeatureCovariance()`, so is a
+  detection whose covariance is singular or NaN (counted there too).
 With `raw = true` the features are in 0-indexed OpenCV coordinates (top-left
 pixel centre (0, 0)), 0.5 less on both axes.
 

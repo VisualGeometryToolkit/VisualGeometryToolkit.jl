@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **ASIFT with `FeatureCovariance` drops a detection whose covariance is singular or NaN** (the owner's ruling,
+  2026-11-12), exactly as it drops a failed sub-pixel refinement, before the cross-warp NMS, and counts it in
+  `plan.refine_dropped`. Every returned keypoint's covariance is finite and positive definite. Without
+  `uncertainty` nothing changes.
+
 - **Breaking: `pairwise_matrix` and `nn_match` default to `default_device()`** (the stack's GPU-first rule):
   `pairwise_matrix(metric, d1, d2, device = default_device())` and `nn_match(…; device = default_device())` run on an
   accelerator when one is functional, else on `KA.CPU()` as before. `nn_match(…; device = nothing)` is a

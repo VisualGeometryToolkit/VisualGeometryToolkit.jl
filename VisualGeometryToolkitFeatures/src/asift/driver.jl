@@ -667,7 +667,9 @@ loop over same-size frames without the cache's lock.
 A plan holds device memory (several GiB for a large image under the full
 schedule). It is mutable because its feature pool grows, and because
 `plan.refine_dropped` records how many extrema the last call dropped when
-their sub-pixel refinement failed (no unrefined detection is returned).
+their sub-pixel refinement failed (no unrefined detection is returned) or, with
+`uncertainty = FeatureCovariance()`, when their covariance was singular or NaN
+(no detection without a usable covariance is returned).
 
 ```jldoctest
 julia> using VisualGeometryToolkitFeatures
@@ -725,7 +727,7 @@ mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     keeph::Vector{Int32}
     bandh::Vector{Int32}
     const counth::Vector{Int32}
-    refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed (dropped)
+    refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed, or whose covariance was singular or NaN (dropped)
     const kern::KN
     const seed_sigma::Float64            # the pyramid's seed blur, and the σ the extractor reports
     # keypoint covariance (uncertainty.jl), built on the first call that asks for
@@ -1224,6 +1226,8 @@ function asift_detect!(
     copyto!(plan.feath, 1, reshape(plan.feat, :), 1, 9n)
     fh = reshape(view(plan.feath, 1:9n), 9, n)
     ch = _host_covs(plan, uncertainty, n)
+    # a detection whose covariance is singular or NaN is dropped and counted, as a failed refinement is
+    plan.refine_dropped += _drop_singular_covs!(fh, ch, n)
     _canonical_order!(fh, ch)
 
     if nms !== :none
@@ -1283,6 +1287,20 @@ _host_covs(plan, ::Nothing, n) = nothing
 function _host_covs(plan, ::FeatureCovariance, n)
     copyto!(plan.covh, 1, reshape(plan.featcov, :), 1, 6n)
     return reshape(view(plan.covh, 1:6n), 6, n)
+end
+
+# The pooled detections (`fh`'s valid row 9) whose covariance (`ch`'s packed column) is not finite and positive
+# definite — an implicit-function system that was singular — marked invalid; their number. None without covariances.
+_drop_singular_covs!(fh, ::Nothing, n) = 0
+function _drop_singular_covs!(fh, ch, n)
+    dropped = 0
+    for i in 1:n
+        fh[9, i] == 1.0f0 || continue
+        c = view(ch, :, i)
+        all(isfinite, c) && isposdef(parent(_keypoint_cov(c))) && continue
+        fh[9, i] = 0.0f0; dropped += 1
+    end
+    return dropped
 end
 
 _no_features(::Nothing) = ImasFeatureKA[]

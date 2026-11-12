@@ -61,10 +61,12 @@ schedule), so `(x, y, log σ)` are its only free parameters and `Σ̃` is full r
 float input image, and the `[0, 1]` scale for 8-bit input (`UInt8`, `N0f8`, …;
 σ_n = σ_gray / 255). The physical covariance is `σ_n²·Σ̃`.
 
-**Every detection is refined**: the detector searches the interior scale slices
-only and drops an extremum whose sub-pixel refinement fails, so every returned
-keypoint has its covariance (`NaN` only where the implicit-function system is
-singular).
+**Every detection is refined, and has a covariance**: the detector searches the
+interior scale slices only and drops an extremum whose sub-pixel refinement
+fails, and with `FeatureCovariance` it drops, exactly so, a detection whose
+covariance is singular or NaN (the implicit-function system singular: not
+finite and positive definite), before the cross-warp NMS; `plan.refine_dropped`
+counts both. Every returned keypoint's `Σ̃` is finite and positive definite.
 
 Extension point (not implemented): an intensity-dependent noise model, e.g.
 `FeatureCovariance(noise = ShotNoise(a, b))`, makes the middle term

@@ -15,7 +15,7 @@
     rng = Xoshiro(11)
     nodes = grid_nodes(4; lo = -0.6, hi = 0.6)
     X = EuclideanMap(RotMatrix{3}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.02, -0.01, 2.0))
-    P = SimilarityMap(0.9, RotMatrix{3}(RotXYZ(0.0, 0.0, 0.3)), SVector(-0.4, -0.45, 0.0))
+    P = SimilarityMap(0.9, one(RotMatrix{3, Float64}), SVector(-0.4, -0.45, 0.0))   # a placement: no rotation
     rect = Rect2(-0.5, -0.5, 1.0, 1.0)
     H = HeightField(nodes, 0.01 .* randn(rng, 16))
     T = ThinPlateSpline(nodes, 0.01 .* randn(rng, 16), 0.01 .* randn(rng, 16))
@@ -38,7 +38,8 @@
                     y, J = Cam._map_value_jacobian(m, x)
                     @test near(y, m(x))
                     @test near(J, transform_deriv(m, x))
-                    @test isequal(Cam._map_value(m, x), y)        # the point is the Jacobian pass's, operation for operation
+                    # the point is the one the Jacobian's evaluation computes, operation for operation
+                    @test isequal(Cam._map_value(m, x), y)
                     push!(kinds, nameof(typeof(m)))
                 end
             end

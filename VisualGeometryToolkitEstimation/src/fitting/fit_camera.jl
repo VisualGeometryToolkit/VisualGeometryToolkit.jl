@@ -1257,10 +1257,10 @@ function fit_camera(
     _check_tolerance(tolerance)
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
     gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source)
-    code = _spline_record(code, gauge.code, nothing)
+    code = _spline_record(code, gauge.code)
     cam = gauge.camera
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
-    fwd === nothing || (code = _spline_record(code, fwd.code, nothing))
+    fwd === nothing || (code = _spline_record(code, fwd.code))
     out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
     ff = fwd === nothing ? nothing :
         (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
@@ -1299,7 +1299,7 @@ fit_camera(::Type{SplineLens}, source::NoncentralSplineModel, region; kwargs...)
 # The record of a SplineLens fit from its stages' records (the backward search, the optical-axis gauge, the forward
 # search), carried through as records: a later stage that did not succeed replaces the earlier (a Stalled gauge stays
 # Stalled, with its rule).
-_spline_record(rec::Tuple{ReturnCode.T, StopRule}, later::Tuple{ReturnCode.T, StopRule}, ::Nothing) =
+_spline_record(rec::Tuple{ReturnCode.T, StopRule}, later::Tuple{ReturnCode.T, StopRule}) =
     VgtkCore.successful_retcode(later[1]) ? rec : later
 
 # The backward of the SplineLens target: a SplineLens source's own, kept exactly

@@ -466,7 +466,7 @@ function fit_division_camera(
     niter, rc = iterations(res), retcode(res)
     record = (rc, stop_rule(res))
     θ = estimate(res)
-    audited = rc != ReturnCode.Failure && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
+    audited = !_leg_failed(record...) && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
     if audited !== nothing
         verbose && println("  branch audit: $(_moved_branches(audited, θ)) view(s) moved; resuming")
         st = _division_irls_state(st.rws, problem, audited, st.residuals, lh; refresh = true)
@@ -537,6 +537,13 @@ end
 # One run of the loop from `θ` for at most `max_iter` iterations (none at 0), its
 # trace printed when the problem is verbose (`Recorded`: the run is the bare run,
 # iterate for iterate); the iterations are numbered from `first_iter`.
+# A leg that failed is not branch-audited and resumed: a failed solve (`InternalLinearSolveFailed`, an IRLS solve that
+# failed mid-loop), a non-finite start, or a failure that is not a spent trial budget. Exactly the records the former
+# Symbol `:solve_failed` named (VisualGeometryToolkitCore's `retcode_symbol`; a guard that kept the seed is not one).
+_leg_failed(code::ReturnCode.T, rule::StopRule) = rule != SeedKept && (
+    code == ReturnCode.InternalLinearSolveFailed || (code == ReturnCode.InitialFailure && rule == NonFinite) ||
+    (code == ReturnCode.Failure && rule != TrialBudget && rule != AdaptiveCount))
+
 function _division_run!(st, lh, method, problem::DivisionCameraProblem, θ, max_iter::Int, first_iter::Int)
     run = problem.verbose ? VgtkCore.Recorded(st) : st
     res = block_coordinate_descent!(run, lh, method, problem, θ; max_iter)

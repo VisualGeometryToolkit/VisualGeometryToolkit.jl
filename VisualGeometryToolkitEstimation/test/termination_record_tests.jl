@@ -242,11 +242,11 @@ end
     # the stages' records are carried through as records: a stage that did not succeed gives its own, rule included —
     # a Stalled optical-axis gauge stays Stalled (never re-read as a tolerance search's)
     sr = VgtkEstimation._spline_record
-    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize), nothing) ==
+    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)) ==
         (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
-    @test sr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), nothing) ==
+    @test sr((VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap), (VgtkCore.ReturnCode.Success, VgtkCore.NoRule)) ==
         (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
-    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm), nothing) ==
+    @test sr((VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet), (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)) ==
         (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet)
     check_covered(seen, (:fit_camera, :refine_camera, :approximate_camera, :pspline_grid, :optical_axis))
 end
@@ -327,4 +327,22 @@ end
     record!(seen, :refine_robot_world_hand_eye, refine_robot_world_hand_eye(seed, camera, markers; optimization_strategy = nothing))
     record!(seen, :refine_robot_world_hand_eye, refine_robot_world_hand_eye(seed, camera, markers; optimization_strategy = Irls{HuberShape}(), scale = 0.3))
     check_covered(seen, (:refine_camera_and_poses, :refine_robot_world_hand_eye, :BundleMetadata))
+end
+
+@testitem "termination record: fit_division_camera audits no failed leg" begin
+    # A leg whose solve failed mid-loop (the IRLS step's InternalLinearSolveFailed, the owner's ruling) is neither
+    # branch-audited nor resumed, as under the former Symbol `:solve_failed`: the failed-leg predicate names exactly the
+    # records `retcode_symbol` maps to `:solve_failed`, so no failure code (a non-finite start, a failed solve) is audited.
+    using VisualGeometryToolkitEstimation
+    import VisualGeometryToolkitCore as VgtkCore
+    failed = VisualGeometryToolkitEstimation._leg_failed
+    @test failed(VgtkCore.ReturnCode.InternalLinearSolveFailed, VgtkCore.NoRule)
+    @test failed(VgtkCore.ReturnCode.Failure, VgtkCore.NoRule)
+    @test failed(VgtkCore.ReturnCode.InitialFailure, VgtkCore.NonFinite)
+    @test !failed(VgtkCore.ReturnCode.Success, VgtkCore.ParameterChange)
+    @test !failed(VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
+    @test !failed(VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
+    for code in instances(VgtkCore.ReturnCode.T), rule in instances(VgtkCore.StopRule)
+        @test failed(code, rule) == (VgtkCore.retcode_symbol(code, rule) === :solve_failed)
+    end
 end

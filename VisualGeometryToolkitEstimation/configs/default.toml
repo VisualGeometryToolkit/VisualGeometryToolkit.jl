@@ -264,7 +264,7 @@ ftol = 1.0e-10
 # max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point; `:stalled`
 # otherwise. Shared by every chart LM — the LO refits and `refine_camera`'s lens families — and by
 # `refine_robot_world_hand_eye` (VGC
-# `nlls_retcode`). Measured 2026-10-01 (the cosine at every step-size stop):
+# `nlls_termination`). Measured 2026-10-01 (the cosine at every step-size stop):
 # genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM
 # benchmark scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a
 # residual's rounding floor — the noiseless hand-eye fit, whose rotation log

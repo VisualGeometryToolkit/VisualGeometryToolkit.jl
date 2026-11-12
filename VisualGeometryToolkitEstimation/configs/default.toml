@@ -85,7 +85,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 # only — no find_*). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
 # bound, π (the largest angle between two rays) times the largest pixel
 # whitening gain, so the default 1.0 admits every correspondence to the
-# consensus set. With Irls{GaussianShape} the default refine is least squares
+# consensus set. With Irls{GaussianShape} the default local optimization is least squares
 # over every correspondence at the caller's weights — the form's behaviour
 # since it was hoisted from RadiometricCamera (2026-10-27). A caller's
 # `scoring` is in the residual's unit (radians, or pixels with an `M` column).

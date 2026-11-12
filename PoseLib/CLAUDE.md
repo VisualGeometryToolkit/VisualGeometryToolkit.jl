@@ -59,5 +59,5 @@ The bindings take caller-frame data and return results in that frame; a
 `loss_width` is in the unit of the data handed over. Any conditioning inside the
 C++ is private to it. A binding that needs a camera takes it (not a pre-divided
 loss width), and says which camera model it hands to C++. The loss is a
-VisualGeometryToolkitCore loss shape (or `LeZachTruncation()`), mapped to PoseLib's
+VisualGeometryToolkitCore loss shape (or `LeZach()`), mapped to PoseLib's
 integer `LossType` only at the ccall.

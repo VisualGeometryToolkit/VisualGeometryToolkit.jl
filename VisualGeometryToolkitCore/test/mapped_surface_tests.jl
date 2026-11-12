@@ -441,11 +441,9 @@ end
             KernelAbstractions.synchronize(backend)
             ref = [intersection(sF, a, b) for (a, b) in zip(oF, dF)]
             tr, xr = first.(ref), last.(ref)
-            # the host's misses exactly (NaN where it misses), its hits to a few ulps: the
-            # kernel is compiled apart, and the compiler may contract (FMA) differently
-            @test isequal(isnan.(t), isnan.(tr)) && isequal(map(v -> isnan.(v), x), map(v -> isnan.(v), xr))
-            @test maximum(abs, filter(isfinite, t - tr)) <= 8 * eps(F)
-            @test maximum(abs, filter(isfinite, reinterpret(F, x - xr))) <= 8 * eps(F)
+            # the host's hits and misses, bit for bit: the kernel is compiled apart, and the root's fused products are
+            # explicit (Core 0.9.3), so no copy contracts differently
+            @test isequal(t, tr) && isequal(x, xr)
         end
         cuda = try
             m = Base.require(Main, :CUDA)
@@ -466,8 +464,7 @@ end
                 Base.invokelatest(hits!(gpu, 64), t, x, Base.invokelatest(CuArray, oF), Base.invokelatest(CuArray, dF),
                                   Base.invokelatest(adapt, gpu, sF); ndrange = length(os))
                 tg = Base.invokelatest(Array, t)
-                @test isequal(isnan.(tg), isnan.(ref))
-                @test maximum(abs, filter(isfinite, tg - ref)) <= 4 * eps(F) * 2   # FMA contraction on the device at most
+                @test isequal(tg, ref)   # the device's hits bit for bit the host's (explicit fused products, Core 0.9.3)
             end
         end
     end

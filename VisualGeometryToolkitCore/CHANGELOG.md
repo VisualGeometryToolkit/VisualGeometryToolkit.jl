@@ -1,6 +1,21 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.9.2 (unreleased)
+## 0.9.3 (unreleased)
+
+A patch: no API change.
+
+- **Fixed: one surface and one ray have one hit, whatever code calls it.** The `MappedSurface` root (`intersection`,
+  `chart`, `normal`, `surface_point`) is inlined into its callers, and its arithmetic was built on operations LLVM may
+  contract into FMAs as each compiled copy decides (StaticArrays' `muladd` products, its `@simd` `dot`, the LM
+  increment's `muladd`s): two hits of the same surface and ray in one function came out 2–3 ulp apart (a height field
+  alone or composed, Julia 1.12 and 1.13, with or without `--check-bounds=yes`). The root now reads the chart map
+  through its own traversal with explicit fused products (`fma` chains in a fixed order; everything else plain
+  arithmetic, which Julia never contracts), as does the 2-D LM it shares with the spline lenses' projection, so it stays
+  inlined — a device kernel's evaluation keeps its speed — and gives the same bits in every copy. Hits, and the spline
+  lenses' projections (the same 2-D LM), move by rounding only against 0.9.2; their bits no longer depend on the call
+  site. Tested bit for bit over 10⁴ calls from five call sites per surface (`mapped_surface_determinism_tests.jl`).
+
+## 0.9.2 (2026-11-12)
 
 Additive. The sensor image moves here from VisualGeometryToolkitFeatures (Features 0.8.0 keeps the LibRaw decoder and
 the display demosaic; it no longer exports these names, Core alone does), so every package below Features reads a

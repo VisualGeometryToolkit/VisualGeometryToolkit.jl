@@ -39,11 +39,9 @@ end
     P = SimilarityMap(0.9, one(RotMatrix{3, Float64}), SVector(-0.4, -0.45, 0.0))
     rect = Rect2(-0.5, -0.5, 1.0, 1.0)
     rays = [(SVector(0.3randn(rng), 0.3randn(rng), 0.0), SVector(0.2randn(rng), 0.2randn(rng), 1.0)) for _ in 1:200]
-    # the same hit, a miss on both. To rounding, not bit for bit: a composed calibration's hit (the generic 2 × 2
-    # root) was measured to move by 2–3 ulp between two evaluations of one surface on one ray in this suite's
-    # worker (Julia 1.12.7, --check-bounds=yes; one ray of 200, cases H ∘ Aspect ∘ Skew and H ∘ T), and 0 in a
-    # plain process — Core's root, not with_parameters. A height field alone is checked bit for bit below.
-    same((ta, xa), (tb, xb)) = isnan(ta) ? isnan(tb) && all(isnan, xb) : abs(ta - tb) <= 1.0e-12 && maximum(abs, xa - xb) <= 1.0e-12
+    # the same hit: equal numbers (a signed zero equal to its opposite), a miss on both. Exact since Core 0.9.3: the
+    # root gives the same bits at every call site (mapped_surface_determinism_tests.jl).
+    same((ta, xa), (tb, xb)) = isnan(ta) ? isnan(tb) && all(isnan, xb) : ta == tb && xa == xb
     H = HeightField(nodes, 0.01 .* randn(rng, 16))
     T = ThinPlateSpline(nodes, 0.01 .* randn(rng, 16), 0.01 .* randn(rng, 16))
     for (C, Pc) in ((H, nothing), (H, P), (H ∘ Aspect(0.01) ∘ Skew(-0.003), nothing), (H ∘ T, P))

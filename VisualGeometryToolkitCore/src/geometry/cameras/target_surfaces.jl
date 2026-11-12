@@ -92,6 +92,23 @@ struct _PlainCalibration{C} <: CoordinateTransformations.Transformation
 end
 @inline (f::_PlainCalibration)(q::StaticVector{2}) = _apply(f.c, q)
 @inline transform_deriv(f::_PlainCalibration, q::StaticVector{2}) = _point_jacobian(f.c, q)
+# ... and through the chart map's fused traversal (`_map_value_jacobian`, mapped_surface.jl): a composition's members with
+# `_fma_mul`, a planar affine factor as its matrix times the point (plus a planar Euclidean map's translation), a thin-plate
+# kind's own sums (plain arithmetic, never contracted)
+@inline _map_value_jacobian(f::_PlainCalibration, q::StaticVector{2}) = _calibration_value_jacobian(f.c, q)
+@inline _map_value(f::_PlainCalibration, q::StaticVector{2}) = _calibration_value(f.c, q)
+@inline function _calibration_value_jacobian(c::_CalibrationComposition, q)
+    y, J2 = _calibration_value_jacobian(c.t2, q)
+    z, J1 = _calibration_value_jacobian(c.t1, y)
+    return z, _fma_mul(J1, J2)
+end
+@inline _calibration_value(c::_CalibrationComposition, q) = _calibration_value(c.t1, _calibration_value(c.t2, q))
+@inline _calibration_value_jacobian(c::_PlanarFactor, q) = (J = transform_deriv(c, q); (_with_offset(c, _fma_mul(J, q)), J))
+@inline _calibration_value(c::_PlanarFactor, q) = _with_offset(c, _fma_mul(transform_deriv(c, q), q))
+@inline _calibration_value_jacobian(c, q) = (_apply(c, q), _point_jacobian(c, q))
+@inline _calibration_value(c, q) = _apply(c, q)
+@inline _with_offset(E::EuclideanMap{2}, v) = v + translation(E)
+@inline _with_offset(c, v) = v
 # (the chart map's traversal descends into it: Adapt, convert_eltype, a Dual layer's values)
 _map_members(f, c::_PlainCalibration) = _PlainCalibration(_map_members(f, c.c))
 
@@ -182,7 +199,7 @@ _height_over_affine(::Type) = false
 _height_over_affine(::Type{<:HeightField}) = true
 _height_over_affine(::Type{ComposedTransformation{A, B}}) where {A, B} = A <: HeightField && is_affine(B) && is_planar(B)
 _field_and_affine(c::HeightField) = (c, one(SMatrix{2, 2, eltype(c.h)}), zero(SVector{2, eltype(c.h)}))
-_field_and_affine(c::ComposedTransformation) = (c.t1, _chart_affine(c.t2)...)
+_field_and_affine(c::ComposedTransformation) = (c.t1, reverse(_calibration_value_jacobian(c.t2, zero(SVector{2, Float64})))...)
 # the numbers' type of a calibration type (its parameter vector's), at compile time
 _numbers_type(::Type{C}) where {C} = eltype(Base.promote_op(parameter_vector, C))
 _numbers_type(::Type{<:EuclideanMap{3, T}}) where {T} = T
@@ -218,16 +235,14 @@ end
     pV = ifelse(ok, pV, zero(pV))
     b1, b2 = s2_tangent_basis(d)
     u1, u2 = oftype(d, b1), oftype(d, b2)
-    X = s.map(map(v -> _lift_dual(D, v), pV))              # the one Dual evaluation
-    δ = X - o
-    r = SVector(dot(u1, δ), dot(u2, δ))
-    J = transform_deriv(sV.map, pV)                        # the values' Jacobian: no Dual arithmetic
-    U = vcat(map(v -> _outer_value(D, v), u1)', map(v -> _outer_value(D, v), u2)')
-    G = inv(U * J)
+    X = _map_value(s.map, map(v -> _lift_dual(D, v), pV))  # the one Dual evaluation
+    r = _across(u1, u2, X - o)
+    _, J = _map_value_jacobian(sV.map, pV)                 # the values' Jacobian: no Dual arithmetic
+    G = inv(_across(map(v -> _outer_value(D, v), u1), map(v -> _outer_value(D, v), u2), J))
     ∂(i) = -(G[i, 1] * ForwardDiff.partials(r[1]) + G[i, 2] * ForwardDiff.partials(r[2]))
     δp = SVector(_with_value(D, zero(pV[1]), ∂(1)), _with_value(D, zero(pV[2]), ∂(2)))
-    x = X + J * δp
-    t = dot(x - o, d) / dot(d, d)
+    x = X + _fma_mul(J, δp)
+    t = _fma_dot(x - o, d) / _fma_dot(d, d)
     return _masked(ok, t, x)
 end
 # A surface with every Dual layer of its members and frame stripped (`_primal`).
@@ -242,18 +257,18 @@ end
     q = s.frame
     n = normal(q)
     S₂ = _placement_plane(S)
-    S₂⁻¹ = inv(S₂)
+    S₂⁻¹ = s.map.t2.t2                             # the chart map's own inverse placement
     field = _PlainCalibration(H)
-    den = dot(d, n)                                # g′ without the surface's slope
-    s0 = dot(q.origin - o, n)                      # the ray's height above the plane: t den − s0
-    cd = SVector(dot(d, q.e_u), dot(d, q.e_v))     # the plane velocity of the ray
-    # the surface's height z_S(m) at plane coordinates m and its gradient, through the members
+    den = _fma_dot(d, n)                           # g′ without the surface's slope
+    s0 = _fma_dot(q.origin - o, n)                 # the ray's height above the plane: t den − s0
+    cd = SVector(_fma_dot(d, q.e_u), _fma_dot(d, q.e_v))   # the plane velocity of the ray
+    # the surface's height z_S(m) at plane coordinates m and its gradient, through the members (the fused traversal)
     function terms(t, x)
-        m = _plane_coordinates(q, x)
-        y = S₂⁻¹(m)
-        Y = field(y)
-        Jz = (transform_deriv(S, Y) * transform_deriv(field, y) * transform_deriv(S₂⁻¹, m))[SVector(3), :]
-        return t * den - s0 - S(Y)[3], den - dot(Jz[1, :], cd)
+        y, Ji = _map_value_jacobian(S₂⁻¹, _frame_coordinates(q, x))
+        Y, Jf = _map_value_jacobian(field, y)
+        Z, JS = _map_value_jacobian(S, Y)
+        gz = _fma_tmul(Ji, _fma_tmul(Jf, SVector(JS[3, 1], JS[3, 2], JS[3, 3])))   # row 3 of JS Jf Ji: ∇ of the height
+        return t * den - s0 - Z[3], den - _fma_dot(gz, cd)
     end
     t, x = _plane_hit(q, o, d)                     # the seed
     for _ in 1:_HEIGHT_NEWTON_ITERATIONS
@@ -281,6 +296,6 @@ end
     end
     converged |= last <= sqrt(ε)
     # the design point: y = J c + β of the affine factors, p = S₂(c)
-    p = S₂(J \ (S₂⁻¹(_plane_coordinates(q, x)) - β))
+    p = _map_value(S₂, J \ (_map_value(S₂⁻¹, _frame_coordinates(q, x)) - β))
     return t, x, p, converged & (t >= 0) & _in_rect(q.rect, p)
 end

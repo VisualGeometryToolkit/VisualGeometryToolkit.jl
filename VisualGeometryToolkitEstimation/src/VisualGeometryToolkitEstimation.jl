@@ -60,7 +60,7 @@ using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterat
 # robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
 # (fitting/_refine.jl) the scale they were handed.
 using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleInput, scale_input, BinaryWeights,
-    PosteriorWeights, IrlsWeights, unit_weights
+    PosteriorWeights, unit_weights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.

@@ -67,8 +67,7 @@ RefineMetadata{L}(weights::W, residuals::Vector{T}, scale::Real, source::ScaleSo
 
 # The weight kind is the producer's: a robust strategy's loss weights, or (L2,
 # `Nothing`, Core's method) all ones.
-VgtkCore.weight_kind(::Type{<:RefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)
-VgtkCore.weight_kind(::Type{<:Union{Irls, Triggs}}) = IrlsWeights()
+VgtkCore.weight_kind(::Type{<:RefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)   # Core's for Irls, Triggs, nothing
 
 # -----------------------------------------------------------------------------
 # The keywords: the strategy, the scale input, the workspace — and the refusals

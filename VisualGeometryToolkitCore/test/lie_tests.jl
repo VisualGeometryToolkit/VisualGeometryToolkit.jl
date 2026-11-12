@@ -300,7 +300,7 @@ end
     A = SMatrix{6, 6, Float64, 36}([sin(3i + j) for i in 1:6, j in 1:6])
     Σ = A * A' + 0.1 * SMatrix{6, 6, Float64, 36}(I)
     X = inv(Uncertain(Y, CovMat(Σ)))
-    @test geom(X) ≈ inv(Y)
+    @test geom(X) == inv(Y)
     # J by central differences: δ ↦ local_coordinates at inv(Y) of inv(retract at Y by δ)
     chY, chX = RigidExpManifold6(Y), RigidExpManifold6(inv(Y))
     h = 1.0e-6

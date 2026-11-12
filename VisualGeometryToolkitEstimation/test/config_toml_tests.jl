@@ -356,7 +356,7 @@ end
 end
 
 # The one refusal of a retired keyword (public since 0.9, so a downstream package refuses its own the same way).
-@testitem "RetiredKeyword: a retired keyword refused by name, the default passing" begin
+@testitem "RetiredKeyword: a retired keyword refused by name, its default returning nothing" begin
     using Test
     using VisualGeometryToolkitEstimation: RetiredKeyword, refuse_retired_keyword
     f(; image_size = RetiredKeyword()) = (refuse_retired_keyword(image_size, :image_size, "the BoundedCamera's extent"); :ok)

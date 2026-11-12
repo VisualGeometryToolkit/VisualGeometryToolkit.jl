@@ -231,7 +231,9 @@ end
 function _refine_pipeline(problem, spec::_RefineSpec{L}, θ₀) where {L}
     _prepare!(problem)
     θ = _seed_convert(model_type(problem), θ₀)
+    M = model_type(typeof(problem))
     θ̂, code, iters = _refine_run(spec.lo, problem, θ, spec)
+    θ̂ = convert(M, θ̂)::M   # the problem's model type on every path (a failed LM returns its seed), so the result is inferred
     n = data_size(problem)
     r = Vector{Float64}(undef, n)
     mahalanobis_distances!(r, problem, θ̂)

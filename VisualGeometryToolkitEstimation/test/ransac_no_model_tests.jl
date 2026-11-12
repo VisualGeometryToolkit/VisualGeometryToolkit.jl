@@ -97,7 +97,7 @@ end
     @test VgtkEstimation._map_estimate(identity, r).metadata === r.metadata
 end
 
-@testitem "ransac: too few points is the no-model result" begin
+@testitem "ransac: too few points is the no-model result" setup = [TooFewData] begin
     using VisualGeometryToolkitCore: inlier_mask, scale_source, ScaleNone   # the robust contract's accessors
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
@@ -133,8 +133,7 @@ end
         return r
     end
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    pts, cs = few_points, few_csponds
     I3 = SMatrix{3, 3, Float64}(I)
     H = HomographyMat{Float64}(Tuple(I3))
     X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
@@ -181,7 +180,7 @@ end
     @test typeof(find_homography(cs(3))) === typeof(find_homography(cs(8)))
 end
 
-@testitem "ransac: too few points refuses the keywords enough points refuse" begin
+@testitem "ransac: too few points refuses the keywords enough points refuse" setup = [TooFewData] begin
     # The too-few path is the pipeline's: a retired, a width or an unknown keyword
     # raises the same error below the minimal sample as above it, never a :no_model.
     using Test, StaticArrays, LinearAlgebra
@@ -195,8 +194,7 @@ end
     # the same refusal: the same exception type and, for an ArgumentError, the same message
     same(a, b) = a !== nothing && typeof(a) === typeof(b) && (!(a isa ArgumentError) || a.msg == b.msg)
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    pts, cs = few_points, few_csponds
     H = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     Xs(n) = [SA[0.1i, 0.2 - 0.05i^2, 2.0 + 0.1i] for i in 1:n]

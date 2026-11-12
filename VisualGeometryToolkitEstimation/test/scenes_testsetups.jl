@@ -121,3 +121,12 @@ const _Family = synthetic_scenes().RadialScenes
 using ._Family
 eval(Expr(:export, setdiff(names(_Family), [:RadialScenes])...))
 end
+
+# Too few data for a minimal sample (ransac_no_model_tests.jl, refine_contract_tests.jl): `n` plane points on a
+# parabola, and their correspondences under a pure shift.
+@testsetup module TooFewData
+using VisualGeometryToolkitCore: Point2, csponds
+export few_points, few_csponds
+few_points(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
+few_csponds(n) = csponds(few_points(n), few_points(n) .+ Ref(Point2(1.0, 2.0)))
+end

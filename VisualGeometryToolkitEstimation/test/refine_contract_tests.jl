@@ -161,7 +161,7 @@ end
 # forms of the pose): the refusals and their messages, the default's need of a scale, least squares, and the result's
 # type inferred — on too few data for a minimal sample (the refine parses every keyword first, so the too-few path is
 # the contract's, cheaply), and hand-eye (whose problem needs 3 poses to exist) on 3.
-@testitem "refine_contract: every refine_* class" begin
+@testitem "refine_contract: every refine_* class" setup = [TooFewData] begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -173,8 +173,7 @@ end
         refine_circle, refine_ellipse, refine_radial_homography, refine_radial_camera, refine_absolute_pose,
         refine_hand_eye, RefineMetadata, Triggs, Irls, HomographyProblem
 
-    pts(n) = [Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-    cs(n) = csponds(pts(n), pts(n) .+ Ref(Point2(1.0, 2.0)))
+    pts, cs = few_points, few_csponds
     I3 = SMatrix{3, 3, Float64}(I)
     H = HomographyMat{Float64}(Tuple(I3))
     X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
@@ -223,10 +222,14 @@ end
         @test err(() -> f(; scale = 1.0, width = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = nothing, scale = 1.0)) isa ArgumentError
         @test err(() -> f(; optimization_strategy = Irls{VgtkCore.GaussianShape}(), scale = 1.0)) isa ArgumentError
-        # the result: a refine's, its type inferred; least squares records no scale, a robust strategy the given one
-        r = @inferred f(; scale = 1.0)
-        @test r isa VgtkCore.FitResult{<:Any, <:RefineMetadata} && scale_source(r) === ScaleGiven && weight_kind(r) === IrlsWeights()
-        l2 = @inferred f(; optimization_strategy = nothing)
+        # the result: a refine's, of a concrete type, its accessors inferred; least squares records no scale, a robust
+        # strategy the given one
+        r = f(; scale = 1.0)
+        @test isconcretetype(typeof(r)) && r isa VgtkCore.FitResult{<:Any, <:RefineMetadata}
+        @test (@inferred scale_source(r)) === ScaleGiven && (@inferred weight_kind(r)) === IrlsWeights()
+        @test (@inferred VgtkCore.noise_scale(r)) === 1.0 && (@inferred VgtkCore.weights(r)) isa Vector{Float64}
+        l2 = f(; optimization_strategy = nothing)
+        @test isconcretetype(typeof(l2)) && (@inferred scale_source(l2)) === ScaleNone
         @test l2 isa VgtkCore.FitResult{<:Any, <:RefineMetadata{Nothing}} && scale_source(l2) === ScaleNone &&
             weight_kind(l2) === BinaryWeights()
         class === :hand_eye || @test retcode(r) === :degenerate && retcode(l2) === :degenerate

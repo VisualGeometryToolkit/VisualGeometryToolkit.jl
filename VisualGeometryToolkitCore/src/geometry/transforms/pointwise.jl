@@ -14,20 +14,46 @@
 
 """
     OnBackend(backend; workgroupsize = nothing)
+    (exec::OnBackend)(kernel[, ndrange]) -> KernelAbstractions.Kernel
 
-The launch of [`pointwise!`](@ref)'s one kernel on `backend` itself: the
-backend value, so its compiler options hold (`CUDABackend(; always_inline =
-true)`), and `workgroupsize` fixes the launch's workgroup (`nothing`: the
-backend's choice). Without it the kernel runs on `get_backend(out)` with the
-defaults. A functor whose fields are each one of its type parameters or an
-isbits value reaches the kernel as its fields, rebuilt on the device: one large
-argument costs local memory there.
+The stack's ONE kernel-launch policy. Called on a KernelAbstractions `@kernel`,
+it instantiates it on `backend` itself: the backend value, so its compiler
+options hold (`CUDABackend(; always_inline = true)`), with the workgroup
+`workgroupsize` names, per backend:
+
+- `nothing`: the backend's choice (on the CPU, KernelAbstractions' default:
+  up to 1024 items as one workgroup on the calling task, a larger range in
+  groups of 1024 items over the threads).
+- one work item (`1`, `(1, 1)`, `(1, 1, 1)`): one item per workgroup on the
+  CPU, so a kernel whose work item is a long loop (a pool's (pair, model[, grid
+  point]) item) runs its items on every thread where the default's 1024-item
+  groups leave most threads idle; on a device, the backend's choice, since one
+  item per workgroup leaves all but one lane of every warp idle
+  (RANSACScoringDoneRight's Student-t grid on a B200: 1.54 ms at the backend's
+  choice, 30.6 ms at one item per workgroup).
+- any other size (a kernel's tile, a measured device size): that size, on
+  every backend.
+
+A static `ndrange` instantiates a statically sized kernel at `workgroupsize`
+as given (the CPU's allocation-free one-item launch). Every stack kernel is
+instantiated here.
+
+As [`pointwise!`](@ref)'s `exec`, it is that one kernel's launch; without it the
+kernel runs on `get_backend(out)` with the defaults. A functor whose fields are
+each one of its type parameters or an isbits value reaches the kernel as its
+fields, rebuilt on the device: one large argument costs local memory there.
 """
 struct OnBackend{B <: KernelAbstractions.Backend, W}
     backend::B
     workgroupsize::W
 end
 OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing) = OnBackend(backend, workgroupsize)
+@inline function (p::OnBackend)(kernel)
+    w = p.workgroupsize
+    (w === nothing || (!(p.backend isa KernelAbstractions.CPU) && all(isone, w))) && return kernel(p.backend)
+    return kernel(p.backend, w)
+end
+@inline (p::OnBackend)(kernel, ndrange) = kernel(p.backend, p.workgroupsize, ndrange)
 
 """
     pointwise!(f, out, xs...; exec = OnBackend(get_backend(out))) -> out
@@ -109,7 +135,6 @@ const _POINTWISE_FIELDS_KERNELS = Tuple(getfield(@__MODULE__, Symbol(:_pointwise
     I = @index(Global, Cartesian)
     @inbounds out[I] = f(map(x -> @inbounds(x[I]), xs)...)
 end
-_launch(p::OnBackend, k) = p.workgroupsize === nothing ? k(p.backend) : k(p.backend, p.workgroupsize)
 function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
     all(x -> axes(x) == axes(out), xs) ||
         throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
@@ -125,9 +150,9 @@ _field_tuple_expr(n::Integer) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:n)..
 function _pointwise_on!(p::OnBackend, f::G, out, xs) where {G}
     if _splattable(G)
         fs = _fields(f)
-        _launch(p, _POINTWISE_FIELDS_KERNELS[length(fs) + 1])(out, xs, G, fs...; ndrange = size(out))
+        p(_POINTWISE_FIELDS_KERNELS[length(fs) + 1])(out, xs, G, fs...; ndrange = size(out))
     else
-        _launch(p, _pointwise_kernel!)(out, xs, f; ndrange = size(out))
+        p(_pointwise_kernel!)(out, xs, f; ndrange = size(out))
     end
     return out
 end

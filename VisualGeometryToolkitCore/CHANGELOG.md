@@ -5,6 +5,18 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **One kernel-launch policy for the stack: `OnBackend(backend; workgroupsize)(kernel)`** (the owner's ruling, 2026-11-12).
+  The public `OnBackend` now instantiates a KernelAbstractions kernel (a call method; `(exec::OnBackend)(kernel,
+  ndrange)` for a statically sized one), and every stack kernel is instantiated through it: Core's `pointwise!`, row,
+  conversion, CSR, warp, sample, chart-spline, spline-lens, pool-selection and sweep kernels, VisualGeometryToolkitFeatures'
+  and RANSACScoringDoneRight's. The workgroup is per backend: `nothing` the backend's choice; ONE work item (`1`,
+  `(1, 1)`, …) one item per workgroup on the CPU (a kernel whose item is a long loop then runs on every thread) and the
+  backend's choice on a device (RANSACScoringDoneRight's deleted `_ka_kernel` rule); any other size as given. The pool
+  kernels (`exact_pm_score_kernel!`, `argmax_models_kernel!`, `ig_sweep_kernel!`) are launched at one item: on the CPU
+  unchanged, on a device `select_on_grid!`'s exact selection and RANSACScoringDoneRight's grids no longer run one
+  thread per workgroup (its Student-t grid on a B200 went 1.54 → 30.6 ms at one item per workgroup). Every other
+  launch keeps its workgroup. Results bit for bit (every launch site, CPU and CUDA, before and after).
+
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),
   one Dual layer at a time, so nested Duals differentiate exactly; no Dual enters the LM inverse. With a forward spline the

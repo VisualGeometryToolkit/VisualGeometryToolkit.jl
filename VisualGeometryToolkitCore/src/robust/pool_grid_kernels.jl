@@ -42,7 +42,7 @@ support_sq_loss_width(_scoring, ::Float64) = Inf
 support_sq_loss_width(::Union{RansacScoring, MsacScoring}, max_loss_width::Float64) = max_loss_width * max_loss_width
 
 """
-    exact_pm_score_kernel!(backend)(scores_out, sorted_sq_flat, pair_offset, K_per_pair, M_per_pair,
+    OnBackend(backend; workgroupsize = 1)(exact_pm_score_kernel!)(scores_out, sorted_sq_flat, pair_offset, K_per_pair, M_per_pair,
                                     loss_widths, T_val, p_offset, scoring, support_sq; ndrange = (n, M_max))
 
 Per (pair, model) of a chunk of `n` pairs: `scores_out[p, m, t]` (Float64, `(chunk, M_max, T)`)
@@ -50,7 +50,9 @@ the sum of `residual_quality(scoring, d², loss_widths[t])` over the model's squ
 (`sorted_sq_flat`, ascending, from `pair_offset[p]`, `K_per_pair[p]` per model), evaluated and
 accumulated in Float64. A non-finite residual is an outlier (skipped); the loop stops at
 `support_sq` ([`support_sq_loss_width`](@ref)). Chunk row `p` is pair `p + p_offset`; a model
-beyond `M_per_pair[p]` is left alone.
+beyond `M_per_pair[p]` is left alone. A work item is a loop over the model's residuals: launch it
+at one item per workgroup through [`OnBackend`](@ref), the stack's launch policy (every thread on
+the CPU, the backend's choice on a device).
 """
 @kernel function exact_pm_score_kernel!(
         scores_out,                       # (chunk_size, M_max, T) Float64
@@ -84,7 +86,7 @@ beyond `M_per_pair[p]` is left alone.
 end
 
 """
-    argmax_models_kernel!(backend)(errors_out, idxs_out, scores_pmt, M_per_pair, errors_imc_flat,
+    OnBackend(backend; workgroupsize = 1)(argmax_models_kernel!)(errors_out, idxs_out, scores_pmt, M_per_pair, errors_imc_flat,
                                    errors_offset, p_offset; ndrange = (n, T))
 
 Per (pair, width) of a chunk: the FIRST strictly best model of `scores_pmt[p, :, t]` over the

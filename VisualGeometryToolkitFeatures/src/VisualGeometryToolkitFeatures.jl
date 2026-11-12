@@ -40,6 +40,7 @@ using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
 using VisualGeometryToolkitCore: ka_upload, on_device, device_zeros   # the family's one upload to a device (base/device.jl)
+using VisualGeometryToolkitCore: OnBackend   # the stack's one kernel-launch policy (every kernel is instantiated through it)
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)

@@ -50,7 +50,7 @@ function image_sample!(
     backend = get_backend(dst)
     fv = _sample_type(eltype(dst))(fillvalue)
     T = float(eltype(eltype(points)))
-    _sample_kernel!(backend, 256)(dst, src, points, _colmap_to_julia_shift(T), fv; ndrange = length(dst))
+    OnBackend(backend; workgroupsize = 256)(_sample_kernel!)(dst, src, points, _colmap_to_julia_shift(T), fv; ndrange = length(dst))
     KernelAbstractions.synchronize(backend)
     return dst
 end

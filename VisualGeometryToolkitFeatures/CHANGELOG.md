@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Internal: every kernel is instantiated through VisualGeometryToolkitCore's one launch policy**, `OnBackend(device;
+  workgroupsize)(kernel)` (the owner's ruling, 2026-11-12): the ASIFT, cross-warp NMS, matching, Förstner, SSC and RAW
+  cell kernels, each at the workgroup it had (`_launch!` keeps only the synchronize). Results and timings unchanged.
 - **Breaking: `pairwise_matrix` and `nn_match` default to `default_device()`** (the stack's GPU-first rule):
   `pairwise_matrix(metric, d1, d2, device = default_device())` and `nn_match(…; device = default_device())` run on an
   accelerator when one is functional, else on `KA.CPU()` as before. `nn_match(…; device = nothing)` is a

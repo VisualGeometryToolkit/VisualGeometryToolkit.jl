@@ -253,7 +253,7 @@ function _nn_select(
     else
         nothing
     end
-    topk! = _ka_topk_rows!(dev, (256,))
+    topk! = OnBackend(dev; workgroupsize = (256,))(_ka_topk_rows!)
     init = ntuple(_ -> T(-Inf), K)
     chunks = S === nothing ? _row_chunks(dev, M, N, T, chunk_bytes) : [(1, M)]
     for (r1, r2) in chunks
@@ -266,7 +266,7 @@ function _nn_select(
         if rev !== nothing
             b1, b2, hoff, hsz, hbase = _chunk_blocks(offsets, sizes, r1, r2)
             coff = ka_upload(Int32, dev, hoff); csz = ka_upload(Int32, dev, hsz); cbase = ka_upload(Int32, dev, hbase)
-            _ka_top1_cols_blocked!(dev, (256, 1))(
+            OnBackend(dev; workgroupsize = (256, 1))(_ka_top1_cols_blocked!)(
                 view(rev.idx, :, b1:b2), view(rev.sc, :, b1:b2), blk, coff, csz, cbase, mx;
                 ndrange = (N, b2 - b1 + 1)
             )

@@ -122,6 +122,14 @@
                 @test o == g.(idx)
             end
         end
+        # the one launch policy: the backend's choice; one work item per workgroup on the CPU; a size as given
+        wg(k) = KernelAbstractions.workgroupsize(k)
+        rk = VisualGeometryToolkitCore._row_kernel!
+        @test wg(OnBackend(cpu)(rk)) <: KernelAbstractions.NDIteration.DynamicSize
+        @test KernelAbstractions.get(wg(OnBackend(cpu; workgroupsize = 1)(rk))) == (1,)
+        @test KernelAbstractions.get(wg(OnBackend(cpu; workgroupsize = (1, 1))(rk))) == (1, 1)
+        @test KernelAbstractions.get(wg(OnBackend(cpu; workgroupsize = 64)(rk))) == (64,)
+        @test KernelAbstractions.get(KernelAbstractions.ndrange(OnBackend(cpu, (1, 1, 1))(VisualGeometryToolkitCore.ig_sweep_kernel!, (1, 1, 1)))) == (1, 1, 1)
         @test pointwise!(hypot, Float64[], Float64[], Float64[]; exec = OnBackend(cpu)) == Float64[]
         @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(4), zeros(4); exec = OnBackend(cpu))
         @test_throws DimensionMismatch pointwise!(hypot, zeros(3), zeros(3), zeros(1); exec = OnBackend(cpu))   # no broadcasting
@@ -173,6 +181,11 @@
                 Base.invokelatest(KernelAbstractions.synchronize, cbe)
                 @test isequal(Base.invokelatest(Array, dev), Base.invokelatest(Array, bcast))
             end
+            # the one launch policy on a device: one work item per workgroup is the backend's choice there; a size as given
+            dwg(k) = KernelAbstractions.workgroupsize(k)
+            @test dwg(OnBackend(cbe; workgroupsize = 1)(VisualGeometryToolkitCore._row_kernel!)) <: KernelAbstractions.NDIteration.DynamicSize
+            @test dwg(OnBackend(cbe; workgroupsize = (1, 1))(VisualGeometryToolkitCore._row_kernel!)) <: KernelAbstractions.NDIteration.DynamicSize
+            @test KernelAbstractions.get(dwg(OnBackend(cbe; workgroupsize = 128)(VisualGeometryToolkitCore._row_kernel!))) == (128,)
             # functors holding a device array, launched as their fields: the array arrives as the kernel's form of it, the type
             # parameters bound in their declared order (a parameter no field declares, here equal to the array's type, kept)
             tab = Float32.(1:64) ./ 7; dtab = Base.invokelatest(CuArray, tab); didx = Base.invokelatest(CuArray, collect(1:64))

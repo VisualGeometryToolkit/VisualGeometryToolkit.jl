@@ -180,9 +180,9 @@ end
 # The NMS kernels, instantiated for one backend. `AsiftPlan` holds them in its
 # `kern` NamedTuple; `cross_warp_nms` builds its own.
 _nms_kernels(dev) = (
-    band = _band_pool!(dev, (256,)),
-    smx = _splat_mxm_pool!(dev, (256,)), nmx = _nms_mxm_pool!(dev, (256,)),
-    sel = _splat_ell_pool!(dev, (256,)), nel = _nms_ell_pool!(dev, (256,)),
+    band = OnBackend(dev; workgroupsize = (256,))(_band_pool!),
+    smx = OnBackend(dev; workgroupsize = (256,))(_splat_mxm_pool!), nmx = OnBackend(dev; workgroupsize = (256,))(_nms_mxm_pool!),
+    sel = OnBackend(dev; workgroupsize = (256,))(_splat_ell_pool!), nel = OnBackend(dev; workgroupsize = (256,))(_nms_ell_pool!),
 )
 
 # Cross-warp NMS over the first `n` features of a (9,·) pool (rows x, y, σ, I,

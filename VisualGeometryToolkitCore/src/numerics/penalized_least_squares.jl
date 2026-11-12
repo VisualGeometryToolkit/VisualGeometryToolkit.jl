@@ -113,7 +113,7 @@ KA.get_backend(C::CSRMatrix) = get_backend(C.nzval)
 end
 function LinearAlgebra.mul!(y::AbstractVector, C::CSRMatrix, x::AbstractVector)
     C.m == 0 && return y
-    _csr_mul_kernel!(get_backend(y))(y, C.rowptr, C.colval, C.nzval, x; ndrange = C.m)
+    OnBackend(get_backend(y))(_csr_mul_kernel!)(y, C.rowptr, C.colval, C.nzval, x; ndrange = C.m)
     return y
 end
 

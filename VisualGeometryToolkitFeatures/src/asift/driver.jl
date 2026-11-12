@@ -575,13 +575,13 @@ end
 function _asift_kernels(dev)
     WG = (256, 1, 1)
     return (
-        u8xy = _u8_to_xy!(dev, (256, 1)), fill3 = _fill3!(dev, WG),
-        bwarp = _bwarp3!(dev, WG), bfpb = _bfpb!(dev, WG),
-        tile = _btile_blur_dog!(dev, (32, _TILE_NY)), tfill = _tile_fill!(dev, (32, 8)),
-        down = _bdown!(dev, WG), up = _bupsample!(dev, (32, 8)),
-        ext = _bextract!(dev, (32, _TILE_NY)),
-        bp = _bbackproject!(dev, (256,)), pol = _polarity_pool!(dev, (256,)),
-        cov = _bcov!(dev, (256,)),
+        u8xy = OnBackend(dev; workgroupsize = (256, 1))(_u8_to_xy!), fill3 = OnBackend(dev; workgroupsize = WG)(_fill3!),
+        bwarp = OnBackend(dev; workgroupsize = WG)(_bwarp3!), bfpb = OnBackend(dev; workgroupsize = WG)(_bfpb!),
+        tile = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_btile_blur_dog!), tfill = OnBackend(dev; workgroupsize = (32, 8))(_tile_fill!),
+        down = OnBackend(dev; workgroupsize = WG)(_bdown!), up = OnBackend(dev; workgroupsize = (32, 8))(_bupsample!),
+        ext = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_bextract!),
+        bp = OnBackend(dev; workgroupsize = (256,))(_bbackproject!), pol = OnBackend(dev; workgroupsize = (256,))(_polarity_pool!),
+        cov = OnBackend(dev; workgroupsize = (256,))(_bcov!),
         _nms_kernels(dev)...,
     )
 end

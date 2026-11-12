@@ -210,18 +210,18 @@ end
 
 A `PosteriorWeightState` seeded from the MEDIAN residual, for a caller with no
 partition to seed from. Every point starts an inlier candidate at the scale
-`ŝ² = median(r²)/median(χ²_d)` (floored at eps), with `ν` large (a
+`ŝ² = mad_scale²` — the median residual norm over the median of `χ_d`
+([`mad_scale`](@ref), on the norms `√sq`), floored at eps — with `ν` large (a
 near-Gaussian start) and the E-step run once. Allocates its own buffers
-(`sq[1:n]` is copied). `codimension` is 1 or 2; `median(χ²_d)` is
-[`chisq_median`](@ref).
+(`sq[1:n]` is copied). `codimension` is 1 or 2.
 """
 function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
                                  outlier_halfwidth::Real, codimension::Int = 2,
                                  ν::Real = 1.0e4, prior::IGPrior = IGPrior(0.0, 0.0))
     codimension in (1, 2) || throw(ArgumentError("codimension must be 1 or 2"))
-    m_d = chisq_median(codimension)
+    s = _mad_scale_norms(; norms = (sqrt(x) for x in view(sq, 1:n)), codimension)
     pws = PosteriorWeightState(
-        n; ν, s_hat_sq = Statistics.median(view(sq, 1:n)) / m_d,
+        n; ν, s_hat_sq = s * s,
         log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth)), codimension, prior
     )
     _copy_sq_distances!(pws.sq_distances, sq, n)

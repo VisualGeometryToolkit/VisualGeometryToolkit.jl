@@ -126,26 +126,29 @@
         end
     end
 
-    # `median_seeded_posterior` moved here from VisualGeometryToolkitEstimation verbatim; the
-    # state it builds must equal RVG's copy, field for field.
-    @testset "median_seeded_posterior == RVG's verbatim copy" begin
+    # `median_seeded_posterior` seeds at the stack's one median scale, `mad_scale`², on the
+    # norms √sq (no private median(r²)/chisq_median copy); the state it builds must equal
+    # that seed's, field for field.
+    @testset "median_seeded_posterior seeds at mad_scale²" begin
         function _rvg_copy(sq, n; outlier_halfwidth, codimension = 2, ν = 1.0e4, prior = IGPrior(0.0, 0.0))
-            m_d = chisq_median(codimension)
             sq_r = Vector{Float64}(sq[1:n])
-            s2 = max(median(sq_r) / m_d, eps())
+            σ = VisualGeometryToolkitCore._mad_scale_norms(; norms = sqrt.(sq_r), codimension)
+            s2 = max(σ * σ, eps())
             w = Vector{Float64}(undef, n); ip = Vector{Float64}(undef, n)
             log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth))
             soft_posterior_weights!(w, ip, sq_r, Float64(ν), s2, log_two_outlier_halfwidth, n, codimension)
             PosteriorWeightState(w, ip, sq_r, Float64(ν), s2, log_two_outlier_halfwidth, codimension, prior)
         end
         sq = [0.01, 0.04, 0.02, 0.09, 0.03, 4.0, 9.0, 0.05, 16.0, 0.06, 99.0]
-        for dg in (1, 2), n in (5, 11), prior in (IGPrior(), IGPrior(2.0, 0.1))
+        for dg in (1, 2), n in (5, 10, 11), prior in (IGPrior(), IGPrior(2.0, 0.1))
             a = median_seeded_posterior(sq, n; outlier_halfwidth = 3.0, codimension = dg, prior)
             b = _rvg_copy(sq, n; outlier_halfwidth = 3.0, codimension = dg, prior)
             for f in fieldnames(PosteriorWeightState)
                 @test getfield(a, f) == getfield(b, f)
             end
             @test a.sq_distances !== sq                  # its own buffers
+            # an even count: the median of the norms, not of their squares (mad_scale's)
+            n == 10 && @test a.s_hat_sq != median(sq[1:n]) / chisq_median(dg)
         end
         @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, codimension = 3)
     end

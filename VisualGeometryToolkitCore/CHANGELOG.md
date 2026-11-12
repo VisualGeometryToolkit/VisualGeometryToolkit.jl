@@ -24,6 +24,10 @@ sensor — so every consumer asks the camera what it images instead of supplying
   pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
   does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
   outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
+- **`median_seeded_posterior` seeds at `mad_scale`²** (the no-duplication rule): its seed scale is the median residual
+  NORM over the median of `χ_d`, squared — Core's one median scale — instead of a private `median(r²)/chisq_median(d)`.
+  The two agree for an odd count up to rounding; for an even count the median of the norms averages the two middle
+  norms, not their squares, so the seed moves slightly (the EM it starts converges to the same fixed point).
 - **`CSRMatrix` and the `:pool` grid selection default to `default_device()`** (the stack's GPU-first rule):
   `CSRMatrix(A; device = default_device())` (was `KA.CPU()`), and `stage_selection(:pool, pairs, residuals; backend)`
   carries its backend (`default_device()` when none is supplied), on which `select_on_grid!` runs the exact kernels

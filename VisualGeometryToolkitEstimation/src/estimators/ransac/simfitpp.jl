@@ -92,7 +92,7 @@ function unbiased_median_variance(residuals_sq::AbstractVector{<:Real}, sq_loss_
     med = Statistics.median(kept)
     ratio = sq_loss_width / med
     q = 0.5
-    σ²0 = med / VgtkCore.chisq_median(dg)                  # the naive estimate: Core's one χ² median
+    σ²0 = med / Statistics.quantile(dist, 0.5)             # the naive estimate: the χ²_dg median
     ratio < min_ratio && return σ²0
     for _ in 1:5
         q = cdf(dist, ratio * Statistics.quantile(dist, q)) / 2

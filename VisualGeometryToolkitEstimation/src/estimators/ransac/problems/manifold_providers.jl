@@ -114,7 +114,7 @@ lift_valid(p::_PnPProvider) = p.lws.valid
 # explains: the TLS weights of the plain-H reprojection norms at
 # `efficiency_constant · σ̂`, σ̂ their noise scale (Core's stack-internal `_mad_scale_norms`, codimension
 # 2) and the multiple configs/default.toml's [pipelines.radial_homography.lift_seed]
-# (3·√chisq_median(2): three medians of the norms); the refit's own
+# (3·√quantile(Chisq(2), 0.5): three medians of the norms); the refit's own
 # `_radial_seed_chart` otherwise. The scale is floored at floatmin, so on an
 # exact plain H the seed is the exactly explained correspondences.
 const _LIFT_SEED_EFFICIENCY_CONSTANT = _dflt("pipelines.radial_homography.lift_seed", "efficiency_constant")::Float64

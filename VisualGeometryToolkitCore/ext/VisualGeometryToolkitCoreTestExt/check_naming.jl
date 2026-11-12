@@ -70,6 +70,8 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
+    "chisq" * "_median",
     # one optimization-strategy family (the owner's ruling, 2026-11-11): `find_*`/`ransac`/`locally_optimize` take
     # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",

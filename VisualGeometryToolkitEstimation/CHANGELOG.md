@@ -8,6 +8,8 @@ non-central one is a `NoncentralSplineModel`).
 - **Refusal messages:** a refine's least-squares refusal names its class (`refine (<class>): …`), `refine_camera`'s is
   `bundle_loss`'s ("plain least squares … reads no scale"), and a TLS refusal names the strategy type, since one reader
   (`bundle_loss`) refuses for all of them. A caller matching the old text adapts.
+- **Breaking: VisualGeometryToolkitCore's `chisq_median` is retired**; SIMFIT++'s naive variance (`unbiased_median_variance`)
+  divides by Distributions' `quantile(Chisq(dg), 0.5)`, bit-identical (the same call).
 - **Breaking: the rotation-centre refine's residual is the bearing, for every camera, and its metadata type changes** (the
   owner's ruling (B)(ii), 2026-11-12). Its result's metadata is the new `RotationCenterRefineMetadata`, no longer
   `CameraPosesRefineMetadata`: the `metadata(r).spline` field is gone (the SplineLens route's dropped-window counts), and

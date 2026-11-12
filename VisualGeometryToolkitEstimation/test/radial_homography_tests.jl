@@ -197,11 +197,12 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: RadialHomography, homography, center, division_coeff, rows_provider, lift_init, lift_model
     using VisualGeometryToolkitEstimation: RadialHomographyProblem, _radial_seed_chart, _dflt
+    using Distributions: Chisq, quantile
     W, H = RADIAL_HOMOGRAPHY_FRAME
     m_gt = radial_homography_truth(-0.25)
     # The multiple is the file's (no literal in code): three medians of a 2-D norm.
     m = _dflt("pipelines.radial_homography.lift_seed", "efficiency_constant")
-    @test m ≈ 3 * sqrt(VgtkCore.chisq_median(2)) rtol = 1.0e-15
+    @test m ≈ 3 * sqrt(quantile(Chisq(2), 0.5)) rtol = 1.0e-15
     for seed in 1:5
         pairs, _ = radial_homography_pairs(StableRNG(seed), m_gt; n_in = 70, n_out = 30, σ = 0.5)
         p = RadialHomographyProblem(pairs; center = (W / 2, H / 2))

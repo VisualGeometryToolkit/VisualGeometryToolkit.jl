@@ -168,7 +168,7 @@ weighting  = { type = "student_t_uniform", outlier_halfwidth = 20.0, scale_prior
 mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop = { type = "parameter_change", rtol = 1.0e-9 }, nuisance = { scale = "estimated", nu = "estimated", inlier_prior = { type = "fixed_prior", inlier_prior = 0.5 } } }
 # The branch audit's trimmed depth refits (`_branch_residual`): each trim keeps
 # the rows inside a TLS loss at this multiple × σ̂, σ̂ the noise scale of the
-# lift's residual norms (codimension 2). 3·√chisq_median(2): three medians.
+# lift's residual norms (codimension 2). 3·√quantile(Chisq(2), 0.5): three medians.
 branch_audit_efficiency_constant = 3.5322300675464233
 # The E-step's start: the posterior seeded at the median residual (VisualGeometryToolkitCore's
 # `median_seeded_posterior`) at this Student-t ν, the ν update's upper bound (VisualGeometryToolkitCore's
@@ -237,7 +237,7 @@ tol                = 1.0e-12     # rad, and × the loss width: converged when an
 # The plain-homography seed of the radial homography's lifted local optimization
 # (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the
 # correspondences inside a TLS loss at `efficiency_constant` × σ̂, σ̂ the noise scale
-# of the plain-H reprojection norms (codimension 2). 3·√chisq_median(2): three
+# of the plain-H reprojection norms (codimension 2). 3·√quantile(Chisq(2), 0.5): three
 # medians of the norms.
 efficiency_constant = 3.5322300675464233
 [chart_lm]

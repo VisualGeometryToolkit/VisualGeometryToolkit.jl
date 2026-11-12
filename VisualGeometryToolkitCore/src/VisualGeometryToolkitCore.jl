@@ -566,7 +566,7 @@ public LOSS_TAGS, STRATEGY_TAGS, strategy_loss, lo_loss, fixed_width, lo_width_v
     lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent, lo_validate,
     lo_construct, lo_efficiency_constant_shape, lo_has_default, lo_takes_width, @lo_registry
 public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights
-public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √chisq_median(d), centred on the model
+public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √quantile(Chisq(d), 0.5), centred on the model
 # A DEPLOYED loss carries the width it runs at as `efficiency_constant` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the

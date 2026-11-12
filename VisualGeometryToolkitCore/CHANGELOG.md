@@ -5,6 +5,13 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **A minimal-sample point with a non-finite residual is not held** (`sample_point_held`, the one rule every scorer
+  reads: the threshold families' consensus partition and score correction, `zero_sample!` and so the Student-t
+  scorer's zeroed scores and the pool staging). Such a point is one the model does not reach (a lattice detection a
+  pose leaves unassigned); forced into the consensus set, its Inf residual made `consensus_s2` Inf and counted a dof it
+  does not have (RadiometricCamera's grid index, 2026-11-12: 86 of 142 photographs of one set). It now stays an
+  outlier; a finite sample point is held at zero residual as before, so every result without such a point is unchanged.
+
 - **The batched `backproject`/`backproject_with_jacobian` run one kernel on every backend** (the one-kernel rule, the
   no-duplication gate's `backend_branch` at camera_models.jl): the `device isa KA.CPU` test is gone. The model goes
   in its device form (isbits, or its adapt rule; the identity on the CPU), so the CPU path and its results are

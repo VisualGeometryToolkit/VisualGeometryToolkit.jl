@@ -94,16 +94,24 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
 end
 
 """
-    require_input(path; what, provenance)
+    require_input(path; what, provenance, sha256 = nothing)
 
 Declared data input of an experiment: hard error (with the provenance recipe)
 when absent. Inputs are declared at the top of each experiment file so the
-dependency graph is readable without running anything.
+dependency graph is readable without running anything. With `sha256` (the
+input's content hash of record, 64 hex digits), a file with another content is
+refused (`ArgumentError`: what, the path, expected and actual); the hash is
+streamed and cached by path, size and modification time (`file_sha256`, src/cli.jl).
 """
 function require_input(path::AbstractString; what::AbstractString,
-                       provenance::AbstractString)
+                       provenance::AbstractString, sha256 = nothing)
     isfile(path) || isdir(path) ||
         error("MISSING INPUT [$what]: $path\n  provenance: $provenance")
+    if sha256 !== nothing
+        got = file_sha256(path)
+        got == lowercase(String(sha256)) ||
+            throw(ArgumentError("refused: input [$what] $path is not the data of record: sha256 expected $(lowercase(String(sha256))), actual $got"))
+    end
     return path
 end
 

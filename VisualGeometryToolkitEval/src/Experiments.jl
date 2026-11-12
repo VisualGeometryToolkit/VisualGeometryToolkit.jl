@@ -54,11 +54,13 @@ module Experiments
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using ..Tuning: resolve_tuning!, _toml_hash
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..inspect_input, ..scratch_record   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        fresher, contract_violations,
        # run records (experiments/run_records.jl): the configuration-of-record layer
-       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir, keyed_cell_dir, config_of_record,
+       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir, keyed_cell_dir, keyed_data_dir,
+       promote_run, verify_inputs, input_path, config_of_record,
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
        write_oracle_floor, oracle_floor_done,
        # the data/results binding (experiments/data.jl)
@@ -66,7 +68,7 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        assert_primary_copy, assert_not_input, ArtifactView, install_artifact, link_tree!,
        artifact_view!, is_artifact_view,
        # the provenance record (experiments/provenance.jl)
-       write_provenance, read_provenance, provenance_inputs, commit_drift, warn_commit_drift,
+       write_provenance, read_provenance, current_code_trees, scratch_run, provenance_inputs, commit_drift, warn_commit_drift,
        run_complete, legacy_hash_key, cached_result,
        # the data policy (experiments/data_policy.jl)
        DataPolicyAllow, data_policy_violations,

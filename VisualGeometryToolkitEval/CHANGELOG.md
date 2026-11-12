@@ -26,6 +26,138 @@
   `deployed_budget_settings` and `deployed_basin_settings` read through it; a caller that needs the width itself
   (a renderer, a resumed run carrying it into a format-7 artifact) calls it instead of `art["tuned_width"]`.
   The fixtures (test/data/tuning_v6/) were written by the format-6 code.
+- **A scratch run is kept apart from the runs of record.** Its record says `scratch = true` (`write_provenance`,
+  `cached_result`; a run of record says `false`); `run_key` folds `scratch`, so its keyed directories never are a run
+  of record's, and `cached_result` names its file `<prefix>-scratch_<key>`. Its output (`scratch_record`) is refused as
+  an input of record (`missing_inputs`, `verify_inputs`, `input_path`, except to another scratch run), as an upstream
+  run of record (`run_key(…; upstream = <run dir>)`, which now also takes a run directory and folds its recorded
+  `run_key`), as an input of a run of record's record (`write_provenance(…; inputs)`) and by `promote_run`.
+- **One input check.** `VisualGeometryToolkitEval.inspect_input` (src/code_identity.jl) is the check of an
+  `[inputs.<id>]` under its tier's root (there, its `sha256`, not a scratch output) that the runner's
+  `missing_inputs` and a driver's `verify_inputs`/`input_path` both call; `data_root(; tier)` resolves through
+  `tier_data_root`; the runner's file hashes are `file_sha256`.
+- **New: the reserved input tier `"unpublished"`** (`Reproduce.UNPUBLISHED_TIER`): data of record kept on a machine,
+  never fetched. The dry run lists its inputs apart, present or ABSENT, and a missing one is reported as never fetched.
+- **New: `cached_result(…; ext, load, save)`**, any format cached through a codec (a vgio record), the previous version
+  kept as safesave keeps it; **`write_run_records(…; fields)`**, a further payload of the record; **`ntasks` and
+  `nodes` in a `[[stage]]`** for a distributed stage. A stage's `gres` and `mem_per_cpu` are validated.
+
+- **Fixed: data-policy rule D3 flags only the bare `oracle_floors_path()`** (the unkeyed
+  `<results root>/oracle_floors.jld2` every run rewrites), not `oracle_floors_path(keyed_dir)`, the documented keyed use.
+
+- **New: `Experiments.input_path(cfg, id; root)`**, the one reader of a config's input: its `[inputs.<id>]` path
+  under its tier's root (`data_root(; tier)`), checked to be there and, with a `sha256`, to have that content. A
+  project's own `input_path`/`input_table` (`data_root` + `require_input`) becomes this.
+- **New: per-stage resources in the stage graph.** A `[[stage]]` takes `cpus_per_task`, `mem_per_cpu` and `gres`
+  over the site's (`gres` makes it a GPU stage); on a local site `cpus_per_task` is its `SLURM_CPUS_PER_TASK`.
+- **New: the runner bootstrap is Eval's.** `templates/reproduce/reproduce.sh` (`Reproduce.REPRODUCE_SCRIPT_TEMPLATE`)
+  is the one copy of a project's `scripts/reproduce/reproduce.sh`; `Reproduce.reproduce_script(; julia_project,
+  graph, path)` fills it and `write_reproduce_script(root; …)` writes it (a project's suite compares its copy with
+  `reproduce_script`). RadiometricCamera's cvpr2027 and RSDR's copies are this text.
+- `keyed_cell_dir(cfg, "figures", name; base = results_root())` is the directory of a run over several datasets
+  (figures, numbers): `<results root>/figures/<name>-<key>`.
+
+- **New: per-tier input roots.** An input tier may live outside the data root on a machine (a capture on another
+  disk). Its root resolves in one order, for the runner and the drivers alike (`VisualGeometryToolkitEval.tier_data_root`):
+  the environment's `VGTK_DATA_ROOT_<TIER>` (`tier_variable`: the tier upper-cased, other characters `_`), then the
+  stage graph's `[sites.<site>.tiers]` table (`<tier> = "<root>"`, a relative root relative to the workdir), then the
+  one data root. Each `[inputs.<id>]` path is relative to its tier's root, so a config names no machine path (data
+  policy D1). `missing_inputs(…; site)` and the runner resolve it so (a named tier root that is not there is
+  reported with the variable or table that names it; the `sha256` check applies per input), the runner exports
+  the site's tier roots and `VGTK_SITE` to its jobs, and `Experiments.data_root(; tier)` resolves the same order
+  (the graph's table through `VGTK_SITE`); `verify_inputs` checks each input under its tier's root, and
+  `assert_not_input` guards every tier root. No link directories and no sibling-checkout paths.
+
+- **New: a results layout named by the config.** `[experiment] layout = ["mocap", "<camera>"]` (path segments) makes
+  `experiment_dir` `<results root>/<layout…>` for a project whose results are not laid out by dataset, matcher and
+  problem; `load_run_config` then needs no pool fields. `keyed_cell_dir(cfg, experiment, kind; base)` takes another
+  base, refused unless it lies under the results root. CaliBlobs' icra2026 (`mocap/<camera>/…`,
+  `absolute_pose_experiments/<set>/{selfcal,tune_radial_camera}`) keys its runs through it.
+
+- **New: an input's content of record.** An `[inputs.<id>]` table may carry `sha256` (64 hex digits, of a file).
+  When it does, `missing_inputs` (the runner, before anything runs; the dry run too), the new
+  `Experiments.verify_inputs(cfg; root)` and `Experiments.require_input(path; …, sha256)` verify it, and another
+  content is REFUSED (`ArgumentError`: the input id, its config and path, the expected and the actual hash; the
+  runner exits 2). Without it the input is only checked to be there, as before. The hash is
+  `VisualGeometryToolkitEval.file_sha256(path)`: streamed in blocks, and cached in the process by real path, size and
+  modification time, so a large input is read once per process.
+- **New: `run_key(cfg; files, upstream, parts)`** folds into the key what a run depends on beyond its config: the
+  content hash of `files` (`name => path`), the run keys of the `upstream` runs it reads, and `parts` (a choice made
+  outside the config, e.g. a smoke run's frame limit), as the table `keyed_with` (refused in a config). Without them
+  the key is the config's, unchanged. `keyed_cell_dir` takes the same keywords. A project's private keys (file hashes,
+  upstream keys, version tags, date stamps) become this.
+- **New: `Experiments.keyed_data_dir(cfg, tier, kind; …)`**, the keyed directory of a run that produces data
+  (training annotations, a derived pool) under the data root, `<data root>/<tier>/<kind>-<run_key>`, written with
+  `producer = true`; and **`Experiments.promote_run(run_dir, tier; name)`**, a completed run of record (with its
+  `_provenance.toml`) copied into the data root as an input of record of `tier`, where an `[inputs.<id>]` names it
+  and a data artifact (an `ArtifactView` tier) publishes it; another run under the same name is refused.
+
+- **New: a result is reused only while the code it was computed with is unchanged, by its git trees.** The run key
+  stays the configuration's (DrWatson's savename / produce_or_load, the runner's stage key: the stage key no longer
+  hashes the code). Beside DrWatson's `tag!` record (`gitcommit`, `gitpatch` when dirty), every result now keeps
+  `code_trees` (`VisualGeometryToolkitEval.code_trees`, src/code_identity.jl): the git tree of each of the project's
+  code paths (`git rev-parse HEAD:<path>`: the graph's `code` for the runner, the project's `src` for a driver's
+  records) and of every stack package the project's environment loads (its `[deps]` and what they reach in its
+  Manifest): a package loaded from a path by the trees of its `src`, `ext` and `Project.toml` in its own repository,
+  a released one by its Manifest `git-tree-sha1`. A docs-, tests- or paper-only commit changes no tree.
+  `VisualGeometryToolkitEval.code_tree_changes(recorded, current)` is the one reuse rule, and every consumer calls it:
+  the runner's stage reuse (a stage whose code changed reruns, `rerun: code changed: <tree>: <old> → <new>`; one still
+  in flight under other code stops the launch), `Experiments.run_complete` (no longer warns on another commit: the
+  trees decide) and `Experiments.cached_result`. `Experiments.current_code_trees` is a driver's current record.
+  RadiometricCamera's cvpr2027, CaliBlobs' icra2026, BlobBoards' bmvc2026, RANSACScoringDoneRight and
+  LocalOptimizationDoneRight get it through `write_provenance`/`write_run_records`, `run_complete` and the runner,
+  with no change of their own; docs: "Code identity: when a stored result is reused" (Reproducible figures).
+- **Behaviour change: a result recorded before the code trees existed runs once more** (a run directory's
+  `_provenance.toml`, a `cached_result` file, a runner launch's stage record), and from then on carries them.
+- **Changed: a run of record runs committed code.** Code with uncommitted changes (an edit, a staged, deleted or
+  untracked file in the project's code paths or in a package its environment loads from a path), or code in no git
+  checkout, is refused with one error (`VisualGeometryToolkitEval.refuse_uncommitted_code`): by the runner (exit 2;
+  the dry run marks it `DIRTY`) and by a driver's records (`write_provenance`, `write_run_records`, `cached_result`,
+  before computing). A scratch run (`VGTK_SCRATCH=1`, `Experiments.scratch_run`) records it with a warning instead,
+  its trees marked `+uncommitted`, so its result is never reused for committed code. A dirty docs or paper tree is
+  no code and is not refused. A launch that identifies none of the project's own code (no `src`, no `[project] code`)
+  is refused; a driver's record without a `src` is warned.
+
+- **The runner's reuse reads completion markers and the queue, never accounting** (`Reproduce`, src/reproduce/runner.jl).
+  Every task of a stage writes a completion marker, `task-<t>.toml` under `<manifest without .toml>/<stage>/`
+  (`stage_markers_dir`, `stage_markers`): its state (`completed`, `failed`), exit status, start and end, job id,
+  commit, run key, host, `restart_count` (Slurm's `SLURM_RESTART_COUNT`) and the signal it received, written
+  atomically. On a Slurm site the job writes it itself, through a wrapper the runner submits around the stage's
+  launcher (the launcher's `#SBATCH` directives, then a copy of the launcher as submitted); the local backend writes
+  it after every task. `stage_run_state` reads a recorded stage from its markers and the queue; the queue comes from
+  `squeue` (`slurm_queue_states`), which needs no accounting storage, instead of `sacct`, which dgx01 does not keep
+  (`slurm_job_states` remains, as information in `reproduce_status` only).
+- **Changed: `plan_reproduction`'s `job_states` keyword is now `queue_states`** (`ids -> Dict(id => Dict(task =>
+  state))`, what `slurm_queue_states` returns); a caller that supplies `job_states` gets an unsupported-keyword error.
+  `reproduce_status` and `reproduce_main` take both (`job_states` there is the sacct extra).
+- **New: a launch's job-name prefix** (`job_name_prefix` in a site's `[slurm]` table, `plan_reproduction(…;
+  job_name_prefix)`, `--job-name-prefix`): every job is named `<prefix><name>`, the name the stage's `job_name`, else
+  its launcher's own `#SBATCH --job-name`, else `<project>-<stage>`. The run keys are taken without it.
+- **Behaviour change: a launch recorded before the completion markers existed reruns its completed Slurm stages
+  once.** Its manifest has no `markers` for a stage, so a stage whose job has left the queue reads as `unknown`, never
+  as completed; the next launch submits it again, and from then on its markers are read.
+- **Fixed: a requeued task is in flight, not failed.** Slurm requeues a task under the same job id (preemption with
+  `PreemptMode=REQUEUE`, `scontrol requeue`) after sending it TERM, which the wrapper records as a `failed` marker.
+  `stage_run_state` read that marker over the queue, so a stage pending or running again read as failed, and the next
+  launch submitted it a second time into the same results. A task the queue holds is now in flight whatever its
+  marker says (a `COMPLETING` task reads its marker).
+- **Fixed: a failing squeue is no empty queue.** `slurm_queue_states` read any non-zero exit as "the job left the
+  queue", so a slurmctld timeout or a controller restart made every in-flight stage `unknown` and the launch submitted
+  duplicates of all of them. Only squeue's "Invalid job id specified" is read as absent; any other failure is an
+  error that stops the launch (and `status`) before anything is submitted (exit 4, squeue's message).
+- **Fixed: `submit_slurm!` runs sbatch without the launching process's `SLURM_*` variables** (`SLURM_CONF` kept), as
+  `run_local!` already did. sbatch's default `--export=ALL` gave a stage's job the parent job's variables: launched
+  from inside an array task, a non-array stage inherited `SLURM_ARRAY_TASK_ID` and `SLURM_ARRAY_JOB_ID`, so its
+  marker was written for the wrong task under the wrong job id and the stage read as unknown on every launch.
+- **Fixed: a job without a name is named `<project>-<stage>`**, not `marker_wrapper.sbatch`: a launcher stage with no
+  `job_name` and no `#SBATCH --job-name` was submitted without `--job-name`, and Slurm named it after the submitted
+  script, now the wrapper. The name is added at submission; the run key is unchanged.
+- **Fixed: the wrapper forwards a launcher's `--signal` signals.** The copied `#SBATCH --signal=B:<sig>@<time>` now
+  signals the wrapper, which had no trap for it and was killed by it, leaving no marker and the launcher unsignalled.
+  The wrapper traps each such signal, forwards it to the launcher and records it in the marker (`signal`); the
+  state follows the launcher's exit status.
+- **Fixed: the launcher's copy runs from a `noexec` results root.** The wrapper executed the copy directly (mode
+  755); it now runs it through the interpreter of its `#!` line (bash without one), and the copy is mode 644.
 
 - **The local backend runs no stage as a Slurm job**: `run_local!` drops every `SLURM_*` variable of the environment
   the plan was made in, so a stage sees only the ones the backend sets (`SLURM_SUBMIT_DIR`, an array's

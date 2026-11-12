@@ -18,7 +18,7 @@ this module exports the submodules and the CLI.
 module VisualGeometryToolkitEval
 
 include("config_defaults.jl")   # the default mechanism: configs/default.toml → `_config_default`
-include("cli.jl")               # cli_option, start_output_flush!
+include("cli.jl")               # cli_option, start_output_flush!; code_trees, code_tree_changes (code_identity.jl)
 include("artifact_format.jl")   # the format stamp of every persisted artifact kind
 
 import JLD2   # artifact_format.jl: every call is qualified
@@ -39,6 +39,7 @@ export Stats, Tuning, Evaluation, Experiments, Render, Pools, Datasets, DataArti
 export cli_option, start_output_flush!
 
 public ARTIFACT_FORMATS, DEFAULTS_PATH
+public code_trees, code_tree_changes, refuse_uncommitted_code, file_sha256, tier_variable, tier_data_root, inspect_input, scratch_record   # the code identity of a run, a file's hash, a tier's root (src/code_identity.jl)
 
 """
     engine_fixtures() -> Module

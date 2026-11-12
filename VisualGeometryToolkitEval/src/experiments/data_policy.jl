@@ -51,12 +51,13 @@ const _D3_STAMP = r"(?:(?<![A-Za-z0-9])[Ss]tamp(?:s|ed)?|(?<=[A-Za-z0-9])Stamp(?
 # D3: a wall-clock stamp in an output path; a hand-bumped version literal; a
 # `-smoke` sibling of a keyed directory (a smoke run belongs in DrWatson's
 # datadir("sims")); an unkeyed file every run rewrites at the top of the
-# results tree (oracle_floors_path() is the package's one such file).
+# results tree (oracle_floors_path() is the package's one such file: only its BARE call,
+# `<results root>/oracle_floors.jld2`; `oracle_floors_path(keyed_dir)` is the documented keyed use).
 _d3(line) =
     (occursin(r"Dates\.now\(\)|\bnow\(\)", line) && (occursin(_D3_STAMP, line) || occursin(r"(?i)joinpath|outdir", line))) ||
     occursin(r"\"[\w.-]*[-_]v\d+\"", line) ||
     (occursin(r"[\w)\]}\"]-smoke\b", line) && !occursin("sims", line)) ||
-    occursin(r"\boracle_floors_path\(", line) ||
+    occursin(r"\boracle_floors_path\(\s*\)", line) ||
     occursin(r"joinpath\(\s*results_root\(\)\s*,\s*\"[^\"/]+\.(jld2|toml|tsv|csv|json)\"\s*\)", line)
 
 _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (".sh", ".sbatch") && startswith(l, "#SBATCH")))

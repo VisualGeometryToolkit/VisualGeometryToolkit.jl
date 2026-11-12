@@ -197,7 +197,7 @@ end
         @test_throws r"dependency cycle" load_stage_graph(bad("[[stage]]\nname = \"a\"\nafter = [\"b\"]\ncommand = [\"true\"]\n[[stage]]\nname = \"b\"\nafter = [\"a\"]\ncommand = [\"true\"]\n"))
         @test_throws r"no such stage" load_stage_graph(bad("[[stage]]\nname = \"a\"\nafter = [\"z\"]\ncommand = [\"true\"]\n"))
         @test_throws r"exactly one of" load_stage_graph(bad("[[stage]]\nname = \"a\"\nsbatch = \"x\"\ncommand = [\"true\"]\n"))
-        @test_throws r"unknown key nodes" load_stage_graph(bad("[[stage]]\nname = \"a\"\ncommand = [\"true\"]\nnodes = 2\n"))
+        @test_throws r"unknown key qos" load_stage_graph(bad("[[stage]]\nname = \"a\"\ncommand = [\"true\"]\nqos = \"high\"\n"))
         @test_throws r"needs \[results_branch\] assets" load_stage_graph(bad("[[stage]]\nname = \"a\"\nresults_branch = true\n"))
     end
 
@@ -236,6 +236,161 @@ end
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop"]; env = env0)
         @test code == 3 && occursin("missing inputs: 3", out) && occursin("path\ttier\tused by", out) && occursin("nothing ran", out)
         @test !isfile(joinpath(f.results, "ran.txt")) && !isdir(joinpath(f.results, "_reproduce"))
+    end
+
+    @testset "an input's sha256: verified when given (another content refused, with its id, expected and actual); absent, unchecked" begin
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        board = joinpath(f.data, "boards", "a4.toml")
+        mkpath(dirname(board)); write(board, "board of record\n")
+        actual = first(split(read(`sha256sum $board`, String)))
+        @test VisualGeometryToolkitEval.file_sha256(board) == actual
+        @test VisualGeometryToolkitEval.file_sha256(board) == actual                             # the cached hash: the same
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        text = read(cfg, String)
+        declare(h) = write(cfg, replace(text, "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$h\""))
+        # absent: unchecked, as before
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        # the content of record: accepted
+        declare(actual)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        declare(uppercase(actual))                                                                # hex in either case
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0))
+        # another content: refused, naming the input, both hashes; the launch runs nothing (exit 2), the dry run neither
+        declare(actual)
+        write(board, "a board edited by hand\n")
+        other = first(split(read(`sha256sum $board`, String)))
+        @test_throws r"input board of configs/experiments/chrome.toml \(boards/a4.toml, used by chrome_prepare.*sha256 expected [0-9a-f]{64}, actual [0-9a-f]{64}" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        e = try missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0); nothing catch err; err end
+        @test e isa ArgumentError && occursin("expected $actual, actual $other", e.msg)
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare"]; env = env0)
+        @test code == 2 && occursin("refused: an input is not the data of record", out) && !isfile(joinpath(f.results, "ran.txt"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 2 && occursin("expected $actual", out)
+        # a sha256 names a file: on a directory, or not 64 hex digits, it is a config error
+        write(cfg, replace(text, "path = \"photos/chrome\"" => "path = \"photos/chrome\"\nsha256 = \"$actual\""))
+        @test_throws r"input photos .*a directory" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        declare("abc")
+        @test_throws r"is no SHA-256" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)
+        # a missing input with a sha256 is reported missing, as any
+        declare(actual); rm(board)
+        @test [r.path for r in missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0)] == ["boards/a4.toml"]
+    end
+
+    @testset "per-tier input roots: the environment, then the site's [sites.<site>.tiers], then the data root" begin
+        f = runner_project()
+        alt = mktempdir(); mkpath(joinpath(alt, "boards")); write(joinpath(alt, "boards", "a4.toml"), "board\n")
+        g = load_stage_graph(f.graph)
+        paths(rows) = [r.path for r in rows]
+        # the fallback: the one data root, which lacks the board
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")) == ["boards/a4.toml"]
+        # the environment's VGTK_DATA_ROOT_<TIER>
+        @test VisualGeometryToolkitEval.tier_variable("boards") == "VGTK_DATA_ROOT_BOARDS"
+        @test VisualGeometryToolkitEval.tier_variable("blobcalib_202609") == "VGTK_DATA_ROOT_BLOBCALIB_202609"
+        envb = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => alt))
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = envb, site = "desktop"))
+        # the site's table (a relative root is relative to the workdir); the environment comes first
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"$alt\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop"))
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "dgx01")) == ["boards/a4.toml"]   # another site's
+        empty_root = mktempdir()
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, site = "desktop",
+                                   env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => empty_root)))) == ["boards/a4.toml"]
+        mkpath(joinpath(f.proj, "altrel", "boards")); write(joinpath(f.proj, "altrel", "boards", "a4.toml"), "board\n")
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"altrel\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop"))
+        # a named tier root that is not there is reported as such
+        rows = missing_inputs(g, ["chrome_prepare"]; data_root = f.data, site = "desktop",
+                              env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => "/nonexistent/boards-root")))
+        @test only(rows).tier == "boards (root /nonexistent/boards-root, from VGTK_DATA_ROOT_BOARDS, is not there)"
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"/nonexistent/b\" }\n"))
+        g = load_stage_graph(f.graph)
+        @test occursin("from [sites.desktop.tiers], is not there", only(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")).tier)
+        # the sha256 of an input under its tier's root: another content refused
+        write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"$alt\" }\n"))
+        g = load_stage_graph(f.graph)
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        write(cfg, replace(read(cfg, String), "path = \"boards/a4.toml\"" => "path = \"boards/a4.toml\"\nsha256 = \"$("0"^64)\""))
+        @test_throws r"input board .*sha256 expected 0{64}, actual" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # the jobs resolve as the launch did: the site's tier roots and the site in their environment
+        plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test plan.base_env["VGTK_DATA_ROOT_BOARDS"] == alt && plan.base_env["VGTK_SITE"] == "desktop"
+        plan = plan_reproduction(g, load_site("desktop"); env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => empty_root)), queue_states = noqueue, only = ["setup"])
+        @test plan.base_env["VGTK_DATA_ROOT_BOARDS"] == empty_root                                    # the caller's first
+        @test_throws r"unknown key sites.desktop.tier " load_stage_graph(begin
+            write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntier = 1\n")); f.graph end)
+    end
+
+    @testset "per-stage resources: a stage's cpus_per_task, mem_per_cpu and gres over the site's" begin
+        f = runner_project()
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 2\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
+                               count = 1) |> t -> replace(t, "name = \"pdf\"\n" => "name = \"pdf\"\ngres = \"gpu:1\"\n"))
+        g = load_stage_graph(f.graph)
+        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
+        cmd(n) = plan.stages[findfirst(st -> st.spec.name == n, plan.stages)].command
+        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=2 --mem-per-cpu=4G", join(cmd("setup"), " "))
+        @test occursin("--gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("pdf"), " "))      # gres: a GPU stage
+        @test occursin("--partition=gpu --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("chrome_prepare"), " "))   # the site's
+        local_plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "2" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = \"many\"\n"; count = 1))
+        @test_throws r"cpus_per_task = \"many\" is not a count" load_stage_graph(f.graph)
+    end
+
+    @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
+        @test isfile(Reproduce.REPRODUCE_SCRIPT_TEMPLATE)
+        t = reproduce_script(; julia_project = "cvpr2027")
+        @test occursin("--project=cvpr2027 -e", t) && occursin("-- --graph=cvpr2027/configs/reproduce.toml \"\$@\"", t)
+        @test occursin("bash cvpr2027/scripts/reproduce/reproduce.sh --site=", t) && !occursin("@@", t)
+        @test_throws r"not a path relative" reproduce_script(; julia_project = "/abs")
+        @test_throws r"not a path relative" reproduce_script(; julia_project = "a b")
+        # written into a repository and run from inside it: the runner's command line, from the repository root
+        f = runner_project()
+        p = write_reproduce_script(f.repo; julia_project = "proj")
+        @test p == joinpath(f.repo, "proj", "scripts", "reproduce", "reproduce.sh") && Sys.isexecutable(p)
+        @test read(p, String) == reproduce_script(; julia_project = "proj")
+        @test success(`bash -n $p`)
+        stub = joinpath(mktempdir(), "julia")
+        write(stub, "#!/bin/bash\necho \"cwd=\$(pwd)\"\nfor a in \"\$@\"; do case \$a in --*|status) echo \"arg \$a\";; esac; done\n"); chmod(stub, 0o755)
+        out = read(Cmd(`bash $p --site=desktop --dry-run`; env = merge(env0, Dict("JULIA" => stub)), dir = joinpath(f.proj, "slurm")), String)
+        @test occursin("cwd=$(realpath(f.repo))", out) && occursin("arg --project=proj", out)
+        @test occursin("arg --graph=proj/configs/reproduce.toml", out) && occursin("arg --site=desktop", out) && occursin("arg --dry-run", out)
+    end
+
+    @testset "unpublished inputs, a scratch input refused, distributed stages and validated resources" begin
+        f = runner_project()
+        cfg = joinpath(f.proj, "configs", "experiments", "chrome.toml")
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        write(cfg, read(cfg, String) * "\n[inputs.capture]\ntier = \"unpublished\"\npath = \"captures/2026-09\"\n")
+        g = load_stage_graph(f.graph)
+        rows = missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        @test only(rows).path == "captures/2026-09" && only(rows).tier == "unpublished (never fetched: provide it on this machine)"
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("unpublished inputs: 1 (tier unpublished: never fetched", out) && occursin("ABSENT \tcaptures/2026-09", out)
+        mkpath(joinpath(f.data, "captures", "2026-09"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=chrome_prepare", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("present\tcaptures/2026-09\tchrome_prepare (configs/experiments/chrome.toml)", out)
+        @test Reproduce.UNPUBLISHED_TIER == "unpublished"
+        # a scratch run's output is no input of record
+        write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
+        @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # a distributed stage: ntasks and nodes; resources validated
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
+        plan = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"])
+        @test occursin("--mem-per-cpu=8G --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
+        for (k, v) in (("gres", "\"gpu 4\""), ("mem_per_cpu", "\"lots\""), ("mem_per_cpu", "8"), ("ntasks", "-1"))
+            write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\n$k = $v\n"; count = 1))
+            @test_throws ArgumentError load_stage_graph(f.graph)
+        end
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nmem_per_cpu = \"4000M\"\ngres = \"gpu:b200:2\"\n"; count = 1))
+        @test load_stage_graph(f.graph) isa StageGraph
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nmem_per_cpu = \"lots\"\n"; count = 1))
+        @test_throws r"mem_per_cpu = \"lots\" is not a Slurm memory" load_stage_graph(f.graph)
     end
 
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
@@ -347,7 +502,7 @@ end
         @test length(lines) == 4
         @test startswith(lines[1], "101 --parsable --partition=gpu --gres=gpu:1") && endswith(lines[1], "$(wrapper("setup")) EXP= CASES=")
         @test startswith(lines[2], "102 --parsable --dependency=afterok:101 ") && occursin("EXP=chrome", lines[2])
-        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 $(wrapper("chrome"))", lines[3]) &&
+        @test startswith(lines[3], "103 --parsable --dependency=afterok:102 ") && occursin("--array=0-2 --time=130 --job-name=paper-chrome $(wrapper("chrome"))", lines[3]) &&
               endswith(lines[3], "CASES=alpha,mid,zeta")
         @test startswith(lines[4], "104 --parsable --dependency=afterok:103 ")
         # the wrapper: the launcher's #SBATCH directives first, then a copy of the launcher as submitted
@@ -483,6 +638,244 @@ end
         kill(proc, Base.SIGTERM); wait(proc)
         mk = stage_markers(dir)[0]
         @test proc.exitcode == 143 && mk["state"] == "failed" && mk["exit_status"] == 143 && mk["signal"] == "TERM"
+    end
+
+    @testset "the Slurm backend's hazards: a requeued task, a failing squeue, the launcher's own SLURM_*, unnamed jobs, --signal, noexec" begin
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        bin = fake_bin()
+        log, queue = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "squeue.txt")
+        write(queue, "")
+        # a stand-in sbatch, before the fixture's on PATH, that also records the SLURM_* variables it was run with
+        spy = mktempdir(); envlog = joinpath(spy, "env.log")
+        write(joinpath(spy, "sbatch"), "#!/bin/bash\nenv | grep '^SLURM_' | sort | tr '\\n' ' ' >> $envlog; echo >> $envlog\nexec $(joinpath(bin, "sbatch")) \"\$@\"\n")
+        chmod(joinpath(spy, "sbatch"), 0o755)
+        # launched from inside an array task of another job (a test suite under sbatch)
+        parent = Dict("SLURM_ARRAY_TASK_ID" => "5", "SLURM_ARRAY_JOB_ID" => "99", "SLURM_JOB_ID" => "99", "SLURM_CONF" => "/etc/slurm/x.conf")
+        env = merge(env0, parent, Dict("PATH" => spy * ":" * bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
+                                       "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
+        launch(args; env = env) = run_main(args; env, queue_states = nothing, job_states = nothing)
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        @test code == 0
+        m1 = only(run_manifests(joinpath(f.results, "_reproduce")))
+        # sbatch sees none of the launching job's SLURM_* (SLURM_CONF, the cluster's configuration, kept)
+        @test readlines(envlog) == ["SLURM_CONF=/etc/slurm/x.conf ", "SLURM_CONF=/etc/slurm/x.conf "]
+        # a job no stage and no launcher names is named <project>-<stage>, never after the wrapper; a named one keeps its name
+        lines = readlines(log)
+        @test occursin(" --job-name=paper-setup ", lines[1])
+        @test count("--job-name=", lines[2]) == 1 && occursin(" --job-name=paper-prepare-chrome ", lines[2])
+        @test TOML.parsefile(m1)["stages"]["setup"]["key"] ==
+              plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env, queue_states = noqueue, only = ["setup"],
+                                stamp = "x").stages[1].key                                         # the run key is the planned command's
+
+        # a task preempted and requeued under the same job id: its first attempt's TERM left a "failed" marker, and the
+        # queue holds it again → in flight, depended on, not submitted a second time
+        sdir = stage_markers_dir(m1, "setup")
+        mkpath(sdir); write(joinpath(sdir, "task-0.toml"), "job_id = \"101\"\nstate = \"failed\"\nexit_status = 143\nsignal = \"TERM\"\n")
+        r = TOML.parsefile(m1)["stages"]["setup"]
+        @test stage_run_state(r).state == "failed"
+        @test stage_run_state(r, Dict("101" => Dict(0 => "PENDING"))).state == "in flight"
+        @test stage_run_state(r, Dict("101" => Dict(0 => "RUNNING"))).tasks == Dict(0 => "RUNNING")
+        @test stage_run_state(r, Dict("101" => Dict(0 => "COMPLETING"))).state == "failed"        # finishing: its marker
+        write(queue, "101|PENDING|BeginTime\n102|PENDING|Dependency\n")
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        @test code == 0 && occursin(r"setup\s+101  \(in flight", out) && length(readlines(log)) == 2
+
+        # squeue failing for any other reason than an unknown job aborts the launch: nothing is submitted
+        @test slurm_queue_states(["101"]; env) == Dict("101" => Dict(0 => "PENDING"))
+        @test slurm_queue_states(["555"]; env) == Dict{String, Dict{Int, String}}()                  # "Invalid job id specified": gone
+        down = mktempdir()
+        write(joinpath(down, "squeue"), "#!/bin/bash\necho 'slurm_load_jobs error: Socket timed out on send/recv operation' >&2\nexit 1\n")
+        chmod(joinpath(down, "squeue"), 0o755)
+        envdown = merge(env, Dict("PATH" => down * ":" * env["PATH"]))
+        @test_throws r"squeue -j 101 failed.*Socket timed out" slurm_queue_states(["101"]; env = envdown)
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"]; env = envdown)
+        @test code == 4 && occursin("Socket timed out", out) && length(readlines(log)) == 2
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01"]; env = envdown, queue_states = nothing)
+        @test code == 4 && occursin("squeue -j", out)
+
+        # the wrapper: the attempt is recorded (SLURM_RESTART_COUNT); the launcher's copy is run through its
+        # interpreter, so a copy that cannot be executed (a noexec results root) still runs
+        g = load_stage_graph(f.graph)
+        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
+        dir = stage_markers_dir(plan.manifest, "setup")
+        w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
+        snap = joinpath(dir, "setup.sbatch")
+        @test !Sys.isexecutable(snap)
+        chmod(snap, 0o644)
+        e = merge(env0, Dict("VGTK_RESULTS_ROOT" => f.results, "SLURM_JOB_ID" => "7", "SLURM_RESTART_COUNT" => "1"))
+        @test run(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true)).exitcode == 0
+        mk = stage_markers(dir)[0]
+        @test mk["state"] == "completed" && mk["restart_count"] == 1
+        @test Reproduce._interpreted("/r/x.sbatch", "#!/usr/bin/env bash\necho\n") == "/usr/bin/env bash /r/x.sbatch"
+        @test Reproduce._interpreted("/r/x.sbatch", "echo\n") == "/bin/bash /r/x.sbatch"
+
+        # a launcher's --signal directive now signals the wrapper: it is forwarded to the launcher, which handles it,
+        # and recorded in the marker
+        write(joinpath(f.proj, "slurm", "setup.sbatch"), """
+            #!/bin/bash
+            #SBATCH --signal=B:USR1@60
+            trap 'touch "$dir/got_usr1"; exit 0' USR1
+            touch "$dir/started"
+            while true; do sleep 0.1; done
+            """)
+        @test Reproduce._directive_signals(["#SBATCH --signal=B:USR1@60", "#SBATCH --signal SIGUSR2", "#SBATCH --signal=TERM@30"]) == ["USR1", "USR2"]
+        rm(joinpath(dir, "task-0.toml"))
+        w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
+        proc = run(pipeline(Cmd(`bash $w`; env = e, dir = f.proj, ignorestatus = true); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while !isfile(joinpath(dir, "started")) && time() - t0 < 30
+            sleep(0.1)
+        end
+        run(`kill -USR1 $(getpid(proc))`); wait(proc)
+        @test proc.exitcode == 0 && isfile(joinpath(dir, "got_usr1"))
+        mk = get(stage_markers(dir), 0, Dict{String, Any}())
+        @test get(mk, "state", "") == "completed" && get(mk, "signal", "") == "USR1"
+    end
+
+    @testset "code identity: a stage reruns when a code tree changed, naming it; docs reuse it; uncommitted code is refused" begin
+        f = runner_project()
+        gitin(dir) = (args...) -> run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+        g! = gitin(f.proj)
+        # a stack package loaded from a path, in a repository of its own, and a released one, in the project's environment
+        pkg = mktempdir(); p! = gitin(pkg)
+        p!("init", "-q")
+        mkpath(joinpath(pkg, "src")); mkpath(joinpath(pkg, "docs"))
+        write(joinpath(pkg, "Project.toml"), "name = \"StackPkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg end\n"); write(joinpath(pkg, "docs", "index.md"), "# StackPkg\n")
+        p!("add", "-A"); p!("commit", "-q", "-m", "pkg")
+        write(joinpath(f.proj, "Project.toml"), """
+            [deps]
+            StackPkg = "00000000-0000-0000-0000-000000000001"
+            VisualGeometryToolkitCore = "00000000-0000-0000-0000-000000000002"
+            """)
+        core_tree = "0123456789abcdef0123456789abcdef01234567"
+        write(joinpath(f.proj, "Manifest.toml"), """
+            manifest_format = "2.0"
+            [[deps.StackPkg]]
+            path = "$pkg"
+            uuid = "00000000-0000-0000-0000-000000000001"
+            [[deps.VisualGeometryToolkitCore]]
+            deps = ["Example"]
+            git-tree-sha1 = "$core_tree"
+            uuid = "00000000-0000-0000-0000-000000000002"
+            [[deps.Example]]
+            git-tree-sha1 = "fedcba9876543210fedcba9876543210fedcba98"
+            uuid = "00000000-0000-0000-0000-000000000003"
+            [[deps.NotLoaded]]
+            path = "/nowhere"
+            uuid = "00000000-0000-0000-0000-000000000004"
+            """)
+        g!("add", "-A"); g!("commit", "-q", "-m", "the environment")
+        ct = VisualGeometryToolkitEval.code_trees(f.proj; code = ["scripts", "slurm"])
+        @test sort(collect(keys(ct.trees))) == ["StackPkg", "VisualGeometryToolkitCore", "scripts", "slurm"] && isempty(ct.dirty)
+        @test ct.trees["VisualGeometryToolkitCore"] == core_tree                 # a released one: its Manifest tree
+        @test ct.trees["scripts"] == strip(read(`git -C $(f.proj) rev-parse HEAD:./scripts`, String))
+        @test startswith(ct.trees["StackPkg"], "src:") && occursin(" Project.toml:", ct.trees["StackPkg"])
+        ran() = length(readlines(joinpath(f.results, "ran.txt")))
+        args = ["--graph=$(f.graph)", "--site=desktop", "--only=setup"]
+        code, out = run_main(args; env = env0)
+        @test code == 0 && ran() == 1
+        rec() = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test rec()["stages"]["setup"]["code_trees"] == ct.trees && rec()["code_trees"] == ct.trees
+        # a docs-only commit, in the project and in the package: no tree changed, the stage is reused
+        mkpath(joinpath(f.proj, "docs")); write(joinpath(f.proj, "docs", "x.md"), "x\n"); g!("add", "-A"); g!("commit", "-q", "-m", "docs")
+        write(joinpath(pkg, "docs", "index.md"), "# StackPkg, documented\n"); p!("commit", "-qam", "docs")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 1
+        # the package's src changes: the stage reruns, the package named
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 1\nend\n"); p!("commit", "-qam", "src")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+rerun: code changed: StackPkg: src [0-9a-f]{10} → [0-9a-f]{10}", out) && ran() == 2
+        @test !occursin("VisualGeometryToolkitCore", out)
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 2
+        # the project's own code changes: named by its path
+        write(joinpath(f.proj, "scripts", "chrome.jl"), "# the driver, changed\n"); g!("commit", "-qam", "driver")
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = env0)
+        @test code == 0 && occursin("RERUN (code changed: scripts: ", out)
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin("rerun: code changed: scripts: ", out) && ran() == 3
+        # uncommitted code is refused, in the project or in a package; the dry run shows it; a dirty paper is no code
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 2\nend\n")
+        code, out = run_main(args; env = env0)
+        @test code == 2 && occursin("a run of record runs committed code, and StackPkg has uncommitted changes", out) && ran() == 3
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = env0)
+        @test code == 0 && occursin("DIRTY: StackPkg (a launch is refused)", out)
+        p!("checkout", "-q", "--", "src/StackPkg.jl")
+        write(joinpath(f.proj, "slurm", "new.sbatch"), "#!/bin/bash\n")             # untracked, in a code path
+        code, out = run_main(args; env = env0)
+        @test code == 2 && occursin("slurm has uncommitted changes", out)
+        rm(joinpath(f.proj, "slurm", "new.sbatch"))
+        write(joinpath(f.proj, "docs", "x.md"), "y\n")                              # tracked, not code
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out)
+        g!("checkout", "-q", "--", "docs/x.md")
+        # a launch recorded before the trees were kept: its stage reruns once, then is reused
+        m = last(run_manifests(joinpath(f.results, "_reproduce"))); d = TOML.parsefile(m)
+        delete!(d["stages"]["setup"], "code_trees"); open(io -> TOML.print(io, d), m, "w")
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin("rerun: code changed: no code trees recorded", out) && ran() == 4
+        code, out = run_main(args; env = env0)
+        @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 4
+        # the rule itself
+        changes = VisualGeometryToolkitEval.code_tree_changes
+        @test isempty(changes(Dict("a" => "x"), Dict("a" => "x"))) && isempty(changes(Dict{String, Any}(), Dict{String, String}()))
+        @test changes(Dict("a" => "x", "b" => "y"), Dict("a" => "x", "c" => "z")) == ["b: no longer loaded", "c: new"]
+        @test changes(Dict("P" => "src:1 Project.toml:2"), Dict("P" => "src:1 Project.toml:3 ext:4")) ==
+              ["P: Project.toml 2 → 3", "P: ext none → 4"]
+        # the registered stack packages are the published rows of the stack's allow-list
+        allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
+        @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))
+    end
+
+    @testset "code identity on Slurm: a stage in flight under other code stops the launch, nothing submitted twice" begin
+        f = runner_project()
+        bin = fake_bin()
+        log, queue = joinpath(mktempdir(), "sbatch.log"), joinpath(mktempdir(), "squeue.txt")
+        write(queue, "")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
+                               "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
+        launch(args) = run_main(args; env, queue_states = nothing, job_states = nothing)    # the stand-ins on PATH
+        args = ["--graph=$(f.graph)", "--site=dgx01", "--only=setup"]
+        code, out = launch(args)
+        @test code == 0 && length(readlines(log)) == 1                                      # setup: job 101
+        # job 101 still runs; the same code: depended on, not submitted again
+        write(queue, "101|RUNNING|None\n")
+        code, out = launch(args)
+        @test code == 0 && occursin(r"setup\s+101  \(in flight", out) && length(readlines(log)) == 1
+        # a commit changes the code (scripts/) while job 101 runs: the launch stops (exit 4), naming the job and the
+        # tree, and submits nothing
+        write(joinpath(f.proj, "scripts", "chrome.jl"), "# the driver, changed\n")
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam driver`; stdout = devnull, stderr = devnull))
+        nman = length(run_manifests(joinpath(f.results, "_reproduce")))
+        code, out = launch(args)
+        @test code == 4 && occursin("job 101 of an earlier launch is still in flight, under other code (scripts: ", out)
+        @test length(readlines(log)) == 1 && length(run_manifests(joinpath(f.results, "_reproduce"))) == nman
+        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run"])          # the dry run says so too
+        @test code == 4 && occursin("still in flight, under other code", out)
+        # once the job has left the queue it reruns under the new code (its marker never written: unknown)
+        write(queue, "")
+        code, out = launch(args)
+        @test code == 0 && length(readlines(log)) == 2 && startswith(readlines(log)[2], "102 ")
+    end
+
+    @testset "a launch that identifies none of the project's code is refused; a job's log found by its default name" begin
+        f = runner_project()
+        write(joinpath(f.proj, "configs", "nocode.toml"), replace(read(f.graph, String), r"^code = .*$"m => ""))
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false add -A`; stdout = devnull))
+        run(pipeline(`git -C $(f.proj) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm nocode`; stdout = devnull))
+        g = joinpath(f.proj, "configs", "nocode.toml")
+        code, out = run_main(["--graph=$g", "--site=desktop", "--only=setup"]; env = env0)
+        @test code == 2 && occursin("none of the project's own code is identified", out) && !isfile(joinpath(f.results, "ran.txt"))
+        code, out = run_main(["--graph=$g", "--site=desktop", "--only=setup", "--dry-run"]; env = env0)
+        @test code == 0 && occursin("NO PROJECT CODE", out)
+        # %x in a launcher's --output is the job's name, which is <project>-<stage> when nothing names it
+        write(joinpath(f.proj, "slurm", "setup.sbatch"), "#!/bin/bash\n#SBATCH --output=logs/%x_%j.log\ntrue\n")
+        mkpath(joinpath(f.proj, "logs"))
+        write(joinpath(f.proj, "logs", "a-decoy_101.log"), ""); write(joinpath(f.proj, "logs", "leg-paper-setup_101.log"), "")
+        sg = load_stage_graph(f.graph)
+        @test Reproduce._slurm_log(sg, sg.stages[1], "101", 0) == joinpath(f.proj, "logs", "leg-paper-setup_101.log")
     end
 
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin

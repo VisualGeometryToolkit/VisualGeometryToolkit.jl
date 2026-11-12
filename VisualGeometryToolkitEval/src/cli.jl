@@ -51,3 +51,10 @@ function cli_option(args, key)
     v === nothing && error("missing required argument --$key=…")
     return v
 end
+
+# -----------------------------------------------------------------------------
+# The code identity of a run (src/code_identity.jl: `code_trees`, `code_tree_changes`), included here so that every
+# includer of this file has it: the package (the Experiments records, the runner) and a project's launcher, which
+# includes this file and reproduce/runner.jl by path from a bare `julia`.
+# -----------------------------------------------------------------------------
+include("code_identity.jl")

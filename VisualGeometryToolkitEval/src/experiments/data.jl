@@ -119,7 +119,7 @@ function _bound_data_root()
 end
 
 """
-    data_root(; tiers = nothing) -> String
+    data_root(; tiers = nothing, tier = nothing) -> String
 
 The project's input tree (read-only): `ENV["VGTK_DATA_ROOT"]` → the project's
 `data/exp_raw` (DrWatson `datadir("exp_raw")`; a link, a directory, or the
@@ -127,8 +127,19 @@ artifact view) → the project's fallback rung → its [`ArtifactView`](@ref),
 installing `tiers` (default: the view's `default`). Configs state input paths
 RELATIVE to it; nothing under it is written except by a declared producer
 ([`assert_not_input`](@ref)).
+
+With `tier`, the root of that input tier, which may live elsewhere on a
+machine (`tier_data_root`, the runner's order): `ENV["VGTK_DATA_ROOT_<TIER>"]`
+→ the project's stage graph (`configs/reproduce.toml`) `[sites.<site>.tiers]`,
+`<site>` from `ENV["VGTK_SITE"]` (the runner sets both for its jobs) → the one
+data root above. An `[inputs.<id>]` path is relative to its tier's root.
 """
-function data_root(; tiers::Union{Nothing,AbstractVector} = nothing)
+function data_root(; tiers::Union{Nothing,AbstractVector} = nothing, tier::Union{Nothing,AbstractString} = nothing)
+    if tier !== nothing
+        tiers, workdir = _site_tiers()
+        r, from = tier_data_root(tier, ""; env = ENV, tiers, workdir)     # the one order (src/code_identity.jl)
+        from == "data root" || return r
+    end
     r = _bound_data_root()
     av = _BINDING.artifacts
     if r !== nothing
@@ -298,6 +309,19 @@ end
 
 _is_under(p, root) = (c = _resolved_path(p); r = _resolved_path(root); c == r || startswith(c, rstrip(r, '/') * "/"))
 
+# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, and the graph's workdir (a
+# relative root's base); `(nothing, "")` without one.
+function _site_tiers()
+    site = get(ENV, "VGTK_SITE", "")
+    root = project_root()
+    (isempty(site) || isempty(root)) && return (nothing, "")
+    g = joinpath(root, "configs", "reproduce.toml")
+    isfile(g) || return (nothing, "")
+    d = TOML.parsefile(g)
+    tiers = get(get(get(d, "sites", Dict{String,Any}()), site, Dict{String,Any}()), "tiers", nothing)
+    return (tiers, normpath(joinpath(dirname(g), get(get(d, "project", Dict{String,Any}()), "workdir", "."))))
+end
+
 """
     assert_not_input(path; producer = false)
 
@@ -306,10 +330,15 @@ The runtime guard of every writer here: refuse a write at or under
 itself a `producer` (a pool generator writing a NEW tree under the data root).
 A results root nested inside the data root (one author binding has
 `data_root()/results/…`) is not input. Nothing is guarded when no data root is
-bound.
+bound. A tier root set elsewhere (`VGTK_DATA_ROOT_<TIER>`, [`data_root`](@ref)'s
+`tier`) is input too.
 """
 function assert_not_input(path::AbstractString; producer::Bool = false)
     producer && return nothing
+    for (k, v) in ENV
+        (startswith(k, "VGTK_DATA_ROOT_") && !isempty(v) && _is_under(path, v)) &&
+            error("refusing to write $path: it is under the root of an input tier ($k = $v), read-only input")
+    end
     droot = _bound_data_root()
     droot === nothing && return nothing
     _is_under(path, droot) || return nothing

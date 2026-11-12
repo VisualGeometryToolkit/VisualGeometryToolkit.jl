@@ -44,7 +44,16 @@ from the data layer of `Experiments`, never from a literal machine path.
   changed config therefore gets a new directory and never overwrites an old
   one. A wall-clock stamp or a hand-bumped version suffix is never used.
   DrWatson's `savename` is the equivalent for flat configs; run configs are
-  nested, hence the hash.
+  nested, hence the hash. What a run depends on beyond its config is folded
+  in, never hashed privately: `run_key(cfg; files, upstream, parts)` (a file's
+  content, an upstream run's key, a frame limit). The directory is
+  `keyed_cell_dir(cfg, experiment, kind)` under the config's `experiment_dir`:
+  `<results root>/<dataset>/<matcher>/<problem>`, or the config's own
+  `[experiment] layout = ["mocap", "cam0"]` for results not laid out by pool;
+  `keyed_cell_dir(…; base)` takes another base, which must lie under the
+  results root. A run that produces data writes it to `keyed_data_dir(cfg,
+  tier, kind)`, and a run of record another run reads is made an input of
+  record with `promote_run(run_dir, tier)`.
 - **Provenance per result.** Every result directory carries `_config.toml` and
   `_provenance.toml`, written by `write_run_records` and `write_provenance`.
   The provenance is DrWatson's `tag!` record: the commit, the patch of a dirty

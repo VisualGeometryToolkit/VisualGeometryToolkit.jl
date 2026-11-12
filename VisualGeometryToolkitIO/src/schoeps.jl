@@ -123,7 +123,7 @@ end
 function _load_schoeps_camera(path::AbstractString, file_unit)
     yml = _yaml_text(path)
     type = _schoeps_field(yml, "type", path)
-    type in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE) ||
+    _is_old_grid_type(type) ||
         throw(ArgumentError("$(path) holds a Schöps $(type), not a grid camera ($(_OLD_CENTRAL_TYPE), $(_OLD_NONCENTRAL_TYPE))"))
     central = type == _OLD_CENTRAL_TYPE
     w, h, bounds... = map(k -> _schoeps_int(yml, k, path), (

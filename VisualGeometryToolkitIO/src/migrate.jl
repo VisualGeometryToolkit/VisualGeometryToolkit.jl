@@ -1180,7 +1180,7 @@ function _old_grid_camera(b::AbstractDict)
     for k in _OLD_GRID_KEYS
         haskey(b, k) || _not_written_by("an old grid body (generic_camera v2/v3, a rig/v6–v8 sensor)", "has no $(repr(k)), which every one held")
     end
-    b["type"] in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE) ||
+    _is_old_grid_type(b["type"]) ||
         _not_written_by("an old grid body", "is of type $(repr(b["type"])), not $(_OLD_CENTRAL_TYPE) or $(_OLD_NONCENTRAL_TYPE)")
     # its fields' types, as its version's spec held them (a value of another type is not a record it wrote)
     what = "an old grid body"
@@ -1275,7 +1275,7 @@ function _with_given_intrinsics(d, Ks::AbstractDict{Symbol, <:CameraCalibrationM
         s = get(sensors, String(id), nothing)
         s === nothing && throw(ArgumentError("$(path): no sensor $(repr(String(id))) to supply K to; sensors: $(sort!(collect(keys(sensors))))"))
         c = s["camera"]
-        (c isa AbstractDict && get(c, "type", nothing) in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)) || _holds_k(path, "sensor $(repr(String(id)))")
+        (c isa AbstractDict && _is_old_grid_type(get(c, "type", nothing))) || _holds_k(path, "sensor $(repr(String(id)))")
         _give_nominal!(c, K, path, "sensor $(repr(String(id)))")
     end
     return d
@@ -1291,8 +1291,10 @@ _holds_k(path, what) = throw(
 )
 
 # An old grid body (central or non-central): a vgio/generic_camera/v2 or v3 record's, a rig/v6–v8 sensor's, or one
-# another record embeds; and the central one.
-_is_old_grid_body(b) = b isa AbstractDict && get(b, :type, nothing) in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)
+# another record embeds; and the central one. `_is_old_grid_type` is the one test of the type, for a parsed body (string
+# keys) as for a lowered one (symbol keys).
+_is_old_grid_type(t) = t in (_OLD_CENTRAL_TYPE, _OLD_NONCENTRAL_TYPE)
+_is_old_grid_body(b) = b isa AbstractDict && _is_old_grid_type(get(b, :type, nothing))
 _is_old_central_body(b) = b isa AbstractDict && get(b, :type, nothing) == _OLD_CENTRAL_TYPE
 # A parsed file that is a central vgio/generic_camera/v2 or v3 record.
 _is_central_grid(d) = d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS && _is_old_central_body(d)

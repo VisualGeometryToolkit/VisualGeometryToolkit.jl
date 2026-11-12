@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Fixed: data-policy rule D3 flags only the bare `oracle_floors_path()`** (the unkeyed
+  `<results root>/oracle_floors.jld2` every run rewrites), not `oracle_floors_path(keyed_dir)`, the documented keyed use.
+
 - **New: `Experiments.input_path(cfg, id; root)`**, the one reader of a config's input: its `[inputs.<id>]` path
   under its tier's root (`data_root(; tier)`), checked to be there and, with a `sha256`, to have that content. A
   project's own `input_path`/`input_table` (`data_root` + `require_input`) becomes this.

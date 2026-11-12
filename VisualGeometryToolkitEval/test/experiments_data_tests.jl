@@ -414,6 +414,7 @@
         write(joinpath(root, "src", "ok.jl"), """
             # a comment may name /mnt/data/x
             const OUT = joinpath(results_root(), "cell", "budget-" * run_key(cfg))
+            floors = JLD2.load(oracle_floors_path(keyed_cell_dir(cfg, "floors", "oracle")), "floors")
             """)
         write(joinpath(root, "src", "bad.jl"), """
             const POOL = "/mnt/data/accv2026/data/P"

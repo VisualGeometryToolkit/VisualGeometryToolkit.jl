@@ -5,6 +5,9 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **Breaking: `lm_retcode` is removed** (public in 0.8; the termination record is the one map). The chart LM's outcome is
+  the `(code, rule)` record `lmsolve_chart!` returns (from `nlls_termination`); a caller that still wants the former
+  Symbol reads `retcode_symbol(code, rule)`.
 - **A SplineLens projects a ray carrying ForwardDiff Duals.** `project(::SplineLens, X)` of a Dual ray projects its
   values by the plain solve and carries its partials by the solve's implicit derivative (`_projection_jacobians`' ∂x/∂t),
   one Dual layer at a time, so nested Duals differentiate exactly; no Dual enters the LM inverse. With a forward spline the

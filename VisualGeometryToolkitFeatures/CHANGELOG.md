@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking: `pairwise_matrix` and `nn_match` default to `default_device()`** (the stack's GPU-first rule):
+  `pairwise_matrix(metric, d1, d2, device = default_device())` and `nn_match(…; device = default_device())` run on an
+  accelerator when one is functional, else on `KA.CPU()` as before. `nn_match(…; device = nothing)` is a
+  `TypeError`: give the backend, or leave the keyword out. `match` stays the host call.
 - **Breaking: `RawMosaic{A} <: AbstractMatrix{UInt16}` is its photosite matrix** (the owner's raw-image decision;
   BayeredImages' idea, no dependency on it). `size`, indexing, `IndexStyle` and `parent` are the held array's (`m.raw`,
   any `AbstractMatrix{UInt16}`, a device array included), so an array or image function reads a mosaic unchanged;

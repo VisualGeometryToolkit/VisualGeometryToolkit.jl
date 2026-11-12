@@ -110,18 +110,19 @@ include("cache.jl")
 # =============================================================================
 
 """
-    nn_match(desc1, desc2, strategy = MutualNN(); device = nothing, kw...) -> Vector{NNMatch}
+    nn_match(desc1, desc2, strategy = MutualNN(); device = default_device(), kw...) -> Vector{NNMatch}
 
-[`match`](@ref) on `device`, any KernelAbstractions backend (`device = nothing`
-is `KA.CPU()`). Every backend runs the same GEMM and selection kernels, so a GPU
+[`match`](@ref) on `device`, any KernelAbstractions backend
+(VisualGeometryToolkitCore's `default_device()` when none is supplied: an
+accelerator when one is functional, else `KA.CPU()`). Every backend runs the same GEMM and selection kernels, so a GPU
 (e.g. `CUDABackend()`) returns what the CPU returns, with every keyword `match`
 accepts: `metric`, `dm`, `ratio_threshold`, `min_similarity`, `max_distance`.
 """
 function nn_match(
         desc1, desc2, strategy::NNStrategy = MutualNN();
-        device::Union{Nothing, KA.Backend} = nothing, kw...
+        device::KA.Backend = default_device(), kw...
     )
-    return _match(desc1, desc2, strategy, something(device, KA.CPU()); kw...)
+    return _match(desc1, desc2, strategy, device; kw...)
 end
 
 # =============================================================================

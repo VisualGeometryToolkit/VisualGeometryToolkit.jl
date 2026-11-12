@@ -230,12 +230,33 @@ end
 
 @testitem "nn_match on KA.CPU() is match" setup = [Fixtures] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
-    # one matcher: device = nothing is KA.CPU(), and `match` is the same call
+    # one matcher: `match` is nn_match on KA.CPU()
     d1 = rand(Float32, 40, 128); d2 = rand(Float32, 50, 128)
     m = match_key(VgtkFeatures.match(d1, d2, MutualNN()))
     @test !isempty(m)
-    @test match_key(nn_match(d1, d2, MutualNN())) == m
     @test match_key(nn_match(d1, d2, MutualNN(); device = KA.CPU())) == m
+end
+
+# GPU-first: an unspecified device is VisualGeometryToolkitCore's `default_device()`
+# (an accelerator when one is functional), never a hard-coded KA.CPU().
+@testitem "nn_match and pairwise_matrix default to default_device()" setup = [Fixtures] begin
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    import VisualGeometryToolkitCore as VgtkCore
+    d1 = rand(Float32, 12, 32); d2 = rand(Float32, 15, 32)
+    old_resolver, old_device = VgtkCore._DEVICE_RESOLVER[], VgtkCore._DEFAULT_DEVICE[]
+    calls = Ref(0)
+    try
+        VgtkCore._DEVICE_RESOLVER[] = () -> (calls[] += 1; KA.CPU())
+        VgtkCore.reset_default_device!()
+        S = VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2)
+        @test calls[] == 1
+        @test S == VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU())
+        VgtkCore.reset_default_device!()
+        @test match_key(nn_match(d1, d2, MutualNN())) == match_key(VgtkFeatures.match(d1, d2, MutualNN()))
+        @test calls[] == 2
+    finally
+        VgtkCore._DEVICE_RESOLVER[] = old_resolver; VgtkCore._DEFAULT_DEVICE[] = old_device
+    end
 end
 
 @testitem "gray_f32 / gray_u8 — the input ladders" setup = [Fixtures] begin

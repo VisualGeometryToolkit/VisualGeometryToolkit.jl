@@ -132,17 +132,18 @@ _norms(::CosineSimilarity, gal, feat) = nothing
 _norms(::L2, gal, feat) = (gal = vec(sum(abs2, gal; dims = 2)), feat = vec(sum(abs2, feat; dims = 2)))
 
 """
-    pairwise_matrix(metric, desc1, desc2, device = KA.CPU()) -> Matrix
+    pairwise_matrix(metric, desc1, desc2, device = default_device()) -> Matrix
 
 The N1×N2 pairwise comparison matrix: `a·b` for `CosineSimilarity()`,
 `‖a − b‖` for `L2()`, in the descriptors' float type (Float32 descriptors give
 Float32, Float64 give Float64). The GEMM runs on `device`, any
-KernelAbstractions backend (`CUDABackend()`, …); the matrix is returned on the
-host. One implementation serves every backend: there is no separate host method.
+KernelAbstractions backend (`CUDABackend()`, …; VisualGeometryToolkitCore's
+`default_device()` when none is supplied: an accelerator when one is
+functional, else `KA.CPU()`); the matrix is returned on the host. One implementation serves every backend: there is no separate host method.
 """
 function pairwise_matrix(
         metric::DescriptorMetric, desc1::AbstractMatrix, desc2::AbstractMatrix,
-        device::KA.Backend = KA.CPU()
+        device::KA.Backend = default_device()
     )
     T = _score_eltype(desc1, desc2)
     d1 = ka_upload(T, device, desc1); d2 = ka_upload(T, device, desc2)

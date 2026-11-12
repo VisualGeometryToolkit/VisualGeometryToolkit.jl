@@ -5,6 +5,14 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **Changed: `refine_robot_world_hand_eye` runs the camera-and-poses bundle's one solve at its LM settings** (the owner's
+  ruling, 2026-11-12). Its private LM — λ·I damping, `ftol = xtol = 1e-15`, and the `[refine_robot_world_hand_eye]`
+  `ftol` (eps) of its stall postcondition — is deleted; it runs `_solve_bundle` at `[refine_camera_and_poses]`'s
+  `max_iter`, `ftol` and `xtol` (1e-12) with Marquardt's DᵀD damping. `[refine_robot_world_hand_eye]` keeps only its
+  strategy (`max_iter` and `ftol` removed). Numbers move at the LM's tolerance: on the test scenes (σ = 0.5 px) the
+  calibration moves at most 5.2e-9 in its chart, the rms in the 10th digit, exact data stays exact (≤ 1.1e-15), and
+  the LM takes fewer iterations (L2 9 → 6, Triggs 12 → 8 on one scene).
+
 - **Breaking (Changed): ONE fixed-scale robust refine path — `Triggs{Shape}`, one robustified NLLSsolver LM — and an
   `Irls{Shape}` refine is refused** (dup-audit item 6, the owner's ruling, 2026-11-12). The three reweighting loops a
   refine ran with `optimization_strategy = Irls{K}` are deleted — the camera-and-poses bundle's (`_solve_bundle`: it

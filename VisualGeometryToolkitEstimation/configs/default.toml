@@ -186,12 +186,8 @@ tol = 1.0e-10
 # The strategy, as every refine_*'s (the refine contract): its loss width is
 # efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
 optimization_strategy = { type = "triggs", loss = "welsch" }
-max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
-# The stall postcondition's exact-fit test (VGC `is_stationary`: F < ftol, F the
-# squared residual norm), beside [chart_lm]'s stationarity_tol for its gradient
-# test. eps (2.220446049250313e-16): NLLSsolver states no cost tolerance of its
-# own to share, so only a cost at the rounding floor counts as an exact fit.
-ftol = 2.220446049250313e-16
+# Its LM is the camera-and-poses bundle's one solve, at [refine_camera_and_poses]'s
+# settings (max_iter, ftol, xtol): no settings of its own.
 
 [refine_camera_and_poses]
 # The strategy, as every refine_*'s (the refine contract): its loss width is

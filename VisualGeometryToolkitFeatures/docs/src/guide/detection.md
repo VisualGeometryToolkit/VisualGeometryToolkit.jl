@@ -162,8 +162,8 @@ res === nothing || (res.circle, res.rim_gap < π)   # the circle; whether the ri
 ```
 
 A RAW frame (a `LinearRaw` or a `RawMosaic`) is measured on its green cells,
-the geometry image. The circle and the contour come back in the raw's pixels
-through the cells' `raw_frame_map`, and the keywords are given in raw pixels as
-well. The circle is about 1 px outside the true rim, because the hull follows
+the geometry image, with the keywords in green-cell pixels. Only the result is
+mapped: the circle and the contour come back in the raw's pixels through the
+cells' `raw_frame_map`. The circle is about 1 px outside the true rim, because the hull follows
 the dark side of the rim's partial-coverage band. Treat it as a mask that errs
 toward including the rim's last pixels.

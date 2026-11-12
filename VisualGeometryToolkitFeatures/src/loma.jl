@@ -78,7 +78,8 @@ end
 
 # `url` downloaded to `path` and checked against its sha256 `digest`; a mismatch is an error and leaves no file at `path`.
 function _download_verified(url, digest, path)
-    tmp = Downloads.download(url, tempname(dirname(path)))
+    tmp = tempname(dirname(path))   # a String: Downloads.download's return is typed loosely, which left `rm`/`mv` below
+    Downloads.download(url, tmp)    # open to FilePathsBase's methods under JET once Makie is loaded (2 reports)
     got = open(sha256_hex, tmp)
     if got != digest
         rm(tmp; force = true)

@@ -43,10 +43,10 @@ re-exports NO name of Core's — the moved ones and its three older re-exports a
   dark MSERs (`detect_mser`, `max_area = 1`, duplicates kept), every region boundary less the holes smaller than
   `min_hole_area` and the border's vertices, their convex hull, and a RANSAC `Ellipse` or `Circle` through the hull's
   vertices off the border, scored by the Student-t + uniform marginal at `outlier_halfwidth`. Returns `(; circle, fit,
-  contour, cut, rim_gap)` or `nothing`. A RAW frame (`LinearRaw` `:green_cells`/`:bin2`, or a `RawMosaic`) is measured
-  on its green cells and its circle and contour come back in the raw's pixels through the cells' `raw_frame_map`; the
-  keywords are in the caller's (raw) pixels, and `fit`'s estimate is mapped while its `rms` and residuals stay in
-  green-cell pixels. A cell image on a device is read to the host (the result bit for bit the host's, a GPU test).
+  contour, cut, rim_gap)` or `nothing`. A RAW frame (a `RawMosaic`, or `LinearRaw(mosaic; mode = :green_cells)`) is
+  measured on its green cells, with the keywords in green-cell pixels (a pipeline config's resolution), and only the
+  result is mapped: its circle and contour come back in the raw's pixels through the cells' `raw_frame_map`, and `fit`'s
+  estimate with them, while its `rms` and residuals stay in green-cell pixels. A cell image on a device is read to the host (the result bit for bit the host's, a GPU test).
 - **New dependencies:** DelaunayTriangulation (the convex hull) and Random. **New weak dependencies and extensions:**
   VisualGeometryToolkitEstimation (`VisualGeometryToolkitFeaturesEstimationExt`: the fit, `find_ellipse` /
   `find_circle`; without it `detect_image_circle` is an `ArgumentError` naming the package) and ImageSmooth

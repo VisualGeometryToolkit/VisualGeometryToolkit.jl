@@ -112,7 +112,7 @@ private names. Each is the function Core's own callers use, unchanged; the priva
   the code of a page's `julia` fenced blocks, in order.
 - **The dependency allow-list names VisualGeometryToolkitEstimation for VisualGeometryToolkitFeatures**
   (`configs/stack_dependencies.toml`): a weak dependency there, the extension behind `detect_image_circle`'s fit
-  (VisualGeometryToolkitFeatures 0.7.1). No API change.
+  (VisualGeometryToolkitFeatures 0.8.0). No API change.
 
 ## 0.9.1 (2026-11-12)
 

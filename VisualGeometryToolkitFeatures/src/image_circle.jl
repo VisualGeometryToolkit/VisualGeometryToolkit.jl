@@ -27,11 +27,11 @@ The fit is VisualGeometryToolkitEstimation's `find_ellipse` / `find_circle`, thr
 `smoothing_weight > 0` needs `using ImageSmooth` the same way.
 
 The frames are gray images (anything `Colors.gray` reads: `Gray`, a real) or camera RAW images, never both:
-- a `LinearRaw` (`:green_cells` or `:bin2`) or a `RawMosaic` (read as `LinearRaw(mosaic; mode = :green_cells)`) is
+- a `LinearRaw` of mode `:green_cells` or a `RawMosaic` (read as `LinearRaw(mosaic; mode = :green_cells)`) is
   measured on its GREEN CELLS, the geometry image, and `circle` and `contour` are taken to the raw's pixels by the cells'
-  `raw_frame_map` (Core's similarity action on an `Ellipse` or a `Circle`). The keywords stay in the caller's pixels,
-  the RAW's: they are taken to the cells by the map's scale `s` (2: a length ÷ s, an area ÷ s², exactly), so the
-  default `border_margin = 5` is 5 raw pixels (2.5 cells). Every frame must have the same map (one sensor, one window),
+  `raw_frame_map` (Core's similarity action on an `Ellipse` or a `Circle`). Only the RESULT is mapped: the keywords
+  are in GREEN-CELL pixels, the resolution measured on (half the raw's: a pipeline config's values are at the cell
+  resolution), the default `border_margin = 5` included. Every frame must have the same map (one sensor, one window),
   and a cell image on a device is read to the host;
 - any other image is measured as it is, and its result is in its own pixels.
 
@@ -80,7 +80,7 @@ near-straight run of hull vertices: every 5-point sample holds 3 collinear point
   pixels);
 - `fit`: the RANSAC's `RansacEstimate`; `inlier_mask(fit)` indexes `contour`. For RAW frames the RANSAC ran on the
   green cells: its estimate is mapped to raw pixels (Core's `map_estimate`, `estimate(fit) == circle`), but its `rms`
-  and every residual or scale in its metadata stay in GREEN-CELL pixels (raw pixels ÷ 2);
+  and every residual or scale in its metadata stay in GREEN-CELL pixels, the keywords' (raw pixels ÷ 2);
 - `contour`: the hull's vertices off the border, `Vector{Point2{Float64}}`, pixel corners, in `circle`'s pixels;
 - `cut`: whether the disc is cut by the frame (the hull reached the border);
 - `rim_gap`: the largest angle, radians, between consecutive INLIER contour vertices around the fitted centre. Below π
@@ -96,7 +96,7 @@ near-straight run of hull vertices: every 5-point sample holds 3 collinear point
   boundaries are kept whatever their size. 256 full-resolution px² drops hot-pixel holes and inner-fringe pockets (the
   rim's own hole is 3.5–5.6 Mpx; 1024 starts losing true rim pockets).
 - `smoothing_weight`: L0Smooth's λ; 0 (the default) skips the smoothing.
-- `border_margin` (pixels; the default 5 in the caller's pixels, for RAW frames raw pixels): a hull vertex within it of the frame's border is dropped. The rim's last points where it
+- `border_margin` (pixels; for RAW frames green-cell pixels): a hull vertex within it of the frame's border is dropped. The rim's last points where it
   meets the frame are 2–3 px inside the border, and the hull's edge across the cut runs through them, so the margin must
   exceed that.
 
@@ -107,7 +107,7 @@ using Random: Xoshiro
 res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 1000, min_hole_area = 256)
 res === nothing || res.circle                         # an Ellipse, the frames' pixels
 raws = (load_raw(f; mode = :green_cells) for f in files)
-detect_image_circle(Xoshiro(1), Circle, raws; outlier_halfwidth = 1000, min_hole_area = 256).circle   # raw pixels, keywords too
+detect_image_circle(Xoshiro(1), Circle, raws; outlier_halfwidth = 500, min_hole_area = 64).circle   # keywords in cell px, circle in raw px
 ```
 """
 detect_image_circle(frames; kwargs...) = detect_image_circle(Random.default_rng(), Ellipse, frames; kwargs...)
@@ -134,9 +134,6 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
         end
     end
     upper === nothing && throw(ArgumentError("detect_image_circle: no frames"))
-    # the keywords in the caller's pixels; on RAW frames the raw's, taken to the cells by the map's scale (s = 2: exact)
-    s = S === nothing ? 1.0 : Float64(scale(S))
-    halfwidth, hole_area, margin = Float64(outlier_halfwidth) / s, min_hole_area / s^2, Float64(border_margin) / s
     H, W = size(upper)
     smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     levels = Matrix{Gray{N0f8}}(undef, H, W)                          # 2. VLFeat's 8 bits (after an L0 smoothing only when asked)
@@ -152,17 +149,17 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
     for r in regions
         # an MSER is one 8-connected region: its ONE outer boundary first, then its holes (boundary_contours' order, by signed area)
         for (k, c) in enumerate(boundary_contours(region_mask(r, levels)))
-            k > 1 && _polygon_area(c) < hole_area && continue   # a small hole (a hot pixel in the surround): not the rim
+            k > 1 && _polygon_area(c) < min_hole_area && continue   # a small hole (a hot pixel in the surround): not the rim
             append!(points, _inside_frame(c, W, H))
         end
     end
     points = unique(points)
     length(points) < 3 && return nothing
     hull = points[get_vertices(convex_hull([(p[1], p[2]) for p in points]))[1:end-1]]   # closed: the first vertex repeats
-    m = margin                                                         # 5. the hull's vertices off the border: the rim
+    m = Float64(border_margin)                                         # 5. the hull's vertices off the border: the rim
     contour = [p for p in hull if m < p[1] < W - m && m < p[2] < H - m]
     cut = length(contour) < length(hull)
-    fit = _fit_image_circle(T, contour; outlier_halfwidth = halfwidth, rng)   # 6. the model the caller asked for
+    fit = _fit_image_circle(T, contour; outlier_halfwidth = Float64(outlier_halfwidth), rng)   # 6. the model the caller asked for
     (fit === nothing || !found_model(fit)) && return nothing
     circle = estimate(fit)
     rim_gap = _rim_gap(circle, contour[inlier_mask(fit)])
@@ -172,17 +169,15 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
 end
 
 # The plane a frame is measured on, and the map of its pixels onto the returned ones (`nothing`: its own). A RAW image:
-# its green cells, read to the host, and their raw_frame_map (which refuses a :demosaic image, the display image).
+# the green-cell image, `LinearRaw(m; mode = :green_cells)` (the stack's one public path to it), read to the host, and
+# its raw_frame_map. A cell image of another mode (`:bin2`, the display `:demosaic`) is refused, never re-read.
 _measured_plane(f::AbstractMatrix) = (f, nothing)
 _measured_plane(m::RawMosaic) = _measured_plane(LinearRaw(m; mode = :green_cells))
-function _measured_plane(L::LinearRaw)
-    S = unlabel(raw_frame_map(L))
-    return Array(view(L.image, :, :, _green_cell_plane(L))), S
-end
+_measured_plane(L::LinearRaw{:green_cells}) = (Array(view(L.image, :, :, 1)), unlabel(raw_frame_map(L)))
+_measured_plane(::LinearRaw{M}) where {M} = throw(ArgumentError(
+    "detect_image_circle: a RAW frame is measured on its green cells: give the mosaic or LinearRaw(mosaic; mode = :green_cells), got LinearRaw{:$M}"
+))
 _measured_plane(f) = throw(ArgumentError("detect_image_circle: a frame is a gray image, a LinearRaw or a RawMosaic, got $(typeof(f))"))
-# The green cells' plane of a cell image: the one plane of :green_cells, the G of :bin2's R G B (bit for bit the same).
-_green_cell_plane(::LinearRaw{:green_cells}) = 1
-_green_cell_plane(::LinearRaw{:bin2}) = 2
 
 # The largest angle between consecutive points around the model's centre, radians (2π for fewer than two points).
 function _rim_gap(model, points)

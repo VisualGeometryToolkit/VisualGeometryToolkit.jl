@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`rms(residuals, n = length(residuals))`**: the fits' root-mean-square residual `√(Σ r² / n)`, the one computation
+  (a method of the `rms` accessor); VisualGeometryToolkitEstimation's `fit_camera`, `refine_camera_and_poses` (spline),
+  and `fit_division_camera`'s step use it.
+
 - **`reproject_so3(R)`, public** (was the private `_reproject_so3`): a drifted rotation matrix back on SO(3) by its
   unit quaternion, the charts' one re-anchoring and a caller's before an `EuclideanMap`'s rotation check.
 - **`inv(pose::Uncertain{<:EuclideanMap{3}, <:CovMat{6}})`**: the inverse of an uncertain rigid pose with its

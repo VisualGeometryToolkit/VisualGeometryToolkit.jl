@@ -172,3 +172,13 @@ end
     @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestNotField(1))
     @test _reject_shadowing(_NestOuter) === nothing
 end
+
+# The one RMS computation (base/fit_result.jl): over n points, a point's stacked rows its squared norm.
+@testitem "rms(residuals, n): the fits' root-mean-square residual" begin
+    using Test
+    using VisualGeometryToolkitCore: rms
+    e = [3.0, 4.0, 12.0]
+    @test rms(e) === sqrt((9.0 + 16.0 + 144.0) / 3)
+    rows = [3.0, 4.0, 6.0, 8.0]                     # two points' (x, y) rows: norms 5 and 10
+    @test rms(rows, 2) === sqrt(sum(abs2, rows) / 2) && rms(rows, 2) ≈ sqrt((25 + 100) / 2)
+end

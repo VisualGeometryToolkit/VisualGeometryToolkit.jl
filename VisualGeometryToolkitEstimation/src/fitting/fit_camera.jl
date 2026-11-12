@@ -932,7 +932,7 @@ _check_lattice_size(ny::Integer, nx::Integer) = (ny >= 4 && nx >= 4) || throw(
 # An error at the held-out points (pixels, or metres for a line offset): its
 # maximum, rms and edge-band maximum, and the errors themselves.
 function _held_out_errors(err::AbstractVector{Float64}, edge::AbstractVector{Bool})
-    return (; max = maximum(err), rms = sqrt(sum(abs2, err) / length(err)), max_edge = any(edge) ? maximum(err[edge]) : 0.0, values = err)
+    return (; max = maximum(err), rms = rms(err), max_edge = any(edge) ? maximum(err[edge]) : 0.0, values = err)
 end
 
 _check_tolerance(tolerance::Real) =

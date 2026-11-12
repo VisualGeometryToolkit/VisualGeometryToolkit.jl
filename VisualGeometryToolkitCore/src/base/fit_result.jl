@@ -163,6 +163,16 @@ outlier-dominated.
 rms(r::FitResult) = r.rms
 
 """
+    rms(residuals::AbstractVector, n::Integer = length(residuals)) -> Float64
+
+The root-mean-square residual `√(Σ rᵢ² / n)` a fit reports (its `rms`): over `n`
+points, so a point's stacked residual rows (two per pixel point) enter as its
+squared residual norm — `rms(rows, n_points)` — and scalar errors as themselves,
+`rms(errors)`. The one place it is computed.
+"""
+rms(residuals::AbstractVector, n::Integer = length(residuals)) = sqrt(sum(abs2, residuals) / n)
+
+"""
     metadata(r::FitResult{P, M}) -> M
 
 The solver-specific diagnostics; `nothing` for a lean result. Its fields are

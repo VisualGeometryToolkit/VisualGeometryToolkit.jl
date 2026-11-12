@@ -199,7 +199,7 @@ function _focal_board_solve(R, t12, pts, kmode)
         A[(2j - 1):2j, :] .= G; b[(2j - 1):2j] .= rhs
     end
     x = A \ b
-    return sqrt(sum(abs2, A * x - b) / (2n)), _front_fraction(R, t12, pts, x[ns + 1])
+    return rms(A * x - b, 2n), _front_fraction(R, t12, pts, x[ns + 1])
 end
 
 # The fraction of a board's points in front of the camera at depth t₃.

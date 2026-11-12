@@ -72,6 +72,14 @@ refine_camera_and_poses
 CameraPosesRefineMetadata
 ```
 
+Every bundle — this one, [`refine_robot_world_hand_eye`](@ref) and a downstream package's
+(PanoramaStitching's rotation bundle) — reads its robust loss from its keywords through
+one function:
+
+```@docs
+bundle_loss
+```
+
 ## Penalty weights: normalization and generalized cross-validation
 
 One convention for a penalty's weight across the stack: `λ = β · energy / N / m̄`

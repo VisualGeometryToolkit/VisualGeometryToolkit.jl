@@ -530,7 +530,7 @@ function _refine_bundle(
     _refuse_retired_keyword(robust, :robust, :optimization_strategy)
     _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    lo, input, loss = _bundle_loss("refine_camera_and_poses", optimization_strategy, scale, width)
+    lo, input, loss = bundle_loss(optimization_strategy; scale, width, caller = "refine_camera_and_poses")
     camera = _camera_model(bounded)
     V, B = length(poses), length(boards)
     names = parameter_names(camera)

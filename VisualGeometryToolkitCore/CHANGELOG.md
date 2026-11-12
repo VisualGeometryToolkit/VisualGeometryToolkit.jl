@@ -5,6 +5,10 @@
 Breaking (the next release is a minor bump). A bounded camera carries its LENS COVERAGE — where the lens covers its
 sensor — so every consumer asks the camera what it images instead of supplying an image circle of its own.
 
+- **`scale_source(::ScaleInput)`**: a stage's parsed scale input answers the stack's accessor pair as a result does —
+  `scale_source(input)` its source (`ScaleNone` for a width; `nothing`, no input, too) and `noise_scale(input)` the
+  scale it was given (refused for a width) — so a stage records what it was given through accessors, never the
+  fields (a downstream bundle reading VisualGeometryToolkitEstimation's `bundle_loss`).
 - **A no-width `Irls{K}()`/`Triggs{K}()` of a shape with no decision width (Huber) runs at the table's
   `efficiency_constant(K, d)` times the consensus scale** (`loss_at`, `d` the scorer's codimension; the owner's
   ruling, 2026-11-12). It was a `MethodError` from `decision_width`. The shapes with a `decision_width` method (Welsch,

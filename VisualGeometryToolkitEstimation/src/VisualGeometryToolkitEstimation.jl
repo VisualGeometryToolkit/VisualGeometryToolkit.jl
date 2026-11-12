@@ -360,6 +360,7 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
     RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
+public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.

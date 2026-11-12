@@ -5,6 +5,12 @@
 On VisualGeometryToolkitCore 0.9 (the central grid camera folded into `CameraModel` as a `SplineLens`; the
 non-central one is a `NoncentralSplineModel`).
 
+- **New: `bundle_loss(optimization_strategy; scale | width, codimension = 2, caller) -> (; strategy, input, loss)`**
+  (public), the one reading of a bundle adjustment's robust keywords by the refine contract: the strategy admitted
+  (`Triggs{K}`, `Irls{K}` or `nothing`, with the refine refusals), exactly one of `scale`/`width` (neither for least
+  squares), and the loss deployed at the residual's codimension. `refine_camera_and_poses` and
+  `refine_robot_world_hand_eye` call it (they ran the private `_bundle_loss`, bit for bit the same), and a
+  downstream bundle (PanoramaStitching's rotation bundle) calls it instead of its copy.
 - **The view-graph filters take Uncertain edges**: `rotation_loop_angle` (`filter_cycles`' residual),
   `filter_by_orientation` and so `filtered_rotation_averaging` at a `cycle_tol` or `orientation_tol` read each edge's
   rotation through VisualGeometryToolkitCore's `geom`, so `Attributed(Uncertain(R_ij, CovMat(Σ)), (; weight))` (the

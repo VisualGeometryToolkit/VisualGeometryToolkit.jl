@@ -113,6 +113,48 @@ scoring            = { type = "msac", threshold = 0.01 }   # × L (dimensionless
 motion_pairs       = "consecutive"
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
+# -----------------------------------------------------------------------------
+# Per-class defaults of the refine_* entry points (the refine contract): the
+# strategy a refine runs from the caller's model — no scorer, no consensus set.
+# Triggs{Welsch}, ONE robustified chart LM, is the stack's default (owner,
+# 2026-11-11; Huber where a fit has chosen it for accuracy). It has no width of
+# its own here: its loss width is efficiency_constant(Welsch, codimension) times
+# the caller's `scale` (or the caller's `width`) — a scale is data, never a
+# default of this file. A class's ruling is an edit of its line.
+# -----------------------------------------------------------------------------
+[refine.homography]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.fundmat]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.essential]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.rotation]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.circle]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.ellipse]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.absolute_pose]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.bearing_pose]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.radial_homography]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.radial_camera]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.hand_eye]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
 [fit_division_camera]
 ncoef = 1
 # The E-step, the fit's `weighting` (a fit takes no `scoring`): the shared Student-t + uniform
@@ -137,6 +179,9 @@ min_rel_angle_deg = 5.0          # relative motions below this are degenerate fo
 tol = 1.0e-10
 
 [refine_robot_world_hand_eye]
+# The strategy, as every refine_*'s (the refine contract): its loss width is
+# efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
+optimization_strategy = { type = "triggs", loss = "welsch" }
 max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 # The stall postcondition's exact-fit test (VGC `is_stationary`: F < ftol, F the
 # squared residual norm), beside [chart_lm]'s stationarity_tol for its gradient
@@ -145,6 +190,9 @@ max_iter = 100                   # the reprojection LM's cap on ACCEPTED iterati
 ftol = 2.220446049250313e-16
 
 [refine_camera_and_poses]
+# The strategy, as every refine_*'s (the refine contract): its loss width is
+# efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
+optimization_strategy = { type = "triggs", loss = "welsch" }
 max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
 # NLLSsolver's relative cost decrease and step tolerance (chart units), and the
 # stall postcondition's exact-fit test (F < ftol, px²): the values the

@@ -164,16 +164,16 @@ end
     guess = RobotWorldHandEyeCalibration(perturb_pose(rng, Y; σ_R = 0.01, σ_t = 0.01), Dict(k => perturb_pose(rng, X[k]; σ_R = 0.01, σ_t = 0.01) for k in 1:2))
     markers_m = Dict(k => [phys(first(e)) => [(P .* m) => q for (P, q) in last(e)] for e in els] for (k, els) in markers)
     guess_m = RobotWorldHandEyeCalibration(phys(guess.Y), Dict(k => phys(guess.X[k]) for k in guess.ids))
-    plain = refine_robot_world_hand_eye(guess, camera, markers)
-    phy = refine_robot_world_hand_eye(guess_m, camera, markers_m)
+    plain = refine_robot_world_hand_eye(guess, camera, markers; optimization_strategy = nothing)
+    phy = refine_robot_world_hand_eye(guess_m, camera, markers_m; optimization_strategy = nothing)
     @test VgtkCore.has_units(estimate(phy).Y)
     @test same_pose(ustrip(m, estimate(phy).Y), estimate(plain).Y)
     @test all(k -> same_pose(ustrip(m, estimate(phy).X[k]), estimate(plain).X[k]), estimate(plain).ids)
     @test retcode(phy) === retcode(plain) && iterations(phy) == iterations(plain) && rms(phy) === rms(plain)
     @test metadata(phy).cov == metadata(plain).cov
     # one form: a physical guess with plain observations is a MethodError
-    @test_throws MethodError refine_robot_world_hand_eye(guess_m, camera, markers)
-    @test_throws MethodError refine_robot_world_hand_eye(guess, camera, markers_m)
+    @test_throws MethodError refine_robot_world_hand_eye(guess_m, camera, markers; optimization_strategy = nothing)
+    @test_throws MethodError refine_robot_world_hand_eye(guess, camera, markers_m; optimization_strategy = nothing)
 end
 
 @testset "the plane-model fits refuse physical plane points" begin

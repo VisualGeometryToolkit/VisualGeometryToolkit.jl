@@ -55,28 +55,24 @@ function find_ellipse(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Re
 end
 
 """
-    refine_ellipse(ellipse, points; scoring = MsacScoring(problem; threshold = 1.0),
-        optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), workspace = nothing) -> RansacEstimate
+    refine_ellipse(ellipse, points; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
-The 2D ellipse through `points` refined from the given `ellipse`:
-[`find_ellipse`](@ref)'s step without the sampling. `optimization_strategy` is the
-ellipse's RANSAC local-optimization step, run here alone from the given model
-(no sampling): `ellipse` is scored, its consensus set under the scorer is the
-one a consensus-anchored strategy reads its scale from, and the strategy runs
-once from it. Every strategy descends the problem's refit rows, the points'
-ORTHOGONAL distances to the ellipse (the distance to the foot point, the
-closest boundary point), on the log-shape chart (VisualGeometryToolkitCore's
-`EllipseManifold`, smooth at a circle). Every default is `find_ellipse`'s
-(`[pipelines.ellipse]`); the keywords are those of every `refine_*`, documented
-on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer than 5 points.
+The 2D ellipse through `points` refined from the given `ellipse`. Every
+strategy descends the problem's refit rows, the points' ORTHOGONAL distances to
+the ellipse (the distance to the foot point, the closest boundary point;
+codimension 1), on the log-shape chart (VisualGeometryToolkitCore's
+`EllipseManifold`, smooth at a circle): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.ellipse] optimization_strategy`). Fewer than 5 points: the guess back
+unrefined, `retcode` `:degenerate`.
 
 The maximum-likelihood ellipse under isotropic Gaussian noise on outlier-free
 points is `refine_ellipse(direct_ellipse(points), points; optimization_strategy =
-Irls{GaussianShape}(), scoring = MsacScoring(EllipseProblem; threshold = τ))`, τ above every residual: least squares over every point. Its
-covariance is the one model covariance on the inliers,
-`s²·solver_covariance(EllipseProblem(points), e, findall(inlier_mask(result)))`
-(in `ambient_coordinates(e)`), `s² = noise_scale(result)²`.
+nothing)`: least squares over every point. Its covariance is the one model
+covariance, `s²·solver_covariance(EllipseProblem(points), e, eachindex(points))`
+(in `ambient_coordinates(e)`), `s²` the residual variance.
 """
 function refine_ellipse(ellipse::VgtkCore.Ellipse, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    return _guarded_refine(() -> EllipseProblem(points), EllipseProblem, length(points), :ellipse, ellipse; kwargs...)
+    return _guarded_refine(() -> EllipseProblem(points), EllipseProblem, length(points), Val(:ellipse), ellipse; kwargs...)
 end

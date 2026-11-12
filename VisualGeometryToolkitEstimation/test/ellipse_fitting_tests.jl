@@ -24,8 +24,8 @@
         c, V, a, b = VgtkEstimation._ellipse_frame(_chart(e))
         return sqrt(mean(p -> first(VgtkEstimation._ellipse_foot(SVector{2, Float64}(p), c, V, a, b))^2, pts))
     end
-    # plain least squares over every point: Irls{GaussianShape} at a threshold above every residual
-    ls(e, pts) = refine_ellipse(e, pts; optimization_strategy = Irls{GaussianShape}(), scoring = VgtkCore.MsacScoring(EllipseProblem; threshold = 1.0e3))
+    # plain least squares over every point
+    ls(e, pts) = refine_ellipse(e, pts; optimization_strategy = nothing)
 
     e0 = Ellipse(Point2(120.0, 80.0), 30.0, 12.0, 0.6)
 
@@ -45,20 +45,20 @@
     @testset "noise-free points: the ellipse, to rounding" begin
         pts = _points(e0, 30)
         r = ls(direct_ellipse(pts), pts)
-        @test converged(r) && r.lo_retcode === :converged
+        @test converged(r)
         @test norm(_chart(estimate(r)) - _chart(e0)) < 1.0e-9
         @test _orms(estimate(r), pts) < 1.0e-9
-        # from the exact ellipse, under the defaults, it comes back
-        @test norm(_chart(estimate(refine_ellipse(e0, pts))) - _chart(e0)) < 1.0e-9
+        # from the exact ellipse, under the default (Triggs{Welsch} at a scale), it comes back
+        @test norm(_chart(estimate(refine_ellipse(e0, pts; scale = 0.5))) - _chart(e0)) < 1.0e-9
     end
 
     @testset "noisy points: no worse than the algebraic start, better on an arc" begin
         for arc in (2π, π)
             pts = _points(e0, 60; σ = 0.5, arc)
             r = ls(direct_ellipse(pts), pts)
-            @test r.lo_retcode === :converged
+            @test converged(r)
             @test _orms(estimate(r), pts) <= _orms(direct_ellipse(pts), pts) + 1.0e-12
-            @test count(inlier_mask(r)) == 60
+            @test r.n == 60
         end
         pts = _points(e0, 60; σ = 0.5, arc = π)
         @test _orms(estimate(ls(direct_ellipse(pts), pts)), pts) < 0.97 * _orms(direct_ellipse(pts), pts)
@@ -68,7 +68,7 @@
         circle = Ellipse(Point2(50.0, 40.0), 10.0, 10.0, 0.0)
         pts = _points(circle, 40; σ = 0.3)
         r = ls(direct_ellipse(pts), pts)
-        @test r.lo_retcode === :converged
+        @test converged(r)
         e = estimate(r)
         @test abs(e.a - 10) < 0.3 && abs(e.b - 10) < 0.3
     end
@@ -76,17 +76,18 @@
     @testset "another start value, the same minimum" begin
         pts = _points(e0, 40; σ = 0.2)
         r = ls(Ellipse(Point2(118.0, 82.0), 25.0, 15.0, 0.4), pts)
-        @test r.lo_retcode === :converged
+        @test converged(r)
         @test norm(_chart(estimate(r)) - _chart(estimate(ls(direct_ellipse(pts), pts)))) < 1.0e-6
     end
 
     @testset "the covariance is calibrated (Monte Carlo NEES ≈ 5)" begin
-        # s²·solver_covariance on the inliers, in the ambient coordinates (c, Q)
+        # s²·solver_covariance over every point (least squares), s² = RSS/(n − 5), in the ambient coordinates (c, Q)
         nees = map(1:300) do s
             pts = _points(e0, 60; σ = 0.5, rng = StableRNG(1000 + s))
             r = ls(direct_ellipse(pts), pts)
             e = estimate(r)
-            Σ = noise_scale(r)^2 * VgtkEstimation.solver_covariance(EllipseProblem(pts), e, findall(inlier_mask(r)))
+            s² = sum(abs2, r.residuals) / (length(pts) - 5)
+            Σ = s² * VgtkEstimation.solver_covariance(EllipseProblem(pts), e, collect(eachindex(pts)))
             δ = ambient_coordinates(e) - ambient_coordinates(e0)
             dot(δ, Matrix(Σ) \ δ)
         end
@@ -94,8 +95,8 @@
     end
 
     @testset "too few points" begin
-        @test let r = refine_ellipse(e0, _points(e0, 4))
-            retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+        @test let r = refine_ellipse(e0, _points(e0, 4); optimization_strategy = nothing)
+            retcode(r) === :degenerate && iterations(r) == 0 && estimate(r) == e0
         end
     end
 end

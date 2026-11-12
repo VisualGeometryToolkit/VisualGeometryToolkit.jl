@@ -23,7 +23,7 @@
     @test_throws r"`local_optimization` is retired: give `local_optimization_strategy`" find_homography(
         pairs; local_optimization = Irls{TLSShape}(), rng = StableRNG(1))
 
-    @test estimate(refine_homography(estimate(r), pairs; optimization_strategy = Irls{TLSShape}())) !== nothing
+    @test estimate(refine_homography(estimate(r), pairs; optimization_strategy = Irls{TLSShape}(), width = 2.0)) !== nothing
     @test_throws r"give `optimization_strategy`" refine_homography(estimate(r), pairs; local_optimization_strategy = Irls{TLSShape}())
     @test_throws r"give `optimization_strategy`" refine_homography(estimate(r), pairs; local_optimization = Irls{TLSShape}())
 

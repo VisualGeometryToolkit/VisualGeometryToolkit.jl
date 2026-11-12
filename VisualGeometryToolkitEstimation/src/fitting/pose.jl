@@ -77,24 +77,20 @@ function find_absolute_pose(
 end
 
 """
-    refine_absolute_pose(pose, camera_model, correspondences; scoring = MsacScoring(problem; threshold = 8.0),
-        extent = nothing, optimization_strategy = Irls{TLSShape}(), workspace = nothing) -> RansacEstimate
-    refine_absolute_pose(pose, bearing_correspondences; scoring = MsacScoring(problem; threshold = 1.0·bound), optimization_strategy = Irls{GaussianShape}(), workspace = nothing) -> RansacEstimate
+    refine_absolute_pose(pose, camera_model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+    refine_absolute_pose(pose, bearing_correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
 The camera extrinsics `pose` (world → camera, `x_c = R·X + t`) refined against
-`X => u` pairs (world point => raw pixel) of the camera `camera_model`:
-[`find_absolute_pose`](@ref)'s step without the sampling, on the same
-[`AbsolutePoseProblem`](@ref) — the raw-pixel reprojection error through the
-full camera, on the `LeftRigidManifold6` chart; any lens, rays at and past 90°
-included. `optimization_strategy` is the pose's RANSAC local-optimization step, run
-here alone from the given model (no sampling): `pose` is scored, its consensus
-set under the scorer is the one a consensus-anchored strategy reads its scale
-from, and the strategy runs once from it. Plain least squares over every
-correspondence is `optimization_strategy = Irls{GaussianShape}()` under a scorer whose
-threshold is above every residual. Every default is `find_absolute_pose`'s
-(`[pipelines.absolute_pose]`), `extent` included; the other keywords are those
-of every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)
-for fewer than 3 correspondences.
+`X => u` pairs (world point => raw pixel) of the camera `camera_model`, from
+`pose` itself, on [`find_absolute_pose`](@ref)'s [`AbsolutePoseProblem`](@ref)
+— the raw-pixel reprojection error through the full camera (codimension 2), on
+the `LeftRigidManifold6` chart; any lens, rays at and past 90° included. Plain
+least squares over every correspondence is `optimization_strategy = nothing`.
+The keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.absolute_pose] optimization_strategy`). Fewer than 3 correspondences:
+the guess back unrefined, `retcode` `:degenerate`.
 
 # Bearings: a camera given by its rays (central or generalized)
 The second form takes `X => f` pairs of world points and the camera-frame UNIT
@@ -106,12 +102,10 @@ else radians) and `weights` (fixed per-correspondence weights). Its problem is
 a [`BearingPoseProblem`](@ref): the tangent-plane residual of bearings.md,
 whose norm is the angle between the rays, on the same `LeftRigidManifold6`
 chart; rays at and past 90° and behind the camera are data like any other.
-Its defaults (`[pipelines.bearing_pose]`) are least squares over every
-correspondence — `Irls{GaussianShape}()`, under MSAC at a threshold (the
-residual's unit) that by default admits every correspondence: π times the
-largest whitening gain (`[pipelines.bearing_pose] scoring`, unit-free). A
-robust strategy (`Irls{K}`, `Triggs{K}`) and a scorer of the caller's (its
-width in the residual's unit) are taken as in the camera form. It has no `find_*`: a
+Its default is every refine's (`[refine.bearing_pose]`, `Triggs{WelschShape}`
+at the caller's `scale` or `width`, in the residual's unit: radians, or pixels
+with an `M` column); least squares over every correspondence at the caller's
+weights is `optimization_strategy = nothing`. It has no `find_*`: a
 generalized camera has no minimal solver here. The guess's ray origins must
 not coincide with their points (`ArgumentError`). The keywords are the shared
 refine set; there is no `max_iter` (the cap is the strategy's).
@@ -127,12 +121,10 @@ bearings without `M`) either way.
 function refine_absolute_pose(
         pose::PlainEuclideanMap{3}, camera_model::CameraModel,
         pairs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{2}}};
-        extent::Union{Nothing, HyperRectangle{2, <:Real}} = nothing,
         kwargs...
     )
-    _holds_minimal_sample(AbsolutePoseProblem, length(pairs)) || return _refine_pipeline(_TooFew{AbsolutePoseProblem}(length(pairs)), :absolute_pose, unlabel(pose); kwargs...)
-    problem = _with_extent(AbsolutePoseProblem(camera_model, pairs), extent)
-    return _with_frames(_refine_pipeline(problem, :absolute_pose, unlabel(pose); kwargs...), pose)
+    return _with_frames(_guarded_refine(() -> AbsolutePoseProblem(camera_model, pairs), AbsolutePoseProblem, length(pairs),
+                                        Val(:absolute_pose), unlabel(pose); kwargs...), pose)
 end
 
 # Physical pose and world points: stripped in metres once, the plain
@@ -140,13 +132,10 @@ end
 function refine_absolute_pose(
         pose::_PhysicalPose3, camera_model::CameraModel,
         pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
-        extent::Union{Nothing, HyperRectangle{2, <:Quantity}} = nothing,
         kwargs...
     )
     plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
-    result = refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain;
-        extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...)
-    return _attach_metres(result)
+    return _attach_metres(refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain; kwargs...))
 end
 
 function refine_absolute_pose(
@@ -154,15 +143,17 @@ function refine_absolute_pose(
         cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         kwargs...
     )
-    _holds_minimal_sample(BearingPoseProblem, length(cs)) || return _refine_pipeline(_TooFew{BearingPoseProblem}(length(cs)), :bearing_pose, unlabel(pose); kwargs...)
-    problem = BearingPoseProblem(cs)
     θ₀ = unlabel(pose)
-    R0 = rotation(θ₀); t0 = translation(θ₀); o = problem.context.origins
-    for i in 1:data_size(problem)
-        iszero(norm(R0 * sources(problem.cs)[i] + t0 - o[i])) &&
-            throw(ArgumentError("refine_absolute_pose: point $i coincides with its ray's origin at the guess"))
+    function problem()
+        p = BearingPoseProblem(cs)
+        R0 = rotation(θ₀); t0 = translation(θ₀); o = p.context.origins
+        for i in 1:data_size(p)
+            iszero(norm(R0 * sources(p.cs)[i] + t0 - o[i])) &&
+                throw(ArgumentError("refine_absolute_pose: point $i coincides with its ray's origin at the guess"))
+        end
+        return p
     end
-    return _with_frames(_refine_pipeline(problem, :bearing_pose, θ₀; kwargs...), pose)
+    return _with_frames(_guarded_refine(problem, BearingPoseProblem, length(cs), Val(:bearing_pose), θ₀; kwargs...), pose)
 end
 
 # Physical pose, points and origins: in metres once, the plain refinement, the

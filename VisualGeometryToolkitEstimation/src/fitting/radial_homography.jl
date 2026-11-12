@@ -67,28 +67,23 @@ function find_radial_homography(
 end
 
 """
-    refine_radial_homography(model, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
-        -> RansacEstimate
+    refine_radial_homography(model, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
 The radially distorted homography `model` (VisualGeometryToolkitCore
 `RadialHomography{<:Any, 1}`: `H`, `k` and the distortion centre, in the data
 frame; a model with more division coefficients has no method, a `MethodError`)
-refined against `correspondences`: [`find_radial_homography`](@ref)'s step
-without the sampling. The problem's distortion centre is the model's own
-(`center(model)`); `minimal` and `extra_check` choose `find_radial_homography`'s
-hypotheses and have no meaning here. `optimization_strategy` is the radial
-homography's RANSAC local-optimization step, run here alone from the given model
-(no sampling). Every default is `find_radial_homography`'s
-(`[pipelines.radial_homography]`), `extent` included; the keywords are those of
-every `refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0)
-for fewer than 5 correspondences.
+refined against `correspondences` from `model` itself (the reprojection pair,
+codimension 2). The problem's distortion centre is the model's own
+(`center(model)`): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.radial_homography] optimization_strategy`). Fewer than 5 correspondences: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_radial_homography(
         model::VgtkCore.RadialHomography{<:Any, 1}, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
-        extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_radial_homography")
-    return _guarded_refine(() -> _with_extent(RadialHomographyProblem(pairs; center = center(model)), extent), RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(:radial)}, length(pairs), :radial_homography, model; kwargs...)
+    return _guarded_refine(() -> RadialHomographyProblem(pairs; center = center(model)), RadialHomographyProblem{_cspond_scalar(pairs), _radial_sample_size(:radial)}, length(pairs), Val(:radial_homography), model; kwargs...)
 end

@@ -34,41 +34,52 @@ bare `threshold` or `outlier_halfwidth` keyword is refused: a width is its
 scorer's (a threshold scorer's `threshold`, the Student-t + uniform scorer's
 `outlier_halfwidth`) and goes into that scorer.
 
-## `find_*` and `refine_*`: the same local optimization, with or without the search
+## `find_*` and `refine_*`: a search, and a refine from a given model
 
-A `find_*` is sampling plus a refine: RANSAC draws minimal samples, scores each
-hypothesis, and runs the class's local optimization from the hypotheses it
-keeps. The matching `refine_*` is that local optimization alone, run once from
-a model the caller gives — `refine_homography(H, pairs)`,
-`refine_circle(circle, points)`, `refine_absolute_pose(pose, camera, pairs)`, …,
-the model first, then the data as the `find_*` takes them. The given model is
-scored exactly as a hypothesis is; its consensus set under the scorer is the
-one a consensus-anchored strategy reads its scale from; the strategy runs from
-it; the refined model is re-scored and returned as a `RansacEstimate`, or the
-given model if the refined one fails the problem's consensus test.
+A `find_*` samples hypotheses, scores each, runs the class's local optimization
+from the ones it keeps, and ORIGINATES a scale: its consensus partition's ŝ,
+the result's `noise_scale`. A `refine_*` starts from a model the caller gives —
+`refine_homography(H, pairs)`, `refine_circle(circle, points)`,
+`refine_absolute_pose(pose, camera, pairs)`, …, the model first, then the data
+as the `find_*` takes them — and NEVER estimates a scale: it runs no scorer,
+forms no consensus set and drops no datum. Its robust loss runs over every
+datum at the scale the caller gives, frozen:
+
+```julia
+r = find_homography(pairs)                      # RANSAC: the model, its inliers, its scale ŝ
+h = refine_homography(estimate(r), pairs; scale = r)   # Triggs{Welsch} at efficiency_constant(Welsch, 2) · ŝ
+noise_scale(h) == noise_scale(r)                # the scale it ran with, handed on (ScaleUpstream)
+```
+
+The strategy is `optimization_strategy`: `Triggs{Shape}` (the default,
+`Triggs{WelschShape}()`, `configs/default.toml [refine.<class>]`), one
+robustified chart LM; `Irls{Shape}`, chart LMs at the loss weights ρ′ while the
+robust cost decreases; or `nothing`, plain least squares. A robust strategy
+needs EXACTLY ONE of `scale = σ` (a number, or an upstream result whose
+`noise_scale` it takes) and `width = w` (the loss width itself); least squares
+takes neither. The loss width is the strategy's efficiency constant times the
+scale — Core's `efficiency_constant(Shape, d)` at the problem's codimension
+unless the strategy states one (TLS has none: state one, or give a width).
+
+The result is a `FitResult` with [`RefineMetadata`](@ref): the refined model,
+the per-datum `weights` (the loss's ρ′; all ones under least squares) and
+`residuals` at it, and the scale record (`noise_scale`, `scale_source`,
+`loss_width`). `n` is the weights' support and `rms` the weighted one. There is
+no inlier mask: a loss weight has no cut of its own (`inlier_mask(result, cut)`
+states one).
+
+The RANSAC-family seeded refine — a scorer, its consensus set, the strategy
+anchored on it, the consensus test on the result — is
+[`locally_optimize`](@ref)`(problem, θ₀; scoring, local_optimization)`, with
+any strategy the problem hosts (and `BoundedProblem` for an extent check).
 
 One `refine_*` has no `find_*`: `refine_absolute_pose(pose, bearings)` on a
 [`BearingPoseProblem`](@ref) — a camera given by its rays, possibly with
 per-ray origins (a non-central camera, for which there is no minimal solver).
-Its defaults (`[pipelines.bearing_pose]`) are least squares over every
-correspondence.
 
-Both read the same `[pipelines.<class>]` defaults and take the same
-strategies — under `local_optimization_strategy` on a `find_*` and
-`optimization_strategy` on a `refine_*` (one family, two keywords; a `refine_*`
-refuses `local_optimization_strategy`, naming its own) — beside `scoring` and `workspace`, so any strategy plugs into
-either: `Irls{K}`, `Triggs{K}`, `nothing`, LocalOptimizationDoneRight's
-half-quadratic lifts and GNC. A strategy a
-problem cannot host (`Triggs` or a lift on the hand-eye problem, which has no
-chart) is refused by both with the same error. The `find_*` sampling keywords
-(`max_trials`, `min_trials`, `config`, `rng`) are not `refine_*` keywords, and
-neither is a `max_iter`: an iteration cap is the strategy's own (`Irls`'s
-`max_iter`; the chart LM's `[chart_lm]` cap). The bundles
-(`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not RANSAC
-problems and keep their own LM and keywords; `refine_camera_and_poses` takes its
-robust strategy as every refine does, `optimization_strategy` (`Irls{Shape}` or
-`Triggs{Shape}`, at an `efficiency_constant` times the given `scale`, or an
-`Irls` strategy's absolute `loss_width`), and holds
+The bundles (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not
+RANSAC problems and keep their own LM, but take the same strategy, default and
+scale input (`optimization_strategy`, `scale` | `width`)), and `refine_camera_and_poses` holds
 parameters with `fixed`.
 
 ## Robust fits: one strategy, one fixed scale

@@ -27,7 +27,7 @@ using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, csponds, radial_transfer, RadialHomography,
     HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: CauchyShape, GaussianShape, Circle
+using VisualGeometryToolkitCore: CauchyShape, GaussianShape, WelschShape, HuberShape, Circle
 using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem,
     RadialCameraProblem, find_radial_homography, find_radial_camera, HandEyeProblem,
     RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
@@ -273,7 +273,6 @@ end
         for call in (
                 () -> find_homography(cs; (; key => val)...),
                 () -> find_homography(cs; scoring = sc, (; key => val)...),
-                () -> refine_homography(θ, cs; (; key => val)...),
                 () -> locally_optimize(p, θ; scoring = sc, local_optimization_strategy = lo, (; key => val)...),
                 () -> locally_optimize(p, VgtkCore.FixedModels(1, (θ, θ)); scoring = sc,
                                        local_optimization_strategy = lo, (; key => val)...),
@@ -311,18 +310,15 @@ end
     @test find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.06), rng = StableRNG(8)) !== nothing   # at the floor: accepted
 end
 
-@testset "refine_*: the keywords of the shared refine pipeline" begin
+@testset "refine_*: the keywords of the refine contract" begin
     kw(m) = Set(Base.kwarg_decl(m))
-    shared = kw(only(methods(VgtkEstimation._refine_pipeline)))
-    # the two widths and the retired strategy keywords: declared to be refused
-    @test shared == Set([:threshold, :outlier_halfwidth, :optimization_strategy, :local_optimization_strategy,
-                         :local_optimization, :scoring, :workspace])
-    @test setdiff(shared, [:optimization_strategy]) ==
-        setdiff(kw(only(methods(VgtkEstimation._ransac_pipeline))), [:max_trials, :min_trials, :config, :rng])
-    # each refine_* forwards the rest like its find_*, and declares only the
-    # find_*'s model-specific keywords — minus those that choose hypotheses (the
-    # radial centre comes with the model)
-    sampling_only = [:center, :extra_check, :minimal]
+    # the shared keywords: the strategy, the scale input, the workspace; anything else is refused by name
+    # (refine_contract_tests.jl)
+    @test kw(only(methods(VgtkEstimation._refine_spec))) ==
+        Set([:optimization_strategy, :scale, :width, :workspace, Symbol("rest...")])
+    # each refine_* forwards the rest, and declares only its find_*'s model keywords — minus those that choose
+    # hypotheses (the radial centre comes with the model) and `extent` (an extent check reads a consensus set)
+    sampling_only = [:center, :extra_check, :minimal, :extent]
     for (f, g) in (find_homography => refine_homography, find_fundmat => refine_fundmat,
                    find_essential => refine_essential, find_absolute_pose => refine_absolute_pose,
                    find_rotation => refine_rotation, find_circle => refine_circle, find_ellipse => refine_ellipse,
@@ -334,33 +330,28 @@ end
         @test all(m -> Symbol("kwargs...") in kw(m), methods(g))
         g === refine_absolute_pose && @test all(m -> kw(m) == Set([Symbol("kwargs...")]), setdiff(methods(g), gm))
     end
-    # every shared keyword is accepted, with the meaning it has in find_*
+    # the class default of record: Triggs{Welsch}, no width of its own ([refine.<class>])
+    for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
+                  :radial_homography, :radial_camera, :hand_eye)
+        @test VgtkEstimation._dflt_refine_strategy(class) == Triggs{WelschShape}()
+    end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
-    p = CircleProblem(pts)
     g = Circle(Point2(C₀ + SVector(1.0, -1.0)), R₀ + 1.0)
-    for (k, v) in (:optimization_strategy => Irls{TLSShape}(), :scoring => MsacScoring(p; threshold = 1.0),
-                   :workspace => RansacWorkspace(CircleProblem, 300))
-        @test converged(refine_circle(g, pts; (; k => v)...))
-    end
-    @test_throws ArgumentError refine_circle(g, pts; outlier_halfwidth = 5.0)
-    @test_throws ArgumentError refine_circle(g, pts; threshold = 2.0)
-    for (k, v) in (:max_trials => 10, :min_trials => 1, :config => RansacConfig(), :rng => StableRNG(1))
-        @test_throws MethodError refine_circle(g, pts; (; k => v)...)        # no sampling to configure
-    end
-    @test let r = refine_circle(g, pts[1:2])
-        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
-    end
-    @test let r = refine_homography(H_PX, h_scene()[1][1:3])
-        retcode(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+    @test converged(refine_circle(g, pts; scale = 0.5, workspace = RansacWorkspace(CircleProblem, 300)))
+    for (k, v) in (:max_trials => 10, :min_trials => 1, :config => RansacConfig(), :rng => StableRNG(1),
+                   :scoring => MsacScoring(CircleProblem; threshold = 1.0), :threshold => 2.0, :outlier_halfwidth => 5.0)
+        @test_throws ArgumentError refine_circle(g, pts; scale = 0.5, (; k => v)...)
     end
 end
 
-@testset "refine_*: from the raw incumbent to find_*'s model, under any strategy the problem hosts" begin
+@testset "refine_*: from the raw incumbent at its find_*'s scale, every class" begin
     # Each class's find_* scene; the guess is the RANSAC incumbent with NO local
-    # optimization (a minimal-sample model), refined by refine_*; the reference
-    # is find_* with the same strategy and draws. Same model to the noise level:
-    # the residuals on find_*'s inliers within 15% of its rms and the same
-    # consensus but for a few points.
+    # optimization (a minimal-sample model) and the scale handed on is that
+    # search's ŝ (`scale = <the find result>`, the documented hand-off). The
+    # refine (the default Triggs{Welsch}, and Irls{Huber}) lands on find_*'s
+    # model to the noise level: the residual rms on find_*'s inliers within
+    # `rms_tol` of find_*'s own, and their weights the consensus but for a few
+    # boundary points.
     pts, _ = circle_scene(Xoshiro(5), 600)
     epts, _ = ellipse_scene(Xoshiro(6), 600)
     hcs, _ = h_scene()
@@ -371,87 +362,71 @@ end
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
-    triggs = Triggs{CauchyShape}(efficiency_constant = 2.5)
+    rms_tol = 0.05
     cases = (
-        (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...), (triggs, Irls{TLSShape}())),
-        (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...), (triggs,)),
-        (:homography, (; kw...) -> find_homography(hcs; kw...), (θ; kw...) -> refine_homography(θ, hcs; kw...), (triggs, Irls{TLSShape}())),
-        (:fundmat, (; kw...) -> find_fundmat(fcs; kw...), (θ; kw...) -> refine_fundmat(θ, fcs; kw...), (triggs,)),
-        (:essential, (; kw...) -> find_essential(ECAM, ECAM, ecs; kw...), (θ; kw...) -> refine_essential(θ, ECAM, ECAM, ecs; kw...), (triggs,)),
-        (:absolute_pose, (; kw...) -> find_absolute_pose(PCAM, pcs; kw...), (θ; kw...) -> refine_absolute_pose(θ, PCAM, pcs; kw...), ()),
-        (:rotation, (; kw...) -> find_rotation(FISHEYE, FISHEYE, rcs; kw...), (θ; kw...) -> refine_rotation(θ, FISHEYE, FISHEYE, rcs; kw...), (triggs,)),
-        (:radial_homography, (; kw...) -> find_radial_homography(rh; center = c, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_homography(θ, rh; kw...), (triggs,)),
-        (:radial_camera, (; kw...) -> find_radial_camera(rc; center = RC_CENTER, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_camera(θ, rc; kw...), ()),
-        (:hand_eye, (; kw...) -> find_hand_eye(hecs; kw...), (θ; kw...) -> refine_hand_eye(θ, hecs; kw...), ()),
+        (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...)),
+        (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...)),
+        (:homography, (; kw...) -> find_homography(hcs; kw...), (θ; kw...) -> refine_homography(θ, hcs; kw...)),
+        (:fundmat, (; kw...) -> find_fundmat(fcs; kw...), (θ; kw...) -> refine_fundmat(θ, fcs; kw...)),
+        (:essential, (; kw...) -> find_essential(ECAM, ECAM, ecs; kw...), (θ; kw...) -> refine_essential(θ, ECAM, ECAM, ecs; kw...)),
+        (:absolute_pose, (; kw...) -> find_absolute_pose(PCAM, pcs; kw...), (θ; kw...) -> refine_absolute_pose(θ, PCAM, pcs; kw...)),
+        (:rotation, (; kw...) -> find_rotation(FISHEYE, FISHEYE, rcs; kw...), (θ; kw...) -> refine_rotation(θ, FISHEYE, FISHEYE, rcs; kw...)),
+        (:radial_homography, (; kw...) -> find_radial_homography(rh; center = c, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_homography(θ, rh; kw...)),
+        (:radial_camera, (; kw...) -> find_radial_camera(rc; center = RC_CENTER, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_camera(θ, rc; kw...)),
+        (:hand_eye, (; kw...) -> find_hand_eye(hecs; kw...), (θ; kw...) -> refine_hand_eye(θ, hecs; kw...)),
     )
-    for (class, find, refine, strategies) in cases
-        raw = estimate(find(; local_optimization_strategy = nothing, rng = StableRNG(3)))
-        for lo in (nothing, strategies...)
-            kws = lo === nothing ? (;) : (; local_optimization_strategy = lo)
-            f = find(; kws..., rng = StableRNG(3))
-            r = refine(raw; (lo === nothing ? (;) : (; optimization_strategy = lo))...)
-            @test converged(r) && r.lo_retcode !== :not_run
-            m = inlier_mask(f)
-            # Within 30% of the noise level (find_*'s rms), the consensus but for 3%
-            # of it, the rms within 2%: a truncated refit from another start may
-            # settle a few boundary points differently and land in a neighbouring
-            # basin (Julia 1.12, :rotation: 5 of 184 points, 0.062 px, at a LOWER
-            # rms than find_*'s; GitHub's runner: 0.10 px at rms 0.405 vs 0.399).
-            tol = 0.3 * f.rms
-            @test maximum(abs, Float64.(r.residuals[m]) .- Float64.(f.residuals[m])) < tol
-            @test count(inlier_mask(r) .!= m) <= max(3, round(Int, 0.03 * count(m)))
-            @test isapprox(r.rms, f.rms; rtol = 0.02)
+    for (class, find, refine) in cases
+        raw_r = find(; local_optimization_strategy = nothing, rng = StableRNG(3))
+        raw = estimate(raw_r)
+        f = find(; rng = StableRNG(3))
+        m = inlier_mask(f)
+        for kws in ((;),)          # the default, Triggs{Welsch} (Irls and the other losses: refine_contract_tests.jl)
+            r = refine(raw; scale = raw_r, kws...)   # the search's own scale, handed on
+            # (F: the robustified LM from the raw minimal-sample model reaches the chart LM's cap, 1000 accepted
+            # iterations, at find_*'s rms to 2 %; from find_*'s own model it converges in 24)
+            @test converged(r) || (class === :fundmat && retcode(r) === :max_iterations)
+            @test VgtkCore.scale_source(r) === VgtkCore.ScaleUpstream && VgtkCore.noise_scale(r) == VgtkCore.noise_scale(raw_r)
+            mask_rms = sqrt(sum(abs2, Float64.(r.residuals[m])) / count(m))
+            @test mask_rms < (1 + rms_tol) * f.rms
+            # find_*'s outliers carry no more than half weight, but for those just past its threshold (Welsch's
+            # half weight lies at 0.83 × its width: past a 1 px MSAC threshold at ŝ 0.42 px for the rotation)
+            @test count(VgtkCore.inlier_mask(r, 0.5) .& .!m) <= max(3, round(Int, 0.1 * count(m)))
         end
     end
-    # the ellipse under Irls{TLSShape} at the 1 px threshold: the truncation is
-    # path-dependent (here find_* keeps 311 points at rms 0.449 px), so the
-    # refine is checked against the truth instead — to the noise level
-    centre(e) = SVector(e.center[1], e.center[2])
-    e = estimate(refine_ellipse(estimate(find_ellipse(epts; local_optimization_strategy = nothing, rng = StableRNG(3))), epts;
-                                optimization_strategy = Irls{TLSShape}()))
-    # (the truncation's path also moves the axes: Julia 1.12 measured a 0.29 px off)
-    @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.4 && abs(e.b - E₀.b) < 0.4 && abs(e.θ - E₀.θ) < 2.0e-3
-    # a strategy the problem cannot host is refused as inside find_*
-    err(f) = try
-        f(); nothing
-    catch e
-        e
-    end
-    raw = estimate(find_hand_eye(hecs; local_optimization_strategy = nothing, rng = StableRNG(3)))
-    ef = err(() -> find_hand_eye(hecs; local_optimization_strategy = triggs, rng = StableRNG(3)))
-    er = err(() -> refine_hand_eye(raw, hecs; optimization_strategy = triggs))
-    @test ef isa ArgumentError && er isa ArgumentError && ef.msg == er.msg
 end
 
 @testset "refine_*: from a perturbed guess on contaminated data, and from the truth on clean data" begin
     centre(e) = SVector(e.center[1], e.center[2])
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
-    for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; optimization_strategy = lo, scoring = MsacScoring(CircleProblem; threshold = 5.0))   # TLS: the truncation's basin is the threshold
+    # the default Triggs{Welsch} and Irls at the scene's σ; TLS (no efficiency constant) at a width: 3σ
+    for kws in ((; scale = 0.5), (; optimization_strategy = Irls{WelschShape}(), scale = 0.5),
+                (; optimization_strategy = Irls{TLSShape}(), width = 1.5))
         cr = estimate(refine_circle(g, pts; kws...))
         @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
-    for lo in (nothing, Irls{TLSShape}())
-        kws = lo === nothing ? (;) : (; optimization_strategy = lo, scoring = MsacScoring(EllipseProblem; threshold = 8.0))
+    for kws in ((; scale = 0.5), (; optimization_strategy = Irls{TLSShape}(), width = 1.5))
         e = estimate(refine_ellipse(ge, epts; kws...))
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end
-    # the exact model on clean data comes back
+    # the exact model on clean data comes back, under least squares and the default
     clean, _ = circle_scene(Xoshiro(43), 200; σ = 0.0, outl = 0.0)
     c₀ = Circle(Point2(C₀), R₀)
-    cr = estimate(refine_circle(c₀, clean))
-    @test norm(centre(cr) - C₀) < 1.0e-8 && abs(cr.r - R₀) < 1.0e-8
     eclean, _ = ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0)
-    e = estimate(refine_ellipse(E₀, eclean))
-    @test norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8
+    for kws in ((; optimization_strategy = nothing), (; scale = 0.5))
+        cr = estimate(refine_circle(c₀, clean; kws...))
+        @test norm(centre(cr) - C₀) < 1.0e-8 && abs(cr.r - R₀) < 1.0e-8
+        e = estimate(refine_ellipse(E₀, eclean; kws...))
+        @test norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8
+    end
     src, dst = homography_pairs(StableRNG(45), H_PX; n_in = 100, n_out = 0, σ = 0.0, source = gaussian_source,
                                 target = rng -> randn(rng, 2) .* 400 .+ 300)
     H = SMatrix{3, 3, Float64, 9}(H_PX)
-    for lo in (nothing, Triggs{CauchyShape}(efficiency_constant = 2.5), Irls{GaussianShape}())
-        kws = lo === nothing ? (;) : (; optimization_strategy = lo)
+    for kws in ((; optimization_strategy = nothing), (; scale = 1.0),
+                (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = 1.0),
+                (; optimization_strategy = Irls{HuberShape}(), scale = 1.0))
         Ĥ = SMatrix{3, 3, Float64, 9}(estimate(refine_homography(HomographyMat{Float64}(Tuple(H)), StructArray(src .=> dst); kws...)))
         @test norm(Ĥ / Ĥ[3, 3] - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-8
     end

@@ -316,6 +316,14 @@ function _refit_state(p::AbsolutePoseProblem, ch, sqrtw)
     return _lm_state(p, ch, sqrtw)
 end
 
+# The robustified LM's rows (`_triggs_state`, manifold_providers.jl): a loss width is in PIXELS, the unit of the
+# problem's distances, so a pinhole's calibrated refit rows are whitened into pixels by the lift's frozen pixel block
+# (any other lens's rows are pixels already). The refit's own (IRLS) rows keep their calibrated form.
+function _triggs_state(p::AbsolutePoseProblem, ch, sqrtw)
+    st = _refit_state(p, ch, sqrtw)
+    return ChartLm(st.ch, p, st.sqrtw, _PnPAux(_lift_pixel_block(lens(p.context.model), p), nothing))
+end
+
 @inline _record_participation!(::Nothing, _i, _valid) = nothing
 @inline _record_participation!(v::AbstractVector{Bool}, i, valid) = (@inbounds v[i] = valid; nothing)
 

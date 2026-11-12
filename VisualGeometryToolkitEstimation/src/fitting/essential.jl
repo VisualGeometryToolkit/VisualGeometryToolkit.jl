@@ -83,20 +83,17 @@ end
 
 
 """
-    refine_essential(E, camera1, camera2, pixel_cs; scoring = MsacScoring(problem; threshold = 1.0),
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
-        -> RansacEstimate
+    refine_essential(E, camera1, camera2, pixel_cs; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
 The essential matrix `E` refined against the PIXEL correspondences `pixel_cs`
-of the cameras `camera1`, `camera2`: [`find_essential`](@ref)'s step without the
-sampling, on the same bearing problem (each view back-projected with its own
-camera; the scorer's width in pixels, sub-detector values refused).
-`optimization_strategy` is the essential matrix's RANSAC local-optimization step,
-run here alone from the given model (no sampling). Every default is
-`find_essential`'s (`[pipelines.essential]`); the keywords are those of every
-`refine_*`, documented on [`refine_homography`](@ref). The `:no_model` result (`iterations` 0) for fewer
-than 5 correspondences.
+of the cameras `camera1`, `camera2`, from `E` itself, on [`find_essential`](@ref)'s
+bearing problem (each view back-projected with its own camera; the residual
+whitened into pixels, codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.essential] optimization_strategy`). Fewer than 5 correspondences: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_essential(E, camera1, camera2, pixel_cs; kwargs...)
-    return _guarded_refine(() -> EssentialProblem(camera1, camera2, pixel_cs), EssentialProblem{Float64}, length(pixel_cs), :essential, E; kwargs...)
+    return _guarded_refine(() -> EssentialProblem(camera1, camera2, pixel_cs), EssentialProblem{Float64}, length(pixel_cs), Val(:essential), E; kwargs...)
 end

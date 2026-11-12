@@ -112,7 +112,9 @@ function theorem, and `Inf` along unobservable directions); `refine_robot_world_
 against the markers' features — the reprojection error, camera and rig poses
 fixed — on `M + 1` `RigidExpManifold6` charts with NLLSsolver's
 Levenberg–Marquardt (one pose block per marker and one residual block per
-point, so any number of markers with nothing compiled per count), and reports the
+point, so any number of markers with nothing compiled per count) — under the
+refine contract's strategy (`Triggs{WelschShape}()` by default, at the caller's
+`scale` or `width`; `optimization_strategy = nothing` for least squares) — and reports the
 covariance of that estimator's own optimum, `ŝ²·implicit_covariance`, which
 the Monte Carlo gate holds calibrated (Y, each `X_m`, the joint vector,
 held-out reprojection, frame count, field of view, marker count and a poor

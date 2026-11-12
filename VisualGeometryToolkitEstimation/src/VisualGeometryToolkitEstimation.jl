@@ -57,8 +57,10 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # base/fit_result.jl). Every fit here returns a FitResult.
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
-# robust/weights.jl): RansacMetadata records the scorer's scale and its kind.
-using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, BinaryWeights, PosteriorWeights
+# robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
+# (fitting/_refine.jl) the scale they were handed.
+using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleInput, scale_input, BinaryWeights,
+    PosteriorWeights, IrlsWeights, unit_weights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
@@ -200,7 +202,7 @@ using VisualGeometryToolkitCore: EssentialManifold5,
     radial_ray                                                     # the radial-H centred ray T₋c·H·s̃ (k seed, extent gate)
 # RVG defines no methods on any of these — it only CALLS them — so `using`, not
 # `import`. (`import` advertises an extension point that does not exist.)
-using VisualGeometryToolkitCore: weight
+using VisualGeometryToolkitCore: weight, ρ
 import VisualGeometryToolkitCore:
     SvdWorkspace, # used by RANSAC + solvers
     test_model, # RANSAC problems extend this
@@ -359,7 +361,7 @@ public lo_loss, strategy_loss, lo_width_value,
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
 public bundle_refine_relpose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata
+public RotationFitMetadata, LinearFitMetadata, RotationAveragingMetadata, RigidAlignmentMetadata, CameraPosesRefineMetadata, RefineMetadata
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
@@ -424,6 +426,7 @@ include("estimators/ransac/problems/manifold_providers.jl")
 
 # Fitting pipelines — RANSAC-based
 include("fitting/_pipeline.jl")
+include("fitting/_refine.jl")   # the refine contract: _guarded_refine, RefineMetadata (no scorer, the caller's scale or width)
 # Provides `fit_line` and the covariance-weighted line step `_weighted_line`,
 # which problems/line.jl's LO-RANSAC `refine!` calls.
 include("fitting/line.jl")
@@ -459,6 +462,9 @@ include("fitting/fit_division_camera.jl")    # the focal stack on the shared pos
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.
 include("config_toml.jl")
+# The refine contract's strategies of record (configs/default.toml [refine.<class>] and the bundles' tables), read
+# once the TOML reader exists: constants, so a refine's default strategy is inferred (fitting/_refine.jl).
+const _REFINE_STRATEGY_DEFAULTS = _read_refine_strategy_defaults()
 
 """
     CONTRACT_GENERICS

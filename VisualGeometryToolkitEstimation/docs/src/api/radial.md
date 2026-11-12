@@ -52,10 +52,11 @@ VisualGeometryToolkitCore's `ParameterManifold` — jointly with one pose per
 view (`LeftRigidManifold6`) against the reprojection error of 3D → 2D
 correspondences, from a guess of both: the bundle of a calibration with a known
 target, for any lens the camera's family holds (a fisheye's rays past 90° are
-ordinary data). `fixed` names the camera parameters held (naming every one
-refines the poses alone). Its robust strategy is `optimization_strategy`, as every refine names it (run from the start
-with no least-squares stage; `nothing`, the default, is plain least squares), at
-the caller's `scale = σ` (a refine estimates no scale) or an absolute width. A
+ordinary data). `free = ()` holds the camera and refines the poses alone. Its
+strategy is the refine contract's `optimization_strategy` — `Triggs{WelschShape}()`
+by default, run from the start with no least-squares stage, at the caller's
+`scale = σ` (a refine estimates no scale) or `width = w`; `nothing` is plain least
+squares. A
 SplineLens camera refines its backward controls instead (K frozen, the lens
 axis held on ẑ), by implicit differentiation of its projection solve, with a
 scale-free third-difference penalty over its lattice whose weight generalized

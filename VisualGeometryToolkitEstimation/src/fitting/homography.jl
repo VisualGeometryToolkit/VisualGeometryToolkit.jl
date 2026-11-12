@@ -88,51 +88,63 @@ function find_homography(
 end
 
 """
-    refine_homography(H, correspondences; scoring = MsacScoring(problem; threshold = 3.0), extent = nothing,
-        optimization_strategy = Irls{TLSShape}(), workspace = nothing)
-        -> RansacEstimate
+    refine_homography(H, correspondences; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{HomographyMat{Float64}, RefineMetadata}
 
-The homography `H` refined against `correspondences`: [`find_homography`](@ref)'s
-step without the sampling. Every `refine_*` is its `find_*`'s RANSAC
-local-optimization step run ONCE from a given model — [`locally_optimize`](@ref)
-with the `find_*`'s defaults — so the guess is required and leads (a refine: the
-model family is kept), and the data follow as the `find_*` takes them.
+The homography `H` refined against `correspondences` from `H` itself — a refine:
+the guess is required and leads, the model family is kept, and nothing is
+estimated from scratch. It runs NO scorer: it estimates no scale, forms no
+consensus set and drops no datum. Its robust loss runs over every datum at the
+caller's scale, frozen. (The RANSAC local-optimization step from a seed — a
+scorer, its consensus set, the strategy anchored on it — is
+[`locally_optimize`](@ref), not a refine.)
 
-`optimization_strategy` is the homography's RANSAC local-optimization step, run
-here alone from the given model (no sampling): `H` is scored under the scorer,
-ITS consensus set is the one a consensus-anchored strategy reads its scale ŝ
-from (the efficiency-constant widths, [`Triggs`](@ref)), exactly as the RANSAC loop
-scores a hypothesis, and the strategy runs once from `H`. The refined model is
-re-scored and kept when it succeeds at the problem's consensus test; otherwise
-`H` comes back. When `H` holds no consensus beyond a minimal sample, nothing is
-refined. `lo_retcode` on the result is the strategy's stop reason.
-
-Returns a `RansacEstimate` (one trial; `retcode` `:converged`, the consensus
-set, residuals and weights of the returned model under the scorer), the `:no_model` result (`iterations` 0)
-for fewer than 4 correspondences.
+Returns a `FitResult` with [`RefineMetadata`](@ref): the refined model, `retcode`
+(the LM's: `:converged`, `:max_iterations`, `:stalled`, `:solve_failed`; an Irls
+run's `:converged` or `:max_iterations`), `iterations` (the LM's accepted
+iterations; an Irls run's cycles), `rms` the weighted residual rms
+`√(Σ wᵢrᵢ² / Σ wᵢ)` and `n` the support (`count(w > 0)`), and in the metadata
+the per-datum `weights` and `residuals` at the estimate and the scale record
+(`noise_scale(result)`, `scale_source(result)`, `loss_width`). There is no inlier
+mask: a loss weight has no cut of its own (`inlier_mask(result, cut)` states one).
+Fewer than 4 correspondences: the guess back unrefined, `retcode` `:degenerate`,
+`n` 0.
 
 # Keywords — shared by every `refine_*`
-- `scoring`: any scorer of VisualGeometryToolkitCore's contract, its width in
-  the problem's residual unit (here PIXELS), as [`find_homography`](@ref);
-  default the class's (`[pipelines.<class>] scoring`). A bare `threshold` or
-  `outlier_halfwidth` keyword is refused.
-- `optimization_strategy`: any `AbstractOptimizationStrategy` the problem hosts —
-  `Irls{K}`, `Triggs{K}`, `nothing`, LocalOptimizationDoneRight's
-  half-quadratic lifts and GNC; a strategy the problem cannot host fails as it
-  would inside `find_*`. Default: the class's `[pipelines.<class>]` strategy.
-  The strategy's own knobs are its own (`Irls`'s `max_iter`; the chart LM's
-  cap is `[chart_lm]`): a `refine_*` has no `max_iter`.
-- `workspace`: a `RansacWorkspace` to reuse, as [`find_homography`](@ref).
+- `optimization_strategy`: `Triggs{Shape}(…)` — ONE robustified chart LM over
+  every datum (Core's `loss_robustifier`, handed to NLLSsolver); the default,
+  `Triggs{WelschShape}()`, is the class's `configs/default.toml
+  [refine.<class>] optimization_strategy` — `Irls{Shape}(…)` — chart LMs at the
+  loss weights ρ′, repeated while the robust cost decreases, at most its
+  `max_iter` cycles — or `nothing`, plain least squares over every datum (one
+  chart LM). Any other strategy needs a consensus set: an `ArgumentError`
+  naming `locally_optimize`. Least squares is spelled `nothing`, not a Gaussian
+  shape.
+- `scale` or `width`: EXACTLY ONE for a robust strategy, neither for least
+  squares; anything else is an `ArgumentError` (Core's `scale_input`).
+  `scale = σ` is the residual's noise scale (here PIXELS), or an upstream
+  robust result, whose `noise_scale` it takes (`scale = find_homography(…)`).
+  The loss width is then the strategy's efficiency constant times σ: Core's
+  `efficiency_constant(Shape, d)` at the problem's codimension `d`, or the
+  constant the strategy states (`Triggs{K}(efficiency_constant = c)`, the plain
+  multiple; TLS has none and needs one, or `width`). `width = w` is the loss
+  width itself; the result then records no scale (`ScaleNone`), so a downstream
+  stage needs its own.
+- `workspace`: a `RansacWorkspace` (its chart-LM buffers are reused) or a
+  chart-LM workspace; `nothing` draws the task's own.
 
-The sampling keywords of `find_*` (`max_trials`, `min_trials`, `config`, `rng`)
-have no meaning here and are not accepted. Model-specific keywords are those of
-the `find_*` (here `extent`).
+Refused, each with the way to say it (`ArgumentError`): `scoring`, `threshold`,
+`outlier_halfwidth` (a refine runs no scorer), `loss`, `loss_width`,
+`efficiency_constant` (the loss is the strategy, its width `scale`/`width`),
+`local_optimization`, `local_optimization_strategy` and `robust` (the strategy is `optimization_strategy`),
+`extent` (an extent check validates a consensus set:
+`locally_optimize(BoundedProblem(problem, extent), θ₀; …)`) and the sampling
+keywords of `find_*` (`max_trials`, `min_trials`, `config`, `rng`).
 """
 function refine_homography(
         H, pairs::AbstractVector{<:Pair{<:_PlanePoint, <:_PlanePoint}};
-        extent::Union{Nothing, HyperRectangle{2}} = nothing,
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_homography")
-    return _guarded_refine(() -> _with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography, H; kwargs...)
+    return _guarded_refine(() -> HomographyProblem(pairs), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), Val(:homography), H; kwargs...)
 end

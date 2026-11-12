@@ -33,8 +33,9 @@
 
 """
     refine_robot_world_hand_eye(guess::RobotWorldHandEyeCalibration{K}, camera::CameraModel, markers;
-                       max_iter)   # default: configs/default.toml [refine_robot_world_hand_eye]
-        -> FitResult{RobotWorldHandEyeCalibration{K}, RobotWorldHandEyeMetadata{K, Nothing}}
+                       optimization_strategy = Triggs{WelschShape}(), scale | width, max_iter)
+        -> FitResult{RobotWorldHandEyeCalibration{K}, <:RobotWorldHandEyeMetadata{K, Nothing}}
+        # defaults: configs/default.toml [refine_robot_world_hand_eye]
 
 Refine a robot-world calibration `A_i X_m = Y B_i^m` against the reprojection
 error of the markers' FEATURES: minimize `Σ‖project(camera, Y⁻¹ ∘ A_i ∘ X_m (X)) − u‖²`
@@ -63,21 +64,37 @@ camera at frame i). Function names do not encode frames.
   marker of the guess is a parameter of this refinement and is refined.
 
 # Keywords
+- `optimization_strategy` — the refine contract's strategy, as every `refine_*`
+  takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`), ONE
+  robustified LM (Core's `loss_robustifier`); `Irls{Shape}`, LMs at the loss
+  weights ρ′ until the robust cost stops decreasing or its `max_iter` cycles;
+  or `nothing`, plain least squares. Both robust strategies start from `guess`
+  with no least-squares stage. (`local_optimization` is refused, naming this.)
+- `scale` or `width` — EXACTLY ONE for a robust strategy, neither for least
+  squares (`ArgumentError` otherwise): `scale = σ`, the features' noise scale in
+  pixels, or an upstream result whose `noise_scale` it is (the loss width is
+  then `efficiency_constant(Shape, 2) × σ`, or the strategy's own constant
+  times σ); `width = w`, the loss width in pixels. A refine estimates no
+  scale: the metadata records the one it ran with (`scale`, `scale_source`,
+  `loss_width`) and the weights ρ′ at the estimate; `n` is their support and
+  `rms` the weighted one, `√(Σ wᵢ‖rᵢ‖² / Σ wᵢ)`.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count; one
-  may hide ~8–10 rejected candidate steps).
+  may hide ~8–10 rejected candidate steps); `iterations` sums them over an
+  Irls run's LMs.
 
 Any number of markers: the LM is NLLSsolver's, one pose block per marker and one
 residual block per point, with nothing compiled per marker count. Its retcode is
 `:converged` only when the estimate is stationary, `:max_iterations` at the
 iteration cap, `:max_time` at the solver's time cap, `:solve_failed` when a
 solve was non-finite or failed (the estimate is then the last accepted one)
-and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`). Plain least squares — the observations must be inliers (gate them
-upstream, as the per-board detection does). Rig poses, points and pixels must
+and `:stalled` otherwise (`VisualGeometryToolkitCore.nlls_retcode`; under a robust strategy the stationarity of the
+robust cost). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.
 
 The covariance is VGC's `implicit_covariance` over the reprojection rows at
-the estimate times `ŝ² = RSS/dof` — see [`RobotWorldHandEyeMetadata`](@ref).
+the estimate (each scaled by √ρ′ under a robust strategy) times `ŝ² = RSS/dof`
+of those rows — see [`RobotWorldHandEyeMetadata`](@ref).
 
 # Units
 The guess, the rig poses and the marker points are plain or physical, all one
@@ -94,8 +111,12 @@ function refine_robot_world_hand_eye(
         markers::AbstractDict{
             K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
         };
-        max_iter::Int = _dflt("refine_robot_world_hand_eye", "max_iter")
+        max_iter::Int = _dflt("refine_robot_world_hand_eye", "max_iter"),
+        optimization_strategy = _refine_default(Val(:refine_robot_world_hand_eye)),
+        scale = nothing, width = nothing, local_optimization = _RetiredKeyword(),
     ) where {K}
+    _refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
+    strategy = _bundle_loss("refine_robot_world_hand_eye", optimization_strategy, scale, width)
     ids = block_order(markers, guess.X)             # the key sets must match: every marker of the guess is refined
     M = length(ids)
     # Flattened marker by marker in `ids` order: each element's rig pose once
@@ -118,7 +139,7 @@ function refine_robot_world_hand_eye(
     n = length(us)
     N = 6 * (M + 1)
     2n > N || throw(ArgumentError("underdetermined: $n points ($(2n) residuals) for $N unknowns"))
-    return _refine_robot_world_hand_eye(guess, counts, camera, RA, tA, pt_frame, pt_marker, Xs, us, max_iter)
+    return _refine_robot_world_hand_eye(guess, counts, camera, RA, tA, pt_frame, pt_marker, Xs, us, max_iter, strategy)
 end
 
 # Physical inputs: the guess, the rig poses and the points stripped in metres
@@ -155,14 +176,23 @@ end
 # block normal equations; nothing is static in M.
 const _RwPose = RigidExpManifold6{Float64}
 
-struct _RwPointResidual{C} <: NLLSsolver.AbstractResidual
+# A robust refine scales the block by `sqrt_weight` (an Irls cycle's √ρ′; 1 otherwise) or robustifies its squared
+# norm by `robust` (Triggs: Core's `loss_robustifier`; `NoRobust()` otherwise), as the camera-and-poses bundle does.
+struct _RwPointResidual{C, R} <: NLLSsolver.AbstractResidual
     varind::SVector{2, Int}           # (Y, X_m) = variables (1, m + 1)
     RA::SMatrix{3, 3, Float64, 9}     # the point's frame's rig pose
     tA::SVector{3, Float64}
     X::SVector{3, Float64}            # the point, in its marker's frame
     u::SVector{2, Float64}            # its pixel
     camera::C
+    sqrt_weight::Float64
+    robust::R
 end
+_RwPointResidual{C}(varind, RA, tA, X, u, camera) where {C} =
+    _RwPointResidual{C, NLLSsolver.NoRobust}(varind, RA, tA, X, u, camera, 1.0, NLLSsolver.NoRobust())
+_with_robust(r::_RwPointResidual{C}, sqrt_weight::Float64, robust::R) where {C, R} =
+    _RwPointResidual{C, R}(r.varind, r.RA, r.tA, r.X, r.u, r.camera, sqrt_weight, robust)
+NLLSsolver.robustkernel(r::_RwPointResidual) = r.robust
 NLLSsolver.ndeps(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.nres(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_RwPointResidual) = r.varind
@@ -172,8 +202,8 @@ Base.eltype(::_RwPointResidual) = Float64
 # The point's residual at the charts' origins, and its 2 × 12 Jacobian in
 # (δY, δX_m) — ForwardDiff through the retraction of the two blocks.
 _rw_residual(r::_RwPointResidual, chY, chX) =
-    _rw_point_residual(zero(SVector{12, Float64}), chY, chX, r.RA, r.tA, r.X, r.u, r.camera)
-_rw_jacobian(r::_RwPointResidual, chY, chX) = ForwardDiff.jacobian(
+    r.sqrt_weight * _rw_point_residual(zero(SVector{12, Float64}), chY, chX, r.RA, r.tA, r.X, r.u, r.camera)
+_rw_jacobian(r::_RwPointResidual, chY, chX) = r.sqrt_weight * ForwardDiff.jacobian(
     z -> _rw_point_residual(z, chY, chX, r.RA, r.tA, r.X, r.u, r.camera), zero(SVector{12, Float64})
 )
 NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPose, X::_RwPose) = _rw_residual(r, Y, X)
@@ -188,7 +218,7 @@ function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPose, X::
 end
 
 function _refine_robot_world_hand_eye(
-        guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us, max_iter
+        guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us, max_iter, (lo, input, loss)
     ) where {C}
     n = length(us)
     costs = [_RwPointResidual{C}(SVector(1, mk[k] + 1), RA[fr[k]], tA[fr[k]], Xs[k], us[k], camera) for k in 1:n]
@@ -205,27 +235,61 @@ function _refine_robot_world_hand_eye(
         )
     end
 
-    problem = NLLSsolver.NLLSProblem(_RwPose, _RwPointResidual{C})
-    foreach(ch -> NLLSsolver.addvariable!(problem, ch), poses0)
-    foreach(c -> NLLSsolver.addcost!(problem, c), costs)
     # The stack's one knob map (VGC `nlls_options`: one thread, so the result
     # does not depend on the thread count; no time cap) with this fit's own
     # settings: the plain λ·I damping and NLLSsolver's default tolerances
     # (relative cost decrease and step 1e-15), which it has always run with.
     options = nlls_options(; max_iter, ftol = 1.0e-15, xtol = 1.0e-15, iterator = :levenbergmarquardt)
-    result = NLLSsolver.optimize!(problem, options)
+    function solve(blocks, start)
+        RT = Union{unique(typeof.(blocks))...}
+        pr = NLLSsolver.NLLSProblem(_RwPose, RT)
+        foreach(ch -> NLLSsolver.addvariable!(pr, ch), start)
+        foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
+        return pr, NLLSsolver.optimize!(pr, options)
+    end
+    # Least squares (`optimization_strategy = nothing`), or the refine contract's robust strategy from the guess with
+    # no least-squares stage: Triggs, one robustified LM; Irls, weighted LMs at the loss weights ρ′ until the robust
+    # cost stops decreasing or `max_iter` cycles. The loss runs at the caller's frozen scale or width.
+    stationarity_blocks = costs
+    if lo === nothing
+        problem, result = solve(costs, copy(poses0))
+        iters = result.niterations
+        weights = unit_weights(Float64, n)
+    else
+        shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
+        sqnorms(vars) = [sum(abs2, _rw_residual(c, vars[1], vars[c.varind[2]])) for c in costs]
+        if lo isa Triggs
+            problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(poses0))
+            iters = result.niterations
+        else
+            weighted(q) = [_with_robust(c, sqrt(weight(shape, q[k], sq)), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
+            q = sqnorms(poses0)
+            prev = sum(x -> ρ(shape, x, sq), q)
+            problem, result = solve(weighted(q), copy(poses0))
+            iters = result.niterations
+            for _ in 2:lo.max_iter
+                q = sqnorms(problem.variables)
+                cost = sum(x -> ρ(shape, x, sq), q)
+                cost < prev || break
+                prev = cost
+                problem, result = solve(weighted(q), collect(problem.variables))
+                iters += result.niterations
+            end
+        end
+        weights = _loss_weights(shape, sq, sqrt.(sqnorms(problem.variables)))
+        # the stationarity of the robust cost and its covariance: the rows and Jacobian scaled by √ρ′
+        stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
+    end
     charts = collect(problem.variables)   # each anchored at its estimate
     poses = map(model, charts)
     all(p -> all(isfinite, rotation(p)) && all(isfinite, translation(p)), poses) ||
         throw(ErrorException("refine_robot_world_hand_eye: the LM step is not finite"))
 
     # the reprojection rows and their dense 2n × 6(M + 1) Jacobian at the charts' origins — the covariance's and the
-    # stall postcondition's (point k's rows 2k − 1, 2k; its columns those of Y and of its X_m)
-    r, Js = nlls_rows_and_jacobian(costs, charts)
+    # stall postcondition's (point k's rows 2k − 1, 2k; its columns those of Y and of its X_m), √ρ′-scaled under a
+    # robust strategy: the stall postcondition, the eigen-diagnostics and the covariance are the weighted problem's
+    r, Js = nlls_rows_and_jacobian(stationarity_blocks, charts)
     J = Matrix(Js)
-    # NLLSsolver's own stops (a small relative or absolute cost decrease, a
-    # small step) do not prove convergence; the stall postcondition does —
-    # the chart LM tests the same one (VGC `lmsolve_chart!`).
     retcode = nlls_retcode(result, J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol = _HAND_EYE_FTOL)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
@@ -240,8 +304,11 @@ function _refine_robot_world_hand_eye(
         Σ̃ = implicit_covariance(e -> (view(J, rows(e), :), Diagonal(fill(-1.0, length(rows(e))))), eachindex(starts))
         return Σ̃ === nothing ? nothing : s2 .* Σ̃
     end
+    r_raw = lo === nothing ? r : first(nlls_rows_and_jacobian(costs, charts))   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
-        _robot_world_hand_eye_calibration(poses, guess.ids), r, J, 2, counts, covariance, nothing, nothing;
-        retcode, iterations = result.niterations, rms_rows = n
+        _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
+        retcode, iterations = iters, rms_rows = n, strategy = lo, weights,
+        scale = input === nothing ? NaN : Float64(input.scale), scale_source = input === nothing ? ScaleNone : input.source,
+        loss_width = sqrt(_sq_loss_width(loss))
     )
 end

@@ -43,18 +43,15 @@ function find_circle(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Rea
 end
 
 """
-    refine_circle(circle, points; scoring = MsacScoring(problem; threshold = 1.0),
-        optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), workspace = nothing) -> RansacEstimate
+    refine_circle(circle, points; optimization_strategy = Triggs{WelschShape}(), scale | width, workspace = nothing)
+        -> FitResult{M, RefineMetadata}
 
-The 2D circle through `points` refined from the given `circle`:
-[`find_circle`](@ref)'s step without the sampling. `optimization_strategy` is the
-circle's RANSAC local-optimization step, run here alone from the given model (no
-sampling): `circle` is scored, its consensus set under the scorer is the one a
-consensus-anchored strategy reads its scale from, and the strategy runs once
-from it. Every default is `find_circle`'s (`[pipelines.circle]`); the keywords
-are those of every `refine_*`, documented on [`refine_homography`](@ref).
-The `:no_model` result (`iterations` 0) for fewer than 3 points.
+The 2D circle through `points` refined from the given `circle` (the points'
+distances to it, pixels; codimension 1): the keywords, the result and the refusals are those of every `refine_*`,
+documented on [`refine_homography`](@ref) (default strategy:
+`[refine.circle] optimization_strategy`). Fewer than 3 points: the guess back
+unrefined, `retcode` `:degenerate`.
 """
 function refine_circle(circle::VgtkCore.Circle, points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; kwargs...)
-    return _guarded_refine(() -> CircleProblem(points), CircleProblem, length(points), :circle, circle; kwargs...)
+    return _guarded_refine(() -> CircleProblem(points), CircleProblem, length(points), Val(:circle), circle; kwargs...)
 end

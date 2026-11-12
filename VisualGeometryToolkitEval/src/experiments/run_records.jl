@@ -370,14 +370,15 @@ function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = 
     out, bad = Dict{String,String}(), String[]
     for (id, t) in get(cfg, "inputs", Dict{String,Any}())
         (t isa AbstractDict && haskey(t, "path")) || continue
-        r = root === nothing ? data_root(; tier = String(get(t, "tier", ""))) : root
+        tier = String(get(t, "tier", ""))
+        r = root === nothing ? data_root(; tier) : root
         x = inspect_input(String(id), t, r; allow_scratch = scratch_run())       # the runner's check (src/code_identity.jl)
         if x.state === :missing
             push!(bad, "input $id ($(get(t, "tier", "?"))): $(x.problem)")
         elseif x.state === :refused
             push!(bad, "input $id ($(t["path"])): $(x.problem)")
         end
-        out[String(id)] = joinpath(r, t["path"])
+        out[String(id)] = root === nothing ? tier_path(tier, t["path"]) : joinpath(root, t["path"])   # the one tier-path join
     end
     isempty(bad) || throw(ArgumentError("refused: the inputs are not the data of record\n  " * join(sort!(bad), "\n  ")))
     return out

@@ -695,11 +695,11 @@ end
 function _precompile_command(g::StageGraph, site::Site, s::StageSpec, env; prefix::AbstractString = "")
     (site.backend === :slurm && _stage_gpu(s) && s.precompile) || return String[]
     argv = [_julia(site, env); "--startup-file=no"; "--project=$(g.julia_project)"; s.julia_flags; "-e"; "using Pkg; Pkg.precompile()"]
-    return ["sbatch", "--parsable", _slurm_options(site, s; cpu_only = true)...,
-            # its own limit, the site's measured one (a real limit lets the scheduler backfill it; none takes the partition's)
-            (isempty(site.precompile_time) ? String[] : ["--time=$(site.precompile_time)"])...,
-            "--job-name=$(prefix)$(_base_job_name(g, s))-precompile", "--output=logs/$(g.name)_$(s.name)_precompile_%j.log",
-            "--wrap=$(_shell_line(argv))"]
+    return vcat(["sbatch", "--parsable"], _slurm_options(site, s; cpu_only = true),
+                # its own limit, the site's measured one (a real limit lets the scheduler backfill it; none takes the partition's)
+                isempty(site.precompile_time) ? String[] : ["--time=$(site.precompile_time)"],
+                ["--job-name=$(prefix)$(_base_job_name(g, s))-precompile", "--output=logs/$(g.name)_$(s.name)_precompile_%j.log",
+                 "--wrap=$(_shell_line(argv))"])
 end
 
 """
@@ -754,7 +754,7 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         end
         cmd = _plan_command(g, site, s, items, minutes, manifest, env)
         files = Dict{String, String}()
-        for f in unique(filter(!isempty, [s.sbatch, s.driver, (_config_of(s, i) for i in items)...]))
+        for f in unique(filter(!isempty, vcat([s.sbatch, s.driver], [_config_of(s, i) for i in items])))
             p = joinpath(g.workdir, f)
             files[f] = isfile(p) ? file_sha256(p) : "missing"
         end

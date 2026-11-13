@@ -231,3 +231,35 @@ end
     ca = parameters(lens(estimate(ra)))
     @test (ca.d1, ca.d2, ca.d3) === (0.0, 0.0, 0.0) && rms(ra) <= rms(rh) * (1 + 1.0e-9)
 end
+
+# refine_camera's regression state reduces its work items' partial sums through Core's two reductions (0.10.2; until
+# 0.10.1 it unpacked them by hand): the same bits as that hand unpack, at the start and at a moved chart point.
+@testitem "camera_verbs: refine_camera's regression reduces its partial sums through Core's reduce_normal_equations and reduce_cost" setup = [FitCameraLensCases] begin
+    using Test
+    using StaticArrays: SVector, SMatrix
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: calibration_matrix, estimate, lens, tangent_size, residual_cost!, residual_normal_equations!
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    region = disc(mdiv, rcorner)
+    guess = estimate(fit_camera(KB4, mdiv, region))
+    # refine_camera's own construction of the state (src/fitting/refine_camera.jl)
+    role = VgtkCore.Cameras.IntrinsicsRole(lens(mdiv))
+    moving = VgtkCore.free_parameter_names(guess, ())
+    K0 = SMatrix{3, 3, Float64}(calibration_matrix(mdiv)); M = VgtkEstimation._offset_matrix(K0)
+    start = VgtkEstimation._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
+    pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, :image)
+    P = VgtkEstimation._regression_manifold(role, VgtkEstimation._lens_family_manifold(role, lens(guess), moving), start, moving)
+    lm = VgtkEstimation._LensRegressionLm(VgtkCore.default_device(), P, false, Inf, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+    N = tangent_size(P)
+    @test N > 0 && size(lm.partials, 2) > 1
+    for x in (zero(SVector{N, Float64}), SVector{N, Float64}(ntuple(a -> 1.0e-6 * (-1)^a / a, N)))
+        c, g, H = residual_normal_equations!(nothing, nothing, lm, x)
+        @test isfinite(c) && all(isfinite, g) && all(isfinite, H)
+        t = Array(sum(lm.partials; dims = 2))          # 0.10.1's hand unpack of the same partial sums
+        @test (c, g, H) === (0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], N)), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], N * N)))
+        cost = residual_cost!(nothing, lm, x)
+        @test cost === 0.5 * sum(view(lm.partials, 1, :))
+        @test cost ≈ c
+    end
+end

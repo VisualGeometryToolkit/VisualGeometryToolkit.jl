@@ -16,7 +16,7 @@
 #     `<PREFIX>_GPU_DECIDED=1`; a no says why (`@info`).
 #   - each GPU item starts with `require_gpu(prefix)`: the worker re-checks
 #     (`gpu_problem(prefix)`) and ERRORS with the reason when the runner decided
-#     yes and the device is gone, so a GPU tier never passes on the CPU path.
+#     yes and the device is gone, so a GPU tier never succeeds on the CPU path.
 # =============================================================================
 
 _gpu_env(prefix::AbstractString, what::AbstractString) = string(prefix, "_", what)
@@ -73,7 +73,7 @@ end
 The first line of every GPU test item: the accelerator's backend
 ([`default_device`](@ref)) when [`gpu_problem`](@ref)`(prefix)` finds none, and
 an error with the reason otherwise — never a silent skip, so a GPU tier cannot
-pass on the CPU path.
+succeed on the CPU path.
 """
 function require_gpu(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30)
     p = gpu_problem(prefix; min_free_bytes)

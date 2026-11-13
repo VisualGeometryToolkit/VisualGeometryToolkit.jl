@@ -680,7 +680,7 @@ Add a method for any new model type that needs a stricter check.
     return FixedModels{NOUT, MType}(nv, ntuple(i -> i ≤ nv ? valid[i] : z, Val(NOUT)))
 end
 
-# The JSON codecs of these types and ScalarOrQuantity live in VisualGeometryToolkitIO (src/core_json.jl)
+# The JSON codecs of these types live in VisualGeometryToolkitIO (src/core_json.jl)
 
 # ========================================================================
 # Estimator Attributes
@@ -1370,4 +1370,3 @@ const AbstractDetection = Attributed{<:Union{FeatureFrame, Uncertain{<:FeatureFr
 @inline feature_frame(d::AbstractDetection) = geom(getfield(d, :value))
 
 
-# ScalarOrQuantity lives in VisualGeometryToolkitIO (src/core_json.jl)

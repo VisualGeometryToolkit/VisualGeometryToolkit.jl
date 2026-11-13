@@ -186,7 +186,7 @@ function run_lo_timing_gate(DIR::AbstractString)
                     if haskey(m["arms"], n)
                         b = base["arms"][n]; a = m["arms"][n]
                         ratio = a["us_per_call"] / b["us_per_call"]
-                        ratio > _GATE_TIME_SLACK && @error "LO arm $n is $(round(100 * (ratio - 1); digits = 1)) % slower than its baseline" measured_us = a["us_per_call"] baseline_us = b["us_per_call"]
+                        ratio > _GATE_TIME_SLACK && @error "LO arm $n is $(round(100 * (ratio - 1); digits = 1)) % slower than its baseline" observed_us = a["us_per_call"] baseline_us = b["us_per_call"]
                         @test ratio <= _GATE_TIME_SLACK
                         @test a["bytes_per_call"] <= max(_GATE_TIME_SLACK * b["bytes_per_call"], b["bytes_per_call"] + 1024)
                     end

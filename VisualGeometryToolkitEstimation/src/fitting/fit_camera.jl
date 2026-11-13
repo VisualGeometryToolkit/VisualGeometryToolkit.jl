@@ -569,9 +569,15 @@ function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, 
 
     # The region's extent about the principal point, per azimuth of the
     # normalized plane: the radius at which each ray from the principal point
-    # leaves it. Its maximum bounds the domain; the fraction of azimuths still
-    # inside at a radius is that radius's share of the image-area element.
-    exits = _exit_radii(region, K0)
+    # leaves it — Core's `farthest_radius` along the pixel direction A·d of the
+    # unit normalized direction d (A = K₀'s 2 × 2 part), so it comes back in
+    # normalized units, the same radius of the profile on every azimuth. Its
+    # maximum bounds the domain; the fraction of azimuths still inside at a
+    # radius is that radius's share of the image-area element.
+    pp = SVector(K0[1, 3], K0[2, 3])
+    A = SMatrix{2, 2, Float64}(K0[1, 1], K0[2, 1], K0[1, 2], K0[2, 2])
+    exits = map(k -> VgtkCore.farthest_radius(region, pp, A * SVector(cospi(2 * (k - 0.5) / _REGION_AZIMUTHS), sinpi(2 * (k - 0.5) / _REGION_AZIMUTHS))),
+                1:_REGION_AZIMUTHS)
     ρmax = maximum(exits)
     # past the source's fold (its profile's largest radius) the region's farthest
     # radius has no view angle: the domain is the source's own, and the region is cut
@@ -783,31 +789,6 @@ function _radius_with_jacobian(srcr, θ::Float64)
     T = typeof(ForwardDiff.Tag(_radius_with_jacobian, Float64))
     r = projected_radius(srcr, ForwardDiff.Dual{T}(θ, 1.0))
     return Float64(ForwardDiff.value(r)), Float64(ForwardDiff.partials(r, 1))
-end
-
-# The normalized radius at which the ray from the principal point along each of
-# `_REGION_AZIMUTHS` azimuths of the normalized plane leaves `region` (bisected,
-# the region taken as star-shaped about the principal point), through `K`'s
-# 2 × 2 part — so a radius of the profile is the same radius on every azimuth.
-function _exit_radii(region, K::SMatrix{3, 3, Float64})
-    box = Rect2(region)   # an ArgumentError for the whole plane: the region must be bounded
-    pp = SVector(K[1, 3], K[2, 3])
-    A = SMatrix{2, 2, Float64}(K[1, 1], K[2, 1], K[1, 2], K[2, 2])
-    inside(p) = Point2{Float64}(p[1], p[2]) ∈ region
-    inside(pp) || throw(ArgumentError("fit_camera: the region does not contain the principal point $pp"))
-    lo, hi = SVector{2, Float64}(minimum(box)), SVector{2, Float64}(maximum(box))
-    corners = (lo, SVector(hi[1], lo[2]), SVector(lo[1], hi[2]), hi)
-    Ai = inv(A)
-    ρhi = maximum(c -> norm(Ai * (c - pp)), corners) * (1 + 1.0e-9) + 1.0e-12
-    return map(1:_REGION_AZIMUTHS) do k
-        d = A * SVector(cospi(2 * (k - 0.5) / _REGION_AZIMUTHS), sinpi(2 * (k - 0.5) / _REGION_AZIMUTHS))
-        a, b = 0.0, ρhi
-        for _ in 1:60
-            m = (a + b) / 2
-            inside(pp + m * d) ? (a = m) : (b = m)
-        end
-        a
-    end
 end
 
 # The fraction of the azimuths along which radius `ρ` still lies in the region (a

@@ -75,14 +75,17 @@ camera held. Its residual is each dot's BEARING for every camera: the dot
 back-projected once by the camera, the tangent angle to the predicted bearing
 whitened into pixels by the back-projection Jacobian (the
 `BearingPoseProblem`'s); the camera is never projected inside the solve, and a
-dot it does not back-project makes no row and is counted in the metadata
-(`n_without_bearing`, `without_bearing`).
+dot it does not back-project, or whose Jacobian cannot whiten its residual
+([`pixel_whitening_defect`](@ref)), makes no row and is counted in the metadata
+(`n_without_bearing`, `without_bearing`). Its `fixed` holds the whole camera:
+`fixed = held_parameters(camera)`.
 
 ```@docs
 refine_camera_and_poses
 CameraPosesRefineMetadata
 RotationCenterViews
 rotation_center_pose
+held_parameters
 RotationCenterRefineMetadata
 n_without_bearing
 without_bearing

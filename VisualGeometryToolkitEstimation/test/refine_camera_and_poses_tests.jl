@@ -656,9 +656,10 @@ end
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, retcode, converged, parameter_names, exp_so3, FitResult, noise_scale, scale_source,
         ScaleUpstream, ScaleEstimated, ScaleNone, ScaleGiven, HuberShape, Irls, Triggs, ReturnCode, ClosedForm
-    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews, rotation_center_pose
-    using VisualGeometryToolkitCore: EuclideanMap, rotation, translation
-    cam = pinhole_camera(); held = Tuple(parameter_names(cam))
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews, rotation_center_pose, held_parameters
+    using VisualGeometryToolkitCore: EuclideanMap, rotation, translation, BoundedCamera, Size2
+    cam = pinhole_camera(); held = held_parameters(cam)
+    @test held == Tuple(parameter_names(cam)) && held_parameters(BoundedCamera(cam, Size2(1280, 960))) == held   # every parameter, by name
     axes = [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04),
             SVector(0.0, 0.0, 0.1)]
     t = center_truth(axes)
@@ -836,18 +837,27 @@ end
     @testset "a dot whose back-projection Jacobian is singular is counted, never an abort" begin
         # the camera's back-projection with one dot's Jacobian zeroed (finite, singular on the tangent plane): BearingPoseProblem
         # refuses such a Jacobian, so built into a view's problem it would abort the whole refine; the blocks find it first,
-        # by the problem's own test (`_whitening_defect`), and count it
+        # by the problem's own test (`pixel_whitening_defect`), and count it
         u0 = last(exact[3][30])
         singular = SingularAt(cam, u0)
         fM = VisualGeometryToolkitCore.backproject_with_jacobian(singular, u0)
         f0 = normalize(fM[1])
-        @test VE._whitening_defect(f0, VisualGeometryToolkitCore.s2_tangent_basis_matrix(Float64, f0), fM[2]) === :singular
+        @test VE.pixel_whitening_defect(f0, fM[2]) === :singular
+        fg, Mg = VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(exact[3][1]))
+        @test VE.pixel_whitening_defect(normalize(fg), Mg) === nothing
+        @test VE.pixel_whitening_defect(normalize(fg), Mg .* NaN) === :nonfinite
+        @test VE.pixel_whitening_defect(normalize(fg), hcat(normalize(fg), Mg[:, 2])) === :not_tangent
         good = [VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(c)) for c in exact[3][1:3]]
         @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Csponds(
             [first(c) for c in exact[3][[1, 2, 3, 30]]], push!([normalize(g[1]) for g in good], f0); M = push!([g[2] for g in good], fM[2])))
         ids = sort(collect(keys(t.R)))
         blocks, without = VE._rotation_center_bearing_blocks(singular, ids, exact)
         @test without == [(3, 30)] && length(blocks) == 5 * 63 - 1
+    end
+    @testset "held_parameters: the `fixed` that holds the camera" begin
+        @test VE.held_parameters(cam) == (:controls,)
+        r = refine_camera_and_poses(cam, start, exact; fixed = VE.held_parameters(cam), optimization_strategy = nothing)
+        @test converged(r) && estimate(r).camera === cam
     end
     @testset "refusals: a free camera, a box, a `fixed` that is not the controls" begin
         @test_throws r"HELD camera" refine_camera_and_poses(cam, start, exact; fixed = (), optimization_strategy = nothing)

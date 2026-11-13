@@ -25,6 +25,13 @@ BearingPoseProblem
 BearingPoseContext
 ```
 
+The problem's test of its `M` column is public: a caller that whitens bearing
+residuals by a camera's Jacobian asks it before building a row.
+
+```@docs
+pixel_whitening_defect
+```
+
 ## Rotation from direction pairs
 
 `fit_rotation` is the robust rotation `R` with `b ≈ R·a` from direction pairs

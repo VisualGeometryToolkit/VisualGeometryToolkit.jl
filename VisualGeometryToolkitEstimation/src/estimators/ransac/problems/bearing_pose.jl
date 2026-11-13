@@ -130,25 +130,49 @@ end
 const _UNIT_BEARING_TOL = 1.0e-6
 
 
-# THE test of a back-projection Jacobian `M` against its bearing `f` (tangent basis `B`): why it cannot whiten the tangent
-# residual into pixels — `:nonfinite`, `:not_tangent` (bearings.md: a swapped or untangent Jacobian moves the residual
-# little and its descent direction a lot), `:singular` (not invertible on the tangent plane) — or `nothing` when it can.
-# `_pixel_whitening` refuses by it; a caller that drops such a dot (the rotation-centre refine) reads the same test.
-function _whitening_defect(f, B, M)
+"""
+    pixel_whitening_defect(f, M) -> Union{Nothing, Symbol}
+
+Why the back-projection Jacobian `M = ∂f/∂u` (3 × 2, `backproject_with_jacobian`)
+cannot whiten the tangent residual at the unit bearing `f` into the pixels it
+came from, or `nothing` when it can. The defects, in the order they are tested:
+
+- `:nonfinite`: an entry of `M` is not finite (the camera does not back-project
+  the pixel smoothly there);
+- `:not_tangent`: a column of `M` is not tangent to `f` (`|fᵀM[:, k]| > 10⁻⁶ ‖M[:, k]‖`):
+  it is not this bearing's Jacobian. A swapped or untangent Jacobian moves the
+  residual little and its descent direction a lot (bearings.md);
+- `:singular`: `BᵀM` is not invertible on the tangent plane (`B` the tangent
+  basis of `f`, `s2_tangent_basis_matrix`), so no pixel step moves the bearing
+  along some tangent direction.
+
+It is the test of [`BearingPoseProblem`](@ref)'s `M` column, which refuses a
+defective one by it, and the rotation-centre refine's
+([`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref)), which leaves
+such a dot out and counts it. A caller that whitens bearing residuals by the
+camera's Jacobian asks it first:
+
+```julia
+f, M = backproject_with_jacobian(camera, u)
+pixel_whitening_defect(normalize(f), M) === nothing || continue   # a dot this camera cannot whiten
+```
+"""
+function pixel_whitening_defect(f::StaticVector{3}, M::AbstractMatrix)
+    fu = SVector{3, Float64}(f)
     Ms = SMatrix{3, 2, Float64, 6}(M)
     all(isfinite, Ms) || return :nonfinite
     for k in 1:2
-        abs(dot(f, Ms[:, k])) <= _UNIT_BEARING_TOL * norm(Ms[:, k]) || return :not_tangent
+        abs(dot(fu, Ms[:, k])) <= _UNIT_BEARING_TOL * norm(Ms[:, k]) || return :not_tangent
     end
-    A = B' * Ms
+    A = VgtkCore.s2_tangent_basis_matrix(Float64, fu)' * Ms
     d = A[1, 1] * A[2, 2] - A[1, 2] * A[2, 1]
     (isfinite(d) && !iszero(d)) || return :singular
     return nothing
 end
 
-# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from; refused where `_whitening_defect` finds one.
+# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from; refused where `pixel_whitening_defect` finds one.
 function _pixel_whitening(f, B, M, i)
-    defect = _whitening_defect(f, B, M)
+    defect = pixel_whitening_defect(f, M)
     defect === :nonfinite && throw(ArgumentError("BearingPoseProblem: M[$i] is not finite"))
     defect === :not_tangent && throw(ArgumentError(
         "BearingPoseProblem: M[$i] is not tangent to its bearing (fᵀM ≠ 0): it is not this bearing's " *

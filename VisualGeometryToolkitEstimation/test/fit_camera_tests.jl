@@ -119,17 +119,21 @@ end
 
 @testitem "fit_camera: the region's share of each radius" setup = [FitCameraLensCases] begin
     using Test
-    using StaticArrays: SMatrix
+    using StaticArrays: SMatrix, SVector
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: estimate, metadata, lens, parameter_vector, calibration_matrix, Rect, WholePlane
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     K = SMatrix{3, 3, Float64}(calibration_matrix(mdiv))
+    # the exit radius per azimuth of the normalized plane, as fit_camera reads it: Core's farthest_radius along A·d
+    pp, A = SVector(K[1, 3], K[2, 3]), SMatrix{2, 2}(K[1, 1], K[2, 1], K[1, 2], K[2, 2])
+    exit_radii(region) = [VgtkCore.farthest_radius(region, pp, A * SVector(cospi(2 * (k - 0.5) / 720), sinpi(2 * (k - 0.5) / 720))) for k in 1:720]
     # a disc about the principal point: every azimuth leaves it at its radius
-    e = VgtkEstimation._exit_radii(disc(mdiv, 1000.0), K)
+    e = exit_radii(disc(mdiv, 1000.0))
     @test maximum(abs.(e .- 1000.0 / 927.0)) < 1.0e-12
     # the frame: the exit radius along an azimuth is the distance to the frame's edge
     frame = Rect(0, 0, 4240, 2832)
-    e = VgtkEstimation._exit_radii(frame, K)
+    e = exit_radii(frame)
     ψ = [2π * (k - 0.5) / length(e) for k in eachindex(e)]
     edge = [min(2120.0 / abs(cos(a)), 1416.0 / abs(sin(a))) / 927.0 for a in ψ]
     @test maximum(abs.(e .- edge)) < 1.0e-9

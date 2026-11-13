@@ -83,17 +83,32 @@ function _check_rotation_center_gauge(rotations)
     return nothing
 end
 
-# The camera parameters a rotation-centre refine would leave free (it requires none): a parametric camera's by
-# `_camera_chart`; a SplineLens camera (a gauge K, its controls the parameters) is held by `fixed = (:controls,)`, its
-# route's own spelling.
-_held_camera_parameters(cm, kw) = _held_camera_parameters(VgtkCore.Cameras.IntrinsicsRole(cm.lens), cm, kw)
-_held_camera_parameters(::VgtkCore.Cameras.FreeIntrinsics, cm, kw) = first(_camera_chart(cm, kw.fixed, kw.box))
-function _held_camera_parameters(_role, cm, kw)
+"""
+    held_parameters(camera) -> Tuple{Vararg{Symbol}}
+
+The `fixed` that holds every parameter of `camera` in a refine
+([`refine_camera_and_poses`](@ref)): a parametric camera's parameter names
+(`parameter_names`), a SplineLens camera's `(:controls,)`, its route's one
+parameter group. A refine that requires a held camera, the rotation-centre
+views', takes it as `fixed = held_parameters(camera)`.
+
+`camera` is a `CameraModel` or a `BoundedCamera` of one.
+"""
+held_parameters(camera) = _held_parameters(VgtkCore.Cameras.IntrinsicsRole(lens(_camera_model(camera))), _camera_model(camera))
+_held_parameters(::VgtkCore.Cameras.FreeIntrinsics, cm) = Tuple(parameter_names(cm))
+_held_parameters(_role, cm) = (:controls,)
+
+# The camera parameters a rotation-centre refine would leave free under `kw.fixed` (it requires none): a parametric
+# camera's by `_camera_chart`; a SplineLens camera's one group, `(:controls,)` (`held_parameters`), held or free whole.
+_free_camera_parameters(cm, kw) = _free_camera_parameters(VgtkCore.Cameras.IntrinsicsRole(cm.lens), cm, kw)
+_free_camera_parameters(::VgtkCore.Cameras.FreeIntrinsics, cm, kw) = first(_camera_chart(cm, kw.fixed, kw.box))
+function _free_camera_parameters(_role, cm, kw)
     kw.box === nothing || throw(ArgumentError("refine_camera_and_poses: a `box` bounds a camera's refined parameters, and a rotation-centre refine holds the camera"))
-    kw.fixed == (:controls,) && return ()
-    kw.fixed == () && return (:controls,)          # the camera free: refused by the caller, naming what is free
-    throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's one parameter group is its controls: `fixed = (:controls,)` " *
-                        "holds the camera, got fixed = $(kw.fixed)"))
+    held = held_parameters(cm)
+    kw.fixed == held && return ()
+    kw.fixed == () && return held          # the camera free: refused by the caller, naming what is free
+    throw(ArgumentError("refine_camera_and_poses: a SplineLens camera's one parameter group is its controls: `fixed = $(held)` " *
+                        "holds the camera (`held_parameters(camera)`), got fixed = $(kw.fixed)"))
 end
 
 """
@@ -118,7 +133,7 @@ is counted: [`n_without_bearing`](@ref) and [`without_bearing`](@ref) (its
 `(view, correspondence index)` pairs). The variables: one rotation chart per view and the
 centre and the offset; the camera is HELD — `fixed` must name every parameter of a
 parametric `camera` (`fixed = (:controls,)` for a SplineLens camera, its route's
-spelling); a free camera is an `ArgumentError`. The keywords, the solve, the
+spelling): [`held_parameters`](@ref)`(camera)` is that `fixed`; a free camera is an `ArgumentError`. The keywords, the solve, the
 retcode and its stop rule, rms, `n` and the robust record are the bundle's
 (`ν = 2n − 6 − 3N`; `scale = result` records `ScaleUpstream`).
 
@@ -137,10 +152,10 @@ function refine_camera_and_poses(
     ids = block_order(csponds, views.rotations)
     kw = _bundle_keywords(; kwargs...)
     cm = _camera_model(camera)
-    free = _held_camera_parameters(cm, kw)
+    free = _free_camera_parameters(cm, kw)
     isempty(free) || throw(ArgumentError(
         "refine_camera_and_poses: rotation-centre views refine the views of a HELD camera: `fixed` must name every camera " *
-        "parameter (free: $(free))"))
+        "parameter, `fixed = held_parameters(camera)` (free: $(free))"))
     _check_rotation_center_gauge([views.rotations[k] for k in ids])
     N = length(ids)
     # the variables: the centre, the offset, then each view's rotation chart, in block order
@@ -241,7 +256,7 @@ NLLSsolver.computecost(vars::AbstractVector{_CenterVar}, r::_BearingCenterBlock)
 # The bearing blocks of the rotation-centre views (block order `ids`): each view's dots back-projected by the camera to
 # their unit bearings and Jacobians (`backproject_with_jacobian`), its BearingPoseProblem of them (the `M` column: rows
 # in pixels), one block per dot; and the dots without a bearing, `(view, index)`, counted by the caller: no finite bearing,
-# or a Jacobian the problem could not whiten by (`_whitening_defect`: not finite, not tangent, singular), found before any
+# or a Jacobian the problem could not whiten by (`pixel_whitening_defect`: not finite, not tangent, singular), found before any
 # block is built so that one bad dot never aborts the refine.
 function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, csponds) where {K}
     blocks = NLLSsolver.AbstractResidual[]
@@ -252,7 +267,7 @@ function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, csponds) wh
             Xj, u = _correspondence(v, j, c)
             f, M = VgtkCore.backproject_with_jacobian(cm, u)
             if all(isfinite, f) && !iszero(norm(f)) && (fu = normalize(SVector{3, Float64}(f));
-                                                       _whitening_defect(fu, VgtkCore.s2_tangent_basis_matrix(Float64, fu), M) === nothing)
+                                                       pixel_whitening_defect(fu, M) === nothing)
                 push!(X, Xj); push!(F, fu); push!(Ms, SMatrix{3, 2, Float64, 6}(M))
             else                # no finite bearing, or a Jacobian that cannot whiten it (BearingPoseProblem's own test)
                 push!(without, (k, j))

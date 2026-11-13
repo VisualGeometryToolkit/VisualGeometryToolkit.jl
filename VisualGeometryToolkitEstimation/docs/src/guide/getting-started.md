@@ -3,7 +3,7 @@
 ## Installation
 
 VisualGeometryToolkitEstimation is registered in the General registry (Julia
-1.12+). The examples use the geometry types of VisualGeometryToolkitCore, so
+1.13+). The examples use the geometry types of VisualGeometryToolkitCore, so
 add both:
 
 ```julia-repl

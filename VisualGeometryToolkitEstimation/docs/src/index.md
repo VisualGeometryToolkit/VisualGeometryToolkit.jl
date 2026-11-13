@@ -62,7 +62,7 @@ in [Architecture](guide/architecture.md).
 pkg> add VisualGeometryToolkitCore VisualGeometryToolkitEstimation
 ```
 
-Julia 1.12 or later; every dependency is in the General registry.
+Julia 1.13 or later; every dependency is in the General registry.
 
 ## A first example
 

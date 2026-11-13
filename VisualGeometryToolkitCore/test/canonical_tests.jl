@@ -51,18 +51,16 @@ end
     using VisualGeometryToolkitCore: canonical_json, sha256_hex
     # §3.2.3: members sorted by their names' UTF-16 code units (an astral character's surrogates
     # sort before U+FB33, unlike its code point), names and strings escaped minimally
-    sorting = JSON.parse("""{
-        "\\u20ac": "Euro Sign", "\\r": "Carriage Return", "\\ufb33": "Hebrew Letter Dalet With Dagesh",
-        "1": "One", "\\ud83d\\ude00": "Emoji: Grinning Face", "\\u0080": "Control",
-        "\\u00f6": "Latin Small Letter O With Diaeresis"}""")
+    sorting = Dict("\u20ac" => "Euro Sign", "\r" => "Carriage Return", "\ufb33" => "Hebrew Letter Dalet With Dagesh",
+                   "1" => "One", "\U1F600" => "Emoji: Grinning Face", "\u0080" => "Control",
+                   "\u00f6" => "Latin Small Letter O With Diaeresis")   # RFC 8785 §3.2.3's object, as a Dict (no JSON parser)
     @test canonical_json(sorting) ==
         "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\u0080\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\"," *
         "\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"\ufb33\":\"Hebrew Letter Dalet With Dagesh\"}"
     # §3.2.4 (Figure 1 → its canonical form)
-    example = JSON.parse("""{
-        "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
-        "string": "\\u20ac\$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\"\\/",
-        "literals": [null, true, false]}""")
+    example = Dict("numbers" => Any[333333333.33333329, 1e30, 4.50, 2e-3, 1e-27],
+                   "string" => "€\$\x0f\nA'B\"\\\\\"/",            # the figure's escapes, decoded
+                   "literals" => Any[nothing, true, false])
     @test canonical_json(example) ==
         "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27]," *
         "\"string\":\"€\$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}"

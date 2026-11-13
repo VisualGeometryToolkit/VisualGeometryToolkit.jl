@@ -531,6 +531,7 @@ _read_store(path::AbstractString, kind::AbstractString) = _read_store(path, kind
 # chose the kind from its `schema`.
 function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Spec = _spec(kind))
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
+    kind == "cameras" && (d = _one_camera_store(d, path))   # an old grid file or a noncentral_spline record: the store of its one camera
     s = get(d, :schema, nothing)
     _is_current_major(s, kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     s2 = get(d, :schema, nothing)

@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VisualGeometryToolkitIO: serialization for transforms and cameras across the
 VisualGeometry stack: a COLMAP model reader/writer and the self-describing
-`vgio/<kind>/v2` JSON schema, with a unit-contract boundary and quaternion
-rotations.
+`vgio/<kind>/v<major>.<minor>` JSON kinds (one envelope: `generator`, one
+`units` object, one `conventions` object), with a unit-contract boundary and
+quaternion rotations.
 
 ## Testing
 
@@ -21,10 +22,14 @@ published data (Zenodo, Hugging Face; multi-GB archives at ~100 KB/s) to be
 uploaded again, so a published file keeps loading forever.
 
 - Each old version has ONE step, `migrate_schema(::Val{schema}, tree)` (a
-  parsed record → the next version's record), in `src/migrate.jl`. The
+  parsed record → the next version's record), in `src/migrate.jl` (the
+  IO 0.10 steps in `src/migrate_v010.jl`). The versions read are derived
+  from the steps (`schema_versions()`); no list is kept by hand. The
   readers run the steps on load (`_read_store` → `migrate_record`), silently
   (an `@debug` names the version); `vgio_migrate` rewrites a file with the
   same steps (the file form `migrate_schema(::Val{schema}, src, dst)`).
+- A minor version adds optional keys only (a reader reads any minor of its
+  major); a renamed, removed or re-meant key is a major version.
 - A schema change adds a step for the version it replaces (and its file
   form, and a fixture under `test/fixtures/old/` or built in
   `schema_versions_tests.jl`). Never delete a step whose version a published
@@ -69,7 +74,7 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 
 Persisted labels (pixel frame, length unit, pose from/to) are DERIVED FROM
 THE DATA'S TYPES: the writer writes the type's frame and never converts. Readers
-return typed frames (VGC's `TargetPoints2D{F}`, labelled
+return typed frames (VGC's `TargetObservations{F}`, labelled
 `EuclideanMap`s); moving the numbers is `convert_frame`, explicitly. Third-party
 readers state the file's convention (`file_frame`, `file_unit`). Nothing here
 normalizes.

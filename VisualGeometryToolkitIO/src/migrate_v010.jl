@@ -47,6 +47,10 @@ function _envelope_v010(old::AbstractDict, to::AbstractString; length = get(old,
     return _rotations_v010!(t)
 end
 
+# A record's file-level keys only (its schema, declarations and provenance), not its body: the envelope a
+# record that becomes a store's entry (an old grid file's body) leaves behind.
+_file_head(t::AbstractDict) = Dict{String, Any}(k => v for (k, v) in t if k in ("schema", "provenance", _V010_DECLARATIONS...))
+
 # Every stored rotation `[w, x, y, z]` with w < 0 as the 0.9 reader read it, -q.
 function _rotations_v010!(x::AbstractDict)
     for (k, v) in x

@@ -77,6 +77,10 @@ hi = 6.0
 npts = 4
 max_rounds = 3
 
+[types.window_extension]    # expand-on-boundary of a search window (CaliBlobs icra2026's product grid)
+factor = 2.0
+max_rounds = 8
+
 # The cross-validation: every unit of each side by default. There is NO
 # default scene split — the data a tuning runs on is named by every config
 # (`scene_split = { type = "registered", name = "<split>" }`, the lists in

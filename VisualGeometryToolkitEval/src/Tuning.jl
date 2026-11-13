@@ -57,7 +57,7 @@ export
     EfficiencyConstantWindow, WindowRule, FixedWindow, StandardizedWindow, CoverageWindow,
     CenteredWindow, window_bounds,
     # policies.jl — axes, the boundary rule, objectives
-    TuningAxis, SpacedAxis, ListedAxis, grid_spec, GridExtension,
+    TuningAxis, SpacedAxis, ListedAxis, grid_spec, GridExtension, WindowExtension,
     TuningCriterion, MedianError, FiniteMedian, SceneMeanLowerMedian, SceneMeanMedian,
     MeanAverageAccuracy,
     # sampling.jl — the cross-validation's scenes and units, the budget draws

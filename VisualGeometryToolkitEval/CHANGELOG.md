@@ -30,6 +30,10 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   element type's fields as its header when it names them (else an empty header line; `read_tsv` reads either back as
   no rows). `verify_assets` writes its report through it.
 
+- **`Tuning.WindowExtension(factor, max_rounds)`** and **`extend(::EfficiencyConstantWindow, sides; factor)`**: the
+  expand-on-boundary rule of a search window, `GridExtension`'s twin (TOML `[types.window_extension]`, defaults
+  factor 2, 8 rounds): the one owner of CaliBlobs icra2026's `WindowWidening`.
+
 ### Fixed
 
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so

@@ -72,6 +72,25 @@ struct GridExtension
     end
 end
 
+"""
+    WindowExtension(factor, max_rounds)
+
+The expand-on-boundary rule of a WINDOW (a continuous search window, an
+[`EfficiencyConstantWindow`](@ref)): on a boundary argmin, `extend` the window
+by `factor` on the clipped side (its `lo` divided, its `hi` multiplied), at
+most `max_rounds` rounds. [`GridExtension`](@ref)'s twin for a window, which
+has no points to add.
+"""
+struct WindowExtension
+    factor::Float64
+    max_rounds::Int
+    function WindowExtension(factor::Real, max_rounds::Integer)
+        factor > 1 && max_rounds >= 0 ||
+            throw(ArgumentError("WindowExtension: need factor > 1 and max_rounds ≥ 0, got ($factor, $max_rounds)"))
+        return new(Float64(factor), Int(max_rounds))
+    end
+end
+
 # -----------------------------------------------------------------------------
 # Objectives — the tuning criteria of the stack, all of them, here.
 #

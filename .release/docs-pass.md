@@ -1,4 +1,4 @@
-docs-pass: 436d22c6
+docs-pass: d06f1098
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the refine nor the forward fit)
 
 # 0.9.2 docs pass (julia-docs-pass) — release-chrome-095 (VisualGeometryToolkitEstimation 0.9.2)
@@ -27,7 +27,10 @@ projected whole (`refine_camera_and_poses` with `fixed = (:controls,)`).
 
 ## 3. Executed on the final RC
 
-(Filled in by the final gate's records commit.)
+The first gate (61d44aa3; jobs 10673–10676, Julia 1.13.3 and 1.12.7) failed one Estimation item on both versions under
+`--depwarn=error`: `ransac_weights`' `@test_throws ErrorException r.sigma` (a missing field is a `FieldError` since
+Julia 1.12; Test deprecates asserting `ErrorException` for it). d06f1098 asserts `FieldError`; no docs change. The
+final gate's results are recorded by its records commit.
 
 ---
 

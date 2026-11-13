@@ -1658,7 +1658,7 @@ function check_naming(pkgdir::AbstractString)
     end
     # rule 10: a type carries widths when it descends from a width-carrying
     # root, through the package's own declarations
-    supertypes = merge(Dict{Symbol, Symbol}(), (c.supertypes for c in values(ctxs))...)
+    supertypes = foldl((d, c) -> merge!(d, c.supertypes), values(ctxs); init = Dict{Symbol, Symbol}())
     function is_carrier(t::Symbol)
         seen = Set{Symbol}()
         while !(t in seen)

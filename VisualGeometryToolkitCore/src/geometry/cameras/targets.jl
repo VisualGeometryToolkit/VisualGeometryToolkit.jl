@@ -105,7 +105,7 @@ struct PointTarget{P} <: AbstractTarget
         isempty(ps) || allequal(length(geom(p)) for p in ps) ||
             throw(ArgumentError("a target's points are all 2-vectors or all 3-vectors"))
         _check_one_form(ps)
-        P = isempty(ps) ? SVector{3, Float64} : typejoin(map(typeof, ps)...)
+        P = isempty(ps) ? SVector{3, Float64} : mapreduce(typeof, typejoin, ps)
         return new{P}(Vector{P}(ps))
     end
 end

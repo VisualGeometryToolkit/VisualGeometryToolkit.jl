@@ -63,7 +63,7 @@ function Disc(center::Point2{S}, σ::T) where {S, T <: Number}
     return Disc{U}(Point2{U}(center), U(σ))
 end
 Disc(x::Real, y::Real, σ::Real) = Disc(Point2(x, y), σ)
-Disc(center::AbstractVector, σ::Number) = Disc(Point2(center...), σ)
+Disc(center::AbstractVector, σ::Number) = Disc(Point2(SVector{2}(center)), σ)
 Disc(d::Disc) = d
 
 
@@ -115,7 +115,7 @@ struct PointFrame{T} <: FeatureFrame{T}
 end
 
 PointFrame(x::Real, y::Real) = PointFrame(Point2(promote(x, y)...))
-PointFrame(center::AbstractVector) = PointFrame(Point2(center...))
+PointFrame(center::AbstractVector) = PointFrame(Point2(SVector{2}(center)))
 PointFrame(p::PointFrame) = p
 PointFrame{T}(p::PointFrame) where {T} = PointFrame{T}(Point2{T}(p.center))
 Base.convert(::Type{PointFrame{T}}, p::PointFrame) where {T} = PointFrame{T}(p)

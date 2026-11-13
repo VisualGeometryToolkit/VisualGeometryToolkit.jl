@@ -19,17 +19,21 @@
 # =============================================================================
 
 """
-    TargetPlaneFrame <: Frame{2}
+    TargetPlaneFrame{id} <: Frame{2}
 
-2D frame of the calibration-board plane (board-local `(x, y)` coordinates on
-the plane `z = 0` of the board's 3D frame).
+2D frame of a calibration target's plane, the target named by its `id` (a
+`Symbol`, as [`TargetFrame`](@ref)`{id}` names its 3-D frame): target-local
+`(x, y)` on the plane `z = 0` of `TargetFrame{id}`. A file names it
+`"target:<id>"` (VisualGeometryToolkitIO: a blur on a print, a target
+homography's source). Equal coordinates in two targets' planes are different
+points: the frames differ by their id.
 
-Source frame of the plane-induced homography of a pinhole camera:
-`HomographyMap(camera::PosedPinholeCamera)` is labeled
-`Src = TargetPlaneFrame, Dst = PixelFrame{:colmap}` (monogram `H_PB`). Adoption by
-the F/E actions is deferred to 0.8 (pending view-identity symbol frames).
+The bare `TargetPlaneFrame` (no id) is the plane of a target the value does not
+name — the source of a pinhole camera's plane-induced homography,
+`HomographyMap(camera::PosedPinholeCamera)`, `Src = TargetPlaneFrame,
+Dst = PixelFrame{:colmap}` (monogram `H_PB`).
 """
-struct TargetPlaneFrame <: Frame{2} end
+struct TargetPlaneFrame{id} <: Frame{2} end
 
 """
     PixelFrame{Origin} <: Frame{2}
@@ -414,5 +418,5 @@ frame_dependence(::Type{<:RetinalFrame}) = GeometryDefined()
 frame_dependence(::Type{<:ImageFrame}) = GeometryDefined()
 frame_dependence(::Type{<:NormalizedImageFrame}) = GeometryDefined()
 frame_dependence(::Type{<:PixelFrame}) = GeometryDefined()
-frame_dependence(::Type{TargetPlaneFrame}) = GeometryDefined()
+frame_dependence(::Type{<:TargetPlaneFrame}) = GeometryDefined()
 frame_dependence(::Type{<:DistortedFrame}) = ModelDefined()

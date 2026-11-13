@@ -97,6 +97,13 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 
 ### Added
 
+- **THE region body** (core_json.jl), one encoding of VisualGeometryToolkitCore's 2-D regions: `{"rect": [x, y, w, h]}`
+  | `{"ellipse": [cx, cy, a, b, θ]}` | `{"circle": [cx, cy, r]}` | `{"intersection": [<region>, <region>]}` (Core's
+  binary `RegionIntersection`, nested to any depth, read back as stored, by type) | `{"whole_plane": {}}`, pixels in
+  `units.pixel`. `JSON.lower(::VgioStyle, region)` (a leaf with the tag `(; region = true)`) / `JSON.lift(::VgioStyle, T,
+  record)` (`T` a region type or a `Union` of them; a parsed record is checked first) for an owner's record (RC's
+  initialization region). A camera's `lens_coverage` is this body restricted to its leaves (same bytes as before); the
+  published schemas state it once, as `$defs/region` and `$defs/region_leaf`.
 - **`vgio/detection/v1.0`** (new kind): detections per image, `save(path, Dict(image => detections))` /
   `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`, through the one frame codec; the file declares once
   the type of every detection (frame type, number type, covariance storage, each attribute's type), so it reads back

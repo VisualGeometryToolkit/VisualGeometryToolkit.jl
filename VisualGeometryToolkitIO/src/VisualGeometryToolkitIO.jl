@@ -120,7 +120,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
     Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS,
     TargetObservations, Correspondences, correspondences, withattrs, sources, targets,
-    SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, lens_coverage,
+    SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, RegionIntersection, WholePlane, lens_coverage,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, PrecMat, geom, frame_dof,
     Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,

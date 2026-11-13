@@ -26,6 +26,7 @@
 #   _SchemaTok    the kind's schema string at its major version, any minor (`pattern`)
 #   _Cov          `oneOf` the three storages (rows, {"diagonal"}, {"isotropic"})
 #   _RowRuns, _LengthRoles, _VignettingBody, _ByType   their structure, their order rules in words
+#   _RegionSpec   `$ref` to `$defs/region` (recursive: an intersection's parts) or `$defs/region_leaf`
 #
 # The Julia validator stays the authority: a cross-field check JSON Schema
 # cannot state (a lattice's node count, a covariance's symmetry) is the
@@ -182,6 +183,36 @@ function _json_schema(::_VignettingBody, defs)
         defs["vignetting"] = _jobj("oneOf" => Any[_json_schema(_vignetting_body(VIGNETTING_TAGS[t]), defs) for t in keys(VIGNETTING_TAGS)])
     end
     return _jobj("\$ref" => "#/\$defs/vignetting")
+end
+# THE region body (core_json.jl): its leaves one definition (`region_leaf`, a camera's lens coverage), any region
+# another that refers to them and, for an intersection's two parts, to itself.
+function _json_schema(s::_RegionSpec, defs)
+    haskey(defs, "region_leaf") ||
+        (defs["region_leaf"] = _jobj("oneOf" => Any[_region_leaf_schema(k, defs) for k in keys(_REGION_LEAVES)]))
+    s.composite || return _jobj("\$ref" => "#/\$defs/region_leaf")
+    if !haskey(defs, "region")
+        defs["region"] = true                                      # a placeholder while an intersection refers to it
+        defs["region"] = _jobj(
+            "description" => "a region in pixels of units.pixel: a leaf, the intersection of two regions (in order) or the whole plane",
+            "oneOf" => Any[
+                _jobj("\$ref" => "#/\$defs/region_leaf"),
+                _region_object(:intersection, _jobj("type" => "array", "items" => _jobj("\$ref" => "#/\$defs/region"),
+                                                    "minItems" => 2, "maxItems" => 2)),
+                _region_object(:whole_plane, _json_schema(_Obj(), defs)),
+            ],
+        )
+    end
+    return _jobj("\$ref" => "#/\$defs/region")
+end
+# A region of one tag: `{"<tag>": body}`; a leaf's body its positional record with its extents positive.
+_region_object(k::Symbol, body) =
+    _jobj("type" => "object", "properties" => _jobj(String(k) => body), "required" => [String(k)], "additionalProperties" => false)
+function _region_leaf_schema(k::Symbol, defs)
+    leaf = _REGION_LEAVES[k]
+    body = _json_schema(leaf.spec, defs)
+    foreach(i -> body["prefixItems"][i]["exclusiveMinimum"] = 0, leaf.extents)
+    k === :ellipse && (body["description"] *= " (a ≥ b: the major semi-axis first)")
+    return _region_object(k, body)
 end
 
 _json_schema(::_Bool, defs) = _jobj("type" => "boolean")

@@ -362,6 +362,26 @@ end
         @test_throws r"cpus_per_task = \"many\" is not a count" load_stage_graph(f.graph)
     end
 
+    @testset "a stage's key holds its device, never its CPU count" begin
+        f = runner_project()
+        d = mktempdir()
+        key(g, site, name) = (p = plan_reproduction(g, load_site(site; dirs = [d]); env = env0, queue_states = noqueue, only = [name]);
+                              p.stages[findfirst(st -> st.spec.name == name, p.stages)].key)
+        for c in (2, 8)
+            write(joinpath(d, "slurm$c.toml"), "[site]\nname = \"s\"\nbackend = \"slurm\"\n[slurm]\npartition = \"gpu\"\ngres = \"gpu:1\"\ncpus_per_task = $c\n")
+            write(joinpath(d, "local$c.toml"), "[site]\nname = \"l\"\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"0\"\ncpus_per_task = $c\n")
+        end
+        g = load_stage_graph(f.graph)
+        for st in ("setup", "chrome")                                              # a GPU stage, a GPU array
+            @test key(g, "slurm2", st) == key(g, "slurm8", st) && key(g, "local2", st) == key(g, "local8", st)
+        end
+        text = read(f.graph, String)                                               # setup on the CPU: another key
+        write(f.graph, replace(text, "sbatch = \"slurm/setup.sbatch\"\ngpu = true\n" => "sbatch = \"slurm/setup.sbatch\"\n"; count = 1))
+        cpu = load_stage_graph(f.graph)
+        @test !cpu.stages[1].gpu
+        @test key(cpu, "slurm2", "setup") != key(g, "slurm2", "setup") && key(cpu, "local2", "setup") != key(g, "local2", "setup")
+    end
+
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
         @test isfile(Reproduce.REPRODUCE_SCRIPT_TEMPLATE)
         t = reproduce_script(; julia_project = "cvpr2027")

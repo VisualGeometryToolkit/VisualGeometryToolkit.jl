@@ -483,8 +483,8 @@ end
     PlannedStage
 
 One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
-option the stage's jobs read, and the keys of the stages it runs after, transitively: a stage rerun under a new key
-reruns every stage after it; never the code: a stage of the same key that finished before is reused while the code
+option the stage's jobs read but its CPU count, and the keys of the stages it runs after, transitively: a stage rerun
+under a new key reruns every stage after it; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
 dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
@@ -671,8 +671,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
             p = joinpath(g.workdir, f)
             files[f] = isfile(p) ? file_sha256(p) : "missing"
         end
+        # The CPU count is no part of the key (results are the same bits at any thread count: a stage run at 8 CPUs is
+        # reused by a launch at 2); the device is (`gres`, CUDA_VISIBLE_DEVICES).
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
-                                  "env" => e, "command" => cmd, "site" => site.name)
+                                  "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
+                                  "command" => filter(a -> !startswith(a, "--cpus-per-task="), cmd), "site" => site.name)
         isempty(s.after) || (keyed["after"] = [keys_of[d.name] for d in g.stages if d.name in s.after])   # in dependency order
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         key = keys_of[name] = _toml_hash(keyed)

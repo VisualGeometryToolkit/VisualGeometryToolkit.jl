@@ -345,7 +345,10 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   A stage's run key hashes its launcher, driver and configs, its items,
   environment and command, and the run keys of the stages it runs after (so a
   stage that reruns under a new key reruns every stage after it), never the
-  code; a later launch reuses a stage of
+  code and never its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`: the
+  results are the same bits at any thread count, so a stage run at 8 CPUs is
+  reused by a launch at 2; its device, `gres` and `CUDA_VISIBLE_DEVICES`, is
+  keyed); a later launch reuses a stage of
   the same key that completed (and depends on one still in flight, by its job
   id) instead of running it again, while its code trees are the current ones.
 - **Completion markers.** Each task writes

@@ -17,6 +17,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **Consolidated matches files are format 3** (`CONSOLIDATED_FORMAT`): the pairs' correspondences under
   `correspondences`. `load_roma_pairs` still reads formats 1 and 2.
 - **The Seven-Scenes image size** (`configs/default.toml`) is a `{width, height}` table, the IO wave's one `Size2` layout.
+- **The runner's stage keys change; earlier runs are not reused** (each stage runs once more). A stage's key no longer
+  holds its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`): the results are the same bits at any thread count,
+  so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
+  And a stage's key folds the keys of the stages it runs after: a stage that reruns under a new key reruns every stage
+  after it, where a downstream stage was reused on its predecessor's old output.
 
 ## 0.7.2 (unreleased)
 

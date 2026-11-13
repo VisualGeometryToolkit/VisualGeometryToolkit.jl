@@ -84,3 +84,10 @@ reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no
 file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts.jl"
 function = "test_scoring_contract"
 reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"
+
+# The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
+# per-channel black for the display demosaic; it subtracts nothing in the stack.
+[[pattern]]
+use = "black_subtraction"
+file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
+reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"

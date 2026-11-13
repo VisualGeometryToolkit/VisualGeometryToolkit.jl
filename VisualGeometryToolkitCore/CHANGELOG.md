@@ -35,7 +35,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   object per file, every `Size2` a `{"width", "height"}` object, every index 1-based (`"index_base": 1`), one
   `covariance` key with a producer-stated `covariance_status` when absent, matrices in rows, `v<major>.<minor>` schema
   tags, a stored quaternion with `w < 0` refused, the JCS identity in metres, the `observations`, `detection` and
-  `sensor_noise` kinds.
+  `sensor_characterisation` kinds.
 
 - **The Student-t scorer's workspace records its codimension** (review C2): `ScoringWorkspace` holds `dg`;
   `alloc_scoring_workspace`/`scoring_workspace(::StudentTUniformScoring, n, d_g)` refuse a `d_g` other than the scorer's
@@ -90,11 +90,32 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `HomographyMap` and `FramedAffine`; the similarity actions, `extrema`, `Rect2`, `bbox`, `ustrip`, `*`, `/` for every
   frame, PointFrame included; `shape_factor` of a `Disc` (`σI`) and an `OrientedDisc` (`σR(θ)`); the DOF trait
   `PointShape`.
-- **Sensor noise** (spec 2026-11-13-sensor-noise): `SensorNoise` (a body's Poisson–Gaussian noise at an ISO, every field
-  with its source `:measured | :estimated | :file`), `DarkFrame`, THE resolver `sensor_noise(capture, t => mosaic;
-  record)`, THE estimators `photon_transfer` (K and σ_r from a frame) and `master_dark` (a record from lens-cap frames),
-  `NoiseEstimateFailed`; `LinearRaw(mosaic; mode, gain, noise)` subtracts the resolved black and dark offset in its one
-  kernel (bit-identical without a noise).
+- **The sensor model** (spec 2026-11-13-sensor-noise, Phase 1, owner rulings A and D1–D13), in three levels: `Sensor`
+  (geometry, unchanged); `SensorCharacterisation(body; entries)`, ONE body's per-ISO components (host-side, keyed by
+  its `DeviceIdentity`, held beside the camera); `SensorModel{B,N,D}`, ONE frame's black, noise and defect components,
+  isbits when they are, `Adapt` for the maps. Each slot's component is a type, absence included: black `FileBlack` (the
+  RAW's own) | `ChannelBlack(values, std_error; source)` | `Dark(black, offset, variance, exposure_band, frames;
+  source)` (all dark information in ONE black-slot component, D2); noise `NoNoise` | `ReadNoise(σ, std_error;
+  source)` | `PoissonGaussian(gain, σ, std_error; source)` | `RelativeNoise(σ_rel; source)`; defects `NoDefects` |
+  `DefectList(x, y, onset; size, source)`. Every present component states its `source`, a `SensorSource.T`
+  (`measured`, `estimated`, `specified`, `file`). THE resolver `sensor_model(characterisation, capture, t)` is a
+  lookup (D1): the body (serial, else make and model), the ISO exactly, per slot specified over measured over
+  estimated (`overrides_measured` notes it, D5), a `Dark` only inside its exposure band, a `DefectList` cut to the
+  sites whose onset is at most the exposure; with no characterisation, another body or another ISO, the absent model
+  `SensorModel()` and its `ModelReason` (`Matched`, `NoCharacterisation`, `UnmatchedISO`, `OtherBody`, D4).
+  `content_digest(model)`, the model's identity: `sha256_hex(canonical_json(tree))`, the stack's one content-identity
+  scheme (D9), with `canonical_json` now Core's (hoisted from VisualGeometryToolkitIO).
+  `LinearRaw(mosaic; mode, gain, sensor_model)` and `linearview(mosaic; sensor_model)` (the keyword is `sensor_model`,
+  D6) subtract the black slot's black in their one kernel (a `Dark`'s offset per photosite), mask a `DefectList`'s
+  photosites, and under a `PoissonGaussian` or `RelativeNoise` return an UNCERTAIN image: a `StructArray` of
+  `Uncertain{Float64}` values, each value's variance from the same kernel (D11; no separate variance function);
+  without a model, bit for bit the RAW's linearisation. The estimators build a characterisation's components offline:
+  `photon_transfer(mosaic; sensor_model)` an estimated `PoissonGaussian`, `master_dark(frames; exposure_band)` a `Dark`
+  (with its `ChannelBlack`), a `ReadNoise` and the band's defect mask, `defect_onsets(exposure => mask, …)` one
+  `DefectList` (D3); `NoiseEstimateFailed`. Tests build components only through `sensor_fixture` (D13), and
+  `check_duplication` refuses a component built elsewhere (`:sensor_component`), a hand-written value variance
+  (`:value_variance_law`) and a hand-indexed channel black (`:black_subtraction`). None of wave 10's earlier sensor-noise
+  names (never released) remains; `check_naming` retires them with their replacements.
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart

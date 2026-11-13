@@ -388,7 +388,7 @@ function bayer_plane_map(m::RawMosaic, k::Integer)
 end
 
 # The levels of the four channels of `channelview(m)`, in the channels' order: each channel's black level (`black`
-# of its colour index: the mosaic's own `m.black`, or a resolved SensorNoise's, sensor_noise.jl's `_noise_levels`) and
+# of its colour index: the mosaic's own `m.black`, or a sensor model's black slot's, sensor_model.jl's `_model_levels`) and
 # its span `white − black`, the codes that run from 0 to 1 — the constants the cell kernel and `linearview` read,
 # computed once per mosaic. Private: the public linear values are `linearview(m)`, and the levels themselves are the
 # mosaic's fields, `m.black` (per colour index) and `m.white`.
@@ -420,8 +420,8 @@ The lazy linear view of a mosaic's photosites on the raw grid,
 [`linearview`](@ref)`(m)`: element `(i, j)` is the linear value of the
 held array's code there, with its channel's black level and span, computed when
 read. It holds the photosites (`parent`, the mosaic's held array, a device array
-too), the four channels' levels and, from a resolved noise, the dark offset map
-over the visible raw (`dark`, on the same device; `nothing` without one) read at
+too), the four channels' levels and, from a sensor model's [`Dark`](@ref), the
+offset map over the visible raw (`dark`, on the same device; `nothing` without one) read at
 the mosaic's `window_origin`; `similar`, a broadcast and `copy` are the
 held array's kind (a broadcast over a device view runs on the device),
 `adapt` moves it, and a KernelAbstractions kernel reads it as it is (its
@@ -449,7 +449,7 @@ Adapt.adapt_structure(to, v::LinearRawView) =
 ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
 
 """
-    linearview(m::RawMosaic; noise = nothing) -> LinearRawView
+    linearview(m::RawMosaic; sensor_model::SensorModel = SensorModel()) -> LinearRawView
 
 The mosaic's linear values on the raw grid, lazily, as ImageCore's
 `normedview` reads codes as numbers without a copy: element `(i, j)` is
@@ -470,15 +470,15 @@ value alone: the black level and span depend on the photosite's position (its
 colour in the phase), so the view reads its index — one parity rule, the cell
 sites' (`k = di + 2dj + 1`).
 
-`noise`, a resolved [`SensorNoise`](@ref) (or `nothing`), sets the levels as it
-does [`LinearRaw`](@ref)'s, by the same resolution: its per-colour-index black
-when it holds one (the span `white − black[c]`), and its dark offset in place
-of the black per photosite when it holds a dark frame. Its defect mask is not a
-value: it joins `LinearRaw`'s mask, not this view. With `noise = nothing` the
-view is the mosaic's own levels, as before.
+`sensor_model`, the frame's [`SensorModel`](@ref), sets the levels as it does
+[`LinearRaw`](@ref)'s, by the same resolution: its black slot's per-colour-index
+black (the span `white − black[c]`), and a [`Dark`](@ref)'s offset in place of
+the black per photosite. Its defects are not values: they join `LinearRaw`'s
+mask, not this view; nor is its noise. With the absent model, the default, the
+view is the mosaic's own levels.
 """
-function linearview(m::RawMosaic; noise = nothing)
-    black, span, dark, _ = _noise_levels(m, noise, KA.get_backend(parent(m)))
+function linearview(m::RawMosaic; sensor_model = SensorModel())   # (SensorModel is defined after this file: sensor_model.jl reads RawMosaic)
+    black, span, dark = _model_levels(m, sensor_model, KA.get_backend(parent(m)))
     return LinearRawView(parent(m), black, span, dark, m.window_origin)
 end
 
@@ -511,9 +511,8 @@ ImageCore.channelview(v::SaturationView) = _cell_channels(v)
 The mosaic's saturation flags on the raw grid, lazily: `true` at a photosite
 whose code is at or above the white level, `raw ≥ white` with no margin — THE
 saturation rule, the one [`LinearRaw`](@ref)'s flags apply per cell (a cell is
-flagged when any photosite its planes read is; with a resolved noise LinearRaw also
-masks its defects: `saturationview(m) .| value_of(noise.defects)` is that photosite
-mask). The `Bool` match of
+flagged when any photosite its planes read is; under a sensor model holding a
+[`DefectList`](@ref) LinearRaw also masks those photosites). The `Bool` match of
 [`linearview`](@ref)`(m)`: the same grid, and `channelview` of it is the flags
 channel-first. A mask of the usable photosites of one colour is a plain
 broadcast with [`photosite_colors`](@ref):

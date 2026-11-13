@@ -242,8 +242,11 @@ end
     RelativeNoise(σ_rel; source::SensorSource.T)
 
 A noise proportional to the value: a value `x` has variance `(σ_rel·x)²`
-(`σ_rel` positive, finite; typically `SensorSource.specified`). The model of a
-processed (tone-mapped) intensity, not of the photosites' physics; a
+(`σ_rel` positive, finite). Its source is `SensorSource.specified` only, stated
+by a person (owner ruling on D14): no estimator or measurement makes one, so any
+other source is an `ArgumentError` naming it — the one rule, at the source (an
+IO reader of a stored one meets it here too). The model of a processed
+(tone-mapped) intensity, not of the photosites' physics; a
 [`LinearRaw`](@ref) image under it carries each value's variance (an
 `Uncertain` image), with no read-noise or dark term.
 """
@@ -252,6 +255,8 @@ struct RelativeNoise <: NoiseComponent
     source::SensorSource.T
     function RelativeNoise(σ_rel::Real; source::SensorSource.T)
         isfinite(σ_rel) && σ_rel > 0 || throw(ArgumentError("RelativeNoise: σ_rel is positive and finite, got $σ_rel"))
+        source === SensorSource.specified || throw(ArgumentError(
+            "RelativeNoise: a relative noise is stated by a person (source SensorSource.specified), got source $(string(source))"))
         return new(Float64(σ_rel), _component_source(source, "RelativeNoise"))
     end
 end

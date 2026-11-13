@@ -27,7 +27,11 @@ above 1) or below 0 (noise under the black level) is kept.
   `StructArray` of `Uncertain{Float64}` values (owner ruling D11): its
   `value` component the `Float64` values, its `attributes` component each
   value's variance as a 1×1 [`CovMat`](@ref) (`cov(L.image[i, j, p])[1]`), both
-  planes from the one kernel. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
+  planes from the one kernel. This cell image is the MATERIALISED uncertain
+  image (owner ruling D14, (a)): its binned variances are computed once, in the
+  one kernel, from the one variance formula, and a consumer never re-derives
+  them; the photosites' uncertain image, [`linearview`](@ref)`(m; sensor_model)`,
+  is the lazy default. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
   it is a plain `AbstractArray{Float64, 3}`. A consumer dispatches on the
   image's element type.
 - `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the MASKED

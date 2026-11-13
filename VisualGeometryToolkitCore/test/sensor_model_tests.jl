@@ -244,6 +244,11 @@ end
     @test_throws ArgumentError sensor_fixture(; gain = 0.0, read_noise = (1, 1, 1, 1))
     @test_throws ArgumentError sensor_fixture(; gain = 1.0)                                    # a gain without σ_r
     @test_throws ArgumentError sensor_fixture(; relative_noise = -0.1)
+    # a RelativeNoise is specified only (owner ruling on D14): every other source refused, by name
+    for src in (SensorSource.estimated, SensorSource.measured, SensorSource.file)
+        @test_throws "got source $(string(src))" sensor_fixture(; relative_noise = 0.05, source = src)
+    end
+    @test sensor_fixture(; relative_noise = 0.05).model.noise.source === SensorSource.specified
     @test_throws ArgumentError sensor_fixture(; black = (NaN, 0, 0, 0))
     @test_throws ArgumentError sensor_fixture(; black = (1, 1, 1, 1), source = SensorSource.file)   # the RAW's own is FileBlack
     @test_throws ArgumentError sensor_fixture(; defects = (; x = [11], y = [1], onset = [1s], size = (8, 10)))

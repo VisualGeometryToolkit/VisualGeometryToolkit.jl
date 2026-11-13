@@ -489,7 +489,9 @@ mask, not this view. Its noise is: under a [`PoissonGaussian`](@ref) or a
 [`RelativeNoise`](@ref) each element is an `Uncertain{Float64}`, the value and
 its scalar variance (`Statistics.var(x)`, computed on the read by the law
 `LinearRaw`'s kernel writes per plane, one site at gain 1: owner ruling D14,
-the default uncertain image), and `copy` of the view is the materialised form, a
+the default uncertain image of the photosites; the binned cell image,
+`LinearRaw`'s, is materialised once by its kernel and never re-derived by a
+consumer), and `copy` of the view is the materialised form, a
 `StructArray` of a value plane and a variance plane (on the view's device). The
 layout is the raw grid, `H × W`; `channelview` of it is the `4 × H/2 × W/2`
 cells, uncertain alike. With the absent model, the default, the view is the

@@ -135,6 +135,11 @@ function _loaded_entries(project::AbstractString, manifest::AbstractString)
     return out
 end
 
+# (workdir, code paths, project) → (the state git reads, `code_trees`' answer then): `code_trees` once per process
+# while that state holds (a driver asks before every cell of a sweep).
+const _CODE_TREES = Dict{Tuple{String, Vector{String}, String}, Any}()
+const _CODE_TREES_LOCK = ReentrantLock()
+
 """
     code_trees(workdir; code = nothing, julia_project = workdir) -> (; trees, dirty, project_paths)
 
@@ -151,10 +156,126 @@ nothing identifies the project's code).
 
 A tree moves only when a file under it changes: a commit that touches only docs, tests or the paper changes no tree.
 Compare two records with [`code_tree_changes`](@ref).
+
+The answer is kept in this process (git runs several times per path), and given again while nothing git reads has
+changed: every file under the code paths and under each path-loaded package's `src`, `ext` and `Project.toml` (by
+path, size, modification and change time and inode: an edit, a new, deleted or replaced file), the project's
+`Project.toml` and Manifest, and per repository its `HEAD`, the ref `HEAD` names, `packed-refs`, the index and the
+ignore files (a commit, a checkout, a staged or unstaged change). A file rewritten within the file system's time
+resolution with the same size and inode keeps the kept answer, as [`file_sha256`](@ref)'s cache does; so does a
+change to the index alone made while `code_trees` runs git (whose own status run rewrites the index).
 """
 function code_trees(workdir::AbstractString; code = nothing, julia_project::AbstractString = workdir)
-    trees, dirty = Dict{String, String}(), String[]
     paths = code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
+    k = (abspath(workdir), paths, abspath(julia_project))
+    seen = _code_state(workdir, paths, julia_project)
+    hit = lock(() -> get(_CODE_TREES, k, nothing), _CODE_TREES_LOCK)
+    r = hit !== nothing && hit[1] == seen ? hit[2] : nothing
+    tries = 0
+    while r === nothing
+        # Kept only when the state held while git ran, the index aside: `git status` itself rewrites the index
+        # (refreshing its stat data, every time while an entry is as new as the index), so the answer is kept under
+        # the state after it. A file edited meanwhile is a change: computed again.
+        r = _code_trees(workdir, paths, julia_project)
+        after = _code_state(workdir, paths, julia_project)
+        if _but_index(after) == _but_index(seen)
+            lock(() -> (_CODE_TREES[k] = (after, r)), _CODE_TREES_LOCK)
+        elseif (tries += 1) < 3
+            seen, r = after, nothing
+        end
+    end
+    return (; trees = copy(r.trees), dirty = copy(r.dirty), project_paths = copy(r.project_paths))
+end
+
+# A path's stat as the state of `code_trees` sees it: what an edit, a replacement or a removal moves.
+function _stat_state(p::AbstractString)
+    st = stat(p)
+    return (String(p), Int64(st.size), Float64(st.mtime), Float64(st.ctime), UInt64(st.inode))
+end
+
+# The git directory and common directory of the repository holding `dir` (a worktree's `.git` is a file naming its
+# own git directory, whose `commondir` names the shared one), and the repository's top; nothing outside one.
+function _git_dirs(dir::AbstractString)
+    d = abspath(dir)
+    while true
+        g = joinpath(d, ".git")
+        if isdir(g)
+            return (; top = d, git = g, common = g)
+        elseif isfile(g)
+            m = match(r"^gitdir:\s*(.+?)\s*$"m, read(g, String))
+            m === nothing && return nothing
+            git = normpath(joinpath(d, String(something(m.captures[1]))))
+            c = joinpath(git, "commondir")
+            return (; top = d, git, common = isfile(c) ? normpath(joinpath(git, strip(read(c, String)))) : git)
+        end
+        p = dirname(d)
+        p == d && return nothing
+        d = p
+    end
+end
+
+# The state of one repository that git status and rev-parse read beyond the files: HEAD, the ref it names,
+# packed-refs, the index, and the ignore files from `under` up to the top.
+function _repo_state!(out, dir::AbstractString, under)
+    r = _git_dirs(dir)
+    r === nothing && return push!(out, ("no git", String(abspath(dir))))
+    head = joinpath(r.git, "HEAD")
+    push!(out, _stat_state(head), (:index, _stat_state(joinpath(r.git, "index"))...), _stat_state(joinpath(r.common, "packed-refs")),
+          _stat_state(joinpath(r.common, "info", "exclude")))
+    m = isfile(head) ? match(r"^ref:\s*(\S+)", read(head, String)) : nothing
+    m === nothing || push!(out, _stat_state(joinpath(r.common, String(something(m.captures[1])))))
+    for u in under
+        d = abspath(u)
+        while startswith(d, r.top)
+            push!(out, _stat_state(joinpath(d, ".gitignore")))
+            d == r.top && break
+            d = dirname(d)
+        end
+    end
+    return out
+end
+
+# The state without the repositories' index files, which git's own status run may rewrite.
+_but_index(state) = filter(x -> !(first(x) === :index), state)
+
+# Every file under `p` (a file or a directory, `.git` left out), by its stat.
+function _tree_state!(out, p::AbstractString)
+    isdir(p) || return push!(out, _stat_state(p))
+    for (root, dirs, files) in walkdir(p)
+        filter!(!=(".git"), dirs)
+        for f in sort(files)
+            push!(out, _stat_state(joinpath(root, f)))
+        end
+    end
+    return out
+end
+
+# What `code_trees` reads that can change while a process runs, for the memo's key.
+function _code_state(workdir, paths, julia_project)
+    out = Any[]
+    for c in paths
+        _tree_state!(out, joinpath(workdir, c))
+    end
+    _repo_state!(out, workdir, [joinpath(workdir, c) for c in paths])
+    manifest = _find_manifest(julia_project)
+    for f in ("JuliaProject.toml", "Project.toml")
+        push!(out, _stat_state(joinpath(julia_project, f)))
+    end
+    manifest === nothing && return out
+    push!(out, _stat_state(manifest))
+    for (_, e) in sort!(collect(_loaded_entries(abspath(julia_project), manifest)); by = first)
+        haskey(e, "path") || continue
+        dir = normpath(joinpath(dirname(manifest), e["path"]))
+        for s in _PACKAGE_CODE
+            _tree_state!(out, joinpath(dir, s))
+        end
+        _repo_state!(out, dir, [joinpath(dir, s) for s in _PACKAGE_CODE])
+    end
+    return out
+end
+
+function _code_trees(workdir, paths, julia_project)
+    trees, dirty = Dict{String, String}(), String[]
     for c in paths
         t = _head_tree(workdir, c)
         if t === nothing
@@ -398,8 +519,8 @@ THE check of one `[inputs.<id>]` table under its tier's `root` ([`tier_data_root
 than the data root, named by `root_name`, that is not there); `:missing` (no `path` under `root`); or `:refused`
 (another content than its `sha256` — a file's [`file_sha256`](@ref), a directory's [`tree_sha256`](@ref) with
 the table's `sha256_exclude` globs — or a scratch run's output, [`scratch_record`](@ref), unless `allow_scratch`).
-`problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or one on a directory, is an
-`ArgumentError` (a config error).
+`problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or a `sha256_exclude` on a file,
+is an `ArgumentError` (a config error).
 """
 function inspect_input(id::AbstractString, t::AbstractDict, root::AbstractString; root_source::AbstractString = "data root",
                        root_name::AbstractString = "", allow_scratch::Bool = false)

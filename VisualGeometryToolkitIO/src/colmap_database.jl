@@ -2,10 +2,10 @@
 # colmap_database.jl — read access to a COLMAP sqlite database (database.db).
 #
 # Layer-1 wire surface: unit-free, format-faithful. A COLMAP database stores
-# per-image keypoints (rows×cols float32 row-major; cols ∈ {2,4,6}: x, y
-# [, scale, orientation | affine]), descriptors (rows×128 uint8), and pairwise
-# matches (rows×2 uint32 KEYPOINT-INDEX pairs, 0-BASED — add 1 to index the
-# keypoints matrix) keyed by
+# per-image detections (its `keypoints` table: rows×cols float32 row-major;
+# cols ∈ {2,4,6}: x, y [, scale, orientation | affine]), descriptors (rows×128
+# uint8), and pairwise matches (rows×2 uint32 detection-index pairs, 0-BASED —
+# add 1 to index the detections matrix) keyed by
 #
 #     pair_id = image_id1 * 2147483647 + image_id2,   image_id1 ≤ image_id2
 #
@@ -15,12 +15,12 @@
 # e.g. the Aachen Day-Night benchmark database); both are handled.
 #
 # The handle is LAZY: nothing is materialized beyond the query you run — a
-# benchmark database (Aachen: 19 GB) must never be slurped whole. Keypoint
+# benchmark database (Aachen: 19 GB) must never be slurped whole. Detection
 # coordinates are COLMAP-convention pixels; units attach downstream at the
 # layer-2 boundary — the wire layer stays unit-free like its siblings.
 #
 # Only `ColmapDatabase` is exported; accessors are deliberately unexported
-# (generic names — qualify: `VisualGeometryToolkitIO.keypoints(db, id)`), mirroring
+# (generic names — qualify: `VisualGeometryToolkitIO.detections(db, id)`), mirroring
 # the unexported load/save verbs.
 #
 # SQLite rows are LIVE CURSORS: every field is extracted inside the iteration
@@ -38,7 +38,7 @@ const _COLMAP_MAX_IMAGE_ID = Int64(2147483647)
 Open a lazy read handle on a COLMAP sqlite database. Close with `close(db)`.
 
 Accessors (unexported — qualify with the module):
-`n_images`, `image_names`, `image_id`, `image_name`, `keypoints`,
+`n_images`, `image_names`, `image_id`, `image_name`, `detections`,
 `descriptors`, `raw_matches`, `matched_pairs`, `verified_matches`, `pair_id`, `pair_image_ids`.
 """
 struct ColmapDatabase
@@ -191,20 +191,21 @@ end
 # --- per-image blobs --------------------------------------------------------
 
 """
-    keypoints(cdb, image_id) -> Matrix{Float32}   (n × cols)
+    detections(cdb, image_id) -> Matrix{Float32}   (n × cols)
 
-Row `i` is keypoint `i-1` in COLMAP's 0-based match indexing. Columns are
+The image's detections, COLMAP's `keypoints` table: row `i` is detection
+`i-1` in COLMAP's 0-based match indexing. Columns are
 `x, y[, scale, orientation | affine params]` in pixels (COLMAP convention:
 the origin is the upper-left corner of the upper-left pixel, so the CENTER
 of the first pixel is (0.5, 0.5)).
 """
-keypoints(cdb::ColmapDatabase, image_id::Integer) =
+detections(cdb::ColmapDatabase, image_id::Integer) =
     _blob_table(cdb, Float32, "keypoints", image_id, 4)
 
 """
     descriptors(cdb, image_id) -> Matrix{UInt8}   (n × 128)
 
-Row `i` is the descriptor of keypoint `i` (same order as [`keypoints`](@ref)).
+Row `i` is the descriptor of detection `i` (same order as [`detections`](@ref)).
 """
 descriptors(cdb::ColmapDatabase, image_id::Integer) =
     _blob_table(cdb, UInt8, "descriptors", image_id, 128)
@@ -261,8 +262,8 @@ end
 """
     raw_matches(cdb, image_id1, image_id2) -> Matrix{UInt32}   (n × 2)
 
-Raw (unverified) keypoint-index match pairs, 0-BASED, column 1 indexing
-`image_id1`'s keypoints and column 2 `image_id2`'s — in the CALLER's argument
+Raw (unverified) detection-index match pairs, 0-BASED, column 1 indexing
+`image_id1`'s detections and column 2 `image_id2`'s — in the CALLER's argument
 order regardless of how COLMAP stored the pair. No entry ⇒ 0×2.
 """
 raw_matches(cdb::ColmapDatabase, image_id1::Integer, image_id2::Integer) =

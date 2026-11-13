@@ -378,8 +378,13 @@ function evaluate_sample_budget(problem_type::Type,
     lo_ns_pp       = zeros(Int64, P, nsel)   # per-pair LO wall-clock [ns]  (race-free: one row per pair)
     lo_calls_pp    = zeros(Int64, P, nsel)   # per-pair LO call count
 
-    # One selector tuple per thread (each ScoreSelector owns its scoring +
-    # scratch workspace); the OracleSelector is appended last.
+    # A pool of selector tuples (each ScoreSelector owns its scoring + scratch
+    # workspace; the OracleSelector is appended last), one per thread that can
+    # run a task at once. A pair takes a tuple from the pool and returns it:
+    # never indexed by `Threads.threadid()`, which a task of the dynamic
+    # `@threads` loop may change mid-pair (it migrates), so two tasks could
+    # share one tuple. A tuple's running best is reset per pair, so which tuple
+    # a pair takes changes nothing it writes.
     N_max = maximum(num_points, pairs)
     nt    = Threads.maxthreadid()
     _scorer(name, sc, width; kw...) =
@@ -393,28 +398,33 @@ function evaluate_sample_budget(problem_type::Type,
         # half-width (the first method's).
         OracleSelector(:oracle, _method_width(methods[1])),
     )
-    thread_selectors = [_thread_tuple() for _ in 1:nt]
+    selector_pool = Channel{typeof(_thread_tuple())}(nt)
+    foreach(_ -> put!(selector_pool, _thread_tuple()), 1:nt)
 
     # Startup accounting: warm every active LO path single-threaded BEFORE the
     # loop (first call pays JIT). Makes the per-call numbers pure steady-state.
     lo_startup_ns = _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg, nsel, refit_scoring)
 
     Threads.@threads for i in 1:P
-        tid = Threads.threadid()
-        evaluate_sample_budget_pair!(
-            view(err_batch,      i, :, :),
-            view(best_idx_batch, i, :, :),
-            view(err_lo,         i, :, :),
-            view(lo_ns_pp,       i, :),
-            view(lo_calls_pp,    i, :),
-            thread_selectors[tid],
-            problem_type,
-            pairs[i],
-            residuals[i],
-            cfg;
-            refit_scoring,
-            sample_starts = cfg.budget_unit === :samples ? sample_starts[i] : nothing,
-        )
+        selectors = take!(selector_pool)
+        try
+            evaluate_sample_budget_pair!(
+                view(err_batch,      i, :, :),
+                view(best_idx_batch, i, :, :),
+                view(err_lo,         i, :, :),
+                view(lo_ns_pp,       i, :),
+                view(lo_calls_pp,    i, :),
+                selectors,
+                problem_type,
+                pairs[i],
+                residuals[i],
+                cfg;
+                refit_scoring,
+                sample_starts = cfg.budget_unit === :samples ? sample_starts[i] : nothing,
+            )
+        finally
+            put!(selector_pool, selectors)
+        end
     end
 
     ids = isempty(pair_ids) ? [string(i) for i in 1:P] : collect(pair_ids)

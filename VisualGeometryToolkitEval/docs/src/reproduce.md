@@ -202,8 +202,11 @@ A driver defines top-level constants meant for a process of its own;
 script can run every driver in one warm session.
 
 `src/reproduce/reproduce_index.jl`, `src/reproduce/number_macros.jl` and
-`src/reproduce/paper_assets.jl` depend on Base only, so an environment that
-cannot load this package can include them by path, in that order
+`src/reproduce/paper_assets.jl` depend on Base only (and the stdlib
+FileWatching, whose pid lock serializes the writers of a shared numbers file;
+`number_macros.jl` brings the package's one atomic write, `src/write_atomic.jl`,
+with it), so an environment that cannot load this package can include them by
+path, in that order
 (`src/reproduce/results_branches.jl` is not among them: it runs git and reads
 TOML).
 
@@ -269,7 +272,8 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
 - **Inputs first.** Every `[inputs.<id>]` (`tier`, `path` under the data root)
   of every selected stage's configs is checked before anything runs; a missing
   one is a row `path  tier  used by`, the launch runs nothing and exits 3
-  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file) must
+  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file, or a directory's
+  [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) must
   have that content: another one is refused, naming the input, the expected
   and the actual hash (exit 2, the dry run too); without it the input is only
   checked to be there. Hashing streams the file and is cached by path, size
@@ -339,9 +343,16 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   configs (sha256), the data and results roots, the site, the code trees
   (below), and per stage its run key, command, job id, state and code trees.
   A stage's run key hashes its launcher, driver and configs, its items,
-  environment and command, never the code; a later launch reuses a stage of
-  the same key that completed (and depends on one still in flight, by its job
-  id) instead of running it again, while its code trees are the current ones.
+  environment and command, and the run keys of the stages it runs after (of
+  their last completed runs, for those a `--no-deps` launch does not run),
+  never the code and never its CPU count (`--cpus-per-task`,
+  `SLURM_CPUS_PER_TASK`: the results are the same bits at any thread count, so
+  a stage run at 8 CPUs is reused by a launch at 2; its device, `gres` and
+  `CUDA_VISIBLE_DEVICES`, is keyed); a later launch reuses a
+  stage of the same key that completed (and depends on one still in flight, by
+  its job id) instead of running it again, while its code trees are the
+  current ones and no stage it runs after is run again by that launch. A
+  changed upstream stage thus reruns every stage downstream of it.
 - **Completion markers.** Each task writes
   `<manifest without .toml>/<stage>/task-<t>.toml` when it ends — its state
   (`completed` or `failed`), exit status, start and end, job id, commit and run

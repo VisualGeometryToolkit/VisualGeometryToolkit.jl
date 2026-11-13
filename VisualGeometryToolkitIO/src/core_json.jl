@@ -29,18 +29,6 @@
 # `from_json(T, d, contract; kind)`, not methods of JSON.jl's `lower`/`lift`
 # (those are JSON.jl's functions on Core's types: piracy).
 
-"""
-    ScalarOrQuantity
-
-The type of a JSON-held value that is either a plain number or a quantity: an
-alias of `Number`, since a FlexUnits quantity is a `Number`. A field of this
-type is read with [`read_quantity`](@ref) when it holds a quantity, and kept
-as it is when it holds a plain number.
-
-Public, not exported.
-"""
-const ScalarOrQuantity = Number
-
 # -----------------------------------------------------------------------------
 # One quantity
 # -----------------------------------------------------------------------------

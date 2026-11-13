@@ -8,7 +8,8 @@
 #   reproduce_main(["--graph=…", "--site=desktop", "--only=detector_bias"])          a subset (its prerequisites too)
 #   reproduce_main(["status", "--graph=…", "--site=dgx01"])                          the last launch's jobs
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML, SHA and Dates; `cli_option` comes from the includer, src/cli.jl):
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML, SHA and Dates; `cli_option` and `_write_atomic` come from the
+# includer, src/cli.jl):
 # the Reproduce module includes it, AND a project's launcher includes src/cli.jl and this file BY PATH from a bare `julia`,
 # before the project's environment exists — the setup stage instantiates it, inside the scheduler. One copy for both.
 # The results-branch stage runs in the project's environment and calls `results_branch_of_run`
@@ -408,11 +409,13 @@ Each input's path is relative to ITS TIER's root ([`tier_data_root`](@ref Visual
 `env`'s `<data_env>_<TIER>`, else the graph's `[sites.<site>.tiers]` table, else `data_root`. A tier root that is
 named but not there makes each of its inputs a row whose tier says so (`"mocap (root /x, from VGTK_DATA_ROOT_MOCAP,
 is not there)"`). Each input is checked by `inspect_input` (src/code_identity.jl), the one check a driver's
-`verify_inputs` makes too: a scratch run's output is refused like another content. An input of the reserved tier
+`verify_inputs` makes too: a scratch run's output is refused like another content, unless this launch is a scratch one
+(`VGTK_SCRATCH=1` in `env`, [`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)). An input of the reserved tier
 [`UNPUBLISHED_TIER`](@ref) is reported missing as never fetched; with `unpublished` (a vector), each such input is
 also pushed there, `(; path, present, used_by)`, for the dry run to list.
 
-An input with a `sha256` (64 hex digits, of a file) is verified: an input that is there with another content is
+An input with a `sha256` (64 hex digits: a file's [`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256), a
+directory's [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) is verified: an input that is there with another content is
 REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
 nothing runs on data other than the data of record. An input without one is not checked. The hash is streamed and
 cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is
@@ -434,7 +437,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
             tier = String(get(t, "tier", ""))
             root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
             name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
-            r = inspect_input(id, t, root; root_source = from, root_name = name)        # the one check (src/code_identity.jl)
+            r = inspect_input(id, t, root; root_source = from, root_name = name,        # the one check (src/code_identity.jl)
+                              allow_scratch = scratch_run(env))
             if tier == UNPUBLISHED_TIER && unpublished !== nothing
                 k = findfirst(u -> u.path == t["path"], unpublished)
                 k === nothing ? push!(unpublished, (; path = String(t["path"]), present = r.state !== :missing && r.state !== :root_missing,
@@ -479,7 +483,8 @@ end
     PlannedStage
 
 One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
-option the stage's jobs read, never the code: a stage of the same key that finished before is reused while the code
+option the stage's jobs read, and the keys of the stages it runs after, their last completed runs' for those the
+launch does not run; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
 dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
@@ -509,8 +514,8 @@ differ from it), the `data_root` and `results_root`, the `stamp` of the launch, 
 `stages` in dependency order, the environment the launch was planned in (`base_env`: the stages' environment is it
 plus each stage's own), and the code it runs: `code_trees` (by name, the git trees of the graph's `code` paths and of
 every stack package the project's environment loads: [`code_trees`](@ref VisualGeometryToolkitEval.code_trees)) and
-`dirty_code`, those of them with uncommitted changes (a launch refuses to run them), and `code_paths`, the project's
-own paths among them (a launch that identifies none is refused too).
+`dirty_code`, those of them with uncommitted changes (a launch refuses to run them; a scratch launch runs them with
+a warning), and `code_paths`, the project's own paths among them (a launch that identifies none is refused too).
 """
 struct ReproducePlan
     graph::StageGraph
@@ -646,6 +651,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     isempty(results) || (roots_env[g.results_env] = results)
     site_env = merge(Dict{String, String}(k => string(v) for (k, v) in get(get(g.site_roots, site.name, Dict()), "env", Dict())), site.env)
     stages = PlannedStage[]
+    # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
+    # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
+    # output upstream of it was made under another key, whichever launch made it.
+    records = isempty(results) ? Pair{String, Dict{String, Any}}[] : _stage_records(joinpath(results, g.manifest_dir))
+    keys_of = Dict{String, String}(name => r["key"] for (name, r) in records if stage_run_state(r).state == "completed")
     for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
@@ -663,10 +673,16 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
             p = joinpath(g.workdir, f)
             files[f] = isfile(p) ? file_sha256(p) : "missing"
         end
+        # The CPU count is no part of the key (results are the same bits at any thread count: a stage run at 8 CPUs is
+        # reused by a launch at 2); the device is (`gres`, CUDA_VISIBLE_DEVICES).
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
-                                  "env" => e, "command" => cmd, "site" => site.name)
+                                  "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
+                                  "command" => filter(a -> !startswith(a, "--cpus-per-task="), cmd), "site" => site.name)
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
-        key = _toml_hash(keyed)
+        # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
+        # stage with none, so its key is unchanged
+        isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
+        key = keys_of[name] = _toml_hash(keyed)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
@@ -684,15 +700,13 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     base["VGTK_SITE"] = site.name
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,
                          code.trees, code.dirty, code.project_paths)
-    _mark_reuse!(plan, ids -> _queue_states(queue_states, ids, env))
+    _mark_reuse!(plan, records, ids -> _queue_states(queue_states, ids, env))
     return plan
 end
 
 # ---------------------------------------------------------------------------
 # Run manifests and reuse
 # ---------------------------------------------------------------------------
-
-_manifest_dir(plan::ReproducePlan) = joinpath(plan.results_root, plan.graph.manifest_dir)
 
 """
     run_manifests(dir) -> Vector{String}
@@ -710,6 +724,11 @@ function _which(prog::AbstractString, env)
     end
     return nothing
 end
+
+# The stage records of the earlier launches whose manifests are under `dir` (`stage name => record`, those with a run
+# key), oldest launch first: what reuse and the upstream keys read.
+_stage_records(dir::AbstractString) = Pair{String, Dict{String, Any}}[
+    name => r for m in run_manifests(dir) for (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}()) if haskey(r, "key")]
 
 _job_states(job_states, ids, env) = job_states === nothing ? slurm_job_states(ids; env) : job_states(ids)
 _queue_states(queue_states, ids, env) = queue_states === nothing ? slurm_queue_states(ids; env) : queue_states(ids)
@@ -805,23 +824,6 @@ written atomically (a temporary file in the directory, renamed into place): a re
 """
 stage_markers_dir(manifest::AbstractString, stage::AbstractString) = joinpath(first(splitext(manifest)), stage)
 
-# `f(io)` writes the content; it goes to a temporary file in `path`'s directory, renamed onto `path` only when `f`
-# returned: a reader sees the old file or the new one, never a part of one, and a failure leaves the old one.
-function _write_atomic(f::Function, path::AbstractString)
-    tmp, io = mktemp(mkpath(dirname(path)); cleanup = false)
-    try
-        f(io)
-        close(io)
-        chmod(tmp, 0o644)                  # mktemp's file is private; a marker or manifest is read by others
-        mv(tmp, path; force = true)
-    catch
-        close(io)
-        rm(tmp; force = true)
-        rethrow()
-    end
-    return path
-end
-
 _utc_now() = Dates.format(Dates.now(Dates.UTC), "yyyy-mm-ddTHH:MM:SS") * "Z"
 
 """
@@ -889,19 +891,14 @@ function stage_run_state(r::AbstractDict, queue::AbstractDict = Dict{String, Dic
     return (; state, tasks)
 end
 
-# A stage of the same key in an earlier launch: completed (every task's marker) → reused; in flight → depended on,
-# unless a stage it runs after is run again by this launch (the job waits on the old one); failed or unknown → run
-# again. Reused or depended on only while the code trees it recorded are the current ones (`code_tree_changes`, the
-# one rule): a completed stage whose code changed runs again, the change named; one still in flight under other code
-# stops the launch (a second job would write the same results).
-function _mark_reuse!(plan::ReproducePlan, queue_states)
-    isempty(plan.results_root) && return plan
-    last = Dict{String, Dict{String, Any}}()
-    for m in run_manifests(_manifest_dir(plan))
-        for (_, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}())
-            haskey(r, "key") && (last[r["key"]] = r)
-        end
-    end
+# A stage of the same key in an earlier launch: completed (every task's marker) → reused; in flight → depended on;
+# either only while no stage it runs after is run again by this launch (its input is rewritten: a completed run read
+# the old one, an in-flight job waits on the old one); failed or unknown → run again. Reused or depended on only while
+# the code trees it recorded are the current ones (`code_tree_changes`, the one rule): a completed stage whose code
+# changed runs again, the change named; one still in flight under other code stops the launch (a second job would
+# write the same results).
+function _mark_reuse!(plan::ReproducePlan, records, queue_states)
+    last = Dict{String, Dict{String, Any}}(r["key"] => r for (_, r) in records)   # the latest record of each key
     isempty(last) && return plan
     ids = unique(filter(!isempty, String[get(last[st.key], "job_id", "") for st in plan.stages if haskey(last, st.key)]))
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : queue_states(ids)
@@ -926,7 +923,7 @@ function _mark_reuse!(plan::ReproducePlan, queue_states)
     end
     rerun = Set(st.spec.name for st in plan.stages if isempty(st.reuse))     # in dependency order: a cleared stage clears those after it
     for st in plan.stages
-        if st.reuse != "completed" && !isempty(st.reuse) && any(in(rerun), st.after)
+        if !isempty(st.reuse) && any(in(rerun), st.after)
             st.reuse, st.reuse_markers = "", ""
             push!(rerun, st.spec.name)
         end
@@ -949,9 +946,15 @@ function _manifest_dict(plan::ReproducePlan, records)
         "graph_sha256" => file_sha256(g.path), "code_trees" => plan.code_trees, "stages" => records)
 end
 
-# Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs).
+# Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs). The results-branch
+# stage adds `results_branch` to the manifest (`results_branch_of_run`); a later rewrite keeps it.
 function _write_manifest(plan::ReproducePlan, records)
-    _write_atomic(io -> TOML.print(io, _manifest_dict(plan, records); sorted = true), plan.manifest)
+    d = _manifest_dict(plan, records)
+    if isfile(plan.manifest)
+        branch = get(TOML.parsefile(plan.manifest), "results_branch", nothing)
+        branch === nothing || (d["results_branch"] = branch)
+    end
+    _write_atomic(io -> TOML.print(io, d; sorted = true), plan.manifest)
     return plan.manifest
 end
 
@@ -996,7 +999,8 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
     println(io, "  manifest $(plan.manifest)")
     println(io, "  markers  $(first(splitext(plan.manifest)))/<stage>/task-<t>.toml  (each task's completion marker: status and reuse read them)")
     println(io, "  code     $(length(plan.code_trees)) tree(s): $(join(sort!(collect(keys(plan.code_trees))), ", "))",
-            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) (a launch is refused)",
+            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) " *
+                (scratch_run(plan.base_env) ? "(a scratch launch: run with a warning)" : "(a launch is refused)"),
             isempty(plan.code_paths) ? "  NO PROJECT CODE: no `src`, no [project] code (a launch is refused)" : "")
     isempty(site.setup) || println(io, "  setup    $(site.setup)")
     for (i, st) in enumerate(plan.stages)
@@ -1200,8 +1204,16 @@ function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{Strin
 end
 
 # A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in (the
-# one refusal, the drivers' records too).
-_refuse_dirty_code(plan::ReproducePlan) = refuse_uncommitted_code((; dirty = plan.dirty_code, project_paths = plan.code_paths))
+# one refusal, the drivers' records too). A scratch launch (`VGTK_SCRATCH=1`) runs it with a warning, as a driver's
+# scratch records do: its trees carry `+uncommitted`, so its stages are never reused for committed code.
+function _refuse_dirty_code(plan::ReproducePlan)
+    identity = (; dirty = plan.dirty_code, project_paths = plan.code_paths)
+    if scratch_run(plan.base_env) && !isempty(plan.dirty_code)
+        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused for committed code" uncommitted = join(plan.dirty_code, ", ")
+        identity = (; dirty = String[], project_paths = plan.code_paths)    # the project's code must still be identified
+    end
+    return refuse_uncommitted_code(identity)
+end
 
 # The line a backend prints before running a stage an earlier launch ran under other code.
 _print_rerun(io, st::PlannedStage) = isempty(st.rerun) || println(io, rpad(st.spec.name, 32), " rerun: ", st.rerun)

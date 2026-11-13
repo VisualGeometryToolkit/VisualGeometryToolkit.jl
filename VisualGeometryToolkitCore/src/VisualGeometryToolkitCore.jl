@@ -586,6 +586,7 @@ public RowsWorkspace, rows_workspace, task_buffers, point_norms!,
 # `sq_loss_width` stay UNEXPORTED (public, robust/losses.jl) — they are also the
 # natural keyword and variable names at every call site; call them qualified.
 export AbstractMEstimator, efficiency_constant
+public refine_width   # the refine contract's loss width from `scale` xor `width` (robust/lo_contract.jl)
 public codimension_factor
 # The robust stages' scale hand-off (base/scale_source.jl): each robust result records ONE
 # scale and its ScaleSource; `scale_input` parses a stage's `scale`/`width` keywords.
@@ -751,7 +752,7 @@ export constraint_with_jacobians
 public test_model, test_cheirality, test_conditioning
 public cheiral_pose_fast   # the 4-way cheirality vote over motion(E), on bearings
 public dlt_conditioning, test_dlt_conditioning   # the DLT DESIGN matrix: its null-space gap, and the gate over it
-public test_sample, test_consensus
+public test_sample, test_consensus, assert_unit_bearings
 
 # Fundamental matrix solvers
 export fundamental_dlt, fundamental_dlt!

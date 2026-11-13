@@ -322,13 +322,14 @@ end
     @test length(held) == (nx - 3) * (ny - 3) - 1 - 3 && size(Lm, 1) == size(st.L, 1) * length(held)
     @test norm(Lm * vec(c))^2 ≈ sum(norm(st.L * vec(c)[collect(w)])^2 for w in held) rtol = 1.0e-12
     @test all(iszero, Lm[:, LinearIndices(mask)[1, 1]]) && all(iszero, Lm[:, LinearIndices(mask)[nx, 3]])
-    I_, J_, V_ = Int[], Int[], Float64[]; row = 0
-    for w in held, r in axes(st.L, 1)
-        row += 1
-        for (m, n) in enumerate(w); push!(I_, row); push!(J_, n); push!(V_, st.L[r, m]); end
+    # each held cell's rows are `L` on its window, in cell order (read off the operator, not re-assembled)
+    for (k, w) in enumerate(held)
+        rows = ((k - 1) * size(st.L, 1) + 1):(k * size(st.L, 1))
+        @test Matrix(Lm[rows, collect(w)]) == st.L && iszero(Lm[rows, setdiff(1:(nx * ny), collect(w))])
     end
-    @test Lm == SparseArrays.sparse(I_, J_, V_, row, nx * ny)       # bit for bit the cell-by-cell assembly
     @test size(bending_rows(falses(nx, ny))) == (0, nx * ny)
+    # a lattice with no complete cell, a mask below 4 nodes in either dimension included: no rows
+    @test size(bending_rows(trues(3, 5))) == (0, 15) && size(bending_rows(trues(5, 2))) == (0, 10) && size(bending_rows(trues(0, 0))) == (0, 0)
     # the natural boundary condition: BSplineKit's recombination is c₀ = 2c₁ − c₂, and it makes f'' vanish at the border knot
     w₁, w₂ = natural_extrapolation()
     @test w₁ ≈ 2 && w₂ ≈ -1

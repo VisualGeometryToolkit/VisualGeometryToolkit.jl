@@ -246,8 +246,12 @@ end
 # `Base.sortperm!` documents a STABILITY GUARANTEE ("the permutation is
 # guaranteed to be stable ... indices of equal elements appear in ascending
 # order"), so ANY stable ascending-by-`isless` permutation sort produces the
-# identical `perm` — ties included. LSD radix sort over a monotone unsigned key
-# is such a sort, runs in O(n) with small constants, and needs no comparisons.
+# identical `perm` — ties included. LSD radix sort over a monotone INJECTIVE
+# unsigned key (`K = UInt64`, or Float32 input at any width) is such a sort; the
+# default `UInt32` key of Float64 input collapses values within one Float32 ulp
+# (ordered by index, not by value), so there the permutation is `sortperm!`'s
+# only up to the order inside such a group (see `RadixPermBuffers`). It runs in
+# O(n) with small constants, and needs no comparisons.
 #
 # WHY A HAND-ROLLED RADIX AND NOT A LIBRARY (measured 2026-07-26, and please
 # do not re-litigate without re-measuring). Sorting 715-residual columns over
@@ -261,8 +265,8 @@ end
 #     this implementation, UInt64 keys                 10.12
 #     this implementation, UInt32 keys (default)        6.15
 #
-# All variants emit identical permutations; the gap is structural, not
-# algorithmic cleverness: this version OWNS its scratch (the scoring loop
+# The variants emit identical permutations at full key precision; the gap is
+# structural, not algorithmic cleverness: this version OWNS its scratch (the scoring loop
 # calls it ~3·10⁵ times per scene — per-call allocation dominates the
 # library paths), fuses every digit histogram into ONE scan over the keys,
 # and skips digits on which all keys agree, which is most digits when
@@ -367,14 +371,18 @@ end
     radix_sortperm!(perm, target, rb::RadixPermBuffers, n) -> nothing
 
 `perm` a `Vector{I}` of the buffers' integer type `I`. Fill `perm[1:n]` with the stable ascending-`isless` permutation of
-`target[1:n]` — bitwise identical to `sortperm!(perm, target)` for every
-input (see the stability argument in the header comment). O(n): one fused
+`target[1:n]` under the key `radix_key(K, ·)`: bitwise identical to
+`sortperm!(perm, target)` for every input when the key is injective on it
+(`K = UInt64`, or Float32 `target`; the stability argument in the header
+comment). The default `K = UInt32` on Float64 input orders values within one
+Float32 ulp by index, not by value. O(n): one fused
 histogram scan, then ≤ 8 stable counting iterations over byte digits, skipping
 digits on which all keys agree (a stable no-op). Allocation-free; buffers
 may have capacity ≥ n.
 """
 function radix_sortperm!(perm::Vector{I}, target::AbstractVector{<:Union{Float32,Float64}},
                          rb::RadixPermBuffers{K, I}, n::Int) where {K<:Unsigned, I<:Integer}
+    n == 0 && return nothing              # no keys: no bucket is non-zero, and the digit scan below needs one
     keys = rb.keys; keys2 = rb.keys2; perm2 = rb.perm2; counts = rb.counts
     ndig = sizeof(K)                       # byte iterations: 4 for UInt32, 8 for UInt64
     @inbounds for i in 1:n
@@ -467,7 +475,9 @@ the caller (a RANSAC's workspace holds one per thread).
 
 The log Γ table is built at allocation time with a specific `α₀` — once a
 `ScoringWorkspace` is constructed it is **committed to that scale prior**, and
-its label-prior table to that label prior. [`scale_prior`](@ref)`(sws)` is the
+to one codimension `d_g` (the table's `log Γ(k·d_g/2 + α₀)`, recorded as its `dg`,
+which every sweep on it reads), and its label-prior table to that label prior
+(rebuilt for the swept `n` when it differs from the table's). [`scale_prior`](@ref)`(sws)` is the
 single source of truth for which prior the buffers are configured for; the
 bare `sweep!(sws, …)` reads it from here rather than accepting one, which
 would risk pairing a Jeffreys table with an inverse-gamma score.
@@ -483,6 +493,7 @@ mutable struct ScoringWorkspace{K<:Unsigned}
     const perm::Vector{Int}
     const scratch::Vector{Int}
     const lg_table::Vector{Float64}
+    const dg::Int                      # the codimension `d_g` the log Γ table is built for, and every sweep on it reads
     const penalties::Vector{Float64}
     const sort_key::Vector{Float64}
     const prior_table::Vector{Float64}
@@ -496,14 +507,15 @@ mutable struct ScoringWorkspace{K<:Unsigned}
 end
 
 # Derive the radix and launch scratch from the perm buffer's length, at the
-# default key width — the form both workspace builders call. The `prior_table`
-# must be `label_prior_table(n, label_prior)`, and `tail` holds the
+# default key width — the form both workspace builders call. The `lg_table`
+# must be `log_gamma_table(n, dg; alpha0)`, the `prior_table`
+# `label_prior_table(n, label_prior)`, and `tail` holds the
 # estimated-support buffers (none for a supplied width).
-ScoringWorkspace(perm::Vector{Int}, scratch::Vector{Int}, lg_table::Vector{Float64},
+ScoringWorkspace(perm::Vector{Int}, scratch::Vector{Int}, lg_table::Vector{Float64}, dg::Int,
                  penalties::Vector{Float64}, sort_key::Vector{Float64},
                  prior_table::Vector{Float64}, scale_prior::IGPrior;
                  label_prior::AbstractLabelPrior, tail::Vector{Float64} = Float64[]) =
-    ScoringWorkspace(perm, scratch, lg_table, penalties, sort_key, prior_table,
+    ScoringWorkspace(perm, scratch, lg_table, dg, penalties, sort_key, prior_table,
                      scale_prior, RadixPermBuffers(length(perm)), label_prior, tail,
                      _SweepLaunch(length(perm)), 0, NaN)
 
@@ -561,10 +573,9 @@ column. A label-prior table is REBUILT for `n` from the workspace's label
 prior, since its terms depend on `N`. The estimated-support buffers, when
 present, are resized with the rest.
 
-The log Γ table is not resized: its entries depend on `k` alone, so a table of
-capacity ≥ `n` serves any `n`. It cannot grow — the workspace does not record
-the codimension it was built for — so `n > length(lg_table(sws))` throws;
-build a larger workspace instead.
+The log Γ table is not resized: its entries depend on `k` (and the workspace's
+codimension) alone, so a table of capacity ≥ `n` serves any `n`.
+`n > length(lg_table(sws))` throws; build a larger workspace instead.
 """
 function Base.resize!(sws::ScoringWorkspace, n::Integer)
     n >= 0 || throw(ArgumentError("resize!: n must be non-negative, got $n"))
@@ -575,8 +586,7 @@ function Base.resize!(sws::ScoringWorkspace, n::Integer)
     resize!(sws.scratch, n)
     fill!(resize!(sws.penalties, n), 0.0)
     resize!(sws.sort_key, n)
-    t = label_prior_table(Int(n), sws.label_prior)
-    copyto!(resize!(sws.prior_table, length(t)), t)
+    _label_prior_terms!(sws, Int(n))
     isempty(sws.tail) || resize!(sws.tail, 3n + 2)
     resize!(sws.radix.keys, n)
     resize!(sws.radix.keys2, n)
@@ -604,6 +614,7 @@ _scoring_workspace(n::Int, dg::Int, scale_prior::IGPrior, label_prior::AbstractL
         Vector{Int}(undef, n),
         Vector{Int}(undef, n),
         log_gamma_table(n, dg; alpha0 = scale_prior.alpha0),
+        dg,
         zeros(Float64, n),
         Vector{Float64}(undef, n),
         label_prior_table(n, label_prior),
@@ -765,7 +776,7 @@ end
 
 # The sweep's ascending sort of the first `n` points by `sort_target`: the
 # stable Θ(n) radix perm-sort on the exact-size path when radix buffers are in
-# hand (bitwise identical to `sortperm!`), else `sortperm!`; the partial-buffer
+# hand (`sortperm!`'s permutation at the buffers' key precision), else `sortperm!`; the partial-buffer
 # path sorts views of the first-n prefix (see `sweep!`, Sizing).
 function _sort_perm!(perm::Vector{Int}, sort_target_full, n::Int;
                      scratch::Union{Nothing,Vector{Int}} = nothing,
@@ -773,8 +784,10 @@ function _sort_perm!(perm::Vector{Int}, sort_target_full, n::Int;
     if length(perm) == n && length(sort_target_full) == n
         # Exact-size fast path (RANSAC scoring). With radix buffers in hand
         # the stable O(n) radix perm-sort replaces the comparison sortperm! —
-        # the output permutation is bitwise identical (sortperm!'s documented
-        # stability guarantee + the isless-exact key transform).
+        # the output permutation is sortperm!'s at the key's precision
+        # (bitwise for an injective key: K = UInt64 or Float32 scores; at the
+        # default UInt32 a Float64 near-tie within one Float32 ulp is ordered
+        # by index, so the exact-size and partial paths can order it apart).
         if radix !== nothing && sort_target_full isa Union{Vector{Float64},Vector{Float32}} &&
            length(radix.keys) >= n && length(radix.keys2) >= n && length(radix.perm2) >= n
             radix_sortperm!(perm, sort_target_full, radix, n)
@@ -898,20 +911,36 @@ function sweep!(perm::Vector{Int}, lg_table::Vector{Float64},
 end
 
 """
-    sweep!(sws::ScoringWorkspace, sq_distances, n; model_dof, log_two_outlier_halfwidth, codimension = 1) -> (S*, k*)
+    sweep!(sws::ScoringWorkspace, sq_distances, n; model_dof, log_two_outlier_halfwidth) -> (S*, k*)
 
 The sort-and-sweep on a bare `ScoringWorkspace`, for callers without a
 `StudentTUniformScoring` (a per-blob posterior adaptation, a host-side seed
-loop). The scale prior is the workspace's, committed at allocation time
-([`default_scoring_workspace`](@ref)`(n; dg, scale_prior, label_prior)`). A forwarder: no
-sweep loop of its own.
+loop). The codimension, the scale prior and the label prior are the workspace's,
+committed at allocation time ([`default_scoring_workspace`](@ref)`(n; dg,
+scale_prior, label_prior)`); the label prior's table is the one for `n`. The
+keyword `codimension` is retired (the workspace's `dg` is the one its log Γ
+table was built at). A forwarder: no sweep loop of its own.
 """
-sweep!(sws::ScoringWorkspace, sq_distances::AbstractVector{T}, n::Int;
-       model_dof::Int, log_two_outlier_halfwidth::Float64,
-       codimension::Int=1) where T =
-    sweep!(sws.perm, sws.lg_table, model_dof, log_two_outlier_halfwidth, codimension,
-           sq_distances, n; scratch=sws.scratch, scale_prior=sws.scale_prior,
-           radix=sws.radix, launch=sws.launch)
+function sweep!(sws::ScoringWorkspace, sq_distances::AbstractVector{T}, n::Int;
+                model_dof::Int, log_two_outlier_halfwidth::Float64,
+                codimension = RetiredKeyword()) where T
+    refuse_retired_keyword(codimension, :codimension, "the workspace's own `dg` (default_scoring_workspace(n; dg, …))")
+    return sweep!(sws.perm, sws.lg_table, model_dof, log_two_outlier_halfwidth, sws.dg,
+                  sq_distances, n; scratch=sws.scratch, prior_table=_label_prior_terms!(sws, n),
+                  scale_prior=sws.scale_prior, radix=sws.radix, launch=sws.launch)
+end
+
+# The label prior's terms for a sweep of `n` points on `sws` (`nothing` for the flat prior, which adds none): the
+# workspace's table, rebuilt in place when it was built for another `n` (the partial-buffer path; `resize!`), since
+# every term depends on `N`.
+function _label_prior_terms!(sws::ScoringWorkspace, n::Int)
+    sws.label_prior isa FlatLabelPrior && return nothing
+    if length(sws.prior_table) != n
+        t = label_prior_table(n, sws.label_prior)
+        copyto!(resize!(sws.prior_table, n), t)
+    end
+    return sws.prior_table
+end
 
 # =============================================================================
 # Parametric sweep — the exact enumeration of the generalized sweep lemma

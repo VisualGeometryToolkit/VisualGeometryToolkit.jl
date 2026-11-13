@@ -43,7 +43,11 @@
 # over the visible raw (`size`), row 1 on top. The reader refuses a file whose
 # digest is not the record's, before it is decoded.
 
-const _SENSOR_SOURCES = [string(s) for s in instances(VgtkCore.SensorSource.T) if s !== VgtkCore.SensorSource.file]
+# The sources (Core's `SensorSource` enum, its values reached through FileBlack's — the module's names are not public):
+# a present component's is one of them but `file`, the RAW's own black's.
+const _FILE_SOURCE = VgtkCore.FileBlack().source
+const _SOURCES = instances(typeof(_FILE_SOURCE))
+const _SENSOR_SOURCES = [string(s) for s in _SOURCES if s !== _FILE_SOURCE]
 const _SENSOR_SOURCE = _Named(in(_SENSOR_SOURCES), "a present component's source ($(join(_SENSOR_SOURCES, ", ")))")
 const _FOUR = _Vec(_Real(), 4)
 
@@ -185,7 +189,7 @@ end
 # ----------------------------------------------------------------------------- reading
 
 _four_from(x) = ntuple(i -> Float64(x[i]::Real), 4)
-_source_from(x) = only(s for s in instances(VgtkCore.SensorSource.T) if string(s) == x::String)
+_source_from(x) = only(s for s in _SOURCES if string(s) == x::String)
 _std_error_from(b, f) = haskey(b, :std_error) ? f(b.std_error) : nothing
 _channel_black_from(b) = VgtkCore.ChannelBlack(_four_from(b.values), _std_error_from(b, _four_from); source = _source_from(b.source))
 function _black_from(path, b)

@@ -2,31 +2,9 @@
 # built by Core's `sensor_fixture` (the one way a test builds one) — each component alone in an entry, partial entries,
 # several ISOs, an empty entry; exact by type; a dark's maps as hashed artifacts; the refusals.
 
-@testsnippet SensorFixtures begin
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: SensorCharacterisation, DeviceIdentity, SensorSource
-    using Random: Xoshiro
-    const SEC = parse_unit("s")
-    const BODY = DeviceIdentity("Sony", "ILME-FX3", "5012345")
-    const W, H = 6, 4
-    function dark_maps(seed)
-        rng = Xoshiro(seed)
-        return (offset = rand(rng, Float32, H, W) .* 4.0f0 .+ 510.0f0, variance = rand(rng, Float32, H, W) .* 2.0f0,
-                exposure_band = (1 // 500 * SEC, 0.8 * SEC), frames = 16)
-    end
-    char(; kw...) = VgtkCore.sensor_fixture(; body = BODY, kw...).characterisation
-    # a characterisation written and read back: the value, the file's tree
-    function round_trip(dir, name, c)
-        p = joinpath(dir, "$(name).json")
-        save(p, c)
-        return load(SensorCharacterisation, p), JSON.parsefile(p), p
-    end
-    same(a, b) = a == b && keys(a.entries) == keys(b.entries) &&
-        all(typeof(a.entries[k]) == typeof(b.entries[k]) && all(s -> typeof(getfield(a.entries[k], s)) == typeof(getfield(b.entries[k], s)),
-                                                                (:black, :noise, :defects)) for k in keys(a.entries))
-end
-
 @testitem "sensor_characterisation: each component alone in an entry, exact by type" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource
     using VisualGeometryToolkitIO: validate
     import VisualGeometryToolkitIO as VgtkIO
     cases = [
@@ -75,6 +53,8 @@ end
 end
 
 @testitem "sensor_characterisation: partial entries, several ISOs, an empty entry" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource
     using VisualGeometryToolkitCore: FileBlack, NoNoise, NoDefects, ChannelBlack, PoissonGaussian, DefectList
     defects = (x = [2], y = [3], onset = [0.5 * SEC], size = (H, W))
     partial_bd = char(; iso = 100, black = (512.0, 512.0, 512.0, 512.0), defects, source = SensorSource.measured)
@@ -98,6 +78,8 @@ end
 end
 
 @testitem "sensor_characterisation: the artifacts are bound by their hash; the refusals" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource
     using VisualGeometryToolkitIO: validate
     c = VgtkCore.sensor_fixture(
         char(; iso = 100, dark = (offset = fill(510.0f0, 2, 3), variance = fill(1.0f0, 2, 3), exposure_band = (0.001 * SEC, 1.0 * SEC), frames = 4),

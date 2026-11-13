@@ -84,7 +84,7 @@ end
     out = joinpath(dir, "out", "hand_eye.json")
     mkpath(dirname(out))
     save_hand_eye(out, unlabel(geom(X)), Dict("aprilgrid" => unlabel(geom(pose(mount, :aprilgrid)))))
-    @test VgtkIO.read_record(out)["schema"] == "vgio/transforms/v4"          # only the current records
+    @test VgtkIO.read_record(out)["schema"] == VgtkIO.migrate_record(raw)["schema"]   # only the current record (the old one's migration target)
     @test startswith(VgtkIO.read_record(hand_eye_mount_file(out))["schema"], "vgio/rig/")
     X2, mount2 = load_hand_eye(out)
     @test unlabel(geom(X2)).t ≈ unlabel(geom(X)).t && unlabel(geom(pose(mount2, :aprilgrid))).t ≈ unlabel(geom(pose(mount, :aprilgrid))).t

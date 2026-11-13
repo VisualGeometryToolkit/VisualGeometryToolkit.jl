@@ -29,7 +29,7 @@
 # holds each one's SHA-256, and the reader refuses a file whose bytes differ.
 # Exposure times are in `units.time` (seconds).
 
-const _SOURCE = _Named(s -> Symbol(s) in VgtkCore.NOISE_SOURCES, "a value's source ($(join(VgtkCore.NOISE_SOURCES, ", ")))")
+const _SOURCE = _Named(in(String.(VgtkCore.NOISE_SOURCES)), "a value's source ($(join(VgtkCore.NOISE_SOURCES, ", ")))")
 const _ARTIFACT = _Obj(:file => _Named(s -> !isempty(s) && basename(s) == s, "a file name beside the record"), :sha256 => _HEX64)
 _noise_field_spec(value::_Spec) = _Obj(Pair{Symbol, _Spec}[:value => value, :source => _SOURCE], Pair{Symbol, _Spec}[:std_error => value])
 const _FOUR = _Vec(_Real(), 4)
@@ -59,6 +59,11 @@ const _SENSOR_NOISE_SPEC = _kind_spec(
         :reason => _NonEmpty(),
     ];
     check = _sensor_noise_check,
+    rule = "`reason` is stated exactly when electrons_per_dn or read_noise is not; electrons_per_dn is positive; a dark's " *
+           "exposure band runs from its shortest to its longest time, both positive, over at least 2 frames",
+    schema = [Dict("if" => Dict("required" => ["electrons_per_dn", "read_noise"]),
+                   "then" => Dict("not" => Dict("required" => ["reason"])), "else" => Dict("required" => ["reason"])),
+              Dict("properties" => Dict("dark" => Dict("properties" => Dict("frames" => Dict("minimum" => 2)))))],
 )
 
 # A field on the wire: its value (a tuple as an array), its source and its standard error where stated.

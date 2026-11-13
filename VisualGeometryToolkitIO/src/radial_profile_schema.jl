@@ -15,7 +15,7 @@
 # written in the file's pixel frame (moved by the style, as the vignetting body's positions). The body is embeddable
 # (`JSON.lower(::VgioStyle, ::BinnedRadialProfile)`, `JSON.lift(style, BinnedRadialProfile, body)`).
 
-const _RADIAL_CHART = _Named(c -> Symbol(c) in VgtkCore.RADIAL_CHARTS, "a radial chart ($(join(VgtkCore.RADIAL_CHARTS, ", ")))")
+const _RADIAL_CHART = _Named(in(String.(VgtkCore.RADIAL_CHARTS)), "a radial chart ($(join(VgtkCore.RADIAL_CHARTS, ", ")))")
 const _PROFILE_CHART = _IfKey(:focal_length,
     _Obj(:type => _Named(==("equisolid"), "the equisolid chart (the one that states a focal length)"), :center => _XY, :radius => _Real(),
          :focal_length => _Real()),
@@ -33,7 +33,11 @@ function _radial_profile_check(x)
 end
 const _RADIAL_PROFILE_BODY = _CheckedSpec(_Obj(
     :type => _Tok("binned_radial_profile"), :chart => _PROFILE_CHART, :edges => _Vec(_Real()),
-    :values => _Vec(_Vec(_Real())), :counts => _Vec(_Int())), _radial_profile_check)
+    :values => _Vec(_Vec(_Real())), :counts => _Vec(_Int())), _radial_profile_check;
+    rule = "B + 1 strictly increasing edges (B ≥ 1); `values` one row per channel (at least one), B values each; " *
+           "`counts` B counts, each ≥ 0; the equisolid chart states its focal length, and only it",
+    schema = [Dict("properties" => Dict("edges" => Dict("minItems" => 2), "values" => Dict("minItems" => 1),
+                                        "counts" => Dict("items" => Dict("minimum" => 0))))])
 const _RADIAL_PROFILE_SPEC = _kind_spec("radial_profile", Pair{Symbol, _Spec}[:profile => _RADIAL_PROFILE_BODY])
 
 function JSON.lower(s::VgioStyle, p::BinnedRadialProfile)

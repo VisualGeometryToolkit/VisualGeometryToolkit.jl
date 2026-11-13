@@ -53,6 +53,13 @@ const _PANORAMA_SPEC = _kind_spec(
     Pair{Symbol, _Spec}[:camera => _BOUNDED_CAMERA_BODY, :rotations => _TRAJECTORY_BODY, :vignetting => _VignettingBody()],
     Pair{Symbol, _Spec}[:gains => _Vec(_GAIN_RECORD)];
     check = _panorama_check,
+    rule = "the rotations map `camera` to `world`, each translation zero; `gains`, where stated, one record per frame of the " *
+           "rotations (frame indices 1:K), each with the same number (> 0) of positive gains",
+    schema = [Dict("properties" => Dict("rotations" => Dict("properties" => Dict("from" => Dict("const" => frame_name(CameraFrame)),
+                                                                                    "to" => Dict("const" => frame_name(WorldFrame)))),
+                                        "gains" => Dict("minItems" => 1,
+                                                        "items" => Dict("properties" => Dict("gain" => Dict("minItems" => 1,
+                                                                        "items" => Dict("exclusiveMinimum" => 0))))))))],
 )
 
 """

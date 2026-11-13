@@ -58,7 +58,8 @@ end
     using VisualGeometryToolkitCore: TensorProductVignetting, RadialVignetting, LogVignetting, with_control_points,
         EnvironmentLight, SphericalHarmonicMap, with_unit, GaussianBlur, Rect, TargetHomographies, HomographyMap,
         HomographyMat, sign_normalize, TargetPlaneFrame, relabel, PointTarget,
-        TargetPoses, CameraFrame, EuclideanMap
+        TargetPoses, CameraFrame, EuclideanMap, Trajectory, WorldFrame, BoundedCamera, CameraModel, CameraCalibrationMat, KannalaBrandt,
+        Size2, PointFrame, Point2, CovMat, Uncertain, Attributed, BinnedRadialProfile, SensorNoise, DarkFrame, DeviceIdentity, noise_value
     using StaticArrays: SDiagonal
     using Statistics: cov
     python = pixi_python("jsonschema")
@@ -117,6 +118,37 @@ end
                 save(p, TargetPoses{CameraFrame}(Dict(1 => Dict(:a => X)); images = Dict(1 => "a.png"), sensors = "cam",
                                                  times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00Z"))
             end
+            written("panorama.json") do p
+                K = CameraCalibrationMat(SMatrix{3, 3, Float64}(1210.5, 0, 0, 0, 1209.25, 0, 320.375, 240.625, 1))
+                cam = BoundedCamera(CameraModel(K; lens = KannalaBrandt(0.1, -0.02, 0.003, -0.0004), pixel_frame = :colmap), Size2(640, 480))
+                q = (n = sqrt(0.9^2 + 0.1^2 + 0.3^2 + 0.05^2); QuatRotation(0.9 / n, 0.1 / n, -0.3 / n, 0.05 / n, false))
+                z = [0.0, 0.0, 0.0] .* m
+                rots = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), z), 2 => EuclideanMap(q, z));
+                                  images = Dict(1 => "a.png", 2 => "b.png"))
+                VgtkIO.save_panorama(p, cam, rots, tv, [1.0 1.0 1.0; 1.0213 0.9987 1.0441])
+            end
+            written("detection.json") do p
+                nan2 = CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))
+                det(x, y, Σ, label, st) = Attributed(Uncertain(PointFrame(x, y), Σ), (; label, window = Point2(round(x), round(y)), F = 0.31, covariance_status = st))
+                save(p, Dict("a.png" => [det(512.25, 300.5, CovMat(SMatrix{2, 2}(0.01, 0.002, 0.002, 0.02)), :corner, :propagated),
+                                         det(80.0, 90.0, nan2, :unknown, :unclassified)]))
+            end
+            written(p -> save(p, BinnedRadialProfile(:equisolid, SVector(2126.8, 1434.9), 1060.3, deg2rad.(0.0:1.0:3.0), [0.026 0.025 0.024],
+                                                     [829, 2499, 4173]; focal_length = 933.2)), "radial_profile_equisolid.json")
+            written(p -> save(p, BinnedRadialProfile(:linear, SVector(2120.5, 1416.25), 2551.0, [0.0, 0.25, 0.5, 1.0], [0.9 0.8 0.6; 0.95 0.85 0.7],
+                                                     [100, 300, 900])), "radial_profile_linear.json")
+            written("sensor_noise.json") do p
+                s = parse_unit("s")
+                dark = DarkFrame(fill(510.0f0, 4, 6), fill(1.5f0, 4, 6), (1 // 500 * s, 0.8 * s), 16)
+                defects = falses(4, 6); defects[2, 5] = true
+                save(p, SensorNoise(; body = DeviceIdentity("Sony", "ILME-FX3", "5012345"), iso = 100,
+                    electrons_per_dn = noise_value(2.1, :measured; std_error = 0.01),
+                    read_noise = noise_value((1.5, 1.25, 1.75, 1.3), :estimated; std_error = (0.01, 0.02, 0.01, 0.02)),
+                    black = noise_value((512.0, 511.5, 512.25, 511.75), :file),
+                    dark = noise_value(dark, :measured), defects = noise_value(defects, :measured)))
+            end
+            written(p -> save(p, SensorNoise(; body = DeviceIdentity("Sony", "ILME-FX3", nothing), iso = 3200.0,
+                    black = noise_value((512.0, 512.0, 512.0, 512.0), :file), reason = "too few flat pixels")), "sensor_noise_unknown.json")
             written("target_homographies.json") do p
                 H = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]')))))
                 tid = VgtkIO.content_id(joinpath(dir, "target.json"))

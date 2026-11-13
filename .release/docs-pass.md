@@ -1,3 +1,72 @@
+docs-pass: 09018e60
+
+# Wave 10 docs pass (julia-docs-pass) — VisualGeometryToolkitCore 0.10.0, branch w10-core10
+
+Baseline: the wave-113 release, 2f994d2b (Core 0.9.5). The breaking wave of 2026-11-13. The API is listed in full in
+Core's CHANGELOG `## 0.10.0`, with its Breaking and New lists. The function list, with file:line and the stack functions
+each one considered, is in ~/logs/dgx-agent/wave10/core10.md. Every public interface change was posted in
+~/logs/dgx-agent/wave10/interfaces.md before its commit.
+
+## 1. Public API since the baseline
+
+- **Breaking**:
+  - the terminology renames, `Cspond`/`Csponds`/`csponds` → `Correspondence`/`Correspondences`/`correspondences`, and the
+    rest (no aliases; each in `check_naming`'s retired names);
+  - `TargetDetections` → `TargetObservations`, with `TargetPoints2D/3D` and `TargetPoint2D/3D` deleted;
+  - one LM: `LmStops`, `StaticLmStops`, `LmProblem`, `lmsolve_chart!(…, stops)`, one success rule, `nlls_options` deleted;
+  - the FeatureFrame interface, with every verb once;
+  - the sensor model, which replaces wave 10's interim sensor-noise names;
+  - `LinearRawView{T, A, D, L}` (D14);
+  - `RelativeNoise`, which is specified only;
+  - `block_coordinate_result`, which takes a stop rule;
+  - the weak floors, restored.
+- **New, public**:
+  - FeatureFrame: `center(::Uncertain{<:FeatureFrame})`, `frame_dof`, `transfer(m, ::FeatureFrame)`;
+  - the GPU test tier: `gpu_tier`/`gpu_problem`/`require_gpu`;
+  - LM: `stop_rule`;
+  - the quality gates: `check_splat`/`SplatViolation`;
+  - the sensor model:
+    - `SensorModel`, `SensorCharacterisation`, `sensor_model`, `content_digest`, `component_sources`;
+    - its components and `SensorSource`;
+    - its estimators: `photon_transfer`, `master_dark`, `defect_onsets`;
+    - `poisson_slope(L, model[, plane])`, `green_plane`;
+  - `Statistics.var(::Uncertain{<:Real})`;
+  - `canonical_json`, hoisted from IO;
+  - regions: `check_region_support`/`RegionBeyondSupport` and the one `⊆`;
+  - `BinnedRadialProfile`/`radial_coordinate`;
+  - `TargetPlaneFrame{id}`;
+  - `iou_below`, `page_examples`, `install_lines`, `refine_width`, `assert_unit_bearings`;
+  - forward-ported from Core 0.9.6–0.9.9 (they reach the wave through these ports):
+    - 0.9.6: `reduce_normal_equations`/`reduce_cost`;
+    - 0.9.7: their launch-and-reduce forms;
+    - 0.9.8: `device_resident_threads`;
+    - 0.9.9: `pointwise_kernel`.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| every public name has a docstring | `test_docs`: 0 undocumented beyond the allow-lists. The `SensorSource` enum's type and four values each have their own docstring (12e1bc48); there is no exception entry. |
+| docstrings attached, signatures match | `detached_docstrings` 0; `signature_mismatches` 0 (the docs item in the gate's CPU group) |
+| every public docstring in the manual | `checkdocs = :public` green. The new sensor-model, region and LM pages go through `@autodocs` `Pages`, and `SensorSource`'s members through one `@docs` block in api/raw.md. |
+| cross-references | the `SensorSource` docstring's references are qualified (Documenter resolves a bare `@ref` inside the enum's module; 4cbd4285) |
+| stale mentions | retired names: none outside the CHANGELOG (`check_naming` R9/R14: 0) |
+| CHANGELOG | Core `## 0.10.0` (unreleased), with Breaking, Fixed and New |
+| version | VisualGeometryToolkitCore 0.10.0 |
+
+## 3. Executed
+
+| run | Core at | result |
+|---|---|---|
+| docs build (Julia 1.13.3, `--startup-file=no`, docs env), job 14852 | 09018e60 | green: no warning beyond Documenter's HTML-size notices |
+| up-v13 integration gate a8f4aa02 (jobs 14786–14790; all six packages, wave stack paths) | 12e1bc48 | 48/48 green. For Core: CPU 413524 pass / 32 broken over 8 groups; GPU 54319 / 0 over 4 groups; docs green; prep lint, agent_docs, floor --latest, audit 0; `check_duplication` 0 on all six packages |
+| load and the pointwise items, job 14851 | 09018e60 | 2937 / 1 broken (the patch agent's GPU run of the same items: 2973 / 2973) |
+
+12e1bc48..09018e60 is the Core 0.9.9 forward port (`pointwise_kernel`, 5006841e and 09018e60). It has its own load, test
+and docs runs above, and it goes into up-v14.
+
+---
+
 docs-pass: 80b9fb45
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 -> 6674c98 prepared locally (/raid/data/jpr/vgtk-landing-wave113, branch wave-113: "The packages require Julia 1.13"; not pushed)
 

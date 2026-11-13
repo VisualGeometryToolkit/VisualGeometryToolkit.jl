@@ -1,3 +1,32 @@
+# Wave 10 duplication checklist: VisualGeometryToolkitCore 0.10.0 (branch w10-core10)
+
+The owner's rule for the wave is ZERO duplication by concept. Each item is a concept that had more than one copy in the
+stack, the ONE copy Core keeps, and the gate that keeps it one. A box is ticked when the copy is gone and the up-v13
+integration gate a8f4aa02 (jobs 14786–14790, 48/48; `check_duplication` 0 on all six packages, wave stack paths) is
+green on it.
+
+| concept | the copies | the one copy (Core) | the gate | status |
+|---|---|---|---|---|
+| the LM adapter and its stop settings | NLLSsolver called from the bundles and refiners of Core, Estimation, Eval and RC (the LM call-site audit); `nlls_options`; `_robust_stationary` | `lmsolve_chart!` (chart, robust, multi-block `LmProblem`), `LmStops`/`StaticLmStops`, one success rule (robust/lm_core.jl) | `check_duplication` `:lm_primitive` | [x] |
+| canonical JSON (RFC 8785) | IO's `canonical.jl` | `canonical_json` (base/canonical.jl) | `check_duplication` (the pair Core ⇔ IO; IO deleted its copy) | [x] |
+| the detection → observation conversion | Features' detection_types.jl, RC's chrome_evaluation | `center(::Uncertain{<:FeatureFrame})` | handoffs to Features and RC | [x] |
+| the FeatureFrame verbs | per-type `ustrip`, `*`, `/`, similarity actions, `extrema`, `Rect2`, `bbox`, `MvNormal`, `inv`, `Ellipse`, `Circle` | one method per verb on `FeatureFrame` or its DOF trait | the no-overhead tests, `feature_frame_interface_tests.jl` | [x] |
+| region containment | the region-in-region `in` methods; Base's iterable `in` reached for two ellipses | one `⊆` (regions.jl, image_circle.jl) | `region_containment_tests.jl` | [x] |
+| the GPU test tier | RC's test/gpu_decision.jl | `gpu_tier`/`gpu_problem`/`require_gpu` | DUPLICATION.toml `[[backend]]` | [x] |
+| sensor noise: components, black subtraction, value variance | wave 10's interim sensor-noise names; hand-indexed channel blacks; hand-written variances | the sensor model; THE black subtraction (LinearRaw/linearview); ONE variance law, `_value_variance` (the kernel's per plane, the lazy view's per photosite) | `check_duplication` `:sensor_component`, `:black_subtraction`, `:value_variance_law` | [x] |
+| launch then reduce, on the device | Estimation's `_LensRegressionLm`, RC's `_RadiometryLm` | `reduce_normal_equations(row!, …)`/`reduce_cost(row!, …)` (0.9.7 port) | the 0.9.7 tests | [x] |
+| IoU below a bound | BlobBoards' `_iou_below` | `iou_below` | `check_duplication` with the wave stack paths | [x] |
+| README-test helpers | BlobBoards' and CaliBlobs' restated helpers | `page_examples`, `install_lines` | `check_duplication` with the wave stack paths | [x] |
+| the refine width rule and the unit-bearing check | PoseLib's and Estimation's copies (review E11, E12) | `refine_width`, `assert_unit_bearings` | `check_duplication` | [x] |
+| the module walk of the quality gates | `check_naming`'s supertype table and QualityExt each walked the modules | Core's `_module_tree` | `check_splat` (Core `:enforce`) | [x] |
+| the 2D/3D target point containers | `TargetPoints2D/3D` beside `TargetDetections` | `TargetObservations` | `check_naming` retired names | [x] |
+| the stopping rule's record | per-package rule tables (LODR) | `stop_rule(criterion, method)` | the contract generic | [x] |
+
+Form-only findings (not duplicates): none. The d366918b prep with the wave stack paths (bb, ps, cb, lodr, rsdr) reported
+only the Core ⇔ IO canonical pair, which is now closed.
+
+---
+
 # IO 0.9.5 duplication checklist (VisualGeometryToolkitIO, additive)
 
 Every concept IO 0.9.5 adds or makes public, the stack searched for it BY CONCEPT before the code was written (Core, IO,

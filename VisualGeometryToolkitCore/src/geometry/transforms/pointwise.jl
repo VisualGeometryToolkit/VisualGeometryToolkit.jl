@@ -86,8 +86,27 @@ launch has finished on return; on a device it is asynchronous, as a device
 broadcast is: `KernelAbstractions.synchronize(backend)` before `out` is read on
 the host.
 """
-pointwise!(f::F, out::AbstractArray, xs::AbstractArray...; exec::OnBackend = OnBackend(KernelAbstractions.get_backend(out))) where {F} =
-    _pointwise!(exec, f, out, xs...)
+function pointwise!(f::F, out::AbstractArray, xs::AbstractArray...; exec::OnBackend = OnBackend(KernelAbstractions.get_backend(out))) where {F}
+    kernel, args, ndrange = pointwise_kernel(f, out, xs...; exec)
+    isempty(out) || kernel(args...; ndrange)
+    return out
+end
+
+"""
+    pointwise_kernel(f, out, xs...; exec = OnBackend(get_backend(out))) -> (kernel, args, ndrange)
+
+The one launch [`pointwise!`](@ref)`(f, out, xs...; exec)` makes, unlaunched: the KernelAbstractions kernel instance,
+its arguments and its `ndrange`, so `kernel(args...; ndrange)` is that call. `pointwise!` is exactly this followed by
+the launch (none for an empty `out`). Its use is to ask about the launch without restating how it is built:
+`device_resident_threads(pointwise_kernel(f, out, xs...)...)` counts the threads of the very kernel `pointwise!` runs
+(the functor adapted to the backend and given to the kernel as its fields or whole, the kernel compiled for those arguments). The
+arguments are checked as `pointwise!` checks them (`DimensionMismatch`).
+"""
+function pointwise_kernel(f::F, out::AbstractArray, xs::AbstractArray...; exec::OnBackend = OnBackend(KernelAbstractions.get_backend(out))) where {F}
+    all(x -> axes(x) == axes(out), xs) ||
+        throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
+    return _pointwise_launch(exec, Adapt.adapt(exec.backend, f), out, xs)   # the functor's own adapt rules, before it is taken apart
+end
 
 # OnBackend's kernels. A per-point functor reaches the kernel as its FIELDS, separate kernel arguments, and is rebuilt on the device
 # (`_device_functor`): one aggregate argument holding every field makes the device compiler copy it to local memory once any of its
@@ -109,7 +128,7 @@ _occurs(v::TypeVar, T) = T === v || (T isa DataType && any(p -> _occurs(v, p), T
                          (T isa UnionAll && (_occurs(v, T.var.ub) || _occurs(v, T.body))) || (T isa Union && (_occurs(v, T.a) || _occurs(v, T.b)))
 # Every field is declared as one of `F`'s type variables, used by no other field's declaration, or holds an isbits value (which
 # the device conversion keeps): then the device type is `F` with those variables bound to the fields' device types.
-function _splattable(::Type{F}) where {F}
+Base.@assume_effects :foldable function _splattable(::Type{F}) where {F}   # a property of the type: folded at compile time
     (isconcretetype(F) && !ismutabletype(F) && fieldcount(F) <= _MAX_FIELDS) || return false
     vars, decl = _declaration(F)
     for (i, d) in enumerate(decl)
@@ -153,24 +172,13 @@ const _POINTWISE_FIELDS_KERNELS = Tuple(getfield(@__MODULE__, Symbol(:_pointwise
     I = @index(Global, Cartesian)
     @inbounds out[I] = f(map(x -> @inbounds(x[I]), xs)...)
 end
-function _pointwise!(p::OnBackend, f::F, out, xs...) where {F}
-    all(x -> axes(x) == axes(out), xs) ||
-        throw(DimensionMismatch("pointwise!: the inputs' axes $(map(axes, xs)) are not the output's $(axes(out))"))
-    isempty(out) && return out
-    _pointwise_on!(p, Adapt.adapt(p.backend, f), out, xs)   # the functor's own adapt rules, before it is taken apart
-    return out
-end
 # A generated function's body for the tuple of the first `n` fields of its argument `x`
 # (a lens leaf's parameter fields, cameras/lenses.jl; a functor's fields, below).
 _field_tuple_expr(n::Integer) = Expr(:tuple, (:(getfield(x, $i)) for i in 1:n)...)
 # The fields of a functor, as a tuple of exactly its field count.
 @generated _fields(x) = _field_tuple_expr(fieldcount(x))
-function _pointwise_on!(p::OnBackend, f::G, out, xs) where {G}
-    if _splattable(G)
-        fs = _fields(f)
-        p(_POINTWISE_FIELDS_KERNELS[length(fs) + 1])(out, xs, G, fs...; ndrange = size(out))
-    else
-        p(_pointwise_kernel!)(out, xs, f; ndrange = size(out))
-    end
-    return out
-end
+# The kernel, arguments and ndrange of a pointwise launch: the functor as its fields (`_splattable`), else whole.
+_pointwise_launch(p::OnBackend, f::G, out, xs) where {G} = _pointwise_launch(Val(_splattable(G)), p, f, out, xs)
+_pointwise_launch(::Val{true}, p::OnBackend, f::G, out, xs) where {G} =
+    (fs = _fields(f); (p(_POINTWISE_FIELDS_KERNELS[length(fs) + 1]), (out, xs, G, fs...), size(out)))
+_pointwise_launch(::Val{false}, p::OnBackend, f, out, xs) = (p(_pointwise_kernel!), (out, xs, f), size(out))

@@ -1,5 +1,33 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.10.0 (2026-11-13)
+
+Breaking (the owner's ruling, 2026-11-13): **a SplineLens camera is refined only by back-projection, or held.**
+
+### Breaking
+
+- **The image-space refine of a free SplineLens camera's controls is retired.** `refine_camera_and_poses` on a
+  SplineLens camera takes `fixed = (:controls,)` only: the camera held through its whole `project`, the poses
+  refined. The call that refined the controls — the default `fixed = ()` — is an `ArgumentError` naming the retired
+  route ("a SplineLens camera is refined only by back-projection, or held"), raised before the entry's optical-axis
+  fit; so is a `penalty` (that route's smoothness weight, in any form). Fit a SplineLens camera's backward on
+  back-projected rays instead (`fit_camera(SplineLens, …)`, `pspline_grid`).
+- **`CameraPosesRefineMetadata.spline` of a SplineLens camera** keeps `n_dropped_window`, `n_dropped_unprojected`,
+  `forward`, `forward_max_px`, `axis_rotation` and `symmetry_residual`; the retired route's `β`, `λ`, `gcv`,
+  `gcv_at_bound`, `effective_dof`, `n_nodes_unrefined`, `rounds`, `windows_settled`, `cost_start`,
+  `refined_axis_offset` and `refined_symmetry_residual` are gone. `free` is `()`.
+
+### Changed
+
+- The held SplineLens route solves with the bundle's one solve (`_solve_bundle`, the parametric and rotation-centre
+  routes' own) and records its termination the same way; `refit_forward` and `forward_tolerance` are unchanged (the
+  entry's turn of the frame leaves a given forward stale: refitted by `fit_forward_spline`, or dropped).
+- Deleted with the route: its window blocks (`_SplineReprojection`), patch charts, third-difference blocks, GCV search,
+  window-rebuild rounds and stages. `gcv_curve`, `gcv_select`, `gcv_score` and `check_penalty_weight` stay public
+  (RadiometricCamera's linear solves call them).
+- The rotation-centre bearing block's NLLSsolver methods take its own variable vector only (a JET precision fix; no
+  behaviour change).
+
 ## 0.9.2 (2026-11-13)
 
 Additive patch (`[compat]` VisualGeometryToolkitCore "0.9.2", unchanged): one fix and one public name.

@@ -1,5 +1,11 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.8.2 (2026-11-13)
+
+A patch: on VisualGeometryToolkitEstimation 0.10 (the weak dependency of `detect_image_circle`'s fit: `[compat]`
+VisualGeometryToolkitEstimation "0.10" in the package and test environments). No code change: Features never called
+the SplineLens refine that Estimation 0.10.0 retired.
+
 ## 0.8.1 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.3 (`[compat]` VisualGeometryToolkitCore 0.9.3).

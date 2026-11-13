@@ -1,5 +1,10 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.7.1 (2026-11-13)
+
+A patch: on VisualGeometryToolkitEstimation 0.10 (`[compat]` VisualGeometryToolkitEstimation "0.10" in the package and
+test environments). No code change: Eval never called the SplineLens refine that Estimation 0.10.0 retired.
+
 ## 0.7.0 (2026-11-12)
 
 - **`install_artifact` is VisualGeometryToolkitCore's**, re-exported by `Experiments` (the same binding);

@@ -317,7 +317,9 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
     end
 
     @testset "adaptive trial count at the edges" begin
-        at(mask, k, cfg) = VgtkEstimation._adaptive_trials(count(mask), length(mask), k, cfg)
+        # the count is `_adaptive_count`'s first entry; its test-only wrapper is gone
+        @test !isdefined(VgtkEstimation, :_adaptive_trials)
+        at(mask, k, cfg) = first(VgtkEstimation._adaptive_count(count(mask), length(mask), k, cfg))
         # success_prob = 1 needs every trial: the budget, not an InexactError.
         cfg1 = RansacConfig(success_prob = 1.0, max_trials = 700, min_trials = 10)
         @test at(BitVector([trues(50); falses(50)]), 2, cfg1) == 700

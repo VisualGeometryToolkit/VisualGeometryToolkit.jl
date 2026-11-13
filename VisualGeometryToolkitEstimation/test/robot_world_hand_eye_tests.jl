@@ -15,6 +15,8 @@ using VisualGeometryToolkitCore: EuclideanMap, log_so3
 using VisualGeometryToolkitCore: RigidExpManifold6, local_coordinates   # the decoupled pose chart (public)
 using VisualGeometryToolkitCore: estimate, rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitEstimation: fit_robot_world_hand_eye, RobotWorldHandEyeCalibration
+import VisualGeometryToolkitCore as VgtkCore
+import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
 
 # A_i X_m = Y B_i^m  ⇒  B = Y⁻¹ ∘ A ∘ X. `markers[m]` holds marker m's
@@ -163,6 +165,27 @@ _nobs(markers) = sum(length, values(markers))
         # (pinv's cutoff used to zero the gauge directions), as in refine_robot_world_hand_eye.
         @test !all(isfinite, est.cov) && !all(isfinite, est.cov_Y)
         @test all(isfinite, esth.cov)
+    end
+
+    @testset "a robust result whose weights leave no degrees of freedom: dof 0, no variance factor, no covariance" begin
+        # 6Σw − N ≤ 0 (a redescending loss that zeroes most rows): until 0.11.0 recorded a negative dof and a
+        # variance factor RSS/eps ≈ 1e15 that scaled the covariance, silently
+        VE = VgtkEstimation
+        rng = StableRNG(2)
+        Id = EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))
+        cal = RobotWorldHandEyeCalibration(Id, Dict(1 => Id))
+        n = 4; N = 12
+        r = randn(rng, 6n); J = randn(rng, 6n, N)
+        res = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
+                                              termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
+                                              strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 0.5, 0.0, 0.0])
+        md = VgtkCore.metadata(res)
+        @test md.dof == 0 && isnan(md.s2) && all(isinf, md.cov)
+        # with dof left, the weighted variance factor as before
+        ok = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
+                                             termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
+                                             strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 1.0, 1.0, 0.5])
+        @test VgtkCore.metadata(ok).dof == 9 && isfinite(VgtkCore.metadata(ok).s2)
     end
 
     @testset "argument validation" begin

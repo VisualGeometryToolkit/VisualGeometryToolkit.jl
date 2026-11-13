@@ -118,13 +118,11 @@ end
     using LinearAlgebra: norm, dot, normalize, I
     using Rotations: RotMatrix, AngleAxis
     using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, Rect, KannalaBrandt, backproject, px,
-        estimate, metadata, retcode, rotation, calibration_matrix, EuclideanMap
-    using VisualGeometryToolkitEstimation: optical_axis, refine_camera_and_poses
+        estimate, metadata, retcode, rotation, calibration_matrix
+    using VisualGeometryToolkitEstimation: optical_axis
 
     # a bare model has no bound: refused, with the route (the region is the camera's bound, never a default)
     @test_throws r"BoundedCamera" optical_axis(OFF_AXIS)
-    @test_throws r"BoundedCamera" refine_camera_and_poses(OFF_AXIS, [EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))], [[SVector(0.0, 0.0, 2.0) => SVector(500.0, 500.0)]];
-                                                     fixed = (:controls,))
     # a circular fisheye (an equidistant f = 250 px lens imaging to 100°, its circle r ≈ 436 px on a 1400 × 1000 sensor;
     # its frame turned 3° off its axis): its spline images nothing past the circle, so its corners are the lattice's
     # extrapolation (as the RC golden siemens grid's). Over its image-circle bound the axis is found; over the whole
@@ -169,5 +167,30 @@ end
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9
         @test maximum(abs, rotation(metadata(rg).rotation) - rotation(metadata(rc).rotation)) < 1.0e-12
         @test abs(rms(rg) - rms(rc)) < 1.0e-12 && abs(metadata(rg).max_px - metadata(rc).max_px) < 1.0e-12   # px
+    end
+end
+
+# The caller's `device` reaches a SplineLens source's ray sampling — the expensive step: with the default device's
+# resolution made to throw, every camera verb given `device` still runs (until 0.11.0 `optical_axis` took none, and
+# the samples of a gauge-K source were drawn on the default device whatever the caller gave).
+@testitem "device: a SplineLens source's rays are sampled on the caller's device — the default is never resolved" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, imaged_region, KannalaBrandt, SplineLens
+    using VisualGeometryToolkitEstimation: optical_axis, refine_camera, fit_camera, approximate_camera
+    cpu = VC.KA.CPU()
+    region = imaged_region(OFF_BOUNDED)
+    resolver = VC._DEVICE_RESOLVER[]
+    VC._DEVICE_RESOLVER[] = () -> error("default_device() resolved: the caller's `device` did not reach this call")
+    VC.reset_default_device!()
+    try
+        r = optical_axis(OFF_BOUNDED; device = cpu)
+        @test VC.converged(r)
+        @test VC.converged(fit_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
+        @test VC.converged(approximate_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
+        @test VC.converged(refine_camera(estimate(r), OFF_AXIS, region; device = cpu))
+        @test VC.converged(fit_camera(SplineLens, OFF_BOUNDED, region; tolerance = 1.0e-2, device = cpu))   # its optical axis first
+    finally
+        VC._DEVICE_RESOLVER[] = resolver
+        VC.reset_default_device!()
     end
 end

@@ -9,7 +9,7 @@ julia&gt; pixel(K, x) = (y = K * x; Point2(y[1] / y[3], y[2] / y[3]));
 
 julia&gt; u = [pixel(K, x) for x in X];</code></pre><h2 id="A-minimal-solver"><a class="docs-heading-anchor" href="#A-minimal-solver">A minimal solver</a><a id="A-minimal-solver-1"></a><a class="docs-heading-anchor-permalink" href="#A-minimal-solver" title="Permalink"></a></h2><p>The P3P solver estimates a camera pose from three world points and their bearings, the unit rays from the camera centre towards them. Selecting the backend <code>PoseLibSolver()</code> runs PoseLib&#39;s solver in place of VisualGeometryToolkitCore&#39;s native one. P3P has up to four real solutions; one of them is the true pose, the identity.</p><pre><code class="language-julia-repl hljs">julia&gt; f = [Vec3(x / sqrt(sum(abs2, x))) for x in X];
 
-julia&gt; poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25]);
+julia&gt; poses = solve(P3P(PoseLibSolver()), Correspondences(X, f), [1, 13, 25]);
 
 julia&gt; 1 &lt;= length(poses) &lt;= 4
 true
@@ -17,7 +17,7 @@ true
 julia&gt; any(p -&gt; maximum(abs, p.t) &lt; 1e-8, poses)
 true</code></pre><h2 id="Refining-an-absolute-pose"><a class="docs-heading-anchor" href="#Refining-an-absolute-pose">Refining an absolute pose</a><a id="Refining-an-absolute-pose-1"></a><a class="docs-heading-anchor-permalink" href="#Refining-an-absolute-pose" title="Permalink"></a></h2><p>A refiner starts from a seed and polishes it. It returns a <code>FitResult</code>, whose <code>estimate</code> is the refined model; the pose refiners take and return a <a href="../../api/#PoseLib.Rigid3"><code>Rigid3</code></a>, which <code>EuclideanMap(R, t)</code> builds from a rotation and a translation. Here the seed is a few pixels off.</p><p>The strategy is <code>optimization_strategy = Irls{TLSShape}()</code>, the truncated loss, and its <code>width</code> is in the unit of the image points, pixels here. A point whose residual exceeds it counts as an outlier and gets zero weight. A seed must therefore be close enough that the inliers fall within the width.</p><pre><code class="language-julia-repl hljs">julia&gt; seed = EuclideanMap(RotationVec(0.002, -0.001, 0.0), Vec3(0.005, 0.0, 0.01));
 
-julia&gt; r = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0);
+julia&gt; r = refine_absolute_pose(seed, K, Correspondences(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0);
 
 julia&gt; pose = estimate(r); maximum(abs, pose.t) &lt; 1e-8
 true
@@ -25,14 +25,14 @@ true
 julia&gt; converged(r)
 true</code></pre><p>A P3P solution is a labeled <code>Extrinsics3</code>, a map from the world frame to the camera frame. <code>unlabel</code> turns it into a <code>Rigid3</code> seed.</p><pre><code class="language-julia-repl hljs">julia&gt; best = poses[argmin([maximum(abs, p.t) for p in poses])];
 
-julia&gt; estimate(refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)) isa PoseLib.Rigid3
+julia&gt; estimate(refine_absolute_pose(unlabel(best), K, Correspondences(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)) isa PoseLib.Rigid3
 true</code></pre><h2 id="Refining-a-relative-pose"><a class="docs-heading-anchor" href="#Refining-a-relative-pose">Refining a relative pose</a><a id="Refining-a-relative-pose-1"></a><a class="docs-heading-anchor-permalink" href="#Refining-a-relative-pose" title="Permalink"></a></h2><p>A second camera, rotated and moved sideways by one unit, sees the same points. The relative pose maps the first camera&#39;s frame to the second&#39;s. Its translation is known only up to scale, and the refiner returns it at unit length.</p><pre><code class="language-julia-repl hljs">julia&gt; truth = EuclideanMap(RotationVec(0.0, 0.1, 0.0), Vec3(1.0, 0.0, 0.0));
 
 julia&gt; x2 = [pixel(K, truth(x)) for x in X];
 
 julia&gt; seed = EuclideanMap(RotationVec(0.0, 0.101, 0.001), Vec3(0.99995, 0.01, 0.0));
 
-julia&gt; rel = estimate(refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0));
+julia&gt; rel = estimate(refine_relpose(seed, K, K, Correspondences(u, x2); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia&gt; maximum(abs, rel.R - truth.R) &lt; 1e-6
 true</code></pre><p>The same refinement runs on unit bearings, the form that also serves fisheye cameras. Each bearing carries the Jacobian of the back-projection, which sets the unit of the width: pixels for these Jacobians. See <a href="../refiners/">Refiners</a> for why.</p><pre><code class="language-julia-repl hljs">julia&gt; using VisualGeometryToolkitCore: backproject_with_jacobian
@@ -43,7 +43,7 @@ julia&gt; b1 = backproject_with_jacobian.(Ref(camera), u);
 
 julia&gt; b2 = backproject_with_jacobian.(Ref(camera), x2);
 
-julia&gt; cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
+julia&gt; cs = withattrs(Correspondences(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
 
 julia&gt; maximum(abs, estimate(refine_relpose(seed, cs; max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)).R - rel.R) &lt; 1e-12
 true</code></pre><h2 id="Refining-a-homography"><a class="docs-heading-anchor" href="#Refining-a-homography">Refining a homography</a><a id="Refining-a-homography-1"></a><a class="docs-heading-anchor-permalink" href="#Refining-a-homography" title="Permalink"></a></h2><p>The homography refiner takes the seed matrix and the point correspondences it should explain. The points here are exact, so the refined matrix matches the true one up to scale.</p><pre><code class="language-julia-repl hljs">julia&gt; H = HomographyMat([1.1 0.02 5.0; -0.03 0.95 -3.0; 1e-4 2e-4 1.0]);
@@ -54,7 +54,7 @@ julia&gt; y = [(h = H * [x; 1.0]; Point2(h[1] / h[3], h[2] / h[3])) for x in x1]
 
 julia&gt; H0 = HomographyMat([1.1 0.02 6.0; -0.03 0.96 -3.0; 1e-4 2e-4 1.0]);
 
-julia&gt; H1 = estimate(refine_homography(H0, Csponds(x1, y); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0));
+julia&gt; H1 = estimate(refine_homography(H0, Correspondences(x1, y); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia&gt; H1 / H1[3, 3] ≈ H
-true</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../solvers/">Minimal solvers »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Friday 13 November 2026 19:05">Friday 13 November 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+true</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../solvers/">Minimal solvers »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Friday 13 November 2026 19:51">Friday 13 November 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

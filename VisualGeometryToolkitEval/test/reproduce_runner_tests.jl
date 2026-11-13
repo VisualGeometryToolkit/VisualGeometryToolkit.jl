@@ -475,11 +475,12 @@ end
         @test !occursin("--gres", pre) && occursin("--depwarn=error -e", pre) && occursin("Pkg.precompile()", pre)
         @test isempty(p.stages[2].phases)                                           # a CPU stage: none
         @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].phases)
-        # a phase is keyed like the stage's own job (its command and environment): with or without it, another key
+        # the runner's precompile phase is environment state (the depot's compile cache), not a result: it keys nothing —
+        # with or without it, the same key (a declared phase is keyed: the phases testset)
         k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
         kon = k(g)
         write(f.graph, text)
-        @test k(load_stage_graph(f.graph)) != kon
+        @test k(load_stage_graph(f.graph)) == kon
         write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
                                      "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))
         @test k(load_stage_graph(f.graph)) == kon

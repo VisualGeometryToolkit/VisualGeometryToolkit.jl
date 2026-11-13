@@ -69,7 +69,9 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   `status` names a failed one (`failed (its <phase> phase, job <id>, failed …)`, with its log and error line). A
   phase's command and environment key the stage. **A GPU stage on a Slurm site compiles first**: the runner's
   `precompile` phase, a CPU-only job running `Pkg.precompile()` with the stage's `julia_flags` (new key: the flags its
-  jobs run julia with); `precompile = false` (a Bool) leaves it out. The manifest records `phases` and `phase_jobs`.
+  jobs run julia with); `precompile = false` (a Bool) leaves it out. The precompile phase keys nothing: it is
+  environment state (the depot's compile cache), not a result. The manifest records `phases`, `phase_jobs` and the
+  site's `precompile_time` (a measurement, in no key).
 - **A site's `[slurm] precompile_time`**: the `--time` of a GPU stage's CPU-only precompile job, its measured time × 2
   (dgx01: `"0:30:00"`); a real limit lets the scheduler backfill the job.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's

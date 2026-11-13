@@ -888,10 +888,13 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
                                   "command" => unkeyed(cmd), "site" => site.name)
-        # the phases before the last, keyed like the stage's own job: their command and environment
-        isempty(phases) || (keyed["phases"] = [Dict{String, Any}("name" => p.name, "command" => unkeyed(p.command),
-                                                                 "env" => filter(q -> first(q) != "SLURM_CPUS_PER_TASK", p.env))
-                                               for p in phases])
+        # the phases before the last, keyed like the stage's own job: their command and environment. The runner's
+        # `precompile` phase is NOT keyed: it is environment state (the depot's compile cache), not a result — keyed, a
+        # fresh depot would skip compiling and reuse a "result" that does not exist there
+        resulting = [p for p in phases if p.name != "precompile"]
+        isempty(resulting) || (keyed["phases"] = [Dict{String, Any}("name" => p.name, "command" => unkeyed(p.command),
+                                                                    "env" => filter(q -> first(q) != "SLURM_CPUS_PER_TASK", p.env))
+                                                  for p in resulting])
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         isempty(s.each_from) || (keyed["each"] = each)    # the values each task loops over
         # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
@@ -1195,7 +1198,9 @@ function _stage_record(plan::ReproducePlan, st::PlannedStage; state, job_id = ""
                              "state" => state, "job_id" => job_id, "log" => log, "tasks" => tasks, "markers" => markers,
                              "config" => st.spec.config, "driver" => st.spec.driver, "sbatch" => st.spec.sbatch,
                              "phases" => [p.name for p in st.phases], "phase_jobs" => phase_jobs,
-                             "phase_logs" => Dict{String, String}(p.name => _phase_log(plan.graph, p) for p in st.phases))
+                             "phase_logs" => Dict{String, String}(p.name => _phase_log(plan.graph, p) for p in st.phases),
+                             # the site's measured precompile limit, recorded as a measurement (it keys nothing)
+                             "precompile_time" => any(p -> p.name == "precompile", st.phases) ? plan.site.precompile_time : "")
 end
 
 # ---------------------------------------------------------------------------

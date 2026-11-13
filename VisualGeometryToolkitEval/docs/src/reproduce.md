@@ -510,7 +510,10 @@ first: `precompile`, a CPU-only job (the stage's CPUs, memory and `nice`,
 so a GPU task only loads and runs. `julia_flags` are the flags the stage's
 jobs run julia with (`julia_flags = ["--depwarn=error"]`): a cache compiled
 under other flags is compiled again. `precompile = false` leaves it out (a
-stage whose launcher runs no julia). The dry run prints every phase
+stage whose launcher runs no julia). The precompile phase keys nothing: it is
+environment state (the depot's compile cache), not a result, so a fresh depot
+compiles again whatever an earlier launch did; the site's `precompile_time` is
+recorded in the manifest as a measurement. The dry run prints every phase
 (`phase <name>:`); the manifest records their job ids (`phase_jobs`). A local
 site runs the declared phases in order, each whole, and no `precompile`.
 

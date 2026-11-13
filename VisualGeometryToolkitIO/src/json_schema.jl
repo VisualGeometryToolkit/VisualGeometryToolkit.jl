@@ -184,6 +184,27 @@ function _json_schema(::_VignettingBody, defs)
     return _jobj("\$ref" => "#/\$defs/vignetting")
 end
 
+_json_schema(::_Bool, defs) = _jobj("type" => "boolean")
+# A detection file declares its records' shape in its header (`detection`: the frame type, the attributes, the
+# covariance storage): the record schema of each frame type, selected by the header's `frame` (`if`/`then`), its
+# `attributes` an object of the declared types' values (which names, the validator checks against the header).
+function _json_schema(s::_DetectionSpec, defs)
+    o = _json_schema(s.outer, defs)
+    attribute = _jobj("anyOf" => Any[(_jobj("type" => t) for t in ("number", "boolean", "string"))..., _json_schema(_XY, defs)])
+    cases = map(collect(String, keys(_FRAME_TAGS))) do tag
+        rec = _json_schema(_detection_record_spec(Dict{Symbol, Any}(:frame => tag, :attributes => Dict{String, Any}(), :covariance => true)), defs)
+        rec["properties"]["attributes"] = _jobj("type" => "object", "additionalProperties" => attribute)
+        _jobj("if" => _jobj("properties" => _jobj("detection" => _jobj("properties" => _jobj("frame" => _jobj("const" => tag))))),
+              "then" => _jobj("properties" => _jobj("images" => _jobj("items" => _jobj("properties" => _jobj("detections" => _jobj("items" => rec)))))))
+    end
+    o["allOf"] = [get(o, "allOf", Any[])..., cases...]
+    rule = "Each detection is the record of the header's `frame` type: its `center`, its shape parameters, its `attributes` " *
+           "(exactly the header's, each of its declared type) and, iff the header declares a `covariance`, a covariance " *
+           "over the frame's parameters in the declared storage; a detection without one carries the attribute `covariance_status`."
+    o["description"] = haskey(o, "description") ? "$(o["description"]) $(rule)" : rule
+    return o
+end
+
 # The JSON Schema keywords a `_Named` predicate IS, or `nothing` (its description says it).
 _named_schema(::Function) = nothing
 _named_schema(f::Base.Fix2{typeof(in)}) = Dict("enum" => collect(f.x))

@@ -115,11 +115,6 @@ _refuse_quantity(x::Union{AbstractDict, NamedTuple}, what) = throw(
 _refuse_quantity(x, what) = throw(ArgumentError("$(what) holds a number, got $(repr(x))"))
 _number(x, what) = (x isa Real && !(x isa Bool)) ? x : _refuse_quantity(x, what)
 
-# A key of a parsed object (a `JSON.Object`, a Dict with String or Symbol keys, a NamedTuple).
-_get_key(x::AbstractDict, key::String) = haskey(x, key) ? x[key] : x[Symbol(key)]
-_get_key(x::NamedTuple, key::String) = getproperty(x, Symbol(key))
-_has_key(x::AbstractDict, key::String) = haskey(x, key) || haskey(x, Symbol(key))
-_has_key(x::NamedTuple, key::String) = haskey(x, Symbol(key))
 
 # A quantity, by its dimension (a length in the `:world` role, or the role its tags name).
 JSON.lower(s::VgioStyle, q::Quantity) = _number_json(s, q, (;))
@@ -136,7 +131,7 @@ JSON.lift(s::VgioStyle, ::Type{<:Quantity}, x, tags::NamedTuple) = (
 JSON.lower(s::VgioStyle, sz::Size2, tags::NamedTuple = (;)) =
     (width = _number_json(s, sz.width, tags), height = _number_json(s, sz.height, tags))
 JSON.lift(s::VgioStyle, ::Type{<:Size2}, x, tags::NamedTuple = (;)) =
-    Size2(width = _number_from_json(s, _get_key(x, "width"), tags), height = _number_from_json(s, _get_key(x, "height"), tags))
+    Size2(width = _number_from_json(s, _getkey(x, :width), tags), height = _number_from_json(s, _getkey(x, :height), tags))
 
 # -----------------------------------------------------------------------------
 # The retired UnitContract layout: an owner's version step
@@ -158,9 +153,9 @@ name that is not registered or of the wrong dimension, and for `world` named
 again under `lengths`.
 """
 function migrate_units(d::Union{AbstractDict, NamedTuple})
-    world = parse_unit(String(_get_key(d, "world")))
-    density = _has_key(d, "density") ? parse_unit(String(_get_key(d, "density"))) : dpi
-    roles = _has_key(d, "lengths") ? _get_key(d, "lengths") : Dict{String, Any}()
+    world = parse_unit(String(_getkey(d, :world)))
+    density = _haskey(d, :density) ? parse_unit(String(_getkey(d, :density))) : dpi
+    roles = _haskey(d, :lengths) ? _getkey(d, :lengths) : Dict{String, Any}()
     roles isa Union{AbstractDict, NamedTuple} ||
         throw(ArgumentError("a units declaration's `lengths` is an object of role => unit name, got $(repr(roles))"))
     ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
@@ -187,11 +182,11 @@ _rows_json(M, n) = [[n(M[1, 1]), n(M[1, 2])], [n(M[2, 1]), n(M[2, 2])]]
 _angle_json(θ::Real) = Float64(θ)   # radians (`units.angle`)
 
 _frame_from(::Type{<:PointFrame}, ::Type{T}, c, x, n) where {T} = PointFrame{T}(c)
-_frame_from(::Type{<:Disc}, ::Type{T}, c, x, n) where {T} = Disc{T}(c, n(_get_key(x, "sigma")))
+_frame_from(::Type{<:Disc}, ::Type{T}, c, x, n) where {T} = Disc{T}(c, n(_getkey(x, :sigma)))
 _frame_from(::Type{<:OrientedDisc}, ::Type{T}, c, x, n) where {T} =
-    OrientedDisc{T}(c, n(_get_key(x, "sigma")), T(_number(_get_key(x, "angle"), "an angle")))
-_frame_from(::Type{<:EllipticFrame}, ::Type{T}, c, x, n) where {T} = EllipticFrame{T}(c, _rows_from(_get_key(x, "shape_matrix"), T, n))
-_frame_from(::Type{<:AffineFrame}, ::Type{T}, c, x, n) where {T} = AffineFrame{T}(c, _rows_from(_get_key(x, "affine_matrix"), T, n))
+    OrientedDisc{T}(c, n(_getkey(x, :sigma)), T(_number(_getkey(x, :angle), "an angle")))
+_frame_from(::Type{<:EllipticFrame}, ::Type{T}, c, x, n) where {T} = EllipticFrame{T}(c, _rows_from(_getkey(x, :shape_matrix), T, n))
+_frame_from(::Type{<:AffineFrame}, ::Type{T}, c, x, n) where {T} = AffineFrame{T}(c, _rows_from(_getkey(x, :affine_matrix), T, n))
 _rows_from(r, ::Type{T}, n) where {T} = SMatrix{2, 2, T, 4}(n(r[1][1]), n(r[2][1]), n(r[1][2]), n(r[2][2]))
 
 # The element type a lift builds: the type's own parameter, Float64 for a plain
@@ -248,7 +243,7 @@ end
 function JSON.lift(s::VgioStyle, ::Type{F}, x, tags::NamedTuple = (;)) where {F <: FeatureFrame}
     T = _frame_eltype(F, tags)
     n = v -> T(_number_from_json(s, v, tags))
-    c = _get_key(x, "center")
+    c = _getkey(x, :center)
     return _frame_from(F, T, Point2{T}(n(c[1]), n(c[2])), x, n)
 end
 
@@ -264,7 +259,7 @@ function JSON.lower(s::VgioStyle, u::Uncertain{<:FeatureFrame})
         "a frame's covariance is finite; a detection without one omits it and states its `covariance_status` (vgio/detection)"))
     return merge(JSON.lower(s, f), (covariance = _cov_json(Σ),))
 end
-JSON.lift(s::VgioStyle, ::Type{<:Uncertain{F}}, x) where {F <: FeatureFrame} = _uncertain_frame(JSON.lift(s, F, x), _get_key(x, "covariance"))
+JSON.lift(s::VgioStyle, ::Type{<:Uncertain{F}}, x) where {F <: FeatureFrame} = _uncertain_frame(JSON.lift(s, F, x), _getkey(x, :covariance))
 # The frame with the covariance `c` (a wire form) over its parameters.
 function _uncertain_frame(f::FeatureFrame, c)
     Σ = _cov_matrix(c isa NamedTuple ? _lower(c) : c, frame_dof(f))

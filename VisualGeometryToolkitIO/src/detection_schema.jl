@@ -52,7 +52,6 @@ _attribute_from(::Type{Point2{Float64}}, x) = Point2{Float64}(Float64(x[1]::Real
 # A covariance's storage, by the matrix its CovMat holds.
 _storage_name(::Type{<:CovMat{N, T, M}}) where {N, T, M} = M <: Diagonal ? "diagonal" : M <: ScaledIdentity ? "isotropic" : "full"
 _storage_name(::Type{<:PrecMat{N, T, M}}) where {N, T, M} = _storage_name(CovMat{N, T, M})   # written as its covariance
-_cov_eltype(::Type{<:Union{CovMat{N, T}, PrecMat{N, T}}}) where {N, T} = T
 # The covariance of storage `storage` and number type `T`, from the wire's matrix `m` (or all NaN: none stated).
 function _stored_cov(storage::AbstractString, ::Type{T}, ::Val{N}, m) where {T, N}
     storage == "diagonal" && return CovMat(Diagonal(SVector{N, T}(m === nothing ? ntuple(_ -> T(NaN), N) : m.diag)))
@@ -71,7 +70,7 @@ function _detection_header(::Type{D}) where {D}
     h = (frame = tag_of(_FRAME_TAGS, F), number_type = _type_name(_NUMBER_TYPES, _frame_eltype(F, (;)), "number type"))
     if V <: Uncertain
         C = fieldtype(V, :attributes)
-        h = merge(h, (covariance = (storage = _storage_name(C), number_type = _type_name(_NUMBER_TYPES, _cov_eltype(C), "covariance number type")),))
+        h = merge(h, (covariance = (storage = _storage_name(C), number_type = _type_name(_NUMBER_TYPES, eltype(C), "covariance number type")),))
     end
     attrs = NamedTuple{fieldnames(A)}(Tuple(_type_name(_ATTRIBUTE_TYPES, T, "attribute type") for T in fieldtypes(A)))   # in the value's order
     return merge(h, (attributes = attrs,))
@@ -102,13 +101,13 @@ end
 
 # …and back: a record of the file's type `D`, its centres moved by `offset` into colmap.
 function _detection_from(s::VgioStyle, ::Type{Attributed{V, A}}, x, offset) where {V, A}
-    a = A(Tuple(_attribute_from(fieldtype(A, k), _get_key(x.attributes, String(k))) for k in fieldnames(A)))
+    a = A(Tuple(_attribute_from(fieldtype(A, k), _getkey(x.attributes, k)) for k in fieldnames(A)))
     F = V <: Uncertain ? fieldtype(V, :value) : V
     f = JSON.lift(s, F, x) + SVector{2, _frame_eltype(F, (;))}(offset)
     V <: Uncertain || return Attributed(f, a)
     C = fieldtype(V, :attributes)
-    N, Tc = frame_dof(F), _cov_eltype(C)
-    m = _has_key(x, "covariance") ? _cov_matrix(_lower(x.covariance), N) : nothing
+    N, Tc = frame_dof(F), eltype(C)
+    m = _haskey(x, :covariance) ? _cov_matrix(_lower(x.covariance), N) : nothing
     Σ = _stored_cov(_storage_name(C), Tc, Val(N), m)
     Σ isa C || throw(ArgumentError("a detection's covariance is stored $(_storage_name(typeof(Σ))), the file declares $(_storage_name(C))"))
     return Attributed(Uncertain(f, Σ), a)

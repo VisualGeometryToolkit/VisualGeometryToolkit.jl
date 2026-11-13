@@ -137,6 +137,26 @@
         end
     end
 
+    @testset "write_tsv of named-tuple rows: the header from their fields" begin
+        mktempdir() do dir
+            # an abstract element type, as a table built with push! has
+            rows = NamedTuple[]
+            push!(rows, (arm = "a", x = 1.5, y = 2)); push!(rows, (arm = "b", x = "", y = 3))
+            p = write_tsv(joinpath(dir, "nt.tsv"), rows; comments = ["first"])
+            @test read(p, String) == "# first\narm\tx\ty\na\t1.5\t2\nb\t\t3\n"
+            @test read_tsv(p)[2] == Dict("arm" => "b", "x" => "", "y" => "3")
+            # the same bytes as the header-and-rows form
+            @test read(p, String) == read(write_tsv(joinpath(dir, "hr.tsv"), ["arm", "x", "y"], [["a", 1.5, 2], ["b", "", 3]]; comments = ["first"]), String)
+            # empty: a concrete element type writes its header; an abstract one an empty header line; both read as no rows
+            e1 = write_tsv(joinpath(dir, "e1.tsv"), @NamedTuple{a::Int, b::Float64}[])
+            @test read(e1, String) == "a\tb\n" && read_tsv(e1) == Dict{String,String}[]
+            e2 = write_tsv(joinpath(dir, "e2.tsv"), NamedTuple[]; comments = ["none"])
+            @test read(e2, String) == "# none\n\n" && read_tsv(e2) == Dict{String,String}[]
+            # one header per table
+            @test_throws r"row 2 has the fields \(:a, :c\)" write_tsv(joinpath(dir, "x.tsv"), NamedTuple[(a = 1, b = 2), (a = 1, c = 2)])
+        end
+    end
+
     @testset "tuning_spec under / over" begin
         cv = Dict{String,Any}("scene_split" => Dict{String,Any}("type" => "registered", "name" => "phototourism"))
         entry = Dict{String,Any}("type" => "windowed_bootstrap")

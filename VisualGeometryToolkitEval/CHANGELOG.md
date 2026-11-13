@@ -25,6 +25,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.
 
+- **`Render.write_tsv(path, rows::AbstractVector{<:NamedTuple}; comments)`**: a table of named-tuple rows, its header
+  their field names; an abstract element type (`NamedTuple[]`) is read from the rows, and an empty table writes the
+  element type's fields as its header when it names them (else an empty header line; `read_tsv` reads either back as
+  no rows). `verify_assets` writes its report through it.
+
 ### Fixed
 
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so

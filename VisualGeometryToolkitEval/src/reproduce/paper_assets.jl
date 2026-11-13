@@ -122,12 +122,7 @@ error. Returns the rows.
 function verify_assets(outdir::AbstractString, paperdir::AbstractString, names)
     rows = [_verify_row(outdir, paperdir, n) for n in names]
     cols = (:asset, :submitted, :identical, :same_numbers, :provenance_only, :blocks_new, :blocks_old, :max_abs_diff, :bytes_new, :bytes_old)
-    open(joinpath(outdir, VERIFY_REPORT), "w") do io
-        println(io, join(cols, '\t'))
-        for r in rows
-            println(io, join((getfield(r, c) for c in cols), '\t'))
-        end
-    end
+    write_tsv(joinpath(outdir, VERIFY_REPORT), cols, ([getfield(r, c) for c in cols] for r in rows))   # Render's one TSV writer
     width = maximum(r -> length(r.asset), rows; init = 0)
     for r in rows
         println("   ", rpad(r.asset, width), "  ", _verdict(r))

@@ -270,7 +270,7 @@ static and allocation-free. An uncertain frame moves with its covariance by
 transfer(m, f::FeatureFrame) = _transfer(m, frame_scale(f), f)
 @inline _transfer(m, ::PointShape, f) = PointFrame(_point_action(m, f.center))
 @inline _transfer(m::Union{SimilarityMap{2}, EuclideanMap{2}}, ::Union{IsotropicScale, ShapeFactorScale}, f) = m(f)
-@inline function _transfer(m, ::Union{IsotropicScale, ShapeFactorScale}, f::FeatureFrame)
+@inline function _transfer(m, ::Union{IsotropicScale, ShapeFactorScale}, f)
     c = SVector{2}(f.center[1], f.center[2])
     J = ForwardDiff.jacobian(m, c)
     return AffineFrame(_point_action(m, f.center), J * shape_factor(f))

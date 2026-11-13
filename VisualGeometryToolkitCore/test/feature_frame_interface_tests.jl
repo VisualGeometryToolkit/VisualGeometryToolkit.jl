@@ -7,7 +7,7 @@
     using VisualGeometryToolkitCore: center, frame_dof, transfer, PointShape, IsotropicScale, ShapeFactorScale, frame_scale
     using CoordinateTransformations: LinearMap, AffineMap, PerspectiveMap
     using Rotations: RotMatrix2
-    using Statistics: cov
+    using Statistics: cov, mean
     using Distributions: MvNormal
     using FlexUnits: ustrip
 
@@ -60,7 +60,8 @@
         a = AffineMap(@SMatrix([1.0 0.2; 0.1 0.9]), SVector(3.0, 4.0))
         H = PerspectiveMap() ∘ HomographyMap(@SMatrix [1.0 0.1 3.0; 0.0 1.1 4.0; 1e-3 2e-3 1.0])
         for m in (a, H)
-            @test transfer(m, PointFrame(c)) ≈ PointFrame(Point2(m(SVector(c))...))
+            t = transfer(m, PointFrame(c))
+            @test t isa PointFrame{Float64} && center(t) ≈ m(SVector(c))
             d = transfer(m, Disc(c, 2.0))                          # first order: an AffineFrame, the shape by the Jacobian
             @test d isa AffineFrame && center(d) ≈ m(SVector(c))
         end
@@ -87,6 +88,26 @@
         @test extrema(PointFrame(c)) == (c, c) && extrema(d) == (Point2(8.0, 18.0), Point2(12.0, 22.0))
         @test Rect2(PointFrame(c)) == Rect2(10.0, 20.0, 0.0, 0.0) && Rect2(d) == Rect2(8.0, 18.0, 4.0, 4.0)
         @test bbox(PointFrame(c)) isa VisualGeometryToolkitCore.SpatialIndexing.Rect
+        # bbox, once on the trait: a point's is the point at any scale; an isotropic frame's c ∓ kσ; a shape frame's its region's box
+        R = VisualGeometryToolkitCore.SpatialIndexing.Rect
+        @test bbox(PointFrame(c); scale = 3.0) == R((10.0, 20.0), (10.0, 20.0))
+        @test bbox(d; scale = 3.0) == bbox(o; scale = 3.0) == R((4.0, 14.0), (16.0, 26.0))
+        @test bbox(d; scale = 1.5, snap_to_grid = true) == R((7.0, 17.0), (13.0, 23.0))
+        for f in frames[4:5]
+            @test bbox(f; scale = 2.0) == R(Rect2(region(f, 2.0)))
+        end
+        @test bbox(Disc(Point2(10.0px, 20.0px), 2.0px); scale = 3.0) == bbox(d; scale = 3.0)
+        # inv, once on the trait: the canonical frame's inverse, in the frame's class
+        for f in (d, frames[4], frames[5])
+            g = inv(f)
+            @test typeof(g) == typeof(f) && AffineMap(g) ≈ inv(AffineMap(f))
+        end
+        # MvNormal and Circle, one arm for every scaled frame: the 1σ contour's shape matrix; the circle at r·characteristic_scale
+        for f in frames[2:5]
+            @test cov(MvNormal(f)) ≈ shape_matrix(f) && mean(MvNormal(f)) == c
+            @test Circle(f, 2.0) == Circle(c, 2.0 * characteristic_scale(f))
+            @test Circle(Attributed(f, (; label = :a)), 2.0) == Circle(f, 2.0)              # a detection's circle is its frame's
+        end
         for f in frames
             @test (f * 2.0) / 2.0 == f                                                  # a power of two: exact
             @test center(f * 3.0) == 3.0 * c && f + (1.0, 1.0) == f + SVector(1.0, 1.0)
@@ -112,6 +133,7 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: center, transfer
     using Rotations: RotMatrix2
+    using CoordinateTransformations: PerspectiveMap
 
     S = SimilarityMap(2.0, RotMatrix2(0.4), SVector(1.0, -3.0))
     h = HomographyMap(@SMatrix [1.0 0.1 3.0; 0.0 1.1 4.0; 1e-3 2e-3 1.0])
@@ -120,13 +142,19 @@ end
     f(m, u) = propagate(m, u)
     g(m, p) = transfer(m, p)
     k(d) = center(d)
+    p = getfield(u, :value)               # the frame (not `u.value`: Attributed's property forwarding is not the verb measured)
+    # measured inside a function of concrete arguments (a warm-up call first), so only the verb's own allocation counts
+    allocs(fn, args...) = (fn(args...); @allocated fn(args...))
+    hp = PerspectiveMap() ∘ h               # the homography's point action
     for m in (S, h)
-        f(m, u); @test (@allocated f(m, u)) == 0
+        @test allocs(f, m, u) == 0
     end
-    g(S, u.value); @test (@allocated g(S, u.value)) == 0
-    k(d); @test (@allocated k(d)) == 0
+    for m in (S, hp)
+        @test allocs(g, m, p) == 0
+    end
+    @test allocs(k, d) == 0
     # typed code with no Union, no boxing: concrete, inferred returns
-    for (fn, args) in ((f, (S, u)), (f, (h, u)), (g, (S, u.value)), (k, (d,)))
+    for (fn, args) in ((f, (S, u)), (f, (h, u)), (g, (S, p)), (g, (hp, p)), (k, (d,)))
         ci, rt = only(code_typed(fn, typeof.(args)))
         @test isconcretetype(rt)
         @test !any(st -> occursin("Core.Box", string(st)), ci.code)

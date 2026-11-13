@@ -68,7 +68,7 @@ import KernelAbstractions as KA   # the spline models' batched kernels
 using ..VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # LensSpec refuses `free` (base/utils.jl)
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
-using ..VisualGeometryToolkitCore: PointFrame, _as_point_frame   # an uncertain point frame through a framed affine (the FeatureFrame interface)
+using ..VisualGeometryToolkitCore: PointFrame, FeatureFrame, _as_point_frame   # an uncertain point frame through a framed affine (the FeatureFrame interface)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (transforms/conversions.jl)
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)
@@ -1336,6 +1336,9 @@ MacroTools.@forward BoundedCamera.camera (
     valid_rect, undistorted_rect, division_bounded, undistort,
     p3p, transfer, radial_homography,
 )
+# `transfer(m, f::FeatureFrame)` (ct_contravariant.jl) meets the forwarded `transfer(bc, args...)` at a BoundedCamera
+# and a frame: the forward's meaning, stated once (the ambiguity resolved).
+transfer(bc::BoundedCamera, f::FeatureFrame) = transfer(bc.camera, f)
 # A mutating verb takes its destination first and the camera after it (Julia's order), which `@forward` cannot reach:
 # `undistort!` (and its typed and rect forms) reaches the wrapped camera by hand.
 undistort!(dst::AbstractMatrix, bc::BoundedCamera, src::AbstractMatrix, args...; kwargs...) =

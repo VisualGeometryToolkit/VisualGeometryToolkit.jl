@@ -26,6 +26,7 @@ const _FoerstnerDetection = Attributed{
                      derivative_sigma = 1.0, integration_sigma = 1.41 * derivative_sigma,
                      precision_threshold = 0.5, roundness_threshold = 0.3,
                      significance_level = 0.999) -> StructArray{<:Detection}
+    detect_foerstner([T = Float32], L::LinearRaw; noise::Union{Nothing, SensorNoise} = nothing, kwargs...)
 
 The Förstner interest operator [Foerstner1987](@cite): the junction (corner)
 points and circular points of a grey image at sub-pixel precision, each with
@@ -45,9 +46,11 @@ Returns one row per optimal window, a `StructArray` of
   covariance (the reference returns no estimate for it);
 - `window`: the window centre, a `Point2`;
 - `F`: the classification statistic `Ω_corner / Ω_circular`;
-- `covariance_source`: which covariance the frame carries, `:propagated` (the
-  image noise `noise` propagated through the detector, below) or `:a_posteriori`
-  (the reference's `Ω/redundancy · N⁻¹`, when `noise` is `nothing`).
+- `covariance_source`: which covariance the frame carries: the image noise
+  propagated through the detector (below) — `:propagated` for a given σₙ,
+  `:propagated_measured` / `:propagated_estimated` for a RAW's resolved
+  `SensorNoise` from a record / estimated from the frame — or `:a_posteriori`
+  (the reference's `Ω/redundancy · N⁻¹`, when no noise is known).
 
 `filter(d -> d.label === :corner, points)` are the corners; `Ellipse(d.value; sigma = 1)`
 is a point's 1σ error ellipse (`ip_errell.m`'s default).
@@ -67,7 +70,12 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
   `noise_sigma`). The covariance is then `σₙ² J Jᵀ` (`σₙ` on the `[0, 1]` image),
   `J` the exact first-order derivative of the estimate with respect to every input
   pixel, through the detector's own doubling, derivative taps, squared gradient
-  and window estimate (step 6). `nothing`: no noise is known, and the covariance
+  and window estimate (step 6). On a RAW's green cells (`L::LinearRaw`, read
+  through VisualGeometryToolkitCore's `green_plane`, positions on the cell grid)
+  `noise` is the frame's resolved `SensorNoise` (`sensor_noise`): each pixel's
+  Poisson–Gaussian variance `α·x + σ²` ([`variance_stabilize`](@ref)'s model)
+  weighs its column, `Σ = J diag(α·x + σ²) Jᵀ`; a noise the resolver could not
+  give (its `reason`) leaves the a-posteriori covariance. `nothing`: no noise is known, and the covariance
   is the reference's a-posteriori `Ω/redundancy · N⁻¹` (step 4), marked
   `covariance_source = :a_posteriori`; that one is not calibrated (it carries the
   model misfit, which does not scale with the noise).

@@ -1,4 +1,4 @@
-docs-pass: c50c633e
+docs-pass: (pending re-gate)
 
 # Features 0.9.0 docs pass (wave10, feat09)
 

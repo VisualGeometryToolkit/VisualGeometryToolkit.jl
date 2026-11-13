@@ -16,6 +16,15 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
   NEES 0.01–25). `noise_sigma`, the precision test's level, defaults to `noise` when that is given (else the
   reference's 2).
+- **`variance_stabilize(L, noise::SensorNoise)`** takes the frame's resolved sensor noise (VisualGeometryToolkitCore's
+  `sensor_noise`); the keywords `electrons_per_dn` and `read_noise` are retired with a pointed refusal. Each green's read
+  noise is its own colour's (`L.geometry.green_colors`); a noise the resolver could not give is an `ArgumentError`
+  naming its reason, never a constant.
+- **`detect_foerstner(L::LinearRaw; noise::SensorNoise)`**: Förstner on a RAW's green cells, the covariance
+  `J diag(α·x + σ²) Jᵀ` of the resolved Poisson–Gaussian noise, `covariance_source` `:propagated_measured` or
+  `:propagated_estimated`; a missing noise leaves the a-posteriori covariance, marked so.
+- **`load_raw(...; noise)`** forwards the resolved noise to Core's `LinearRaw`, the one black subtraction (the noise's
+  black, its dark frame's offsets, its defects); refused with the display demosaic and with a `cache`.
 - **`CspondSet` is `CorrespondenceSet`** (VisualGeometryToolkitCore 0.10's terminology: `Cspond` → `Correspondence`,
   `csponds` → `correspondences`); the old name is refused by Core's naming check, with no alias.
 - **A detection's `propagate(m, d)` is Core's one conversion carried through `m`**, `propagate(m, center(d))`: the
@@ -34,6 +43,8 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   bounded by the level's extent, the detector's keep test; a point whose extremum lies beyond the level's edge ends
   `LeftBasin` with its start, never outside the canvas.
 - **`detect_image_circle` checks `smoothing_weight` before it reads a frame**, with its other keywords.
+- **`variance_stabilize` reads Core's `green_plane(L)`**: it no longer searches the planes for the green one by comparing
+  frame maps with `===`.
 - **The RAW decoder's fallbacks are Core's `require_extension`**: without the decoder's extension they name the
   package to load; with it loaded, a call it has no method for raises that MethodError (it said the extension was
   missing).

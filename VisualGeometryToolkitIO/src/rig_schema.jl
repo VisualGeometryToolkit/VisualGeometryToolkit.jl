@@ -465,30 +465,113 @@ _length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_wire((x, n) -> x, Σ
 _length_cov_from_json(c, n::Int, ::_Chart, dims) = _cov_from_wire((x, k) -> Float64(x), c, n, dims)
 _nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
-# A planar target's calibration on IO's style (style.jl), the PARAMETRIC
-# RECORD: its kind's tag in VGC's `TARGET_CALIBRATION_TAGS`, its
-# `parameter_vector` (lengths by `length_mask` in the style's length form), a
-# thin-plate kind's `nodes` beside them; a composition its members' records,
-# outer first; an `Uncertain` one its covariance beside. A calibration with
-# lengths is stored physical: plain numbers are refused, as a target's plain
-# points are (one without lengths — Rigid, Scale, Aspect, Skew and their
-# compositions — has no form to refuse; a placed target's, `_CHART`, is plain
-# chart numbers, which VGC refuses units on).
-#
-# A named function, called by the target's lower, and NOT a `JSON.lower`
-# method: VGC's `TargetCalibration` union holds every planar `EuclideanMap`
-# (a pixel-frame conversion among them) and every composition, so a `lower` on
-# it would write any such map left in a body as a target calibration.
-function _target_calibration_json(s::VgioStyle, c::TargetCalibration)
+"""
+    target_calibration_json(s::VgioStyle, c) -> NamedTuple
+
+A planar target's calibration `c` — VisualGeometryToolkitCore's
+`TargetCalibration` (`Rigid`, a planar `EuclideanMap`, `Scale`, `Aspect`,
+`Skew`, `ThinPlateSpline`, `HeightField` or a composition of them in Core's
+canonical order), or an `Uncertain` one — as the calibration record every
+target body embeds (its `calibration`), on IO's style `s`: the PARAMETRIC
+RECORD `{"type", ["nodes"], ["parameters"]}`, its kind's tag in Core's
+`TARGET_CALIBRATION_TAGS`, its `parameter_vector` with every length (by
+`length_mask`) in the style's `length_unit` through [`write_length`](@ref)'s
+decimal shift, a thin-plate kind's `nodes` beside them (lengths too); a
+composition `{"type": "composition", "compose": [outer, …, inner]}`; an
+`Uncertain` one its covariance beside, `covariance`, each entry in the unit
+raised to its length dimension. [`target_calibration_from_json`](@ref) reads
+it back `==`.
+
+A calibration with lengths is stored physical: one of plain numbers is an
+`ArgumentError` (attach the unit, as a target's points; a placed target's
+calibration, which acts in its board's dimensionless chart, is written by the
+target's own record). A thin-plate kind that is pure bending neither in metres
+nor in `s`'s unit would not read back and is refused. A package embedding a
+calibration in a kind of its own (RadiometricCamera's in-plane print error)
+writes it with this.
+
+A `HeightField` (bare or `Uncertain`) is written with PER-FIELD UNITS when
+the style declares the length roles `node` and `height` (both, or neither): its
+nodes in `node`'s unit or, `node = :chart`, as plain numbers of a chart the
+caller defines (page fractions: a plain field over plain nodes, its heights
+plain metres), its heights in `height`'s unit — the file's `units.length_roles`
+say so, `{"node": "chart" | <length>, "height": <length>}`, and the record
+states no unit of its own. Pure bending depends on the nodes' unit, never on
+the heights', so the field is pure bending on its nodes as written; its
+bending energy is in `height² · node⁻²` (over chart nodes, `height²`).
+[`target_calibration_from_json`](@ref) reads it back on a style that declares
+the same roles: `==` with heights in metres (`height = m`, RadiometricCamera's
+board warping); in a decimal unit (mm) a computed height reads back as its
+persisted form, within the decimal codec's 2 ulp ([`write_length`](@ref)), and
+that form is fixed. On a style without the roles, every length is in its
+`length_unit`, as before.
+
+A named function, not a `JSON.lower` method: Core's `TargetCalibration` union
+holds every planar `EuclideanMap` and every composition, so a `lower` on it
+would write any such map left in a record as a target calibration.
+
+```jldoctest
+julia> import JSON
+
+julia> s = VgtkIO.VgioStyle(; length_unit = mm);
+
+julia> text = JSON.json(VgtkIO.target_calibration_json(s, Aspect(0.01) ∘ Skew(-0.002)))
+"{\\"type\\":\\"composition\\",\\"compose\\":[{\\"type\\":\\"aspect\\",\\"parameters\\":[0.01]},{\\"type\\":\\"skew\\",\\"parameters\\":[-0.002]}]}"
+
+julia> VgtkIO.target_calibration_from_json(s, JSON.parse(text)) == Aspect(0.01) ∘ Skew(-0.002)
+true
+```
+"""
+function target_calibration_json(s::VgioStyle, c::TargetCalibration)
+    fu = _field_units(s)
+    fu === nothing || return _height_field_json(s, c, fu...)
     u = s.length_unit
     u isa _Chart || (any(length_mask(c)) && !has_units(c) && _refuse_plain("a $(nameof(typeof(c))) target calibration"))
-    c isa ComposedTransformation && return (type = _COMPOSITION_TYPE, compose = [_target_calibration_json(s, l) for l in members(c)])
+    c isa ComposedTransformation && return (type = _COMPOSITION_TYPE, compose = [target_calibration_json(s, l) for l in members(c)])
     r = _parametric_record(calibration_tag(typeof(c)), c, u; structure = _calibration_structure(c, u))
     _check_writes_back(c, r, u)
     return r
 end
-_target_calibration_json(s::VgioStyle, c::Uncertain{<:TargetCalibration}) =
-    merge(_target_calibration_json(s, geom(c)), (covariance = _length_cov_json(cov(c), s.length_unit, length_mask(geom(c))),))
+target_calibration_json(s::VgioStyle, c::Uncertain{<:TargetCalibration}) =
+    merge(target_calibration_json(s, geom(c)), (covariance = _length_cov_json(cov(c), something(_field_units(s), (s.length_unit, s.length_unit))[2], length_mask(geom(c))),))
+
+# THE PER-FIELD UNITS of a height field (owner, 2026-11-13; IO 0.10: as length
+# roles): a height field's record of its own (RadiometricCamera's board
+# warping) may hold its nodes and its heights in units apart — the file's
+# `units.length_roles.node` ("chart": dimensionless numbers of a chart the
+# record's owner defines, its page fractions; or a length unit) and
+# `units.length_roles.height` (a length unit), both or neither; the record
+# states no unit (IO 0.9.5's `node_unit`/`height_unit` keys, read by the 0.10
+# step as these roles). Pure bending depends on the NODES' unit (scaling them
+# moves a piston between the affine and the bending parts), never on the
+# heights' (a scale of every height keeps an interpolant's affine term zero),
+# so the record is checked pure bending on its nodes as stated, or — length
+# nodes — in metres. The field's bending energy (Core's `bending_energy` over
+# these nodes) is in height² · node⁻²: over chart nodes, height² (in memory,
+# m²). In memory the field is Core's `HeightField` over plain chart nodes with
+# heights in plain metres (chart nodes: Core has no form that mixes a chart and
+# lengths), or a physical one (length nodes). A target body's calibration is
+# always in its target's length form.
+function _field_units(s::VgioStyle)
+    nu, hu = _role_form(s, :node), _role_form(s, :height)
+    (nu === nothing) == (hu === nothing) ||
+        throw(ArgumentError("a height field's per-field units are the length roles `node` and `height`, both or neither; the style declares $(nu === nothing ? "height" : "node") alone"))
+    nu === nothing && return nothing
+    hu isa Units || throw(ArgumentError("a height field's heights are lengths: the role `height` is a length unit, not a chart"))
+    return (nu, hu)
+end
+function _height_field_json(s::VgioStyle, c, nu, hu)
+    c isa HeightField || throw(ArgumentError("target_calibration_json: the roles `node` and `height` are a height field's (its nodes' unit apart from its heights'); got a $(nameof(typeof(c)))"))
+    (nu isa _Chart) == !has_units(c) || throw(
+        ArgumentError(
+            nu isa _Chart ? "target_calibration_json: a height field over chart nodes is plain (its nodes the chart's numbers, its heights plain metres); this one holds lengths" :
+                "target_calibration_json: a height field over length nodes holds lengths (attach the unit); this one is plain — declare the role node = :chart for chart nodes"
+        )
+    )
+    r = (type = calibration_tag(HeightField), nodes = _nodes_json(c, nu), parameters = _parameters_json(parameter_vector(c), length_mask(c), hu))
+    _check_writes_back(c, r, nu, hu)
+    return r
+end
 # What a kind's type does not fix: a thin-plate kind's nodes.
 _calibration_structure(c, u) = (;)
 _calibration_structure(c::Union{ThinPlateSpline, HeightField}, u) = (nodes = _nodes_json(c, u),)
@@ -496,13 +579,13 @@ _calibration_structure(c::Union{ThinPlateSpline, HeightField}, u) = (nodes = _no
 # pure bending neither in the file's numbers nor in metres would not read
 # back, so it is refused here, naming the unit to write it in. (The identity
 # tree, `_PERSISTED`, is never read.)
-_check_writes_back(c, r, u) = nothing
-function _check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, u::Union{Units, _Chart})
-    _reads_back(r.nodes, r.parameters, u) === nothing || return nothing
+_check_writes_back(c, r, u, hu = u) = nothing
+function _check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, u::Union{Units, _Chart}, hu::Union{Units, _Chart} = u)
+    _reads_back(r.nodes, r.parameters, u, hu) === nothing || return nothing
     throw(
         ArgumentError(
             "a $(r.type) calibration that is pure bending neither in metres nor in the file's unit " *
-                "$(u isa Units ? unit_string(u) : "(the placement's chart)") would not read back: pure bending (no affine term in the " *
+                "$(u isa Units ? unit_string(u) : "(its chart's numbers)") would not read back: pure bending (no affine term in the " *
                 "interpolant) depends on the unit the nodes are in, and a unit move (with_unit, ustrip) does not re-project — " *
                 "write it with the length_unit it was built in; nothing was written"
         )
@@ -524,9 +607,11 @@ _calibration_prototype(::Type{K}, u) where {K <: Union{Rigid, Scale, Aspect{2}}}
 _calibration_prototype(::Type{K}, u) where {K <: Skew} = Skew{2}()
 _calibration_prototype(::Type{<:EuclideanMap{2}}, u) =   # physical iff the file's numbers are lengths (not a placed chart's)
     EuclideanMap(Angle2d(0.0), u isa _Chart ? SVector(0.0, 0.0) : SVector(0.0, 0.0) .* m; check = false)
-function _calibration_from_record(T::Type{<:Union{ThinPlateSpline, HeightField}}, x, u::_ReadUnit)
-    system = _check_pure_bending(T, x.nodes, x.parameters, u)
-    v, K = [_read_metres(p, u) for p in x.parameters::Vector{Any}], length(x.nodes)   # a spline's fx then fy; the heights
+function _calibration_from_record(T::Type{<:Union{ThinPlateSpline, HeightField}}, x, u::_ReadUnit, hu::_ReadUnit = u)
+    system = _check_pure_bending(T, x.nodes, x.parameters, u, hu)
+    # a spline's fx then fy; the heights: lengths, or (chart nodes, heights in a length unit) plain metres
+    v = [u isa _Chart ? metres(p, hu) : _read_metres(p, hu) for p in x.parameters::Vector{Any}]
+    K = length(x.nodes)
     return T === ThinPlateSpline ? ThinPlateSpline(system, v[1:K], v[(K + 1):end]; project = false) : HeightField(system, v; project = false)
 end
 # A thin-plate kind holds pure bending (VGC: no affine term in its
@@ -543,18 +628,18 @@ end
 # refused, never read moved. The writer refuses a field that would not read
 # back (`_check_writes_back`), so anything written reads back `==`.
 #
-# `_reads_back(nodes, p, u)`: whether the record's nodes and parameters (the
-# file's numbers; `p` a height field's K heights or a spline's 2K
-# displacements, `fx` then `fy`) read back — each value block pure bending
-# (VGC's `is_pure_bending`) on the nodes in the file's numbers or in metres —
-# and the system the value is built on (metres, or the chart's numbers), each
-# system formed once; `nothing` when they do not.
-function _reads_back(nodes, p, u::_ReadUnit)
+# `_reads_back(nodes, p, u, hu)`: whether the record's nodes (in `u`) and
+# parameters (in `hu`; the file's numbers; `p` a height field's K heights or a
+# spline's 2K displacements, `fx` then `fy`) read back — each value block pure
+# bending (VGC's `is_pure_bending`) on the nodes in the file's numbers or in
+# metres — and the system the value is built on (metres, or the chart's
+# numbers), each system formed once; `nothing` when they do not.
+function _reads_back(nodes, p, u::_ReadUnit, hu::_ReadUnit)
     file = ThinPlateSplineSystem([SVector(Float64(q[1]), Float64(q[2])) for q in nodes])
     pure_in_file = _pure_blocks(file, [Float64(v) for v in p])
-    u isa _Chart && return pure_in_file ? file : nothing        # a placed target's chart numbers are its values'
+    u isa _Chart && return pure_in_file ? file : nothing        # chart nodes: the chart's numbers are the value's
     in_metres = ThinPlateSplineSystem([SVector(metres(q[1], u), metres(q[2], u)) for q in nodes])
-    return pure_in_file || _pure_blocks(in_metres, [metres(v, u) for v in p]) ? in_metres : nothing
+    return pure_in_file || _pure_blocks(in_metres, [metres(v, hu) for v in p]) ? in_metres : nothing
 end
 """
     metres(x::Real, u::Units) -> Float64
@@ -569,8 +654,8 @@ metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
 metres(x, ::_Chart) = Float64(x::Real)
 _pure_blocks(system::ThinPlateSplineSystem{K}, v) where {K} =
     length(v) == K ? is_pure_bending(system, v) : is_pure_bending(system, v[1:K]) && is_pure_bending(system, v[(K + 1):end])
-function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
-    system = _reads_back(nodes, p, u)
+function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit, hu::_ReadUnit) where {T}
+    system = _reads_back(nodes, p, u, hu)
     system === nothing || return system
     what = T === HeightField ? "heights" : "displacements"
     throw(
@@ -584,15 +669,40 @@ function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
         )
     )
 end
-# A calibration record (validated) back to VGC's kind, `Uncertain` iff it
-# states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)): the target lift's, the
-# inverse of `_target_calibration_json`.
-function _target_calibration_from_json(s::VgioStyle, x::Record)
-    u = s.length_unit
-    c = _bare_calibration_from_json(x, u)
+"""
+    target_calibration_from_json(s::VgioStyle, record) -> TargetCalibration | Uncertain
+
+The calibration a target-calibration record states (the inverse of
+[`target_calibration_json`](@ref)), its lengths read in the style's
+`length_unit` as lengths in metres, decimal-exactly: the kind its tag names in
+Core's `TARGET_CALIBRATION_TAGS` (a composition right-associated, Core's one
+association), `Uncertain` iff the record states a `covariance`. `record` is a
+[`Record`](@ref) (a parsed `JSON.Object` or a NamedTuple); it is validated
+first, as a calibration in a vgio file is — an unknown kind, a retired one
+(`affine`, `calibration_chain`) by name, a parameter count that is not the
+kind's, a composition out of Core's order, a thin-plate kind that is not pure
+bending — each an `ArgumentError` naming the problem. On a style that declares
+the length roles `node` and `height`, a height field is read in them (its
+per-field units, [`target_calibration_json`](@ref)): over `"chart"` nodes a
+plain `HeightField` (the chart's numbers, its heights plain metres), over
+length nodes a physical one.
+"""
+function target_calibration_from_json(s::VgioStyle, x::Record)
+    r = x isa NamedTuple ? _parse_json(JSON.json(x)) : x      # an in-memory record read as its file would be (`Vector{Any}` arrays)
+    _validate(_TARGET_CALIBRATION, r, "a target calibration record", "")
+    fu = _field_units(s)
+    fu === nothing && return _target_calibration_from_record(s, r)
+    r.type::String == calibration_tag(HeightField) ||
+        throw(ArgumentError("a target calibration record read with the roles `node` and `height` is a height field's; got a $(r.type)"))
+    return _target_calibration_from_record(s, r, fu...)
+end
+# …a record already validated (a target body's, its file checked: the target lift's; its lengths in the style's
+# length form), or a height field's in its per-field units `nu`, `hu`.
+function _target_calibration_from_record(s::VgioStyle, x::Record, nu = s.length_unit, hu = nu)
+    c = nu === hu ? _bare_calibration_from_json(x, nu) : _calibration_from_record(HeightField, x, nu, hu)
     haskey(x, :covariance) || return c
     dims = length_mask(c)
-    return Uncertain(c, CovMat(_length_cov_from_json(x.covariance, length(dims), u, dims)))
+    return Uncertain(c, CovMat(_length_cov_from_json(x.covariance, length(dims), hu, dims)))
 end
 # the calibration without its covariance: a kind, or a composition, its flat
 # members folded right (`a ∘ (b ∘ c)`, VGC's one association)
@@ -619,7 +729,7 @@ function JSON.lower(s::VgioStyle, t::PlanarTarget)
     unit, pl = s.length_unit, placement(t)
     cs = pl === nothing ? s : _with_length(s, _CHART)          # a placed calibration: plain chart numbers
     return merge(
-        (type = _PLANAR_TARGET_TAG,), _design_json(s, t), (calibration = _target_calibration_json(cs, calibration(t)),),
+        (type = _PLANAR_TARGET_TAG,), _design_json(s, t), (calibration = target_calibration_json(cs, calibration(t)),),
         _board_json(board(t), unit),
         _canvas_json(canvas(t), unit),
         _placement_json(t, pl, unit),
@@ -722,7 +832,7 @@ function JSON.lift(s::VgioStyle, ::Type{AbstractTarget}, t::Record; resolve = no
     u = s.length_unit
     t.type == _POINT_TARGET_TAG && return PointTarget(_points_from_json(t.points::Vector{Any}, u))
     pl = haskey(t, :placement) ? _placement_from_json(t.placement, u) : nothing
-    c = _target_calibration_from_json(pl === nothing ? s : _with_length(s, _CHART), t.calibration::Record)   # placed: plain chart numbers
+    c = _target_calibration_from_record(pl === nothing ? s : _with_length(s, _CHART), t.calibration::Record)   # placed: plain chart numbers
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
     haskey(t, :nominal) && return PlanarTarget(nothing, _nominal_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)

@@ -9,9 +9,9 @@
 #  "read_noise": {"value": [r0, r1, r2, r3], "source": "estimated", "std_error": [s0, s1, s2, s3]},
 #  "black": {"value": [b0, b1, b2, b3], "source": "file"},
 #  "dark": {"source": "measured", "exposure_band": [0.001, 1.0], "frames": 16, "size": {"width": W, "height": H},
-#           "offset": {"file": "noise.dark_offset.f32", "sha256": "<hex>"},
-#           "variance": {"file": "noise.dark_variance.f32", "sha256": "<hex>"}},
-#  "defects": {"source": "measured", "size": {"width": W, "height": H}, "mask": {"file": "noise.defects.u8", "sha256": "<hex>"}},
+#           "offset": {"file": "noise.dark_offset.tiff", "sha256": "<hex>"},
+#           "variance": {"file": "noise.dark_variance.tiff", "sha256": "<hex>"}},
+#  "defects": {"source": "measured", "size": {"width": W, "height": H}, "mask": {"file": "noise.defects.tiff", "sha256": "<hex>"}},
 #  "reason": "…"}                                                                       (iff the noise is unknown)
 #
 # One SensorNoise (VisualGeometryToolkitCore raw/sensor_noise.jl): the key is the
@@ -23,14 +23,14 @@
 # index 0–3 (LibRaw's), codes.
 #
 # THE ARTIFACTS: a master dark's per-photosite offset and variance and a defect
-# mask are files beside the record, named relative to its directory, written
-# row-major (`conventions.grid_layout`) over the visible raw (`size`): the maps
-# little-endian float32, the mask one byte per photosite (0 or 1). The record
-# holds each one's SHA-256, and the reader refuses a file whose bytes differ.
+# mask are rasters beside the record, each the stack's one bulk-array binding,
+# the raster PAYLOAD BODY `{file, sha256}` + a TIFF of the raster profile
+# (raster_schema.jl): over the visible raw (`size`), row 1 on top; the maps
+# float32, the mask uint8 (1 a defect, 0 not). The reader refuses a file whose
+# digest is not the record's, before it is decoded.
 # Exposure times are in `units.time` (seconds).
 
 const _SOURCE = _Named(in(String.(VgtkCore.NOISE_SOURCES)), "a value's source ($(join(VgtkCore.NOISE_SOURCES, ", ")))")
-const _ARTIFACT = _Obj(:file => _Named(s -> !isempty(s) && basename(s) == s, "a file name beside the record"), :sha256 => _HEX64)
 _noise_field_spec(value::_Spec) = _Obj(Pair{Symbol, _Spec}[:value => value, :source => _SOURCE], Pair{Symbol, _Spec}[:std_error => value])
 const _FOUR = _Vec(_Real(), 4)
 
@@ -54,8 +54,8 @@ const _SENSOR_NOISE_SPEC = _kind_spec(
     Pair{Symbol, _Spec}[
         :electrons_per_dn => _noise_field_spec(_Real()), :read_noise => _noise_field_spec(_FOUR), :black => _noise_field_spec(_FOUR),
         :dark => _Obj(:source => _SOURCE, :exposure_band => _Vec(_Real(), 2), :frames => _PosInt(), :size => _SIZE_INT,
-                      :offset => _ARTIFACT, :variance => _ARTIFACT),
-        :defects => _Obj(:source => _SOURCE, :size => _SIZE_INT, :mask => _ARTIFACT),
+                      :offset => _RASTER_PAYLOAD, :variance => _RASTER_PAYLOAD),
+        :defects => _Obj(:source => _SOURCE, :size => _SIZE_INT, :mask => _RASTER_PAYLOAD),
         :reason => _NonEmpty(),
     ];
     check = _sensor_noise_check,
@@ -79,25 +79,11 @@ _noise_from(::Type{NTuple{4, Float64}}, x) = ntuple(i -> Float64(x[i]::Real), 4)
 _noise_field_from(::Type{V}, x) where {V} = VgtkCore.noise_value(_noise_from(V, x.value), Symbol(x.source::String);
     std_error = haskey(x, :std_error) ? _noise_from(V, x.std_error) : nothing)
 
-# An artifact: the bytes of a matrix row-major, written beside the record; and back, checked.
-_artifact_bytes(M::AbstractMatrix{Float32}) = collect(reinterpret(UInt8, htol.(vec(permutedims(Array(M))))))
-_artifact_bytes(M::AbstractMatrix{Bool}) = UInt8.(vec(permutedims(Array(M))))
-function _write_artifact(dir, name, M)
-    write(joinpath(dir, name), _artifact_bytes(M))
-    return (file = name, sha256 = open(sha256_hex, joinpath(dir, name)))
-end
-function _read_artifact(dir, a, ::Type{T}, sz) where {T}
-    full = joinpath(dir, a.file::String)
-    isfile(full) || throw(ArgumentError("$(full): the artifact the sensor-noise record names is missing"))
-    got = open(sha256_hex, full)
-    got == a.sha256 || throw(ArgumentError("$(full): its SHA-256 is $(got), but the record holds $(a.sha256) — the file changed since the record was written"))
-    bytes = read(full)
-    W, H = Int(sz.width::Integer), Int(sz.height::Integer)
-    length(bytes) == W * H * sizeof(T) ||
-        throw(ArgumentError("$(full): holds $(length(bytes)) bytes, a $(W)×$(H) map of $(T) is $(W * H * sizeof(T))"))
-    T === Bool || return permutedims(reshape(ltoh.(reinterpret(T, bytes)), W, H))
-    all(b -> b <= 0x01, bytes) || throw(ArgumentError("$(full): a defect mask holds one byte 0 or 1 per photosite"))
-    return permutedims(reshape(bytes, W, H)) .== 0x01
+# A defect mask as its uint8 raster (1 a defect), and back (a raster of 0s and 1s).
+_mask_raster(M::AbstractMatrix{Bool}) = UInt8.(Array(M))
+function _mask_from_raster(A::AbstractMatrix{UInt8}, where_)
+    all(b -> b <= 0x01, A) || throw(ArgumentError("$(where_): a defect mask holds 0 or 1 per photosite"))
+    return A .== 0x01
 end
 _map_size(M) = (width = size(M, 2), height = size(M, 1))
 
@@ -109,8 +95,9 @@ Write a VGC `SensorNoise` (the resolver's value, or a record of record from
 the body's identity (`device.body`), the ISO, each known field with its source
 and standard error (an unknown one omitted), `reason` when the noise is
 unknown. A master dark's offset and variance maps and the defect mask are
-written beside `path` (`<stem>.dark_offset.f32`, `<stem>.dark_variance.f32`,
-`<stem>.defects.u8`, row-major, little-endian) and bound by their SHA-256.
+written beside `path` as rasters, the raster payload body (`<stem>.dark_offset.tiff`,
+`<stem>.dark_variance.tiff` float32, `<stem>.defects.tiff` uint8; TIFFs of the
+raster profile, row 1 on top) bound by their SHA-256.
 """
 function save(path::AbstractString, n::SensorNoise; provenance::NamedTuple = (;))
     dir, stem = dirname(path), first(splitext(basename(path)))
@@ -122,12 +109,12 @@ function save(path::AbstractString, n::SensorNoise; provenance::NamedTuple = (;)
         D = value_of(n.dark)
         (dark = (source = String(getfield(n.dark, :attributes).source),
                  exposure_band = Float64[ustrip(sec, D.exposure_band[1]), ustrip(sec, D.exposure_band[2])], frames = D.frames,
-                 size = _map_size(D.offset), offset = _write_artifact(dir, "$(stem).dark_offset.f32", D.offset),
-                 variance = _write_artifact(dir, "$(stem).dark_variance.f32", D.variance)),)
+                 size = _map_size(D.offset), offset = _raster_payload_json(dir, "$(stem).dark_offset.tiff", D.offset),
+                 variance = _raster_payload_json(dir, "$(stem).dark_variance.tiff", D.variance)),)
     end
     defects = n.defects === nothing ? (;) :
         (defects = (source = String(getfield(n.defects, :attributes).source), size = _map_size(value_of(n.defects)),
-                    mask = _write_artifact(dir, "$(stem).defects.u8", value_of(n.defects))),)
+                    mask = _raster_payload_json(dir, "$(stem).defects.tiff", _mask_raster(value_of(n.defects)))),)
     body = merge((device = (body = _identity_json(n.body),), iso = n.iso), fields, dark, defects,
                  n.reason === nothing ? (;) : (reason = n.reason,))
     _write_kind(path, "sensor_noise", body, provenance; style = VgioStyle())
@@ -140,21 +127,24 @@ end
 Read a `vgio/sensor_noise/v1.0` file ([`save`](@ref)'s): the `SensorNoise`
 exactly as written, each field with its source and standard error, `nothing`
 where the file states none; the dark maps (`Matrix{Float32}`) and the defect
-mask (`BitMatrix`) read from the artifacts beside it, each checked against its
-SHA-256 and its size.
+mask (`BitMatrix`) read from the rasters beside it, each checked against its
+SHA-256, the raster profile and its size.
 """
 function load(::Type{SensorNoise}, path::AbstractString)
     d = _read_store(path, "sensor_noise", _SENSOR_NOISE_SPEC)
-    dir, sec = dirname(path), parse_unit(_TIME_UNIT)
+    sec = parse_unit(_TIME_UNIT)
     field(k, V) = haskey(d, k) ? _noise_field_from(V, d[k]) : nothing
     dark = if haskey(d, :dark)
         x = d.dark
-        D = VgtkCore.DarkFrame(_read_artifact(dir, x.offset, Float32, x.size), _read_artifact(dir, x.variance, Float32, x.size),
+        W, H = Int(x.size.width::Integer), Int(x.size.height::Integer)
+        D = VgtkCore.DarkFrame(_raster_payload_from_json(path, x.offset, Float32, W, H), _raster_payload_from_json(path, x.variance, Float32, W, H),
                                (Float64(x.exposure_band[1]::Real) * sec, Float64(x.exposure_band[2]::Real) * sec), Int(x.frames::Integer))
         VgtkCore.noise_value(D, Symbol(x.source::String))
     end
-    defects = haskey(d, :defects) ?
-        VgtkCore.noise_value(_read_artifact(dir, d.defects.mask, Bool, d.defects.size), Symbol(d.defects.source::String)) : nothing
+    defects = if haskey(d, :defects)
+        A = _raster_payload_from_json(path, d.defects.mask, UInt8, Int(d.defects.size.width::Integer), Int(d.defects.size.height::Integer))
+        VgtkCore.noise_value(_mask_from_raster(A, path), Symbol(d.defects.source::String))
+    end
     return SensorNoise(; body = _identity_from_json(d.device.body), iso = Float64(d.iso::Real),
                        electrons_per_dn = field(:electrons_per_dn, Float64), read_noise = field(:read_noise, NTuple{4, Float64}),
                        black = field(:black, NTuple{4, Float64}), dark, defects,

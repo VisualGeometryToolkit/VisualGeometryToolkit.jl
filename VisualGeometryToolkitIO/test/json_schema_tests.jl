@@ -149,6 +149,9 @@ end
             end
             written(p -> save(p, SensorNoise(; body = DeviceIdentity("Sony", "ILME-FX3", nothing), iso = 3200.0,
                     black = noise_value((512.0, 512.0, 512.0, 512.0), :file), reason = "too few flat pixels")), "sensor_noise_unknown.json")
+            written(p -> VgtkIO.save_raster(p, Float32[0.5 NaN32; 0.25 1.0]; nan = :unobserved,
+                    frame = (chart = :page, area = VisualGeometryToolkitCore.Rect2{Float64}(-0.105, -0.1485, 0.21, 0.297))), "raster_page.json")
+            written(p -> VgtkIO.save_raster(p, UInt8[0 1; 1 0]; frame = PixelFrame{:colmap}, nan = :none), "raster_mask.json")
             written("target_homographies.json") do p
                 H = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]')))))
                 tid = VgtkIO.content_id(joinpath(dir, "target.json"))

@@ -272,11 +272,31 @@ end
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
+        rec = parse_json(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
     @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
+end
+
+@testitem "target_calibration_json / target_calibration_from_json: every kind and composition, bare and Uncertain, reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # The public calibration codec (RadiometricCamera's in-plane print error): the record a target body embeds, alone.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rigid, Aspect, Skew
+    for (name, c) in pairs(kinds()), cc in (c isa Rigid ? (c,) : (c, uncertain(c)))
+        s = VgtkIO.VgioStyle(; length_unit = mm)
+        text = JSON.json(VgtkIO.target_calibration_json(s, cc))
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && back == cc
+        @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text          # the record a value writes is its own
+    end
+    # a calibration with lengths of plain numbers is refused (attach the unit), as a target's points are
+    @test_throws ArgumentError VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm),
+        VisualGeometryToolkitCore.HeightField(VisualGeometryToolkitCore.grid_nodes(3; lo = 0.0, hi = 1.0)))
+    # one without lengths has no form to refuse: the in-plane print error reads back in any unit
+    pe = Aspect(0.01) ∘ Skew(-0.002)
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = m),
+        JSON.parse(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), pe)))) == pe
 end
 
 @testitem "target/v3: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
@@ -681,4 +701,71 @@ end
         save(p, rig(t); length_unit = m)
         @test VgtkIO.content_id(p) == VgtkIO.content_id(rig(t)) == VgtkIO.content_id(load(Rig, p))
     end
+end
+
+@testitem "height_field per-field units: the roles node and height — chart nodes and heights in a length (RadiometricCamera's board warping) round-trip exactly" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # Owner ruling 2026-11-13 (IO 0.9.5's node_unit/height_unit; IO 0.10: the length roles `node` and `height` of the
+    # units object, "chart" a chart role). RC's board warping: a 5 × 5 grid of PAGE FRACTIONS with heights in metres.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: HeightField, grid_nodes, has_units, geom, bending_energy, ThinPlateSplineSystem, PlanarTarget
+    using Random: Xoshiro
+    nodes = grid_nodes(5; lo = 0.0, hi = 1.0)                                       # page fractions, plain
+    h = [VgtkIO.metres(round(x; digits = 4), mm) for x in 0.3 .* randn(Xoshiro(3), 25)]   # metres, mm-born
+    hf = HeightField(nodes, h)
+    @test !has_units(hf)
+    heights(c) = geom(c).h
+    roles(u) = VgtkIO.VgioStyle(; length_roles = (node = :chart, height = u))
+    for unit in (m, mm, VisualGeometryToolkitCore.μm), cc in (hf, uncertain(hf))
+        s = roles(unit)
+        r = VgtkIO.target_calibration_json(s, cc)
+        @test r.type == "height_field" && !haskey(r, :node_unit) && !haskey(r, :height_unit)   # the units are the style's
+        @test r.nodes == [Float64[q[1], q[2]] for q in nodes]                     # the chart's numbers as they are
+        @test VgtkIO._units_json(s).length_roles == Dict("node" => "chart", "height" => unit_string(unit))
+        text = JSON.json(r)
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && geom(back).system.nodes == geom(cc).system.nodes
+        if unit === m
+            @test back == cc
+            @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text
+        else
+            @test all(abs.(heights(back) .- heights(cc)) .<= 2 .* eps.(heights(cc)))   # the decimal codec's persisted form
+            @test VgtkIO.target_calibration_from_json(s, JSON.parse(JSON.json(VgtkIO.target_calibration_json(s, back)))) == back
+        end
+    end
+    # a record of an owner's kind: its envelope's units object declares the roles, and its style reads them back
+    mktempdir() do dir
+        p = joinpath(dir, "warp.json")
+        VgtkIO.write_record(p, (schema = "rc/board_warp/v1.0", warp = VgtkIO.target_calibration_json(roles(m), hf)); style = roles(m))
+        d = VgtkIO.read_record(p)
+        @test d.units.length_roles.node == "chart" && d.units.length_roles.height == "m"
+        @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(d), d.warp) == hf
+    end
+    # the bending energy is the field's over its chart nodes (m² in memory): the same before and after
+    back = VgtkIO.target_calibration_from_json(roles(m), JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf))))
+    @test bending_energy(ThinPlateSplineSystem(nodes), back.h) == bending_energy(ThinPlateSplineSystem(nodes), hf.h)
+    # length nodes in one unit, heights in another: a physical field
+    k = kinds().height_field
+    s2 = VgtkIO.VgioStyle(; length_roles = (node = mm, height = VisualGeometryToolkitCore.μm))
+    @test VgtkIO.target_calibration_from_json(s2, JSON.parse(JSON.json(VgtkIO.target_calibration_json(s2, k)))) == k
+    # refused by name: one role alone, the roles on another kind, a chart height, chart nodes holding lengths, plain over lengths
+    @test_throws "both or neither" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_roles = (node = :chart,)), hf)
+    @test_throws "height field's" VgtkIO.target_calibration_json(roles(m), kinds().aspect)
+    @test_throws "not a chart" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_roles = (node = :chart, height = :chart)), hf)
+    @test_throws "holds lengths" VgtkIO.target_calibration_json(roles(m), k)
+    @test_throws "is plain" VgtkIO.target_calibration_json(s2, hf)
+    @test_throws "height field's" VgtkIO.target_calibration_from_json(roles(m), JSON.parse("{\"type\":\"scale\",\"parameters\":[1.5]}"))
+    # heights that are not pure bending on the record's nodes are refused
+    d = JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf)); dicttype = Dict{String, Any})
+    d["parameters"] = Any[Float64(i) for i in 1:25]
+    @test_throws "pure bending" VgtkIO.target_calibration_from_json(roles(m), JSON.parse(JSON.json(d)))
+    # IO 0.9.5's record keys are unknown in 0.10; its file's step moves them to the roles
+    d = JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf)); dicttype = Dict{String, Any})
+    d["node_unit"] = "chart"; d["height_unit"] = "m"
+    @test_throws "unknown key" VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), JSON.parse(JSON.json(d)))
+    old = Dict{String, Any}("schema" => "rc/board_warp/v1", "warp" => d)
+    t = VgtkIO.migrate_envelope(old, "rc/board_warp/v1.0")
+    @test t["units"]["length_roles"] == Dict("node" => "chart", "height" => "m") && !haskey(t["warp"], "node_unit")
+    @test (tp = JSON.parse(JSON.json(t)); VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(tp), tp.warp)) == hf
+    # a chart role is no length unit: "chart" is refused as the file's `length`
+    @test_throws ArgumentError VgtkIO.VgioStyle(; length_roles = (world = :chart,))
 end

@@ -170,9 +170,9 @@ function _json_schema(::_RowRuns, defs)
 end
 _json_schema(::_LengthRoles, defs) = _jobj(
     "type" => "object",
-    "description" => "length role → its length unit, for the fields whose lengths are not in `length`",
+    "description" => "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
     "propertyNames" => _jobj("pattern" => _LENGTH_ROLE_RE.pattern, "not" => _jobj("enum" => collect(_RESERVED_ROLES))),
-    "additionalProperties" => _json_schema(_LENGTH_UNIT, defs),
+    "additionalProperties" => _jobj("anyOf" => Any[_json_schema(_LENGTH_UNIT, defs), _jobj("const" => _CHART_ROLE)]),
 )
 # A vignetting body names its kind by `type` (VGC's VIGNETTING_TAGS), and a log body holds a spline
 # body: one definition, referenced (its own recursion included).

@@ -34,11 +34,22 @@ end
 @testitem "VgioStyle: a parametric record holds exactly its kind's parameter count" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     s =VgtkIO.VgioStyle(; length_unit = mm)
-    for (rec, n) in (("{\"type\":\"scale\",\"parameters\":[1.5,2.0]}", 2), ("{\"type\":\"scale\"}", 0), ("{\"type\":\"euclidean\",\"parameters\":[0.1,1.0]}", 2))
-        e = try VgtkIO._target_calibration_from_json(s, JSON.parse(rec)); nothing catch err; err end
-        @test e isa ArgumentError && occursin("\"$(JSON.parse(rec).type)\"", e.msg) && occursin("got $n", e.msg)
+    # the public reader validates the record first (the calibration table, as in a file): the count by name
+    for (rec, why) in (("{\"type\":\"scale\",\"parameters\":[1.5,2.0]}", "states 1 parameters, got 2"),
+                       ("{\"type\":\"scale\"}", "states its `parameters`"),
+                       ("{\"type\":\"euclidean\",\"parameters\":[0.1,1.0]}", "states 3 parameters, got 2"))
+        e = try VgtkIO.target_calibration_from_json(s, JSON.parse(rec)); nothing catch err; err end
+        @test e isa ArgumentError && occursin("a target calibration record", e.msg) && occursin(why, e.msg)
     end
-    @test VgtkIO._target_calibration_from_json(s, JSON.parse("{\"type\":\"scale\",\"parameters\":[1.5]}")) == VisualGeometryToolkitCore.Scale(1.5)
+    # behind the table, the lift's own count check names the tag (a record a file's table has already checked)
+    for (rec, n) in (("{\"type\":\"scale\",\"parameters\":[1.5,2.0]}", 2), ("{\"type\":\"scale\"}", 0))
+        e = try VgtkIO._target_calibration_from_record(s, JSON.parse(rec)); nothing catch err; err end
+        @test e isa ArgumentError && occursin("\"scale\"", e.msg) && occursin("got $n", e.msg)
+    end
+    @test VgtkIO.target_calibration_from_json(s, JSON.parse("{\"type\":\"scale\",\"parameters\":[1.5]}")) == VisualGeometryToolkitCore.Scale(1.5)
+    # an in-memory record (a NamedTuple) reads too, and a retired kind is refused by name
+    @test VgtkIO.target_calibration_from_json(s, (type = "scale", parameters = [1.5])) == VisualGeometryToolkitCore.Scale(1.5)
+    @test_throws "retired" VgtkIO.target_calibration_from_json(s, JSON.parse("{\"type\":\"affine\",\"parameters\":[1,0,0,1,0,0]}"))
 end
 
 @testitem "VgioStyle: a target's records — target_json, its lift, its calibration" setup = [VGIoFixtures] begin

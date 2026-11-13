@@ -232,6 +232,9 @@ function _validate(::_RowRuns, x, file, at)
     return nothing
 end
 
+# A record's rectangle `a`, `[x, y, w, h]` (`what` names it): its widths positive; the message, or `nothing`.
+_area_problem(a, what) = (a[3] > 0 && a[4] > 0) ? nothing : "$(what) [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+
 # THE LATTICE RECORD, one for every spline (a SplineLens's backward spline and
 # its forward one, a non-central model's, RadiometricCamera's aperture and
 # focus lattices): its `area` `[x, y, w, h]`, its `grid_size` `{width, height}`
@@ -260,8 +263,8 @@ _lattice_spec(controls::Vector{<:Pair{Symbol, Int}}, optional::Vector{<:Pair{Sym
 # lattice (`_lattice_count_problem`) with each of its control arrays; `s` a
 # parsed record (keys by Symbol or String); the message, or `nothing`.
 function _lattice_problem(s)
-    a = _getkey(s, :area)
-    (a[3] > 0 && a[4] > 0) || return "the spline's area [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+    msg = _area_problem(_getkey(s, :area), "the spline's area")
+    msg === nothing || return msg
     g = _getkey(s, :grid_size)
     runs = _haskey(s, :present) ? _getkey(s, :present) : nothing
     c = _getkey(s, :controls)
@@ -314,7 +317,8 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "vignetting" => (2, 0), "environment_light" => (2, 0), "blur" => (2, 0),
     "units" => (3, 0),
     "panorama" => (2, 0),   # (v1: IO 0.9.4's, read through its step)
-    "detection" => (1, 0), "sensor_noise" => (1, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; a body's sensor noise
+    "detection" => (1, 0), "sensor_noise" => (1, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; a body's sensor noise; a binned radial profile
+    "raster" => (2, 0),     # (v1: IO 0.9.5's, read through its step)
 )
 _schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);
     v === nothing ? throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))")) : v)
@@ -377,13 +381,17 @@ const _DENSITY_UNIT = _Named(_is_density_name, "a registered density unit (dpi)"
 struct _LengthRoles <: _Spec end
 const _LENGTH_ROLE_RE = r"^[a-z][a-z0-9_]*$"
 const _RESERVED_ROLES = ("length", "world", "density")
+# A length role's value: a length unit, or the reserved token "chart" — a CHART role, its numbers plain numbers of a
+# chart the record's owner defines (a height field's page-fraction nodes), never scaled. Never `units.length`'s.
+const _CHART_ROLE = "chart"
+const _ROLE_VALUE = _Named(v -> v == _CHART_ROLE || _is_length_name(v), "a registered length unit (mm, cm, m, um, inch) or \"chart\"")
 function _validate(::_LengthRoles, x, file, at)
-    x isa AbstractDict || _refuse(file, at, "expected an object of length role => length unit")
+    x isa AbstractDict || _refuse(file, at, "expected an object of length role => length unit (or \"chart\")")
     for (k, v) in x
         r = String(k)
         (occursin(_LENGTH_ROLE_RE, r) && !(r in _RESERVED_ROLES)) ||
             _refuse(file, _at(at, k), "a length role is a snake_case name other than length, world and density")
-        _validate(_LENGTH_UNIT, v, file, _at(at, k))
+        _validate(_ROLE_VALUE, v, file, _at(at, k))
     end
     return nothing
 end
@@ -564,16 +572,21 @@ function _refuse_schema(path, kind::AbstractString, s)
 end
 
 # THE RESERVED `payload` KEY. Every kind keeps its JSON header and may, once its
-# bulk numeric arrays exceed ~10 MB, move them to an Apache Arrow sidecar named
-# by `"payload": {"file": "<name>.arrow", "sha256": "<hex>"}` — glTF's JSON +
-# bin pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md). No kind
-# implements it yet; the key is reserved so adding it breaks no schema, and a
-# file carrying it is refused until its kind does.
+# bulk numeric arrays exceed ~10 MB, move them to a binary sidecar named by
+# `"payload": {"file": "<name>.<ext>", "sha256": "<hex>"}` — glTF's JSON + bin
+# pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md: an Apache
+# Arrow sidecar for arrays). The key is reserved so adding it breaks no schema; a
+# file carrying it is refused unless its kind's table declares it: vgio/raster,
+# whose payload is a TIFF of its profile (raster_schema.jl).
 const _PAYLOAD_KEY = :payload
-_refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
+# whether a spec's object declares the key `k`
+_declares(s::_Obj, k::Symbol) = any(p -> p.first === k, s.required) || any(p -> p.first === k, s.optional)
+_declares(s::_CheckedSpec, k::Symbol) = _declares(s.inner, k)
+_declares(::_Spec, ::Symbol) = false
+_refuse_payload(path, kind, spec, d) = !_declares(spec, _PAYLOAD_KEY) && haskey(d, _PAYLOAD_KEY) && throw(
     ArgumentError(
-        "$(path): carries a `payload` sidecar reference — reserved for the Arrow sidecar of bulk arrays, " *
-            "which no kind implements yet"
+        "$(path): carries a `payload` sidecar reference — reserved for the binary sidecar of bulk arrays, " *
+            "which a $(kind) file does not hold"
     )
 )
 
@@ -595,7 +608,7 @@ function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Sp
     _is_current_major(s, kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     s2 = get(d, :schema, nothing)
     _is_current_major(s2, kind) || _refuse_schema(path, kind, s)
-    _refuse_payload(path, d)
+    _refuse_payload(path, kind, spec, d)
     v = _split_schema(s2)
     with(_TOLERATE_UNKNOWN => v.minor > last(_schema_version(kind))) do
         _validate(spec, d, path, "")
@@ -765,6 +778,7 @@ function _spec(kind::AbstractString)
     kind == "detection" && return _DETECTION_SPEC
     kind == "sensor_noise" && return _SENSOR_NOISE_SPEC
     kind == "radial_profile" && return _RADIAL_PROFILE_SPEC
+    kind == "raster" && return _RASTER_SPEC
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)

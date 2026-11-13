@@ -132,13 +132,10 @@ _lens_json(l) = applicable(lens_record, l) ? lens_record(l) :
 # normalized-plane point x) is stored exactly when it has been fitted (owner,
 # 2026-11-09). Floats are JSON's shortest round-trip form, so a lens reads back
 # bit for bit.
-const _SPLINE_LATTICE = _lattice_spec([:direction => 3])
-const _FORWARD_LATTICE = _lattice_spec([:point => 2])
+# Each spline is the lattice record (`lattice_json`, style.jl).
 function _lens_json(l::SplineLens)
-    P = _held_mask(l.present, size(l.backward.controls))
-    b = _lattice_json(l.backward.area, P, (direction = (l.backward.controls, identity),))
-    f = l.forward === nothing ? (;) :
-        (forward = _lattice_json(l.forward.area, trues(size(l.forward.controls)), (point = (l.forward.controls, identity),)),)
+    b = lattice_json(l.backward; name = :direction, l.present)
+    f = l.forward === nothing ? (;) : (forward = lattice_json(l.forward; name = :point),)
     return (spline = merge(b, f),)
 end
 
@@ -150,19 +147,15 @@ function _spline_lens_from_json(r::Dict{String, Any})
     s = r["spline"]
     s isa AbstractDict || throw(ArgumentError("$(what): \"spline\" is an object"))
     fw = get(s, "forward", nothing)
-    b = Dict{String, Any}(k => v for (k, v) in s if k != "forward")
-    _validate(_SPLINE_LATTICE, b, "$(what)'s \"spline\"", "")
-    L = _lattice_from_json(_namedtuple(b))
-    back = ChartSpline(L.area, _controls_from_json(b["controls"]["direction"], L.P, Val(3)))
+    b = lattice_from_json(Dict{String, Any}(k => v for (k, v) in s if k != "forward"), Val(3); name = :direction, what = "$(what)'s \"spline\"")
     forward = if fw === nothing
         nothing
     else
-        _validate(_FORWARD_LATTICE, fw, "$(what)'s \"forward\"", "")
-        F = _lattice_from_json(_namedtuple(fw))
-        haskey(fw, "present") && throw(ArgumentError("$(what)'s \"forward\": a forward spline holds every node (no `present`)"))
-        ChartSpline(F.area, _controls_from_json(fw["controls"]["point"], F.P, Val(2)))
+        F = lattice_from_json(fw, Val(2); name = :point, what = "$(what)'s \"forward\"")
+        F.present === nothing || throw(ArgumentError("$(what)'s \"forward\": a forward spline holds every node (no `present`)"))
+        F.spline
     end
-    return SplineLens(back; forward, present = L.present)
+    return SplineLens(b.spline; forward, present = b.present)
 end
 
 function _lens_from_json(x)

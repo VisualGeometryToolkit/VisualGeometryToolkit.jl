@@ -3,7 +3,8 @@
 
 @testitem "sensor_noise: round trips exact by type, every field present or nothing" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitIO: validate
-    using VisualGeometryToolkitCore: SensorNoise, DarkFrame, DeviceIdentity, noise_value
+    using VisualGeometryToolkitCore: SensorNoise, DarkFrame, DeviceIdentity, noise_value, value_of
+    import VisualGeometryToolkitIO as VgtkIO
     using Random: Xoshiro
     rng = Xoshiro(7)
     s = parse_unit("s")
@@ -36,8 +37,10 @@
         @test d["electrons_per_dn"] == Dict("value" => 2.1, "source" => "measured", "std_error" => 0.01)
         @test d["black"] == Dict("value" => [512.0, 511.5, 512.25, 511.75], "source" => "file")
         @test d["dark"]["exposure_band"] == [0.002, 0.8] && d["dark"]["size"] == Dict("width" => W, "height" => H)
-        @test d["dark"]["offset"]["file"] == "noise1.dark_offset.f32" && filesize(joinpath(dir, "noise1.dark_offset.f32")) == 4W * H
-        @test d["defects"]["mask"]["file"] == "noise1.defects.u8" && findall(==(0x01), read(joinpath(dir, "noise1.defects.u8"))) == [(2 - 1) * W + 5, (4 - 1) * W + 1]   # row-major
+        # the artifacts are the raster payload body: TIFFs of the raster profile (float32 maps, a uint8 mask), row 1 on top
+        @test d["dark"]["offset"]["file"] == "noise1.dark_offset.tiff" && VgtkIO.read_tiff(Float32, joinpath(dir, "noise1.dark_offset.tiff")) == value_of(full.dark).offset
+        @test d["defects"]["mask"]["file"] == "noise1.defects.tiff" && VgtkIO.read_tiff(UInt8, joinpath(dir, "noise1.defects.tiff")) == UInt8.(defects)
+        @test !any(f -> endswith(f, ".f32") || endswith(f, ".u8"), readdir(dir))
         u = JSON.parsefile(joinpath(dir, "noise2.json"))
         @test !haskey(u, "electrons_per_dn") && !haskey(u, "dark") && u["reason"] == "too few flat pixels (12 of 2000)"
         @test u["device"]["body"] == Dict("make" => "Sony", "model" => "ILME-FX3")
@@ -55,10 +58,10 @@ end
         save(p, n)
         good = read(p, String)
         # an artifact changed since: refused by its hash
-        a = joinpath(dir, "n.dark_offset.f32")
+        a = joinpath(dir, "n.dark_offset.tiff")
         bytes = read(a); bytes[1] ⊻= 0x01; write(a, bytes)
         e = try load(SensorNoise, p); nothing catch e; e end
-        @test e isa ArgumentError && occursin("SHA-256", e.msg)
+        @test e isa ArgumentError && occursin("corrupted or replaced", e.msg)
         save(p, n)
         refused(f!) = (d = JSON.parse(good; dicttype = Dict{String, Any}); f!(d); write(p, JSON.json(d));
                        try load(SensorNoise, p); false catch e; e isa ArgumentError end)
@@ -66,7 +69,8 @@ end
         @test refused(d -> (d["reason"] = "none"))                                    # a reason beside a known noise
         @test refused(d -> pop!(d, "read_noise"))                                     # an unknown noise without its reason
         @test refused(d -> (d["read_noise"]["value"] = [1.0, 1.0, 1.0]))              # per colour index: four
-        @test refused(d -> (d["dark"]["size"]["width"] = 4))                          # the artifact's size
+        @test refused(d -> (d["dark"]["size"]["width"] = 4))                          # the raster's size
+        @test refused(d -> (d["defects"] = Dict("source" => "measured", "size" => d["dark"]["size"], "mask" => d["dark"]["offset"])))   # a float32 TIFF as a uint8 mask
         @test refused(d -> (d["dark"]["offset"]["file"] = "../elsewhere.f32"))         # beside the record only
         @test refused(d -> (d["electrons_per_dn"]["value"] = nothing))                # no null
         @test !refused(identity)

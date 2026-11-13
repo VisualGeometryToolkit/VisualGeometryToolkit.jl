@@ -87,36 +87,53 @@ true
 struct VgioStyle{U, F <: PixelFrame, C <: UnitContract} <: JSON.JSONStyle
     length_unit::U          # Units, or a private leaf form (`_PERSISTED`, the identity's; `_CHART`, a placed target's)
     contract::C             # the file's units declaration: the length unit (its `world` role), further roles, the density
+    charts::Tuple{Vararg{Symbol}}   # the CHART roles: length roles whose numbers are a chart's, plain ("chart" in the units object)
 end
-VgioStyle(contract::UnitContract; pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
-    VgioStyle{typeof(role_unit(contract)), pixel_frame, typeof(contract)}(role_unit(contract), contract)
+VgioStyle(contract::UnitContract; pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME, charts::Tuple{Vararg{Symbol}} = ()) =
+    VgioStyle{typeof(role_unit(contract)), pixel_frame, typeof(contract)}(role_unit(contract), contract, _chart_roles(contract, charts))
 function VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME, density::Units = dpi,
                    length_roles::NamedTuple = (;))
-    c = UnitContract(density, merge((world = length_unit isa Units ? length_unit : mm,), length_roles))
-    return VgioStyle{typeof(length_unit), pixel_frame, typeof(c)}(length_unit, c)
+    charts = Tuple(r for (r, u) in pairs(length_roles) if u === :chart)
+    units = NamedTuple(r => u for (r, u) in pairs(length_roles) if u !== :chart)
+    c = UnitContract(density, merge((world = length_unit isa Units ? length_unit : mm,), units))
+    return VgioStyle{typeof(length_unit), pixel_frame, typeof(c)}(length_unit, c, _chart_roles(c, charts))
+end
+# A chart role is a declared role like a length one (`:chart` in `length_roles`): snake_case, not a length role too.
+function _chart_roles(c::UnitContract, charts)
+    for r in charts
+        (occursin(_LENGTH_ROLE_RE, String(r)) && !(String(r) in _RESERVED_ROLES) && !haskey(c.lengths, r)) ||
+            throw(ArgumentError("a chart role is a snake_case name other than length, world, density and the length roles; got :$(r)"))
+    end
+    return Tuple(charts)
 end
 _pixel_frame(::VgioStyle{U, F}) where {U, F} = F
 # The same style with another length form (a placed target's calibration: chart numbers).
-_with_length(s::VgioStyle{U, F, C}, u) where {U, F, C} = VgioStyle{typeof(u), F, C}(u, s.contract)
+_with_length(s::VgioStyle{U, F, C}, u) where {U, F, C} = VgioStyle{typeof(u), F, C}(u, s.contract, s.charts)
+# What a length role's numbers are: its length unit, `_CHART` (a chart role's plain numbers), or `nothing` (undeclared).
+_role_form(s::VgioStyle, r::Symbol) = r in s.charts ? _CHART : get(s.contract.lengths, r, nothing)
 
 # THE UNITS OBJECT of a file (validate.jl's envelope), from the style, and back.
-# `length` is the contract's `world` role, the other roles under `length_roles`.
+# `length` is the contract's `world` role, the other roles under `length_roles`
+# (a chart role's value the reserved token "chart").
 function _units_json(s::VgioStyle)
     c = s.contract
+    roles = Dict{String, String}(String(r) => unit_string(u) for (r, u) in pairs(_other_roles(c.lengths)))
+    foreach(r -> roles[String(r)] = _CHART_ROLE, s.charts)
     return (
         length = unit_string(role_unit(c)), time = _TIME_UNIT, angle = _ANGLE_UNIT, pixel = pixel_frame_name(_pixel_frame(s)),
-        density = unit_string(c.density), radiance = _RADIANCE_UNIT,
-        length_roles = Dict{String, String}(String(r) => unit_string(u) for (r, u) in pairs(_other_roles(c.lengths))),
+        density = unit_string(c.density), radiance = _RADIANCE_UNIT, length_roles = roles,
     )
 end
 # A parsed `units` object's contract (every key present: the validator's) and the style it declares.
 function _contract_from_units(u)
     roles = u.length_roles
-    ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
+    ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles) if v != _CHART_ROLE)
     return UnitContract(parse_unit(u.density::String), merge((world = parse_unit(u.length::String),), ls))
 end
+_charts_from_units(u) = Tuple(Symbol(k) for (k, v) in pairs(u.length_roles) if v == _CHART_ROLE)
 VgioStyle(record::Union{JSON.Object, NamedTuple, AbstractDict}) =
-    VgioStyle(_contract_from_units(record.units); pixel_frame = pixel_frame_from_name(record.units.pixel::String))
+    VgioStyle(_contract_from_units(record.units); pixel_frame = pixel_frame_from_name(record.units.pixel::String),
+              charts = _charts_from_units(record.units))
 # The style a file declares, with another length form (`_unit` of the record: the file's length unit).
 _file_length_unit(d) = parse_unit(d.units.length::String)
 
@@ -230,6 +247,74 @@ function _ellipse_record_problem(e, what)
     (e[3] > 0 && e[4] > 0) || return "$(what)'s semi-axes are positive; got a = $(e[3]), b = $(e[4])"
     e[3] >= e[4] || return "$(what) is stored major semi-axis first (a ≥ b, θ the angle of a); got a = $(e[3]) < b = $(e[4])"
     return nothing
+end
+
+# -----------------------------------------------------------------------------
+# THE LATTICE RECORD: a uniform cubic B-spline lattice over a rectangle
+# -----------------------------------------------------------------------------
+
+"""
+    lattice_json(spline::ChartSpline; name, present = nothing, length_unit = nothing) -> NamedTuple
+
+A uniform cubic B-spline lattice — VisualGeometryToolkitCore's `ChartSpline`,
+its `K`-vector controls over a rectangle of a chart — as THE lattice record,
+the one every spline is stored in (a `SplineLens`'s backward and forward
+splines, a non-central model's, RadiometricCamera's aperture spline):
+
+    {"area": [x, y, w, h], "grid_size": {"width": gw, "height": gh},
+     "present": [[row, [[col_lo, col_hi], …]], …],     (optional) the held nodes; absent = every node
+     "controls": {"<name>": [[c₁, …, c_K], …]}}        the held nodes' controls, row by row
+
+`area` is the spline's rectangle, `grid_size` its lattice (columns, rows).
+`present` (a `Bool` matrix of the lattice's size, `[gy, gx]`, Core's presence
+mask; `nothing`: every node) is written as runs per lattice row, 1-based (the
+file's `index_base`) and inclusive, and only the held nodes' controls are
+written, under `name` (`:direction`, `:point`, `:radius`, …). The controls are
+written as they are (JSON's shortest round-trip floats, so a `Float64` spline
+reads back bit for bit), or, with `length_unit`, as lengths: plain metres in
+memory, the file's numbers in that unit through [`write_length`](@ref)'s
+decimal shift. [`lattice_from_json`](@ref) reads it back.
+
+```jldoctest
+julia> rec = (area = [0.0, 0.0, 1.0, 1.0], grid_size = (width = 4, height = 4), controls = (radius = fill([2.0], 16),));   # radii, in mm
+
+julia> L = VgtkIO.lattice_from_json(rec, Val(1); name = :radius, length_unit = mm); L.spline.controls[1, 1][1]   # metres
+0.002
+
+julia> VgtkIO.lattice_json(L.spline; name = :radius, length_unit = mm) == rec
+true
+```
+"""
+function lattice_json(cs::ChartSpline; name::Symbol, present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
+                      length_unit::Union{Nothing, Units} = nothing)
+    present === nothing || size(present) == size(cs.controls) || throw(
+        ArgumentError("lattice_json: `present` is $(size(present, 1)) × $(size(present, 2)), the lattice $(size(cs.controls, 1)) × $(size(cs.controls, 2))")
+    )
+    f = length_unit === nothing ? identity : x -> _metres_json(x, length_unit)
+    return _lattice_json(cs.area, _held_mask(present, size(cs.controls)), NamedTuple{(name,)}(((cs.controls, f),)))
+end
+
+"""
+    lattice_from_json(record, ::Val{K}; name, length_unit = nothing) -> (; spline::ChartSpline{K}, present)
+
+The lattice a lattice record states (the inverse of [`lattice_json`](@ref)):
+`spline` the `ChartSpline` of its `K`-vector controls `name` over its `area`,
+NaN in the nodes the record does not hold (no evaluation reads one), and
+`present` its presence mask (`[gy, gx]`), or `nothing` when the record holds
+every node. With `length_unit` the controls are lengths in that unit, read as
+plain metres, decimal-exactly. `record` is a [`Record`](@ref) or a parsed
+`AbstractDict`; it is validated first — exactly its keys, a finite area of
+positive widths, at least 4 × 4 nodes, the runs inside the lattice and apart,
+one `K`-vector control per held node — each problem an `ArgumentError`
+naming it (`what`, the record's name in the message).
+"""
+function lattice_from_json(record, ::Val{K}; name::Symbol, length_unit::Union{Nothing, Units} = nothing,
+                           what::AbstractString = "a lattice record") where {K}
+    r = record isa JSON.Object ? record : JSON.parse(JSON.json(record))   # one form: a parsed record, read by property access
+    _validate(_lattice_spec([name => K]), r, what, "")
+    L = _lattice_from_json(r)
+    f = length_unit === nothing ? (x -> Float64(x)) : (x -> _read_power(x, length_unit, 1))
+    return (; spline = ChartSpline(L.area, _controls_from_json(_getkey(r.controls, name), L.P, Val(K), f)), L.present)
 end
 
 # -----------------------------------------------------------------------------

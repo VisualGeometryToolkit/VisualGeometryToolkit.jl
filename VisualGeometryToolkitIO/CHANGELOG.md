@@ -8,6 +8,19 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 
 ### Breaking
 
+- **`vgio/raster/v2.0`** (IO 0.9.5's v1 in the envelope; v1 reads through its step): the frame is `{"type": "page" |
+  "texture", "area"}` (lengths in `units.length`) or `{"type": "pixel"}` (`units.pixel`); `element_type` `float32` or
+  `uint8` (a uint8 raster's `nan` is `"none"`). Its payload body `{file, sha256}` + a TIFF of the raster profile is the
+  stack's ONE binding of a bulk array to a file: `vgio/sensor_noise`'s dark maps and defect mask are such TIFFs (no raw
+  `.f32`/`.u8` artifacts).
+- **THE lattice codec** is public and 0.10's: `lattice_json(spline; name, present, length_unit)` /
+  `lattice_from_json(record, Val(K); name, length_unit)` write and read `{area, grid_size: {width, height}, present
+  (1-based), controls: {<name>: […]}}`, the one implementation every spline record (lens, non-central, an owner's
+  aperture spline) goes through (0.9.5's positional `grid_size`, 0-based runs and bare `controls` array are gone).
+- **A height field's per-field units are length ROLES**: `units.length_roles.node` (`"chart"`, a reserved role value:
+  plain numbers of the owner's chart; or a length unit) and `units.length_roles.height`; `target_calibration_json` /
+  `target_calibration_from_json` read them off the style (`VgioStyle(; length_roles = (node = :chart, height = m))`).
+  IO 0.9.5's `node_unit`/`height_unit` keyword and record keys are gone; `migrate_envelope` moves the keys to the roles.
 - **One codec of quantities, sizes and feature frames, on the style** (core_json.jl): `json_value`, `from_json`,
   `read_quantity` and `write_quantity` are retired (no alias): a quantity, a `Size2` (`{"width", "height"}`) and every
   `FeatureFrame` are written by `JSON.lower(::VgioStyle, x)` and read by `JSON.lift(::VgioStyle, T, x[, tags])`; what a
@@ -84,6 +97,51 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
   and standard error or absent; a master dark's maps and the defect mask are row-major artifacts beside the record,
   bound by their SHA-256.
 - `schema_versions()`, `with_caller`, `validate_record`; the published JSON Schemas (draft 2020-12) of every kind.
+
+## 0.9.5 (unreleased)
+
+Additive: one new kind, the stack's TIFF codec, and three building blocks made public (RadiometricCamera's IO audit; the
+owner's rulings of 2026-11-13). No existing file, writer or reader changes: every file 0.9.4 writes is written byte for
+byte, and every file it reads still reads.
+
+- **`target_calibration_json(s::VgioStyle, c; node_unit = nothing)` and `target_calibration_from_json(s, record)`, public**
+  (formerly the private `_target_calibration_json` / `_target_calibration_from_json`): a target's calibration record —
+  the parametric record of every `TargetCalibration` kind and composition, `Uncertain` with its `covariance` — alone, for a
+  package that stores one in a kind of its own (RadiometricCamera's in-plane print error, `Aspect ∘ Skew`). The public
+  reader validates the record against the calibration table first, as a calibration in a file is (an unknown or retired
+  kind, a parameter count, Core's composition order, each refused by name); a target body's reader, whose file is already
+  validated, reads its calibration as before.
+- **`lattice_json(spline::ChartSpline; present, length_unit)` and `lattice_from_json(record, Val(K); length_unit)`,
+  public**: the ONE lattice record, `{"area", "grid_size", "present"?, "controls"}`, which the spline lens record writes
+  each of its splines with (formerly camera_schema.jl's private `_spline_json` / `_spline_from_json`, moved beside the
+  lattice codec in style.jl; the lens record and the non-central record call it, unchanged on disk). New: `length_unit`
+  for controls that are lengths (an aperture spline's radii: plain metres in memory, decimal-exact in the file's unit).
+- **`write_tiff(path, image; compression, predictor, rows_per_strip, density, software, icc)` and `read_tiff(T, path)`,
+  public: the stack's one TIFF codec**, libtiff (`Libtiff_jll`, a new dependency, `[compat] "4.7.3"`), hoisted from
+  BlobBoards (its board writer, `src/authoring/tiff.jl`, and its page reader, `_read_grey_tiff`), which ports to it and
+  deletes its copy in its next release. A grey image, `UInt8` or `Float32` (bit for bit, NaN included), one sample per
+  pixel, little-endian, in strips; uncompressed, LZW or Deflate, the horizontal predictor optional; a density, a
+  `Software` string and an ICC profile as optional tags (a predictor only with a compression). BlobBoards' board TIFFs are byte-identical through it.
+- **`vgio/raster/v1`: a Float32 raster**, `save_raster(path, values; frame, nan, length_unit = mm, compression = :deflate,
+  provenance)` and `load_raster(path) -> (; values, frame, nan)`, public: a JSON header (validated on read and on the bytes
+  before write) — the size `{width, height}`, the element type `"float32"`, the frame (a page or texture chart rectangle in
+  the design chart with its `length_unit`, or a pixel frame), what a NaN means (`"unobserved"`, or `"none"`) and the
+  SHA-256 of the payload — beside its TIFF payload, the reserved `payload` key's first kind (`{"file", "sha256"}`; every
+  other kind still refuses it). The TIFF profile, checked on write, on the file written and on read: baseline,
+  little-endian, one image, one 32-bit IEEE floating-point sample per pixel (`SampleFormat` 3), uncompressed or Deflate
+  with no predictor, strips, no meaning in the tags. A payload whose digest is not the header's is refused before it is
+  decoded. Python's `tifffile` reads the payload bit for bit, and a TIFF it writes reads as a raster (a test run when the
+  pixi `py` environment holds tifffile, which now lists it; IO's CI does not install it, the release gate does).
+- **Height-field records with per-field units** (owner ruling 2026-11-13, option i): a `height_field` calibration record
+  may state `"node_unit"` (`"chart"`, dimensionless numbers of a chart its owner defines, or a length unit) and
+  `"height_unit"` (a length unit), together, in a calibration record of its own (a target body's calibration states
+  neither: unknown keys there); `target_calibration_json(s, field; node_unit)` writes them (the heights in
+  the style's `length_unit`). Pure bending depends on the nodes' unit, never on the heights', and the field is checked
+  pure bending on its nodes as written; its bending energy is in `height_unit² · node_unit⁻²`. Over chart nodes the
+  field reads back as a plain `HeightField` (the chart's numbers, heights in plain metres): RadiometricCamera's board
+  warping, 5 × 5 page fractions with heights in metres (`height_unit` "m"), round-trips bit for bit; in a decimal unit
+  (mm) a computed height reads back as its persisted form, within the decimal codec's 2 ulp, and is fixed from then on. A record without the two keys (every target
+  body's) is in its file's one unit, as before.
 
 ## 0.9.4 (unreleased)
 

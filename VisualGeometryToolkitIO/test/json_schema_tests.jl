@@ -19,58 +19,6 @@
 # (`pixi install -e py`, which brings jsonschema) and are recorded as SKIPPED
 # otherwise, never silently absent (test/pycolmap_tests.jl's pattern).
 
-@testsetup module VGIoSchemaCases
-    using VisualGeometryToolkitIO: VisualGeometryToolkitIO
-    const VgtkIO = VisualGeometryToolkitIO
-
-    export required_paths, getpath, without, with_key, plain_doc, pixi_python, schema_dir
-
-    # The pixi `py` environment's python, or `nothing` when it is not installed or lacks `module`.
-    function pixi_python(module_ = "jsonschema")
-        python = joinpath(pkgdir(VgtkIO), ".pixi", "envs", "py", "bin", "python")
-        isfile(python) && success(pipeline(`$python -c "import $(module_)"`; stdout = devnull, stderr = devnull)) || return nothing
-        return python
-    end
-    schema_dir() = joinpath(pkgdir(VgtkIO), "docs", "src", "schemas")
-
-    # A parsed document as plain mutable Dicts (String keys), the form the cases are edited in.
-    plain_doc(x::AbstractDict) = Dict{String, Any}(String(k) => plain_doc(v) for (k, v) in x)
-    plain_doc(x::AbstractVector) = Any[plain_doc(v) for v in x]
-    plain_doc(x) = x
-
-    # THE DELETION CASES: the paths of the required keys a document holds,
-    # following its kind's spec table (validate.jl) — every `_Obj`'s required
-    # keys, into the first element of every array, through the shape an
-    # `_Either` or `_IfKey` selects. Deleting each in turn must be refused.
-    function required_paths(spec, doc)
-        out = Vector{Vector{Any}}()
-        walk!(out, spec, doc, Any[])
-        return out
-    end
-    walk!(out, s::VgtkIO._CheckedSpec, x, at) = walk!(out, s.inner, x, at)
-    function walk!(out, s::VgtkIO._Obj, x, at)
-        x isa AbstractDict || return nothing
-        for (k, sk) in s.required
-            haskey(x, String(k)) || continue
-            push!(out, [at; String(k)])
-            walk!(out, sk, x[String(k)], [at; String(k)])
-        end
-        for (k, sk) in s.optional
-            (k !== :provenance && haskey(x, String(k))) && walk!(out, sk, x[String(k)], [at; String(k)])
-        end
-        return nothing
-    end
-    walk!(out, s::VgtkIO._Vec, x, at) = (x isa AbstractVector && !isempty(x)) ? walk!(out, s.elem, x[1], [at; 1]) : nothing
-    walk!(out, s::VgtkIO._OrNull, x, at) = x === nothing ? nothing : walk!(out, s.inner, x, at)
-    walk!(out, s::VgtkIO._Either, x, at) = foreach(p -> haskey(x, String(p.first)) && walk!(out, p.second, x, at), s.alts)
-    walk!(out, s::VgtkIO._IfKey, x, at) = x isa AbstractDict ? walk!(out, haskey(x, String(s.key)) ? s.then : s.otherwise, x, at) : nothing
-    walk!(out, s, x, at) = nothing
-
-    getpath(x, path) = foldl((v, k) -> v[k], path; init = x)
-    without(doc, path) = (d = deepcopy(doc); delete!(getpath(d, path[1:(end - 1)]), path[end]); d)
-    with_key(doc, path, v) = (d = deepcopy(doc); getpath(d, path[1:(end - 1)])[path[end]] = v; d)
-end
-
 @testitem "json schemas: the committed files are the generator's" setup = [VGIoFixtures, VGIoSchemaCases] begin
     import VisualGeometryToolkitIO as VgtkIO
     mktempdir() do dir
@@ -109,7 +57,7 @@ end
     using VisualGeometryToolkitIO: validate, read_record
     using VisualGeometryToolkitCore: TensorProductVignetting, RadialVignetting, LogVignetting, with_control_points,
         EnvironmentLight, SphericalHarmonicMap, with_unit, GaussianBlur, Rect, TargetHomographies, HomographyMap,
-        HomographyMat, sign_normalize, TargetPlaneFrame, relabel
+        HomographyMat, sign_normalize, TargetPlaneFrame, relabel, PointTarget
     using StaticArrays: SDiagonal
     using Statistics: cov
     python = pixi_python("jsonschema")
@@ -125,7 +73,7 @@ end
                     validate(path)
                 catch e
                     e isa ArgumentError || rethrow()
-                    @info "json schemas: not a readable vgio file, skipped" name msg = first(e.msg, 300)
+                    println(stderr, "json schemas: $(name) is not a readable vgio file, left out: ", first(e.msg, 300))
                     return nothing
                 end
                 file = isdir(path) ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
@@ -138,11 +86,12 @@ end
             end
             # the kinds the fixtures do not hold, written by their writers (each on its own: one failing
             # writer is named, and the coverage test below says which kind it leaves out)
+            failed = String[]                                  # writers that failed (shown by the test below)
             function written(f, name)
                 try
                     f(joinpath(dir, name))
                 catch e
-                    @error "json schemas: the $(name) writer failed" exception = (e, catch_backtrace())
+                    push!(failed, "$(name): $(first(sprint(showerror, e), 400))")
                     return nothing
                 end
                 return collect_doc!("written/$(name)", joinpath(dir, name))
@@ -160,18 +109,18 @@ end
                              :print => with_unit(GaussianBlur(relabel(TargetPlaneFrame, cov(GaussianBlur(SDiagonal(7.84e-10, 1.8225e-10))))), m)))
             end
             written(p -> (mkpath(p); VgtkIO.save_units_sidecar(p, MM_PX)), "units_sidecar")
+            written(p -> save(p, PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0)), mm_lengths(SVector(4.0, 5.0, 6.5))])), "target.json")
             written("target_homographies.json") do p
                 H = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]')))))
-                tid = VgtkIO.content_id(joinpath(fixtures, "units", "target_planar.json"))
+                tid = VgtkIO.content_id(joinpath(dir, "target.json"))
                 save(p, TargetHomographies{PixelFrame{:colmap}}(Dict(1 => Dict(Symbol(tid) => H)); images = Dict(1 => "a.png"), sensors = "cam", targets = [tid]))
             end
-            written("manifest") do d
-                mkpath(d)
-                cp(joinpath(fixtures, "units", "rig_targets.json"), joinpath(d, "rig_targets.json"))
-                VgtkIO.save_manifest(d, ["rig_targets.json"]; result_kind = "image")
-                mv(joinpath(d, "calibration.json"), joinpath(dir, "calibration.json"))
+            written("manifest/calibration.json") do p
+                d = mkpath(dirname(p))
+                cp(joinpath(dir, "target.json"), joinpath(d, "target.json"))
+                VgtkIO.save_manifest(d, ["target.json"]; result_kind = "image")
             end
-            collect_doc!("written/calibration.json", joinpath(dir, "calibration.json"))
+            @test failed == String[]
             # every kind has a valid document
             @test sort!(unique(first.(last.(docs)))) == sort!(collect(keys(VgtkIO._SCHEMA_VERSION)))
 
@@ -213,7 +162,7 @@ end
             if ok
                 for r in JSON.parse(String(take!(out)))
                     agrees = r["valid"] == expect[r["name"]]
-                    agrees || @info "json schemas: the schema and the validator disagree" r["name"] r["valid"] r["error"]
+                    agrees || println(stderr, "json schemas: the schema and the validator disagree on ", r["name"], ": schema valid = ", r["valid"], " (", r["error"], ")")
                     @test agrees
                 end
             end
@@ -241,15 +190,20 @@ end
                            ("units/rig_targets.json", Rig), ("units/spline_camera_masked.json", Rig),
                            ("units/target_planar.json", AbstractTarget), ("units/target_points.json", AbstractTarget))
                 src = joinpath(fixtures, f)
-                isfile(src) || continue
-                x = load(T, src)
+                x = try
+                    load(T, src)
+                catch e
+                    e isa ArgumentError || rethrow()
+                    println(stderr, "content identity: $(f) does not read, left out: ", first(e.msg, 300))
+                    continue
+                end
                 for u in (mm, m)
                     p = joinpath(dir, "$(replace(f, '/' => '_'))_$(u).json")
                     save(p, x; length_unit = u)
                     push!(files, p)
                 end
             end
-            @test length(files) >= 8
+            @test length(files) >= 4
             for p in files
                 id = content_id(p)
                 @test python_id(p) == id

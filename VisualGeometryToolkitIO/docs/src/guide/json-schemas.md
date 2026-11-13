@@ -18,6 +18,10 @@ Markdown.parse(join(["| Schema (its `\$id` is this path below `https://visualgeo
 
 `vgio/units` is a COLMAP model directory's `vgio_units.json`.
 
+The files are published with this manual, under `schemas/`; the `$id` URLs
+name where they are to be served from, which is not yet set up, so a tool
+resolves a schema from this manual's copy (or `json_schema`) until it is.
+
 ```julia
 import VisualGeometryToolkitIO as VgtkIO
 schema = VgtkIO.json_schema("rig")          # a JSON.Object; JSON.json(schema; pretty = 4) is the published file

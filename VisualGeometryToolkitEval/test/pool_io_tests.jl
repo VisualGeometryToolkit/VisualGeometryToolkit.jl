@@ -66,7 +66,7 @@
         @test sampling_unit(PoolPair{FundMat{Float64}}) === PairUnit()
         # the file holds no stack type: every committed datatype is plain
         JLD2.jldopen(path, "r") do f
-            @test f["pool_format"] == 5 && f["problem"] == "E" && f["model_class"] == "FundMat"
+            @test f["pool_format"] == 6 && f["problem"] == "E" && f["model_class"] == "FundMat"
             @test f["frame"] == "NormalizedImageFrame" && f["pairs"][1].correspondences isa Matrix{Float64}
         end
         @test !occursin("VisualGeometryToolkitCore", read(path, String))

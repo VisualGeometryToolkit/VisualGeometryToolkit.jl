@@ -352,9 +352,10 @@ convert_eltype(::Type{T}, v::RadialVignetting{S, N, K, DP, C}) where {T <: Real,
 
 """
     with_center(v::RadialVignetting, center) -> v′
+    with_center(v::LogVignetting{<:RadialVignetting}, center) -> v′
 
 The same radial profile (chart, knots, degree, radius, control points) about the centre `center` (COLMAP pixels): what a fit of the
-centre steps. The element type is `promote_type` of the field's and the centre's (a Dual centre gives a Dual field, its knots exact).
+centre steps. A log-domain field moves its radial profile's centre. The element type is `promote_type` of the field's and the centre's (a Dual centre gives a Dual field, its knots exact).
 """
 function with_center(v::RadialVignetting{T, N, K, DP, C}, center::StaticVector{2, S}) where {T, N, K, DP, C <: _RadialChart, S}
     R = promote_type(T, S)
@@ -362,23 +363,6 @@ function with_center(v::RadialVignetting{T, N, K, DP, C}, center::StaticVector{2
 end
 with_center(v::RadialVignetting, center) = with_center(v, SVector{2}(center[1], center[2]))
 
-struct _CenterTag end
-"""
-    center_gradient(v, u) -> SVector{2}
-
-`∂V(u)/∂c` of a radial profile at its centre `c` (COLMAP pixels): the dipole `−V′(ρ) ∂ρ/∂d · (u − c)/d`, by a two-partial Dual
-through [`with_center`](@ref) and the same basis evaluation as `v(u)` (isbits: it runs in a kernel); zero at the centre itself
-(`V′(0) = 0` under the pole tie; the distance's derivative has no value there) and for a field without a centre parameter.
-"""
-@inline function center_gradient(v::RadialVignetting, u::StaticVector{2})
-    T = eltype(control_points(v)); c = center(v)
-    dx = T(u[1]) - c[1]; dy = T(u[2]) - c[2]
-    (dx * dx + dy * dy) > 0 || return zero(SVector{2, T})
-    d1 = ForwardDiff.Dual{_CenterTag}(c[1], one(T), zero(T)); d2 = ForwardDiff.Dual{_CenterTag}(c[2], zero(T), one(T))
-    x = with_center(v, SVector(d1, d2))(SVector{2, T}(u[1], u[2]))
-    return SVector{2, T}(ForwardDiff.partials(x, 1), ForwardDiff.partials(x, 2))
-end
-@inline center_gradient(v::AbstractVignetting, u::StaticVector{2}) = zero(SVector{2, eltype(control_points(v))})
 
 """
     pole_regular_basis(v::RadialVignetting) -> Matrix{Float64}
@@ -450,10 +434,33 @@ radial_coordinate(v::LogVignetting{<:RadialVignetting}, u::StaticVector{2}) = ra
 pole_regular_basis(v::LogVignetting{<:RadialVignetting}) = pole_regular_basis(v.spline)
 radial_chart(v::LogVignetting{<:RadialVignetting}) = radial_chart(v.spline)
 with_control_points(v::LogVignetting, P) = LogVignetting(with_control_points(v.spline, P))
+# The log field of its radial profile about the centre `center` (`with_center` of the radial profile).
+with_center(v::LogVignetting{<:RadialVignetting}, center) = LogVignetting(with_center(v.spline, center))
 convert_eltype(::Type{T}, v::LogVignetting) where {T <: Real} = LogVignetting(convert_eltype(T, v.spline))
 support_trait(::Type{LogVignetting{S}}) where {S} = support_trait(S)
 nodes(v::LogVignetting) = nodes(v.spline)
 support(v::LogVignetting, i::CartesianIndex) = support(v.spline, i)
+
+struct _CenterTag end
+# The fields with a centre parameter (`with_center`): a radial profile, and its log-domain field.
+const _CenteredVignetting = Union{RadialVignetting, LogVignetting{<:RadialVignetting}}
+"""
+    center_gradient(v, u) -> SVector{2}
+
+`∂V(u)/∂c` of a radial profile at its centre `c` (COLMAP pixels): the dipole `−V′(ρ) ∂ρ/∂d · (u − c)/d`, by a two-partial Dual
+through [`with_center`](@ref) and the same evaluation as `v(u)` (isbits: it runs in a kernel), so a log-domain radial field's
+is the chain rule `V(u)·∂(log V)/∂c`; zero at the centre itself (`V′(0) = 0` under the pole tie; the distance's derivative has
+no value there) and for a field without a centre parameter (a tensor-product surface, whose centre is its box's).
+"""
+@inline function center_gradient(v::_CenteredVignetting, u::StaticVector{2})
+    T = eltype(control_points(v)); c = center(v)
+    dx = T(u[1]) - c[1]; dy = T(u[2]) - c[2]
+    (dx * dx + dy * dy) > 0 || return zero(SVector{2, T})
+    d1 = ForwardDiff.Dual{_CenterTag}(c[1], one(T), zero(T)); d2 = ForwardDiff.Dual{_CenterTag}(c[2], zero(T), one(T))
+    x = with_center(v, SVector(d1, d2))(SVector{2, T}(u[1], u[2]))
+    return SVector{2, T}(ForwardDiff.partials(x, 1), ForwardDiff.partials(x, 2))
+end
+@inline center_gradient(v::AbstractVignetting, u::StaticVector{2}) = zero(SVector{2, eltype(control_points(v))})
 
 """
     VIGNETTING_TAGS

@@ -195,6 +195,47 @@ _strategy_constant(w, _K, _d) = throw(ArgumentError(
     "the strategy's width $(repr(w)) is an absolute width, which no scale multiplies: give it as `width = w`, or " *
         "give the strategy an efficiency constant or none"))
 
+"""
+    refine_width(lo, scale, width, d::Integer) -> (; width, efficiency_constant, input)
+
+The refine contract's loss width, the one rule of every refiner that deploys a
+strategy from its `scale` / `width` keywords (Estimation's `refine_*`, `fit_*` and
+bundles, PoseLib's refiners), at the residual's codimension `d`:
+
+- `lo === nothing` (plain least squares) takes neither keyword (an
+  `ArgumentError` names the one given): `(NaN, NaN, nothing)`.
+- otherwise EXACTLY ONE of them, read by [`scale_input`](@ref) into `input`:
+  - `scale = σ` (or an upstream result): `width = c·σ` with `c =`
+    [`efficiency_constant`](@ref)`(lo, d)` (the strategy's own, else the table's;
+    refused for a strategy with an absolute width, or a truncation without one);
+  - `width = w`: the width itself, `c = 1`, refused for a strategy that states
+    its own width mode (an efficiency constant, which `w` would override, or an
+    absolute width, which `w` would contradict).
+
+The strategy itself is the caller's to admit first (each refiner takes its own set).
+"""
+function refine_width(lo, scale, width, d::Integer)
+    if lo === nothing
+        (scale === nothing && width === nothing) || throw(ArgumentError(
+            "plain least squares (`optimization_strategy = nothing`) has no loss width: omit `scale` and `width` (got " *
+                (scale === nothing ? "width = $(repr(width))" : "scale = $(repr(scale))") * ")"))
+        return (; width = NaN, efficiency_constant = NaN, input = nothing)
+    end
+    input = scale_input(scale, width)
+    if isnan(input.width)                                     # `scale = σ`
+        c = efficiency_constant(lo, d)
+        return (; width = c * Float64(input.scale), efficiency_constant = c, input)
+    end
+    _refuse_stated_width(lo_width(lo), input.width)           # `width = w`
+    return (; width = Float64(input.width), efficiency_constant = 1.0, input)
+end
+_refuse_stated_width(::Union{Nothing, Missing}, _w) = nothing
+_refuse_stated_width(m::EfficiencyConstant, w) = throw(ArgumentError(
+    "`width = $w` is the loss width itself, but the strategy states its efficiency constant $(m.value), which it " *
+        "would override: give `scale` instead, or a strategy without one"))
+_refuse_stated_width(m, w) = throw(ArgumentError(
+    "`width = $w` is the loss width itself, but the strategy states its own width $(repr(m)): give one of them"))
+
 function _loss_at(sm::EfficiencyConstant{Float64}, lo, shape, cs, scoring, buf)
     s2 = max(scale_s2(cs), eps())
     return deploy(shape, s2; efficiency_constant = sm.value)

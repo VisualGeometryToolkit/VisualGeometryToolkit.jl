@@ -53,7 +53,8 @@ the value's units and shape (`nothing` where none is stated).
 """
 function noise_value(value::V, source::Symbol; std_error::Union{Nothing, V} = nothing) where {V}
     source in NOISE_SOURCES || throw(ArgumentError("a sensor-noise value's source is one of $(NOISE_SOURCES), got :$source"))
-    return Attributed(value, (; source, std_error = std_error::Union{Nothing, V}))
+    # the attributes' type states `Union{Nothing, V}` whatever is given, so every field of one kind is one type
+    return Attributed(value, NamedTuple{(:source, :std_error), Tuple{Symbol, Union{Nothing, V}}}((source, std_error)))
 end
 
 """
@@ -110,8 +111,9 @@ or a value with its source ([`noise_value`](@ref), [`NOISE_SOURCES`](@ref)):
   exposure band the frame's exposure falls in.
 - `defects` — a hot/dead-photosite mask over the visible raw (`true` = defective:
   masked, never interpolated).
-- `reason` — why the noise (`electrons_per_dn`, `read_noise`) is `nothing`, a
-  sentence; `nothing` when it is known.
+- `reason` — why the noise (`electrons_per_dn` and `read_noise`, both) is
+  `nothing`, a sentence: the resolver's case 4. A record states none, a partial
+  one included (a field it does not hold is simply `nothing`).
 
 The resolver [`sensor_noise`](@ref) makes one per frame and is the ONLY place a
 missing value is decided: no consumer constructs one or substitutes a constant
@@ -120,12 +122,14 @@ resolved value came from is its fields' sources: all `:measured` (a record),
 mixed (a partial record, the rest estimated), `:estimated`/`:file` (no
 record), or a `nothing` noise with its `reason` (the estimate failed).
 """
-struct SensorNoise{D <: Union{Nothing, Attributed{<:DarkFrame}}, M <: NoiseField{<:AbstractMatrix{Bool}}}
+# Every field's type is a parameter, so a value is stored as it is built (no conversion into the field's Union).
+struct SensorNoise{K <: NoiseField{Float64}, R <: NoiseField{NTuple{4, Float64}}, B <: NoiseField{NTuple{4, Float64}},
+                   D <: Union{Nothing, Attributed{<:DarkFrame}}, M <: NoiseField{<:AbstractMatrix{Bool}}}
     body::DeviceIdentity
     iso::Float64
-    electrons_per_dn::NoiseField{Float64}
-    read_noise::NoiseField{NTuple{4, Float64}}
-    black::NoiseField{NTuple{4, Float64}}
+    electrons_per_dn::K
+    read_noise::R
+    black::B
     dark::D
     defects::M
     reason::Union{Nothing, String}
@@ -146,8 +150,8 @@ function SensorNoise(; body::DeviceIdentity, iso::Real, electrons_per_dn::NoiseF
     black === nothing || all(isfinite, value_of(black)) || throw(ArgumentError("SensorNoise: the black level is finite, got $(value_of(black))"))
     defects === nothing || value_of(defects) isa AbstractMatrix{Bool} ||
         throw(ArgumentError("SensorNoise: `defects` is a Bool mask over the visible raw, got $(typeof(value_of(defects)))"))
-    (electrons_per_dn === nothing || read_noise === nothing) == (reason !== nothing) || throw(ArgumentError(
-        "SensorNoise: a `reason` states why the noise (electrons_per_dn, read_noise) is missing, and only then"
+    reason === nothing || (electrons_per_dn === nothing && read_noise === nothing) || throw(ArgumentError(
+        "SensorNoise: a `reason` states why the noise (electrons_per_dn and read_noise) is missing, and only then"
     ))
     return SensorNoise(body, Float64(iso), electrons_per_dn, read_noise, black, dark, defects,
                        reason === nothing ? nothing : String(reason))
@@ -224,8 +228,8 @@ function sensor_noise(capture::CaptureSettings, frame::Pair{<:Integer, <:RawMosa
                        read_noise = reason === nothing ? σ : nothing, black, dark, defects, reason)
 end
 
-_matching_record(::Nothing, body, iso) = nothing
-_matching_record(r::SensorNoise, body, iso) = _matching_record((r,), body, iso)
+_matching_record(::Nothing, body::DeviceIdentity, iso::Float64) = nothing
+_matching_record(r::SensorNoise, body::DeviceIdentity, iso::Float64) = _matching_record((r,), body, iso)
 function _matching_record(records, body::DeviceIdentity, iso::Float64)
     found = nothing
     for r in records
@@ -254,36 +258,65 @@ struct NoiseEstimateFailed <: Exception
 end
 Base.showerror(io::IO, e::NoiseEstimateFailed) = print(io, "NoiseEstimateFailed: ", e.reason)
 
+# The black a photosite's code is taken from: a dark map's offset there, else its channel's constant — THE rule, read
+# by LinearRaw's cell kernel, linearview and the estimator alike. `r, c` index the visible raw (a window's photosite
+# plus its `window_origin`).
+@inline _black_at(::Nothing, black::Float64, r, c) = black
+@inline _black_at(dark::AbstractMatrix, black::Float64, r, c) = @inbounds Float64(dark[r, c])
+# Whether a photosite of the visible raw is masked (a defect).
+@inline _masked(::Nothing, r, c) = false
+@inline _masked(mask::AbstractMatrix{Bool}, r, c) = @inbounds mask[r, c]
+
+# A per-photosite map of the visible raw (a dark offset, a defect mask) as a kernel reads it: on the mosaic's device as
+# eltype `T` (the map itself when it is there already), checked to cover the mosaic's photosites at its window offset.
+# `nothing` stays `nothing`. A packed BitMatrix is unpacked to Bools beforehand, on every backend (a device copy reads
+# dense memory; the kernel then reads one layout everywhere).
+_photosite_map(::Nothing, m, backend, ::Type, what) = nothing
+function _photosite_map(A::AbstractMatrix, m::RawMosaic, backend, ::Type{T}, what) where {T}
+    all(m.window_origin .+ size(m) .<= size(A)) || throw(DimensionMismatch(
+        "$what is $(join(size(A), '×')) over the visible raw; the mosaic's photosites reach $(join(m.window_origin .+ size(m), '×'))"
+    ))
+    return on_device(T, backend, A isa BitArray ? Array{Bool}(A) : A)
+end
+
+# The levels a resolved noise (or `nothing`) gives the linearisation of `m`: the four channels' black and span
+# (`_bayer_levels`, with the noise's per-colour-index black when it holds one, else the mosaic's) and, on the
+# backend, the dark offset map and the defect mask (`nothing` where absent). THE resolution LinearRaw and
+# linearview share; with `nothing` it is the mosaic's own levels and no maps, bit for bit today's.
+_noise_levels(m::RawMosaic, ::Nothing, backend) = (_bayer_levels(m)..., nothing, nothing)
+function _noise_levels(m::RawMosaic, noise::SensorNoise, backend)
+    black, span = _bayer_levels(m, noise.black === nothing ? m.black : value_of(noise.black))
+    dark = noise.dark === nothing ? nothing : _photosite_map(value_of(noise.dark).offset, m, backend, Float32, "the dark offset")
+    defects = noise.defects === nothing ? nothing : _photosite_map(value_of(noise.defects), m, backend, Bool, "the defect mask")
+    return black, span, dark, defects
+end
+_noise_levels(::RawMosaic, noise, backend) =
+    throw(ArgumentError("the linearisation's noise is a resolved SensorNoise (sensor_noise) or nothing, got $(typeof(noise))"))
+
 # Per block of `B × B` 2×2 cells, the green pairs' statistics, one work item per block: the count of usable cells
 # (neither green at the white level, or masked), Σm, Σd and Σd² of m = the pair's black-subtracted mean and d = its
-# difference (both in codes). The photosites are read from the held array by the channel view's index rule, as
-# LinearRaw's cell kernel reads them; the blacks are the greens' (a dark map's offsets per photosite when given).
-@kernel function _green_pair_blocks_kernel!(n, sm, sd, sd2, @Const(raw), @Const(dark), @Const(mask), greens, black, white::Float64,
+# difference (both in codes). The photosites are read from the held array by the channel view's index rule (the two
+# greens' cell sites `s1`, `s2`, `_QUAD_SITES` entries), as LinearRaw's cell kernel reads them; the blacks are the
+# greens' (a dark map's offsets per photosite when given, `_black_at`).
+@kernel function _green_pair_blocks_kernel!(n, sm, sd, sd2, @Const(raw), dark, mask, s1, s2, black, white::Float64,
                                              B::Int, origin)
     bi, bj = @index(Global, NTuple)
     H2, W2 = size(raw, 1) ÷ 2, size(raw, 2) ÷ 2
-    c = 0; s1 = 0.0; s2 = 0.0; s3 = 0.0
+    c = 0; t1 = 0.0; t2 = 0.0; t3 = 0.0
     for jj in 1:B, ii in 1:B
         i = (bi - 1) * B + ii; j = (bj - 1) * B + jj
         (i <= H2 && j <= W2) || continue
-        r1 = 2i - 1 + _QUAD_SITES[greens[1]][1]; c1 = 2j - 1 + _QUAD_SITES[greens[1]][2]
-        r2 = 2i - 1 + _QUAD_SITES[greens[2]][1]; c2 = 2j - 1 + _QUAD_SITES[greens[2]][2]
-        @inbounds x1 = Float64(raw[r1, c1]); @inbounds x2 = Float64(raw[r2, c2])
-        (x1 >= white || x2 >= white) && continue
+        r1 = 2i - 1 + s1[1]; c1 = 2j - 1 + s1[2]
+        r2 = 2i - 1 + s2[1]; c2 = 2j - 1 + s2[2]
+        @inbounds x1 = raw[r1, c1]; @inbounds x2 = raw[r2, c2]
+        (_at_white(x1, white) || _at_white(x2, white)) && continue
         (_masked(mask, r1 + origin[1], c1 + origin[2]) || _masked(mask, r2 + origin[1], c2 + origin[2])) && continue
-        y1 = x1 - _black_at(dark, black[1], r1 + origin[1], c1 + origin[2])
-        y2 = x2 - _black_at(dark, black[2], r2 + origin[1], c2 + origin[2])
-        c += 1; s1 += (y1 + y2) / 2; s2 += y1 - y2; s3 += (y1 - y2)^2
+        y1 = Float64(x1) - _black_at(dark, black[1], r1 + origin[1], c1 + origin[2])
+        y2 = Float64(x2) - _black_at(dark, black[2], r2 + origin[1], c2 + origin[2])
+        c += 1; t1 += (y1 + y2) / 2; t2 += y1 - y2; t3 += (y1 - y2)^2
     end
-    @inbounds n[bi, bj] = c; @inbounds sm[bi, bj] = s1; @inbounds sd[bi, bj] = s2; @inbounds sd2[bi, bj] = s3
+    @inbounds n[bi, bj] = c; @inbounds sm[bi, bj] = t1; @inbounds sd[bi, bj] = t2; @inbounds sd2[bi, bj] = t3
 end
-
-# The black a photosite's code is taken from: a dark map's offset there, else its channel's constant (THE rule
-# LinearRaw's kernel applies too).
-@inline _black_at(::Nothing, black::Float64, r, c) = black
-@inline _black_at(dark::AbstractMatrix, black::Float64, r, c) = @inbounds Float64(dark[r, c])
-@inline _masked(::Nothing, r, c) = false
-@inline _masked(mask::AbstractMatrix{Bool}, r, c) = @inbounds mask[r, c]
 
 """
     photon_transfer(mosaic::RawMosaic; black = mosaic.black, dark = nothing, mask = nothing, block = 8)
@@ -291,9 +324,9 @@ end
 
 THE estimator of a frame's Poisson–Gaussian noise (case 3 of
 [`sensor_noise`](@ref)): the conversion gain K (electrons per code) and the read
-noise σ_r (codes, the rounding included), from the frame itself, by a
-photon-transfer fit of local variance against mean, in the clipped
-Poisson–Gaussian line of Foi et al. (2008).
+noise σ_r (codes, the rounding included: a Gaussian read noise σ plus the code's
+rounding is `√(σ² + 1/12)`), from the frame itself, by a photon-transfer fit of
+local variance against mean, in the line of Foi et al. (2008).
 
 Each 2×2 cell's two greens see the same light, so their difference `d` carries
 no scene where the scene is flat across the cell, and `Var d = 2(μ/K + σ_r²)`
@@ -301,37 +334,44 @@ about their black-subtracted mean μ. Per block of `block × block` cells (one
 KernelAbstractions work item each, on the mosaic's device) the cells' mean and
 the difference's sample variance give a point `(μ̂, v̂ = s²/2)`; a cell with a
 green at the white level, or under `mask`, is left out (CLIPPED, never
-modelled). The blocks are sorted by μ̂ into groups of equal count, and each
-group's medians — v̂'s divided by the median of `χ²_{n−1}/(n−1)`, its bias for a
-Gaussian difference — are the points of one weighted least-squares line
-`v = μ/K + σ_r²`, each weighted by the inverse variance of its median from its
-counts (`π/2 · 2v²/(n − 1)` over the group's size). The median is robust to the
-blocks a scene edge raises. The standard errors are the line's, from those
-counts; K's and σ_r's by first order.
+modelled), and only whole blocks (the most usable cells any block has, `n`)
+enter the fit, so every `v̂/v` follows one law, `χ²_{n−1}/(n − 1)` for a
+Gaussian difference. The blocks are sorted by μ̂ into groups of equal count
+(`min(32, blocks ÷ 8)` groups); each group's median μ̂ and median `v̂ / q`
+(`q` that law's median, so the ratio is median-unbiased for v) are a point of
+the line `v = μ/K + σ_r²`. The line is fitted by weighted least squares, each
+point weighted by the inverse of its median's variance from the counts,
+`v²/(4 m f(q)² q²)` over a group of `m` blocks (`f` the law's density: the
+sample median's asymptotic variance), with v the line's own prediction
+(iterated to a fixed point from a start weighted at each point's own value, so
+the final weights do not read their own point's noise). The median is robust to the blocks a scene edge
+raises. The standard errors are the fitted line's covariance from those counts;
+K's and σ_r's by first order.
 
 `black` is the per-colour-index black level (`RawMosaic.black`'s layout), `dark`
-an offset map over the visible raw that replaces it per photosite, `mask` the
-photosites to leave out. Throws [`NoiseEstimateFailed`](@ref) with the reason
-when fewer than two groups of usable blocks remain, the levels do not span a
-slope, or the fit is not physical (K or σ_r² not positive).
+an offset map over the visible raw that replaces it per photosite (THE rule of
+[`LinearRaw`](@ref)'s kernel), `mask` the photosites to leave out; both maps
+cover the visible raw (a window reads them at its `window_origin`). Throws
+[`NoiseEstimateFailed`](@ref) with the reason when fewer than 16 whole blocks
+of at least 8 usable cells remain (a saturated frame), the groups hold one
+level only (no slope), or the fit is not physical (K or σ_r² not positive).
 """
 function photon_transfer(m::RawMosaic; black::NTuple{4, <:Real} = m.black, dark::Union{Nothing, AbstractMatrix} = nothing,
                          mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, block::Integer = 8)
     block >= 2 || throw(ArgumentError("photon_transfer: a block holds at least 2 × 2 cells, got $block"))
     cell = _cell_colors(m, "photon_transfer")
     gks = Tuple(k for k in 1:4 if cell[k] in (0x01, 0x03))
-    greens = (gks[1], gks[2])
-    gblack = (Float64(black[cell[greens[1]] + 1]), Float64(black[cell[greens[2]] + 1]))
+    gblack = (Float64(black[cell[gks[1]] + 1]), Float64(black[cell[gks[2]] + 1]))
     raw = parent(m)
     H2, W2 = size(raw, 1) ÷ 2, size(raw, 2) ÷ 2
+    H2 >= 1 && W2 >= 1 || throw(NoiseEstimateFailed("a $(join(size(m), '×')) mosaic holds no 2×2 cell"))
     nb, mb = cld(H2, block), cld(W2, block)
-    nb >= 1 && mb >= 1 || throw(NoiseEstimateFailed("a $(join(size(m), '×')) mosaic holds no 2×2 cell"))
     backend = KA.get_backend(raw)
-    dark_d = dark === nothing ? nothing : on_device(backend, Float32.(dark))
-    mask_d = mask === nothing ? nothing : on_device(backend, Array{Bool}(mask))
+    dark_d = _photosite_map(dark, m, backend, Float32, "photon_transfer: the dark offset")
+    mask_d = _photosite_map(mask, m, backend, Bool, "photon_transfer: the mask")
     n = similar(raw, Int, nb, mb); sm = similar(raw, Float64, nb, mb); sd = similar(raw, Float64, nb, mb); sd2 = similar(raw, Float64, nb, mb)
-    OnBackend(backend)(_green_pair_blocks_kernel!)(n, sm, sd, sd2, raw, dark_d, mask_d, greens, gblack, m.white, Int(block),
-                                                   m.window_origin; ndrange = (nb, mb))
+    OnBackend(backend)(_green_pair_blocks_kernel!)(n, sm, sd, sd2, raw, dark_d, mask_d, _QUAD_SITES[gks[1]], _QUAD_SITES[gks[2]],
+                                                   gblack, m.white, Int(block), m.window_origin; ndrange = (nb, mb))
     KA.synchronize(backend)
     return _photon_transfer_fit(Array(n), Array(sm), Array(sd), Array(sd2))
 end
@@ -346,27 +386,33 @@ function _photon_transfer_fit(n, sm, sd, sd2)
     μ = [sm[k] / full for k in keep]
     v = [(sd2[k] - sd[k]^2 / full) / (full - 1) / 2 for k in keep]   # the difference's sample variance, halved
     groups = min(32, length(keep) ÷ 8)
-    groups >= 2 || throw(NoiseEstimateFailed("too few usable blocks to form two levels ($(length(keep)))"))
     order = sortperm(μ)
-    bias = Distributions.quantile(Distributions.Chisq(full - 1), 0.5) / (full - 1)
-    xs = Float64[]; ys = Float64[]; ws = Float64[]
+    G = Distributions.Gamma((full - 1) / 2, 2 / (full - 1))          # the law of v̂/v: χ²_{n−1}/(n − 1)
+    q = Statistics.median(G)
+    rel = 1 / (4 * Distributions.pdf(G, q)^2 * q^2)                  # m·Var(median v̂ / q) / v², the counts' own
+    xs = zeros(groups); ys = zeros(groups); ms = zeros(groups)
     for g in 1:groups
         idx = order[(div((g - 1) * length(order), groups) + 1):div(g * length(order), groups)]
-        y = Statistics.median(view(v, idx)) / bias
-        push!(xs, Statistics.median(view(μ, idx))); push!(ys, y)
-        push!(ws, length(idx) / (π / 2 * 2 * y^2 / (full - 1)))    # 1 / Var(median) from the counts
+        xs[g] = Statistics.median(view(μ, idx)); ys[g] = Statistics.median(view(v, idx)) / q; ms[g] = length(idx)
     end
-    maximum(xs) - minimum(xs) > 0 || throw(NoiseEstimateFailed("the usable blocks hold one level only: no slope"))
-    A = hcat(xs, ones(length(xs)))
-    W = Diagonal(ws)
-    C = inv(Symmetric(A' * W * A))                       # the line's covariance, from the counts
-    slope, intercept = C * (A' * W * ys)
+    maximum(xs) > minimum(xs) || throw(NoiseEstimateFailed("the usable blocks hold one level only: no slope"))
+    all(>(0), ys) || throw(NoiseEstimateFailed("a level of the usable blocks has no variance: a noise-free frame"))
+    A = hcat(xs, ones(groups))
+    fit(w) = (C = inv(Symmetric(A' * Diagonal(w) * A)); (C * (A' * (w .* ys)), C))
+    β, C = fit(ms ./ (rel .* ys .^ 2))                   # the start: each point weighted at its own variance
+    for _ in 1:100
+        (β[1] > 0 && β[2] > 0) || break
+        β′, C = fit(ms ./ (rel .* (A * β) .^ 2))          # 1 / Var of each point at the line's prediction
+        done = isapprox(β′, β; rtol = sqrt(eps()))
+        β = β′
+        done && break
+    end
+    slope, intercept = β
     (slope > 0 && intercept > 0) || throw(NoiseEstimateFailed(
         "the photon-transfer line is not physical: slope $(slope) (1/K), intercept $(intercept) (σ_r²)"
     ))
-    K = 1 / slope
     σr = sqrt(intercept)
-    return (; electrons_per_dn = K, read_noise = σr, electrons_per_dn_std_error = sqrt(C[1, 1]) / slope^2,
+    return (; electrons_per_dn = 1 / slope, read_noise = σr, electrons_per_dn_std_error = sqrt(C[1, 1]) / slope^2,
             read_noise_std_error = sqrt(C[2, 2]) / (2σr), blocks = length(keep))
 end
 
@@ -405,10 +451,16 @@ record ([`SensorNoise`](@ref) with source `:measured`):
   noise with the rounding, and at a long exposure the dark current's shot noise),
   and `read_noise_std_error` from the `χ²` spread of the frame count and the
   photosite count (`√(2/(n − 1)/N)·σ²` for the mean variance, by first order);
-- `defects` — the photosites whose offset leaves their channel's median by more
-  than `z` robust standard deviations (`mad_scale` of the channel's offsets), `z`
-  the normal quantile at which `false_defects` defect-free photosites are
-  expected to be flagged over the whole sensor (`1 − false_defects / (2N)`).
+- `defects` — a `BitMatrix`, the photosites whose offset leaves their
+  channel's median by more than `z` robust standard deviations (the median
+  absolute deviation over the normal's, [`mad_scale`](@ref)'s rule for
+  codimension 1, about the channel's median), `z` the normal quantile at which
+  `false_defects` defect-free photosites are expected to be flagged over the
+  whole sensor of `N` photosites (`1 − false_defects / (2N)`, two-sided, for
+  offsets that are Gaussian about their channel's black).
+
+A colour index the pattern lacks (a pattern with one green index) has black
+and read noise `0` (no photosite reads it).
 
 `exposure_band` is `(shortest, longest)`, time quantities, the exposures the
 record serves. A frame of another size, or fewer than 2, is an
@@ -444,7 +496,7 @@ function master_dark(frames::AbstractVector{<:RawMosaic}; exposure_band, false_d
         isempty(sel) && continue
         o = Float64.(off[sel])
         med = Statistics.median(o)
-        s = mad_scale(o .- med)
+        s = _mad_scale_norms(; norms = abs.(o .- med), codimension = 1)   # mad_scale's rule, about the channel's median
         bad = s > 0 ? abs.(o .- med) .> z * s : falses(length(o))
         defects[sel[bad]] .= true
         good = sel[.!bad]

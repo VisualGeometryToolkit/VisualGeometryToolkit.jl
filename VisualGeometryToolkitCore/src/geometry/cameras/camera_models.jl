@@ -364,17 +364,18 @@ ray = backproject(camera, u)  # Returns normalized Vec3 direction
         -> Vector{Tuple{SVector{3}, SMatrix{3, 2}}}
 
 The batched [`backproject`](@ref) (and [`backproject_with_jacobian`](@ref)) on the
-KernelAbstractions backend `device` ([`default_device`](@ref)`()` by default: an
-accelerator when one is functional, else `KA.CPU()`): the scalar map per pixel,
+KernelAbstractions backend `device` (by default the pixels' own, `get_backend(points)`:
+a host vector stays on the host, a device array on its device; give
+[`default_device`](@ref)`()` to send host pixels to the accelerator): the scalar map per pixel,
 one [`pointwise!`](@ref) over a device copy of the model and the pixels, each ray
 an `SVector{3}`, the result back in the pixels' array kind — bit for bit the
 scalar value on the CPU. One kernel on every backend: the model goes in its device form (isbits, or its adapt rule); a model with neither fails on an accelerator.
 A SplineLens camera's batched `backproject` is its own kernel (spline_lens.jl).
 """
-backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(points)) =
     _batched_backprojection(backproject, model, points, device)
 "See [`backproject`](@ref)`(model, pixels)`."
-backproject_with_jacobian(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = default_device()) =
+backproject_with_jacobian(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(points)) =
     _batched_backprojection(backproject_with_jacobian, model, points, device)
 
 # One pixel's datum as the batched forms store it: the ray an `SVector{3}` (the scalar's `Vec3`), a Jacobian as it is.
@@ -916,6 +917,11 @@ pixel, so the undistorted frame is that pinhole's.
 """
 function distortion_map(model::CameraModel{<:AbstractIntrinsics, <:AbstractLensModel})
     _check_lens_axis(model.lens, "distortion_map (undistort)")
+    return _lens_pixel_map(model)
+end
+# The composition itself, `K ∘ lens ∘ K⁻¹`, whatever the lens's axis: the plane map's last stage (`plane_map`), where
+# the pinhole twin's homography and this undo each other's `K` and only the lens's own map of normalized points counts.
+function _lens_pixel_map(model::CameraModel)
     K = _K(model.intrinsics)
     T = eltype(K)
     return affine_part(SMatrix{3, 3, T}(K)) ∘ model.lens ∘

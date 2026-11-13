@@ -438,6 +438,12 @@ end
         @test isempty(rules("src/a.jl" => "$(FR) = device_$(FR)_bytes(dev); r.$(FR) == (); $(FR)_names(spec)\n"))
         @test isempty(rules("src/a.jl" => "struct M\n    $(FR)::Tuple\nend\nallocate(n; $(FR) = true)\n"))
         @test isempty(rules("configs/a.toml" => "[slurm]\n$(FR) = 4\nhold = true\n"))
+        # a typed keyword with no default is the keyword too
+        @test rules("src/a.jl" => "fit_x(a; $(FR)::Tuple) = a\n") == [:R13]
+        @test rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR)::Tuple) end\n") == [:R13]
+        # a TOML finding is at its line in ITS table, not at the first such key of the file
+        v = only(filter(v -> v.rule === :R13, findings("configs/a.toml" => "[slurm]\n$(FR) = 4\n\n[pipeline.lm]\n$(FR) = [\"cx\"]\n")))
+        @test v.line == 5
     end
 
     @testset "R12: the Student-t + uniform scorer has no threshold" begin
@@ -447,6 +453,10 @@ end
         @test rules("configs/a.toml" => "[p]\nscoring = { type = \"student_t_uniform\", $(TH) = 3.0 }\n") == [:R12]
         @test rules("docs/a.md" => "the $(TH) of the StudentTUniformScoring\n") == [:R12]
         @test rules("src/a.jl" => "f(x) = x   # the student_t_uniform scorer's $(TH)\n") == [:R12]
+        # the plural and any case
+        @test rules("src/a.jl" => "sc = StudentTUniformScoring(P, $(TH)s)\n") == [:R12]
+        @test rules("docs/a.md" => "$(uppercasefirst(TH)) of the StudentTUniformScoring\n") == [:R12]
+        @test rules("docs/a.md" => "$(uppercase(TH))S beside StudentTUniformScoring\n") == [:R12]
         # its width by its name, its decision boundary, and a compound name holding the word are no finding
         @test isempty(rules("src/a.jl" => "sc = StudentTUniformScoring(P, outlier_halfwidth)\n"))
         @test isempty(rules("src/a.jl" => "w = decision_boundary(sc::StudentTUniformScoring, buf)\n"))

@@ -97,7 +97,7 @@ weight_kind(::Type{<:ResidualMixtureMetadata}) = PosteriorWeights()
 
 Fit the Student-t + uniform mixture to a held model's `distances` (`≥ 0`,
 unsquared: the Mahalanobis distances, the residual NORMS of a codimension-2
-measurement — what `mahalanobis_distances!` fills) and classify each one. A
+observation — what `mahalanobis_distances!` fills) and classify each one. A
 negative entry is a signed residual, not a distance, and is an
 `ArgumentError` (supply `abs.(r)`).
 

@@ -22,7 +22,7 @@ radial camera's normalization, `CspondNormalization(RadialCamera, cs; center)`
 (Hartley at the plane centroid, Hartley about `center` on the image side — the
 same strategy `find_radial_camera`'s problem solves in), and composed back into
 pixels. Each iteration re-solves; from the second on every
-row is divided by the constraint's measurement-gradient norm at the previous
+row is divided by the constraint's observation-gradient norm at the previous
 iteration's solution ([`whitening_factor`](@extref VisualGeometryToolkitCore.whitening_factor), the Sampson normalizer held
 fixed — the algebraic error becomes the exact point–radial-line distance); a
 `weights` column on `cs` (a `Csponds` attribute, e.g. `withattrs(cs; weights)`)

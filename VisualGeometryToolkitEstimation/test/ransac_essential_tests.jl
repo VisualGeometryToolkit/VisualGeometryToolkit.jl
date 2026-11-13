@@ -116,12 +116,12 @@ end
     @test VgtkCore.check_rows_jacobian(_lm_state(p, ch, sqrtw), x, m; atol = 1.0e-8)
 end
 
-@testset "Measurement-map frame labels (VGC EpipolarForm adoption)" begin
+@testset "Observation-map frame labels (VGC EpipolarForm adoption)" begin
     rng = StableRNG(23)
     u₁ = [Point2{Float64}(0.3 * randn(rng), 0.3 * randn(rng)) for _ in 1:12]
     u₂ = [Point2{Float64}(0.3 * randn(rng), 0.3 * randn(rng)) for _ in 1:12]
     cs = StructArray(u₁ .=> u₂)
-    # Non-trivial invertible data→bearing measurement maps.
+    # Non-trivial invertible data→bearing observation maps.
     C1 = SMatrix{3, 3, Float64}([1.3 0.1 0.02; 0.0 0.9 -0.03; 0.0 0.0 1.0])
     C2 = SMatrix{3, 3, Float64}([0.8 0.0 -0.01; 0.05 1.1 0.04; 0.0 0.0 1.0])
     # Labeled lifts: data frame (caller-dependent ⇒ unlabeled) → per-view
@@ -132,7 +132,7 @@ end
     # A valid essential matrix for the residual comparisons.
     θ = EssentialMat(RotY(0.15), normalize(SA[0.6, -0.2, 0.4]))
 
-    # E TAKES NO MEASUREMENT MAPS ANY MORE, and this asserts the refusal.
+    # E TAKES NO OBSERVATION MAPS ANY MORE, and this asserts the refusal.
     #
     # The maps existed to express K⁻¹, and a map is a MATRIX — so the best it
     # can produce is a point on the z = 1 plane. Measured: the old lift returned
@@ -168,7 +168,7 @@ end
 
     # The camera form is the supported path, and it scores finitely.
     p0 = ecs(u₁, u₂)
-    @test !VgtkEstimation._has_measurement_maps(p0)
+    @test !VgtkEstimation._has_observation_maps(p0)
     n = length(u₁)
     r0 = Vector{Float64}(undef, n)
     VgtkEstimation.mahalanobis_distances!(r0, p0, θ)
@@ -181,7 +181,7 @@ end
     V2 = HomographyMap{UnlabeledFrame{2}, ImageFrame{:dst}}(C2)
     @test_throws ArgumentError FundMatProblem(cs7; src_map = V1, dst_map = V2)
     ph = HomographyProblem(cs7; src_map = V1, dst_map = V2)
-    @test VgtkEstimation._has_measurement_maps(ph)
+    @test VgtkEstimation._has_observation_maps(ph)
     @test_throws MethodError HomographyProblem(cs7; src_map = V2, dst_map = V1)
 end
 

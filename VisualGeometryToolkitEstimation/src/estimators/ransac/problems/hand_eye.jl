@@ -241,7 +241,7 @@ Under that convention, near the optimum:
        [   [R_X t_B]_×    (R_A − I)   ]   ← translation block
 ```
 
-The measurement Jacobian `∂ₓg = I_6` reports the noise model directly on
+The observation Jacobian `∂ₓg = I_6` reports the noise model directly on
 the constraint (the per-pair 6-vector is already in unit-balanced form),
 so the default `mahalanobis_distances!` produces ‖g‖.
 """

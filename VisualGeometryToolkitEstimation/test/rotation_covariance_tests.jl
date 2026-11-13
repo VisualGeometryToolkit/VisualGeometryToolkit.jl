@@ -1,9 +1,9 @@
 # The per-edge covariance of a relative rotation (the owner's ruling): a
-# RotationProblem whose pixels carry their keypoints' covariances (Uncertain),
+# RotationProblem whose pixels carry their detections' covariances (Uncertain),
 # whitened through Core's Sampson layer on every route; `uncertain_rotation`,
 # its fit's rotation with the absolute covariance noise_scale² × solver_covariance
 # in the so(3) chart, against a Monte Carlo of the pipeline under ANISOTROPIC
-# keypoint noise; the chart the averaging reads it in; and fit_rotation_averaging
+# detection noise; the chart the averaging reads it in; and fit_rotation_averaging
 # whitening each Uncertain edge by it (scale upstream, a weak edge down-weighted).
 
 @testsetup module RotationEdgeScenes
@@ -19,7 +19,7 @@
         dirs = [normalize(SVector(0.7 * (rand(rng) - 0.5), 0.5 * (rand(rng) - 0.5), 1.0)) for _ in 1:n]
         return [VgtkCore.project(cam, d) for d in dirs], [VgtkCore.project(cam, R * d) for d in dirs]
     end
-    # one anisotropic 2×2 covariance per keypoint (px²): σ_major/σ_minor up to 4, at a random angle, times s²
+    # one anisotropic 2×2 covariance per detection (px²): σ_major/σ_minor up to 4, at a random angle, times s²
     function anisotropic_covariances(rng, n; s = 0.5)
         map(1:n) do _
             θ = π * rand(rng); a = 1 + 3 * rand(rng)
@@ -47,7 +47,7 @@ end
     Σ1 = anisotropic_covariances(rng, 12); Σ2 = anisotropic_covariances(rng, 12)
     pu = RotationProblem(cam, cam, csponds(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
     pp = RotationProblem(cam, cam, csponds(u1, u2))
-    @test pu.cs.Σ₁ == Σ1 && pu.cs.Σ₂ == Σ2                                     # the keypoints' covariances, Core's noise columns
+    @test pu.cs.Σ₁ == Σ1 && pu.cs.Σ₂ == Σ2                                     # the detections' covariances, Core's noise columns
     @test measurement_covariance(pu, 3) == VgtkCore.pair_covariance(Σ1[3], Σ2[3])
     @test measurement_covariance(pp, 3) === I
     # the whitened residual at a perturbed rotation is the Mahalanobis one: g over G_x·Σ_x·G_xᵀ
@@ -65,7 +65,7 @@ end
     @test_throws ArgumentError RotationProblem(cam, cam, csponds(exact.(u1), exact.(u2)))
 end
 
-@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of find_rotation under anisotropic keypoint noise" setup = [RotationEdgeScenes] begin
+@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of find_rotation under anisotropic detection noise" setup = [RotationEdgeScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
@@ -88,7 +88,7 @@ end
     ΣR = SMatrix{3, 3}(cov(e0))
     @test ΣR ≈ ΣR' && all(>(0), eigvals(Symmetric(Matrix(ΣR))))
     @test @inferred(uncertain_rotation(p0, exact_fit; scale = 1.0)) isa Uncertain
-    # Monte Carlo of the pipeline: keypoints drawn from their covariances, find_rotation (its scorer's threshold in
+    # Monte Carlo of the pipeline: detections drawn from their covariances, find_rotation (its scorer's threshold in
     # whitened units; its LO the whitened chart LM), the error in the left chart log(R̂·Rᵀ)
     trials = 300
     runs = map(1:trials) do t
@@ -112,7 +112,7 @@ end
     # 300 trials: a sample covariance entry within ~3·√(2/300) ≈ 25 % of the diagonal scale
     @test rel(ΣR) < 0.25
     @test all(0.7 .< diag(C) ./ diag(ΣR) .< 1.4)
-    # the covariances matter: the isotropic model (each keypoint's mean variance) misses the Monte Carlo by more
+    # the covariances matter: the isotropic model (each detection's mean variance) misses the Monte Carlo by more
     iso(Σs) = [SMatrix{2, 2}(tr(Σ) / 2 * I) for Σ in Σs]
     piso = RotationProblem(cam, cam, csponds(uncertain_pixels(u1, iso(Σ1)), uncertain_pixels(u2, iso(Σ2))))
     Σiso = SMatrix{3, 3}(cov(uncertain_rotation(piso, exact_fit; scale = 1.0)))
@@ -167,7 +167,7 @@ end
     nf = 5
     edges = [(i, j) for i in 1:nf for j in (i + 1):min(nf, i + 2)]
     weak = (2, 3)
-    # pixel noise per edge: the weak edge's keypoints 8× noisier (its Σ says so)
+    # pixel noise per edge: the weak edge's detections 8× noisier (its Σ says so)
     s(e) = e == weak ? 4.0 : 0.5
     err(est, R) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(est[k])' * R[k])), 1:nf)
     function trial(seed)

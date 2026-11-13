@@ -1,4 +1,4 @@
-# The measurement-noise rule in the correspondence problems (VisualGeometryToolkitCore
+# The observation-noise rule in the correspondence problems (VisualGeometryToolkitCore
 # conventions/measurement-noise.md): a plain point is unit isotropic noise, an
 # `Uncertain` point carries its covariance, an `exact` point none — through
 # scoring, the chart rows of the refit, the normalization and the maps.

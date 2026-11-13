@@ -26,10 +26,10 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     Extrinsics3, UnlabeledFrame, unlabel, relabel, Vec2, Vec3,
     Uncertain, CovMat,
     # Slot-labeled epipolar forms + per-view frame tags (VGC 0.9): the
-    # measurement-frame bookkeeping of the 2D-2D RANSAC problems is
+    # observation-frame bookkeeping of the 2D-2D RANSAC problems is
     # declared through these at the construction boundary (cspond.jl
-    # `_measurement_map`/`_check_measurement_frames`/
-    # `_measurement_epipolar`); the @inbounds Sampson kernels and scoring
+    # `_observation_map`/`_check_observation_frames`/
+    # `_observation_epipolar`); the @inbounds Sampson kernels and scoring
     # conjugations keep the raw matrices (bit-pinned inline products).
     EpipolarForm, EpipolarMap, to_homogeneous, GnomonicFrame, ImageFrame,
 

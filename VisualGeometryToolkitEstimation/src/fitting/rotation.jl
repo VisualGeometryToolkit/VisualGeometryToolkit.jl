@@ -16,7 +16,7 @@ Robust estimation of the rotation `R` between two views of a camera that only
 rotated — `f₂ ∥ R·f₁` for the unit bearings of a correspondence, the infinite
 homography — by RANSAC on the [`RotationProblem`](@ref): 2-point samples
 (VisualGeometryToolkitCore's `Rotation2pt`, `kabsch` on the pair), the Sampson
-distance of the joint measurement (both images' pixels, Σ = I) to the transfer
+distance of the joint observation (both images' pixels, Σ = I) to the transfer
 constraint on bearings, in PIXELS through the views' back-projection Jacobians, and the local optimization's chart-LM refit on the
 rotation chart. A sampler (it draws hypotheses and verifies them), so a `find_*`.
 

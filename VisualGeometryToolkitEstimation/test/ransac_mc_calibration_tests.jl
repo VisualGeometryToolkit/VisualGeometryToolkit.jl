@@ -139,7 +139,7 @@ end
 # (b) predictive trials: one held-out point per trial, (rᵢ, σ²·Vᵢ) ~ χ²_{d_g}
 # kind: :E (PIXEL data + the camera that produced it — the only essential
 #       construction there is now; the former :E_mapped variant, pixel data
-#       with K⁻¹ measurement maps, has merged into it because maps are gone
+#       with K⁻¹ observation maps, has merged into it because maps are gone
 #       and the camera declares the calibration),
 #       :F (calibration frame), :F_px (raw pixels), :H (pixels, codim 2:
 #       Vᵢ = I₂ + G_w·Σ̃·G_wᵀ; `regime` :generic | :near_affine)

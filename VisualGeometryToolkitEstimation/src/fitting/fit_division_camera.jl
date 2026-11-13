@@ -361,7 +361,7 @@ Jeffreys sweep 3.5 %, a per-board sweep 5.1 %, frozen Welsch 28 %, Welsch with a
 adaptive scale 85 % (no uniform component ⇒ the scale update has no fixed point
 and ran to ŝ = 29). This estimator lands at 1.25 %. A sweep seed needs residuals
 that are already bimodal; iteration 0 here is one linear solve of an uncalibrated
-stack (whitened at a seed, not at a fit), so they are not. (Those measurements
+stack (whitened at a seed, not at a fit), so they are not. (Those numbers
 predate the seeded iteration 0.)
 
 Iteration 0 alone — whitened at the seed and robustly unweighted — is the step

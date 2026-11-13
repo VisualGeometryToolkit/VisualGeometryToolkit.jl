@@ -2,7 +2,7 @@
 # refine_robot_world_hand_eye — reprojection-error refinement of a robot-world calibration
 # =============================================================================
 #
-# The measurement-level upgrade `fit_robot_world_hand_eye`'s header names: refine the
+# The observation-level upgrade `fit_robot_world_hand_eye`'s header names: refine the
 # M + 1 transforms of A_i X_m = Y B_i^m against the FEATURES — the marker
 # points' reprojection error — rather than against per-frame PnP poses. With
 # the camera and the rig poses A_i fixed, marker m's point X seen in frame i
@@ -262,7 +262,7 @@ function _refine_robot_world_hand_eye(
     termination = (sol.code, sol.rule)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
-    # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-
+    # of its rows of J with observation Jacobian −I: the same (JᵀJ)⁻¹ as per-
     # point blocks, without a static 2 × N block and an N × N static product
     # per point. Measured 2026-10-01 at M = 20 (N = 126, 6000 points): the
     # per-point form took 370 ms and 2.2 GB per call, 4× the LM itself.

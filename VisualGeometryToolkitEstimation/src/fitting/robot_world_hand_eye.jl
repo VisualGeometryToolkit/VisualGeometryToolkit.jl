@@ -21,7 +21,7 @@
 # REMOVED (2026-08): on the motivating 260527 data the pose-residual MLE
 # absorbed an unmodeled systematic (~0.17°, ≈17σ) along a weakly constrained
 # direction and extrapolated WORSE than this initializer (3.3/6.3/10.4 vs
-# 2.8/4.2/6.7 mm across the range sweep). A measurement-level (reprojection)
+# 2.8/4.2/6.7 mm across the range sweep). An observation-level (reprojection)
 # refinement is the sound upgrade path; a pose-residual NLLS is not.
 #
 # The covariance is the first-order (delta-method) covariance of THIS staged
@@ -496,7 +496,7 @@ translations given the rotations. A pose-residual NLLS refinement was
 deliberately removed: on real single-distance calibration data it absorbed
 an unmodeled systematic along a weakly constrained direction and
 extrapolated worse than this solution (see the documentation's
-"Robot–World Hand–Eye Calibration" page). Measurement-level (reprojection)
+"Robot–World Hand–Eye Calibration" page). Observation-level (reprojection)
 refinement is the sound upgrade path.
 
 # Arguments

@@ -59,7 +59,7 @@ point `X` and its RAW centered pixel `x` the constraint is
     g = x·(Z + t₃) − X_c·(f + Σₚ λₚ ρ²ᵖ)   (two rows; X_c = camera-frame point at t₃ = 0)
 
 which is LINEAR in θ: `g = G_θ·θ + c₀`, `c₀ = x·Z`. [`constraint_with_jacobians`](@ref)
-returns `g`, the measurement Jacobian `G_x = ∂g/∂x` (2×2) and `G_θ` (2×(N+2)),
+returns `g`, the observation Jacobian `G_x = ∂g/∂x` (2×2) and `G_θ` (2×(N+2)),
 and its frozen whitening factor ([`whitening_factor`](@extref VisualGeometryToolkitCore.whitening_factor), `L⁻¹` of
 `G_x·G_xᵀ`) turns them into pixel-currency rows. A KNOWN k folds `λ₁ = k·f`
 into the f column (chain rule) — see `_lift_columns`.

@@ -72,7 +72,7 @@ FundMatProblem(pair::PoolPair{<:FundMat}; kw...) = FundMatProblem(pair.csponds; 
     HomographyProblem(pair::PoolPair{<:HomographyMat}; kw...) -> HomographyProblem
 
 The pool-frame homography problem of a pool record: its correspondences
-(`NormalizedImageFrame`) verbatim, no measurement maps. Its sample gate reads
+(`NormalizedImageFrame`) verbatim, no observation maps. Its sample gate reads
 the scale-free tolerance on its normalized view, so it takes no
 `coincident_tol`. `kw` go to `HomographyProblem`.
 """
@@ -91,7 +91,7 @@ fact, chosen by the pool's producer:
 - [`InlierVariance`](@ref)`(; min_inliers)`: over the raw pair's GT-inlier
   correspondences;
 - [`TrackVariance`](@ref)`(source, target)`: over separate pixel point pairs
-  (SfM-track keypoints), under the oracle model.
+  (SfM-track observations), under the oracle model.
 """
 abstract type PoolVariance end
 
@@ -115,7 +115,7 @@ InlierVariance(; min_inliers::Integer) = InlierVariance(Int(min_inliers))
     TrackVariance(source, target)
 
 σ̂² over separate pixel point pairs `source[i] => target[i]` (e.g. SfM-track
-keypoints, independent of the matcher's correspondences), carried into the pool
+detections, independent of the matcher's correspondences), carried into the pool
 frame by the raw pair's normalization: the RSS of the ORACLE model (the GT pose)
 in the family's own residual, over the ORACLE DOF ([`oracle_residual_dof`](@ref),
 `n·d_g`: nothing is fitted). E and F only. A minimum point count is the reader's
@@ -237,17 +237,17 @@ _to_pool_frame(::FundMatProblem, F, raw, N::CspondNormalization) =
 function _to_pool_frame(p::HomographyProblem, H, raw, N::CspondNormalization)
     Hd = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H)))
     _homography_model_calibrated(p) || return destination_map(N) ∘ Hd ∘ inv(source_map(N))
-    # the calibrated H back to pixels through the problem's own measurement maps
+    # the calibrated H back to pixels through the problem's own observation maps
     return destination_map(N) ∘ inv(p.dst_frame_map) ∘ Hd ∘ p.src_frame_map ∘ inv(source_map(N))
 end
 
 # The model frame of a homography problem: the data (pixel) frame when it
-# carries no measurement maps; the calibrated chart when its maps are declared
+# carries no observation maps; the calibrated chart when its maps are declared
 # into `GnomonicFrame`. A mapped problem whose maps declare anything else names
 # no frame a pose error can be read in, so it is refused.
 _map_target(::HomographyMap{N, T, M, S, D}) where {N, T, M, S, D} = D
 function _homography_model_calibrated(p::HomographyProblem)
-    _has_measurement_maps(p) || return false
+    _has_observation_maps(p) || return false
     (_map_target(p.src_frame_map) <: GnomonicFrame && _map_target(p.dst_frame_map) <: GnomonicFrame) &&
         return true
     throw(ArgumentError(

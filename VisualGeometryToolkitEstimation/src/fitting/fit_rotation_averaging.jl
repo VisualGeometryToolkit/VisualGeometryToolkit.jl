@@ -75,13 +75,13 @@ fixed by the caller's scale input.
   `Uncertain(R_ij, CovMat(Σ))`), Σ 3×3 in the so(3) chart of `R_ij` (left exp,
   `R_ij → exp(δ)·R_ij`) or 9×9 over `vec(R_ij)`. [`uncertain_rotation`](@ref)
   makes one from a pairwise rotation fit: `noise_scale² × solver_covariance`, the
-  keypoints' own covariances included when its pixels are `Uncertain`. Each edge
+  detections' own covariances included when its pixels are `Uncertain`. Each edge
   residual is whitened by its covariance (VisualGeometryToolkitCore's
   `whitening_factor` of `R_j·Σ·R_jᵀ`, the edge's chart transported to the
   residual's, refreshed with `R_j`) before the loss and in the update, so a weak
-  edge (few inliers, noisy keypoints) weighs less. The covariances carry the
+  edge (few inliers, noisy detections) weighs less. The covariances carry the
   scale, so such a graph takes NO `scale` (the result records scale 1,
-  `ScaleUpstream`); a `width` is in whitened units. Edges that share a keypoint
+  `ScaleUpstream`); a `width` is in whitened units. Edges that share a detection
   are treated as independent (their correlation ignored: the first-order
   approximation). A graph mixing Uncertain and plain edges is an `ArgumentError`.
 - The edge weights: a zero weight drops its edge. The edges of positive weight
@@ -133,7 +133,7 @@ function fit_rotation_averaging(
     ) where {K}
     refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     edges = sort!(collect(keys(relative)))
-    meas = [_edge_measurement(relative[e]) for e in edges]
+    meas = [_edge_observation(relative[e]) for e in edges]
     f = _averaging_irls(optimization_strategy, scale, width, [first(x) for x in meas])
     p = [last(x) for x in meas]
     all(>=(0), p) || throw(ArgumentError("fit_rotation_averaging: an edge weight is negative"))
@@ -217,8 +217,8 @@ end
 # that propagated covariance), refreshed at every iteration's R_j. The loss reads
 # the whitened norm and the update solves the whitened rows. When every edge is
 # plain, nothing is whitened (today's path, bit for bit).
-_edge_measurement(e::VgtkCore.Uncertain) = (e, 1.0)
-_edge_measurement(e) = (VgtkCore.value_of(e), Float64(VgtkCore.weight_of(e)))
+_edge_observation(e::VgtkCore.Uncertain) = (e, 1.0)
+_edge_observation(e) = (VgtkCore.value_of(e), Float64(VgtkCore.weight_of(e)))
 
 _edge_covariances(xs, Rrel) = any(x -> x isa VgtkCore.Uncertain, xs) ? _edge_covariances(VgtkCore.Uncertain[x for x in xs], Rrel) : nothing
 _edge_covariances(xs::AbstractVector{<:VgtkCore.Uncertain}, Rrel) =

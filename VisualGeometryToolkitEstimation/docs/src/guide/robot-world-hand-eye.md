@@ -20,7 +20,7 @@ where
   *exact*, its noise being ``\sim\!100\times`` below detection noise);
 - ``B_{im} = (R_{B_{im}}, \boldsymbol{t}_{B_{im}}) \in \mathrm{SE}(3)`` — pose
   of marker ``m`` in the camera at frame ``i`` (PnP detection; the
-  *measurements*);
+  *observations*);
 - ``X_m = (R_{X_m}, \boldsymbol{t}_{X_m}) \in \mathrm{SE}(3)`` — marker ``m``
   in the rig (``M`` unknowns);
 - ``Y = (R_Y, \boldsymbol{t}_Y) \in \mathrm{SE}(3)`` — camera in the reference
@@ -129,7 +129,7 @@ weakly constrained parameter directions — in-sample optimality, out-of-sample
 bias. The staged linear solve, which never optimizes the misspecified
 likelihood, is the calibration of record.
 
-The sound upgrade is not a better pose-noise model but a *measurement-level*
+The sound upgrade is not a better pose-noise model but an *observation-level*
 objective: minimize the reprojection error of the extracted image features
 (blob centroids, tag corners) over ``(Y, X_1,\dots,X_M)``, initialized at the
 staged linear solution. Per-feature pixel residuals make heteroscedasticity

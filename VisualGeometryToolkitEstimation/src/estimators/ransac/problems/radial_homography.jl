@@ -24,13 +24,13 @@
 #      division model is origin-centered) and every candidate is
 #      composed back out of it, so problem-level models live in the DATA frame
 #      with center and k in pixel units — self-contained for consumers.
-#   3. RESIDUALS ARE MEASUREMENT-SPACE REPROJECTIONS `‖dᵢ − transfer(m, sᵢ)‖`
+#   3. RESIDUALS ARE OBSERVATION-SPACE REPROJECTIONS `‖dᵢ − transfer(m, sᵢ)‖`
 #      in pixels (`radial_transfer` is ray-based, so predictions survive the
 #      hemisphere boundary for k < 0); a ray outside a k > 0 model's
 #      representable field gets a large finite sentinel residual.
 #
 # LO support: the 4-arg `refine!(lo_ws, p, θ, w)` is a JOINT 9-dof chart LM —
-# sl(3) ⊕ k about the seed — on the weighted measurement-space reprojection
+# sl(3) ⊕ k about the seed — on the weighted observation-space reprojection
 # (see the fit section below), driven by the posterior-weight IRLS outer
 # loops (`Irls`, LocalOptimizationDoneRight's `StudentTUniform`) with their best-cost tracking; the chart-lift family
 # (HQ/GNC) rides the same kernels through its `ManifoldLiftProvider`.
@@ -151,7 +151,7 @@ test_consensus(
 end
 
 # =============================================================================
-# The scoring residual — measurement-space reprojection distance (pixels)
+# The scoring residual — observation-space reprojection distance (pixels)
 # =============================================================================
 
 # The reprojection residual of correspondence `i`, Jacobian-free: the predicted
@@ -168,7 +168,7 @@ end
 # IS the whitened residual, because the problem admits only exact (or plain)
 # sources and plain targets (`_exact_source_only` refuses a target covariance
 # and drops the source's): an exact source with a plain target is the
-# measurement-noise rule's plain pixel case on one side, `Σ̃ = I`, so the
+# observation-noise rule's plain pixel case on one side, `Σ̃ = I`, so the
 # transfer error needs no whitening. The chart LM's rows
 # (`radial_transfer_rows!`) are in the same pixels. Admitting a target
 # covariance means whitening here, in the distance below and in those rows
@@ -203,14 +203,14 @@ end
 end
 
 # =============================================================================
-# The chart — sl(3) ⊕ k (9 dof, codim 2), measurement-space reprojection rows
+# The chart — sl(3) ⊕ k (9 dof, codim 2), observation-space reprojection rows
 # =============================================================================
 #
 # The house chart shape (H: sl(3)), extended by one Euclidean dimension for k:
 # VGC's `minimal_manifold(::RadialHomography)`, the product of
 # HomographyManifold8 about H₀ and the additive k, embedded back into a
 # RadialHomography with its fixed distortion centre. The weighted objective is
-# the TRUE measurement-space reprojection
+# the TRUE observation-space reprojection
 #
 #   Σᵢ wᵢ ‖dᵢ − project(m, T₋c·H(a)·s̃ᵢ)‖²,  H(a) = H₀(I + Σ aᵩGᵩ),  k = k₀ + a₉
 #

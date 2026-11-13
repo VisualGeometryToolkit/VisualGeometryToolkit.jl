@@ -399,7 +399,7 @@ not configuration. A counter is shared by every run that is handed the same
 wrapper — the counters are `Threads.Atomic{Int}` and `call_records` is appended
 under a lock, so runs on several threads (a threaded sweep over pairs) add up
 exactly (the records then in the threads' order); build a fresh one per
-measurement, and read `call_records` once its runs have returned.
+experiment, and read `call_records` once its runs have returned.
 """
 struct CountedLO{L <: Union{Nothing, AbstractOptimizationStrategy}} <: AbstractOptimizationStrategy
     inner::L

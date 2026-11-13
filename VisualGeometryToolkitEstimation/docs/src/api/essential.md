@@ -42,9 +42,9 @@ a rotation `R` with `f₂ ∥ R·f₁` on unit bearings. `RotationProblem` is th
 bearing problem of that model, built like the essential problem from the
 cameras' back-projection with the `M₁`/`M₂` Jacobian columns (the whole field
 of a fisheye takes part, past 90°): VisualGeometryToolkitCore's `Rotation2pt`
-on two pairs, the residual the Sampson distance of the joint measurement (both
+on two pairs, the residual the Sampson distance of the joint observation (both
 images' pixels, at their noise `blockdiag(Σ₁, Σ₂)`: unit isotropic for plain
-pixels, the keypoints' own for `Uncertain` ones) to the transfer constraint on bearings, in whitened pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
+pixels, the detections' own for `Uncertain` ones) to the transfer constraint on bearings, in whitened pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
 f₁, f₂; M₁, M₂)` at `H = R`), and the chart-LM refit on VisualGeometryToolkitCore's
 `SO3Manifold` through the homography's transfer rows. `find_rotation`
 is its RANSAC; a scorer or a lift from another package plugs in as for

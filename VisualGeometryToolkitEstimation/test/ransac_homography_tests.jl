@@ -504,7 +504,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
     end
 
     # -------------------------------------------------------------------------
-    # MAPPED homography: pixels in, `K⁻¹`-style measurement maps, a model-frame
+    # MAPPED homography: pixels in, `K⁻¹`-style observation maps, a model-frame
     # H out. The maps are anisotropic, differ per view and carry a ROLL, so a
     # consumer that applies the model-frame H to raw pixels (the LM refit, the
     # local optimizers, the consensus gate) is caught rather than accidentally agreeing.

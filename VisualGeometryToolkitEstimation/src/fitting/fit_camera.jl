@@ -715,7 +715,7 @@ end
 
 The refusal of a camera-from-camera regression ([`fit_camera`](@ref), [`refine_camera`](@ref),
 [`approximate_camera`](@ref)) whose region reaches past the target family's view-angle limit: the family cannot
-represent the source there, and it is never fitted over a clipped field. Its fields carry the measurement, so a caller
+represent the source there, and it is never fitted over a clipped field. Its fields carry the evidence, so a caller
 can catch it and record the case (a fisheye × rational cell as not applicable, quoting the angle) without reading the
 message:
 

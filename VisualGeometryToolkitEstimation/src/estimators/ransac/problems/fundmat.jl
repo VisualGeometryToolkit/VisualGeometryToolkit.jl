@@ -7,7 +7,7 @@
 # sample/model gates are the family's (cspond.jl). The sample gate is
 # correspondence coincidence only — no collinearity filter: collinearity on
 # C(7,3) = 35 triplets per image would reject ~75% of valid all-inlier samples
-# (SuperANSAC's policy). F takes no measurement maps (refused at construction),
+# (SuperANSAC's policy). F takes no observation maps (refused at construction),
 # so its data frame IS its model frame. This file holds the rows of its chart,
 # shared by the chart-LM refit and the HQ/GNC lift (interface.jl `ChartLm`).
 #

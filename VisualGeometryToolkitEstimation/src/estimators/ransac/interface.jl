@@ -174,7 +174,7 @@ residual_dof(p::AbstractRansacProblem, n_in::Int) = residual_dof(typeof(p), n_in
 
 Residual DOF when residuals are measured against an **oracle** model that was
 NOT fitted to these `n` points (e.g. the COLMAP ground-truth pose evaluated on a
-pair's SfM-track keypoints): no parameters are consumed, so
+pair's SfM-track observations): no parameters are consumed, so
 
     ν = n · d_g          (vs `residual_dof`'s `(n − m)·d_g` for a *fitted* model)
 

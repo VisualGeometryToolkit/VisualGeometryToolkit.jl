@@ -6,7 +6,7 @@
 # `implicit_covariance` on the problem's own constraint rows,
 # `constraint_with_jacobians(p, θ, i)` for `i` in an index set — the rows
 # `mahalanobis_distances!` whitens and predictive scoring contracts, in the data frame
-# (measurement maps included: the rows are already there). On a minimal
+# (observation maps included: the rows are already there). On a minimal
 # sample the system is square and the sandwich IS the implicit-function
 # covariance of the minimal solve (the hypothesis's `solver_covariance`); on an
 # overdetermined set — the local optimization's inlier set, a seed's consensus
@@ -33,7 +33,7 @@ _model_directions(::AbsolutePoseProblem, _θ) = nothing
 _model_directions(_p, _θ) = nothing
 
 # One index's block (Aᵢ, Bᵢ[, Σ̃ₓ]): the constraint's model rows in the
-# covariance's coordinates, its measurement rows (VGC's `block_rows`, the form
+# covariance's coordinates, its observation rows (VGC's `block_rows`, the form
 # `implicit_covariance` reads), and the point's noise shape Σ̃ₓ (the problem's
 # `measurement_covariance`, the one `mahalanobis_distances!` whitens by) when it is not
 # isotropic. `noise_weighted = true` below makes the estimator the

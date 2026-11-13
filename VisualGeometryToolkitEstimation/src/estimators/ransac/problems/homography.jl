@@ -19,7 +19,7 @@
 # homographies that a sample-only check misses. Delegates to VGC's
 # `test_consensus(H, cs, mask) = test_cheirality(H, cs, mask)`, with `H` and the
 # points in the SAME frame: `H` is a model-frame homography, so it meets the
-# solve view (`cs_solve`, the measurement-mapped points; `=== cs` unmapped).
+# solve view (`cs_solve`, the observation-mapped points; `=== cs` unmapped).
 test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::BitVector) =
     test_consensus(H, p.cs_solve, mask)
 
@@ -28,7 +28,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # transfer residuals are the scoring currency the loss width is stated in —
 # and hand back a MODEL-frame homography, the frame `solve` returns and scoring
 # (`constraint_with_jacobians`) composes into the data frame. On a mapped
-# problem the model changes frame by composition with the measurement maps,
+# problem the model changes frame by composition with the observation maps,
 # once on entry (`_chart`: `inv(C₂) ∘ H ∘ C₁`) and once on exit (`_model_at`:
 # `C₂ ∘ H_data ∘ inv(C₁)`); identity maps leave the matrix untouched.
 
@@ -42,12 +42,12 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 #   g₁ = h₁ᵀs̃ − x'·h₃ᵀs̃
 #   g₂ = h₂ᵀs̃ − y'·h₃ᵀs̃
 #
-# The measurement Jacobian ∂ₓg (2×4) w.r.t. (x, y, x', y'):
+# The observation Jacobian ∂ₓg (2×4) w.r.t. (x, y, x', y'):
 #   ∂ₓg = [ H[1,1]−x'H[3,1]   H[1,2]−x'H[3,2]   −c    0  ]
 #          [ H[2,1]−y'H[3,1]   H[2,2]−y'H[3,2]    0   −c  ]
 # where c = h₃ᵀs̃.
 #
-# The constraint covariance (the measurement-noise rule, VisualGeometryToolkitCore
+# The constraint covariance (the observation-noise rule, VisualGeometryToolkitCore
 # conventions/measurement-noise.md): Σ̃_{gᵢ} = G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ (2×2), with
 # Σ = I for a plain point (so ∂ₓg·∂ₓgᵀ for two plain points), the point's own
 # for an `Uncertain` one, 0 for an `exact` one. A board in metres is supplied
@@ -77,7 +77,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 #
 # Residuals are the codimension-2 whitened algebraic constraint in the DATA
 # frame — EXACTLY what scoring computes: rᵢ = √wᵢ · Lᵢ⁻¹gᵢ with LᵢLᵢᵀ =
-# G_x·Σᵢ·G_xᵀ under the endpoints' measurement noise (`I` for plain points;
+# G_x·Σᵢ·G_xᵀ under the endpoints' observation noise (`I` for plain points;
 # conventions/measurement-noise.md: an exact source gives the transfer error in
 # target pixels), the factor re-evaluated at every iterate and its derivative
 # carried — the Sampson-constraint problems' one chart-rows method
@@ -98,7 +98,7 @@ chart_dof(::Type{<:HomographyProblem}) = 8
 # form, at the unit-Frobenius representative (the chart's own `recenter`, the
 # one re-anchor policy — the representative the ambient covariance is of).
 function _chart(p::HomographyProblem, H::HomographyMat)
-    Hd = _has_measurement_maps(p) ? inv(p.dst_frame_map) ∘ H ∘ p.src_frame_map : H
+    Hd = _has_observation_maps(p) ? inv(p.dst_frame_map) ∘ H ∘ p.src_frame_map : H
     return _reanchored(minimal_manifold(Hd))
 end
 
@@ -106,7 +106,7 @@ end
 # unmapped path's gauge and eltype: unit Frobenius norm, Float64.
 function _model_at(p::HomographyProblem, ch::HomographyManifold8)
     Hd = model(ch)
-    _has_measurement_maps(p) || return Hd
+    _has_observation_maps(p) || return Hd
     Hm = p.dst_frame_map ∘ Hd ∘ inv(p.src_frame_map)
     return HomographyMat{Float64}(Tuple(unit_normalize(SMatrix{3, 3, Float64, 9}(Hm))))
 end

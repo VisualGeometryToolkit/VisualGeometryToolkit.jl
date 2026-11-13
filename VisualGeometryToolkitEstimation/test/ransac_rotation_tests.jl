@@ -55,7 +55,7 @@ end
     @test maximum(r) < 1.0e-5                                           # pixels
     allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
     @test allocs(r, p, first(sol)) == 0
-    # the residual is the Sampson distance of the joint measurement (Σ = I) to VGC's bearing transfer constraint, in pixels
+    # the residual is the Sampson distance of the joint observation (Σ = I) to VGC's bearing transfer constraint, in pixels
     i = 7; Rp = RotMatrix(RotationVec(0.3, -0.5, 0.21))
     g, G_x, _ = VgtkEstimation.constraint_with_jacobians(p, Rp, i)
     @test VgtkEstimation.mahalanobis_distance(p, Rp, i) ≈ sqrt(g' * ((G_x * G_x') \ g)) rtol = 1.0e-10

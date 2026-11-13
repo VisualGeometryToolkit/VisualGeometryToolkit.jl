@@ -19,7 +19,7 @@ shape ``\btSigma_\theta`` may therefore be used directly — no explicit gauge
 fixing, pseudoinverse, or reduced parametrization is required.
 
 Notation: ``\partial_{\mathbf{x}} \bg_i`` and ``\partial_\theta \bg_i`` are the
-Jacobians of ``\bg_i`` with respect to the measurements and the model.
+Jacobians of ``\bg_i`` with respect to the observations and the model.
 
 ## 1. Setup and Notation
 
@@ -122,11 +122,11 @@ invariant under reparametrization ``\theta \to \lambda\theta``.
 
 ### 3.1 Scaling of Individual Quantities
 
-Under ``\theta \to \lambda\theta`` (with measurements ``\bx`` fixed):
+Under ``\theta \to \lambda\theta`` (with observations ``\bx`` fixed):
 
 1. **Constraints:** ``\bg_i \to \lambda\,\bg_i`` (degree-1 homogeneity).
 
-2. **Measurement Jacobian:**
+2. **Observation Jacobian:**
    ``\partial_{\bx}\bg_i \to \lambda\,\partial_{\bx}\bg_i``, since ``\bg_i`` is
    linear in ``\theta`` and the mixed partial ``\partial_{\bx}\bg_i`` inherits
    the factor ``\lambda``.
@@ -135,7 +135,7 @@ Under ``\theta \to \lambda\theta`` (with measurements ``\bx`` fixed):
    ``\theta``, since ``\bg_i`` is linear in ``\theta`` (the derivative of a
    linear function is constant).
 
-4. **Projected measurement covariance (Sampson matrix):**
+4. **Projected observation covariance (Sampson matrix):**
 
    ```math
    \btSigma_{\bg_i}^{(\bx)} \coloneqq
@@ -148,7 +148,7 @@ Under ``\theta \to \lambda\theta`` (with measurements ``\bx`` fixed):
 5. **Cholesky factor:** ``\mathbf{L}_i \to \lambda\,\mathbf{L}_i`` (from
    ``\mathbf{L}_i\mathbf{L}_i^\top = \btSigma_{\bg_i}^{(\bx)} \to \lambda^2\,\btSigma_{\bg_i}^{(\bx)}``).
 
-6. **Solver Jacobian:** The solver maps measurements to the normalized
+6. **Solver Jacobian:** The solver maps observations to the normalized
    parameter: ``\partial_{\bx_\cS}\theta \to \lambda\, \partial_{\bx_\cS}\theta``,
    since the unnormalized solution scales linearly with ``\lambda``. Hence the
    estimation covariance shape:
@@ -193,7 +193,7 @@ The model-uncertainty term in (3) transforms as
 ```
 
 (Recall ``\partial_\theta\bg_i`` is independent of ``\theta``.) Together with
-the measurement term (7):
+the observation term (7):
 
 ```math
 \bSigma_{\bg_i}
@@ -330,7 +330,7 @@ restricted to the ``n_\theta``-dimensional subspace orthogonal to ``\theta``.
 ### 5.2 Solver Jacobian (Minimal Sample)
 
 When ``\theta`` is determined by a minimal solver from ``m`` points with
-``d_g m = n_\theta`` measurement coordinates, the solver defines a
+``d_g m = n_\theta`` observation coordinates, the solver defines a
 differentiable map ``\bx_\cS \mapsto \theta(\bx_\cS)``. Under isotropic noise
 (``\btSigma_{\bx_i} = \mathbf{I}``), the estimation covariance shape is
 
@@ -369,7 +369,7 @@ has one more column than rank in ``\theta``). Substituting into (13) and using
 Although the prediction covariance is gauge-invariant
 ([Section 3](@ref cov-gauge)), the solver itself must impose a consistent
 normalization to ensure that ``\theta(\bx_\cS)`` is a *continuous,
-differentiable* function of the measurements. Without sign normalization, the
+differentiable* function of the observations. Without sign normalization, the
 solver output is discontinuous when ``\theta_{n_\theta+1}`` (e.g.
 ``H_{3,3}``) crosses zero: an infinitesimal perturbation flips the sign of the
 entire output, making the solver Jacobian ``\partial_{\bx_\cS}\theta``
@@ -384,13 +384,13 @@ covariance ``\btSigma_{\bg_i}`` does not depend on the choice (Proposition 1).
 ## 6. Whitened Prediction Covariance: Origin of the ``\mathbf{I}`` Term
 
 The prediction covariance (3) is ``d_g \times d_g`` and in general dense. The
-scoring code works entirely in *whitened* coordinates, where the measurement
+scoring code works entirely in *whitened* coordinates, where the observation
 contribution collapses to a scalar multiple of the identity. This section
 derives the whitened form and maps each step to the implementation.
 
 ### 6.1 Derivation
 
-Define the Cholesky factor ``\mathbf{L}_i`` by the measurement-only covariance
+Define the Cholesky factor ``\mathbf{L}_i`` by the observation-only covariance
 shape (the Sampson matrix):
 
 ```math
@@ -442,7 +442,7 @@ With the full covariance (including ``\sigma^2``), the ``d_g \times d_g``
 ```
 
 The ``\mathbf{I}`` appears because ``\mathbf{L}_i`` is defined as the Cholesky
-factor of precisely the measurement-noise term; whitening maps that term to the
+factor of precisely the observation-noise term; whitening maps that term to the
 identity by construction.
 
 !!! note "Remark 2 (RANSAC convention)"
@@ -471,9 +471,9 @@ bilinear map:
 
 where ``A`` may be rectangular. This unifies:
 
-- **Measurement → constraint:**
+- **Observation → constraint:**
   ``\btSigma_{\bg_i}^{(\bx)} = \operatorname{propagate}\!\bigl(\partial_{\bx}\bg_i,\; \btSigma_{\bx_i}\bigr)``
-- **Measurement → parameter:**
+- **Observation → parameter:**
   ``\btSigma_\theta = \operatorname{propagate}\!\bigl(\partial_{\bx_\cS}\theta,\; \btSigma_{\bx_\cS}\bigr)``
 - **Projective conic transfer:**
   ``C^{*\prime} = \operatorname{propagate}(\mathbf{H},\, C^*)`` (``A`` square)
@@ -539,7 +539,7 @@ uncertainty, the pipeline for observation ``i`` is:
    ``\widetilde{\mathbf{V}}_i = \mathbf{I} + \operatorname{propagate}(\partial_\theta\bg_{i,w},\, \btSigma_\theta)``
    and evaluates ``q_i = \br_i^\top\widetilde{\mathbf{V}}_i^{-1}\br_i`` and
    ``\log\lvert\widetilde{\mathbf{V}}_i\rvert``. The ``\mathbf{I}`` is correct
-   precisely because step 2 whitened by the measurement covariance.
+   precisely because step 2 whitened by the observation covariance.
 
 The model covariance ``\btSigma_\theta`` is computed once per hypothesis by
 `solver_covariance` from the constraint rows of its index set: on a minimal

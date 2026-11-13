@@ -119,7 +119,7 @@ end
 # residual's unit, across a repo boundary, so a silent rescale would have
 # invalidated every one of them with no test able to see it.
 #
-# The measurement-map conjugation that stood here is gone with E's maps: a
+# The observation-map conjugation that stood here is gone with E's maps: a
 # matrix can only reach the z = 1 chart, so the camera's own back-projection
 # replaces it.
 #

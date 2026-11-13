@@ -31,7 +31,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 - `correspondences`: 2D-2D correspondences — `Csponds`, `StructArray{<:Pair}` or a
   Pair vector (`Point2` storage canonicalized internally). A `Csponds` `:score`
   attribute column is the per-match prior (PROSAC, descending score); uniform
-  otherwise. Endpoints carry their MEASUREMENT NOISE (VisualGeometryToolkitCore
+  otherwise. Endpoints carry their OBSERVATION NOISE (VisualGeometryToolkitCore
   `conventions/measurement-noise.md`): a plain point is unit isotropic noise in
   its own frame, `Uncertain(p, CovMat(Σ))` its own covariance, `exact(p)` none.
   Image↔image matches stay plain; a board, model or world plane is `exact` —

@@ -19,7 +19,7 @@ _set_n!(::ManifoldLmWorkspace, ::Int) = nothing
 #
 # Every chart problem whose residual is its constraint's whitened Sampson
 # residual (F, E, H, the circle, the radial camera, the rotation) descends
-# EXACTLY what it scores: VGC's batch rows over the problem's measurement set
+# EXACTLY what it scores: VGC's batch rows over the problem's observation set
 # (its `cs`, with its noise and keyword columns and the LM's √w as
 # `sqrt_weights`), at the chart's model, along the chart's directions — the
 # normalizer re-evaluated at every iterate and its derivative carried. A
@@ -34,17 +34,17 @@ const SampsonChartProblem = Union{FundMatProblem, EssentialProblem, HomographyPr
 # (`retract_jacobian`, in the coordinates of the constraint's `G_θ`).
 function residual_rows!(r, lm::ChartLm{<:Any, <:SampsonChartProblem}, a)
     p = lm.problem
-    return weighted_whitened_residuals!(r, _constraint_model(p, lm.ch, _chart_point(p, a)), _measurement_set(lm))
+    return weighted_whitened_residuals!(r, _constraint_model(p, lm.ch, _chart_point(p, a)), _observation_set(lm))
 end
 function residual_jacobian_rows!(J, lm::ChartLm{<:Any, <:SampsonChartProblem}, a)
     p = lm.problem; av = _chart_point(p, a)
-    return weighted_whitened_jacobian_rows!(J, _constraint_model(p, lm.ch, av), retract_jacobian(lm.ch, av), _measurement_set(lm))
+    return weighted_whitened_jacobian_rows!(J, _constraint_model(p, lm.ch, av), retract_jacobian(lm.ch, av), _observation_set(lm))
 end
 @inline _chart_point(p, a) = SVector{chart_dof(typeof(p))}(a)
 _constraint_model(_p, ch, a) = retract(ch, a)
-# The problem's measurements with the LM's per-element √w (one per datum: the
+# The problem's observations with the LM's per-element √w (one per datum: the
 # rows' √w repeats per constraint component).
-_measurement_set(lm::ChartLm) = withattrs(lm.problem.cs; sqrt_weights = _element_sqrtw(lm.sqrtw, Val(codimension(typeof(lm.problem)))))
+_observation_set(lm::ChartLm) = withattrs(lm.problem.cs; sqrt_weights = _element_sqrtw(lm.sqrtw, Val(codimension(typeof(lm.problem)))))
 @inline _element_sqrtw(sqrtw, ::Val{1}) = sqrtw
 @inline _element_sqrtw(sqrtw, ::Val{C}) where {C} = view(sqrtw, 1:C:length(sqrtw))
 

@@ -23,7 +23,7 @@
 #                `destination_map(N) ∘ m ∘ inv(source_map(N))` into the normalized one.
 #   cs_hartley — the Hartley-normalized gate view (2D-2D) or `nothing`.
 #   cs_solve   — the view the minimal solver consumes: the data itself
-#                (F, E's unit bearings, unmapped H), the measurement-mapped
+#                (F, E's unit bearings, unmapped H), the observation-mapped
 #                point view (mapped H), or world→ray columns (pose).
 #   context    — `nothing`, or `PoseContext` (backprojected rays + the
 #                imaging transform) for the absolute-pose family.
@@ -109,18 +109,18 @@ struct MinimalSolveProblem{
     normalization::F  # CspondNormalization{T} | nothing
     solver::MS      # VGC MinimalSolver (carries the backend)
     context::CX     # nothing | PoseContext
-    # Per-image MEASUREMENT-FRAME maps: frame-labeled `HomographyMap`s taking a
+    # Per-image OBSERVATION-FRAME maps: frame-labeled `HomographyMap`s taking a
     # point from the data frame to the model's frame. Identity (the default)
     # ⇒ the model is scored in the data frame. Only a homography takes
-    # non-identity maps — the mapped-homography path (`K⁻¹` as measurement
+    # non-identity maps — the mapped-homography path (`K⁻¹` as observation
     # maps), one of the declared pinhole islands; E and F refuse them at
     # construction (`_solve_view`). The labels are declared once at
-    # construction: `_check_measurement_frames` runs VGC's `∘` junction law
+    # construction: `_check_observation_frames` runs VGC's `∘` junction law
     # there, so a swapped or mislabeled (src, dst) pair is a MethodError at the
     # constructor. Unlabeled constructions carry `UnlabeledFrame` wildcards.
     src_frame_map::H1
     dst_frame_map::H2
-    mapped::Bool    # the maps are not both the identity (`_has_measurement_maps`), decided once at construction
+    mapped::Bool    # the maps are not both the identity (`_has_observation_maps`), decided once at construction
     _sampler::S
     # The sample gate's coincidence tolerance in the units of the cameras' image
     # frame (E only; H and F read the scale-free `_COINCIDENT_NORMALIZED`).
@@ -170,7 +170,7 @@ const _BearingProblem = Union{EssentialProblem, RotationProblem}
 const RelativeProblem = MinimalSolveProblem{<:Union{HomographyMat, AbstractFundMat}}
 
 """
-    _has_measurement_maps(p::RelativeProblem) -> Bool
+    _has_observation_maps(p::RelativeProblem) -> Bool
 
 Non-identity `src_map`/`dst_map` ⇒ the DATA frame is not the model's metric
 (solver) frame. Minimal solvers must then map the points before solving —
@@ -179,7 +179,7 @@ them enforces the model class's frame-specific constraints in the wrong frame
 (the 2026-07-19 canonical-scored-E bug). Decided once, at construction (the
 18-compare of the maps against the identity), and read per point.
 """
-@inline _has_measurement_maps(p::MinimalSolveProblem) = p.mapped
+@inline _has_observation_maps(p::MinimalSolveProblem) = p.mapped
 
 # =============================================================================
 # Trait methods
@@ -231,10 +231,10 @@ const _PointCsponds{T} = VgtkCore.Csponds{
 _canonicalize_pairs(pairs) = _canonicalize_pairs(_cspond_scalar(pairs), pairs)
 _cspond_scalar(pairs) = float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs)))))
 # A plane-point endpoint as the public `find_*` signatures accept it: a 2-vector,
-# plain or with its measurement noise (`Uncertain`, `exact`).
+# plain or with its observation noise (`Uncertain`, `exact`).
 const _PlanePoint = Union{StaticArrays.StaticVector{2}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{2}}}
 # A world-point endpoint of the absolute-pose problem: plain numbers, with or
-# without measurement noise (physical points are stripped by the public entry).
+# without observation noise (physical points are stripped by the public entry).
 const _PlainPoint3 = Union{StaticArrays.StaticVector{3, <:Real}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{3, <:Real}}}
 
 # The scalar of an endpoint type, through an `Uncertain` (or `exact`) wrapper.
@@ -249,13 +249,13 @@ function _canonicalize_pairs(::Type{T}, pairs) where {T}
     # Attribute columns travel with the endpoints they index. Anything derived
     # per correspondence — `M₁`/`M₂`, weights, priors — subsets in lockstep
     # from here on, which is the point of their being columns at all. The
-    # endpoints' measurement noise is two more (`Σ₁`/`Σ₂`, VGC `noise_columns`:
+    # endpoints' observation noise is two more (`Σ₁`/`Σ₂`, VGC `noise_columns`:
     # absent for plain points, so a plain set is the set it always was).
     attrs = merge(VgtkCore.attrs_of(pairs), VgtkCore.noise_columns(s, t))
     return isempty(attrs) ? cs : VgtkCore.withattrs(cs; attrs...)
 end
 
-# The measurement-noise rule (VGC conventions/measurement-noise.md) is honored
+# The observation-noise rule (VGC conventions/measurement-noise.md) is honored
 # by every route a problem computes its residual through — scoring, the chart
 # rows of the refit and the lift, the solver covariance. A problem class whose
 # routes do not all read the `Σ₁`/`Σ₂` columns refuses them rather than
@@ -264,7 +264,7 @@ _check_noise_support(::Type{<:Union{HomographyMat, RotMatrix}}, cs) = cs
 function _check_noise_support(::Type{M}, cs) where {M}
     _has_noise_columns(cs) && throw(ArgumentError(
         "$(nameof(M)) problems take plain points (unit isotropic noise): their Sampson " *
-            "LM rows do not read measurement covariances. `Uncertain`/`exact` endpoints are " *
+            "LM rows do not read observation covariances. `Uncertain`/`exact` endpoints are " *
             "supported by HomographyProblem and RotationProblem."
     ))
     return cs
@@ -288,7 +288,7 @@ _solver_for(::Type{<:FundMat}, b::AbstractSolverBackend) = VgtkCore.Fundamental7
 _solver_for(::Type{<:EssentialMat}, b::AbstractSolverBackend) = VgtkCore.Essential5pt(b)
 
 # -----------------------------------------------------------------------------
-# Measurement-frame maps — the labeled lift point (VGC EpipolarForm adoption)
+# Observation-frame maps — the labeled lift point (VGC EpipolarForm adoption)
 # -----------------------------------------------------------------------------
 #
 # The model frames of the 2D-2D families, as VGC frame tags. `:src`/`:dst`
@@ -298,33 +298,33 @@ _solver_for(::Type{<:EssentialMat}, b::AbstractSolverBackend) = VgtkCore.Essenti
 # Callers whose maps carry view-instance ids relabel at this boundary.
 #
 # E's entry is reached from ONE place: the construction-time junction check
-# (`_check_measurement_frames` in `_make_minimal_problem`), which runs on every
+# (`_check_observation_frames` in `_make_minimal_problem`), which runs on every
 # `EssentialProblem` before `_solve_view` refuses non-identity maps. With the
 # identity (unlabeled) maps E always ends up holding, the check is vacuous; a
 # labeled map pair is judged against these tags before the refusal fires. No
 # scoring, LO or covariance route reaches it for E: E's
 # `constraint_with_jacobians` is its own bearing method, and
-# `_has_measurement_maps` is always false on a constructed E problem.
+# `_has_observation_maps` is always false on a constructed E problem.
 _model_frames(::Type{<:EssentialMat}) = (GnomonicFrame{:src}, GnomonicFrame{:dst})
 _model_frames(::Type{<:FundMat}) = (ImageFrame{:src}, ImageFrame{:dst})
 _model_frames(::Type{<:HomographyMat}) = (ImageFrame{:src}, ImageFrame{:dst})
 
-# A measurement map as a framed `HomographyMap` (data frame → model frame) in
+# An observation map as a framed `HomographyMap` (data frame → model frame) in
 # the problem scalar `T`: VGC's lift of a raw matrix (`UnlabeledFrame` tags —
 # the unchecked wildcard) or its eltype conversion of a framed map (labels and
 # stored inverse kept). The raw hot-loop currency `src_map` is its `.forward`.
-@inline _measurement_map(::Type{T}, m::HomographyMap{3}) where {T} = HomographyMap{3, T}(m)
-@inline _measurement_map(::Type{T}, m::StaticArrays.StaticMatrix{3, 3}) where {T} =
+@inline _observation_map(::Type{T}, m::HomographyMap{3}) where {T} = HomographyMap{3, T}(m)
+@inline _observation_map(::Type{T}, m::StaticArrays.StaticMatrix{3, 3}) where {T} =
     HomographyMap(SMatrix{3, 3, T, 9}(m))
-# The identity map a problem without a measurement frame carries.
-@inline _identity_map(::Type{T}) where {T} = _measurement_map(T, SMatrix{3, 3, T, 9}(I))
+# The identity map a problem without an observation frame carries.
+@inline _identity_map(::Type{T}) where {T} = _observation_map(T, SMatrix{3, 3, T, 9}(I))
 
-# Model → measurement-frame boundary for the epipolar family, as VGC's CHECKED
+# Model → observation-frame boundary for the epipolar family, as VGC's CHECKED
 # frame law, composition: the data-frame form is `inv(C₂) ∘ M ∘ C₁` (C the
 # data→model lifts), and each junction verifies that the map met the model
 # frame it was declared for — a labeled mismatch (e.g. a swapped pair) is a
 # MethodError, an unlabeled map is the standing wildcard.
-@inline function _measurement_epipolar(
+@inline function _observation_epipolar(
         ::Type{M}, mat::AbstractFundMat, src_hm::HomographyMap{3}, dst_hm::HomographyMap{3}
     ) where {M}
     S1, S2 = _model_frames(M)
@@ -341,12 +341,12 @@ end
 # (`GnomonicFrame`), F is a pixel-plane model by definition (`ImageFrame`) — so
 # there is nothing for a caller to declare and the argument is refused rather
 # than silently ignored.
-function _check_measurement_frames(::Type{M}, src_hm, dst_hm, frames) where {M <: AbstractFundMat}
+function _check_observation_frames(::Type{M}, src_hm, dst_hm, frames) where {M <: AbstractFundMat}
     frames === nothing || throw(ArgumentError(
         "model_frames is only meaningful for a homography: $(nameof(M))'s model " *
             "frame is fixed by the model class (E calibrated, F pixel-plane)."
     ))
-    _measurement_epipolar(
+    _observation_epipolar(
         M, FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(I))), src_hm, dst_hm
     )
     return nothing
@@ -371,7 +371,7 @@ end
 # from the thing it checks. A calibrated H declares
 # `(GnomonicFrame{:src}, GnomonicFrame{:dst})`, since K⁻¹u is the z = 1 chart. The default preserves every
 # existing caller, and an unlabeled map stays the wildcard it has always been.
-function _check_measurement_frames(::Type{<:HomographyMat}, src_hm, dst_hm, frames)
+function _check_observation_frames(::Type{<:HomographyMat}, src_hm, dst_hm, frames)
     S1, S2 = frames === nothing ? _model_frames(HomographyMat) : frames
     ident = relabel(S1, S2, HomographyMap(SMatrix{3, 3, Float64, 9}(I)))
     inv(dst_hm) ∘ (ident ∘ src_hm)
@@ -379,11 +379,11 @@ function _check_measurement_frames(::Type{<:HomographyMat}, src_hm, dst_hm, fram
 end
 
 # The solver-frame view for the 2D-2D families: the data itself when the data
-# frame IS the solver frame; the measurement-mapped point view otherwise
+# frame IS the solver frame; the observation-mapped point view otherwise
 # (lazy — columns map on access). Only H has a mapped-solve path; E and F
 # refuse maps at construction.
 #
-# The epipolar family TAKES NO MEASUREMENT MAPS.
+# The epipolar family TAKES NO OBSERVATION MAPS.
 #
 # F: no caller needs a mapped F, and an unused second frame route is how a
 # transform comes to be expressed twice. An F problem's data are pixels; that
@@ -411,16 +411,16 @@ function _solve_view(::Type{M}, cs, sm::SMatrix{3, 3, T, 9}, dm::SMatrix{3, 3, T
     return cs
 end
 _no_maps_message(::Type{<:EssentialMat}) =
-    "EssentialProblem takes no measurement maps. A map is a matrix, so it " *
+    "EssentialProblem takes no observation maps. A map is a matrix, so it " *
     "can only reach the z = 1 chart — which is undefined for the rays this " *
     "model class exists to handle. Back-project with the camera instead: " *
     "`EssentialProblem(camera1, camera2, pixel_cs)`."
 _no_maps_message(::Type{<:FundMat}) =
-    "FundMatProblem takes no measurement maps: build it from pixel " *
+    "FundMatProblem takes no observation maps: build it from pixel " *
     "correspondences. (Only a homography carries maps; F has no caller " *
     "that needs one, so no mapped path exists.)"
 # A homography acts on 2D projective points, so its mapped view carries points
-# through the measurement map WITH the perspective divide (VGC's
+# through the observation map WITH the perspective divide (VGC's
 # `PerspectiveMap() ∘ HomographyMap`) — unlike E, whose solver consumes
 # bearings. Identity maps return `cs` itself (not a copy), which is what makes
 # the unmapped path bit-identical by construction rather than by argument. The
@@ -437,7 +437,7 @@ function _solve_view(::Type{<:HomographyMat}, cs, sm::SMatrix{3, 3, T, 9}, dm::S
         target = PerspectiveMap() ∘ HomographyMap(dm)
     )
     _has_noise_columns(cs) || return view
-    # The measurement noise moves with its points: Σ′ = J·Σ·Jᵀ, J the map's
+    # The observation noise moves with its points: Σ′ = J·Σ·Jᵀ, J the map's
     # derivative at the point (projective, so per point). Only the solve view
     # holds these — scoring and the local optimizations read `cs`'s own.
     return VgtkCore.withattrs(view; _mapped_noise(cs, :Σ₁, sources(cs), sm)..., _mapped_noise(cs, :Σ₂, targets(cs), dm)...)
@@ -523,7 +523,7 @@ function _make_minimal_problem(
     T = eltype(eltype(sources(cs)))
     slv = _solver_for(M, backend)
     @assert K == VgtkCore.sample_size(slv)
-    # Labeled lift of the measurement maps + VGC junction check (a swapped or
+    # Labeled lift of the observation maps + VGC junction check (a swapped or
     # mislabeled framed pair throws here); raw matrices lift unlabeled.
     #
     # These come BEFORE the normalization, because the normalization conditions
@@ -531,8 +531,8 @@ function _make_minimal_problem(
     # view (conditioning the raw pixels and then solving mapped data against it
     # would conflate two frames); for F and unmapped H `cs_solve === cs`. The
     # DLT refit reads the same view.
-    sm_h = _measurement_map(T, src_map); dm_h = _measurement_map(T, dst_map)
-    _check_measurement_frames(M, sm_h, dm_h, model_frames)
+    sm_h = _observation_map(T, src_map); dm_h = _observation_map(T, dst_map)
+    _check_observation_frames(M, sm_h, dm_h, model_frames)
     cs_solve = _solve_view(M, cs, to_homogeneous(sm_h), to_homogeneous(dm_h))
     normalization = _needs_normalization(M) ? CspondNormalization(M, cs_solve) : nothing
     cs_hartley = normalization === nothing ? nothing : LinearAlgebra.normalize(normalization, cs_solve)
@@ -556,7 +556,7 @@ function _make_centered_problem(::Type{M}, K::Int, pairs, solver, sampler, cente
 end
 # A centred model's residual is the reprojection distance in the TARGET image
 # (pixels): its source — a board or plane point — is exact by construction, the
-# measurement-noise rule's `exact` source with a unit isotropic target. An
+# observation-noise rule's `exact` source with a unit isotropic target. An
 # `exact` source column therefore says what the residual already does and is
 # dropped; any other covariance is refused, as is a noisy source the residual
 # could not see.
@@ -587,14 +587,14 @@ Construct a `HomographyProblem` from 2D-2D point correspondences.
   prior is its `:score` attribute column when `pairs` is a `Csponds` that has
   one (VGC `withattrs(cs; score = s)`, the descriptor matcher's output):
   sampling ordered by descending score; uniform otherwise. Endpoints carry
-  their measurement noise (VisualGeometryToolkitCore
+  their observation noise (VisualGeometryToolkitCore
   `conventions/measurement-noise.md`): plain = unit isotropic in the point's
   own frame, `Uncertain(p, CovMat(Σ))` = its covariance, `exact(p)` = none
   (not both endpoints). The constraint is whitened by
   `G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ` in scoring, the refit and the lifts alike; a board or
   world plane is `exact`, so its residual is the transfer error in pixels.
 - `sampler`: override the auto-built sampler (advanced).
-- `src_map`/`dst_map`: per-view measurement maps, data frame → model frame.
+- `src_map`/`dst_map`: per-view observation maps, data frame → model frame.
   Identity (the default) means the data frame IS the model frame: pixels in,
   a pixel-frame `H` out. Non-identity maps declare a calibration instead of
   baking it into the data — supply PIXELS and `K⁻¹` maps, and the returned `H`
@@ -623,7 +623,7 @@ HomographyProblem(pixel_cs; src_map = C₁, dst_map = C₂,
 
 # Limit: mapped homographies are PINHOLE by construction
 
-A measurement map is a MATRIX. A general camera's back-projection is not — it
+An observation map is a MATRIX. A general camera's back-projection is not — it
 is nonlinear, and cannot be expressed as a map at all. So anything routed
 through `src_map`/`dst_map` is restricted to pinhole cameras, and this path is
 a pinhole island for the same structural reason as the relative-pose bundle's
@@ -777,7 +777,7 @@ calibration — measured median ratio 1.018, best cell inside a 4 SE band — an
 shows only in the tangency contract, `fᵀM = 0`, which separates a correct
 wiring (~1e-19) from a swapped one (~1e-3) by sixteen orders of magnitude.
 
-E takes no measurement maps: a non-identity `src_map`/`dst_map` is an
+E takes no observation maps: a non-identity `src_map`/`dst_map` is an
 `ArgumentError`. Build the bearings with the cameras instead,
 `EssentialProblem(camera1, camera2, pixel_cs)`.
 """
@@ -1015,7 +1015,7 @@ provides_solver_covariance(::Type{<:RelativeProblem}) = true
 # `G_θ` is then carried into the MODEL's own coordinates (chain rule) so that a
 # solver-frame covariance contracts with a `G_θ` in its own frame.
 #
-# THE CHAIN-RULE FACTOR WAS MEASURED, NOT DERIVED, and the measurement is the reason to
+# THE CHAIN-RULE FACTOR WAS MEASURED, NOT DERIVED, and that experiment is the reason to
 # distrust the obvious answer. `vec(H_data) = kron(C₁ᵀ, C₂⁻¹)·vec(H_model)`, so
 # the factor is a RIGHT multiplication by that Kronecker — the homography's
 # `g` is a 2-vector and its `G_θ` a 2×9, where the epipolar `g` is scalar and
@@ -1029,7 +1029,7 @@ provides_solver_covariance(::Type{<:RelativeProblem}) = true
 # survived review because it looked right on paper.
 #
 # H and F share the unmapped body: the data frame IS the model frame. F takes no
-# measurement maps (refused at construction).
+# observation maps (refused at construction).
 @inline constraint_with_jacobians(p::MinimalSolveProblem{<:FundMat}, model::FundMat, i::Int) =
     VgtkCore.cd_pair(model, @inbounds p.cs[i])
 @inline function constraint_rounding_scale(p::MinimalSolveProblem{<:FundMat}, model::FundMat, i::Int)
@@ -1048,19 +1048,19 @@ struct _DataFrameHomography{T, J}
     jacobian::J
 end
 residual_context(p::HomographyProblem, model::HomographyMat) =
-    _has_measurement_maps(p) ? _mapped_context(p, model) : _DataFrameHomography(model, nothing)
+    _has_observation_maps(p) ? _mapped_context(p, model) : _DataFrameHomography(model, nothing)
 _mapped_context(p::HomographyProblem, model::HomographyMat) =
     _DataFrameHomography(inv(p.dst_frame_map) ∘ model ∘ p.src_frame_map,
         VgtkCore.compose_jacobian(inv(p.dst_frame_map), HomographyMap(model), p.src_frame_map))
 # A caller with the model itself (a scorer reading one point): the unmapped
 # problem's data frame IS the model's; a mapped one composes per call.
 @inline function constraint_with_jacobians(p::HomographyProblem, model::HomographyMat, i::Int)
-    _has_measurement_maps(p) || return VgtkCore.cd_pair(model, @inbounds p.cs[i])
+    _has_observation_maps(p) || return VgtkCore.cd_pair(model, @inbounds p.cs[i])
     return constraint_with_jacobians(p, _mapped_context(p, model), i)
 end
 @inline function constraint_rounding_scale(p::HomographyProblem, model::HomographyMat, i::Int)
     c = @inbounds p.cs[i]
-    _has_measurement_maps(p) || return VgtkCore.constraint_rounding_scale(model, c.first, c.second)
+    _has_observation_maps(p) || return VgtkCore.constraint_rounding_scale(model, c.first, c.second)
     return constraint_rounding_scale(p, _mapped_context(p, model), i)
 end
 @inline function constraint_with_jacobians(p::HomographyProblem, ctx::_DataFrameHomography, i::Int)
@@ -1075,8 +1075,8 @@ end
 @inline _pulled_back(G_θ, ::Nothing) = G_θ
 @inline _pulled_back(G_θ, J) = G_θ * J
 #
-# A correspondence's measurement covariance (VGC `pair_covariance`, the
-# measurement-noise rule): `I` for plain points — the isotropic Sampson error as
+# A correspondence's observation covariance (VGC `pair_covariance`, the
+# observation-noise rule): `I` for plain points — the isotropic Sampson error as
 # always — and the endpoints' own from the problem's `Σ₁`/`Σ₂` columns, in the
 # data frame where the constraint lives. An `exact` source makes the residual the
 # transfer error in the target's units. The rotation problem's columns are its

@@ -349,7 +349,7 @@ flipping both ``\boldsymbol{n}`` and ``\boldsymbol{t}`` yields the same ``H``
 (same plane seen "from the other side" with opposite pose convention). Physical
 validity (cheirality) fixes which of the four algebraic solutions is real.
 
-For pose-error measurement we only need ``(R, \boldsymbol{t})``;
+For the pose error we only need ``(R, \boldsymbol{t})``;
 ``\boldsymbol{n}`` is a disambiguating byproduct and does not appear in the
 final ``(e_R, e_T)`` metric. It becomes useful if downstream reasoning wants to
 know *which plane* the homography corresponds to — e.g., to distinguish front

@@ -85,6 +85,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 
 ### Fixed
 
+- **A run of record of a REGISTERED package's code is no longer refused** (0.7.4's fix). A registered install (the
+  package's source in the depot: no git checkout) is committed code, content-addressed and immutable; `code_trees`
+  now identifies it by the tree hash the active environment records for it (`Pkg.dependencies()`: name, version, uuid,
+  git-tree-sha1), and searches the active project's environment for the stack packages. Still refused: a git checkout
+  with uncommitted changes, and a path that is neither a git checkout nor a registered install.
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
   two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
   same bits at any thread count (a test at 2 and 8 threads).

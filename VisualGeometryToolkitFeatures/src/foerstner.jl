@@ -355,7 +355,7 @@ function _foerstner_points(found, classes, undouble; covariances = nothing, cova
         label = class == 1 ? :corner : class == -1 ? :circular : :unknown
         _FoerstnerDetection(frame, (; label, window, F = e[7] / e[14], covariance_source))
     end
-    return StructArray(_FoerstnerDetection[rows...]; unwrap = T -> T <: NamedTuple)
+    return StructArray(collect(_FoerstnerDetection, rows); unwrap = T -> T <: NamedTuple)   # never `[rows...]`: a splat per point count
 end
 
 # ----- the propagated covariance: the exact first-order propagation of the pixel noise -----------------------

@@ -1,0 +1,35 @@
+{
+    "schema": "vgio/capture_settings/v1",
+    "length_unit": "mm",
+    "time_unit": "s",
+    "body": {
+        "make": "Sony",
+        "model": "ILME-FX3",
+        "source": "exif"
+    },
+    "lens": {
+        "make": "SIGMA",
+        "model": "14mm F1.8 DG HSM | Art",
+        "source": "config",
+        "exif": {
+            "model": "DT 14mm F2.8 SAM"
+        }
+    },
+    "frames": [
+        {
+            "t": 1,
+            "exposure_time": 0.01666666753590107,
+            "f_number": 4.0,
+            "iso": 100.0,
+            "focal_length": 14.0
+        },
+        {
+            "t": 4,
+            "exposure_time": 0.01666666753590107,
+            "f_number": 4.0,
+            "iso": 200.0,
+            "focal_length": 14.0,
+            "focus_distance": 1200.0
+        }
+    ]
+}

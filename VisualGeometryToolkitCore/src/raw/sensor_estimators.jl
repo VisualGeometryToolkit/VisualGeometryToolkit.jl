@@ -140,6 +140,10 @@ properties:
   (Bonferroni: the search's family-wise rate is `significance`);
   `rollover_tests`, `rollover_level` the same for the upper end's rollover tests
   (one-sided);
+- `birge_ratio` — R = √(χ²/dof) of the fitted points about the line (each in its
+  median's standard deviation from the counts; dof the points less the one
+  slope): the scatter the counts explain is R ≤ 1; when R > 1, K's standard
+  error is multiplied by R (the Birge ratio: never shrunk);
 - `points_offered` — the points before the range search (the result's `n` is the
   points fitted).
 """
@@ -153,6 +157,7 @@ struct PhotonTransferMetadata
     test_level::Float64
     rollover_tests::Int
     rollover_level::Float64
+    birge_ratio::Float64
     points_offered::Int
 end
 
@@ -196,6 +201,10 @@ follows that one law.
   it can perform (Bonferroni: the search's family-wise false-alarm rate is
   `significance`); the range (in codes and as fractions of the white level), `m`
   and the levels are in the result's metadata.
+- THE STANDARD ERROR of K is the fitted line's from the counts, multiplied by
+  the Birge ratio R = √(χ²/dof) of the fitted points when R > 1 (the points
+  scatter more than the counts explain); when R ≤ 1 it is unchanged, never
+  shrunk. R is in the result's metadata.
 - The result's σ_r is `√σ₀²` of the fitted points' darks (their median), its
   standard error not the fit's (`0`); a characterisation states σ_r per colour
   from `master_dark`'s `ReadNoise`.
@@ -329,17 +338,26 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     p = _ptc_check((; xs = cat_sorted(:xs), ys = cat_sorted(:ys), ms = cat_sorted(:ms), os = cat_sorted(:os), rel = parts[1].rel))
     r = _ptc_range(p, significance)
     q = _ptc_subset(p, r.lo:r.hi)
+    f = _series_slope(q)
+    σ0f = Statistics.median(q.os)
+    noise = PoissonGaussian(f.gain, ntuple(_ -> sqrt(σ0f), Val(4)), (gain = f.gain_se, σ = ntuple(_ -> 0.0, Val(4)));
+                            source = SensorSource.measured)
+    span = m.white - sum(g.black) / 2
+    meta = PhotonTransferMetadata((q.xs[1], q.xs[end]), (q.xs[1] / span, q.xs[end] / span), σ0f, f.c, f.t,
+                                  r.tests, r.level, r.rollover_tests, r.rollover_level, f.R, length(p.xs))
+    return FitResult(noise, ReturnCode.Success, ClosedForm, 0, f.rms, length(q.xs), meta)
+end
+
+# The series' slope over its range `q`: K = 1/slope with its standard error from the counts times the Birge ratio R when
+# R > 1 (never shrunk), the μ² statistic over the range, R and the residuals' rms.
+function _series_slope(q)
     A = reshape(q.xs, :, 1)
     β, C = _ptc_line(A, q.ys, q.os, q.ms, q.rel)
     β[1] > 0 || throw(NoiseEstimateFailed("the photon-transfer line is not physical: slope $(β[1]) (1/K) over the range"))
-    c, t = _ptc_curvature(A, q, A * β .+ q.os)
-    σ0f = Statistics.median(q.os)
-    noise = PoissonGaussian(1 / β[1], ntuple(_ -> sqrt(σ0f), Val(4)), (gain = sqrt(C[1, 1]) / β[1]^2, σ = ntuple(_ -> 0.0, Val(4)));
-                            source = SensorSource.measured)
-    span = m.white - sum(g.black) / 2
-    meta = PhotonTransferMetadata((q.xs[1], q.xs[end]), (q.xs[1] / span, q.xs[end] / span), σ0f, c, t,
-                                  r.tests, r.level, r.rollover_tests, r.rollover_level, length(p.xs))
-    return FitResult(noise, ReturnCode.Success, ClosedForm, 0, _ptc_rms(A * β .+ q.os, q), length(q.xs), meta)
+    pred = A * β .+ q.os
+    c, t = _ptc_curvature(A, q, pred)
+    R = _birge_ratio(pred, q, 1)
+    return (; gain = 1 / β[1], gain_se = sqrt(C[1, 1]) / β[1]^2 * max(R, 1.0), c, t, R, rms = _ptc_rms(pred, q))
 end
 
 _check_significance(α) = 0 < α < 1 || throw(ArgumentError("photon_transfer: significance is in (0, 1), got $α"))
@@ -441,6 +459,10 @@ end
 # The root mean square of the points' residuals in their own standard deviations at the line's prediction (≈ 1 when the
 # counts' law holds).
 _ptc_rms(prediction, p) = sqrt(Statistics.mean(((p.ys .- prediction) ./ sqrt.(p.rel .* prediction .^ 2 ./ p.ms)) .^ 2))
+# THE Birge ratio of the points about the fitted line, √(χ²/dof), each residual in its median's standard deviation from
+# the counts, dof the points less the line's `nparams` parameters.
+_birge_ratio(prediction, p, nparams) =
+    sqrt(sum(((p.ys .- prediction) ./ sqrt.(p.rel .* prediction .^ 2 ./ p.ms)) .^ 2) / (length(p.ys) - nparams))
 
 # THE range of the series' fit, derived from the data (owner rulings 1–2), at least 3 points (the slope and a μ² term
 # with one degree of freedom left): the UPPER end below the rollover — the top point dropped while it lies significantly

@@ -134,6 +134,7 @@ end
     @test md.tests >= 1 && md.test_level == 0.001 / md.tests && md.rollover_tests == md.points_offered - 3
     @test md.rollover_level == 0.001 / md.rollover_tests && abs(md.curvature_t) <= z_over(md.tests)
     @test SIGMA_EFF^2 <= md.intercept <= SIGMA_EFF^2 + σd^2                   # the fitted points' darks (their median)
+    @test md.birge_ratio > 0                                                 # recorded (its rule: the Birge-ratio item)
     # the intercept is each group's OWN exposure's: the longer group's darks taken as the shorter's bias K
     wrong = photon_transfer(groups, Dict(t1 => rn(SIGMA_EFF), t2 => rn(SIGMA_EFF)))
     @test abs(estimate(wrong).gain - K_TRUE) > Z * estimate(wrong).std_error.gain
@@ -160,6 +161,26 @@ end
     @test pd.source === SensorSource.estimated
     @test abs(pd.gain - K_TRUE) <= Z * pd.std_error.gain && abs(pd.σ[1] - SIGMA_EFF) <= Z * pd.std_error.σ[1]
     @test_throws ArgumentError photon_transfer(scene_frame(StableRNG(1)); significance = 0)
+end
+
+# The Birge ratio (owner ruling, 0.10.1): the series' K standard error is the line's from the counts times R = √(χ²/dof)
+# of the fitted points when R > 1, unchanged when R ≤ 1 (never shrunk). Points exactly on the line (R = 0) keep the
+# counts' standard error; points scattered 3× their counts' standard deviation give the counts' times R ≈ 3.
+@testitem "sensor model: photon_transfer's K standard error and the Birge ratio" setup = [SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using StableRNGs: StableRNG
+    xs = collect(range(500.0, 9000.0; length = 24)); ms = fill(64.0, 24); rel = 0.05; σ0 = 1.3
+    line = σ0 .+ xs ./ K_TRUE
+    counts_se(q) = (A = reshape(q.xs, :, 1); (β, C) = VgtkCore._ptc_line(A, q.ys, q.os, q.ms, q.rel); sqrt(C[1, 1]) / β[1]^2)
+    exact = (; xs, ys = copy(line), ms, os = fill(σ0, 24), rel)
+    fe = VgtkCore._series_slope(exact)
+    @test fe.R < 1 && fe.gain_se == counts_se(exact) && isapprox(fe.gain, K_TRUE; rtol = 1.0e-12)
+    rng = StableRNG(7)
+    sd = sqrt.(rel .* line .^ 2 ./ ms)                       # each point's standard deviation from the counts
+    scattered = (; xs, ys = line .+ 3 .* sd .* randn(rng, 24), ms, os = fill(σ0, 24), rel)
+    fs = VgtkCore._series_slope(scattered)
+    @test fs.R > 1 && fs.gain_se == counts_se(scattered) * fs.R
+    @test 2 < fs.R < 4                                       # the injected 3×, at 23 degrees of freedom
 end
 
 # The single-frame estimator of 0.10.1 is 0.10.0's, bit for bit, where it accepts: the refactor onto the shared block

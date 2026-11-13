@@ -48,6 +48,7 @@ slot ([`sensor_model`](@ref)).
 """
 module SensorSource
 @enum T::UInt8 measured estimated specified file
+public T, measured, estimated, specified, file   # read qualified, `SensorSource.measured` (ExplicitImports' public-names gate)
 end
 
 """

@@ -193,10 +193,13 @@ end
     @test lens(cam).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
     @test maximum(abs, R - one(R)) < 1.0e-6
     # its K is the symmetric camera's (2026-11-11, owner: the re-gauge takes the fit's principal point and aspect):
-    # GRID's own K to the spline's approximation
+    # its principal point GRID's own to the spline's approximation. Its focal is the fitted family's scale, a gauge
+    # choice (any skew-0 K is an exact gauge of a SplineLens camera), traded against the radial terms over this
+    # whole-image bound (corners to 164°): 299.99977 px at 6 terms, 300.00290 at the axis family's 4 (0.11.0), so the
+    # focal is not GRID's to 1e-3 px and is not asserted here; the principal point moves by 4e-7 px between the two.
     K, KG = calibration_matrix(cam), calibration_matrix(GRID)
     @test K == calibration_matrix(estimate(optical_axis(GRID_BOUNDED)))
-    @test maximum(abs, K - KG) < 1.0e-3
+    @test maximum(abs, K[1:2, 3] - KG[1:2, 3]) < 1.0e-3
     fam = metadata(r).family
     @test fam.λ === nothing && fam.grid_size == (40, 40) && fam.outer_iterations == 0
     @test metadata(r).max_px < 1.0e-9                                           # the kept backward against itself

@@ -241,7 +241,7 @@ converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where th
   camera's own rays on the image over the region, each pixel one sample of equal weight (the `:image` density; another
   `weight` is an `ArgumentError`). The fitted camera's principal point is the axis's pixel, and `metadata.rotation` is
   the turn from the source's frame to the fitted one; `metadata.symmetry_residual` (px) is the azimuthal misfit no
-  radially symmetric camera represents. [`optical_axis`](@ref) is this refine of the Fisheye624 family.
+  radially symmetric camera represents. [`optical_axis`](@ref) is this refine of the Fisheye624 form (4 radial terms).
 - **The residual** is one 2-D residual per sample: a forward lens's is its pixel minus the sample's
   (`projected_radius` along the ray's azimuth, finite past a fold of its profile); a lift's is angle-style, in the
   equidistant chart about ẑ, scaled by the sample's normalized radius.
@@ -401,8 +401,10 @@ _anchor_camera(a::AbstractLensModel, source) =
     optical_axis(camera::BoundedCamera; device = default_device()) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The radially symmetric camera closest to `camera` over the camera's own bound, its `imaged_region` (the sensor ∩ its
-lens coverage ∩ the model's valid domain). It is [`approximate_camera`](@ref) of the stack's Fisheye624 family
-(COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6})`,
+lens coverage ∩ the model's valid domain). It is [`approximate_camera`](@ref) of the Fisheye624 form
+(COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, n})`, with
+`n = 4` radial terms, θ³…θ⁹: configs/default.toml `[optical_axis] radial_terms`, the smallest order that locates the axis
+as well as 6 terms do on the cameras studied, and far better conditioned;
 its decentering held at zero) onto `camera`, that one call, nothing more: the linear fit of its radial coefficients
 and focal, then the refine with the principal point and the axis free.
 - The region is the bound, never a default. A circular fisheye's lens coverage (its image circle) keeps the corners
@@ -429,10 +431,12 @@ optical_axis(camera::VgtkCore.AbstractCamera; device = nothing) = throw(
             "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"
     )
 )
-# The radially symmetric family of the optical axis: Fisheye624 (COLMAP RAD_TAN_THIN_PRISM_FISHEYE), its six radial
-# coefficients fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the focal,
-# aspect, principal point, radial coefficients and the axis free).
+# The radially symmetric family of the optical axis: Fisheye624's form (COLMAP RAD_TAN_THIN_PRISM_FISHEYE) with
+# `[optical_axis] radial_terms` radial coefficients (configs/default.toml, read once: 4, θ³…θ⁹; the derivation is
+# beside the key) fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the
+# focal, aspect, principal point, radial coefficients and the axis free).
 const _AXIS_FAMILY = typeof(
-    VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ VgtkCore.Radial(ntuple(_ -> 0.0, 6)))
+    VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘
+                  VgtkCore.Radial(ntuple(_ -> 0.0, _dflt("optical_axis", "radial_terms")::Int)))
 )
 const _AXIS_FIXED = (:p, :sx, :sy)

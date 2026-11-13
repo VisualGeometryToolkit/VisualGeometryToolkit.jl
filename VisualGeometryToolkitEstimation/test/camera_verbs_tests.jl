@@ -248,7 +248,7 @@ end
     moving = VgtkCore.free_parameter_names(guess, ())
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(mdiv)); M = VgtkEstimation._offset_matrix(K0)
     start = VgtkEstimation._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, :image)
+    pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, :image, VgtkCore.default_device())
     P = VgtkEstimation._regression_manifold(role, VgtkEstimation._lens_family_manifold(role, lens(guess), moving), start, moving)
     lm = VgtkEstimation._LensRegressionLm(VgtkCore.default_device(), P, false, Inf, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     N = tangent_size(P)

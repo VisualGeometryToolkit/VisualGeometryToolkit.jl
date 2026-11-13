@@ -29,13 +29,23 @@
 
 const _V010_DECLARATIONS = ("length_unit", "pixel_frame", "rotation_encoding", "transform_convention", "point_index_base", "time_unit")
 
-# A 0.9 record's envelope as the 0.10 one: the record's other keys kept (a
-# copy: a step never moves its input's numbers), its declarations moved into
-# `units` and `conventions`, its schema `to`. `length`, `pixel` and `density` are
-# what the record declares (or, absent, what its version meant: no length held,
-# the colmap pixels of every 0.9 record without a pixel frame, a units sidecar's
-# dpi).
-function _envelope_v010(old::AbstractDict, to::AbstractString; length = get(old, "length_unit", "mm"),
+"""
+    migrate_envelope(old::AbstractDict, schema; length = get(old, "length_unit", "mm"), pixel = get(old, "pixel_frame", "colmap")) -> Dict{String, Any}
+
+The IO 0.10 envelope of a record written before IO 0.10, for a version step:
+`old` (a parsed record, string keys) with its schema set to `schema` (the next
+version's, `"<owner>/<kind>/v<major>.<minor>"`), its top-level declarations
+(`length_unit`, `pixel_frame`, `rotation_encoding`, `transform_convention`,
+`point_index_base`, `time_unit`) moved into the `units` and `conventions`
+objects, the `generator` this package's, every other key kept, and every stored
+rotation `[w, x, y, z]` with w < 0 written as its 0.9 reader read it, `-q`.
+`length` and `pixel` are what the record declares, or — absent — what its
+version meant (`"mm"`: it held no length; `"colmap"`: every 0.9 record without a
+pixel frame). The steps of VisualGeometryToolkitIO's own kinds use it, and a
+schema's owner calls it in the step of its own kinds' 0.9 versions (a
+`caliblobs/session` record), then moves its body's own keys.
+"""
+function migrate_envelope(old::AbstractDict, to::AbstractString; length = get(old, "length_unit", "mm"),
                         pixel = get(old, "pixel_frame", "colmap"), density = "dpi")
     t = Dict{String, Any}(
         "schema" => String(to),
@@ -135,7 +145,7 @@ end
 # (`_camera_body_v010`). The store holds any bounded camera from v6.0 on, so a
 # v5 store (central cameras only) is a v6.0 one as it stands.
 function _cameras_v5_to_v6(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/cameras/v6.0")
+    t = migrate_envelope(old, "vgio/cameras/v6.0")
     t["cameras"] = Any[_camera_body_v010(c) for c in old["cameras"]]
     return t
 end
@@ -146,7 +156,7 @@ migrate_schema(::Val{Symbol("vgio/cameras/v5")}, t::AbstractDict) = _cameras_v5_
 # no tree step can name a store's camera, so the reader (`_one_camera_store`) and
 # the file migration call this with the name.
 function _noncentral_store_v6(old::AbstractDict, name::AbstractString)
-    t = _envelope_v010(old, "vgio/cameras/v6.0")
+    t = migrate_envelope(old, "vgio/cameras/v6.0")
     body = Dict{String, Any}(k => v for (k, v) in old if !(k in ("schema", "provenance", _V010_DECLARATIONS...)))
     for k in keys(body)
         delete!(t, k)
@@ -189,7 +199,7 @@ end
 # Its identity is re-minted (`content_id`, JCS over the 0.10 identity tree):
 # `vgio_migrate_tree` maps the 0.9 one (`_v09_id`) to it.
 function _rig_v9_to_v10(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/rig/v10.0")
+    t = migrate_envelope(old, "vgio/rig/v10.0")
     t["frame"] = _frame_name_v010(t["frame"])
     haskey(t, "sensors") && (t["sensors"] = Any[merge(s, Dict{String, Any}("camera" => _camera_body_v010(s["camera"]))) for s in t["sensors"]])
     haskey(t, "targets") && (t["targets"] = Any[merge(x, Dict{String, Any}("target" => _target_body_v010(x["target"]))) for x in t["targets"]])
@@ -199,7 +209,7 @@ migrate_schema(::Val{Symbol("vgio/rig/v9")}, t::AbstractDict) = _rig_v9_to_v10(t
 
 # vgio/target/v5 → v6.0: the envelope and the body; its `calibration_record` as it stands.
 function _target_v5_to_v6(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/target/v6.0")
+    t = migrate_envelope(old, "vgio/target/v6.0")
     t["target"] = _target_body_v010(t["target"])
     return t
 end
@@ -224,7 +234,7 @@ end
 
 # vgio/transforms/v4 → v5.0: the envelope; each record's frame names.
 function _transforms_v4_to_v5(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/transforms/v5.0")
+    t = migrate_envelope(old, "vgio/transforms/v5.0")
     t["transforms"] = Any[_frame_names_v010(r, ("from", "to")) for r in t["transforms"]]
     return t
 end
@@ -233,19 +243,19 @@ migrate_schema(::Val{Symbol("vgio/transforms/v4")}, t::AbstractDict) = _transfor
 # vgio/trajectory/v4 → v5.0: the envelope; `from`/`to`; `t` → `frame_index`; a
 # `time_origin` states its offset (`_time_origin_v010`).
 _trajectory_v4_to_v5(old::AbstractDict) =
-    _frames_v010(_frame_names_v010(_time_origin_v010(_envelope_v010(old, "vgio/trajectory/v5.0"), "vgio/trajectory/v4"), ("from", "to")))
+    _frames_v010(_frame_names_v010(_time_origin_v010(migrate_envelope(old, "vgio/trajectory/v5.0"), "vgio/trajectory/v4"), ("from", "to")))
 migrate_schema(::Val{Symbol("vgio/trajectory/v4")}, t::AbstractDict) = _trajectory_v4_to_v5(t)
 
 # vgio/target_poses/v2 → v3.0: the envelope; `to`; `t` → `frame_index`; the time origin.
 _target_poses_v2_to_v3(old::AbstractDict) =
-    _frames_v010(_frame_names_v010(_time_origin_v010(_envelope_v010(old, "vgio/target_poses/v3.0"), "vgio/target_poses/v2"), ("to",)))
+    _frames_v010(_frame_names_v010(_time_origin_v010(migrate_envelope(old, "vgio/target_poses/v3.0"), "vgio/target_poses/v2"), ("to",)))
 migrate_schema(::Val{Symbol("vgio/target_poses/v2")}, t::AbstractDict) = _target_poses_v2_to_v3(t)
 
 # vgio/target_homographies/v1 → v2.0: the envelope (its `pixel_frame` the
 # units' `pixel`); `t` → `frame_index`; the time origin. Its `targets` name the
 # definitions by their 0.9 identities: `vgio_migrate_tree` repoints them.
 _target_homographies_v1_to_v2(old::AbstractDict) =
-    _frames_v010(_time_origin_v010(_envelope_v010(old, "vgio/target_homographies/v2.0"), "vgio/target_homographies/v1"))
+    _frames_v010(_time_origin_v010(migrate_envelope(old, "vgio/target_homographies/v2.0"), "vgio/target_homographies/v1"))
 migrate_schema(::Val{Symbol("vgio/target_homographies/v1")}, t::AbstractDict) = _target_homographies_v1_to_v2(t)
 
 # --- the observation kinds ------------------------------------------------------
@@ -305,7 +315,7 @@ function _check_one_point_type(t::AbstractDict, s::AbstractString)
 end
 
 function _observations_v010(old::AbstractDict, s::AbstractString, frame_sets)
-    t = _time_origin_v010(_envelope_v010(old, "vgio/observations/v3.0"), s)
+    t = _time_origin_v010(migrate_envelope(old, "vgio/observations/v3.0"), s)
     haskey(t, "frame") && (t["frame"] = _frame_name_v010(t["frame"]))
     t["entity"] = _TARGET_POINT_ENTITY
     t["frames"] = Any[_observation_frame_v010(f, frame_sets) for f in t["frames"]]
@@ -348,7 +358,7 @@ migrate_schema(::Val{Symbol("vgio/target_detections/v2")}, t::AbstractDict) = _d
 # under `device`, the ONE device-identity encoding, their `source`s under
 # `identity_sources`, the lens's `exif` claim as `exif_lens`; `t` → `frame_index`.
 function _capture_settings_v1_to_v2(old::AbstractDict)
-    t = _frames_v010(_envelope_v010(old, "vgio/capture_settings/v2.0"))
+    t = _frames_v010(migrate_envelope(old, "vgio/capture_settings/v2.0"))
     body, lens = pop!(t, "body"), pop!(t, "lens")
     identity(x) = Dict{String, Any}(k => v for (k, v) in x if k in ("make", "model", "serial"))
     t["device"] = Dict{String, Any}("body" => identity(body), "lens" => identity(lens))
@@ -365,7 +375,7 @@ migrate_schema(::Val{Symbol("vgio/capture_settings/v1")}, t::AbstractDict) = _ca
 # object, which 0.9's free-form `metrics` held — moves, as it stands, under
 # `provenance.metrics` (the one free-form object), where nothing reads it.
 function _manifest_v2_to_v3(old::AbstractDict)
-    t = _renamed_key(_envelope_v010(old, "vgio/calibration/v3.0"), "kind", "result_kind")
+    t = _renamed_key(migrate_envelope(old, "vgio/calibration/v3.0"), "kind", "result_kind")
     t["files"] = Any[_renamed_key(f, "kind", "schema") for f in t["files"]]
     if haskey(t, "metrics")
         ms = pop!(t, "metrics")
@@ -392,7 +402,7 @@ _vignetting_body_v010(b::AbstractDict) =
     b["type"] == "log" ? merge(b, Dict{String, Any}("spline" => _vignetting_body_v010(b["spline"]))) :
     (b["type"] == "radial" && !haskey(b, "chart")) ? merge(b, Dict{String, Any}("chart" => "linear")) : b
 function _vignetting_v1_to_v2(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/vignetting/v2.0")
+    t = migrate_envelope(old, "vgio/vignetting/v2.0")
     t["vignetting"] = _vignetting_body_v010(t["vignetting"])
     return t
 end
@@ -401,7 +411,7 @@ migrate_schema(::Val{Symbol("vgio/vignetting/v1")}, t::AbstractDict) = _vignetti
 # vgio/environment_light/v1 → v2.0: the envelope (its coefficients' radiance
 # "relative", as v1 left them in the caller's units); `l_max` → `max_degree`, Core's name.
 function _environment_light_v1_to_v2(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/environment_light/v2.0")
+    t = migrate_envelope(old, "vgio/environment_light/v2.0")
     t["map"] = _renamed_key(t["map"], "l_max", "max_degree")
     return t
 end
@@ -411,7 +421,7 @@ migrate_schema(::Val{Symbol("vgio/environment_light/v1")}, t::AbstractDict) = _e
 # or "unknown") its `units.length`, its `density` (absent: dpi, as v2 read it)
 # its `units.density`.
 function _units_v2_to_v3(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/units/v3.0"; length = old["world"], density = get(old, "density", "dpi"))
+    t = migrate_envelope(old, "vgio/units/v3.0"; length = old["world"], density = get(old, "density", "dpi"))
     delete!(t, "world")
     delete!(t, "density")
     return t

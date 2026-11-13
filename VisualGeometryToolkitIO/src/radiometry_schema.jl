@@ -100,13 +100,19 @@ const _BLUR_SPEC = _kind_spec("blur", Pair{Symbol, _Spec}[:blurs => _Vec(_BLUR_R
 
 # --- vignetting ---------------------------------------------------------------
 
+# A matrix stored as its rows (a tensor surface's control points, a light's coefficients per channel, a panorama's gains
+# per frame), read back as a Matrix{Float64}.
+_rows_matrix(rows) = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in rows))
+# …and written: its rows, each a Vector{Float64}.
+_matrix_rows(A::AbstractMatrix) = [Float64[A[i, j] for j in axes(A, 2)] for i in axes(A, 1)]
+
 # The `vignetting` body, on the style: positions in the style's pixel frame (VGC's fields hold COLMAP pixels), no length.
 function JSON.lower(s::VgioStyle, v::TensorProductVignetting)
     c = _vignetting_offset(s, CANONICAL_PIXEL_FRAME, _pixel_frame(s))
     return (
         type = tag_of(VIGNETTING_TAGS, v), degree = collect(spline_degree(v)),
         knots_x = Float64.(collect(knot_vectors(v)[1])) .+ c[1], knots_y = Float64.(collect(knot_vectors(v)[2])) .+ c[2],
-        control_points = [Float64[control_points(v)[i, j] for j in axes(control_points(v), 2)] for i in axes(control_points(v), 1)],
+        control_points = _matrix_rows(control_points(v)),
     )
 end
 # A radial profile states its chart always (a declaration has no default).
@@ -125,7 +131,7 @@ JSON.lift(s::VgioStyle, ::Type{AbstractVignetting}, b::Record) = _lift_vignettin
 _lift_vignetting(s::VgioStyle, ::Type{<:LogVignetting}, b::Record) = LogVignetting(JSON.lift(s, AbstractVignetting, b.spline::Record))
 function _lift_vignetting(s::VgioStyle, ::Type{<:TensorProductVignetting}, b::Record)
     c = _vignetting_offset(s, _pixel_frame(s), CANONICAL_PIXEL_FRAME)
-    P = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in b.control_points::Vector{Any}))
+    P = _rows_matrix(b.control_points::Vector{Any})
     return TensorProductVignetting(Float64[Float64(x::Real) + c[1] for x in b.knots_x], Float64[Float64(x::Real) + c[2] for x in b.knots_y], P;
         degree = (Int(b.degree[1]), Int(b.degree[2])))
 end
@@ -192,12 +198,11 @@ function JSON.lower(s::VgioStyle, light::EnvironmentLight{<:SphericalHarmonicMap
     return (
         center = [_leaf_length(c, s.length_unit) for c in VgtkCore.center(light)], radius = _leaf_length(VgtkCore.radius(light), s.length_unit),
         map = (type = "spherical_harmonics", basis = _SH_BASIS, max_degree = max_degree(light),
-               coefficients = [Float64[a[c, j] for j in axes(a, 2)] for c in axes(a, 1)]),
+               coefficients = _matrix_rows(a)),
     )
 end
 function JSON.lift(s::VgioStyle{<:Units}, ::Type{EnvironmentLight}, d::Record)
-    rows = d.map.coefficients::Vector{Any}
-    a = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in rows))
+    a = _rows_matrix(d.map.coefficients::Vector{Any})
     return EnvironmentLight(SphericalHarmonicMap(a, Int(d.map.max_degree)), _lengths_from_json(Val(3), d.center::Vector{Any}, s.length_unit),
         read_length(d.radius::Real, s.length_unit))
 end

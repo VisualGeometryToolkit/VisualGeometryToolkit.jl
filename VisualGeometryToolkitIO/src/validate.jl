@@ -278,6 +278,7 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "capture_settings" => (2, 0), "calibration" => (3, 0),
     "vignetting" => (2, 0), "environment_light" => (2, 0), "blur" => (2, 0),
     "units" => (3, 0),
+    "panorama" => (2, 0),   # (v1: IO 0.9.4's, read through its step)
 )
 _schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);
     v === nothing ? throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))")) : v)
@@ -700,6 +701,7 @@ function _spec(kind::AbstractString)
     kind == "vignetting" && return _VIGNETTING_SPEC
     kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
     kind == "blur" && return _BLUR_SPEC
+    kind == "panorama" && return _PANORAMA_SPEC
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)

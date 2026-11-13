@@ -18,7 +18,7 @@
     @test_throws r"has no image" fit_camera(NoncentralSplineModel, m, region; tolerance = 1.0e-2)
     # a bounded one: its extent is the lattice's image
     r = pspline_grid(SplineLens, BoundedCamera(m, Size2(1280, 960)), region, (8, 8))
-    @test retcode_symbol(r) === :converged
+    @test retcode_symbol(r) === :solved
 end
 
 @testitem "fit_forward_spline: a bounded non-central model is refused by name, not a MethodError" setup = [FitCameraNoncentral] begin

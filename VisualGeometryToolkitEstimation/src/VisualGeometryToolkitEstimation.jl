@@ -367,7 +367,6 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
 public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
 public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
-public image_size   # a bounded camera's image in whole pixels (the spline fits' lattice image; extended by a downstream bounded lens)
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
@@ -486,10 +485,10 @@ table carries a key beyond the generic one), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`), the parameter-change stop's measure of a
 problem (`change_parameters`), the sampler / running-best
-protocol (`reset!`, `draw!`) and a bounded lens's image (`image_size`).
+protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_concrete, lo_resolve_efficiency_constant,
                            config_dict, scoring_from_toml, lo_placement,
-                           iterations_without_improvement, change_parameters, reset!, draw!, image_size)
+                           iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

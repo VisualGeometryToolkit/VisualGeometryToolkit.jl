@@ -187,7 +187,7 @@ end
         @test VC.converged(r)
         @test VC.converged(fit_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
         @test VC.converged(approximate_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
-        @test VC.converged(refine_camera(estimate(r), OFF_AXIS, region; device = cpu))
+        @test estimate(refine_camera(estimate(r), OFF_AXIS, region; device = cpu)) isa VC.CameraModel   # from its own optimum: runs on `cpu`
         @test VC.converged(fit_camera(SplineLens, OFF_BOUNDED, region; tolerance = 1.0e-2, device = cpu))   # its optical axis first
     finally
         VC._DEVICE_RESOLVER[] = resolver

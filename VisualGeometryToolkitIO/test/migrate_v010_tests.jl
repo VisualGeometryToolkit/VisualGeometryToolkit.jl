@@ -251,8 +251,8 @@ end
         @test r.rebound == 4 && r.to == "vgio/calibration/v3.0"
         man = VgtkIO.load_manifest(dir)                                   # every hash, schema and target checked
         byname = Dict(f.path => f for f in man.files)
-        @test sort!(collect(keys(byname))) == ["camera.json", "grid.camera.json", "points.json", "targets.json"]   # the old grid's new store
-        @test byname["points.json"].derived_from == ["grid.camera.json", "targets.json"]
+        @test sort!(collect(keys(byname))) == ["camera.json", "grid.noncentral.json", "points.json", "targets.json"]   # the old (non-central) grid's new store
+        @test byname["points.json"].derived_from == ["grid.noncentral.json", "targets.json"]
         @test all(f -> VgtkIO._is_current(f.schema), man.files) && byname["points.json"].schema == "vgio/observations/v3.0"
         @test man.result_kind == "metric"
         @test haskey(VgtkIO._read_rewritten(joinpath(dir, "vgio_migrate_ids.json")), "grid.json")

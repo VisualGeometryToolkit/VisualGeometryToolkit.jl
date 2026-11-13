@@ -615,8 +615,7 @@ load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Unio
     _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)
 # The store of a parsed file (`d`, its JSON).
 function _load_store(d, path::AbstractString)
-    d = _one_camera_store(d, path)        # an old grid file or a noncentral_spline record: the store of its one camera
-    d = _checked_store(d, path, "cameras")
+    d = _checked_store(d, path, "cameras")   # (an old grid file or a noncentral_spline record: the store of its one camera)
     s = VgioStyle(d)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}

@@ -208,9 +208,34 @@ end
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
     W, H, c, r = 360, 240, (181.3, 118.7), 100.0
     frames = disc_frames(W, H, c, r, 2)
-    res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 0.1 * hypot(W, H), min_hole_area = 8, smoothing_weight = 5e-4)
+    a = 0.1 * hypot(W, H)
+    # Under --depwarn=error (the release's strict run) this one check runs in a child Julia with --depwarn=yes: ImageSmooth
+    # 0.1.1 (its latest release, 2021) calls ImageBase's deprecated `fdiff!` inside `L0Smooth`, a third-party
+    # deprecation that the strict run would turn into an error here. Features calls only ImageSmooth's public `smooth!`;
+    # every other item stays strict. The child reads the same frames (Float32, H × W each) and prints the circle.
+    circle = if Base.JLOptions().depwarn == 2
+        mktempdir() do dir
+            path = joinpath(dir, "frames.bin")
+            open(io -> foreach(f -> write(io, f), frames), path, "w")
+            code = """
+                using Random: Xoshiro
+                using ImageSmooth: ImageSmooth
+                using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
+                using VisualGeometryToolkitFeatures: detect_image_circle
+                H, W, n = parse.(Int, ARGS[2:4])
+                frames = open(io -> [read!(io, Matrix{Float32}(undef, H, W)) for _ in 1:n], ARGS[1])
+                res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = $a, min_hole_area = 8, smoothing_weight = 5e-4)
+                println(join(repr.((res.circle.center[1], res.circle.center[2], res.circle.a)), " "))
+                """
+            cmd = `$(Base.julia_cmd()) --depwarn=yes --startup-file=no --project=$(Base.active_project()) -e $code $path $H $W $(length(frames))`
+            parse.(Float64, split(readchomp(cmd)))
+        end
+    else
+        res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = a, min_hole_area = 8, smoothing_weight = 5e-4)
+        (res.circle.center[1], res.circle.center[2], res.circle.a)
+    end
     # on a sharp rim the smoothing does not move the circle (≈ 1 px outward, as unsmoothed)
-    @test hypot(res.circle.center[1] - c[1], res.circle.center[2] - c[2]) < 0.5 && 0 < res.circle.a - r < 2.0
+    @test hypot(circle[1] - c[1], circle[2] - c[2]) < 0.5 && 0 < circle[3] - r < 2.0
 end
 
 @testitem "detect_image_circle: the extension hooks name the package to load" begin

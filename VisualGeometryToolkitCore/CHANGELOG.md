@@ -1,5 +1,14 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.9 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New: `pointwise_kernel(f, out, xs...; exec) -> (kernel, args, ndrange)`, public** — the one launch `pointwise!`
+  makes, unlaunched; `pointwise!` is it followed by the launch, so its results are the same bits. A caller sizes a
+  `pointwise!` launch with `k, a, n = pointwise_kernel(f, out, xs...); device_resident_threads(k, a...; ndrange = n)`:
+  the count of the very kernel `pointwise!` runs, without restating how it is built.
+
 ## 0.9.8 (unreleased)
 
 A patch. Additive: no result changes.

@@ -1,0 +1,844 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/observations/v3.0.json",
+    "title": "vgio/observations/v3.0",
+    "description": "A vgio/observations/v3.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema.",
+    "if": {
+        "required": [
+            "frame"
+        ]
+    },
+    "then": {
+        "type": "object",
+        "properties": {
+            "schema": {
+                "type": "string",
+                "description": "vgio/observations/v3.0, or the same major version at any minor",
+                "pattern": "^vgio/observations/v3(\\.[0-9]+)?$"
+            },
+            "generator": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "a version number"
+                    },
+                    "caller": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "version": {
+                                "type": "string",
+                                "description": "a version number"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "version"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "required": [
+                    "name",
+                    "version"
+                ],
+                "additionalProperties": false
+            },
+            "units": {
+                "type": "object",
+                "properties": {
+                    "length": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    },
+                    "time": {
+                        "const": "s"
+                    },
+                    "angle": {
+                        "const": "rad"
+                    },
+                    "pixel": {
+                        "type": "string",
+                        "description": "a registered pixel frame (colmap, opencv, julia)",
+                        "enum": [
+                            "colmap",
+                            "julia",
+                            "opencv"
+                        ]
+                    },
+                    "density": {
+                        "type": "string",
+                        "description": "a registered density unit (dpi)",
+                        "enum": [
+                            "dpi"
+                        ]
+                    },
+                    "radiance": {
+                        "const": "relative"
+                    },
+                    "length_roles": {
+                        "type": "object",
+                        "description": "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
+                        "propertyNames": {
+                            "pattern": "^[a-z][a-z0-9_]*$",
+                            "not": {
+                                "enum": [
+                                    "length",
+                                    "world",
+                                    "density"
+                                ]
+                            }
+                        },
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                                    "enum": [
+                                        "cm",
+                                        "ft",
+                                        "in",
+                                        "inch",
+                                        "km",
+                                        "m",
+                                        "mm",
+                                        "pt",
+                                        "um",
+                                        "μm"
+                                    ]
+                                },
+                                {
+                                    "const": "chart"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": [
+                    "length",
+                    "time",
+                    "angle",
+                    "pixel",
+                    "density",
+                    "radiance",
+                    "length_roles"
+                ],
+                "additionalProperties": false
+            },
+            "conventions": {
+                "type": "object",
+                "properties": {
+                    "rotation_encoding": {
+                        "const": "quaternion_wxyz_hamilton"
+                    },
+                    "transform_convention": {
+                        "const": "x_to = R * x_from + t"
+                    },
+                    "matrix_layout": {
+                        "const": "rows"
+                    },
+                    "grid_layout": {
+                        "const": "row_major"
+                    },
+                    "index_base": {
+                        "const": 1
+                    }
+                },
+                "required": [
+                    "rotation_encoding",
+                    "transform_convention",
+                    "matrix_layout",
+                    "grid_layout",
+                    "index_base"
+                ],
+                "additionalProperties": false
+            },
+            "entity": {
+                "type": "string",
+                "description": "an observed entity (target_point, landmark)",
+                "enum": [
+                    "target_point",
+                    "landmark"
+                ]
+            },
+            "frame": {
+                "type": "string",
+                "description": "a frame name (\"world\", \"camera\", \"view:<id>\", \"target:<id>\", \"body:<id>\")",
+                "pattern": "^(world|camera|(view:|target:|body:).+)$"
+            },
+            "frames": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "frame_index": {
+                            "type": "integer"
+                        },
+                        "sensor": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "observations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "index": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer",
+                                            "minimum": 1
+                                        }
+                                    },
+                                    "points": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "xyz": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "minItems": 3,
+                                                    "maxItems": 3
+                                                },
+                                                "covariance": {
+                                                    "description": "a covariance in the storage it holds: 3 × 3 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 3,
+                                                                "maxItems": 3
+                                                            },
+                                                            "minItems": 3,
+                                                            "maxItems": 3
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "diagonal": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "minItems": 3,
+                                                                    "maxItems": 3
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "diagonal"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "isotropic": {
+                                                                    "type": "number"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "isotropic"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "xyz"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "target": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "weights": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "index",
+                                    "points"
+                                ],
+                                "additionalProperties": false,
+                                "description": "at least one point; the point indices are unique; `points` and `weights` have one entry per index; every point states its `covariance`, or none does",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "index": {
+                                                "minItems": 1,
+                                                "uniqueItems": true
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "image": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "time": {
+                            "type": "number"
+                        }
+                    },
+                    "required": [
+                        "frame_index",
+                        "sensor",
+                        "observations"
+                    ],
+                    "additionalProperties": false,
+                    "description": "a frame holds each target's observations in one set"
+                }
+            },
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "description": "each targets identity once",
+                "allOf": [
+                    {
+                        "uniqueItems": true
+                    }
+                ]
+            },
+            "time_origin": {
+                "type": "string",
+                "description": "an ISO 8601 date-time with its UTC offset (2026-05-27T09:30:00+02:00, or …Z)",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "provenance": {
+                "type": "object"
+            }
+        },
+        "required": [
+            "schema",
+            "generator",
+            "units",
+            "conventions",
+            "entity",
+            "frame",
+            "frames"
+        ],
+        "additionalProperties": false,
+        "description": "a target point's observation sets name their `target`, a landmark's do not; frame indices `frame_index` are unique; a file whose frames state a `time` states its `time_origin`",
+        "allOf": [
+            {
+                "else": {
+                    "properties": {
+                        "frames": {
+                            "items": {
+                                "properties": {
+                                    "observations": {
+                                        "items": {
+                                            "not": {
+                                                "required": [
+                                                    "target"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "if": {
+                    "properties": {
+                        "entity": {
+                            "const": "target_point"
+                        }
+                    }
+                },
+                "then": {
+                    "properties": {
+                        "frames": {
+                            "items": {
+                                "properties": {
+                                    "observations": {
+                                        "items": {
+                                            "required": [
+                                                "target"
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "frames": {
+                            "contains": {
+                                "required": [
+                                    "time"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "frames"
+                    ]
+                },
+                "then": {
+                    "required": [
+                        "time_origin"
+                    ]
+                }
+            }
+        ]
+    },
+    "else": {
+        "type": "object",
+        "properties": {
+            "schema": {
+                "type": "string",
+                "description": "vgio/observations/v3.0, or the same major version at any minor",
+                "pattern": "^vgio/observations/v3(\\.[0-9]+)?$"
+            },
+            "generator": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "a version number"
+                    },
+                    "caller": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "version": {
+                                "type": "string",
+                                "description": "a version number"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "version"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "required": [
+                    "name",
+                    "version"
+                ],
+                "additionalProperties": false
+            },
+            "units": {
+                "type": "object",
+                "properties": {
+                    "length": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    },
+                    "time": {
+                        "const": "s"
+                    },
+                    "angle": {
+                        "const": "rad"
+                    },
+                    "pixel": {
+                        "type": "string",
+                        "description": "a registered pixel frame (colmap, opencv, julia)",
+                        "enum": [
+                            "colmap",
+                            "julia",
+                            "opencv"
+                        ]
+                    },
+                    "density": {
+                        "type": "string",
+                        "description": "a registered density unit (dpi)",
+                        "enum": [
+                            "dpi"
+                        ]
+                    },
+                    "radiance": {
+                        "const": "relative"
+                    },
+                    "length_roles": {
+                        "type": "object",
+                        "description": "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
+                        "propertyNames": {
+                            "pattern": "^[a-z][a-z0-9_]*$",
+                            "not": {
+                                "enum": [
+                                    "length",
+                                    "world",
+                                    "density"
+                                ]
+                            }
+                        },
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                                    "enum": [
+                                        "cm",
+                                        "ft",
+                                        "in",
+                                        "inch",
+                                        "km",
+                                        "m",
+                                        "mm",
+                                        "pt",
+                                        "um",
+                                        "μm"
+                                    ]
+                                },
+                                {
+                                    "const": "chart"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": [
+                    "length",
+                    "time",
+                    "angle",
+                    "pixel",
+                    "density",
+                    "radiance",
+                    "length_roles"
+                ],
+                "additionalProperties": false
+            },
+            "conventions": {
+                "type": "object",
+                "properties": {
+                    "rotation_encoding": {
+                        "const": "quaternion_wxyz_hamilton"
+                    },
+                    "transform_convention": {
+                        "const": "x_to = R * x_from + t"
+                    },
+                    "matrix_layout": {
+                        "const": "rows"
+                    },
+                    "grid_layout": {
+                        "const": "row_major"
+                    },
+                    "index_base": {
+                        "const": 1
+                    }
+                },
+                "required": [
+                    "rotation_encoding",
+                    "transform_convention",
+                    "matrix_layout",
+                    "grid_layout",
+                    "index_base"
+                ],
+                "additionalProperties": false
+            },
+            "entity": {
+                "type": "string",
+                "description": "an observed entity (target_point, landmark)",
+                "enum": [
+                    "target_point",
+                    "landmark"
+                ]
+            },
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "description": "at least one targets identity, each once",
+                "allOf": [
+                    {
+                        "minItems": 1,
+                        "uniqueItems": true
+                    }
+                ]
+            },
+            "frames": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "frame_index": {
+                            "type": "integer"
+                        },
+                        "image": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "sensor": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "observations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "index": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer",
+                                            "minimum": 1
+                                        }
+                                    },
+                                    "points": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "xy": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "minItems": 2,
+                                                    "maxItems": 2
+                                                },
+                                                "covariance": {
+                                                    "description": "a covariance in the storage it holds: 2 × 2 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 2,
+                                                                "maxItems": 2
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "diagonal": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "minItems": 2,
+                                                                    "maxItems": 2
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "diagonal"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "isotropic": {
+                                                                    "type": "number"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "isotropic"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "xy"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "target": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "weights": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "index",
+                                    "points"
+                                ],
+                                "additionalProperties": false,
+                                "description": "at least one point; the point indices are unique; `points` and `weights` have one entry per index; every point states its `covariance`, or none does",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "index": {
+                                                "minItems": 1,
+                                                "uniqueItems": true
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "time": {
+                            "type": "number"
+                        }
+                    },
+                    "required": [
+                        "frame_index",
+                        "image",
+                        "sensor",
+                        "observations"
+                    ],
+                    "additionalProperties": false,
+                    "description": "a frame holds each target's observations in one set"
+                }
+            },
+            "time_origin": {
+                "type": "string",
+                "description": "an ISO 8601 date-time with its UTC offset (2026-05-27T09:30:00+02:00, or …Z)",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "provenance": {
+                "type": "object"
+            }
+        },
+        "required": [
+            "schema",
+            "generator",
+            "units",
+            "conventions",
+            "entity",
+            "targets",
+            "frames"
+        ],
+        "additionalProperties": false,
+        "description": "a target point's observation sets name their `target`, a landmark's do not; frame indices `frame_index` are unique; a file whose frames state a `time` states its `time_origin`",
+        "allOf": [
+            {
+                "else": {
+                    "properties": {
+                        "frames": {
+                            "items": {
+                                "properties": {
+                                    "observations": {
+                                        "items": {
+                                            "not": {
+                                                "required": [
+                                                    "target"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "if": {
+                    "properties": {
+                        "entity": {
+                            "const": "target_point"
+                        }
+                    }
+                },
+                "then": {
+                    "properties": {
+                        "frames": {
+                            "items": {
+                                "properties": {
+                                    "observations": {
+                                        "items": {
+                                            "required": [
+                                                "target"
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "frames": {
+                            "contains": {
+                                "required": [
+                                    "time"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "frames"
+                    ]
+                },
+                "then": {
+                    "required": [
+                        "time_origin"
+                    ]
+                }
+            }
+        ]
+    }
+}

@@ -88,7 +88,8 @@ function _opencv_vector(r, t, s, tilt)
     kk, dd = pad(k, 3), pad(d, 3)
     p = t === nothing ? (0.0, 0.0) : (t.p1, t.p2)
     sx, sy = s === nothing ? (zeros(2), zeros(2)) : (pad(s.sx, 2), pad(s.sy, 2))
-    v = Float64[kk[1], kk[2], p[1], p[2], kk[3], dd..., sx..., sy..., (tilt === nothing ? (0.0, 0.0) : (tilt.tx, tilt.ty))...]
+    v = vcat(Float64[kk[1], kk[2], p[1], p[2], kk[3]], collect(Float64, dd), collect(Float64, sx), collect(Float64, sy),
+             tilt === nothing ? Float64[0.0, 0.0] : Float64[tilt.tx, tilt.ty])
     n = tilt !== nothing ? 14 : s !== nothing ? 12 : !isempty(d) ? 8 : length(k) == 3 ? 5 : 4
     return v[1:n]
 end

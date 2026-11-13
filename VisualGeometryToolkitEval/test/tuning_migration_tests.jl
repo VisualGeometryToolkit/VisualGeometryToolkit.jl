@@ -97,7 +97,7 @@
                 tuned_width = Dict(a.base => tuned_width(art, a) for a in arms),
                 tuned_objective = art["tuned_objective"], boundary_hits = art["boundary_hits"])
             new = load_tuning_artifact(p)
-            @test new.format == 7 && all(tuned_width(new, a) === tuned_width(art, a) for a in arms)
+            @test new.format == 8 && all(tuned_width(new, a) === tuned_width(art, a) for a in arms)
             @test Dict(deployed_budget_settings(roster, p))["HW +GM(m)"].lo == bud["HW +GM(m)"].lo
         end
     end
@@ -112,16 +112,38 @@
         mktempdir() do tmp
             p = joinpath(tmp, "new.jld2")
             F.write_roster_sidecar(p, rt, arms; code = (VgtkEval,), mode = "miscal")
-            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 7
+            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 8
             @test Set(keys(JLD2.load(p, "grid_specs"))) == Set(["outlier_halfwidth", "loss_width", "efficiency_constant"])
             spec = JLD2.load(p, "tuning_spec")
             @test haskey(spec, "efficiency_constant_window") && haskey(spec, "efficiency_constant")
             @test !any(occursin(old, k) for k in keys(spec))
             art = load_tuning_artifact(p)
-            @test art.format == 7 && art.hash == art.recorded_hash == tuning_hash(rt.spec)
+            @test art.format == 8 && art.hash == art.recorded_hash == tuning_hash(rt.spec)
             # a format-7 constant is plain already: deployed as it is stored
             m = rt.values[:efficiency_constant][3]
             @test Dict(deployed_budget_settings(roster, p))["HW +GM(m)"].lo == Irls{GemanMcclureShape}(; efficiency_constant = m)
+        end
+    end
+
+    @testset "a format-7 file: its stored hash verified with the v7 recipe (sorted TOML), then re-hashed" begin
+        mktempdir() do tmp
+            # a format-7 record as the v7 writer wrote it: the same keys, its hash the SHA-256 of the sorted TOML
+            p = joinpath(tmp, "v7.jld2")
+            F.write_roster_sidecar(p, rt, arms; code = (VgtkEval,), mode = "miscal")
+            spec = JLD2.load(p, "tuning_spec")
+            io = IOBuffer(); TOML.print(io, Dict{String,Any}("scheme" => spec); sorted = true)
+            v7hash = bytes2hex(VgtkEval.sha256(take!(io)))[1:16]
+            JLD2.jldopen(p, "r+") do f
+                delete!(f, "tuning_hash"); f["tuning_hash"] = v7hash
+                delete!(f, "tuning_format"); f["tuning_format"] = 7
+            end
+            art = load_tuning_artifact(p)
+            @test art.format == 7 && art.recorded_hash == v7hash && art.hash == tuning_hash(rt.spec) != v7hash
+            JLD2.jldopen(p, "r+") do f
+                delete!(f, "tuning_hash"); f["tuning_hash"] = "0000000000000000"
+            end
+            m = thrown_message(() -> load_tuning_artifact(p); shown = true)
+            @test occursin("format-7", m) && occursin(v7hash, m)
         end
     end
 
@@ -144,7 +166,7 @@
             "selected" => Dict(old => 2.0, "loss_width" => 0.004), "boundary_hit" => Dict(old => false),
             "param_name" => old)
         t = VgtkIO.migrate_record(tree)
-        @test t["schema"] == "vgtk_eval/tuning/v7"
+        @test t["schema"] == "vgtk_eval/tuning/v8"
         @test t["axes"] == ["efficiency_constant", "loss_width"] && t["param_name"] == "efficiency_constant"
         @test t["selected"] == Dict("efficiency_constant" => 2.0, "loss_width" => 0.004)
         @test t["boundary_hit"] == Dict("efficiency_constant" => false)

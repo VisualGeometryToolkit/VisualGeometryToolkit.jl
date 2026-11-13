@@ -32,16 +32,22 @@ frame_name(::Type{F}) where {F <: Frame} = throw(
     )
 )
 
+# The grammar's names: the fixed frames, and the prefixes of the frames with an id.
+const _FIXED_FRAMES = ("world" => WorldFrame, "camera" => CameraFrame)
+const _ID_FRAMES = ("view:" => ViewFrame, "target:" => TargetFrame, "body:" => BodyFrame)
+
 """
     frame_from_name(s::AbstractString) -> Type{<:Frame}
 
 Parse a serialized frame name back to the VGC frame type; the id becomes a
 `Symbol` (a board uid that happens to look numeric is still an identity, not
-a number).
+a number). An unknown name is an `ArgumentError` listing the grammar.
+
+```jldoctest
+julia> frame_from_name("target:b89")
+TargetFrame{:b89}
+```
 """
-# The grammar's names: the fixed frames, and the prefixes of the frames with an id.
-const _FIXED_FRAMES = ("world" => WorldFrame, "camera" => CameraFrame)
-const _ID_FRAMES = ("view:" => ViewFrame, "target:" => TargetFrame, "body:" => BodyFrame)
 function frame_from_name(s::AbstractString)
     for (name, F) in _FIXED_FRAMES
         s == name && return F

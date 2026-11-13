@@ -1,52 +1,22 @@
-# 0.9 duplication checklist (monorepo)
+# IO 0.9.5 duplication checklist (VisualGeometryToolkitIO, additive)
 
-Every finding of the 0.9 concept-level duplication audit (~/logs/dgx-agent/dup-audit-monorepo.md items 1–15, the
-hoist asks of the downstream audits) and the branch that closes it. The owner's ruling: ONE release, no kept copies.
-A box is ticked only when its branch is in the final RC and the final gate is green on it.
+Every concept IO 0.9.5 adds or makes public, the stack searched for it BY CONCEPT before the code was written (Core, IO,
+Features, Estimation, Eval, BlobBoards bb-j113 0850b81, PanoramaStitching ps-064, CaliBlobs, LODR, RSDR, and
+RadiometricCamera read-only at /raid/data/jpr/rc-080), and what was done. A box is ticked when the final gate is green on it.
 
-Final RC: 9c74e264 (the version bump 1d816a22 and the release records; this file's ticks are a records-only commit on it). Final gate, fresh clone, all green: GPU six 9763, CPU six 9764, docs 9765/9766 (docs-pass.md section 3).
-
-## Fixed on `dup-audit-monorepo` (2cae3a7c, landed 2f0e6155)
-
-- [x] The 25 deleted copies of the audit's "Fixed" table: run-key hash, git reader, scratch flag, marker/record names,
-  mount_dir join, tier-path join, failed-leg predicate, refine keyword parsing, least-squares refusal, strategy
-  constant, TOML default strategy, scale source, recorded scale, Phase-2 LO, edge rotation, LossWidth → TOML, SplineLens
-  forward drop, pose finiteness, duplicated import, `lm_retcode`, `_r13_callee`, Irls/Triggs method pairs, PoseLib
-  `_strategy_shape`, Features pixel centre, IO file digest.
-
-## Audit items 1–15
-
-| # | concept | branch (head) | in chain as | status |
+| # | concept | considered (file:line) | done | status |
 |---|---|---|---|---|
-| 1 | strategy efficiency constant (Estimation, PoseLib, Core predicate) | dup-items-a (c60fdb9b) | 202223b3 | [x] |
-| 2 | FitResult with its estimate mapped (`map_estimate`) | dup-items-a | 202223b3 | [x] |
-| 3 | retired-keyword sentinel (`RetiredKeyword`, Core) | dup-items-a + monorepo-hoists H7 | 202223b3 | [x] |
-| 4 | weighted Kabsch → Core `kabsch(Csponds(…; weights))` | dup-items-b (95ceb6a9) | b00d18db | [x] |
-| 5 | IrlsWeights normalisation (one rule `ρ′/ρ′(0)`; defect) | dup-items-b | b00d18db | [x] |
-| 6 | three fixed-scale robust refine loops → one `Triggs` LM; `Irls` refine refused; the hand-eye LM on the bundle's one solve | dup-item-6 (13e3e09a, 0773a8d1) | ec490c8a, 2b8a1283 | [x] |
-| 7 | L2 chart LM on the pixel rows (`_triggs_state`; defect) | dup-items-b + dup-item-6 13e3e09a | ec490c8a | [x] |
-| 8 | SO(3) chart covariance → Core `transform_covariance` | dup-items-a | 202223b3 | [x] |
-| 9 | `_spline_record` → Core `worst_retcode` | dup-items-b | b00d18db | [x] |
-| 10 | pair norms → Core `point_norms!` | dup-items-a | 202223b3 | [x] |
-| 11 | twin fit metadata records (one `FitMetadata`; the three retired names refused by `check_naming`) | dup-items-11-14 (3a086ce7) | 7a9ebb99 | [x] |
-| 12 | within-file twins (Eval reuse rule, K₀₂/fx₀ + domain cap, Hartley maps, scoring workspaces, ONNX arena growth, R13 TOML walk) | dup-items-a | 202223b3 | [x] |
-| 13 | ci: sbatch option tail, docs.sbatch pieces, `VGTK_DOCS_LOCAL` reader | dup-items-a | 202223b3 | [x] |
-| 14 | Eval partial overlaps M1–M7 (one copy each); the dependency-free runner's unknown-key refusal stays (it cannot load Core's `check_keys`: an owner ruling, recorded in Eval's CHANGELOG) | dup-items-11-14 (3a086ce7) | 7a9ebb99 | [x] |
-| 15 | median seed (recorded), `_irls_record` vs refine Irls record (moot: Irls refines refused, item 6), PoseLib `_assert_unit_bearings` | dup-items-a + dup-item-6 | ec490c8a | [x] |
+| a | a target's calibration record, alone | IO rig_schema.jl `_target_calibration_json` / `_target_calibration_from_json` (0.9.4 :419, :527); RC records.jl:21-24 (its `inplane_print_error` is IO's record) | the existing pair made public under IO's `<thing>_json` / `<thing>_from_json` names; the public reader validates; the target lift keeps the validated path (`_target_calibration_from_record`). No copy | [x] |
+| b | the lattice record (a B-spline lattice over a rectangle, held nodes, controls) | IO camera_schema.jl `_spline_json` / `_spline_from_json` (0.9.4 :125, :150); style.jl lattice pieces `_lattice_from_json`, `_present_runs`, `_present_from_runs`, `_controls_json`, `_controls_from_json` (:174-261); noncentral_spline_schema.jl:82-101; Core `ChartSpline` (chart_spline.jl:177); RC records.jl:52 `radius_grid` (RC's own grid of radii, to move onto this in RC 0.9) | the existing pair made public (`lattice_json` / `lattice_from_json`), moved beside the lattice pieces in style.jl, `length_unit` added for length controls; the lens and non-central records call it. No copy | [x] |
+| c | a height field with its nodes' and heights' units apart | Core `HeightField` (target_calibration.jl:645: one form for nodes and heights), IO's `_CHART` form of a placed target (rig_schema.jl `_Chart`), RC warping.jl:79 `warping_field` and records.jl "warping"/"warping_aspect"; io10's units object (w10-io10 validate.jl:300-356, `length_roles`) | the existing parametric height-field record with two optional keys, `node_unit` / `height_unit`, read and written by the one calibration codec (`_reads_back` / `_check_writes_back` / `_calibration_from_record` take the second unit); no second height-field codec | [x] |
+| d1 | a TIFF writer and reader | BlobBoards src/authoring/tiff.jl:35 `write_tiff` (libtiff) and src/io.jl:218 `_read_grey_tiff` (libtiff); BB test-only TiffImages (test/items_test.jl:185); nothing else in the stack (grep libtiff/TiffImages/tifffile over every repo) | HOISTED into IO (src/tiff.jl `write_tiff` / `read_tiff`), byte-identical for BB's board TIFFs (bb_tiff_identity.jl); BB's copy deleted by BB's next release (handoffs.md "io095 → bb") | [x] |
+| d2 | a binary sidecar bound by its SHA-256 | IO validate.jl:418 the reserved `payload` key; calibration_manifest.jl `_check_manifest_files` (:206), `_is_inside_path` (:34), `_realpath_inside` (:197); rig_schema.jl canvas texture `{path, sha256}` (:286); Core `sha256_hex` (utils.jl:165); io10's sensor_noise artifacts (`{file, sha256}`, interfaces.md) | the reserved `payload` key, its first kind; the manifest's per-file check extracted as `_check_bound_file` and called by both; `_is_inside_path`, `write_staged` reused | [x] |
+| d3 | a rectangle of the design chart in a length unit | style.jl `JSON.lower/lift(::VgioStyle, ::Rect2)` (:170); rig_schema.jl `_rect_json` (board/canvas `{size, origin}`); validate.jl `_lattice_problem`'s area check | the `[x, y, w, h]` area through the Rect2 lower/lift, each number through `_metres_json` / `metres`; the area check extracted as `_area_problem`, shared with the lattice | [x] |
 
-## Downstream audits' monorepo asks
+Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobBoards' copy (d1) leaves with BB's port
+(handoffs.md "io095 → bb"); until then check_duplication does not pair them (below: 0 findings with bb-j113 in the stack).
 
-| ask | concept | branch (head) | in chain as | status |
-|---|---|---|---|---|
-| BB 5 | prefix-sweep loop body (`prefix_sweep`) | dup-items-e (35be7a8c) + integrator fix 04796694 | 04796694 | [x] |
-| BB 6 | IRLS termination record (`irls_termination`) | dup-items-e | 166a986f | [x] |
-| BB 7 | renamed-key refusal (`check_keys(; renamed)`) | dup-items-e | 166a986f | [x] |
-| BB 8 | artifact install (`install_artifact`, `huggingface_token` in Core) | dup-items-e | 166a986f | [x] |
-| F1, F7, F8, F10 | `is_stationary(blocks, …)`, `rotation_center_pose`, `pooled_noise_scale(scales, dofs)`, `lens_coverage(camera, rim_margin)` | monorepo-hoists (f12bd8a0) | 47b72b04 | [x] |
-| F9 | CountedLO per-call `call_records` | dup-items-f (591de3d7) | 52b9762a | [x] |
-| H1–H10, H12–H14, H16, H17 | hoists (scoring constructors, TOML reader, device buffers, `fetch_data!`, radix buffers, `reproject_so3`, `RetiredKeyword`, uncertain `inv`, Student-t default, `rms(residuals, n)`, `bearing_csponds`, Features `propagate`, retired names, `reset_posterior!`) | monorepo-hoists | 47b72b04 | [x] |
-| H11 | one launch policy: `OnBackend(backend; workgroupsize)(kernel)` (DUPLICATION.toml `[[backend]]`) | launch-policy (91f620ad) | 440168ef | [x] |
-| H15 | χ² quantile (whitened units) | whitened-units (f9e35470) | 8300fbf5 | [x] |
+## check_duplication (gate prep 12390, VGTK_STACK_PATHS = bb-j113, lodr-09, rsdr-09, cb-release, ps-064)
 
 ## Stopped with no code (searched, nothing to merge)
 
@@ -186,3 +156,28 @@ findings on all six). The concept-level audit and the deleted shims: ~/logs/dgx-
 - [x] No shims: `_window_sums`, `_strip_length`, SpatialQueries' node aliases and `_mbr`, `_line_of`, `_camera_poses_result`, `_opted_file`, IO's `_json` deleted.
 - [x] The duplication item deterministic with and without the stack paths; the two test-fixture `[[similar]]` entries restored.
 - Reported, not deleted (public, breaking): `LiftableProblem`, `ScalarOrQuantity`, `POOL_RNG`.
+
+## IO 0.10.0 (wave10, the IO breaking wave; branch w10-io10)
+
+Concept-level duplication gate of the spec ("Tests": one units codec, one covariance codec, one lattice codec, one
+measurement kind) and the slices' concept checks. A box is ticked when its commit is in w10-io10 and the gate is green on it.
+
+- [x] ONE units codec: the envelope's `units` object, written from `VgioStyle` (`_units_json`) and read by `VgioStyle(record)`;
+  UnitContract's own layout, `json_value(contract)`/`from_json(UnitContract, …)`, the per-block blur `"unit"` and the top-level
+  `length_unit`/`pixel_frame`/`time_unit` retired (old files through their steps; `migrate_units` for BB's boards).
+- [x] ONE covariance codec: `covariance` in rows/{"diagonal"}/{"isotropic"} everywhere (`_cov_wire`/`_cov_from_wire`); `cov`,
+  `cov_size`, `point_covariances`, the null-plus-size and the default-3×3 fallback deleted; an absent covariance is the
+  producer's `covariance_status`.
+- [x] ONE lattice codec: `_lattice_json`/`_lattice_from_json`/`_lattice_spec` (style.jl, validate.jl) for the spline lens, its
+  forward spline and the non-central model; `_spline_json`, `_spline_from_json`, the non-central spline spec deleted.
+- [x] ONE observation kind: `vgio/observations` (`TargetObservations`); target_points2d/3d and target_detections only as steps.
+- [x] ONE frame codec (detections): every FeatureFrame a case of `JSON.lower/lift(::VgioStyle, ::FeatureFrame)`, PointFrame the
+  2-DOF case (io10-kinds); `json_value`/`from_json`/`read_quantity`/`write_quantity` deleted, no alias.
+- [x] ONE camera kind: the store holds any bounded camera; `noncentral_spline_schema.jl` deleted; one body spec `_bounded_body_spec`.
+- [x] ONE old-grid conversion entry: `_current_camera_body` at `camera_from_json` only (review I2).
+- [x] ONE version list: `schema_versions()` from the steps; `_MIGRATIONS_TO_CURRENT` and the docs' hand lists deleted.
+- [x] ONE envelope step for owners: `migrate_envelope` (public), used by IO's steps, panorama's and CaliBlobs'.
+- [x] ONE device-identity encoding: `device` {"body", "lens"} in capture_settings, calibration_record and sensor_noise.
+- [x] ONE identity path: `_identity_tree` is the writer's record on `_ID_STYLE`; the `_id_*` re-shapers deleted; the frozen 0.9
+  identity lives in migration only (`_v09_id`), for the re-id map.
+- [x] check_duplication(VisualGeometryToolkitIO): 0 findings (slices' runs 12228, 12569; the integrated gate re-runs it).

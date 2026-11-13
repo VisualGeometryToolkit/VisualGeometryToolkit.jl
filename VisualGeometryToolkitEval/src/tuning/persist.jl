@@ -162,8 +162,8 @@ const _MIGRATED_KEYS = ("tuning_spec", "tuning_hash", "grid_specs", _AXIS_DATA_K
 # (`boundary_hits`, `kinds`, `axes`, `selected`, `boundary_hit`, and a
 # coarse-fine `record`'s `param_name`) — carried to the current format by
 # VisualGeometryToolkitIO's `migrate_record`, through the version steps this
-# package registers (`migrate_schema`). One step, v6 → v7, the efficiency-constant
-# names (2026-11-11):
+# package registers (`migrate_schema`). Two steps: v6 → v7, the efficiency-constant
+# names (2026-11-11), and v7 → v8, the hash (below). v6 → v7:
 #
 # - every key of the spec and the grid specs naming the efficiency constant by
 #   its retired v6 name (`_V6_NAME`: the axis, its window, …) takes the
@@ -177,18 +177,42 @@ const _MIGRATED_KEYS = ("tuning_spec", "tuning_hash", "grid_specs", _AXIS_DATA_K
 # `ctor` took then, and only the roster says what that was (`tuned_width`
 # applies the arm's `format6_constant` hook).
 
+# A stored hash is verified with the recipe of the format that wrote it, and a step re-hashes with the next format's.
+# Formats 6 and 7 hashed `Dict("scheme" => spec)` printed as sorted TOML (SHA-256, hex, first 16): that recipe is
+# their definition, kept here only to verify a stored v6/v7 hash on read; nothing current is written with it. Format 8
+# hashes the stack's canonical JSON (`tuning_hash`).
+function _tuning_hash_v7(spec::AbstractDict)
+    io = IOBuffer()
+    TOML.print(io, Dict{String,Any}("scheme" => spec); sorted = true)
+    return bytes2hex(sha256(take!(io)))[1:16]
+end
+
+function _check_stored_hash(t::AbstractDict, format::Integer)
+    stored = _tuning_hash_v7(t["tuning_spec"])
+    stored == t["tuning_hash"] || throw(ArgumentError(
+        "a format-$format tuning record: the stored tuning spec hashes to $stored, not its recorded $(t["tuning_hash"])"))
+    return nothing
+end
+
 # The v6 → v7 step: the efficiency-constant names.
 function VgtkIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v6")}, t::AbstractDict)
-    stored = _toml_hash(Dict{String,Any}("scheme" => t["tuning_spec"]))
-    stored == t["tuning_hash"] || throw(ArgumentError(
-        "a format-6 tuning record: the stored tuning spec hashes to $stored, not its recorded $(t["tuning_hash"])"))
+    _check_stored_hash(t, 6)
     out = Dict{String,Any}(k => _renamed_axis_keys(v) for (k, v) in t if k in ("tuning_spec", "grid_specs"))
     out["schema"] = string(_TUNING_SCHEMA, "/v7")
-    out["tuning_hash"] = _toml_hash(Dict{String,Any}("scheme" => out["tuning_spec"]))
+    out["tuning_hash"] = _tuning_hash_v7(out["tuning_spec"])
     for k in _AXIS_DATA_KEYS
         haskey(t, k) && (out[k] = _renamed_axis_names(t[k]))
     end
     haskey(t, "param_name") && (out["param_name"] = _renamed_axis_name(t["param_name"]))
+    return out
+end
+
+# The v7 → v8 step: the hash, the stack's content key (canonical JSON) in place of the sorted TOML. Nothing else moves.
+function VgtkIO.migrate_schema(::Val{Symbol("vgtk_eval/tuning/v7")}, t::AbstractDict)
+    _check_stored_hash(t, 7)
+    out = Dict{String,Any}(t)
+    out["schema"] = string(_TUNING_SCHEMA, "/v8")
+    out["tuning_hash"] = _tuning_table_hash(t["tuning_spec"])
     return out
 end
 

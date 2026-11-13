@@ -250,7 +250,7 @@ const _TARGET_POSES_SPEC = _kind_spec(
         :frames => _Vec(
             _CheckedSpec(
                 _Obj(
-                    Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs([:image, :sensor])[1]..., :poses => _Vec(_TARGET_POSE_RECORD)],
+                    _spec_table(Pair{Symbol, _Spec}[:frame_index => _Int()], _stamp_specs([:image, :sensor])[1], Pair{Symbol, _Spec}[:poses => _Vec(_TARGET_POSE_RECORD)]),
                     _stamp_specs([:image, :sensor])[2],
                 ),
                 f -> _unique_check([p[:target] for p in f[:poses]], "the targets of a frame"); rule = "a frame poses each target once",
@@ -353,7 +353,7 @@ const _TARGET_HOMOGRAPHIES_SPEC = _kind_spec(
         :frames => _Vec(
             _CheckedSpec(
                 _Obj(
-                    Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs([:image, :sensor])[1]..., :homographies => _Vec(_HOMOGRAPHY_RECORD)],
+                    _spec_table(Pair{Symbol, _Spec}[:frame_index => _Int()], _stamp_specs([:image, :sensor])[1], Pair{Symbol, _Spec}[:homographies => _Vec(_HOMOGRAPHY_RECORD)]),
                     _stamp_specs([:image, :sensor])[2],
                 ),
                 f -> _unique_check([h[:target] for h in f[:homographies]], "the targets of a frame"); rule = "a frame holds each target's homography once",
@@ -418,7 +418,7 @@ end
 Read a `vgio/target_homographies/v2.0` file: the value it was written from,
 typed in the pixel frame `F` the file declares (`units.pixel`), per frame index
 every target's `HomographyMap` (stored unlabeled; `homography(th, t, id)`
-labels it `TargetPlaneFrame → F`) with its canonical parameters exactly as
+labels it `TargetPlaneFrame{id} → F`) with its canonical parameters exactly as
 stored, `Uncertain` where the record states a covariance, with the frames'
 images, sensors and times and the `targets` identities. `H` maps the target's
 plane (millimetres) to a pixel of `F`, before the lens of the camera the
@@ -492,7 +492,7 @@ _observation_set_spec(d::Int) = _CheckedSpec(
 )
 _observations_frame_spec(d::Int, required::Vector{Symbol}) = _CheckedSpec(
     _Obj(
-        Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs(required)[1]..., :observations => _Vec(_observation_set_spec(d))],
+        _spec_table(Pair{Symbol, _Spec}[:frame_index => _Int()], _stamp_specs(required)[1], Pair{Symbol, _Spec}[:observations => _Vec(_observation_set_spec(d))]),
         _stamp_specs(required)[2],
     ),
     f -> _unique_check([r[:target] for r in f[:observations] if haskey(r, :target)], "the targets of a frame");

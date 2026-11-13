@@ -4,7 +4,7 @@
 # keeps its key, and the written map reads back as old → new.
 using Test, TOML
 using VisualGeometryToolkitEval.Experiments: TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map
-using VisualGeometryToolkitEval.Tuning: _toml_hash
+using VisualGeometryToolkitEval: _content_key
 
 renames = [TagRename(r"(^|\.)nuisance\.scale$", "estimate", "estimated"),
            TagRename(r"(^|\.)selectors\[\d+\]$", "ig", "student_t_uniform"),
@@ -22,9 +22,9 @@ dir = mktempdir()
 moved = joinpath(dir, "a.toml"); write(moved, "selectors = [\"ig\"]\n")
 kept = joinpath(dir, "b.toml"); write(kept, "selectors = [\"msac\"]\n")
 bad = joinpath(dir, "c.toml"); write(bad, "x = \n")
-rows = rekey_map([moved, kept, bad]; renames, keyed_table = TOML.parsefile, key = _toml_hash)
-@test rows[1].moved && rows[1].old_key == _toml_hash(TOML.parsefile(moved)) &&
-      rows[1].new_key == _toml_hash(Dict("selectors" => ["student_t_uniform"]))
+rows = rekey_map([moved, kept, bad]; renames, keyed_table = TOML.parsefile, key = _content_key)
+@test rows[1].moved && rows[1].old_key == _content_key(TOML.parsefile(moved)) &&
+      rows[1].new_key == _content_key(Dict("selectors" => ["student_t_uniform"]))
 @test !rows[2].moved && rows[2].old_key == rows[2].new_key
 @test !isempty(rows[3].error)
 p = write_rekey_map(joinpath(dir, "_rekey", "map.toml"), rows; project = "test", renames, commits = Dict("X" => "abc"))

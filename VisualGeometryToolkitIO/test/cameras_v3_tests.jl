@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/cameras/v5 (the v4 store's tests: the body, the lens families, the pitch)
+# vgio/cameras/v6.0 (the store's tests since v4: the body, the lens families, the pixel frame, the calibration record)
 # =============================================================================
 
-@testitem "vgio/cameras/v4" setup = [VGIoFixtures] begin
+@testitem "vgio/cameras/v6.0" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: BoundedCamera, Attributed, model
@@ -65,9 +65,15 @@
             end
             @test VgtkIO._lower(d.cameras[9].lens) == Dict("lift" => Dict("radial" => Any[Any[], Any[-0.28, -0.09]]))
             @test VgtkIO._lower(d.cameras[5].lens) == Dict("equidistant" => Any[], "radial" => Any[Any[0.1, -0.02, 0.003, -0.0004], Any[]])
-            # one pixel frame for the file; nothing restated per camera
-            @test d.pixel_frame == "colmap" && !haskey(d.cameras[1], :pixel_frame)
+            # one pixel frame for the file (its `units`); nothing restated per camera
+            @test d.units.pixel == "colmap" && !haskey(d.cameras[1], :pixel_frame)
             @test !haskey(d.cameras[1], :size) && !haskey(d.cameras[1].K, :unit)
+            # the envelope, every key written; the image size a {width, height} object
+            @test d.schema == "vgio/cameras/v6.0" && d.generator.name == "VisualGeometryToolkitIO"
+            @test collect(keys(d))[1:4] == [:schema, :generator, :units, :conventions]
+            @test d.units.length == "mm" && d.units.length_roles == Dict() && d.conventions.index_base == 1
+            @test d.cameras[1].image_size == Dict(:width => 4240, :height => 2832)
+            @test !haskey(d.cameras[1], :width) && !haskey(d.cameras[1], :height)
         end
     end
 
@@ -83,7 +89,7 @@
         mktempdir() do dir
             path = joinpath(dir, "cameras.json")
             save(path, Dict(:c => BoundedCamera(m, Size2(4240, 2832))))
-            @test parse_json(read(path, String)).pixel_frame == "colmap"
+            @test parse_json(read(path, String)).units.pixel == "colmap"
             back = load(Dict{Symbol, BoundedCamera}, path)
             # reloading must NOT shift again
             @test model(back[:c]).intrinsics.K == m.intrinsics.K
@@ -103,14 +109,14 @@
             cy0 = canonical.intrinsics.K[2, 3]
             for (frame, shift) in (("colmap", 0.0), ("opencv", 0.5), ("julia", -0.5))
                 q = joinpath(dir, "$(frame).json")
-                write(q, JSON.json(merge(top, Dict(:pixel_frame => frame))))
+                write(q, JSON.json(merge(top, Dict(:units => merge(Dict{Symbol, Any}(pairs(top[:units])), Dict(:pixel => frame))))))
                 got = load(Dict{Symbol, BoundedCamera}, q)[:c]
                 @test model(got).intrinsics.K[1, 3] ≈ cx0 + shift
                 @test model(got).intrinsics.K[2, 3] ≈ cy0 + shift
                 # ...and re-saving states the canonical frame, not the file's
                 r2 = joinpath(dir, "$(frame)_again.json")
                 save(r2, Dict(:c => got))
-                @test parse_json(read(r2, String)).pixel_frame == "colmap"
+                @test parse_json(read(r2, String)).units.pixel == "colmap"
             end
         end
 
@@ -161,11 +167,23 @@
             @test refused(lens!(l -> (l[:add][1][:radial] = [[0.1]])), "radial")
             @test refused(lens!(l -> (l[:add][1][:radial] = [["0.1"], []])), "radial")
             @test refused(dd -> (dd[:cameras][1][:lens] = Dict(:model => "brown_conrady", :params => Dict(:k1 => 0.1))), "retired v1/v2 lens record")   # a v1/v2 lens record is refused by name
-            @test refused(dd -> (dd[:pixel_frame] = "weird"), "pixel_frame")
-            @test refused(dd -> delete!(dd, :pixel_frame), "pixel_frame")
-            @test refused(dd -> (dd[:cameras][1][:width] = 0), "width")
+            @test refused(dd -> (dd[:units][:pixel] = "weird"), "units.pixel")
+            @test refused(dd -> delete!(dd[:units], :pixel), "units.pixel")
+            @test refused(dd -> (dd[:cameras][1][:image_size][:width] = 0), "image_size.width")
+            @test refused(dd -> (dd[:cameras][1][:image_size] = [4240, 2832]), "image_size")   # a Size2 is an object
+            @test refused(dd -> (dd[:cameras][1][:width] = 4240), "width")                    # the IO 0.9 keys are not a 0.10 body's
             @test refused(dd -> (dd[:cameras][1][:unit] = "px"), "unit")               # no key the table does not name
-            @test refused(dd -> (dd[:schema] = "vgio/cameras/v6"), "schema")                 # a version this reader does not know
+            @test refused(dd -> (dd[:schema] = "vgio/cameras/v7.0"), "later major")         # a version this reader does not know
+            # the major at any minor: a pre-0.10 spelling of v6 is v6.0; a higher minor's added key is tolerated,
+            # an unknown key at the reader's own minor is not
+            for (sch, extra, ok) in (("vgio/cameras/v6", false, true), ("vgio/cameras/v6.3", true, true), ("vgio/cameras/v6.0", true, false))
+                dd = tomutable(d)
+                dd[:schema] = sch
+                extra && (dd[:cameras][1][:future_key] = 1)
+                q = joinpath(dir, "minor.json")
+                write(q, JSON.json(dd))
+                @test (try load(Dict{Symbol, BoundedCamera}, q) == load(Dict{Symbol, BoundedCamera}, path) catch e; e isa ArgumentError ? false : rethrow() end) == ok
+            end
             # v3 is read through its migration (its lens "chain" → "compose", reversed): this record has no chain, so it reads as it is
             let dd = tomutable(d), q = joinpath(dir, "v3.json")
                 dd[:schema] = "vgio/cameras/v3"
@@ -251,7 +269,7 @@
         @test_throws ArgumentError colmap_cameras(mixed)
     end
 
-    @testset "the calibration block: an attribute of the value, closed, read back exactly" begin
+    @testset "the calibration_record block: an attribute of the value, closed, read back exactly" begin
         m = CameraModel(K; lens = bc, pixel_frame = :opencv)
         full = (;
             tool = "OpenCV calibrateCamera", source = "sony-fx3_tamron-20mm-f-2.8-f-8.json", date = "2026-01-19",
@@ -259,20 +277,20 @@
         )
         part = (; tool = "OpenCV calibrateCamera", reprojection_rms = 0.2737)
         bcam = BoundedCamera(m, Size2(4240, 2832))
-        recs = Dict(:full => Attributed(bcam, (; calibration = full)), :part => Attributed(bcam, (; calibration = part)), :none => bcam)
-        @test recs[:full].calibration.tool == "OpenCV calibrateCamera"            # the attribute forwards
+        recs = Dict(:full => Attributed(bcam, (; calibration_record = full)), :part => Attributed(bcam, (; calibration_record = part)), :none => bcam)
+        @test recs[:full].calibration_record.tool == "OpenCV calibrateCamera"     # the attribute forwards
         mktempdir() do dir
             path = joinpath(dir, "cameras.json")
             save(path, recs)
             back = load(Dict{Symbol, BoundedCamera}, path)
             @test back == recs                                                     # exact by type
             @test back[:full] isa Attributed && back[:none] isa BoundedCamera
-            @test back[:full].calibration === full && back[:part].calibration === part
+            @test back[:full].calibration_record === full && back[:part].calibration_record === part
             d = parse_json(read(path, String))
             # what is unknown is absent, in declaration order; no block at all when there is none
-            @test collect(keys(d.cameras[1].calibration)) == [:tool, :source, :date, :reprojection_rms, :n_images, :n_points, :note]
-            @test !haskey(d.cameras[2], :calibration)
-            @test collect(keys(d.cameras[3].calibration)) == [:tool, :reprojection_rms]
+            @test collect(keys(d.cameras[1].calibration_record)) == [:tool, :source, :date, :reprojection_rms, :n_images, :n_points, :note]
+            @test !haskey(d.cameras[2], :calibration_record) && !haskey(d.cameras[1], :calibration)
+            @test collect(keys(d.cameras[3].calibration_record)) == [:tool, :reprojection_rms]
             @test load(BoundedCamera, path; name = "full") == bcam                 # the single-camera views drop it
             # write → read → write is byte-identical
             again = joinpath(dir, "again.json")
@@ -284,7 +302,7 @@
             tomutable(x) = x
             function refused(mutate, key)
                 dd = tomutable(d)
-                mutate(dd[:cameras][1][:calibration])
+                mutate(dd[:cameras][1][:calibration_record])
                 q = joinpath(dir, "bad.json")
                 write(q, JSON.json(dd))
                 e = try
@@ -307,8 +325,11 @@
             # the writer holds the value to the file's rules
             for bad in ((;), (; source = "/home/someone/calib.json"), (; date = "2026-1-19"), (; reprojection_rms = -1.0),
                     (; n_points = 0), (; tool = ""), (; operator = "x"))
-                @test_throws ArgumentError save(joinpath(dir, "w.json"), Dict(:c => Attributed(bcam, (; calibration = bad))))
+                @test_throws ArgumentError save(joinpath(dir, "w.json"), Dict(:c => Attributed(bcam, (; calibration_record = bad))))
             end
+            # the IO 0.9 attribute name is not a stored camera's
+            @test_throws ArgumentError save(joinpath(dir, "w.json"), Dict(:c => Attributed(bcam, (; calibration = part))))
+            @test !isfile(joinpath(dir, "w.json"))
         end
     end
 

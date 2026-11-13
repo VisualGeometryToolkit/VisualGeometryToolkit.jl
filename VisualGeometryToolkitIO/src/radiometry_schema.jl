@@ -27,11 +27,11 @@
 #
 # {"schema": "vgio/blur/v2.0", <envelope>,
 #  "blurs": [{"name": "R", "pixel_frame": "colmap", "covariance": {"isotropic": λ}},           a blur on a sensor (px²)
-#            {"name": "print", "frame": "target_plane", "covariance": [[…], […]]}, …]}       a blur on a print (units.length²)
+#            {"name": "print", "frame": "target:89b", "covariance": [[…], […]]}, …]}         a blur on a print (units.length²)
 #      name → VGC GaussianBlur, the density N(0, Σ), its covariance in the storage it holds (a ScaledIdentity,
 #      SDiagonal or SMatrix: IO's covariance encoding) and its FRAME, the plane it lives on, which its `CovMat`
 #      carries and reads back with: a pixel frame (`pixel_frame`: PixelFrame{O}, or `frame` "image:<id>",
-#      ImageFrame{id}) — px², as stored — or a target's plane (`frame` "target_plane", TargetPlaneFrame) — a
+#      ImageFrame{id}) — px², as stored — or a target's plane (`frame` "target:<id>", TargetPlaneFrame{id}) — a
 #      length squared, `units.length`² on disk (IO's length rule: a decimal variance exact, a computed one
 #      within an ulp), m² quantities in memory. The unit is the field's power of a declared base, never a
 #      per-blur string (`blur/v1` wrote one, and no frame; no published file holds a v1 file, which is refused).
@@ -89,12 +89,11 @@ const _ENVIRONMENT_LIGHT_SPEC = _kind_spec(
 )
 
 # A blur's plane: a pixel frame (`pixel_frame`), or `frame` — a view's image frame
-# (`image:<id>`) or a target's plane (`target_plane`).
-const _TARGET_PLANE_NAME = "target_plane"
-const _BLUR_FRAME_RE = Regex("^($(_TARGET_PLANE_NAME)|image:.+)\$")
+# (`image:<id>`) or a target's plane (`target:<id>`, the target named as its 3-D frame is).
+const _BLUR_FRAME_RE = r"^(image|target):.+$"
 const _BLUR_RECORD = _Either(Pair{Symbol, _Spec}[
     :pixel_frame => _Obj(:name => _NonEmpty(), :pixel_frame => _PIXEL_FRAME, :covariance => _Cov(2)),
-    :frame => _Obj(:name => _NonEmpty(), :frame => _Named(Base.Fix1(occursin, _BLUR_FRAME_RE), "a blur's plane (\"target_plane\", \"image:<id>\")"), :covariance => _Cov(2)),
+    :frame => _Obj(:name => _NonEmpty(), :frame => _Named(Base.Fix1(occursin, _BLUR_FRAME_RE), "a blur's plane (\"target:<id>\", \"image:<id>\")"), :covariance => _Cov(2)),
 ])
 const _BLUR_SPEC = _kind_spec("blur", Pair{Symbol, _Spec}[:blurs => _Vec(_BLUR_RECORD)];
                               check = x -> _unique_check([b[:name] for b in x[:blurs]], "blur names"), rule = "blur names are unique")
@@ -229,7 +228,7 @@ Write named Gaussian blurs (a camera's in-focus blur per channel, `:R`, `:G`,
 storage it holds (`{"isotropic": λ}` for a round one, `{"diagonal": […]}`, or
 rows) and the plane it lives on, its covariance's frame — a pixel frame
 (`PixelFrame{O}`, an `ImageFrame{id}`: px², plain numbers or px quantities) or
-a target's plane (`TargetPlaneFrame`: m² quantities, written in `length_unit`²).
+a target's plane (`TargetPlaneFrame{id}`, the target named: m² quantities, written in `length_unit`²).
 An unlabeled blur is an `ArgumentError` (name the plane it lives on: `GaussianBlur(CovMat{2, …, F}(Σ))`),
 and so is a plain one on a target's plane (its lengths need units).
 [`load`](@ref) gives the blurs back with their frames, in their storage, each
@@ -277,15 +276,15 @@ end
 # length power 2: the decimal shift, never a multiplication by the scale).
 _blur_frame(::Type{PixelFrame{O}}) where {O} = (pixel_frame = String(O),)
 _blur_frame(::Type{ImageFrame{id}}) where {id} = (frame = "image:$(id)",)
-_blur_frame(::Type{VgtkCore.TargetPlaneFrame}) = (frame = _TARGET_PLANE_NAME,)
+_blur_frame(::Type{VgtkCore.TargetPlaneFrame{id}}) where {id} = (frame = "target:$(id)",)
 _blur_frame(::Type{F}) where {F} = throw(ArgumentError(
-    "save: a blur names the plane it lives on — a pixel frame, an ImageFrame{id} or the TargetPlaneFrame — through its covariance's frame; got $(F)"))
+    "save: a blur names the plane it lives on — a pixel frame, an ImageFrame{id} or a target's TargetPlaneFrame{id} (the bare TargetPlaneFrame names no target) — through its covariance's frame; got $(F)"))
 _cov_frame(::CovMat{N, T, S, F}) where {N, T, S, F} = F
 function JSON.lower(s::VgioStyle{<:Units}, b::GaussianBlur)
     Σ = cov(b)
     F = _cov_frame(Σ)
     plane = _blur_frame(F)
-    if F === VgtkCore.TargetPlaneFrame
+    if F <: VgtkCore.TargetPlaneFrame
         has_units(b) || throw(ArgumentError("save: a blur on a target's plane holds lengths — give it units, `with_unit(b, m)`"))
         d = dimension(Σ[1, 1])
         d == dimension(m^2) || throw(ArgumentError("save: a print blur's covariance is a length squared, got the dimension $d"))
@@ -302,8 +301,9 @@ function JSON.lift(s::VgioStyle, ::Type{GaussianBlur}, b::Record)
         return GaussianBlur(relabel(F, CovMat(_cov_matrix(b.covariance, 2))))
     end
     f = b.frame::String
-    if f == _TARGET_PLANE_NAME
-        return with_unit(GaussianBlur(relabel(VgtkCore.TargetPlaneFrame, CovMat(_length_cov_from_json(b.covariance, 2, s.length_unit, (1, 1))))), m)
+    if startswith(f, "target:")
+        P = VgtkCore.TargetPlaneFrame{Symbol(f[8:end])}
+        return with_unit(GaussianBlur(relabel(P, CovMat(_length_cov_from_json(b.covariance, 2, s.length_unit, (1, 1))))), m)
     end
     return GaussianBlur(relabel(ImageFrame{Symbol(f[7:end])}, CovMat(_cov_matrix(b.covariance, 2))))
 end

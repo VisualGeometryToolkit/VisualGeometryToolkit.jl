@@ -1,5 +1,48 @@
-docs-pass: 7c550857
+docs-pass: 80b9fb45
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 -> 6674c98 prepared locally (/raid/data/jpr/vgtk-landing-wave113, branch wave-113: "The packages require Julia 1.13"; not pushed)
+
+# Wave 10 docs pass: VisualGeometryToolkitIO 0.10.0 (julia-docs-pass) — branch w10-io10-docs 80b9fb45 (w10-io10 0d6e90e5 merged)
+
+The IO breaking wave (specs/2026-11-13-io-breaking-wave.md): one envelope (`schema`, `generator`, one `units` object, one
+`conventions` object), every kind a new major `v<M>.<m>`, the observation kind, the detection / sensor_noise /
+radial_profile / panorama v2 kinds, one camera store, one lattice record, one frame codec, the deliberate re-id.
+Baseline: the IO 0.9.3 docs pass (7c550857). Julia 1.13.3, dev jobs on dgx01 (2 CPUs).
+
+## 1. Public API since IO 0.9.3
+
+- Added (public, unexported): `schema_versions`, `with_caller`, `validate_record`, `migrate_envelope`, `migrate_units`,
+  `json_schema`; `VgioStyle(record)`, `VgioStyle(; …, density, length_roles)`; the `load`/`save` methods of
+  `vgio/detection/v1.0`, `vgio/sensor_noise/v1.0`, `vgio/radial_profile/v1.0`; `TargetObservations` (`vgio/observations/v3.0`).
+- Renamed: `migrate_opencv`/`migrate_matlab` → `convert_opencv_calibration`/`convert_matlab_calibration`; ColmapDatabase
+  `keypoints` → `detections`; `save_manifest(…; kind)` → `result_kind`.
+- Removed: `ScalarOrQuantity`, `pose_declarations`, `json_value`, `from_json`, `read_quantity`, `write_quantity`, the
+  `TargetPoints2D`/`TargetPoints3D`/`TargetDetections` `load`/`save` methods (types gone from Core). Every mention deleted from
+  README, docs/src and docstrings (grep: none left outside CHANGELOG and the version-step prose that names them as read).
+
+## 2. Static findings, and what was done
+
+| check | result |
+|---|---|
+| docstring gates (Core's `test_docs`) | undocumented 0, detached 0 (was 1: `frame_from_name`, consts between docstring and definition, fixed), signature mismatches 0; no exceptions, no backlog |
+| docstrings | `frame_from_name` (attached, a doctest), `migrate_envelope` (its `density` keyword), `validate` (no "v2 file"), `VgioStyle` (the retired `JSON.lower(style, contract)` claim), `vgio_migrate_tree` (manifest rebinding, the id map's `rewritten`), OpenCV/MATLAB readers (`target → camera`) |
+| manual | kinds.md rewritten: the envelope and minor versions, every kind at its 0.10 version, observations, the camera store with non-central cameras and the one lattice record, targets (tags, point vocabulary, placement), the version table GENERATED from `schema_versions()` (`@eval`), IO 0.10's step, the cameras v1 doctest now migrating to `vgio/cameras/v6.0`, the re-id and `vgio_migrate_tree`, the building blocks (the three `VgioStyle` forms, the quantity/Size2/frame codec, blur planes, `write_record` writing the envelope, `migrate_envelope`, `migrate_units`, `validate_record`); schemas.md, conventions.md, getting-started.md (the printed 0.10 file; a DocTestFilter on the generator version), third-party.md (`convert_*`), related-formats.md, serialization.md (its DocTestSetup was missing), index.md and README (the envelope; links to JSON Schemas and Content Identity) |
+| API pages | native.md: the deleted noncentral_spline_schema.jl dropped, units_sidecar.jl added; third-party.md: migrate_v010.jl added |
+| docs env | docs/Project.toml gains FlexUnits (the serialization doctest names `Quantity`) |
+| terminology (R14) | no "measurement", "keypoint", "sighting", `cspond` in docs/src, README or docstrings (COLMAP's own `keypoints` table name is a foreign token) |
+
+## 3. Executed
+
+| run | result |
+|---|---|
+| `docs/make.jl` strict (checkdocs = :public, doctest, linkcheck, no warnonly) + Core's `test_docs`, job 13003, a detached clone of 80b9fb45 | BUILD OK; undocumented 0, detached 0, mismatches 0 |
+| test items README, docs, agent docs, panorama, json_schema (13004, the same clone) | 443/443 |
+| quality items (12878, 49bd5f38; not this slice's) | naming: R9 retired names in test/ only (calibration_manifest, covariance_storage, units_roundtrip, v2_validation tests); Aqua: JSON.lift ambiguities (tests slice fixing core_json.jl); ExplicitImports: `Base.unwrap_unionall` (migrate.jl:286, `schema_versions`); JET 10 > 0 |
+
+## 4. Open
+
+- `VgioStyle(record)` accepts an `AbstractDict` but reads `record.units` by property access: a `Dict` record fails (io10).
+- Core's conventions/units.md still describes per-file `length_unit` and the `{"world", "density"}` units layout (core10).
+- README/install tests resolving from the registry: known pre-registration failure until the wave registers.
 
 # Wave 113 docs pass (julia-docs-pass) — wave-113 (Core 0.9.5, IO 0.9.3, Features 0.8.3, Estimation 0.10.1, Eval 0.7.2, PoseLib 0.2.1)
 

@@ -52,7 +52,8 @@ constants.
 module Experiments
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
-using ..Tuning: resolve_tuning!, _toml_hash
+using ..Tuning: resolve_tuning!
+import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 

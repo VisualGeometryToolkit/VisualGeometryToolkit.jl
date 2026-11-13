@@ -35,7 +35,7 @@ const _NUMBER_TYPES = (("float64", Float64), ("float32", Float32))
 const _COV_STORAGES = ("full", "diagonal", "isotropic")
 _type_name(table, T, what) = (i = findfirst(p -> p[2] === T, table); i === nothing ?
     throw(ArgumentError("a detection file's $(what) is one of $(join((repr(p[2]) for p in table), ", ")), got $(T)")) : table[i][1])
-_type_of(table, name) = table[findfirst(p -> p[1] == name, table)][2]
+_type_of(table, name) = table[findfirst(p -> p[1] == name, table)::Int][2]   # (a name the validator admitted)
 
 _attribute_json(x::Symbol) = String(x)
 _attribute_json(x::Point2) = Float64[x[1], x[2]]
@@ -129,13 +129,15 @@ end
 
 const _DETECTION_HEADER = _Obj(
     Pair{Symbol, _Spec}[
-        :frame => _Named(t -> haskey(_FRAME_TAGS, t), "a frame type ($(join(keys(_FRAME_TAGS), ", ")))"),
-        :number_type => _Named(t -> any(p -> p[1] == t, _NUMBER_TYPES), "a number type (float64, float32)"),
-        :attributes => _CheckedSpec(_Free(), _attribute_types_problem),
+        :frame => _Named(in(collect(String, keys(_FRAME_TAGS))), "a frame type ($(join(keys(_FRAME_TAGS), ", ")))"),
+        :number_type => _Named(in(first.(_NUMBER_TYPES)), "a number type (float64, float32)"),
+        :attributes => _CheckedSpec(_Free(), _attribute_types_problem;
+                                    rule = "attribute name → its type, one of $(join(first.(_ATTRIBUTE_TYPES), ", "))",
+                                    schema = ["additionalProperties" => Dict("enum" => collect(first.(_ATTRIBUTE_TYPES)))]),
     ],
     Pair{Symbol, _Spec}[:covariance => _Obj(
-        :storage => _Named(t -> t in _COV_STORAGES, "a covariance storage (full, diagonal, isotropic)"),
-        :number_type => _Named(t -> any(p -> p[1] == t, _NUMBER_TYPES), "a number type (float64, float32)"),
+        :storage => _Named(in(_COV_STORAGES), "a covariance storage (full, diagonal, isotropic)"),
+        :number_type => _Named(in(first.(_NUMBER_TYPES)), "a number type (float64, float32)"),
     )],
 )
 
@@ -148,7 +150,7 @@ function _detection_record_spec(h)
     attrs = _Obj(Pair{Symbol, _Spec}[Symbol(k) => _attribute_spec(v) for (k, v) in h[:attributes]], Pair{Symbol, _Spec}[])
     dof = frame_dof(_FRAME_TAGS[h[:frame]])
     cov = haskey(h, :covariance) ? Pair{Symbol, _Spec}[:covariance => _cov_spec(dof)] : Pair{Symbol, _Spec}[]
-    return _Obj(Pair{Symbol, _Spec}[:center => _XY, shape..., :attributes => attrs], cov)
+    return _Obj(_spec_table(Pair{Symbol, _Spec}[:center => _XY], shape, Pair{Symbol, _Spec}[:attributes => attrs]), cov)
 end
 
 # The file's table: the envelope and the declaration, then every detection by the declaration.
@@ -178,7 +180,7 @@ const _DETECTION_SPEC = _DetectionSpec(_kind_spec("detection",
     Pair{Symbol, _Spec}[
         :detection => _DETECTION_HEADER,
         :images => _CheckedSpec(_Vec(_Obj(:image => _NonEmpty(), :detections => _Vec(_Free()))),
-                                x -> _unique_check([im[:image] for im in x], "image names")),
+                                x -> _unique_check([im[:image] for im in x], "image names"); rule = "image names are unique"),
     ]))
 
 # --- save / load --------------------------------------------------------------

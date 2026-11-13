@@ -18,6 +18,7 @@ this module exports the submodules and the CLI.
 module VisualGeometryToolkitEval
 
 include("config_defaults.jl")   # the default mechanism: configs/default.toml → `_config_default`
+using VisualGeometryToolkitCore: canonical_json   # the content key's encoding (code_identity.jl, through cli.jl)
 include("cli.jl")               # cli_option, start_output_flush!; code_trees, code_tree_changes (code_identity.jl)
 include("artifact_format.jl")   # the format stamp of every persisted artifact kind
 

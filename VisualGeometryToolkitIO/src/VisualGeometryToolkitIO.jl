@@ -91,6 +91,7 @@ import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
+using VisualGeometryToolkitCore: canonical_json   # RFC 8785 (JCS): the ONE canonical JSON, Core's; IO re-exports it (content identities hash it)
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
     spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS, RADIAL_CHARTS, radial_chart,
@@ -101,6 +102,7 @@ using Base.ScopedValues: ScopedValue, with
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
 using SQLite: SQLite
+using Libtiff_jll: libtiff   # the stack's one TIFF codec (tiff.jl)
 using TOML: TOML
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
@@ -124,8 +126,9 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
-using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noise/v1.0, radial_profile/v1.0
+using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   # sensor_characterisation/v1.0, radial_profile/v1.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -158,7 +161,9 @@ using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noi
 #                                                vgio/panorama/v2.0  a panorama's results (a NamedTuple: no VGC type)
 #   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
 #   load(BinnedRadialProfile, path)              vgio/radial_profile/v1.0  a measured radial profile (a flat field by field angle)
-#   load(SensorNoise, path)                      vgio/sensor_noise/v1.0  a body's noise at an ISO, its dark maps as hashed artifacts
+#   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v1.0  one sensor's components per ISO, a dark's maps as hashed artifacts
+#   load_raster(path) / save_raster(path, values; frame, nan)
+#                                                vgio/raster/v2.0    a Float32 or UInt8 raster: a JSON header + its TIFF payload
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -169,7 +174,10 @@ using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noi
 #                                                exporters: VGC values in, a foreign shape out
 #   VgioStyle                                    the style every embedded VGC value is lowered/lifted on (style.jl)
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
-#   pose_declarations                            building blocks for a package's own kind
+#   target_calibration_json / target_calibration_from_json, lattice_json / lattice_from_json
+#                                                building blocks for a package's own kind
+#   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, with_caller
+#                                                a package's own kind in the vgio envelope, and its version steps
 #
 # PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetObservations{F}`): the producer
 # attaches it, `save` writes it as the file's declaration without converting a
@@ -203,9 +211,11 @@ include("radiometry_schema.jl")  # vignetting, environment_light, blur: a radiom
 include("panorama_schema.jl")    # vgio/panorama/v2.0: a panorama's results, composed of the camera, trajectory and vignetting bodies
 include("detection_schema.jl")   # vgio/detection/v1.0: detections per image through the one frame codec (core_json.jl)
 include("radial_profile_schema.jl")  # vgio/radial_profile/v1.0: a measured radial profile, binned (Core's BinnedRadialProfile)
-include("sensor_noise_schema.jl")  # vgio/sensor_noise/v1.0: a body's SensorNoise, its dark maps and defect mask as hashed artifacts
-include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
+include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
+include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its TIFF payload (the one bulk-array binding; after the manifest: its path rule)
+include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v1.0: one sensor's components per ISO, a dark's maps as hashed artifacts
+include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -213,7 +223,7 @@ include("conventions.jl")  # OpenCV's and Kalibr's lens models as VGC lenses, ex
 include("external_calibration.jl")  # OpenCV / MATLAB calibration exports (load-only)
 include("exporters.jl")    # TUM, EuRoC, BOP, TRC: our kinds in the community formats (write-only)
 include("jsonl.jl")
-include("canonical.jl")   # RFC 8785 (JCS) canonical JSON — content identities, hashed by Core's sha256_hex
+
 include("migrate.jl")     # the version steps, vgio_migrate, vgio_migrate_tree + the bin/vgio_migrate.jl command
 include("migrate_v010.jl")   # the IO 0.10 steps: every kind's previous version → its 0.10 major
 
@@ -259,6 +269,8 @@ public read_length, write_length   # a file length <-> metres, decimal-exact (po
 public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
 public save_panorama, load_panorama     # vgio/panorama/v2.0: a panorama's camera, rotations, vignetting and gains
+public save_raster, load_raster       # vgio/raster/v2.0: a raster, its JSON header and its TIFF payload
+public write_tiff, read_tiff          # the stack's one TIFF codec (libtiff): a grey UInt8 or Float32 image
 public validate                       # check any vgio file against its kind's table
 public json_schema                    # a kind's JSON Schema (draft 2020-12), generated from that table
 public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)
@@ -269,7 +281,9 @@ public same_value                     # two typed records the same, a length wit
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, camera_json, camera_from_json,
-    target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)
+    target_json, target_from_json,    # building blocks for a package's own kind (a calibration pipeline's session)
+    target_calibration_json, target_calibration_from_json   # a target's calibration record alone (an in-plane print error)
+public lattice_json, lattice_from_json   # THE lattice record: a uniform cubic B-spline over a rectangle (a spline lens's, an aperture spline's)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
     detections, descriptors, raw_matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids

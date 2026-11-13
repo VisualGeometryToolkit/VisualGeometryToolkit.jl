@@ -25,7 +25,7 @@
 #                 table states for the check (`allOf`) where JSON Schema can say it
 #   _SchemaTok    the kind's schema string at its major version, any minor (`pattern`)
 #   _Cov          `oneOf` the three storages (rows, {"diagonal"}, {"isotropic"})
-#   _RowRuns, _LengthRoles, _VignettingBody   their structure, their order rules in words
+#   _RowRuns, _LengthRoles, _VignettingBody, _ByType   their structure, their order rules in words
 #
 # The Julia validator stays the authority: a cross-field check JSON Schema
 # cannot state (a lattice's node count, a covariance's symmetry) is the
@@ -134,7 +134,7 @@ _json_schema(s::_IfKey, defs) = _jobj(
 function _json_schema(s::_CheckedSpec, defs)
     o = _json_schema(s.inner, defs)
     isempty(s.rule) || (o["description"] = haskey(o, "description") ? "$(o["description"]) $(s.rule)" : s.rule)
-    isempty(s.schema) || (o["allOf"] = [get(o, "allOf", Any[])..., s.schema...])
+    isempty(s.schema) || (o["allOf"] = vcat(Any[], get(o, "allOf", Any[]), s.schema))
     return o
 end
 function _json_schema(s::_SchemaTok, defs)
@@ -170,9 +170,9 @@ function _json_schema(::_RowRuns, defs)
 end
 _json_schema(::_LengthRoles, defs) = _jobj(
     "type" => "object",
-    "description" => "length role → its length unit, for the fields whose lengths are not in `length`",
+    "description" => "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
     "propertyNames" => _jobj("pattern" => _LENGTH_ROLE_RE.pattern, "not" => _jobj("enum" => collect(_RESERVED_ROLES))),
-    "additionalProperties" => _json_schema(_LENGTH_UNIT, defs),
+    "additionalProperties" => _jobj("anyOf" => Any[_json_schema(_LENGTH_UNIT, defs), _jobj("const" => _CHART_ROLE)]),
 )
 # A vignetting body names its kind by `type` (VGC's VIGNETTING_TAGS), and a log body holds a spline
 # body: one definition, referenced (its own recursion included).
@@ -182,6 +182,29 @@ function _json_schema(::_VignettingBody, defs)
         defs["vignetting"] = _jobj("oneOf" => Any[_json_schema(_vignetting_body(VIGNETTING_TAGS[t]), defs) for t in keys(VIGNETTING_TAGS)])
     end
     return _jobj("\$ref" => "#/\$defs/vignetting")
+end
+
+_json_schema(::_Bool, defs) = _jobj("type" => "boolean")
+# A slot's component body, its kind by `type`: one of the bodies (each states its `type` as a const).
+_json_schema(s::_ByType, defs) = _jobj("description" => "$(s.what), its kind by `type`", "oneOf" => Any[_json_schema(b, defs) for (_, b) in s.alts])
+# A detection file declares its records' shape in its header (`detection`: the frame type, the attributes, the
+# covariance storage): the record schema of each frame type, selected by the header's `frame` (`if`/`then`), its
+# `attributes` an object of the declared types' values (which names, the validator checks against the header).
+function _json_schema(s::_DetectionSpec, defs)
+    o = _json_schema(s.outer, defs)
+    attribute = _jobj("anyOf" => Any[_jobj("type" => "number"), _jobj("type" => "boolean"), _jobj("type" => "string"), _json_schema(_XY, defs)])
+    cases = map(collect(String, keys(_FRAME_TAGS))) do tag
+        rec = _json_schema(_detection_record_spec(Dict{Symbol, Any}(:frame => tag, :attributes => Dict{String, Any}(), :covariance => true)), defs)
+        rec["properties"]["attributes"] = _jobj("type" => "object", "additionalProperties" => attribute)
+        _jobj("if" => _jobj("properties" => _jobj("detection" => _jobj("properties" => _jobj("frame" => _jobj("const" => tag))))),
+              "then" => _jobj("properties" => _jobj("images" => _jobj("items" => _jobj("properties" => _jobj("detections" => _jobj("items" => rec)))))))
+    end
+    o["allOf"] = vcat(Any[], get(o, "allOf", Any[]), cases)
+    rule = "Each detection is the record of the header's `frame` type: its `center`, its shape parameters, its `attributes` " *
+           "(exactly the header's, each of its declared type) and, iff the header declares a `covariance`, a covariance " *
+           "over the frame's parameters in the declared storage; a detection without one carries the attribute `covariance_status`."
+    o["description"] = haskey(o, "description") ? "$(o["description"]) $(rule)" : rule
+    return o
 end
 
 # The JSON Schema keywords a `_Named` predicate IS, or `nothing` (its description says it).

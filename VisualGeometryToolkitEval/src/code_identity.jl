@@ -15,9 +15,10 @@
 # A tree hash moves only when the files under it change, so a commit that touches the docs, the tests or the paper
 # leaves every tree, and with it every stored result, as it was.
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA): src/cli.jl includes it, so the package has it (the
-# Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl and
-# reproduce/runner.jl by path from a bare `julia` before the project's environment exists.
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and VisualGeometryToolkitCore's Base-only
+# src/base/canonical.jl, the content key's encoding, which a bare `julia` includes by path): src/cli.jl includes it, so
+# the package has it (the Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl
+# and reproduce/runner.jl by path from a bare `julia` before the project's environment is instantiated.
 # =============================================================================
 using TOML: TOML
 using SHA: sha256
@@ -62,19 +63,27 @@ run of record ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.w
 """
 scratch_run(env = ENV) = get(env, "VGTK_SCRATCH", "") == "1"
 
-"""
-    _toml_hash(d::AbstractDict) -> String
-
-The content hash of the evaluation stack: the SHA-256 (hex, first 16) of `d`
-printed as sorted TOML. Independent of key order and fixed across Julia
-versions (unlike `Base.hash`); a TOML round trip of `d` reproduces it. Behind
-Tuning `tuning_hash`, Experiments `run_key` and the runner's stage key.
-"""
-function _toml_hash(d::AbstractDict)
-    io = IOBuffer()
-    TOML.print(io, d; sorted = true)
-    return bytes2hex(sha256(take!(io)))[1:16]
+# `canonical_json`: VisualGeometryToolkitCore's one canonical encoding (its src/base/canonical.jl, Base only). The package
+# has Core's binding (the top module imports it before including src/cli.jl); a bare `julia` that includes this file by
+# path (a project's runner bootstrap) includes Core's file by path, found as a package is: one implementation.
+if !isdefined(@__MODULE__, :canonical_json)
+    let core = Base.find_package("VisualGeometryToolkitCore")
+        core === nothing && error("src/code_identity.jl: VisualGeometryToolkitCore is not in this environment, and its " *
+                                  "canonical_json (src/base/canonical.jl) is the content key's encoding")
+        include(joinpath(dirname(core), "base", "canonical.jl"))
+    end
 end
+
+"""
+    _content_key(tree) -> String
+
+The content key of the evaluation stack: the SHA-256 (hex, first 16) of `tree`'s canonical JSON (VisualGeometryToolkitCore's
+`canonical_json`, the stack's one canonical encoding; `tree` a lowered tree: `nothing`, `Bool`, `Int64`, `Float64`,
+strings, vectors and string-keyed dicts, as a TOML config parses). Key order does not move it, nor a number's spelling:
+an integral float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`). Fixed across Julia versions (unlike
+`Base.hash`). Behind Experiments `run_key`, Tuning `tuning_hash` and the runner's stage key.
+"""
+_content_key(tree) = bytes2hex(sha256(canonical_json(tree)))[1:16]
 
 # The registered stack packages, identified by their Manifest `git-tree-sha1` when the environment loads a released
 # version (a package loaded from a path, `[sources]` or `Pkg.develop`, is identified by its own repository's trees,

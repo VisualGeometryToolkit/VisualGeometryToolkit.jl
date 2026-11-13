@@ -527,7 +527,7 @@
             p = joinpath(dir, "run.jld2")
             save_tuning_artifact(p, spec; grids = gs, unit = PairUnit(), code = (VisualGeometryToolkitCore,),
                                  mode = "miscal", note = "x")
-            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 7
+            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 8
             art = load_tuning_artifact(p)
             @test art.spec == spec && art.hash == tuning_hash(spec) && art.unit === PairUnit()
             # the scene lists the run used are persisted with the spec

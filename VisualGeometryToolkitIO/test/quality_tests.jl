@@ -130,6 +130,7 @@ end
         VisualGeometryToolkitIO;
         jet_bound = 0, qualified_ignore = (:DB, :close!, :execute, :params, :INTRINSICS_COORDINATE_OFFSET, :UNITS),
         tag_rules = :report, tag_tables = :report, config_tags = :report,
+        splat = :enforce,   # no splat of a data-length collection (check_splat; the exceptions in DUPLICATION.toml)
     )
     @test all(isempty ∘ VgtkCore.tag_rule_violations ∘ last, VgtkCore.tag_registries(VisualGeometryToolkitIO))
 end

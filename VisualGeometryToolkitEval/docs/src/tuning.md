@@ -356,7 +356,7 @@ tune-phase checkpoint, a probe CV artifact, a bundle of validation matrices);
 | `tuning_format` | the `:tuning` artifact format (`src/artifact_format.jl`): the constant, not a number copied here |
 | `tuning_name` | the `[tuning.<name>]` entry |
 | `tuning_spec` | its complete scheme table, the cross-validation's resolved scene lists included |
-| `tuning_hash` | `tuning_hash(spec)`: SHA-256 (16 hex) of the sorted TOML of the scheme table; names and spelling do not move it, any parameter does |
+| `tuning_hash` | `tuning_hash(spec)`: SHA-256 (16 hex) of the scheme table's canonical JSON (VisualGeometryToolkitCore's `canonical_json`; format 8, a v6/v7 file's sorted-TOML hash is verified as stored and re-hashed on read); names and spelling do not move it, any parameter does |
 | `grid_specs` | axis → `GridSpec` table; the realized grids are rebuilt from these |
 | `sampling_unit` | `"pair"` or `"query"`: the data's `sampling_unit` (`art.unit`) |
 | `code_identity` | the version of this package and of every module the caller names as the code its result came from; `julia`: its `version` and the `rng` algorithms. The code's git state is the run's `code_trees` (its run records and `_provenance.toml`) |
@@ -405,5 +405,5 @@ into a format-7 file is stored plain.
 3. The run's artifact records the same spec and hash, its grid specs, its
    code identity and its run key, and the tuned point.
 4. The run key (`run_key`: the SHA-256, 16 hex, of the resolved config's
-   sorted TOML) names the directory that holds the artifact and its
+   canonical JSON) names the directory that holds the artifact and its
    `_config.toml` / `_provenance.toml` records.

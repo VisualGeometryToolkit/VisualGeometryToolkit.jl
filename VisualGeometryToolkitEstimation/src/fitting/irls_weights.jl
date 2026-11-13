@@ -169,7 +169,7 @@ otherwise a least-squares run (`closed_form`) is a closed form, `(Success, Close
 cap, `(MaxIters, IterationCap)`; a weighted solve that could not be solved inside the loop (too few rows of positive
 weight left) is SciMLBase's `(InternalLinearSolveFailed, NoRule)`.
 
-Public (as Core's `nlls_termination` is for an LM) so that a downstream reweighted loop records its stops in the
+Public (as Core's `lmsolve_chart!` records an LM's) so that a downstream reweighted loop records its stops in the
 same words: BlobBoards' per-blob IRLS (its relative parameter step below `rtol` is `IncrementSize`; a singular LU is
 `solve_failed`). A stop the loop adds of its own (BlobBoards' shape gate, `ShapeGate`) stays its own.
 """

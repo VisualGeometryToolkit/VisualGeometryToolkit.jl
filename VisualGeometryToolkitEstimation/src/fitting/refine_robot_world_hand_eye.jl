@@ -86,7 +86,7 @@ residual block per point, with nothing compiled per marker count. It is the
 camera-and-poses bundle's one solve at its settings ([`refine_camera_and_poses`](@ref)'s
 `max_iter`, `ftol`, `xtol` of `configs/default.toml [refine_camera_and_poses]`,
 Marquardt's DᵀD damping): this refine has no LM settings of its own. Its termination
-record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's `nlls_termination`) is
+record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's one LM, `lmsolve_chart!`) is
 `ReturnCode.Success` only when the estimate is stationary, `MaxIters` at the
 iteration cap (no time cap: it runs without `max_time`), `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
 failed (the estimate is then the last accepted one) and `Stalled` otherwise

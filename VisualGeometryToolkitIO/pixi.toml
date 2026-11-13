@@ -12,6 +12,7 @@ platforms = ["linux-64"]
 # jsonschema validates every fixture and every deletion case against the
 # published JSON Schemas (test/json_schema_tests.jl, test/python/); the
 # content-identity check (test/python/content_id.py) is the standard library's.
+# tifffile reads a vgio/raster payload back for neutrality (test/raster_tests.jl, skipped likewise).
 [feature.py.dependencies]
 python = ">=3.11,<3.14"
 
@@ -20,6 +21,7 @@ pycolmap = "*"
 opencv-python-headless = "*"
 numpy = "*"
 jsonschema = ">=4.18"
+tifffile = "*"
 
 [environments]
 py = { features = ["py"] }

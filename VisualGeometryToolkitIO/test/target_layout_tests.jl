@@ -1,6 +1,6 @@
 # =============================================================================
-# vgio/target/v4 and vgio/rig/v7: a planar target stated by its LAYOUT (VGC's
-# AprilGrid, SchoepsPattern), the v3/v6 files still read, and the tools' own
+# vgio/target/v6.0 and vgio/rig/v10.0: a planar target stated by its LAYOUT (VGC's
+# AprilGrid, SchoepsPattern; since target v4 / rig v7), the v3/v6 files still read, and the tools' own
 # layout files (Schöps' pattern YAML, Kalibr's aprilgrid YAML) read as the
 # same targets VGC builds from the same parameters.
 # =============================================================================
@@ -25,7 +25,7 @@
     ]
 end
 
-@testitem "target/v4: a layout target is written by its layout and reads back the same target" setup = [VGIoFixtures, LayoutFixtures] begin
+@testitem "target/v6.0: a layout target is written by its layout and reads back the same target" setup = [VGIoFixtures, LayoutFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Rig, PosedTarget, BodyFrame, layout, design, points, calibration, canvas
     using Rotations: RotZ
@@ -34,7 +34,8 @@ end
             p = joinpath(dir, "t$(i)_$(u).json")
             save(p, t; length_unit = u)
             d = parse_json(read(p, String))
-            @test d.schema == "vgio/target/v5" && haskey(d.target, :layout) && !haskey(d.target, :nominal) && !haskey(d.target, :reference)
+            @test d.schema == "vgio/target/v6.0" && d.target.type == "planar_target" && d.units.length == unit_string(u)
+            @test haskey(d.target, :layout) && !haskey(d.target, :nominal) && !haskey(d.target, :reference)
             back = load(AbstractTarget, p)
             @test back == t && layout(back) == layout(t)
             @test points(back) == points(t) && all(map(===, points(back), points(t)))   # bit for bit: the layout's lengths are decimal-exact
@@ -50,7 +51,7 @@ end
         l = parse_json(read(p, String)).target.layout
         @test l.type == "schoeps_pattern" && l.squares_x == 12 && l.squares_y == 9 && l.square_length == 0.025 && l.star_segments == 12 &&
             l.apriltag_family == "tag25h9" && [(t.x, t.y, t.width, t.height, t.id) for t in l.apriltags] == [(2, 1, 2, 2, 4), (7, 5, 3, 2, 11)]
-        # in a rig (rig/v7): the layout travels, and the identity is the points', as a nominal target's
+        # in a rig (rig/v10.0): the layout travels, and the identity is the points', as a nominal target's
         X = EuclideanMap(RotMatrix(RotZ(0.3)), SVector(0.1, -0.2, 1.5) .* m)
         lt = PlanarTarget(april_grid())
         nt = PlanarTarget(design(lt))                               # the same points, no layout
@@ -58,7 +59,7 @@ end
         rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
         rp = joinpath(dir, "rig.json")
         save(rp, rig(lt))
-        @test parse_json(read(rp, String)).schema == "vgio/rig/v9"
+        @test parse_json(read(rp, String)).schema == "vgio/rig/v10.0"
         back = load(Rig, rp)
         @test layout(back[:grid].target) == april_grid() && back[:grid].target == lt
         @test content_id(rig(lt)) == content_id(rig(nt)) == content_id(rp)
@@ -68,7 +69,7 @@ end
     end
 end
 
-@testitem "target/v4: layout refusals" setup = [VGIoFixtures, LayoutFixtures] begin
+@testitem "target/v6.0: layout refusals" setup = [VGIoFixtures, LayoutFixtures] begin
     using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, AprilGrid
@@ -91,37 +92,45 @@ end
         @test occursin("positive integer", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_rows"] = 0))))
         @test occursin("not positive", thrown_message(() -> load(AbstractTarget, edited(t -> t["target"]["layout"]["tag_size"] = -1.0))))   # VGC's
         # a points target holds no layout
-        pts = edited(t -> (t["target"]["type"] = "points"; t["target"]["points"] = Any[Any[0.0, 0.0, 0.0]]; delete!(t["target"], "calibration")))
-        @test occursin("points target has `points`", thrown_message(() -> load(AbstractTarget, pts)))
+        pts = edited(t -> (t["target"]["type"] = "point_target"; t["target"]["points"] = Any[Dict("xyz" => Any[0.0, 0.0, 0.0])]; delete!(t["target"], "calibration")))
+        @test occursin("point_target has `points` only", thrown_message(() -> load(AbstractTarget, pts)))
         # units: a plain layout is refused on write (attach the unit), a file unit that is not a length on read
         @test occursin("plain numbers", thrown_message(() -> save(joinpath(dir, "plain.json"), PlanarTarget(AprilGrid(; tag_rows = 2, tag_cols = 2, tag_size = 0.09, tag_spacing = 0.027)))))
         @test !isfile(joinpath(dir, "plain.json"))
-        @test occursin("length unit", thrown_message(() -> load(AbstractTarget, edited(t -> t["length_unit"] = "px"))))
-        # a v3 record holds no layout: refused by its step, naming the version that does
-        @test occursin("target v4", thrown_message(() -> load(AbstractTarget, edited(t -> t["schema"] = "vgio/target/v3"))))
+        @test occursin("length unit", thrown_message(() -> load(AbstractTarget, edited(t -> t["units"]["length"] = "px"))))
+        # a v3 record (IO 0.9's shape: a top-level `length_unit`, the `planar` tag) holds no layout: refused by its
+        # step, naming the version that does
+        v3 = edited(t -> (t["schema"] = "vgio/target/v3"; t["length_unit"] = "mm"; t["target"]["type"] = "planar";
+                          foreach(k -> delete!(t, k), ("generator", "units", "conventions"))))
+        @test occursin("target v4", thrown_message(() -> load(AbstractTarget, v3)))
     end
 end
 
-@testitem "target/v3 and rig/v6 files still load, and migrate to v4 / v7" setup = [VGIoFixtures, LayoutFixtures] begin
+@testitem "target/v3 and rig/v6 files still load, and migrate to the current version" setup = [VGIoFixtures, LayoutFixtures] begin
+    # IO 0.9's files (fixtures/old: the current fixtures as IO 0.9 wrote them), labeled v3 / v6 — a record of a
+    # target with no layout is the same record at v3 to v5 and v6 to v9 — read through their version steps as the
+    # current fixtures, and rewritten by vgio_migrate as them (the IO 0.10 re-id moves the identity once)
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: AbstractTarget, Rig, Attributed
     units(name) = joinpath(@__DIR__, "fixtures", "units", name)
+    old(name) = joinpath(@__DIR__, "fixtures", "old", name)
     mktempdir() do dir
-        for (name, old, new, T) in (("target_planar.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
-                                    ("target_points.json", "vgio/target/v3", "vgio/target/v5", AbstractTarget),
-                                    ("rig_targets.json", "vgio/rig/v6", "vgio/rig/v9", Rig), ("rig.json", "vgio/rig/v6", "vgio/rig/v9", Rig))
+        for (name, src0, from, old_label, T) in (
+                ("target_planar.json", "target_v5_planar.json", "vgio/target/v5", "vgio/target/v3", AbstractTarget),
+                ("target_points.json", "target_v5_points.json", "vgio/target/v5", "vgio/target/v3", AbstractTarget),
+                ("rig_targets.json", "rig_v9_targets.json", "vgio/rig/v9", "vgio/rig/v6", Rig), ("rig.json", "rig_v9.json", "vgio/rig/v9", "vgio/rig/v6", Rig))
             src = joinpath(dir, name)
-            write(src, replace(read(units(name), String), "\"schema\": \"$(new)\"" => "\"schema\": \"$(old)\""))
-            @test occursin(old, read(src, String))
-            @test VgtkIO.same_value(load(T, src), load(T, units(name)))     # read through its step, silently
+            write(src, replace(read(old(src0), String), "\"schema\": \"$(from)\"" => "\"schema\": \"$(old_label)\""))
+            @test occursin(old_label, read(src, String))
+            @test VgtkIO.same_value(load(T, src), load(T, units(name)))     # read through its steps, silently
             r = vgio_migrate(src)
-            @test r.from == old && r.to == new
-            @test read(r.out, String) == read(units(name), String)            # the current file, byte for byte
-            T === Rig && @test r.old_ids == [r.new_id] && r.new_id == content_id(units(name))   # the identity does not move
+            @test r.from == old_label && r.to == VgtkIO._schema(T === Rig ? "rig" : "target")
+            @test VgtkIO.same_value(load(T, r.out), load(T, units(name)))   # the current file
+            T === Rig && @test r.new_id == content_id(units(name))
         end
-        # the identity fixture is a rig/v6 file: it reads, and names the rig it always did (pinned in target_record_tests)
+        # the identity fixture is a current rig file: it reads, and names the rig of its value (pinned in target_record_tests)
         every_kind = joinpath(@__DIR__, "fixtures", "identity", "rig_every_kind.json")
-        @test parse_json(read(every_kind, String)).schema == "vgio/rig/v6"
+        @test parse_json(read(every_kind, String)).schema == "vgio/rig/v10.0"
         @test content_id(every_kind) == content_id(load(Rig, every_kind))
     end
 end

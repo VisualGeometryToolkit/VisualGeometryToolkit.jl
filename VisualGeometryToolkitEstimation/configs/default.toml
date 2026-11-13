@@ -193,7 +193,7 @@ optimization_strategy = { type = "triggs", loss = "welsch" }
 # The strategy, as every refine_*'s (the refine contract): its loss width is
 # efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
 optimization_strategy = { type = "triggs", loss = "welsch" }
-max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see [chart_lm])
+max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see Core's [lm])
 # NLLSsolver's relative cost decrease and step tolerance (chart units), and the
 # stall postcondition's exact-fit test (F < ftol, px²): the values the
 # experiments' camera + poses bundle ran with (RadiometricCamera, until 2026-10-28).
@@ -233,49 +233,17 @@ tol                = 1.0e-12     # rad, and × the loss width: converged when an
 # of the plain-H reprojection norms (codimension 2). 3·√quantile(Chisq(2), 0.5): three
 # medians of the norms.
 efficiency_constant = 3.5322300675464233
-[chart_lm]
-# The LO refit every chart problem runs (`refine!` → VGC's `lmsolve_chart!`,
-# NLLSsolver's Levenberg–Marquardt with Marquardt's DᵀD damping; VGC
-# `nlls_options` maps these knobs onto NLLSsolver's options, once): its LM
-# iteration cap per refit — NLLSsolver's outer iterations, one ACCEPTED step
-# each; an iteration's internal damping loop may reject ~8–10 candidate steps
-# before it accepts one (λ grows ×2, ×4, ×8 … until the step falls below
-# `dstep`), so the cap bounds accepted steps, not work. The value is recorded
-# here rather than inherited. The step tolerance is `lmsolve_chart!`'s default
-# `xtol = 1e-10`, not restated: NLLSsolver's `dstep`, absolute (max|pᵢ| < 1e-10,
-# chart units; a chart LM starts at x = 0).
-max_iter = 1000
-# Every chart LM's relative cost tolerance — the LO refits and `refine_camera`'s
-# lens families (optical_axis, approximate_camera) — (NLLSsolver's `reldcost`: stop once a
-# step lowers the cost by less than ftol·F). eps runs every refit to its
-# rounding floor; 1e-10 stops it once the cost has settled (the timings
-# that set it: VisualGeometryToolkitCore's CHANGELOG.md, the LM driver). Also
-# the stall postcondition's exact-fit test (its case 1, F < ftol).
-ftol = 1.0e-10
-# The stall postcondition (VGC `_lm_stationary`): a step-size stop, or one
-# without a tolerance (a non-finite trial, the consecutive-failure cap), is
-# `:converged` only when the cost is zero by the cost tolerance (F < ftol) or
-# max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point; `:stalled`
-# otherwise. Shared by every chart LM — the LO refits and `refine_camera`'s lens families — and by
-# `refine_robot_world_hand_eye` (VGC
-# `nlls_termination`). Measured 2026-10-01 (the cosine at every step-size stop):
-# genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM
-# benchmark scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a
-# residual's rounding floor — the noiseless hand-eye fit, whose rotation log
-# is accurate to ~√eps — 0.0045–0.037; real stalls — a NaN or discontinuity
-# wall in the radial-camera, radial-homography and lens rows (no step along
-# −Jᵀf lowers F) — 0.084–0.42, and the two stall reproductions of the suite
-# (a wrong-sign Jacobian, a NaN wall) 1.0. The value sits in the gap between
-# the last two.
-stationarity_tol = 0.05
+# The chart LMs' stop settings (the LO refits, a refine's least squares and Triggs, `refine_camera`'s lens families)
+# and every bundle's stall tolerance are Core's one owner, `LmStops` (VisualGeometryToolkitCore configs/default.toml
+# `[lm]`: max_iter 1000, ftol 1e-10, xtol 1e-10, stationarity_tol 0.05, with their measurements); Estimation's
+# `[chart_lm]` table, equal to it, retired in 0.11.0. A fit overrides a field only from its own table below.
 
 [relpose_bundle]
 # the relative-pose bundle's LM cap (its `refine!` and `refine_relative_pose`) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
-# candidate steps; see [chart_lm]
+# candidate steps; see Core's [lm]
 max_iter = 100
-stationarity_tol = 0.05         # its stall postcondition (see [chart_lm]; its own fits measured ≤ 1e-9 at convergence)
-# Its relative cost tolerance (NLLSsolver's `reldcost`, as [chart_lm]'s). At the
+# Its relative cost tolerance (NLLSsolver's `reldcost`, as Core's [lm]). At the
 # cost's rounding floor the reduction is rounding noise of 1e-15–5e-14
 # relative (0.5 px residuals of ~600 px coordinates), and NLLSsolver accepts a
 # step whose cost does not rise, so below the floor every iteration is a full
@@ -290,8 +258,17 @@ ftol = 1.0e-10
 # a lens family's refine (`refine_camera(guess, source, region)`, and
 # `approximate_camera`'s, `optical_axis`'s): the LM cap on
 # ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
-# candidate steps; see [chart_lm])
+# candidate steps; see Core's [lm])
 max_iter = 100
+
+[optical_axis]
+# The radial terms of the axis family (`optical_axis`: Fisheye624's form, Equidistant ∘ Radial{Even, n}, its
+# decentering held at zero; the radius θ·(1 + k₁θ² + … + kₙθ²ⁿ), terms θ³ … θ^(2n+1)). 4 (θ³…θ⁹), from the order
+# study of 2026-11-13 (~/logs/dgx-agent/wave10/optical-axis-order.md; n = 2, 3, 4, 6 on the test fixtures and RC's
+# spline-start cameras): the smallest n whose principal point lies within ½σ (its formal LS 1σ) of n = 6's on every
+# converging RC camera, its cond(J) 47–160× below n = 6's and 1–4 iterations fewer. n = 2 is 7σ off (RC's
+# radiometric_refinement start); n = 3 up to 1.2σ. Until 0.11.0 the family was Fisheye624's own, n = 6 (θ³…θ¹³).
+radial_terms = 4
 
 # SIMFIT++ (`SimFitPP`, Edstedt 2025): the reference implementation's constructor
 # defaults (github.com/Parskatt/simfitpp).

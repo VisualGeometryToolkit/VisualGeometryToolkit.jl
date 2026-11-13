@@ -21,6 +21,16 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   holds its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`): the results are the same bits at any thread count,
   so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
   (The fold of the upstream stages' keys is 0.7.3's.)
+- **Every content key is the stack's canonical JSON; runs re-key once.** `run_key`, `tuning_hash` and the runner's
+  stage key are the SHA-256 (16 hex) of VisualGeometryToolkitCore's `canonical_json` of the tree, no longer of its
+  sorted TOML (the second encoding, `_toml_hash`, is deleted). Key order still does not move a key, and now neither does
+  a number's spelling: an integral float is the integer (`3` and `3.0` key alike). Every keyed run directory, cache
+  file and stage reruns under its new key once. Tuning artifacts are format 8: a v7 (or v6) file reads, its stored
+  sorted-TOML hash verified with that format's recipe and re-hashed; nothing new is written with the old recipe.
+  A config (or tuning table) holding an integer beyond ±2^53, `Inf` or `NaN` has no canonical JSON and is now refused
+  with an `ArgumentError` where it was keyed before.
+  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path
+  (`Base.find_package`), so Core must be findable there (it is wherever Eval is).
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
   stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
   in its `[[stage]]`; the count keys no run.

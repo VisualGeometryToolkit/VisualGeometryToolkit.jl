@@ -1,0 +1,12 @@
+{
+    "schema": "vgio/environment_light/v1",
+    "length_unit": "mm",
+    "center": [0.0, 12.5, -300.0],
+    "radius": 2500.0,
+    "map": {
+        "type": "spherical_harmonics",
+        "basis": "real_orthonormal_no_condon_shortley",
+        "l_max": 1,
+        "coefficients": [[1.0, 0.1, -0.2, 0.05], [0.9, 0.0, 0.3, -0.1], [0.8, 0.2, 0.0, 0.0]]
+    }
+}

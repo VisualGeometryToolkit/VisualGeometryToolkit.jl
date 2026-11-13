@@ -604,9 +604,10 @@ end
 # The 0.10 writer's millimetre record of a value, as plain JSON.
 _mm_record(x) = _lower(JSON.parse(JSON.json(x; style = _V09_MM)))
 # A rig's body as IO 0.9's rig record held it (its frame, sensors and targets;
-# no envelope), every millimetre number through `leaf`.
-function _rig_record_v09(rig::Rig, leaf, layout_points::Bool)
-    b = _mm_record(_rig_body(rig, _V09_MM))
+# no envelope), every millimetre number (the file number of `style`'s unit)
+# through `leaf`.
+function _rig_record_v09(rig::Rig, leaf, layout_points::Bool; style::VgioStyle = _V09_MM)
+    b = _lower(JSON.parse(JSON.json(_rig_body(rig, style); style)))
     r = Dict{String, Any}("frame" => _frame_name_v09(b["frame"]))
     haskey(b, "sensors") && (r["sensors"] = Any[
         Dict{String, Any}("id" => s["id"], "camera" => _camera_body_v09(s["camera"], leaf), "extrinsics" => _pose_v09(s["extrinsics"], leaf))

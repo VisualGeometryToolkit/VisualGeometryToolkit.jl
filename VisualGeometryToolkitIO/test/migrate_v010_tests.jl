@@ -55,7 +55,7 @@ end
         "rig_v9.json" => Rig, "rig_v9_pitch.json" => Rig, "rig_v9_targets.json" => Rig, "rig_v6_every_kind.json" => Rig,
         "target_v5_planar.json" => AbstractTarget, "target_v5_points.json" => AbstractTarget,
         "transforms_v4.json" => Vector{EuclideanMap}, "trajectory_v4.json" => Trajectory, "target_poses_v2.json" => TargetPoses,
-        "target_points3d_v2.json" => TargetObservations, "target_detections_v2.json" => TargetObservations,
+        "target_detections_v2.json" => TargetObservations,
         "capture_settings_v1.json" => CaptureSettings, "cameras_v5_spline_masked.json" => Dict{Symbol, BoundedCamera},
         "noncentral_spline_v1.json" => Dict{Symbol, BoundedCamera},
         "vignetting_v1_linear.json" => AbstractVignetting, "vignetting_v1_chart.json" => AbstractVignetting,
@@ -100,7 +100,7 @@ end
     @test d.targets == ["980c47d473610daa038b633cf5d4d133931699a9cafe1ee210f507b9b1c793b3"]
     t = VgtkIO.migrate_record(tree09(old09("target_detections_v2.json")))
     @test t["schema"] == "vgio/observations/v3.0" && t["entity"] == "target_point"
-    @test t["frames"][2]["observations"][1]["points"][1] == Dict("xy" => [1.5, 2.5], "covariance" => Dict("diagonal" => [0.1, 0.2]))
+    @test t["frames"][2]["observations"][1]["points"][1] == Dict("xy" => [1.5, 2.5], "covariance" => [[0.1, 0.0], [0.0, 0.2]])
     # points2d: a point's weight is its set's weights column; one point type per file
     p2 = tree09(old09("target_points2d_v2.json"))
     @test_throws r"plain and Uncertain points: frame 1 target a1f2 index 2 is plain, frame 3 target b0c1 index 1 states a covariance" VgtkIO.migrate_record(p2)
@@ -116,10 +116,20 @@ end
     # a (target, index) observed twice in a frame is refused naming it
     push!(p2["frames"][2]["points"], Dict{String, Any}("target" => "b0c1", "index" => 1, "xy" => [3.0, 4.0], "weight" => 1.0))
     @test_throws r"frame 3 observes point 1 of target b0c1 twice" VgtkIO.migrate_record(p2)
-    # 3D points: the frame name, no weights
+    # 3D points: the frame name, no weights; this file mixes plain and Uncertain points (refused), its plain form reads
     mktempdir() do dir
-        o3 = load(TargetObservations, strip_time(old09("target_points3d_v2.json"), dir))
+        p3 = strip_time(old09("target_points3d_v2.json"), dir)
+        @test_throws r"plain and Uncertain points" load(TargetObservations, p3)
+        t3 = tree09(p3)
+        for f in t3["frames"], p in f["points"]
+            delete!(p, "covariance")
+        end
+        write09(p3, t3)
+        o3 = load(TargetObservations, p3)
         @test isempty(o3.targets)
+        @test VgtkIO.migrate_record(t3)["frame"] == t3["frame"]
+        r = vgio_migrate(p3; out = joinpath(dir, "o3.json"))
+        @test r.to == "vgio/observations/v3.0" && VgtkIO.same_value(load(TargetObservations, joinpath(dir, "o3.json")), o3)
     end
 end
 
@@ -136,7 +146,8 @@ end
 
 @testitem "migrate v0.10: environment light, capture settings, units sidecar, manifest" setup = [VGIoFixtures, V010Fixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: EnvironmentLight, CaptureSettings, max_degree, UnitContract
+    using VisualGeometryToolkitCore: EnvironmentLight, CaptureSettings, max_degree
+    using VisualGeometryToolkitIO: UnitContract
     @test max_degree(load(EnvironmentLight, old09("environment_light_v1.json"))) == 1
     t = VgtkIO.migrate_record(tree09(old09("environment_light_v1.json")))
     @test t["map"]["max_degree"] == 1 && !haskey(t["map"], "l_max") && t["units"]["length"] == "mm"

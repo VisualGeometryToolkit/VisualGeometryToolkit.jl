@@ -61,19 +61,19 @@ end
 
 Convert a third-party OpenCV calibration export (`calibration_opencv_*.json`:
 `fx, fy, cx, cy`, named distortion coefficients, `rms`, one `{rvec, tvec}` per
-image) into native files (cameras v5, transforms v4), where everything the export leaves implicit is
+image) into native files (a `vgio/cameras` store, a `vgio/transforms` file), where everything the export leaves implicit is
 declared. The original is never touched. Written to `out`:
 
-- `<stem>_cameras.json` — a `vgio/cameras/v5` store holding one camera named
-  `<stem>`: `width`/`height` from `image_size`, `K` in the canonical pixel
+- `<stem>_cameras.json` — a `vgio/cameras` store holding one camera named
+  `<stem>`: its `image_size` from `image_size`, `K` in the canonical pixel
   frame, and the lens record of `opencv_lens` for the export's distortion
   vector (the terms its length evaluates). The export's reprojection
   statistic is its `provenance` (`reprojection_error`, `error_statistic =
   "rms"`, `source = "opencv"`, `migrated_from`).
-- `<stem>_poses.json` — a `vgio/transforms/v4` file, one record per image the
+- `<stem>_poses.json` — a `vgio/transforms` file, one record per image the
   solver posed, NAMED by that image: `from = "target:<target>"`, `to =
   "view:<image>"` — the target in the camera frame of that view, `x_view = R
-  x_target + t`, in the export's tvec unit (declared as its `length_unit`). An image whose pose the export has as `null`
+  x_target + t`, in the export's tvec unit (declared as its `units.length`). An image whose pose the export has as `null`
   has no record.
 
 `images` is REQUIRED — one unique, non-empty name per entry of the export's
@@ -313,8 +313,8 @@ earlier version; the reader of a schema owner's kind calls it before it reads
 a file, so an old file loads as the current version. An `ArgumentError` for a
 step that does not move the version, and whatever a step refuses.
 
-A `vgio/cameras/v1` record, carried to the current version by the v1, v2 and
-v3 steps:
+A `vgio/cameras/v1` record, carried to the current version by the v1 … v5
+steps:
 
 ```jldoctest
 julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
@@ -325,7 +325,7 @@ julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
            "lens" => Dict("model" => "KannalaBrandt", "params" => [0.1, -0.02, 0.003, -0.0004]))]);
 
 julia> VgtkIO.migrate_record(v1)["schema"]
-"vgio/cameras/v5"
+"vgio/cameras/v6.0"
 ```
 """
 function migrate_record(tree::AbstractDict)
@@ -1260,15 +1260,15 @@ end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
 _old_grid_extras(b::AbstractDict) = merge(
     haskey(b, "domain") ? Dict{String, Any}("lens_coverage" => Dict{String, Any}("ellipse" => b["domain"]["ellipse"])) : Dict{String, Any}(),
-    haskey(b, "pitch") ? Dict{String, Any}("pitch" => (b["pitch"] isa AbstractVector ? _size_v010(b["pitch"]) : b["pitch"])) : Dict{String, Any}(),
+    haskey(b, "pitch") ? Dict{String, Any}("pitch" => _size_v010(b["pitch"])) : Dict{String, Any}(),
 )
-# A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's).
+# A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's), in
+# the 0.10 body's shape (the one conversion builds the current body; `_camera_body_v010` leaves it as it is).
 function _central_grid_body(b::AbstractDict)
     cam = _old_grid_camera(b)
     body = Dict{String, Any}(
-        "image_size" => Dict{String, Any}("width" => b["width"], "height" => b["height"]),   # the 0.10 body, as the non-central one's
-        "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
-        "lens" => _lens_json(cam.lens),
+        "image_size" => _size_v010(Any[b["width"], b["height"]]), "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
+        "lens" => _lower(_lens_json(cam.lens)),
     )
     return merge(body, _old_grid_extras(b))
 end
@@ -1476,13 +1476,12 @@ migrate_schema(::Val{Symbol("vgio/units/v2")}, src::AbstractString, dst::Abstrac
 # name: a future step that changes an identity must add its arm, so any other
 # version is refused.
 function _old_rig_ids(s, old, value)
-    v09 = _v09_id(value)
     if s == "vgio/rig/v4"
-        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old), v09])
+        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old), _v09_id(value)])
     elseif s in ("vgio/rig/v5", "vgio/rig/v6", "vgio/rig/v7", "vgio/rig/v8")
-        return unique!([_v5_id(old, value), v09])
+        return unique!([_v5_id(old, value), _v09_id(value)])
     elseif s == "vgio/rig/v9"
-        return [v09]
+        return [_v09_id(value)]
     else
         throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
     end
@@ -1743,7 +1742,8 @@ function _repoint_targets(
     targets = String[get(map_, t, t) for t in obs.targets]
     repointed = count(t -> haskey(map_, t), obs.targets)
     named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the definitions the observations resolve in
-    unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
+    # (a file that names no definitions — 3D observations of an unknown constellation — resolves in none)
+    unchecked = isempty(targets) ? 0 : _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
     current = migrate_record(old)
     return write_staged(out => basename(path); dry_run) do staged
         save(staged, _with_targets(obs, targets); _resave_kwargs(current; length = _writes_length(obs))...)

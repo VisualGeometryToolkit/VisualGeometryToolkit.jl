@@ -34,6 +34,7 @@ argument, because the value already carries it.
 | `vgio/environment_light/v1` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `length_unit` (a plain light refused), coefficients per channel, the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
 | `vgio/blur/v1` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and the `unit` it states: `"px^2"` on a sensor, `length_unit` squared (`"mm^2"`) on a print; the unit is recorded, the blur's frame tag is not | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
 | `vgio/panorama/v1` (a panorama's results: PanoramaStitching's) | the NamedTuple `(; camera, rotations, vignetting, gains)` — no VGC type of its own: a `BoundedCamera` (the camera store's body), a `Trajectory{CameraFrame, WorldFrame}` of zero translations (the trajectory body: the camera only rotates; other frames and a translation that is not zero refused), an `AbstractVignetting` (the vignetting body) and the frames' exposure gains (`K × C`, row k frame index k of the rotations' `1:K`, written per frame index `{"t", "gain"}`; or `nothing`) | `load_panorama(path)` | `save_panorama(path, camera, rotations, vignetting, gains)` |
+| `vgio/raster/v1` (a Float32 raster: a JSON header and its TIFF payload, bound by SHA-256) | the NamedTuple `(; values, frame, nan)`: a `Matrix{Float32}` (rows, columns; row 1 on top) read bit for bit, NaN included; its frame a chart rectangle `(chart = :page \| :texture, area)` (the design chart, `area` a `Rect2` in metres) or a `PixelFrame`; what a NaN means (`:unobserved`, or `:none`) | `load_raster(path)` (the payload's SHA-256 checked before it is decoded) | `save_raster(path, values; frame, nan)` |
 | `vgio/calibration/v2` (`calibration.json`, the manifest; v1 is read through its version step, its model's `"free"` coefficients as their complement `"fixed"`) | the record files of one calibration result bound by SHA-256: each with its record schema, `role` (`"authority"` or `"derived"`) and `derived_from`; `kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec`, `metrics`, `provenance`; a load refuses a changed file by name and measurements naming targets the listed target and rig files do not hold | `load_manifest(dir)` | `save_manifest(dir, files; kind, model, metrics, provenance)` |
 | `vgio/noncentral_spline/v1` (the non-central grid camera of Schöps et al.: its K, and its direction and point splines over the K-normalized plane, the held nodes `present` as runs per lattice row) | `BoundedCamera{<:NoncentralSplineModel}` | `load(BoundedCamera, path)`; an old central `vgio/generic_camera/v2`/`v3` file reads as the camera store of its one camera with a `SplineLens`, a non-central one through its step to `vgio/noncentral_spline/v1`; neither is rewritten (`vgio_migrate` writes their current records to new files beside them) | `save(path, camera)` |
 | `vgio/correspondences/v2` (flat 2D–3D pairs per frame and target) | an export of a `TargetPoints2D` and its target rigs; there is no reader | — | `save_correspondences([to_frame,] path, obs, targets...; resolve)` |
@@ -55,6 +56,43 @@ A 3D file states `"frame"` (a 3D frame name) and `"length_unit"` in place of
 `"pixel_frame"`, its points are lengths in that unit, and its `targets` may be
 absent; a 2D one requires each frame's `image` and `sensor` and at least one
 `targets` identity, a 3D one each frame's `sensor`.
+
+### Rasters
+
+A `vgio/raster/v1` file is a JSON header beside its values, a TIFF:
+
+```json
+{"schema": "vgio/raster/v1",
+ "size": {"width": 2480, "height": 3508},
+ "element_type": "float32",
+ "frame": {"chart": "page", "length_unit": "mm", "area": [-105.0, -148.5, 210.0, 297.0]},
+ "nan": "unobserved",
+ "payload": {"file": "albedo.tiff", "sha256": "<hex>"}}
+```
+
+The header states everything the values mean: the raster's size (its columns
+and rows), its element type, its frame and the frame's units — a chart
+rectangle (`"page"` or `"texture"`: the design chart, x right and y up, `area`
+its lower-left corner and widths in `length_unit`; row 1 is its top edge,
+column 1 its left edge) or an image's pixels (`{"pixel_frame": "colmap"}`:
+value `[r, c]` the pixel in row `r`, column `c`) —, what a NaN value means
+(`"unobserved"`; `"none"`: the raster holds no NaN), and the SHA-256 of the
+TIFF's bytes, the reserved `payload` key. A payload whose digest is not the
+header's is refused before it is decoded.
+
+The TIFF is of one profile, checked when it is written, on the file written,
+and when it is read:
+
+- a baseline TIFF: classic (not BigTIFF), little-endian, one image (one IFD);
+- one sample per pixel, min-is-black, `BitsPerSample` 32 and `SampleFormat` 3
+  (IEEE floating point), so every Float32 value, NaN included, is stored bit
+  for bit;
+- `Compression` 1 (none) or 8 (Deflate), both lossless, and `Predictor` 1:
+  no floating-point predictor;
+- strips, not tiles; `Orientation` 1 when stated;
+- no meaning in the tags: the writer sets only the structural tags above, and
+  a reader reads only them, so a TIFF another program wrote (Python's
+  `tifffile`, its own tags included) reads as a raster's payload.
 
 ### File names
 
@@ -337,7 +375,28 @@ is not one); the methods are on `VgioStyle` only.
 A target's calibration is written and read as part of its target's body, not
 by a `lower` of its own: VisualGeometryToolkitCore's `TargetCalibration` holds
 every planar `EuclideanMap`, so a `lower` on it would write any 2D map left in
-a record (a pixel-frame conversion) as a target calibration.
+a record (a pixel-frame conversion) as a target calibration. A package that
+stores a calibration on its own (RadiometricCamera's in-plane print error,
+`Aspect ∘ Skew`) uses the named pair
+[`target_calibration_json`](@ref VisualGeometryToolkitIO.target_calibration_json)`(style, c)` and
+[`target_calibration_from_json`](@ref VisualGeometryToolkitIO.target_calibration_from_json)`(style, record)`,
+the record a target body embeds; the reader validates the record first, as a
+calibration in a file is.
+
+A uniform cubic B-spline lattice — a `ChartSpline` over a rectangle — is one
+record wherever it is stored, `{"area", "grid_size", "present"?, "controls"}`
+(the spline lens record's splines, a package's own spline such as
+RadiometricCamera's aperture radii):
+[`lattice_json`](@ref VisualGeometryToolkitIO.lattice_json)`(spline; present, length_unit)` and
+[`lattice_from_json`](@ref VisualGeometryToolkitIO.lattice_from_json)`(record, Val(K); length_unit)`,
+the held nodes as runs per lattice row and controls that are lengths in a
+declared unit.
+
+A grey image file is a TIFF through the stack's one TIFF codec,
+[`write_tiff`](@ref VisualGeometryToolkitIO.write_tiff) and [`read_tiff`](@ref VisualGeometryToolkitIO.read_tiff)
+(libtiff: 8-bit or Float32, one sample per pixel, in strips, uncompressed, LZW
+or Deflate); BlobBoards' board TIFFs and the `vgio/raster/v1` payload are
+written by it.
 
 A parametric model is written as `{"type": tag, "parameters": [θ₁, …]}`: the
 tag from its kind's `TagRegistry` (snake_case of the type's name), the

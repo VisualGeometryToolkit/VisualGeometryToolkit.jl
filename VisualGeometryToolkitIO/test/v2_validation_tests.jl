@@ -213,7 +213,7 @@
         bad = Any[Any[i == j ? 1.0 : 0.0 for j in 1:6] for i in 1:6]; bad[1][2] = 0.5
         @test occursin("symmetric", something(refusal(with(tr, [:transforms, 1, :covariance], bad), dir, "asym"), ""))
         @test refusal(with(tr, [:transforms, 1, :covariance], Any[Any[1.0, 0.0], Any[0.0, 1.0]]), dir, "cov2") !== nothing
-        # the reserved `payload` (an Arrow sidecar of bulk arrays) is refused until a kind implements it
+        # the reserved `payload` (a binary sidecar of bulk arrays) is refused in a kind that does not implement it
         @test occursin("payload", something(refusal(merge(tj, Dict(:payload => Dict(:file => "x.arrow", :sha256 => "0"))), dir, "payload"), ""))
         # the readers run the same table: a deletion refused by `validate` is refused by `load`
         @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, (write(joinpath(dir, "c1.json"), JSON.json(without(tomutable(parse_json(read(files["cameras"], String))), [:cameras, 1, :K, :skew]))); joinpath(dir, "c1.json")))

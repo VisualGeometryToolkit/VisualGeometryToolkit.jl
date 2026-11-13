@@ -122,12 +122,10 @@ _lens_json(l) = applicable(lens_record, l) ? lens_record(l) :
 # spline). The forward spline (from the equidistant chart about ẑ
 # to x) is stored exactly when it has been fitted (owner, 2026-11-09). Floats
 # are JSON's shortest round-trip form, so a lens reads back bit for bit.
-_spline_json(cs::ChartSpline, P::AbstractMatrix{Bool}) =
-    merge((area = JSON.lower(VgioStyle(), cs.area), grid_size = [size(cs.controls, 2), size(cs.controls, 1)]),
-          all(P) ? (;) : (present = _present_runs(P),), (controls = _controls_json(cs.controls, P),))
+# Each spline is the lattice record (`lattice_json`, style.jl).
 function _lens_json(l::SplineLens)
-    b = _spline_json(l.backward, _held_mask(l.present, size(l.backward.controls)))
-    f = l.forward === nothing ? (;) : (forward = _spline_json(l.forward, trues(size(l.forward.controls))),)
+    b = lattice_json(l.backward; l.present)
+    f = l.forward === nothing ? (;) : (forward = lattice_json(l.forward),)
     return (spline = merge(b, f),)
 end
 
@@ -138,25 +136,9 @@ function _spline_lens_from_json(r::Dict{String, Any})
     length(r) == 1 || throw(ArgumentError("$(what) is {\"spline\": {…}} alone; got the keys $(join(sort!(collect(keys(r))), ", "))"))
     s = r["spline"]
     s isa AbstractDict || throw(ArgumentError("$(what): \"spline\" is an object"))
-    b = _spline_from_json(s, Val(3), ("present", "forward"), "$(what)'s \"spline\"")
-    forward = haskey(s, "forward") ? _spline_from_json(s["forward"], Val(2), (), "$(what)'s \"forward\"").spline : nothing
+    b = _lattice_from_record(s, Val(3), nothing, ("present", "forward"), "$(what)'s \"spline\"")
+    forward = haskey(s, "forward") ? _lattice_from_record(s["forward"], Val(2), nothing, (), "$(what)'s \"forward\"").spline : nothing
     return SplineLens(b.spline; forward, present = b.present)
-end
-
-# A spline record (`area`, `grid_size`, its controls of `K`-vectors, the optional
-# keys `optional`, `present` among them) as `(; spline::ChartSpline, present)`,
-# `present` `nothing` for every node. Validated against the spec below and the
-# lattice's own check (`_lattice_problem`), named `what` in the message.
-function _spline_from_json(s::AbstractDict, ::Val{K}, optional, what) where {K}
-    spec = _Obj(
-        Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4), :grid_size => _Vec(_PosInt(), 2), :controls => _Vec(_Vec(_Real(), K))],
-        Pair{Symbol, _Spec}[Symbol(k) => (k == "present" ? _RowRuns() : _Free()) for k in optional],
-    )
-    _validate(spec, s, what, "")
-    msg = _lattice_problem(s, (:controls,))
-    msg === nothing || throw(ArgumentError("$(what): $(msg)"))
-    L = _lattice_from_json(s["grid_size"], get(s, "present", nothing), s["area"])
-    return (; spline = ChartSpline(L.area, _controls_from_json(s["controls"], L.P, Val(K))), L.present)
 end
 
 function _lens_from_json(x)

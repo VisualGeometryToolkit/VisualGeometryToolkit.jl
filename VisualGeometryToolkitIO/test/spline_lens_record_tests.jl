@@ -457,3 +457,43 @@ end
     bad = parsed(merge(VgtkIO.camera_json(cams[1]), (lens_coverage = (circle = [32.0, 24.0, -1.0],),)))
     @test_throws ArgumentError VgtkIO.camera_from_json(BoundedCamera, bad, VgtkIO.CANONICAL_PIXEL_FRAME)
 end
+
+@testitem "lattice_json / lattice_from_json: the lattice record alone (an aperture spline of radii), held nodes, lengths" setup = [VGIoFixtures, SplineRecordFixtures] begin
+    # The ONE lattice codec the spline lens record writes its splines with, public for a package's own spline
+    # (RadiometricCamera's aperture spline: scalar radii, lengths, over the lens's lattice).
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: ChartSpline, Rect2
+    area = Rect2{Float64}(-0.7, -0.55, 1.4, 1.1)
+    radii = [SVector(VgtkIO.metres(round(0.5 + 0.01 * gx + 0.001 * gy; digits = 3), mm)) for gy in 1:6, gx in 1:7]   # metres, mm-born
+    r = ChartSpline(area, radii)
+    P = trues(6, 7); P[1, 1] = P[1, 2] = P[6, 7] = false
+    for (present, unit) in ((nothing, nothing), (P, mm), (P, m), (nothing, mm))
+        b = VgtkIO.lattice_json(r; present, length_unit = unit)
+        @test haskey(b, :present) == (present !== nothing) && b.grid_size == [7, 6]
+        @test length(b.controls) == (present === nothing ? 42 : 39)
+        unit === mm && @test b.controls[1] == [round(0.5 + 0.01 * (present === nothing ? 1 : 3) + 0.001; digits = 3)]   # the file's mm
+        for rec in (JSON.parse(JSON.json(b)), b)                               # a parsed record, and the NamedTuple itself
+            back = VgtkIO.lattice_from_json(rec, Val(1); length_unit = unit)
+            @test back.present == present && back.spline.area === area
+            @test all(I -> present !== nothing && !present[I] ? all(isnan, back.spline.controls[I]) : back.spline.controls[I] == radii[I],
+                      CartesianIndices(radii))                                 # bit for bit; NaN in the absent nodes
+        end
+    end
+    # the spline lens record's splines ARE lattice records
+    cam = corner_cut(spline_camera())
+    sp = VgtkIO.camera_json(cam, Size2(64, 48)).lens.spline
+    @test sp == VgtkIO.lattice_json(cam.lens.backward; cam.lens.present)
+    # refused by name: a missing key, an unknown key, a lattice under 4 × 4, a control count, a control's length,
+    # runs outside the lattice, a mask of another size
+    good = JSON.parse(JSON.json(VgtkIO.lattice_json(r; present = P)))
+    for (why, f!) in (
+            "missing" => t -> delete!(t, "area"), "unknown key" => t -> (t["forward"] = Dict{String, Any}()),
+            "4 × 4" => t -> (t["grid_size"] = Any[3, 6]), "entries" => t -> pop!(t["controls"]),
+            "expected 1 entries" => t -> (t["controls"][1] = Any[1.0, 2.0]), "names row" => t -> push!(t["present"], Any[9, Any[Any[0, 1]]]),
+        )
+        t = deepcopy(good); f!(t)
+        e = try VgtkIO.lattice_from_json(t, Val(1)); nothing catch err; err end
+        @test e isa ArgumentError && occursin("a lattice record", e.msg) && occursin(why, e.msg)
+    end
+    @test_throws ArgumentError VgtkIO.lattice_json(r; present = trues(7, 6))
+end

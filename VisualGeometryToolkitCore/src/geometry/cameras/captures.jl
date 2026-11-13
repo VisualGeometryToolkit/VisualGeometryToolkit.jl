@@ -132,7 +132,7 @@ struct Trajectory{S <: Frame{3}, D <: Frame{3}, P} <: AbstractDict{Int, P}
             throw(ArgumentError("a trajectory names both frames it maps between (e.g. BodyFrame{:rig} → WorldFrame)"))
         labeled = Dict{Int, Any}(Int(t) => _label_pose(S, D, X) for (t, X) in poses)
         _check_one_form(collect(values(labeled)))   # all plain or all physical
-        P = isempty(labeled) ? EuclideanMap{3} : typejoin(map(typeof, values(labeled))...)
+        P = isempty(labeled) ? EuclideanMap{3} : mapreduce(typeof, typejoin, values(labeled))
         rec = Set{Int}(Int(t) for t in recovered)
         imgs, tms = _frame_strings(images, "images"), _frame_times(times)
         _check_stamps(keys(labeled), imgs, tms, time_origin)
@@ -199,7 +199,7 @@ struct TargetPoses{F <: Frame{3}, P} <: AbstractDict{Int, Dict{Symbol, P}}
         )
         vals = [X for ps in values(fr) for X in values(ps)]
         _check_one_form(vals)   # all plain or all physical
-        P = isempty(vals) ? EuclideanMap{3} : typejoin(map(typeof, vals)...)
+        P = isempty(vals) ? EuclideanMap{3} : mapreduce(typeof, typejoin, vals)
         imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         return new{F, P}(
             Dict{Int, Dict{Symbol, P}}(t => Dict{Symbol, P}(ps) for (t, ps) in fr), imgs, sens, tms, _origin(time_origin),
@@ -284,7 +284,7 @@ struct TargetHomographies{F <: PixelFrame, H} <: AbstractDict{Int, Dict{Symbol, 
                 for (t, hs) in frames
         )
         vals = [H for hs in values(fr) for H in values(hs)]
-        H = isempty(vals) ? HomographyMap{3, Float64, HomographyMat{Float64}, UnlabeledFrame{2}, UnlabeledFrame{2}} : typejoin(map(typeof, vals)...)
+        H = isempty(vals) ? HomographyMap{3, Float64, HomographyMat{Float64}, UnlabeledFrame{2}, UnlabeledFrame{2}} : mapreduce(typeof, typejoin, vals)
         imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F, H}(

@@ -220,7 +220,7 @@ struct Rig{F <: Frame{3}, M}
     function Rig{F}(sensors::S, targets::D) where {F <: Frame{3}, S <: Tuple{Vararg{AbstractCamera}}, D <: AbstractDict{Symbol}}
         _check_sensors(F, sensors; gauge = !(F <: TargetFrame))
         _check_targets(F, targets; gauge = !(F <: ViewFrame))
-        _check_one_form(Any[sensors..., values(targets)...])
+        _check_one_form(vcat(collect(Any, sensors), collect(Any, values(targets))))
         vids = map(c -> _view_id(_raw_extrinsics(c)), sensors)
         isempty(intersect(vids, keys(targets))) ||
             throw(ArgumentError("Rig: a sensor and a target share the id(s) $(collect(intersect(vids, keys(targets))))"))
@@ -372,7 +372,7 @@ the targets'.
 """
 ids(rig::Rig{F, <:Tuple}) where {F} = _sensor_ids(rig)
 ids(rig::Rig{F, <:AbstractDict}) where {F} = block_order(rig.members)
-ids(rig::Rig{F, <:_MixedStorage}) where {F} = Symbol[_sensor_ids(rig)..., block_order(_targets(rig))...]
+ids(rig::Rig{F, <:_MixedStorage}) where {F} = vcat(collect(Symbol, _sensor_ids(rig)), block_order(_targets(rig)))
 _sensor_ids(rig::Rig) = map(c -> _view_id(_raw_extrinsics(c)), _sensors(rig))
 
 """

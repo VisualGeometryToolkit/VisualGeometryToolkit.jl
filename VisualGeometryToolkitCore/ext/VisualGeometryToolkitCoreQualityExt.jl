@@ -6,7 +6,7 @@
 # Aqua / ExplicitImports / JET ratchets every stack package's quality test used
 # to write out for itself, and the stack-contract gates (tag rule, tag tables,
 # config tags, the dependency allow-list, public cross-package names, contract
-# generics; functions in src/quality/). Loads with the four test packages,
+# generics, the data-length splat; functions in src/quality/). Loads with the four test packages,
 # never with the package.
 # =============================================================================
 module VisualGeometryToolkitCoreQualityExt
@@ -22,20 +22,13 @@ using LinearAlgebra: LinearAlgebra
 using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, tag_registries, tag_rule_violations,
     tag_table_violations, config_tag_violations, stack_dependency_violations,
-    private_name_violations, contract_generic_violations
+    private_name_violations, contract_generic_violations, check_splat
 import VisualGeometryToolkitCore: test_quality_gates
-
-# Aqua hunts only methods whose parent module IS the module it is given, so the
-# piracy gate walks every submodule.
-function _modules_of(m::Module)
-    subs = [getfield(m, n) for n in names(m; all = true) if isdefined(m, n) && !Base.isdeprecated(m, n)]
-    return vcat(m, [_modules_of(x) for x in subs if x isa Module && x !== m && parentmodule(x) === m]...)
-end
 
 # The root modules M loads itself: Base, Core, M and its Project [deps].
 function _own_roots(M::Module)
     deps = get(TOML.parsefile(joinpath(pkgdir(M), "Project.toml")), "deps", Dict{String, Any}())
-    return Set{Symbol}([:Base, :Core, nameof(M), Symbol.(keys(deps))...])
+    return union!(Set{Symbol}((:Base, :Core, nameof(M))), Symbol.(keys(deps)))
 end
 
 # A KernelAbstractions LAUNCH report: a no-method report whose every call
@@ -61,8 +54,6 @@ _decoy_plain(x) = x + "a"
 # enforces them by its mode.
 # -----------------------------------------------------------------------------
 
-const _GATE_MODES = (:report, :enforce, :off)
-
 # A finding collector that throws reports the error as its one finding (the
 # ExplicitImports checks, an unknown project in the allow-list).
 function _findings(f)
@@ -74,25 +65,13 @@ function _findings(f)
     end
 end
 
-# `:enforce` — `@test` the findings are empty, each logged on failure;
-# `:report` — each finding logged and the gate recorded broken (empty: an
-# ordinary test that holds); `:off` — nothing.
-function _gate(mode::Symbol, what::AbstractString, f)
-    mode in _GATE_MODES || throw(ArgumentError("gate mode for $what must be one of $_GATE_MODES, got :$mode"))
-    mode === :off && return nothing
-    found = _findings(f)
-    isempty(found) || @warn "$what: $(length(found)) finding(s) ($mode)" findings = join(found, "\n")
-    if mode === :enforce || isempty(found)
-        @test isempty(found)
-    else
-        @test_broken isempty(found)
-    end
-    return found
-end
+# A gate in its mode (`:enforce`, `:report`, `:off`): the Test extension's
+# `_test_gate`, the one test_splat runs too.
+_gate(mode::Symbol, what::AbstractString, f) = VgtkCore._test_gate(mode, what, () -> _findings(f))
 
 function _stack_gates(
         M::Module; tag_rules, tag_tables, config_tags, config_dirs, registries,
-        stack_dependencies, stack_name, stack_extra, public_names, third_party_public, qualified_ignore, contract_generics
+        stack_dependencies, stack_name, stack_extra, public_names, third_party_public, qualified_ignore, contract_generics, splat
     )
     dir = pkgdir(M)
     @testset "stack contracts" begin
@@ -110,6 +89,7 @@ function _stack_gates(
         _gate(public_names, "private names across stack packages",
             () -> vcat(private_name_violations(joinpath(dir, "src"), stack_name), private_name_violations(joinpath(dir, "ext"), stack_name)))
         _gate(contract_generics, "methods on other stack packages' non-contract functions", () -> contract_generic_violations(M))
+        _gate(splat, "splat of a data-length collection", () -> string.(check_splat(M)))
     end
     return nothing
 end
@@ -120,12 +100,12 @@ function test_quality_gates(
         tag_rules::Symbol = :enforce, tag_tables::Symbol = :enforce, config_tags::Symbol = :enforce,
         config_dirs = nothing, registries = (), stack_dependencies::Symbol = :enforce,
         stack_name::AbstractString = string(nameof(M)), stack_extra = nothing, public_names::Symbol = :enforce,
-        third_party_public::Symbol = :report, contract_generics::Symbol = :enforce
+        third_party_public::Symbol = :report, contract_generics::Symbol = :enforce, splat::Symbol = :report
     )
     return @testset "quality gates: $M" begin
         _stack_gates(
             M; tag_rules, tag_tables, config_tags, config_dirs, registries, stack_dependencies,
-            stack_name, stack_extra, public_names, third_party_public, qualified_ignore, contract_generics
+            stack_name, stack_extra, public_names, third_party_public, qualified_ignore, contract_generics, splat
         )
         @testset "Aqua" begin
             Aqua.test_undefined_exports(M)
@@ -149,7 +129,7 @@ function test_quality_gates(
             length(ambiguities) == length(all_ambiguities) ||
                 @info "ambiguities involving modules M does not load (not the package's)" pairs = setdiff(all_ambiguities, ambiguities)
             @test isempty(ambiguities)
-            for m in _modules_of(M)
+            for m in VgtkCore._module_tree(M)
                 Aqua.test_piracies(m; treat_as_own)
             end
         end

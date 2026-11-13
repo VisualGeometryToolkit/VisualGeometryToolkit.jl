@@ -2,7 +2,14 @@
 
 ## 0.2.1 (unreleased)
 
-A patch: no code change.
+- **Below the minimal sample a refiner returns `InitialFailure`**: fewer correspondences than the model's minimal
+  sample (4 for `refine_homography`, 7 for `refine_fundamental`, 5 for `refine_relpose`, 3 for
+  `refine_absolute_pose`) return the seed unrefined, `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as
+  VisualGeometryToolkitEstimation's refines do; before, PoseLib was called and the result read `(Success, NoRule)`.
+  `n` is documented: the correspondences handed over (PoseLib reports no weights).
+- **The retired keywords `loss`, `loss_width` and `local_optimization` are refused by VisualGeometryToolkitCore's
+  `refuse_retired_keyword`** (its message: "the keyword `loss` is retired: give `optimization_strategy`"; `loss_width`
+  names `width`). A keyword the refiners never had is Julia's `MethodError`, no longer an `ArgumentError`.
 
 - **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
   package and in every environment of its workspace; CI runs 1.13 only.

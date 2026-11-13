@@ -21,9 +21,14 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   holds its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`): the results are the same bits at any thread count,
   so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
   (The fold of the upstream stages' keys is 0.7.3's.)
+- **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
+  stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
+  in its `[[stage]]`; the count keys no run.
 - **`Render.station_cells` labels each attempt by the station nearest its angle** on the `stations` grid, not by rank:
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.
+
+### Added
 
 - **`Render.write_tsv(path, rows::AbstractVector{<:NamedTuple}; comments)`**: a table of named-tuple rows, its header
   their field names; an abstract element type (`NamedTuple[]`) is read from the rows, and an empty table writes the
@@ -33,6 +38,17 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **`Tuning.WindowExtension(factor, max_rounds)`** and **`extend(::EfficiencyConstantWindow, sides; factor)`**: the
   expand-on-boundary rule of a search window, `GridExtension`'s twin (TOML `[types.window_extension]`, defaults
   factor 2, 8 rounds): the one owner of CaliBlobs icra2026's `WindowWidening`.
+- **Runner arrays over any list or table of a stage's config, and a loop inside each task.** `array.from` is a dotted
+  key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
+  and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
+  set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
+  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's.
+- **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
+  held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
+  `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
+  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run.
+- **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
+  jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 
 ### Fixed
 

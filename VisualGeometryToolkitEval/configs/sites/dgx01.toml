@@ -1,6 +1,7 @@
 # dgx01: the server. One Slurm node, 224 CPUs, 1900 GB, 8 × NVIDIA B200, partition `gpu`. Every stage is an sbatch
-# job; one GPU per array task; 28 CPUs per task (the thread count the runs of record were keyed with) at the node's
-# memory ratio (1900 GB / 224 CPUs ≈ 8.5 GB per CPU). Keys: _template.toml.
+# job; one GPU per array task; 2 CPUs per task unless the stage declares its own `cpus_per_task` (a task gets the CPUs
+# it uses: most use one or two, and the count keys no run), at the node's memory ratio, 8480M per CPU (1900 GB / 224
+# CPUs, the node rule). Keys: _template.toml.
 [site]
 name = "dgx01"
 backend = "slurm"
@@ -9,6 +10,6 @@ description = "dgx01: one Slurm node, 224 CPUs, 1900 GB, 8 × B200, partition gp
 [slurm]
 partition = "gpu"
 gres = "gpu:1"
-cpus_per_task = 28
-mem_per_cpu = "8G"
+cpus_per_task = 2
+mem_per_cpu = "8480M"
 gpu_limit = 0

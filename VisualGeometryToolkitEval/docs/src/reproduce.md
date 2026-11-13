@@ -322,9 +322,28 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `scratch = true` and keys apart from the runs of record; its output is
   refused as an input of record, an upstream run of record and a promoted
   run.
+- **Arrays.** `array = { items = [...] }` or `array = { from = "<dotted key>" }`
+  makes a stage an array, one task per item: the listed items, or the values at
+  that key of the stage's config — a table's keys sorted by name (`from =
+  "cases"`, `--time` from each case's `max_time`), a list of strings in its order
+  (`from = "grid.sets"`). `select_env` names the variable that selects a subset
+  and that the launcher reads. `each = { from, env }` loops inside each task: the
+  task runs its command once per value at `from` of its item's config, in order,
+  with `env` set to the value, and fails at the first value that fails (the same
+  variable set in the launch's environment selects values). A grid of sets ×
+  variants is one task per set, each running every variant:
+
+  ```toml
+  [[stage]]
+  name = "chrome_index_grid_index"
+  sbatch = "cvpr2027/scripts/slurm/chrome_index_grid_index.sbatch"
+  config = "cvpr2027/configs/experiments/chrome_index_grid.toml"
+  array = { from = "grid.sets", select_env = "SETS", each = { from = "variants", env = "VARIANT" } }
+  ```
+
+  The values are part of the stage's key, so another selection is another run.
 - **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
-  (an array over its items, sized from the config's cases or a list, `--time`
-  from the cases' `max_time`), after the jobs of the stages it depends on
+  (an array over its items, `--time` from the cases' `max_time`), after the jobs of the stages it depends on
   (`--dependency=afterok`), with the site's options over the launcher's
   `#SBATCH` lines; a `command` stage is wrapped. Every Slurm stage is
   submitted through a wrapper the runner writes (with the launcher's `#SBATCH`
@@ -445,6 +464,21 @@ project's own code. List the code a stage runs there, not the docs: a path in
 
 A stage may set its own resources over the site's: `cpus_per_task`,
 `mem_per_cpu` and `gres` in its `[[stage]]` (a `gres` makes it a GPU stage).
+`nice = <n>` is its Slurm `--nice`, so a research stage yields to a release
+gate's jobs; like the CPU count and a job-name prefix it is a label for the
+scheduler and keys no run (the local backend runs every stage alike).
+
+On a Slurm site a GPU stage compiles before its GPU job starts, so a GPU is
+never held while code compiles: a CPU-only job (no `--gres`; the stage's CPUs,
+memory and `nice`, `JULIA_NUM_PRECOMPILE_TASKS` its CPUs) runs
+`julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'`
+after the stages the GPU job runs after, and the GPU job runs after it
+(`afterok`); the GPU task then only loads and runs. `julia_flags` are the
+flags the stage's jobs run julia with (`julia_flags = ["--depwarn=error"]`):
+a cache compiled under other flags is compiled again. `precompile = false`
+leaves the job out (a GPU stage whose launcher runs no julia). The dry run
+prints it (`compile`); the manifest records its job id
+(`precompile_job_id`); it keys no run.
 
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:
@@ -465,7 +499,8 @@ instantiates the environment inside the scheduler.
 ### Adding your machine
 
 The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
-partition `gpu`, 28 CPUs and one GPU per task) and `configs/sites/desktop.toml`
+partition `gpu`, 2 CPUs per task unless a stage declares its own
+`cpus_per_task`, 8480M per CPU, one GPU per GPU task) and `configs/sites/desktop.toml`
 (one RTX 4090, no scheduler, device 0). For another machine:
 
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`

@@ -70,7 +70,7 @@ display rendering for a descriptor among them).
 """
 function variance_stabilize(L::LinearRaw, sensor_model::SensorModel)
     sensor_model.noise isa PoissonGaussian || throw(ArgumentError(
-        "variance_stabilize: the sensor model has no gain (its noise is $(nameof(typeof(sensor_model.noise)))): the transform needs a Poisson–Gaussian noise, a characterisation's PoissonGaussian (photon_transfer or a record)"))
+        "variance_stabilize: the sensor model has no gain (its noise is $(nameof(typeof(sensor_model.noise)))): the transform needs a Poisson–Gaussian noise: a characterisation entry with a gain, from photon_transfer or a record"))
     G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
     G isa StructArray || throw(ArgumentError(
         "variance_stabilize: L holds no variances: linearise it with the same sensor model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))

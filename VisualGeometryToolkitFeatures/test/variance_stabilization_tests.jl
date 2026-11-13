@@ -9,6 +9,10 @@
 using Random: AbstractRNG
 export noisy_mosaic, poisson, pg_model, RGGB, BLACK, WHITE
 
+const RGGB = UInt8[0 1; 3 2]
+const BLACK = (512.0, 500.0, 520.0, 508.0)     # per colour index: the two greens (1, 3) differ
+const WHITE = 16383.0
+
 # The frame's sensor model with a Poisson–Gaussian noise of K electrons per code and σ_r codes per colour index (a scalar:
 # every colour's), `source` its provenance: Core's one fixture builder (owner ruling D13), resolved by the one resolver.
 pg_model(K, σr; source = VisualGeometryToolkitCore.SensorSource.measured) =
@@ -69,7 +73,7 @@ end
 
 @testitem "variance_stabilize: the sensor model's gain — each green its colour's read noise, no gain refused" setup = [NoisyMosaic] begin
     using VisualGeometryToolkitCore: LinearRaw, green_plane, poisson_slope, sensor_fixture
-    using StructArrays: components
+    const components = VisualGeometryToolkitFeatures.components   # StructArrays', the package's dependency
     using VisualGeometryToolkitFeatures: variance_stabilize
     using Random: Xoshiro
     m = noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0)

@@ -243,7 +243,12 @@ end
     @test VgtkFeatures._merged(ids(300)) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")   # warm-up
     big = ids(500)
     @test VgtkFeatures._merged(big) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
-    @test (@allocated VgtkFeatures._merged(big)) <= 96 * length(big) + 4096
+    # allocations linear in the frame count, nothing per count beyond: the merge's arrays (its field tuples and their
+    # columns) are sized exactly, so a(n) = a₀ + c·n and a(1000) − a(500) − 2(a(500) − a(250)) = 0 but for the
+    # allocator's size-class rounding of those ≤ 8 arrays in each of the four calls (≤ 32 bytes each): ≤ 4 · 8 · 32
+    # bytes; a compile per count would add megabytes
+    alloc(n) = (x = ids(n); VgtkFeatures._merged(x); @allocated VgtkFeatures._merged(x))
+    @test abs((alloc(1000) - alloc(500)) - 2 * (alloc(500) - alloc(250))) <= 4 * 8 * 32
     @test (@elapsed VgtkFeatures._merged(big)) < 0.1      # a compile takes seconds; the merge, microseconds
     # through the public entry: 500 frames, one body and one lens, the first stated field each
     md = (; datetime_original = nothing, subsec = "", exposure_s = 0.01, fnumber = 4.0, focal_mm = 20.0, iso = 200,

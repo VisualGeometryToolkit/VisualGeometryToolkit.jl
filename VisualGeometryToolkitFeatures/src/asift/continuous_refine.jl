@@ -315,11 +315,11 @@ detection on the CPU and any GPU.
     lb = lo - v0; ub = hi - v0
     u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, StaticLmStops(t))   # Core's stop settings, `t` the scale
     code, rule = static_lm_termination(ok, rule)
-    if !successful_retcode(code)
-        onbox = any(u .<= lb) || any(u .>= ub)
-        onbox && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
-        return v0, Float64(D0), H0d, code, rule
-    end
+    # a point on the box is no extremum of the response, whatever the LM's verdict: Core's success rule counts a
+    # point a bound holds as stationary (its descent leaves the box), but the extremum lies beyond the box — outside
+    # the displacement bound or the level — so the start is returned, LeftBasin
+    (any(u .<= lb) || any(u .>= ub)) && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
+    successful_retcode(code) || return v0, Float64(D0), H0d, code, rule
     v = v0 + u
     D = e[3]; H = e[4]
     sgn = D0 > 0 ? 1.0 : -1.0

@@ -272,11 +272,31 @@ end
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
+        rec = parse_json(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
     @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
+end
+
+@testitem "target_calibration_json / target_calibration_from_json: every kind and composition, bare and Uncertain, reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # The public calibration codec (RadiometricCamera's in-plane print error): the record a target body embeds, alone.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rigid, Aspect, Skew
+    for (name, c) in pairs(kinds()), cc in (c isa Rigid ? (c,) : (c, uncertain(c)))
+        s = VgtkIO.VgioStyle(; length_unit = mm)
+        text = JSON.json(VgtkIO.target_calibration_json(s, cc))
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && back == cc
+        @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text          # the record a value writes is its own
+    end
+    # a calibration with lengths of plain numbers is refused (attach the unit), as a target's points are
+    @test_throws ArgumentError VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm),
+        VisualGeometryToolkitCore.HeightField(VisualGeometryToolkitCore.grid_nodes(3; lo = 0.0, hi = 1.0)))
+    # one without lengths has no form to refuse: the in-plane print error reads back in any unit
+    pe = Aspect(0.01) ∘ Skew(-0.002)
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = m),
+        JSON.parse(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), pe)))) == pe
 end
 
 @testitem "target/v3: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin

@@ -163,6 +163,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #                                                exporters: VGC values in, a foreign shape out
 #   VgioStyle                                    the style every embedded VGC value is lowered/lifted on (style.jl)
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
+#   target_calibration_json / target_calibration_from_json,
 #   pose_declarations                            building blocks for a package's own kind
 #
 # PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetPoints2D{F}`): the producer
@@ -255,7 +256,8 @@ public same_value                     # two typed records the same, a length wit
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
-    target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)
+    target_json, target_from_json,    # building blocks for a package's own kind (a calibration pipeline's session)
+    target_calibration_json, target_calibration_from_json   # a target's calibration record alone (an in-plane print error)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
     keypoints, descriptors, raw_matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids

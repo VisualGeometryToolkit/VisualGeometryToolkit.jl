@@ -402,30 +402,57 @@ _length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_wire((x, n) -> x, Σ
 _length_cov_from_json(c, n::Int, ::_Chart, dims) = _cov_from_wire((x, k) -> Float64(x), c, n, dims)
 _nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
 
-# A planar target's calibration on IO's style (style.jl), the PARAMETRIC
-# RECORD: its kind's tag in VGC's `TARGET_CALIBRATION_TAGS`, its
-# `parameter_vector` (lengths by `length_mask` in the style's length form), a
-# thin-plate kind's `nodes` beside them; a composition its members' records,
-# outer first; an `Uncertain` one its covariance beside. A calibration with
-# lengths is stored physical: plain numbers are refused, as a target's plain
-# points are (one without lengths — Rigid, Scale, Aspect, Skew and their
-# compositions — has no form to refuse; a placed target's, `_CHART`, is plain
-# chart numbers, which VGC refuses units on).
-#
-# A named function, called by the target's lower, and NOT a `JSON.lower`
-# method: VGC's `TargetCalibration` union holds every planar `EuclideanMap`
-# (a pixel-frame conversion among them) and every composition, so a `lower` on
-# it would write any such map left in a body as a target calibration.
-function _target_calibration_json(s::VgioStyle, c::TargetCalibration)
+"""
+    target_calibration_json(s::VgioStyle, c) -> NamedTuple
+
+A planar target's calibration `c` — VisualGeometryToolkitCore's
+`TargetCalibration` (`Rigid`, a planar `EuclideanMap`, `Scale`, `Aspect`,
+`Skew`, `ThinPlateSpline`, `HeightField` or a composition of them in Core's
+canonical order), or an `Uncertain` one — as the calibration record every
+target body embeds (its `calibration`), on IO's style `s`: the PARAMETRIC
+RECORD `{"type", ["nodes"], ["parameters"]}`, its kind's tag in Core's
+`TARGET_CALIBRATION_TAGS`, its `parameter_vector` with every length (by
+`length_mask`) in the style's `length_unit` through [`write_length`](@ref)'s
+decimal shift, a thin-plate kind's `nodes` beside them (lengths too); a
+composition `{"type": "composition", "compose": [outer, …, inner]}`; an
+`Uncertain` one its covariance beside, `covariance`, each entry in the unit
+raised to its length dimension. [`target_calibration_from_json`](@ref) reads
+it back `==`.
+
+A calibration with lengths is stored physical: one of plain numbers is an
+`ArgumentError` (attach the unit, as a target's points; a placed target's
+calibration, which acts in its board's dimensionless chart, is written by the
+target's own record). A thin-plate kind that is pure bending neither in metres
+nor in `s`'s unit would not read back and is refused. A package embedding a
+calibration in a kind of its own (RadiometricCamera's in-plane print error)
+writes it with this.
+
+A named function, not a `JSON.lower` method: Core's `TargetCalibration` union
+holds every planar `EuclideanMap` and every composition, so a `lower` on it
+would write any such map left in a record as a target calibration.
+
+```jldoctest
+julia> import JSON
+
+julia> s = VgtkIO.VgioStyle(; length_unit = mm);
+
+julia> text = JSON.json(VgtkIO.target_calibration_json(s, Aspect(0.01) ∘ Skew(-0.002)))
+"{\\"type\\":\\"composition\\",\\"compose\\":[{\\"type\\":\\"aspect\\",\\"parameters\\":[0.01]},{\\"type\\":\\"skew\\",\\"parameters\\":[-0.002]}]}"
+
+julia> VgtkIO.target_calibration_from_json(s, JSON.parse(text)) == Aspect(0.01) ∘ Skew(-0.002)
+true
+```
+"""
+function target_calibration_json(s::VgioStyle, c::TargetCalibration)
     u = s.length_unit
     u isa _Chart || (any(length_mask(c)) && !has_units(c) && _refuse_plain("a $(nameof(typeof(c))) target calibration"))
-    c isa ComposedTransformation && return (type = _COMPOSITION_TYPE, compose = [_target_calibration_json(s, l) for l in members(c)])
+    c isa ComposedTransformation && return (type = _COMPOSITION_TYPE, compose = [target_calibration_json(s, l) for l in members(c)])
     r = _parametric_record(calibration_tag(typeof(c)), c, u; structure = _calibration_structure(c, u))
     _check_writes_back(c, r, u)
     return r
 end
-_target_calibration_json(s::VgioStyle, c::Uncertain{<:TargetCalibration}) =
-    merge(_target_calibration_json(s, geom(c)), (covariance = _length_cov_json(cov(c), s.length_unit, length_mask(geom(c))),))
+target_calibration_json(s::VgioStyle, c::Uncertain{<:TargetCalibration}) =
+    merge(target_calibration_json(s, geom(c)), (covariance = _length_cov_json(cov(c), s.length_unit, length_mask(geom(c))),))
 # What a kind's type does not fix: a thin-plate kind's nodes.
 _calibration_structure(c, u) = (;)
 _calibration_structure(c::Union{ThinPlateSpline, HeightField}, u) = (nodes = _nodes_json(c, u),)
@@ -521,10 +548,26 @@ function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit) where {T}
         )
     )
 end
-# A calibration record (validated) back to VGC's kind, `Uncertain` iff it
-# states a covariance (unit^(lᵢ+lⱼ) → m^(lᵢ+lⱼ)): the target lift's, the
-# inverse of `_target_calibration_json`.
-function _target_calibration_from_json(s::VgioStyle, x::Record)
+"""
+    target_calibration_from_json(s::VgioStyle, record) -> TargetCalibration | Uncertain
+
+The calibration a target-calibration record states (the inverse of
+[`target_calibration_json`](@ref)), its lengths read in the style's
+`length_unit` as lengths in metres, decimal-exactly: the kind its tag names in
+Core's `TARGET_CALIBRATION_TAGS` (a composition right-associated, Core's one
+association), `Uncertain` iff the record states a `covariance`. `record` is a
+[`Record`](@ref) (a parsed `JSON.Object` or a NamedTuple); it is validated
+first, as a calibration in a vgio file is — an unknown kind, a retired one
+(`affine`, `calibration_chain`) by name, a parameter count that is not the
+kind's, a composition out of Core's order, a thin-plate kind that is not pure
+bending — each an `ArgumentError` naming the problem.
+"""
+function target_calibration_from_json(s::VgioStyle, x::Record)
+    _validate(_TARGET_CALIBRATION, x isa NamedTuple ? _parse_json(JSON.json(x)) : x, "a target calibration record", "")
+    return _target_calibration_from_record(s, x)
+end
+# …a record already validated (a target body's, its file checked): the target lift's.
+function _target_calibration_from_record(s::VgioStyle, x::Record)
     u = s.length_unit
     c = _bare_calibration_from_json(x, u)
     haskey(x, :covariance) || return c
@@ -556,7 +599,7 @@ function JSON.lower(s::VgioStyle, t::PlanarTarget)
     unit, pl = s.length_unit, placement(t)
     cs = pl === nothing ? s : _with_length(s, _CHART)          # a placed calibration: plain chart numbers
     return merge(
-        (type = "planar",), _design_json(s, t), (calibration = _target_calibration_json(cs, calibration(t)),),
+        (type = "planar",), _design_json(s, t), (calibration = target_calibration_json(cs, calibration(t)),),
         _board_json(board(t), unit),
         _canvas_json(canvas(t), unit),
         _placement_json(t, pl, unit),
@@ -661,7 +704,7 @@ function JSON.lift(s::VgioStyle, ::Type{AbstractTarget}, t::Record; resolve = no
         return PointTarget(_points_from_json(t.points::Vector{Any}, u, haskey(t, :point_covariances) ? t.point_covariances::Vector{Any} : nothing))
     end
     pl = haskey(t, :placement) ? _placement_from_json(t.placement, u) : nothing
-    c = _target_calibration_from_json(pl === nothing ? s : _with_length(s, _CHART), t.calibration::Record)   # placed: plain chart numbers
+    c = _target_calibration_from_record(pl === nothing ? s : _with_length(s, _CHART), t.calibration::Record)   # placed: plain chart numbers
     bd = haskey(t, :board) ? _board_from_json(t.board, u) : nothing
     cv = haskey(t, :canvas) ? _canvas_from_json(t.canvas, u) : nothing
     haskey(t, :nominal) && return PlanarTarget(nothing, _points_from_json(t.nominal::Vector{Any}, u), c, bd, cv, pl)

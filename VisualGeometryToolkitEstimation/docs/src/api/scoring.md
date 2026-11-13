@@ -145,9 +145,10 @@ locally_optimize_rescored!
 ### Lifted local optimization
 
 The chart problems provide VisualGeometryToolkitCore's chart-rows contract, which
-the half-quadratic lifts of LocalOptimizationDoneRight consume.
+the half-quadratic lifts of LocalOptimizationDoneRight consume; a lifted
+strategy's `locally_optimize!` methods dispatch on the
+[`MinimalSolveProblem`](@ref) family.
 
 ```@docs
 ManifoldLiftProvider
-LiftableProblem
 ```

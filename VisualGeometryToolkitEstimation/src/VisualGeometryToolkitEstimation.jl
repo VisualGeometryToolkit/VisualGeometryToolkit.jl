@@ -356,10 +356,10 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
     StopWhenNoImprovement, iterations_without_improvement,
     MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata,
     NoImprovementStop, ParameterChangeStop, StopWhenParameterChangeLess, change_parameters, STOP_TAGS
-# The chart problems' rows provider and the problem family a lift runs on. (The
-# local-optimization extension point — `locally_optimize!`, `strategy_loss`,
+# The chart problems' rows provider (a lift runs on the `MinimalSolveProblem`
+# family). (The local-optimization extension point — `locally_optimize!`, `strategy_loss`,
 # `lo_loss` — is VisualGeometryToolkitCore's.)
-public ManifoldLiftProvider, LiftableProblem
+public ManifoldLiftProvider
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,

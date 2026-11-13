@@ -28,7 +28,7 @@ end
 
 The per-scene pair subsample of the raw readers: when the scene has more pair
 keys than `max_pairs_per_scene`, a seeded `subsample_overdraw ×` overdraw
-(`shuffle` under `POOL_RNG(stable_seed(subsample_seed, tag))`, order preserved)
+(`shuffle` under `StableRNG(stable_seed(subsample_seed, tag))`, order preserved)
 that the reader trims to the cap after its own rejections; otherwise every
 key. Stable across Julia versions: the seed is a fixed SHA-256 derivation and
 the stream StableRNGs'.
@@ -38,7 +38,7 @@ function _seeded_key_subsample(keys::AbstractVector, tag::AbstractString;
                                subsample_seed::Integer)
     n = length(keys)
     max_pairs_per_scene < n || return keys
-    rng = POOL_RNG(stable_seed(subsample_seed, tag))
+    rng = StableRNG(stable_seed(subsample_seed, tag))
     order = shuffle(rng, 1:n)[1:min(n, subsample_overdraw * max_pairs_per_scene)]
     return keys[sort!(order)]
 end

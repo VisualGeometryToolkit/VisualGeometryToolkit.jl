@@ -280,6 +280,8 @@ function check_rows_provider(p, θ; inliers = trues(data_size(p)), currency_tol 
 end
 
 @testset "chart-rows contract: every chart problem's provider" begin
+    # a lift runs on the MinimalSolveProblem family under its own name: the alias is retired (check_naming), no alias
+    @test !isdefined(VisualGeometryToolkitEstimation, Symbol("Liftable" * "Problem"))
     (pe, θe), (pf, θf) = epipolar_scenes()
     ph, θh = h_scene()
     for (name, (p, θ)) in (

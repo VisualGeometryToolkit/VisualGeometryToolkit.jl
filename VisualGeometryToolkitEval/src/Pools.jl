@@ -43,7 +43,8 @@ using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 using VisualGeometryToolkitIO: write_staged
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene, pixel_csponds
 import .._save_artifact, .._check_artifact_format, .._format_key, .._artifact_format, ..ARTIFACT_FORMATS   # artifact_format.jl
-using ..Stats: stable_seed, POOL_RNG
+using ..Stats: stable_seed
+using StableRNGs: StableRNG
 import ..Tuning: sampling_unit
 using ..Tuning: PairUnit
 

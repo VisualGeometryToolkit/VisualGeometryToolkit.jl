@@ -70,6 +70,9 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # the public aliases, retired with no alias (wave10, 2026-11-13): a second name for one thing
+    "Liftable" * "Problem",                   # the lifts' problem family is `MinimalSolveProblem` (VisualGeometryToolkitEstimation 0.11)
+    "POOL" * "_RNG",                          # every pool stream is StableRNGs' `StableRNG(stable_seed(…))` (VisualGeometryToolkitEval 0.8)
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
     # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):

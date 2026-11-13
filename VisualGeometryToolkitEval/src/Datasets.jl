@@ -56,7 +56,8 @@ using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
 import VisualGeometryToolkitIO
 using VisualGeometryToolkitIO: read_length, write_length, UnknownScale, camera_model, UnitContract, ColmapModel, ColmapCamera, ColmapImage
 import .._config_default   # configs/default.toml (config_defaults.jl)
-using ..Stats: stable_seed, POOL_RNG
+using ..Stats: stable_seed
+using StableRNGs: StableRNG
 
 export PtPair, PtRawTrees, PT_SCENES, load_pt_pairs, pt_scene_files,
     HebPair, load_heb_pairs,

@@ -11,6 +11,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, JLD2, StaticArrays
     using VisualGeometryToolkitEval.Pools
+    import VisualGeometryToolkitEval as VgtkEval
     using VisualGeometryToolkitEval.Pools: frame, synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitCore: FundMat, HomographyMat, NormalizedImageFrame, csponds, sources, targets
     using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, num_points, num_models
@@ -215,6 +216,8 @@
         @test [num_points(p) for p in wp.pairs] == [9, 10, 12]
         @test wp.stamps.total_samples == 6 && wp.stamps.total_solutions == 9 && wp.stamps.mean_solutions_per_sample == 1.5
         @test wp.stamps.pool_rng == "LehmerRNG" && wp.stamps.provenance["driver"] == "dummy"
+        # the stream is StableRNGs' `StableRNG` under its own name: the alias is retired (check_naming), no alias
+        @test !isdefined(VgtkEval.Stats, Symbol("POOL" * "_RNG"))
         @test load_pool_residuals(residuals_path(out), wp).kind === :tangent_sampson
         # each pair's stream is keyed by its index: a rerun reproduces it bitwise
         first_seen = copy(seen)

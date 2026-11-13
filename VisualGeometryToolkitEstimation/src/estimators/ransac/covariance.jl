@@ -19,7 +19,7 @@
 
 # A problem is admitted by predictive scoring when its constraint rows exist:
 # RSDR's `provides_solver_covariance(::Type{<:P}) = true`, declared beside each
-# problem's `constraint_with_jacobians` (cspond.jl, p3p.jl, hand_eye.jl,
+# problem's `constraint_with_jacobians` (correspondence.jl, p3p.jl, hand_eye.jl,
 # radial_camera.jl, line.jl) — no central list to fall out of step with them.
 
 # The covariance's coordinates → G_θ's: for the ambient-row models (H, F, E,
@@ -35,7 +35,7 @@ _model_directions(_p, _θ) = nothing
 # One index's block (Aᵢ, Bᵢ[, Σ̃ₓ]): the constraint's model rows in the
 # covariance's coordinates, its observation rows (VGC's `block_rows`, the form
 # `implicit_covariance` reads), and the point's noise shape Σ̃ₓ (the problem's
-# `measurement_covariance`, the one `mahalanobis_distances!` whitens by) when it is not
+# `observation_covariance`, the one `mahalanobis_distances!` whitens by) when it is not
 # isotropic. `noise_weighted = true` below makes the estimator the
 # (BᵢΣ̃ₓBᵢᵀ)⁻¹-weighted one `mahalanobis_distances!` scores (VGC folds Σ̃ₓ into Bᵢ).
 @inline _model_rows(::Nothing, Gθ) = block_rows(Gθ)
@@ -81,7 +81,7 @@ function solver_covariance(p::AbstractRansacProblem, θ, idx::AbstractVector{Int
         return invoke(solver_covariance, Tuple{AbstractConstraintProblem, Any, AbstractVector{Int}}, p, θ, idx)
     _holds_minimal_sample(p, length(idx)) || return nothing
     T = _model_directions(p, θ)
-    block(i) = _constraint_block(T, constraint_with_jacobians(p, θ, i), measurement_covariance(p, i))
+    block(i) = _constraint_block(T, constraint_with_jacobians(p, θ, i), observation_covariance(p, i))
     Σ = implicit_covariance(block, idx; noise_weighted = true)
     Σ === nothing && return nothing
     return _in_model_coordinates(T, _static(Σ, Val(size(first(block(first(idx))), 2))))

@@ -7,14 +7,14 @@
 
 @testitem "ransac_weights: a threshold scorer's result is binary, its n and rms the consensus set's" setup = [HomographyScenes] begin
     using Test, StableRNGs, StaticArrays
-    using VisualGeometryToolkitCore: csponds, estimate, converged, rms, weights, metadata, MsacScoring, RansacScoring,
+    using VisualGeometryToolkitCore: correspondences, estimate, converged, rms, weights, metadata, MsacScoring, RansacScoring,
         inlier_mask, weight_kind, noise_scale, scale_source, BinaryWeights, ScaleEstimated, ScaleNone
     using VisualGeometryToolkitCore: TLSShape
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, HomographyProblem, inlier_ratio, find_homography, locally_optimize
     using VisualGeometryToolkitCore: Irls
 
     src, dst = homography_pairs(StableRNG(5), H_TRUE; n_in = 100, n_out = 30, σ = 0.5)
-    cs = csponds(src, dst)
+    cs = correspondences(src, dst)
     for sc in (MsacScoring(HomographyProblem; threshold = 3.0), RansacScoring(HomographyProblem; threshold = 3.0))
         r = find_homography(cs; scoring = sc, rng = StableRNG(9))
         @test converged(r)
@@ -49,13 +49,13 @@ end
 
 @testitem "ransac_weights: the Student-t scorer's result is posterior, its n the support and rms weighted" setup = [HomographyScenes] begin
     using Test, StableRNGs, StaticArrays
-    using VisualGeometryToolkitCore: csponds, converged, rms, weights, metadata, is_map_inlier, StudentTUniformScoring,
+    using VisualGeometryToolkitCore: correspondences, converged, rms, weights, metadata, is_map_inlier, StudentTUniformScoring,
         JeffreysPrior, FlatLabelPrior, inlier_mask, weight_kind, noise_scale, scale_source, PosteriorWeights, ScaleEstimated
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, HomographyProblem, find_homography
 
     src, dst = homography_pairs(StableRNG(5), H_TRUE; n_in = 100, n_out = 30, σ = 0.5)
     sc = StudentTUniformScoring(HomographyProblem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
-    r = find_homography(csponds(src, dst); scoring = sc, rng = StableRNG(9))
+    r = find_homography(correspondences(src, dst); scoring = sc, rng = StableRNG(9))
     @test converged(r)
     @test metadata(r) isa RansacMetadata{Float32, typeof(sc)}
     @test @inferred(weight_kind(r)) === PosteriorWeights()
@@ -73,7 +73,7 @@ end
 
 @testitem "ransac_weights: every find_* result type, and the no-model result" begin
     using Test, StaticArrays, LinearAlgebra
-    using VisualGeometryToolkitCore: Point2, CameraModel, Csponds, csponds, weights, metadata, MsacScoring,
+    using VisualGeometryToolkitCore: Point2, CameraModel, Correspondences, correspondences, weights, metadata, MsacScoring,
         inlier_mask, weight_kind, noise_scale, scale_source, BinaryWeights, ScaleNone, ScaleEstimated, ReturnCode, NoRule
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacMetadata, CircleProblem,
         find_homography, find_fundmat, find_essential, find_rotation, find_circle, find_ellipse,
@@ -82,13 +82,13 @@ end
     # a few distinct points, fewer than every class's minimal sample: each search returns its no-model result
     ring = [Point2(300 + 120cospi(0.29k), 240 + 90sinpi(0.29k)) for k in 1:6]
     pts(n) = ring[1:n]
-    cs(n) = csponds(ring[1:n], reverse(ring)[1:n])
+    cs(n) = correspondences(ring[1:n], reverse(ring)[1:n])
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     c = Point2(500.0, 400.0)
     X = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
     u = [SA[400.0, 300.0], SA[500.0, 350.0]]
     results = (find_homography(cs(3)), find_fundmat(cs(6)), find_essential(cam, cam, cs(4)),
-        find_rotation(cam, cam, cs(1)), find_rotation(Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])),
+        find_rotation(cam, cam, cs(1)), find_rotation(Correspondences([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])),
         find_circle(pts(2)), find_ellipse(pts(4)), find_radial_homography(cs(4); center = c),
         find_radial_camera(cs(4); center = c), find_absolute_pose(cam, X .=> u))
     for r in results
@@ -111,13 +111,13 @@ end
     using VisualGeometryToolkitCore: retcode_symbol
     using Test, StableRNGs
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: csponds, converged, noise_scale, scale_source, retcode, estimate, metadata,
+    using VisualGeometryToolkitCore: correspondences, converged, noise_scale, scale_source, retcode, estimate, metadata,
         MsacScoring, ScaleEstimated, ScaleNone, ScaleUpstream, scale_input
     using VisualGeometryToolkitEstimation: HomographyProblem, find_homography, pooled_noise_scale
     using VisualGeometryToolkitEstimation: PooledScaleMetadata   # documented, not public: its fields are read through the accessors
 
     # three views of one noise model at σ = 0.5 px: the pool is √(Σ νᵢ ŝᵢ² / Σ νᵢ), between the views' scales
-    rs = [find_homography(csponds(homography_pairs(StableRNG(s), H_TRUE; n_in = n, n_out = 20, σ = 0.5)...);
+    rs = [find_homography(correspondences(homography_pairs(StableRNG(s), H_TRUE; n_in = n, n_out = 20, σ = 0.5)...);
                           scoring = MsacScoring(HomographyProblem; threshold = 3.0), rng = StableRNG(s + 1)) for (s, n) in ((1, 60), (2, 120), (3, 240))]
     @test all(converged, rs)
     p = pooled_noise_scale(rs)
@@ -137,7 +137,7 @@ end
     # one view's pool is its own scale
     @test noise_scale(pooled_noise_scale(rs[1:1])) ≈ noise_scale(rs[1]) rtol = 1.0e-14
     # a failed search (no scale) is left out and counted; none left: degenerate, no scale handed on
-    failed = find_homography(csponds(homography_pairs(StableRNG(7), H_TRUE; n_in = 3, n_out = 0, σ = 0.5)...);
+    failed = find_homography(correspondences(homography_pairs(StableRNG(7), H_TRUE; n_in = 3, n_out = 0, σ = 0.5)...);
                              scoring = MsacScoring(HomographyProblem; threshold = 3.0), rng = StableRNG(8))
     @test scale_source(failed) === ScaleNone
     q = pooled_noise_scale([rs; failed])

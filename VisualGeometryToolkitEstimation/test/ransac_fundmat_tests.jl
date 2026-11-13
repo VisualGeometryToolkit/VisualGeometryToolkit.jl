@@ -9,7 +9,7 @@ using Random
 using StableRNGs
 using Statistics: median
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: csponds
+using VisualGeometryToolkitCore: correspondences
 using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
 using VisualGeometryToolkitCore: mahalanobis_distances!   # the constraint-problem contract (VGC)
 using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
@@ -46,18 +46,18 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
 
     @testset "FundMatProblem construction" begin
         src, dst, _ = make_exact_fundmat_data(n = 10)
-        p = FundMatProblem(csponds(src, dst))
+        p = FundMatProblem(correspondences(src, dst))
         @test minimal_sample_size(p) == 7
         @test data_size(p) == 10
         @test model_type(p) == FundMat{Float64}
         @test p isa FundMatProblem{Float64}
 
-        @test_throws ArgumentError FundMatProblem(csponds(src[1:6], dst[1:6]))
+        @test_throws ArgumentError FundMatProblem(correspondences(src[1:6], dst[1:6]))
     end
 
     @testset "7-point solver — exact data" begin
         src, dst, _ = make_exact_fundmat_data(n = 7)
-        p = FundMatProblem(csponds(src, dst))
+        p = FundMatProblem(correspondences(src, dst))
 
         solutions = solve(p, collect(1:7))
         @test !isnothing(solutions)
@@ -74,7 +74,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
 
     @testset "Sampson distance on exact data" begin
         src, dst, F_true = make_exact_fundmat_data(n = 10)
-        p = FundMatProblem(csponds(src, dst))
+        p = FundMatProblem(correspondences(src, dst))
 
         r = Vector{Float64}(undef, 10)
         mahalanobis_distances!(r, p, F_true)
@@ -83,7 +83,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
 
     @testset "fit — DLT roundtrip" begin
         src, dst, _ = make_exact_fundmat_data(n = 20)
-        p = FundMatProblem(csponds(src, dst))
+        p = FundMatProblem(correspondences(src, dst))
         # Algebraic no-θ fit needs the DLT workspace explicitly — the problem's
         # LO workspace is now the Bartoli–Sturm LM buffer (NonlinLsq refit_kind).
         ws = VgtkEstimation.DltWorkspace{9, Float64}(
@@ -107,7 +107,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         source_pts, target_pts, _, n_inliers = make_fundmat_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = FundMatProblem(csponds(source_pts, target_pts))
+        problem = FundMatProblem(correspondences(source_pts, target_pts))
 
         result = ransac(
             problem,
@@ -134,7 +134,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
         source_pts, target_pts, _, n_inliers = make_fundmat_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = FundMatProblem(csponds(source_pts, target_pts))
+        problem = FundMatProblem(correspondences(source_pts, target_pts))
 
         result = ransac(
             problem,

@@ -4,7 +4,7 @@
 #
 # `AbsolutePoseProblem` is the `MinimalSolveProblem{Extrinsics3}` alias (its
 # construction and the minimal solve — VGC's `P3P` verb over the world→ray
-# `cs_solve` view — are the family's, cspond.jl; rays + imaging transform travel
+# `cs_solve` view — are the family's, correspondence.jl; rays + imaging transform travel
 # in `PoseContext`). This file keeps the pose-specific residual, gates, the
 # predictive constraint, and the chart rows the refit and the lift share.
 #

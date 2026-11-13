@@ -12,12 +12,12 @@
     using HDF5: h5open
     using VisualGeometryToolkitEval.Stats: stable_seed
     using VisualGeometryToolkitEval.Datasets: load_heb_pairs, HebPair
-    using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_R_gt, pair_t_gt,
+    using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_correspondences, pair_snn, pair_K1, pair_R_gt, pair_t_gt,
         pair_gt_inliers, pair_scene
     const _D = VgtkEval.Datasets
     rng = MersenneTwister(20261001)
 
-    @testset "SNN filter: strict `<`, csponds and SNN of the kept columns" begin
+    @testset "SNN filter: strict `<`, correspondences and SNN of the kept columns" begin
         m = 100 .* rand(rng, 4, 6)
         snn = Float32[0.1, 0.7, 0.69, 0.9, 0.0, 0.7000001]
         cs, kept_snn, kept = _D._snn_filtered_matches(m, snn, 0.7)
@@ -68,16 +68,16 @@
             f["K_a_b_c"] = Matrix(K1'); f["K_d_e_f"] = Matrix(K2')
             f["size_a_b_c"] = [640, 480]; f["size_d_e_f"] = [600, 400]
         end
-        pairs = load_heb_pairs(path; min_csponds = 5, max_pairs_per_scene = 2, subsample_overdraw = 2,
+        pairs = load_heb_pairs(path; min_correspondences = 5, max_pairs_per_scene = 2, subsample_overdraw = 2,
                                subsample_seed = 42, snn_threshold = 0.5)
         @test length(pairs) == 2 && all(p -> p isa HebPair && p isa StereoRawPair, pairs)
         p = first(pairs)
         @test pair_R_gt(p) ≈ R && pair_t_gt(p) == t && pair_K1(p) == K1
-        @test all(<(0.5f0), pair_snn(p)) && length(pair_csponds(p)) == length(pair_snn(p)) == 20
+        @test all(<(0.5f0), pair_snn(p)) && length(pair_correspondences(p)) == length(pair_snn(p)) == 20
         @test pair_gt_inliers(p) == BitVector(isodd.(1:20))
         @test pair_scene(p) === nothing
         @test p.size1.width == 640.0 && p.size2.height == 400.0
-        @test isempty(load_heb_pairs(path; min_csponds = 100, max_pairs_per_scene = 2, subsample_overdraw = 2,
+        @test isempty(load_heb_pairs(path; min_correspondences = 100, max_pairs_per_scene = 2, subsample_overdraw = 2,
                                      subsample_seed = 42, snn_threshold = 0.5))
     end
 

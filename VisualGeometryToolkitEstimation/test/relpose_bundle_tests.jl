@@ -21,7 +21,7 @@ using VisualGeometryToolkitEstimation: refine_relative_pose, _refine_relative_po
 using VisualGeometryToolkitCore: EssentialManifold5, recenter_pose
 import NLLSsolver
 using ForwardDiff: ForwardDiff
-using VisualGeometryToolkitCore: CameraModel, Point2, Point3, Vec3, calibration_matrix, csponds, Csponds, project,
+using VisualGeometryToolkitCore: CameraModel, Point2, Point3, Vec3, calibration_matrix, correspondences, Correspondences, project,
     rotation, translation, EssentialMat
 using VisualGeometryToolkitCore.Synthetic: pose_error
 using VisualGeometryToolkitEstimation: RelposeBundleProblem, _triangulate_rays
@@ -228,7 +228,7 @@ end
         R0, t0, u1, u2 = _harness_scene(N)
         b = BASELINE[N]
         seed = rigid(R0, t0)
-        res = refine_relative_pose(seed, KP1, KP2, csponds(u1, u2))
+        res = refine_relative_pose(seed, KP1, KP2, correspondences(u1, u2))
         R = SMatrix{3, 3, Float64, 9}(rotation(res)); t = SVector{3, Float64}(translation(res))
         @test rotdeg(R, SMatrix{3, 3, Float64, 9}(b.R)) <= 1.0e-6
         @test dirdeg(t, SVector(b.t)) <= 1.0e-6
@@ -272,7 +272,7 @@ end
     ALLOCS_BOUND = 28
     counts = map((100, 1000, 10000)) do N
         R0, t0, u1, u2 = _harness_scene(N)
-        cs = csponds(u1, u2); seed = rigid(R0, t0)
+        cs = correspondences(u1, u2); seed = rigid(R0, t0)
         refine_relative_pose(seed, KP1, KP2, cs)
         Base.@allocations refine_relative_pose(seed, KP1, KP2, cs)
     end
@@ -301,7 +301,7 @@ end
     fetch(@async begin                          # a fresh task: empty task-local storage
         for N in (100, 120, 100, 150)
             R0, t0, u1, u2 = _harness_scene(N)
-            cs = csponds(u1, u2)
+            cs = correspondences(u1, u2)
             @test refine_relative_pose(rigid(R0, t0), KP1, KP2, cs) !== nothing
             runs = _kept_bundle_runs()
             @test length(runs) == 1
@@ -359,7 +359,7 @@ end
     rng = StableRNG(3); N = 30
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.0)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2); max_iter = 200)
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2); max_iter = 200)
     @test res !== nothing
     R, t = rotation(res), translation(res); Rerr, terr = _pose_errs(R, t, Rgt, tgt)
     @test Rerr < 1.0e-6
@@ -371,7 +371,7 @@ end
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.05, -0.04, 0.06), s = 0.12)
     seedR, seedt = _pose_errs(R0, t0, Rgt, tgt)
-    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2))
     R, t = rotation(res), translation(res)
     finR, fint = _pose_errs(R, t, Rgt, tgt)
     @test finR < seedR
@@ -382,7 +382,7 @@ end
     rng = StableRNG(5); N = 40
     Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, csponds(u1, u2))
+    res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2))
     R, t = SMatrix{3, 3, Float64, 9}(rotation(res)), Vec3{Float64}(translation(res))
     # The inverses are hoisted here exactly as production hoists them:
     # `_triangulate_optimal` takes K⁻¹ rather than inverting per call, because
@@ -416,11 +416,11 @@ end
     R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     for w_far in (0.0, 1.0)
         w = vcat(ones(N), w_far)
-        res = refine_relative_pose(rigid(R0, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+        res = refine_relative_pose(rigid(R0, t0), KC1, KC2, Correspondences(u1, u2; weights = w))
         @test res !== nothing
         @test all(isfinite, SMatrix{3, 3, Float64, 9}(rotation(res)))
     end
-    p = RelposeBundleProblem(KC1, KC2, csponds(u1, u2))
+    p = RelposeBundleProblem(KC1, KC2, correspondences(u1, u2))
     θ = EssentialMat(Rgt, tgt)
     r = zeros(N + 1)
     VgtkEstimation.mahalanobis_distances!(r, p, θ)
@@ -435,12 +435,12 @@ end
     # was re-checked inside the triangulation and threw before the solver's
     # `try`. The bundle takes the caller's pose as given.
     Rdrift = 1.001 * SMatrix{3, 3, Float64, 9}(Rgt)
-    @test refine_relative_pose(rigid(Rdrift, t0), KC1, KC2, csponds(u1, u2)) !== nothing
+    @test refine_relative_pose(rigid(Rdrift, t0), KC1, KC2, correspondences(u1, u2)) !== nothing
     # RB3: a negative (or non-finite) weight is named, not a `sqrt` DomainError.
     w = ones(N); w[4] = -0.5
-    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Correspondences(u1, u2; weights = w))
     w[4] = NaN
-    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Csponds(u1, u2; weights = w))
+    @test_throws ArgumentError refine_relative_pose(rigid(Rgt, t0), KC1, KC2, Correspondences(u1, u2; weights = w))
     # RB4: bearings of different lengths are refused, not read out of bounds.
     f = [normalize(SVector(randn(rng), randn(rng), 3.0)) for _ in 1:6]
     E = EssentialMat(Rgt, tgt)

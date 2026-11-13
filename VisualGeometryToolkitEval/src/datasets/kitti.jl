@@ -115,7 +115,7 @@ function kitti_pairs(root::AbstractString; sequences = String.(_config_default("
 end
 
 stereo_pairs(ds::KITTI) = kitti_pairs(ds.root; sequences = ds.sequences)
-function load_validation_data(ds::KITTI, p::NamedTuple, csponds)
+function load_validation_data(ds::KITTI, p::NamedTuple, correspondences)
     depth_src, depth_tgt = _load_kitti_depths(ds.root, p.scene, p.source_name, p.target_name)
-    return (; rig = p.rig, csponds, depth_src, depth_tgt)
+    return (; rig = p.rig, correspondences, depth_src, depth_tgt)
 end

@@ -44,7 +44,7 @@ gt_inlier_sampson_px = 1.5   # the pair-eligibility mask: pixel Sampson under th
 
 # -----------------------------------------------------------------------------
 # The depth-validated stereo datasets (Datasets: ETH3D, ScanNet1500, KITTI,
-# SevenScenes) behind `consolidate_csponds`.
+# SevenScenes) behind `consolidate_correspondences`.
 #
 # Ground-truth inlier validation (GTConfig), per dataset and matcher: metric
 # tolerances at the surface. The ETH3D/ScanNet values are the empirical
@@ -54,25 +54,25 @@ gt_inlier_sampson_px = 1.5   # the pair-eligibility mask: pixel Sampson under th
 # -----------------------------------------------------------------------------
 [gt.eth3d.roma]
 gt_method = "depth_warp_eth3d_laser"
-metric_tol_mm = 13.6         # n_sample = 20 pairs, σ_match ≈ 4.53 mm, 4078 validated csponds
+metric_tol_mm = 13.6         # n_sample = 20 pairs, σ_match ≈ 4.53 mm, 4078 validated correspondences
 rel_tol = 0.02
 bidirectional = true
 
 [gt.eth3d.splg]
 gt_method = "depth_warp_eth3d_laser"
-metric_tol_mm = 68.6         # n_sample = 20 pairs, σ_match ≈ 22.88 mm, 176 validated csponds
+metric_tol_mm = 68.6         # n_sample = 20 pairs, σ_match ≈ 22.88 mm, 176 validated correspondences
 rel_tol = 0.02
 bidirectional = true
 
 [gt.scannet1500.roma]
 gt_method = "depth_warp_scannet_kinect"
-metric_tol_mm = 58.1         # n_sample = 30 pairs, σ_match ≈ 19.37 mm, 95,371 validated csponds
+metric_tol_mm = 58.1         # n_sample = 30 pairs, σ_match ≈ 19.37 mm, 95,371 validated correspondences
 rel_tol = 0.05
 bidirectional = true
 
 [gt.scannet1500.splg]
 gt_method = "depth_warp_scannet_kinect"
-metric_tol_mm = 53.3         # n_sample = 30 pairs, σ_match ≈ 17.77 mm, 4,678 validated csponds
+metric_tol_mm = 53.3         # n_sample = 30 pairs, σ_match ≈ 17.77 mm, 4,678 validated correspondences
 rel_tol = 0.05
 bidirectional = true
 

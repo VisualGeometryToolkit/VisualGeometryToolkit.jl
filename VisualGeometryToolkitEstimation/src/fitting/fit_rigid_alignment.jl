@@ -62,7 +62,7 @@ pairs the weighting keeps. Physical points (lengths) are read in metres and
 the transform comes back physical; the metadata are then in metres.
 """
 function fit_rigid_alignment(
-        cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
+        cs::AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = nothing,
         local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
@@ -109,12 +109,12 @@ end
 # Physical points: stripped in metres once, the plain fit, the transform read
 # back in metres (a given `scale`/`width` is a length too).
 function fit_rigid_alignment(
-        cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}};
+        cs::AbstractVector{<:Correspondence{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}};
         scale = nothing, width = nothing, kwargs...
     )
     plain = [VgtkCore.strip_metres(a) => VgtkCore.strip_metres(b) for (a, b) in zip(sources(cs), targets(cs))]
     w_col = VgtkCore.weights_column(cs)
-    plain = w_col === nothing ? plain : withattrs(VgtkCore.Csponds(sources(plain), targets(plain)); weights = w_col)
+    plain = w_col === nothing ? plain : withattrs(VgtkCore.Correspondences(sources(plain), targets(plain)); weights = w_col)
     s = scale isa Union{Nothing, FitResult} ? scale : _metres(scale)
     return _attach_metres(fit_rigid_alignment(plain; scale = s, width = _metres(width), kwargs...))
 end
@@ -131,7 +131,7 @@ function _weighted_rigid(as, bs, w)
     S = sum(w[i] * (as[i] - ca) * (as[i] - ca)' for i in keep)
     λ = LinearAlgebra.eigvals(LinearAlgebra.Symmetric(SMatrix{3, 3, Float64, 9}(S)))
     λ[2] > 1.0e-12 * max(λ[3], eps()) || return nothing
-    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds([as[i] - ca for i in keep], [bs[i] - cb for i in keep]; weights = w[keep])))
+    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Correspondences([as[i] - ca for i in keep], [bs[i] - cb for i in keep]; weights = w[keep])))
     return EuclideanMap(R, cb - R * ca; check = false)
 end
 

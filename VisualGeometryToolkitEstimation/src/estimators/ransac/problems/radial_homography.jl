@@ -17,7 +17,7 @@
 #      The target frame is Hartley ABOUT THE CENTER (translate the
 #      distortion center to the origin, scale to mean distance √2 from it);
 #      sources keep the ordinary centroid Hartley frame
-#      (`CspondNormalization(RadialHomography, cs; center)`). The center is
+#      (`CorrespondenceNormalization(RadialHomography, cs; center)`). The center is
 #      problem DATA (like the camera of `AbsolutePoseProblem`): the
 #      constructor requires it.
 #   2. THE MINIMAL SOLVE RUNS IN THE NORMALIZED FRAME (the 5-pt kernel's
@@ -51,13 +51,13 @@
 
 # `K` is the minimal sample size — 5 for the radial 5-point kernel, 4 for
 # plain-homography hypotheses (`minimal = :homography`, below). A partial
-# application, as the cspond.jl aliases.
+# application, as the correspondence.jl aliases.
 const RadialHomographyProblem = MinimalSolveProblem{VgtkCore.RadialHomography{T, 1}, K, T} where {T <: AbstractFloat, K}
 
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialHomography}}) = 2  # d_g = 2: reprojection pair
 
 # The fixed-center normalization for RadialHomography is VisualGeometryToolkitCore's
-# `CspondNormalization(RadialHomography, cs; center)`.
+# `CorrespondenceNormalization(RadialHomography, cs; center)`.
 
 # The minimal sample size of each hypothesis path — the one statement of it
 # (the constructor's `K` and `find_radial_homography`'s early exit).
@@ -114,18 +114,18 @@ end
 
 # The model class of a hypothesis: a plain-homography hypothesis (the 4-point
 # path) is a radial homography with no distortion term, in the solver's
-# origin-centred frame like the kernel's own output; `solve` (cspond.jl
+# origin-centred frame like the kernel's own output; `solve` (correspondence.jl
 # `_candidate`) composes it back into the data frame.
 _model_class(::RadialHomographyProblem, m::VgtkCore.RadialHomography) = m
 _model_class(::RadialHomographyProblem{T}, H::HomographyMat) where {T <: AbstractFloat} =
     VgtkCore.RadialHomography{T}(HomographyMat{T}(Tuple(H)), zero(T))
 
 # The sample gate on the normalized view, SCALE-FREE as H's and F's
-# (`_COINCIDENT_NORMALIZED`, cspond.jl): the target distinctness at the same
+# (`_COINCIDENT_NORMALIZED`, correspondence.jl): the target distinctness at the same
 # constant in the fixed-centre normalized frame (VGC's source separation is that
 # constant already). Until 2026-09-30 it was 1 px carried in by the
 # normalization's scale — a claim about the caller's units the H/F gate stopped
-# making. The model gate is the family's (cspond.jl `test_model`).
+# making. The model gate is the family's (correspondence.jl `test_model`).
 test_sample(p::RadialHomographyProblem, idx::AbstractVector{Int}) =
     VgtkCore.test_sample(model_type(p), p.cs_hartley, idx; target_tol = _COINCIDENT_NORMALIZED)
 

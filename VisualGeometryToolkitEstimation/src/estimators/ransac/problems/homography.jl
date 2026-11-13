@@ -4,7 +4,7 @@
 #
 # `HomographyProblem` is the `MinimalSolveProblem{HomographyMat}` alias; its
 # construction, minimal solve and sample/model gates are the family's
-# (cspond.jl). This file holds what is specific to the homography: the
+# (correspondence.jl). This file holds what is specific to the homography: the
 # consensus gate, the model↔data frame law of a mapped problem, and the rows
 # of its chart (the refit and the lift share them, interface.jl `ChartLm`).
 # =============================================================================
@@ -12,7 +12,7 @@
 # The model-class gates (`test_sample`, `test_model`, `test_consensus`) are
 # GEOMETRY and live in VisualGeometryToolkitCore (`geometry/model_validity.jl`),
 # shared verbatim with offline dataset generators; the family wires them to the
-# problem's normalized view (cspond.jl). Only the consensus gate is H's own.
+# problem's normalized view (correspondence.jl). Only the consensus gate is H's own.
 
 # Post-scoring consensus check (loop.jl, after sort-and-sweep populates
 # `ws.mask`): re-run cheirality on the full inlier set to reject bow-tie
@@ -48,7 +48,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # where c = h₃ᵀs̃.
 #
 # The constraint covariance (the observation-noise rule, VisualGeometryToolkitCore
-# conventions/measurement-noise.md): Σ̃_{gᵢ} = G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ (2×2), with
+# conventions/observation-noise.md): Σ̃_{gᵢ} = G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ (2×2), with
 # Σ = I for a plain point (so ∂ₓg·∂ₓgᵀ for two plain points), the point's own
 # for an `Uncertain` one, 0 for an `exact` one. A board in metres is supplied
 # `exact`: as a plain point its unit noise sits in METRES, Σ̃ ≈ (board→image
@@ -78,11 +78,11 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # Residuals are the codimension-2 whitened algebraic constraint in the DATA
 # frame — EXACTLY what scoring computes: rᵢ = √wᵢ · Lᵢ⁻¹gᵢ with LᵢLᵢᵀ =
 # G_x·Σᵢ·G_xᵀ under the endpoints' observation noise (`I` for plain points;
-# conventions/measurement-noise.md: an exact source gives the transfer error in
+# conventions/observation-noise.md: an exact source gives the transfer error in
 # target pixels), the factor re-evaluated at every iterate and its derivative
 # carried — the Sampson-constraint problems' one chart-rows method
 # (sampson_lm.jl, VGC's `weighted_whitened_residuals!` / `weighted_whitened_jacobian_rows!` with
-# the homography's `measurement_gradient_jacobian`), one KernelAbstractions
+# the homography's `observation_gradient_jacobian`), one KernelAbstractions
 # kernel each on a GPU backend, a plain loop on the CPU. (Until 0.4 the rows
 # whitened the TRANSFER form with a factor frozen at the chart's anchor: a
 # second function, equal to scoring's only at the anchor, whose fixed point is

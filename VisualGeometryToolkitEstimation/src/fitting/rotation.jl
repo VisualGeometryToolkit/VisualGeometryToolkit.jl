@@ -10,7 +10,7 @@
 """
     find_rotation(camera1, camera2, pixel_cs; scoring, max_trials, min_trials,
         local_optimization_strategy, config = nothing, rng)
-    find_rotation(bearings::Csponds; kwargs...)
+    find_rotation(bearings::Correspondences; kwargs...)
 
 Robust estimation of the rotation `R` between two views of a camera that only
 rotated — `f₂ ∥ R·f₁` for the unit bearings of a correspondence, the infinite
@@ -44,13 +44,13 @@ reading the model.
 function find_rotation(camera1, camera2, pixel_cs; kwargs...)
     return _guarded_ransac(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), :rotation; kwargs...)
 end
-function find_rotation(bearings::VgtkCore.Csponds; kwargs...)
+function find_rotation(bearings::VgtkCore.Correspondences; kwargs...)
     return _guarded_ransac(() -> RotationProblem(bearings), RotationProblem, length(bearings), :rotation; kwargs...)
 end
 
 """
     refine_rotation(R, camera1, camera2, pixel_cs; optimization_strategy, scale | width, workspace = nothing)
-    refine_rotation(R, bearings::Csponds; kwargs...)
+    refine_rotation(R, bearings::Correspondences; kwargs...)
         -> FitResult{M, RefineMetadata}
 
 The rotation `R` of a camera that only rotated, refined against its
@@ -63,6 +63,6 @@ unrefined, record `(ReturnCode.InitialFailure, NoRule)` (`retcode_symbol` `:dege
 function refine_rotation(R, camera1, camera2, pixel_cs; kwargs...)
     return _guarded_refine(() -> RotationProblem(camera1, camera2, pixel_cs), RotationProblem, length(pixel_cs), Val(:rotation), R; kwargs...)
 end
-function refine_rotation(R, bearings::VgtkCore.Csponds; kwargs...)
+function refine_rotation(R, bearings::VgtkCore.Correspondences; kwargs...)
     return _guarded_refine(() -> RotationProblem(bearings), RotationProblem, length(bearings), Val(:rotation), R; kwargs...)
 end

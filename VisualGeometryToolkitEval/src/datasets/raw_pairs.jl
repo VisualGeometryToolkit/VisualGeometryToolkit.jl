@@ -8,12 +8,12 @@
 # =============================================================================
 
 """
-    _snn_filtered_matches(m, snn, snn_threshold) -> (csponds, snn_kept, kept)
+    _snn_filtered_matches(m, snn, snn_threshold) -> (correspondences, snn_kept, kept)
 
 The SNN filter of every raw reader: keep the matches with `snn <
 snn_threshold` (SNN = Lowe's d_NN/d_2NN, low = good; a match AT the threshold
 is dropped). `m` holds one match per column with the pixel coordinates in rows
-1–4 (`x₁ y₁ x₂ y₂`); returns the kept pixel csponds, their SNN, and the kept
+1–4 (`x₁ y₁ x₂ y₂`); returns the kept pixel correspondences, their SNN, and the kept
 column indices (for any per-match column the reader carries along).
 """
 function _snn_filtered_matches(m::AbstractMatrix, snn::AbstractVector{Float32}, snn_threshold::Real)

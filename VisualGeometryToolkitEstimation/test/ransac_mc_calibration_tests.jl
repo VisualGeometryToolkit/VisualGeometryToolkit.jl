@@ -83,7 +83,7 @@ _to_fcal(cs, T) = [
 # chart anchor. The pose trial works in calibrated coordinates, so its
 # problem's camera is the identity camera (calibrated coordinates as pixels).
 # Every problem takes the trial's container as it comes: a pair vector, or —
-# the camera-aware E trials — a `Csponds` of bearings CARRYING the `M₁`/`M₂`
+# the camera-aware E trials — a `Correspondences` of bearings CARRYING the `M₁`/`M₂`
 # columns, which a rebuild into bare pairs would drop, so the gate and the
 # residual would silently fall back.
 # ---------------------------------------------------------------------------

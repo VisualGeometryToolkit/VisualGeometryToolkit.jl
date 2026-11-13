@@ -12,7 +12,7 @@
 # and the producer of those consolidated files from the depth-validated stereo
 # datasets (ETH3D, ScanNet1500, KITTI, SevenScenes): `stereo_pairs`, the
 # matcher's sparse-match files (`load_sparse_matches`), GT validation against
-# depth (`load_validation_data`, `gt_config`) and `consolidate_csponds`.
+# depth (`load_validation_data`, `gt_config`) and `consolidate_correspondences`.
 #
 # The subsample sizes and seed of a scene are the caller's (its pool
 # configuration); the read thresholds default to configs/default.toml
@@ -29,7 +29,7 @@ correspondences ([`load_roma_pairs`](@ref)). The module also produces those
 consolidated files from depth-validated stereo datasets ([`ETH3D`](@ref),
 [`ScanNet1500`](@ref), [`KITTI`](@ref), [`SevenScenes`](@ref)) through
 [`stereo_pairs`](@ref), [`load_sparse_matches`](@ref),
-[`load_validation_data`](@ref) and [`consolidate_csponds`](@ref).
+[`load_validation_data`](@ref) and [`consolidate_correspondences`](@ref).
 
 The read thresholds default to `configs/default.toml` (`[pool.<dataset>]`).
 """
@@ -48,9 +48,9 @@ using StaticArrays: SMatrix, SVector
 using StructArrays: StructArrays, StructArray
 using Rotations: QuatRotation
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Size2, FundMat, EssentialMat, sampson_distance, intrinsics,
-    centroid, model, extent, extrinsics, source, destination, project, unproject, csponds, Point3, Vec3,
+    centroid, model, extent, extrinsics, source, destination, project, unproject, correspondences, Point3, Vec3,
     PosedCamera, BoundedCamera, CameraModel, CameraCalibrationMat, EuclideanMap, StereoRig,
-    validate_gt_inliers, m, mm, ustrip, Csponds, withattrs, sources, targets
+    validate_gt_inliers, m, mm, ustrip, Correspondences, withattrs, sources, targets
 using VisualGeometryToolkitCore: BaseQuantity   # FlexUnits' stored form of a base quantity
 using VisualGeometryToolkitCore.Pools: Pools, StereoRawPair
 import VisualGeometryToolkitIO
@@ -64,7 +64,7 @@ export PtPair, PtRawTrees, PT_SCENES, load_pt_pairs, pt_scene_files,
     RomaPair, load_roma_pairs,
     StereoPair, GTConfig, AbstractStereoDataset, ETH3D, ScanNet1500, KITTI, SevenScenes,
     stereo_pairs, load_validation_data, gt_config, eth3d_pairs, scannet1500_pairs, kitti_pairs,
-    seven_scenes_pairs, load_sparse_matches, consolidate_csponds, CONSOLIDATED_FORMAT
+    seven_scenes_pairs, load_sparse_matches, consolidate_correspondences, CONSOLIDATED_FORMAT
 
 include("datasets/raw_pairs.jl")
 include("datasets/phototourism.jl")

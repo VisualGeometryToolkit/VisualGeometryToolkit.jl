@@ -118,13 +118,13 @@ align = fit_rigid_alignment(centres .=> truth; optimization_strategy = Irls{Wels
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, estimate, MsacScoring, inlier_mask
+using VisualGeometryToolkitCore: correspondences, estimate, MsacScoring, inlier_mask
 using StaticArrays
 
 src = [SA[100.0, 200.0], ...]
 dst = [SA[112.0, 195.0], ...]
 
-result = find_homography(csponds(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
+result = find_homography(correspondences(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
 H       = estimate(result)         # 3×3 homography matrix
 inliers = inlier_mask(result)
 ```
@@ -135,14 +135,14 @@ for the full keyword surface.
 ## Essential Matrix (calibrated)
 
 ```julia
-using VisualGeometryToolkitCore: CameraModel, csponds, estimate, px
+using VisualGeometryToolkitCore: CameraModel, correspondences, estimate, px
 using StaticArrays: SA
 
 # PIXEL correspondences and the two cameras that took them; each view is
 # back-projected to unit bearings by its own camera inside the pipeline.
 cam1 = CameraModel(800.0px, SA[320.0px, 240.0px])
 cam2 = CameraModel(1150.0px, SA[300.0px, 260.0px])
-result = find_essential(cam1, cam2, csponds(src_pixels, dst_pixels))
+result = find_essential(cam1, cam2, correspondences(src_pixels, dst_pixels))
 E = estimate(result)
 ```
 
@@ -157,7 +157,7 @@ page for the full keyword surface.
 ## Fundamental Matrix
 
 ```julia
-result = find_fundmat(csponds(src, dst); scoring = MsacScoring(FundMatProblem; threshold = 2.0))
+result = find_fundmat(correspondences(src, dst); scoring = MsacScoring(FundMatProblem; threshold = 2.0))
 F = estimate(result)
 ```
 
@@ -167,11 +167,11 @@ page for the full keyword surface.
 ## Absolute Pose (3D-2D)
 
 ```julia
-using VisualGeometryToolkitCore: CameraModel, csponds, estimate, px, MsacScoring
+using VisualGeometryToolkitCore: CameraModel, correspondences, estimate, px, MsacScoring
 using StaticArrays: SA
 
 camera = CameraModel(f * px, SA[cx * px, cy * px])
-result = find_absolute_pose(camera, csponds(world_points_3d, image_points_2d);
+result = find_absolute_pose(camera, correspondences(world_points_3d, image_points_2d);
                   scoring = MsacScoring(AbsolutePoseProblem; threshold = 4.0))
 pose = estimate(result)    # EuclideanMap{3,Float64} (rotation + translation)
 ```
@@ -216,7 +216,7 @@ using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabe
 using LocalOptimizationDoneRight: HQ, WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
-cs       = csponds(src, dst)
+cs       = correspondences(src, dst)
 problem  = HomographyProblem(cs)
 result   = find_homography(cs;
                   scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),

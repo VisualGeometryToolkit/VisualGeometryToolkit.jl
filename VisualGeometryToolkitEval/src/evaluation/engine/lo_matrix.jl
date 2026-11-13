@@ -149,7 +149,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
     #
     # The ctx is now built per (pair, spec) rather than per pair. That is the
     # cost, and it is negligible by three orders of magnitude: the ctx is
-    # O(#correspondences) — one back-projection of the csponds plus a PairGeom —
+    # O(#correspondences) — one back-projection of the correspondences plus a PairGeom —
     # against a spec's |columns| refits at ~1.6 ms each. It is also now built
     # with exactly the `bundle` THIS spec needs, so a non-bundle spec never pays
     # for a RelposeBundleProblem, which a per-pair or per-chunk `any(...)` made

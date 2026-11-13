@@ -24,7 +24,7 @@ end
 
 @testitem "Triggs: the homography and the circle refit with it" setup = [HomographyScenes] begin
     using Test, StableRNGs, LinearAlgebra, StaticArrays
-    using VisualGeometryToolkitCore: CauchyShape, WelschShape, MsacScoring, estimate, converged, csponds, Point2
+    using VisualGeometryToolkitCore: CauchyShape, WelschShape, MsacScoring, estimate, converged, correspondences, Point2
     using VisualGeometryToolkitCore.Synthetic: projective_distance
     using VisualGeometryToolkitEstimation: HomographyProblem, CircleProblem, ransac, locally_optimize, find_homography, RansacConfig
     using VisualGeometryToolkitCore: Triggs

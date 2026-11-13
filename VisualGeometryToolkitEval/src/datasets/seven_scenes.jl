@@ -70,7 +70,7 @@ end
 
 stereo_pairs(ds::SevenScenes) =
     seven_scenes_pairs(ds.root; split = ds.split, scene = ds.scene, interval = ds.interval, stride = ds.stride)
-function load_validation_data(ds::SevenScenes, p::NamedTuple, csponds)
+function load_validation_data(ds::SevenScenes, p::NamedTuple, correspondences)
     depth_src, depth_tgt = _load_seven_scenes_depths(ds.root, p.scene, p.source_name, p.target_name)
-    return (; rig = p.rig, csponds, depth_src, depth_tgt)
+    return (; rig = p.rig, correspondences, depth_src, depth_tgt)
 end

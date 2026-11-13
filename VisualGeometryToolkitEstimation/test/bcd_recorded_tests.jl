@@ -11,7 +11,7 @@ using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, csponds, estimate, retcode, iterations, Attributed,
+using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, correspondences, estimate, retcode, iterations, Attributed,
     WelschShape, GemanMcclureShape, HuberShape, block_coordinate_descent!, Recorded, current_cost, MsacScoring
 using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation

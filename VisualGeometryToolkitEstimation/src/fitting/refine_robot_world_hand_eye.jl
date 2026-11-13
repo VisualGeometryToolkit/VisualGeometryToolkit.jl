@@ -55,7 +55,7 @@ camera at frame i). Function names do not encode frames.
 - `guess::RobotWorldHandEyeCalibration{K}` — the starting `Y` and the keyed `X`
 - `camera::CameraModel` — the (fixed) camera; `project(camera, X_C)` maps a
   camera-frame point to pixels
-- `markers::AbstractDict{K, <:AbstractVector{<:Cspond}}` — per marker id, one
+- `markers::AbstractDict{K, <:AbstractVector{<:Correspondence}}` — per marker id, one
   element per frame it is seen in: that frame's rig pose `A_i = T_WR`
   (`unlabel`ed at the boundary) paired with the features seen with it,
   `A_i => [X => u, …]` — `X` a point in the marker's frame, `u` its measured
@@ -111,7 +111,7 @@ inputs. Plain inputs give a plain calibration in their own unit, as before.
 function refine_robot_world_hand_eye(
         guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}}, camera::CameraModel,
         markers::AbstractDict{
-            K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
+            K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
         };
         max_iter::Int = _dflt("refine_camera_and_poses", "max_iter"),
         optimization_strategy = _refine_default(Val(:refine_robot_world_hand_eye)),
@@ -149,13 +149,13 @@ end
 function refine_robot_world_hand_eye(
         guess::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}, camera::CameraModel,
         markers::AbstractDict{
-            K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}},
+            K, <:AbstractVector{<:Correspondence{<:_PhysicalPose3, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}},
         };
         kwargs...
     ) where {K}
-    features(fs) = _map_csponds(_plain_metres, identity, fs)
-    plain = Dict(id => _map_csponds(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
-        K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
+    features(fs) = _map_correspondences(_plain_metres, identity, fs)
+    plain = Dict(id => _map_correspondences(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
+        K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
     }
     return _attach_metres(refine_robot_world_hand_eye(_plain_metres(guess), camera, plain; kwargs...))
 end

@@ -8,7 +8,7 @@ using StaticArrays
 using Random
 using StableRNGs
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: Csponds, csponds, exact
+using VisualGeometryToolkitCore: Correspondences, correspondences, exact
 using VisualGeometryToolkitCore: homography_4pt   # the positional minimal kernel (public, not exported)
 using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring   # owned and exported by VisualGeometryToolkitCore
@@ -90,7 +90,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # (uniform sign flip on y, plus a translation into pixel space).
         img = [SA[300.0 + 200.0 * b[1], 400.0 - 200.0 * b[2]] for b in board]
 
-        p = HomographyProblem(csponds(board, img))
+        p = HomographyProblem(correspondences(board, img))
         # Every 4-subset should succeed at test_sample — none are bow-ties, all are
         # uniform-flip. Under the old rule every sample would be rejected.
         for idx in ([1, 2, 3, 4], [1, 3, 5, 6], [2, 3, 4, 5], [3, 4, 5, 6], [1, 2, 4, 6])
@@ -110,14 +110,14 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
     @testset "HomographyProblem construction" begin
         src = [SA[1.0, 2.0], SA[3.0, 4.0], SA[5.0, 6.0], SA[7.0, 8.0]]
         dst = [SA[2.0, 3.0], SA[4.0, 5.0], SA[6.0, 7.0], SA[8.0, 9.0]]
-        p = HomographyProblem(csponds(src, dst))
+        p = HomographyProblem(correspondences(src, dst))
         @test minimal_sample_size(p) == 4
         @test data_size(p) == 4
         @test model_type(p) == HomographyMat{Float64}
         @test p isa HomographyProblem{Float64}
 
         # Too few correspondences
-        @test_throws ArgumentError HomographyProblem(csponds(src[1:3], dst[1:3]))
+        @test_throws ArgumentError HomographyProblem(correspondences(src[1:3], dst[1:3]))
     end
 
     # The problem's constraint triple — what scoring whitens — IS the owner's
@@ -136,7 +136,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
     @testset "4-point DLT solver" begin
         # Identity recovery on noiseless points
         src = [SA[100.0, 200.0], SA[500.0, 100.0], SA[800.0, 600.0], SA[200.0, 700.0]]
-        p_id = HomographyProblem(csponds(src, copy(src)))
+        p_id = HomographyProblem(correspondences(src, copy(src)))
         models = solve(p_id, [1, 2, 3, 4])
         @test !isnothing(models)
         H_id_recovered = first(models)
@@ -178,7 +178,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = HomographyProblem(csponds(source_pts, target_pts))
+        problem = HomographyProblem(correspondences(source_pts, target_pts))
 
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
@@ -202,7 +202,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         n = 20
         src, dst = homography_pairs(StableRNG(42), H_true; n_in = n)
 
-        p = HomographyProblem(csponds(src, dst))
+        p = HomographyProblem(correspondences(src, dst))
         # Algebraic no-θ fit needs the DLT workspace explicitly — the problem's
         # LO workspace is now the sl(3) LM buffer (NonlinLsq refit_kind).
         ws = VgtkEstimation.DltWorkspace{9, Float64}(
@@ -230,7 +230,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = HomographyProblem(csponds(source_pts, target_pts))
+        problem = HomographyProblem(correspondences(source_pts, target_pts))
 
         result = ransac(
             problem, MsacScoring(problem; threshold = 3.0);
@@ -252,7 +252,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, _, _ = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = HomographyProblem(csponds(source_pts, target_pts))
+        problem = HomographyProblem(correspondences(source_pts, target_pts))
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         counted = VgtkEstimation.CountedLO(inner)
         run(lo) = ransac(
@@ -301,7 +301,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
     @testset "CountedLO — one counter shared by threaded runs adds up exactly" begin
         problems = map(1:16) do seed
             src, tgt, _, _ = make_homography_data(n_inliers = 100, n_outliers = 30, noise = 0.5, seed = seed)
-            HomographyProblem(csponds(src, tgt))
+            HomographyProblem(correspondences(src, tgt))
         end
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         run(lo, j) = ransac(
@@ -344,7 +344,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, _, _ = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        problem = HomographyProblem(csponds(source_pts, target_pts))
+        problem = HomographyProblem(correspondences(source_pts, target_pts))
         sc = MsacScoring(problem; threshold = 3.0)
         cfg = RansacConfig(max_trials = 3000, min_trials = 200)
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
@@ -435,7 +435,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         for _ in 1:12
             push!(src, SVector(100rand(rng), 100rand(rng))); push!(dst, SVector(100rand(rng), 100rand(rng)))
         end
-        problem = HomographyProblem(csponds(src, dst))
+        problem = HomographyProblem(correspondences(src, dst))
         sc = MsacScoring(problem; threshold = 0.5)
         cfg = RansacConfig(max_trials = 5000, min_trials = 3000)
         r0 = ransac(problem, sc; local_optimization_strategy = nothing, config = cfg, rng = StableRNG(1))
@@ -457,7 +457,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         n_total = length(source_pts)
         # The prior is the correspondences' `:score` attribute column.
         scores = [i <= n_inliers ? 0.8 + 0.2 * rand(rng) : 0.1 * rand(rng) for i in 1:n_total]
-        problem = HomographyProblem(Csponds(source_pts, target_pts; score = scores))
+        problem = HomographyProblem(Correspondences(source_pts, target_pts; score = scores))
         @test sampler(problem) isa ProsacSampler
 
         result = ransac(
@@ -525,7 +525,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 60, n_outliers = 0, noise = 0.0, seed = 7
         )
-        pm = HomographyProblem(csponds(source_pts, target_pts); src_map = C₁, dst_map = C₂)
+        pm = HomographyProblem(correspondences(source_pts, target_pts); src_map = C₁, dst_map = C₂)
         @test VgtkEstimation.test_consensus(pm, _to_model(H_true), trues(n_inliers))
     end
 
@@ -533,7 +533,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
         )
-        cs = csponds(source_pts, target_pts)
+        cs = correspondences(source_pts, target_pts)
         pm = HomographyProblem(cs; src_map = C₁, dst_map = C₂)
         pu = HomographyProblem(cs)
         # the core arms (the class default, Irls{TLS}, and the static Welsch IRLS);
@@ -565,7 +565,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         source_pts, target_pts, H_true, n_inliers = make_homography_data(
             n_inliers = 60, n_outliers = 10, noise = 0.3, seed = 11
         )
-        cs32 = csponds(SVector{2, Float32}.(source_pts), SVector{2, Float32}.(target_pts))
+        cs32 = correspondences(SVector{2, Float32}.(source_pts), SVector{2, Float32}.(target_pts))
         pm = HomographyProblem(cs32; src_map = C₁, dst_map = C₂)
         @test model_type(pm) == HomographyMat{Float32}
         sols = VgtkEstimation.solve(pm, [1, 15, 30, 45])
@@ -592,23 +592,23 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         for k in 1:8   # a few gross mismatches
             pix[k] = pix[k] + SA[40.0 * randn(rng), 40.0 * randn(rng)]
         end
-        p = HomographyProblem(csponds(board, pix))
+        p = HomographyProblem(correspondences(board, pix))
         @test VgtkEstimation.test_sample(p, [9, 16, 57, 64])
-        # The board is EXACT (VGC conventions/measurement-noise.md): its residual
+        # The board is EXACT (VGC conventions/observation-noise.md): its residual
         # is then the transfer error in pixels, and the default 3 px MSAC
         # threshold means 3 px. As a PLAIN (unit isotropic) metre board the
         # residual is in metres — ~7e-5 for a 0.2 px inlier, ~0.015 for a 40 px
         # mismatch, every one under 3 — and the fit lands ~40 px off.
-        result = find_homography(csponds(exact.(board), pix))
+        result = find_homography(correspondences(exact.(board), pix))
         @test converged(result)
         @test sum(inlier_mask(result)[9:end]) >= 50
         @test !any(inlier_mask(result)[1:8])
         @test max_transfer_error(estimate(result), H_true, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
-        plain = find_homography(csponds(board, pix))
+        plain = find_homography(correspondences(board, pix))
         @test all(inlier_mask(plain)[1:8])          # the unit error the rule removes
         # A genuinely coincident pair is still refused.
         @test !VgtkEstimation.test_sample(
-            HomographyProblem(csponds([board[1], board[1], board[8], board[57], board[64]], [pix[1], pix[1], pix[8], pix[57], pix[64]])),
+            HomographyProblem(correspondences([board[1], board[1], board[8], board[57], board[64]], [pix[1], pix[1], pix[8], pix[57], pix[64]])),
             [1, 2, 3, 5]
         )
     end
@@ -618,7 +618,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # threshold scorer's workspace is width-free, so the same workspace
         # serves the class default, another threshold and RANSAC counting.
         source_pts, target_pts, _, _ = make_homography_data(n_inliers = 40, n_outliers = 10, seed = 3)
-        cs = csponds(source_pts, target_pts)
+        cs = correspondences(source_pts, target_pts)
         ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
         p = HomographyProblem(cs)
         @test converged(find_homography(cs; workspace = ws, rng = StableRNG(132)))

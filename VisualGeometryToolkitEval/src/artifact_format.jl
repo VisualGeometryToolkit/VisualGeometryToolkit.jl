@@ -26,6 +26,9 @@
 #               the format spec is Pools `save_pool`)
 #           5 — the destination map's pair key, `destination_map` (2026-10-26;
 #               `Pools.migrate_pool` carries a format-4 file over)
+#           6 — the correspondences' pair key, `correspondences` (the
+#               terminology ruling, 2026-11-13; `Pools.migrate_pool` carries a
+#               format-4 or -5 file over)
 #   pool_residuals
 #           1 — the residual matrices of a v4 pool, with `pool_key` and
 #               `residual_kind` (2026-10-05)
@@ -76,9 +79,9 @@ an even older file is refused). The file key is `"<kind>_format"`; an absent
 key is version 1.
 """
 const ARTIFACT_FORMATS = (
-    pool = (version = 5,
-            change = "the destination map's pair key, destination_map",
-            remedy = "migrate a format-4 pool with Pools.migrate_pool; convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
+    pool = (version = 6,
+            change = "the correspondences' pair key, correspondences",
+            remedy = "migrate a format-4 or -5 pool with Pools.migrate_pool (a tree: scripts/migrate_pools.jl); convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
     pool_residuals = (version = 1,
             change = "the residual matrices of a v4 pool",
             remedy = "convert its pool with accv2026 scripts/tools/convert_pools_v4.jl"),

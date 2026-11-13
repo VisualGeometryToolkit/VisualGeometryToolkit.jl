@@ -45,9 +45,9 @@ end
     using Rotations: RotMatrix, RotXYZ, RotX, RotZ
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: CameraModel, Vec3, csponds, radial_transfer, RadialHomography, HomographyMat, estimate,
+    using VisualGeometryToolkitCore: CameraModel, Vec3, correspondences, radial_transfer, RadialHomography, HomographyMat, estimate,
         MsacScoring, Irls, Triggs, TLSShape, WelschShape, ReturnCode, retcode, stop_rule, converged, found_model,
-        Point2, Csponds
+        Point2, Correspondences
     using VisualGeometryToolkitEstimation: find_homography, find_fundmat, find_essential, find_rotation, find_circle, find_ellipse,
         find_absolute_pose, find_radial_homography, find_radial_camera, find_hand_eye, refine_homography, refine_fundmat,
         refine_essential, refine_rotation, refine_circle, refine_ellipse, refine_absolute_pose, refine_radial_homography,
@@ -57,7 +57,7 @@ end
     # --- the scenes: FindScenes (core_defaults_tests.jl's), and the conic and rotation scenes ---------------------------
     cs_h, _ = h_scene()
     u₁, u₂, _ = stereo_scene(PCAM); cs_f = StructArray(u₁ .=> u₂)
-    v₁, v₂, _ = stereo_scene(ECAM; seed = 14); cs_e = csponds(v₁, v₂)
+    v₁, v₂, _ = stereo_scene(ECAM; seed = 14); cs_e = correspondences(v₁, v₂)
     cs_p = pnp_scene()
     rh, _ = radial_homography_scene(); c_rh = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
@@ -72,12 +72,12 @@ end
     # --- every find_* and its refine_*: the search, the refine from its model, and the too-few-data paths ------------
     classes = (
         (:homography, kw -> find_homography(cs_h; kw...), (θ, kw) -> refine_homography(θ, cs_h; kw...),
-         kw -> find_homography(few_csponds(3); kw...)),
-        (:fundmat, kw -> find_fundmat(cs_f; kw...), (θ, kw) -> refine_fundmat(θ, cs_f; kw...), kw -> find_fundmat(few_csponds(6); kw...)),
+         kw -> find_homography(few_correspondences(3); kw...)),
+        (:fundmat, kw -> find_fundmat(cs_f; kw...), (θ, kw) -> refine_fundmat(θ, cs_f; kw...), kw -> find_fundmat(few_correspondences(6); kw...)),
         (:essential, kw -> find_essential(ECAM, ECAM, cs_e; kw...), (θ, kw) -> refine_essential(θ, ECAM, ECAM, cs_e; kw...),
-         kw -> find_essential(ECAM, ECAM, few_csponds(4); kw...)),
+         kw -> find_essential(ECAM, ECAM, few_correspondences(4); kw...)),
         (:rotation, kw -> find_rotation(FISHEYE, FISHEYE, cs_r; kw...), (θ, kw) -> refine_rotation(θ, FISHEYE, FISHEYE, cs_r; kw...),
-         kw -> find_rotation(FISHEYE, FISHEYE, few_csponds(1); kw...)),
+         kw -> find_rotation(FISHEYE, FISHEYE, few_correspondences(1); kw...)),
         (:circle, kw -> find_circle(pts_c; kw...), (θ, kw) -> refine_circle(θ, pts_c; kw...), kw -> find_circle(few_points(2); kw...)),
         (:ellipse, kw -> find_ellipse(pts_e; kw...), (θ, kw) -> refine_ellipse(θ, pts_e; kw...), kw -> find_ellipse(few_points(4); kw...)),
         (:absolute_pose, kw -> find_absolute_pose(PCAM, cs_p; kw...), (θ, kw) -> refine_absolute_pose(θ, PCAM, cs_p; kw...),
@@ -107,7 +107,7 @@ end
     end
     # the refine_* too-few-data path (the guess unrefined: InitialFailure)
     H = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
-    deg = record!(seen, :refine_homography, refine_homography(H, few_csponds(3); scale = 1.0))
+    deg = record!(seen, :refine_homography, refine_homography(H, few_correspondences(3); scale = 1.0))
     @test retcode(deg) == ReturnCode.InitialFailure && stop_rule(deg) == VgtkCore.NoRule
 
     # --- ransac, locally_optimize (seeded, fixed candidates) and a terminal LO ---------------------------------------
@@ -131,7 +131,7 @@ end
     for _ in 1:12
         push!(srct, SVector(100rand(rngt), 100rand(rngt))); push!(dstt, SVector(100rand(rngt), 100rand(rngt)))
     end
-    pt = HomographyProblem(csponds(srct, dstt)); sct = MsacScoring(pt; threshold = 0.5)
+    pt = HomographyProblem(correspondences(srct, dstt)); sct = MsacScoring(pt; threshold = 0.5)
     cfgt = RansacConfig(max_trials = 5000, min_trials = 3000)
     thin = record!(seen, :ransac, ransac(pt, sct; local_optimization_strategy = TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
                                          config = cfgt, rng = StableRNG(1)))

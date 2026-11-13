@@ -15,7 +15,7 @@ using Rotations: AngleAxis, RotMatrix
 using StaticArrays: SVector, SMatrix
 using PoseLib
 using PoseLib: LeZach, PoseLibRefineMetadata
-using VisualGeometryToolkitCore: Csponds, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
+using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
     CameraCalibrationMat, Pinhole, Vec3, TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape,
     Irls, Triggs, EfficiencyConstant, LossWidth, FitResult, estimate, retcode, iterations, noise_scale, scale_source,
     ScaleGiven, ScaleUpstream, ScaleNone, efficiency_constant
@@ -38,7 +38,7 @@ function _baseline_data()
     x1 = [_proj(K1, Y) for Y in X]
     x2 = [_proj(K2, R * Y + t) for Y in X]
     x2[1:nout] .= [out2() for _ in 1:nout]
-    rel = Csponds(x1, x2)
+    rel = Correspondences(x1, x2)
     tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)
     F = inv(K2)' * tx * R * inv(K1)
     F0 = F .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(r2, 9)))
@@ -51,13 +51,13 @@ function _baseline_data()
     cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K2)), Pinhole())
     bm1 = backproject_with_jacobian.(Ref(cam1), x1)
     bm2 = backproject_with_jacobian.(Ref(cam2), x2)
-    bear = withattrs(Csponds(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))
+    bear = withattrs(Correspondences(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))
     f = 800.0
     xa = [_nrm(R * Y + t) for Y in X]
     xa[1:nout] .= [SVector(randn(r2), randn(r2)) for _ in 1:nout]
     ua = [SVector(f * c[1] + K1[1, 3], f * c[2] + K1[2, 3]) for c in xa]
-    abs_cs = Csponds(X, ua)
-    return (; seed, K1, K2, rel, F0, H0, hom = Csponds(h1, h2), bear, abs_cs)
+    abs_cs = Correspondences(X, ua)
+    return (; seed, K1, K2, rel, F0, H0, hom = Correspondences(h1, h2), bear, abs_cs)
 end
 
 # The refined models of PoseLib 0.1.9 (VisualGeometryToolkit robust-core 3eabba46), captured with
@@ -149,7 +149,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         # the physical absolute pose keeps the plain refinement's record
         Xm = [Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)]
         seedm = VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m)
-        rp = refine_absolute_pose(seedm, d.K1, Csponds(Xm, VgtkCore.targets(d.abs_cs)); max_iter = 25,
+        rp = refine_absolute_pose(seedm, d.K1, Correspondences(Xm, VgtkCore.targets(d.abs_cs)); max_iter = 25,
                                   optimization_strategy = Irls{TLSShape}(), width = 40.0)
         ra = calls.absolute_pose((; optimization_strategy = Irls{TLSShape}(), width = 40.0))
         @test VgtkCore.ustrip(VgtkCore.m, estimate(rp)).R == estimate(ra).R
@@ -164,7 +164,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         end
         VgtkCore.test_termination_record(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
         rp = refine_absolute_pose(VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m), d.K1,
-                                  Csponds([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
+                                  Correspondences([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
                                   optimization_strategy = nothing)
         VgtkCore.test_termination_record(rp)
     end

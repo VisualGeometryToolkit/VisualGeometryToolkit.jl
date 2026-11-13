@@ -11,7 +11,7 @@ using StructArrays
 using Rotations: RotMatrix, MRP, RotY
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: EssentialManifold5, Vec3   # the 5-dof E refit chart (public)
-using VisualGeometryToolkitCore: backproject_with_jacobian, withattrs, Csponds
+using VisualGeometryToolkitCore: backproject_with_jacobian, withattrs, Correspondences
 using VisualGeometryToolkitCore: converged   # VGC accessor (public)
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring   # owned and exported by VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
@@ -76,7 +76,7 @@ end
     m = 30
     pa = [SA[320 + 220 * (rand(rng) - 0.5), 240 + 170 * (rand(rng) - 0.5)] for _ in 1:m]
     pb = [SA[300 + 220 * (rand(rng) - 0.5), 260 + 170 * (rand(rng) - 0.5)] for _ in 1:m]
-    p = EssentialProblem(camA, camB, csponds(Point2{Float64}.(pa), Point2{Float64}.(pb)))
+    p = EssentialProblem(camA, camB, correspondences(Point2{Float64}.(pa), Point2{Float64}.(pb)))
 
     R = RotY(0.18)
     t = normalize(SA[0.8, 0.1, 0.25])
@@ -111,7 +111,7 @@ end
     sqrtw = sqrt.(rand(rng, m))
     x = SVector{5, Float64}(0.03, -0.02, 0.05, 0.1, -0.05)  # general (nonzero) iterate
 
-    p = EssentialProblem(withattrs(Csponds(u₁, u₂); M₁, M₂))
+    p = EssentialProblem(withattrs(Correspondences(u₁, u₂); M₁, M₂))
     ch = EssentialManifold5(RotMatrix{3, Float64}(R₀), Vec3{Float64}(t₀))   # the 5-dof refit chart (VGC)
     @test VgtkCore.check_rows_jacobian(_lm_state(p, ch, sqrtw), x, m; atol = 1.0e-8)
 end
@@ -154,7 +154,7 @@ end
     fm = [backproject_with_jacobian(ECAM, topx(u)) for u in u₁]
     gm = [backproject_with_jacobian(ECAM, topx(u)) for u in u₂]
     cs_ok = withattrs(
-        Csponds(first.(fm), first.(gm)); M₁ = last.(fm), M₂ = last.(gm)
+        Correspondences(first.(fm), first.(gm)); M₁ = last.(fm), M₂ = last.(gm)
     )
     @test EssentialProblem(cs_ok) isa VgtkEstimation.EssentialProblem
     @test_throws ArgumentError EssentialProblem(cs_ok; src_map = C1, dst_map = C2)
@@ -163,7 +163,7 @@ end
     # unit-norm check, which is the guard the signature cannot provide.
     chartpts = [Point3{Float64}(u[1], u[2], 1.0) for u in u₁]   # z = 1 chart, not bearings
     Mcol = [backproject_with_jacobian(ECAM, topx(u))[2] for u in u₁]
-    cs_chart = withattrs(Csponds(chartpts, chartpts); M₁ = Mcol, M₂ = Mcol)
+    cs_chart = withattrs(Correspondences(chartpts, chartpts); M₁ = Mcol, M₂ = Mcol)
     @test_throws ArgumentError EssentialProblem(cs_chart)
 
     # The camera form is the supported path, and it scores finitely.
@@ -207,7 +207,7 @@ function _retyped(p; T₁ = Float64, T₂ = T₁)
     cs = p.cs
     return EssentialProblem(
         withattrs(
-            Csponds(normalize.(SVector{3, T₁}.(sources(cs))), normalize.(SVector{3, T₁}.(targets(cs))));
+            Correspondences(normalize.(SVector{3, T₁}.(sources(cs))), normalize.(SVector{3, T₁}.(targets(cs))));
             M₁ = SMatrix{3, 2, T₁, 6}.(cs.M₁), M₂ = SMatrix{3, 2, T₂, 6}.(cs.M₂)
         )
     )
@@ -221,7 +221,7 @@ end
     cam1 = CameraModel(2000.0px, SA[960.0px, 540.0px])
     cam2 = CameraModel(2000.0px, SA[900.0px, 560.0px])
     a, b, R, t = _e_pixel_scene(StableRNG(2031), cam1, cam2)
-    p32 = _retyped(EssentialProblem(cam1, cam2, csponds(a, b)); T₁ = Float32)
+    p32 = _retyped(EssentialProblem(cam1, cam2, correspondences(a, b)); T₁ = Float32)
     @test eltype(eltype(sources(p32.cs))) == Float32     # the regime under test
     θ = EssentialMat(R, t)
     r = Vector{Float64}(undef, length(a))
@@ -238,7 +238,7 @@ end
     camA = CameraModel(800.0px, SA[960.0px, 540.0px])
     camB = CameraModel(1150.0px, SA[900.0px, 560.0px])
     a2, b2, R2, t2 = _e_pixel_scene(StableRNG(2032), camA, camB; n_out = 0)
-    pm = _retyped(EssentialProblem(camA, camB, csponds(a2, b2)); T₂ = Float32)
+    pm = _retyped(EssentialProblem(camA, camB, correspondences(a2, b2)); T₂ = Float32)
     @test eltype(pm.cs.M₁) != eltype(pm.cs.M₂)
     θ₀ = EssentialMat(R2, normalize(t2 + SA[0.05, -0.04, 0.03]))
     θ₁ = VgtkCore.refine!(refine_workspace(typeof(pm), data_size(pm)), pm, θ₀, ones(length(a2)))
@@ -250,14 +250,14 @@ end
     cam = CameraModel(800.0px, SA[960.0px, 540.0px])
     a, b, _, _ = _e_pixel_scene(rng, cam, cam; n_out = 20)
     s = rand(rng, length(a))
-    scored = Csponds(a, b; score = s)
+    scored = Correspondences(a, b; score = s)
     ph = HomographyProblem(scored)
     pe = EssentialProblem(cam, cam, scored)
     # the same sampler H and F build from the same column
     @test VgtkEstimation.sampler(ph) isa VgtkEstimation.ProsacSampler
     @test VgtkEstimation.sampler(pe) isa VgtkEstimation.ProsacSampler
     @test pe.cs.score == s
-    @test VgtkEstimation.sampler(EssentialProblem(cam, cam, Csponds(a, b))) isa
+    @test VgtkEstimation.sampler(EssentialProblem(cam, cam, Correspondences(a, b))) isa
         VgtkEstimation.UniformSampler
     # and a scored pipeline run accepts it
     @test find_essential(cam, cam, scored; rng = StableRNG(8)) !== nothing
@@ -268,31 +268,31 @@ end
     fm = [backproject_with_jacobian(cam, SA[320.0 + 10i, 240.0 - 7i]) for i in 1:8]
     gm = [backproject_with_jacobian(cam, SA[300.0 + 9i, 250.0 - 5i]) for i in 1:8]
     f₁ = first.(fm); f₂ = first.(gm); M₁ = last.(fm); M₂ = last.(gm)
-    @test EssentialProblem(withattrs(Csponds(f₁, f₂); M₁, M₂)) isa VgtkEstimation.EssentialProblem
+    @test EssentialProblem(withattrs(Correspondences(f₁, f₂); M₁, M₂)) isa VgtkEstimation.EssentialProblem
     # A NaN bearing (what a camera returns past a fisheye's fold): `NaN > worst`
     # is false, so the unit-norm test alone let it in.
     f₁n = copy(f₁); f₁n[3] = eltype(f₁)(NaN, NaN, NaN)
     err = try
-        EssentialProblem(withattrs(Csponds(f₁n, f₂); M₁, M₂)); nothing
+        EssentialProblem(withattrs(Correspondences(f₁n, f₂); M₁, M₂)); nothing
     catch e
         e
     end
     @test err isa ArgumentError
     @test occursin("index 3", err.msg)
     M₂n = copy(M₂); M₂n[5] = M₂n[5] * NaN
-    @test_throws ArgumentError EssentialProblem(withattrs(Csponds(f₁, f₂); M₁, M₂ = M₂n))
+    @test_throws ArgumentError EssentialProblem(withattrs(Correspondences(f₁, f₂); M₁, M₂ = M₂n))
 end
 
 @testset "sub-detector threshold refused on every entry (V17)" begin
     rng = StableRNG(2034)
     cam = CameraModel(800.0px, SA[960.0px, 540.0px])
     a, b, R, t = _e_pixel_scene(rng, cam, cam)
-    p = EssentialProblem(cam, cam, csponds(a, b))
+    p = EssentialProblem(cam, cam, correspondences(a, b))
     θ = EssentialMat(R, t)
     lo = nothing
     # 0.02 is the OLD calibrated default; in pixels it is nothing — refused as
     # a threshold scorer's threshold, the class default's or a caller's.
-    @test_throws ArgumentError find_essential(cam, cam, csponds(a, b); scoring = MsacScoring(p; threshold = 0.02))
+    @test_throws ArgumentError find_essential(cam, cam, correspondences(a, b); scoring = MsacScoring(p; threshold = 0.02))
     @test_throws ArgumentError VgtkEstimation.ransac(p, MsacScoring(p; threshold = 0.02))
     @test_throws ArgumentError VgtkEstimation.ransac(p, RansacScoring(p; threshold = 0.02))
     @test_throws ArgumentError locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 0.02), local_optimization_strategy = lo)
@@ -304,10 +304,10 @@ end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     # A pixel value is accepted on the same entries — the class default (1 px) included.
     @test locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 1.0), local_optimization_strategy = lo) !== nothing
-    @test converged(find_essential(cam, cam, csponds(a, b); rng = StableRNG(2035)))
+    @test converged(find_essential(cam, cam, correspondences(a, b); rng = StableRNG(2035)))
     # A unit-focal camera's "pixel" IS a calibrated unit, so a calibrated
     # threshold is right there and is not refused.
-    pc = EssentialProblem(IDCAM, IDCAM, csponds(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))
+    pc = EssentialProblem(IDCAM, IDCAM, correspondences(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))
     @test locally_optimize(pc, θ; scoring = MsacScoring(pc; threshold = 0.002), local_optimization_strategy = lo) !== nothing
 end
 end

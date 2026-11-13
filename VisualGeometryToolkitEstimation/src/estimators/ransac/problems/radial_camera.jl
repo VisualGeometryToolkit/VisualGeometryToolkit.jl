@@ -18,7 +18,7 @@
 # uncertain), so `mahalanobis_distances!` reports g/‖∂g/∂x‖ directly. The LO step is the
 # chart LM on the sphere chart of vec(P) (below).
 # The centre is problem DATA (required), as for the radial homography. The
-# problem owns ONE normalization, `CspondNormalization(RadialCamera, cs; center)`
+# problem owns ONE normalization, `CorrespondenceNormalization(RadialCamera, cs; center)`
 # (Hartley at the plane centroid, Hartley about the centre on the image side —
 # the strategy `fit_radial_camera` solves in too), built at construction: the
 # minimal solves run on the normalized view and their cameras come back to
@@ -27,7 +27,7 @@
 # =============================================================================
 
 # The `MinimalSolveProblem` instantiation for VGC's `RadialCamera` (bounded
-# free parameters, as the cspond.jl aliases): `cs` the canonical plane => pixel
+# free parameters, as the correspondence.jl aliases): `cs` the canonical plane => pixel
 # data (RAW pixels, attribute columns kept), `cs_hartley` = `cs_solve` its
 # normalized view (the minimal solve's input), `solver` the 5-point kernel about
 # the normalized frame's origin, `context` the distortion centre in pixels.
@@ -38,7 +38,7 @@ const RadialCameraProblem = MinimalSolveProblem{VgtkCore.RadialCamera{Float64}, 
 
 The radial-camera problem from `plane_point => raw_pixel` pairs of one board.
 `center` — the distortion centre in pixels — is REQUIRED (data, not
-configuration); a `Csponds` `:score` attribute column drives PROSAC sampling,
+configuration); a `Correspondences` `:score` attribute column drives PROSAC sampling,
 and every attribute column travels with the data.
 """
 function RadialCameraProblem(
@@ -55,7 +55,7 @@ end
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialCamera}}) = 1   # one line-distance per correspondence
 
 # The radial camera's datum: a camera composed back into pixels (`_candidate`,
-# cspond.jl — the minimal solve's roots and `fit_radial_camera`'s solution)
+# correspondence.jl — the minimal solve's roots and `fit_radial_camera`'s solution)
 # carries the problem's centre EXACTLY, not the composition's rounding of it.
 _with_datum(p::RadialCameraProblem, P::VgtkCore.RadialCamera) =
     VgtkCore.RadialCamera(radial_rows(P), p.context)

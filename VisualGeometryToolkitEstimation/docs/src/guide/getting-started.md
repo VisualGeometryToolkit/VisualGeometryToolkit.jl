@@ -20,7 +20,7 @@ build runs it (a doctest):
 ```jldoctest homography
 julia> using VisualGeometryToolkitEstimation, Random
 
-julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, csponds, estimate, to_euclidean, MsacScoring,
+julia> using VisualGeometryToolkitCore: HomographyMat, HomographyMap, Point2, correspondences, estimate, to_euclidean, MsacScoring,
            inlier_mask
 
 julia> H_true = HomographyMat([1.02 -0.02 12.0; 0.01 0.98 -5.0; 1e-5 2e-5 1.0]);
@@ -33,7 +33,7 @@ julia> dst = [to_euclidean(HomographyMap(H_true)(x)) for x in src];   # their im
 
 julia> for i in 1:8; dst[i] = Point2(640rand(rng), 480rand(rng)); end   # 8 outliers
 
-julia> result = find_homography(csponds(src, dst));    # MSAC at 3 px, the default
+julia> result = find_homography(correspondences(src, dst));    # MSAC at 3 px, the default
 
 julia> count(inlier_mask(result))                       # the 32 true correspondences
 32
@@ -41,7 +41,7 @@ julia> count(inlier_mask(result))                       # the 32 true correspond
 julia> H = Matrix(estimate(result)); H ./ H[3, 3] ≈ Matrix(H_true)
 true
 
-julia> result = find_homography(csponds(src, dst);   # a scorer overrides the class's
+julia> result = find_homography(correspondences(src, dst);   # a scorer overrides the class's
               scoring = MsacScoring(HomographyProblem; threshold = 2.0));
 ```
 
@@ -66,7 +66,7 @@ using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabe
 using LocalOptimizationDoneRight: HQ, StudentTUniform, WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY
 using VisualGeometryToolkitCore: WelschShape
 
-cs = csponds(src, dst)
+cs = correspondences(src, dst)
 problem = HomographyProblem(cs)
 
 result = find_homography(cs;
@@ -87,7 +87,7 @@ To control every piece, build the problem and the scorer and call `ransac`:
 ```julia
 using VisualGeometryToolkitCore: MsacScoring, TLSShape, WelschShape, IGPrior
 
-problem = HomographyProblem(csponds(src, dst))
+problem = HomographyProblem(correspondences(src, dst))
 
 # the core baseline
 result = ransac(problem, MsacScoring(problem; threshold = 2.0);

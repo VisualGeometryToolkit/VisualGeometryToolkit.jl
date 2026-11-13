@@ -7,7 +7,7 @@ using StaticArrays: SVector, SMatrix, @SMatrix
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: HomographyMat, RadialCamera, CameraModel, focal_length, intrinsics, lens
 using VisualGeometryToolkitCore: estimate, parameter_vector, retcode, iterations, rms, noise_scale   # VGC accessors (public)
-using VisualGeometryToolkitCore: Csponds, calibration_matrix, radial_rows, CspondNormalization
+using VisualGeometryToolkitCore: Correspondences, calibration_matrix, radial_rows, CorrespondenceNormalization
 using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError, DivisionCameraMetadata
 using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step,
@@ -32,7 +32,7 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     rc, vw = Dict(enumerate(Hs)), Dict(enumerate(boards))
     sz = (4000, 3000)
     # one-shot, algebraic, unweighted: the plain stack
-    N = CspondNormalization(DivisionCameraState, vw; center = SVector(0.0, 0.0))   # the fit's own
+    N = CorrespondenceNormalization(DivisionCameraState, vw; center = SVector(0.0, 0.0))   # the fit's own
     plain = CameraModel(division_camera_step(N, rc, vw))
     res = fit_division_camera(rc, vw; image_size = sz)
     f_plain = focal_length(intrinsics(plain))[1]; f_irls = focal_length(intrinsics(estimate(res)))[1]
@@ -50,7 +50,7 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     @test count(<(0.2), w) >= 0.05 * length(w)                          # the outliers are down-weighted
     @test all(i -> res.views[i].weights isa Vector{Float64} && length(res.views[i]) == length(boards[i]), 1:6)
     # a unit `weights` column is a no-op prior
-    ones_vw = Dict(i => Csponds(first.(b), last.(b); weights = ones(length(b))) for (i, b) in enumerate(boards))
+    ones_vw = Dict(i => Correspondences(first.(b), last.(b); weights = ones(length(b))) for (i, b) in enumerate(boards))
     @test focal_length(intrinsics(estimate(fit_division_camera(rc, ones_vw; image_size = sz))))[1] ≈ f_irls rtol = 1.0e-10
     # the key sets must agree; the image size is required unless a seed is
     # given; a seed is a positive focal
@@ -103,15 +103,15 @@ em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path(
     @test abs(focal_length(intrinsics(estimate(res3)))[1] - f0) / f0 < 5.0e-3
     # a view weighted to zero: it leaves the fit, and its rows leave the rms
     # (they used to enter it at the posterior's 1e12 sentinel: rms ~4e5 px)
-    zw = Dict(i => Csponds(first.(b), last.(b); weights = (i == 6 ? zeros : ones)(length(b))) for (i, b) in enumerate(boards))
+    zw = Dict(i => Correspondences(first.(b), last.(b); weights = (i == 6 ? zeros : ones)(length(b))) for (i, b) in enumerate(boards))
     resz = fit_division_camera(rc, zw; image_size = sz)
     @test isfinite(rms(resz)) && rms(resz) < 50.0
     @test resz.n <= sum(length, boards[1:5])
     # weights: negative is an argument error; all zero is the data condition,
     # about a centre off the origin too (it used to blame the normalization)
-    neg = Dict(i => Csponds(first.(b), last.(b); weights = (i == 2 ? fill(-1.0, length(b)) : ones(length(b)))) for (i, b) in enumerate(boards))
+    neg = Dict(i => Correspondences(first.(b), last.(b); weights = (i == 2 ? fill(-1.0, length(b)) : ones(length(b)))) for (i, b) in enumerate(boards))
     @test_throws ArgumentError fit_division_camera(rc, neg; image_size = sz)
-    allz = Dict(i => Csponds(first.(b), last.(b); weights = zeros(length(b))) for (i, b) in vwc)
+    allz = Dict(i => Correspondences(first.(b), last.(b); weights = zeros(length(b))) for (i, b) in vwc)
     @test_throws DivisionCameraError fit_division_camera(rcc, allz; focal_seed = 1800.0)
 end
 end

@@ -4,7 +4,7 @@
 #
 # `EssentialProblem` is the `MinimalSolveProblem{EssentialMat}` alias; its
 # construction, minimal solve (VGC `Essential5pt` on the unit bearings) and
-# sample gate are the family's (cspond.jl). `cs` holds genuine rays — 3-vector
+# sample gate are the family's (correspondence.jl). `cs` holds genuine rays — 3-vector
 # unit bearings from the camera's own back-projection — carrying their
 # per-view back-projection Jacobians as the `M₁`/`M₂` attribute columns.
 #

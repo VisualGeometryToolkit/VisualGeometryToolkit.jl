@@ -8,7 +8,7 @@
 using Random: randn, rand, randperm
 using LinearAlgebra: normalize
 using StaticArrays: SA, SVector
-using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds
+using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences
 export FISHEYE, rotation_scene
 
 # A fisheye whose field reaches 100° off axis (an equidistant-based KB lens, f = 300 px).
@@ -33,13 +33,13 @@ function rotation_scene(rng, R, n; σ = 0.5, outl = 0.0, θmax = deg2rad(100))
             all(isfinite, backproject_with_jacobian(FISHEYE, c)[1]) && (u₂[i] = c; break)
         end
     end
-    return Csponds(u₁, u₂), θs, bad
+    return Correspondences(u₁, u₂), θs, bad
 end
 end
 
 @testitem "RotationProblem: minimal solver, gates, residual" setup = [RotationScene] begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
         withattrs, sources, targets, estimate, converged, angle_between
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -63,27 +63,27 @@ end
     # an antipodal transfer is an outlier however small its tangent residual: an
     # explicit datum f₂ = −R·f₁ (its tangent residual is zero) is gated to Inf
     f₁ = sources(p.cs)[i]; M₁ = p.cs.M₁[i]
-    pa = RotationProblem(withattrs(Csponds([f₁, f₁], [-(R * f₁), R * f₁]); M₁ = [M₁, M₁], M₂ = [R * M₁, R * M₁]))
+    pa = RotationProblem(withattrs(Correspondences([f₁, f₁], [-(R * f₁), R * f₁]); M₁ = [M₁, M₁], M₂ = [R * M₁, R * M₁]))
     @test VgtkEstimation.mahalanobis_distance(pa, R, 1) == Inf
     @test VgtkEstimation.mahalanobis_distance(pa, R, 2) < 1.0e-9           # the same datum, not antipodal
     # the coincidence gate refuses a sample of one detection twice
-    cs2 = Csponds(vcat(sources(cs)[1:2], [sources(cs)[1]]), vcat(targets(cs)[1:2], [targets(cs)[1]]))
+    cs2 = Correspondences(vcat(sources(cs)[1:2], [sources(cs)[1]]), vcat(targets(cs)[1:2], [targets(cs)[1]]))
     p2 = RotationProblem(FISHEYE, FISHEYE, cs2)
     @test !VgtkEstimation.test_sample(p2, [1, 3]) && VgtkEstimation.test_sample(p2, [1, 2])
     # parallel bearings: the minimal solver's refusal
     f = backproject_with_jacobian(FISHEYE, SA[600.0, 600.0])
-    pb = RotationProblem(withattrs(Csponds([f[1], f[1], f[1]], [f[1], f[1], f[1]]); M₁ = [f[2], f[2], f[2]], M₂ = [f[2], f[2], f[2]]))
+    pb = RotationProblem(withattrs(Correspondences([f[1], f[1], f[1]], [f[1], f[1], f[1]]); M₁ = [f[2], f[2], f[2]], M₂ = [f[2], f[2], f[2]]))
     @test VgtkEstimation.solve(pb, [1, 2]).count == 0
     # refusals: a Pair vector, 2-vectors, non-unit bearings
     @test_throws ArgumentError RotationProblem([f[1] => f[1], f[1] => f[1]])
-    @test_throws ArgumentError RotationProblem(withattrs(Csponds([2 * f[1], f[1]], [f[1], f[1]]); M₁ = [f[2], f[2]], M₂ = [f[2], f[2]]))
-    @test_throws ArgumentError RotationProblem(Csponds([f[1], f[1]], [f[1], f[1]]))
+    @test_throws ArgumentError RotationProblem(withattrs(Correspondences([2 * f[1], f[1]], [f[1], f[1]]); M₁ = [f[2], f[2]], M₂ = [f[2], f[2]]))
+    @test_throws ArgumentError RotationProblem(Correspondences([f[1], f[1]], [f[1], f[1]]))
 end
 
 @testitem "RotationProblem: chart rows against ForwardDiff; the refit lowers the Sampson cost" setup = [RotationScene] begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
         withattrs, sources, targets, estimate, converged, angle_between
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -94,7 +94,7 @@ end
     # anisotropic fisheye noise: the periphery's pixels subtend different angles radially and tangentially
     cs, _, _ = rotation_scene(rng, R, 200; σ = 1.0)
     p = RotationProblem(FISHEYE, FISHEYE, cs)
-    R0 = RotMatrix{3, Float64, 9}(kabsch(Csponds(sources(p.cs), targets(p.cs))) )   # the unweighted kabsch: the LM's start
+    R0 = RotMatrix{3, Float64, 9}(kabsch(Correspondences(sources(p.cs), targets(p.cs))) )   # the unweighted kabsch: the LM's start
     ch = VgtkEstimation._chart(p, R0)
     n = 200; sqrtw = rand(rng, 2n)
     lm = VgtkEstimation._lm_state(p, ch, sqrtw)
@@ -117,7 +117,7 @@ end
     using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Csponds,
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
         withattrs, sources, targets, estimate, converged, angle_between, retcode, iterations, MsacScoring
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -134,7 +134,7 @@ end
         @test count(inl[bad]) < 0.05 * length(bad) + 2
         @test any(θs[findall(inl)] .> deg2rad(90))                       # inliers past 90° took part
     end
-    @test let r = find_rotation(FISHEYE, FISHEYE, Csponds([SA[600.0, 600.0]], [SA[600.0, 600.0]]))
+    @test let r = find_rotation(FISHEYE, FISHEYE, Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]]))
         retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
     end
     @test_throws ArgumentError find_rotation(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1]; scoring = MsacScoring(RotationProblem; threshold = 0.01))

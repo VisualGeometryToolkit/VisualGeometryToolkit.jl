@@ -307,7 +307,7 @@ function _robot_world_hand_eye_init(
         count(>(0), pw) >= 2 || throw(ArgumentError(
             "fit_robot_world_hand_eye: the loss leaves fewer than 2 relative motions of positive weight; a " *
             "redescending loss needs a seed inside its width: use a monotone one (Irls{HuberShape}) or a wider `width`"))
-        RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = pw))')
+        RotMatrix{3, Float64}(kabsch(VgtkCore.Correspondences(as, bs; weights = pw))')
     end
 
     # 2. R_X per marker: R_B = R_Yᵀ R_A R_X  ⇒  R_X = R_Aᵀ R_Y R_B, chordal mean (weighted: Σ wₖRₖ projected)
@@ -500,7 +500,7 @@ extrapolated worse than this solution (see the documentation's
 refinement is the sound upgrade path.
 
 # Arguments
-- `markers::AbstractDict{K, <:AbstractVector{<:Cspond}}` — per marker id, the
+- `markers::AbstractDict{K, <:AbstractVector{<:Correspondence}}` — per marker id, the
   correspondences between rigid transforms `A_i => B_i^m` of every frame it is
   seen in: the rig pose `T_WR` (e.g. mocap) and the marker-in-camera pose
   `T_CPm` (e.g. PnP); any frame labels accepted, `unlabel`ed at the boundary.
@@ -579,7 +579,7 @@ See also [`find_hand_eye`](@ref) for the ratio form `A_ij X = X B_ij` (no
 pose prior, RANSAC) which eliminates `Y` instead of estimating it.
 """
 function fit_robot_world_hand_eye(
-        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
+        markers::AbstractDict{K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
         σ_rot::Union{Nothing, Real} = nothing,
         σ_trans::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
@@ -677,11 +677,11 @@ end
 # Physical poses: stripped in metres once (with σ_trans), the plain fit, the
 # calibration read back in metres once.
 function fit_robot_world_hand_eye(
-        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}}};
+        markers::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}}};
         σ_trans = nothing, kwargs...
     ) where {K}
-    plain = Dict(id => _map_csponds(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
-        AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
+    plain = Dict(id => _map_correspondences(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
+        AbstractDict{K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
     return _attach_metres(fit_robot_world_hand_eye(plain; σ_trans = _metres(σ_trans), kwargs...))
 end
 

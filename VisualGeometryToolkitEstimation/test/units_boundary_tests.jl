@@ -22,7 +22,7 @@ using StaticArrays: SVector, SMatrix
 using Rotations: AngleAxis, RotMatrix, RotXYZ
 import VisualGeometryToolkitCore as VgtkCore
 import VisualGeometryToolkitEstimation as VgtkEstimation
-using VisualGeometryToolkitCore: EuclideanMap, CameraModel, Csponds, HyperRectangle, HomographyMat, Vec2, Vec3,
+using VisualGeometryToolkitCore: EuclideanMap, CameraModel, Correspondences, HyperRectangle, HomographyMat, Vec2, Vec3,
     estimate, retcode, iterations, rms, metadata, rotation, translation, project, m, mm, ustrip, DimensionError
 using VisualGeometryToolkitEstimation: find_absolute_pose, find_hand_eye, fit_robot_world_hand_eye,
     refine_robot_world_hand_eye, RobotWorldHandEyeCalibration, AbsolutePoseProblem, HandEyeProblem,
@@ -68,11 +68,11 @@ same_diagnostics(a, b) = retcode(a) === retcode(b) && iterations(a) == iteration
     @test isapprox(rotation(estimate(plain_mm)), rotation(estimate(from_mm)); atol = 1.0e-12)
     @test isapprox(translation(estimate(plain_mm)), 1000 .* translation(ustrip(m, estimate(from_mm))); rtol = 1.0e-9)
 
-    # a Csponds keeps its columns: the PROSAC score orders the same samples
+    # a Correspondences keeps its columns: the PROSAC score orders the same samples
     s = collect(range(1.0, 0.1; length = length(X)))
     @test same_pose(
-        ustrip(m, estimate(find_absolute_pose(cam, Csponds([x .* m for x in X], u; score = s); rng = StableRNG(2)))),
-        estimate(find_absolute_pose(cam, Csponds(X, u; score = s); rng = StableRNG(2)))
+        ustrip(m, estimate(find_absolute_pose(cam, Correspondences([x .* m for x in X], u; score = s); rng = StableRNG(2)))),
+        estimate(find_absolute_pose(cam, Correspondences(X, u; score = s); rng = StableRNG(2)))
     )
     # a physical extent goes with physical points
     ext = HyperRectangle(Vec2(-2.0, -2.0), Vec2(4.0, 4.0))

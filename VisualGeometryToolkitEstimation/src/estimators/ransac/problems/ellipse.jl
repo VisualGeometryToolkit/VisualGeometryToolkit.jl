@@ -16,7 +16,7 @@
 #   the chart            `EllipseManifold` (`minimal_manifold(e)`): the centre
 #                        and the log shape, 5 dof.
 #
-# Its construction, sampler and RANSAC wiring are the family's (cspond.jl), as
+# Its construction, sampler and RANSAC wiring are the family's (correspondence.jl), as
 # the circle's. The residual is VGC's default `mahalanobis_distances!` — the Sampson
 # distance g/‖G_x‖ (VGC's Sampson layer): the geometric distance to the ellipse
 # to first order, in PIXELS. The refit is the family's chart LM on the rows

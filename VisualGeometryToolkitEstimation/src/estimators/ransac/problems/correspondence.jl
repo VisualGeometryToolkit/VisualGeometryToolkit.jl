@@ -2,7 +2,7 @@
 # MinimalSolveProblem — the consolidated correspondence-based RANSAC problem
 # =============================================================================
 #
-# `AbstractCspondProblem{K} <: AbstractRansacProblem{K}` is the abstract base
+# `AbstractCorrespondenceProblem{K} <: AbstractRansacProblem{K}` is the abstract base
 # for any RANSAC problem whose data is a collection of correspondences. `K`
 # is the minimal sample size (compile-time integer).
 #
@@ -17,7 +17,7 @@
 #                which ALWAYS returns `FixedModels` (count=0 on failure) —
 #                the per-problem result-wrapping and the unrolled positional
 #                solver calls are gone.
-#   normalization — a VGC `CspondNormalization` (H/F) or `nothing` (E, pose).
+#   normalization — a VGC `CorrespondenceNormalization` (H/F) or `nothing` (E, pose).
 #                A model changes frame by composition with its two maps:
 #                `inv(destination_map(N)) ∘ m ∘ source_map(N)` to the data frame,
 #                `destination_map(N) ∘ m ∘ inv(source_map(N))` into the normalized one.
@@ -34,10 +34,10 @@
 # union alias for the 2D-2D families.
 #
 # Correspondence access goes through the VGC `sources`/`targets` protocol;
-# storage is a concrete `Csponds`. `p.cs[i]` still yields a `Cspond` (Pair).
+# storage is a concrete `Correspondences`. `p.cs[i]` still yields a `Correspondence` (Pair).
 # =============================================================================
 
-# Dependencies: StructArrays; VGC Csponds/sources/targets/CspondNormalization/
+# Dependencies: StructArrays; VGC Correspondences/sources/targets/CorrespondenceNormalization/
 #               MinimalSolver verbs; all estimation types from parent module.
 
 # =============================================================================
@@ -45,7 +45,7 @@
 # =============================================================================
 
 """
-    AbstractCspondProblem{K} <: AbstractRansacProblem{K}
+    AbstractCorrespondenceProblem{K} <: AbstractRansacProblem{K}
 
 Base type for RANSAC problems defined by correspondences.
 
@@ -54,7 +54,7 @@ Subtypes must have fields `cs` (a correspondence container satisfying the
 default implementations of `data_size(p) = length(p.cs)` and
 `sampler(p) = p._sampler`.
 """
-abstract type AbstractCspondProblem{K} <: AbstractRansacProblem{K} end
+abstract type AbstractCorrespondenceProblem{K} <: AbstractRansacProblem{K} end
 
 # =============================================================================
 # PoseContext — camera-projection context for the absolute-pose family
@@ -78,7 +78,7 @@ end
 # =============================================================================
 
 """
-    MinimalSolveProblem{M, K, T, ...} <: AbstractCspondProblem{K}
+    MinimalSolveProblem{M, K, T, ...} <: AbstractCorrespondenceProblem{K}
 
 The one parametric correspondence problem behind [`HomographyProblem`](@ref),
 [`FundMatProblem`](@ref), [`EssentialProblem`](@ref) and
@@ -102,11 +102,11 @@ struct MinimalSolveProblem{
         S <: AbstractSampler,
         H1 <: HomographyMap{3, T},
         H2 <: HomographyMap{3, T},
-    } <: AbstractCspondProblem{K}
-    cs::CS          # data-frame correspondence container (concrete Csponds)
+    } <: AbstractCorrespondenceProblem{K}
+    cs::CS          # data-frame correspondence container (concrete Correspondences)
     cs_hartley::CG  # Hartley-normalized gate view (2D-2D) | nothing (pose)
     cs_solve::CV    # view the minimal solver consumes (see header)
-    normalization::F  # CspondNormalization{T} | nothing
+    normalization::F  # CorrespondenceNormalization{T} | nothing
     solver::MS      # VGC MinimalSolver (carries the backend)
     context::CX     # nothing | PoseContext
     # Per-image OBSERVATION-FRAME maps: frame-labeled `HomographyMap`s taking a
@@ -154,7 +154,7 @@ The RANSAC problem of a pure rotation between two calibrated views: the
 `f₂ ∥ R·f₁` for unit bearings `f₁ => f₂` (the infinite homography). Minimal
 sample 2 (VisualGeometryToolkitCore's `Rotation2pt`), codimension 2, a 3-dof
 chart. Build it with `RotationProblem(camera1, camera2, pixel_cs)` or from a
-bearing `Csponds` carrying `M₁`/`M₂` columns; the public estimator is
+bearing `Correspondences` carrying `M₁`/`M₂` columns; the public estimator is
 [`find_rotation`](@ref).
 """
 const RotationProblem = MinimalSolveProblem{RotMatrix{3, Float64, 9}, 2, Float64}
@@ -204,22 +204,22 @@ _dlt_fn(::MinimalSolveProblem{<:FundMat}) = fundamental_dlt!
 #
 # Shared body for the three 2D-2D constructors. Differences across H/F/E are
 # entirely encoded in the (M, solver) pair. Any container satisfying the
-# `sources`/`targets` protocol is accepted (Csponds, StructArray of Pairs,
-# plain Pair vectors); a `Csponds` with a `:score` attribute column supplies
+# `sources`/`targets` protocol is accepted (Correspondences, StructArray of Pairs,
+# plain Pair vectors); a `Correspondences` with a `:score` attribute column supplies
 # the PROSAC prior automatically unless `scores` is supplied explicitly.
 
 # Concrete canonical storage: bare Point2 columns, no attribute columns
 # (the score column is consumed by the sampler at construction).
-const _PointCsponds{T} = VgtkCore.Csponds{
+const _PointCorrespondences{T} = VgtkCore.Correspondences{
     Point2{T}, Point2{T}, Vector{Point2{T}}, Vector{Point2{T}}, @NamedTuple{},
 }
 
-@inline _canonicalize_pairs(cs::_PointCsponds) = cs
+@inline _canonicalize_pairs(cs::_PointCorrespondences) = cs
 # LENGTH-PRESERVING, and it has to be. This used to read `Point2{T}(p[1], p[2])`
 # unconditionally, which on a 3-vector bearing takes components 1 and 2 and
 # DISCARDS the third — the same index-and-append pattern that makes a unit ray
 # read as a gnomonic point, and nearly right whenever z ≈ 1, so it degrades with
-# field of view instead of failing. It also returned a bare `Csponds`, dropping
+# field of view instead of failing. It also returned a bare `Correspondences`, dropping
 # every attribute column, so `M₁`/`M₂` validated at the constructor did not
 # survive to the gate: the check succeeded and the next line destroyed the property
 # it had checked.
@@ -228,8 +228,8 @@ const _PointCsponds{T} = VgtkCore.Csponds{
 
 # The problem scalar is promoted from BOTH sides, so neither endpoint type is
 # silently narrowed (a Float64 pixel set against Float32 board points).
-_canonicalize_pairs(pairs) = _canonicalize_pairs(_cspond_scalar(pairs), pairs)
-_cspond_scalar(pairs) = float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs)))))
+_canonicalize_pairs(pairs) = _canonicalize_pairs(_correspondence_scalar(pairs), pairs)
+_correspondence_scalar(pairs) = float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs)))))
 # A plane-point endpoint as the public `find_*` signatures accept it: a 2-vector,
 # plain or with its observation noise (`Uncertain`, `exact`).
 const _PlanePoint = Union{StaticArrays.StaticVector{2}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{2}}}
@@ -245,7 +245,7 @@ function _canonicalize_pairs(::Type{T}, pairs) where {T}
     s = sources(pairs); t = targets(pairs)
     src = [_canon_pt(T, p) for p in s]
     dst = [_canon_pt(T, p) for p in t]
-    cs = VgtkCore.Csponds(src, dst)
+    cs = VgtkCore.Correspondences(src, dst)
     # Attribute columns travel with the endpoints they index. Anything derived
     # per correspondence — `M₁`/`M₂`, weights, priors — subsets in lockstep
     # from here on, which is the point of their being columns at all. The
@@ -255,7 +255,7 @@ function _canonicalize_pairs(::Type{T}, pairs) where {T}
     return isempty(attrs) ? cs : VgtkCore.withattrs(cs; attrs...)
 end
 
-# The observation-noise rule (VGC conventions/measurement-noise.md) is honored
+# The observation-noise rule (VGC conventions/observation-noise.md) is honored
 # by every route a problem computes its residual through — scoring, the chart
 # rows of the refit and the lift, the solver covariance. A problem class whose
 # routes do not all read the `Σ₁`/`Σ₂` columns refuses them rather than
@@ -270,7 +270,7 @@ function _check_noise_support(::Type{M}, cs) where {M}
     return cs
 end
 _has_noise_columns(cs) = VgtkCore.hasattr(cs, :Σ₁) || VgtkCore.hasattr(cs, :Σ₂)
-_has_noise_columns(::_PointCsponds) = false
+_has_noise_columns(::_PointCorrespondences) = false
 
 # The prologue every correspondence-problem constructor shares: enough
 # correspondences for a `K`-point minimal sample, and the sampler — the
@@ -468,7 +468,7 @@ end
 _needs_normalization(::Type{<:EssentialMat}) = false
 _needs_normalization(::Type) = true
 
-# `CspondNormalization(M, cs)` — the per-model correspondence normalization — is
+# `CorrespondenceNormalization(M, cs)` — the per-model correspondence normalization — is
 # VisualGeometryToolkitCore's (solver layer): the H/F/E and RadialHomography strategies
 # are registered there. RVG consumes it below; it defines no strategies of its own.
 
@@ -534,7 +534,7 @@ function _make_minimal_problem(
     sm_h = _observation_map(T, src_map); dm_h = _observation_map(T, dst_map)
     _check_observation_frames(M, sm_h, dm_h, model_frames)
     cs_solve = _solve_view(M, cs, to_homogeneous(sm_h), to_homogeneous(dm_h))
-    normalization = _needs_normalization(M) ? CspondNormalization(M, cs_solve) : nothing
+    normalization = _needs_normalization(M) ? CorrespondenceNormalization(M, cs_solve) : nothing
     cs_hartley = normalization === nothing ? nothing : LinearAlgebra.normalize(normalization, cs_solve)
     return MinimalSolveProblem{M{T}, K}(cs, cs_hartley, cs_solve, normalization, slv, nothing, smplr, sm_h, dm_h;
         coincident_tol = something(coincident_tol, VgtkCore.COINCIDENT_PX))
@@ -543,14 +543,14 @@ end
 # THE construction of a centred-model problem — the radial homography and the
 # radial camera, whose model is defined about a distortion centre that is
 # problem DATA: the canonical data, the model class's fixed-centre
-# normalization (`CspondNormalization(M, cs; center)`), and the normalized view
+# normalization (`CorrespondenceNormalization(M, cs; center)`), and the normalized view
 # as the solve view (the kernels are origin-centred). `context` is the problem's
 # datum (the radial camera's centre, `_with_datum`), or `nothing`.
 function _make_centered_problem(::Type{M}, K::Int, pairs, solver, sampler, center, context) where {M}
     smplr = _problem_sampler(pairs, K, sampler)
     cs = _exact_source_only(M, _canonicalize_pairs(pairs))
     T = eltype(eltype(sources(cs)))
-    normalization = CspondNormalization(M, cs; center = SVector{2, Float64}(center[1], center[2]))
+    normalization = CorrespondenceNormalization(M, cs; center = SVector{2, Float64}(center[1], center[2]))
     cs_norm = LinearAlgebra.normalize(normalization, cs)
     return MinimalSolveProblem{_model_class(M, T), K}(cs, cs_norm, cs_norm, normalization, solver, context, smplr)
 end
@@ -560,7 +560,7 @@ end
 # `exact` source column therefore says what the residual already does and is
 # dropped; any other covariance is refused, as is a noisy source the residual
 # could not see.
-_exact_source_only(::Type, cs::_PointCsponds) = cs
+_exact_source_only(::Type, cs::_PointCorrespondences) = cs
 function _exact_source_only(::Type{M}, cs) where {M}
     _has_noise_columns(cs) || return cs
     exact_src = VgtkCore.hasattr(cs, :Σ₁) && all(iszero, cs.Σ₁)
@@ -571,7 +571,7 @@ function _exact_source_only(::Type{M}, cs) where {M}
     ))
     a = VgtkCore.attrs_of(cs)
     rest = NamedTuple{filter(!=(:Σ₁), keys(a))}(a)
-    return VgtkCore.Csponds(sources(cs), targets(cs), rest)
+    return VgtkCore.Correspondences(sources(cs), targets(cs), rest)
 end
 _model_class(::Type{VgtkCore.RadialHomography}, ::Type{T}) where {T} = VgtkCore.RadialHomography{T, 1}
 _model_class(::Type{VgtkCore.RadialCamera}, ::Type) = VgtkCore.RadialCamera{Float64}
@@ -583,12 +583,12 @@ _model_class(::Type{VgtkCore.RadialCamera}, ::Type) = VgtkCore.RadialCamera{Floa
 Construct a `HomographyProblem` from 2D-2D point correspondences.
 
 - `pairs`: any correspondence container satisfying the `sources`/`targets`
-  protocol (`Csponds`, `StructArray{<:Pair}`, plain Pair vector). The PROSAC
-  prior is its `:score` attribute column when `pairs` is a `Csponds` that has
+  protocol (`Correspondences`, `StructArray{<:Pair}`, plain Pair vector). The PROSAC
+  prior is its `:score` attribute column when `pairs` is a `Correspondences` that has
   one (VGC `withattrs(cs; score = s)`, the descriptor matcher's output):
   sampling ordered by descending score; uniform otherwise. Endpoints carry
   their observation noise (VisualGeometryToolkitCore
-  `conventions/measurement-noise.md`): plain = unit isotropic in the point's
+  `conventions/observation-noise.md`): plain = unit isotropic in the point's
   own frame, `Uncertain(p, CovMat(Σ))` = its covariance, `exact(p)` = none
   (not both endpoints). The constraint is whitened by
   `G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ` in scoring, the refit and the lifts alike; a board or
@@ -661,8 +661,8 @@ function EssentialProblem(
     )
     throw(ArgumentError(
         "EssentialProblem needs the back-projection Jacobians, which a vector of " *
-            "Pairs cannot carry. Build a `Csponds` and attach them as columns: " *
-            "`withattrs(Csponds(f₁, f₂); M₁, M₂)`, from " *
+            "Pairs cannot carry. Build a `Correspondences` and attach them as columns: " *
+            "`withattrs(Correspondences(f₁, f₂); M₁, M₂)`, from " *
             "`backproject_with_jacobian(camera, u)`."
     ))
 end
@@ -733,7 +733,7 @@ function EssentialProblem(camera1, camera2, pixel_cs; kw...)
     # scored E into uniform sampling while H and F honoured the same column.
     cols = merge(VgtkCore.attrs_of(pixel_cs), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
     return EssentialProblem(
-        VgtkCore.Csponds(first.(fm₁), first.(fm₂), cols); kw...
+        VgtkCore.Correspondences(first.(fm₁), first.(fm₂), cols); kw...
     )
 end
 
@@ -781,8 +781,8 @@ E takes no observation maps: a non-identity `src_map`/`dst_map` is an
 `ArgumentError`. Build the bearings with the cameras instead,
 `EssentialProblem(camera1, camera2, pixel_cs)`.
 """
-function EssentialProblem(bearings::VgtkCore.Csponds; kw...)
-    # A `Csponds` carrying the columns arrives here rather than as a Pair vector,
+function EssentialProblem(bearings::VgtkCore.Correspondences; kw...)
+    # A `Correspondences` carrying the columns arrives here rather than as a Pair vector,
     # so the length check is on its element type and the column check is explicit.
     (eltype(sources(bearings)) <: StaticArrays.StaticVector{3} &&
         eltype(targets(bearings)) <: StaticArrays.StaticVector{3}) || throw(ArgumentError(
@@ -827,7 +827,7 @@ Construct an absolute-pose (P3P) problem from 3D-2D correspondences and a
 camera model. Rays are precomputed via `backproject(model, u)` at
 construction time; `cs_solve` pairs the world points with those rays for the
 P3P solver. Accepts any `sources`/`targets`-protocol container of
-3D-source / 2D-target correspondences; a `Csponds` `:score` column is the
+3D-source / 2D-target correspondences; a `Correspondences` `:score` column is the
 PROSAC prior.
 
 The residual currency is the RAW pixel of `model` for every lens: scoring
@@ -854,7 +854,7 @@ function AbsolutePoseProblem(
     proj = VgtkCore.imaging_transform(intrinsics(model), lens(model))
     ctx = PoseContext(rays, proj, model)
     slv = VgtkCore.P3P(backend)
-    cs_solve = VgtkCore.Csponds(src, rays)
+    cs_solve = VgtkCore.Correspondences(src, rays)
     return MinimalSolveProblem{Extrinsics3, 3}(cs, nothing, cs_solve, nothing, slv, ctx, smplr)
 end
 
@@ -862,8 +862,8 @@ end
 # Shared Interface Methods
 # =============================================================================
 
-data_size(p::AbstractCspondProblem) = length(p.cs)
-sampler(p::AbstractCspondProblem) = p._sampler
+data_size(p::AbstractCorrespondenceProblem) = length(p.cs)
+sampler(p::AbstractCorrespondenceProblem) = p._sampler
 
 # =============================================================================
 # solve — ONE method: the VGC MinimalSolver verb on the solver's view, every
@@ -1082,8 +1082,8 @@ end
 # transfer error in the target's units. The rotation problem's columns are its
 # PIXELS' covariances (its bearings' `M₁`/`M₂` put the transfer form's `G_x` in
 # pixels), so the same block diagonal whitens it.
-@inline measurement_covariance(p::Union{RelativeProblem, RotationProblem}, i::Int) = _noise(p.cs, i)
-@inline _noise(::_PointCsponds, ::Int) = I
+@inline observation_covariance(p::Union{RelativeProblem, RotationProblem}, i::Int) = _noise(p.cs, i)
+@inline _noise(::_PointCorrespondences, ::Int) = I
 @inline _noise(cs, i::Int) = VgtkCore.pair_covariance(cs, i)
 
 # =============================================================================

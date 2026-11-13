@@ -10,7 +10,7 @@
     using Rotations: RotXYZ
     using VisualGeometryToolkitCore: HomographyMat, LogicalIntrinsics, CameraModel, intrinsics, lens, focal_length,
         RadialCamera, radial_rows, Point2, calibration_matrix
-    using VisualGeometryToolkitCore: Csponds, CspondNormalization, center
+    using VisualGeometryToolkitCore: Correspondences, CorrespondenceNormalization, center
     using VisualGeometryToolkitEstimation: division_camera_step, DivisionCameraError, DivisionCameraState, division_coeffs,
         board_sq_residuals
     import VisualGeometryToolkitEstimation
@@ -20,7 +20,7 @@
     # each correspondence's `weights` column (the row weight √w is the same).
     _rc(Hs) = Dict(enumerate(Hs))
     _vw(boards, weights = nothing) = Dict(
-        i => (weights === nothing ? b : Csponds(first.(b), last.(b); weights = fill(Float64(weights[i]), length(b))))
+        i => (weights === nothing ? b : Correspondences(first.(b), last.(b); weights = fill(Float64(weights[i]), length(b))))
             for (i, b) in enumerate(boards)
     )
 
@@ -28,7 +28,7 @@
     # cameras' shared centre (a bare homography's is the origin).
     _center(H::HomographyMat) = SVector(0.0, 0.0)
     _center(P::RadialCamera) = SVector(center(P)[1], center(P)[2])
-    _N(Hs, vw) = CspondNormalization(DivisionCameraState, vw; center = _center(first(Hs)))
+    _N(Hs, vw) = CorrespondenceNormalization(DivisionCameraState, vw; center = _center(first(Hs)))
     _division_state(Hs, vw; kw...) = division_camera_step(_N(Hs, vw), _rc(Hs), vw; kw...)
 
     # A board's radial camera and its noise-free pixels under the division lens
@@ -124,7 +124,7 @@
         @testset "a board weighted to zero leaves the iteration without a pose, not without a solve" begin
             k0 = -6.4e-7
             bs = [board(R, t, (k0,)) for (R, t) in zip(Rs, ts)]
-            weighted(ws) = Dict(i => Csponds(first.(b), last.(b); weights = w) for (i, (b, w)) in enumerate(zip(bs, ws)))
+            weighted(ws) = Dict(i => Correspondences(first.(b), last.(b); weights = w) for (i, (b, w)) in enumerate(zip(bs, ws)))
             w = [fill(1.0, length(b)) for b in bs]
             w[2] .= 0.0                                                  # the robust re-weighting rejected board 2 outright
             st = _division_state(Hs, weighted(w); ncoef = 1)
@@ -217,19 +217,19 @@
         Hs = [_rcam(R, t) for (R, t) in zip(Rs, ts)]
         boards = [_board(R, t) for (R, t) in zip(Rs, ts)]
 
-        N = CspondNormalization(DivisionCameraState, _vw(boards); center = SVector(0.0, 0.0))
-        @test N isa CspondNormalization
+        N = CorrespondenceNormalization(DivisionCameraState, _vw(boards); center = SVector(0.0, 0.0))
+        @test N isa CorrespondenceNormalization
         @test destination_map(N)(SVector(0.0, 0.0)) ≈ SVector(0.0, 0.0) atol = 1.0e-15   # about the centre
         @test focal_length(intrinsics(_division_camera(Hs, boards; N)))[1] ≈ f0 rtol = 1.0e-8
         @test_throws MethodError division_camera_step(_rc(Hs), _vw(boards))            # no fallback: N is required
 
         # a centroid (translated) map on the image side would move the principal point → rejected
         plane = [pd[1] for b in boards for pd in b]; image = [pd[2] for b in boards for pd in b]
-        bad = CspondNormalization(AffineMap(HartleyNormalization(), plane), AffineMap(HartleyNormalization(), image))
+        bad = CorrespondenceNormalization(AffineMap(HartleyNormalization(), plane), AffineMap(HartleyNormalization(), image))
         @test_throws ArgumentError _division_camera(Hs, boards; N = bad)
         # any isotropic scale about the centre gives the same pixel answer
         o = SVector(0.0, 0.0)
-        other = CspondNormalization(AffineMap(HartleyNormalization(; center = o), plane), AffineMap(HartleyNormalization(; center = o), image .* 3.0))
+        other = CorrespondenceNormalization(AffineMap(HartleyNormalization(; center = o), plane), AffineMap(HartleyNormalization(; center = o), image .* 3.0))
         @test focal_length(intrinsics(_division_camera(Hs, boards; N = other)))[1] ≈ f0 rtol = 1.0e-8
         # ... and so does a WHITENED iteration: a previous state whitens the rows
         # under any normalization (its poses matched to rounding, not bit for bit —
@@ -237,8 +237,8 @@
         # Noisy pixels, so the whitening shows in f.
         noisy = [[pd[1] => pd[2] + 0.4 * SVector(sin(7j + b), cos(5j - b)) for (j, pd) in enumerate(bd)] for (b, bd) in enumerate(boards)]
         nplane = [pd[1] for bd in noisy for pd in bd]; nimage = [pd[2] for bd in noisy for pd in bd]
-        Nn = CspondNormalization(DivisionCameraState, _vw(noisy); center = o)
-        No = CspondNormalization(
+        Nn = CorrespondenceNormalization(DivisionCameraState, _vw(noisy); center = o)
+        No = CorrespondenceNormalization(
             AffineMap(HartleyNormalization(; center = SVector(40.0, -25.0)), nplane .* 2.0),
             AffineMap(HartleyNormalization(; center = o), nimage .* 3.0)
         )

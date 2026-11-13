@@ -27,7 +27,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     Uncertain, CovMat,
     # Slot-labeled epipolar forms + per-view frame tags (VGC 0.9): the
     # observation-frame bookkeeping of the 2D-2D RANSAC problems is
-    # declared through these at the construction boundary (cspond.jl
+    # declared through these at the construction boundary (correspondence.jl
     # `_observation_map`/`_check_observation_frames`/
     # `_observation_epipolar`); the @inbounds Sampson kernels and scoring
     # conjugations keep the raw matrices (bit-pinned inline products).
@@ -72,13 +72,13 @@ using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleIn
 using FlexUnits: Quantity
 using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
 using VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (Core base/utils.jl)
-using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
+using VisualGeometryToolkitCore: CorrespondenceNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type
 # whose problem argument is RVG's) and builds its pool-frame problems.
 import VisualGeometryToolkitCore.Pools: PoolPair
-using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_K2,
+using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_correspondences, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale,
     pixel_residuals, best_model_index   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
 using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, homography_dlt, test_dlt_conditioning
@@ -215,14 +215,14 @@ import VisualGeometryToolkitCore:
     test_consensus, # RANSAC problems extend; delegate to VGC model-class methods
     constraint_with_jacobians, # RANSAC problems add (problem, model, i) methods
     constraint_rounding_scale, # ... and their rounding scales (problem, model, i)
-    measurement_covariance,    # ... and their points' noise (problem, i)
+    observation_covariance,    # ... and their points' noise (problem, i)
     solve, model_type        # #21 solver-layer verbs — problems add `solve`/`model_type` methods
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
 # built on VGC's correspondence protocol (solver instances carry the
-# NativeSolver/PoseLibSolver backend). The `CspondNormalization`/`MinimalSolver`
+# NativeSolver/PoseLibSolver backend). The `CorrespondenceNormalization`/`MinimalSolver`
 # machinery and the solver tags (Homography4pt/Fundamental7pt/Essential5pt/
 # P3P) are reached through the solver objects themselves, not by name here.
-using VisualGeometryToolkitCore: sources, targets, unit_normalize, Cspond, withattrs
+using VisualGeometryToolkitCore: sources, targets, unit_normalize, Correspondence, withattrs
 # The perspective division's Jacobian — VGC's single definition, used for the
 # homography dehomogenization (`_dpi`) and the relpose bundle's `_Dproj`.
 using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
@@ -333,7 +333,7 @@ public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
 # PoseLib has its own). The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
-public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
+public AbstractRansacProblem, AbstractCorrespondenceProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
     fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
@@ -410,7 +410,7 @@ include("estimators/ransac/hypotheses.jl")   # draw_hypotheses: the RANSAC trial
 include("estimators/ransac/extent_traits.jl")
 
 # RANSAC problem implementations
-include("estimators/ransac/problems/cspond.jl")
+include("estimators/ransac/problems/correspondence.jl")
 include("estimators/ransac/problems/p3p.jl")
 include("estimators/ransac/problems/bearing_pose.jl")   # the absolute pose on caller-supplied bearings (central or generalized): the tangent-plane rows
 include("estimators/ransac/problems/homography.jl")

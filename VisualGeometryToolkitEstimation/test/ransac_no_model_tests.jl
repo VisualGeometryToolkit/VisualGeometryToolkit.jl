@@ -6,7 +6,7 @@
     using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleNone, ReturnCode   # the robust contract's accessors
     using Test, Random, StaticArrays
-    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, csponds,
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, correspondences,
         estimate, converged, retcode, iterations
     using VisualGeometryToolkitEstimation: CircleProblem, LineFittingProblem, RansacEstimate,
         ransac, find_circle, find_ellipse, find_homography, find_fundmat
@@ -54,8 +54,8 @@
     rng = Xoshiro(5)
     src = fill(Point2(10.0, 20.0), 20)
     dst = [Point2(100 * rand(rng), 100 * rand(rng)) for _ in 1:20]
-    no_model(find_homography(csponds(src, dst); rng = Xoshiro(6)))
-    no_model(find_fundmat(csponds(src, dst); rng = Xoshiro(7)))
+    no_model(find_homography(correspondences(src, dst); rng = Xoshiro(6)))
+    no_model(find_fundmat(correspondences(src, dst); rng = Xoshiro(7)))
 end
 
 @testitem "ransac: no model through the metre and frame re-wrappers" begin
@@ -105,7 +105,7 @@ end
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Csponds, csponds, HomographyMat, FundMat,
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat,
         EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, m,
         estimate, converged, retcode, iterations
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacWorkspace, CircleProblem,
@@ -136,7 +136,7 @@ end
         return r
     end
 
-    pts, cs = few_points, few_csponds
+    pts, cs = few_points, few_correspondences
     I3 = SMatrix{3, 3, Float64}(I)
     H = HomographyMat{Float64}(Tuple(I3))
     X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
@@ -150,7 +150,7 @@ end
     too_few_refine(refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4); scale = 1.0), EssentialMat{Float64}(Tuple(X3)), 4)
     too_few(find_rotation(cam, cam, cs(1)), 1)
     too_few_refine(refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1); scale = 1.0), one(RotMatrix{3, Float64}), 1)
-    b = Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])
+    b = Correspondences([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]])
     too_few(find_rotation(b), 1)
     too_few_refine(refine_rotation(one(RotMatrix{3, Float64}), b; scale = 1.0), one(RotMatrix{3, Float64}), 1)
     too_few(find_circle(pts(2)), 2)
@@ -172,8 +172,8 @@ end
     too_few_refine(refine_absolute_pose(pose, cam, X .=> u; scale = 1.0), pose, 2)
     too_few_refine(refine_absolute_pose(VgtkCore.with_unit(pose, m), cam, [x .* m for x in X] .=> u; scale = 1.0), VgtkCore.with_unit(pose, m), 2)
     f = [normalize(x) for x in X]
-    too_few_refine(refine_absolute_pose(pose, Csponds(X, f); scale = 1.0), pose, 2)
-    too_few_refine(refine_absolute_pose(VgtkCore.with_unit(pose, m), Csponds([x .* m for x in X], f); scale = 1.0), VgtkCore.with_unit(pose, m), 2)
+    too_few_refine(refine_absolute_pose(pose, Correspondences(X, f); scale = 1.0), pose, 2)
+    too_few_refine(refine_absolute_pose(VgtkCore.with_unit(pose, m), Correspondences([x .* m for x in X], f); scale = 1.0), VgtkCore.with_unit(pose, m), 2)
 
     # the supplied workspace's storage eltype
     r = too_few(find_circle(pts(2); workspace = RansacWorkspace(Float64, CircleProblem, 2)), 2)
@@ -188,7 +188,7 @@ end
     # raises the same error below the minimal sample as above it, never a :no_model.
     using Test, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
-    using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Csponds, csponds, HomographyMat, Extrinsics3, Vec3,
+    using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Correspondences, correspondences, HomographyMat, Extrinsics3, Vec3,
         TLSShape
     using VisualGeometryToolkitEstimation: find_homography, refine_homography, find_circle, refine_circle, find_absolute_pose, refine_absolute_pose
     using VisualGeometryToolkitCore: Irls
@@ -197,7 +197,7 @@ end
     # the same refusal: the same exception type and, for an ArgumentError, the same message
     same(a, b) = a !== nothing && typeof(a) === typeof(b) && (!(a isa ArgumentError) || a.msg == b.msg)
 
-    pts, cs = few_points, few_csponds
+    pts, cs = few_points, few_correspondences
     H = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     Xs(n) = [SA[0.1i, 0.2 - 0.05i^2, 2.0 + 0.1i] for i in 1:n]
@@ -215,7 +215,7 @@ end
         (refine_kw, n -> kw -> refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(n); kw...), 2, 8),
         (find_kw, n -> kw -> find_absolute_pose(cam, Xs(n) .=> us(n); kw...), 2, 8),
         (refine_kw, n -> kw -> refine_absolute_pose(pose, cam, Xs(n) .=> us(n); kw...), 2, 8),
-        (refine_kw, n -> kw -> refine_absolute_pose(pose, Csponds(Xs(n), normalize.(Xs(n))); kw...), 2, 8),
+        (refine_kw, n -> kw -> refine_absolute_pose(pose, Correspondences(Xs(n), normalize.(Xs(n))); kw...), 2, 8),
     )
     for (kws, call, few, enough) in calls, kw in kws
         enough_err = caught(() -> call(enough)(kw))

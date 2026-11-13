@@ -28,7 +28,7 @@ one of them is the true pose, the identity.
 ```jldoctest gs
 julia> f = [Vec3(x / sqrt(sum(abs2, x))) for x in X];
 
-julia> poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25]);
+julia> poses = solve(P3P(PoseLibSolver()), Correspondences(X, f), [1, 13, 25]);
 
 julia> 1 <= length(poses) <= 4
 true
@@ -52,7 +52,7 @@ therefore be close enough that the inliers fall within the width.
 ```jldoctest gs
 julia> seed = EuclideanMap(RotationVec(0.002, -0.001, 0.0), Vec3(0.005, 0.0, 0.01));
 
-julia> r = refine_absolute_pose(seed, K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0);
+julia> r = refine_absolute_pose(seed, K, Correspondences(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0);
 
 julia> pose = estimate(r); maximum(abs, pose.t) < 1e-8
 true
@@ -67,7 +67,7 @@ camera frame. `unlabel` turns it into a `Rigid3` seed.
 ```jldoctest gs
 julia> best = poses[argmin([maximum(abs, p.t) for p in poses])];
 
-julia> estimate(refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)) isa PoseLib.Rigid3
+julia> estimate(refine_absolute_pose(unlabel(best), K, Correspondences(X, u); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)) isa PoseLib.Rigid3
 true
 ```
 
@@ -85,7 +85,7 @@ julia> x2 = [pixel(K, truth(x)) for x in X];
 
 julia> seed = EuclideanMap(RotationVec(0.0, 0.101, 0.001), Vec3(0.99995, 0.01, 0.0));
 
-julia> rel = estimate(refine_relpose(seed, K, K, Csponds(u, x2); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0));
+julia> rel = estimate(refine_relpose(seed, K, K, Correspondences(u, x2); max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia> maximum(abs, rel.R - truth.R) < 1e-6
 true
@@ -105,7 +105,7 @@ julia> b1 = backproject_with_jacobian.(Ref(camera), u);
 
 julia> b2 = backproject_with_jacobian.(Ref(camera), x2);
 
-julia> cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
+julia> cs = withattrs(Correspondences(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2));
 
 julia> maximum(abs, estimate(refine_relpose(seed, cs; max_iter = 50, optimization_strategy = Irls{TLSShape}(), width = 2.0)).R - rel.R) < 1e-12
 true
@@ -126,7 +126,7 @@ julia> y = [(h = H * [x; 1.0]; Point2(h[1] / h[3], h[2] / h[3])) for x in x1];
 
 julia> H0 = HomographyMat([1.1 0.02 6.0; -0.03 0.96 -3.0; 1e-4 2e-4 1.0]);
 
-julia> H1 = estimate(refine_homography(H0, Csponds(x1, y); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0));
+julia> H1 = estimate(refine_homography(H0, Correspondences(x1, y); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0));
 
 julia> H1 / H1[3, 3] ≈ H
 true

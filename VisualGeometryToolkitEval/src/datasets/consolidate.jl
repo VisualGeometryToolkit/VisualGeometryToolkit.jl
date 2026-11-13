@@ -1,5 +1,5 @@
 # =============================================================================
-# src/datasets/consolidate.jl — the producer of the consolidated csponds files
+# src/datasets/consolidate.jl — the producer of the consolidated correspondences files
 # `load_roma_pairs` reads: one `<scene>.jld2` per scene of a stereo dataset,
 # each pair's sparse matches with their GT inlier mask from depth.
 #
@@ -7,7 +7,7 @@
 # outlives any change of a camera or rig type):
 #
 #   pairs :: Vector of (; scene, source_name, target_name,
-#                         csponds    :: StructArray of SVector{2,Float32} pixel pairs,
+#                         correspondences    :: StructArray of SVector{2,Float32} pixel pairs,
 #                         confidence :: Vector{Float32}   (higher = better),
 #                         inlier_mask :: BitVector,
 #                         K1, K2 :: SMatrix{3,3,Float64}, size1, size2 :: Size2{Int},
@@ -19,8 +19,8 @@
 # filtered out of the dataset's pairs beforehand (a missing depth file throws).
 # =============================================================================
 
-"The version of the consolidated csponds record [`consolidate_csponds`](@ref) writes."
-const CONSOLIDATED_FORMAT = 2
+"The version of the consolidated correspondences record [`consolidate_correspondences`](@ref) writes."
+const CONSOLIDATED_FORMAT = 3   # 3: the pairs' key `correspondences` (the terminology ruling); 2: plain fields; 1: stack types
 
 # The pixel calibration of a camera (as stored by its model) and its extent.
 _camera_K(cam) = SMatrix{3,3,Float64,9}(intrinsics(model(cam)).K)
@@ -31,14 +31,14 @@ _pixel_size(cam) = (e = extent(cam); Size2(Int(e.width), Int(e.height)))
 function _consolidated_record(p, matches, inlier_mask::BitVector)
     E = ustrip(m, extrinsics(p.rig))                        # source camera → target camera, plain metres
     return (; scene = p.scene, source_name = p.source_name, target_name = p.target_name,
-            csponds = StructArray(sources(matches) .=> targets(matches)), confidence = matches.confidence, inlier_mask,
+            correspondences = StructArray(sources(matches) .=> targets(matches)), confidence = matches.confidence, inlier_mask,
             K1 = _camera_K(source(p.rig)), K2 = _camera_K(destination(p.rig)),
             size1 = _pixel_size(source(p.rig)), size2 = _pixel_size(destination(p.rig)),
             R_gt = SMatrix{3,3,Float64,9}(E.R), t_gt = SVector{3,Float64}(E.t))
 end
 
 """
-    consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol; match_dir, out_dir,
+    consolidate_correspondences(ds::AbstractStereoDataset, matcher::Symbol; match_dir, out_dir,
                         scenes = nothing) -> Vector{String}
 
 Consolidate the sparse matches of every pair of `ds` (one
@@ -49,7 +49,7 @@ per scene (a `/` in a scene id becomes `__`), each pair's GT inlier mask from
 `scenes`, when given, restricts the run to those scene ids. Returns the paths
 written. The record is documented in src/datasets/consolidate.jl.
 """
-function consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol;
+function consolidate_correspondences(ds::AbstractStereoDataset, matcher::Symbol;
                              match_dir::AbstractString, out_dir::AbstractString, scenes = nothing)
     cfg = gt_config(ds, matcher)
     by_scene = Dict{String,Vector{StereoPair}}()
@@ -68,7 +68,7 @@ function consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol;
             isfile(h5) || continue
             matches = load_sparse_matches(h5)
             v = load_validation_data(ds, p, matches)
-            mask = validate_gt_inliers(v.rig, v.csponds, v.depth_src, v.depth_tgt;
+            mask = validate_gt_inliers(v.rig, v.correspondences, v.depth_src, v.depth_tgt;
                                        rel_tol = cfg.rel_tol, metric_tol = cfg.metric_tol,
                                        bidirectional_depth = cfg.bidirectional)
             records[j] = _consolidated_record(p, matches, BitVector(mask))
@@ -78,7 +78,7 @@ function consolidate_csponds(ds::AbstractStereoDataset, matcher::Symbol;
         JLD2.jldsave(out; pairs = kept, format = CONSOLIDATED_FORMAT, matcher,
                      gt_method = cfg.gt_method, metric_tol_mm = write_length(cfg.metric_tol, mm),
                      rel_tol = cfg.rel_tol, bidirectional = cfg.bidirectional)
-        @info "consolidated csponds" scene pairs = length(kept) missing = length(pairs) - length(kept) out
+        @info "consolidated correspondences" scene pairs = length(kept) missing = length(pairs) - length(kept) out
         push!(written, out)
     end
     return written

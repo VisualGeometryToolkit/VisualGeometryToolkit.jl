@@ -6,7 +6,7 @@
 # =============================================================================
 
 """
-    fit_radial_camera(cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}};
+    fit_radial_camera(cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
                       center, iterations = 2)
         -> FitResult{RadialCamera{Float64}, Nothing}
 
@@ -18,14 +18,14 @@ returned camera, so nothing is pre-centred. There is no default: a pencil
 about the image corner fits raw pixels as well as any other, with no error.
 Each pair gives one linear constraint on the six entries of `P`
 ([`constraint_with_jacobians`](@ref)); the null vector is solved by SVD in the
-radial camera's normalization, `CspondNormalization(RadialCamera, cs; center)`
+radial camera's normalization, `CorrespondenceNormalization(RadialCamera, cs; center)`
 (Hartley at the plane centroid, Hartley about `center` on the image side — the
 same strategy `find_radial_camera`'s problem solves in), and composed back into
 pixels. Each iteration re-solves; from the second on every
 row is divided by the constraint's observation-gradient norm at the previous
 iteration's solution ([`whitening_factor`](@extref VisualGeometryToolkitCore.whitening_factor), the Sampson normalizer held
 fixed — the algebraic error becomes the exact point–radial-line distance); a
-`weights` column on `cs` (a `Csponds` attribute, e.g. `withattrs(cs; weights)`)
+`weights` column on `cs` (a `Correspondences` attribute, e.g. `withattrs(cs; weights)`)
 multiplies on top, the row weight being √w. `iterations = 1` is the plain
 algebraic (unwhitened) solve. This is how the BabelCalib back-end
 obtains the radial camera when no homography is available; when one is, its
@@ -46,7 +46,7 @@ unit the rest of your plain data uses — metres, as the stack's boundaries stri
 (`ustrip.(m, X)`).
 """
 function fit_radial_camera(
-        cs::AbstractVector{<:Cspond{<:StaticVector{2}, <:StaticVector{2}}}; center,
+        cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}}; center,
         iterations::Int = 2
     )
     _refuse_physical_plane(cs, "fit_radial_camera")

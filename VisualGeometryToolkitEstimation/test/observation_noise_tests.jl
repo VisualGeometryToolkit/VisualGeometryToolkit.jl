@@ -1,8 +1,8 @@
 # The observation-noise rule in the correspondence problems (VisualGeometryToolkitCore
-# conventions/measurement-noise.md): a plain point is unit isotropic noise, an
+# conventions/observation-noise.md): a plain point is unit isotropic noise, an
 # `Uncertain` point carries its covariance, an `exact` point none — through
 # scoring, the chart rows of the refit, the normalization and the maps.
-@testitem "measurement_noise" setup = [HomographyScenes] begin
+@testitem "observation_noise" setup = [HomographyScenes] begin
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -13,7 +13,7 @@
     using StableRNGs
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: csponds, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!,
+    using VisualGeometryToolkitCore: correspondences, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!,
         source_map, destination_map, sampson_distance, mahalanobis_distance, mahalanobis_distances!,
         converged, estimate, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
@@ -29,7 +29,7 @@
     transfer = [norm(warp(board[i]) - pix[i]) for i in 1:n]
 
     @testset "plain points: no noise columns, the isotropic constraint" begin
-        p = HomographyProblem(csponds(board, pix))
+        p = HomographyProblem(correspondences(board, pix))
         @test isempty(keys(p.cs.attrs))
         @test all(pair_covariance(p.cs, i) === I for i in 1:n)
         r = mahalanobis_distances!(zeros(n), p, H)
@@ -39,7 +39,7 @@
     end
 
     @testset "exact source: the transfer error in target pixels" begin
-        p = HomographyProblem(csponds(exact.(board), pix))
+        p = HomographyProblem(correspondences(exact.(board), pix))
         @test keys(p.cs.attrs) == (:Σ₁,)
         @test all(iszero, p.cs.Σ₁)
         r = mahalanobis_distances!(zeros(n), p, H)
@@ -67,7 +67,7 @@
         Σ₂ = SMatrix{2, 2}(2.0, 0.3, 0.3, 1.0)
         src = [Uncertain(board[i], CovMat(Σ₁[i])) for i in 1:n]
         dst = [Uncertain(pix[i], CovMat(Σ₂)) for i in 1:n]
-        p = HomographyProblem(csponds(src, dst))
+        p = HomographyProblem(correspondences(src, dst))
         r = mahalanobis_distances!(zeros(n), p, H)
         manual = map(1:n) do i
             g, Gx, _ = VgtkCore.constraint_with_jacobians(H, board[i], pix[i])
@@ -88,15 +88,15 @@
     end
 
     @testset "refusals" begin
-        @test_throws ArgumentError HomographyProblem(csponds(exact.(board), exact.(pix)))
-        @test_throws ArgumentError FundMatProblem(csponds(exact.(board), pix))
+        @test_throws ArgumentError HomographyProblem(correspondences(exact.(board), exact.(pix)))
+        @test_throws ArgumentError FundMatProblem(correspondences(exact.(board), pix))
         # a centred model's source is exact by construction: `exact` is accepted
         # and changes nothing; any other covariance is refused
         c = SA[320.0, 240.0]
-        pr = RadialHomographyProblem(csponds(exact.(board), pix); center = c)
-        pr0 = RadialHomographyProblem(csponds(board, pix); center = c)
+        pr = RadialHomographyProblem(correspondences(exact.(board), pix); center = c)
+        pr0 = RadialHomographyProblem(correspondences(board, pix); center = c)
         @test typeof(pr) == typeof(pr0)
-        @test_throws ArgumentError RadialHomographyProblem(csponds(board, [Uncertain(q, CovMat{2}(σ = 1.0)) for q in pix]); center = c)
+        @test_throws ArgumentError RadialHomographyProblem(correspondences(board, [Uncertain(q, CovMat{2}(σ = 1.0)) for q in pix]); center = c)
     end
 
     @testset "metre board: MSAC's pixel threshold means pixels" begin
@@ -104,7 +104,7 @@
         for k in 1:8
             bad[k] = bad[k] + SA[40.0 * randn(rng), 40.0 * randn(rng)]
         end
-        res = find_homography(csponds(exact.(board), bad); rng = StableRNG(1))
+        res = find_homography(correspondences(exact.(board), bad); rng = StableRNG(1))
         @test converged(res)
         @test !any(inlier_mask(res)[1:8])
         @test max_transfer_error(estimate(res), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0

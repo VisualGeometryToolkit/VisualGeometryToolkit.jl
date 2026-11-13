@@ -113,14 +113,14 @@ function _free_camera_parameters(_role, cm, kw)
 end
 
 """
-    refine_camera_and_poses(camera, views::RotationCenterViews, csponds; fixed, optimization_strategy, scale | width,
+    refine_camera_and_poses(camera, views::RotationCenterViews, correspondences; fixed, optimization_strategy, scale | width,
                             max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :views)}, RotationCenterRefineMetadata}
 
 The bundle under the rotation-centre view parametrization: the views of a camera
 turned about one fixed point ([`RotationCenterViews`](@ref): per view its
 rotation `R_k`, shared by all the centre `c` and the offset `d`, view `k`'s pose
-`(R_k, d − R_k c)`), refined from the guess `views` against `csponds` — per view
+`(R_k, d − R_k c)`), refined from the guess `views` against `correspondences` — per view
 `K` its correspondences `X => u` (target point, pixel; the key sets must match).
 The residual is the BEARING residual for every camera: each dot back-projected
 once by the camera (`backproject_with_jacobian`) to its unit bearing, the
@@ -147,10 +147,10 @@ The estimate is `(; camera, views)`: the camera as given, and the refined
 """
 function refine_camera_and_poses(
         camera::_RefinedCamera, views::RotationCenterViews{K},
-        csponds::AbstractDict{K, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        correspondences::AbstractDict{K, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     ) where {K}
-    ids = block_order(csponds, views.rotations)
+    ids = block_order(correspondences, views.rotations)
     kw = _bundle_keywords(; kwargs...)
     cm = _camera_model(camera)
     free = _free_camera_parameters(cm, kw)
@@ -162,7 +162,7 @@ function refine_camera_and_poses(
     # the variables: the centre, the offset, then each view's rotation chart, in block order
     vars0 = _CenterVar[views.center, views.offset]
     foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
-    blocks, without = _rotation_center_bearing_blocks(cm, ids, csponds)
+    blocks, without = _rotation_center_bearing_blocks(cm, ids, correspondences)
     p = 6 + 3N
     2length(blocks) > p || throw(ArgumentError(
         "refine_camera_and_poses: underdetermined: $(length(blocks)) correspondences ($(2length(blocks)) rows) for $p unknowns"))
@@ -259,12 +259,12 @@ NLLSsolver.computecost(vars::AbstractVector{_CenterVar}, r::_BearingCenterBlock)
 # in pixels), one block per dot; and the dots without a bearing, `(view, index)`, counted by the caller: no finite bearing,
 # or a Jacobian the problem could not whiten by (`pixel_whitening_defect`: not finite, not tangent, singular), found before any
 # block is built so that one bad dot never aborts the refine.
-function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, csponds) where {K}
+function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, correspondences) where {K}
     blocks = NLLSsolver.AbstractResidual[]
     without = Tuple{K, Int}[]
     for (v, k) in enumerate(ids)
         X = SVector{3, Float64}[]; F = SVector{3, Float64}[]; Ms = SMatrix{3, 2, Float64, 6}[]
-        for (j, c) in enumerate(csponds[k])
+        for (j, c) in enumerate(correspondences[k])
             Xj, u = _correspondence(v, j, c)
             f, M = VgtkCore.backproject_with_jacobian(cm, u)
             if all(isfinite, f) && !iszero(norm(f)) && (fu = normalize(SVector{3, Float64}(f));
@@ -275,7 +275,7 @@ function _rotation_center_bearing_blocks(cm, ids::AbstractVector{K}, csponds) wh
             end
         end
         isempty(X) && continue
-        prob = BearingPoseProblem(VgtkCore.Csponds(X, F; M = Ms))
+        prob = BearingPoseProblem(VgtkCore.Correspondences(X, F; M = Ms))
         foreach(i -> push!(blocks, _BearingCenterBlock(SVector(2 + v, 1, 2), prob, i)), eachindex(X))
     end
     return blocks, without

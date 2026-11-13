@@ -45,7 +45,7 @@ using StableRNGs: StableRNG
 
 # --- The core contracts (VisualGeometryToolkitCore) and the core loop (VisualGeometryToolkitEstimation)
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimizationStrategy, NativeRefit,
-    ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Csponds, Point2, sources, targets,
+    ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Correspondences, Point2, sources, targets,
     found_model, estimate, iterations, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,

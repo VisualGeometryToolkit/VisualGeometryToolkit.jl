@@ -16,7 +16,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 `found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Arguments
-- `correspondences`: as [`find_homography`](@ref); a `Csponds` `:score` column is the
+- `correspondences`: as [`find_homography`](@ref); a `Correspondences` `:score` column is the
   per-match prior (PROSAC; uniform otherwise).
 - `scoring`: the scorer, its width **in PIXELS**, as [`find_homography`](@ref); default `[pipelines.fundmat] scoring`.
 - `workspace`: as [`find_homography`](@ref), built with `RansacWorkspace([T,] FundMatProblem{Float64}, n_data)`.
@@ -27,7 +27,7 @@ function find_fundmat(
         pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
         kwargs...
     )
-    return _guarded_ransac(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), :fundmat; kwargs...)
+    return _guarded_ransac(() -> FundMatProblem(pairs), FundMatProblem{_correspondence_scalar(pairs)}, length(pairs), :fundmat; kwargs...)
 end
 
 """
@@ -44,5 +44,5 @@ function refine_fundmat(
         F, pairs::AbstractVector{<:Pair{<:StaticArrays.StaticVector{2}, <:StaticArrays.StaticVector{2}}};
         kwargs...
     )
-    return _guarded_refine(() -> FundMatProblem(pairs), FundMatProblem{_cspond_scalar(pairs)}, length(pairs), Val(:fundmat), F; kwargs...)
+    return _guarded_refine(() -> FundMatProblem(pairs), FundMatProblem{_correspondence_scalar(pairs)}, length(pairs), Val(:fundmat), F; kwargs...)
 end

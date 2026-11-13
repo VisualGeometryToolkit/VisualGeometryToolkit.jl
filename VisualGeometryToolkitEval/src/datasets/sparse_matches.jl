@@ -18,7 +18,7 @@
 const _MATCH_CONFIDENCE = Dict("roma_v2" => "confidence", "superpoint+lightglue" => "scores")
 
 """
-    load_sparse_matches(path) -> Csponds
+    load_sparse_matches(path) -> Correspondences
 
 The correspondences (pixels, `Float32` as written) of one sparse-match HDF5
 file of the match extractor, RoMa v2 or SuperPoint + LightGlue by its
@@ -35,7 +35,7 @@ function load_sparse_matches(path::AbstractString)
         confidence = read(f[key])::Vector{Float32}
         src = [SVector{2,Float32}(a[1, i], a[2, i]) for i in axes(a, 2)]
         tgt = [SVector{2,Float32}(b[1, i], b[2, i]) for i in axes(b, 2)]
-        return withattrs(Csponds(src, tgt); confidence)
+        return withattrs(Correspondences(src, tgt); confidence)
     end
 end
 

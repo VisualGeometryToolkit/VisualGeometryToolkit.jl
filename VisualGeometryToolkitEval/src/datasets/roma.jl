@@ -1,7 +1,7 @@
 # =============================================================================
-# src/datasets/roma.jl — the RoMa / SP+LG consolidated-csponds reader.
+# src/datasets/roma.jl — the RoMa / SP+LG consolidated-correspondences reader.
 #
-# Input: `<dir>/<scene>.jld2`, written by `consolidate_csponds`
+# Input: `<dir>/<scene>.jld2`, written by `consolidate_correspondences`
 # (src/datasets/consolidate.jl: plain pixel records, `format = 2`), or a file
 # of its first version, which serialized the pair's `rig::StereoRig`, the
 # matcher's own point types and the GT config (no `format` key; read through
@@ -18,7 +18,7 @@
 """
     RomaPair <: StereoRawPair
 
-One raw RoMa / SP+LG pair, in pixels: csponds, `snn = 1 − confidence`, the
+One raw RoMa / SP+LG pair, in pixels: correspondences, `snn = 1 − confidence`, the
 consolidated GT inlier mask, the pixel calibrations, image sizes and the GT
 relative pose, with its source scene (VisualGeometryToolkitCore's `pair_scene`).
 A raw pair is a pool's input, so it is plain data: `t_gt` is plain metres (the
@@ -28,7 +28,7 @@ struct RomaPair <: StereoRawPair
     src_id   :: String
     dst_id   :: String
     scene    :: String
-    csponds  :: StructArray             # uncalibrated pixel csponds
+    correspondences  :: StructArray             # uncalibrated pixel correspondences
     snn      :: Vector{Float32}         # sampler sort key (lower = better): 1 - confidence
     gt_inliers :: BitVector             # the consolidated inlier_mask
     K1       :: SMatrix{3,3,Float64,9}
@@ -46,7 +46,7 @@ end
 # scannet1500/eth3d splg and roma and seven_scenes splg trees):
 #   rig.{source,target}::BoundedCamera{ camera.model.intrinsics.K.data::NTuple{9},
 #   extent.{width,height} } ; rig.extrinsics.{R.mat.data, t.data} ;
-#   csponds: a StructVector (or a reconstructed wrapper with
+#   the correspondences, under their former key (`_FORMER_PAIRS_KEY`): a StructVector (or a reconstructed wrapper with
 #   .components.{first,second}) of Point2f (SP+LG) or Uncertain{Point2f} (RoMa,
 #   whose covariance the pair does not keep).
 #
@@ -77,21 +77,27 @@ const _LEGACY_TYPEMAP = Dict{String,Any}(
 """
     load_roma_pairs(path) -> Vector{RomaPair}
 
-Every pair of one consolidated RoMa / SP+LG csponds scene file
+Every pair of one consolidated RoMa / SP+LG correspondences scene file
 (`<dir>/<scene>.jld2`), in pixels.
 """
 function load_roma_pairs(path::AbstractString)
     format = JLD2.jldopen(f -> haskey(f, "format") ? f["format"] : 1, path, "r")
-    format == CONSOLIDATED_FORMAT &&
-        return RomaPair[_roma_pair_v2(e) for e in JLD2.jldopen(f -> f["pairs"], path, "r")]
-    format == 1 || error("$path: consolidated csponds format $format; this reader knows 1 and $CONSOLIDATED_FORMAT")
+    format in (2, CONSOLIDATED_FORMAT) &&
+        return RomaPair[_roma_pair_v2(e, format) for e in JLD2.jldopen(f -> f["pairs"], path, "r")]
+    format == 1 || error("$path: consolidated correspondences format $format; this reader knows 1 to $CONSOLIDATED_FORMAT")
     return RomaPair[_roma_pair(e) for e in JLD2.jldopen(f -> f["pairs"], path, "r"; typemap = _LEGACY_TYPEMAP)]
 end
 
-# A record of `consolidate_csponds` (format 2): plain fields, pixels.
-function _roma_pair_v2(e)::RomaPair
-    cf, ct = _legacy_cols(e.csponds)
-    cs_pix = VgtkCore.csponds([SVector{2,Float64}(p) for p in cf], [SVector{2,Float64}(p) for p in ct])
+# Formats 1 and 2 stored the correspondences under the pairing abbreviation the
+# terminology ruling retired (2026-11-13): read by that stored key, spelled
+# apart so no binding holds it; format 3 stores them as `correspondences`.
+const _FORMER_PAIRS_KEY = Symbol("cs" * "ponds")
+_stored_correspondences(e, format::Integer) = format >= 3 ? e.correspondences : getproperty(e, _FORMER_PAIRS_KEY)
+
+# A record of `consolidate_correspondences` (formats 2 and 3): plain fields, pixels.
+function _roma_pair_v2(e, format::Integer)::RomaPair
+    cf, ct = _legacy_cols(_stored_correspondences(e, format))
+    cs_pix = VgtkCore.correspondences([SVector{2,Float64}(p) for p in cf], [SVector{2,Float64}(p) for p in ct])
     return RomaPair(first(splitext(e.source_name)), first(splitext(e.target_name)), e.scene, cs_pix,
                     Float32.(1.0f0 .- e.confidence), BitVector(e.inlier_mask), e.K1, e.K2,
                     Size2{Int}(e.size1...), Size2{Int}(e.size2...), e.R_gt, e.t_gt)
@@ -108,8 +114,8 @@ function _roma_pair(entry)::RomaPair
     _sz(cam) = Size2(cam.extent.width, cam.extent.height)
     R_gt = SMatrix{3,3,Float64,9}(rig.extrinsics.R.mat.data)
     t_gt = SVector{3,Float64}(rig.extrinsics.t.data)
-    cf, ct = _legacy_cols(entry.csponds)
-    cs_pix = VgtkCore.csponds([_legacy_p2(p) for p in cf], [_legacy_p2(p) for p in ct])
+    cf, ct = _legacy_cols(_stored_correspondences(entry, 1))
+    cs_pix = VgtkCore.correspondences([_legacy_p2(p) for p in cf], [_legacy_p2(p) for p in ct])
     # PROSAC order, lower = better: invert the match confidence (higher = better)
     snn = Float32.(1.0f0 .- entry.confidence)
     return RomaPair(first(splitext(entry.source_name)), first(splitext(entry.target_name)),

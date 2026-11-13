@@ -1221,7 +1221,6 @@ const _PYTHON_KEYWORDS = Set(split(
 ))
 
 _offset_lines(code) = pushfirst!([i + 1 for i in findall(==('\n'), code)], 1)
-_line_of(starts, offset) = searchsortedlast(starts, offset)
 
 # Split `s` at the commas outside brackets, with each piece's byte offset.
 function _toplevel_split(s::AbstractString, sep::Char = ',')
@@ -1293,7 +1292,7 @@ function _python_names(src::AbstractString)
     acc = Tuple{Symbol, Int, Symbol}[]
     code = _python_code(src)
     starts = _offset_lines(code)
-    line(o) = _line_of(starts, o)
+    line(o) = searchsortedlast(starts, o)
     for m in eachmatch(r"(?m)^[ \t]*(?:async[ \t]+)?def[ \t]+([A-Za-z_]\w*)[ \t]*\(", code)
         push!(acc, (Symbol(m[1]), line(m.offset), :function))
         open = m.offset + ncodeunits(m.match) - 1

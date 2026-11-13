@@ -13,7 +13,12 @@
 const _DUPLICATION_FILE = "DUPLICATION.toml"
 const _STACK_PATHS_ENV = "VGTK_STACK_PATHS"
 const _DEFAULT_SIMILARITY = ((0.6, 60), (0.85, 25))
-const _MAX_POSTINGS = 40          # a shingle in more definitions than this is an idiom, not evidence
+# A shingle in more definitions than this is an idiom, not evidence. The definitions counted are this repository's
+# only (a label without a `<Repository>:` prefix), never the stack repositories' (`VGTK_STACK_PATHS`): the idioms are
+# then the same whether or not a run reads the stack, so a pair inside the repository is found, or not, alike in CI
+# (no stack) and in a release gate (the stack). Counted over the whole corpus, the stack's extra definitions pushed a
+# test fixture's shingles over the cap in the gate only (wave 113: two fixture pairs CI found and the gate did not).
+const _MAX_POSTINGS = 40
 
 # --- the retired patterns ----------------------------------------------------
 
@@ -401,8 +406,10 @@ function _similar_pairs(defs, similarity)
     minimum_tokens = minimum(last, similarity)
     keep = [i for (i, d) in enumerate(defs) if d.ntokens >= minimum_tokens && !isempty(d.shingles)]
     postings = Dict{UInt64, Vector{Int}}()
+    in_repo = Dict{UInt64, Int}()            # the definitions of this repository holding a shingle (the idiom count)
     for i in keep, h in defs[i].shingles
         push!(get!(postings, h, Int[]), i)
+        match(_EXTERNAL_ID, defs[i].file) === nothing && (in_repo[h] = get(in_repo, h, 0) + 1)
     end
     pairs = Tuple{Int, Int, Float64}[]
     count = zeros(Int, length(defs))
@@ -411,7 +418,7 @@ function _similar_pairs(defs, similarity)
         defs[a].own || continue
         for h in defs[a].shingles
             l = postings[h]
-            length(l) > _MAX_POSTINGS && continue
+            get(in_repo, h, 0) > _MAX_POSTINGS && continue
             for b in l
                 (b == a || (defs[b].own && b < a)) && continue          # an own pair counted once
                 count[b] == 0 && push!(touched, b)

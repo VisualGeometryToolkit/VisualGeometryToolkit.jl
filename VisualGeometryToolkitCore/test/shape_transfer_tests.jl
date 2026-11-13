@@ -14,6 +14,7 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using ForwardDiff: ForwardDiff
+    import Statistics
     using FiniteDiff: FiniteDiff
     using LinearAlgebra: norm, Symmetric, I
     using StaticArrays: SVector, SMatrix
@@ -124,6 +125,47 @@
                     end
                     @test out == stages                       # exactly distortion_map's stages on the transferred conic
                 end
+            end
+        end
+
+        @testset "plane_map(camera): the z = 0 plane → image map is project's, its Jacobian the transfer's — parametric and spline cameras" begin
+            using VisualGeometryToolkitCore: plane_map, SplineLens
+            spline = CameraModel(SplineLens, _CAMS[4][2], Size2(4240, 2832); grid_size = (14, 20))
+            for (name, cam) in (_CAMS..., "spline_lens" => spline)
+                camera = PosedCamera(cam, _POSE)
+                P = plane_map(camera)
+                for q in (SVector(120.0, -80.0), SVector(-140.0, 95.0), SVector(0.0, 0.0), SVector(200.0, 150.0))
+                    @test P(q) ≈ SVector{2, Float64}(project(camera, Point3{Float64}(q[1], q[2], 0.0))) atol = 1.0e-12 * 4240
+                end
+                # transfer_ellipse is its plane map's stages from the homography on (the Pinhole short-cut: the homography alone)
+                shape = Circle(Point2(120.0, -80.0), 2.5)
+                stages = transfer_ellipse(P.t2, shape)
+                cam.lens isa Pinhole || (stages = transfer_ellipse(P.t1, stages))
+                @test transfer_ellipse(camera, shape) == stages
+                # its linearisation: the Jacobian of the image point w.r.t. the plane point (finite differences)
+                q = SVector(120.0, -80.0)
+                @test transform_deriv(P, q) ≈ FiniteDiff.finite_difference_jacobian(x -> P(SVector{2}(x)), q) rtol = 1.0e-6
+            end
+        end
+
+        @testset "transform_deriv of the 2-D homography map: the dehomogenised map's Jacobian; propagate reads it, same bits" begin
+            camera = PosedCamera(_CAMS[1][2], _POSE)
+            h = HomographyMap(camera)
+            proj = PerspectiveMap() ∘ h
+            for x in (SVector(120.0, -80.0), SVector(-140.0, 95.0), SVector(0.0, 0.0))
+                J = transform_deriv(proj, x)
+                @test J isa SMatrix{2, 2, Float64}
+                @test J ≈ ForwardDiff.jacobian(v -> proj(SVector{2}(v)), x) rtol = 1.0e-12
+                # the folded private helper's arithmetic (H in the promoted type, x̃ = (x, 1), dπ · H[:, 1:2]), bit for bit
+                H = SMatrix{3, 3, Float64, 9}(h.forward)
+                w = H * SVector{3, Float64}(x[1], x[2], 1.0)
+                @test J === transform_deriv(PerspectiveMap(), w) * SMatrix{3, 2, Float64, 6}(H[1], H[2], H[3], H[4], H[5], H[6])
+                @test proj(x) === SVector{2, Float64}(PerspectiveMap()(w))
+                # propagate of an uncertain point: the same J, the same transferred point
+                Σ = SMatrix{2, 2, Float64, 4}(0.04, 0.01, 0.01, 0.09)
+                u = VgtkCore.propagate(h, Uncertain(x, CovMat(Σ)))
+                @test SVector{2, Float64}(geom(u)) === SVector{2, Float64}(PerspectiveMap()(w))
+                @test SMatrix{2, 2, Float64}(Statistics.cov(u)) == J * Σ * J'
             end
         end
 

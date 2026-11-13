@@ -30,7 +30,7 @@ append-mode handle, so concurrent writers interleave at line boundaries).
 Read the file back with `JSON.parse` per line.
 """
 function append_jsonl(path::AbstractString, row)
-    line = _json(row) * "\n"
+    line = JSON.json(row) * "\n"
     lock(_jsonl_lock(String(path))) do
         open(io -> write(io, line), path, "a")
     end

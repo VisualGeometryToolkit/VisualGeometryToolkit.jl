@@ -217,7 +217,7 @@ convert_eltype(::Type{T}, light::EnvironmentLight) where {T <: Real} =
 
 has_units(light::EnvironmentLight) = has_units(light.center)
 FlexUnits.ustrip(u::Units, light::EnvironmentLight) =
-    EnvironmentLight(light.map, _ustrip_point(u, light.center), _strip_length(u, light.radius))
+    EnvironmentLight(light.map, _ustrip_point(u, light.center), strip_or_bare(u, light.radius))
 with_unit(light::EnvironmentLight, u::Units) =
     EnvironmentLight(light.map, _attach_point(u, light.center), _attach_length(light.radius, u))
 

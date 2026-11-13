@@ -94,9 +94,10 @@ views', takes it as `fixed = held_parameters(camera)`.
 
 `camera` is a `CameraModel` or a `BoundedCamera` of one.
 """
-held_parameters(camera) = _held_parameters(VgtkCore.Cameras.IntrinsicsRole(lens(_camera_model(camera))), _camera_model(camera))
-_held_parameters(::VgtkCore.Cameras.FreeIntrinsics, cm) = Tuple(parameter_names(cm))
-_held_parameters(_role, cm) = (:controls,)
+function held_parameters(camera)
+    cm = _camera_model(camera)
+    return VgtkCore.Cameras.IntrinsicsRole(lens(cm)) isa VgtkCore.Cameras.FreeIntrinsics ? Tuple(parameter_names(cm)) : (:controls,)
+end
 
 # The camera parameters a rotation-centre refine would leave free under `kw.fixed` (it requires none): a parametric
 # camera's by `_camera_chart`; a SplineLens camera's one group, `(:controls,)` (`held_parameters`), held or free whole.

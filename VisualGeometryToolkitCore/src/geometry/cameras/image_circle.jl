@@ -232,7 +232,7 @@ r = imaged_region(camera)
 farthest_radius(r, principal_point)   # a radial profile's domain: ρ ≤ 1 on every imaged pixel
 ```
 """
-farthest_radius(r::Rect{2}, center) = maximum(p -> norm(p - _plain_centre(center)), _rect_corners(Rect2{Float64}(r)))
+farthest_radius(r::Rect{2}, center) = maximum(p -> norm(p - _plain_centre(center)), rect_corners(Rect2{Float64}(r)))
 function farthest_radius(region, center)
     c = _plain_centre(center)
     _check_farthest_center(region, c)
@@ -246,7 +246,7 @@ function farthest_radius(region, center, direction)
     _check_farthest_center(region, c)
     nu = norm(u)
     (isfinite(nu) && nu > 0) || throw(ArgumentError("farthest_radius: the direction $direction is not a finite non-zero vector"))
-    hi = (maximum(p -> norm(p - c), _rect_corners(box)) * (1 + 1.0e-9) + 1.0e-12) / nu
+    hi = (maximum(p -> norm(p - c), rect_corners(Rect2{Float64}(box))) * (1 + 1.0e-9) + 1.0e-12) / nu
     a, b = 0.0, hi
     for _ in 1:60
         m = (a + b) / 2
@@ -256,9 +256,6 @@ function farthest_radius(region, center, direction)
 end
 const _FARTHEST_AZIMUTHS = 720
 _plain_centre(center) = SVector{2, Float64}(center[1], center[2])
-_rect_corners(b::Rect2) =
-    (lo = SVector{2, Float64}(minimum(b)); hi = SVector{2, Float64}(maximum(b));
-     (lo, SVector(hi[1], lo[2]), SVector(lo[1], hi[2]), hi))
 _check_farthest_center(region, center) = Point2{Float64}(_plain_centre(center)) ∈ region ||
     throw(ArgumentError("farthest_radius: the region does not contain the centre $(Tuple(center))"))
 

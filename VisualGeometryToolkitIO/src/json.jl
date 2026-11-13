@@ -28,8 +28,6 @@
 # doubles as validation. A blanket narrowing here would only move the `Any`
 # one call deeper.
 
-_json(x; allownan::Bool = false) = JSON.json(x; allownan)
-
 # `allownan` reads NaN / Infinity as the value it names. It also reads EVERY
 # number as a Float64 (an integer field included), so it is used only to
 # locate a non-finite number the strict parse refused, and name its field.

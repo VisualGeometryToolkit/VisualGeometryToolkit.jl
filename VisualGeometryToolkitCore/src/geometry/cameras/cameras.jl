@@ -77,6 +77,7 @@ using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key 
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
 using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
+using ..VisualGeometryToolkitCore: rect_corners   # the one corner order of a rect (primitives/rectangles.jl): farthest_radius's corners
 using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, _ellipse_or_nothing, boundary_points
@@ -142,7 +143,7 @@ import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the car
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
     _check_one_form, strip_metres, _translation_metres,   # the one strip/attach of maps and points, the one-form rule (euclidean_map.jl)
-    _strip_length, _attach_length, _metre_factor, _scale_length_form   # one length's strip/attach, a unit's metre factor (a calibration's lengths)
+    _attach_length, _metre_factor, _scale_length_form   # one length's attach (its strip is `strip_or_bare`), a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, _pure_bending_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, map_frames, Frame
@@ -348,37 +349,35 @@ it stays an ellipse for every lens. `nothing` behind the camera, across the
 line at infinity, or where the lens map is not finite at the centre.
 """
 function transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse})
-    m = camera.model
     # cheirality at the centre: a plane conic behind the camera has no image
     # (a homography maps it to a perfectly good conic, and a lens's forward
     # map is finite on both sides of z = 0 — neither would report it)
     c = centroid(shape)
     Xc = camera.extrinsics.R * SVector{3, Float64}(c[1], c[2], 0.0) + camera.extrinsics.t
     Xc[3] > 0 || return nothing
-    P = plane_map(camera)
-    return _lens_ellipse(m.lens, P, transfer_ellipse(P.t2, shape))
+    return transfer_ellipse(plane_map(camera), shape)
 end
 
 """
-    plane_map(camera::PosedCamera) -> CoordinateTransformations.ComposedTransformation
+    plane_map(camera::PosedCamera) -> CoordinateTransformations.Transformation
 
-The map from the `z = 0` plane of the camera's world (a planar target's design
-plane, in its units) to the image, in the camera's pixel frame:
-`distortion_map(m) ∘ HomographyMap(PosedCamera(pinhole(m), extrinsics))`, the
-plane homography of the camera's pinhole twin followed by its lens's
-distortion map. `plane_map(camera)(q)` is `project(camera, [q; 0])` for a
-point in front of the camera (the map itself does not test cheirality), and
-`transform_deriv(plane_map(camera), q)` is the 2 × 2 Jacobian of the image
-point with respect to the plane point, the linearisation that
-[`transfer_ellipse`](@ref)`(camera, shape)` transfers a conic by.
+The board-plane → pixel map of a posed camera: the map from the `z = 0` plane of
+its world (a planar target's design plane, in its units) to the image, in the
+camera's pixel frame. For a pinhole camera it is the 2-D homography map
+`PerspectiveMap() ∘ HomographyMap(camera)` (the plane-induced homography,
+dehomogenised); for any other lens, `distortion_map(m) ∘ (PerspectiveMap() ∘
+HomographyMap(PosedCamera(pinhole(m), extrinsics)))`, the pinhole twin's map
+followed by the lens's distortion map. `plane_map(camera)(q)` is
+`project(camera, [q; 0])` for a point in front of the camera (the map does not
+test cheirality), and `transform_deriv(plane_map(camera), q)` is the 2 × 2
+Jacobian of the pixel with respect to the plane point: the linearisation that
+[`transfer_ellipse`](@ref)`(camera, shape)` transfers a conic by, stage by stage.
 """
-plane_map(camera::PosedCamera) = distortion_map(camera.model) ∘ HomographyMap(PosedCamera(pinhole(camera.model), camera.extrinsics))
-
-# The lens's part of the transfer: the plane map's outer stage `distortion_map(m)` is a `ComposedTransformation`
-# (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`), which `transfer_ellipse` walks stage by stage; a pinhole's is the identity.
-_lens_ellipse(lens, P, ::Nothing) = nothing
-_lens_ellipse(::Pinhole, P, ep::Ellipse) = ep
-_lens_ellipse(lens, P, ep::Ellipse) = transfer_ellipse(P.t1, ep)
+function plane_map(camera::PosedCamera)
+    m = camera.model
+    m.lens isa Pinhole && return PerspectiveMap() ∘ HomographyMap(PosedCamera(m, camera.extrinsics))
+    return distortion_map(m) ∘ (PerspectiveMap() ∘ HomographyMap(PosedCamera(pinhole(m), camera.extrinsics)))
+end
 
 # Rect: tessellate edges, lift to z=0, project → Polygon
 _camera_project_rect(camera::PosedCamera, rect::GeometryBasics.HyperRectangle{2}, n::Int) =

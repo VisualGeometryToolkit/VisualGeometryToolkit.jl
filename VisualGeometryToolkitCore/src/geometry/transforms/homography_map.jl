@@ -431,6 +431,20 @@ using CoordinateTransformations: PerspectiveMap
 
 const _PerspHomography = CoordinateTransformations.ComposedTransformation{PerspectiveMap, <:HomographyMap{3}}
 
+# The 2-D homography map, `PerspectiveMap() ∘ h` (x ↦ π(H·x̃)): its 2 × 2 Jacobian at the point `x`, the
+# dehomogenised map's — `transform_deriv(PerspectiveMap(), H·x̃) · H[:, 1:2]`, in the promoted number type of H and
+# x. THE point Jacobian of a homography: `propagate` of an uncertain point through a framed homography
+# (propagate_framed.jl) and the plane map of a posed camera (`plane_map`, cameras.jl) read it. (CT's chain rule
+# over `transform_deriv(h, ·)`, the homogeneous 3 × 2 above, gives the same product; this method fixes its number
+# type and its bits.)
+@inline function CoordinateTransformations.transform_deriv(proj::_PerspHomography, x::StaticVector{2})
+    H = proj.t2.forward
+    T = promote_type(eltype(H), eltype(x))
+    w = H * SVector{3, T}(x[1], x[2], one(T))
+    dπ = transform_deriv(PerspectiveMap(), w)
+    return dπ * SMatrix{3, 2, T, 6}(H[1], H[2], H[3], H[4], H[5], H[6])   # dπ · H[:, 1:2]
+end
+
 """
     (proj)(rect::HyperRectangle{2}) -> Polygon
 

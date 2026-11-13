@@ -65,11 +65,7 @@ using SpatialIndexing: SpatialIndexing, RTree
 
 export foreach_intersecting, nearest_neighbor, nearest_neighbor!, NearestNeighborState, bulk_load!
 
-# The node types, read from SpatialIndexing's internals (see the header).
-const _Leaf = SpatialIndexing.Leaf
-const _Branch = SpatialIndexing.Branch
-const _Rect = SpatialIndexing.Rect
-_mbr(x) = SpatialIndexing.mbr(x)
+# The node types and `mbr` are read from SpatialIndexing's internals, qualified (see the header).
 
 # =============================================================================
 # Intersection query
@@ -94,22 +90,22 @@ foreach_intersecting(tree, SpatialIndexing.Rect((0.0, 0.0), (1.0, 1.0))) do elem
 end
 ```
 """
-function foreach_intersecting(f::F, tree::RTree{T, N, V}, rect::_Rect{T, N}) where {F, T, N, V}
+function foreach_intersecting(f::F, tree::RTree{T, N, V}, rect::SpatialIndexing.Rect{T, N}) where {F, T, N, V}
     isempty(tree) && return false
     lo = rect.low
     hi = rect.high
     root = tree.root
-    if root isa _Leaf{T, N, V}
-        _intersects(_mbr(root), lo, hi) || return false
+    if root isa SpatialIndexing.Leaf{T, N, V}
+        _intersects(SpatialIndexing.mbr(root), lo, hi) || return false
         return _intersecting_leaf(f, root, lo, hi)
     else
-        root = root::_Branch{T, N, V}
-        _intersects(_mbr(root), lo, hi) || return false
+        root = root::SpatialIndexing.Branch{T, N, V}
+        _intersects(SpatialIndexing.mbr(root), lo, hi) || return false
         return _intersecting_branch(f, root, lo, hi)
     end
 end
 
-@inline function _intersects(r::_Rect{T, N}, lo::NTuple{N}, hi::NTuple{N}) where {T, N}
+@inline function _intersects(r::SpatialIndexing.Rect{T, N}, lo::NTuple{N}, hi::NTuple{N}) where {T, N}
     @inbounds for i in 1:N
         (r.low[i] > hi[i] || r.high[i] < lo[i]) && return false
     end
@@ -118,28 +114,28 @@ end
 
 @inline function _intersecting_leaf(f::F, leaf, lo, hi) where {F}
     @inbounds for elem in leaf.children
-        if _intersects(_mbr(elem), lo, hi)
+        if _intersects(SpatialIndexing.mbr(elem), lo, hi)
             f(elem) && return true
         end
     end
     return false
 end
 
-function _intersecting_branch(f::F, node::_Branch{T, N, V}, lo, hi) where {F, T, N, V}
+function _intersecting_branch(f::F, node::SpatialIndexing.Branch{T, N, V}, lo, hi) where {F, T, N, V}
     cs = node.children
-    if cs isa Vector{_Leaf{T, N, V}}
+    if cs isa Vector{SpatialIndexing.Leaf{T, N, V}}
         # Twig: the leaf loop is written out here (see the header).
         @inbounds for leaf in cs
-            _intersects(_mbr(leaf), lo, hi) || continue
+            _intersects(SpatialIndexing.mbr(leaf), lo, hi) || continue
             for elem in leaf.children
-                if _intersects(_mbr(elem), lo, hi)
+                if _intersects(SpatialIndexing.mbr(elem), lo, hi)
                     f(elem) && return true
                 end
             end
         end
     else
-        @inbounds for child in cs::Vector{_Branch{T, N, V}}
-            _intersects(_mbr(child), lo, hi) || continue
+        @inbounds for child in cs::Vector{SpatialIndexing.Branch{T, N, V}}
+            _intersects(SpatialIndexing.mbr(child), lo, hi) || continue
             _intersecting_branch(f, child, lo, hi) && return true
         end
     end
@@ -204,16 +200,16 @@ function nearest_neighbor!(
     state.best_sqdist = convert(F, max_sqdist)
     state.found = false
     root = tree.root
-    if root isa _Leaf{T, N, V}
+    if root isa SpatialIndexing.Leaf{T, N, V}
         _nearest_leaf!(state, root, pt)
     else
-        _nearest_branch!(state, root::_Branch{T, N, V}, pt)
+        _nearest_branch!(state, root::SpatialIndexing.Branch{T, N, V}, pt)
     end
     state.found || return nothing
     return (SpatialIndexing.id(state.best::V), state.best_sqdist)
 end
 
-@inline function _min_sqdist(r::_Rect{T, N}, pt::NTuple{N}) where {T, N}
+@inline function _min_sqdist(r::SpatialIndexing.Rect{T, N}, pt::NTuple{N}) where {T, N}
     F = eltype(pt)
     s = zero(F)
     @inbounds for i in 1:N
@@ -227,7 +223,7 @@ end
 
 @inline function _nearest_leaf!(state::NearestNeighborState{V, F}, leaf, pt::NTuple{N, F}) where {V, F, N}
     @inbounds for elem in leaf.children
-        d2 = _min_sqdist(_mbr(elem), pt)
+        d2 = _min_sqdist(SpatialIndexing.mbr(elem), pt)
         if d2 <= state.best_sqdist
             state.best_sqdist = d2
             state.best = elem
@@ -238,17 +234,17 @@ end
 end
 
 function _nearest_branch!(
-        state::NearestNeighborState{V, F}, node::_Branch{T, N, V}, pt::NTuple{N, F}
+        state::NearestNeighborState{V, F}, node::SpatialIndexing.Branch{T, N, V}, pt::NTuple{N, F}
     ) where {V, F, T, N}
     cs = node.children
-    if cs isa Vector{_Leaf{T, N, V}}
+    if cs isa Vector{SpatialIndexing.Leaf{T, N, V}}
         @inbounds for leaf in cs
-            _min_sqdist(_mbr(leaf), pt) <= state.best_sqdist || continue
+            _min_sqdist(SpatialIndexing.mbr(leaf), pt) <= state.best_sqdist || continue
             _nearest_leaf!(state, leaf, pt)
         end
     else
-        @inbounds for child in cs::Vector{_Branch{T, N, V}}
-            _min_sqdist(_mbr(child), pt) <= state.best_sqdist || continue
+        @inbounds for child in cs::Vector{SpatialIndexing.Branch{T, N, V}}
+            _min_sqdist(SpatialIndexing.mbr(child), pt) <= state.best_sqdist || continue
             _nearest_branch!(state, child, pt)
         end
     end
@@ -277,9 +273,9 @@ bulk_load!(tree, [SpatialElem(SpatialIndexing.Rect(p, p), j, nothing) for (j, p)
 function bulk_load!(tree::RTree{T, N, V}, elems::Vector{V}) where {T, N, V}
     isempty(tree) || throw(ArgumentError("bulk_load!: the tree is not empty"))
     isempty(elems) && return tree
-    leaf_fill = SpatialIndexing.capacity(_Leaf, tree)
+    leaf_fill = SpatialIndexing.capacity(SpatialIndexing.Leaf, tree)
     branch_fill = SpatialIndexing.omt_branch_fill(tree)
-    nbranch_subtrees = min(branch_fill[1] * branch_fill[2], SpatialIndexing.capacity(_Branch, tree))
+    nbranch_subtrees = min(branch_fill[1] * branch_fill[2], SpatialIndexing.capacity(SpatialIndexing.Branch, tree))
     height = max(ceil(Int, (log(length(elems)) - log(leaf_fill)) / log(nbranch_subtrees)), 0) + 1
     if height > 1
         maxelems_subtree = leaf_fill * nbranch_subtrees^(height - 2)
@@ -297,7 +293,7 @@ function bulk_load!(tree::RTree{T, N, V}, elems::Vector{V}) where {T, N, V}
     return tree
 end
 
-_sort_by_center!(elems, dim::Int) = sort!(elems; by = elem -> _mbr(elem).low[dim] + _mbr(elem).high[dim])
+_sort_by_center!(elems, dim::Int) = sort!(elems; by = elem -> SpatialIndexing.mbr(elem).low[dim] + SpatialIndexing.mbr(elem).high[dim])
 
 # The subtree of height `lev` over `elems` (a view into the caller's vector,
 # sorted in place by the level above), its root holding `nsubtrees` children
@@ -308,7 +304,7 @@ function _omt_subtree!(
     )
     if length(elems) <= nsubtrees
         if lev == 1         # a leaf holding every element
-            node = SpatialIndexing.acquire(tree, _Leaf, lev)
+            node = SpatialIndexing.acquire(tree, SpatialIndexing.Leaf, lev)
             sizehint!(node.children, length(elems))
             for elem in elems
                 SpatialIndexing._attach!(node, elem, tree)
@@ -317,19 +313,19 @@ function _omt_subtree!(
             return node
         else                # a branch with a single child
             child = _omt_subtree!(tree, elems, lev - 1, nslices, nsubtrees, leaf_fill, branch_fill)
-            node = SpatialIndexing.acquire(tree, _Branch, lev)
+            node = SpatialIndexing.acquire(tree, SpatialIndexing.Branch, lev)
             sizehint!(node.children, 1)
             SpatialIndexing._attach!(node, child, tree)
             tree.nnodes_perlevel[lev - 1] += 1
             return node
         end
     end
-    node = SpatialIndexing.acquire(tree, _Branch, lev)
+    node = SpatialIndexing.acquire(tree, SpatialIndexing.Branch, lev)
     sizehint!(node.children, fld1(length(elems), fld1(length(elems), nsubtrees)))
     nelems_subtree = fld1(length(elems), nsubtrees)
     nelems_slice = nelems_subtree * fld1(nsubtrees, nslices)
     dim = mod1(lev, ndims(tree))   # the sort dimension cycles through the levels
-    child_subtrees = min(branch_fill[1] * branch_fill[2], SpatialIndexing.capacity(_Branch, tree))
+    child_subtrees = min(branch_fill[1] * branch_fill[2], SpatialIndexing.capacity(SpatialIndexing.Branch, tree))
     for i in 1:nelems_slice:length(elems)
         slice = view(elems, i:min(i + nelems_slice - 1, length(elems)))
         _sort_by_center!(slice, dim)

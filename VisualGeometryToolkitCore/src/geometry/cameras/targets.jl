@@ -454,7 +454,7 @@ lengths as plain numbers in `u`, a plain grid's numbers as lengths in `u`. The
 grid already in the form asked for is an `ArgumentError`.
 """
 FlexUnits.ustrip(u::Units, g::AprilGrid{<:Quantity}) = AprilGrid(;
-    g.tag_rows, g.tag_cols, tag_size = _strip_length(u, g.tag_size), tag_spacing = _strip_length(u, g.tag_spacing), g.apriltag_family, g.first_id
+    g.tag_rows, g.tag_cols, tag_size = strip_or_bare(u, g.tag_size), tag_spacing = strip_or_bare(u, g.tag_spacing), g.apriltag_family, g.first_id
 )
 with_unit(g::AprilGrid{<:Real}, u::Units) = AprilGrid(;
     g.tag_rows, g.tag_cols, tag_size = _attach_length(g.tag_size, u), tag_spacing = _attach_length(g.tag_spacing, u), g.apriltag_family, g.first_id
@@ -558,7 +558,7 @@ plain number in `u`, a plain pattern's number as a length in `u`. The pattern
 already in the form asked for is an `ArgumentError`.
 """
 FlexUnits.ustrip(u::Units, p::SchoepsPattern{<:Quantity}) =
-    SchoepsPattern(; p.squares_x, p.squares_y, square_length = _strip_length(u, p.square_length), p.apriltags, p.star_segments, p.apriltag_family)
+    SchoepsPattern(; p.squares_x, p.squares_y, square_length = strip_or_bare(u, p.square_length), p.apriltags, p.star_segments, p.apriltag_family)
 with_unit(p::SchoepsPattern{<:Real}, u::Units) =
     SchoepsPattern(; p.squares_x, p.squares_y, square_length = _attach_length(p.square_length, u), p.apriltags, p.star_segments, p.apriltag_family)
 

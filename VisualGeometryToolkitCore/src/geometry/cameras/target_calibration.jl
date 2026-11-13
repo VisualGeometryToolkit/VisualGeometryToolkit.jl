@@ -77,7 +77,7 @@ regularizer(::Rigid) = SVector{0, Float64}()
 
 # A point in plain numbers (a physical one in metres), and a plain result put
 # back in the form of the point it came from.
-@inline _plain_point(p::StaticVector{N, <:Quantity}) where {N} = SVector{N}(map(q -> _strip_length(m, q), Tuple(p)))
+@inline _plain_point(p::StaticVector{N, <:Quantity}) where {N} = SVector{N}(map(q -> strip_or_bare(m, q), Tuple(p)))
 @inline _plain_point(p::StaticVector) = SVector(Tuple(p))
 @inline _restore_point(x::StaticVector, ::StaticVector{N, <:Quantity}) where {N} = SVector(map(v -> _attach_length(v, m), Tuple(x)))
 @inline _restore_point(x::StaticVector, ::StaticVector) = x
@@ -87,7 +87,7 @@ regularizer(::Rigid) = SVector{0, Float64}()
 function _lengths(xs::AbstractVector)
     isempty(xs) && return (Float64[], false)
     _check_one_form(xs)
-    return has_units(first(xs)) ? ([_strip_length(m, q) for q in xs], true) : (collect(xs), false)
+    return has_units(first(xs)) ? ([strip_or_bare(m, q) for q in xs], true) : (collect(xs), false)
 end
 # Node positions: 2-vectors, plain or lengths, as plain `Float64` (metres).
 function _node_points(nodes::AbstractVector)

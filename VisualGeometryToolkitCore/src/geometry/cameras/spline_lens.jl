@@ -898,8 +898,8 @@ end
 # controls. A SplineLens camera's bundle refinement reads it
 # (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
 function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rect2, x::StaticVector{2}, t::StaticVector{3})
-    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(size(controls), area, x)   # the basis weights once: the differential's and w
-    _, _, Jx, n = _direction_differential(_window_sums(controls, area, gx, ix, iy, wx, wy, dwx, dwy)...)
+    _, ix, iy, wx, wy, _, _ = _window_weights(size(controls), area, x)   # the window and its weights: w
+    _, _, Jx, n = _direction_differential(_spline_value_and_partials(controls, area, x)...)
     H = inv(Jx' * Jx) * Jx'
     tn = norm(t)
     t̂ = t / tn

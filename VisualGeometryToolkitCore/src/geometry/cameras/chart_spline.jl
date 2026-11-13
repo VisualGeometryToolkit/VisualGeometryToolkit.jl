@@ -289,13 +289,8 @@ end
 # the grid), the partials through the area → lattice slope. In the precision of `x`
 # and the controls (a Float32 lattice stays Float32). The value sums in
 # `_eval_window`'s order, so it is the spline's value bit for bit. Device-safe.
-@inline function _spline_value_and_partials(controls::AbstractMatrix{<:StaticVector}, area, x::StaticVector{2})
-    gsz = size(controls)
-    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(gsz, area, x)
-    return _window_sums(controls, area, gx, ix, iy, wx, wy, dwx, dwy)
-end
-# The value and partials of the window `(ix, iy)` from its weights (`_window_weights`).
-@inline function _window_sums(controls::AbstractMatrix{<:StaticVector{K}}, area, gx, ix, iy, wx, wy, dwx, dwy) where {K}
+@inline function _spline_value_and_partials(controls::AbstractMatrix{<:StaticVector{K}}, area, x::StaticVector{2}) where {K}
+    gx, ix, iy, wx, wy, dwx, dwy = _window_weights(size(controls), area, x)
     T = promote_type(typeof(gx), eltype(eltype(controls)))
     S, Sx, Sy = spline_window_sums((r, c) -> @inbounds(SVector{K, T}(controls[iy - 3 + r, ix - 3 + c])), zero(SVector{K, T}), wx, wy, dwx, dwy)
     sx, sy = _lattice_scales(Float64, area, size(controls))

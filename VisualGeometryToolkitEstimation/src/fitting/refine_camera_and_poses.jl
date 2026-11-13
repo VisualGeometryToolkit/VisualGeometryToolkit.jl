@@ -296,7 +296,7 @@ function refine_camera_and_poses(
     ) where {K}
     ids = block_order(views, poses)
     est, rest... = _refine_camera_and_poses(camera, [poses[k] for k in ids], [views[k] for k in ids]; kwargs...)
-    return _camera_poses_result((; camera = est.camera, poses = Dict{K, eltype(est.poses)}(zip(ids, est.poses))), rest...)
+    return FitResult((; camera = est.camera, poses = Dict{K, eltype(est.poses)}(zip(ids, est.poses))), rest...)
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:PlainEuclideanMap{3}},
@@ -304,7 +304,7 @@ function refine_camera_and_poses(
         kwargs...
     )
     length(poses) == length(views) || throw(ArgumentError("refine_camera_and_poses: $(length(poses)) poses for $(length(views)) views"))
-    return _camera_poses_result(_refine_camera_and_poses(camera, collect(poses), collect(views); kwargs...)...)
+    return FitResult(_refine_camera_and_poses(camera, collect(poses), collect(views); kwargs...)...)
 end
 
 # Several boards: the view poses (world → camera) and the board poses (board → world) keyed, the correspondences keyed
@@ -362,7 +362,7 @@ function refine_camera_and_poses(
     end
     obs = [(vi[v], bi[b], _correspondence(vi[v], j, c)...) for (v, b) in keys_ for (j, c) in enumerate(views[(v, b)])]
     est, rest... = _refine_bundle(camera, [poses[k] for k in vids], [board_poses[k] for k in bids], obs, held_v, held_b; kwargs...)
-    return _camera_poses_result((; camera = est.camera, poses = Dict{V, eltype(est.poses)}(zip(vids, est.poses)),
+    return FitResult((; camera = est.camera, poses = Dict{V, eltype(est.poses)}(zip(vids, est.poses)),
                                  board_poses = Dict{B, eltype(est.boards)}(zip(bids, est.boards))), rest...)
 end
 
@@ -376,7 +376,7 @@ function refine_camera_and_poses(
         camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_csponds(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
+    return FitResult((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
@@ -384,10 +384,9 @@ function refine_camera_and_poses(
     )
     r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
     est = estimate(r)
-    return _camera_poses_result((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
+    return FitResult((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 
-_camera_poses_result(est, code, rule, iters, rms, n, meta) = FitResult(est, code, rule, iters, rms, n, meta)
 
 # The route, by Core's `IntrinsicsRole` trait: a free K (a parametric lens) below; a gauge K
 # (a SplineLens) in refine_spline_camera_and_poses.jl.

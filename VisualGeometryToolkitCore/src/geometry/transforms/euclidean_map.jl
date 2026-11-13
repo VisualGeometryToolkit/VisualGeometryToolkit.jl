@@ -637,12 +637,11 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
 # `RigidExpManifold6` chart, rotation first, so its translation rows and
 # columns (4–6) carry the length unit: they move with it, once, here.
 #
-# Every length crosses between the forms through one pair, `_strip_length` and
+# Every length crosses between the forms through one pair, `strip_or_bare` and
 # `_attach_length` (FlexUnits' `ustrip` and `base_quantity`), so the conversion is
 # stated once for maps, points and every carrier built on them.
 
-# One length, plain in `u`; one plain number in `u`, as a length in metres.
-@inline _strip_length(u::Units, q::Quantity) = strip_or_bare(u, q)
+# One plain number in `u`, as a length in metres.
 @inline _attach_length(x::Real, u::Units) = _check_length(base_quantity(Quantity(x, u)))
 
 has_units(::EuclideanMap{N, T, R, V}) where {N, T, R, V} = eltype(V) <: Quantity
@@ -661,7 +660,7 @@ function FlexUnits.ustrip(u::Units, E::EuclideanMap{N, T, R, V, Src, Dst}) where
             "ustrip: the map's translation is plain numbers already; `with_unit(E, u)` attaches a unit"
         )
     )
-    t = map(q -> _strip_length(u, q), E.t)
+    t = map(q -> strip_or_bare(u, q), E.t)
     return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
 end
 
@@ -914,7 +913,7 @@ _translation_metres(E::EuclideanMap) = has_units(E) ? strip_metres(translation(E
 # one whose d×d covariance is in m² (a precision in 1/m²); its plain form in a
 # unit `u` scales the covariance by `ustrip(u, 1 m)²`, the inverse divides it.
 
-_ustrip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> _strip_length(u, q), p)
+_ustrip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> strip_or_bare(u, q), p)
 _ustrip_point(u::Units, p::Uncertain) =
     Uncertain(_ustrip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), *))
 _ustrip_point(::Units, p) = throw(ArgumentError("ustrip: the point $(p) is plain numbers already; `with_unit` attaches a unit"))

@@ -140,7 +140,6 @@ function _optouts(src::AbstractString)
 end
 
 _opted_line(marks, rule, i) = any(j -> j == i || j == i - 1, get(marks, rule, Int[]))
-_opted_file(marks, rule) = haskey(marks, rule)
 
 # ---- producers -------------------------------------------------------------------------
 
@@ -423,7 +422,7 @@ function _scripts!(add!, root::String, scripts::AbstractString, configs::Abstrac
         producer = _is_producer(src, code, rel, generators)
         producer || continue
         if :configs in checks
-            (occursin(takes_config, code) || _names_config(code, config_names)) || _opted_file(marks, "C1") ||
+            (occursin(takes_config, code) || _names_config(code, config_names)) || haskey(marks, "C1") ||
                 add!(:configs, "C1", rel, 0, "produces results or paper assets but reads no config of record under $configs/")
             for (i, line) in lines
                 occursin(_C2_SKIP, line) && continue
@@ -439,12 +438,12 @@ function _scripts!(add!, root::String, scripts::AbstractString, configs::Abstrac
         if :provenance in checks
             reached = _reached_files(root, path, scripts)
             reached_code = join((_code(read(f, String)) for f in reached), '\n')
-            occursin(_PROVENANCE_WRITERS, reached_code) || _opted_file(marks, "P1") ||
+            occursin(_PROVENANCE_WRITERS, reached_code) || haskey(marks, "P1") ||
                 add!(:provenance, "P1", rel, 0,
                      "writes no provenance record through the shared writer (write_provenance / write_run_records / cached_result)")
-            occursin(_RUN_KEYS, reached_code) || _opted_file(marks, "P2") ||
+            occursin(_RUN_KEYS, reached_code) || haskey(marks, "P2") ||
                 add!(:provenance, "P2", rel, 0, "keys no output directory by the run key of its config (run_key)")
-            rel in generators && !occursin("run_stages(", code) && !_opted_file(marks, "S1") &&
+            rel in generators && !occursin("run_stages(", code) && !haskey(marks, "S1") &&
                 add!(:provenance, "S1", rel, 0, "a generator of the asset index without the stage runner (run_stages)")
         end
         if :contract in checks && occursin("run_stages(", code)

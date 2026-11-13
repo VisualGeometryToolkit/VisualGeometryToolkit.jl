@@ -20,8 +20,13 @@
 #   _Free                      any object — `provenance` alone, never read
 #   _Either(key => s, …)       one of several object shapes, told apart by a
 #                              key only that shape carries
-#   _CheckedSpec(s, f)         `s`, then a cross-field check `f(x)` returning
-#                              an error message or `nothing`
+#   _CheckedSpec(s, f; rule, schema)   `s`, then a cross-field check `f(x)`
+#                              returning an error message or `nothing`; `rule`
+#                              states the check in words and `schema` the JSON
+#                              Schema keywords that state it where they can
+#                              (json_schema.jl publishes both)
+#   _Positional(name => what, …)  an array of finite reals, one per named field
+#                              (a rectangle [x, y, w, h], an ellipse, a quaternion)
 #   _IfKey(key, a, b)          `a` if the object holds `key`, else `b`
 #   _SchemaTok(kind) / _Cov(d) / _RowRuns / _LengthRoles   a schema string of the kind's
 #                              major; a covariance; lattice runs; length roles
@@ -68,7 +73,22 @@ end
 struct _CheckedSpec{S <: _Spec} <: _Spec
     inner::S
     check::Function
+    rule::String                          # the check in words (the JSON Schema's `description` of it)
+    schema::Vector{Dict{String, Any}}     # JSON Schemas stating it where they can (`if`/`then`, `uniqueItems`, …), all of them hold
 end
+_CheckedSpec(inner::_Spec, check::Function; rule::AbstractString = "", schema = Dict{String, Any}[]) =
+    _CheckedSpec(inner, check, String(rule), _subschemas(schema))
+# `schema`: one subschema (a Dict, or its keyword => value pairs) or a vector of them
+_subschemas(s::AbstractDict) = [Dict{String, Any}(s)]
+_subschemas(s::AbstractVector{<:Pair}) = [Dict{String, Any}(s)]
+_subschemas(s::AbstractVector) = Dict{String, Any}[Dict{String, Any}(x) for x in s]
+# A fixed-length array of finite reals whose entries are named fields — the
+# positional primitives a file stores compactly (a rectangle, a circle, an
+# ellipse, a quaternion): `name => what` per entry, in order.
+struct _Positional <: _Spec
+    fields::Vector{Pair{String, String}}
+end
+_Positional(fields::Pair{String, String}...) = _Positional(collect(fields))
 # One of two object shapes, told apart by whether the object holds `key`
 # (`then` if it does, `otherwise` if not): JSON Schema's if/then/else.
 struct _IfKey{A <: _Spec, B <: _Spec} <: _Spec
@@ -133,6 +153,7 @@ function _validate(::_RealMap, x, file, at)
     return nothing
 end
 _validate(::_Free, x, file, at) = (x isa AbstractDict || _refuse(file, at, "expected an object"); nothing)
+_validate(s::_Positional, x, file, at) = _validate(_Vec(_Real(), length(s.fields)), x, file, at)
 function _validate(s::_Either, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object")
     hits = [sk for (k, sk) in s.alts if haskey(x, k)]
@@ -172,6 +193,15 @@ _is_pixel_frame_name(s) = try
 catch
     false
 end
+const _HEX64 = _Named(Base.Fix1(occursin, r"^[0-9a-f]{64}$"), "a SHA-256 hex digest (64 lowercase hex digits)")
+# The positional primitives (style.jl's Rect, Circle and Ellipse records; a pose's rotation).
+const _AREA = _Positional("x" => "the origin's x (the smallest x)", "y" => "the origin's y (the smallest y)",
+                          "width" => "the extent along x, > 0", "height" => "the extent along y, > 0")
+const _CIRCLE = _Positional("cx" => "the centre's x", "cy" => "the centre's y", "r" => "the radius, > 0")
+const _ELLIPSE = _Positional("cx" => "the centre's x", "cy" => "the centre's y", "a" => "the major semi-axis, > 0",
+                             "b" => "the minor semi-axis, 0 < b ≤ a", "theta" => "the major axis's angle from +x, rad")
+const _QUATERNION = _Positional("w" => "the scalar part, w ≥ 0", "x" => "the vector part's x", "y" => "the vector part's y",
+                                "z" => "the vector part's z")
 
 
 # The runs of a spline lattice's present nodes (style.jl), `[[row, [[col_lo, col_hi], …]], …]`:
@@ -213,13 +243,18 @@ const _SIZE_INT = _Obj(:width => _PosInt(), :height => _PosInt())
 _lattice_spec(controls::Vector{<:Pair{Symbol, Int}}, optional::Vector{<:Pair{Symbol, Int}} = Pair{Symbol, Int}[]) = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
-            :area => _Vec(_Real(), 4), :grid_size => _SIZE_INT,
+            :area => _AREA, :grid_size => _SIZE_INT,
             :controls => _Obj(Pair{Symbol, _Spec}[k => _Vec(_Vec(_Real(), d)) for (k, d) in controls],
                               Pair{Symbol, _Spec}[k => _Vec(_Vec(_Real(), d)) for (k, d) in optional]),
         ],
         Pair{Symbol, _Spec}[:present => _RowRuns()],
     ),
-    _lattice_problem,
+    _lattice_problem;
+    rule = "the area's width and height are > 0; the lattice has at least 4 × 4 nodes; `present` names rows ≤ " *
+           "grid_size.height and columns ≤ grid_size.width; every control array has one entry per held node " *
+           "(grid_size.width × grid_size.height without `present`)",
+    schema = ["properties" => Dict("area" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0), Dict("exclusiveMinimum" => 0)]),
+                                   "grid_size" => Dict("properties" => Dict("width" => Dict("minimum" => 4), "height" => Dict("minimum" => 4))))],
 )
 # Its own check: the `area` a finite rectangle of positive widths, then the
 # lattice (`_lattice_count_problem`) with each of its control arrays; `s` a
@@ -338,11 +373,13 @@ const _LENGTH_UNIT = _Named(_is_length_name, "a registered length unit (mm, cm, 
 const _DENSITY_UNIT = _Named(_is_density_name, "a registered density unit (dpi)")
 # A units object's length roles: role → a length unit, the role names snake_case.
 struct _LengthRoles <: _Spec end
+const _LENGTH_ROLE_RE = r"^[a-z][a-z0-9_]*$"
+const _RESERVED_ROLES = ("length", "world", "density")
 function _validate(::_LengthRoles, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object of length role => length unit")
     for (k, v) in x
         r = String(k)
-        (occursin(r"^[a-z][a-z0-9_]*$", r) && !(r in ("length", "world", "density"))) ||
+        (occursin(_LENGTH_ROLE_RE, r) && !(r in _RESERVED_ROLES)) ||
             _refuse(file, _at(at, k), "a length role is a snake_case name other than length, world and density")
         _validate(_LENGTH_UNIT, v, file, _at(at, k))
     end
@@ -365,13 +402,13 @@ const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
-                    check = nothing, units::_Spec = _UNITS_OBJECT)
+                    check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT)
     o = _Obj(
         Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
                             :conventions => _CONVENTIONS_OBJECT, required...],
         Pair{Symbol, _Spec}[optional..., _PROVENANCE...],
     )
-    return check === nothing ? o : _CheckedSpec(o, check)
+    return check === nothing ? o : _CheckedSpec(o, check; rule, schema)
 end
 
 # The writer's identity, every file's `generator`: this package and its version,
@@ -401,7 +438,7 @@ _envelope_tail(style) = (generator = _generator_json(), units = _units_json(styl
 const _CONVENTIONS_JSON = (rotation_encoding = _ROTATION_ENCODING, transform_convention = _TRANSFORM_CONVENTION,
                            matrix_layout = MATRIX_LAYOUT, grid_layout = _GRID_LAYOUT, index_base = _INDEX_BASE)
 
-const _POSE = _Obj(:rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3))
+const _POSE = _Obj(:rotation => _QUATERNION, :translation => _Vec(_Real(), 3))
 
 # A covariance on the wire (VisualGeometryToolkitCore conventions/persisted-geometry.md),
 # in the value's own tangent order and the file's units, its shape the storage
@@ -433,7 +470,7 @@ const _COV6 = _cov_spec(6)
 # first, rad and the file's length unit — in the chart `R ↦ exp(δω)·R,
 # t ↦ t + δt` (VGC `RigidExpManifold6`; GTSAM's Pose3 order, not its chart).
 const _UPOSE = _Obj(
-    Pair{Symbol, _Spec}[:rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3)],
+    Pair{Symbol, _Spec}[:rotation => _QUATERNION, :translation => _Vec(_Real(), 3)],
     Pair{Symbol, _Spec}[:covariance => _COV6],
 )
 const _XY = _Vec(_Real(), 2)
@@ -547,8 +584,9 @@ end
 # A schema string's owner, kind and version (`<owner>/<kind>/v<major>[.<minor>]`;
 # a string without a minor, the form before IO 0.10, is minor 0), or `nothing`.
 # `_split_schema` is vgio's own (`owner == "vgio"`), `_split_owned` any owner's.
+const _OWNED_SCHEMA_RE = r"^([a-z][a-z0-9_]*)/([a-z0-9_]+)/v(\d+)(?:\.(\d+))?$"
 function _split_owned(s)
-    m = s isa AbstractString ? match(r"^([a-z][a-z0-9_]*)/([a-z0-9_]+)/v(\d+)(?:\.(\d+))?$", s) : nothing
+    m = s isa AbstractString ? match(_OWNED_SCHEMA_RE, s) : nothing
     m === nothing && return nothing
     return (owner = String(m[1]::AbstractString), kind = String(m[2]::AbstractString), major = parse(Int, m[3]::AbstractString),
             minor = m[4] === nothing ? 0 : parse(Int, m[4]::AbstractString))

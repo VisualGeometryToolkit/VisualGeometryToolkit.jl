@@ -194,6 +194,7 @@ include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory, target_poses, target_homographies, observations: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings: the camera's settings per frame, the device identities
 include("radiometry_schema.jl")  # vignetting, environment_light, blur: a radiometric camera's fields, light and blurs
+include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
@@ -248,6 +249,7 @@ public read_length, write_length   # a file length <-> metres, decimal-exact (po
 public read_quantity, write_quantity, json_value, from_json, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
 public validate                       # check any vgio file against its kind's table
+public json_schema                    # a kind's JSON Schema (draft 2020-12), generated from that table
 public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)
 public schema_versions, with_caller   # the versions each kind reads (from its steps); the calling package a file's generator names
 public migrate_envelope               # a pre-0.10 record's envelope as the 0.10 one: an owner's version step

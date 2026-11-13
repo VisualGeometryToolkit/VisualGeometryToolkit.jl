@@ -38,7 +38,7 @@
 const _POSE_RECORD = _Obj(
     Pair{Symbol, _Spec}[
         :from => _FRAME_NAME, :to => _FRAME_NAME,
-        :rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3),
+        :rotation => _QUATERNION, :translation => _Vec(_Real(), 3),
     ],
     Pair{Symbol, _Spec}[:covariance => _COV6],
 )

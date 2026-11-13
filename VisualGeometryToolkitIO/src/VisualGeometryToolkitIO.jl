@@ -175,6 +175,8 @@ using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noi
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
 #   target_calibration_json / target_calibration_from_json, lattice_json / lattice_from_json
 #                                                building blocks for a package's own kind
+#   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, with_caller
+#                                                a package's own kind in the vgio envelope, and its version steps
 #
 # PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetObservations{F}`): the producer
 # attaches it, `save` writes it as the file's declaration without converting a

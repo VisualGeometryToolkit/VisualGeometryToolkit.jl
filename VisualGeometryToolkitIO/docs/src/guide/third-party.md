@@ -1,15 +1,15 @@
 # Third-Party Calibrations
 
-## Migrating an export: `migrate_opencv`, `migrate_matlab`
+## Converting an export: `convert_opencv_calibration`, `convert_matlab_calibration`
 
 Both functions convert one third-party calibration export into the same two
-native files:
+native files ("migrate" in this package means schema migration only):
 
-- `<stem>_cameras.json`, a `vgio/cameras/v5` store holding one camera named
+- `<stem>_cameras.json`, a `vgio/cameras/v6.0` store holding one camera named
   `<stem>`;
-- `<stem>_poses.json`, a `vgio/transforms/v3` file with one pose per posed
-  image, labeled `TargetFrame{target} → ViewFrame{image}`, in the export's
-  `tvec` unit. An
+- `<stem>_poses.json`, a `vgio/transforms/v5.0` file with one pose per posed
+  image, labeled `TargetFrame{target} → ViewFrame{image}`, its
+  `units.length` the export's `tvec` unit. An
   image that the export left `null` gets no record.
 
 The round trip is verified before anything is written. The original file is
@@ -20,9 +20,9 @@ never touched, and an output file that already exists is refused.
 An export does not state everything a reader needs. Each missing piece is an
 argument, and each is a statement about the file:
 
-- `file_frame` is the pixel frame of `cx, cy`. `migrate_opencv` defaults to
+- `file_frame` is the pixel frame of `cx, cy`. `convert_opencv_calibration` defaults to
   OpenCV's own frame, with the top-left pixel's centre at (0, 0),
-  `PixelFrame{:opencv}`. `migrate_matlab` defaults to MATLAB's documented
+  `PixelFrame{:opencv}`. `convert_matlab_calibration` defaults to MATLAB's documented
   (1, 1), `PixelFrame{:julia}`. A fitted principal point cannot tell the two
   apart (two fits of one capture differ by less than a pixel), so override a
   default only for a file you have verified to be in another frame.
@@ -56,11 +56,11 @@ argument, and each is a statement about the file:
 
 ## The readers and the writer
 
-The migrations are built on `load_opencv_calibration` and
+The conversions are built on `load_opencv_calibration` and
 `load_matlab_calibration`. They return an `ExternalCalibration`, a
 foreign-format adapter holding VGC values: the camera as a `CameraModel`, and
 the poses as `EuclideanMap`s labeled `TargetFrame{target} → CameraFrame`. The
-migration relabels them `→ ViewFrame{image}`.
+conversion relabels them `→ ViewFrame{image}`.
 
 `load_kalibr_camchain([file_frame,] path; camera = "cam0")` reads one camera
 of a Kalibr `camchain.yaml` as a `BoundedCamera`: its camera and distortion

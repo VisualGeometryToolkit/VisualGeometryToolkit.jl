@@ -273,7 +273,9 @@ end
 function _validate_listed(full, s)
     v = _split_owned(s)
     v.owner == "vgio" && return (validate(full); nothing)
-    hasmethod(validate_record, Tuple{Val{Symbol(v.owner)}, String, String}) && validate_record(Val(Symbol(v.owner)), String(full), String(s))
+    # (the owner's method is found at run time: a package loaded after this one adds it)
+    hasmethod(validate_record, Tuple{Val{Symbol(v.owner)}, String, String}) &&
+        Base.invokelatest(validate_record, Val(Symbol(v.owner)), String(full), String(s))
     return nothing
 end
 

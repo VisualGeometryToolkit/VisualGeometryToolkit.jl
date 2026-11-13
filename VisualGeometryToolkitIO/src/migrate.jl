@@ -283,8 +283,8 @@ versions read is generated from it.
 function schema_versions(kind::AbstractString)
     old = String[]
     for m in methods(migrate_schema)
-        sig = Base.unwrap_unionall(m.sig)
-        length(sig.parameters) == 3 || continue
+        sig = m.sig                       # every step method is concrete: `Tuple{typeof(migrate_schema), Val{s}, <tree or paths>}`
+        (sig isa DataType && length(sig.parameters) == 3) || continue
         V = sig.parameters[2]
         (V isa DataType && V <: Val && V.parameters[1] isa Symbol) || continue
         s = String(V.parameters[1])
@@ -1205,6 +1205,13 @@ end
 const _OLD_NOMINAL_KEY = "nominal_intrinsics"   # (the type names: style.jl)
 const _OLD_GRID_KEYS = ("type", "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
     "grid_width", "grid_height", "grid_layout", "direction_grid")
+# 0-based runs as the 1-based runs they read as; `nothing` for a value that is no list of runs (the check refuses it).
+_shifted_runs(r) = try
+    _runs_v010(r)
+catch e
+    e isa Union{MethodError, BoundsError, TypeError} || rethrow()
+    nothing
+end
 function _old_grid_camera(b::AbstractDict)
     for k in _OLD_GRID_KEYS
         haskey(b, k) || _not_written_by("an old grid body (generic_camera v2/v3, a rig/v6–v8 sensor)", "has no $(repr(k)), which every one held")
@@ -1226,10 +1233,10 @@ function _old_grid_camera(b::AbstractDict)
     haskey(b, "domain") && _validate(_Obj(:ellipse => _Vec(_Real(), 5)), b["domain"], what, "domain")
     b["grid_layout"] == _GRID_LAYOUT || _not_written_by("an old grid body", "has the grid_layout $(repr(b["grid_layout"])), not $(repr(_GRID_LAYOUT))")
     gw, gh = Int(b["grid_width"]::Integer), Int(b["grid_height"]::Integer)
-    if haskey(b, "present")
-        _validate(_RowRuns(), b["present"], "an old grid body", "present")
-    end
-    msg = _lattice_count_problem(gw, gh, get(b, "present", nothing), [k => b[k] for k in ("direction_grid", "point_grid") if haskey(b, k)])
+    # its runs are 0-based (before IO 0.10): checked as the 1-based runs they read as
+    runs = haskey(b, "present") ? something(_shifted_runs(b["present"]), b["present"]) : nothing
+    runs === nothing || _validate(_RowRuns(), runs, "an old grid body (its 0-based runs + 1)", "present")
+    msg = _lattice_count_problem(gw, gh, runs, [k => b[k] for k in ("direction_grid", "point_grid") if haskey(b, k)])
     msg === nothing || throw(ArgumentError("an old grid body: $(msg)"))
     (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
         throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
@@ -1457,6 +1464,7 @@ migrate_schema(::Val{Symbol("vgio/calibration/v2")}, src::AbstractString, dst::A
 function _migrate_units_sidecar(src, dst)
     basename(src) == UNITS_SIDECAR || throw(ArgumentError("$(src): a units sidecar is a model directory's $(UNITS_SIDECAR)"))
     c = load_units_sidecar(dirname(src))
+    c === nothing && throw(ArgumentError("$(src): no units sidecar to migrate"))
     save_units_sidecar(dirname(dst), c)
     _verify(load_units_sidecar(dirname(dst)) == c, src, "the units sidecar")
     return (; to = _schema("units"))
@@ -1805,12 +1813,23 @@ over the 0.10 identity tree), and earlier versions' identities differed too (a
 rig v4 file's hashed its record). Each migrated rig or target file's old
 identities — the ones its own version minted, and IO 0.9's identity of its
 value — map to its new one. The map is PERSISTED in `dir/vgio_migrate_ids.json`
-(`{"identities": {old: new, …}, "definitions": {new: path relative to dir, …}}`)
-before a definition is put in place, and read by a later run, so a run that
+(`{"identities": {old: new, …}, "definitions": {new: path relative to dir, …},
+"rewritten": {old path: {"path": its current file, "sha256": the old bytes'},
+…}}`, paths relative to `dir`) before a file is put in place, and read by a
+later run, so a run that
 fails after its definitions were migrated in place re-points correctly when
 rerun, and an observation file kept outside the tree can be re-pointed later
 from the map (the command's `repoint`); a rerun of a migrated tree is idempotent
-(every file current, logged so). A file the migration refuses — its migration
+(every file current, logged so).
+
+A calibration manifest of the tree (`vgio/calibration`) is migrated last: each
+listed file the run rewrote is bound again — its `path`, `sha256` and `schema`
+its current file's, every `derived_from` naming it renamed with it — and the
+manifest is written as the current version and checked as
+[`load_manifest`](@ref) checks it before it is put in place; a current
+manifest none of whose files moved is left as it is.
+
+A file the migration refuses — its migration
 does not read back, its `<stem>.migrated.json` exists and is not current, an
 observation file names an identity that is neither mapped nor a current
 definition's of the tree, or an observation does not resolve in its
@@ -1951,7 +1970,7 @@ end
 _is_manifest(s) = (v = _split_schema(s); v !== nothing && v.kind == "calibration")
 # One listed file of a manifest in `mdir`, bound again if the tree rewrote it
 # (marked `_rebound`; a renamed path recorded in `renamed`), else as it stands.
-function _rebound_entry(e::AbstractDict, m::_TreeMap, dir, mdir, renamed::AbstractDict, dry_run::Bool)
+function _rebound_entry(e::AbstractDict, m::_TreeMap, dir::AbstractString, mdir::AbstractString, renamed::AbstractDict, dry_run::Bool)
     w = get(m.rewritten, relpath(normpath(joinpath(mdir, e["path"])), dir), nothing)
     (w === nothing || w["sha256"] != e["sha256"]) && return Dict{String, Any}(e)
     new = joinpath(dir, w["path"])
@@ -1971,7 +1990,7 @@ end
 # back, and checked as `load_manifest` checks it (every listed file's hash and
 # schema, its owner's reader, the observations' targets) before it is put in
 # place. A current manifest none of whose files moved is left as it is.
-function _migrate_tree_manifest(f, s, dir, m::_TreeMap; out, dry_run::Bool, io::IO)
+function _migrate_tree_manifest(f::AbstractString, s, dir::AbstractString, m::_TreeMap; out, dry_run::Bool, io::IO)
     if out != f && isfile(out) && (so = _try_schema(out); so isa String && _is_current(so))
         println(io, "current   ", f, ": already migrated to ", out)
         return nothing

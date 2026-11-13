@@ -32,7 +32,10 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
   centre first, in the storage it holds (rows / `{"diagonal"}` / `{"isotropic"}`). `cov`, `cov_size`, a `null`
   covariance and the 3×3 fallback for a size-less `null` are gone. `PointFrame` (0.9.4's codec) is its 2-DOF case.
 - **`vgio/panorama/v2.0`**: 0.9.4's v1 in the envelope, `frame_index` for `t`, the rotations `camera` → `world`; v1 reads
-  through its step. `save_panorama`/`load_panorama` keep their signatures.
+  through its step (`fit = nothing`). `vignetting` is optional (`nothing`: a panorama with no Core vignetting), and an
+  optional `fit` records the bundle's termination (`retcode`, `stop_rule`, `iterations`, `rms`, `n`, the stack's one
+  record; read back as a `FitResult{Nothing, Nothing}`): `save_panorama(path, camera, rotations, vignetting, gains,
+  fit = nothing; length_unit, provenance)`, `load_panorama(path) -> (; camera, rotations, vignetting, gains, fit)`.
 - **One envelope for every file**: `schema`, `generator` (`{"name": "VisualGeometryToolkitIO", "version", "caller"?}`,
   the caller named by `with_caller(f, Mod)`), ONE `units` object (`length`, `time`, `angle`, `pixel`, `density`,
   `radiance`, `length_roles`) and ONE `conventions` object (`rotation_encoding`, `transform_convention`,

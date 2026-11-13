@@ -79,7 +79,7 @@ end
         p = joinpath(dir, "rig.json")
         save(p, rig; length_unit = m)
         d = parse_json(read(p, String))
-        @test d.length_unit == "m" && d.targets[1].target.points[2][1] ≈ 0.03
+        @test d.units.length == "m" && d.targets[1].target.points[2].xyz[1] ≈ 0.03 && d.targets[1].target.type == "point_target"
         back = load(Rig, p)
         @test ids(back) == [:cam, :markers] && model(back[:cam]) == model(cam)
         @test back[:markers].target == markers && pose(back, :markers) == pose(rig, :markers)   # decimal-exact in metres too

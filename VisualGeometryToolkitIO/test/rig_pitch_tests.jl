@@ -1,13 +1,14 @@
 # =============================================================================
-# rig/v5: a sensor bounded by its physical Sensor carries the pixel pitch
+# rig/v10.0 and cameras/v6.0: a sensor bounded by its physical Sensor carries the pixel pitch
 # =============================================================================
 #
-# The camera body of a rig sensor gains `"pitch": [width, height]`, a length per
-# pixel in the rig's `length_unit`, iff the camera is bounded by a `Sensor`;
-# absent, the body and the identity are the bare extent's, byte for byte (every
-# other fixture and content_id pin covers that). Additive in rig/v5, unreleased.
+# The camera body of a rig sensor (and of a stored camera) carries `"pitch":
+# {"width", "height"}` (IO 0.10: a Size2 object), a length per pixel in the
+# file's `units.length`, iff the camera is bounded by a `Sensor`; absent, the
+# body and the identity are the bare extent's, byte for byte (every other
+# fixture and content_id pin covers that).
 
-@testitem "rig/v5: the pitch travels with the camera body" setup = [VGIoFixtures] begin
+@testitem "rig/v10.0: the pitch travels with the camera body" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, BoundedCamera, PosedCamera, StereoRig, Sensor, sensor, model, μm, CMOS_SENSORS, image_circle
@@ -52,28 +53,26 @@
     end
 
     @testset "a pitch that is not two positive lengths per pixel is refused" begin
-        text = read(src, String)
+        d = JSON.parse(read(src, String); dicttype = Dict{String, Any})
+        i = findfirst(s -> haskey(s["camera"], "pitch"), d["sensors"])
+        @test d["sensors"][i]["camera"]["pitch"] == Dict("width" => 0.00345, "height" => 0.00345)
         mktempdir() do dir
-            for (bad, why) in (("[\n                    -0.00345,", "negative"), ("[\n                    \"3.45um\",", "a string"))
-                p = joinpath(dir, "bad.json")
-                write(p, replace(text, "[\n                    0.00345," => bad; count = 1))
-                @test_throws ArgumentError load(Rig, p)
+            function refusal(edit!)
+                t = deepcopy(d); edit!(t["sensors"][i]["camera"])
+                p = joinpath(dir, "bad.json"); write(p, JSON.json(t))
+                return try load(Rig, p); "" catch e; e isa ArgumentError ? sprint(showerror, e) : rethrow() end
             end
-            p = joinpath(dir, "short.json")
-            write(p, replace(text, "0.00345,\n                    0.00345" => "0.00345"; count = 1))
-            @test_throws ArgumentError load(Rig, p)
-            # the error names the key, as every refusal does
-            msg = try
-                load(Rig, joinpath(dir, "bad.json")); ""
-            catch e
-                sprint(showerror, e)
+            for bad! in (c -> (c["pitch"]["width"] = -0.00345), c -> (c["pitch"]["height"] = "3.45um"), c -> delete!(c["pitch"], "height"),
+                         c -> (c["pitch"] = [0.00345, 0.00345]), c -> (c["pitch"]["width"] = 0.0))
+                msg = refusal(bad!)
+                @test occursin("pitch", msg)                     # the error names the key, as every refusal does
             end
-            @test occursin("pitch", msg)
+            @test refusal(identity) == ""
         end
     end
 end
 
-@testitem "rig/v5: a grid sensor keeps its pitch" setup = [VGIoFixtures] begin
+@testitem "rig/v10.0: a grid sensor keeps its pitch" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedCamera, BoundedCamera, ViewFrame, Sensor, sensor, relabel, model, μm
     using VisualGeometryToolkitIO: content_id
     using Rotations: RotXYZ
@@ -86,7 +85,8 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json"); save(p, pitched)
         d = parse_json(read(p, String))
-        @test d.sensors[1].camera.pitch == [0.00345, 0.00345]
+        @test d.sensors[1].camera.pitch == Dict(:width => 0.00345, :height => 0.00345)
+        @test d.sensors[1].camera.image_size == Dict(:width => 64, :height => 48)
         back = load(Rig, p)
         @test model(back[1]).lens isa SplineLens
         @test ustrip(μm, sensor(back[1]).pitch.width) ≈ 3.45
@@ -98,7 +98,7 @@ end
     end
 end
 
-@testitem "cameras/v4: the store keeps a camera's pitch" setup = [VGIoFixtures] begin
+@testitem "cameras/v6.0: the store keeps a camera's pitch" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: BoundedCamera, Sensor, sensor, model, μm, CMOS_SENSORS
 
     m = CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(1270.0, 0, 0, 0, 1270.0, 0, 1224.0, 1024.0, 1)); lens = KannalaBrandt(-0.1351))
@@ -107,21 +107,24 @@ end
         p = joinpath(dir, "cameras.json")
         save(p, Dict(:fish => BoundedCamera(m, s), :plain => BoundedCamera(m, Size2(640, 480))))
         d = parse_json(read(p, String))
-        @test d.length_unit == "mm"                                       # declared iff a camera carries a pitch
-        @test d.cameras[1].pitch == [0.00345, 0.00345] && !haskey(d.cameras[2], :pitch)
+        @test d.units.length == "mm"                                      # every units key, always
+        @test d.cameras[1].pitch == Dict(:width => 0.00345, :height => 0.00345) && !haskey(d.cameras[2], :pitch)
         store = load(Dict{Symbol, BoundedCamera}, p)
         @test ustrip(μm, sensor(store[:fish]).pitch.width) ≈ 3.45 && ustrip(μm, sensor(store[:fish]).pitch.height) ≈ 3.45
         @test extent(store[:fish]) == Size2(2448, 2048)
         @test sensor(store[:plain]) === nothing
         p2 = joinpath(dir, "again.json"); save(p2, store)
         @test read(p2, String) == read(p, String)
-        # a store with no pitch declares no length unit: today's bytes
+        # a store with no pitch still declares its units, whole (nothing defaults); it writes no pitch
         p3 = joinpath(dir, "plain.json"); save(p3, Dict(:plain => BoundedCamera(m, Size2(640, 480))))
-        @test !occursin("length_unit", read(p3, String)) && !occursin("pitch", read(p3, String))
-        # a pitch without a declared unit, or a unit without a pitch, is refused
-        raw = read(p, String)
-        bad = joinpath(dir, "bad.json")
-        write(bad, replace(raw, "\"length_unit\": \"mm\",\n" => ""; count = 1))
-        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, bad)
+        @test parse_json(read(p3, String)).units.length == "mm" && !occursin("pitch", read(p3, String))
+        # a pitch in m reads to the same Sensor
+        p4 = joinpath(dir, "m.json"); save(p4, store; length_unit = VisualGeometryToolkitCore.m)
+        @test parse_json(read(p4, String)).cameras[1].pitch == Dict(:width => 3.45e-6, :height => 3.45e-6)
+        @test sensor(load(Dict{Symbol, BoundedCamera}, p4)[:fish]) == sensor(store[:fish])
+        # a file without its length unit is refused
+        t = JSON.parse(read(p, String); dicttype = Dict{String, Any}); delete!(t["units"], "length")
+        bad = joinpath(dir, "bad.json"); write(bad, JSON.json(t))
+        @test occursin("units.length", try load(Dict{Symbol, BoundedCamera}, bad); "" catch e; e.msg end)
     end
 end

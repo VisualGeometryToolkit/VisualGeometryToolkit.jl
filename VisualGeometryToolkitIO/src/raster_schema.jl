@@ -48,10 +48,16 @@ _raster_element(name::AbstractString) = last(only(e for e in _RASTER_ELEMENTS if
 const _TIFF_MAGIC_LE = UInt8['I', 'I', 0x2a, 0x00]      # a classic little-endian TIFF's first four bytes
 
 const _RASTER_PAYLOAD = _Obj(:file => _Named(_is_inside_path, "a relative path inside the header's directory (the calibration manifest's rule)"), :sha256 => _HEX64)
-const _RASTER_FRAME = _IfKey(:area,
-    _CheckedSpec(_Obj(:type => _Named(in(_RASTER_CHARTS), "a chart, $(join(_RASTER_CHARTS, " or "))"), :area => _Vec(_Real(), 4)),
-                 f -> _area_problem(f[:area], "a chart frame's area"); rule = "a chart frame's area [x, y, w, h] has positive widths"),
-    _Obj(:type => _Tok("pixel")))
+const _RASTER_FRAME = _CheckedSpec(
+    _Obj(Pair{Symbol, _Spec}[:type => _Named(in((_RASTER_CHARTS..., "pixel")), "a chart ($(join(_RASTER_CHARTS, ", "))) or \"pixel\"")],
+         Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4)]),
+    f -> (f[:type] == "pixel") == haskey(f, :area) ?
+        (f[:type] == "pixel" ? "a pixel frame states no area" : "a chart frame's area: missing (a $(f[:type]) frame states its [x, y, w, h])") :
+        haskey(f, :area) ? _area_problem(f[:area], "a chart frame's area") : nothing;
+    rule = "a chart frame (page, texture) states its area [x, y, w, h], of positive widths; a pixel frame states none",
+    schema = [Dict("if" => Dict("properties" => Dict("type" => Dict("const" => "pixel"))),
+                   "then" => Dict("not" => Dict("required" => ["area"])), "else" => Dict("required" => ["area"]))],
+)
 const _RASTER_SPEC = _kind_spec("raster",
     Pair{Symbol, _Spec}[
         :size => _SIZE_INT, :element_type => _Named(in(first.(_RASTER_ELEMENTS)), "an element type ($(join(first.(_RASTER_ELEMENTS), ", ")))"),

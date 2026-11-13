@@ -30,7 +30,8 @@
 const _V010_DECLARATIONS = ("length_unit", "pixel_frame", "rotation_encoding", "transform_convention", "point_index_base", "time_unit")
 
 """
-    migrate_envelope(old::AbstractDict, schema; length = get(old, "length_unit", "mm"), pixel = get(old, "pixel_frame", "colmap")) -> Dict{String, Any}
+    migrate_envelope(old::AbstractDict, schema; length = get(old, "length_unit", "mm"), pixel = get(old, "pixel_frame", "colmap"),
+                     density = "dpi") -> Dict{String, Any}
 
 The IO 0.10 envelope of a record written before IO 0.10, for a version step:
 `old` (a parsed record, string keys) with its schema set to `schema` (the next
@@ -41,7 +42,8 @@ objects, the `generator` this package's, every other key kept, and every stored
 rotation `[w, x, y, z]` with w < 0 written as its 0.9 reader read it, `-q`.
 `length` and `pixel` are what the record declares, or — absent — what its
 version meant (`"mm"`: it held no length; `"colmap"`: every 0.9 record without a
-pixel frame). The steps of VisualGeometryToolkitIO's own kinds use it, and a
+pixel frame); `density` the record's print density unit (`"dpi"`, the
+only one a 0.9 record meant). The steps of VisualGeometryToolkitIO's own kinds use it, and a
 schema's owner calls it in the step of its own kinds' 0.9 versions (a
 `caliblobs/session` record), then moves its body's own keys. A height field's
 IO 0.9.5 per-field units (`node_unit`, `height_unit`) become the length roles
@@ -618,7 +620,7 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     haskey(b, "nominal") && (n["nominal"] = Any[_lengths_v09(p, leaf) for p in b["nominal"]])
     if layout_points && haskey(b, "layout")
         delete!(n, "layout")
-        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)]
+        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
     end
     placed = haskey(b, "placement")
     n["calibration"] = _calibration_v09(b["calibration"], placed ? (x, k) -> x : leaf)   # a placed one: chart numbers

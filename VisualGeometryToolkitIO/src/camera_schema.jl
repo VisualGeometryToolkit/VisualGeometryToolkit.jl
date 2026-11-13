@@ -752,6 +752,7 @@ function _one_camera_store(d, path)
     t = _lower(d)
     store = try
         if v.kind == "generic_camera"          # a non-central old grid file: its 0.10 body built by the one old-grid conversion
+            t["schema"] in _OLD_GRID_SCHEMAS || return d   # (a version no published file holds: the boundary refuses it by name)
             t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
             merge(migrate_envelope(_file_head(t), "vgio/cameras/v6.0"),
                   Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => name), _noncentral_grid_body(t))]))

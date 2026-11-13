@@ -148,7 +148,8 @@ end
         @test header_refused(d -> (d["payload"]["file"] = "../r.tiff"), "inside the header's directory")
         @test header_refused(d -> (d["payload"]["sha256"] = "abc"), "SHA-256")
         @test header_refused(d -> delete!(d, "frame"), "frame: missing")
-        @test header_refused(d -> (d["frame"] = Dict("type" => "page")), "must be \"pixel\"")   # a chart frame without its area
+        @test header_refused(d -> (d["frame"] = Dict("type" => "page")), "area: missing")
+        @test header_refused(d -> (d["frame"] = Dict("type" => "pixel", "area" => [0, 0, 1, 1])), "a pixel frame states no area")
         @test header_refused(d -> (d["frame"] = Dict("type" => "page", "area" => [0, 0, 0, 1])), "positive widths")
         @test header_refused(d -> (d["units"]["pixel"] = "matlab"), "registered pixel frame")
         @test header_refused(d -> (d["frame"] = Dict("type" => "board", "area" => [0, 0, 1, 1])), "a chart")

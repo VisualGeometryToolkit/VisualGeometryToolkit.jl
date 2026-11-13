@@ -12,18 +12,19 @@ conditioning.
 
 Three conventions travel with stored numbers: the pixel frame, the length
 unit, and a pose's direction. Each is written from what the data already is,
-and none of them is an argument to `save`.
+once, in the file's envelope (its `units` and `conventions` objects), and only
+the length unit is an argument to `save`.
 
 ### Pixel frame
 
-Pixel data carries its frame in its type: VGC's `TargetPoints2D{F}`, where
-`F` is a VGC `PixelFrame{Origin}`. The producer that knows its pixels'
-convention attaches `F`. `save` writes `pixel_frame` from it and converts no
+Pixel data carries its frame in its type: VGC's `TargetObservations{F}`,
+where `F` is a VGC `PixelFrame{Origin}`. The producer that knows its pixels'
+convention attaches `F`. `save` writes `units.pixel` from it and converts no
 number, so the label cannot disagree with the pixels under it. VGC owns the
 set of registered frames, and this package keeps no list of its own.
 
-The kinds that store no producer pixels (the camera store, rigs and the grid
-models) declare the canonical `colmap` frame. A stored camera carries no frame
+The kinds that store no producer pixels (the camera store and rigs) declare
+the canonical `colmap` frame. A stored camera carries no frame
 of its own, because its model's intrinsics are canonical by construction. A
 source frame is declared where the conversion happens, as in
 `CameraModel(K; pixel_frame = :opencv)`. A foreign file that declares
@@ -33,9 +34,11 @@ frame.
 ### Length unit
 
 In memory a length is a FlexUnits quantity in metres. In a file it is a number
-in the file's declared `length_unit`, the unit that reads naturally for the
+in the file's declared `units.length`, the unit that reads naturally for the
 quantity. Every writer of a vgio kind writes millimetres unless its
-`length_unit` keyword names another unit, and it declares the unit once. The
+`length_unit` keyword names another unit, and it declares the unit once. A
+field whose lengths are in another unit names a role, declared in
+`units.length_roles` (a board's pattern in `pt`). The
 foreign exporters write the unit their format fixes: `save_tum_trajectory` and
 `save_euroc_trajectory` write metres, and `save_opencv_calibration` writes
 `tvec` in the unit its required `to_unit` keyword names. A writer refuses plain
@@ -67,25 +70,25 @@ a file is read, `VisualGeometryToolkitIO.read_length(1.3, mm)`.
 
 A covariance follows the same rule. In memory it is in base units (for a pose,
 m² in the translation block and m·rad in the cross block). On disk it is in the
-declared `length_unit`, converted by the same decimal shift raised to each
+declared `units.length`, converted by the same decimal shift raised to each
 entry's power of length.
 
 ### Pose direction
 
 A pose's frames are its labels. A transforms record's `from` and `to` are the
 frame names of the stored `EuclideanMap{…, S, D}`, and an unlabeled pose is
-refused. The file declares `transform_convention = "x_to = R * x_from + t"`
-and `rotation_encoding = "quaternion_wxyz_hamilton"`.
+refused. The file's `conventions` declare `"transform_convention": "x_to = R *
+x_from + t"` and `"rotation_encoding": "quaternion_wxyz_hamilton"`.
 
 ## Readers return the labels as types
 
-`load(TargetPoints2D, path)` returns a `TargetPoints2D{F}`, where `F` is the
-frame the file declares. The frame travels with the numbers instead of living
+`load(TargetObservations, path)` returns a `TargetObservations{F}`, where `F`
+is the frame the file declares. The frame travels with the numbers instead of living
 in a comment. VGC's `convert_frame(G, x)` is the only way to change it, and it
 moves every pixel by VGC's `EuclideanMap(F, G)`.
 
 The one frame stated by hand is a foreign file's. The OpenCV and MATLAB
-readers and migrations take `file_frame`, a statement about the file. The
+readers and conversions take `file_frame`, a statement about the file. The
 OpenCV-shaped export takes `to_frame`, the convention a third-party consumer
 expects.
 

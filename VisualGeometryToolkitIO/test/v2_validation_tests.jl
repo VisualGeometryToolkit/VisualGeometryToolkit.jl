@@ -3,53 +3,22 @@
 # =============================================================================
 #
 # A valid file of every kind is written by its own writer; then, driven by the
-# kind's spec table (validate.jl), every required key the file holds is deleted
-# in turn and the result must be refused — by `validate` and so by the kind's
-# reader, which runs the same table — naming the key. An unknown key, a wrong
-# declaration token and a retired schema are refused too.
+# kind's spec table (validate.jl) through the one deletion-case generator
+# (`VGIoSchemaCases.required_paths`, which the JSON Schema tests share), every
+# required key the file holds — the envelope's included — is deleted in turn
+# and the result must be refused, by `validate` and so by the kind's reader,
+# which runs the same table, naming the key. An unknown key, a wrong
+# declaration token and a retired or later schema are refused too.
 
-@testitem "v2 validation: every required key, refused by name" setup = [VGIoFixtures] begin
+@testitem "v2 validation: every required key, refused by name" setup = [VGIoFixtures, VGIoSchemaCases, EnvelopeCases] begin
     using VisualGeometryToolkitIO: validate
-    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame, ViewFrame, BodyFrame, WorldFrame,
-        CameraFrame, relabel, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D
-    using Rotations: RotXYZ, RotationVec
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Attributed, BoundedCamera, PosedCamera, TargetFrame,
+        ViewFrame, BodyFrame, WorldFrame, CameraFrame, relabel, Trajectory, TargetPoses, TargetObservations, correspondences, withattrs
+    using Rotations: RotXYZ
     import VisualGeometryToolkitCore
     const VgtkIO = VisualGeometryToolkitIO
 
-    tomutable(x::AbstractDict) = Dict{Symbol, Any}(Symbol(k) => tomutable(v) for (k, v) in x)
-    tomutable(x::AbstractVector) = Any[tomutable(v) for v in x]
-    tomutable(x) = x
-
-    # The paths of the required keys a document holds, following its spec (the
-    # first element of every array).
-    function required_paths(spec, doc)
-        out = Vector{Vector{Any}}()
-        walk!(out, spec, doc, Any[])
-        return out
-    end
-    walk!(out, s::VgtkIO._CheckedSpec, x, at) = walk!(out, s.inner, x, at)
-    function walk!(out, s::VgtkIO._Obj, x, at)
-        x isa AbstractDict || return nothing
-        for (k, sk) in s.required
-            haskey(x, k) || continue
-            push!(out, [at; k])
-            walk!(out, sk, x[k], [at; k])
-        end
-        for (k, sk) in s.optional
-            (k !== :provenance && haskey(x, k)) && walk!(out, sk, x[k], [at; k])
-        end
-        return nothing
-    end
-    walk!(out, s::VgtkIO._Vec, x, at) = (x isa AbstractVector && !isempty(x)) ? walk!(out, s.elem, x[1], [at; 1]) : nothing
-    walk!(out, s::VgtkIO._OrNull, x, at) = x === nothing ? nothing : walk!(out, s.inner, x, at)
-    walk!(out, s::VgtkIO._Either, x, at) = foreach(p -> haskey(x, p.first) && walk!(out, p.second, x, at), s.alts)
-    walk!(out, s, x, at) = nothing
-
-    getpath(x, path) = foldl((v, k) -> v[k], path; init = x)
-    without(doc, path) = (d = deepcopy(doc); delete!(getpath(d, path[1:(end - 1)]), path[end]); d)
-    with(doc, path, v) = (d = deepcopy(doc); getpath(d, path[1:(end - 1)])[path[end]] = v; d)
-
-    function refusal(doc, dir, name; units = false)
+    function refused(doc, dir, name; units = false)
         target = units ? mkpath(joinpath(dir, "sidecar_$(name)")) : joinpath(dir, "bad_$(name).json")
         write(units ? joinpath(target, VgtkIO.UNITS_SIDECAR) : target, JSON.json(doc))
         return try
@@ -61,165 +30,108 @@
     end
 
     mktempdir() do dir
+        # a file of every kind (EnvelopeCases), and the shapes those leave out: a camera store and a rig with a
+        # non-central camera, a rig of targets, a target with its calibration record, 3D observations with
+        # covariances, the units sidecar and the correspondences export
+        files = Dict{String, String}(k => first(v) for (k, v) in write_every_kind(dir))
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 2120.0, 1416.0, 1))
-        bc = opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4])
         pose(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
         pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:4]
-        gc = CameraModel(SplineLens, CameraModel(K; lens = bc, pixel_frame = :colmap), Size2(64, 48); grid_size = (5, 4))
+        gc = CameraModel(SplineLens, CameraModel(K; lens = KannalaBrandt(-0.02), pixel_frame = :colmap), Size2(64, 48); grid_size = (5, 4))
         gd = gc.lens.backward
         gn = BoundedCamera(NoncentralSplineModel(gc.intrinsics, gd, ChartSpline(gd.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])), Size2(64, 48))
         ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
         targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b), pose(100.0mm))))
-
-        files = Dict{String, String}()
         at!(name, base) = (files[name] = joinpath(dir, base))
         files["units"] = mkpath(joinpath(dir, "model"))
         VgtkIO.save_units_sidecar(files["units"], MM_PX)
-        save(at!("transforms", "transforms.json"), [relabel(TargetFrame{:a}, BodyFrame{:b}, pose(3.0mm))])
-        save(at!("cameras", "cameras.json"), Dict(:c => Attributed(BoundedCamera(CameraModel(K; lens = bc, pixel_frame = :colmap), Size2(4240, 2832)), (; calibration = (; tool = "t")))))
-        save(at!("noncentral_spline", "noncentral.json"), gn)
-        save(
-            at!("rig", "rig.json"),
-            Rig{ViewFrame{:a}}(
-                (
-                    BoundedCamera(PosedCamera(CameraModel(K; lens = bc, pixel_frame = :colmap), relabel(ViewFrame{:a}, ViewFrame{:a}, ident)), Size2(4240, 2832)),
-                    BoundedCamera(PosedCamera(CameraModel(K; lens = bc, pixel_frame = :colmap), relabel(ViewFrame{:a}, ViewFrame{:b}, pose(5.0mm))), Size2(4240, 2832)),
-                )
-            )
-        )
-        save(at!("rig_generic", "rig_generic.json"), Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(VisualGeometryToolkitCore.model(gn), relabel(ViewFrame{:g}, ViewFrame{:g}, ident)), Size2(64, 48)),)))
+        save(at!("cameras_noncentral", "cameras_noncentral.json"), Dict(:g => gn, :s => BoundedCamera(gc, Size2(64, 48))))
+        save(at!("rig_noncentral", "rig_noncentral.json"), Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(VisualGeometryToolkitCore.model(gn), relabel(ViewFrame{:g}, ViewFrame{:g}, ident)), Size2(64, 48)),)))
         save(at!("rig_targets", "targets.json"), targets)
-        save(at!("target", "target.json"), Attributed(PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0))]), (; calibration_record = (; tool = "t"))))
-        save(
-            at!("trajectory", "trajectory.json"),
-            Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => pose(900.0mm)); images = Dict(1 => "a.png"), times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00"),
-        )
-        save(
-            at!("target_poses", "target_poses.json"),
-            TargetPoses{CameraFrame}(Dict(1 => Dict(:a => pose(900.0mm))); images = Dict(1 => "a.png"), sensors = "cam", times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00"),
-        )
-        save(
-            at!("target_points3d", "target_points3d.json"),
-            TargetPoints3D{WorldFrame}(Dict(1 => [(target = :rig, index = 1, xyz = mm_lengths(SVector(1.0, 2.0, 3.0)))]); sensors = "mocap", images = Dict(1 => "a.png")),
-        )
-        H = VisualGeometryToolkitCore.sign_normalize(VisualGeometryToolkitCore.HomographyMat{Float64}((812.3, 37.9, 0.0001, -41.7, 805.1, -0.0002, 1210.25, 640.5, 0.6)))
-        save(
-            at!("target_homographies", "target_homographies.json"),
-            VisualGeometryToolkitCore.TargetHomographies{PixelFrame{:colmap}}(
-                Dict(1 => Dict(:a => VisualGeometryToolkitCore.HomographyMap(H))); images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(targets)],
-            ),
-        )
-        obs = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a, index = 2, xy = SVector(640.0, 480.0), weight = 1.0)]);
+        save(at!("target_record", "target_record.json"), Attributed(PlanarTarget(pts), (; calibration_record = (; tool = "t"))))
+        save(at!("observations3d", "observations3d.json"), TargetObservations{WorldFrame}(
+            Dict(1 => Dict(:rig => correspondences([1], [VisualGeometryToolkitCore.Uncertain(mm_lengths(SVector(1.0, 2.0, 3.0)), VisualGeometryToolkitCore.CovMat(SMatrix{3, 3, Float64}(1.0e-8, 0, 0, 0, 1.0e-8, 0, 0, 0, 1.0e-8)))])));
+            sensors = "mocap", images = Dict(1 => "a.png")))
+        obs = TargetObservations{PixelFrame{:colmap}}(Dict(1 => Dict(:a => withattrs(correspondences([2], [SVector(640.0, 480.0)]); weights = [1.0])));
             images = Dict(1 => "a.png"), sensors = "cam", targets = [content_id(targets)])
-        save(at!("target_points2d", "target_points2d.json"), obs)
+        save(at!("observations", "observations.json"), obs)
         save_correspondences(at!("correspondences", "correspondences.json"), obs, files["rig_targets"])
-        specs = Dict(
-            "units" => VgtkIO._UNITS_SPEC, "transforms" => VgtkIO._TRANSFORMS_SPEC, "cameras" => VgtkIO._CAMERAS_SPEC,
-            "noncentral_spline" => VgtkIO._NONCENTRAL_SPLINE_SPEC,
-            "rig" => VgtkIO._RIG_SPEC, "rig_generic" => VgtkIO._RIG_SPEC, "rig_targets" => VgtkIO._RIG_SPEC, "target" => VgtkIO._TARGET_SPEC,
-            "trajectory" => VgtkIO._TRAJECTORY_SPEC, "target_points2d" => VgtkIO._TARGET_POINTS2D_SPEC,
-            "target_poses" => VgtkIO._TARGET_POSES_SPEC, "target_homographies" => VgtkIO._TARGET_HOMOGRAPHIES_SPEC, "target_points3d" => VgtkIO._TARGET_POINTS3D_SPEC,
-            "correspondences" => VgtkIO._CORRESPONDENCES_SPEC,
-        )
+        kind_of(name) = name == "correspondences" ? nothing : name in ("cameras_noncentral",) ? "cameras" :
+            startswith(name, "rig") ? "rig" : startswith(name, "observations") ? "observations" : name == "target_record" ? "target" : name
+        spec(name) = name == "correspondences" ? VgtkIO._CORRESPONDENCES_SPEC : VgtkIO._spec(kind_of(name))
         for (name, path) in sort!(collect(files))
             units = name == "units"
             file = units ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
-            doc = tomutable(parse_json(read(file, String)))
-            @test validate(path) == get(Dict("rig_generic" => "rig", "rig_targets" => "rig"), name, name)
-            paths = required_paths(specs[name], doc)
-            @test length(paths) >= 2
+            doc = plain_doc(parse_json(read(file, String)))
+            name == "correspondences" || @test validate(path) == kind_of(name)
+            paths = required_paths(spec(name), doc)
+            @test length(paths) >= 6                                    # the envelope's four at least, and the body's
+            @test all(p -> p in paths, (["schema"], ["generator"], ["units"], ["conventions"], ["units", "pixel"], ["conventions", "index_base"]))
+            name == "correspondences" && continue                       # an export: no reader, its spec is the writer's check
             for p in paths
-                msg = refusal(without(doc, p), dir, "$(name)_$(length(p))"; units)
-                @test msg !== nothing && occursin(String(p[end]), msg)
+                msg = refused(without(doc, p), dir, "$(name)_$(length(p))_$(p[end])"; units)
+                @test msg !== nothing && occursin(String(p[end] isa Integer ? p[end - 1] : p[end]), msg)
             end
             # no key the table does not name — at the top and in the first nested object
-            @test occursin("bogus", something(refusal(merge(doc, Dict(:bogus => 1)), dir, "$(name)_bogus"; units), ""))
-            deep = [p for p in paths if length(p) >= 2 && getpath(doc, p[1:(end - 1)]) isa AbstractDict]
+            @test occursin("bogus", something(refused(merge(doc, Dict("bogus" => 1)), dir, "$(name)_bogus"; units), ""))
+            deep = [p for p in paths if length(p) >= 2 && getpath(doc, p[1:(end - 1)]) isa AbstractDict && p[1] ∉ ("units", "conventions", "generator")]
             if !isempty(deep)
                 q = first(deep)[1:(end - 1)]
-                @test occursin("bogus", something(refusal(with(doc, [q; :bogus], 1), dir, "$(name)_deepbogus"; units), ""))
+                @test occursin("bogus", something(refused(with_key(doc, [q; "bogus"], 1), dir, "$(name)_deepbogus"; units), ""))
             end
-            # an earlier version is read through its version steps where a
-            # published file holds it (cameras v1–v3, target v1–v2, rig v4–v5),
-            # and its steps refuse a record that version did not write — a
-            # current record relabeled is one where it holds a later key, and
-            # reads as it is where it does not; any other earlier version is
-            # refused by name: a typed-frame kind's v1 and v2 for their
-            # free-form frame names, rig/v3 with its successor, the rest as
-            # retired; a kind born at v1 has nothing earlier
-            v1 = replace(doc[:schema], r"/v\d+$" => "/v1")
-            relabeled(s) = refusal(merge(doc, Dict(:schema => s)), dir, "$(name)_$(basename(s))"; units)
-            not_theirs(msg) = msg === nothing || occursin("was not written by them", msg)
-            if name in ("target_poses", "target_points2d", "target_points3d")
-                @test endswith(doc[:schema], "/v2")                                          # v2: the covariance storage
-            elseif name == "target_homographies"
-                @test endswith(doc[:schema], "/v1")                                          # born at v1: nothing earlier
-            elseif name == "target"
-                @test doc[:schema] == "vgio/target/v5"
-                @test occursin("was not written by them", something(relabeled(v1), ""))      # its `calibration_record` was v1's `calibration`
-                @test relabeled("vgio/target/v2") === nothing                                 # no composition: a v2 record as well
-                @test relabeled("vgio/target/v3") === nothing                                 # no layout: a v3 record as well
-            elseif name in ("transforms", "trajectory")
-                @test occursin("free strings", something(relabeled("vgio/$(name)/v2"), ""))            # v2's frame names were free strings
-                @test relabeled("vgio/$(name)/v3") === nothing                                         # v3: rows only, a v4 record as well
-                @test occursin("free strings", something(relabeled(v1), ""))
-            elseif startswith(name, "rig")
-                @test occursin("re-export", something(relabeled(v1), ""))
-                @test occursin("re-export", something(relabeled("vgio/rig/v2"), ""))
-                @test occursin("rig/v9", something(relabeled("vgio/rig/v3"), ""))
-                @test not_theirs(relabeled("vgio/rig/v4")) && not_theirs(relabeled("vgio/rig/v5"))
-                # no layout: a v6 record as well — but a non-central grid sensor's body, which v6–v8 held in the old grid form
-                @test (relabeled("vgio/rig/v6") === nothing) == (name != "rig_generic")
-                @test (name in ("rig_targets", "rig_generic")) == (relabeled("vgio/rig/v4") !== nothing)   # a target's `calibration` was v4's `warp`; a grid sensor v4's grid body
-            elseif name == "cameras"
-                @test doc[:schema] == "vgio/cameras/v5"
-                @test relabeled("vgio/cameras/v3") === nothing                                # no composed lens: a v3 record as well
-                @test occursin("vgio/cameras/v2 lens is", something(relabeled("vgio/cameras/v2"), ""))
-                @test occursin("vgio/camera/v1 record", something(relabeled(v1), ""))
-            elseif name == "noncentral_spline"
-                @test doc[:schema] == "vgio/noncentral_spline/v1"                            # born at v1, renamed from the old grid kind
-                @test not_theirs(relabeled("vgio/generic_camera/v3"))                         # the old kind's v3 held the old grid body
-                @test relabeled("vgio/generic_camera/v4") !== nothing                         # never published: no step reads it
-            elseif endswith(doc[:schema], "/v3")
-                @test occursin("no migration reads", something(relabeled(v1), ""))
-                @test occursin("no migration reads", something(relabeled(replace(doc[:schema], "/v3" => "/v2")), ""))
-            else
-                @test occursin("retired $(v1)", something(relabeled(v1), ""))
-            end
+            # an earlier major is read through its version step where a published file holds it, and refused by name
+            # otherwise; a current record relabeled as the major before is either read by that step or refused naming the
+            # file (never a crash), and any v1 with no step is refused by name (migrate_*_tests.jl hold each step's claims)
+            M = VgtkIO._SCHEMA_VERSION[kind_of(name)][1]
+            prev = refused(with_key(doc, ["schema"], "vgio/$(kind_of(name))/v$(M - 1)"), dir, "$(name)_prev"; units)
+            @test prev === nothing || occursin("$(name)_prev", prev)                   # the file it read, named
+            later = refused(with_key(doc, ["schema"], "vgio/$(kind_of(name))/v$(M + 1).0"), dir, "$(name)_later"; units)
+            @test occursin("later major", something(later, ""))
         end
 
         # a declaration is a TOKEN: anything else is refused, never reinterpreted
-        tr = tomutable(parse_json(read(files["transforms"], String)))
-        @test occursin("rotation_encoding", something(refusal(merge(tr, Dict(:rotation_encoding => "quaternion_xyzw")), dir, "tok1"), ""))
-        @test occursin("transform_convention", something(refusal(merge(tr, Dict(:transform_convention => "x_from = R x_to + t")), dir, "tok2"), ""))
-        @test occursin("length_unit", something(refusal(merge(tr, Dict(:length_unit => "px")), dir, "tok3"), ""))
-        ob = tomutable(parse_json(read(files["target_points2d"], String)))
-        @test occursin("point_index_base", something(refusal(merge(ob, Dict(:point_index_base => 0)), dir, "tok4"), ""))
-        @test occursin("targets", something(refusal(merge(ob, Dict(:targets => Any[])), dir, "tok5"), ""))
-        ge = tomutable(parse_json(read(files["noncentral_spline"], String)))
-        @test occursin("load(BoundedCamera, path)", something(refusal(merge(ge, Dict(:type => "CentralGenericModel")), dir, "tok7"), ""))
-        @test occursin("pixel_frame", something(refusal(merge(ge, Dict(:pixel_frame => "lower_left")), dir, "tok8"), ""))
-        # the non-central camera's points are declared in a unit
-        @test refusal(without(ge, [:length_unit]), dir, "gn_unit") !== nothing
-        @test refusal(without(ge, [:spline, :points]), dir, "gn_grid") !== nothing
+        tr = plain_doc(parse_json(read(files["transforms"], String)))
+        @test occursin("rotation_encoding", something(refused(with_key(tr, ["conventions", "rotation_encoding"], "quaternion_xyzw"), dir, "tok1"), ""))
+        @test occursin("transform_convention", something(refused(with_key(tr, ["conventions", "transform_convention"], "x_from = R x_to + t"), dir, "tok2"), ""))
+        @test occursin("units.length", something(refused(with_key(tr, ["units", "length"], "px"), dir, "tok3"), ""))
+        ob = plain_doc(parse_json(read(files["observations"], String)))
+        @test occursin("index_base", something(refused(with_key(ob, ["conventions", "index_base"], 0), dir, "tok4"), ""))
+        @test occursin("targets", something(refused(with_key(ob, ["targets"], Any[]), dir, "tok5"), ""))
+        # the retired IO 0.9 declarations are refused at the top level, not read
+        for (k, v) in (("length_unit", "mm"), ("pixel_frame", "colmap"), ("point_index_base", 1), ("rotation_encoding", "quaternion_wxyz_hamilton"))
+            @test occursin(k, something(refused(merge(ob, Dict(k => v)), dir, "retired_$(k)"), ""))
+        end
+        nc = plain_doc(parse_json(read(files["cameras_noncentral"], String)))
+        g = findfirst(c -> haskey(c, "type"), nc["cameras"])
+        @test occursin("spline lens", something(refused(with_key(nc, ["cameras", g, "type"], "CentralGenericModel"), dir, "tok7"), ""))
+        @test occursin("units.pixel", something(refused(with_key(nc, ["units", "pixel"], "lower_left"), dir, "tok8"), ""))
+        # the non-central camera's points are declared in a unit, its lattice whole
+        @test refused(without(nc, ["units", "length"]), dir, "gn_unit") !== nothing
+        @test refused(without(nc, ["cameras", g, "spline", "controls", "point"]), dir, "gn_grid") !== nothing
+        @test refused(with_key(nc, ["cameras", g, "spline", "grid_size"], Any[5, 4]), dir, "gn_size") !== nothing      # a Size2 object
+        @test refused(with_key(nc, ["cameras", g, "image_size"], Any[64, 48]), dir, "gn_image_size") !== nothing
 
-        # a frame name is the grammar's: a free-form one is refused
-        @test occursin("frame name", something(refusal(with(tr, [:transforms, 1, :from], "printed_board_a"), dir, "free_from"), ""))
-        tj = tomutable(parse_json(read(files["trajectory"], String)))
-        @test occursin("frame name", something(refusal(merge(tj, Dict(:to => "mocap_world")), dir, "free_to"), ""))
-        # a time is seconds since a stated origin
-        @test occursin("time_origin", something(refusal(without(tj, [:time_origin]), dir, "no_origin"), ""))
+        # a frame name is the grammar's: a free-form one, or an IO 0.9 one, is refused
+        @test occursin("frame name", something(refused(with_key(tr, ["transforms", 1, "from"], "printed_board_a"), dir, "free_from"), ""))
+        @test refused(with_key(tr, ["transforms", 1, "to"], "camera_optical"), dir, "old_camera") !== nothing
+        tj = plain_doc(parse_json(read(files["trajectory"], String)))
+        @test occursin("frame name", something(refused(with_key(tj, ["to"], "mocap_world"), dir, "free_to"), ""))
+        # a time is seconds since a stated origin, which states its UTC offset; the join key is `frame_index`
+        @test occursin("time_origin", something(refused(without(tj, ["time_origin"]), dir, "no_origin"), ""))
+        @test occursin("time_origin", something(refused(with_key(tj, ["time_origin"], "2026-05-27T00:00:00"), dir, "no_offset"), ""))
+        @test occursin("frames[1].t", something(refused(with_key(tj, ["frames", 1, "t"], 1), dir, "old_t"), ""))
         # a covariance is symmetric and of the value's size
         bad = Any[Any[i == j ? 1.0 : 0.0 for j in 1:6] for i in 1:6]; bad[1][2] = 0.5
-        @test occursin("symmetric", something(refusal(with(tr, [:transforms, 1, :covariance], bad), dir, "asym"), ""))
-        @test refusal(with(tr, [:transforms, 1, :covariance], Any[Any[1.0, 0.0], Any[0.0, 1.0]]), dir, "cov2") !== nothing
+        @test occursin("symmetric", something(refused(with_key(tr, ["transforms", 1, "covariance"], bad), dir, "asym"), ""))
+        @test refused(with_key(tr, ["transforms", 1, "covariance"], Any[Any[1.0, 0.0], Any[0.0, 1.0]]), dir, "cov2") !== nothing
         # the reserved `payload` (a binary sidecar of bulk arrays) is refused in a kind that does not implement it
-        @test occursin("payload", something(refusal(merge(tj, Dict(:payload => Dict(:file => "x.arrow", :sha256 => "0"))), dir, "payload"), ""))
+        @test occursin("payload", something(refused(merge(tj, Dict("payload" => Dict("file" => "x.arrow", "sha256" => "0"))), dir, "payload"), ""))
         # the readers run the same table: a deletion refused by `validate` is refused by `load`
-        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, (write(joinpath(dir, "c1.json"), JSON.json(without(tomutable(parse_json(read(files["cameras"], String))), [:cameras, 1, :K, :skew]))); joinpath(dir, "c1.json")))
-        @test_throws ArgumentError load(Trajectory, (write(joinpath(dir, "t1.json"), JSON.json(without(tomutable(parse_json(read(files["trajectory"], String))), [:to]))); joinpath(dir, "t1.json")))
+        cs = plain_doc(parse_json(read(files["cameras"], String)))
+        @test_throws ArgumentError load(Dict{Symbol, BoundedCamera}, (write(joinpath(dir, "c1.json"), JSON.json(without(cs, ["cameras", 1, "K", "skew"]))); joinpath(dir, "c1.json")))
+        @test_throws ArgumentError load(Trajectory, (write(joinpath(dir, "t1.json"), JSON.json(without(tj, ["to"]))); joinpath(dir, "t1.json")))
         # a writer cannot emit what its reader refuses
-        @test_throws ArgumentError save(joinpath(dir, "empty_targets.json"), TargetPoints2D{PixelFrame{:colmap}}(obs.frames; obs.images, obs.sensors))
+        @test_throws ArgumentError save(joinpath(dir, "empty_targets.json"), TargetObservations{PixelFrame{:colmap}}(getfield(obs, :frames); stamps = obs.stamps))
         @test !isfile(joinpath(dir, "empty_targets.json"))
     end
 end

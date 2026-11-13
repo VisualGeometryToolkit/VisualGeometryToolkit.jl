@@ -2,6 +2,7 @@
 
 ```@meta
 CurrentModule = VisualGeometryToolkitIO
+DocTestSetup = :(using VisualGeometryToolkitCore, VisualGeometryToolkitIO; import VisualGeometryToolkitIO as VgtkIO)
 ```
 
 Every number a vgio record holds is in a unit its file's `units` object
@@ -22,6 +23,8 @@ lift without tags reads plain numbers. A length is decimal-exact in
 
 ```jldoctest
 julia> import JSON
+
+julia> using FlexUnits: Quantity
 
 julia> s = VgtkIO.VgioStyle(; length_unit = mm);
 
@@ -45,7 +48,7 @@ an earlier version that holds them is read by its owner's version step;
 
 ## The frame codec
 
-Every [`FeatureFrame`](@ref) is a case of ONE codec: `{"center": [x, y]}` and
+Every VisualGeometryToolkitCore `FeatureFrame` is a case of ONE codec: `{"center": [x, y]}` and
 its shape — a `Disc`'s `sigma`, an `OrientedDisc`'s `sigma` and `angle`, an
 `EllipticFrame`'s `shape_matrix`, an `AffineFrame`'s `affine_matrix` (rows); a
 `PointFrame` has none. An uncertain frame adds its `covariance` over the

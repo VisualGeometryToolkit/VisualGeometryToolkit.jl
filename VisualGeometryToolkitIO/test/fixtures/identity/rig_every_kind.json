@@ -1,14 +1,31 @@
 {
-    "schema": "vgio/rig/v6",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/rig/v10.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "frame": "target:a_rigid",
     "targets": [
         {
             "id": "a_rigid",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "nominal": [
                     [
                         0.0,
@@ -58,7 +75,7 @@
         {
             "id": "b_affine",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "nominal": [
                     [
                         0.0,
@@ -176,7 +193,7 @@
         {
             "id": "c_tps",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "reference": "c_tps",
                 "calibration": {
                     "type": "thin_plate_spline",
@@ -257,7 +274,7 @@
         {
             "id": "d_height",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "nominal": [
                     [
                         0.0,
@@ -396,7 +413,7 @@
         {
             "id": "e_chain",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "nominal": [
                     [
                         0.0,
@@ -1346,32 +1363,32 @@
         {
             "id": "f_points",
             "target": {
-                "type": "points",
+                "type": "point_target",
                 "points": [
-                    [
-                        0.0,
-                        1.5,
-                        -2.0
-                    ]
-                ],
-                "point_covariances": [
-                    [
-                        [
-                            0.01,
+                    {
+                        "xyz": [
                             0.0,
-                            0.0
+                            1.5,
+                            -2.0
                         ],
-                        [
-                            0.0,
-                            0.01,
-                            0.0
-                        ],
-                        [
-                            0.0,
-                            0.0,
-                            0.04
+                        "covariance": [
+                            [
+                                0.01,
+                                0.0,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.01,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.04
+                            ]
                         ]
-                    ]
+                    }
                 ]
             },
             "pose": {

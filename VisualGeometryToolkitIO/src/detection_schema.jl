@@ -35,7 +35,7 @@ const _NUMBER_TYPES = (("float64", Float64), ("float32", Float32))
 const _COV_STORAGES = ("full", "diagonal", "isotropic")
 _type_name(table, T, what) = (i = findfirst(p -> p[2] === T, table); i === nothing ?
     throw(ArgumentError("a detection file's $(what) is one of $(join((repr(p[2]) for p in table), ", ")), got $(T)")) : table[i][1])
-_type_of(table, name) = table[findfirst(p -> p[1] == name, table)][2]
+_type_of(table, name) = table[findfirst(p -> p[1] == name, table)::Int][2]   # (a name the validator admitted)
 
 _attribute_json(x::Symbol) = String(x)
 _attribute_json(x::Point2) = Float64[x[1], x[2]]

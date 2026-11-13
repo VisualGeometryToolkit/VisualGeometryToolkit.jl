@@ -89,7 +89,7 @@ function _number_json(s::VgioStyle, x, tags::NamedTuple)
         ArgumentError("a field of $(repr(q)) holds $(x), a $(k) value: it would read back as something else")
     )
     k === :plain && return x isa AbstractFloat ? Float64(x) : x   # a Float32 exactly, as its Float64
-    k === :length && return role === :world ? _leaf_length(x, s.length_unit) : write_length(x, role_unit(s.contract, role))
+    k === :length && return role === :world ? _leaf_length(x, s.length_unit) : write_length(x::Quantity, role_unit(s.contract, role))
     k === :pixel && return snap_integer(Float64(ustrip(px, x)))
     return snap_integer(Float64(ustrip(s.contract.density, x)))
 end
@@ -116,10 +116,16 @@ _refuse_quantity(x, what) = throw(ArgumentError("$(what) holds a number, got $(r
 _number(x, what) = (x isa Real && !(x isa Bool)) ? x : _refuse_quantity(x, what)
 
 
+# What a lift of these reads: a value of the parsed tree (a number, or what a quantity field must not hold —
+# a string, null, an object, an array, refused by name), and an object of it; never JSON.jl's lazy values,
+# whose own `lift` methods these would otherwise overlap.
+const _ParsedObject = Union{Record, AbstractDict{String, Any}, AbstractDict{Symbol, Any}}
+const _ParsedValue = Union{Real, AbstractString, Nothing, Vector{Any}, _ParsedObject}
+
 # A quantity, by its dimension (a length in the `:world` role, or the role its tags name).
 JSON.lower(s::VgioStyle, q::Quantity) = _number_json(s, q, (;))
 JSON.lower(s::VgioStyle, q::Quantity, tags::NamedTuple) = _number_json(s, q, tags)
-JSON.lift(s::VgioStyle, ::Type{<:Quantity}, x, tags::NamedTuple) = (
+JSON.lift(s::VgioStyle, ::Type{<:Quantity}, x::_ParsedValue, tags::NamedTuple) = (
     haskey(tags, :quantity) || throw(ArgumentError("a quantity's field states what it is: tags (; quantity = :length | :pixel | :density)"));
     _number_from_json(s, x, tags)
 )
@@ -130,7 +136,7 @@ JSON.lift(s::VgioStyle, ::Type{<:Quantity}, x, tags::NamedTuple) = (
 
 JSON.lower(s::VgioStyle, sz::Size2, tags::NamedTuple = (;)) =
     (width = _number_json(s, sz.width, tags), height = _number_json(s, sz.height, tags))
-JSON.lift(s::VgioStyle, ::Type{<:Size2}, x, tags::NamedTuple = (;)) =
+JSON.lift(s::VgioStyle, ::Type{<:Size2}, x::_ParsedObject, tags::NamedTuple = (;)) =
     Size2(width = _number_from_json(s, _getkey(x, :width), tags), height = _number_from_json(s, _getkey(x, :height), tags))
 
 # -----------------------------------------------------------------------------
@@ -240,7 +246,7 @@ function JSON.lower(s::VgioStyle, f::FeatureFrame, tags::NamedTuple = (;))
     n = x -> _number_json(s, x, tags)
     return merge((center = [n(f.center[1]), n(f.center[2])],), _shape_json(f, n))
 end
-function JSON.lift(s::VgioStyle, ::Type{F}, x, tags::NamedTuple = (;)) where {F <: FeatureFrame}
+function JSON.lift(s::VgioStyle, ::Type{F}, x::_ParsedObject, tags::NamedTuple = (;)) where {F <: FeatureFrame}
     T = _frame_eltype(F, tags)
     n = v -> T(_number_from_json(s, v, tags))
     c = _getkey(x, :center)
@@ -259,7 +265,7 @@ function JSON.lower(s::VgioStyle, u::Uncertain{<:FeatureFrame})
         "a frame's covariance is finite; a detection without one omits it and states its `covariance_status` (vgio/detection)"))
     return merge(JSON.lower(s, f), (covariance = _cov_json(Σ),))
 end
-JSON.lift(s::VgioStyle, ::Type{<:Uncertain{F}}, x) where {F <: FeatureFrame} = _uncertain_frame(JSON.lift(s, F, x), _getkey(x, :covariance))
+JSON.lift(s::VgioStyle, ::Type{<:Uncertain{F}}, x::_ParsedObject) where {F <: FeatureFrame} = _uncertain_frame(JSON.lift(s, F, x), _getkey(x, :covariance))
 # The frame with the covariance `c` (a wire form) over its parameters.
 function _uncertain_frame(f::FeatureFrame, c)
     Σ = _cov_matrix(c isa NamedTuple ? _lower(c) : c, frame_dof(f))

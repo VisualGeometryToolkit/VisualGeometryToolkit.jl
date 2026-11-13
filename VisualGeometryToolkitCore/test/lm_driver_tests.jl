@@ -142,6 +142,7 @@ end
     @test VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0).max_iter == lm_table["device_max_iter"]
     @test VgtkCore.StaticLmStops(SVector(1.0f0); acceptance = 1).stationarity_tol === Float32(lm_table["stationarity_tol"])
     @test isbits(VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0))
+    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0)).acceptance == lm_table["device_acceptance"] == Inf   # stationarity alone
     o = VgtkCore._nlls_options(LmStops(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11))
     @test o.maxiters == 7 && o.reldcost == 1.0e-9 && o.dstep == 1.0e-11 && o.absdcost == 0.0 && o.maxfails == 3
     @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd                  # Marquardt's damping, not a knob

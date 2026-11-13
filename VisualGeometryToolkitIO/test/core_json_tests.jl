@@ -207,6 +207,73 @@ end
     @test err isa ArgumentError && occursin("pitch", err.msg)
 end
 
+@testitem "quantity JSON: a PointFrame detection, the uncertain point's leaves (Float64 and Float32, Förstner's rows)" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitIO: MM_PX, json_value, from_json
+    using VisualGeometryToolkitCore: PointFrame, Point2, Attributed, AbstractDetection, Uncertain, CovMat, geom, ScaledIdentity,
+        TargetPoints2D, PixelFrame
+    using StaticArrays: SDiagonal
+    using Statistics: cov
+    rt(d) = from_json(AbstractDetection, JSON.parse(JSON.json(json_value(d, MM_PX; kind = :plain))), MM_PX; kind = :plain)
+    # the frame alone: `{"center": [x, y]}`, plain pixels only
+    f = PointFrame(10.5, 20.25)
+    @test JSON.json(json_value(f, MM_PX; kind = :plain)) == """{"center":[10.5,20.25]}"""
+    @test from_json(PointFrame, JSON.parse("""{"center":[10.5,20.25]}"""), MM_PX; kind = :plain) === f
+    @test_throws ArgumentError json_value(f, MM_PX; kind = :pixel)
+    @test_throws ArgumentError from_json(PointFrame, JSON.parse("""{"center":[1,2]}"""), MM_PX; kind = :length)
+    # a plain detection, and an uncertain one in each covariance storage: the uncertain point's `covariance`, exact by type
+    meta = (response = 0.25, warp_idx = 7)
+    p = Attributed(f, meta)
+    @test JSON.json(json_value(p, MM_PX; kind = :plain)) == """{"frame":{"center":[10.5,20.25]},"response":0.25,"warp_idx":7}"""
+    @test typeof(rt(p)) == typeof(p) && getfield(rt(p), :value) === f && getfield(rt(p), :attributes) == meta
+    for Σ in (CovMat(SMatrix{2, 2, Float64, 4}(0.04, 0.003, 0.003, 0.09)), CovMat(SDiagonal(0.04, 0.09)), CovMat(ScaledIdentity{2}(0.0625)))
+        u = Attributed(Uncertain(f, Σ), meta)
+        r = rt(u)
+        @test typeof(r) == typeof(u) && geom(getfield(r, :value)) === f && cov(getfield(r, :value)) === Σ
+        @test getfield(r, :attributes) == meta
+    end
+    u = Attributed(Uncertain(f, CovMat(SMatrix{2, 2, Float64, 4}(0.04, 0.003, 0.003, 0.09))), (response = 1.0,))
+    s = JSON.json(json_value(u, MM_PX; kind = :plain))
+    @test s == """{"frame":{"center":[10.5,20.25]},"covariance":[[0.04,0.003],[0.003,0.09]],"response":1.0}"""
+    # ONE encoding of an uncertain point: the same `xy` and `covariance` bytes target_points2d writes for Uncertain{Point2}
+    tmp = mktempdir()
+    xy = Uncertain(SVector(10.5, 20.25), cov(getfield(u, :value)))
+    tp = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(target = :b, index = 1, xy = xy, weight = 1.0)]);
+                                             images = Dict(1 => "a.png"), sensors = "cam", targets = [repeat("a", 64)])
+    save(joinpath(tmp, "p.json"), tp)
+    pt = JSON.parsefile(joinpath(tmp, "p.json"))["frames"][1]["points"][1]
+    @test JSON.json(pt["xy"]) == JSON.json(JSON.parse(s)["frame"]["center"]) && JSON.json(pt["covariance"]) == JSON.json(JSON.parse(s)["covariance"])
+    rp = load(TargetPoints2D, joinpath(tmp, "p.json"))[1][1].xy
+    @test rp isa Uncertain && geom(rp) == geom(xy) && cov(rp) === cov(xy)                     # Uncertain{Point2}, Float64
+    # Float32: written exactly (every Float32 is a Float64), read back as the same numbers in Float64
+    f32 = PointFrame(10.5f0, 20.1f0)
+    Σ32 = CovMat(SMatrix{2, 2, Float32, 4}(0.04f0, 0.003f0, 0.003f0, 0.09f0))
+    r32 = rt(Attributed(Uncertain(f32, Σ32), meta))
+    @test geom(getfield(r32, :value)) == PointFrame(Float64(f32.center[1]), Float64(f32.center[2]))
+    @test PointFrame{Float32}(geom(getfield(r32, :value))) == f32 && Float32.(cov(getfield(r32, :value))) == Σ32
+    @test getfield(rt(Attributed(f32, meta)), :value) === PointFrame{Float64}(f32)
+    # Uncertain{Point2} in Float32 on the same leaves: target_points2d's point and covariance (exact in Float64)
+    x32 = Uncertain(Point2(10.5f0, 20.1f0), Σ32)
+    w = JSON.parse(JSON.json((xy = VisualGeometryToolkitIO._pixel_json(geom(x32)), covariance = VisualGeometryToolkitIO._cov_json(cov(x32)))))
+    b32 = VisualGeometryToolkitIO._pixel_from_json(w["xy"], w["covariance"])
+    @test Float32.(geom(b32)) == geom(x32) && Float32.(cov(b32)) == Σ32
+    # Förstner's rows (VisualGeometryToolkitFeatures' detect_foerstner): Attributed{Uncertain{PointFrame{Float64}, CovMat{2}}}
+    # with (label, window, F); the unclassified window's NaN covariance is written null and reads back NaN
+    fm = (label = :corner, window = Point2(10.0, 20.0), F = 0.91)
+    fo = Attributed(Uncertain(f, CovMat(SMatrix{2, 2, Float64, 4}(0.004, 0.0001, 0.0001, 0.006))), fm)
+    ro = rt(fo)
+    @test typeof(getfield(ro, :value)) == typeof(getfield(fo, :value)) && getfield(ro, :value) == getfield(fo, :value) &&
+        cov(getfield(ro, :value)) === cov(getfield(fo, :value))
+    a = getfield(ro, :attributes)       # metadata as parsed: a Symbol reads back a string, a Point2 an array
+    @test (Symbol(a.label), Point2(a.window...), a.F) == (fm.label, fm.window, fm.F)
+    nan = Attributed(Uncertain(PointFrame(10.0, 20.0), CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))), fm)
+    @test occursin("\"covariance\":null", JSON.json(json_value(nan, MM_PX; kind = :plain)))
+    rn = rt(nan)
+    @test typeof(getfield(rn, :value)) == typeof(getfield(nan, :value)) && all(isnan, cov(getfield(rn, :value)))
+    @test_throws ArgumentError json_value(Attributed(Uncertain(f, CovMat{3, Float64}(Tuple(1.0:9.0))), meta), MM_PX; kind = :plain)
+    # the family's `cov` is not a point frame's covariance
+    @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1,2]},"cov":[1,0,0,1]}"""), MM_PX; kind = :plain)
+end
+
 @testitem "quantity JSON: detections and frames as numbers (Features' golden strings); the {value, unit} form refused" setup = [VGIoFixtures] begin
     # The plain-number strings below were written by VisualGeometryToolkitFeatures'
     # JSON.lower hooks (its golden-bytes test, pinned to the writer at ddc1bbe),

@@ -1,0 +1,16 @@
+{
+    "schema": "vgio/vignetting/v1",
+    "pixel_frame": "colmap",
+    "vignetting": {
+        "type": "log",
+        "spline": {
+            "type": "radial",
+            "degree": 3,
+            "center": [640.5, 480.25],
+            "radius": 820.0,
+            "chart": "projective",
+            "control_points": [0.0, -0.02, -0.07, -0.15, -0.26, -0.4]
+        }
+    },
+    "provenance": {"note": "IO 0.9 wrote `chart` inside v1 (the review's I1)"}
+}

@@ -67,6 +67,7 @@
             what = "the environment"
             sbatch = "slurm/setup.sbatch"
             gpu = true
+            precompile = false      # its launcher runs no julia
 
             [[stage]]
             name = "chrome_prepare"
@@ -83,6 +84,7 @@
             driver = "scripts/chrome.jl"
             config = "configs/experiments/chrome.toml"
             gpu = true
+            precompile = false      # its launcher runs no julia
             array = { from = "cases", select_env = "CASES", max_time = "pipeline.lm.max_time", time_margin_s = 600 }
 
             [[stage]]
@@ -91,6 +93,7 @@
             sbatch = "slurm/texture.sbatch"
             config = "configs/experiments/texture_{item}.toml"
             gpu = true
+            precompile = false      # its launcher runs no julia
             array = { items = ["small", "large"], select_env = "SETS" }
 
             [[stage]]
@@ -389,6 +392,43 @@ end
         @test key(niced, "slurm2", "chrome") == key(g, "slurm2", "chrome") && key(niced, "local2", "chrome") == key(g, "local2", "chrome")
         write(f.graph, replace(text, "name = \"chrome\"\n" => "name = \"chrome\"\nnice = -5\n"; count = 1))
         @test_throws r"nice = -5 is not a count" load_stage_graph(f.graph)
+    end
+
+    @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
+        f = runner_project()
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
+                                     "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))     # setup compiles
+        g = load_stage_graph(f.graph)
+        @test g.stages[1].precompile && g.stages[1].julia_flags == ["--depwarn=error"] && !g.stages[3].precompile
+        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
+        pre = join(p.stages[1].precompile, " ")
+        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --job-name=paper-setup-precompile")
+        @test !occursin("--gres", pre) && occursin("--depwarn=error -e", pre) && occursin("Pkg.precompile()", pre)
+        @test isempty(p.stages[2].precompile)                                       # a CPU stage: none
+        @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].precompile)
+        # not keyed: the same key with or without it
+        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
+        kon = k(g)
+        write(f.graph, text)
+        @test k(load_stage_graph(f.graph)) == kon
+        write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
+                                     "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))
+        # the dry run shows it, and the GPU job after it
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test code == 0 && occursin("compile  sbatch --parsable --partition=gpu --cpus-per-task=2", out)
+        @test occursin("sbatch --parsable --dependency=afterok:\$setup_precompile --partition=gpu --gres=gpu:1", out)
+        # submitted: the compile first, the GPU job after it (afterok), its id recorded
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        run(pipeline(`git -C $(f.repo) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam precompile`; stdout = devnull))
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)"]; env)
+        @test code == 0 && occursin(r"setup\s+101  \(precompile, CPU only\)", out)
+        l = readlines(sb)
+        @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1]) && occursin("Pkg.precompile()", l[1])
+        @test startswith(l[2], "102 --parsable --dependency=afterok:101 ") && occursin("--gres=gpu:1", l[2])
+        m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test m["stages"]["setup"]["precompile_job_id"] == "101" && m["stages"]["setup"]["job_id"] == "102"
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin

@@ -130,7 +130,7 @@ const _GRAPH_KEYS = Dict(
     "results_branch" => ("project", "assets", "artifacts"))
 const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_branch", "driver", "config", "env", "job_name",
                      "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes",
-                     "nice")
+                     "nice", "precompile", "julia_flags")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s", "each")
 const _EACH_KEYS = ("from", "env")
@@ -174,7 +174,12 @@ validated: a count, `8G`/`4000M`, `gpu:4`), and `ntasks` and `nodes` its tasks a
 stage that needs 4 GPUs or 2 CPUs says so in the graph, not in its launcher; `gres` makes a stage a GPU stage. On a
 local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads. `nice` (a count, `0`: none) is the
 stage's Slurm `--nice`: a research stage yields to a release gate's jobs. Like the CPU count and a job-name prefix it
-is a label for the scheduler and keys no run; the local backend runs every stage alike.
+is a label for the scheduler and keys no run; the local backend runs every stage alike. On a Slurm site a GPU stage's
+code is compiled before its GPU job starts, so the GPU task only loads and runs: a CPU-only job (no `--gres`, the
+stage's CPUs, memory and `nice`) runs `julia --project=<julia_project> <julia_flags> -e 'using Pkg;
+Pkg.precompile()'`, after the stages the GPU job runs after, and the GPU job runs after it (`afterok`). `julia_flags`
+are the flags the stage's jobs run julia with (`["--depwarn=error"]`): a cache compiled under other flags is compiled
+again. `precompile = false` leaves it out (a GPU stage that runs no julia). Neither keys the run.
 """
 struct StageSpec
     name::String
@@ -205,6 +210,8 @@ struct StageSpec
     ntasks::Int
     nodes::Int
     nice::Int
+    precompile::Bool
+    julia_flags::Vector{String}
 end
 
 """
@@ -273,7 +280,8 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
                      _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
-                     _cpus_count(name, get(t, "nice", 0), "nice"))
+                     _cpus_count(name, get(t, "nice", 0), "nice"), get(t, "precompile", true) === true,
+                     String.(get(t, "julia_flags", String[])))
 end
 
 _cpus_count(name, v, key = "cpus_per_task") = (v isa Integer && v >= 0) ? Int(v) :
@@ -538,7 +546,8 @@ option the stage's jobs read, and the keys of the stages it runs after, their la
 launch does not run; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
-dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
+dependency; on a local site the argv run once per item), the sbatch argv of its `precompile` job (a GPU stage on a
+Slurm site; `[]` for none: [`StageSpec`](@ref)), its `--time` in minutes (`minutes`, 0 = the launcher's),
 `reuse` (`""`; `"completed"`, finished in an earlier launch; or the job id of an earlier launch's job still in
 flight, which this launch depends on instead of submitting again) and, for that job, `reuse_markers`, the directory
 its completion markers go to ([`stage_markers_dir`](@ref)); and `rerun`, why an earlier run of the same key is
@@ -552,6 +561,7 @@ mutable struct PlannedStage
     key::String
     env::Dict{String, String}
     command::Vector{String}
+    precompile::Vector{String}
     minutes::Int
     reuse::String
     reuse_markers::String
@@ -617,16 +627,17 @@ _stage_cpus(site::Site, s::StageSpec) = s.cpus_per_task > 0 ? s.cpus_per_task : 
 # The sbatch options that key no run: the CPU count and the priority, labels for the scheduler.
 const _UNKEYED_OPTIONS = ("--cpus-per-task=", "--nice=")
 
-function _slurm_options(site::Site, s::StageSpec)
+# A stage's sbatch options over the site's; `cpu_only`: those of its precompile job (no GPU, one task).
+function _slurm_options(site::Site, s::StageSpec; cpu_only::Bool = false)
     o = String[]
     isempty(site.partition) || push!(o, "--partition=$(site.partition)")
     gres = isempty(s.gres) ? site.gres : s.gres
-    _stage_gpu(s) && !isempty(gres) && push!(o, "--gres=$gres")
+    !cpu_only && _stage_gpu(s) && !isempty(gres) && push!(o, "--gres=$gres")
     _stage_cpus(site, s) > 0 && push!(o, "--cpus-per-task=$(_stage_cpus(site, s))")
     mem = isempty(s.mem_per_cpu) ? site.mem_per_cpu : s.mem_per_cpu
     isempty(mem) || push!(o, "--mem-per-cpu=$mem")
-    s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
-    s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
+    !cpu_only && s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
+    !cpu_only && s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
     s.nice > 0 && push!(o, "--nice=$(s.nice)")
     append!(o, site.extra)
     return o
@@ -672,6 +683,16 @@ function _plan_command(g::StageGraph, site::Site, s::StageSpec, items, minutes, 
         push!(c, s.sbatch)
     end
     return c
+end
+
+# The sbatch argv of a GPU stage's precompile job on a Slurm site (none elsewhere, or with `precompile = false`): the
+# project's environment compiled on the CPU, with the stage's julia flags, so its GPU job only loads and runs.
+function _precompile_command(g::StageGraph, site::Site, s::StageSpec, env; prefix::AbstractString = "")
+    (site.backend === :slurm && _stage_gpu(s) && s.precompile) || return String[]
+    argv = [_julia(site, env); "--startup-file=no"; "--project=$(g.julia_project)"; s.julia_flags; "-e"; "using Pkg; Pkg.precompile()"]
+    return ["sbatch", "--parsable", _slurm_options(site, s; cpu_only = true)...,
+            "--job-name=$(prefix)$(_base_job_name(g, s))-precompile", "--output=logs/$(g.name)_$(s.name)_precompile_%j.log",
+            "--wrap=$(_shell_line(argv))"]
 end
 
 """
@@ -743,7 +764,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
         key = keys_of[name] = _toml_hash(keyed)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
-        push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
+        push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd,
+                                   _precompile_command(g, site, s, env; prefix), minutes, "", "", ""))
     end
     base = Dict{String, String}(env)
     # The jobs resolve a tier's root as this launch did: the site's [sites.<site>.tiers] become the variables a
@@ -1017,11 +1039,13 @@ function _write_manifest(plan::ReproducePlan, records)
     return plan.manifest
 end
 
-function _stage_record(plan::ReproducePlan, st::PlannedStage; state, job_id = "", log = "", tasks = Dict{String, String}(), markers = "")
+function _stage_record(plan::ReproducePlan, st::PlannedStage; state, job_id = "", log = "", tasks = Dict{String, String}(), markers = "",
+                       precompile_job_id = "")
     return Dict{String, Any}("key" => st.key, "items" => st.items, "after" => st.after, "command" => _shell_line(st.command),
                              "code_trees" => plan.code_trees,
                              "state" => state, "job_id" => job_id, "log" => log, "tasks" => tasks, "markers" => markers,
-                             "config" => st.spec.config, "driver" => st.spec.driver, "sbatch" => st.spec.sbatch)
+                             "config" => st.spec.config, "driver" => st.spec.driver, "sbatch" => st.spec.sbatch,
+                             "precompile_job_id" => precompile_job_id)
 end
 
 # ---------------------------------------------------------------------------
@@ -1085,6 +1109,12 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
         if site.backend === :slurm
             st.reuse == "completed" && continue
             deps = _dependency(plan, st)                       # `$<stage>` placeholders: shown as they are, never quoted
+            if !isempty(st.precompile)
+                pline = _shell_line(st.precompile)
+                isempty(deps) || (pline = replace(pline, "sbatch --parsable" => "sbatch --parsable --dependency=afterok:" * join(deps, ":"); count = 1))
+                println(io, "    compile  ", pline)
+                push!(deps, "\$$(s.name)_precompile")
+            end
             line = _shell_line(st.command)
             isempty(deps) || (line = replace(line, "sbatch --parsable" => "sbatch --parsable --dependency=afterok:" * join(deps, ":"); count = 1))
             println(io, "    submit   ", isempty(envline) ? "" : envline * " ", line)
@@ -1305,12 +1335,27 @@ end
 # The line a backend prints before running a stage an earlier launch ran under other code.
 _print_rerun(io, st::PlannedStage) = isempty(st.rerun) || println(io, rpad(st.spec.name, 32), " rerun: ", st.rerun)
 
+# One sbatch: its job id, or nothing and what it said.
+function _sbatch(site::Site, c::Vector{String}, e, dir)
+    out = IOBuffer(); err = IOBuffer()
+    ok = try
+        success(pipeline(Cmd(Cmd(_with_setup(site, c, e)); env = e, dir); stdout = out, stderr = err))
+    catch ex
+        ex isa Base.IOError || rethrow()
+        print(err, sprint(showerror, ex)); false
+    end
+    txt = strip(String(take!(out)))
+    return !ok || isempty(txt) ? (nothing, strip(String(take!(err)))) : (String(first(split(txt, ';'))), "")
+end
+
 """
     submit_slurm!(plan; io = stdout) -> Dict{String, Any}
 
 Submits the plan's stages in order with sbatch, each after the jobs of the stages it depends on
 (`--dependency=afterok`; a GPU array also after the GPU array submitted before it, `afterany`, when the site sets
-`gpu_limit`); a reused stage is not submitted (a completed one is no dependency, one in flight is depended on). Each
+`gpu_limit`); a reused stage is not submitted (a completed one is no dependency, one in flight is depended on). A
+GPU stage's precompile job ([`StageSpec`](@ref)) is submitted first, after the same jobs, and the GPU job after it;
+its id is the record's `precompile_job_id`. Each
 stage is submitted through a wrapper that runs it and writes each task's completion marker
 ([`stage_markers_dir`](@ref)): the stage's own launcher, copied as submitted, with its `#SBATCH` directives (a
 signal its `--signal` directive asks for is forwarded to it), named `<project>-<stage>` when neither the stage nor its
@@ -1344,6 +1389,21 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         end
         _print_rerun(io, st)
         deps = _dependency(plan, st; ids)
+        e = merge(base_env, st.env)
+        pre = ""
+        if !isempty(st.precompile)                         # the CPU-only compile the GPU job then waits for
+            c = copy(st.precompile)
+            isempty(deps) || insert!(c, 3, "--dependency=afterok:" * join(deps, ":"))
+            pe = merge(e, Dict("JULIA_NUM_PRECOMPILE_TASKS" => string(max(1, _stage_cpus(site, s))), "CUDA_VISIBLE_DEVICES" => ""))
+            pre, msg = _sbatch(site, c, pe, g.workdir)
+            if pre === nothing
+                records[s.name] = _stage_record(plan, st; state = "submit failed")
+                _write_manifest(plan, records)
+                error("sbatch of stage $(s.name)'s precompile job failed: $msg\n  $(_shell_line(c))")
+            end
+            push!(deps, pre)
+            println(io, rpad(s.name, 32), " ", pre, "  (precompile, CPU only)")
+        end
         c = copy(st.command)
         dep = isempty(deps) ? "" : "afterok:" * join(deps, ":")
         if _stage_gpu(s) && s.is_array && site.gpu_limit > 0 && !isempty(last_gpu)
@@ -1352,24 +1412,15 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         isempty(dep) || insert!(c, 3, "--dependency=$dep")
         markers = stage_markers_dir(plan.manifest, s.name)
         c = _through_wrapper(plan, st, c, markers)
-        out = IOBuffer(); err = IOBuffer()
-        e = merge(base_env, st.env)
-        ok = try
-            success(pipeline(Cmd(Cmd(_with_setup(site, c, e)); env = e, dir = g.workdir); stdout = out, stderr = err))
-        catch ex
-            ex isa Base.IOError || rethrow()
-            print(err, sprint(showerror, ex)); false
-        end
-        txt = strip(String(take!(out)))
-        if !ok || isempty(txt)
-            records[s.name] = _stage_record(plan, st; state = "submit failed", markers)
+        id, msg = _sbatch(site, c, e, g.workdir)
+        if id === nothing
+            records[s.name] = _stage_record(plan, st; state = "submit failed", markers, precompile_job_id = pre)
             _write_manifest(plan, records)
-            error("sbatch of stage $(s.name) failed: $(strip(String(take!(err))))\n  $(_shell_line(c))")
+            error("sbatch of stage $(s.name) failed: $msg\n  $(_shell_line(c))")
         end
-        id = String(first(split(txt, ';')))
         ids[s.name] = id
         _stage_gpu(s) && s.is_array && (last_gpu = id)
-        records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers)
+        records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers, precompile_job_id = pre)
         _write_manifest(plan, records)
         println(io, rpad(s.name, 32), " ", id, s.is_array ? "  (array 0-$(length(st.items) - 1): $(join(st.items, " ")))" : "")
     end

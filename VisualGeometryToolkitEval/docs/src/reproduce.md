@@ -468,6 +468,18 @@ A stage may set its own resources over the site's: `cpus_per_task`,
 gate's jobs; like the CPU count and a job-name prefix it is a label for the
 scheduler and keys no run (the local backend runs every stage alike).
 
+On a Slurm site a GPU stage compiles before its GPU job starts, so a GPU is
+never held while code compiles: a CPU-only job (no `--gres`; the stage's CPUs,
+memory and `nice`, `JULIA_NUM_PRECOMPILE_TASKS` its CPUs) runs
+`julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'`
+after the stages the GPU job runs after, and the GPU job runs after it
+(`afterok`); the GPU task then only loads and runs. `julia_flags` are the
+flags the stage's jobs run julia with (`julia_flags = ["--depwarn=error"]`):
+a cache compiled under other flags is compiled again. `precompile = false`
+leaves the job out (a GPU stage whose launcher runs no julia). The dry run
+prints it (`compile`); the manifest records its job id
+(`precompile_job_id`); it keys no run.
+
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:
 `Reproduce.write_reproduce_script(repo_root; julia_project = "cvpr2027")`

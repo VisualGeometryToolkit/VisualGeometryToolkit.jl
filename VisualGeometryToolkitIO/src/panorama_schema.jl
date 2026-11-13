@@ -6,8 +6,13 @@
 #  "camera": {bounded camera body},                                  (a camera store's entry without `name`)
 #  "rotations": {"from": "camera", "to": "world", "frames": [{"frame_index": 1, "image": "DSC00001.ARW",
 #                "pose": {"rotation": [w, x, y, z], "translation": [0.0, 0.0, 0.0]}}, …]},   (the trajectory body)
-#  "vignetting": {vignetting body},                                  (the vgio/vignetting body)
+#  "vignetting": {vignetting body},                                  (optional: the vgio/vignetting body; none stated:
+#                                                                     no Core vignetting — a candidate with no correction or
+#                                                                     one of its own, a flat field's binned radial profile)
 #  "gains": [{"frame_index": 1, "gain": [g_R, g_G, g_B]}, …],        (optional: none, every frame at one exposure)
+#  "fit": {"retcode": "Success", "stop_rule": "…", "iterations": 12, "rms": 0.41, "n": 31580},
+#                                                                    (optional: the bundle's termination record, the
+#                                                                     stack's one, `_FIT_RECORD`; none: not recorded)
 #  "provenance": {…}}                                                (optional)
 #
 # The results of a camera that only rotated (PanoramaStitching's): composed ONLY of bodies other kinds already write,
@@ -24,7 +29,7 @@
 # vgio/panorama/v1 (IO 0.9.4) reads through its step to v2.0 (`_panorama_v1_to_v2`).
 #
 # The value has no VisualGeometryToolkitCore type of its own: it is the NamedTuple
-# `(; camera, rotations, vignetting, gains)` of VGC values, written by `save_panorama` and read by `load_panorama`
+# `(; camera, rotations, vignetting, gains, fit)` of VGC values (`vignetting`, `gains`, `fit` each `nothing` when absent), written by `save_panorama` and read by `load_panorama`
 # (a composite of several values, as `save_manifest`/`load_manifest`'s), and checked on the bytes by the kind's table.
 
 const _GAIN_RECORD = _Obj(:frame_index => _Int(), :gain => _Vec(_Real()))
@@ -50,8 +55,8 @@ end
 
 const _PANORAMA_SPEC = _kind_spec(
     "panorama",
-    Pair{Symbol, _Spec}[:camera => _BOUNDED_CAMERA_BODY, :rotations => _TRAJECTORY_BODY, :vignetting => _VignettingBody()],
-    Pair{Symbol, _Spec}[:gains => _Vec(_GAIN_RECORD)];
+    Pair{Symbol, _Spec}[:camera => _BOUNDED_CAMERA_BODY, :rotations => _TRAJECTORY_BODY],
+    Pair{Symbol, _Spec}[:vignetting => _VignettingBody(), :gains => _Vec(_GAIN_RECORD), :fit => _FIT_RECORD];
     check = _panorama_check,
     rule = "the rotations map `camera` to `world`, each translation zero; `gains`, where stated, one record per frame of the " *
            "rotations (frame indices 1:K), each with the same number (> 0) of positive gains",
@@ -62,7 +67,7 @@ const _PANORAMA_SPEC = _kind_spec(
 )
 
 """
-    save_panorama(path, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting, gains;
+    save_panorama(path, camera::BoundedCamera, rotations::Trajectory, vignetting, gains, fit = nothing;
                   length_unit = mm, provenance = (;))
 
 Write a panorama's results — the camera of a sweep that only rotated, its frames'
@@ -77,17 +82,28 @@ other frames, a translation that is not zero (the camera only rotates) and a pla
 (attach its unit, `EuclideanMap(R, zeros(3) .* m)`) are an `ArgumentError`, nothing
 written.
 
+`vignetting` is an `AbstractVignetting`, or `nothing`: a panorama with no Core
+vignetting (a candidate with no correction, or one of its own — a sampled map, a
+flat field's binned radial profile, `vgio/radial_profile`), which writes none and
+reads back `nothing`.
+
+`fit` is the bundle's `FitResult` (any estimate and metadata: only its
+termination record is written — `retcode`, `stop_rule`, `iterations`, `rms`,
+`n`, the stack's one record, `_FIT_RECORD`) or `nothing` (none recorded).
+
 `gains` is `nothing` (every frame at one exposure) or a `K × C` matrix,
 `gains[k, c]` the exposure gain of frame index `k` in colour plane `c`
 (PanoramaStitching's `fit_vignetting` `metadata.gains`), every one positive; the
 rotations' frame indices are then `1:K`. Numbers of a narrower type (Float32) are
 written exactly. [`load_panorama`](@ref) reads the file back.
 """
-function save_panorama(path::AbstractString, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting,
-                       gains::Union{Nothing, AbstractMatrix{<:Real}}; length_unit::Units = mm, provenance::NamedTuple = (;))
+function save_panorama(path::AbstractString, camera::BoundedCamera, rotations::Trajectory, vignetting::Union{Nothing, AbstractVignetting},
+                       gains::Union{Nothing, AbstractMatrix{<:Real}}, fit::Union{Nothing, FitResult} = nothing;
+                       length_unit::Units = mm, provenance::NamedTuple = (;))
     s = VgioStyle(; length_unit)
-    body = merge((camera = _bounded_body(s, camera), rotations = JSON.lower(s, rotations), vignetting = JSON.lower(s, vignetting)),
-                 _gains_json(gains))
+    body = merge((camera = _bounded_body(s, camera), rotations = JSON.lower(s, rotations)),
+                 vignetting === nothing ? (;) : (vignetting = JSON.lower(s, vignetting),),
+                 _gains_json(gains), fit === nothing ? (;) : (fit = _fit_record_json(fit),))
     _write_kind(path, "panorama", body, provenance; style = s)
     return nothing
 end
@@ -97,13 +113,16 @@ _gains_json(::Nothing) = (;)
 _gains_json(G::AbstractMatrix{<:Real}) = (gains = [(frame_index = k, gain = row) for (k, row) in enumerate(_matrix_rows(G))],)
 
 """
-    load_panorama(path) -> (; camera, rotations, vignetting, gains)
+    load_panorama(path) -> (; camera, rotations, vignetting, gains, fit)
 
 Read a `vgio/panorama/v2.0` file ([`save_panorama`](@ref)'s): `camera` the
 `BoundedCamera` (its K and lens coverage moved into VGC's canonical pixel frame),
 `rotations` the `Trajectory` of the frames' poses (`QuatRotation`s, the stored
 quaternions exactly; translations zero metres; labeled by the file's `from` and
-`to`), `vignetting` the `AbstractVignetting`, rebuilt bit for bit, and `gains` the
+`to`), `vignetting` the `AbstractVignetting`, rebuilt bit for bit (`nothing` when the
+file states none), `fit` the bundle's termination record as a `FitResult{Nothing, Nothing}`
+(its estimate and metadata `nothing`; `nothing` when the file records none — every
+`vgio/panorama/v1` file), and `gains` the
 `K × C` `Matrix{Float64}` of the frames' exposure gains (row `k` frame index `k`),
 or `nothing` when the file states none. Every number reads back as the Float64 it
 was written as.
@@ -113,7 +132,9 @@ function load_panorama(path::AbstractString)
     s = VgioStyle(d)
     return (
         camera = _bounded_from_body(s, d.camera::Record), rotations = JSON.lift(s, Trajectory, d.rotations::Record),
-        vignetting = JSON.lift(s, AbstractVignetting, d.vignetting::Record), gains = _gains_from_json(get(d, :gains, nothing)),
+        vignetting = haskey(d, :vignetting) ? JSON.lift(s, AbstractVignetting, d.vignetting::Record) : nothing,
+        gains = _gains_from_json(get(d, :gains, nothing)),
+        fit = haskey(d, :fit) ? _fit_record_from_json(d.fit) : nothing,
     )
 end
 

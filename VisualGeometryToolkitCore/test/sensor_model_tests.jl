@@ -167,7 +167,7 @@ end
 
     # FULL: every slot selected; the dark inside its band, its channel black outside it
     m = sensor_model(full, cap, 1)
-    @test m.reason === Matched && !m.overrides_measured
+    @test m.reason === Matched && !m.specified_override
     @test m.black isa Dark && m.noise isa PoissonGaussian && m.defects isa DefectList
     @test m.noise == full.entries[100.0].noise
     m2 = sensor_model([full], cap, 2)                    # 1/500 s: outside the dark's band
@@ -199,10 +199,10 @@ end
     spec = sensor_fixture(; body, gain = 2.0, read_noise = (3, 3, 3, 3)).characterisation        # specified
     est = sensor_fixture(; body, gain = 1.5, read_noise = (2, 2, 2, 2), source = SensorSource.estimated).characterisation
     r = sensor_model([full, spec], cap, 1)
-    @test r.noise == spec.entries[100.0].noise && r.overrides_measured
+    @test r.noise == spec.entries[100.0].noise && r.specified_override
     @test r.black isa Dark && r.defects isa DefectList     # the other slots still the measured characterisation's
     r = sensor_model([full, est], cap, 1)
-    @test r.noise == full.entries[100.0].noise && !r.overrides_measured
+    @test r.noise == full.entries[100.0].noise && !r.specified_override
     @test sensor_model([spec, est], cap, 1).noise == spec.entries[100.0].noise
     # two of one source at one slot: refused; a frame the capture lacks: refused
     @test_throws ArgumentError sensor_model([full, full], cap, 1)

@@ -55,7 +55,7 @@ _vignetting_body(T::Type{<:TensorProductVignetting}) = _Obj(:type => _vignetting
     :knots_x => _Vec(_Real()), :knots_y => _Vec(_Real()), :control_points => _Vec(_Vec(_Real())))
 _vignetting_body(T::Type{<:RadialVignetting}) = _Obj(
     Pair{Symbol, _Spec}[:type => _vignetting_type(T), :degree => _PosInt(), :center => _Vec(_Real(), 2), :radius => _Real(),
-                        :chart => _Named(c -> c in String.(RADIAL_CHARTS), "a radial chart ($(join(String.(RADIAL_CHARTS), ", ")))"),
+                        :chart => _Named(in(String.(RADIAL_CHARTS)), "a radial chart ($(join(String.(RADIAL_CHARTS), ", ")))"),
                         :control_points => _Vec(_Real())],
     Pair{Symbol, _Spec}[])
 _vignetting_body(T::Type{<:LogVignetting}) = _Obj(:type => _vignetting_type(T), :spline => _VignettingBody())
@@ -82,7 +82,8 @@ const _ENVIRONMENT_LIGHT_SPEC = _kind_spec(
         :map => _CheckedSpec(
             _Obj(:type => _Tok("spherical_harmonics"), :basis => _Tok(_SH_BASIS), :max_degree => _Int(), :coefficients => _Vec(_Vec(_Real()))),
             m -> all(r -> length(r) == (m[:max_degree] + 1)^2, m[:coefficients]) ? nothing :
-                "every channel has (max_degree + 1)² = $((m[:max_degree] + 1)^2) coefficients",
+                "every channel has (max_degree + 1)² = $((m[:max_degree] + 1)^2) coefficients";
+            rule = "every channel (a row of `coefficients`) has (max_degree + 1)² coefficients",
         ),
     ],
 )
@@ -90,13 +91,13 @@ const _ENVIRONMENT_LIGHT_SPEC = _kind_spec(
 # A blur's plane: a pixel frame (`pixel_frame`), or `frame` — a view's image frame
 # (`image:<id>`) or a target's plane (`target_plane`).
 const _TARGET_PLANE_NAME = "target_plane"
-_blur_frame_ok(s) = s == _TARGET_PLANE_NAME || (startswith(s, "image:") && length(s) > 6)
+const _BLUR_FRAME_RE = Regex("^($(_TARGET_PLANE_NAME)|image:.+)\$")
 const _BLUR_RECORD = _Either(Pair{Symbol, _Spec}[
     :pixel_frame => _Obj(:name => _NonEmpty(), :pixel_frame => _PIXEL_FRAME, :covariance => _Cov(2)),
-    :frame => _Obj(:name => _NonEmpty(), :frame => _Named(_blur_frame_ok, "a blur's plane (\"target_plane\", \"image:<id>\")"), :covariance => _Cov(2)),
+    :frame => _Obj(:name => _NonEmpty(), :frame => _Named(Base.Fix1(occursin, _BLUR_FRAME_RE), "a blur's plane (\"target_plane\", \"image:<id>\")"), :covariance => _Cov(2)),
 ])
 const _BLUR_SPEC = _kind_spec("blur", Pair{Symbol, _Spec}[:blurs => _Vec(_BLUR_RECORD)];
-                              check = x -> _unique_check([b[:name] for b in x[:blurs]], "blur names"))
+                              check = x -> _unique_check([b[:name] for b in x[:blurs]], "blur names"), rule = "blur names are unique")
 
 # --- vignetting ---------------------------------------------------------------
 

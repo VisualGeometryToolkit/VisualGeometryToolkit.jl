@@ -106,7 +106,7 @@
 # An ISO 8601 date-time with its UTC offset (`Z` or `±hh:mm`): instants written
 # on different machines compare.
 const _TIME_ORIGIN = _Named(
-    s -> occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$", s),
+    Base.Fix1(occursin, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$"),
     "an ISO 8601 date-time with its UTC offset (2026-05-27T09:30:00+02:00, or …Z)",
 )
 const _FRAMES_CHECK = x -> something(
@@ -115,6 +115,13 @@ const _FRAMES_CHECK = x -> something(
         "a frame has a `time` (in units.time since `time_origin`) but the file states no `time_origin`" : nothing,
     Some(nothing),
 )
+# `_FRAMES_CHECK` in words and in JSON Schema (json_schema.jl publishes them).
+const _FRAMES_TIME_SCHEMA = Dict{String, Any}(
+    "if" => Dict("required" => ["frames"], "properties" => Dict("frames" => Dict("contains" => Dict("required" => ["time"])))),
+    "then" => Dict("required" => ["time_origin"]),
+)
+const _FRAMES_RULE = (rule = "frame indices `frame_index` are unique; a file whose frames state a `time` states its `time_origin`",
+                      schema = [_FRAMES_TIME_SCHEMA])
 # The optional per-file stamp keys of a capture kind.
 const _CAPTURE_OPTIONAL = Pair{Symbol, _Spec}[:time_origin => _TIME_ORIGIN]
 
@@ -163,7 +170,7 @@ const _TRAJECTORY_SPEC = _kind_spec(
     "trajectory",
     Pair{Symbol, _Spec}[:from => _FRAME_NAME, :to => _FRAME_NAME, :frames => _Vec(_TRAJECTORY_FRAME)],
     _CAPTURE_OPTIONAL;
-    check = _FRAMES_CHECK,
+    check = _FRAMES_CHECK, _FRAMES_RULE...,
 )
 
 """
@@ -229,7 +236,7 @@ end
 # =============================================================================
 
 const _TARGET_POSE_RECORD = _Obj(
-    Pair{Symbol, _Spec}[:target => _NonEmpty(), :rotation => _Vec(_Real(), 4), :translation => _Vec(_Real(), 3)],
+    Pair{Symbol, _Spec}[:target => _NonEmpty(), :rotation => _QUATERNION, :translation => _Vec(_Real(), 3)],
     Pair{Symbol, _Spec}[:covariance => _COV6],
 )
 const _TARGET_POSES_SPEC = _kind_spec(
@@ -242,12 +249,12 @@ const _TARGET_POSES_SPEC = _kind_spec(
                     Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs([:image, :sensor])[1]..., :poses => _Vec(_TARGET_POSE_RECORD)],
                     _stamp_specs([:image, :sensor])[2],
                 ),
-                f -> _unique_check([p[:target] for p in f[:poses]], "the targets of a frame"),
+                f -> _unique_check([p[:target] for p in f[:poses]], "the targets of a frame"); rule = "a frame poses each target once",
             )
         ),
     ],
     _CAPTURE_OPTIONAL;
-    check = _FRAMES_CHECK,
+    check = _FRAMES_CHECK, _FRAMES_RULE...,
 )
 
 """
@@ -326,11 +333,14 @@ end
 const _HOMOGRAPHY_RECORD = _Obj(
     Pair{Symbol, _Spec}[
         :target => _NonEmpty(), :type => _Tok(_HOMOGRAPHY_TAG),
-        :parameters => _CheckedSpec(_Vec(_Real(), 9), _homography_parameters_check),
+        :parameters => _CheckedSpec(_Vec(_Real(), 9), _homography_parameters_check;
+                                    rule = "the canonical homography parameters (VisualGeometryToolkitCore's `parameter_vector` of a " *
+                                           "HomographyMap): the 3×3 matrix's entries of unit Frobenius norm with h33 ≥ 0"),
     ],
     Pair{Symbol, _Spec}[:covariance => _cov_spec(8)],
 )
-const _TARGETS_IDS = _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities"))
+const _TARGETS_IDS = _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities");
+                                  rule = "at least one targets identity, each once", schema = ["minItems" => 1, "uniqueItems" => true])
 
 const _TARGET_HOMOGRAPHIES_SPEC = _kind_spec(
     "target_homographies",
@@ -342,12 +352,12 @@ const _TARGET_HOMOGRAPHIES_SPEC = _kind_spec(
                     Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs([:image, :sensor])[1]..., :homographies => _Vec(_HOMOGRAPHY_RECORD)],
                     _stamp_specs([:image, :sensor])[2],
                 ),
-                f -> _unique_check([h[:target] for h in f[:homographies]], "the targets of a frame"),
+                f -> _unique_check([h[:target] for h in f[:homographies]], "the targets of a frame"); rule = "a frame holds each target's homography once",
             )
         ),
     ],
     _CAPTURE_OPTIONAL;
-    check = _FRAMES_CHECK,
+    check = _FRAMES_CHECK, _FRAMES_RULE...,
 )
 
 """
@@ -471,14 +481,18 @@ _observation_set_spec(d::Int) = _CheckedSpec(
         c = count(p -> haskey(p, :covariance), r[:points])
         (c == 0 || c == n) || return "every point of a set states its `covariance`, or none does"
         return nothing
-    end,
+    end;
+    rule = "at least one point; the point indices are unique; `points` and `weights` have one entry per index; every " *
+           "point states its `covariance`, or none does",
+    schema = ["properties" => Dict("index" => Dict("minItems" => 1, "uniqueItems" => true))],
 )
 _observations_frame_spec(d::Int, required::Vector{Symbol}) = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs(required)[1]..., :observations => _Vec(_observation_set_spec(d))],
         _stamp_specs(required)[2],
     ),
-    f -> _unique_check([get(r, :target, "") for r in f[:observations]], "the targets of a frame"),
+    f -> _unique_check([get(r, :target, "") for r in f[:observations]], "the targets of a frame");
+    rule = "a frame holds each target's observations in one set",
 )
 # The entity a set names agrees with the file's `entity`: a target point's set
 # names its `target`, a landmark's does not.
@@ -493,18 +507,29 @@ end
 # Pixels (no `frame`: every frame's image and sensor, at least one targets
 # identity) or 3D points (`frame`: every frame's sensor): one of two shapes,
 # told apart by whether the record states its 3D `frame` (`_IfKey`).
-const _OBSERVATIONS_ENTITY = :entity => _Named(e -> e in _ENTITIES, "an observed entity ($(join(_ENTITIES, ", ")))")
+const _OBSERVATIONS_ENTITY = :entity => _Named(in(_ENTITIES), "an observed entity ($(join(_ENTITIES, ", ")))")
 _observations_check(x) = something(_entity_check(x), _FRAMES_CHECK(x), Some(nothing))
+# `_entity_check` in JSON Schema: a target point's sets name their `target`, a landmark's do not.
+_sets_schema(s) = Dict("properties" => Dict("frames" => Dict("items" => Dict("properties" => Dict("observations" => Dict("items" => s))))))
+const _OBSERVATIONS_RULE = (
+    rule = "a target point's observation sets name their `target`, a landmark's do not; " * _FRAMES_RULE.rule,
+    schema = [Dict{String, Any}("if" => Dict("properties" => Dict("entity" => Dict("const" => _TARGET_POINT_ENTITY))),
+                                "then" => _sets_schema(Dict("required" => ["target"])),
+                                "else" => _sets_schema(Dict("not" => Dict("required" => ["target"])))),
+              _FRAMES_RULE.schema...],
+)
 const _OBSERVATIONS_SPEC = _IfKey(
     :frame,
     _kind_spec("observations",
         Pair{Symbol, _Spec}[_OBSERVATIONS_ENTITY, :frame => _FRAME_NAME, :frames => _Vec(_observations_frame_spec(3, [:sensor]))],
-        Pair{Symbol, _Spec}[:targets => _CheckedSpec(_Vec(_HEX64), h -> _unique_check(h, "targets identities")), _CAPTURE_OPTIONAL...];
-        check = _observations_check),
+        Pair{Symbol, _Spec}[:targets => _CheckedSpec(_Vec(_HEX64), h -> _unique_check(h, "targets identities");
+                                                     rule = "each targets identity once", schema = ["uniqueItems" => true]),
+                            _CAPTURE_OPTIONAL...];
+        check = _observations_check, _OBSERVATIONS_RULE...),
     _kind_spec("observations",
         Pair{Symbol, _Spec}[_OBSERVATIONS_ENTITY, :targets => _TARGETS_IDS, :frames => _Vec(_observations_frame_spec(2, [:image, :sensor]))],
         _CAPTURE_OPTIONAL;
-        check = _observations_check),
+        check = _observations_check, _OBSERVATIONS_RULE...),
 )
 
 # A point and its covariance on the wire: a pixel as it is (px², never

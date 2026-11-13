@@ -36,13 +36,15 @@ const _CORRESPONDENCES_SPEC = _CheckedSpec(
                         :object_points => _Vec(_XYZ), :image_points => _Vec(_XY),
                     ),
                     r -> length(r[:object_points]) == length(r[:image_points]) ? nothing :
-                        "object_points and image_points must pair one to one",
+                        "object_points and image_points must pair one to one";
+                    rule = "object_points and image_points pair one to one (equal lengths)",
                 )
             ),
         ],
         _PROVENANCE,
     ),
-    x -> _unique_check([(r[:frame_index], r[:target]) for r in x[:rows]], "(frame_index, target) rows"),
+    x -> _unique_check([(r[:frame_index], r[:target]) for r in x[:rows]], "(frame_index, target) rows");
+    rule = "one row per (frame_index, target)",
 )
 
 # One (frame, target) row: object points as plain METRES (read from the

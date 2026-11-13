@@ -102,25 +102,36 @@ end
 const _CALIBRATION_SPEC = _kind_spec(
     "calibration",
     Pair{Symbol, _Spec}[
-        :result_kind => _Named(k -> k in _MANIFEST_KINDS, "a calibration result kind ($(join(_MANIFEST_KINDS, ", ")))"),
+        :result_kind => _Named(in(_MANIFEST_KINDS), "a calibration result kind ($(join(_MANIFEST_KINDS, ", ")))"),
         :files => _CheckedSpec(
             _Vec(
                 _CheckedSpec(
                     _Obj(
                         :path => _Named(_is_inside_path, "a relative path inside the manifest's directory"),
                         :sha256 => _HEX64,
-                        :schema => _Named(s -> _split_owned(s) !== nothing, "a record schema (`<owner>/<kind>/v<major>[.<minor>]`)"),
-                        :role => _Named(r -> r in _MANIFEST_ROLES, "a role ($(join(_MANIFEST_ROLES, ", ")))"),
+                        :schema => _Named(Base.Fix1(occursin, _OWNED_SCHEMA_RE), "a record schema (`<owner>/<kind>/v<major>[.<minor>]`)"),
+                        :role => _Named(in(_MANIFEST_ROLES), "a role ($(join(_MANIFEST_ROLES, ", ")))"),
                         :derived_from => _Vec(_NonEmpty()),
                     ),
-                    _manifest_file_check,
+                    _manifest_file_check;
+                    rule = "an authority is derived from nothing; a derived file names at least one file it is derived from, never itself",
+                    schema = ["if" => Dict("properties" => Dict("role" => Dict("const" => "authority"))),
+                              "then" => Dict("properties" => Dict("derived_from" => Dict("maxItems" => 0))),
+                              "else" => Dict("properties" => Dict("derived_from" => Dict("minItems" => 1)))],
                 )
             ),
-            _manifest_files_check,
+            _manifest_files_check;
+            rule = "at least one file; paths unique (after normalization); every `derived_from` names a listed path, " *
+                   "and no file is derived from itself through `derived_from`",
+            schema = ["minItems" => 1],
         ),
     ],
-    Pair{Symbol, _Spec}[:model => _CheckedSpec(_Free(), _manifest_model_problem), :metrics => _RealMap()];
+    Pair{Symbol, _Spec}[:model => _CheckedSpec(_Free(), _manifest_model_problem;
+                                               rule = "VisualGeometryToolkitCore's `CameraModelSpec` record, read by its reader"),
+                        :metrics => _RealMap()];
     check = _manifest_model_check,
+    rule = "a `model`'s intrinsics are the `result_kind`'s (metric or projective); an \"image\" result lists no " *
+           "trajectory or target_poses record",
 )
 # The model is VGC's closed `CameraModelSpec` table: VGC's reader is its check.
 function _manifest_model_problem(x)

@@ -53,6 +53,11 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   Aqua "0.8.18", ChainRulesCore "1.26", Makie "0.24.16").
 
 ### Fixed
+- Core's splats of a data-length collection (`check_splat`): the capture containers' element type
+  (`mapreduce(typeof, typejoin, …)`), `PointTarget`, `Rig`'s form check and `ids`, `merge(::TagRegistry…)` and the LO and
+  loss registries (the vector form), a frame or `Disc` from an `AbstractVector` centre (`SVector{2}(center)`: a centre
+  of the wrong length is a `DimensionMismatch`), `to_affine(::AbstractVector)`, the induced plane homography,
+  `check_naming`'s supertype table and the quality gates' module walk (Core's `_module_tree`, one copy).
 - `axis_gauged` of a posed `BoundedCamera` turns its pose with its model (C1). `plane_map` and `transfer_ellipse` of an
   off-axis SplineLens camera (C4). `center_gradient` of a log-domain radial vignetting field, through the new
   `with_center(::LogVignetting{<:RadialVignetting}, c)` (C5). `has_spline_gauge` builds the constructor's own lattice
@@ -61,6 +66,15 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
 ### New
+- **`check_splat(M; extensions, unknown, root)` → `Vector{SplatViolation}`, `test_splat(M; mode)`, and the `splat` gate of
+  `test_quality_gates` (default `:report`)** — no call splats a collection whose length is data (Features 0.8.3's
+  `zip(map(_identity_fields, ids)...)`: one `zip` per capture size, 518 s at 171 frames). Typed: every method of the
+  package (and its loaded extensions) is inferred at its own signature and each `Core._apply_iterate` whose splatted
+  argument is not `<:Union{Tuple, NamedTuple, StaticArray, Pair}` is a finding (a bare name too; a call returning a
+  tuple is not; a splat into a builtin or `Expr` is not; a value inferred `Any` only with `unknown = true`). Exceptions
+  are `[[splat]] file, function, reason` entries of the repository's `DUPLICATION.toml`; a stale one is a finding.
+  Core's gate is `:enforce`.
+- `TagRegistry(family, suffix, pairs::AbstractVector{<:Pair}; retired, paths)`, a registry from a table.
 - **`center(u::Uncertain{<:FeatureFrame})`, `center(d::Attributed{<:Uncertain{<:FeatureFrame}})`** — THE detection → point
   observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
   precision's marginal). `frame_dof` (public) — a frame's degrees of freedom, its covariance's size, the centre first.

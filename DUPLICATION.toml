@@ -74,3 +74,8 @@ reason = "the names are a function of the type `FitResult{P, M}` alone (its meta
 file = "VisualGeometryToolkitCore/src/robust/normaliser.jl"
 function = "truncated_log_normaliser"
 reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no vector form); their count is ⌊log₄(r_max/c)⌋ + 3 ≤ 63, a few distinct values over the widths in use, so `quadgk` is compiled a few times, never per datum"
+
+[[splat]]
+file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts.jl"
+function = "test_scoring_contract"
+reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"

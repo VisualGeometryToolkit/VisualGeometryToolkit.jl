@@ -23,13 +23,14 @@ above 1) or below 0 (noise under the black level) is kept.
 - `image::AbstractArray{Float64, 3}` — `image[row, column, plane]`, the planes
   plain arrays on the mosaic's device (an `Array` on the host); a plane's frame
   is asked of the image with its index ([`bayer_plane_map`](@ref)`(L, c)`).
-- `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the pixels
-  whose value includes a photosite at the
-  white level (`raw ≥ white`): in `:bin2` a cell is saturated when ANY of its
-  four photosites is, so a cell whose two greens straddle the white level is
-  flagged rather than averaged into a plausible value; in `:green_cells` when
-  either green is.
-- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn)`:
+- `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the MASKED
+  pixels: those whose value includes a photosite at the white level
+  (`raw ≥ white`) or, with a resolved noise holding a defect mask, a defective
+  photosite: in `:bin2` a cell is masked when ANY of its four photosites is, so
+  a cell whose two greens straddle the white level is flagged rather than
+  averaged into a plausible value; in `:green_cells` when either green is.
+  Masked, never interpolated.
+- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn, green_colors)`:
   - `plane_maps`, per plane, its map onto the visible raw
     ([`bayer_plane_map`](@ref), which reads it);
   - `green_offsets`, the cell's two green photosites, `(Δx, Δy)` from the cell
@@ -38,6 +39,14 @@ above 1) or below 0 (noise under the black level) is kept.
   - `green_dn`, the two green photosites' `white − black[c]`, the codes that span
     `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
     photon and read noise scale by (VisualGeometryToolkitFeatures' `variance_stabilize`).
+    `black[c]` is the channel's constant (the resolved noise's, else the
+    mosaic's) also when a dark map replaces it per photosite: the span is a
+    scale, the same for every photosite of the channel, so a value is still
+    `codes / green_dn` above its own black.
+  - `green_colors`, the two green photosites' CFA colour indices (LibRaw's: `1` G,
+    `3` the second G of an RGBG pattern; a pattern naming both greens `1` gives
+    `(1, 1)`), in the order of `green_offsets`: the index of each green's entry
+    in a per-colour [`SensorNoise`](@ref) field (`read_noise[c + 1]`, `black[c + 1]`).
 
   `nothing` for `:demosaic`, whose pixels are interpolated, not samples.
 - `gain` (positive and finite, `ArgumentError` otherwise) and the mosaic's
@@ -50,7 +59,7 @@ methods of the cell images, and the display image's are its refusals.
 map as plain data for a result to record.
 """
 struct LinearRaw{Mode, I <: AbstractArray{Float64, 3}, S <: AbstractMatrix{Bool},
-                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn)}}, M <: NamedTuple}
+                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn, :green_colors)}}, M <: NamedTuple}
     image::I
     saturated::S
     geometry::G
@@ -74,7 +83,7 @@ _mode(::LinearRaw{Mode}) where {Mode} = Mode
 const RAW_MODES = (:green_cells, :bin2, :demosaic)
 
 """
-    LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1) -> LinearRaw
+    LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing) -> LinearRaw
 
 The mosaic's linear values, `(raw − black[c]) / (white − black[c]) × gain`, on
 the half-resolution grid of 2×2 Bayer cells (`H ÷ 2 × W ÷ 2`; an odd last row
@@ -102,19 +111,34 @@ display figures) is VisualGeometryToolkitFeatures': `load_raw(path or mosaic; mo
 The values are those convert_raw.py writes (`--mode bin2`), in the same Float64
 arithmetic and order, before its clip to `[0, 1]` and 16-bit rounding.
 
+THE black subtraction is here, once, for every caller: `noise`, the frame's
+resolved [`SensorNoise`](@ref) ([`sensor_noise`](@ref)), or `nothing`.
+
+- `nothing` (the default): the mosaic's own per-channel black, `mosaic.black`
+  — bit for bit the values without the keyword.
+- A noise: the per-channel black is `noise.black`'s value when it holds one
+  (else the mosaic's), and the span `white − black[c]`; when it holds a dark
+  frame, the dark's per-photosite `offset` replaces the channel constant in the
+  subtraction (`(raw − offset) / (white − black[c])`; the per-channel scalar is
+  the constant-map case of the same kernel path), and its defect mask joins the
+  saturation flags (`saturated` is then "masked: saturated or defective"). The
+  maps cover the visible raw and are read at the mosaic's `window_origin`
+  (`DimensionMismatch` when they do not reach the mosaic's photosites); they
+  are moved to the mosaic's device.
+
 Saturation is `raw ≥ white` with no margin: on the Sony ARW sets this was
 written for, codes pile up exactly at the white level (16383) while the
 histogram runs smoothly through the camera's declared linear limit (15360,
 `metadata.linear_max`), so any margin would be a tuned constant. A caller who
 wants that stricter limit thresholds `mosaic.raw` itself.
 """
-function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1)
+function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing)
     mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$mode"))
     mode === :demosaic && throw(ArgumentError(
         "LinearRaw: the display demosaic is LibRaw's interpolation, made by VisualGeometryToolkitFeatures: " *
             "`load_raw(path_or_mosaic; mode = :demosaic)`"
     ))
-    return _cell_images(mosaic, _checked_gain(gain), mode)
+    return _cell_images(mosaic, _checked_gain(gain), mode, noise)
 end
 
 function _checked_gain(gain::Real)
@@ -140,19 +164,25 @@ end
 # mosaic and does not compile over a window (an InvalidIRError;
 # benchmark/raw_channelview.jl). The cell
 # modes differ only in the planes they ask for. (convert_raw.py's order: the
-# gain after the cell's mean.)
-@kernel function _cells_kernel!(img, sat, @Const(raw), planes, sites, black, span, gain::Float64, white::Float64)
+# gain after the cell's mean.) The black of each photosite is `_black_at` (the
+# dark map's offset at its visible-raw index, else the channel's constant; with
+# `dark === nothing` the constant itself, bit for bit), and a photosite under the
+# defect mask flags its cell as one at the white level does.
+@kernel function _cells_kernel!(img, sat, @Const(raw), planes, sites, black, span, gain::Float64, white::Float64,
+                                dark, defects, origin)
     i, j = @index(Global, NTuple)
     r0, c0 = 2i - 1, 2j - 1
     @inbounds begin
         x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
-        v = ntuple(k -> _linear_value(x[k], black[k], span[k]), Val(4))
+        b = ntuple(k -> _black_at(dark, black[k], r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), Val(4))
+        v = ntuple(k -> _linear_value(x[k], b[k], span[k]), Val(4))
         _store_planes!(img, i, j, v, planes, gain, 1)
-        sat[i, j] = any(k -> _at_white(x[k], white), sites)
+        sat[i, j] = any(k -> _at_white(x[k], white) ||
+                             _masked(defects, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), sites)
     end
 end
 
-function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol)
+function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
     H, W = size(m)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))
@@ -161,22 +191,23 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol)
     plane(c) = c == 3 ? 2 : Int(c) + 1                         # 0 R, 1 G, 2 B, 3 G2 → planes R, G, B
     planes = ntuple(p -> Tuple(k for k in 1:4 if plane(cell[k]) == p), Val(3))
     r, g, b = planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int}
-    black, span = _bayer_levels(m)
+    raw = parent(m)
+    backend = KA.get_backend(raw)
+    black, span, dark, defects = _noise_levels(m, noise, backend)    # THE resolution of the levels (sensor_noise.jl)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
     # on the photosites' device: the kernel reads the held array (the channel view's photosites), never the wrapper
-    raw = parent(m)
     img = similar(raw, Float64, H2, W2, P)
     sat = similar(raw, Bool, H2, W2)
-    backend = KA.get_backend(raw)
-    OnBackend(backend)(_cells_kernel!)(img, sat, raw, used, sites, black, span, gain, m.white; ndrange = (H2, W2))
+    OnBackend(backend)(_cells_kernel!)(img, sat, raw, used, sites, black, span, gain, m.white, dark, defects, m.window_origin;
+                                       ndrange = (H2, W2))
     KA.synchronize(backend)
     # each plane's samples sit at the mean of its photosites' offsets from the cell centre: the one
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
     grid = _cell_grid_map(m, mode)
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
-    geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]))
+    geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]), green_colors = (Int(cell[g[1]]), Int(cell[g[2]])))
     return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
@@ -227,6 +258,19 @@ raw_frame_map(::Type{<:LinearRaw{:demosaic}}) = throw(_display_only("raw_frame_m
 # The plane holding the green cells (the cell grid): bin2's second (R, G, B), the green-cell image's one.
 _green_plane(::LinearRaw{:bin2}) = 2
 _green_plane(::LinearRaw{:green_cells}) = 1
+_green_plane(::LinearRaw{:demosaic}) = throw(_display_only("green_plane"))
+
+"""
+    green_plane(L::LinearRaw) -> AbstractMatrix{Float64}
+
+The image's green cells, a view: each cell's two greens' mean — `L.image`'s plane
+whose frame IS the cell grid ([`raw_frame_map`](@ref)`(L)`): a `:green_cells`
+image's one plane, a `:bin2` image's second (G). The plane every green-cell
+consumer reads (a detector, VisualGeometryToolkitFeatures' `variance_stabilize`);
+its photosites' spans and colours are `L.geometry.green_dn` and
+`L.geometry.green_colors`. A `:demosaic` image is refused (`ArgumentError`).
+"""
+green_plane(L::LinearRaw) = view(L.image, :, :, _green_plane(L))
 
 
 """

@@ -205,14 +205,21 @@ The scratch of the Algorithm 1 sweep for `n` points (`data_size(problem)`) of
 codimension `dg` (`codimension(problem)`): the log Γ table at the scorer's scale
 prior, the label prior's table, the estimated-support buffers when the outlier
 model estimates the support. The scoring contract's
-`scoring_workspace(scoring, n, dg)` is the second form.
+`scoring_workspace(scoring, n, dg)` is the second form. `dg` must be the
+scorer's own [`codimension`](@ref), the one its sweep's `ν = d_g·(k − m)` reads
+(an `ArgumentError` otherwise: a scorer built from a bare model DOF has `d_g = 1`
+unless given `codimension`; one built from the problem has the problem's).
 """
 alloc_scoring_workspace(problem::AbstractConstraintProblem, scoring::StudentTUniformScoring) =
     alloc_scoring_workspace(data_size(problem), codimension(problem), scoring)
 
-alloc_scoring_workspace(n::Int, dg::Int, scoring::StudentTUniformScoring) =
-    _scoring_workspace(n, dg, scoring.scale_prior, scoring.label_prior,
-                       estimates_outlier_support(scoring.outlier_model) ? Vector{Float64}(undef, 3n + 2) : Float64[])
+function alloc_scoring_workspace(n::Int, dg::Int, scoring::StudentTUniformScoring)
+    dg == codimension(scoring) || throw(ArgumentError(
+        "the scoring's codimension is $(codimension(scoring)) but the workspace is asked for $dg: build the scoring " *
+        "from the problem (StudentTUniformScoring(problem, …)) or give it `codimension = $dg`"))
+    return _scoring_workspace(n, dg, scoring.scale_prior, scoring.label_prior,
+                              estimates_outlier_support(scoring.outlier_model) ? Vector{Float64}(undef, 3n + 2) : Float64[])
+end
 
 """
     score_sq_residuals!(sws, q, scoring, problem, model, [Σ̃_θ,] [sample_idx,] n) -> (S, k)
@@ -344,8 +351,6 @@ function score_sq_residuals!(sws::ScoringWorkspace, q::AbstractVector{T},
     return sweep!(sws, s, q, n)
 end
 
-_maybe_prior(sws::ScoringWorkspace) = isempty(sws.prior_table) ? nothing : sws.prior_table
-
 """
     sweep!(sws::ScoringWorkspace, scoring::StudentTUniformScoring, scores, n) -> (S*, k*)
 
@@ -363,7 +368,7 @@ function _outlier_sweep!(m::FixedHalfwidth, sws::ScoringWorkspace, s::StudentTUn
                          scores::Vector{T}, n::Int) where {DG, T}
     sws.outlier_halfwidth = m.outlier_halfwidth
     return sweep!(sws.perm, sws.lg_table, s.model_dof, log(2 * m.outlier_halfwidth), DG, scores, n;
-                  scratch=sws.scratch, prior_table=_maybe_prior(sws), scale_prior=s.scale_prior,
+                  scratch=sws.scratch, prior_table=_label_prior_terms!(sws, n), scale_prior=s.scale_prior,
                   radix=sws.radix, launch=sws.launch)
 end
 # The predictive score: a supplied half-width only (the constructor refuses an estimating model).
@@ -372,7 +377,7 @@ sweep!(sws::ScoringWorkspace, s::StudentTUniformScoring{Predictive, DG, L, Fixed
     (sws.outlier_halfwidth = outlier_halfwidth(s);
      sweep!(sws.perm, sws.lg_table, s.model_dof, log(2 * outlier_halfwidth(s)), DG, scores, n;
            scratch=sws.scratch, penalties=sws.penalties,
-           prior_table=_maybe_prior(sws), scale_prior=s.scale_prior,
+           prior_table=_label_prior_terms!(sws, n), scale_prior=s.scale_prior,
            radix=sws.radix, launch=sws.launch))
 
 # =============================================================================
@@ -415,7 +420,7 @@ end
 # complement's cost of each (an empty complement costs nothing).
 @inline function _tail_sweep!(cost, sws::ScoringWorkspace, s::StudentTUniformScoring, q, n::Int)
     m = s.model_dof
-    prior_table = _maybe_prior(sws)
+    prior_table = _label_prior_terms!(sws, n)
     RSS = 0.0
     best_S, best_k = -Inf, 0
     @inbounds for k in 1:n
@@ -536,15 +541,15 @@ function decision_boundary(s::StudentTUniformScoring{P, DG}, buf::ScoreBuffers) 
 end
 has_decision_boundary(::Type{<:StudentTUniformScoring}) = true
 
-# A workspace's tables are built for one scale prior, one label prior and one
-# kind of outlier model (the tail buffers or none).
+# A workspace's tables are built for one codimension, one scale prior, one label
+# prior and one kind of outlier model (the tail buffers or none).
 function check_workspace(s::StudentTUniformScoring, sws::ScoringWorkspace)
-    sws.scale_prior == s.scale_prior && sws.label_prior == s.label_prior &&
+    sws.dg == codimension(s) && sws.scale_prior == s.scale_prior && sws.label_prior == s.label_prior &&
         isempty(sws.tail) == !estimates_outlier_support(s.outlier_model) && return nothing
     throw(ArgumentError(
-        "the workspace's scoring tables were built for scale prior $(sws.scale_prior), " *
+        "the workspace's scoring tables were built for codimension $(sws.dg), scale prior $(sws.scale_prior), " *
         "label prior $(sws.label_prior) and $(isempty(sws.tail) ? "a supplied" : "an estimated") " *
-        "outlier half-width, but the scoring has $(s.scale_prior), $(s.label_prior) and " *
+        "outlier half-width, but the scoring has $(codimension(s)), $(s.scale_prior), $(s.label_prior) and " *
         "$(nameof(typeof(s.outlier_model))); build the workspace from this scoring"))
 end
 

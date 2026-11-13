@@ -262,15 +262,17 @@ plain affine, `PerspectiveMap() ∘ h` of a homography, a camera's lens or
 A `PointFrame` is a point, so that is all of it, exact for every map. A scaled
 frame's shape moves by the map's Jacobian at the centre, its first-order image:
 an `AffineFrame(m(c), J·F)` (`F` its [`shape_factor`](@ref)) — except through a
-similarity (`SimilarityMap{2}`, `EuclideanMap{2}`), which keeps every frame's
-class exactly, `m(f)`. Plain-number frames; the Jacobian is ForwardDiff's,
+similarity (`SimilarityMap{2}`, `EuclideanMap{2}`, a rotation or uniform-scaling
+`LinearMap`), which keeps every frame's class exactly, `m(f)`. A camera is no map of
+the plane (it images 3-D points): `transfer(camera, f)` is an `ArgumentError`
+naming its plane stages. Plain-number frames; the Jacobian is ForwardDiff's,
 static and allocation-free. An uncertain frame moves with its covariance by
 [`propagate`](@ref).
 """
 transfer(m, f::FeatureFrame) = _transfer(m, frame_scale(f), f)
 @inline _transfer(m, ::PointShape, f) = PointFrame(_point_action(m, f.center))
-@inline _transfer(m::Union{SimilarityMap{2}, EuclideanMap{2}}, ::Union{IsotropicScale, ShapeFactorScale}, f) = m(f)
-@inline function _transfer(m, ::Union{IsotropicScale, ShapeFactorScale}, f::FeatureFrame)
+@inline _transfer(m::Union{SimilarityMap{2}, EuclideanMap{2}, _SimilarityLinearMap}, ::Union{IsotropicScale, ShapeFactorScale}, f) = m(f)
+@inline function _transfer(m, ::Union{IsotropicScale, ShapeFactorScale}, f)
     c = SVector{2}(f.center[1], f.center[2])
     J = ForwardDiff.jacobian(m, c)
     return AffineFrame(_point_action(m, f.center), J * shape_factor(f))

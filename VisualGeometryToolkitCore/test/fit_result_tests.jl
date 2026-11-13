@@ -182,3 +182,18 @@ end
     rows = [3.0, 4.0, 6.0, 8.0]                     # two points' (x, y) rows: norms 5 and 10
     @test rms(rows, 2) === sqrt(sum(abs2, rows) / 2) && rms(rows, 2) ≈ sqrt((25 + 100) / 2)
 end
+
+# A RANSAC result's estimate is `Union{M, Nothing}`: `map_estimate` infers `f`'s image of `M` (not of the union, which
+# a generic `f` with no `nothing` method widens to `Any`), present or absent.
+@testitem "map_estimate: the union's present type mapped, inferred" begin
+    using Test
+    using VisualGeometryToolkitCore: FitResult, map_estimate, estimate, ReturnCode, NoRule, CostDecrease
+    double(x::Float64) = 2x
+    double(x) = Base.inferencebarrier(x)                   # a generic fallback, uninferable: what `nothing` would reach
+    present = FitResult{Union{Float64, Nothing}, Nothing}(1.5, ReturnCode.Success, CostDecrease, 3, 0.1, 10, nothing)
+    absent = FitResult{Union{Float64, Nothing}, Nothing}(nothing, ReturnCode.Failure, NoRule, 0, NaN, 10, nothing)
+    @test map_estimate(double, present) isa FitResult{Union{Float64, Nothing}, Nothing}
+    @test estimate(map_estimate(double, present)) == 3.0
+    @test estimate(map_estimate(double, absent)) === nothing && map_estimate(double, absent) isa FitResult{Union{Float64, Nothing}}
+    @test map_estimate(string, present) isa FitResult{Union{String, Nothing}, Nothing}
+end

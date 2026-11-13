@@ -54,12 +54,7 @@ function MvNormal(center::Point2{S}, σ::T) where {S, T <: Real}
     return MvNormal(SVector{2, R}(center...), Σ)
 end
 
-"""
-    MvNormal(d::Disc) -> MvNormal
-
-Convert a Disc to an isotropic MvNormal.
-"""
-MvNormal(d::Disc{T}) where {T} = MvNormal(d.center, d.σ)
+# A frame's MvNormal (a Disc's isotropic one included) is `MvNormal(f::FeatureFrame)`, feature_frames.jl.
 
 # =============================================================================
 # Conversions to Geometric Types

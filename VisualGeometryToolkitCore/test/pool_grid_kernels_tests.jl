@@ -13,6 +13,7 @@
     import KernelAbstractions as KA
     using StaticArrays, Random
     using LinearAlgebra: I
+    using CUDA: CUDA                                     # the device, when one is functional (its extension registers it)
 
     struct _GKProblem <: AbstractConstraintProblem end
     VgtkCore.codimension(::Type{_GKProblem}) = 1
@@ -32,7 +33,10 @@
         R = Float32[rand(rng) < 0.6 ? 0.3f0 * (1 + j / M) * randn(rng, Float32) : 20 * rand(rng, Float32) for _ in 1:n, j in 1:M]
         return pair, R
     end
-    pool = [pair_of(80, 9) for _ in 1:12]
+    # pairs of different sizes staged end to end (one launch over all of them), a pair without a model among them
+    pool = [pair_of(n, M) for (n, M) in ((80, 9), (37, 3), (120, 14), (80, 9), (64, 1), (80, 9), (95, 6), (80, 9), (80, 9),
+                                         (51, 11), (80, 9), (80, 9))]
+    insert!(pool, 6, pair_of(70, 0))
     push!(pool, pair_of(80, 0))                          # a pair without a model selects 0
     pairs, Rs = first.(pool), last.(pool)
     grid = [0.2, 0.5, 1.0, 2.5, 6.0]
@@ -45,7 +49,7 @@
 
     # the staging the kernels read: squared, the minimal sample at zero, sorted
     p1, R1 = pool[1]
-    S = sorted_squared_residuals(p1, R1)
+    S = sorted_squared_residuals(p1, R1)                 # pool[1] is (80, 9)
     @test size(S) == (80, 9) && eltype(S) == Float32 && all(issorted, eachcol(S))
     @test S[:, 2] == sort([i in p1.sample_indices[:, 2] ? 0.0f0 : R1[i, 2]^2 for i in 1:80])
 
@@ -65,7 +69,12 @@
         idxs = select_on_grid!(Matrix{Int32}(undef, length(pairs), length(grid)), _GKProblem, sc, grid,
                                stage_selection(:pool, pairs, Rs))
         ref = [best_pool_model(VgtkCore.with_width(sc, VgtkCore.LossWidth(w)), p, R) for (p, R) in zip(pairs, Rs), w in grid]
-        @test idxs == ref && all(idxs[end, :] .== 0) && all(idxs[1:(end - 1), :] .> 0)
+        @test idxs == ref && all(idxs[end, :] .== 0) && all(idxs[6, :] .== 0) && count(>(0), idxs) == (length(pairs) - 2) * length(grid)
+        # on a device (CUDA availability-gated): the same selections, each model's quality summed in the same order
+        if VgtkCore.default_device() isa KA.GPU
+            @test select_on_grid!(Matrix{Int32}(undef, length(pairs), length(grid)), _GKProblem, sc, grid,
+                                  stage_selection(:pool, pairs, Rs; backend = VgtkCore.default_device())) == ref
+        end
         # a supplied backend is the one the kernels run on (the host's: the same selections)
         st = stage_selection(:pool, pairs, Rs; backend = KA.CPU())
         @test st.backend === KA.CPU()

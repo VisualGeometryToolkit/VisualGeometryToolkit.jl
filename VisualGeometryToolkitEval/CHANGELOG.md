@@ -1,5 +1,23 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.8.0 (unreleased)
+
+The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO 0.10 and VisualGeometryToolkitEstimation 0.11.
+
+### Breaking
+
+- **`Stats.POOL_RNG` is retired, with no alias**: it was a second name for StableRNGs' `StableRNG`, which every pool
+  stream uses directly. A pool's `pool_rng` stamp is unchanged. Core's `check_naming` refuses the old name.
+- **The terminology ruling (2026-11-13).** `Datasets.consolidate_csponds` is `consolidate_correspondences`, and the
+  readers' `min_csponds` keyword is `min_correspondences` (`load_heb_pairs`, `load_pt_pairs`, the pool configs' TOML key).
+- **Pool files are format 6**: a pair's correspondences are stored under `correspondences`. `load_pool` refuses a
+  format-5 file, naming the remedy: `Pools.migrate_pool` carries a format-4 or -5 file over (verified, the original
+  untouched), and `scripts/migrate_pools.jl DIR --apply` a whole tree in place. The `pool_key` is unchanged, so a
+  pool's residuals and sample-starts files stay bound to it.
+- **Consolidated matches files are format 3** (`CONSOLIDATED_FORMAT`): the pairs' correspondences under
+  `correspondences`. `load_roma_pairs` still reads formats 1 and 2.
+- **The Seven-Scenes image size** (`configs/default.toml`) is a `{width, height}` table, the IO wave's one `Size2` layout.
+
 ## 0.7.2 (unreleased)
 
 A patch: no API change.

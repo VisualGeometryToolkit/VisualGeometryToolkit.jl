@@ -227,8 +227,8 @@ end
 
 # A capture's identities merge field by field at any frame count. 0.8.3 splatted one tuple per frame into `zip`, so each
 # capture size compiled a zip of that arity (a 171-photo set: 518 s, ~90 % in LLVM). After a warm-up at another count,
-# merging 500 identities compiles nothing: its allocations are the per-identity field tuples and the three field columns
-# (6 words an identity, 96 bytes with the arrays' slack) and a constant, where a compile allocates megabytes.
+# merging 500 identities compiles nothing: its allocations are the three field columns (one word an identity each: 24
+# bytes an identity) and the arrays' headers (a constant, under 1 KiB), where a compile allocates megabytes.
 @testitem "raw: a capture's identities merge at any frame count, nothing compiled per count" begin
     using Test
     using VisualGeometryToolkitFeatures
@@ -240,7 +240,7 @@ end
     @test VgtkFeatures._merged(ids(300)) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")   # warm-up
     big = ids(500)
     @test VgtkFeatures._merged(big) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
-    @test (@allocated VgtkFeatures._merged(big)) <= 96 * length(big) + 4096
+    @test (@allocated VgtkFeatures._merged(big)) <= 24 * length(big) + 1024
     @test (@elapsed VgtkFeatures._merged(big)) < 0.1      # a compile takes seconds; the merge, microseconds
     # through the public entry: 500 frames, one body and one lens, the first stated field each
     md = (; datetime_original = nothing, subsec = "", exposure_s = 0.01, fnumber = 4.0, focal_mm = 20.0, iso = 200,

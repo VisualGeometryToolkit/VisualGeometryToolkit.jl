@@ -97,7 +97,6 @@ end
         @test e isa VgtkEstimation.ViewAngleLimitError && e.family === OPENCV3
         @test e.limit == view_angle_limit(Pinhole()) && round(rad2deg(e.field_angle); digits = 1) == 154.9
         @test e.field_angle > e.limit
-        @test !metadata(fit_camera(KB4, mdiv, disc(mdiv, rcorner))).family.clipped
     end
     @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin
         rd = fit_camera(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, 1000.0))
@@ -153,20 +152,17 @@ end
     @test_throws ArgumentError fit_camera(KB4, mdiv, WholePlane())
 end
 
-@testitem "fit_camera: a region past the source's fold" begin
-    using VisualGeometryToolkitCore: retcode_symbol
+@testitem "fit_camera: a region past the source's fold is refused (RegionBeyondSupport), never clipped" begin
     using Test
     using StaticArrays: SA
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Rect, metadata, retcode, px
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Rect, RegionBeyondSupport, valid_domain, px
     using VisualGeometryToolkitEstimation: fit_camera
-    # KB(−0.02) at f = 200 px images radii to r(π) ≈ 2.52 (504 px); the frame's
-    # corners lie at 707 px, where the source has no view angle (once a NaN
-    # domain and an ArgumentError): the fit takes the source's own domain, clipped
+    # KB(−0.02) at f = 200 px images radii to r(π) ≈ 2.52 (504 px); the frame's corners lie at 707 px, where the source
+    # has no view angle. Until 0.11.0 the fit took the source's own domain, clipped, with a warning; the owner's ruling
+    # of 2026-11-13: refuse, never warn — the region reaches past the source's valid_domain (Core's guard, at entry)
     src = CameraModel(200.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
-    r = @test_logs (:warn, r"past the radii the source") match_mode = :any fit_camera(KannalaBrandt{4}, src, Rect(0, 0, 1000, 1000))
-    fam = metadata(r).family
-    @test fam.clipped && isfinite(fam.θ_max) && fam.θ_max == fam.θ_source > 3.1
-    @test retcode_symbol(r) === :solved && metadata(r).max_px < 1.0e-6                     # KB4 holds KB1: the linear fit to its solve's rounding (θ⁹ to 180°)
+    e = try fit_camera(KannalaBrandt{4}, src, Rect(0, 0, 1000, 1000)); nothing catch err; err end
+    @test e isa RegionBeyondSupport && e.who == "fit_camera" && e.support == valid_domain(src)
 end
 
 

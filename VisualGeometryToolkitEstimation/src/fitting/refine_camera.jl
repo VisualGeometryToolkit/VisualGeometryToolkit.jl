@@ -313,7 +313,8 @@ function _refine_camera(
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
 end
 # A bounded camera's model is the source, over the part of the region it images (`_imaged_part`).
-refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = refine_camera(guess, model(source), _imaged_part(source, region); kwargs...)
+refine_camera(guess::CameraModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
+    refine_camera(guess, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "refine_camera")); kwargs...)
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
@@ -392,8 +393,8 @@ function _approximate_camera(
     start = _approximation_start(_linear_form(L), L, source, region, weight, fixed, device)
     return _refine_camera(start, source, region; weight, fixed, device, kwargs...)
 end
-approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} =
-    approximate_camera(L, model(source), _imaged_part(source, region); kwargs...)
+approximate_camera(::Type{L}, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) where {L <: AbstractLensModel} =
+    approximate_camera(L, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "approximate_camera")); kwargs...)
 # The part of `region` a bounded camera images: `region ∩ imaged_region(camera)` (Core's intersection), so no sample
 # lies where the camera images nothing; its own imaged region as it is (the same region value, the same samples).
 function _imaged_part(camera::BoundedCamera, region)
@@ -446,7 +447,7 @@ and focal, then the refine with the principal point and the axis free.
 - A physical `K` is its own axis: the identity rotation and the source's principal point.
 
 `device` is the backend the camera's rays are sampled and the regression reduced on (`approximate_camera`'s).
-`support` bounds the region (`region ∩ imaged_region(camera)` must lie inside it, else Core's `RegionBeyondSupport`): the
+`support` bounds the region (`region` must lie inside it, else Core's `RegionBeyondSupport`; never clipped): the
 camera's `valid_domain` by default; for a camera re-gridded from a calibration (a whole-sensor lattice extrapolated past
 the board), the calibration's support — RadiometricCamera's siemens start camera, refused over its whole sensor, fits
 over its Schöps support.
@@ -457,8 +458,8 @@ it returns the camera as given).
 """
 function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera); support = VgtkCore.valid_domain(camera),
                       device = default_device())
-    part = _imaged_part(camera, region)
-    VgtkCore.check_region_support(support, part; who = "optical_axis")   # Core's one guard
+    # Core's one guard on the caller's region (never clipped past the support), then its part the camera images
+    part = _imaged_part(camera, VgtkCore.check_region_support(support, region; who = "optical_axis"))
     return _approximate_camera(_AXIS_FAMILY, model(camera), part; fixed = _AXIS_FIXED, device)
 end
 optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = throw(

@@ -515,13 +515,7 @@ function _refine!(::NonlinLsq, lo_ws, p::AbstractRansacProblem, θ, weights::Abs
     _underdetermined(p, weights) && return nothing
     ch = _refit_chart(p, _as_model(p, θ), weights)
     ch === nothing && return nothing
-    rows, dof = _lm_size(p)
-    n = data_size(p)
-    ews = _lm_workspace(lo_ws, rows, dof)
-    lm = _refit_state(p, ch, fill_sqrt_weights!(sqrt_weights(ews), weights, n, rows ÷ n))
-    x, _, _ = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return nothing
-    return _model_at(p, recenter(ch, x))
+    return first(_chart_refit(lo_ws, p, ch, _refit_state, weights))   # the one chart refit (manifold_providers.jl)
 end
 
 # `lmsolve_chart!` (NLLSsolver on one linearization

@@ -307,15 +307,8 @@ _refine_lm_ws(ws) = ws
 # (`_triggs_state`, manifold_providers.jl: the residual's own unit, a pinhole PnP's pixels), so L2 and Triggs at an
 # unbounded width minimise the same cost.
 function _refine_run(::Nothing, problem, θ, spec::_RefineSpec)
-    ch = _chart(problem, _as_model(problem, θ))
-    rows, dof = _lm_size(problem)
-    ews = _lm_workspace(_refine_lm_ws(spec.workspace), rows, dof)
-    fill!(sqrt_weights(ews), 1.0)
-    lm = _triggs_state(problem, ch, sqrt_weights(ews))
-    x, _, _, n_iter, record = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
-                                             ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return θ, (ReturnCode.Failure, NonFinite), n_iter
-    return _model_at(problem, recenter(ch, x)), record, n_iter
+    m, record, n_iter = _chart_refit(_refine_lm_ws(spec.workspace), problem, _chart(problem, _as_model(problem, θ)), _triggs_state, nothing)
+    return something(m, θ), record, n_iter        # the one chart refit (manifold_providers.jl); θ back on a non-finite solve
 end
 
 # Triggs: ONE robustified chart LM at the frozen width (`_triggs_lm`, the RANSAC

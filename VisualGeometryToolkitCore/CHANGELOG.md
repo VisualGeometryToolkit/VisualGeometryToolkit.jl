@@ -26,8 +26,11 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   - `static_lm` moves to lm_core.jl (still `VisualGeometryToolkitCore.static_lm`; `Cameras` no longer exports it) and
     takes `StaticLmStops(scale; acceptance, residual_scale, cost_floor, max_iter, stationarity_tol)` in place of
     `s, maxiter, tol2, fs, …, cost_floor`: `static_lm(fj, x₀, lb, ub, stops[, bound])`. Its `converged` is the same
-    success rule: stationary (its exact-fit or gradient floor, or the host's column cosine) AND `F < acceptance`;
-    acceptance alone no longer succeeds. Its `cost_floor` defaults to 0 (resolved to rounding); the spline lenses
+    success rule: stationary AND `F < acceptance`; acceptance alone no longer succeeds. Stationary on the device: its
+    exact-fit or gradient floor, the exact-fit floor no finer than the data resolve (`residual_resolution`: a Float32
+    ray or Float32 controls in a Float64 solve), the undamped Gauss–Newton step below its step tolerance (the device
+    form of the host's exact-fit test: at the root of a square system the cosine says nothing), or the host's column
+    cosine; on its box, a coordinate a bound holds drops out (the bounded problem's KKT stationarity). Its `cost_floor` defaults to 0 (resolved to rounding); the spline lenses
     give the reference's `eps(Float64)`. Its iteration cap defaults to `[lm] device_max_iter` (100), which replaces the
     spline lenses' `_PROJECT_MAXITER` and the mapped surfaces' `_BOARD_MAXITER`.
   - THE LM GATE: `check_duplication`'s retired pattern `:lm_primitive` fails any call of NLLSsolver's
@@ -94,7 +97,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
-  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and passes its
+  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
   `stop_solver!` return `(reason, rule)`.
 

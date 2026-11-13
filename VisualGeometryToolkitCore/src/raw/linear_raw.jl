@@ -172,6 +172,26 @@ end
     return _store_planes!(img, i, j, v, Base.tail(planes), gain, p + 1)
 end
 
+# THE Poisson slope α of a plane's value (its variance's `α·x` term): the gain over m² K times Σ 1/d over its m
+# photosites' spans — the kernel's and `poisson_slope`'s one expression.
+@inline _poisson_slope(gain, inv_gain, spans::Tuple) = gain * inv_gain / length(spans)^2 * foldl((s, d) -> s + 1 / d, spans; init = 0.0)
+
+"""
+    poisson_slope(L::LinearRaw, model::SensorModel) -> NTuple{P, Float64}
+
+Per plane of `L` (`L.image[:, :, p]`), the Poisson slope α of a value's variance
+under `model`: the `α` of `α·x + σ²`, `gain/(m²K)·Σ 1/d` over the plane's `m`
+photosites (`L.geometry.plane_sites[p]`), `0` without a Poisson term (a model
+whose noise is not `PoissonGaussian`). The one expression the kernel writes the
+variance plane with; the generalized Anscombe transform reads it beside the
+variance plane (VisualGeometryToolkitFeatures' `variance_stabilize`). A `:demosaic`
+image is refused (`ArgumentError`).
+"""
+poisson_slope(L::LinearRaw, model::SensorModel) =
+    map(ps -> _poisson_slope(L.gain, _inv_gain(model.noise), map(s -> s.dn, ps)), _geometry(L, "poisson_slope").plane_sites)
+_inv_gain(n::PoissonGaussian) = 1 / n.gain
+_inv_gain(::NoiseComponent) = 0.0
+
 # Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its value x: unrolled like the
 # values; no variance plane (`nothing`) stores nothing.
 @inline _store_variances!(::Nothing, img, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
@@ -180,7 +200,7 @@ end
     ks = first(planes)
     m2 = length(ks)^2
     @inbounds x = img[i, j, p]
-    poisson = gain * max(x, 0.0) * law.inv_gain / m2 * foldl((s, k) -> s + 1 / span[k], ks; init = 0.0)
+    poisson = max(x, 0.0) * _poisson_slope(gain, law.inv_gain, map(k -> span[k], ks))
     gauss = gain^2 / m2 * foldl(ks; init = 0.0) do s, k
         s + _site_variance(law, k, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]) / span[k]^2
     end

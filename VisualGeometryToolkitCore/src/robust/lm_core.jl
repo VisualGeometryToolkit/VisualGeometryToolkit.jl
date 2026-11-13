@@ -1014,7 +1014,7 @@ const _LM_AREA_UNITS = 1000
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 """
-    StaticLmStops(scale::SVector{N, T}; acceptance, residual_scale = 1, cost_floor = 0, max_iter, stationarity_tol)
+    StaticLmStops(scale::SVector{N, T}; acceptance, residual_scale = 1, cost_floor = 0, residual_resolution = 0, max_iter, stationarity_tol)
 
 THE stop settings of the device LM [`static_lm`](@ref) (isbits: a kernel takes it as an argument), owned with the
 host LM's ([`LmStops`](@ref)): `max_iter` defaults to configs/default.toml `[lm] device_max_iter`, `stationarity_tol`
@@ -1027,20 +1027,25 @@ to `[lm] stationarity_tol` — the ONE success rule's cosine, the host's.
   `(16 eps(T) fs)²`.
 - `cost_floor`: the absolute floor under those (`0`: resolved to rounding; the spline lenses' reference routine
   stops at `eps(Float64)`).
+- `residual_resolution`: the residual norm the DATA resolve, when they carry less precision than `T` (a Float32 ray
+  or Float32 controls in a Float64 solve: `16 eps(Float32)` of a unit residual). The success rule's exact-fit test
+  reads it — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction
+  and the cosine says nothing — and nothing else: the iteration's stops stay `T`'s.
 """
 struct StaticLmStops{N, T <: AbstractFloat}
     scale::SVector{N, T}
     acceptance::T
     residual_scale::T
     cost_floor::T
+    residual_resolution::T
     stationarity_tol::T
     max_iter::Int
 end
 @inline StaticLmStops(
     scale::SVector{N, T}; acceptance::Real, residual_scale::Real = one(T), cost_floor::Real = zero(T),
-    max_iter::Integer = _STATIC_LM_MAX_ITER, stationarity_tol::Real = _LM_STATIONARITY_TOL
+    residual_resolution::Real = zero(T), max_iter::Integer = _STATIC_LM_MAX_ITER, stationarity_tol::Real = _LM_STATIONARITY_TOL
 ) where {N, T <: AbstractFloat} =
-    StaticLmStops{N, T}(scale, T(acceptance), T(residual_scale), T(cost_floor), T(stationarity_tol), Int(max_iter))
+    StaticLmStops{N, T}(scale, T(acceptance), T(residual_scale), T(cost_floor), T(residual_resolution), T(stationarity_tol), Int(max_iter))
 
 """
     static_lm(fj, x₀::SVector{N, T}, lb, ub, stops::StaticLmStops{N, T}[, bound]) -> (x, converged, J, e, rule::StopRule)
@@ -1151,7 +1156,7 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
         λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
     # THE success rule at the returned point: STATIONARY — the cost zero to what the stops resolve (the exact-fit and
-    # gradient floors, or: the undamped Gauss–Newton step from x, (JᵀJ)⁻¹Jᵀr, is below the step tolerance, the
+    # gradient floors, the exact-fit floor no finer than the data resolve (`residual_resolution`), or: the undamped Gauss–Newton step from x, (JᵀJ)⁻¹Jᵀr, is below the step tolerance, the
     # IncrementSize test — a root resolved to the step tolerance, or a minimizer whose gradient no step can follow),
     # or the host LM's column cosine (`_column_cosine`, of g = Jᵀr and the squared column norms diag JᵀJ) — and accepted.
     # The step-tolerance test is the device form of the host's exact-fit test (F < ftol: zero by the cost tolerance):
@@ -1164,7 +1169,7 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     JtJ = _fma_tmul(Jx, Jx)
     pgn, info = _static_lm_increment(JtJ, zero(T), LinearAlgebra.diag(JtJ), g)
     resolved = info == 0 && all(>(0), (@. abs(pgn) < ϵx * (ϵx + abs(x))))
-    stationary = F < ϵF || norm(g, Inf) < ϵG || resolved || _column_cosine(g, LinearAlgebra.diag(JtJ), sqrt(F)) <= stops.stationarity_tol
+    stationary = F < max(ϵF, stops.residual_resolution^2) || norm(g, Inf) < ϵG || resolved || _column_cosine(g, LinearAlgebra.diag(JtJ), sqrt(F)) <= stops.stationarity_tol
     return x, stationary & (F < stops.acceptance), Jx, ex, rule
 end
 

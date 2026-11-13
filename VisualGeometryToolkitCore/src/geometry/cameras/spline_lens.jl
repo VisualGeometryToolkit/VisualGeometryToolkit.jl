@@ -625,9 +625,16 @@ end
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
     fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
-    x, ok = static_lm(fj, x₀, lb, ub, StaticLmStops(s; acceptance = tol2, max_iter = maxiter, cost_floor = _SPLINE_REFERENCE_COST_FLOOR))
+    stops = StaticLmStops(s; acceptance = tol2, max_iter = maxiter, cost_floor = _SPLINE_REFERENCE_COST_FLOOR,
+        residual_resolution = _spline_residual_resolution(controls, t))
+    x, ok = static_lm(fj, x₀, lb, ub, stops)
     return x, ok
 end
+
+# The residual norm a direction solve's data resolve (`StaticLmStops`' `residual_resolution`): 16 ulps of a unit
+# direction in the coarser of the controls' and the ray's precision — the target t̂ of a Float32 ray, or the directions
+# of Float32 controls, are unit vectors to eps(Float32), and no Float64 solve resolves a residual finer than that.
+@inline _spline_residual_resolution(controls, t) = 16 * Float64(max(eps(eltype(eltype(controls))), eps(float(eltype(t)))))
 
 # THE direction of a spline of direction controls over `area` at `x`, and its
 # Jacobian: `(d, n⁻¹S, ∂d/∂x, n)` (`n = ‖S‖`) from the value and partials of

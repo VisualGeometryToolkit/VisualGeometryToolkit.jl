@@ -8,7 +8,8 @@ platforms = ["linux-64"]
 # pycolmap is the reference implementation the COLMAP wire layer is verified
 # against (test/pycolmap_tests.jl, skipped when this environment is absent);
 # pycolmap and opencv-python generate the frozen lens-convention oracles
-# (test/oracles/generate.py → test/oracles/lens_conventions.json).
+# (test/oracles/generate.py → test/oracles/lens_conventions.json); tifffile reads
+# a vgio/raster/v1 payload back for neutrality (test/raster_tests.jl, skipped likewise).
 [feature.py.dependencies]
 python = ">=3.11,<3.14"
 
@@ -16,6 +17,7 @@ python = ">=3.11,<3.14"
 pycolmap = "*"
 opencv-python-headless = "*"
 numpy = "*"
+tifffile = "*"
 
 [environments]
 py = { features = ["py"] }

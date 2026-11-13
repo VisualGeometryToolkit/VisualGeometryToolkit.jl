@@ -98,6 +98,7 @@ using Statistics: cov
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
 using SQLite: SQLite
+using Libtiff_jll: libtiff   # the stack's one TIFF codec (tiff.jl)
 using TOML: TOML
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
@@ -153,6 +154,8 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
 #   load_panorama(path) / save_panorama(path, camera, rotations, vignetting; gains)
 #                                                vgio/panorama/v1    a panorama's results (a NamedTuple: no VGC type)
+#   load_raster(path) / save_raster(path, values; frame, nan)
+#                                                vgio/raster/v1      a Float32 raster: a JSON header + its TIFF payload
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -197,6 +200,8 @@ include("capture_settings_schema.jl")  # capture_settings/v1: the camera's setti
 include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
 include("panorama_schema.jl")    # vgio/panorama/v1: a panorama's results, composed of the camera, trajectory and vignetting bodies
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v2, the hash-bound set of a result's records (after the kinds it checks)
+include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
+include("raster_schema.jl")  # vgio/raster/v1: a Float32 raster, a JSON header and its TIFF payload (after the manifest: its path rule)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -249,6 +254,8 @@ public read_length, write_length   # a file length <-> metres, decimal-exact (po
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public save_manifest, load_manifest     # vgio/calibration/v2: the manifest binding a result's record files by SHA-256
 public save_panorama, load_panorama     # vgio/panorama/v1: a panorama's camera, rotations, vignetting and gains
+public save_raster, load_raster       # vgio/raster/v1: a Float32 raster, its JSON header and its TIFF payload
+public write_tiff, read_tiff          # the stack's one TIFF codec (libtiff): a grey UInt8 or Float32 image
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs

@@ -56,7 +56,7 @@ Exports added: `test_sample`, `test_consensus` (`test_model` already exported).
   `_orientation_preserving`, `_not_collinear`; `test_sample(p::HomographyProblem,idx)`
   → `test_sample(HomographyMat, p.cs_hartley, idx)`; `_test_model_norm(...H_n...)`
   → `test_model(H_n, p.cs_hartley, idx)`; `test_consensus(...H...)` → `test_consensus(H, p.cs, mask)`.
-- `problems/cspond.jl`: delete `_are_points_distinct`;
+- `problems/correspondence.jl`: delete `_are_points_distinct`;
   `test_sample(p::RelativeProblem{<:AbstractFundMat},idx)` →
   `test_sample(<model class>, p.cs_hartley, idx)`.
 - `VisualGeometryToolkitEstimation.jl`: add `test_sample`, `test_consensus` to the VGC

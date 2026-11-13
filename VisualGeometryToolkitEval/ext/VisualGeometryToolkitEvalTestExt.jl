@@ -54,7 +54,7 @@ module EngineFixtures
     errors with them); the correspondences, cameras, ground truth and maps as they are.
     """
     subpair(pair::PoolPair{M}, cols) where {M} = PoolPair{M}(;
-        csponds = pair.csponds, K1 = pair.K1, K2 = pair.K2, R_gt = pair.R_gt, t_gt = pair.t_gt,
+        correspondences = pair.correspondences, K1 = pair.K1, K2 = pair.K2, R_gt = pair.R_gt, t_gt = pair.t_gt,
         models = pair.models[cols], sample_indices = pair.sample_indices[:, cols],
         errors_r = pair.errors_r[cols], errors_t = pair.errors_t[cols],
         gt_inliers = pair.gt_inliers, gt_variance = pair.gt_variance,

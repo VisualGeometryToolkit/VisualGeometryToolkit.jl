@@ -209,6 +209,23 @@ greedily into parts. `fetch_artifacts!` reassembles each chunked file in the
 artifact view, byte for byte. The author's file sizes derive the parts, and a
 consumer reads them from the bindings.
 
+An entry published before the stack's terminology rules keeps its published
+file name, which a host such as Zenodo cannot rename, while its binding takes a
+current one: `published_name = "<old name>"` names the file the record holds
+([`published_name`](@ref)). Its URL then ends in `<old name>.tar.gz` (a split
+entry's parts replace `<name>` by it), [`pack_artifacts`](@ref) stages the
+tarball under that name, and [`catalog_violations`](@ref) checks the URL's file
+against it instead of the binding name:
+
+```toml
+[artifacts.eth3d_splg_correspondences]
+published_name = "<the file name the record holds>"   # e.g. a name the record published in 2026-10
+```
+
+Such a published name is data, not a binding: VisualGeometryToolkitCore's
+`check_naming` lists it among its foreign tokens and accepts it only in a
+quoted TOML value, a string literal or a data fixture (an `Artifacts.toml`).
+
 Every artifact tree holds paths relative to its mount root: `data` is
 `data_root()` and `results` is `results_root()`. The author's tree, a packed
 artifact and a fetched view therefore share one layout. A project adds kinds

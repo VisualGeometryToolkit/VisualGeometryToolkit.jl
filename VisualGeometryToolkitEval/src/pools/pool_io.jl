@@ -7,8 +7,9 @@
 # Pool data is in NormalizedImageFrame (`frame(::ScoringPool)`); this file never
 # converts a frame. On disk everything is PLAIN data — no stack type is ever
 # serialized — so a type change in VisualGeometryToolkitCore never makes a pool
-# unreadable (the cause of every pool migration before format 4). Format 5
-# renamed one pair key; `migrate_pool` carries a format-4 file over.
+# unreadable (the cause of every pool migration before format 4). Formats 5
+# and 6 each renamed one pair key (the destination map's, then the
+# correspondences'); `migrate_pool` carries a format-4 or -5 file over.
 # =============================================================================
 
 "The ground-truth pose convention every pool declares (`gt_convention`): the extrinsic relative pose `x₂ = R·x₁ + t`, source → target."
@@ -35,8 +36,8 @@ _put!(ctx, x::Int64) = SHA.update!(ctx, reinterpret(UInt8, [htol(x)]))
 _put!(ctx, A::AbstractArray{Float64}) = SHA.update!(ctx, reinterpret(UInt8, htol.(vec(collect(A)))))
 _put!(ctx, A::AbstractArray{Int64}) = SHA.update!(ctx, reinterpret(UInt8, htol.(vec(collect(A)))))
 
-# The csponds of a record as the stored (4, n) matrix: rows x₁ y₁ x₂ y₂.
-function _cspond_matrix(cs)
+# The correspondences of a record as the stored (4, n) matrix: rows x₁ y₁ x₂ y₂.
+function _correspondence_matrix(cs)
     src, dst = sources(cs), targets(cs)
     C = Matrix{Float64}(undef, 4, length(src))
     @inbounds for i in eachindex(src, dst)
@@ -52,7 +53,7 @@ The content key of a pool: the lower-case hex SHA-256 of, for each pair in
 order,
 
 1. `n = num_points(pair)` and `m = num_models(pair)`, each an `Int64`;
-2. the csponds as the stored `(4, n)` `Float64` matrix (rows `x₁ y₁ x₂ y₂`,
+2. the correspondences as the stored `(4, n)` `Float64` matrix (rows `x₁ y₁ x₂ y₂`,
    column-major);
 3. the models, each its 9 `Float64` entries column-major;
 4. `size(sample_indices, 1)` as an `Int64`, then `sample_indices`
@@ -68,7 +69,7 @@ function pool_key(pairs::AbstractVector{<:PoolPair})
     ctx = SHA.SHA2_256_CTX()
     for p in pairs
         _put!(ctx, Int64(num_points(p))); _put!(ctx, Int64(num_models(p)))
-        _put!(ctx, _cspond_matrix(p.csponds))
+        _put!(ctx, _correspondence_matrix(p.correspondences))
         for M in p.models
             _put!(ctx, Matrix{Float64}(SMatrix{3,3,Float64,9}(M)))
         end
@@ -212,12 +213,12 @@ end
 # The light file
 # =============================================================================
 
-const _PAIR_FIELDS = (:csponds, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
+const _PAIR_FIELDS = (:correspondences, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
                       :gt_inliers, :gt_variance, :source_map, :destination_map, :snn)
 
 # One record as the plain on-disk NamedTuple, and back.
 _plain_pair(p::PoolPair) = NamedTuple{_PAIR_FIELDS}((
-    _cspond_matrix(p.csponds),
+    _correspondence_matrix(p.correspondences),
     p.K1, p.K2, p.R_gt, p.t_gt,
     [SMatrix{3,3,Float64,9}(M) for M in p.models],
     Matrix{Int}(p.sample_indices),
@@ -230,12 +231,12 @@ _plain_pair(p::PoolPair) = NamedTuple{_PAIR_FIELDS}((
 function _pair_record(::Type{M}, nt, path, i) where {M}
     issetequal(keys(nt), _PAIR_FIELDS) ||
         throw(ArgumentError("$path: pair $i has fields $(keys(nt)), expected $(_PAIR_FIELDS)"))
-    C = nt.csponds
-    size(C, 1) == 4 || throw(ArgumentError("$path: pair $i csponds must be (4, n), got $(size(C))"))
-    cs = csponds([SVector{2,Float64}(C[1, k], C[2, k]) for k in axes(C, 2)],
+    C = nt.correspondences
+    size(C, 1) == 4 || throw(ArgumentError("$path: pair $i correspondences must be (4, n), got $(size(C))"))
+    cs = correspondences([SVector{2,Float64}(C[1, k], C[2, k]) for k in axes(C, 2)],
                  [SVector{2,Float64}(C[3, k], C[4, k]) for k in axes(C, 2)])
     models = M[M(Tuple(SMatrix{3,3,Float64,9}(m))) for m in nt.models]
-    return PoolPair{M}(; csponds = cs, nt.K1, nt.K2, nt.R_gt, nt.t_gt, models, nt.sample_indices,
+    return PoolPair{M}(; correspondences = cs, nt.K1, nt.K2, nt.R_gt, nt.t_gt, models, nt.sample_indices,
                        nt.errors_r, nt.errors_t, nt.gt_inliers, nt.gt_variance,
                        nt.source_map, nt.destination_map, nt.snn)
 end
@@ -243,12 +244,12 @@ end
 """
     save_pool(path, pool::ScoringPool) -> path
 
-The writer of a light pool file (artifact kind `:pool`, format 5). The file is
+The writer of a light pool file (artifact kind `:pool`, format 6). The file is
 JLD2 and holds PLAIN data only — no VisualGeometryToolkitCore type:
 
 | key | type | meaning |
 |---|---|---|
-| `pool_format` | `Int` | `5` |
+| `pool_format` | `Int` | `6` |
 | `problem` | `String` | `"E"`, `"F"` or `"H"` |
 | `scene` | `String` | the scene the file holds |
 | `model_class` | `String` | `"FundMat"` (E, F) or `"HomographyMat"` (H) |
@@ -269,7 +270,7 @@ models, s the minimal sample size), every point datum and model in
 
 | field | type | meaning |
 |---|---|---|
-| `csponds` | `Matrix{Float64}` (4, n) | rows `x₁ y₁ x₂ y₂` |
+| `correspondences` | `Matrix{Float64}` (4, n) | rows `x₁ y₁ x₂ y₂` |
 | `K1`, `K2` | `SMatrix{3,3,Float64,9}` | PIXEL calibrations |
 | `R_gt` | `SMatrix{3,3,Float64,9}` | GT rotation, source → target |
 | `t_gt` | `SVector{3,Float64}` | GT translation (unnormalized) |
@@ -306,7 +307,7 @@ const _POOL_FILE_KEYS = ("problem", "scene", "model_class", "frame", "pool_key",
 The reader of a light pool file ([`save_pool`](@ref) is the format). Refuses,
 with an `ArgumentError` naming the file: another `pool_format` (an older pool
 is migrated, never read: the error says how — [`migrate_pool`](@ref) for a
-format-4 file), missing or unknown keys, a frame
+format-4 or -5 file), missing or unknown keys, a frame
 other than `NormalizedImageFrame`, a ground-truth convention other than
 [`GT_CONVENTION`](@ref), a model class that is not the problem's, and a stored
 `pool_key` that the loaded pairs do not reproduce.
@@ -358,26 +359,30 @@ function _pool_from_raw(raw::AbstractDict, path::AbstractString)
 end
 
 # =============================================================================
-# migrate_pool — a format-4 light pool file into format 5
+# migrate_pool — a format-4 or -5 light pool file into format 6
 # =============================================================================
 #
-# Format 5 renamed one pair key, the destination map's: its former name is
-# retired from the stack, so the migration finds that key by its PLACE in the
-# format-4 pair (the slot `destination_map` holds in format 5; every other key
-# is format 5's), never by name. By VisualGeometryToolkitIO's migration pattern
-# (`write_staged`) it READS the format-4 file, WRITES the format-5 file to a
+# Formats 5 and 6 each renamed one pair key: 5 the destination map's, 6 the
+# correspondences'. Both former names are retired from the stack, so the
+# migration finds those keys by their PLACE in the older pair (the slots
+# `destination_map` and `correspondences` hold in format 6; every other key is
+# format 6's), never by name. By VisualGeometryToolkitIO's migration pattern
+# (`write_staged`) it READS the older file, WRITES the format-6 file to a
 # staging directory beside `out` through the writer, READS it back through the
 # reader, COMPARES every stored value with what it read — and only then, unless
 # it is a dry run, renames it into `out`. The original is never touched.
 
-const _DESTINATION_SLOT = findfirst(==(:destination_map), _PAIR_FIELDS)
+const _RENAMED_SLOTS = (findfirst(==(:correspondences), _PAIR_FIELDS), findfirst(==(:destination_map), _PAIR_FIELDS))
 
-# A format-4 pair under format 5's keys: the same values in the same order.
-function _format5_pair(nt::NamedTuple, path, i)
+# A format-4 or -5 pair under format 6's keys: the same values in the same
+# order. A renamed slot holds its former name (not a format-6 key) or, in a
+# format-5 file, the destination map's current one.
+function _current_pair(nt::NamedTuple, path, i)
     k = keys(nt)
-    ok = length(k) == length(_PAIR_FIELDS) && k[_DESTINATION_SLOT] ∉ _PAIR_FIELDS &&
-         all(k[j] == _PAIR_FIELDS[j] for j in eachindex(_PAIR_FIELDS) if j != _DESTINATION_SLOT)
-    ok || throw(ArgumentError("$path: pair $i has fields $k, not a format-4 pool pair's"))
+    ok = length(k) == length(_PAIR_FIELDS) &&
+         all(j in _RENAMED_SLOTS ? (k[j] == _PAIR_FIELDS[j] || k[j] ∉ _PAIR_FIELDS) : k[j] == _PAIR_FIELDS[j]
+             for j in eachindex(_PAIR_FIELDS)) && k[first(_RENAMED_SLOTS)] != _PAIR_FIELDS[first(_RENAMED_SLOTS)]
+    ok || throw(ArgumentError("$path: pair $i has fields $k, not a format-4 or -5 pool pair's"))
     return NamedTuple{_PAIR_FIELDS}(values(nt))
 end
 
@@ -396,8 +401,9 @@ _same_directory(a::AbstractString, b::AbstractString) = _directory_key(a) == _di
 """
     migrate_pool(path; out, dry_run = false) -> NamedTuple
 
-Carry a format-4 light pool file over to format 5, whose pair key for the
-destination map is `destination_map`. The format-5 file goes to
+Carry a format-4 or -5 light pool file over to format 6, whose pair keys for
+the destination map and the correspondences are `destination_map` and
+`correspondences`. The format-6 file goes to
 `joinpath(out, basename(path))`; `out` must be another directory than the
 original's, which is never touched. The pool's residuals file
 ([`residuals_path`](@ref)), when present, is copied beside it unchanged: it is
@@ -411,13 +417,13 @@ residuals', are checked before anything is written: an existing one is an
 residuals file already renamed into it is removed, and so is an `out` the
 migration created.
 
-The migration is verified before anything is written to `out`: the format-5
+The migration is verified before anything is written to `out`: the format-6
 file, written through [`save_pool`](@ref) to a staging directory beside `out`
 (a dry run's: a temporary one), must read back through [`load_pool`](@ref)'s
 checks, hold the same keys, and store every value of the original bit for bit;
 only then are the residuals copy and the pool renamed into `out`, the pool
 last. With `dry_run` nothing is written. A file of another
-format is refused with an `ArgumentError`: a format-5 one needs nothing, an
+format is refused with an `ArgumentError`: a format-6 one needs nothing, an
 older one is converted first (see [`load_pool`](@ref)'s refusal). Returns
 `(; path, residuals, n_pairs)`, the output paths `nothing` in a dry run.
 """
@@ -426,7 +432,7 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
     cur = ARTIFACT_FORMATS.pool.version
     v = JLD2.jldopen(f -> _artifact_format(f, :pool), path, "r")
     v == cur && throw(ArgumentError("$path: already a format-$cur pool; nothing to migrate"))
-    v == 4 || throw(ArgumentError("$path: pool format v$v; migrate_pool reads format 4 — $(ARTIFACT_FORMATS.pool.remedy)"))
+    v in (4, 5) || throw(ArgumentError("$path: pool format v$v; migrate_pool reads formats 4 and 5 — $(ARTIFACT_FORMATS.pool.remedy)"))
     _same_directory(out, dirname(abspath(path))) && throw(ArgumentError(
         "migrate_pool: `out` is the original's directory ($(abspath(out))); the original is never overwritten — name another"))
     dst = joinpath(abspath(out), basename(path))
@@ -435,7 +441,7 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
         ispath(d) && throw(ArgumentError("migrate_pool: $d exists; nothing was written"))
     end
     raw = JLD2.load(path)
-    pairs = [_format5_pair(nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
+    pairs = [_current_pair(nt, path, i) for (i, nt) in enumerate(raw["pairs"])]
     pool = _pool_from_raw(merge(raw, Dict{String, Any}("pairs" => pairs)), path)
     has_r = isfile(r)
     # renamed into `out` once verified, the residuals first and the pool last:
@@ -447,7 +453,7 @@ function migrate_pool(path::AbstractString; out::AbstractString, dry_run::Bool =
         back = JLD2.load(t)
         _pool_from_raw(back, t)                                        # reads back through the reader's checks
         _verify(ok, what) = ok || throw(
-            ArgumentError("$path: the format-5 file does not read back as the file read ($what); nothing was written"))
+            ArgumentError("$path: the format-$cur file does not read back as the file read ($what); nothing was written"))
         _verify(Set(keys(back)) == Set(keys(raw)), "its keys")
         for k in keys(raw)
             k in ("pairs", _format_key(:pool)) && continue
@@ -478,7 +484,7 @@ JLD2, PLAIN data only:
 | `pool_residuals_format` | `Int` | `1` |
 | `pool_key` | `String` | the [`pool_key`](@ref) of the light file it belongs to |
 | `residual_kind` | `String` | `"sampson"` (F, H) or `"tangent_sampson"` (E) |
-| `residuals` | `Vector{Matrix{Float32}}` | per pair, `(n, m)`: `|r|` of model j at cspond i, `NormalizedImageFrame` units |
+| `residuals` | `Vector{Matrix{Float32}}` | per pair, `(n, m)`: `|r|` of model j at correspondence i, `NormalizedImageFrame` units |
 
 By convention the file of `<scene>.jld2` is `<scene>.residuals.jld2`
 ([`residuals_path`](@ref)).

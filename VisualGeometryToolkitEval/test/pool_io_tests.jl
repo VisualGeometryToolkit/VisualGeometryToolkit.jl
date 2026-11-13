@@ -11,8 +11,9 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, JLD2, StaticArrays
     using VisualGeometryToolkitEval.Pools
+    import VisualGeometryToolkitEval as VgtkEval
     using VisualGeometryToolkitEval.Pools: frame, synthetic_e_pool_pair, GT_CONVENTION
-    using VisualGeometryToolkitCore: FundMat, HomographyMat, NormalizedImageFrame, csponds, sources, targets
+    using VisualGeometryToolkitCore: FundMat, HomographyMat, NormalizedImageFrame, correspondences, sources, targets
     using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, num_points, num_models
     using VisualGeometryToolkitEval.Tuning: sampling_unit, PairUnit
 
@@ -47,7 +48,7 @@
         @test back.problem === :E && back.scene == "scene" && back.scene_names == ["scene", "other"]
         @test back.pool_key == pool.pool_key && back.stamps == pool.stamps
         for (a, b) in zip(pool.pairs, back.pairs)
-            @test same(sources(a.csponds), sources(b.csponds)) && same(targets(a.csponds), targets(b.csponds))
+            @test same(sources(a.correspondences), sources(b.correspondences)) && same(targets(a.correspondences), targets(b.correspondences))
             for f in (:K1, :K2, :R_gt, :t_gt, :sample_indices, :errors_r, :errors_t, :gt_inliers,
                       :gt_variance, :source_map, :destination_map)
                 @test same(getfield(a, f), getfield(b, f))
@@ -57,7 +58,7 @@
         end
         @test back.pairs[1].snn == snn && back.pairs[2].snn === nothing
         # the on-disk pair keys are format 5's, the record's field names
-        @test keys(first(JLD2.load(path, "pairs"))) == (:csponds, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices,
+        @test keys(first(JLD2.load(path, "pairs"))) == (:correspondences, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices,
             :errors_r, :errors_t, :gt_inliers, :gt_variance, :source_map, :destination_map, :snn)
         r = load_pool_residuals(residuals_path(path), back)
         @test r.kind === :tangent_sampson && r.pool_key == pool.pool_key
@@ -66,7 +67,7 @@
         # the file holds no stack type: every committed datatype is plain
         JLD2.jldopen(path, "r") do f
             @test f["pool_format"] == 5 && f["problem"] == "E" && f["model_class"] == "FundMat"
-            @test f["frame"] == "NormalizedImageFrame" && f["pairs"][1].csponds isa Matrix{Float64}
+            @test f["frame"] == "NormalizedImageFrame" && f["pairs"][1].correspondences isa Matrix{Float64}
         end
         @test !occursin("VisualGeometryToolkitCore", read(path, String))
     end
@@ -107,14 +108,17 @@
         @test occursin(other.pool_key, thrown_message(() -> load_pool_residuals(residuals_path(path), other; pairs = [1]); shown = true))
     end
 
-    @testset "migrate_pool: a format-4 file into format 5, verified, original untouched" begin
-        # A format-4 file: format 5's contents with the destination map under its
-        # former key, in the same slot. That name is retired; the migration
-        # matches the slot, so the fixture names it `former_destination_key`.
+    @testset "migrate_pool: format-4 and -5 files into format 6, verified, original untouched" begin
+        # A format-4 file: format 6's contents with the correspondences and the
+        # destination map under their former keys, in the same slots; a format-5
+        # file: the correspondences alone under their former key. Those names
+        # are retired; the migration matches the slots, so the fixtures name
+        # them `former_*_key`.
         raw = JLD2.load(path)
         v4dir = mkpath(joinpath(dir, "v4")); v4 = joinpath(v4dir, "scene.jld2")
-        former = (:csponds, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
+        former = (:former_correspondence_key, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
                   :gt_inliers, :gt_variance, :source_map, :former_destination_key, :snn)
+        former5 = (:former_correspondence_key, Base.tail(keys(first(raw["pairs"])))...)
         pairs4 = [NamedTuple{former}(values(nt)) for nt in raw["pairs"]]
         JLD2.jldsave(v4; (Symbol(k) => v for (k, v) in raw if k ∉ ("pairs", "pool_format"))...,
                      pairs = pairs4, pool_format = 4)
@@ -137,8 +141,14 @@
             @test same(a.sample_indices, b.sample_indices) && same(a.gt_variance, b.gt_variance)
         end
         @test load_pool_residuals(r.residuals, back).pool_key == pool.pool_key
-        JLD2.jldopen(f -> @test(f["pool_format"] == 5), r.path, "r")
-        # refusals: an existing output, the original's directory, a format-5 or an older file, a foreign pair
+        JLD2.jldopen(f -> @test(f["pool_format"] == 6), r.path, "r")
+        # a format-5 file migrates the same way
+        v5f = joinpath(mkpath(joinpath(dir, "v5src")), "scene.jld2")
+        JLD2.jldsave(v5f; (Symbol(k) => v for (k, v) in raw if k ∉ ("pairs", "pool_format"))...,
+                     pairs = [NamedTuple{former5}(values(nt)) for nt in raw["pairs"]], pool_format = 5)
+        r5 = migrate_pool(v5f; out = joinpath(dir, "v6from5"))
+        @test load_pool(r5.path).pool_key == pool.pool_key && r5.residuals === nothing
+        # refusals: an existing output, the original's directory, a format-6 or an older file, a foreign pair
         @test occursin("exists", thrown_message(() -> migrate_pool(v4; out); shown = true))
         # an existing residuals destination is refused before the pool file is written
         out2 = mkpath(joinpath(dir, "v5r")); touch(residuals_path(joinpath(out2, "scene.jld2")))
@@ -157,7 +167,7 @@
         bad = joinpath(v4dir, "bad.jld2")
         JLD2.jldsave(bad; (Symbol(k) => v for (k, v) in raw if k ∉ ("pairs", "pool_format"))...,
                      pairs = [Base.structdiff(nt, NamedTuple{(:snn,)}) for nt in pairs4], pool_format = 4)
-        @test occursin("not a format-4 pool pair", thrown_message(() -> migrate_pool(bad; out = joinpath(dir, "v5d")); shown = true))
+        @test occursin("not a format-4 or -5 pool pair", thrown_message(() -> migrate_pool(bad; out = joinpath(dir, "v5d")); shown = true))
         @test !isdir(joinpath(dir, "v5d"))
     end
 
@@ -215,6 +225,8 @@
         @test [num_points(p) for p in wp.pairs] == [9, 10, 12]
         @test wp.stamps.total_samples == 6 && wp.stamps.total_solutions == 9 && wp.stamps.mean_solutions_per_sample == 1.5
         @test wp.stamps.pool_rng == "LehmerRNG" && wp.stamps.provenance["driver"] == "dummy"
+        # the stream is StableRNGs' `StableRNG` under its own name: the alias is retired (check_naming), no alias
+        @test !isdefined(VgtkEval.Stats, Symbol("POOL" * "_RNG"))
         @test load_pool_residuals(residuals_path(out), wp).kind === :tangent_sampson
         # each pair's stream is keyed by its index: a rerun reproduces it bitwise
         first_seen = copy(seen)

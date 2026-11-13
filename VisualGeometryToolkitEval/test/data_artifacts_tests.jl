@@ -206,6 +206,34 @@
             withenv("VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
                 @test !isempty(D.catalog_violations(D.load_catalog(catalog)))
             end
+            # published_name: the host's file keeps a name published before the terminology rules, the binding
+            # takes the current one; the URL's file is checked against it instead of the binding name
+            old = "t_extra_" * "cs" * "ponds"                                  # a published name as the rules found it
+            renamed(arts; records = cat.records) = D.DataCatalog(cat.path, cat.artifacts_toml, cat.configs, records, arts)
+            published(pn; on = "t_extra") = Dict{String,Any}(cat.artifacts..., on => merge(cat.artifacts[on], Dict("published_name" => pn)))
+            pub = renamed(published(old))
+            @test D.published_name(pub, "t_extra") == old && D.published_name(pub, "t_stored") == "t_stored"
+            @test D.zenodo_url(pub, "t_extra") == "https://zenodo.org/records/ZENODO_RECORD_INPUTS/files/$old.tar.gz?download=1"
+            @test D.download_url(renamed(published(old); records = onhf.records), "t_extra") ==
+                  "https://huggingface.co/datasets/lab/data/resolve/$rev/$old.tar.gz"
+            # the bindings name t_extra.tar.gz: flagged, naming the published file
+            v = D.catalog_violations(pub)
+            @test length(v) == 1 && contains(only(v), "t_extra: download URL") && contains(only(v), "published as $old.tar.gz")
+            # a pack stages the tarball under the published name and binds its URL: the catalog is clean
+            saved = read(cat.artifacts_toml, String)
+            @test basename(only(D.pack_artifacts(pub, ["t_extra"]; stage = mktempdir())).tarball) == "$old.tar.gz"
+            @test only(TOML.parsefile(cat.artifacts_toml)["t_extra"]["download"])["url"] == D.zenodo_url(pub, "t_extra")
+            @test isempty(D.catalog_violations(pub))
+            # refusals: not a file name, the binding's own name, another entry's name or published name
+            flagged(pn) = D.catalog_violations(renamed(published(pn)))
+            @test any(contains("t_extra: published_name \"a/b\" is not a file name"), flagged("a/b"))
+            @test any(contains("t_extra: published_name \"\" is not a file name"), flagged(""))
+            @test any(contains("t_extra: published_name is its own name"), flagged("t_extra"))
+            @test any(contains("t_extra: published_name \"t_stored\" is another entry's name"), flagged("t_stored"))
+            two = renamed(Dict{String,Any}(published(old)..., "t_stored" => merge(cat.artifacts["t_stored"], Dict("published_name" => old))))
+            @test count(contains("is another entry's name or published name"), D.catalog_violations(two)) == 2
+            write(cat.artifacts_toml, saved)
+            @test isempty(D.catalog_violations(cat))
             # the same tree hashes when repacked from scratch
             built2 = D.pack_artifacts(cat, ["t_extra"]; stage = mktempdir())
             @test only(built2).hash == only(filter(b -> b.name == "t_extra", built)).hash

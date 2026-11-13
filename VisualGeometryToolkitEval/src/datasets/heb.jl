@@ -1,21 +1,21 @@
 # =============================================================================
 # src/datasets/heb.jl — the raw ETH HEB reader (`<scene>_homographies.h5`).
 #
-# Per image pair: pixel csponds, SNN ratios, GT inlier flags, K1/K2, the
+# Per image pair: pixel correspondences, SNN ratios, GT inlier flags, K1/K2, the
 # COLMAP relative pose; the SNN hard filter `snn < snn_threshold`
-# (`_snn_filtered_matches`) and the pair drop below `min_csponds`.
+# (`_snn_filtered_matches`) and the pair drop below `min_correspondences`.
 # =============================================================================
 
 """
     HebPair <: StereoRawPair
 
-One raw HEB pair, in pixels: csponds, SNN ratios and the dataset's GT inlier
+One raw HEB pair, in pixels: correspondences, SNN ratios and the dataset's GT inlier
 flags (post-SNN filter), the pixel calibrations, image sizes and the extrinsic
 GT relative pose `x₂ = R·x₁ + t`.
 """
 struct HebPair <: StereoRawPair
     src_id::String; dst_id::String; sub::String
-    csponds::StructArray
+    correspondences::StructArray
     snn::Vector{Float32}
     gt_inliers::BitVector
     K1::SMatrix{3,3,Float64,9}
@@ -34,7 +34,7 @@ end
 
 function _read_heb_pair(f, key::AbstractString, ids; snn_threshold::Real)
     c = read(f[key])                               # (10, N) float64: x₁ y₁ x₂ y₂ … snn gt
-    csponds, snn, kept = _snn_filtered_matches(c, Float32.(c[9, :]), snn_threshold)
+    correspondences, snn, kept = _snn_filtered_matches(c, Float32.(c[9, :]), snn_threshold)
     gt_inliers_bits = BitVector(c[10, kept] .== 1.0)
 
     # HEB stores the relative pose row-major (numpy/h5py) as the 3×4 [R | t]
@@ -54,22 +54,22 @@ function _read_heb_pair(f, key::AbstractString, ids; snn_threshold::Real)
     size1 = Size2(width=Float64(raw_size1[1]), height=Float64(raw_size1[2]))
     size2 = Size2(width=Float64(raw_size2[1]), height=Float64(raw_size2[2]))
 
-    HebPair(ids.src, ids.dst, ids.sub, csponds, snn, gt_inliers_bits,
+    HebPair(ids.src, ids.dst, ids.sub, correspondences, snn, gt_inliers_bits,
              K1, K2, size1, size2, R_gt, t_gt)
 end
 
 """
-    load_heb_pairs(h5_path; min_csponds, max_pairs_per_scene, subsample_overdraw,
+    load_heb_pairs(h5_path; min_correspondences, max_pairs_per_scene, subsample_overdraw,
                    subsample_seed, snn_threshold = [pool.heb] snn_threshold) -> Vector{HebPair}
 
 Iterate all `corr_*` groups of the raw HEB scene file `h5_path` that have a
 pose and both calibrations, in a seeded subsample ([`_seeded_key_subsample`](@ref),
 keyed by the file name) of at most `max_pairs_per_scene` kept pairs; apply
-the SNN threshold and drop pairs with fewer than `min_csponds` correspondences.
+the SNN threshold and drop pairs with fewer than `min_correspondences` correspondences.
 The subsample sizes and seed are the caller's (its pool configuration).
 """
 function load_heb_pairs(h5_path::AbstractString;
-                        min_csponds::Integer,
+                        min_correspondences::Integer,
                         max_pairs_per_scene::Integer,
                         subsample_overdraw::Integer,
                         subsample_seed::Integer,
@@ -89,7 +89,7 @@ function load_heb_pairs(h5_path::AbstractString;
         end
 
         # Seeded subsample of the valid-key list (the overdraw absorbs the
-        # min_csponds rejections that only show after the read).
+        # min_correspondences rejections that only show after the read).
         valid_keys = _seeded_key_subsample(valid_keys, basename(h5_path); max_pairs_per_scene,
                                            subsample_overdraw, subsample_seed)
 
@@ -97,7 +97,7 @@ function load_heb_pairs(h5_path::AbstractString;
         for key in valid_keys
             ids = _parse_pair_key(key)
             p = _read_heb_pair(f, key, ids; snn_threshold)
-            length(p.csponds) >= min_csponds || continue  # need enough for meaningful sampling
+            length(p.correspondences) >= min_correspondences || continue  # need enough for meaningful sampling
             push!(pairs, p)
             length(pairs) >= max_pairs_per_scene && break
         end

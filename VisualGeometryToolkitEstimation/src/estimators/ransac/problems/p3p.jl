@@ -4,7 +4,7 @@
 #
 # `AbsolutePoseProblem` is the `MinimalSolveProblem{Extrinsics3}` alias (its
 # construction and the minimal solve — VGC's `P3P` verb over the world→ray
-# `cs_solve` view — are the family's, cspond.jl; rays + imaging transform travel
+# `cs_solve` view — are the family's, correspondence.jl; rays + imaging transform travel
 # in `PoseContext`). This file keeps the pose-specific residual, gates, the
 # predictive constraint, and the chart rows the refit and the lift share.
 #
@@ -103,7 +103,7 @@ collinearity in each of the two spaces:
 
 It used to be justified here as "two detections at ~the same pixel (distinct
 world points projecting together) force a grazing, near-degenerate pose". That
-was constructed, not measured, and measurement does not support it. Sweeping
+was constructed, not measured, and the experiment does not support it. Sweeping
 image separation for two genuinely distinct world points (common ray, ≥0.5
 world units apart): noise-free, median error stays at 0° and q95 under 6e-5°
 from 0 px to 40 px; at σ = 0.5 px, the median is 0.181° at EVERY separation
@@ -196,7 +196,7 @@ end
 
 # One correspondence's constraint in the `mahalanobis_distances!` currency: VGC's lens form
 # `constraint_with_jacobians(model, pose, X, u)` — e = project(model, R·X + t) − u
-# in RAW pixels, G_x = −I₂ (the observed pixel is the measurement, X exact),
+# in RAW pixels, G_x = −I₂ (the pixel is the observation, X exact),
 # G_θ its 2×6 Jacobian along LeftRigidManifold6 at the pose. A point the lens
 # cannot place (`_pnp_participates`) is the out-of-field sentinel with a zero
 # model row: an outlier, never a NaN in the sweep.

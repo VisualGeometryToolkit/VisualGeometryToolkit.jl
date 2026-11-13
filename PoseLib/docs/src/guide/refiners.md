@@ -112,7 +112,7 @@ using VisualGeometryToolkitCore: backproject_with_jacobian
 
 b1 = backproject_with_jacobian.(Ref(camera1), u1)   # (bearing, Jacobian) per point
 b2 = backproject_with_jacobian.(Ref(camera2), u2)
-cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
+cs = withattrs(Correspondences(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
 refine_relpose(pose, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)
 ```
 

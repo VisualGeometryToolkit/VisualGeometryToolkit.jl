@@ -79,7 +79,7 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
         # input is often (re)written by an earlier stage of the same run, so a
         # cached "DONE" silently skips work that has just been invalidated
         # (2026-09-09: timing_table's emit/design_table were skipped after
-        # time_pt/time_scannet rewrote the measurements they read).
+        # time_pt/time_scannet rewrote the timings they read).
         if !force && _stage_done(st)
             println("== skip $(st.name) (done; --force to re-run)")
             continue

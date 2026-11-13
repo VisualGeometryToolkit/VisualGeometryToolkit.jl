@@ -124,7 +124,7 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
   (`motion_pairs = :consecutive` pairs neighbours): `A_i => B_i`, the
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
   labeled `Extrinsics3` accepted — unlabeled at the boundary). Any
-  `sources`/`targets` container of `Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
+  `sources`/`targets` container of `Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
   plain translations, in one length unit — a problem is the inner loop, and a
   physical (unitful) pose is a `MethodError` here; [`find_hand_eye`](@ref)
   takes physical poses and strips them in metres once.
@@ -148,7 +148,7 @@ motions rotate at least `min_rel_angle` (no minimal sample could satisfy the gat
 refused here rather than as a `:no_model` after every RANSAC trial).
 """
 function HandEyeProblem(
-        cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
+        cs::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
         motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
         char_length::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
@@ -241,7 +241,7 @@ Under that convention, near the optimum:
        [   [R_X t_B]_×    (R_A − I)   ]   ← translation block
 ```
 
-The measurement Jacobian `∂ₓg = I_6` reports the noise model directly on
+The observation Jacobian `∂ₓg = I_6` reports the noise model directly on
 the constraint (the per-pair 6-vector is already in unit-balanced form),
 so the default `mahalanobis_distances!` produces ‖g‖.
 """

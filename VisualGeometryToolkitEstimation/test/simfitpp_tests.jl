@@ -23,7 +23,7 @@
     I3 = SMatrix{3,3,Float64,9}(I)
     KC = SMatrix{3,3,Float64,9}(400.0, 0.0, 0.0, 0.0, 400.0, 0.0, 320.0, 240.0, 1.0)
     identity_pool(D; sample_indices) = PoolPair{typeof(I3)}(;
-        csponds = [SVector(0.0, 0.0) => SVector(0.0, 0.0) for _ in 1:size(D, 1)], K1 = KC, K2 = KC,
+        correspondences = [SVector(0.0, 0.0) => SVector(0.0, 0.0) for _ in 1:size(D, 1)], K1 = KC, K2 = KC,
         R_gt = I3, t_gt = SVector(1.0, 0.0, 0.0), models = [I3 for _ in 1:size(D, 2)], sample_indices,
         errors_r = fill(NaN, size(D, 2)), errors_t = fill(NaN, size(D, 2)),
         gt_inliers = falses(size(D, 1)), gt_variance = NaN, source_map = I3, destination_map = I3)
@@ -134,10 +134,10 @@
         sim(s, tx, ty) = SMatrix{3,3,Float64,9}(s, 0.0, 0.0, 0.0, s, 0.0, tx, ty, 1.0)   # column-major: [s 0 tx; 0 s ty; 0 0 1]
         Kc = SMatrix{3,3,Float64,9}(400.0, 0.0, 0.0, 0.0, 400.0, 0.0, 320.0, 240.0, 1.0)
         I3s = SMatrix{3,3,Float64,9}(I)
-        csponds = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
+        correspondences = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
         models = [FundMat(Tuple(SMatrix{3,3,Float64,9}(randn(rng, 9)...))) for _ in 1:K]
-        Dc = Float32[sampson_distance(models[j], csponds[i].first, csponds[i].second) for i in 1:n, j in 1:K]
-        mk(T1, T2; ms = models) = PoolPair(; csponds, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
+        Dc = Float32[sampson_distance(models[j], correspondences[i].first, correspondences[i].second) for i in 1:n, j in 1:K]
+        mk(T1, T2; ms = models) = PoolPair(; correspondences, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
                                            models = ms, sample_indices = zeros(Int, 7, length(ms)),
                                            errors_r = fill(NaN, length(ms)), errors_t = fill(NaN, length(ms)),
                                            gt_inliers = falses(n), gt_variance = NaN, source_map = T1, destination_map = T2)

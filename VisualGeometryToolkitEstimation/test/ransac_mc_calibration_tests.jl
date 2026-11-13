@@ -83,7 +83,7 @@ _to_fcal(cs, T) = [
 # chart anchor. The pose trial works in calibrated coordinates, so its
 # problem's camera is the identity camera (calibrated coordinates as pixels).
 # Every problem takes the trial's container as it comes: a pair vector, or —
-# the camera-aware E trials — a `Csponds` of bearings CARRYING the `M₁`/`M₂`
+# the camera-aware E trials — a `Correspondences` of bearings CARRYING the `M₁`/`M₂`
 # columns, which a rebuild into bare pairs would drop, so the gate and the
 # residual would silently fall back.
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ end
 # (b) predictive trials: one held-out point per trial, (rᵢ, σ²·Vᵢ) ~ χ²_{d_g}
 # kind: :E (PIXEL data + the camera that produced it — the only essential
 #       construction there is now; the former :E_mapped variant, pixel data
-#       with K⁻¹ measurement maps, has merged into it because maps are gone
+#       with K⁻¹ observation maps, has merged into it because maps are gone
 #       and the camera declares the calibration),
 #       :F (calibration frame), :F_px (raw pixels), :H (pixels, codim 2:
 #       Vᵢ = I₂ + G_w·Σ̃·G_wᵀ; `regime` :generic | :near_affine)

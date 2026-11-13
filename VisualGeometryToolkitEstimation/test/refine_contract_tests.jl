@@ -172,13 +172,13 @@ end
     using Test, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
     using StableRNGs: StableRNG
-    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Csponds, csponds, HomographyMat, FundMat,
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat,
         EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, EuclideanMap, MsacScoring, WelschShape,
         retcode, estimate, ScaleGiven, ScaleNone, scale_source, weight_kind, IrlsWeights, BinaryWeights
     using VisualGeometryToolkitEstimation: refine_homography, refine_fundmat, refine_essential, refine_rotation, refine_circle, refine_ellipse, refine_radial_homography, refine_radial_camera, refine_absolute_pose, refine_hand_eye, RefineMetadata, HomographyProblem
     using VisualGeometryToolkitCore: Triggs, Irls
 
-    pts, cs = few_points, few_csponds
+    pts, cs = few_points, few_correspondences
     I3 = SMatrix{3, 3, Float64}(I)
     H = HomographyMat{Float64}(Tuple(I3))
     X3 = SMatrix{3, 3, Float64}(0, 0, 0, 0, 0, -1, 0, 1, 0)
@@ -196,13 +196,13 @@ end
         :fundmat => (; kw...) -> refine_fundmat(FundMat{Float64}(Tuple(X3)), cs(6); kw...),
         :essential => (; kw...) -> refine_essential(EssentialMat{Float64}(Tuple(X3)), cam, cam, cs(4); kw...),
         :rotation => (; kw...) -> refine_rotation(one(RotMatrix{3, Float64}), cam, cam, cs(1); kw...),
-        :rotation_bearings => (; kw...) -> refine_rotation(one(RotMatrix{3, Float64}), Csponds([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]]); kw...),
+        :rotation_bearings => (; kw...) -> refine_rotation(one(RotMatrix{3, Float64}), Correspondences([SA[0.0, 0.0, 1.0]], [SA[0.0, 0.0, 1.0]]); kw...),
         :circle => (; kw...) -> refine_circle(Circle(Point2(0.0, 0.0), 1.0), pts(2); kw...),
         :ellipse => (; kw...) -> refine_ellipse(Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), pts(4); kw...),
         :radial_homography => (; kw...) -> refine_radial_homography(RadialHomography{Float64}(H, 0.0), cs(4); kw...),
         :radial_camera => (; kw...) -> refine_radial_camera(RadialCamera(H, c), cs(4); kw...),
         :absolute_pose => (; kw...) -> refine_absolute_pose(pose, cam, Xs .=> us; kw...),
-        :bearing_pose => (; kw...) -> refine_absolute_pose(pose, Csponds(Xs, [normalize(x) for x in Xs]); kw...),
+        :bearing_pose => (; kw...) -> refine_absolute_pose(pose, Correspondences(Xs, [normalize(x) for x in Xs]); kw...),
         :hand_eye => (; kw...) -> refine_hand_eye(Xhe, hecs; kw...),
     )
     err(f) = try

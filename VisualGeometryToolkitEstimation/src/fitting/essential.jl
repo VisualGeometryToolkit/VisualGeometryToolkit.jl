@@ -46,7 +46,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 - `camera1`, `camera2`: the cameras of the source and target views (any
   camera `backproject_with_jacobian` accepts).
 - `pixel_cs`: PIXEL correspondences, `u₁ => u₂` in the two cameras' images
-  (`Csponds`, `StructArray{<:Pair}` or a Pair vector); a `Csponds` `:score`
+  (`Correspondences`, `StructArray{<:Pair}` or a Pair vector); a `Correspondences` `:score`
   column is the per-match prior (PROSAC; uniform otherwise) and travels to the
   bearing problem with every other attribute column.
 - `scoring`: the scorer, its width **in PIXELS** (default `[pipelines.essential] scoring`, MSAC at 1 px). `M` picks the unit and the call cannot: the residual is whitened by
@@ -68,7 +68,7 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 # Examples
 ```julia
 result = find_essential(cam1, cam2, pixel_pairs)
-result = find_essential(cam1, cam2, Csponds(sources(pixel_pairs), targets(pixel_pairs); score = similarities))
+result = find_essential(cam1, cam2, Correspondences(sources(pixel_pairs), targets(pixel_pairs); score = similarities))
 ```
 """
 function find_essential(

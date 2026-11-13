@@ -1,5 +1,22 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.0 (unreleased)
+
+The breaking wave 10, on VisualGeometryToolkitCore 0.10.
+
+### Breaking
+
+- **`LiftableProblem` is retired, with no alias**: it was a second name for `MinimalSolveProblem`, the problem family a
+  lifted local optimizer's `locally_optimize!` methods dispatch on. Write `MinimalSolveProblem`. Core's `check_naming`
+  refuses the old name (RETIRED_NAMES).
+- **The terminology ruling (2026-11-13): correspondence, observation, detection.** Every name built on the retired
+  pairing abbreviation follows Core 0.10's rename: `AbstractCspondProblem` is `AbstractCorrespondenceProblem`, the
+  problems take Core's `Correspondence`/`Correspondences`/`correspondences`, the file `problems/cspond.jl` is
+  `problems/correspondence.jl`. The problems' noise hook and constraint Jacobian are Core's renamed contract
+  generics, `observation_covariance(problem, i)` and `observation_gradient_jacobian`. A homography problem's K⁻¹-style
+  maps are its observation maps, and the observation-noise rule (Core's `conventions/observation-noise.md`) is the
+  measurement-noise rule renamed; no number moves.
+
 ## 0.10.1 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; no result changes.

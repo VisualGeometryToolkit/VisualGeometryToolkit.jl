@@ -48,23 +48,14 @@ _lift_aux(::Any) = nothing
 # facts, not restated for the lift.
 _lift_dims(problem) = (Val(chart_dof(problem)), Val(codimension(problem)))
 
-# The problems with a lift — the chart problems whose codimension the lift core
-# supports (1 and 2): exactly the `MinimalSolveProblem` family, whose every
+# The problems with a lift: the chart problems whose codimension the lift core
+# supports (1 and 2), exactly the `MinimalSolveProblem` family, whose every
 # instantiation carries a minimal chart of its model and a codimension-1 or -2
 # constraint. The lifts' `locally_optimize!` methods (LocalOptimizationDoneRight)
-# are typed on it, so the contract's refusal keeps guarding every other problem.
-"""
-    LiftableProblem
+# are typed on `MinimalSolveProblem`, so the contract's refusal keeps guarding
+# every other problem.
 
-The problems that provide VisualGeometryToolkitCore's chart-rows contract to a
-lifted local optimizer: the [`MinimalSolveProblem`](@ref) family, whose every
-instance has a minimal chart of its model and a codimension-1 or -2
-constraint. A lifted strategy's `locally_optimize!` methods dispatch on it,
-so the contract still refuses every other problem.
-"""
-const LiftableProblem = MinimalSolveProblem
-
-function rows_provider(problem::LiftableProblem)
+function rows_provider(problem::MinimalSolveProblem)
     n = data_size(problem)
     D, C = _lift_dims(problem)
     return ManifoldLiftProvider(problem, rows_workspace(D, C, n), n, _lift_aux(problem))
@@ -134,7 +125,7 @@ end
 # =============================================================================
 
 """
-    locally_optimize!(L, lo::Triggs, problem::LiftableProblem, model, cs, buf, scoring) -> FitResult
+    locally_optimize!(L, lo::Triggs, problem::MinimalSolveProblem, model, cs, buf, scoring) -> FitResult
 
 The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 `efficiency_constant·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
@@ -146,7 +137,7 @@ correction carries the loss; nothing is reweighted here and no inlier set is
 formed. The model comes back through the chart's `recenter` and `_model_at`,
 as from `refine!`.
 """
-locally_optimize!(L::LoBuffers, lo::Triggs, problem::LiftableProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
+locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
     _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, lo_loss(lo, cs, scoring, buf))
 
 # The rows the robustified LM robustifies, and a refine's plain least squares

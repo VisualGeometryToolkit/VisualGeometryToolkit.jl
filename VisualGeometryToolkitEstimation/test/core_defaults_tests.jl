@@ -25,7 +25,7 @@ using Test, Random, LinearAlgebra, StaticArrays, StructArrays
 using StableRNGs
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, csponds, radial_transfer, RadialHomography,
+using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, correspondences, radial_transfer, RadialHomography,
     HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, WelschShape, HuberShape, Circle
@@ -83,7 +83,7 @@ end
     end
     @testset "essential" begin
         u₁, u₂, n_in = stereo_scene(ECAM; seed = 14)
-        cs = csponds(u₁, u₂)
+        cs = correspondences(u₁, u₂)
         r = find_essential(ECAM, ECAM, cs; rng = StableRNG(3))
         p = EssentialProblem(ECAM, ECAM, cs)
         same_run(r, find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = thr(:essential)), rng = StableRNG(3)))
@@ -142,7 +142,7 @@ end
                  :ellipse => 1.0, :absolute_pose => 8.0, :radial_homography => 3.0, :radial_camera => 3.0, :hand_eye => 0.01)
     cs_h, _ = h_scene()
     u₁, u₂, _ = stereo_scene(PCAM); cs_f = StructArray(u₁ .=> u₂)
-    v₁, v₂, _ = stereo_scene(ECAM; seed = 14); cs_e = csponds(v₁, v₂)
+    v₁, v₂, _ = stereo_scene(ECAM; seed = 14); cs_e = correspondences(v₁, v₂)
     cs_p = pnp_scene()
     rh, _ = radial_homography_scene(); c_rh = (RW / 2, RH / 2)
     rc, _ = radial_camera_pairs()
@@ -244,7 +244,7 @@ end
 
 @testset "essential: a sub-detector threshold is refused" begin
     u₁, u₂, _ = stereo_scene(ECAM; seed = 14)
-    cs = csponds(u₁, u₂)
+    cs = correspondences(u₁, u₂)
     p = EssentialProblem(ECAM, ECAM, cs)
     err = try
         find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.02)); nothing
@@ -315,7 +315,7 @@ end
     epts, _ = ellipse_scene(Xoshiro(6), 600)
     hcs, _ = h_scene()
     u₁, u₂, _ = stereo_scene(PCAM); fcs = StructArray(u₁ .=> u₂)
-    e₁, e₂, _ = stereo_scene(ECAM; seed = 14); ecs = csponds(e₁, e₂)
+    e₁, e₂, _ = stereo_scene(ECAM; seed = 14); ecs = correspondences(e₁, e₂)
     pcs = pnp_scene()
     rcs, _, _ = rotation_scene(Xoshiro(8), RotMatrix(RotXYZ(0.2, -0.3, 0.4)), 300; outl = 0.3)
     rh, _ = radial_homography_scene(); c = (RW / 2, RH / 2)

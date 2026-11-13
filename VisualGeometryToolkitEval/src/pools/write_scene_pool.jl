@@ -22,7 +22,7 @@ dropped — or a NamedTuple `(; pair::PoolPair, residuals::Matrix{Float32},
 samples::Integer, solutions::Integer)`: the record, its `(num_points,
 num_models)` residual matrix, and the accepted minimal samples and real
 solutions its draw counted. Pair `i` of `raws` draws from its OWN stream
-`POOL_RNG(stable_seed(seed, i))` — keyed by its index in `raws`, not by the
+`StableRNG(stable_seed(seed, i))` (StableRNGs, fixed across Julia versions) — keyed by its index in `raws`, not by the
 thread — so the pool is a pure function of `(seed, raws)`, independent of
 thread count, scheduling and Julia version. Pairs are built under
 `Threads.@threads`.
@@ -49,7 +49,7 @@ function write_scene_pool(path::AbstractString, raws::AbstractVector, build;
     built = Vector{Any}(nothing, n)
     t0 = time()
     Threads.@threads for i in 1:n
-        built[i] = build(POOL_RNG(stable_seed(seed, i)), raws[i])
+        built[i] = build(StableRNG(stable_seed(seed, i)), raws[i])
     end
     elapsed = time() - t0
     kept = findall(!isnothing, built)
@@ -63,7 +63,7 @@ function write_scene_pool(path::AbstractString, raws::AbstractVector, build;
     mean_sol = total_samples == 0 ? 0.0 : total_solutions / total_samples
     pool = ScoringPool(pairs, problem, scene;
         scene_names = String[something(pair_scene(raws[i]), String(scene)) for i in kept],
-        stamps = (gt_convention = GT_CONVENTION, pool_rng = string(nameof(POOL_RNG)),
+        stamps = (gt_convention = GT_CONVENTION, pool_rng = string(nameof(StableRNG)),
                   julia_version = string(VERSION), total_samples, total_solutions,
                   mean_solutions_per_sample = mean_sol,
                   provenance = Dict{String,Any}(String(k) => v for (k, v) in provenance)))

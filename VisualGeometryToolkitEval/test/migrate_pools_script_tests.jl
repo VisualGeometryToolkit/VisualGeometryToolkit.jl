@@ -23,16 +23,17 @@
     pool = ScoringPool([p1, p2], :E, "scene"; scene_names = ["scene", "other"], stamps)
     res = PoolResiduals(pool.pool_key, :tangent_sampson, [R1, R2])
     root = mktempdir()
-    v5 = joinpath(root, "current.jld2")
-    save_pool(v5, pool); save_pool_residuals(residuals_path(v5), res)
-    # a format-4 file: format 5's contents with the destination map under its
-    # former key, in the same slot (as pool_io's migrate_pool fixture)
-    raw = JLD2.load(v5)
-    former = (:csponds, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
+    v6 = joinpath(root, "current.jld2")
+    save_pool(v6, pool); save_pool_residuals(residuals_path(v6), res)
+    # a format-4 file: format 6's contents with the correspondences and the
+    # destination map under their former keys, in the same slots (as pool_io's
+    # migrate_pool fixture)
+    raw = JLD2.load(v6)
+    former = (:former_correspondence_key, :K1, :K2, :R_gt, :t_gt, :models, :sample_indices, :errors_r, :errors_t,
               :gt_inliers, :gt_variance, :source_map, :former_destination_key, :snn)
     v4(path) = (JLD2.jldsave(path; (Symbol(k) => v for (k, v) in raw if k ∉ ("pairs", "pool_format"))...,
                              pairs = [NamedTuple{former}(values(nt)) for nt in raw["pairs"]], pool_format = 4);
-                cp(residuals_path(v5), residuals_path(path)); path)
+                cp(residuals_path(v6), residuals_path(path)); path)
     a = v4(joinpath(root, "a.jld2"))
     b = v4(joinpath(mkpath(joinpath(root, "sub", "deeper")), "b.jld2"))
     bad = joinpath(root, "bad.jld2")
@@ -49,8 +50,8 @@
     n = migrate_pools(root; io)
     log = String(take!(io))
     @test n == (migrated = 0, verified = 2, current = 1, skipped = 3, failed = 2)    # skipped: the three residuals files
-    @test occursin("verified  $a", log) && occursin("verified  $b", log) && occursin("current   $v5", log)
-    @test occursin("FAILED    $bad", log) && occursin("not a format-4 pool pair", log)
+    @test occursin("verified  $a", log) && occursin("verified  $b", log) && occursin("current   $v6", log)
+    @test occursin("FAILED    $bad", log) && occursin("not a format-4 or -5 pool pair", log)
     @test occursin("FAILED    $corrupt", log) && occursin("does not open", log)
     @test snapshot() == files && all(read(p) == before[p] for p in keys(before))
 
@@ -64,7 +65,7 @@
         @test back.pool_key == pool.pool_key && back.stamps == pool.stamps
         @test all(isequal(x.destination_map, y.destination_map) && isequal(x.source_map, y.source_map) for (x, y) in zip(back.pairs, pool.pairs))
         @test load_pool_residuals(residuals_path(p), back).pool_key == pool.pool_key
-        JLD2.jldopen(f -> @test(f["pool_format"] == 5), p, "r")
+        JLD2.jldopen(f -> @test(f["pool_format"] == 6), p, "r")
     end
     # a second run finds every pool current
     n = migrate_pools(root; apply = true, io)

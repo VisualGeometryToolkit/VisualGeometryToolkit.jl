@@ -69,7 +69,7 @@ function solve(p::LineFittingProblem, idx::AbstractVector{Int})
 end
 
 # `mahalanobis_distances!` is VisualGeometryToolkitCore's default: the constraint from
-# `constraint_with_jacobians` below whitened by the point's `measurement_covariance`
+# `constraint_with_jacobians` below whitened by the point's `observation_covariance`
 # (VGC's `whitened_residual`) — the stack's one
 # Sampson degeneracy rule (a vanishing projected variance nᵀΣn gives 0 or Inf),
 # not the `max(σᵢ, eps)` floor this problem carried until 2026-09-22.
@@ -107,7 +107,7 @@ end
 # VGC's point-on-line constraint (`constraint_with_jacobians(::Line2D, x)`: g = n·x + d,
 # G_x = n) with the model row in the line's Hesse chart (φ, d) — VGC's
 # `action_jacobian(Line2DManifold(l), x)` = (t·x, 1); the point's covariance
-# shape is its `measurement_covariance`, which VGC's whitened residual weighs by.
+# shape is its `observation_covariance`, which VGC's whitened residual weighs by.
 @inline function constraint_with_jacobians(
         p::LineFittingProblem{T},
         model::Line2D{T}, i::Int
@@ -118,7 +118,7 @@ end
     ∂_θg = SVector{2, T}(action_jacobian(Line2DManifold(model), x))
     return (g, Vec2{T}(G_x), ∂_θg)
 end
-@inline measurement_covariance(p::LineFittingProblem, i::Int) = @inbounds p.cov_shapes[i]
+@inline observation_covariance(p::LineFittingProblem, i::Int) = @inbounds p.cov_shapes[i]
 provides_solver_covariance(::Type{<:LineFittingProblem}) = true   # predictive scoring (covariance.jl)
 
 # =============================================================================

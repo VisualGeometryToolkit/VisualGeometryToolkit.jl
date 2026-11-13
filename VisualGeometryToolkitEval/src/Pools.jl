@@ -2,7 +2,7 @@
 # Pools — the scoring-pool IO of the stack: the in-memory pool (`ScoringPool`
 # of VisualGeometryToolkitCore `PoolPair` records) and its residual matrices
 # (`PoolResiduals`), bound by the content key `pool_key`; the one writer and
-# reader of each (format 5 light files, format 1 residuals files: PLAIN data,
+# reader of each (format 6 light files, format 1 residuals files: PLAIN data,
 # no stack type serialized); the per-scene loaders; the generic scene-pool
 # orchestration `write_scene_pool`; the PnP pool file; and the synthetic E pool
 # pair of the engine tests; and the minimal-sample boundaries of a pool
@@ -37,13 +37,14 @@ using JLD2: JLD2
 using Dates: Dates
 using SHA: SHA
 using Rotations: RotY, RotZ
-using VisualGeometryToolkitCore: FundMat, HomographyMat, EssentialMat, NormalizedImageFrame, csponds, sources,
+using VisualGeometryToolkitCore: FundMat, HomographyMat, EssentialMat, NormalizedImageFrame, correspondences, sources,
     targets, sampson_distance
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 using VisualGeometryToolkitIO: write_staged
-using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene, pixel_csponds
+using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pair_scene, pixel_correspondences
 import .._save_artifact, .._check_artifact_format, .._format_key, .._artifact_format, ..ARTIFACT_FORMATS   # artifact_format.jl
-using ..Stats: stable_seed, POOL_RNG
+using ..Stats: stable_seed
+using StableRNGs: StableRNG
 import ..Tuning: sampling_unit
 using ..Tuning: PairUnit
 

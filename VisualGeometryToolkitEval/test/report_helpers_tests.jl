@@ -28,7 +28,7 @@
     using VisualGeometryToolkitEval.Pools: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
         load_pool
     using VisualGeometryToolkitCore: FundMat, sources, targets
-    using VisualGeometryToolkitCore.Pools: PoolPair, pixel_csponds
+    using VisualGeometryToolkitCore.Pools: PoolPair, pixel_correspondences
 
     # ---- the originals, verbatim ------------------------------------------------
     ut_q(v, p) = isempty(v) ? NaN : quantile(v, p)
@@ -307,11 +307,11 @@
             mkpath(dirname(path))
             jldsave(path; scene = String(scene), n_pairs = length(ps), pair_indices = collect(Int, idx),
                     pool_key = pool.pool_key,
-                    matches = [Matrix{Float64}(match_matrix(pixel_csponds(p))) for p in ps],
+                    matches = [Matrix{Float64}(match_matrix(pixel_correspondences(p))) for p in ps],
                     snn = [Float64.(p.snn) for p in ps],
                     K1 = [Matrix{Float64}(p.K1) for p in ps], K2 = [Matrix{Float64}(p.K2) for p in ps],
                     R_gt = [Matrix{Float64}(p.R_gt) for p in ps], t_gt = [Vector{Float64}(p.t_gt) for p in ps],
-                    provenance = "load_pool($(scene)) pool_key $(pool.pool_key); pixel_csponds + snn + K/R/t " *
+                    provenance = "load_pool($(scene)) pool_key $(pool.pool_key); pixel_correspondences + snn + K/R/t " *
                                  "as stored; pool pairs $(collect(idx)); julia $(VERSION)",
                     created = "FIXED")
             return path
@@ -339,7 +339,7 @@
             @test isfile(export_pixel_inputs(joinpath(dir, "skip.jld2"), bare, [1, 3]))
         end
         # a pair without correspondences is the layout's empty matrix
-        empty_cs = VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])
+        empty_cs = VgtkCore.correspondences(SVector{2, Float64}[], SVector{2, Float64}[])
         m0 = VgtkEval.Pools._match_matrix(empty_cs)
         @test m0 isa Matrix{Float64} && size(m0) == (0, 4)
     end

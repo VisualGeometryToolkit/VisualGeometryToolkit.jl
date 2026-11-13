@@ -5,7 +5,7 @@
 # is the first-order, structure-marginalized approximation of the reprojection
 # error this problem optimizes exactly.
 #
-# Reprojection is done THROUGH THE CAMERA INTRINSICS (K₁, K₂) in the measurement
+# Reprojection is done THROUGH THE CAMERA INTRINSICS (K₁, K₂) in the observation
 # frame — `π(Kᵢ·X)` — so the residual lives where the noise lives
 # (the same frame the scoring's outlier half-width and σ̂² are calibrated in, and the same frame the
 # MSAC LO `refine_relpose` uses with Kc as cameras).  All geometry is carried as
@@ -28,7 +28,7 @@
 #     LocalOptimizationDoneRight src/engines/refit.jl): POSE-ONLY refinement of the TRUNCATED Sampson
 #     loss — the LO-RANSAC standard (+PoseLib(TLS)/(LZ)). First-order,
 #     structure-free, hard-thresholded; a comparison baseline, not a bundle.
-# Both use Kc as cameras in the same measurement frame; the objective (exact
+# Both use Kc as cameras in the same observation frame; the objective (exact
 # reprojection bundle vs truncated Sampson) and the variable set (structure vs
 # pose-only) are what differ.
 #
@@ -432,7 +432,7 @@ end
     RelposeBundleProblem(K1, K2, cs)
 
 Two-view relative pose scored by exact reprojection (full-3D bundle), refit by
-robust Schur-reduced BA.  `K1`,`K2` are the intrinsics of the measurement frame
+robust Schur-reduced BA.  `K1`,`K2` are the intrinsics of the observation frame
 (`π(Kᵢ·X)`), given models first; `cs` the `u₁ => u₂` correspondences in that
 frame (canonical image points), any `sources`/`targets` container.
 Same model/constraint as `EssentialProblem` (epipolar, codimension 1).

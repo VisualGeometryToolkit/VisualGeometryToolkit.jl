@@ -106,7 +106,7 @@ using VisualGeometryToolkitEstimation
         # Calibrated points moved into the PIXEL domain of ECAM: `find_essential`
         # takes pixels and the cameras that produced them, and its threshold is
         # in pixels too.
-        pxcs = csponds(topx.(u₁), topx.(u₂))
+        pxcs = correspondences(topx.(u₁), topx.(u₂))
         # The noise is 0.002 calibrated = 1.6 px in ECAM, above the class's
         # 1 px convention: a threshold of ~3σ (the default itself is
         # core_defaults' test, on a 0.4 px scene).
@@ -119,7 +119,7 @@ using VisualGeometryToolkitEstimation
         @test abs(s[1] - s[2]) / s[1] < 1.0e-6
         @test s[3] / s[1] < 1.0e-6
 
-        @test let r = find_essential(ECAM, ECAM, csponds(topx.(u₁[1:4]), topx.(u₂[1:4])); rng = StableRNG(140))
+        @test let r = find_essential(ECAM, ECAM, correspondences(topx.(u₁[1:4]), topx.(u₂[1:4])); rng = StableRNG(140))
             retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
         end
         # The floor refusal: a threshold carried over in the OLD calibrated

@@ -167,7 +167,7 @@ scratch and the camera keeps its family (its lens type).
   in the target's frame), keyed like `views`.
 - `views` — per view, its correspondences `cs = [X => u, …]`: `X` a target
   point (3-vector), `u` the pixel it is detected at (2-vector). Grouped data:
-  an `AbstractDict{K, <:AbstractVector{<:Cspond}}` keyed by the view, with
+  an `AbstractDict{K, <:AbstractVector{<:Correspondence}}` keyed by the view, with
   `poses::AbstractDict{K}` of the same keys (block order: the sorted keys; an
   `ArgumentError` when the key sets differ), or a vector of views with a vector
   of poses of the same length. Every point must project at the guess (in front
@@ -291,7 +291,7 @@ metres. The residuals are pixels either way.
 """
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{K, <:PlainEuclideanMap{3}},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     ) where {K}
     ids = block_order(views, poses)
@@ -300,7 +300,7 @@ function refine_camera_and_poses(
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:PlainEuclideanMap{3}},
-        views::AbstractVector{<:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractVector{<:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     )
     length(poses) == length(views) || throw(ArgumentError("refine_camera_and_poses: $(length(poses)) poses for $(length(views)) views"))
@@ -311,7 +311,7 @@ end
 # by (view, board). Each connected component of the view–board graph has a held pose: its gauge.
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{V, <:PlainEuclideanMap{3}}, board_poses::AbstractDict{B, <:PlainEuclideanMap{3}},
-        views::AbstractDict{<:Tuple{V, B}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractDict{<:Tuple{V, B}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         held_boards = nothing, held_views = (), kwargs...
     ) where {V, B}
     VgtkCore.Cameras.IntrinsicsRole(_camera_model(camera).lens) isa VgtkCore.Cameras.FreeIntrinsics || throw(ArgumentError(
@@ -370,19 +370,19 @@ end
 # refinement, the poses read back in metres once.
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{K, <:_PhysicalPose3},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     ) where {K}
     r = refine_camera_and_poses(
-        camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_csponds(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
+        camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_correspondences(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
     est = estimate(r)
     return FitResult((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
-        views::AbstractVector{<:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
+        views::AbstractVector{<:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     )
-    r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
+    r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_correspondences(_plain_metres, identity, cs) for cs in views]; kwargs...)
     est = estimate(r)
     return FitResult((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end

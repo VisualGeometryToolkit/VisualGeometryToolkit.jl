@@ -1,9 +1,9 @@
 # =============================================================================
 # stereo_datasets_tests.jl — the depth-validated stereo datasets and the
-# consolidated-csponds producer (src/datasets/stereo_datasets.jl, eth3d.jl,
+# consolidated-correspondences producer (src/datasets/stereo_datasets.jl, eth3d.jl,
 # kitti.jl, scannet1500.jl, seven_scenes.jl, sparse_matches.jl,
 # consolidate.jl): the interface is whole, every reader against the layout it
-# reads (written here), and `consolidate_csponds` end to end on a two-frame
+# reads (written here), and `consolidate_correspondences` end to end on a two-frame
 # 7-Scenes-shaped tree whose geometry is known, read back by `load_roma_pairs`.
 # =============================================================================
 
@@ -15,14 +15,14 @@
     using HDF5: h5open, attrs
     using PNGFiles: PNGFiles
     using VisualGeometryToolkitEval.Datasets: AbstractStereoDataset, ETH3D, ScanNet1500, KITTI, SevenScenes,
-        StereoPair, GTConfig, stereo_pairs, load_validation_data, gt_config, consolidate_csponds,
+        StereoPair, GTConfig, stereo_pairs, load_validation_data, gt_config, consolidate_correspondences,
         load_sparse_matches, load_roma_pairs, CONSOLIDATED_FORMAT
     import VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Csponds, sources, targets
+    using VisualGeometryToolkitCore: Correspondences, sources, targets
     const _D = VgtkEval.Datasets
     rng = MersenneTwister(20261009)
 
-    @testset "the interface: every dataset can drive consolidate_csponds" begin
+    @testset "the interface: every dataset can drive consolidate_correspondences" begin
         for T in (ScanNet1500, ETH3D, KITTI, SevenScenes)
             @test hasmethod(stereo_pairs, Tuple{T})
             @test hasmethod(load_validation_data, Tuple{T, NamedTuple, Any})
@@ -130,7 +130,7 @@
             end
             for name in ("splg.h5", "roma.h5")
                 m = load_sparse_matches(joinpath(d, name))
-                @test m isa Csponds && m.confidence == c          # the confidence travels with its matches
+                @test m isa Correspondences && m.confidence == c          # the confidence travels with its matches
                 @test m[2:3].confidence == c[2:3]
                 @test collect(sources(m)) == [SVector{2,Float32}(a[:, i]) for i in 1:4]
                 @test collect(targets(m)) == [SVector{2,Float32}(b[:, i]) for i in 1:4]
@@ -142,7 +142,7 @@
         end
     end
 
-    @testset "consolidate_csponds end to end: a plane 2 m away, the camera moved 10 cm" begin
+    @testset "consolidate_correspondences end to end: a plane 2 m away, the camera moved 10 cm" begin
         root, matches, out = mktempdir(), mktempdir(), mktempdir()
         seq = joinpath(root, "chess", "seq-03"); mkpath(seq)
         f, cx, cy = 585.0, 320.0, 240.0
@@ -164,7 +164,7 @@
         @test VgtkCore.extrinsics(rig).t[1] ≈ -10.0 * VgtkCore.cm
         # the consolidated record is plain data: a plain rig is refused there
         plain = merge(only(ps), (; rig = VgtkCore.ustrip(VgtkCore.m, rig)))
-        @test_throws ArgumentError _D._consolidated_record(plain, (csponds = nothing, confidence = nothing), BitVector())
+        @test_throws ArgumentError _D._consolidated_record(plain, (correspondences = nothing, confidence = nothing), BitVector())
         # a point at depth Z moves by −f·0.1/Z = −29.25 px; the last match is 40 px off
         src = Float32[200 300 400 350; 150 250 300 200]
         tgt = copy(src); tgt[1, :] .-= 29.25f0; tgt[1, 4] -= 40
@@ -172,7 +172,7 @@
             h["kpts_A"] = src; h["kpts_B"] = tgt; h["scores"] = Float32[0.9, 0.8, 0.7, 0.6]
             attrs(h)["matcher"] = "superpoint+lightglue"
         end
-        written = consolidate_csponds(ds, :roma; match_dir = matches, out_dir = out)
+        written = consolidate_correspondences(ds, :roma; match_dir = matches, out_dir = out)
         @test written == [joinpath(out, "chess__seq-03.jld2")]
         @test _D.JLD2.load(only(written), "format") == CONSOLIDATED_FORMAT
         @test _D.JLD2.load(only(written), "gt_method") === :depth_warp_seven_scenes_kinect
@@ -182,6 +182,14 @@
         @test rp.scene == "chess/seq-03" && rp.src_id == "frame-000000.color"
         @test rp.R_gt ≈ I && rp.t_gt ≈ [-0.1, 0, 0]                         # source camera → target camera
         @test rp.size1 == VgtkCore.Size2(640, 480)
-        @test [p.first for p in rp.csponds] == [SVector{2,Float64}(src[:, i]) for i in 1:4]
+        @test [p.first for p in rp.correspondences] == [SVector{2,Float64}(src[:, i]) for i in 1:4]
+        # a format-2 file (the correspondences under the key the terminology ruling retired) reads the same
+        f2 = joinpath(out, "format2.jld2")
+        d = _D.JLD2.load(only(written))
+        former = Symbol("cs" * "ponds")
+        rename(e) = NamedTuple{map(k -> k === :correspondences ? former : k, keys(e))}(values(e))
+        _D.JLD2.jldsave(f2; (Symbol(k) => v for (k, v) in d if k ∉ ("pairs", "format"))..., pairs = rename.(d["pairs"]), format = 2)
+        rp2 = only(load_roma_pairs(f2))
+        @test rp2.correspondences == rp.correspondences && rp2.gt_inliers == rp.gt_inliers && rp2.snn == rp.snn
     end
 end

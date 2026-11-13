@@ -174,7 +174,7 @@ residual_dof(p::AbstractRansacProblem, n_in::Int) = residual_dof(typeof(p), n_in
 
 Residual DOF when residuals are measured against an **oracle** model that was
 NOT fitted to these `n` points (e.g. the COLMAP ground-truth pose evaluated on a
-pair's SfM-track keypoints): no parameters are consumed, so
+pair's SfM-track observations): no parameters are consumed, so
 
     ν = n · d_g          (vs `residual_dof`'s `(n − m)·d_g` for a *fitted* model)
 
@@ -338,7 +338,7 @@ through `_refine!(::RefitKind, ws, p, θ, weights)` (see `refit_kind` /
   relative-pose bundle (a Schur-reduced full-3D BA, relpose_bundle.jl); a
   LINEAR problem's one-step algorithm under the weights, θ unread —
   `LineFittingProblem` (line.jl), a `RelativeProblem` handed a `DltWorkspace`
-  (the weighted DLT, cspond.jl).
+  (the weighted DLT, correspondence.jl).
 - `NoRefit` (no chart) → `nothing` (no step in this shape).
 
 `lo_ws` is the refit workspace (`refine_workspace`; a local optimizer holds it):
@@ -627,7 +627,7 @@ end
 # imports VGC's `constraint_with_jacobians` at module top level, so the methods
 # below extend the same function — there is no separate RVG-side function with
 # the same name. Concrete `(problem, model, i::Int)` methods live in each
-# problem file (cspond.jl, line.jl).
+# problem file (correspondence.jl, line.jl).
 
 
 # NOTE: SvdWorkspace and svd_nullvec! are defined in VisualGeometryToolkitCore

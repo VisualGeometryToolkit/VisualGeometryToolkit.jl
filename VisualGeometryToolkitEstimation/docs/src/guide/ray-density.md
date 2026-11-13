@@ -7,7 +7,7 @@ VisualGeometryToolkitCore's `StudentTUniformScoring`).
 
 Consider a geometric model ``\theta`` with ``d_g``-dimensional algebraic
 constraint ``\boldsymbol{g}(\boldsymbol{x}, \theta) = 0``, where
-``\boldsymbol{x} \in \mathbb{R}^d`` is the measurement. With Gaussian noise
+``\boldsymbol{x} \in \mathbb{R}^d`` is the observation. With Gaussian noise
 ``\boldsymbol{x} \sim \mathcal{N}(\bar{\boldsymbol{x}}, \sigma^2 I_d)``, the
 first-order approximation gives:
 

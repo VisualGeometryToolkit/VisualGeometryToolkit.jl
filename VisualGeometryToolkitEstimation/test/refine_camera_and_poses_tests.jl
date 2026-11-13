@@ -127,7 +127,7 @@ end
 @testitem "refine_camera_and_poses: a held camera, dict and vector forms, lengths, refusals" setup = [CameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: parameter_vector, parameter_names, with_parameters, estimate, retcode, EuclideanMap, m, ustrip, with_unit, Csponds
+    using VisualGeometryToolkitCore: parameter_vector, parameter_names, with_parameters, estimate, retcode, EuclideanMap, m, ustrip, with_unit, Correspondences
     using VisualGeometryToolkitEstimation: refine_camera_and_poses
     cam = pinhole_camera(); Es = truth_poses(3)
     views = views_of(cam, Es, 0.5)
@@ -146,11 +146,11 @@ end
         @test_throws r"give `fixed`" refine_camera_and_poses(cam, poses0, views; (; kw => ())...)
     end
     @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-9
-    # a dict keyed by view: the same estimate, keyed back; a Csponds view is one too
+    # a dict keyed by view: the same estimate, keyed back; a Correspondences view is one too
     cam0 = with_parameters(cam, parameter_vector(cam) .* SVector(1.02, 1.0, 1.0, 1.0, 1.0))
     rv = refine_camera_and_poses(cam0, poses0, views; optimization_strategy = nothing)
     rd = refine_camera_and_poses(cam0, Dict(:c => poses0[3], :a => poses0[1], :b => poses0[2]),
-                                 Dict(:a => views[1], :b => views[2], :c => Csponds(first.(views[3]), last.(views[3]))); optimization_strategy = nothing)
+                                 Dict(:a => views[1], :b => views[2], :c => Correspondences(first.(views[3]), last.(views[3]))); optimization_strategy = nothing)
     @test parameter_vector(estimate(rd).camera) ≈ parameter_vector(estimate(rv).camera) rtol = 1.0e-12
     @test estimate(rd).poses[:b].t ≈ estimate(rv).poses[2].t rtol = 1.0e-12
     # lengths in, lengths out (metres), the same refinement
@@ -848,7 +848,7 @@ end
         @test VE.pixel_whitening_defect(normalize(fg), Mg .* NaN) === :nonfinite
         @test VE.pixel_whitening_defect(normalize(fg), hcat(normalize(fg), Mg[:, 2])) === :not_tangent
         good = [VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(c)) for c in exact[3][1:3]]
-        @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Csponds(
+        @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Correspondences(
             [first(c) for c in exact[3][[1, 2, 3, 30]]], push!([normalize(g[1]) for g in good], f0); M = push!([g[2] for g in good], fM[2])))
         ids = sort(collect(keys(t.R)))
         blocks, without = VE._rotation_center_bearing_blocks(singular, ids, exact)

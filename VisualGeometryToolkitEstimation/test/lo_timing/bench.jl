@@ -40,7 +40,7 @@ include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "lo_timing", "bench_
 
 Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); got $(Threads.nthreads()) threads")
 
-include(joinpath(@__DIR__, "call_set.jl"))   # read_fixture, pool_csponds, problem_of: the call set's one reader
+include(joinpath(@__DIR__, "call_set.jl"))   # read_fixture, pool_correspondences, problem_of: the call set's one reader
 
 # The Table 1 arms at the equal LO budget. The efficiency constants are the Welsch
 # grid's centre (GM at the plain multiple whose half-weight depth is the Welsch

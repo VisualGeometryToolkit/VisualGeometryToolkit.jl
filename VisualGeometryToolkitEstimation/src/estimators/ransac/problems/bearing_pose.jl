@@ -69,7 +69,7 @@ end
     BearingPoseProblem(cs; sampler = nothing)
 
 The absolute-pose problem on unit BEARINGS: `cs` pairs world points with the
-camera-frame unit bearings observing them, `X => f` (a `Csponds`, a
+camera-frame unit bearings observing them, `X => f` (a `Correspondences`, a
 `StructArray` or a Pair vector), for a camera the caller back-projects itself.
 The model is the camera extrinsics (world → camera, `x_c = R·X + t`, the
 `Extrinsics3` of [`AbsolutePoseProblem`](@ref)); the residual is the tangent-
@@ -121,7 +121,7 @@ function BearingPoseProblem(
     Bs = map(f -> VgtkCore.s2_tangent_basis_matrix(Float64, f), fs)   # the residual's coordinates
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
     ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing)
-    data = VgtkCore.Csponds(Xs, fs)
+    data = VgtkCore.Correspondences(Xs, fs)
     return MinimalSolveProblem{Extrinsics3, 3}(data, nothing, data, nothing, VgtkCore.P3P(), ctx, smplr)
 end
 

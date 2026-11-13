@@ -83,7 +83,7 @@ end
 
 # The distorted-image rig (lens models of `dslr_calibration_jpg`), the
 # correspondences moved into it, and the two laser depth maps.
-function _eth3d_validation_data(scenes_root::AbstractString, p, csponds_undist::AbstractVector)
+function _eth3d_validation_data(scenes_root::AbstractString, p, correspondences_undist::AbstractVector)
     scene_dir = joinpath(scenes_root, p.scene)
     mdl = _eth3d_model(scene_dir, "dslr_calibration_jpg")
     cameras = Dict(c.camera_id => c for c in mdl.cameras)
@@ -93,10 +93,10 @@ function _eth3d_validation_data(scenes_root::AbstractString, p, csponds_undist::
     rig = StereoRig(_eth3d_camera(ca, im_a), _eth3d_camera(cb, im_b))
     depth_src = _load_eth3d_depth(joinpath(scene_dir, "ground_truth_depth", im_a.name), Int(ca.width), Int(ca.height))
     depth_tgt = _load_eth3d_depth(joinpath(scene_dir, "ground_truth_depth", im_b.name), Int(cb.width), Int(cb.height))
-    src = [_undistorted_to_distorted(source(p.rig), source(rig), centroid(c.first)) for c in csponds_undist]
-    tgt = [_undistorted_to_distorted(destination(p.rig), destination(rig), centroid(c.second)) for c in csponds_undist]
-    return (; rig, csponds = csponds(src, tgt), depth_src, depth_tgt)
+    src = [_undistorted_to_distorted(source(p.rig), source(rig), centroid(c.first)) for c in correspondences_undist]
+    tgt = [_undistorted_to_distorted(destination(p.rig), destination(rig), centroid(c.second)) for c in correspondences_undist]
+    return (; rig, correspondences = correspondences(src, tgt), depth_src, depth_tgt)
 end
 
 stereo_pairs(ds::ETH3D) = eth3d_pairs(ds.scenes_root; min_covisibility = ds.min_covisibility)
-load_validation_data(ds::ETH3D, p::NamedTuple, csponds) = _eth3d_validation_data(ds.scenes_root, p, csponds)
+load_validation_data(ds::ETH3D, p::NamedTuple, correspondences) = _eth3d_validation_data(ds.scenes_root, p, correspondences)

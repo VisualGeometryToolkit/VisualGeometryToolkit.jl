@@ -7,12 +7,12 @@
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Rotations: RotMatrix, RotXYZ, rotation_angle
-    using VisualGeometryToolkitCore: Csponds, estimate, retcode, rms, HuberShape, WelschShape
+    using VisualGeometryToolkitCore: Correspondences, estimate, retcode, rms, HuberShape, WelschShape
     using VisualGeometryToolkitEstimation: fit_rotation
     using VisualGeometryToolkitCore: Irls
     R = RotMatrix(RotXYZ(0.4, -1.1, 2.3))
     as = [normalize(SVector(sin(3k), cos(5k), sin(7k + 1))) for k in 1:30]
-    cs = Csponds(as, [R * a for a in as])
+    cs = Correspondences(as, [R * a for a in as])
     for K in (HuberShape, WelschShape)
         res = fit_rotation(cs; optimization_strategy = Irls{K}(), scale = 1.0e-3)
         @test retcode_symbol(res) === :converged
@@ -20,9 +20,9 @@
         @test rms(res) < 1.0e-14
     end
     # directions of any length are directions
-    @test rotation_angle(estimate(fit_rotation(Csponds(3 .* as, [R * a for a in as]); scale = 1.0e-3)) * R') < 1.0e-14
+    @test rotation_angle(estimate(fit_rotation(Correspondences(3 .* as, [R * a for a in as]); scale = 1.0e-3)) * R') < 1.0e-14
     @test rotation_angle(estimate(fit_rotation(cs; optimization_strategy = nothing)) * R') < 1.0e-14
-    @test_throws ArgumentError fit_rotation(Csponds(as[1:1], as[1:1]); scale = 1.0e-3)
+    @test_throws ArgumentError fit_rotation(Correspondences(as[1:1], as[1:1]); scale = 1.0e-3)
 end
 
 @testitem "fit_rotation: 20% outliers" begin
@@ -31,7 +31,7 @@ end
     using LinearAlgebra: normalize, norm, cross
     using Rotations: RotMatrix, RotXYZ, rotation_angle
     using StableRNGs: StableRNG
-    using VisualGeometryToolkitCore: Csponds, withattrs, estimate, retcode, kabsch, HuberShape, WelschShape, TLSShape,
+    using VisualGeometryToolkitCore: Correspondences, withattrs, estimate, retcode, kabsch, HuberShape, WelschShape, TLSShape,
         weight, angle_between, efficiency_constant
     using VisualGeometryToolkitEstimation: fit_rotation
     using VisualGeometryToolkitCore: Irls
@@ -49,7 +49,7 @@ end
     for i in out
         bs[i] = normalize(randn(rng, SVector{3, Float64}))
     end
-    cs = Csponds(as, bs)
+    cs = Correspondences(as, bs)
     plain = rotation_angle(kabsch(cs) * R')
     @test plain > 10σ                                              # the outliers pull the least-squares rotation away
     # The documented tolerance: within 3σ/√n_inliers·√2 ≈ the noise floor of

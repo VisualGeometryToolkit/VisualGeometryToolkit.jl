@@ -68,7 +68,7 @@ board (board → world) to the same bundle, the correspondences keyed by
 `(view, board)`; each connected group of views and boards keeps its gauge by a
 held pose (its first board by default, `held_boards`/`held_views`), exactly.
 
-`refine_camera_and_poses(camera, views::RotationCenterViews, csponds)` refines
+`refine_camera_and_poses(camera, views::RotationCenterViews, correspondences)` refines
 the views of a camera turned about one fixed point (a tripod head) under one
 rigid motion model, one rotation per view and a shared centre and offset, the
 camera held. Its residual is each dot's BEARING for every camera: the dot

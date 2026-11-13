@@ -39,12 +39,12 @@ _plain_metres(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
 # rotation (of any parameterization) and the frames kept exactly.
 _attach_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
 
-# A correspondence set with its endpoints mapped: a `Csponds` keeps its
+# A correspondence set with its endpoints mapped: a `Correspondences` keeps its
 # attribute columns (a PROSAC `score`, `weights`), so the plain set samples and
 # weighs exactly as the physical one would.
-_map_csponds(fs, ft, cs::VgtkCore.Csponds) =
-    VgtkCore.Csponds(map(fs, sources(cs)), map(ft, targets(cs)), VgtkCore.attrs_of(cs))
-_map_csponds(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) for c in cs]
+_map_correspondences(fs, ft, cs::VgtkCore.Correspondences) =
+    VgtkCore.Correspondences(map(fs, sources(cs)), map(ft, targets(cs)), VgtkCore.attrs_of(cs))
+_map_correspondences(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) for c in cs]
 
 # A RANSAC (or any) result with its model read as metres: everything else as it was.
 _attach_metres(r::FitResult) = VgtkCore.map_estimate(_attach_metres, r)

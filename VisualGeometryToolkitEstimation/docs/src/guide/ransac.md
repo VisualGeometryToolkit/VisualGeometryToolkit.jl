@@ -9,12 +9,12 @@ another package composes with every problem here.
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, SA, estimate, iterations, MsacScoring, TLSShape
+using VisualGeometryToolkitCore: correspondences, SA, estimate, iterations, MsacScoring, TLSShape
 
 src = [SA[100.0, 200.0], SA[300.0, 150.0], ...]
 dst = [SA[112.0, 195.0], SA[310.0, 148.0], ...]
 
-problem = HomographyProblem(csponds(src, dst))
+problem = HomographyProblem(correspondences(src, dst))
 scoring = MsacScoring(problem; threshold = 2.0)    # pixels
 result  = ransac(problem, scoring; local_optimization_strategy = Irls{TLSShape}())
 ```

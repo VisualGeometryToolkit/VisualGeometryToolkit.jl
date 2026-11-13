@@ -358,8 +358,8 @@ trait, `GaugeIntrinsics`, selects it):
   re-gauged from it.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
-  `fit_camera(SplineLens, …; tolerance = forward_tolerance)` (pixels), which
-  needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). It is
+  [`fit_forward_spline`](@ref)`(…; tolerance = forward_tolerance)` (pixels: the
+  refined camera's backward, K and frame kept), which needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). It is
   never kept, even with `fixed = (:controls,)`: the entry's turn of the frame leaves it stale.
 - The model: the target is exact, so the estimate is the maximum-likelihood
   one under isotropic Gaussian detection noise (penalized by the

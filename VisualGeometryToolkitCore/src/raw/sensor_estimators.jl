@@ -2,9 +2,10 @@
 # The sensor estimators — a characterisation's components from frames, offline (D1)
 # =============================================================================
 #
-#   photon_transfer   the ONE estimator of the gain K and σ_r: from one frame (its green pairs, an estimated
-#                     PoissonGaussian) or from groups of frames at equal exposure (the per-photosite temporal
-#                     variance, a measured PoissonGaussian); one block kernel, one fit
+#   photon_transfer   the ONE estimator of the gain K: the photon-transfer series (frames at equal exposure: per
+#                     green photosite their temporal variance, the intercept the darks' at each exposure), a
+#                     measured PoissonGaussian in the stack's FitResult; and, scheduled for removal in the next
+#                     breaking wave, one frame's green pairs (an estimated PoissonGaussian); one block kernel, one fit
 #   master_dark       the ONE dark-frame estimator: a Dark (its ChannelBlack, the
 #                     per-photosite offset and variance), the ReadNoise, the defects
 #   defect_onsets     per-exposure defect masks into ONE DefectList (each site's
@@ -121,100 +122,190 @@ function _whole_blocks(n)
 end
 
 """
+    PhotonTransferMetadata
+
+The [`FitResult`](@ref) metadata of [`photon_transfer`](@ref)`(groups, darks)`
+(its estimate a [`PoissonGaussian`](@ref)), read through the result's forwarded
+properties:
+
+- `level_range::NTuple{2, Float64}` — the fit's lowest and highest point (block
+  means, codes above black); `level_fraction` the same as fractions of the white
+  level above black (the greens' span);
+- `intercept::Float64` — σ₀² (codes²), the variance at zero signal, fixed from
+  the darks at each group's own exposure (the median over the fitted points);
+- `curvature`, `curvature_t` — the μ² coefficient `c` of `v = σ₀² + μ/K + cμ²`
+  over the range and its `t` (`c` over its standard error);
+- `tests`, `test_level` — the μ² tests the lower end's search can perform (`m`,
+  the candidate lower ends) and each test's two-sided level, `significance / m`
+  (Bonferroni: the search's family-wise rate is `significance`);
+  `rollover_tests`, `rollover_level` the same for the upper end's rollover tests
+  (one-sided);
+- `points_offered` — the points before the range search (the result's `n` is the
+  points fitted).
+"""
+struct PhotonTransferMetadata
+    level_range::NTuple{2, Float64}
+    level_fraction::NTuple{2, Float64}
+    intercept::Float64
+    curvature::Float64
+    curvature_t::Float64
+    tests::Int
+    test_level::Float64
+    rollover_tests::Int
+    rollover_level::Float64
+    points_offered::Int
+end
+
+"""
+    photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}},
+                    darks::AbstractDict{<:Quantity, <:ReadNoise}; sensor_model::SensorModel = SensorModel(),
+                    block = 8, normalize = true, significance = 0.001) -> FitResult{PoissonGaussian, PhotonTransferMetadata}
     photon_transfer(mosaic::RawMosaic; sensor_model::SensorModel = SensorModel(), block = 8, significance = 0.001)
         -> PoissonGaussian
-    photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model::SensorModel = SensorModel(),
-                    block = 8, normalize = true, significance = 0.001) -> PoissonGaussian
 
 THE estimator of a sensor's Poisson–Gaussian noise for a characterisation's
 entry, built offline (owner ruling D1: the resolver [`sensor_model`](@ref)
-never estimates): the conversion gain K (electrons per code) and the read noise
-σ_r (codes, the rounding included: a Gaussian read noise σ plus the code's
-rounding is `√(σ² + 1/12)`), by a photon-transfer fit of variance against mean,
-`v = μ/K + σ_r²`. Two inputs, one fit:
+never estimates): the conversion gain K (electrons per code), by a
+photon-transfer fit of variance against mean, `v = σ₀² + μ/K`.
 
-- **one frame** (`mosaic`), in the line of Foi et al. (2008), an ESTIMATED
-  [`PoissonGaussian`](@ref) (`SensorSource.estimated`): each 2×2 cell's two
-  greens see the same light, so their difference `d` carries no scene where the
-  scene is flat across the cell, and `Var d = 2(μ/K + σ_r²)` about their
-  black-subtracted mean μ. Per block, the cells' mean and the difference's sample
-  variance give a point `(μ̂, v̂ = s²/2)`, `v̂/v` following `χ²_{n−1}/(n − 1)` over
-  a whole block of `n` cells. A fixed pattern between the two greens (their gain
-  or response mismatch) does NOT cancel in `d`: it adds a term in μ², negligible
-  in a dim natural scene, dominant on a bright flat; the fit refuses it (below).
-- **groups of frames** (`groups`, the photon-transfer series: one group per
-  exposure, at least 2 frames each, of one body at one ISO), a MEASURED
-  `PoissonGaussian` (`SensorSource.measured`, a dedicated capture): per green
-  photosite its TEMPORAL variance over the group's frames, which cancels the
-  scene and every fixed pattern, `v = μ/K + σ_r²` about its mean μ. Pairs are the
-  case of 2 frames. With `normalize` (the default) each frame is first scaled to
-  its group's mean (its greens' black-subtracted mean over the group's: a source
-  that flickers between frames adds no μ² term). Per block, the photosites' means
-  and their pooled variance give a point, `v̂/v` following
-  `χ²_{p(N−1)}/(p(N − 1))` over a whole block of `p` photosites and `N` frames;
-  every group gives its first `N` frames, `N` the smallest group's, so every
-  block follows that one law.
+**The photon-transfer series** (`groups`, exposure `=>` the frames at that
+exposure, at least 2 each, of one body at one ISO; `darks`, exposure `=>` the
+[`ReadNoise`](@ref) of [`master_dark`](@ref) over the darks of that exposure),
+a MEASURED [`PoissonGaussian`](@ref) (`SensorSource.measured`, a dedicated
+capture) in a [`FitResult`](@ref) (its [`estimate`](@ref)), its metadata a
+[`PhotonTransferMetadata`](@ref): per green photosite its TEMPORAL variance over
+the group's frames, which cancels the scene and every fixed pattern, about its
+mean μ. Pairs are the case of 2 frames. With `normalize` (the default) each frame
+is first scaled to its group's mean (its greens' black-subtracted mean over the
+group's: a source that flickers between frames adds no μ² term). Per block, the
+photosites' means and their pooled variance give a point, `v̂/v` following
+`χ²_{p(N−1)}/(p(N − 1))` over a whole block of `p` photosites and `N` frames;
+every group gives its first `N` frames, `N` the smallest group's, so every block
+follows that one law.
 
-Per block of `block × block` cells (one KernelAbstractions work item each, on
-the frames' device), a sample with a photosite at the white level, or under the
+- THE INTERCEPT is fixed at each group's own exposure t: `σ₀²(t)`, the read
+  noise and dark-current noise of the darks at that exposure, the greens'
+  `σ[c + 1]²` of `darks[t]`. A group whose exposure has no entry in `darks`
+  (equal in seconds) is an `ArgumentError`: never interpolated, never
+  substituted. The fit is the slope alone, `v − σ₀²(t) = μ/K`.
+- THE RANGE is derived from the data, at least 3 points: the upper end below the
+  variance's rollover (the top point dropped while it lies significantly below
+  the line fitted to the points under it, one-sided), then the lower end, the
+  lowest point from which the line passes the μ² test (the lowest point dropped
+  until it does). Each search runs its tests at `significance / m`, `m` the tests
+  it can perform (Bonferroni: the search's family-wise false-alarm rate is
+  `significance`); the range (in codes and as fractions of the white level), `m`
+  and the levels are in the result's metadata.
+- The result's σ_r is `√σ₀²` of the fitted points' darks (their median), its
+  standard error not the fit's (`0`); a characterisation states σ_r per colour
+  from `master_dark`'s `ReadNoise`.
+
+**One frame** (`mosaic`), in the line of Foi et al. (2008), an ESTIMATED
+`PoissonGaussian` (`SensorSource.estimated`): unreliable on flats, scheduled for
+removal in the next breaking wave; use the multi-frame method. A single flat
+frame cannot certify its own K (its brightness range gives the μ² test little
+power); for flat fields use the multi-frame photon-transfer method. Each 2×2
+cell's two greens see the same light, so their difference `d` carries no scene
+where the scene is flat across the cell, and `Var d = 2(μ/K + σ_r²)` about their
+black-subtracted mean μ. Per block, the cells' mean and the difference's sample
+variance give a point `(μ̂, v̂ = s²/2)`, `v̂/v` following `χ²_{n−1}/(n − 1)` over a
+whole block of `n` cells; the line's intercept σ_r² is fitted, over every point,
+with its standard error (σ_r stated for every colour index, the greens'). A fixed
+pattern between the two greens (their gain or response mismatch) does NOT cancel
+in `d`: it adds a term in μ², which the μ² test REFUSES.
+
+Both: per block of `block × block` cells (one KernelAbstractions work item each,
+on the frames' device), a sample with a photosite at the white level, or under the
 model's defect mask, is left out (CLIPPED, never modelled), and only whole blocks
-(the most usable samples any block has) enter the fit, every group's alike. The
-blocks are sorted by μ̂ into groups of equal count (`min(32, blocks ÷ 8)`); each
-group's median μ̂ and median `v̂ / q` (`q` that law's median, so the ratio is
-median-unbiased for v) are a point of the line. The line is fitted by weighted
-least squares, each point weighted by the inverse of its median's variance from
-the counts, `v²/(4 m f(q)² q²)` over a group of `m` blocks (`f` the law's
-density: the sample median's asymptotic variance), with v the line's own
-prediction (iterated to a fixed point from a start weighted at each point's own
-value). The median is robust to the blocks a scene edge raises. The standard
-errors are the fitted line's covariance from those counts; K's and σ_r's by
-first order. The read noise is the greens': the result states it for every
-colour index (`σ[c + 1]`, the same four numbers); a characterisation that holds
-σ_r per colour takes it from [`master_dark`](@ref)'s `ReadNoise`.
+(the most usable samples any block has) enter the fit. The blocks are sorted by
+μ̂ into points of equal count (`min(32, blocks ÷ 8)`; the series': per exposure,
+so a point never mixes two exposures' intercepts, an exposure of fewer than 8
+whole blocks left out); each point's median μ̂ and median `v̂ / q` (`q` that law's
+median, so the ratio is median-unbiased for v).
+The line is fitted by weighted least squares, each point weighted by the inverse
+of its median's variance from the counts, `v²/(4 m f(q)² q²)` over a point of `m`
+blocks (`f` the law's density: the sample median's asymptotic variance), with v
+the line's own prediction (iterated to a fixed point from a start weighted at
+each point's own value). The median is robust to the blocks a scene edge raises.
+The standard errors are the fitted line's covariance from those counts; K's by
+first order.
 
-THE REFUSAL: with at least 4 points, the same points are fitted again with a μ²
-term, `v = a + μ/K + cμ²`, at the same weights, and the estimate is refused when
-`c` is significant, `|ĉ / se(ĉ)|` above the two-sided normal quantile at
-`significance` (3.29 at the default 0.001): a fixed pattern the input does not
-cancel, or a nonlinear response. It never returns a K biased by it.
+THE μ² TEST: the points fitted again with a μ² term, `v = … + μ/K + cμ²`, at the
+same weights, and `c` significant when `|ĉ / se(ĉ)|` exceeds the two-sided normal
+quantile at the test's level (one frame: `significance`, 3.29 at the default
+0.001, over every point; the series: the lower end's search). It never returns a
+K biased by a μ² term it detects.
 
 `sensor_model` gives what is subtracted and left out, as it does for
 [`LinearRaw`](@ref): its black slot's per-colour black (a [`Dark`](@ref)'s
 offset per photosite in its place) and its defect slot's photosites; its noise
 slot is not read. Throws [`NoiseEstimateFailed`](@ref) with the reason when
 fewer than 16 whole blocks of at least 8 usable samples remain (a saturated
-frame), the points hold one level only (no slope), the μ² term is significant,
-or the fit is not physical (K or σ_r² not positive). A group of fewer than 2
-frames, or frames of another size, pattern or white level, is an `ArgumentError`.
+frame), the points hold one level only (no slope), one frame's μ² term is
+significant, no contiguous range of at least 3 points passes the series' μ² test,
+or the fit is not physical (K, or one frame's σ_r², not positive). A group of
+fewer than 2 frames, frames of another size, pattern or white level, or a group's
+exposure without darks, is an `ArgumentError`.
 """
 function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel(), block::Integer = 8,
                          significance::Real = 0.001)
+    _check_significance(significance)
     raw = parent(m)
     g = _green_sites(m, sensor_model, block, "photon_transfer")
     n, sm, sd, sd2 = _block_moments(_GreenPair(raw, g.s1, g.s2), m, sensor_model, g, block)
     full, keep = _whole_blocks(n)
     μ = [sm[k] / full for k in keep]
     v = [(sd2[k] - sd[k]^2 / full) / (full - 1) / 2 for k in keep]   # the difference's sample variance, halved
-    e = _photon_transfer_fit(μ, v, full - 1, significance,
-        "a fixed pattern the single-frame green difference does not cancel (a bright flat field): " *
-        "use photon_transfer(groups) on frames at equal exposure")
-    return PoissonGaussian(e.gain, ntuple(_ -> e.σ, Val(4)), (gain = e.gain_std_error, σ = ntuple(_ -> e.σ_std_error, Val(4)));
+    p = _ptc_check(_ptc_points(μ, v, zeros(length(μ)), full - 1))
+    A = hcat(p.xs, ones(length(p.xs)))
+    β, C = _ptc_line(A, p.ys, p.os, p.ms, p.rel)
+    if length(p.xs) >= 4
+        z = Distributions.quantile(Distributions.Normal(), 1 - significance / 2)
+        c, t = _ptc_curvature(A, p, A * β .+ p.os)
+        abs(t) > z && throw(NoiseEstimateFailed(
+            "the photon-transfer points carry a μ² term (c = $(c) per code, t = $(round(t; sigdigits = 4)), |t| > $(round(z; sigdigits = 4)) " *
+            "at significance $(significance)): a fixed pattern the single-frame green difference does not cancel (a bright flat field): " *
+            "a single flat frame cannot certify its own K; use photon_transfer(groups, darks) on frames at equal exposure"
+        ))
+    end
+    slope, intercept = β
+    (slope > 0 && intercept > 0) || throw(NoiseEstimateFailed(
+        "the photon-transfer line is not physical: slope $(slope) (1/K), intercept $(intercept) (σ_r²)"
+    ))
+    σr = sqrt(intercept)
+    return PoissonGaussian(1 / slope, ntuple(_ -> σr, Val(4)),
+                           (gain = sqrt(C[1, 1]) / slope^2, σ = ntuple(_ -> sqrt(C[2, 2]) / (2σr), Val(4)));
                            source = SensorSource.estimated)
 end
 
-function photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model::SensorModel = SensorModel(),
-                         block::Integer = 8, normalize::Bool = true, significance::Real = 0.001)
+function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}}, darks::AbstractDict{<:Quantity, <:ReadNoise};
+                         sensor_model::SensorModel = SensorModel(), block::Integer = 8, normalize::Bool = true,
+                         significance::Real = 0.001)
+    _check_significance(significance)
     isempty(groups) && throw(ArgumentError("photon_transfer: no group of frames"))
-    all(gr -> length(gr) >= 2, groups) ||
-        throw(ArgumentError("photon_transfer: a group's temporal variance needs at least 2 frames, got $(map(length, groups))"))
-    m = first(first(groups))
-    for gr in groups, f in gr
+    exposures = sort!(collect(keys(groups)); by = t -> ustrip(_SECOND, t))
+    frames_of = [groups[t] for t in exposures]
+    all(gr -> length(gr) >= 2, frames_of) ||
+        throw(ArgumentError("photon_transfer: a group's temporal variance needs at least 2 frames, got $(map(length, frames_of))"))
+    m = first(first(frames_of))
+    for gr in frames_of, f in gr
         (size(f) == size(m) && f.pattern == m.pattern && f.white == m.white && f.window_origin == m.window_origin) ||
             throw(ArgumentError("photon_transfer: every frame is of one sensor (size, pattern, white level and window)"))
     end
-    N = minimum(length, groups)                          # one χ² law: every group gives its first N frames
     g = _green_sites(m, sensor_model, block, "photon_transfer")
-    stats = map(groups) do gr
+    # σ₀²(t) of each group: the greens' read noise² of the darks at that exposure, never another exposure's
+    dark_at = Dict(ustrip(_SECOND, t) => rn for (t, rn) in darks)
+    cell = _cell_colors(m, "photon_transfer")
+    gks = Tuple(k for k in 1:4 if cell[k] in (0x01, 0x03))
+    σ0 = map(exposures) do t
+        rn = get(dark_at, ustrip(_SECOND, t), nothing)
+        rn === nothing && throw(ArgumentError(
+            "photon_transfer: no darks at the exposure $(ustrip(_SECOND, t)) s (darks at $(sort!(collect(keys(dark_at)))) s): " *
+            "every group's intercept is its own exposure's dark noise, never interpolated or substituted"))
+        sum(rn.σ[cell[k] + 1]^2 for k in gks) / length(gks)
+    end
+    N = minimum(length, frames_of)                       # one χ² law: every group gives its first N frames
+    stats = map(frames_of) do gr
         frames = gr[1:N]
         stack = cat((parent(f) for f in frames)...; dims = 3)
         scale = normalize ? _flicker_scale(frames, g) : ones(N)
@@ -222,15 +313,36 @@ function photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; 
     end
     n = reduce(vcat, (vec(st[1]) for st in stats))
     sm = reduce(vcat, (vec(st[2]) for st in stats)); sq = reduce(vcat, (vec(st[4]) for st in stats))
+    gid = reduce(vcat, (fill(i, length(st[1])) for (i, st) in enumerate(stats)))   # each block's exposure
     full, keep = _whole_blocks(n)
-    μ = [sm[k] / full for k in keep]
-    v = [sq[k] / (full * (N - 1)) for k in keep]         # the photosites' pooled temporal variance
-    e = _photon_transfer_fit(μ, v, full * (N - 1), significance,
-        "the groups' temporal variance is not linear in the mean: frames of a group at unequal light " *
-        "(normalize = true scales them to the group's mean) or a nonlinear response")
-    return PoissonGaussian(e.gain, ntuple(_ -> e.σ, Val(4)), (gain = e.gain_std_error, σ = ntuple(_ -> e.σ_std_error, Val(4)));
-                           source = SensorSource.measured)
+    # the points of each exposure apart (its blocks sorted by μ into points of equal count): a point never mixes two
+    # exposures' intercepts; then every exposure's points, by μ
+    parts = map(eachindex(stats)) do i
+        ks = filter(k -> gid[k] == i, keep)
+        length(ks) >= 8 || return nothing
+        _ptc_points([sm[k] / full for k in ks], [sq[k] / (full * (N - 1)) for k in ks], fill(σ0[i], length(ks)), full * (N - 1))
+    end
+    parts = filter(!isnothing, parts)
+    isempty(parts) && throw(NoiseEstimateFailed("no exposure holds 8 whole blocks"))
+    order = sortperm(reduce(vcat, (pt.xs for pt in parts)))
+    cat_sorted(f) = reduce(vcat, (getfield(pt, f) for pt in parts))[order]
+    p = _ptc_check((; xs = cat_sorted(:xs), ys = cat_sorted(:ys), ms = cat_sorted(:ms), os = cat_sorted(:os), rel = parts[1].rel))
+    r = _ptc_range(p, significance)
+    q = _ptc_subset(p, r.lo:r.hi)
+    A = reshape(q.xs, :, 1)
+    β, C = _ptc_line(A, q.ys, q.os, q.ms, q.rel)
+    β[1] > 0 || throw(NoiseEstimateFailed("the photon-transfer line is not physical: slope $(β[1]) (1/K) over the range"))
+    c, t = _ptc_curvature(A, q, A * β .+ q.os)
+    σ0f = Statistics.median(q.os)
+    noise = PoissonGaussian(1 / β[1], ntuple(_ -> sqrt(σ0f), Val(4)), (gain = sqrt(C[1, 1]) / β[1]^2, σ = ntuple(_ -> 0.0, Val(4)));
+                            source = SensorSource.measured)
+    span = m.white - sum(g.black) / 2
+    meta = PhotonTransferMetadata((q.xs[1], q.xs[end]), (q.xs[1] / span, q.xs[end] / span), σ0f, c, t,
+                                  r.tests, r.level, r.rollover_tests, r.rollover_level, length(p.xs))
+    return FitResult(noise, ReturnCode.Success, ClosedForm, 0, _ptc_rms(A * β .+ q.os, q), length(q.xs), meta)
 end
+
+_check_significance(α) = 0 < α < 1 || throw(ArgumentError("photon_transfer: significance is in (0, 1), got $α"))
 
 # The greens' cell sites and their blacks (the model's black slot, per colour index) of a mosaic, and the block count.
 function _green_sites(m::RawMosaic, sensor_model::SensorModel, block::Integer, who)
@@ -271,58 +383,100 @@ function _flicker_scale(frames, g)
     return Statistics.mean(means) ./ means
 end
 
-# The fit over the blocks' points (host; a few thousand numbers): `μ`, `v` the whole blocks' means and variances,
-# each `v̂/v ~ χ²_dof/dof`; the refusal of a significant μ² term at `significance`, its message ending with `remedy`.
-function _photon_transfer_fit(μ, v, dof::Integer, significance::Real, remedy::AbstractString)
-    0 < significance < 1 || throw(ArgumentError("photon_transfer: significance is in (0, 1), got $significance"))
+
+# The fit's points (host; a few thousand blocks): the whole blocks' means `μ`, variances `v` (each `v̂/v ~ χ²_dof/dof`)
+# and intercepts `o` (zeros when fitted; one exposure's, the series'), sorted by μ into `min(32, blocks ÷ 8)` points of
+# equal count — each point's
+# median μ, median-unbiased variance, block count and median intercept — with `rel`, the counts' relative variance of
+# a point's median.
+function _ptc_points(μ, v, o, dof::Integer)
     groups = min(32, length(μ) ÷ 8)
     order = sortperm(μ)
     G = Distributions.Gamma(dof / 2, 2 / dof)                         # the law of v̂/v: χ²_dof/dof
     q = Statistics.median(G)
     rel = 1 / (4 * Distributions.pdf(G, q)^2 * q^2)                  # m·Var(median v̂ / q) / v², the counts' own
-    xs = zeros(groups); ys = zeros(groups); ms = zeros(groups)
+    xs = zeros(groups); ys = zeros(groups); ms = zeros(groups); os = zeros(groups)
     for g in 1:groups
         idx = order[(div((g - 1) * length(order), groups) + 1):div(g * length(order), groups)]
         xs[g] = Statistics.median(view(μ, idx)); ys[g] = Statistics.median(view(v, idx)) / q; ms[g] = length(idx)
+        os[g] = Statistics.median(view(o, idx))
     end
-    maximum(xs) > minimum(xs) || throw(NoiseEstimateFailed("the usable blocks hold one level only: no slope"))
-    all(>(0), ys) || throw(NoiseEstimateFailed("a level of the usable blocks has no variance: a noise-free frame"))
-    A = hcat(xs, ones(groups))
-    fit(w) = (C = inv(Symmetric(A' * Diagonal(w) * A)); (C * (A' * (w .* ys)), C))
+    return (; xs, ys, ms, os, rel)
+end
+# The points every fit needs: more than one level, and a variance at each.
+function _ptc_check(p)
+    maximum(p.xs) > minimum(p.xs) || throw(NoiseEstimateFailed("the usable blocks hold one level only: no slope"))
+    all(>(0), p.ys) || throw(NoiseEstimateFailed("a level of the usable blocks has no variance: a noise-free frame"))
+    return p
+end
+_ptc_subset(p, r) = (; xs = p.xs[r], ys = p.ys[r], ms = p.ms[r], os = p.os[r], rel = p.rel)
+
+# THE weighted least squares of `ys − os` on the columns of `A` (the slope and, for one frame, the intercept), each
+# point weighted by 1 / the variance of its median at the model's prediction, iterated to a fixed point from a start
+# weighted at each point's own value: the one line fit of both inputs.
+function _ptc_line(A, ys, os, ms, rel)
+    fit(w) = (C = inv(Symmetric(A' * Diagonal(w) * A)); (C * (A' * (w .* (ys .- os))), C))
     β, C = fit(ms ./ (rel .* ys .^ 2))                   # the start: each point weighted at its own variance
     for _ in 1:100
-        (β[1] > 0 && β[2] > 0) || break
-        β′, C = fit(ms ./ (rel .* (A * β) .^ 2))          # 1 / Var of each point at the line's prediction
+        all(>(0), β) || break
+        β′, C = fit(ms ./ (rel .* (A * β .+ os) .^ 2))    # 1 / Var of each point at the model's prediction
         done = isapprox(β′, β; rtol = sqrt(eps()))
         β = β′
         done && break
     end
-    _refuse_curvature(xs, ys, ms, rel, A * β, significance, remedy)
-    slope, intercept = β
-    (slope > 0 && intercept > 0) || throw(NoiseEstimateFailed(
-        "the photon-transfer line is not physical: slope $(slope) (1/K), intercept $(intercept) (σ_r²)"
-    ))
-    σr = sqrt(intercept)
-    return (; gain = 1 / slope, σ = σr, gain_std_error = sqrt(C[1, 1]) / slope^2, σ_std_error = sqrt(C[2, 2]) / (2σr))
+    return β, C
 end
 
-# THE refusal of a μ² term: the points fitted again as v = a + μ/K + cμ², each weighted at the line's prediction (at
-# its own value where the line predicts none), and `c` significant at `significance` (two-sided, by its own standard
-# error from the counts). Needs 4 points (one degree of freedom beyond the quadratic).
-function _refuse_curvature(xs, ys, ms, rel, prediction, significance, remedy)
-    length(xs) >= 4 || return nothing
-    vw = ifelse.(prediction .> 0, prediction, ys)
-    w = ms ./ (rel .* vw .^ 2)
-    Q = hcat(xs, ones(length(xs)), xs .^ 2)
+# THE μ² statistic: the points fitted again with a μ² column beside `A`, each weighted at `prediction` (at its own value
+# where the line predicts none): `(c, c / se(c))`.
+function _ptc_curvature(A, p, prediction)
+    vw = ifelse.(prediction .> 0, prediction, p.ys)
+    w = p.ms ./ (p.rel .* vw .^ 2)
+    Q = hcat(A, p.xs .^ 2)
     Cq = inv(Symmetric(Q' * Diagonal(w) * Q))
-    c = (Cq * (Q' * (w .* ys)))[3]
-    t = c / sqrt(Cq[3, 3])
-    z = Distributions.quantile(Distributions.Normal(), 1 - significance / 2)
-    abs(t) > z && throw(NoiseEstimateFailed(
-        "the photon-transfer points carry a μ² term (c = $(c) per code, t = $(round(t; sigdigits = 4)), |t| > $(round(z; sigdigits = 4)) " *
-        "at significance $(significance)): $(remedy)"
-    ))
-    return nothing
+    c = (Cq * (Q' * (w .* (p.ys .- p.os))))[end]
+    return c, c / sqrt(Cq[end, end])
+end
+
+# The root mean square of the points' residuals in their own standard deviations at the line's prediction (≈ 1 when the
+# counts' law holds).
+_ptc_rms(prediction, p) = sqrt(Statistics.mean(((p.ys .- prediction) ./ sqrt.(p.rel .* prediction .^ 2 ./ p.ms)) .^ 2))
+
+# THE range of the series' fit, derived from the data (owner rulings 1–2), at least 3 points (the slope and a μ² term
+# with one degree of freedom left): the UPPER end below the rollover — the top point dropped while it lies significantly
+# BELOW the line fitted to the points under it (one-sided, its median's variance plus the line's at it) — then the
+# LOWER end, the lowest point dropped until the line passes the μ² test. Each search runs its tests at
+# `significance / m`, `m` the tests it can perform (Bonferroni: its family-wise false-alarm rate is `significance`).
+function _ptc_range(p, significance)
+    np = length(p.xs)
+    np >= 3 || throw(NoiseEstimateFailed("the photon-transfer series gives $(np) points: a range needs at least 3"))
+    lo, hi = 1, np
+    m_up = np - 3                                        # the candidate drops of the top point
+    level_up = m_up > 0 ? significance / m_up : 0.0
+    while hi - lo + 1 > 3
+        q = _ptc_subset(p, lo:(hi - 1))
+        β, C = _ptc_line(reshape(q.xs, :, 1), q.ys, q.os, q.ms, q.rel)
+        pred = p.xs[hi] * β[1] + p.os[hi]
+        sd = sqrt(p.rel * pred^2 / p.ms[hi] + p.xs[hi]^2 * C[1, 1])
+        (p.ys[hi] - pred) / sd < -Distributions.quantile(Distributions.Normal(), 1 - level_up) || break
+        hi -= 1
+    end
+    m_lo = hi - 2                                        # the candidate lower ends: 1 … hi − 2
+    level_lo = significance / m_lo
+    z = Distributions.quantile(Distributions.Normal(), 1 - level_lo / 2)
+    while true
+        q = _ptc_subset(p, lo:hi)
+        A = reshape(q.xs, :, 1)
+        β, _ = _ptc_line(A, q.ys, q.os, q.ms, q.rel)
+        _, t = _ptc_curvature(A, q, A * β .+ q.os)
+        abs(t) <= z && break
+        lo += 1
+        hi - lo + 1 >= 3 || throw(NoiseEstimateFailed(
+            "no contiguous range of at least 3 levels is consistent with one line v = σ₀²(t) + μ/K: every lower end fails the μ² test " *
+            "at $(level_lo) per test ($(m_lo) tests, family-wise $(significance)): the groups' temporal variance is not linear in the " *
+            "mean: frames of a group at unequal light (normalize = true scales them to the group's mean) or a nonlinear response"))
+    end
+    return (; lo, hi, tests = m_lo, level = level_lo, rollover_tests = m_up, rollover_level = level_up)
 end
 
 # Per photosite of the stacked frames (H × W × n), the temporal mean and sample variance, one work item each.

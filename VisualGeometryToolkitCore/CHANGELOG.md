@@ -2,26 +2,39 @@
 
 ## 0.10.1
 
-The photon transfer of a dedicated capture, and the refusal of a biased gain (owner ruling, 2026-11-13: the FX3
-characterisation, where the single-frame estimator's K drifted from 31 to 13 e⁻/code over the exposures of a flat-field
-series and refused 69 of its 111 frames).
+The photon transfer of a dedicated capture (owner rulings of 2026-11-13/14, the FX3 characterisation: the single-frame
+estimator's K drifted from 31 to 13 e⁻/code over the exposures of a flat-field series and refused 69 of its 111 frames).
+Purely additive: the single-frame method keeps its signature and return type.
 
 ### New
-- **`photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model, block, normalize, significance)`**,
-  a method of the one estimator: the photon-transfer series, one group per exposure (at least 2 frames each; pairs are
-  the case of two). Per green photosite its TEMPORAL variance over the group's frames, which cancels the scene and every
-  fixed pattern, against its mean; each frame first scaled to its group's mean (`normalize`, the default: flicker).
-  Returns a `PoissonGaussian` with `SensorSource.measured` (a dedicated capture), K and σ_r with their standard errors.
-  Both inputs share ONE block kernel (`_difference_blocks_kernel!`, a cell rule per input) and ONE fit.
+- **`photon_transfer(groups, darks; sensor_model, block, normalize, significance)`** — the photon-transfer series:
+  `groups` exposure => the frames at that exposure (at least 2; pairs are the case of 2), `darks` exposure => the
+  `ReadNoise` of `master_dark` over the darks at that exposure. Per green photosite its TEMPORAL variance over a group's
+  frames (which cancels the scene and every fixed pattern; each frame first scaled to its group's mean, `normalize`),
+  against its mean. The intercept is FIXED at each group's own exposure, σ₀²(t), the greens' read noise² of its darks
+  (read noise and dark-current noise); a group whose exposure has no darks is refused, never interpolated or
+  substituted. The fit is the slope alone, `v − σ₀²(t) = μ/K`, over a range derived from the data: the upper end below
+  the variance's rollover, the lower end the lowest from which the line passes the μ² test, each search at
+  `significance / m` (Bonferroni, `m` its candidate tests). Returns the stack's `FitResult`: its estimate a measured
+  `PoissonGaussian`, its metadata a `PhotonTransferMetadata` (public): the range in codes and as fractions of the white
+  level, the intercept, the μ² statistic, each search's `m` and per-test level, the points offered. The single-frame and
+  series inputs share ONE block kernel (a cell rule per input) and ONE line fit.
+- **Measured limitation (the FX3, ISO 100, E4):** the temporal variance is not one line over the whole signal range: the
+  slope `(v − σ₀²)/μ` rises from 0.065 at 41 codes to 0.088 above about 25 % of the white level, so `σ_r² + μ/K`
+  overpredicts the variance by up to about 26 % below 5 % of white. The derived range keeps the fit where one line holds;
+  no low-signal noise term is modelled (its cause is not established).
 
-### Changed
-- **The single-frame `photon_transfer(mosaic)` refuses a μ² term**: the fit's points are fitted again as
-  `v = a + μ/K + cμ²` at the same weights, and a `c` significant at `significance` (a new keyword, default 0.001: |t| >
-  3.29, two-sided, by its own standard error from the counts) is a `NoiseEstimateFailed` naming the term and the groups'
-  method, never a biased K (a fixed pattern between the two greens, which the single-frame difference does not cancel,
-  on a bright flat). The groups' method refuses the same way (frames of a group at unequal light, a nonlinear response).
-  Where it accepts, the single-frame estimate is 0.10.0's, bit for bit (tested). No caller outside Core: the resolver
-  never estimates (a lookup).
+### Fixed
+- **The single-frame `photon_transfer(mosaic)` refuses a μ² term**: its points fitted again as `v = a + μ/K + cμ²` at the
+  same weights, a `c` significant at `significance` (a new keyword, default 0.001: |t| > 3.29, two-sided, by its own
+  standard error) is a `NoiseEstimateFailed` naming the term, never a biased K (a fixed pattern between the two greens,
+  which the single-frame difference does not cancel, on a bright flat). Where it accepts, its estimate is 0.10.0's, bit
+  for bit (tested).
+
+### Deprecated
+- **The single-frame `photon_transfer(mosaic)`**: unreliable on flats; scheduled for removal in the next breaking wave;
+  use the multi-frame method. A single flat frame cannot certify its own K (its brightness range gives the μ² test
+  little power); for flat fields use the multi-frame photon-transfer method.
 
 ## 0.10.0 (unreleased)
 

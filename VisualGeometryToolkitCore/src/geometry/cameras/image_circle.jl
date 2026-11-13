@@ -196,6 +196,17 @@ limit (`∩` returns it). The pixel mask of any residual is
 """
 imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
 
+# An ellipse in an ellipse: the largest value of `b`'s quadratic form `(p − c)ᵀ M⁻¹ (p − c)` over `a`'s boundary is at
+# most 1 (with a relative slack of 8 eps for the form's rounding). The boundary is `a`'s centre plus its shape factor
+# times the unit circle; the maximum over the angle is Core's one 1-D minimizer (`grid_brent_minimum`, periodic).
+function Base.issubset(a::Ellipse, b::Ellipse)
+    Minv = inv(SMatrix{2, 2, Float64}(shape_matrix(b)))
+    cb = SVector{2, Float64}(b.center[1], b.center[2])
+    q(θ) = (d = SVector{2, Float64}(boundary_point(a, θ)) - cb; -dot(d, Minv * d))
+    r = grid_brent_minimum(q, range(0.0, 2π; length = 721)[1:(end - 1)]; periodic = true)
+    return -r.value <= 1 + 8 * eps()
+end
+
 """
     RegionBeyondSupport(who, region, support) <: Exception
 
@@ -225,13 +236,13 @@ region given directly (a source camera's, when the camera fitted from is a
 re-gridded copy whose own domain no longer records it) — and a
 [`RegionBeyondSupport`](@ref) naming `who`, the region and the support
 otherwise. Never a warning: a fit over an extrapolated model is refused.
-Containment is `region ∈ support` (a `Rect`, an `Ellipse`, their `∩`, the
-`WholePlane`).
+Containment is `region ⊆ support`, Core's one region containment over a `Rect`,
+an `Ellipse`, their `∩` and the `WholePlane`.
 """
 check_region_support(camera::Union{CameraModel, PosedCamera, BoundedCamera, NoncentralSplineModel}, region; who::AbstractString) =
     check_region_support(valid_domain(camera), region; who)
 function check_region_support(support, region; who::AbstractString)
-    region ∈ support || throw(RegionBeyondSupport(String(who), region, support))
+    region ⊆ support || throw(RegionBeyondSupport(String(who), region, support))
     return region
 end
 

@@ -1,5 +1,34 @@
-docs-pass: d06f1098
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the refine nor the forward fit)
+docs-pass: db7bd7b1
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the SplineLens refine nor the forward fit)
+
+# 0.10.0 docs pass (julia-docs-pass) — release-chrome-095 (VisualGeometryToolkitEstimation 0.10.0, Features 0.8.2, Eval 0.7.1)
+
+The packages released: VisualGeometryToolkitEstimation 0.10.0 (breaking), VisualGeometryToolkitFeatures 0.8.2 and
+VisualGeometryToolkitEval 0.7.1 (compat-only patches). Core, IO and PoseLib are unchanged. The baseline is the
+Estimation 0.9.2 release (edab2655, below).
+
+## 1. Public API since 0.9.2
+
+No name added or removed. Changed behaviour of the exported `refine_camera_and_poses` on a SplineLens camera: it takes
+`fixed = (:controls,)` only; the default `fixed = ()` (the image-space refine of the controls) and a `penalty` are
+refused by name. `CameraPosesRefineMetadata.spline` loses the retired route's fields (CHANGELOG 0.10.0).
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `refine_camera_and_poses`: its SplineLens signature line (`fixed = (:controls,)`, required), the `camera` argument, the `fixed` keyword and the whole "# A SplineLens camera" section rewritten for the held route; `CameraPosesRefineMetadata`'s `spline` and `free` for a SplineLens camera. api/radial.md: the camera-and-poses paragraph (the held route, the refusal, the retired `free = ()` spelling replaced by `fixed`) and the GCV paragraph (no longer names the SplineLens refine). configs/default.toml's `forward_tolerance` comment names `fit_forward_spline`. |
+| stale mentions | the retired route's metadata fields, `penalty = :gcv` and the window/rebuild/GCV prose: none left outside CHANGELOGs and the plan notes under docs/superpowers (historical plans, not documentation). Core's spline_lens.jl comment that `_projection_jacobians` serves "a SplineLens camera's bundle refinement" is Core's (unchanged tree; Core is not released here) — noted for Core's next release. |
+| CHANGELOG | Estimation 0.10.0 (Breaking, Changed), Features 0.8.2, Eval 0.7.1 |
+| versions | Estimation 0.10.0, Features 0.8.2, Eval 0.7.1 |
+| in-repo compat | Features (weak dependency) and Eval, and their test environments: Estimation "0.10" |
+| README / landing | no README or landing text names the SplineLens refine's route: unchanged |
+
+## 3. Executed on the final RC
+
+(Filled in by the final gate's records commit.)
+
+---
 
 # 0.9.2 docs pass (julia-docs-pass) — release-chrome-095 (VisualGeometryToolkitEstimation 0.9.2)
 

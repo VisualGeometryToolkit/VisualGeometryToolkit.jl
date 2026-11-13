@@ -141,3 +141,12 @@ Downstream copies, outside this release (listed for their owners; not release it
   new public `fit_forward_spline` and, through it, by the SplineLens refine's refit (`_refit_forward`); no second fitter.
   Downstream (for its owner; no box): PanoramaStitching's docs named `fit_camera(SplineLens, …)` for a held camera's
   forward, fixed on its own branch (ps-0.6.2) to name `fit_forward_spline`.
+
+## 0.10.0 (Estimation; Features 0.8.2, Eval 0.7.1): the free-SplineLens image-space refine retired
+
+- [x] ONE bundle solve: the held SplineLens route solves with `_solve_bundle` and reads its keywords with
+  `_bundle_keywords`, the parametric and rotation-centre routes' own; its private NLLSsolver solve (`_spline_solve!`)
+  and time-cap bookkeeping (`_remaining`, `_timed_out`) are deleted, not kept beside them.
+- [x] No dead second route: the window blocks, patch charts, third-difference blocks, GCV search and window rounds of
+  the retired image-space refine are deleted (refine_spline_camera_and_poses.jl), not left unreachable. The stack's one
+  GCV (`gcv_curve`, `gcv_select`) stays, for its other callers.

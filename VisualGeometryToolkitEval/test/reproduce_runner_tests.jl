@@ -618,6 +618,28 @@ end
         @test success(Cmd(`bash $wrapper`; env = job, dir = f.proj))
         @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets=", "grid task=1 variant=b sets="]
         @test stage_markers(dirname(wrapper))[1]["state"] == "completed"
+        # a TERM (scancel, the time limit) stops the loop: the run in progress gets it, and no later value starts
+        write(joinpath(f.proj, "slurm", "grid.sbatch"), raw"""#!/bin/bash
+            echo "grid task=${SLURM_ARRAY_TASK_ID:-} variant=${VARIANT:-} sets=${SETS:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${VARIANT:-}" != "a" ] || exec sleep 60
+            [ "${VARIANT:-}" != "fail" ]
+            """)
+        git!(f.repo, "commit", "-qam", "slow")
+        write(sb, "")
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
+        n = length(readlines(joinpath(f.results, "ran.txt")))
+        proc = run(pipeline(Cmd(`bash $wrapper`; env = job, dir = f.proj); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while length(readlines(joinpath(f.results, "ran.txt"))) == n && time() - t0 < 30
+            sleep(0.2)
+        end
+        sleep(0.5)
+        kill(proc, Base.SIGTERM); wait(proc)
+        @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets="]       # b never ran
+        mk = stage_markers(dirname(wrapper))[1]
+        @test mk["state"] == "failed" && mk["signal"] == "TERM"
         # a failing value fails the task, and stops it
         write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants.fail]\n[variants.z]\n")
         git!(f.repo, "commit", "-qam", "fail")

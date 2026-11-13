@@ -1293,22 +1293,27 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
 end
 
 # The body of an `array.each` stage's wrapper: a subshell that runs `body` once per value of the task's item (its
-# variable exported), in order, and exits with the first failing run's status; a TERM, or a signal the launcher's
-# directives ask for, reaches the run in progress.
+# variable exported), in order, and exits with the first failing run's status. A TERM, or a signal the launcher's
+# directives ask for, reaches the run in progress and stops the loop: no later value starts, and the subshell exits
+# 128 + the signal's number.
 function _each_loop(st::PlannedStage, body::AbstractString, signals)
     s = st.spec
     cases = join(("  $(t - 1)) _vgtk_each=($(join(_shell_quote.(v), " "))) ;;" for (t, v) in enumerate(st.each)), "\n")
-    fwd = join(("trap 'kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "; ")
+    code(sig) = all(isdigit, sig) ? string(128 + parse(Int, sig)) : "\$((128 + \$(kill -l $sig)))"
+    fwd = join(("trap '_vgtk_stop=$(code(sig)); kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "\n")
     return """(
 case "\$_vgtk_task" in
 $cases
   *) _vgtk_each=() ;;
 esac
+_vgtk_stop=
 $fwd
 for _vgtk_value in "\${_vgtk_each[@]}"; do
+  [ -z "\$_vgtk_stop" ] || exit "\$_vgtk_stop"
   ( export $(s.each_env)="\$_vgtk_value"; $body ) & _vgtk_one=\$!
   _vgtk_r=0; wait "\$_vgtk_one" || _vgtk_r=\$?
   while kill -0 "\$_vgtk_one" 2>/dev/null; do wait "\$_vgtk_one"; _vgtk_r=\$?; done
+  [ -z "\$_vgtk_stop" ] || exit "\$_vgtk_stop"
   [ "\$_vgtk_r" -eq 0 ] || exit "\$_vgtk_r"
 done
 )"""

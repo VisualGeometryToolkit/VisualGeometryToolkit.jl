@@ -152,3 +152,23 @@ Final gate green on a0016dbb (jobs 10706–10709, both Julia versions; check_dup
 - [x] No dead second route: the window blocks, patch charts, third-difference blocks, GCV search and window rounds of
   the retired image-space refine are deleted (refine_spline_camera_and_poses.jl), not left unreachable. The stack's one
   GCV (`gcv_curve`, `gcv_select`) stays, for its other callers.
+
+## 0.9.5 / 0.8.3 (Core, Features): the SIFT landing (owner rulings 2026-11-13)
+
+Final gate green on 94a303ff (jobs 10745–10748, both Julia versions, CPU and GPU; check_duplication 0 findings on Core and
+Features). The concept-level audit of the whole diff: ~/logs/dgx-agent/sift-landing-functions.md.
+
+- [x] ONE device LM: `static_lm` is the former private `_spline_lm` (renamed, no alias), at static N; N = 2 bit-identical.
+- [x] ONE weight derivative: `cubic_bspline_weight_derivatives` is the former private `_cubic_bspline_weights_deriv` made
+  public with the second derivative; no wrapper.
+- [x] ONE B-spline interpolation prefilter home: `cubic_bspline_prefilter_taps` beside `_prefilter_matrix` in Core; Features'
+  copy deleted.
+- [x] ONE window sweep: Core's `_window_sums` generalised to second partials as `spline_window_sums` (the same bits for its
+  callers); Features' `_spline_sums` deleted.
+- [x] ONE positive-definiteness test: `is_positive_definite` at static N (2×2 unchanged); Features' `_min_eig_above` deleted.
+- [x] ONE emission map: `_level_to_canvas` / `_slice_sigma`, shared by `_extract_at!` and the continuous refinement.
+- [x] `_conv_taps`, `_lagrange_basis`: checked against the stack (Features `_separable_blur` linear_image.jl:210, the tap
+  builders, Core `convolve(::GaussianBlur, ::GaussianBlur)` blur.jl:94; no Lagrange interpolation anywhere): no equivalent,
+  kept private.
+- Deferred by ruling (no box): merging `_continuous_covariance` with the tabulated `_ift_cov`, a follow-up Features minor.
+

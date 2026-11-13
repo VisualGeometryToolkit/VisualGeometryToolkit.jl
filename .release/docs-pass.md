@@ -1,3 +1,60 @@
+docs-pass: 94a303ff
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: its Features line names ASIFT detection, not a refinement option)
+
+# 0.9.5 / 0.8.3 docs pass (julia-docs-pass) — sift-landing (VisualGeometryToolkitCore 0.9.5, VisualGeometryToolkitFeatures 0.8.3)
+
+The packages released: VisualGeometryToolkitCore 0.9.5 and VisualGeometryToolkitFeatures 0.8.3, both additive patches (the
+owner's SIFT landing rulings of 2026-11-13). Estimation, IO, Eval and PoseLib are unchanged. The baseline is main c39b4a2d
+(Core's tree its registered 0.9.4's, Features' its 0.8.2's).
+
+## 1. Public API since Core 0.9.4 / Features 0.8.2
+
+- Core, public, not exported: `static_lm` (the former private `_spline_lm`, at static N), `static_lm_termination`,
+  `cubic_bspline_weight_derivatives` (the former private `_cubic_bspline_weights_deriv`, with the second derivative),
+  `spline_window_sums`, `cubic_bspline_prefilter_taps`; `is_positive_definite` gains its static-N method. A generic
+  docstring for `score_sq_residuals!`. Nothing removed from the public API.
+- Features, exported: `ContinuousRefinement`; `asift_detect`/`asift_detect!` take the keyword `refinement` (default
+  `nothing`: unchanged). Every other new name is private.
+- The function list with each new name's file:line and its concept-level duplication check:
+  ~/logs/dgx-agent/sift-landing-functions.md (in the owner's hands before posting).
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | Core: each new public name has a docstring on its page's `@autodocs` (cameras/spline_lens.jl, cameras/chart_spline.jl, primitives/feature_frames.jl, robust/student_t_uniform_scoring.jl); `static_lm`'s docstring sits on the function (the comment block above it, not between). Features: `ContinuousRefinement` in an `@docs` block on api/detection.md (continuous_refine.jl is not in the page's `@autodocs`: its other docstrings are private); the `asift_detect` docstring's "Continuous refinement (opt-in)" paragraph; the guide's section "Continuous refinement (opt-in)" with the measured numbers. No `@ref` from a public docstring to a private name. |
+| stale mentions | `_spline_lm`, `_spline_lm_increment`, `_cubic_bspline_weights_deriv`: none outside CHANGELOGs and the historical plan under docs/superpowers. The private Features names (`_DogSplineWindow`, …) appear in no doc page. |
+| CHANGELOG | Core 0.9.5, Features 0.8.3 |
+| versions | Core 0.9.5, Features 0.8.3 |
+| in-repo compat | Features' package, test and docs environments: VisualGeometryToolkitCore "0.9.5". The other packages' "0.9" / "0.9.2" admit it. |
+| README / landing | no README or landing text names the refinement: unchanged |
+
+## 3. Executed on the final RC (94a303ff)
+
+Gate (~/logs/dgx-agent/scripts/siftland/gate.sh; jobs 10745–10748): a fresh clone per run of `sift-landing`, no
+Manifest, General a GitHub clone in the gate's own depot (holding Core 0.9.4, IO 0.9.2, Features 0.8.2, Estimation 0.10.0,
+Eval 0.7.1), CauRegistry from the shared depot; every suite strict (`--depwarn=error`), Core with RETESTITEMS_NWORKERS=3.
+Counts are pass / fail / error / broken.
+
+| | 1.13.3 GPU (10745) | 1.13.3 CPU (10746) | 1.12.7 GPU (10747) | 1.12.7 CPU (10748) |
+|---|---|---|---|---|
+| registration_lint --subsequent | rc 0 | | rc 0 | |
+| floor_compat --latest | rc 0 | | rc 0 | |
+| check_duplication(Core), (Features) | 0, 0 findings | | 0, 0 findings | |
+| Core (--depwarn=error) | 411597 / 0 / 0 / 2 | 410019 / 0 / 0 / 30 | 411594 / 0 / 0 / 2 | 410016 / 0 / 0 / 30 |
+| Features (--depwarn=error; JET, Aqua, ExplicitImports, duplication in-suite) | 3133 / 0 / 0 / 2 | 3063 / 0 / 0 / 9 | 3133 / 0 / 0 / 2 | 3063 / 0 / 0 / 9 |
+| Estimation (--depwarn=error) | 8817 / 0 / 0 / 2 | 8807 / 0 / 0 / 2 | 8805 / 0 / 0 / 2 | 8795 / 0 / 0 / 2 |
+| Eval (--depwarn=error) | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 | 2907 / 0 / 0 / 0 | 2906 / 0 / 0 / 0 |
+| Core docs, Features docs (strict make.jl) | 0, 0 | | 0, 0 | |
+
+Two earlier gates were red and fixed before this one: 12ab92d0 (jobs 10732–10735) on a test of mine (the Float32 static-LM
+case built a Float64 residual) and on the SplineLens optimization-level item, whose `M.stored` read in the item's world is
+an `UndefVarError` under `--depwarn=error` on Julia ≥ 1.12 — main c39b4a2d's strict Core suite fails it too (job 10744);
+94a303ff reads the Core.eval'd functions inside `invokelatest`. 5377c3b5 (job 10729) had two stale DUPLICATION.toml
+entries (removed in 12ab92d0) and my test syntax.
+
+---
+
 docs-pass: f6a3e7f2
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the SplineLens refine nor the forward fit)
 

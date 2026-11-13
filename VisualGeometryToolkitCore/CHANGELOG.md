@@ -168,6 +168,9 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart
   (`θ = 2 asin(d / 2f)`) in the one radial-chart registry `RADIAL_CHARTS` (a fitted `RadialVignetting` refuses it: not a
   normalized radius); `radial_coordinate(p, u)`. VisualGeometryToolkitIO's `radial_profile` kind serializes it.
+- From the 0.9.7 patch: `reduce_normal_equations(row!, Val(N), args...; partials)` and `reduce_cost(row!, args...; partials)`,
+  a device LM state's row launch and reduction in one call (VisualGeometryToolkitEstimation's lens regression and
+  RadiometricCamera's radiometry LM each kept the pair).
 - From the 0.9.6 patch: `reduce_normal_equations(partials, Val(N))`, `reduce_cost(partials)` (public), and the weak CUDA
   compat `"5.11 - 5"` with the cuDNN-1 resolve test.
 - **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,

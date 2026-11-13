@@ -1,8 +1,8 @@
-## Measurement noise lives on the measurements
+## Observation noise lives on the observations
 
 A correspondence residual is a constraint `g(θ; x₁, x₂) = 0` whitened by the
-noise of its measurements. That noise is a property of each MEASUREMENT, stated
-where the measurement is built, never a property of a problem type:
+noise of its observations. That noise is a property of each OBSERVATION, stated
+where the observation is built, never a property of a problem type:
 
 | Endpoint | Covariance | Spelled |
 |---|---|---|
@@ -22,13 +22,13 @@ leaves nothing to whiten, and no residual unit exists.
 
 **Two layers, two distances.** The noise never enters the Sampson distance:
 [`sampson_distance`](@ref)`(M, x…)` is GEOMETRIC, the first-order distance from
-the measurements to the model's variety in their own units, whatever covariance
+the observations to the model's variety in their own units, whatever covariance
 they carry. Its residual in the constraint's normal basis,
 [`sampson_residual_with_normal`](@ref)`(M, x…) = (s_N, N)`, is what the noise
 layer whitens: `r = `[`whiten`](@ref)`(s_N, N, Σ) = L_N⁻¹·s_N`, `L_N L_Nᵀ = NᵀΣN`,
 which is exactly `L⁻¹·g` above (`G_x = L_g·Nᵀ`, so `Σ̃ = L_g·NᵀΣN·L_gᵀ`).
 [`mahalanobis_distance`](@ref)`(M, x…)` is `‖r‖` with `Σ` read from the
-measurements by this rule: for plain points it equals the Sampson distance.
+observations by this rule: for plain points it equals the Sampson distance.
 
 **What a threshold means.** `r` is in units of the noise. For plain image points
 that is the pixel: a 3 px threshold means 3 px, exactly as before this rule was
@@ -81,7 +81,7 @@ scale-estimating scorer still hides a unit error; it does not make one correct
 - **Detections with a covariance** (a detector's per-point uncertainty, a
   propagated estimate): `Uncertain`, in the caller's frame.
 
-A problem class whose measurement model already treats one side as exact is
+A problem class whose observation model already treats one side as exact is
 consistent with the rule as it stands: absolute pose takes plain 3D points and
 whitens only the image point; the radial homography and radial camera score the
 reprojection distance in the target image, accept their board side `exact` (or
@@ -95,8 +95,8 @@ descending another (VisualGeometryToolkitEstimation: F and E today).
 Covariances are in the CALLER's frame, like the points (frame in = frame out).
 An estimator's private normalization moves them with the points: an affine side
 map `x ↦ A·x + b` takes `Σ` to `A·Σ·Aᵀ` (`s²·Σ` for a similarity of scale `s`);
-`normalize(N, cs)` of a [`CspondNormalization`](@ref) does it for the
-correspondence set's covariance columns, and a projective measurement map uses
+`normalize(N, cs)` of a [`CorrespondenceNormalization`](@ref) does it for the
+correspondence set's covariance columns, and a projective observation map uses
 its Jacobian at each point. The Mahalanobis residual is invariant to the move,
 so thresholds stay in the caller's units — pixels for plain pixel data, sigmas
 for covariances — and nothing downstream converts them.
@@ -111,7 +111,7 @@ loop reads the columns ([`pair_covariance`](@ref)`(cs, i)`, the batch rows
 [`whitened_residuals!`](@ref) / [`whitened_jacobian_rows!`](@ref)) and never an
 `Uncertain` value. A RANSAC
 problem hands its point's covariance to the scorers through ONE hook,
-[`measurement_covariance`](@ref)`(problem, i)` (`I` by default), never as a
+[`observation_covariance`](@ref)`(problem, i)` (`I` by default), never as a
 slot of its constraint tuple: `constraint_with_jacobians(problem, model, i)` is
 `(g, G_x, G_θ)` for every problem, as for every model. `exact` is an
 ordinary zero `CovMat`: its four numbers per point cost nothing past the

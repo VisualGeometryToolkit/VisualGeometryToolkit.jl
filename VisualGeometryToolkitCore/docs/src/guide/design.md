@@ -48,7 +48,7 @@ p.attributes   # the depth
   It forwards properties into its metadata with the same `@generated`
   mechanism described below, so `r.weights` reads like `sc.first` does —
   `Attributed` with a fixed core, not a second paradigm.
-- **Scored correspondences.** [`ScoredCspond`](@ref) is
+- **Scored correspondences.** [`ScoredCorrespondence`](@ref) is
   `Attributed{Pair, Float64}` — even scalar metadata uses the same
   pattern.
 - **Per-datum weights.** A value carried between stages carries its weight
@@ -80,7 +80,7 @@ once at the boundary, and `u.matrix` reads the stored form. Since 0.9 the matric
 **Flat over deep.** No `AbstractResult → ...` hierarchy: two parametric
 types cover every case — `Attributed{V, A}` for a value with attributes,
 `FitResult{P, M}` for an estimate with a fixed diagnostic core — and
-dispatch on `Attributed{ScoredCspond, Float64}` or
+dispatch on `Attributed{ScoredCorrespondence, Float64}` or
 `FitResult{CameraModel, M}` is exactly as efficient as on a
 dedicated struct.
 

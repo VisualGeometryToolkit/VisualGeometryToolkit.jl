@@ -2,7 +2,7 @@
 # Targets — the calibration target as a MODEL, the analogue of a camera model
 # ==============================================================================
 #
-# A target is what a camera observes and a measurement names: a set of points
+# A target is what a camera observes and an observation names: a set of points
 # in its own frame, `TargetFrame{id}`. Its geometry is independent of where it
 # is mounted — the same target can sit in several rigs (`PosedTarget`, rig.jl) —
 # and of who calibrated it (a stored target's `calibration` block is an
@@ -883,7 +883,7 @@ end
 
 # The largest parameter count with a static basis: below it a static basis
 # compiles about as fast as a Matrix one, above it far slower (the docstring's
-# measurements).
+# observations).
 const _STATIC_BASIS_MAX = 18
 
 # B: the directions E y of the free parameter axes E (every axis but the held

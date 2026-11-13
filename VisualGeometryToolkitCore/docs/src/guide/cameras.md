@@ -152,7 +152,7 @@ pose(camera)                              # CameraPose (X_WC)
 
 ```julia
 # 3D world points and 2D image points
-csp = csponds(X, u)               # StructArray of Pt3-to-Pt2 correspondences
+csp = correspondences(X, u)               # StructArray of Pt3-to-Pt2 correspondences
 
 result = p3p(model, csp)          # FixedModels{4, Extrinsics3}, empty when no solution
 for ext in result                 # 0–4 Extrinsics3 solutions

@@ -1,10 +1,10 @@
 # =============================================================================
-# Solver layer — CspondNormalization, the MinimalSolver protocol, model registry
+# Solver layer — CorrespondenceNormalization, the MinimalSolver protocol, model registry
 # =============================================================================
 #
 # The verb half of the solver/correspondence layering (#21):
 #
-#   CspondNormalization          normalization as a value: forward AND inverse maps
+#   CorrespondenceNormalization          normalization as a value: forward AND inverse maps
 #                         computed once; models move between the data frame
 #                         and the normalized frame by `∘` with its two sides
 #   MinimalSolver{M}      exactly-determined solvers — `solve(s, cs, idx)`
@@ -18,7 +18,7 @@
 # The overdetermined one-step solvers are called by their algorithm names
 # (`homography_dlt(cs)`, `fundamental_dlt(cs)`): there is no estimator verb.
 
-# NOTE: CspondNormalization lives in homography_solvers.jl
+# NOTE: CorrespondenceNormalization lives in homography_solvers.jl
 # (they must be defined before the DLT kernels that take a `frame` kwarg).
 
 # -----------------------------------------------------------------------------
@@ -421,7 +421,7 @@ function minimal_solver(::Type{M}, ::Type{S}, ::Type{T}) where {M, S, T}
     end
     throw(
         ArgumentError(
-            "no registered minimal solver for model $(M) on Cspond{$(S), $(T)} " *
+            "no registered minimal solver for model $(M) on Correspondence{$(S), $(T)} " *
                 "(registered: $(join(string.(induced_models(S, T)), ", ")))"
         )
     )

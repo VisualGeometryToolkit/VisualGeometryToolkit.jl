@@ -6,8 +6,8 @@
 #
 # Propagates a covariance matrix Σ through a linear map with Jacobian J.
 # This is the fundamental operation for:
-#   - Measurement → constraint covariance:  Σ̃_g = propagate(∂g/∂x, Σ̃_x)
-#   - Measurement → parameter covariance:   Σ̃_θ = propagate(∂θ/∂x, Σ̃_x)
+#   - Observation → constraint covariance:  Σ̃_g = propagate(∂g/∂x, Σ̃_x)
+#   - Observation → parameter covariance:   Σ̃_θ = propagate(∂θ/∂x, Σ̃_x)
 #   - Projective conic transfer:            C*' = propagate(H, C*)
 #
 # Specializations avoid unnecessary matrix–matrix–matrix products when the
@@ -53,13 +53,13 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 # The pieces base/sampson.jl's two layers share: the one degeneracy rule, the
 # relative rank verdict of a propagated covariance, and the frozen whitening
 # factor. The layers themselves (sampson_residual_with_normal, whiten) live
-# there, after the measurement-noise rule they read.
+# there, after the observation-noise rule they read.
 # =============================================================================
 
 # THE ONE SAMPSON DEGENERACY RULE of the estimation stack. A correspondence whose
-# measurement gradient vanishes (to rounding) has Sampson distance 0 when the
+# observation gradient vanishes (to rounding) has Sampson distance 0 when the
 # constraint vanishes with it (it satisfies the constraint exactly) and Inf when
-# it does not (no nearby measurement can). No floor, and no zero row that would
+# it does not (no nearby observation can). No floor, and no zero row that would
 # score an unsatisfiable correspondence as a perfect inlier. The Sampson layer
 # applies it to the residual it returns — per component, with the sign of gᵢ —
 # and every Sampson distance and whitened residual is built on that residual,
@@ -72,7 +72,7 @@ GTSAM equivalent: a function's `OptionalJacobian` `H`, with the caller forming
 @inline _vanishes(ρ::NamedTuple, g::Real) = abs(g) <= ρ.value
 @inline _vanishes(ρ::NamedTuple, g::StaticVector) = all(abs.(g) .<= ρ.value)
 
-# The whitened residual of a degenerate measurement under the rule: 0, or ±Inf
+# The whitened residual of a degenerate observation under the rule: 0, or ±Inf
 # with the sign of each gᵢ.
 @inline _degenerate_residual(g::Real, vanishes::Bool) = _signed_degenerate(g, vanishes)
 @inline _degenerate_residual(g::StaticVector, vanishes::Bool) = map(gᵢ -> _signed_degenerate(gᵢ, vanishes), g)

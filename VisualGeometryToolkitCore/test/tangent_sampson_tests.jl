@@ -76,7 +76,7 @@
 
     @testset "the residual is in PIXELS, as a JOINT-space distance" begin
         # Sampson is the orthogonal distance to the constraint surface in the
-        # JOINT 4-D measurement space (u₁, u₂), so it shares the correction
+        # JOINT 4-D observation space (u₁, u₂), so it shares the correction
         # between the two views. Displacing ONE endpoint by δ px therefore reads
         # back δ·‖G_x^(2)‖/‖G_x‖, NOT δ — for a symmetric pair that factor is
         # ≈ 1/√2, which is exactly what this measured before the expectation was

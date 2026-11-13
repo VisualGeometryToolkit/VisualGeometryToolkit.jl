@@ -14,7 +14,7 @@
         RadialHomography, radial_transfer, HomographyMat
     using VisualGeometryToolkitCore.Synthetic: normalize_map, perspective_augmentation
     using GeometryBasics: Rect2
-    using VisualGeometryToolkitCore: Csponds, withattrs, weights_column, check_weights, CspondNormalization,
+    using VisualGeometryToolkitCore: Correspondences, withattrs, weights_column, check_weights, CorrespondenceNormalization,
         RadialCamera, radial_rows, center, source_map, destination_map
 
     @testset "EuclideanMap{2} actions on primitives and frames" begin
@@ -199,7 +199,7 @@
 
     @testset "weights column: one reader, one contract" begin
         u = [SVector(1.0, 2.0), SVector(3.0, 4.0), SVector(5.0, 7.0)]
-        cs = Csponds(u, u)
+        cs = Correspondences(u, u)
         @test weights_column(cs) === nothing && check_weights(weights_column(cs)) === nothing
         w = [1.0, 0.0, 2.5]
         @test check_weights(weights_column(withattrs(cs; weights = w))) === w   # zero is admissible
@@ -213,7 +213,7 @@
         c = Point2(812.3, 604.1)
         X = [SVector(randn(rng), randn(rng)) for _ in 1:12]
         x = [SVector(c[1] + 300 * randn(rng), c[2] + 300 * randn(rng)) for _ in 1:12]
-        N = CspondNormalization(RadialCamera, Csponds(X, x); center = SVector(c[1], c[2]))
+        N = CorrespondenceNormalization(RadialCamera, Correspondences(X, x); center = SVector(c[1], c[2]))
         Pn = RadialCamera(SMatrix{2, 3}(0.3, -0.2, 0.9, 0.4, 0.1, -0.5), Point2(0.0, 0.0))
         Pd = inv(HomographyMap(destination_map(N))) ∘ Pn ∘ source_map(N)   # back to pixels by composition
         P = RadialCamera(radial_rows(Pd), c)                      # the rows about a datum centre

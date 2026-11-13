@@ -36,7 +36,7 @@ an estimator's entry and once at its exit.
 
 | Layer | Holds |
 |---|---|
-| Public values (held by users, handed between packages, persisted): `EuclideanMap` translations, `PlanarTarget` and `PointTarget` points, `Rig` target poses, `Trajectory`, `TargetPoses`, `TargetPoints3D`, a 3D `TargetDetections`, sensor and board sizes | FlexUnits quantities for every physical length, in metres; a dimensionless quantity where a public value has no unit |
+| Public values (held by users, handed between packages, persisted): `EuclideanMap` translations, `PlanarTarget` and `PointTarget` points, `Rig` target poses, `Trajectory`, `TargetPoses`, a 3D `TargetObservations`, sensor and board sizes | FlexUnits quantities for every physical length, in metres; a dimensionless quantity where a public value has no unit |
 | IO | a file declares its `length_unit`; a reader returns quantities, and a writer writes numbers in the declared unit |
 | Estimator, renderer and solver entry and exit (`fit_*`, `find_*`, `refine_*`, a one-step algorithm's public form) | one strip into the private working unit at entry, one reattachment at exit |
 | Inner loop (minimal kernels, `*_step` updates, `!` workspace forms, RANSAC internals, LM rows and charts, GPU kernels) | plain numbers of eltype `T` (`Float64`, `Float32`, a ForwardDiff `Dual`) |
@@ -68,8 +68,8 @@ four points:
 1. VisualGeometryToolkitIO's readers always return quantities, through
    `read_length`.
 2. Its writers refuse a plain translation or point for a physical kind (`rig`,
-   `trajectory`, `target_poses`, `transforms`, `target`, `target_points3d`,
-   a 3D `target_detections`, and the object points of `correspondences`). The `ArgumentError` names the
+   `trajectory`, `target_poses`, `transforms`, `target`,
+   a 3D `observations`, and the object points of `correspondences`). The `ArgumentError` names the
    fix, `t .* m`.
 3. A public estimator that takes physical values strips them in metres at
    entry (`ustrip(m, x)`) and reattaches the unit at exit, so unitful input

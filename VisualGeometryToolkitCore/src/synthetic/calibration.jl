@@ -54,7 +54,7 @@
 #
 # HOW TO PLUG A PROVIDER IN (the reusable entry point). Write a trial closure
 #     trial(rng) -> nothing | (v̂::AbstractVector, Σ_pred::AbstractMatrix)
-# that (1) samples ground-truth geometry, (2) perturbs the measurements with
+# that (1) samples ground-truth geometry, (2) perturbs the observations with
 # KNOWN covariances, (3) obtains the chart-coordinate displacement of the
 # estimate/tracked solution relative to the anchor, and (4) returns the
 # PHYSICAL predicted covariance (unit-scale shape × σ²). Then call
@@ -70,7 +70,7 @@
 # `implicit_covariance` reads at the anchor.
 #
 # CONVENTIONS. Unit-scale covariance shapes throughout (Σ from unit
-# measurement noise; σ² applied here, by the consumer — matching the
+# observation noise; σ² applied here, by the consumer — matching the
 # lemma-conformant sweep convention).
 # =============================================================================
 
@@ -223,7 +223,7 @@ function format_result(r::CalibrationResult)
 end
 
 # -----------------------------------------------------------------------------
-# Measurement noise: unit-scale per-point covariance shapes
+# Observation noise: unit-scale per-point covariance shapes
 # -----------------------------------------------------------------------------
 
 """
@@ -262,7 +262,7 @@ end
     make_query_cov(rng; aniso=false) -> SMatrix{2,2}
 
 Unit-scale covariance shape for the QUERY point of the output-domain cells
-(trace-2 rotated-anisotropic when `aniso`, else I₂) — the measurement-point
+(trace-2 rotated-anisotropic when `aniso`, else I₂) — the observation-point
 noise of the Criminisi Table 4.1 protocol.
 """
 function make_query_cov(rng::AbstractRNG; aniso::Bool = false)
@@ -589,7 +589,7 @@ end
 function _newton_system(ch, v, cs, square::Bool)
     square && return first(constraint_jacobians(ch, v, cs)), nothing
     M = retract(ch, v)
-    return _whitened_system(ch, M, v, cs, Val(constraint_dim(M)), Val(_measurement_dim(M)))
+    return _whitened_system(ch, M, v, cs, Val(constraint_dim(M)), Val(_observation_dim(M)))
 end
 function _whitened_system(ch, M, v, cs, ::Val{dg}, ::Val{nx}) where {dg, nx}
     k = length(cs)
@@ -632,11 +632,11 @@ _lerp_point(a, b, t::Float64) =
 # A bearing set (an essential matrix's data) moves both bearings, back onto the
 # sphere, and their pixel Jacobians `M₁`/`M₂` with them. Only the path's end
 # must be exact, and the last stage takes the noisy set itself.
-function _lerp_pairs(cs0::Csponds{<:StaticVector{3}, <:StaticVector{3}}, cs1::Csponds, t::Float64)
+function _lerp_pairs(cs0::Correspondences{<:StaticVector{3}, <:StaticVector{3}}, cs1::Correspondences, t::Float64)
     mix(a, b) = (1 - t) * a + t * b
     bearing(a, b) = Vec3{Float64}(normalize(mix(SVector{3, Float64}(a), SVector{3, Float64}(b))))
     return withattrs(
-        Csponds(bearing.(sources(cs0), sources(cs1)), bearing.(targets(cs0), targets(cs1)));
+        Correspondences(bearing.(sources(cs0), sources(cs1)), bearing.(targets(cs0), targets(cs1)));
         M₁ = mix.(cs0.M₁, cs1.M₁), M₂ = mix.(cs0.M₂, cs1.M₂)
     )
 end
@@ -647,7 +647,7 @@ end
         -> SVector{tangent_size(ch)} | nothing
 
 Damped chart-Newton CONTINUATION of the local constrained solution: the
-measurements are moved from `cs_clean` (on the constraint variety — the
+observations are moved from `cs_clean` (on the constraint variety — the
 anchor of `ch` solves g exactly there) to `cs_noisy` along the linear data
 homotopy, each stage solved by damped Newton on g(v, x_t) = 0 warm-started
 at the previous stage's solution. The stage size starts at `1/stages` and
@@ -948,7 +948,7 @@ function essential_trial(;
         # bearings: M at the true pixels for the truth, at the perturbed ones for the data
         return _chart_trial(
             estimate, covariance, error, ch,
-            bearing_csponds(cameras..., cs), bearing_csponds(cameras..., csn), shapes, σ
+            bearing_correspondences(cameras..., cs), bearing_correspondences(cameras..., csn), shapes, σ
         )
     end
     return trial
@@ -1190,8 +1190,8 @@ function epipolar_band_trial(
         # The estimate and covariance get bearings when cameras are given —
         # what an E problem takes — and the untouched `cs`/`csn` otherwise.
         cs_h, csn_h = if model_class === :E && cameras !== nothing
-            bearing_csponds(cameras[1], cameras[2], cs),
-                bearing_csponds(cameras[1], cameras[2], csn)
+            bearing_correspondences(cameras[1], cameras[2], cs),
+                bearing_correspondences(cameras[1], cameras[2], csn)
         else
             cs, csn
         end

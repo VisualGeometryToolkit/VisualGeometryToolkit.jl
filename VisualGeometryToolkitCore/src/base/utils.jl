@@ -95,7 +95,7 @@ end
 include("geometry_utils.jl")
 
 # =============================================================================
-# saturation_bounds — the pixel value range a measurement may trust
+# saturation_bounds — the pixel value range an observation may trust
 # =============================================================================
 
 """

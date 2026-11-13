@@ -10,7 +10,7 @@
     import ForwardDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: monotone_radius, source_map, destination_map, radial_ratio, calibration_stage, whitening_factor,
-        sampson_residual_with_jacobian, measurement_gradient_jacobian   # public, not exported
+        sampson_residual_with_jacobian, observation_gradient_jacobian   # public, not exported
     using VisualGeometryToolkitCore: project_with_jacobians, radial_camera_5pt   # kernel: public, not exported
 
     @testset "monotone_radius agrees with the fold view_angle_limit reports" begin
@@ -306,13 +306,13 @@
             P5r = radial_camera_5pt(raw[[1, 5, 8, 21, 25]]; center = c)
             # the radial camera's normalization: the pencil centre on the image
             # origin; a 5-point solve in that view, pulled back, is the camera
-            Nr = VgtkCore.CspondNormalization(RadialCamera, Csponds(first.(raw), last.(raw)); center = c)
+            Nr = VgtkCore.CorrespondenceNormalization(RadialCamera, Correspondences(first.(raw), last.(raw)); center = c)
             @test VgtkCore.destination_map(Nr)(c) == SVector(0.0, 0.0)
-            nraw = LinearAlgebra.normalize(Nr, Csponds(first.(raw), last.(raw)))
+            nraw = LinearAlgebra.normalize(Nr, Correspondences(first.(raw), last.(raw)))
             P5n = inv(HomographyMap(destination_map(Nr))) ∘ radial_camera_5pt(nraw[[1, 5, 8, 21, 25]]; center = SVector(0.0, 0.0)) ∘ source_map(Nr)
             @test abs(abs(dot(vec(P5n.P), vec(P5r.P))) / (norm(P5n.P) * norm(P5r.P)) - 1) < 1.0e-12
             @test SVector(P5n.center...) ≈ c rtol = 1.0e-14
-            @test_throws UndefKeywordError VgtkCore.CspondNormalization(RadialCamera, Csponds(first.(raw), last.(raw)))
+            @test_throws UndefKeywordError VgtkCore.CorrespondenceNormalization(RadialCamera, Correspondences(first.(raw), last.(raw)))
             @test Tuple(P5r.center) == (c[1], c[2])
             @test abs(abs(dot(vec(P5r.P), vec(P5.P))) - 1) < 1.0e-9
             # degenerate: collinear plane points leave more than one null direction
@@ -320,14 +320,14 @@
             @test radial_camera_5pt(col) === nothing
             # the solver over the same kernel: `solve(RadialCamera5pt(; center), cs, idx)`,
             # the centre a property of the solver, a degenerate sample `count == 0`
-            cs5 = Csponds(first.(raw), last.(raw))
+            cs5 = Correspondences(first.(raw), last.(raw))
             s5 = RadialCamera5pt(; center = c)
             @test VgtkCore.sample_size(s5) == 5 && VgtkCore.max_solutions(s5) == 1
             @test VgtkCore.model_type(s5) === RadialCamera{Float64}
             sol = solve(s5, cs5, [1, 5, 8, 21, 25])
             @test sol isa VgtkCore.FixedModels{1, RadialCamera{Float64}} && length(sol) == 1
             @test sol[1].P == P5r.P && sol[1].center == P5r.center
-            @test length(solve(RadialCamera5pt(), Csponds(first.(col), last.(col)), 1:5)) == 0
+            @test length(solve(RadialCamera5pt(), Correspondences(first.(col), last.(col)), 1:5)) == 0
             _solve5(s, cs, idx) = solve(s, cs, idx)
             _solve5(s5, cs5, 1:5)
             @test (@allocated _solve5(s5, cs5, 1:5)) == 0
@@ -361,7 +361,7 @@
             end
             # composition with a normalization's sides — the family's frame law, both directions.
             cs = [X => SVector{2, Float64}(VgtkCore.project(cam_div, SVector(X[1], X[2], 0.0))) for X in Xs]
-            fr = VgtkCore.CspondNormalization(HomographyMat, cs)
+            fr = VgtkCore.CorrespondenceNormalization(HomographyMat, cs)
             Sf, Df = HomographyMap(source_map(fr)), HomographyMap(destination_map(fr))
             Pback = inv(Df) ∘ (Df ∘ Pd ∘ inv(Sf)) ∘ Sf
             @test Pback.P ./ Pback.P[1, 1] ≈ Pd.P ./ Pd.P[1, 1]
@@ -383,7 +383,7 @@
             @test whitening_factor(G_x) * G_θ ≈ G_θ / norm(G_x) atol = 1.0e-12
             dθ(v) = only(sampson_residual(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x))
             @test vec(sampson_residual_with_jacobian(Pm, X, x)[2]) ≈ ForwardDiff.gradient(dθ, SVector(vec(Pm.P))) rtol = 1.0e-12
-            @test measurement_gradient_jacobian(Pm, X, x) ≈
+            @test observation_gradient_jacobian(Pm, X, x) ≈
                 ForwardDiff.jacobian(v -> constraint_with_jacobians(RadialCamera{eltype(v)}(SMatrix{2, 3}(v[1], v[2], v[3], v[4], v[5], v[6])), X, x)[2], SVector(vec(Pm.P)))
             # A two-row constraint (the division lift's form, VisualGeometryToolkitEstimation's
             # RadialLift): whitened by a factor W of Σ_g⁻¹ = (G_x G_xᵀ)⁻¹ — the

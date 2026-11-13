@@ -18,7 +18,7 @@
 #
 # AN INTENTIONAL SLOWDOWN (or a speed-up worth locking in) re-records the
 # baselines IN THE SAME COMMIT: `LO_TIMING_GATE=record` rewrites
-# `DIR/baselines.toml` from this host's measurement.
+# `DIR/baselines.toml` from this host's observation.
 #
 # ROBUST ON A BUSY HOST: the bench runs under `taskset` on the least-loaded core
 # whose SMT siblings are idle too (sampled from /proc/stat over 1 s;
@@ -102,8 +102,8 @@ end
 _gate_quiet(m) = m["host"]["calibration_spread"] < _GATE_QUIET_CALIBRATION &&
     all(a["reps_us_per_call"][2] / a["reps_us_per_call"][1] - 1 < _GATE_QUIET_ARM for a in values(m["arms"]))
 
-# The first quiet measurement within three runs, or `nothing`.
-function _gate_quiet_measurement(core, DIR)
+# The first quiet observation within three runs, or `nothing`.
+function _gate_quiet_observation(core, DIR)
     for _ in 1:3
         m = _gate_bench_once(core, DIR)
         _gate_quiet(m) && return m
@@ -138,9 +138,9 @@ function run_lo_timing_gate(DIR::AbstractString)
         if core === nothing
             _gate_skip("no idle $(something(class, "")) core (every one > 5 % busy over 1 s, or none of that class) — the machine is too busy to time")
         elseif MODE == "record"
-            m = _gate_quiet_measurement(core, DIR)
+            m = _gate_quiet_observation(core, DIR)
             if m === nothing
-                _gate_skip("could not get a quiet measurement on core $core to record")
+                _gate_skip("could not get a quiet observation on core $core to record")
             else
                 io = IOBuffer()
                 println(io, "# LO timing baselines (the gate: VisualGeometryToolkitCore test/lo_timing/gate.jl): min µs per call over 7 reps")
@@ -166,7 +166,7 @@ function run_lo_timing_gate(DIR::AbstractString)
             _gate_skip("baselines were recorded on $(base["host"]["cpu"]) / Julia $(base["host"]["julia"]); " *
                  "this host is $(host.cpu) / Julia $(host.julia) — re-record with LO_TIMING_GATE=record")
         else
-            m = _gate_quiet_measurement(core, DIR)
+            m = _gate_quiet_observation(core, DIR)
             if m === nothing
                 _gate_skip("three runs on core $core were all noisy (calibration spread ≥ $_GATE_QUIET_CALIBRATION or an arm's " *
                      "two fastest reps ≥ $_GATE_QUIET_ARM apart) — the machine is too noisy to time")
@@ -174,7 +174,7 @@ function run_lo_timing_gate(DIR::AbstractString)
                 over(m, name) = m["arms"][name]["us_per_call"] > _GATE_TIME_SLACK * base["arms"][name]["us_per_call"]
                 names = sort!(collect(keys(base["arms"])))
                 if any(n -> haskey(m["arms"], n) && over(m, n), names)    # re-measure once before failing
-                    m2 = _gate_quiet_measurement(core, DIR)
+                    m2 = _gate_quiet_observation(core, DIR)
                     if m2 !== nothing
                         for n in names
                             m["arms"][n]["us_per_call"] = min(m["arms"][n]["us_per_call"], m2["arms"][n]["us_per_call"])

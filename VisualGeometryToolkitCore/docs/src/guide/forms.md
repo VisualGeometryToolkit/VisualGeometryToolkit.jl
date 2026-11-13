@@ -33,7 +33,7 @@ layer.
 ```julia
 form = EpipolarForm{ImageFrame{:a}, ImageFrame{:b}}(F)   # labeled lift
 form = EpipolarForm(F)                                 # unlabeled (gradual)
-form(x₁, x₂)                                           # x̃₂ᵀ M x̃₁ — 0 for an exact cspond
+form(x₁, x₂)                                           # x̃₂ᵀ M x̃₁ — 0 for an exact correspondence
 ```
 
 An `EpipolarForm` is not a `Transformation`: it does not compose with `∘`,
@@ -93,11 +93,11 @@ the depth-assumed two-view closure is [`depth_transfer`](@ref) (which
 `epipolar_map` was renamed *from* in 0.8 — the old name promised a
 correlation and delivered a transfer).
 
-## Checked measurement frames
+## Checked observation frames
 
 [`sampson_distance`](@ref)`(f, x₁, x₂)` delegates to the Sampson machinery
 on the wrapped matrix, and since 0.9 the delegation is *checked* where a
-frame is available: an `Uncertain` measurement whose `CovMat`/`PrecMat`
+frame is available: an `Uncertain` observation whose `CovMat`/`PrecMat`
 carries a frame label must meet the slot it feeds — same wildcard table,
 `MethodError` on a labeled mismatch.
 

@@ -513,7 +513,7 @@ Compute the gradient of the conic implicit function at point p.
 For conic equation x^T Q x = 0, the gradient is ∇f(x) = 2Qx (homogeneous form).
 Returns the 2D Euclidean gradient [∂f/∂x, ∂f/∂y] as a `Vec2` — it's a
 direction (steepest-ascent), not a position: the point-on-conic constraint's
-measurement gradient (`constraint_with_jacobians(::Conic, p)`'s `G_x`).
+observation gradient (`constraint_with_jacobians(::Conic, p)`'s `G_x`).
 """
 gradient(Q::HomEllipseMat, p::AbstractVector) = gradient(Conic(Q), p)
 
@@ -521,7 +521,7 @@ gradient(Q::HomEllipseMat, p::AbstractVector) = gradient(Conic(Q), p)
 # Conic geometric primitive — the class matrices for the ellipse forms
 # =============================================================================
 
-# Any conic's gradient (the constraint's measurement gradient), mixed eltypes promoted
+# Any conic's gradient (the constraint's observation gradient), mixed eltypes promoted
 function gradient(c::Conic{T1}, p::AbstractVector) where {T1}
     length(p) == 2 || throw(ArgumentError("Point must be 2D, got length $(length(p))"))
     T = promote_type(T1, eltype(p))

@@ -8,7 +8,7 @@
 @testitem "bearing transfer: constraint, Jacobians, rows" begin
     using Test, StaticArrays, LinearAlgebra, Random, Rotations
     using VisualGeometryToolkitCore: TransferForm, HomographyMat, constraint_with_jacobians, s2_tangent_basis,
-        weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, sampson_residual, Csponds, withattrs
+        weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, sampson_residual, Correspondences, withattrs
     import ForwardDiff
     import VisualGeometryToolkitCore as VgtkCore
 
@@ -43,7 +43,7 @@
         f₂ = [normalize(R0 * f + 1.0e-3 * randn(rng, SVector{3, Float64})) for f in f₁]
         M₁ = tangent_M.(f₁); M₂ = tangent_M.(f₂)
         sqrtw = rand(rng, n)
-        xs = withattrs(Csponds(f₁, f₂); M₁, M₂, sqrt_weights = sqrtw)
+        xs = withattrs(Correspondences(f₁, f₂); M₁, M₂, sqrt_weights = sqrtw)
         r = zeros(2n)
         weighted_whitened_residuals!(r, TransferForm(H(R0)), xs)
         for i in 1:n

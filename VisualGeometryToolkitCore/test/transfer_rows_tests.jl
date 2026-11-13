@@ -11,7 +11,7 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: TransferForm, whitening_factor, weighted_whitened_residuals!, weighted_whitened_jacobian_rows!,
-        measurement_gradient_jacobian, retract, retract_jacobian, whiten, Csponds, withattrs
+        observation_gradient_jacobian, retract, retract_jacobian, whiten, Correspondences, withattrs
 
     rng = Xoshiro(3)
     H = HomographyMat(SMatrix{3, 3, Float64}(1.1, 0.02, 1.0e-4, -0.03, 0.95, 2.0e-4, 12.0, -7.0, 1.0))
@@ -37,7 +37,7 @@
         for i in (1, 7, 23)
             u, v = u₁[i], u₂[i]
             g, Gx, Gθ = constraint_with_jacobians(H, u, v)
-            # the owner's constraint g, as a function of the measurement and of vec(H)
+            # the owner's constraint g, as a function of the observation and of vec(H)
             gz(z) = VgtkCore.constraint(HomographyMat{eltype(z)}(Tuple(Hs)), SVector(z[1], z[2]), SVector(z[3], z[4]))
             gθ(θ) = VgtkCore.constraint(HomographyMat{eltype(θ)}(Tuple(θ)), SVector{2, eltype(θ)}(u), SVector{2, eltype(θ)}(v))
             @test Gx ≈ ForwardDiff.jacobian(gz, SVector(u[1], u[2], v[1], v[2])) rtol = 1.0e-12
@@ -71,7 +71,7 @@
         ch = HomographyManifold8(SMatrix{3, 3}(H))
         v = SVector(0.01, -0.02, 0.005, 0.01, -1.0e-3, 2.0e-3, 0.03, -0.02)
         Hv = retract(ch, v)
-        xs = withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw)
+        xs = withattrs(Correspondences(u₁, u₂); sqrt_weights = sqrtw)
         r = zeros(2n); J = zeros(2n, 8)
         weighted_whitened_residuals!(r, TransferForm(Hv), xs)
         weighted_whitened_jacobian_rows!(J, TransferForm(Hv), retract_jacobian(ch, v), xs)
@@ -86,7 +86,7 @@
         end
         # the transfer form's ∂vec(G_x)/∂vec(H): ForwardDiff of G_x itself
         G(h) = vec(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(h))), u₁[3], u₂[3])[2])
-        @test measurement_gradient_jacobian(TransferForm(Hv), u₁[3], u₂[3]) ≈ ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(Hv)))) rtol = 1.0e-14
+        @test observation_gradient_jacobian(TransferForm(Hv), u₁[3], u₂[3]) ≈ ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(Hv)))) rtol = 1.0e-14
         # the device kernels, launched on KA.CPU() (the public functions take the CPU fast path)
         KA = VgtkCore.KA
         rk = zeros(2n); Jk = zeros(2n, 8)

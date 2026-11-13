@@ -207,16 +207,16 @@ end
     rng = Xoshiro(3)
     F = VgtkCore.FundMat(SMatrix{3, 3, Float64}(randn(rng, 9)...))
     for n in (1, 100, 1000)
-        xs = VgtkCore.csponds([SVector(rand(rng), rand(rng)) for _ in 1:n], [SVector(rand(rng), rand(rng)) for _ in 1:n])
+        xs = VgtkCore.correspondences([SVector(rand(rng), rand(rng)) for _ in 1:n], [SVector(rand(rng), rand(rng)) for _ in 1:n])
         r = VgtkCore.sampson_residuals!(zeros(n), F, xs)
         ref = zeros(n)
-        cols = VgtkCore._measurement_columns(xs); kw = VgtkCore.constraint_keywords(F, xs)
+        cols = VgtkCore._observation_columns(xs); kw = VgtkCore.constraint_keywords(F, xs)
         for i in 1:n
             VgtkCore._sampson_residual_row!(ref, i, F, cols, kw, nothing, nothing)
         end
         @test r ≈ ref rtol = 1.0e-14
     end
-    @test VgtkCore.sampson_residuals!(Float64[], F, VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])) == Float64[]
+    @test VgtkCore.sampson_residuals!(Float64[], F, VgtkCore.correspondences(SVector{2, Float64}[], SVector{2, Float64}[])) == Float64[]
 end
 
 # The eager release of a device buffer (base/device.jl, hoisted from RANSACScoringDoneRight): GPUArrays' unsafe_free!, so a

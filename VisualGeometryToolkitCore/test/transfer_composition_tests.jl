@@ -2,7 +2,7 @@
 # transformation law.
 #
 # WHY THIS FILE EXISTS AS ITS OWN GATE. VisualGeometryToolkitEstimation solves a
-# homography problem through measurement maps and must move the solved model
+# homography problem through observation maps and must move the solved model
 # back to the data frame. Written inline there, the transform would be a second
 # expression of one piece of algebra in a second repo; written here, it is one.
 # What makes it worth PINNING rather than merely testing is that the failure
@@ -24,7 +24,7 @@
 #
 # The third is exact rather than first-order precisely because an affine map
 # has a CONSTANT Jacobian — and that is the case that ships, since an
-# estimator's measurement map is `Kᵢ⁻¹`.
+# estimator's observation map is `Kᵢ⁻¹`.
 #
 # Measured maxima over 2000 draws with κ(H), κ(D₁), κ(D₂) ≤ 100 (seed pinned,
 # so these are reproducible, not typical): 8.21e-14, 3.48e-14, 3.18e-13, each
@@ -79,7 +79,7 @@
         @test parent(TransferForm(HomographyMap(f))) == parent(f)
     end
 
-    @testset "the estimator idiom: measurement maps run DATA → MODEL" begin
+    @testset "the estimator idiom: observation maps run DATA → MODEL" begin
         # The direction the consumers hold. `Cᵢ` carries pixels into the model
         # frame, so the result `inv(C₂) ∘ H ∘ C₁`
         # is `H_data = C₂⁻¹ H C₁` — main's algebra, verified rather than taken.
@@ -157,7 +157,7 @@
             Alin = SMatrix{2, 2, Float64}(A2[1, 1], A2[2, 1], A2[1, 2], A2[2, 2])
             e_affine = max(e_affine, relerr(g_new, Alin * g_old))
 
-            # (4) THE DIRECTION ITSELF. Handing the measurement maps C = D⁻¹
+            # (4) THE DIRECTION ITSELF. Handing the observation maps C = D⁻¹
             # straight in — the mistake this gate exists for — must break the
             # transfer identity by a margin no rounding could produce.
             fw = TransferForm(HomographyMap(inv(D2)) ∘ HomographyMap(f) ∘ inv(HomographyMap(inv(D1))))

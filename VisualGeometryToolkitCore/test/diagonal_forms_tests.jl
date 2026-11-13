@@ -70,7 +70,7 @@
     @testset "a detection set keeps its covariances' storage; mixed in the coarser one" begin
         P = VisualGeometryToolkitCore.PixelFrame{:colmap}
         u(Σ) = Uncertain(SVector(1.0, 2.0), Σ)
-        set(pts) = VisualGeometryToolkitCore.TargetDetections{P}(Dict(1 => Dict(:b => VisualGeometryToolkitCore.csponds(collect(1:length(pts)), pts)));
+        set(pts) = VisualGeometryToolkitCore.TargetObservations{P}(Dict(1 => Dict(:b => VisualGeometryToolkitCore.correspondences(collect(1:length(pts)), pts)));
             sensors = "cam", images = Dict(1 => "a.png"))
         storage(td) = typeof(parent(cov(td[1][:b][1].second)))
         @test storage(set([u(S), u(S)])) <: ScaledIdentity

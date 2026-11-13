@@ -1,5 +1,5 @@
 # The two layers over one constraint (base/sampson.jl): the Sampson residual is
-# geometric (model and point; a measurement's covariance never enters), and the
+# geometric (model and point; an observation's covariance never enters), and the
 # noise layer `whiten(s_N, N, Σ)` turns it into the first-order Mahalanobis
 # residual — exactly the constraint whitened by its propagated covariance.
 @testitem "sampson_layers" begin
@@ -43,7 +43,7 @@
         end
     end
 
-    @testset "Sampson is geometric; Mahalanobis reads the measurements' covariance" begin
+    @testset "Sampson is geometric; Mahalanobis reads the observations' covariance" begin
         a, b = Uncertain(u, CovMat(Σ₁)), Uncertain(v, PrecMat(inv(Σ₂)))
         for M in (F, H)
             @test sampson_distance(M, a, b) == sampson_distance(M, u, v)
@@ -94,7 +94,7 @@
     end
 end
 
-# A conic's and an ellipse's Sampson rows: `measurement_gradient_jacobian` against
+# A conic's and an ellipse's Sampson rows: `observation_gradient_jacobian` against
 # ForwardDiff of their constraints' G_x, the exact residual Jacobian against
 # ForwardDiff of the residual, ForwardDiff Duals through the whole path, and no
 # allocation.
@@ -105,7 +105,7 @@ end
     using StaticArrays
     using ForwardDiff: ForwardDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Conic, Ellipse, Point2, constraint_with_jacobians, measurement_gradient_jacobian,
+    using VisualGeometryToolkitCore: Conic, Ellipse, Point2, constraint_with_jacobians, observation_gradient_jacobian,
         sampson_residual, sampson_residual_with_jacobian
 
     conic(θ) = Conic(SMatrix{3, 3}(θ[1], θ[2], θ[4], θ[2], θ[3], θ[5], θ[4], θ[5], θ[6]))
@@ -115,13 +115,13 @@ end
     θE = SVector(E.center[1], E.center[2], Q[1, 1], Q[1, 2], Q[2, 2])
     for u in (SVector(210.0, 180.0), SVector(820.0, 395.0), SVector(505.0, 120.0))
         # the conic: ∂G_x/∂θ and the residual's exact model row
-        @test measurement_gradient_jacobian(conic(θ₀), u) ≈
+        @test observation_gradient_jacobian(conic(θ₀), u) ≈
             ForwardDiff.jacobian(θ -> constraint_with_jacobians(conic(θ), u)[2], θ₀) rtol = 1.0e-14
         s, J = sampson_residual_with_jacobian(conic(θ₀), u)
         @test vec(J) ≈ ForwardDiff.gradient(θ -> only(sampson_residual(conic(θ), u)), θ₀) rtol = 1.0e-12
         # the ellipse, in its G_θ's coordinates (c₁, c₂, Q₁₁, Q₁₂, Q₂₂)
         @test constraint_with_jacobians(E, u)[3] ≈ ForwardDiff.gradient(θ -> ellipse_g(θ, u), θE) rtol = 1.0e-13
-        @test measurement_gradient_jacobian(E, u) ≈
+        @test observation_gradient_jacobian(E, u) ≈
             ForwardDiff.jacobian(θ -> ForwardDiff.gradient(x -> ellipse_g(θ, x), u), θE) rtol = 1.0e-13
         sE, JE = sampson_residual_with_jacobian(E, u)
         @test vec(JE) ≈ ForwardDiff.gradient(θ -> (d = u - SVector(θ[1], θ[2]); Qθ = SMatrix{2, 2}(θ[3], θ[4], θ[4], θ[5]);

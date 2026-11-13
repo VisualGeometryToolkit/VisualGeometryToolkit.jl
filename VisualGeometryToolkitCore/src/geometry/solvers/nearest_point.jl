@@ -16,8 +16,8 @@ of `Σᵢ wᵢ ‖(I − dᵢdᵢᵀ)(x − oᵢ)‖²`, the weighted sum of squ
 `(Σ wᵢPᵢ) x = Σ wᵢPᵢoᵢ`, `Pᵢ = I − dᵢdᵢᵀ` (the projector onto the line's normal
 space).
 
-`lines` is a vector of `origin => direction` pairs (a [`Csponds`](@ref) by
-`csponds(origins, directions)`, or a plain vector of `Pair`s): `oᵢ` any point
+`lines` is a vector of `origin => direction` pairs (a [`Correspondences`](@ref) by
+`correspondences(origins, directions)`, or a plain vector of `Pair`s): `oᵢ` any point
 on the line, `dᵢ` its direction, normalized inside (any nonzero length).
 `N`-dimensional: 3-D lines and 2-D lines alike. Per-line weights are the
 `weights` attribute column (`withattrs(lines; weights = w)`): FIXED,
@@ -34,7 +34,7 @@ non-finite direction, or lines that do not determine a point — all parallel,
 the normal matrix singular to `1e-12` of its largest eigenvalue.
 
 ```julia
-lines = csponds([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 0.0, 1.0), SVector(-1.0, 0.0, 1.0)])
+lines = correspondences([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 0.0, 1.0), SVector(-1.0, 0.0, 1.0)])
 nearest_point(lines)   # [0.0, 0.0, 1.0]: where the two lines meet
 ```
 """
@@ -42,7 +42,7 @@ function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N, <:Quantity
     # Origins that are lengths: stripped in metres once, the plain solve, metres back.
     stripped = [strip_metres(first(l)) => last(l) for l in lines]
     w = weights_column(lines)
-    return nearest_point(w === nothing ? stripped : withattrs(Csponds(sources(stripped), targets(stripped)); weights = w)) .* m
+    return nearest_point(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w)) .* m
 end
 function nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N}, <:StaticVector{N}}}) where {N}
     w = check_weights(weights_column(lines), length(lines))

@@ -1,15 +1,15 @@
-# The measurement-noise rule (conventions/measurement-noise.md): a plain point
+# The observation-noise rule (conventions/observation-noise.md): a plain point
 # is unit isotropic noise, an `Uncertain` point carries its covariance, an
 # `exact` point none; a correspondence's constraint covariance is
 # G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ.
-@testitem "measurement_noise" begin
+@testitem "observation_noise" begin
     using Test
     using LinearAlgebra
     using StaticArrays
     using Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: exact, Uncertain, CovMat, PrecMat, cov, pair_covariance, noise_columns,
-        sampson_distance, mahalanobis_distance, TransferForm, whitened_residuals!, whitening_factor, CspondNormalization,
+        sampson_distance, mahalanobis_distance, TransferForm, whitened_residuals!, whitening_factor, CorrespondenceNormalization,
         source_map, destination_map, implicit_covariance, minimal_manifold, constraint_with_jacobians
 
     rng = Xoshiro(11)
@@ -37,8 +37,8 @@
         nc2 = noise_columns(b, [Uncertain(x, PrecMat{2}(σ = 0.5)) for x in u])
         @test keys(nc2) == (:Σ₂,) && all(Σ -> Σ ≈ 0.25I, nc2.Σ₂)
         @test_throws ArgumentError noise_columns(exact.(b), exact.(u))
-        cs = withattrs(Csponds(b, u); nc...)
-        @test pair_covariance(Csponds(b, u), 3) === I
+        cs = withattrs(Correspondences(b, u); nc...)
+        @test pair_covariance(Correspondences(b, u), 3) === I
         @test pair_covariance(cs, 3) == [zeros(2, 4); zeros(2, 2) I(2)]
     end
 
@@ -61,27 +61,27 @@
 
     @testset "whitened batch rows: the noise columns, and the plain path" begin
         r0 = zeros(2n); r = zeros(2n)
-        whitened_residuals!(r0, H, Csponds(b, u))                          # no columns: the Sampson residual
+        whitened_residuals!(r0, H, Correspondences(b, u))                          # no columns: the Sampson residual
         @test r0 ≈ reduce(vcat, [sampson_residual(H, b[i], u[i]) for i in 1:n]) rtol = 1.0e-14
-        whitened_residuals!(r, H, withattrs(Csponds(b, u); Σ₁ = fill(zero(SMatrix{2, 2, Float64, 4}), n)))
+        whitened_residuals!(r, H, withattrs(Correspondences(b, u); Σ₁ = fill(zero(SMatrix{2, 2, Float64, 4}), n)))
         # an exact source: the algebraic constraint whitened is the transfer error (r = g/|c|)
         tr = [PerspectiveMap()(SMatrix{3, 3}(H) * SVector(b[i][1], b[i][2], 1.0)) - u[i] for i in 1:n]
         @test [norm(r[2i-1:2i]) for i in 1:n] ≈ norm.(tr) rtol = 1.0e-10
         Σ₁ = [SMatrix{2, 2}(1.0e-6, 2.0e-7, 2.0e-7, 3.0e-6) for _ in 1:n]
         Σ₂ = [SMatrix{2, 2}(2.0, 0.1, 0.1, 0.5) for _ in 1:n]
-        whitened_residuals!(r, H, withattrs(Csponds(b, u); Σ₁, Σ₂))
+        whitened_residuals!(r, H, withattrs(Correspondences(b, u); Σ₁, Σ₂))
         for i in 1:n
             @test norm(r[2i-1:2i]) ≈ mahalanobis_distance(H, Uncertain(b[i], CovMat(Σ₁[i])), Uncertain(u[i], CovMat(Σ₂[i]))) rtol = 1.0e-12
         end
-        xs = withattrs(Csponds(b, u); Σ₁, Σ₂)
+        xs = withattrs(Correspondences(b, u); Σ₁, Σ₂)
         allocs(r, H, xs) = (whitened_residuals!(r, H, xs); @allocated whitened_residuals!(r, H, xs))
         @test allocs(r, H, xs) == 0
     end
 
     @testset "normalization moves the noise with the points" begin
         Σ₂ = [SMatrix{2, 2}(1.0 + 0.1i, 0.2, 0.2, 0.7) for i in 1:n]
-        cs = withattrs(Csponds(b, u); Σ₂, score = collect(1.0:n))
-        N = CspondNormalization(HomographyMat, cs)
+        cs = withattrs(Correspondences(b, u); Σ₂, score = collect(1.0:n))
+        N = CorrespondenceNormalization(HomographyMat, cs)
         cn = LinearAlgebra.normalize(N, cs)
         A = destination_map(N).linear
         @test all(cn.Σ₂[i] ≈ A * Σ₂[i] * A' for i in 1:n)
@@ -92,7 +92,7 @@
     @testset "solver covariance with an exact side" begin
         ch = minimal_manifold(H)
         Σx = [[zeros(2, 2) zeros(2, 2); zeros(2, 2) Matrix(1.0I, 2, 2)] for _ in 1:n]
-        C = implicit_covariance(ch, Csponds(b, u); Σx)
+        C = implicit_covariance(ch, Correspondences(b, u); Σx)
         @test C !== nothing && all(isfinite, C)
     end
 end

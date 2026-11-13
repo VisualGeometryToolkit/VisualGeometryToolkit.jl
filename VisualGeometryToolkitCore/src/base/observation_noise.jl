@@ -1,8 +1,8 @@
 # =============================================================================
-# Measurement noise — the covariance of a correspondence's endpoints
+# Observation noise — the covariance of a correspondence's endpoints
 # =============================================================================
 #
-# THE RULE (conventions/measurement-noise.md). Noise lives on the MEASUREMENTS, never in a
+# THE RULE (conventions/observation-noise.md). Noise lives on the OBSERVATIONS, never in a
 # problem type:
 #
 #   - a PLAIN point (no covariance) is unit isotropic noise in its own frame,
@@ -34,9 +34,9 @@
 """
     exact(p::StaticVector) -> Uncertain
 
-The measurement `p` known EXACTLY: `p` with a ZERO covariance, the third case of
-the measurement-noise rule (a plain point is unit isotropic noise, an
-[`Uncertain`](@ref) carries its own covariance). For data with no measurement
+The observation `p` known EXACTLY: `p` with a ZERO covariance, the third case of
+the observation-noise rule (a plain point is unit isotropic noise, an
+[`Uncertain`](@ref) carries its own covariance). For data with no observation
 error in its frame — a calibration board's points in metres, a world point.
 Board → image correspondences built as `exact.(board) .=> pixels` score the
 transfer error in the image's pixels, whatever the board's units. A physical
@@ -78,7 +78,7 @@ _cov_eltype(Σ::AbstractMatrix) = eltype(Σ)
     pair_covariance(Σ₁, Σ₂)
     pair_covariance(cs, i)
 
-The 4×4 measurement covariance of a correspondence over `(x₁, y₁, x₂, y₂)`: the
+The 4×4 observation covariance of a correspondence over `(x₁, y₁, x₂, y₂)`: the
 block diagonal of its endpoints' 2×2 covariances, `I` (the `UniformScaling`)
 when both are unit isotropic — the shape [`whiten`](@ref) and
 [`whitening_factor`](@ref) take as `Σ_x`. With a correspondence set `cs`, the
@@ -110,9 +110,9 @@ end
     (_all_exact(Σ₁) && _all_exact(Σ₂)) && throw(ArgumentError(_BOTH_EXACT))
     return pair_covariance(Σ₁, Σ₂)
 end
-# One measurement's covariance as its constraint's: an exact one is refused.
-@inline function _measurement_noise(Σ)
-    _all_exact(Σ) && throw(ArgumentError("an exact measurement has no noise to whiten: give it a covariance (Uncertain) or a plain point"))
+# One observation's covariance as its constraint's: an exact one is refused.
+@inline function _observation_noise(Σ)
+    _all_exact(Σ) && throw(ArgumentError("an exact observation has no noise to whiten: give it a covariance (Uncertain) or a plain point"))
     return Σ
 end
 # An exact (zero) covariance; a plain point's `I` never is.
@@ -121,7 +121,7 @@ end
 
 const _BOTH_EXACT =
     "both endpoints of a correspondence are exact (zero covariance): its constraint " *
-    "has no measurement noise to whiten. At most one side may be `exact`."
+    "has no observation noise to whiten. At most one side may be `exact`."
 
 """
     noise_columns(sources, targets) -> NamedTuple

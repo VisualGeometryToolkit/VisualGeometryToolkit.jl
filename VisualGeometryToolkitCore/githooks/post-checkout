@@ -1,1 +1,66 @@
-sync-manifest
+#!/usr/bin/env bash
+# Keep a stack repository's untracked Julia Manifest legal after git moves a
+# Project.toml.
+#
+# A repository of the stack is one Pkg workspace with ONE Manifest, at its root
+# (regenerable from Project.toml plus the registries, so untracked). A pull,
+# checkout or rebase that changes a Project.toml anywhere (a package, its test/
+# or docs/ env, a paper project) can leave it illegal; this hook re-resolves it
+# once, at the root, through VisualGeometryToolkitCore's `sync_manifest`
+# (src/quality/sync_manifest.jl, included by path: the package itself is not
+# loaded, since its Manifest may be the illegal one). A tracked Manifest is
+# instantiated instead. Precompilation is deferred to the first `using`.
+#
+# Installed as post-merge, post-checkout and post-rewrite (links to this file),
+# once per clone: in the VisualGeometryToolkit monorepo `git config
+# core.hooksPath .githooks` (a link to VisualGeometryToolkitCore/githooks), in any
+# other stack repository
+#     julia --project=. -e 'using VisualGeometryToolkitCore; VisualGeometryToolkitCore.install_githooks()'
+#
+# Never fails the git command; on error it says what to run by hand.
+# Manual form:  <hooks>/sync-manifest [<old-rev> [<new-rev>]]
+
+set -u
+set -o pipefail
+repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$repo" || exit 0
+hook=$(basename "$0")
+here=$(dirname "$(readlink -f "$0")")
+script="$here/../src/quality/sync_manifest.jl"
+
+case "$hook" in
+  post-merge)    old=ORIG_HEAD; new=HEAD ;;
+  post-rewrite)  [ "${1:-}" = rebase ] || exit 0; old=ORIG_HEAD; new=HEAD ;;
+  post-checkout) [ "${3:-0}" = 1 ] || exit 0; old=$1; new=$2 ;;
+  *)             old=${1:-ORIG_HEAD}; new=${2:-HEAD} ;;
+esac
+
+log() { printf '[sync-manifest] %s\n' "$*" >&2; }
+
+# Nothing to do unless a Project.toml moved (deps, compat and version live there).
+if git rev-parse --verify -q "$old^{commit}" >/dev/null 2>&1; then
+  git diff --quiet "$old" "$new" -- ':(glob)**/Project.toml' && exit 0
+fi
+[ -f Manifest.toml ] || exit 0          # nothing resolved yet: instantiate creates it
+
+if git ls-files --error-unmatch Manifest.toml >/dev/null 2>&1; then mode=instantiate; else mode=update; fi
+
+if command -v julia >/dev/null 2>&1; then
+  JULIA=(julia)
+elif [ -f pixi.toml ] && command -v pixi >/dev/null 2>&1; then
+  JULIA=(pixi run julia)
+else
+  log "a Project.toml changed but no julia on PATH; run: julia --project=. -e 'using Pkg; Pkg.$mode()'"
+  exit 0
+fi
+[ -f "$script" ] || { log "$script is missing; run: julia --project=. -e 'using Pkg; Pkg.$mode()'"; exit 0; }
+TIMEOUT=(); command -v timeout >/dev/null 2>&1 && TIMEOUT=(timeout 900)
+
+log "a Project.toml changed — Pkg.$mode() at the workspace root (precompile deferred)"
+if JULIA_PKG_PRECOMPILE_AUTO=0 "${TIMEOUT[@]}" "${JULIA[@]}" --startup-file=no --project=. \
+     -e 'include(ARGS[1]); sync_manifest(ARGS[2]; repo = ARGS[3])' "$script" "$mode" "$repo" 2>&1 | sed 's/^/[sync-manifest]   /' >&2
+then :
+else
+  log "FAILED — the Manifest may still be illegal; run: julia --startup-file=no --project=. -e 'using Pkg; Pkg.$mode()'"
+fi
+exit 0

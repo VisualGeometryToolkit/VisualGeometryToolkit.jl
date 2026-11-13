@@ -19,7 +19,7 @@
     using VisualGeometryToolkitCore: EuclideanMap, m, mm, ustrip, DimensionError, translation, rotation,
         relabel, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, Uncertain, CovMat, geom,
         has_units, with_unit, PointTarget, PlanarTarget, PosedTarget, Rig, PosedCamera, BoundedCamera, CameraModel,
-        CameraCalibrationMat, Trajectory, TargetPoses, TargetPoints3D, Size2, project, pose, extrinsics, points
+        CameraCalibrationMat, Trajectory, TargetPoses, Size2, project, pose, extrinsics, points
 
     maps_close(A, B) = rotation(A) == rotation(B) && within_ulp(translation(A), translation(B))
     pose_close(A::EuclideanMap, B::EuclideanMap) = maps_close(A, B)
@@ -166,7 +166,7 @@
         )
     end
 
-    @testset "Trajectory, TargetPoses, TargetPoints3D" begin
+    @testset "Trajectory, TargetPoses" begin
         tr_mm = Trajectory(BodyFrame{:rig}, WorldFrame, Dict(1 => E_mm, 3 => Uncertain(E_mm, Σ6)); recovered = [3])
         tr_u = with_unit(tr_mm, mm)
         @test has_units(tr_u) && !has_units(tr_mm)
@@ -189,16 +189,5 @@
         @test_throws ArgumentError with_unit(tp_u, mm)
         @test_throws DimensionError TargetPoses{CameraFrame}(Dict(1 => Dict(:b => E_mm), 2 => Dict(:c => E_u)))
 
-        obs = [(target = :body, index = 3, xyz = pts3_mm[1]), (target = :body, index = 4, xyz = Uncertain(pts3_mm[2], CovMat{3}(σ = 0.2)))]
-        p3_mm = TargetPoints3D{WorldFrame}(Dict(7 => obs); sensors = "mocap")
-        p3_u = with_unit(p3_mm, mm)
-        @test has_units(p3_u) && !has_units(p3_mm)
-        @test eltype(p3_u[7][1].xyz) <: Quantity
-        back = ustrip(mm, p3_u)
-        @test point_close(back[7][1].xyz, p3_mm[7][1].xyz) && point_close(back[7][2].xyz, p3_mm[7][2].xyz)
-        @test back[7][2].index == 4 && back.sensors == p3_mm.sensors
-        p3_read = TargetPoints3D{WorldFrame}(Dict(7 => [(target = :body, index = 3, xyz = from_mm(pts3_mm[1]))]))
-        @test point_close(ustrip(mm, p3_read)[7][1].xyz, pts3_mm[1])
-        @test_throws ArgumentError ustrip(mm, p3_mm)
     end
 end

@@ -6,7 +6,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools
     using VisualGeometryToolkitCore.Pools: rig
-    using VisualGeometryToolkitCore: CspondNormalization, FramedAffine, similarity_scale, source_map, destination_map
+    using VisualGeometryToolkitCore: CorrespondenceNormalization, FramedAffine, similarity_scale, source_map, destination_map
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotY, RotZ
 
@@ -22,7 +22,7 @@
     px2 = [SVector(rand(rng) * 1600, rand(rng) * 1200) for _ in 1:n]
     N = pool_normalization(sz1, sz2)
     S, D = source_map(N), destination_map(N)
-    cs = csponds(S.(px1), D.(px2))                       # the stored pool-frame csponds
+    cs = correspondences(S.(px1), D.(px2))                       # the stored pool-frame correspondences
     models = [FundMat(SMatrix{3, 3, Float64}(randn(rng, 9)...)) for _ in 1:m]
     idx = rand(rng, 1:n, 7, m)
     er, et = rand(rng, m) .* 10, rand(rng, m) .* 10
@@ -37,7 +37,7 @@
         @test PoolPair(args..., pair.source_map, pair.destination_map, snn).source_map == pair.source_map
         @test PoolPair(args..., N, nothing).snn === nothing
         # the keyword form: every field named, the maps as both sides or as N
-        kw = (; csponds = cs, K1, K2, R_gt = R, t_gt = t, models, sample_indices = idx,
+        kw = (; correspondences = cs, K1, K2, R_gt = R, t_gt = t, models, sample_indices = idx,
               errors_r = er, errors_t = et, gt_inliers = gt, gt_variance = 0.25)
         kpair = PoolPair(; kw..., normalization = N, snn)
         @test kpair isa PoolPair{eltype(models)}
@@ -46,15 +46,15 @@
         @test_throws ArgumentError PoolPair(; kw...)
         @test_throws ArgumentError PoolPair(; kw..., source_map = pair.source_map)
         @test_throws ArgumentError PoolPair(; kw..., normalization = N, source_map = pair.source_map)
-        # the stored csponds are concretely typed; a vector of pairs is converted
-        @test isconcretetype(fieldtype(PoolPair{eltype(models)}, :csponds))
-        @test (@inferred (p -> p.csponds)(pair)) == cs
-        @test PoolPair(; kw..., csponds = collect(cs), normalization = N).csponds == cs
+        # the stored correspondences are concretely typed; a vector of pairs is converted
+        @test isconcretetype(fieldtype(PoolPair{eltype(models)}, :correspondences))
+        @test (@inferred (p -> p.correspondences)(pair)) == cs
+        @test PoolPair(; kw..., correspondences = collect(cs), normalization = N).correspondences == cs
         @test num_points(pair) == n
         @test num_models(pair) == m
         # the pool frame from the stored maps reproduces the size construction
         Np = pool_normalization(pair)
-        @test Np isa CspondNormalization
+        @test Np isa CorrespondenceNormalization
         @test to_homogeneous(source_map(Np)) == pair.source_map
         @test to_homogeneous(destination_map(Np)) == pair.destination_map
     end
@@ -97,14 +97,14 @@
         # pool units per pixel: the denser view's inverse half-diagonal
         @test pool_pixel_scale(pair) == max(similarity_scale(Sf), similarity_scale(Df))
         @test pool_pixel_scale(pair) ≈ 1 / (hypot(1600, 1200) / 2)
-        back = pixel_csponds(pair)
+        back = pixel_correspondences(pair)
         @test length(back) == n
         @test all(i -> sources(back)[i] ≈ px1[i] && targets(back)[i] ≈ px2[i], 1:n)
     end
 
     # A minimal reader: the field-backed defaults, and the pool frame of a raw pair.
     struct _TestRawPair <: StereoRawPair
-        csponds
+        correspondences
         snn::Vector{Float32}
         K1::SMatrix{3, 3, Float64, 9}
         K2::SMatrix{3, 3, Float64, 9}
@@ -116,8 +116,8 @@
     end
 
     @testset "the raw-pair interface" begin
-        raw = _TestRawPair(csponds(px1, px2), snn, K1, K2, sz1, sz2, R, t, gt)
-        @test pair_csponds(raw) === raw.csponds
+        raw = _TestRawPair(correspondences(px1, px2), snn, K1, K2, sz1, sz2, R, t, gt)
+        @test pair_correspondences(raw) === raw.correspondences
         @test pair_snn(raw) === snn
         @test (pair_K1(raw), pair_K2(raw)) == (K1, K2)
         @test (pair_size1(raw), pair_size2(raw)) == (sz1, sz2)
@@ -149,7 +149,7 @@ end
     cs = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
     models = [FundMat(Tuple(SMatrix{3, 3, Float64, 9}(randn(rng, 9)...))) for _ in 1:K]
     mk(T1, T2) = PoolPair(;
-        csponds = cs, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
+        correspondences = cs, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
         models, sample_indices = zeros(Int, 7, K), errors_r = fill(NaN, K), errors_t = fill(NaN, K),
         gt_inliers = falses(n), gt_variance = NaN, source_map = T1, destination_map = T2
     )
@@ -167,11 +167,11 @@ end
 
 @testitem "sampson_distances!: the buffer's size is checked" begin
     using Test, StaticArrays, LinearAlgebra
-    using VisualGeometryToolkitCore: HomographyMat, sampson_distances!, Csponds
+    using VisualGeometryToolkitCore: HomographyMat, sampson_distances!, Correspondences
     H = HomographyMat(SMatrix{3, 3, Float64}(I))
     u = [SVector(0.0, 0.0), SVector(1.0, 2.0)]
-    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 1, 1), [H], Csponds(u, u))        # too small
-    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 2, 2), [H], Csponds(u, u))        # a column too many
-    @test_throws ArgumentError Csponds(u, u[1:1])                                                               # point counts differ
-    @test sampson_distances!(Matrix{Float32}(undef, 2, 1), [H], Csponds(u, u)) == zeros(Float32, 2, 1)
+    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 1, 1), [H], Correspondences(u, u))        # too small
+    @test_throws DimensionMismatch sampson_distances!(Matrix{Float32}(undef, 2, 2), [H], Correspondences(u, u))        # a column too many
+    @test_throws ArgumentError Correspondences(u, u[1:1])                                                               # point counts differ
+    @test sampson_distances!(Matrix{Float32}(undef, 2, 1), [H], Correspondences(u, u)) == zeros(Float32, 2, 1)
 end

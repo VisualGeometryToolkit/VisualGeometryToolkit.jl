@@ -106,7 +106,7 @@ end
 # ∂G_x/∂(c₁, c₂, Q₁₁, Q₁₂, Q₂₂) of the point-on-ellipse constraint, the
 # coordinates of its `G_θ`: G_x = 2Q(x − c), so ∂/∂c = −2Q and ∂/∂Q is the
 # symmetric pattern of 2d.
-@inline function measurement_gradient_jacobian(e::Ellipse, x::StaticVector{2})
+@inline function observation_gradient_jacobian(e::Ellipse, x::StaticVector{2})
     Q = _ellipse_form(e)
     d = SVector(x[1] - e.center[1], x[2] - e.center[2])
     z = zero(promote_type(eltype(Q), eltype(d)))
@@ -154,7 +154,7 @@ end
 # ∂G_x/∂(C₁₁, C₁₂, C₂₂, C₁₃, C₂₃, C₃₃) of the point-on-conic constraint (its
 # `G_θ`'s coordinates): G_x = 2(C x̃)₁,₂ is linear in C, so the entries are
 # 2·x̃'s coordinates where an entry meets the row.
-@inline function measurement_gradient_jacobian(c::Conic, x::StaticVector{2})
+@inline function observation_gradient_jacobian(c::Conic, x::StaticVector{2})
     T = float(promote_type(eltype(c), eltype(x)))
     z = zero(T); o = one(T)
     return SMatrix{2, 6, T}(2 * x[1], z, 2 * x[2], 2 * x[1], z, 2 * x[2], 2 * o, z, z, 2 * o, z, z)

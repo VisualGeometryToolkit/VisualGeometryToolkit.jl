@@ -27,8 +27,8 @@ One scheme serves every solver. A normalization STRATEGY is a type named
   and one threshold must mean the same across resolutions.
 
 A correspondence set's normalization is one value,
-[`CspondNormalization`](@ref): both sides' maps and their inverses, built
-from two strategies or by model type (`CspondNormalization(M, cs; center)`),
+[`CorrespondenceNormalization`](@ref): both sides' maps and their inverses, built
+from two strategies or by model type (`CorrespondenceNormalization(M, cs; center)`),
 with `normalize` and the side accessors, whose composition moves a model
 (`D ∘ M ∘ inv(S)` into the normalized frame, `inv(D) ∘ M ∘ S` back). An
 estimator normalizes once at its entry and returns results in its inputs'

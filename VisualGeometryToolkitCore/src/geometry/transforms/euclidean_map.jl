@@ -855,7 +855,7 @@ skew-symmetric (cross-product) matrix of `v`.
 
 Returns:
 - `g::SVector{2,T}`      — reprojection residual (calibrated coordinates)
-- `G_x::SMatrix{2,5,T}`  — ∂g/∂(X, ray₁, ray₂) measurement Jacobian
+- `G_x::SMatrix{2,5,T}`  — ∂g/∂(X, ray₁, ray₂) observation Jacobian
 - `G_θ::SMatrix{2,6,T}`  — ∂g/∂(δω, δt) pose perturbation Jacobian
 
 !!! warning "PINHOLE ONLY — this residual lives in the gnomonic chart"

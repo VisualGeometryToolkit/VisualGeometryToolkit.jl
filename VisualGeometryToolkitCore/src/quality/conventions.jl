@@ -13,7 +13,7 @@
 
 # Reading order; conventions/README.md is the folder's index and not part of it.
 const _CONVENTION_FILES = ("overview.md", "naming.md", "signatures.md", "data-arguments.md",
-    "frames.md", "pixel-origins.md", "bearings.md", "measurement-noise.md", "residuals-and-distances.md",
+    "frames.md", "pixel-origins.md", "bearings.md", "observation-noise.md", "residuals-and-distances.md",
     "persisted-geometry.md", "jacobians.md", "units.md", "stack-contracts.md")
 
 """
@@ -22,7 +22,7 @@ const _CONVENTION_FILES = ("overview.md", "naming.md", "signatures.md", "data-ar
 The `conventions/` folder of this VisualGeometryToolkitCore installation: the one
 canonical copy of the conventions every stack package follows (naming,
 signatures, data arguments, coordinate frames and normalization, pixel origins,
-bearings, measurement noise, residuals and distances, persisted geometry,
+bearings, observation noise, residuals and distances, persisted geometry,
 Jacobians, units, stack contracts). A downstream
 package finds the installed text here rather than carrying a copy.
 """

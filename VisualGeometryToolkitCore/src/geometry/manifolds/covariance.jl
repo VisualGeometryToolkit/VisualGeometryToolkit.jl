@@ -27,10 +27,10 @@
 #     Σ̃_v = J · Σ̃_x · Jᵀ,    J = ∂v/∂x  (D × 4k)
 #
 # CONVENTIONS
-# • UNIT-SCALE (multiplicative): Σ̃_x defaults to I (unit isotropic measurement
+# • UNIT-SCALE (multiplicative): Σ̃_x defaults to I (unit isotropic observation
 #   noise); the physical covariance is Σ_v = s²·Σ̃_v with s profiled by the
 #   consumer (generalized sweep lemma convention — never bake a frozen s² in).
-#   Per-point (possibly anisotropic) 4×4 measurement covariances may be supplied
+#   Per-point (possibly anisotropic) 4×4 observation covariances may be supplied
 #   explicitly; they are then also interpreted as unit-scale SHAPES.
 # • GAUGE/SCALE INVARIANCE: g is homogeneous of degree 1 in vec(θ), so J is
 #   invariant to the representative scale/sign of the anchor model — manifold
@@ -65,13 +65,13 @@ constraint_dim(::Type{<:EuclideanMap{3}}) = 2
 constraint_dim(::Type{<:Line2D}) = 1
 constraint_dim(m) = constraint_dim(typeof(m))
 
-# The measurement count of one correspondence: both endpoints of a two-view pair
+# The observation count of one correspondence: both endpoints of a two-view pair
 # (x₁, y₁, x₂, y₂); for a pose, the calibrated image point — its 3D point is
-# exact, the PnP measurement model.
-_measurement_dim(::Type{<:EuclideanMap{3}}) = 2
-_measurement_dim(::Type{<:Line2D}) = 2          # single-point data: the point is the measurement
-_measurement_dim(::Type) = 4
-_measurement_dim(m) = _measurement_dim(typeof(m))
+# exact, the PnP observation model.
+_observation_dim(::Type{<:EuclideanMap{3}}) = 2
+_observation_dim(::Type{<:Line2D}) = 2          # single-point data: the point is the observation
+_observation_dim(::Type) = 4
+_observation_dim(m) = _observation_dim(typeof(m))
 
 """
     minimal_manifold(model) -> Manifold
@@ -132,7 +132,7 @@ minimal_manifold(m::RadialHomography) = ProductManifold(
 local_coordinates(p::ProductManifold{<:Tuple, <:_RadialHomographyParts}, m::RadialHomography) =
     local_coordinates(p, (m.H, SVector(m.λ)))
 
-# One correspondence's constraint value, its measurement gradient and its AMBIENT
+# One correspondence's constraint value, its observation gradient and its AMBIENT
 # model gradient — over the parameters `retract_jacobian` differentiates: vec(M)
 # for the matrix models, [vec(R); t] for a pose (`X => u`, `u` the calibrated
 # image point), where the model gradient is `Jπ·∂(R·X + t)/∂[vec(R); t]`.
@@ -158,7 +158,7 @@ cd_pair(::PlainEuclideanMap{3}, c::Pair) = throw(ArgumentError(
 # (`withattrs(cs; M₁, M₂)`). A bare bearing Pair has no Jacobians and the
 # keyword-only tangent form refuses it.
 @inline function cd_pair(
-        E::EssentialMat, cs::Csponds{<:StaticVector{3}, <:StaticVector{3}}, i::Integer
+        E::EssentialMat, cs::Correspondences{<:StaticVector{3}, <:StaticVector{3}}, i::Integer
     )
     c = cs[i]
     return constraint_with_jacobians(E, c.first, c.second; M₁ = cs.M₁[i], M₂ = cs.M₂[i])
@@ -195,7 +195,7 @@ end
     constraint_jacobians(ch::Manifold, v, cs) -> (∂_v g, ∂_x g)
 
 The Jacobians of [`manifold_constraints`](@ref) at chart coordinates `v`: with
-respect to `v` (`G_θ·retract_jacobian(ch, v)`, `dg·k × D`) and to the measurements
+respect to `v` (`G_θ·retract_jacobian(ch, v)`, `dg·k × D`) and to the observations
 (block diagonal, `dg·k × nₓk`, each pair's `G_x` over `(x₁, y₁, x₂, y₂)`, or over
 the image point of a pose correspondence, nₓ = 2). At
 `v = 0` these are the two factors of the implicit-function covariance
@@ -211,7 +211,7 @@ value-and-Jacobians sibling is `constraint_with_jacobians`.
 function constraint_jacobians(ch::Manifold, v::StaticVector, cs::AbstractVector)
     M = retract(ch, v)
     dg = constraint_dim(M)
-    nx = _measurement_dim(M)
+    nx = _observation_dim(M)
     D = tangent_size(ch)
     k = length(cs)
     T = retract_jacobian(ch, v)                    # ambient × D
@@ -255,7 +255,7 @@ correspondences' row blocks,
 
 which is `A⁻¹·B·Σx·Bᵀ·A⁻ᵀ` when `A` is square (the whitening cancels — the
 implicit-function theorem proper) and `(AᵀW₀A)⁻¹` for unit isotropic `Σx`. Unit
-scale: `Σx` defaults to unit isotropic measurement noise; the physical covariance
+scale: `Σx` defaults to unit isotropic observation noise; the physical covariance
 is `s²·Σ̃_v` with `s` the consumer's. Invariant to any invertible
 per-correspondence recombination of the constraint rows (the algebraic and the
 transfer forms of a homography give the same `Σ̃_v`).
@@ -297,7 +297,7 @@ solve and the sandwich for a mismatched weighting.
 function implicit_covariance(ch::Manifold, cs::AbstractVector; Σx = nothing)
     M = model(ch)
     dg = constraint_dim(M)
-    nx = _measurement_dim(M)
+    nx = _observation_dim(M)
     D = tangent_size(ch)
     k = length(cs)
     k * dg >= D || throw(
@@ -374,10 +374,10 @@ function implicit_covariance(block, indices::AbstractVector; noise_weighted::Boo
     Ninv = inv(C)
     return Matrix(Symmetric(anyΣ ? Ninv * S * Ninv : Ninv))
 end
-# `noise_weighted`: the block's Σxᵢ is folded into its measurement rows,
+# `noise_weighted`: the block's Σxᵢ is folded into its observation rows,
 # Bᵢ·chol(Σxᵢ).L, so W₀ᵢ = (BᵢΣxᵢBᵢᵀ)⁻¹ and the sandwich collapses to (AᵀW₀A)⁻¹.
 # A Σxᵢ with an exactly known coordinate — an `exact` endpoint's zero block (the
-# measurement-noise rule) — has no Cholesky factor; its zero rows and columns
+# observation-noise rule) — has no Cholesky factor; its zero rows and columns
 # take a zero column of the factor (`_psd_factor`), still L·Lᵀ = Σxᵢ.
 @inline _noise_weighted_block(t::Tuple) =
     length(t) >= 3 ? (t[1], block_rows(t[2]) * _noise_factor(t[3])) : t

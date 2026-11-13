@@ -39,7 +39,7 @@ include("base/feature_coords.jl")   # _strip_coords, the feature-coordinate comp
 include("base/frames.jl")        # Frame{N} tag hierarchy (before types.jl: CovMat/PrecMat frame params)
 include("base/image_frames.jl")  # 2-D image frames (pixel/image/gnomonic/retinal/distorted/target-plane) + FrameDependence
 include("base/types.jl")         # interface.jl + interface_functions.jl, AbstractDetection, conic matrices
-include("base/cspond_set.jl")    # Csponds columnar container + sources/targets protocol
+include("base/correspondence_set.jl")    # Correspondences columnar container + sources/targets protocol
 include("base/coordinates.jl")   # to_affine / to_euclidean
 include("base/return_code.jl")   # ReturnCode, StopRule: the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")    # FitResult{P,M} — the one iterative-fit return type
@@ -308,7 +308,7 @@ extents); the size-form is sugar over the rect-form for the common case.
 | `src/geometry/transforms/similarity_map.jl` | `SimilarityMap` (x ↦ s·R·x + t), exact under `∘` and `inv` |
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for point/line/conic transforms |
 | `src/geometry/transforms/warp.jl` | `image_warp` adapter + `image_warp_batch_to!` batched primitive |
-| `src/base/cspond_set.jl` | Correspondence containers (`Csponds`, `Cspond`, `Attributed`) |
+| `src/base/correspondence_set.jl` | Correspondence containers (`Correspondences`, `Correspondence`, `Attributed`) |
 | `src/base/fit_result.jl` | `FitResult{P,M}`, the iterative-fit return type |
 | `src/geometry/primitives/primitives.jl` | Primitives submodule entry |
 | `src/robust/losses.jl` | Robust-loss family (`AbstractLossShape`) |

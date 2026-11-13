@@ -190,7 +190,7 @@
             @test max_solutions(solver) == 3
             @test model_type(solver) == RadialHomography
 
-            cs = Csponds(collect(s), collect(d))
+            cs = Correspondences(collect(s), collect(d))
             sols = solve(solver, cs, 1:5)
             @test length(sols) == 3
             @test collect(sols)[3].k ≈ -0.3 atol = 1.0e-6
@@ -227,7 +227,7 @@
                 (4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0)
             )
             mpx = RadialHomography{Float64}(Hpx, -1.1e-7, SVector(600.0, 450.0))
-            f = VgtkCore.CspondNormalization(
+            f = VgtkCore.CorrespondenceNormalization(
                 AffineMap(HartleyNormalization(), [SVector(0.1, 0.2), SVector(1.0, -0.5), SVector(-0.3, 0.4)]),
                 AffineMap(DiagonalNormalization((1200.0, 900.0)))          # centred at (600, 450), the model's centre
             )
@@ -327,7 +327,7 @@
     end
 
     @testset "the normalization: Hartley about the known distortion centre" begin
-        using VisualGeometryToolkitCore: radial_transfer, test_sample, similarity_scale, destination_map, CspondNormalization
+        using VisualGeometryToolkitCore: radial_transfer, test_sample, similarity_scale, destination_map, CorrespondenceNormalization
         using Random: Xoshiro, randperm
         f0 = 1400.0; c = SVector(1010.0, 520.0)                     # not the image centre, not the centroid
         R = SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, cos(0.3), sin(0.3), 0.0, -sin(0.3), cos(0.3))
@@ -335,14 +335,14 @@
         Hm = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(f0, 0, 0, 0, f0, 0, c[1], c[2], 1) * hcat(R[:, 1], R[:, 2], t)))
         m = RadialHomography{Float64}(Hm, -3.0e-7, Point2{Float64}(c[1], c[2]))
         Xs = [SVector(x, y) for x in -150.0:50.0:150.0 for y in -150.0:50.0:150.0]
-        cs = Csponds(Xs, [SVector{2, Float64}(radial_transfer(m, X)) for X in Xs])
-        fr = CspondNormalization(RadialHomography, cs; center = c)
+        cs = Correspondences(Xs, [SVector{2, Float64}(radial_transfer(m, X)) for X in Xs])
+        fr = CorrespondenceNormalization(RadialHomography, cs; center = c)
         @test destination_map(fr)(c) == SVector(0.0, 0.0)                # the kernel's origin
-        @test_throws UndefKeywordError CspondNormalization(RadialHomography, cs)
+        @test_throws UndefKeywordError CorrespondenceNormalization(RadialHomography, cs)
         # the 5-pt kernel in this frame recovers the model exactly; a centroid
         # target frame puts the distortion centre on the centroid and misses
         csn = LinearAlgebra.normalize(fr, cs)
-        cent = CspondNormalization(HartleyNormalization(), HartleyNormalization(), cs)
+        cent = CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(), cs)
         csc = LinearAlgebra.normalize(cent, cs)
         _xf(mb, X) = (d = radial_transfer(mb, X); d === nothing ? Inf : norm(d - radial_transfer(m, X)))
         _pulled(fr, m) = inv(HomographyMap(destination_map(fr))) ∘ m ∘ VgtkCore.source_map(fr)

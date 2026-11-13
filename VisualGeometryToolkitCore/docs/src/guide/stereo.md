@@ -100,7 +100,7 @@ propagate(h::HomographyMap, u::Uncertain) # point-dependent Jacobian at u.value
 For a rigid map the two conjugations coincide numerically (`R` is
 orthogonal); the code follows the honest law per type so
 `propagate(m, inv(Σ)) == inv(propagate(m, Σ))` holds by construction. The
-`HomographyMap` overloads take the measurement (`Uncertain`) rather than a
+`HomographyMap` overloads take the observation (`Uncertain`) rather than a
 bare form because the projective point action is nonlinear — the Jacobian
 must be evaluated at the point.
 

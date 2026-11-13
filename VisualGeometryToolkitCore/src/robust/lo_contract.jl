@@ -254,7 +254,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
 #
 # `frame` is the two-view frame data a solver needs beyond the problem: an
 # object with the pair's calibrations `Kc1`, `Kc2` (3×3) and its
-# correspondences `cs` in the problem's frame (a `Csponds` of `Point2{Float64}`)
+# correspondences `cs` in the problem's frame (a `Correspondences` of `Point2{Float64}`)
 # — VisualGeometryToolkitEval's `PairGeom` on a benchmark pool, or any caller's value
 # with those properties.
 # `scoring` is the refit's scoring template, for an arm that anchors its width

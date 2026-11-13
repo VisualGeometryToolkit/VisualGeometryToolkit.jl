@@ -36,6 +36,15 @@ const _STEM = "pa" * "ss"
 # words. A bound name is matched on substrings instead (`_name_rules`).
 const _BANNED_WORDS = Set([_STEM, _STEM * "es", _STEM * "ed", _STEM * "ing", _STEM * "through"])
 
+# The terminology taxonomy (owner, 2026-11-13; conventions/naming.md, "Detection, correspondence,
+# observation"): a detector's output is a DETECTION, a hypothesised pairing a CORRESPONDENCE (a match, an
+# inlier), a detection associated with a model entity an OBSERVATION. These words are retired from every
+# identifier (R14), each a substring of a bound name's word: the old pairing abbreviation, the
+# synonym of an observation, the detection's two other names. "measured" is a provenance VALUE
+# (`:measured`, `"measured"`: a quoted symbol or a string) and never a bound name.
+const _RETIRED_TERMS = ("measure" * "ment", "cs" * "pond", "sight" * "ing", "key" * "point")
+const _PROVENANCE_ONLY = "measure" * "d"
+
 # Rule 7's trial/iteration split: a random hypothesis draw (a RANSAC or PROSAC
 # draw, a random LO inner sample) is a TRIAL and is never counted or described
 # as an iteration; a deterministic cycle (IRLS, LM, block coordinate descent,
@@ -70,6 +79,20 @@ const _ITERATION_WORDS = ("iter", "iters", _IT, _IT * "s")
 # retired in one form lists each form it took. Names renamed by the naming
 # sweep are listed here as they are renamed.
 const RETIRED_NAMES = String[
+    # the terminology taxonomy (owner, 2026-11-13; R14): a CORRESPONDENCE is a hypothesised pairing, the old
+    # abbreviation retired with every name built on it (VisualGeometryToolkitCore 0.10)
+    "Cs" * "pond", "Cs" * "ponds", "cs" * "ponds", "cs" * "ponds(", "ScoredCs" * "pond", "Cs" * "pondNormalization",   # `Correspondence`, `Correspondences`, `correspondences(sources, targets)`, `ScoredCorrespondence`, `CorrespondenceNormalization`
+    "bearing_cs" * "ponds", "pixel_cs" * "ponds", "pair_cs" * "ponds",   # `bearing_correspondences`, `pixel_correspondences`, `pair_correspondences`
+    "Cs" * "pondSet",                                             # VisualGeometryToolkitFeatures' n-tuple of corresponding elements: `CorrespondenceSet`
+    # an OBSERVATION is a detection associated with a model entity (a target point, a landmark); "measured" is provenance only
+    "measurement" * "_gradient_jacobian",                         # a model's constraint Jacobian in the observation: `observation_gradient_jacobian`
+    "measurement" * "_covariance",                                # `observation_covariance`
+    "Target" * "Detections",                                      # per frame, per target, the observations of its points: `TargetObservations` (VisualGeometryToolkitCore 0.10)
+    "Target" * "Points2D", "Target" * "Points3D", "Target" * "Point2D", "Target" * "Point3D",   # folded into `TargetObservations{F}` (a PixelFrame or a named 3D frame; weights a `weights` column)
+    # the three public aliases (wave 10): one name per concept
+    "Liftable" * "Problem",                                       # VisualGeometryToolkitEstimation: its one name, `MinimalSolveProblem`
+    "ScalarOr" * "Quantity",                                      # VisualGeometryToolkitIO: its one name, `Number`
+    "POOL" * "_RNG",                                              # VisualGeometryToolkitEval: its one name, StableRNGs' `StableRNG`
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
     # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):
@@ -461,14 +484,14 @@ const RETIRED_NAMES = String[
     "signed" * "_sampson", "signed_tangent" * "_sampson", "_whiten" * "_residual",
     # ONE Sampson path (2026-11-02): the residual's model Jacobian is
     # `sampson_residual_with_jacobian` over the model's
-    # `measurement_gradient_jacobian`, the batch rows over a measurement set
+    # `observation_gradient_jacobian`, the batch rows over an observation set
     # call it per element, a frozen whitening is
     # `whitening_factor`, and the epipolar degeneracy scales are the models'
     # `constraint_rounding_scale` — the parallel epipolar rows, the whitening
     # policy types and their verb are gone
     "sampson_residual" * "_jacobian", "sampson_residual" * "_row", "tangent_sampson" * "_residual_row",
     "epipolar" * "_rounding", "whitened" * "_rows", "Whitening" * "Policy", "Sampson" * "Whitening", "No" * "Whitening",
-    # the batch rows take a measurement set whose per-element data are columns
+    # the batch rows take an observation set whose per-element data are columns
     # (2026-11-02): `sampson_residuals!` / `whitened_residuals!` /
     # `sampson_jacobian_rows!` / `whitened_jacobian_rows!`; the RSS and the pool
     # matrix compose (`sampson_distances!`); the homography's and the rotation's
@@ -1454,6 +1477,10 @@ function _name_rules(name::AbstractString, kind::Symbol, fits::Set{String}; juli
             push!(rules, :R5)
         end
     end
+    # rule 14: the terminology taxonomy's retired words, in any binding; "measured" a value only
+    lw = lowercase.(words)
+    (any(w -> any(t -> occursin(t, w), _RETIRED_TERMS), lw) ||
+     (kind !== :symbol && any(w -> occursin(_PROVENANCE_ONLY, w), lw))) && push!(rules, :R14)
     # rule 10: an abbreviation is never a binding; a letter is not a TOML key
     (_is_width_abbreviation(name) || (kind === :key && name in _WIDTH_LETTERS)) && push!(rules, :R10)
     if julia && kind === :function                          # the hooks are Julia's
@@ -1542,7 +1569,7 @@ hand-written conversion factor (`25.4`, `0.0254`, `304.8`, `0.3048`, or an
 inch ratio such as `127//5000`) and a bare `ubase(…)` (a stored quantity is
 `base_quantity(q)`: `ubase` keeps the exact `Rational` of `142mm`). It also keeps
 the units layering. A pose or a target's points (`EuclideanMap`,
-`PlanarTarget`, `PointTarget`, `TargetPoints3D`, `TargetDetections`) built with a `ustrip(…)` or a
+`PlanarTarget`, `PointTarget`, `TargetObservations`) built with a `ustrip(…)` or a
 `ustrip.(…)` in its arguments is flagged: a physical value is built from
 quantities (`t .* m`), and its plain form comes from the whole value's
 `ustrip(u, X)`. Outside `test/`, a definition that names a file's
@@ -1577,6 +1604,12 @@ changelog — code, comments, docs and configuration alike. Limits: a sentence
 that calls the half-width a threshold farther from the scorer's name is not
 seen, and a threshold scorer's threshold written next to the Student-t's name
 is a finding to reword (or to spell apart, as a test of the refusal does).
+Rule R14: the terminology taxonomy. No bound name (nor quoted symbol) holds
+"measurement", the retired pairing abbreviation, "sighting" or "keypoint" in
+any word (a detection, a correspondence, an observation: conventions/naming.md);
+"measured" is a provenance value, a quoted symbol or a string, and never a bound
+name.
+
 Rule R13: the one parameter-holding keyword is `fixed`. `free`, `fix`,
 `fixed_params` and `hold` as a KEYWORD of a fit, refine or target call or
 signature, or as a key of a refine/target/LM TOML table, are flagged; the bare
@@ -1857,7 +1890,7 @@ _holds_ustrip(x) = _is_ustrip(x) || (x isa Expr && any(_holds_ustrip, x.args))
 # The constructors of a public physical value: a pose and the targets' points.
 # A unitful value is built from quantities (`t .* m`); a plain one comes from
 # the whole value's `ustrip(u, X)`, never from stripping its components.
-const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetPoints3D, :TargetDetections)
+const _PHYSICAL_CONSTRUCTORS = (:EuclideanMap, :PlanarTarget, :PointTarget, :TargetObservations)
 _constructor_name(c) = c isa Expr && c.head === :curly ? _unit_rule_callee(c.args[1]) : _unit_rule_callee(c)
 
 # A file's length unit, named in code: `d.length_unit`, `:length_unit`,

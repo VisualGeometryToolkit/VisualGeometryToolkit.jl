@@ -1,19 +1,19 @@
 # =============================================================================
-# Csponds — columnar correspondences with attribute columns
+# Correspondences — columnar correspondences with attribute columns
 # =============================================================================
 #
 # The container half of the solver/correspondence layering (#21):
 #
-#   Csponds{S,T}       columnar source/target storage + index-aligned
+#   Correspondences{S,T}       columnar source/target storage + index-aligned
 #                        attribute columns (score, ratio, weights, …)
 #   sources / targets    THE access protocol — replaces `.first`/`.second`
-#                        duck-typing; has methods for Csponds, the legacy
+#                        duck-typing; has methods for Correspondences, the legacy
 #                        StructArray{<:Pair} layout, Attributed-wrapped
 #                        (scored) vectors, and plain Pair vectors
 #   lift / points /      lazy endpoint views (MappedColumn) — replace VGF's
-#   planar_lift          point_csponds and the hand-written z=0 lifts
+#   planar_lift          point_correspondences and the hand-written z=0 lifts
 #
-# Correspondence ELEMENTS stay `Cspond{S,T} = Pair{S,T}` — `cs[i]` returns a
+# Correspondence ELEMENTS stay `Correspondence{S,T} = Pair{S,T}` — `cs[i]` returns a
 # Pair, so element-wise consumers (sampson_distance, constraint_with_jacobians)
 # are unaffected by the container.
 
@@ -54,17 +54,17 @@ Base.@propagate_inbounds Base.getindex(m::MappedColumn{T}, i::Int) where {T} =
     convert(T, getfield(m, :f)(getfield(m, :parent)[i]))
 
 # -----------------------------------------------------------------------------
-# Csponds
+# Correspondences
 # -----------------------------------------------------------------------------
 
 """
-    Csponds(sources, targets; attrs...)
+    Correspondences(sources, targets; attrs...)
 
 Columnar correspondence set: parallel `sources`/`targets` vectors plus any
 number of index-aligned attribute columns (`score`, `ratio`, `weights`,
 `covariance`, …) that filter and view IN LOCKSTEP with the endpoints.
 
-`cs[i]` returns the i-th correspondence as a `Cspond` (= `Pair`);
+`cs[i]` returns the i-th correspondence as a `Correspondence` (= `Pair`);
 `cs[mask]` / `view(cs, idx)` subset every column together — no more
 hand-written `scored[keep]; weights[keep]` co-filtering.
 
@@ -75,19 +75,19 @@ through the protocol verbs [`sources`](@ref) / [`targets`](@ref) (NOT
 
 # Example
 ```julia
-cs = Csponds(src_pts, dst_pts; score = scores, ratio = ratios)
+cs = Correspondences(src_pts, dst_pts; score = scores, ratio = ratios)
 sources(cs)          # the source column
 cs.score             # the score column
 inliers = cs[mask]   # endpoints AND attributes filtered together
 ```
 """
-struct Csponds{S, T, VS <: AbstractVector{S}, VT <: AbstractVector{T}, A <: NamedTuple} <:
-    AbstractVector{Cspond{S, T}}
+struct Correspondences{S, T, VS <: AbstractVector{S}, VT <: AbstractVector{T}, A <: NamedTuple} <:
+    AbstractVector{Correspondence{S, T}}
     sources::VS
     targets::VT
     attrs::A
 
-    function Csponds(
+    function Correspondences(
             sources::VS, targets::VT, attrs::A
         ) where {S, T, VS <: AbstractVector{S}, VT <: AbstractVector{T}, A <: NamedTuple}
         n = length(sources)
@@ -106,57 +106,57 @@ _check_column(k, col::AbstractVector, n) =
     length(col) == n || throw(ArgumentError("attribute column :$k has length $(length(col)), expected $n"))
 _check_column(k, _, _) = throw(ArgumentError("attribute column :$k must be an AbstractVector"))
 
-Csponds(sources::AbstractVector, targets::AbstractVector; attrs...) =
-    Csponds(sources, targets, values(attrs))
+Correspondences(sources::AbstractVector, targets::AbstractVector; attrs...) =
+    Correspondences(sources, targets, values(attrs))
 
-Base.size(cs::Csponds) = (length(getfield(cs, :sources)),)
-Base.IndexStyle(::Type{<:Csponds}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(cs::Csponds, i::Int) =
+Base.size(cs::Correspondences) = (length(getfield(cs, :sources)),)
+Base.IndexStyle(::Type{<:Correspondences}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(cs::Correspondences, i::Int) =
     getfield(cs, :sources)[i] => getfield(cs, :targets)[i]
 
 # Whole-set subsetting: every column filters together.
-Base.@propagate_inbounds Base.getindex(cs::Csponds, I::AbstractVector) =
-    Csponds(
+Base.@propagate_inbounds Base.getindex(cs::Correspondences, I::AbstractVector) =
+    Correspondences(
     getfield(cs, :sources)[I], getfield(cs, :targets)[I],
     map(col -> col[I], getfield(cs, :attrs))
 )
 
 # `I` typed like `getindex`'s: untyped, it was ambiguous with any package's
 # `view(::AbstractArray, ::SpecialIndex)` (BandedMatrices' `Band`, flagged by Aqua).
-Base.view(cs::Csponds, I::Union{AbstractVector, Colon}) =
-    Csponds(
+Base.view(cs::Correspondences, I::Union{AbstractVector, Colon}) =
+    Correspondences(
     view(getfield(cs, :sources), I), view(getfield(cs, :targets), I),
     map(col -> view(col, I), getfield(cs, :attrs))
 )
 
-function Base.getproperty(cs::Csponds, k::Symbol)
+function Base.getproperty(cs::Correspondences, k::Symbol)
     k === :sources && return getfield(cs, :sources)
     k === :targets && return getfield(cs, :targets)
     k === :attrs && return getfield(cs, :attrs)
     return getproperty(getfield(cs, :attrs), k)
 end
 
-Base.propertynames(cs::Csponds) =
+Base.propertynames(cs::Correspondences) =
     (:sources, :targets, :attrs, keys(getfield(cs, :attrs))...)
 
 """
-    hasattr(cs::Csponds, k::Symbol) -> Bool
+    hasattr(cs::Correspondences, k::Symbol) -> Bool
 
 Whether the correspondence set carries the attribute column `k`
 (e.g. `hasattr(cs, :score)` before reading `cs.score`).
 """
-hasattr(cs::Csponds, k::Symbol) = haskey(getfield(cs, :attrs), k)
+hasattr(cs::Correspondences, k::Symbol) = haskey(getfield(cs, :attrs), k)
 
 """
-    withattrs(cs::Csponds; attrs...) -> Csponds
+    withattrs(cs::Correspondences; attrs...) -> Correspondences
 
 A copy of `cs` with the given attribute columns merged in (same-name
 columns replaced). Endpoint columns are shared, not copied. The idiom for
 attaching derived per-correspondence data — e.g. IRLS weights after a
 fit — so it subsets in lockstep from then on.
 """
-withattrs(cs::Csponds; attrs...) =
-    Csponds(
+withattrs(cs::Correspondences; attrs...) =
+    Correspondences(
     getfield(cs, :sources), getfield(cs, :targets),
     merge(getfield(cs, :attrs), values(attrs))
 )
@@ -169,19 +169,19 @@ withattrs(cs::Csponds; attrs...) =
     sources(cs) -> AbstractVector
 
 The source column of a correspondence container. Protocol verb — defined
-for [`Csponds`](@ref), the legacy `StructArray{<:Pair}` columnar layout,
+for [`Correspondences`](@ref), the legacy `StructArray{<:Pair}` columnar layout,
 `Attributed`-wrapped (scored) correspondence vectors, and plain
 `AbstractVector{<:Pair}` (lazy view). Solver code MUST go through
 `sources`/`targets` rather than `.first`/`.second`.
 """
-sources(cs::Csponds) = getfield(cs, :sources)
+sources(cs::Correspondences) = getfield(cs, :sources)
 
 """
     targets(cs) -> AbstractVector
 
 The target column of a correspondence container. See [`sources`](@ref).
 """
-targets(cs::Csponds) = getfield(cs, :targets)
+targets(cs::Correspondences) = getfield(cs, :targets)
 
 sources(cs::StructArrays.StructArray{<:Pair}) = cs.first
 targets(cs::StructArrays.StructArray{<:Pair}) = cs.second
@@ -191,8 +191,8 @@ targets(cs::StructArrays.StructArray{<:Pair}) = cs.second
 sources(cs::StructArrays.StructArray{<:NamedTuple{(:first, :second)}}) = cs.first
 targets(cs::StructArrays.StructArray{<:NamedTuple{(:first, :second)}}) = cs.second
 
-# Scored legacy layout: StructArray{Attributed{Cspond,⋅}} nests a
-# StructArray{Cspond} under :value.
+# Scored legacy layout: StructArray{Attributed{Correspondence,⋅}} nests a
+# StructArray{Correspondence} under :value.
 sources(cs::StructArrays.StructArray{<:Attributed{<:Pair}}) = sources(cs.value)
 targets(cs::StructArrays.StructArray{<:Attributed{<:Pair}}) = targets(cs.value)
 
@@ -205,15 +205,15 @@ targets(cs::AbstractVector{<:Attributed{<:Pair}}) =
     MappedColumn(a -> last(getfield(a, :value)), cs)
 
 # -----------------------------------------------------------------------------
-# PointSet — one measurement per element, with attribute columns
+# PointSet — one observation per element, with attribute columns
 # -----------------------------------------------------------------------------
 
 """
     PointSet(points; attrs...)
 
-A set of single-point measurements (a contour's points for a conic, a circle,
-a line) with index-aligned attribute columns, the one-measurement counterpart
-of [`Csponds`](@ref): `xs[i]` is the point, `xs.Σ` (the points' covariances),
+A set of single-point observations (a contour's points for a conic, a circle,
+a line) with index-aligned attribute columns, the one-observation counterpart
+of [`Correspondences`](@ref): `xs[i]` is the point, `xs.Σ` (the points' covariances),
 `xs.sqrt_weights` and any other column are reached by property, and
 `xs[mask]` / `view(xs, idx)` subset every column together. What the batched
 Sampson functions ([`sampson_residuals!`](@ref)) read per element; a plain
@@ -247,27 +247,27 @@ hasattr(xs::PointSet, k::Symbol) = haskey(getfield(xs, :attrs), k)
 
 # Columns merged into a point set (same-name columns replaced), and a set
 # without columns taking them as the container of its kind: a vector of points
-# becomes a `PointSet`, a vector of `Pair`s a `Csponds`.
+# becomes a `PointSet`, a vector of `Pair`s a `Correspondences`.
 withattrs(xs::AbstractVector{<:StaticVector}; attrs...) = _with_point_attrs(xs, values(attrs))
 _with_point_attrs(xs::PointSet, attrs) = PointSet(getfield(xs, :points), merge(getfield(xs, :attrs), attrs))
 _with_point_attrs(xs, attrs) = PointSet(xs, attrs)
-withattrs(cs::AbstractVector{<:Pair}; attrs...) = Csponds(sources(cs), targets(cs); attrs...)
+withattrs(cs::AbstractVector{<:Pair}; attrs...) = Correspondences(sources(cs), targets(cs); attrs...)
 
 # Attribute columns survive lift(); legacy containers contribute none
 # (their scores are adapted at problem construction, not here).
-attrs_of(cs::Csponds) = getfield(cs, :attrs)
+attrs_of(cs::Correspondences) = getfield(cs, :attrs)
 attrs_of(xs::PointSet) = getfield(xs, :attrs)
 attrs_of(::AbstractVector) = NamedTuple()
 
 # A per-correspondence attribute column by name, `nothing` when the container
 # carries none: the one reader of an optional column (`weights`, a PROSAC
-# `score`, …). The attribute names are in the Csponds type, so the branch folds.
-attribute_column(cs::Csponds, k::Symbol) = hasattr(cs, k) ? getproperty(cs, k) : nothing
+# `score`, …). The attribute names are in the Correspondences type, so the branch folds.
+attribute_column(cs::Correspondences, k::Symbol) = hasattr(cs, k) ? getproperty(cs, k) : nothing
 attribute_column(xs::PointSet, k::Symbol) = hasattr(xs, k) ? getproperty(xs, k) : nothing
 attribute_column(::Any, ::Symbol) = nothing
 
 # The per-correspondence `weights` column: the one place an estimator reads
-# per-cspond weights (never a keyword).
+# per-correspondence weights (never a keyword).
 weights_column(cs) = attribute_column(cs, :weights)
 
 # A `weights` vector's contract, the one check for every estimator that takes
@@ -299,26 +299,26 @@ _lift_col(::typeof(identity), col) = col
 _lift_col(f, col) = MappedColumn(f, col)
 
 """
-    lift(cs; source = identity, target = identity) -> Csponds
+    lift(cs; source = identity, target = identity) -> Correspondences
 
-Lazy endpoint conversion: returns a [`Csponds`](@ref) whose source/target
+Lazy endpoint conversion: returns a [`Correspondences`](@ref) whose source/target
 columns apply `source`/`target` element-wise on access (no materialization);
 attribute columns are forwarded untouched. Works on any container that
 satisfies the [`sources`](@ref)/[`targets`](@ref) protocol.
 
-This replaces eager extraction helpers (`point_csponds`) and hand-written
+This replaces eager extraction helpers (`point_correspondences`) and hand-written
 z=0 lifts: compose whatever endpoint conversion the solver needs at the
 call site, pay only when the solver indexes.
 """
 lift(cs; source = identity, target = identity) =
-    Csponds(
+    Correspondences(
     _lift_col(source, sources(cs)),
     _lift_col(target, targets(cs)),
     attrs_of(cs)
 )
 
 """
-    points(cs) -> Csponds
+    points(cs) -> Correspondences
 
 [`lift`](@ref) both endpoints through [`centroid`](@ref): detections,
 frames, discs, `Attributed`/`Uncertain` wrappers — anything with a
@@ -327,7 +327,7 @@ frames, discs, `Attributed`/`Uncertain` wrappers — anything with a
 points(cs) = lift(cs; source = centroid, target = centroid)
 
 """
-    planar_lift(cs) -> Csponds
+    planar_lift(cs) -> Correspondences
 
 [`points`](@ref) with the source side additionally lifted onto the z=0
 plane: 2D source centroids become `Point3(x, y, 0)` (the planar-board

@@ -37,7 +37,7 @@ ProjectiveIntrinsics(cx = 2120.0, cy = 1416.0)
 struct ProjectiveIntrinsics{T <: Real} <: AbstractIntrinsics
     center::Point2{T}
     function ProjectiveIntrinsics{T}(center::AbstractVector{<:Real}) where {T <: Real}
-        # a centre is a measurement: floats (and AD numbers, which are `Real`), never exact integers or rationals
+        # a centre is an observation: floats (and AD numbers, which are `Real`), never exact integers or rationals
         T <: Union{Integer, Rational} && throw(
             ArgumentError("ProjectiveIntrinsics{$T}: the eltype is a floating-point (or AD) type; use ProjectiveIntrinsics(center), which takes float($T)")
         )

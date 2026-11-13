@@ -37,7 +37,7 @@
         ids = [repeat("a", 64), repeat("b", 64)]
         cv = TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = ids)
         @test cv isa TargetHomographies{PixelFrame{:opencv}, Hu} && cv.targets == ids
-        @test cv != tg                                              # another frame, another measurement
+        @test cv != tg                                              # another frame, another observation
         @test cv == TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = ids)
         @test cv != TargetHomographies{PixelFrame{:opencv}}(frames; kw...)   # other targets
         @test_throws ArgumentError TargetHomographies{PixelFrame{:opencv}}(frames; kw..., targets = [ids[1], ids[1]])

@@ -17,6 +17,6 @@ made of, and the composition types that carry them:
 - [`Attributed`](@ref)`{V,A}` and [`AbstractDetection`](@ref) — the
   value-plus-metadata composition pattern, documented in
   [Design: Attributed{V,A}](design.md).
-- Correspondence types ([`Cspond`](@ref), [`Csponds`](@ref),
-  [`ScoredCspond`](@ref)) and the endpoint-lift protocol — see the
+- Correspondence types ([`Correspondence`](@ref), [`Correspondences`](@ref),
+  [`ScoredCorrespondence`](@ref)) and the endpoint-lift protocol — see the
   [Correspondence API](../api/matching.md).

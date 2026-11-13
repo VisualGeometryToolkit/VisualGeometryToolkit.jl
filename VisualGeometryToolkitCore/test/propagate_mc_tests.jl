@@ -1,4 +1,4 @@
-# The frame-labeled transports of a measurement's uncertainty against Monte
+# The frame-labeled transports of an observation's uncertainty against Monte
 # Carlo: `propagate` through a rigid map (linear — exact), a collineation (the
 # point-dependent Jacobian of a nonlinear action) and a batched lens stage, each
 # law (covariance pushed forward, precision pulled back); and the kσ ellipses
@@ -15,7 +15,7 @@
         boundary
     const CHar = VgtkCore.Synthetic
 
-    # One measurement x₀ with covariance shape Σ₀: draws x = x₀ + σ·L·n through
+    # One observation x₀ with covariance shape Σ₀: draws x = x₀ + σ·L·n through
     # `act`, the error act(x) − act(x₀) against σ²·Σ′ (Σ′ the transported shape).
     function transport_trial(act, x₀, Σ₀, Σ′, σ)
         L = cholesky(Symmetric(Matrix(Σ₀))).L

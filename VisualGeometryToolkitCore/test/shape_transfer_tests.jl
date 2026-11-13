@@ -60,7 +60,7 @@
             # `e, Gθ = …` would silently bind G_x to Gθ
             @test cd isa Tuple{SVector{2, Float64}, SMatrix{2, 2, Float64, 4}, SMatrix{2, 6, Float64, 12}}
             e, G_x, Gθ = cd
-            @test G_x == -SMatrix{2, 2, Float64}(I)                              # ∂e/∂u: the pixel is the measurement
+            @test G_x == -SMatrix{2, 2, Float64}(I)                              # ∂e/∂u: the pixel is the observation
             @test e ≈ -SVector(0.7, -0.4) atol = 1.0e-9                         # e = projection − observation
             # left perturbation: (R, t) ← (ΔR·R, ΔR·t + δt), ΔR = exp([δω]×)
             function e_of(δ)

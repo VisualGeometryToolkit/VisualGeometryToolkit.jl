@@ -136,7 +136,7 @@ exactly rank-deficient design matrix returns an enormous ratio rather than
 dividing by zero, which is how a collinear correspondence set announces
 itself.
 
-A MEASUREMENT, not a policy: it neither rejects nor alters the solve. Pair it
+A OBSERVATION, not a policy: it neither rejects nor alters the solve. Pair it
 with [`test_dlt_conditioning`](@ref), whose default `100.0` is the one
 threshold: VisualGeometryToolkitEstimation's `refine!(::DltWorkspace, …)` refuses a
 relative-family hypothesis by calling it at that default.

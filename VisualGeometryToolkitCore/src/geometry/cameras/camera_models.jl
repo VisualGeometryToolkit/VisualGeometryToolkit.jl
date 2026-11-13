@@ -552,8 +552,8 @@ imaging_transform(model::CameraModel) =
 
 The reprojection constraint of a FULL camera in RAW pixels: the residual
 `e = project(model, R·X + t) − u` between the observed pixel `u` and the
-world point `X` imaged through the intrinsics AND the lens, its measurement
-Jacobian `G_x = ∂e/∂u = −I₂` (the observed pixel is the measurement, `X` is
+world point `X` imaged through the intrinsics AND the lens, its observation
+Jacobian `G_x = ∂e/∂u = −I₂` (the observed pixel is the observation, `X` is
 exact — the PnP model; the triple every `constraint_with_jacobians` returns, so a
 predictive whitening reads it like any other), and its Jacobian in the
 left-perturbation pose chart `δ = (δω, δt)` of the calibrated
@@ -1320,11 +1320,11 @@ pnp_pixel_whitening(proj::CoordinateTransformations.ComposedTransformation{<:Aff
 pnp_pixel_whitening(proj) = error(
     "The PnP loss lift requires a Pinhole camera (affine pixel map " *
         "affine_part(K) ∘ Pinhole()); got $(typeof(proj)). Undistort the " *
-        "measurements to a pinhole model, or use an IRLS local optimization."
+        "observations to a pinhole model, or use an IRLS local optimization."
 )
 
 """
-    bearing_csponds(camera1, camera2, cs_px) -> Csponds
+    bearing_correspondences(camera1, camera2, cs_px) -> Correspondences
 
 Pixel correspondences `cs_px` (`u => v`, view 1's pixel to view 2's) as bearing
 correspondences: each endpoint back-projected by its camera
@@ -1333,7 +1333,7 @@ the pair and the 3×2 pixel Jacobians its `M₁`/`M₂` attribute columns, which
 bearing residual back in pixels (bearings.md). One back-projection per endpoint,
 no filtering: a pixel a camera does not back-project gives its non-finite bearing.
 """
-function bearing_csponds(cam1, cam2, cs_px)
+function bearing_correspondences(cam1, cam2, cs_px)
     k = length(cs_px)
     b1 = Vector{Vec3{Float64}}(undef, k); b2 = Vector{Vec3{Float64}}(undef, k)
     J1 = Vector{SMatrix{3, 2, Float64, 6}}(undef, k)
@@ -1345,5 +1345,5 @@ function bearing_csponds(cam1, cam2, cs_px)
         b1[i] = Vec3{Float64}(f₁); b2[i] = Vec3{Float64}(f₂)
         J1[i] = SMatrix{3, 2, Float64, 6}(M₁); J2[i] = SMatrix{3, 2, Float64, 6}(M₂)
     end
-    return withattrs(Csponds(b1, b2); M₁ = J1, M₂ = J2)
+    return withattrs(Correspondences(b1, b2); M₁ = J1, M₂ = J2)
 end

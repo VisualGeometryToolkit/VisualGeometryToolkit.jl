@@ -193,19 +193,37 @@ SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
 version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
 another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
-default) decodes every call. A `noise` is no key (its dark frame is a map): with
-one, cache the mosaic's decode instead, `load_raw(load_raw_mosaic(path); mode, noise)`.
+default) decodes every call. A `noise` is part of the key by its content (its
+values, sources, dark frame and defect mask), so an entry is never served for
+another noise.
 """
 function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing,
                   white_balance = nothing, decoder::RawDecoder = LibRawDecoder(), cache = nothing)
     _check_raw_options(mode, white_balance, noise)
-    cache === nothing || noise === nothing || throw(ArgumentError(
-        "load_raw: a `noise` is no cache key (its dark frame is a map): load the mosaic and give it, load_raw(load_raw_mosaic(path); mode, noise)"))
     cache === nothing && return _load_raw(path, mode, gain, noise, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
-                    _decoder_version(decoder))
+                    _decoder_version(decoder), (noise === nothing ? () : (_noise_digest(noise),))...)
     return get!(() -> _load_raw(path, mode, gain, noise, white_balance, decoder), cache, key)
+end
+
+# A resolved noise's identity for the cache key: Core's sha256_hex over its values with their sources and the bytes of
+# its maps (the dark frame's offset and variance, the defect mask), read to the host.
+function _noise_digest(noise::SensorNoise)
+    io = IOBuffer()
+    for f in (:body, :iso, :electrons_per_dn, :read_noise, :black, :reason)
+        println(io, repr(getfield(noise, f)))
+    end
+    if noise.dark !== nothing
+        d = value_of(noise.dark)
+        println(io, repr(getfield(noise.dark, :attributes)), ' ', repr(d.exposure_band), ' ', d.frames, ' ', size(d.offset))
+        write(io, Array(d.offset), Array(d.variance))
+    end
+    if noise.defects !== nothing
+        println(io, repr(getfield(noise.defects, :attributes)), ' ', size(value_of(noise.defects)))
+        write(io, Array{Bool}(value_of(noise.defects)))
+    end
+    return sha256_hex(take!(io))
 end
 
 # The options' rules: the white balance is the display demosaic's, the noise the exact modes'.

@@ -281,8 +281,9 @@ end
 
 Refine the DoG extremum near `v0` = (x, y, s) (1-based level coordinates) on the
 continuous response `model` (`_dog_response`) with Core's device LM
-(`static_lm`) on the rows r(θ) = ∇_θ D/|D(v₀)|, θ = ((x − x₀)/σ, (y − y₀)/σ,
-(s − s₀)·ln2/S), σ the start's scale in level pixels, its box the displacement
+(`static_lm`) on the rows r = ∇_θ D/|D(v₀)|, θ = t ⊙ (v − v₀) with the scale
+t = (1/σ, 1/σ, ln2/S) (σ the start's scale in level pixels), solved for the
+displacement v − v₀ with `t` as `static_lm`'s per-coordinate scale; its box the displacement
 bound (|Δx|, |Δy| ≤ `spatial_bound`, |Δs| ≤ `scale_bound`) within the model's
 domain and the level's extent `(W, H)` (1 ≤ x ≤ W, 1 ≤ y ≤ H: the detector's keep
 test, so a refined point never leaves the level; the window's mirrored border
@@ -303,20 +304,23 @@ detection on the CPU and any GPU.
     lo = max.(mlo, v0 - b, SVector(1.0, 1.0, -Inf)); hi = min.(mhi, v0 + b, SVector(Float64(extent[1]), Float64(extent[2]), Inf))
     all(lo .<= v0 .<= hi) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin
     ia = 1 / abs(Float64(D0))
-    # the closure's locals are its own (Dθ, gθ, Hθ): reusing D or H, assigned below, would box them (inference: Any)
-    fj = θ -> begin
-        Dθ, gθ, Hθ = _dog_response(model, v0 + θ ./ t)
-        (SVector{3, Float64}(gθ) ./ t .* ia, SMatrix{3, 3, Float64}(Hθ) ./ (t * t') .* ia, Float64(Dθ), SMatrix{3, 3, Float64}(Hθ))
+    # The LM runs on the displacement u = v − v₀ (level px, level px, slices), its scale `t` handed to static_lm as
+    # its per-coordinate scale `s` (its step and damping floors read there): the rows are r = ∇_θ D/|D(v₀)|, the
+    # gradient in the scaled coordinates θ = t ⊙ u, so ∂r/∂u = H ./ t (row i by tᵢ) /|D(v₀)|. The closure's locals
+    # are its own (Du, gu, Hu): reusing D or H, assigned below, would box them (inference: Any).
+    fj = u -> begin
+        Du, gu, Hu = _dog_response(model, v0 + u)
+        (SVector{3, Float64}(gu) ./ t .* ia, SMatrix{3, 3, Float64}(Hu) ./ t .* ia, Float64(Du), SMatrix{3, 3, Float64}(Hu))
     end
-    lb = (lo - v0) .* t; ub = (hi - v0) .* t
-    θ, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, SVector(1.0, 1.0, 1.0), cfg.max_iter, cfg.converged_tol2, 1.0, nothing, cfg.cost_floor)
+    lb = lo - v0; ub = hi - v0
+    u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, t, cfg.max_iter, cfg.converged_tol2, 1.0, nothing, cfg.cost_floor)
     code, rule = static_lm_termination(ok, rule)
     if !successful_retcode(code)
-        onbox = any(θ .<= lb) || any(θ .>= ub)
+        onbox = any(u .<= lb) || any(u .>= ub)
         onbox && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
         return v0, Float64(D0), H0d, code, rule
     end
-    v = v0 + θ ./ t
+    v = v0 + u
     D = e[3]; H = e[4]
     sgn = D0 > 0 ? 1.0 : -1.0
     (D > 0) == (D0 > 0) || return v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate

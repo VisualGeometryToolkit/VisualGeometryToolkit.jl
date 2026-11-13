@@ -24,7 +24,8 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   `J diag(α·x + σ²) Jᵀ` of the resolved Poisson–Gaussian noise, `covariance_source` `:propagated_measured` or
   `:propagated_estimated`; a missing noise leaves the a-posteriori covariance, marked so.
 - **`load_raw(...; noise)`** forwards the resolved noise to Core's `LinearRaw`, the one black subtraction (the noise's
-  black, its dark frame's offsets, its defects); refused with the display demosaic and with a `cache`.
+  black, its dark frame's offsets, its defects); refused with the display demosaic. A cached decode is keyed by the
+  noise's content (Core's `sha256_hex` over its values, sources and maps).
 - **`CspondSet` is `CorrespondenceSet`** (VisualGeometryToolkitCore 0.10's terminology: `Cspond` → `Correspondence`,
   `csponds` → `correspondences`); the old name is refused by Core's naming check, with no alias.
 - **A detection's `propagate(m, d)` is Core's one conversion carried through `m`**, `propagate(m, center(d))`: the
@@ -50,6 +51,9 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   missing).
 
 ### Internal
+- The continuous refinement hands its scale to Core's `static_lm` (its `s`), solving for the displacement, instead of
+  rescaling the coordinates itself (the owner's no-duplication ruling): the damping floors are the same; the step stop
+  reads the displacement in level units.
 - The detection covariance of a continuously refined point builds the refinement's field taps once per chunk, not per
   detection. A non-CPU backend builds each ASIFT kernel once (only the CPU has a static form).
 - The Förstner propagation's one-axis pipeline columns are the adjoints ASIFT's covariance already has

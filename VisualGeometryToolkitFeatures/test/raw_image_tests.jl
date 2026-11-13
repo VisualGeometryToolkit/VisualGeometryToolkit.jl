@@ -350,5 +350,34 @@ end
         @test load_raw(m; mode, noise).image != load_raw(m; mode).image                   # the noise's black, not the file's
     end
     @test_throws ArgumentError load_raw(m; mode = :demosaic, noise)
-    @test_throws ArgumentError load_raw(@__FILE__; mode = :green_cells, noise, cache = Dict())
+    # the noise is part of a cached decode's key, by content: another noise is another entry, the same noise a hit
+    VGF = VisualGeometryToolkitFeatures
+    other = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
+                        black = noise_value((501.0, 490.0, 510.0, 495.0), :measured), reason = "a record of the black level alone")
+    @test VGF._noise_digest(noise) == VGF._noise_digest(deepcopy(noise)) != VGF._noise_digest(other)
+end
+
+@testitem "raw: a cached decode is keyed by the noise" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
+    using VisualGeometryToolkitFeatures: load_raw
+    using Random: Xoshiro
+    const VGF = VisualGeometryToolkitFeatures
+    # a decoder that "decodes" any file to one synthetic mosaic, counting its calls
+    struct SyntheticDecoder <: VGF.RawDecoder end
+    const DECODES = Ref(0)
+    const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
+    VGF._decode_raw(::SyntheticDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
+    body = DeviceIdentity(; make = "synthetic", model = "mosaic")
+    n1 = SensorNoise(; body, iso = 100, black = noise_value((512.0, 500.0, 520.0, 508.0), :measured), reason = "black only")
+    n2 = SensorNoise(; body, iso = 100, black = noise_value((520.0, 508.0, 528.0, 516.0), :measured), reason = "black only")
+    cache = Dict{String, Any}()
+    a = load_raw(@__FILE__; mode = :green_cells, noise = n1, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 1 && DECODES[] == 1
+    @test load_raw(@__FILE__; mode = :green_cells, noise = deepcopy(n1), decoder = SyntheticDecoder(), cache) === a   # the same noise: a hit
+    @test DECODES[] == 1
+    b = load_raw(@__FILE__; mode = :green_cells, noise = n2, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 2 && DECODES[] == 2 && b.image != a.image                                            # another noise: another entry
+    c = load_raw(@__FILE__; mode = :green_cells, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 3 && c.image == LinearRaw(MOSAIC; mode = :green_cells).image                            # no noise: its own entry
+    @test a.image == LinearRaw(MOSAIC; mode = :green_cells, noise = n1).image
 end

@@ -332,7 +332,8 @@ a data artifact of that tier publishes it (an [`ArtifactView`](@ref) installs it
 like any tier). A run read by another run belongs there, not in the results
 root and not in a directory named by a date. Refuses a run without its record,
 and a destination that holds a different run (another `run_key` in its
-record), and a scratch run's output; the same run again is left as it is.
+record; for a run without a `run_key`, another record), and a scratch run's
+output; the same run again is left as it is.
 Returns the destination.
 """
 function promote_run(run_dir::AbstractString, tier::AbstractString; name::AbstractString = basename(rstrip(run_dir, '/')))
@@ -343,9 +344,14 @@ function promote_run(run_dir::AbstractString, tier::AbstractString; name::Abstra
     key = get(read_provenance(run_dir), "run_key", "")
     dst = joinpath(_tier_root(tier; write = true), tier, name)
     if isdir(dst)
-        had = isfile(joinpath(dst, PROVENANCE_FILE)) ? get(read_provenance(dst), "run_key", "") : ""
-        had == key && return dst
-        throw(ArgumentError("promote_run: $dst holds another run (run_key \"$had\", this one \"$key\"): name it otherwise"))
+        rec = joinpath(dst, PROVENANCE_FILE)
+        had = isfile(rec) ? get(read_provenance(dst), "run_key", "") : ""
+        # without a run key, only the run's own record (its time, host, commit) says it is the same run
+        same = isempty(key) ? isfile(rec) && read(rec) == read(joinpath(run_dir, PROVENANCE_FILE)) : had == key
+        same && return dst
+        throw(ArgumentError("promote_run: $dst holds another run (" *
+                            (isempty(key) ? "another record; this run has no run_key" : "run_key \"$had\", this one \"$key\"") *
+                            "): name it otherwise"))
     end
     assert_not_input(dst; producer = true)
     mkpath(dirname(dst))

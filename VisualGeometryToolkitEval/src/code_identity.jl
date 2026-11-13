@@ -503,8 +503,8 @@ THE check of one `[inputs.<id>]` table under its tier's `root` ([`tier_data_root
 than the data root, named by `root_name`, that is not there); `:missing` (no `path` under `root`); or `:refused`
 (another content than its `sha256` — a file's [`file_sha256`](@ref), a directory's [`tree_sha256`](@ref) with
 the table's `sha256_exclude` globs — or a scratch run's output, [`scratch_record`](@ref), unless `allow_scratch`).
-`problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or one on a directory, is an
-`ArgumentError` (a config error).
+`problem` says what, without the input's id. A `sha256` that is no 64 hex digits, or a `sha256_exclude` on a file,
+is an `ArgumentError` (a config error).
 """
 function inspect_input(id::AbstractString, t::AbstractDict, root::AbstractString; root_source::AbstractString = "data root",
                        root_name::AbstractString = "", allow_scratch::Bool = false)

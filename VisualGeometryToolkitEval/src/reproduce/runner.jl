@@ -414,7 +414,8 @@ is not there)"`). Each input is checked by `inspect_input` (src/code_identity.jl
 [`UNPUBLISHED_TIER`](@ref) is reported missing as never fetched; with `unpublished` (a vector), each such input is
 also pushed there, `(; path, present, used_by)`, for the dry run to list.
 
-An input with a `sha256` (64 hex digits, of a file) is verified: an input that is there with another content is
+An input with a `sha256` (64 hex digits: a file's [`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256), a
+directory's [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) is verified: an input that is there with another content is
 REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
 nothing runs on data other than the data of record. An input without one is not checked. The hash is streamed and
 cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is

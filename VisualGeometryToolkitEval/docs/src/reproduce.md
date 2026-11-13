@@ -272,7 +272,8 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
 - **Inputs first.** Every `[inputs.<id>]` (`tier`, `path` under the data root)
   of every selected stage's configs is checked before anything runs; a missing
   one is a row `path  tier  used by`, the launch runs nothing and exits 3
-  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file) must
+  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file, or a directory's
+  [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) must
   have that content: another one is refused, naming the input, the expected
   and the actual hash (exit 2, the dry run too); without it the input is only
   checked to be there. Hashing streams the file and is cached by path, size

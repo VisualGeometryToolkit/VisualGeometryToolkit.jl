@@ -93,6 +93,26 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10.
 - `refine_camera`'s lens regression reduces through Core's `reduce_normal_equations` / `reduce_cost` (launch and
   reduce); its own unpack and launch pair deleted (the 0.10.2 patch line, ported; the same bits).
 
+## 0.10.3 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.7 (`[compat]` VisualGeometryToolkitCore "0.9.7"). No API change, no result
+changes.
+
+- **Internal: `refine_camera`'s lens regression reduces through Core's launch-and-reduce**
+  (`reduce_normal_equations(row!, …)`, `reduce_cost(row!, …)`), its own launch-then-reduce pair deleted; the same bits
+  (tested against 0.10.2's two calls).
+
+## 0.10.2 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.6 (`[compat]` VisualGeometryToolkitCore "0.9.6"). No API change; no result
+changes.
+
+- **Internal: `refine_camera`'s lens regression reduces its partial sums through Core's `reduce_normal_equations` and
+  `reduce_cost`** (VisualGeometryToolkitCore 0.9.6), the one copy of that unpack; its hand-written copy is deleted. The
+  same bits (tested against the deleted unpack).
+- Core 0.9.6's `axis_gauged` fix (a posed `BoundedCamera` now turns its pose) changes nothing here: `fit_camera(SplineLens, …)`
+  and the SplineLens `refine_camera_and_poses` gauge unposed cameras only, which come back identical.
+
 ## 0.10.1 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; no result changes.

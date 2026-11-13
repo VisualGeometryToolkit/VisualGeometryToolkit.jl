@@ -112,6 +112,36 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   the path-loaded packages, the Manifest and each repository's HEAD, refs, index and ignore files).
 - Docstrings: a directory input's `sha256` is checked through `tree_sha256`.
 
+## 0.7.4 (unreleased)
+
+A patch: a bug fix in the code identity of a run, no API change.
+
+- **Fixed: a run of record of a REGISTERED package's code is no longer refused.** A registered install (the package's
+  source in the depot, `packages/<Name>/<slug>`: no git checkout) is committed code — content-addressed and immutable —
+  but `code_trees` read it as "no git checkout", so `refuse_uncommitted_code` refused every run of record whose
+  `gitpath` is a registered package (PanoramaStitching's example records its stages with
+  `cached_result(…; gitpath = pkgdir(PanoramaStitching))`; only `VGTK_SCRATCH=1` got past it). `code_trees` now
+  identifies such a directory by the tree hash the active environment records for it (`Pkg.dependencies()`: name,
+  version, uuid and git-tree-sha1), and searches the active project's environment for the stack packages. Still
+  refused: a git checkout with uncommitted changes, and a path that is neither a git checkout nor a registered install.
+
+## 0.7.3 (unreleased)
+
+A patch: a bug fix in the reproduce runner, no API change.
+
+- **Fixed: a stage is no longer reused after a stage it runs after reruns.** A stage's run key hashed its own files,
+  items, environment and command, never its upstream stages', and the reuse clearing skipped completed stages. So after
+  a change to stage A's config, A reran but a stage B after it (its own files unchanged) was "reused (completed
+  earlier)", its results computed from A's old output. Now a stage's key folds in the key of each stage it runs after:
+  that stage's key in this launch, or, for one the launch does not run (`--no-deps`), the key of its last completed
+  run, whose output the stage reads. So the fold is transitive, and launches of one stage at a time are covered in any
+  order. A stage whose upstream this launch runs again is never reused, completed or in flight.
+- **Existing run manifests** (`<results root>/_reproduce/*.toml`) are read as before; nothing is migrated. A stage
+  with no `after` keeps its 0.7.2 key and is still reused. Every stage that runs after another gets a new key, so the
+  first launch under 0.7.3 reruns it once (its results are rewritten, the same when its inputs were current). In a
+  project whose environment loads VisualGeometryToolkitEval (the usual case), the upgrade also changes Eval's recorded
+  code tree, and that first launch reruns every stage, "code changed" naming it, as after any Eval release.
+
 ## 0.7.2 (unreleased)
 
 A patch: no API change.

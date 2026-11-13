@@ -47,6 +47,91 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
 
 ## check_duplication (gate prep 12390, VGTK_STACK_PATHS = bb-j113, lodr-09, rsdr-09, cb-release, ps-064)
 
+```
+== check_duplication(VisualGeometryToolkitIO 0.9.5): 0 finding(s)
+== check_duplication(VisualGeometryToolkitEval 0.7.2): 0 finding(s)
+```
+
+## Features 0.8.4 (patch-features084): no splat of a data-length collection, 2026-11-13
+
+- [x] ONE transpose of a capture's identities into columns: StructArrays' `components(StructArray(ids))` (already a
+  Features dependency), in `_merged`; no hand-written column loop (09a662e3, 3d8203a4).
+- [x] ONE score-type rule over any number of descriptor sets: `_score_eltype(As)` on a collection (29888695).
+- [x] The sweep of the stack's splats of a data-length collection, by owner, and the lint design for core10: wave10/handoffs.md
+  ("patch084 → every owner", "patch084 → core10").
+- [x] check_duplication: 0 findings on all six, Features 0.8.4 included (gate prep 14059).
+
+## Core 0.9.7 / Estimation 0.10.3 (patch-core097-est0103): one launch-and-reduce, 2026-11-13
+
+- [x] ONE launch of a device LM state's rows and reduction of their partial sums: Core's `reduce_normal_equations(row!,
+  Val(N), args...; partials)` / `reduce_cost(row!, args...; partials)` (737813d1); Estimation's `_LensRegressionLm` calls
+  them (a4978736), RadiometricCamera's `_RadiometryLm` too (RC 2d074aef). The pair RC linear_solve.jl:298/302 ⇔
+  Estimation refine_camera.jl:178/182, found BEFORE (job 14318: 2 findings), gone against Estimation 0.10.3 with RC
+  unchanged (job 14319: 0) and AFTER RC's change (job 14322: 0): docs-pass.md, verbatim.
+- [x] check_duplication: 0 findings on all six (gate prep 14112).
+
+## Eval 0.7.4 (patch-eval074): a registered install is committed code, 2026-11-13
+
+- [x] ONE decision of a path's code tree: `code_trees` (code_identity.jl), which `refuse_uncommitted_code`, the runner
+  and every driver record (`_recorded_code_trees`) already go through; the registered install is a branch of it, no
+  second code path (7271049c, 4209e867).
+- [x] ONE source of a registered install's tree hash: the active environment, through Pkg's API (`Pkg.dependencies()`:
+  name, version, uuid, tree_hash); no hand-parsed Manifest for it. Searched by concept: Core's sync_manifest.jl:56 reads
+  `Pkg.dependencies()` for direct dependencies' versions (another question: a Manifest's sync), and the Manifest
+  `git-tree-sha1` of a loaded stack package stays `code_trees`' own (code_identity.jl `_loaded_entries`).
+- [x] check_duplication 0, check_naming 0, check_splat 0 on Eval 0.7.4 (gate prep 14587).
+## Core 0.9.8 (patch-core098): one device-capacity query, 2026-11-13
+
+- [x] ONE count of a kernel's resident threads: `device_resident_threads` (base/device.jl), one method per backend of
+  `_resident_threads` (the host's threads; the CUDA extension's compiled-kernel occupancy), no `isa` branch; a device
+  query, so `check_duplication` leaves its methods per backend alone (`_TRANSFER_NAMES`), a compute function's still not
+  (tested).
+- [x] check_duplication: 0 findings on all six (gate prep 14548).
+
+## Core 0.9.9 (patch-core099): one construction of the pointwise launch, 2026-11-13
+
+- [x] ONE construction of `pointwise!`'s kernel, arguments and ndrange: `pointwise_kernel` (`_pointwise_launch`), which
+  `pointwise!` launches; a caller asks `device_resident_threads` about that triple, never a copy of the construction.
+- [x] check_duplication: 0 findings on all six (gate prep 14831).
+
+## Core 0.9.6, Estimation 0.10.2, Eval 0.7.3 (patch-core096-eval073): the catch-up review's C1 and E1 and the owner's additions, 2026-11-13
+
+The concept search: Core's LM core (robust/lm_core.jl) holds no reduction of per-work-item partial sums; the names
+follow the protocol they serve (`residual_normal_equations!`, `residual_cost!`). The runner's reading of earlier
+launches' stage records had one walk (`_mark_reuse!`); the upstream keys needed a second, folded into one reader.
+
+- [x] ONE reduction of a device LM state's partial sums: Core's `reduce_normal_equations`/`reduce_cost` (lm_core.jl);
+  Estimation's hand unpack in refine_camera.jl deleted (822a01cf); RadiometricCamera's `_RadiometryLm` is the next caller.
+- [x] ONE `axis_gauged` of a bounded camera: the wrapped camera's own method (`_rebound(bc, axis_gauged(bc.camera, …))`,
+  30debf6d), no second turn of the pose.
+- [x] ONE reader of the earlier launches' stage records: `_stage_records` (runner.jl), read once per plan for the
+  upstream keys and for reuse; the unused `_manifest_dir` deleted (ee512b8e).
+- [x] ONE stage-key rule: the upstream keys folded in `plan_reproduction` alone (e36a1959).
+- [x] ONE chart-LM stop setting: `refine_camera`'s regression reads `_CHART_LM_FTOL` ([chart_lm]), as every chart LM (bfd2282b).
+- [x] ONE region rule for a bounded source: `_imaged_part` (region ∩ imaged_region), used by `fit_camera`,
+  `refine_camera`, `approximate_camera` and so `optical_axis` (2b116fa9, 4c910232); `optical_axis(camera)` is its
+  region form with the default, no second path.
+- [x] check_duplication: 0 findings on all six packages, with the stack repositories in VGTK_STACK_PATHS (gate prep; verbatim
+  in ~/logs/dgx-agent/patch-core096-eval073.md).
+
+---
+
+# IO 0.9.4 duplication checklist (monorepo)
+
+The owner's rule (2026-11-13): no new codec where an existing body does the job, no shims or aliases. Each item names the
+concept, the stack's one implementation reused, and the commit. The concept search, file:line and check_duplication output:
+~/logs/dgx-agent/io094-ps064.md.
+
+- [x] the panorama's camera → the camera store's bounded camera body (`_bounded_body` / `_bounded_from_body`, camera_schema.jl:327/336; table `_BOUNDED_CAMERA_BODY`, rig_schema.jl:792) (4e86078c)
+- [x] the panorama's rotations → the trajectory body (`JSON.lower`/`JSON.lift` of `Trajectory`, captures_schema.jl:203/227); its table `_TRAJECTORY_BODY` is the trajectory file's own, the file's table now built from it (captures_schema.jl:173–183) (4e86078c)
+- [x] the panorama's vignetting → the vgio/vignetting body (`_VignettingBody`, `JSON.lower`/`JSON.lift` of `AbstractVignetting`, radiometry_schema.jl) (4e86078c)
+- [x] a matrix stored as rows (the gains; the vignetting's control points; a light's coefficients) → one reader `_rows_matrix` and one writer `_matrix_rows` (radiometry_schema.jl:99/101), replacing four inline copies (4e86078c, d593a27c)
+- [x] the point frame's centre and covariance → the uncertain point's leaves (`_pixel_json`, captures_schema.jl:528; `_cov_json`/`_cov_matrix`, transform_schema.jl:68/69); a Symbol-keyed object normalised by `_lower` (rig_schema.jl:1076) (4e86078c, d593a27c)
+- [x] the detection metadata read → one `_detection_metadata` (core_json.jl:454), shared by every frame (4e86078c)
+- [x] check_duplication(VisualGeometryToolkitIO 0.9.4) and (VisualGeometryToolkitEval 0.7.2): 0 findings each, with the stack repositories in VGTK_STACK_PATHS (gate prep 11552)
+
+---
+
 ## Stopped with no code (searched, nothing to merge)
 
 - H8 (same per-pair concept already one body), F9's first pass (superseded by dup-items-f), "one luma" (no Features

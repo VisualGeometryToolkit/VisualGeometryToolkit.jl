@@ -189,6 +189,58 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
 - **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,
   `gpu_problem(prefix)`, `require_gpu(prefix)` (public): one decision for every stack suite, never a silent skip.
 
+## 0.9.9 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New: `pointwise_kernel(f, out, xs...; exec) -> (kernel, args, ndrange)`, public** — the one launch `pointwise!`
+  makes, unlaunched; `pointwise!` is it followed by the launch, so its results are the same bits. A caller sizes a
+  `pointwise!` launch with `k, a, n = pointwise_kernel(f, out, xs...); device_resident_threads(k, a...; ndrange = n)`:
+  the count of the very kernel `pointwise!` runs, without restating how it is built.
+
+## 0.9.8 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New: `device_resident_threads(kernel, args...; ndrange) -> Int`, public** (base/device.jl) — how many threads of a
+  KernelAbstractions kernel instance (`OnBackend(dev)(f!)`, launched as `kernel(args...; ndrange)`) its device holds
+  at once, register-aware. On a CUDA device it is the compiled kernel's occupancy at the launch's block size, times the
+  block size, times the multiprocessors; never the raw maximum of threads per multiprocessor, which overstates a
+  register-heavy kernel (255 registers a thread: about 8×). On the host it is `Threads.nthreads()`; another backend is
+  refused. The accelerator extension answers it beside `device_free_bytes`.
+
+## 0.9.7 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New methods: `reduce_normal_equations(row!, Val(N), args...; partials)` and `reduce_cost(row!, args...; partials)`**
+  — a device LM state's launch and reduction in one call: `row!(partials, w, args...)` for every work item as one
+  kernel on `partials`' backend (the stack's one row launch, KernelAbstractions on every backend), then the existing
+  reduction of the partial sums. The one copy of the launch-then-reduce pair VisualGeometryToolkitEstimation's lens
+  regression and RadiometricCamera's radiometry LM each wrote; `partials` is the caller's scratch (a keyword).
+
+## 0.9.6 (unreleased)
+
+A patch: two bug fixes, and two new public names (additive).
+
+- **Fixed: Core resolves beside cuDNN 1.x again.** 0.9.5's weak `[compat] CUDA = "5.11.3"` (the wave-113 floor raise)
+  needs CUDA_Runtime_Discovery 2, which no cuDNN 1.x accepts, so no environment holding cuDNN 1 (BlobBoards,
+  CaliBlobs) could resolve Core 0.9.5, nor IO 0.9.3, Features 0.8.3, Estimation 0.10.1 or Eval 0.7.2 through it. The
+  floor is 5.11 again (`"5.11 - 5"`: CUDA 5.11.0–5.11.1 use CUDA_Runtime_Discovery 1), and a test resolves Core with
+  cuDNN 1 from the registries. No other weak floor of the six packages blocks (checked: BlobBoards' and CaliBlobs'
+  environments resolve with the patched packages).
+
+- **New: `reduce_normal_equations(partials, Val(N)) -> (½‖r‖², Jᵀr::SVector{N}, JᵀJ::SMatrix{N, N})` and
+  `reduce_cost(partials) -> ½‖r‖²`, public** (robust/lm_core.jl) — a device LM state's `residual_normal_equations!`
+  and `residual_cost!` from its per-work-item partial sums (column `w`: `Σ‖rᵢ‖²`, the `N` of `ΣJᵢᵀrᵢ`, the `N × N` of
+  `ΣJᵢᵀJᵢ` column-major), summed on the array's backend. The one copy of the unpack VisualGeometryToolkitEstimation's
+  lens regression wrote by hand (Estimation 0.10.2 calls it, the same bits); RadiometricCamera's radiometry LM is next.
+
+- **Fixed: `axis_gauged` of a POSED `BoundedCamera` now turns its pose with its rays.** It turned the model only (through
+  `with_model`, which keeps the extrinsics), so every world point projected elsewhere. It now gauges the camera the
+  bound wraps, as the `PosedCamera` method and the docstring say, so every projection is kept. An unposed bounded camera
+  (the only kind VisualGeometryToolkitEstimation gauges) comes back identical to 0.9.5's: no Estimation result changes.
+
 ## 0.9.5 (unreleased)
 
 A patch. Additive: the pieces VisualGeometryToolkitFeatures 0.8.3's opt-in continuous DoG refinement reads, each the one

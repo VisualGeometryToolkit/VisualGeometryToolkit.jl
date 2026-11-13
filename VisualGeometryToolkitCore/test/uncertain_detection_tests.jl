@@ -96,8 +96,9 @@ end
         e, e_point = Ellipse(u; sigma = s), Ellipse(Uncertain(p.center, Σ); sigma = s)
         @test e.center == p.center && (e.a, e.b, e.θ) == (e_point.a, e_point.b, e_point.θ)
     end
-    @test Ellipse(det; sigma = 2) == Ellipse(u; sigma = 2)                     # a detection's: the same
-    @test Ellipse(Attributed(Uncertain(p, inv(Σ)), (;)); sigma = 2).a ≈ Ellipse(u; sigma = 2).a
+    # a detection's: its point observation's (`center`, the one conversion; no per-detection Ellipse forwarder)
+    @test Ellipse(center(det); sigma = 2) == Ellipse(u; sigma = 2)
+    @test Ellipse(center(Attributed(Uncertain(p, inv(Σ)), (;))); sigma = 2).a ≈ Ellipse(u; sigma = 2).a
     e = Ellipse(Uncertain(p, CovMat{2, Float64}(4.0, 0.0, 0.0, 1.0)); sigma = 1)
     @test (e.a, e.b) == (2.0, 1.0)
     @test Ellipse(Uncertain(p, inv(Σ)); sigma = 1).a ≈ Ellipse(u; sigma = 1).a   # a stored precision

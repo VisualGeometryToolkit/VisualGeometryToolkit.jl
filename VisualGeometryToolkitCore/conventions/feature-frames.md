@@ -29,7 +29,7 @@ detections, and a benchmark against `Uncertain{Point2}`).
 | transfer through any point map | [`transfer`](@ref)`(m, f)`: the centre by `m`; a scaled frame's shape by `m`'s Jacobian at the centre (an `AffineFrame`, first order), exact through a similarity |
 | propagate | `propagate(m, u::Uncertain{PointFrame})` through every framed map an uncertain point propagates through (`EuclideanMap`, `SimilarityMap`, `HomographyMap`, `FramedAffine`), the frame kept; for a scaled frame, `propagate(m, center(u))` |
 | error ellipse | `Ellipse(u::Uncertain{<:FeatureFrame}; sigma)`: its centre's |
-| bounding box | `extrema(f)`, `Rect2(f)`, `Rect2{Int}(f)`, `bbox(f)` (a point's is the point) |
+| bounding box | `extrema(f)`, `Rect2(f)`, `Rect2{Int}(f)` (the 1σ box), `bbox(f; scale, snap_to_grid)` (the `scale`-σ box, unit-stripped; a point's is the point at any scale) |
 | units | `ustrip(u, f)`, `f * s`, `f / s` (a change of unit or length scale; angles kept) |
 | translation | `f + v`, `f - v` |
 | GPU | `isbits` values: `adapt` is the identity, a `StructArray` of (uncertain, attributed) frames is columnar |
@@ -44,7 +44,9 @@ detections, and a benchmark against `Uncertain{Point2}`).
 | `characteristic_scale`, `aspect_ratio` | σ, 1 | `√|det F|`, from its singular values | absent |
 | `AffineMap(f)`, `boundary_point(f, θ)` | the canonical → image map | the same | absent |
 | `region(f, k)`, `Circle(f, r)`, `Ellipse(f, r)` | the k·σ contour | the same | absent |
-| `MvNormal(f)`, `intersects`, `inv(f)` | as documented per verb | as documented per verb | absent |
+| `MvNormal(f)` | `N(c, σ²I)` | `N(c, F Fᵀ)` | absent |
+| `inv(f)` | Disc: `(-c/σ, 1/σ)`; OrientedDisc absent | the class kept: `(-F⁻¹c, F⁻¹)` | absent |
+| `intersects(p, q, k)` | Disc only | absent | absent |
 
 An absent verb is absent BY DESIGN, not a stub: calling it on a `PointFrame`
 is a `MethodError` whose hint names the interface and the point's own verbs.

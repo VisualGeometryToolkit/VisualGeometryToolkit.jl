@@ -56,6 +56,10 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
 - **The continuous refinement stays inside the level** (`refinement = ContinuousRefinement()`): its LM box is also
   bounded by the level's extent, the detector's keep test; a point whose extremum lies beyond the level's edge ends
   `LeftBasin` with its start, never outside the canvas.
+- **A continuous refinement held on its box is `LeftBasin`, the start returned** (the refinement's basin policy):
+  Core's stationarity rule counts a point a bound holds as stationary, so a solve whose extremum lies beyond the
+  displacement bound or the level's edge would end Success at the box, a biased point; any point on the box is now
+  `LeftBasin` with its start, whatever the LM's verdict (as it was when the box-held solve did not converge).
 - **`detect_image_circle` checks `smoothing_weight` before it reads a frame**, with its other keywords.
 - **`variance_stabilize` reads Core's `green_plane(L)`**: it no longer searches the planes for the green one by comparing
   frame maps with `===`.

@@ -155,6 +155,7 @@ const _EXCEPTION_KEYS = Dict(
     "name" => ("module", "name", "reason"), "similar" => ("functions", "reason"),
     "file" => ("files", "reason"), "pattern" => ("use", "file", "reason"),
     "backend" => ("file", "function", "reason"), "twin" => ("names", "reason"),
+    "splat" => ("file", "function", "reason"),   # check_splat's (check_splat.jl)
 )
 
 # The entries of the root's DUPLICATION.toml, by kind (each a Dict); throws on a defect.
@@ -166,7 +167,7 @@ function _duplication_exceptions(root::AbstractString)
     decl = TOML.parsefile(file)
     for (kind, entries) in decl
         haskey(_EXCEPTION_KEYS, kind) && entries isa AbstractVector ||
-            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]], [[pattern]], [[backend]] or [[twin]] entry"); continue)
+            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]], [[pattern]], [[backend]], [[twin]] or [[splat]] entry"); continue)
         for e in entries
             want = _EXCEPTION_KEYS[kind]
             lacking = filter(k -> !haskey(e, k) || isempty(e[k]), collect(want))

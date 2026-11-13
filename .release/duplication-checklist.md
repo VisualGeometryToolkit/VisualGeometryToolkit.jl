@@ -172,3 +172,17 @@ Features). The concept-level audit of the whole diff: ~/logs/dgx-agent/sift-land
   kept private.
 - Deferred by ruling (no box): merging `_continuous_covariance` with the tabulated `_ift_cov`, a follow-up Features minor.
 
+
+## Wave 113 (Core 0.9.5, Estimation 0.10.1; IO, Features, Eval, PoseLib patches): owner rulings 2026-11-13
+
+Final gate green on 7c550857 (jobs 11013–11020; Julia 1.13.3, CPU and GPU, every package strict, docs; check_duplication 0
+findings on all six). The concept-level audit and the deleted shims: ~/logs/dgx-agent/wave113-functions.md.
+
+- [x] ONE region reach: `farthest_radius` (Core); Estimation's `_exit_radii` deleted; both `division_bounded` methods read it.
+- [x] ONE masked bending operator: `bending_rows(mask; spacing)` (RadiometricCamera's `_bending_operator` moves here, same bits).
+- [x] ONE plane → pixel map: `plane_map`, every camera model, the homography form by dispatch; `transfer_ellipse` reads it (`_lens_ellipse` deleted).
+- [x] ONE homography point Jacobian: `transform_deriv` of the 2-D homography map; `_homography_point_jacobian` folded.
+- [x] ONE held-camera rule and ONE pixel-whitening test: `held_parameters`, `pixel_whitening_defect` (the private copies deleted).
+- [x] No shims: `_window_sums`, `_strip_length`, SpatialQueries' node aliases and `_mbr`, `_line_of`, `_camera_poses_result`, `_opted_file`, IO's `_json` deleted.
+- [x] The duplication item deterministic with and without the stack paths; the two test-fixture `[[similar]]` entries restored.
+- Reported, not deleted (public, breaking): `LiftableProblem`, `ScalarOrQuantity`, `POOL_RNG`.

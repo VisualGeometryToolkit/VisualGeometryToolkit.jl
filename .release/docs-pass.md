@@ -1,4 +1,59 @@
-docs-pass: 94a303ff
+docs-pass: 7c550857
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 -> 6674c98 prepared locally (/raid/data/jpr/vgtk-landing-wave113, branch wave-113: "The packages require Julia 1.13"; not pushed)
+
+# Wave 113 docs pass (julia-docs-pass) — wave-113 (Core 0.9.5, IO 0.9.3, Features 0.8.3, Estimation 0.10.1, Eval 0.7.2, PoseLib 0.2.1)
+
+The wave: the whole stack on Julia 1.13 only, every [compat] floor raised to the gated resolution, the Downgrade
+workflow deleted; Core 0.9.5 = the SIFT landing plus `farthest_radius`, the masked `bending_rows`, `backproject` of a
+non-central model at any number type, `plane_map` for every camera model, `transform_deriv` of the 2-D homography map,
+the CUDA default device with `always_inline`; Estimation 0.10.1 = `held_parameters`, `pixel_whitening_defect`; the
+private forwards and aliases deleted (the owner's no-shim order). The "cuda" device-tag rename was stopped as breaking
+(Features' `execution_provider`), by the coordinator's ruling left as it is. Baseline: sift-landing 8f979b38.
+
+## 1. Public API since the baseline
+
+- Core, public, not exported: `farthest_radius`, `plane_map`; new methods `bending_rows(mask; spacing)`,
+  `transform_deriv(PerspectiveMap() ∘ ::HomographyMap{3}, ::StaticVector{2})`, `project(::NoncentralSplineModel, ::StaticVector{3, <:Dual})`;
+  `Ray3{T <: Real}` (was `AbstractFloat`); `backproject(::NoncentralSplineModel)` eltype-generic. Nothing removed.
+- Estimation, public, not exported: `held_parameters`, `pixel_whitening_defect`. Nothing removed.
+- IO, Features, Eval, PoseLib: no API change.
+- The function list with file:line, the stack functions considered and the deleted shims: ~/logs/dgx-agent/wave113-functions.md.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | Core: `farthest_radius` (cameras/image_circle.jl) and `plane_map` (cameras/cameras.jl) on api/lenses.md and api/cameras.md through their `@autodocs`; `bending_rows(mask)` on api/batched.md (numerics/bspline_energy.jl); the 2-D homography map's derivative is a commented CT method (no docstring on a foreign function, as `transform_deriv(::PerspectiveMap, X)`). Estimation: `pixel_whitening_defect` in api/bearings.md's `@docs`, `held_parameters` in api/radial.md's, both named in the rotation-centre prose. |
+| stale mentions | the deleted private names: none outside CHANGELOGs and earlier release records (grep in wave113-functions.md). "Julia 1.12 or later": every README, docs index and getting-started page reads 1.13; CLAUDE.md's workspace line too. |
+| CHANGELOG | Core 0.9.5, IO 0.9.3, Features 0.8.3, Estimation 0.10.1, Eval 0.7.2, PoseLib 0.2.1 |
+| versions | as above |
+| in-repo compat | every member's floors at the gated resolution (wave113-floors.txt, 164 entries; floor_compat `--raise --check` on a copy: 0 more); stack siblings at their in-wave versions |
+| README / landing | the landing page's "require Julia 1.12" line prepared as 6674c98 (above) |
+
+## 3. Executed on the final RC (7c550857)
+
+Gate (~/logs/dgx-agent/scripts/wave113/gate.sbatch, submit.sh; jobs 11013–11020): a fresh clone per task of `wave-113`, no
+Manifest, General a GitHub clone in the wave's own depot (JULIA_PKG_SERVER=""), prep without a GPU (resolve, precompile,
+lint, floor, audit, dup), then the CPU tiers and docs without `--gres` and each GPU tier on its own GPU, `--depwarn=error`,
+JULIA_NUM_THREADS = the task's CPUs, Core at 3 ReTestItems workers. Julia 1.13.3 only. Counts are pass / broken.
+
+| | CPU | GPU | docs |
+|---|---|---|---|
+| prep: registration_lint --subsequent, agent_docs, floor_compat --latest, audit_manifests | 0 errors, 0 warnings; rc 0; rc 0; all up to date | | |
+| check_duplication (all six, stack paths set) | 0 findings each | | |
+| Core | 410185 / 30 | 411768 / 2 | 0 |
+| IO | 30541 / 4 | 30541 / 4 | 0 |
+| Features | 3063 / 9 | 3133 / 2 | 0 |
+| Estimation | 8813 / 2 | 8823 / 2 | 0 |
+| Eval | 2906 / 0 | 2907 / 0 | 0 |
+| PoseLib | 373 / 1 | 373 / 1 | 0 |
+
+The duplication item is the same without and with VGTK_STACK_PATHS (the idiom cap counts the repository's own
+definitions; job 10988: 1889/1889 both ways).
+
+---
+
+docs-pass: 94a303ff (sift-landing)
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: its Features line names ASIFT detection, not a refinement option)
 
 # 0.9.5 / 0.8.3 docs pass (julia-docs-pass) — sift-landing (VisualGeometryToolkitCore 0.9.5, VisualGeometryToolkitFeatures 0.8.3)

@@ -72,15 +72,19 @@ function variance_stabilize(L::LinearRaw, sensor_model::SensorModel)
     sensor_model.noise isa PoissonGaussian || throw(ArgumentError(
         "variance_stabilize: the sensor model has no gain (its noise is $(nameof(typeof(sensor_model.noise)))): the transform needs a Poisson–Gaussian noise: a characterisation entry with a gain, from photon_transfer or a record"))
     G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
-    G isa StructArray || throw(ArgumentError(
+    G isa AbstractMatrix{<:Uncertain} || throw(ArgumentError(
         "variance_stabilize: L holds no variances: linearise it with the same sensor model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
-    x, covs = components(G)
-    α = poisson_slope(L, sensor_model)[parentindices(x)[3]]   # the green plane's, its index Core's (read off the view)
-    gaussian(x, c) = c[1] - α * max(x, 0.0)                 # the value's variance less its Poisson part
+    α = poisson_slope(L, sensor_model)[_plane_index(G)]       # the green plane's, its index Core's (read off the view)
+    gaussian(u) = var(u) - α * max(value_of(u), 0.0)        # a value's variance less its Poisson part
     f(x, σ²) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    σ²_mean = sum(gaussian(xi, ci) for (xi, ci) in zip(x, covs)) / length(x)
-    return StabilizedImage(f.(x, gaussian.(x, covs)), L.saturated, f(L.gain, σ²_mean))
+    σ²_mean = sum(gaussian, G) / length(G)
+    return StabilizedImage(map(u -> f(value_of(u), gaussian(u)), G), L.saturated, f(L.gain, σ²_mean))
 end
+
+# The plane of `L.image` a plane view reads (Core's `green_plane` index, never re-derived): a SubArray's third index;
+# a materialised uncertain plane's, its components' (one view per component, the same indices).
+_plane_index(G::SubArray) = parentindices(G)[3]
+_plane_index(G::StructArray) = _plane_index(first(components(G)))
 
 # The 0.8 keywords, retired: the noise is the frame's sensor model, the argument.
 function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), read_noise = RetiredKeyword())

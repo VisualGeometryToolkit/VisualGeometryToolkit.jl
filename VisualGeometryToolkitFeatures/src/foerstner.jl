@@ -180,9 +180,10 @@ detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = n
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
     _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
 
-# The values of a green plane: the plane itself, or an uncertain plane's value component.
+# The values of a green plane: the plane itself, or each uncertain element's value (Core's `value_of`), whatever its
+# storage (a lazy view or a materialised one).
 _green_values(G::AbstractMatrix{<:Real}) = G
-_green_values(G::StructArray) = components(G)[1]
+_green_values(G::AbstractMatrix{<:Uncertain}) = map(value_of, G)
 
 # The detector on the grey image `img`; `model` the pixel noise it propagates (`_pixel_noise`) or `nothing`.
 function _detect_foerstner(
@@ -229,8 +230,7 @@ end
 # variance from the uncertain image the model made (Core's one law, D11); read noise alone, relative noise or none
 # leaves the a-posteriori covariance. A gain whose image carries no variances was not linearised with the model.
 _pixel_noise(::NoiseComponent, G::AbstractMatrix) = nothing
-_pixel_noise(n::PoissonGaussian, G::StructArray) =
-    map(c -> c[1], components(G)[2]), Symbol("propagated_", string(n.source))
+_pixel_noise(n::PoissonGaussian, G::AbstractMatrix{<:Uncertain}) = map(var, G), Symbol("propagated_", string(n.source))
 _pixel_noise(::PoissonGaussian, G::AbstractMatrix) = throw(ArgumentError(
     "detect_foerstner: the sensor model has a gain but the LinearRaw holds no variances: linearise it with the same model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
 

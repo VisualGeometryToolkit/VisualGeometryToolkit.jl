@@ -74,7 +74,7 @@ end
 @testitem "variance_stabilize: the sensor model's gain — each green its colour's read noise, no gain refused" setup = [NoisyMosaic] begin
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: LinearRaw, green_plane, poisson_slope, sensor_fixture
-    const components = VisualGeometryToolkitFeatures.components   # StructArrays', the package's dependency
+    using VisualGeometryToolkitCore: value_of, var
     using VisualGeometryToolkitFeatures: variance_stabilize
     using Random: Xoshiro
     m = noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0)
@@ -85,10 +85,10 @@ end
     L = LinearRaw(m; mode = :green_cells, sensor_model = model)
     (s1, s2) = L.geometry.plane_sites[1]
     @test sort([s1.color, s2.color]) == [1, 3]
-    x, covs = components(green_plane(L))
     α = poisson_slope(L, model)[1]
     @test α ≈ L.gain / (4 * 2.5) * (1 / s1.dn + 1 / s2.dn)
-    @test all(c[1] - α * max(xi, 0) ≈ L.gain^2 / 4 * (σr[s1.color + 1]^2 / s1.dn^2 + σr[s2.color + 1]^2 / s2.dn^2) for (xi, c) in zip(x, covs))
+    @test all(var(u) - α * max(value_of(u), 0) ≈ L.gain^2 / 4 * (σr[s1.color + 1]^2 / s1.dn^2 + σr[s2.color + 1]^2 / s2.dn^2)
+              for u in green_plane(L))
     # no gain (D8): read noise alone, or no noise — refused, naming the gain; a gain whose image holds no variances too
     for nogain in (sensor_fixture(; read_noise = σr).model, sensor_fixture().model)
         err = try variance_stabilize(LinearRaw(m; mode = :green_cells, sensor_model = nogain), nogain) catch e; e end

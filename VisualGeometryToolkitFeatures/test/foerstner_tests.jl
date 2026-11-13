@@ -251,7 +251,7 @@ end
 @testitem "detect_foerstner on a LinearRaw: the sensor model's gain, its source, no gain left a-posteriori" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitCore: LinearRaw, green_plane, sensor_fixture
-    const components = VisualGeometryToolkitFeatures.components   # StructArrays', the package's dependency
+    using VisualGeometryToolkitCore: value_of, var
     using Statistics: cov
     using Random: Xoshiro
     using Test
@@ -277,8 +277,8 @@ end
     # no Poisson part: K = 1e12 electrons per code leaves σ² alone, the iid case of σn = 255·σ
     big_model = pg_model(1.0e12, 3.0)
     Lb = LinearRaw(m; mode = :green_cells, sensor_model = big_model)
-    x, covs = components(green_plane(Lb))
-    σ² = minimum(c -> c[1], covs)
+    x = map(value_of, green_plane(Lb))
+    σ² = minimum(var, green_plane(Lb))
     big = detect_foerstner(Float64, Lb; sensor_model = big_model, device = KA.CPU())
     iid = detect_foerstner(Float64, Array(x); noise = 255 * sqrt(σ²), noise_sigma = 2.0, device = KA.CPU())
     @test length(big) == length(iid)

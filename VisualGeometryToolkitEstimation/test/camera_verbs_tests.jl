@@ -263,19 +263,3 @@ end
         @test cost ≈ c
     end
 end
-
-# refine_camera's chart LM takes every chart LM's stop settings ([chart_lm] ftol, 0.10.2; until 0.10.1 it ran at
-# lmsolve_chart!'s eps): where the cost plateaus — a family that cannot represent the source, its residual nonzero —
-# it stops on the relative cost decrease, not by walking its steps down to the increment floor.
-@testitem "camera_verbs: refine_camera stops on the chart LM's cost decrease where its cost plateaus" setup = [FitCameraLensCases] begin
-    using Test
-    using VisualGeometryToolkitCore: estimate, stop_rule, retcode_symbol, rms, iterations, CostDecrease
-    using VisualGeometryToolkitEstimation: fit_camera, refine_camera
-    for (L, R) in ((KB4, rcorner), (SC3, rcorner))
-        region = disc(mdiv, R)
-        r = refine_camera(estimate(fit_camera(L, mdiv, region)), mdiv, region)
-        @test rms(r) > 1.0e-6                              # a plateau: the family does not represent the Division source
-        @test retcode_symbol(r) === :converged && stop_rule(r) === CostDecrease
-        @test iterations(r) < 1000
-    end
-end

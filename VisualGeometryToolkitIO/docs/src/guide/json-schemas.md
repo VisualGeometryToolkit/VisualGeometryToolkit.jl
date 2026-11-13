@@ -3,7 +3,7 @@
 Every `vgio/<kind>` file has a published JSON Schema (draft 2020-12), so a
 tool outside Julia — Python's `jsonschema`, an editor's completion, a CI check
 — validates a file against the shape the Julia reader checks. The schemas are
-generated from the validator's own tables by [`json_schema`](@ref): there is
+generated from the validator's own tables by [`json_schema`](@ref VisualGeometryToolkitIO.json_schema): there is
 no second, hand-kept description of a file.
 
 The schemas of the current versions (the table is generated from the

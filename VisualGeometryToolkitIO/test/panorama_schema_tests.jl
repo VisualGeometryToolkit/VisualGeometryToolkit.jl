@@ -28,7 +28,7 @@
             save_panorama(p, cam, rots, v, gains)
             @test validate(p) == "panorama"
             b = load_panorama(p)
-            @test keys(b) == (:camera, :rotations, :vignetting, :gains)
+            @test keys(b) == (:camera, :rotations, :vignetting, :gains, :fit) && b.fit === nothing
             # the camera: its body, bound and lens coverage exactly
             @test camera_json(b.camera; length_unit = mm) == camera_json(cam; length_unit = mm) && model(b.camera) == model(cam)
             @test lens_coverage(b.camera) == lens_coverage(cam) && sensor(b.camera) == sensor(cam)
@@ -113,7 +113,7 @@ end
                   d -> (d["rotations"]["to"] = "view:pano"),                                      # camera → world only
                   d -> (foreach(f -> (f["frame_index"] += 1), d["rotations"]["frames"]); foreach(g -> (g["frame_index"] += 1), d["gains"])),   # gains of t ≠ 1:K
                   d -> delete!(d, "conventions"), d -> delete!(d["units"], "length"),           # a declaration missing
-                  d -> delete!(d, "vignetting"), d -> delete!(d, "camera"), d -> delete!(d, "rotations"),
+                  d -> delete!(d, "camera"), d -> delete!(d, "rotations"),             # (vignetting is optional: a candidate with none)
                   d -> (d["extra"] = 1))                                                          # an unknown key
             q = bad(f)
             @test_throws ArgumentError validate(q)
@@ -162,5 +162,42 @@ end
         b = load_panorama(old)
         @test b.rotations == cur.rotations && b.gains == cur.gains && model(b.camera) == model(cam) && sensor(b.camera) == sensor(cam)
         @test b.vignetting(SVector(100.5, 200.25)) == v(SVector(100.5, 200.25))
+        @test b.fit === nothing          # a v1 file records no termination record: absent, read as nothing
+    end
+end
+
+@testitem "panorama: no vignetting, and the bundle's termination record, round trip" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitIO: save_panorama, load_panorama, validate
+    using VisualGeometryToolkitCore: Trajectory, CameraFrame, WorldFrame, FitResult, ReturnCode, StopRule, retcode, stop_rule, iterations, rms
+    cam = BoundedCamera(CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 0, 800.0, 0, 320.5, 240.5, 1)); lens = KannalaBrandt(0.1, 0.0, 0.0, 0.0), pixel_frame = :colmap),
+                        Size2(640, 480))
+    rots = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), [0.0, 0.0, 0.0] .* m),
+                                                    2 => EuclideanMap(QuatRotation(0.9, 0.1, -0.3, 0.05), [0.0, 0.0, 0.0] .* m)))
+    G = [1.0 1.0 1.0; 1.1 1.0 0.9]
+    mktempdir() do dir
+        p = joinpath(dir, "p.json")
+        for rule in instances(StopRule), code in (ReturnCode.Success, ReturnCode.MaxIters, ReturnCode.Stalled)
+            fit = FitResult((; anything = 1), code, rule, 12, 0.4125, 31580, nothing)   # any estimate: only the record is written
+            save_panorama(p, cam, rots, nothing, G, fit)                                 # no vignetting: a candidate with none
+            @test validate(p) == "panorama"
+            d = JSON.parsefile(p)
+            @test !haskey(d, "vignetting") && haskey(d, "fit")
+            b = load_panorama(p)
+            @test b.vignetting === nothing && b.gains == G && b.rotations == rots
+            @test b.fit isa FitResult{Nothing, Nothing} && retcode(b.fit) == code && stop_rule(b.fit) == rule &&
+                iterations(b.fit) == 12 && rms(b.fit) === 0.4125 && b.fit.n == 31580
+        end
+        # neither vignetting nor gains nor a fit: camera and rotations alone
+        save_panorama(p, cam, rots, nothing, nothing)
+        b = load_panorama(p)
+        @test b.vignetting === nothing && b.gains === nothing && b.fit === nothing
+        # the record's own refusals: an unknown code or rule, a negative count
+        for (k, v) in (("retcode", "Converged"), ("stop_rule", "nope"), ("iterations", -1), ("rms", -0.1))
+            save_panorama(p, cam, rots, nothing, nothing, FitResult(nothing, ReturnCode.Success, first(instances(StopRule)), 1, 0.1, 2, nothing))
+            d = JSON.parsefile(p; dicttype = Dict{String, Any})
+            d["fit"][k] = v
+            write(p, JSON.json(d))
+            @test_throws ArgumentError load_panorama(p)
+        end
     end
 end

@@ -1,13 +1,14 @@
 # =============================================================================
-# transforms/v3 ↔ Vector of labeled VGC poses
+# transforms/v5.0 ↔ Vector of labeled VGC poses
 # =============================================================================
 
-@testitem "transforms/v3: labeled poses round trip" setup = [VGIoFixtures] begin
+@testitem "transforms/v5.0: labeled poses round trip" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: relabel, TargetFrame, CameraFrame, BodyFrame, UnlabeledFrame
     pose = _mkpose()
     labeled = relabel(TargetFrame{:b76e}, CameraFrame, pose)
-    @test frame_from_name("camera_optical") === CameraFrame
+    @test frame_from_name("camera") === CameraFrame && frame_name(CameraFrame) == "camera"
+    @test_throws ArgumentError frame_from_name("camera_optical")       # the IO 0.9 name, renamed by the 0.10 step
     mktempdir() do dir
         path = joinpath(dir, "poses.json")
         X2 = relabel(TargetFrame{:a}, BodyFrame{:b}, qpose(SVector(1.0, 0.0, 0.0, 0.0), SVector(1.0, 2.0, 3.0)))
@@ -17,14 +18,14 @@
         @test back == [labeled, X2]
         @test typeof(back[1]) == typeof(labeled) && typeof(back[2]) == typeof(X2)
         d = parse_json(read(path, String))
-        @test d.schema == "vgio/transforms/v4" && d.length_unit == "mm"
-        @test d.rotation_encoding == "quaternion_wxyz_hamilton" && d.transform_convention == "x_to = R * x_from + t"
-        @test (d.transforms[1].from, d.transforms[1].to) == ("target:b76e", "camera_optical")
+        @test d.schema == "vgio/transforms/v5.0" && d.units.length == "mm"
+        @test d.conventions.rotation_encoding == "quaternion_wxyz_hamilton" && d.conventions.transform_convention == "x_to = R * x_from + t"
+        @test (d.transforms[1].from, d.transforms[1].to) == ("target:b76e", "camera")
         @test d.transforms[1].rotation[1] >= 0
         @test d.provenance.image == "DSC04520.JPG"
         # a file in metres reads into the same lengths
         body = JSON.parse(read(path, String); dicttype = Dict{String, Any})
-        body["length_unit"] = "m"
+        body["units"]["length"] = "m"
         for r in body["transforms"]
             r["translation"] = r["translation"] ./ 1000
         end
@@ -85,6 +86,16 @@ end
         qs[1] = 2.0
         open(io -> JSON.json(io, body), p1, "w")
         @test_throws ArgumentError load(Vector{EuclideanMap}, p1)
+        # w < 0 is refused on read, never flipped silently (q and -q are one rotation; the encoding is w ≥ 0)
+        save(p1, [relabel(BodyFrame{:a}, WorldFrame, qpose(SVector(0.5, 0.5, 0.5, 0.5), SVector(1.0, 2.0, 3.0)))])
+        body = JSON.parse(read(p1, String); dicttype = Dict{String, Any})
+        body["transforms"][1]["rotation"] = [-0.5, -0.5, -0.5, -0.5]
+        open(io -> JSON.json(io, body), p1, "w")
+        e = try load(Vector{EuclideanMap}, p1); nothing catch e; e end
+        @test e isa ArgumentError && occursin("w < 0", e.msg)
+        @test_throws ArgumentError VgtkIO.pose_from_json(parse_json("""{"rotation": [-1.0, 0.0, 0.0, 0.0], "translation": [1, 2, 3]}"""), "mm")
+        # w = 0 (a half turn) is w ≥ 0: read as stored
+        @test VgtkIO.pose_from_json(parse_json("""{"rotation": [0.0, 1.0, 0.0, 0.0], "translation": [1, 2, 3]}"""), "mm").R.q.s == 0.0
     end
 end
 
@@ -92,7 +103,7 @@ end
 # plain ↔ no covariance, Uncertain ↔ covariance, exact ↔ zeros; the covariance is
 # the pose's [δω; δt] in rad and the file's unit on disk, rad and metres in
 # memory, moved with the unit on read.
-@testitem "transforms/v3: uncertain poses, typed frames" setup = [VGIoFixtures] begin
+@testitem "transforms/v5.0: uncertain poses, typed frames" setup = [VGIoFixtures] begin
     using VisualGeometryToolkitCore: Uncertain, CovMat, geom, BodyFrame, CameraFrame, relabel
     using Statistics: cov
     using LinearAlgebra: Diagonal
@@ -112,7 +123,7 @@ end
         @test iszero(cov(back[3]))                            # exact stays exact
         # a file in metres: the translation block of the covariance moves with the unit
         body = JSON.parse(read(path, String); dicttype = Dict{String, Any})
-        body["length_unit"] = "m"
+        body["units"]["length"] = "m"
         r = body["transforms"][2]
         r["translation"] = r["translation"] ./ 1000
         S = [Float64(r["covariance"][i][j]) * (i <= 3 && j <= 3 ? 1.0 : i > 3 && j > 3 ? 1.0e-6 : 1.0e-3) for i in 1:6, j in 1:6]
@@ -133,10 +144,10 @@ end
     end
 end
 
-@testitem "transforms/v2: the hand-eye record of 2026-09 reads as the current one; saving writes v4" setup = [VGIoFixtures] begin
+@testitem "transforms/v2: the hand-eye record of 2026-09 reads as the current one; saving writes v5.0" setup = [VGIoFixtures] begin
     # Two real files of CaliBlobs icra2026's motion-capture runs (2026-09), as
     # bmvc2026's hand-eye writer wrote them: the camera mount `camera_rig →
-    # camera_optical` and the marker mount, one `<marker> → board_rig` per
+    # camera_optical` (0.10: `camera`) and the marker mount, one `<marker> → board_rig` per
     # marker — a printed board (`printed_board_<id>`) or a reconstructed
     # scene (`scene_<c>`). Its names are free strings; this record is the one
     # v2 layout read, and it reads as the frames the current writer names.
@@ -157,8 +168,8 @@ end
             p = joinpath(dir, "hand_eye.json")
             save(p, got)
             d = parse_json(read(p, String))
-            @test d.schema == "vgio/transforms/v4"                   # only the current version is written
-            @test [(t.from, t.to) for t in d.transforms] == [("body:camera_rig", "camera_optical"), ("target:$(marker)", "body:board_rig")]
+            @test d.schema == "vgio/transforms/v5.0"                 # only the current version is written
+            @test [(t.from, t.to) for t in d.transforms] == [("body:camera_rig", "camera"), ("target:$(marker)", "body:board_rig")]
             @test load(Vector{EuclideanMap}, p) == want
         end
     end

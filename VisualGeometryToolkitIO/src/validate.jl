@@ -67,6 +67,9 @@ struct _Obj <: _Spec
     optional::Vector{Pair{Symbol, _Spec}}
 end
 _Obj(required::Pair{Symbol}...) = _Obj(collect(Pair{Symbol, _Spec}, required), Pair{Symbol, _Spec}[])
+# Spec tables (`name => spec` vectors) concatenated in order, as one `Vector{Pair{Symbol, _Spec}}`: never a splat of a
+# table into a literal (its length is data: check_splat).
+_spec_table(tables::AbstractVector...) = collect(Pair{Symbol, _Spec}, Iterators.flatten(tables))
 struct _Either <: _Spec
     alts::Vector{Pair{Symbol, _Spec}}
 end
@@ -232,6 +235,9 @@ function _validate(::_RowRuns, x, file, at)
     return nothing
 end
 
+# A record's rectangle `a`, `[x, y, w, h]` (`what` names it): its widths positive; the message, or `nothing`.
+_area_problem(a, what) = (a[3] > 0 && a[4] > 0) ? nothing : "$(what) [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+
 # THE LATTICE RECORD, one for every spline (a SplineLens's backward spline and
 # its forward one, a non-central model's, RadiometricCamera's aperture and
 # focus lattices): its `area` `[x, y, w, h]`, its `grid_size` `{width, height}`
@@ -260,8 +266,8 @@ _lattice_spec(controls::Vector{<:Pair{Symbol, Int}}, optional::Vector{<:Pair{Sym
 # lattice (`_lattice_count_problem`) with each of its control arrays; `s` a
 # parsed record (keys by Symbol or String); the message, or `nothing`.
 function _lattice_problem(s)
-    a = _getkey(s, :area)
-    (a[3] > 0 && a[4] > 0) || return "the spline's area [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+    msg = _area_problem(_getkey(s, :area), "the spline's area")
+    msg === nothing || return msg
     g = _getkey(s, :grid_size)
     runs = _haskey(s, :present) ? _getkey(s, :present) : nothing
     c = _getkey(s, :controls)
@@ -314,7 +320,8 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "vignetting" => (2, 0), "environment_light" => (2, 0), "blur" => (2, 0),
     "units" => (3, 0),
     "panorama" => (2, 0),   # (v1: IO 0.9.4's, read through its step)
-    "detection" => (1, 0), "sensor_noise" => (1, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; a body's sensor noise
+    "detection" => (1, 0), "sensor_characterisation" => (1, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; one sensor's components per ISO; a binned radial profile
+    "raster" => (2, 0),     # (v1: IO 0.9.5's, read through its step)
 )
 _schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);
     v === nothing ? throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))")) : v)
@@ -377,13 +384,17 @@ const _DENSITY_UNIT = _Named(_is_density_name, "a registered density unit (dpi)"
 struct _LengthRoles <: _Spec end
 const _LENGTH_ROLE_RE = r"^[a-z][a-z0-9_]*$"
 const _RESERVED_ROLES = ("length", "world", "density")
+# A length role's value: a length unit, or the reserved token "chart" — a CHART role, its numbers plain numbers of a
+# chart the record's owner defines (a height field's page-fraction nodes), never scaled. Never `units.length`'s.
+const _CHART_ROLE = "chart"
+const _ROLE_VALUE = _Named(v -> v == _CHART_ROLE || _is_length_name(v), "a registered length unit (mm, cm, m, um, inch) or \"chart\"")
 function _validate(::_LengthRoles, x, file, at)
-    x isa AbstractDict || _refuse(file, at, "expected an object of length role => length unit")
+    x isa AbstractDict || _refuse(file, at, "expected an object of length role => length unit (or \"chart\")")
     for (k, v) in x
         r = String(k)
         (occursin(_LENGTH_ROLE_RE, r) && !(r in _RESERVED_ROLES)) ||
             _refuse(file, _at(at, k), "a length role is a snake_case name other than length, world and density")
-        _validate(_LENGTH_UNIT, v, file, _at(at, k))
+        _validate(_ROLE_VALUE, v, file, _at(at, k))
     end
     return nothing
 end
@@ -401,14 +412,34 @@ const _GENERATOR = _Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), :version => _P
                         Pair{Symbol, _Spec}[:caller => _PACKAGE_ID])
 const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 
+# THE TERMINATION RECORD of a fit (VisualGeometryToolkitCore's `FitResult` core, the robust-estimation contract §14):
+# `{"retcode": <ReturnCode name>, "stop_rule": <StopRule name>, "iterations": n ≥ 0, "rms": r ≥ 0, "n": m ≥ 0}` —
+# why it stopped, which rule fired, the loop count, the RMS of the residuals (in the residuals' own unit) and their
+# number. The ONE record every kind that stores a fit's outcome embeds (the panorama's bundle); its estimate and
+# metadata are the kind's own fields. Read back as a `FitResult{Nothing, Nothing}`.
+const _RETCODE_NAMES = Tuple(String(Symbol(c)) for c in instances(VgtkCore.ReturnCode.T))
+const _STOP_RULE_NAMES = Tuple(String(Symbol(r)) for r in instances(VgtkCore.StopRule))
+const _FIT_RECORD = _CheckedSpec(
+    _Obj(:retcode => _Named(in(_RETCODE_NAMES), "a ReturnCode name"), :stop_rule => _Named(in(_STOP_RULE_NAMES), "a StopRule name"),
+         :iterations => _Int(), :rms => _Real(), :n => _Int()),
+    x -> (x[:iterations] >= 0 && x[:n] >= 0 && x[:rms] >= 0) ? nothing : "a fit's iterations, rms and n are ≥ 0";
+    rule = "iterations, rms and n are ≥ 0",
+    schema = [Dict("properties" => Dict("iterations" => Dict("minimum" => 0), "n" => Dict("minimum" => 0), "rms" => Dict("minimum" => 0)))],
+)
+_fit_record_json(r::FitResult) = (retcode = String(Symbol(VgtkCore.retcode(r))), stop_rule = String(Symbol(VgtkCore.stop_rule(r))),
+                                  iterations = VgtkCore.iterations(r), rms = VgtkCore.rms(r), n = getfield(r, :n))
+_fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, Symbol(x.retcode::String)),
+                                     only(r for r in instances(VgtkCore.StopRule) if String(Symbol(r)) == x.stop_rule),
+                                     Int(x.iterations::Integer), Float64(x.rms::Real), Int(x.n::Integer), nothing)
+
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
                     check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT)
     o = _Obj(
-        Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
-                            :conventions => _CONVENTIONS_OBJECT, required...],
-        Pair{Symbol, _Spec}[optional..., _PROVENANCE...],
+        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
+                                        :conventions => _CONVENTIONS_OBJECT], required),
+        _spec_table(optional, _PROVENANCE),
     )
     return check === nothing ? o : _CheckedSpec(o, check; rule, schema)
 end
@@ -544,16 +575,21 @@ function _refuse_schema(path, kind::AbstractString, s)
 end
 
 # THE RESERVED `payload` KEY. Every kind keeps its JSON header and may, once its
-# bulk numeric arrays exceed ~10 MB, move them to an Apache Arrow sidecar named
-# by `"payload": {"file": "<name>.arrow", "sha256": "<hex>"}` — glTF's JSON +
-# bin pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md). No kind
-# implements it yet; the key is reserved so adding it breaks no schema, and a
-# file carrying it is refused until its kind does.
+# bulk numeric arrays exceed ~10 MB, move them to a binary sidecar named by
+# `"payload": {"file": "<name>.<ext>", "sha256": "<hex>"}` — glTF's JSON + bin
+# pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md: an Apache
+# Arrow sidecar for arrays). The key is reserved so adding it breaks no schema; a
+# file carrying it is refused unless its kind's table declares it: vgio/raster,
+# whose payload is a TIFF of its profile (raster_schema.jl).
 const _PAYLOAD_KEY = :payload
-_refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
+# whether a spec's object declares the key `k`
+_declares(s::_Obj, k::Symbol) = any(p -> p.first === k, s.required) || any(p -> p.first === k, s.optional)
+_declares(s::_CheckedSpec, k::Symbol) = _declares(s.inner, k)
+_declares(::_Spec, ::Symbol) = false
+_refuse_payload(path, kind, spec, d) = !_declares(spec, _PAYLOAD_KEY) && haskey(d, _PAYLOAD_KEY) && throw(
     ArgumentError(
-        "$(path): carries a `payload` sidecar reference — reserved for the Arrow sidecar of bulk arrays, " *
-            "which no kind implements yet"
+        "$(path): carries a `payload` sidecar reference — reserved for the binary sidecar of bulk arrays, " *
+            "which a $(kind) file does not hold"
     )
 )
 
@@ -575,7 +611,7 @@ function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Sp
     _is_current_major(s, kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     s2 = get(d, :schema, nothing)
     _is_current_major(s2, kind) || _refuse_schema(path, kind, s)
-    _refuse_payload(path, d)
+    _refuse_payload(path, kind, spec, d)
     v = _split_schema(s2)
     with(_TOLERATE_UNKNOWN => v.minor > last(_schema_version(kind))) do
         _validate(spec, d, path, "")
@@ -743,8 +779,9 @@ function _spec(kind::AbstractString)
     kind == "blur" && return _BLUR_SPEC
     kind == "panorama" && return _PANORAMA_SPEC
     kind == "detection" && return _DETECTION_SPEC
-    kind == "sensor_noise" && return _SENSOR_NOISE_SPEC
+    kind == "sensor_characterisation" && return _SENSOR_CHARACTERISATION_SPEC
     kind == "radial_profile" && return _RADIAL_PROFILE_SPEC
+    kind == "raster" && return _RASTER_SPEC
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
@@ -752,8 +789,9 @@ _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
 """
     validate(path) -> String
 
-Check a vgio v2 file — or a COLMAP model directory's `vgio_units.json`, when
-`path` is the directory — against its kind's table, the check every v2 reader
+Check a vgio file — or a COLMAP model directory's `vgio_units.json`, when
+`path` is the directory — against its kind's table (the envelope's `schema`,
+`generator`, `units` and `conventions`, then the body), the check every reader
 runs before using a field and every writer runs before writing, and return
 the kind (`"cameras"`, `"rig"`, …). An `ArgumentError` names the file, the
 offending key and the problem. A file of an earlier version is checked as

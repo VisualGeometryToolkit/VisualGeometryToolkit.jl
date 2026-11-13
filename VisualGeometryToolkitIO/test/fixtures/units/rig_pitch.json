@@ -1,16 +1,34 @@
 {
-    "schema": "vgio/rig/v9",
-    "pixel_frame": "colmap",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/rig/v10.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "frame": "view:fisheye",
     "sensors": [
         {
             "id": "fisheye",
             "camera": {
-                "width": 2448,
-                "height": 2048,
+                "image_size": {
+                    "width": 2448,
+                    "height": 2048
+                },
                 "K": {
                     "fx": 1270.0,
                     "fy": 1270.0,
@@ -28,10 +46,10 @@
                         []
                     ]
                 },
-                "pitch": [
-                    0.00345,
-                    0.00345
-                ]
+                "pitch": {
+                    "width": 0.00345,
+                    "height": 0.00345
+                }
             },
             "extrinsics": {
                 "rotation": [
@@ -50,8 +68,10 @@
         {
             "id": "cam",
             "camera": {
-                "width": 1280,
-                "height": 960,
+                "image_size": {
+                    "width": 1280,
+                    "height": 960
+                },
                 "K": {
                     "fx": 900.0,
                     "fy": 900.0,

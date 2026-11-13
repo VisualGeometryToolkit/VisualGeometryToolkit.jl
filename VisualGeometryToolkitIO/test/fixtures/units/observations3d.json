@@ -1,0 +1,139 @@
+{
+    "schema": "vgio/observations/v3.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
+    "entity": "target_point",
+    "frame": "world",
+    "time_origin": "2026-05-27T00:00:00Z",
+    "frames": [
+        {
+            "frame_index": 1,
+            "image": "DSC1.JPG",
+            "sensor": "mocap",
+            "time": 10.0,
+            "observations": [
+                {
+                    "target": "board_rig",
+                    "index": [
+                        1
+                    ],
+                    "points": [
+                        {
+                            "xyz": [
+                                1140.24,
+                                327.55,
+                                1614.39
+                            ],
+                            "covariance": [
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "target": "camera_rig",
+                    "index": [
+                        3
+                    ],
+                    "points": [
+                        {
+                            "xyz": [
+                                2113.1,
+                                -0.0,
+                                -1319.0
+                            ],
+                            "covariance": [
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "frame_index": 2,
+            "sensor": "mocap",
+            "time": 10.5,
+            "observations": [
+                {
+                    "target": "board_rig",
+                    "index": [
+                        2
+                    ],
+                    "points": [
+                        {
+                            "xyz": [
+                                0.001,
+                                2.0,
+                                300000.0
+                            ],
+                            "covariance": [
+                                [
+                                    0.25,
+                                    0.01,
+                                    0.0
+                                ],
+                                [
+                                    0.01,
+                                    0.16,
+                                    -0.002
+                                ],
+                                [
+                                    0.0,
+                                    -0.002,
+                                    0.0123
+                                ]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

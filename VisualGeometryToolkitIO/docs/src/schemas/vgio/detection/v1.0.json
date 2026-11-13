@@ -1,0 +1,895 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/detection/v1.0.json",
+    "title": "vgio/detection/v1.0",
+    "description": "A vgio/detection/v1.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. Each detection is the record of the header's `frame` type: its `center`, its shape parameters, its `attributes` (exactly the header's, each of its declared type) and, iff the header declares a `covariance`, a covariance over the frame's parameters in the declared storage; a detection without one carries the attribute `covariance_status`.",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/detection/v1.0, or the same major version at any minor",
+            "pattern": "^vgio/detection/v1(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "description": "a registered length unit (mm, cm, m, um, inch)",
+                                "enum": [
+                                    "cm",
+                                    "ft",
+                                    "in",
+                                    "inch",
+                                    "km",
+                                    "m",
+                                    "mm",
+                                    "pt",
+                                    "um",
+                                    "μm"
+                                ]
+                            },
+                            {
+                                "const": "chart"
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "detection": {
+            "type": "object",
+            "properties": {
+                "frame": {
+                    "type": "string",
+                    "description": "a frame type (point_frame, disc, oriented_disc, elliptic_frame, affine_frame)",
+                    "enum": [
+                        "point_frame",
+                        "disc",
+                        "oriented_disc",
+                        "elliptic_frame",
+                        "affine_frame"
+                    ]
+                },
+                "number_type": {
+                    "type": "string",
+                    "description": "a number type (float64, float32)",
+                    "enum": [
+                        "float64",
+                        "float32"
+                    ]
+                },
+                "attributes": {
+                    "type": "object",
+                    "description": "attribute name → its type, one of float64, float32, int, bool, string, symbol, point2",
+                    "allOf": [
+                        {
+                            "additionalProperties": {
+                                "enum": [
+                                    "float64",
+                                    "float32",
+                                    "int",
+                                    "bool",
+                                    "string",
+                                    "symbol",
+                                    "point2"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "covariance": {
+                    "type": "object",
+                    "properties": {
+                        "storage": {
+                            "type": "string",
+                            "description": "a covariance storage (full, diagonal, isotropic)",
+                            "enum": [
+                                "full",
+                                "diagonal",
+                                "isotropic"
+                            ]
+                        },
+                        "number_type": {
+                            "type": "string",
+                            "description": "a number type (float64, float32)",
+                            "enum": [
+                                "float64",
+                                "float32"
+                            ]
+                        }
+                    },
+                    "required": [
+                        "storage",
+                        "number_type"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "frame",
+                "number_type",
+                "attributes"
+            ],
+            "additionalProperties": false
+        },
+        "images": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "image": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "detections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "required": [
+                    "image",
+                    "detections"
+                ],
+                "additionalProperties": false
+            },
+            "description": "image names are unique"
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions",
+        "detection",
+        "images"
+    ],
+    "additionalProperties": false,
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "detection": {
+                        "properties": {
+                            "frame": {
+                                "const": "point_frame"
+                            }
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "images": {
+                        "items": {
+                            "properties": {
+                                "detections": {
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "center": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "attributes": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "covariance": {
+                                                "description": "a covariance in the storage it holds: 2 × 2 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        },
+                                                        "minItems": 2,
+                                                        "maxItems": 2
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diagonal": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 2,
+                                                                "maxItems": 2
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "diagonal"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "isotropic": {
+                                                                "type": "number"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "isotropic"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "center",
+                                            "attributes"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "detection": {
+                        "properties": {
+                            "frame": {
+                                "const": "disc"
+                            }
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "images": {
+                        "items": {
+                            "properties": {
+                                "detections": {
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "center": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "sigma": {
+                                                "type": "number"
+                                            },
+                                            "attributes": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "covariance": {
+                                                "description": "a covariance in the storage it holds: 3 × 3 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 3,
+                                                            "maxItems": 3
+                                                        },
+                                                        "minItems": 3,
+                                                        "maxItems": 3
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diagonal": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 3,
+                                                                "maxItems": 3
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "diagonal"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "isotropic": {
+                                                                "type": "number"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "isotropic"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "center",
+                                            "sigma",
+                                            "attributes"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "detection": {
+                        "properties": {
+                            "frame": {
+                                "const": "oriented_disc"
+                            }
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "images": {
+                        "items": {
+                            "properties": {
+                                "detections": {
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "center": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "sigma": {
+                                                "type": "number"
+                                            },
+                                            "angle": {
+                                                "type": "number"
+                                            },
+                                            "attributes": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "covariance": {
+                                                "description": "a covariance in the storage it holds: 4 × 4 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 4,
+                                                            "maxItems": 4
+                                                        },
+                                                        "minItems": 4,
+                                                        "maxItems": 4
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diagonal": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 4,
+                                                                "maxItems": 4
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "diagonal"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "isotropic": {
+                                                                "type": "number"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "isotropic"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "center",
+                                            "sigma",
+                                            "angle",
+                                            "attributes"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "detection": {
+                        "properties": {
+                            "frame": {
+                                "const": "elliptic_frame"
+                            }
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "images": {
+                        "items": {
+                            "properties": {
+                                "detections": {
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "center": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "shape_matrix": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "minItems": 2,
+                                                    "maxItems": 2
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "attributes": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "covariance": {
+                                                "description": "a covariance in the storage it holds: 5 × 5 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 5,
+                                                            "maxItems": 5
+                                                        },
+                                                        "minItems": 5,
+                                                        "maxItems": 5
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diagonal": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 5,
+                                                                "maxItems": 5
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "diagonal"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "isotropic": {
+                                                                "type": "number"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "isotropic"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "center",
+                                            "shape_matrix",
+                                            "attributes"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "detection": {
+                        "properties": {
+                            "frame": {
+                                "const": "affine_frame"
+                            }
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "images": {
+                        "items": {
+                            "properties": {
+                                "detections": {
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "center": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "affine_matrix": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "minItems": 2,
+                                                    "maxItems": 2
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            },
+                                            "attributes": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 2
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "covariance": {
+                                                "description": "a covariance in the storage it holds: 6 × 6 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 6,
+                                                            "maxItems": 6
+                                                        },
+                                                        "minItems": 6,
+                                                        "maxItems": 6
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diagonal": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 6,
+                                                                "maxItems": 6
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "diagonal"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "isotropic": {
+                                                                "type": "number"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "isotropic"
+                                                        ],
+                                                        "additionalProperties": false
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "center",
+                                            "affine_matrix",
+                                            "attributes"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}

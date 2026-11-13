@@ -6,35 +6,6 @@
 # out, on the grid parsed here straight from the YAML text): the reader's grid
 # layout and the model's evaluation agree with the reference at every pixel.
 
-@testsetup module SchoepsReference
-    export schoeps_raw_grid, schoeps_surface, schoeps_grid_coordinate, FIXTURES
-
-    const FIXTURES = joinpath(@__DIR__, "fixtures", "schoeps")
-
-    # the `gw × gh` grid under `tag`, as the reference stores it: entry y·gw + x
-    function schoeps_raw_grid(path, tag, gw, gh)
-        txt = read(path, String)
-        body = match(Regex("^$(tag)\\s*:\\s*\\[(.*?)\\]", "ms"), txt).captures[1]
-        nums = parse.(Float64, split(body, r"[,\s]+"; keepempty = false))
-        return [nums[(3 * (y * gw + x) + 1):(3 * (y * gw + x) + 3)] for x in 0:(gw - 1), y in 0:(gh - 1)]   # [x+1, y+1]
-    end
-    # util.h's uniform cubic weights at the local coordinate x ∈ [3, 4)
-    bfac(x) = (-1 / 6 * (x - 4)^3, 1 / 2 * x^3 - 11 / 2 * x^2 + 39 / 2 * x - 131 / 6, -1 / 2 * x^3 + 5 * x^2 - 16 * x + 50 / 3, 1 / 6 * (x - 3)^3)
-    # EvalUniformCubicBSplineSurface at the grid coordinate (gx, gy) ∈ [1, gw − 2] × [1, gh − 2]
-    function schoeps_surface(cp, gx, gy)
-        x = gx + 2; y = gy + 2
-        ix = min(floor(Int, x), size(cp, 1) - 1); iy = min(floor(Int, y), size(cp, 2) - 1)
-        ax, bx, cx, dx = bfac(x - (ix - 3))
-        at(i, j) = cp[i + 1, j + 1]
-        rows = [ax * at(ix - 3, iy - 4 + k) + bx * at(ix - 2, iy - 4 + k) + cx * at(ix - 1, iy - 4 + k) + dx * at(ix, iy - 4 + k) for k in 1:4]
-        ay, by, cy, dy = bfac(y - (iy - 3))
-        return ay * rows[1] + by * rows[2] + cy * rows[3] + dy * rows[4]
-    end
-    # pixel (corner convention) → grid coordinate, the reference's PixelCornerConvToGridPoint
-    schoeps_grid_coordinate(px, py; gw, gh, cminx, cminy, cmaxx, cmaxy) =
-        (1 + (gw - 3) * (px - cminx) / (cmaxx + 1 - cminx), 1 + (gh - 3) * (py - cminy) / (cmaxy + 1 - cminy))
-end
-
 @testitem "schoeps: central intrinsics0.yaml" setup = [VGIoFixtures, SchoepsReference] begin
     using VisualGeometryToolkitCore: backproject, model, valid_domain
     using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
@@ -103,26 +74,37 @@ end
     @test worst_o < 1.0e-12
 end
 
-@testitem "schoeps: dataset.bin to TargetPoints2D" setup = [VGIoFixtures, SchoepsReference] begin
-    using VisualGeometryToolkitCore: TargetPoints2D, convert_frame
+@testitem "schoeps: dataset.bin to TargetObservations" setup = [VGIoFixtures, SchoepsReference] begin
+    using VisualGeometryToolkitCore: TargetObservations, convert_frame, sources, targets
     using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
     path = joinpath(FIXTURES, "dataset.bin")
-    @test_throws ArgumentError load(TargetPoints2D, path)                     # the target is the caller's to state
-    obs = load(TargetPoints2D, path; target = :pattern)
-    @test obs isa TargetPoints2D{SCHOEPS_PIXEL_FRAME}
+    @test_throws ArgumentError load(TargetObservations, path)                     # the target is the caller's to state
+    obs = load(TargetObservations, path; target = :pattern)
+    @test obs isa TargetObservations{SCHOEPS_PIXEL_FRAME}
     @test sort(collect(keys(obs))) == [1, 2]
     @test obs.images == Dict(1 => "image000.png", 2 => "image001.png")
-    @test [(p.target, p.index, p.xy, p.weight) for p in obs[1]] ==
-        [(:pattern, 1, SVector(0.5, 0.5), 1.0), (:pattern, 8, SVector(10.25, 20.75), 1.0), (:pattern, 42, SVector(63.5, 47.5), 1.0)]
-    @test only(obs[2]).xy == SVector(32.0, 24.0) && only(obs[2]).index == 4
+    @test collect(keys(obs[1])) == [:pattern]
+    # the reference's 0-based feature ids, +1 at this importer only: every index in memory is 1-based
+    @test collect(sources(obs[1][:pattern])) == [1, 8, 42]
+    @test collect(targets(obs[1][:pattern])) == [SVector(0.5, 0.5), SVector(10.25, 20.75), SVector(63.5, 47.5)]
+    @test only(obs[2][:pattern]) == (4 => SVector(32.0, 24.0))
+    @test isempty(keys(obs[1][:pattern].attrs))                               # no weights: the file holds none
     # The corner convention's (0.5, 0.5) is the top-left pixel's centre: (0, 0) in OpenCV's frame.
-    @test first(convert_frame(PixelFrame{:opencv}, obs)[1]).xy == SVector(0.0, 0.0)
+    @test first(convert_frame(PixelFrame{:opencv}, obs)[1][:pattern]).second == SVector(0.0, 0.0)
+    # it saves as an observations file (its sensor and targets supplied) and reads back as itself
+    mktempdir() do dir
+        o = TargetObservations{SCHOEPS_PIXEL_FRAME}(getfield(obs, :frames); images = obs.images, sensors = "cam", targets = [repeat("ab", 32)])
+        p = joinpath(dir, "obs.json")
+        save(p, o)
+        @test load(TargetObservations, p) == o
+        @test JSON.parsefile(p)["frames"][1]["observations"][1]["index"] == [1, 8, 42]
+    end
     # Not a dataset.bin, and not a target beside a vgio file.
     mktempdir() do dir
         out = joinpath(dir, "points.json")
-        @test_throws ArgumentError load(TargetPoints2D, joinpath(FIXTURES, "central_intrinsics0.yaml"); target = :pattern)
+        @test_throws ArgumentError load(TargetObservations, joinpath(FIXTURES, "central_intrinsics0.yaml"); target = :pattern)
         bad = joinpath(dir, "v1.bin"); b = read(path); b[14] = 0x01; write(bad, b)     # version 1
-        @test_throws ArgumentError load(TargetPoints2D, bad; target = :pattern)
+        @test_throws ArgumentError load(TargetObservations, bad; target = :pattern)
         # a corrupt length or a truncated file: an ArgumentError naming it, never a short read or an EOFError
         b = read(path)
         nname = Int(ntoh(reinterpret(UInt32, b[31:34])[1]))         # image set 1's name length (big-endian), after the 30-byte header
@@ -134,7 +116,7 @@ end
                 "a feature count past the end" => (c = copy(b); c[nf_at:(nf_at + 3)] .= 0x7f; c),
             )
             p2 = joinpath(dir, "bad.bin"); write(p2, c)
-            e = try load(TargetPoints2D, p2; target = :pattern); nothing catch e; e end
+            e = try load(TargetObservations, p2; target = :pattern); nothing catch e; e end
             @test e isa ArgumentError && occursin("calib_data", e.msg)
         end
     end

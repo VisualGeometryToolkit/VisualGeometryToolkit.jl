@@ -13,6 +13,7 @@
 #   Pkg.test()                                   # every item, in parallel
 #   Pkg.test(; test_args = ["migrate|cameras"])       # items whose name matches
 #   RETESTITEMS_NWORKERS=0 → serial, in-process  # for debugging
+#   julia --project=test test/runtests.jl rig_schema_tests.jl   # one file (an argument naming a file in test/)
 #
 # Default: one worker per two logical CPUs (each worker runs 2 threads).
 # The pycolmap item records a SKIPPED check when the pixi `py` environment is
@@ -22,8 +23,12 @@
 using ReTestItems
 using VisualGeometryToolkitIO
 
+const FILES = [joinpath(@__DIR__, a) for a in ARGS if endswith(a, ".jl")]
+const NAMES = filter(a -> !endswith(a, ".jl"), ARGS)
+# (with files: the package's `src` first, which holds no item, so ReTestItems takes the package's
+# Project.toml as the project, not test/'s; the `*_testsetup.jl` files are always read)
 runtests(
-    VisualGeometryToolkitIO;
+    (isempty(FILES) ? (VisualGeometryToolkitIO,) : (joinpath(pkgdir(VisualGeometryToolkitIO), "src"), FILES...))...;
     nworkers = parse(Int, get(ENV, "RETESTITEMS_NWORKERS", string(max(1, Sys.CPU_THREADS ÷ 2)))),
-    name = isempty(ARGS) ? nothing : Regex(join(ARGS, "|")),
+    name = isempty(NAMES) ? nothing : Regex(join(NAMES, "|")),
 )

@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/target_homographies/v1 ↔ TargetHomographies: per frame, each target's
+# vgio/target_homographies/v2.0 ↔ TargetHomographies: per frame, each target's
 # plane → pixel HomographyMap as the parametric record (nine canonical entries)
 # =============================================================================
 
@@ -24,7 +24,7 @@
         return TargetHomographies{colmap}(
             Dict(1 => Dict(:a => a, :b => b), 4 => Dict(:a => c));
             images = Dict(1 => "img_001.png", 4 => "img_004.png"), sensors = "cam",
-            times = Dict(1 => 0.5, 4 => 12.25), time_origin = "2026-11-05T00:00:00", targets = ids,
+            times = Dict(1 => 0.5, 4 => 12.25), time_origin = "2026-11-05T00:00:00+01:00", targets = ids,
         )
     end
 
@@ -32,7 +32,7 @@
     rewritten(path, d) = (write(path, JSON.json(d)); path)
 end
 
-@testitem "target_homographies/v1: exact round trip" setup = [TargetHomographiesFixtures] begin
+@testitem "target_homographies/v2.0: exact round trip" setup = [TargetHomographiesFixtures] begin
     using VisualGeometryToolkitCore: TargetHomographies, PixelFrame, to_homogeneous
     import VisualGeometryToolkitCore
     using JSON: JSON
@@ -58,7 +58,9 @@ end
         @test load(TargetHomographies, joinpath(dir, "cv.json")) != th
         @test JSON.parse(read(p, String))["targets"] == ids
         d = JSON.parse(read(p, String))
-        @test d["schema"] == "vgio/target_homographies/v1" && d["pixel_frame"] == "colmap"
+        @test d["schema"] == "vgio/target_homographies/v2.0" && d["units"]["pixel"] == "colmap"
+        @test [f["frame_index"] for f in d["frames"]] == [1, 4] && d["time_origin"] == "2026-11-05T00:00:00+01:00"
+        @test JSON.parse(read(joinpath(dir, "cv.json"), String))["units"]["pixel"] == "opencv"
         @test d["provenance"] == Dict("tool" => "test")
         r = d["frames"][1]["homographies"][1]
         @test r["type"] == "homography_map" && length(r["parameters"]) == 9 && !haskey(r, "covariance")
@@ -70,7 +72,7 @@ end
     end
 end
 
-@testitem "target_homographies/v1: the writer stores the canonical H" setup = [TargetHomographiesFixtures] begin
+@testitem "target_homographies/v2.0: the writer stores the canonical H" setup = [TargetHomographiesFixtures] begin
     using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, sign_normalize, to_homogeneous
     using StaticArrays: SMatrix
     using LinearAlgebra: norm
@@ -93,7 +95,7 @@ end
     end
 end
 
-@testitem "target_homographies/v1: refusals name the path" setup = [TargetHomographiesFixtures] begin
+@testitem "target_homographies/v2.0: refusals name the path" setup = [TargetHomographiesFixtures] begin
     using VisualGeometryToolkitCore: TargetHomographies
     th = sample()
     mktempdir() do dir
@@ -115,8 +117,8 @@ end
         end
         @test occursin("bogus", refusal(d -> d["bogus"] = 1, "unknown_top"))
         @test occursin("bogus", refusal(d -> d["frames"][1]["bogus"] = 1, "unknown_frame"))
-        @test occursin("pixel_frame", refusal(d -> delete!(d, "pixel_frame"), "no_pixel_frame"))
-        @test occursin("pixel_frame", refusal(d -> d["pixel_frame"] = "nonsense", "bad_pixel_frame"))
+        @test occursin("units.pixel", refusal(d -> delete!(d["units"], "pixel"), "no_pixel_frame"))
+        @test occursin("units.pixel", refusal(d -> d["units"]["pixel"] = "nonsense", "bad_pixel_frame"))
         @test occursin("targets", refusal(d -> delete!(d, "targets"), "no_targets"))
         @test occursin("targets", refusal(d -> d["targets"] = String[], "empty_targets"))
         @test occursin("targets", refusal(d -> d["targets"] = [ids[1], ids[1]], "repeated_targets"))
@@ -130,12 +132,14 @@ end
         @test occursin("canonical", refusal(d -> rec(d)["parameters"] = [-0.6, 0, 0, 0, -0.6, 0, 0, 0, -0.8], "wrong_sign"))
         @test occursin("covariance", refusal(d -> rec(d)["covariance"] = [[1.0, 0.0], [0.0, 1.0]], "cov_size"))
         @test occursin("bogus", refusal(d -> rec(d)["bogus"] = 1, "record_bogus"))
-        @test occursin("`t`", refusal(d -> d["frames"][2]["t"] = d["frames"][1]["t"], "duplicate_t"))
+        @test occursin("frame_index", refusal(d -> d["frames"][2]["frame_index"] = d["frames"][1]["frame_index"], "duplicate_frame_index"))
+        @test occursin("frame_index", refusal(d -> delete!(d["frames"][1], "frame_index"), "no_frame_index"))
         @test occursin("targets", refusal(d -> push!(d["frames"][1]["homographies"], deepcopy(d["frames"][1]["homographies"][1])), "duplicate_target"))
         @test occursin("sensor", refusal(d -> delete!(d["frames"][1], "sensor"), "no_sensor"))
         @test occursin("image", refusal(d -> delete!(d["frames"][1], "image"), "no_image"))
         @test occursin("time_origin", refusal(d -> delete!(d, "time_origin"), "no_time_origin"))
-        @test occursin("target_homographies/v1", refusal(d -> d["schema"] = "vgio/target_poses/v1", "wrong_kind"))
+        @test occursin("time_origin", refusal(d -> d["time_origin"] = "2026-11-05T00:00:00", "time_origin_no_offset"))
+        @test occursin("target_homographies/v2.0", refusal(d -> d["schema"] = "vgio/target_poses/v3.0", "wrong_kind"))
     end
     # a writer refuses a value missing what the kind requires, without leaving a file
     noimg = TargetHomographies{colmap}(sample().frames; sensors = "cam", targets = ids)
@@ -147,7 +151,7 @@ end
     end
 end
 
-@testitem "target_homographies/v1: an Uncertain homography keeps its 8×8 covariance in its storage" setup = [TargetHomographiesFixtures] begin
+@testitem "target_homographies/v2.0: an Uncertain homography keeps its 8×8 covariance in its storage" setup = [TargetHomographiesFixtures] begin
     using VisualGeometryToolkitCore: TargetHomographies, Uncertain, CovMat, geom, to_homogeneous
     import VisualGeometryToolkitCore
     using StaticArrays: SMatrix
@@ -170,7 +174,7 @@ end
     end
 end
 
-@testitem "target_homographies/v1: version machinery" setup = [TargetHomographiesFixtures] begin
+@testitem "target_homographies/v2.0: version machinery" setup = [TargetHomographiesFixtures] begin
     using VisualGeometryToolkitCore: TargetHomographies
     import VisualGeometryToolkitIO as VgtkIO
     th = sample()
@@ -178,9 +182,9 @@ end
         p = joinpath(dir, "th.json")
         tree = written(p, th)
         @test VgtkIO.migrate_record(tree) == tree                    # a current record comes back as it is
-        @test VgtkIO.migrate_record(tree)["schema"] == "vgio/target_homographies/v1"
-        @test !VgtkIO._has_record_migration("vgio/target_homographies/v1")   # no step until a v2 exists
-        @test occursin("target_homographies/v1", VgtkIO._schema("target_homographies"))
+        @test VgtkIO.migrate_record(tree)["schema"] == "vgio/target_homographies/v2.0"
+        @test !VgtkIO._has_record_migration("vgio/target_homographies/v2.0")   # the current version: no step
+        @test VgtkIO._schema("target_homographies") == "vgio/target_homographies/v2.0"
     end
 end
 

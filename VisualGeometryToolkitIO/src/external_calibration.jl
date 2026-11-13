@@ -28,7 +28,7 @@
 # third-party export) is read exactly as the caller says.
 #
 # Everything returned is in the stack's conventions: the camera in the COLMAP
-# pixel frame, the poses `target → camera_optical` with lengths in metres. The lens formulas
+# pixel frame, the poses `target → camera` with lengths in metres. The lens formulas
 # agree on both sides — an OpenCV file's coefficients are OpenCV's distortion
 # vector (`opencv_lens`, conventions.jl); MATLAB's radial/tangential model is
 # OpenCV's polynomial term for term, so `opencv_lens([r1, r2, t1, t2, r3])` IS
@@ -67,7 +67,7 @@ end
 ExternalCalibration(source, camera, poses, reprojection_error, error_statistic, path) =
     ExternalCalibration(source, camera, poses, reprojection_error, error_statistic, path, nothing)
 
-const _CAMERA_OPTICAL = frame_name(CameraFrame)          # "camera_optical"
+const _CAMERA_OPTICAL = frame_name(CameraFrame)          # "camera"
 
 # A required key: Core's `required_key`, the file named as the export it must be.
 _need(d, key::Symbol, path, what) = VgtkCore.required_key(d, key, "$(path) (a $(what) calibration export)")
@@ -83,7 +83,7 @@ function _external_camera(d, lens, pixel_frame::Symbol, path, what)
     return CameraModel(K; lens, pixel_frame)
 end
 
-# `{rvec, tvec}` per image → `target → camera_optical`, lengths in metres (`tvec`
+# `{rvec, tvec}` per image → `target → camera`, lengths in metres (`tvec`
 # read in `unit` through `read_length`'s shift; a non-finite one refused by
 # name); a `null`
 # stays `nothing` so the caller's positional join over the images holds.
@@ -295,7 +295,7 @@ does not declare — never labels on data: `file_unit` is the length unit of
 frame of `cx, cy`, OpenCV's own `PixelFrame{:opencv}` by default (a type, it
 leads). The camera returned is in VGC's canonical frame by construction and
 the poses' translations lengths (metres), so nothing downstream restates either. `target`
-names the pattern in the pose records (`target → camera_optical`).
+names the pattern in the pose records (`target → camera`).
 
 Most third-party exports declare neither and are read as stated; some declare
 `tvec_unit`. A file written by [`save_opencv_calibration`](@ref) declares both
@@ -358,7 +358,7 @@ pattern in (`mm` for a pattern typed in millimetres) — `tvec` is in it; there
 is no default. MATLAB's board frame has x and y exchanged relative to
 OpenCV's for the same pattern: the poses are returned in MATLAB's own board
 frame, so name its `target` apart from an OpenCV calibration's. `target` names
-the pattern in the pose records (`target → camera_optical`).
+the pattern in the pose records (`target → camera`).
 """
 load_matlab_calibration(path::AbstractString; kwargs...) = load_matlab_calibration(PixelFrame{:julia}, path; kwargs...)
 

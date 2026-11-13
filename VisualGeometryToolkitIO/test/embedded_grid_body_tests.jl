@@ -101,3 +101,56 @@ end
         @test same_value(r.bc, ref; length_ulps = 0)
     end
 end
+
+# An IO 0.9 camera body embedded in another package's record of an earlier version (`width`/`height`, the pitch an
+# array, the lattice's `grid_size` an array, 0-based `present` runs, a spline lens's flat `controls`, a non-central
+# body's `directions`/`points`): `camera_from_json` reads it through the body's 0.10 step, as the camera its 0.10 body is.
+@testitem "an embedded IO 0.9 camera body reads as its 0.10 body's camera" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitCore: model, extent, PixelFrame, Sensor, μm
+    using VisualGeometryToolkitIO: camera_from_json, camera_json, same_value
+    import VisualGeometryToolkitIO as VgtkIO
+    plain(x) = JSON.parse(JSON.json(x); dicttype = Dict{String, Any})
+    as09_size(s) = Any[s["width"], s["height"]]
+    as09_runs(r) = Any[Any[e[1] - 1, Any[Any[a - 1, b - 1] for (a, b) in e[2]]] for e in r]
+    function as09_lattice(l, names)
+        o = Dict{String, Any}("area" => l["area"], "grid_size" => as09_size(l["grid_size"]))
+        haskey(l, "present") && (o["present"] = as09_runs(l["present"]))
+        for (to, from) in names
+            o[to] = l["controls"][from]
+        end
+        return o
+    end
+    function as09(b)
+        o = Dict{String, Any}(k => v for (k, v) in b if !(k in ("image_size", "pitch", "lens", "spline")))
+        o["width"], o["height"] = b["image_size"]["width"], b["image_size"]["height"]
+        haskey(b, "pitch") && (o["pitch"] = as09_size(b["pitch"]))
+        haskey(b, "lens") && (o["lens"] = haskey(b["lens"], "spline") ? Dict{String, Any}("spline" => as09_lattice(b["lens"]["spline"], ("controls" => "direction",))) : b["lens"])
+        haskey(b, "spline") && (o["spline"] = as09_lattice(b["spline"], ("directions" => "direction", "points" => "point")))
+        return o
+    end
+    parsed(t) = VgtkIO._parse_vgio_text(JSON.json(t), "a body")
+    # a central SplineLens camera with absent nodes (its 1-based runs), and a parametric camera with a pitch
+    store = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", "spline_camera_masked.json"), String); dicttype = Dict{String, Any})
+    spline_body = only(store["cameras"]); delete!(spline_body, "name")
+    @test first(first(spline_body["lens"]["spline"]["present"])) >= 1
+    K = CameraCalibrationMat(SMatrix{3, 3, Float64}(1270.0, 0, 0, 0, 1270.0, 0, 1224.0, 1024.0, 1))
+    pitched = plain(camera_json(BoundedCamera(CameraModel(K; lens = KannalaBrandt(0.1, -0.02, 0.003, -0.0004), pixel_frame = :colmap),
+                                              Sensor(Size2(2448, 2048), 3.45μm))))
+    # a non-central camera (its line points in the body's length unit)
+    src = CameraModel(; focal = 31.7, pp = (32.25, 23.875), lens = KannalaBrandt(-0.02))
+    gc = CameraModel(SplineLens, src, Size2(64, 48); grid_size = (5, 4))
+    d = gc.lens.backward
+    gn = NoncentralSplineModel(gc.intrinsics, d, ChartSpline(d.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5]))
+    nc = plain(camera_json(BoundedCamera(gn, Size2(64, 48))))
+    @test nc["type"] == "noncentral_spline" && sort(collect(keys(nc["spline"]["controls"]))) == ["direction", "point"]
+    for b in (spline_body, pitched, nc)
+        old = as09(b)
+        @test haskey(old, "width") && !haskey(old, "image_size")
+        for f in (PixelFrame{:colmap}, PixelFrame{:opencv})
+            m0, e0 = camera_from_json(parsed(b), f)
+            m9, e9 = camera_from_json(parsed(old), f)
+            @test same_value(m9, m0; length_ulps = 0) && e9 == e0
+            @test same_value(camera_from_json(BoundedCamera, parsed(old), f), camera_from_json(BoundedCamera, parsed(b), f); length_ulps = 0)
+        end
+    end
+end

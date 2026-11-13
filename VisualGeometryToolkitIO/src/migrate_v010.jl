@@ -30,7 +30,8 @@
 const _V010_DECLARATIONS = ("length_unit", "pixel_frame", "rotation_encoding", "transform_convention", "point_index_base", "time_unit")
 
 """
-    migrate_envelope(old::AbstractDict, schema; length = get(old, "length_unit", "mm"), pixel = get(old, "pixel_frame", "colmap")) -> Dict{String, Any}
+    migrate_envelope(old::AbstractDict, schema; length = get(old, "length_unit", "mm"), pixel = get(old, "pixel_frame", "colmap"),
+                     density = "dpi") -> Dict{String, Any}
 
 The IO 0.10 envelope of a record written before IO 0.10, for a version step:
 `old` (a parsed record, string keys) with its schema set to `schema` (the next
@@ -41,9 +42,12 @@ objects, the `generator` this package's, every other key kept, and every stored
 rotation `[w, x, y, z]` with w < 0 written as its 0.9 reader read it, `-q`.
 `length` and `pixel` are what the record declares, or — absent — what its
 version meant (`"mm"`: it held no length; `"colmap"`: every 0.9 record without a
-pixel frame). The steps of VisualGeometryToolkitIO's own kinds use it, and a
+pixel frame); `density` the record's print density unit (`"dpi"`, the
+only one a 0.9 record meant). The steps of VisualGeometryToolkitIO's own kinds use it, and a
 schema's owner calls it in the step of its own kinds' 0.9 versions (a
-`caliblobs/session` record), then moves its body's own keys.
+`caliblobs/session` record), then moves its body's own keys. A height field's
+IO 0.9.5 per-field units (`node_unit`, `height_unit`) become the length roles
+`node` and `height`.
 """
 function migrate_envelope(old::AbstractDict, to::AbstractString; length = get(old, "length_unit", "mm"),
                         pixel = get(old, "pixel_frame", "colmap"), density = "dpi")
@@ -57,7 +61,35 @@ function migrate_envelope(old::AbstractDict, to::AbstractString; length = get(ol
     for (k, v) in old
         (k == "schema" || k in _V010_DECLARATIONS) || (t[String(k)] = _lower(v))
     end
+    _field_units_v010!(t)
     return _rotations_v010!(t)
+end
+
+# IO 0.9.5's height-field per-field units — a calibration record of its own stating `node_unit` ("chart" or a length
+# unit) and `height_unit` — as the 0.10 length roles `node` and `height` of the record's units object (a record holds
+# one such field; two that disagree have no one units object and are refused).
+function _field_units_v010!(t::AbstractDict)
+    found = Tuple{String, String}[]
+    function walk(x)
+        if x isa AbstractDict
+            if haskey(x, "node_unit") && haskey(x, "height_unit")
+                push!(found, (String(pop!(x, "node_unit")), String(pop!(x, "height_unit"))))
+            end
+            for (k, v) in x
+                k == "provenance" || walk(v)
+            end
+        elseif x isa AbstractVector
+            foreach(walk, x)
+        end
+    end
+    walk(t)
+    isempty(found) && return t
+    length(unique(found)) == 1 || throw(ArgumentError(
+        "a record's height fields state different per-field units $(unique(found)); the 0.10 units object declares one `node` and one `height` role"))
+    nu, hu = only(unique(found))
+    t["units"]["length_roles"]["node"] = nu
+    t["units"]["length_roles"]["height"] = hu
+    return t
 end
 
 # A record's file-level keys only (its schema, declarations and provenance), not its body: the envelope a
@@ -492,7 +524,7 @@ function _canonical_json_v09(io::IO, x)
         print(io, '{')
         for (i, k) in enumerate(sort!(collect(String, keys(x))))
             i > 1 && print(io, ',')
-            _canonical_string(io, k)
+            canonical_json(io, k)   # a key: a JSON string (JCS escaping, as 0.9 wrote its ASCII keys)
             print(io, ':')
             _canonical_json_v09(io, x[k])
         end
@@ -588,7 +620,7 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     haskey(b, "nominal") && (n["nominal"] = Any[_lengths_v09(p, leaf) for p in b["nominal"]])
     if layout_points && haskey(b, "layout")
         delete!(n, "layout")
-        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)]
+        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
     end
     placed = haskey(b, "placement")
     n["calibration"] = _calibration_v09(b["calibration"], placed ? (x, k) -> x : leaf)   # a placed one: chart numbers

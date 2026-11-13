@@ -236,20 +236,29 @@ function _realpath_inside(full, dir)
     return p == root || startswith(p, joinpath(root, ""))
 end
 
+# A file a record at `owner` (`what`: "the manifest", "the header") binds by its relative path `rel` and its
+# SHA-256 `sha`, inside the record's directory `dir`: it is a file, it resolves inside `dir` (no symlink leaves it), and
+# its bytes (streamed) hash to `sha`; each failure an ArgumentError naming the file. Its full path. (The manifest's
+# files and a raster's payload.)
+function _check_bound_file(dir, rel, sha, owner, what)
+    full = joinpath(dir, rel)
+    isfile(full) || throw(ArgumentError("$(owner): lists $(rel), which is not a file in $(dir)"))
+    _realpath_inside(full, dir) || throw(
+        ArgumentError("$(full): resolves outside $(dir) (a symlink leaves $(what)'s directory); $(what) binds files inside its directory")
+    )
+    got = open(sha256_hex, full)
+    got == sha || throw(
+        ArgumentError("$(full): its SHA-256 is $(got), but $(owner) records $(sha) — the file changed since $(what) was written (corrupted or replaced)")
+    )
+    return full
+end
+
 # The files a manifest lists, against the directory: each exists, holds the recorded
 # schema, and hashes to the recorded SHA-256 (a mismatch names the file); then the
 # targets the observation files name resolve in the listed target and rig files.
 function _check_manifest_files(dir, d, mpath)
     for f in d.files::Vector{Any}
-        full = joinpath(dir, f.path::String)
-        isfile(full) || throw(ArgumentError("$(mpath): lists $(f.path), which is not a file in $(dir)"))
-        _realpath_inside(full, dir) || throw(
-            ArgumentError("$(full): resolves outside $(dir) (a symlink leaves the manifest's directory); a manifest binds files inside its directory")
-        )
-        got = open(sha256_hex, full)
-        got == f.sha256 || throw(
-            ArgumentError("$(full): its SHA-256 is $(got), but $(mpath) records $(f.sha256) — the file changed since the manifest was written")
-        )
+        full = _check_bound_file(dir, f.path::String, f.sha256::String, mpath, "the manifest")
         s = _peek_schema(full)
         s == f.schema || throw(ArgumentError("$(full): holds a $(repr(s)) record, but $(mpath) lists it as $(repr(f.schema))"))
         _validate_listed(full, s)
@@ -264,7 +273,9 @@ end
 function _validate_listed(full, s)
     v = _split_owned(s)
     v.owner == "vgio" && return (validate(full); nothing)
-    hasmethod(validate_record, Tuple{Val{Symbol(v.owner)}, String, String}) && validate_record(Val(Symbol(v.owner)), String(full), String(s))
+    # (the owner's method is found at run time: a package loaded after this one adds it)
+    hasmethod(validate_record, Tuple{Val{Symbol(v.owner)}, String, String}) &&
+        Base.invokelatest(validate_record, Val(Symbol(v.owner)), String(full), String(s))
     return nothing
 end
 

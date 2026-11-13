@@ -35,19 +35,23 @@
     #   projected values, so their records and content ids move (set aside), and
     #   a golden spline whose interpolant carries an affine term is REFUSED by
     #   the migration (no exact form: vgio_migrate's rule), A_H with them.
-    #   Target and rig records are v3/v6: every other golden v2/v5 file is
-    #   migrated by `vgio_migrate` and must be the writer's v3/v6 output byte for
-    #   byte; a retired case's is refused. The content id of a rig whose value
-    #   did not change is the golden's: the identity tree lists a composition's
-    #   members in application order whatever order the record lists them in
-    #   (`new_content_ids` is empty);
+    #   Target and rig records are the current ones (IO 0.10: target v6.0, rig
+    #   v10.0): every other golden v2/v5 file is migrated by `vgio_migrate`
+    #   (through every version step) and must be the writer's current output
+    #   byte for byte; a retired case's is refused. THE IDENTITY: IO 0.10
+    #   re-identified every rig once, deliberately (RFC 8785 canonical JSON,
+    #   the current names); the frozen IO 0.9 identity (`_v09_id`) of a rig
+    #   whose value did not change is the golden's: the identity tree lists a
+    #   composition's members in application order whatever order the record
+    #   lists them in (`new_content_ids`, of the 0.9 identity, is empty);
     # - lenses: a distortion's stages in sequence are CT's `∘` (the Lens
     #   `Chain` removed); the camera store is v4, its lens record's "compose"
     #   listing the stages outer first (the goldens' "chain" listed them in
     #   application order), and a composed calibration's record is
     #   `{"type": "composition", "compose": […]}`: a golden v3 store is migrated by
-    #   `vgio_migrate` and must be the writer's v4 output byte for byte. The
-    #   COLMAP export is unchanged; the OpenCV export declares its pixel frame
+    #   `vgio_migrate` and must be the writer's current (v6.0) output byte for byte. The
+    #   COLMAP export is unchanged but for its units sidecar (vgio/units v2 → v3.0, the IO 0.10 envelope:
+    #   migrated by `vgio_migrate`); the OpenCV export declares its pixel frame
     #   under `pixel_frame` (0.9), where the goldens hold the legacy key: a
     #   golden export, read as it is (the reader accepts the legacy key, below),
     #   becomes the code's by that key alone.
@@ -66,7 +70,7 @@
         ]),
         # retired cases whose golden records migrate (to the affine factors) rather than being refused
         migrated_affine = Set(["A"]),
-        migrate = (golden, out) -> occursin(r"^(target|rig|cameras)_", basename(golden)) ?
+        migrate = (golden, out) -> (occursin(r"^(target|rig|cameras)_", basename(golden)) || basename(golden) == VisualGeometryToolkitIO.UNITS_SIDECAR) ?
             VisualGeometryToolkitIO.vgio_migrate(golden; out) :
             startswith(basename(golden), "opencv_") ? write(out, replace(read(golden, String), "\"image_origin\":" => "\"pixel_frame\":")) :
             cp(golden, out; force = true),
@@ -101,8 +105,15 @@ end
                 n_aside += 1
                 continue
             end
+            got = actual[key]
+            if startswith(key, "content_id/")
+                # the code's identity is the 0.10 one, of the rig it wrote; the golden is the 0.9 identity of that value
+                rig = VisualGeometryToolkitIO.load(VgtkCore.Rig, joinpath(written, "rig_$(name).json"))
+                @test got == VisualGeometryToolkitIO.content_id(rig) != g
+                got = VisualGeometryToolkitIO._v09_id(rig)
+            end
             e = startswith(key, "content_id/") ? get(CODE.new_content_ids, name, g) : g
-            ok, _, why = compare_value(e, actual[key])
+            ok, _, why = compare_value(e, got)
             ok || @error "chain equivalence: $key moved: $why"
             @test ok
         end
@@ -136,7 +147,7 @@ end
             CODE.migrate(joinpath(root, f), out)
             same = isfile(joinpath(written, rel)) && read(out) == read(joinpath(written, rel))
             same || @error "chain equivalence: the record $rel moved"
-            @test same
+            @test (rel, same) == (rel, true)
             n_files += 1
         end
         # a golden OpenCV export, its pixel frame under the legacy key, is read as it is (never rewritten): the
@@ -176,9 +187,10 @@ end
 end
 
 @testitem "chain equivalence: a v5 rig's identity is v5's for every non-affine kind" setup = [ChainEquivalenceIO] begin
-    # `_v5_id` reports the current identity as the old one for a v5 rig without
-    # an affine kind: that is right only if the current identity tree of the
-    # SAME value is the one v5 hashed. The goldens' ids were computed by v5's
+    # A v5 rig without an affine kind keeps the identity v5 gave it up to IO
+    # 0.9: that is right only if IO 0.9's identity tree of the SAME value is the
+    # one v5 hashed (IO 0.10's frozen copy, `_v09_id`; the 0.10 identity is the
+    # one deliberate re-id). The goldens' ids were computed by v5's
     # code; the thin-plate values they hold carry an affine term (the current
     # constructor would project them), so they are rebuilt here as they were
     # (`project = false`) — the identity is of the value, not of its record.
@@ -195,13 +207,20 @@ end
     ppts = ChainEquivalenceIO.ChainEquivalenceCorpus.physical_points()[1:20]
     pose = EuclideanMap(ChainEquivalenceIO.RECORD_POSE_ROTATION, SVector(0.1, -0.05, 0.9) .* m)
     gauge = PosedTarget(PlanarTarget(ppts), EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), SVector(0.0, 0.0, 0.0) .* m))
-    for (name, c) in ("R" => Rigid(), "T" => T, "H" => H, "T_H" => H ∘ T)
+    # (the frozen 0.9 identity is built through the 0.10 writer, which refuses a thin-plate value with an affine term,
+    # as every reader does: the thin-plate goldens are the `projected` set aside above; their v5 identity is no
+    # identity of a value a current file can hold)
+    for (name, c) in ("R" => Rigid(),)
         rig = Rig{TargetFrame{:gauge}}(Dict(:gauge => gauge, Symbol("t_", name) => PosedTarget(PlanarTarget(ppts; calibration = c), pose)))
-        @test VisualGeometryToolkitIO.content_id(rig) == G["content_id/$name"]
+        @test VisualGeometryToolkitIO._v09_id(rig) == G["content_id/$name"] != VisualGeometryToolkitIO.content_id(rig)
+    end
+    for (name, c) in ("T" => T, "H" => H, "T_H" => H ∘ T)
+        rig = Rig{TargetFrame{:gauge}}(Dict(:gauge => gauge, Symbol("t_", name) => PosedTarget(PlanarTarget(ppts; calibration = c), pose)))
+        @test_throws ArgumentError VisualGeometryToolkitIO._v09_id(rig)
     end
     # and the migration of the rigid golden reports it
     mktempdir() do dir
         r = VisualGeometryToolkitIO.vgio_migrate(joinpath(DIR, "records", "rig_R.json"); out = joinpath(dir, "rig_R.json"))
-        @test r.old_id == r.new_id == G["content_id/R"]
+        @test r.old_id == G["content_id/R"] && r.new_id == VisualGeometryToolkitIO.content_id(r.out) != r.old_id   # the one re-id
     end
 end

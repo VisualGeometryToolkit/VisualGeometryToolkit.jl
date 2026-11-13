@@ -92,7 +92,7 @@
                 },
                 "length_roles": {
                     "type": "object",
-                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`; \"chart\": a chart role, its numbers a chart's (plain)",
                     "propertyNames": {
                         "pattern": "^[a-z][a-z0-9_]*$",
                         "not": {
@@ -104,19 +104,26 @@
                         }
                     },
                     "additionalProperties": {
-                        "type": "string",
-                        "description": "a registered length unit (mm, cm, m, um, inch)",
-                        "enum": [
-                            "cm",
-                            "ft",
-                            "in",
-                            "inch",
-                            "km",
-                            "m",
-                            "mm",
-                            "pt",
-                            "um",
-                            "μm"
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "description": "a registered length unit (mm, cm, m, um, inch)",
+                                "enum": [
+                                    "cm",
+                                    "ft",
+                                    "in",
+                                    "inch",
+                                    "km",
+                                    "m",
+                                    "mm",
+                                    "pt",
+                                    "um",
+                                    "μm"
+                                ]
+                            },
+                            {
+                                "const": "chart"
+                            }
                         ]
                     }
                 }
@@ -247,10 +254,11 @@
                         },
                         "chart": {
                             "type": "string",
-                            "description": "a radial chart (linear, projective)",
+                            "description": "a radial chart (linear, projective, equisolid)",
                             "enum": [
                                 "linear",
-                                "projective"
+                                "projective",
+                                "equisolid"
                             ]
                         },
                         "control_points": {

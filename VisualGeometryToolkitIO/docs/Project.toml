@@ -1,5 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+FlexUnits = "76e01b6b-c995-4ce6-8559-91e72a3d4e95"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
 VisualGeometryToolkitIO = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
@@ -10,5 +11,6 @@ VisualGeometryToolkitIO = {path = ".."}
 [compat]
 julia = "1.13"
 Documenter = "1.20"
+FlexUnits = "0.6.16"
 JSON = "1.13.4"
 VisualGeometryToolkitCore = "0.10.0"

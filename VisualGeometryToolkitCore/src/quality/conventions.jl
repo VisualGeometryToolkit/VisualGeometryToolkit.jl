@@ -13,7 +13,7 @@
 
 # Reading order; conventions/README.md is the folder's index and not part of it.
 const _CONVENTION_FILES = ("overview.md", "naming.md", "signatures.md", "data-arguments.md",
-    "frames.md", "pixel-origins.md", "bearings.md", "observation-noise.md", "residuals-and-distances.md",
+    "frames.md", "pixel-origins.md", "bearings.md", "observation-noise.md", "feature-frames.md", "residuals-and-distances.md",
     "persisted-geometry.md", "jacobians.md", "units.md", "stack-contracts.md")
 
 """

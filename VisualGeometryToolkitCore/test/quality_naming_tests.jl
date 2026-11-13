@@ -68,6 +68,31 @@ end
         @test rules("src/a.jl" => "f(x) = \"$(old)\"\n") == [:R9]                                    # any other retired name, in a string
     end
 
+    @testset "R9: a published name (a format token) is accepted in a quoted TOML value and an Artifacts.toml, never a TOML key" begin
+        tok = "eth3d_splg_cs" * "ponds"                                                       # a published artifact's name (a format token)
+        @test tok in NC.RETIRED_NAMES && NC._is_format_token(tok)
+        @test quiet("configs/a.toml" => "input_dir = \"/data/splg/$(tok)\"\n")                     # a quoted value
+        @test quiet("configs/a.toml" => "dirs = [\n  \"/data/$(tok)\",\n]\n")                    # an array element on its line
+        @test quiet("Artifacts.toml" => "[$(tok)]\ngit-tree-sha1 = \"0\"\n")                       # an Artifacts.toml: its keys are published names
+        @test :R9 in rules("configs/a.toml" => "$(tok) = 1\n")                                    # a bare TOML key
+        @test :R9 in rules("configs/a.toml" => "\"$(tok)\" = 1\n")                                # a quoted TOML key
+        @test :R9 in rules("configs/a.toml" => "[artifacts.$(tok)]\n")                             # a table header
+        @test rules("configs/a.toml" => "x = 1   # $(tok)\n") == [:R9]                              # a TOML comment
+    end
+
+    @testset "R14: the terminology taxonomy's retired words are no binding; \"measured\" a value only" begin
+        w = ("measure" * "ment", "cs" * "pond", "sight" * "ing", "key" * "point")
+        for word in w
+            @test :R14 in rules("src/a.jl" => "f_$(word)_x(y) = y\n")                              # a function
+            @test :R14 in rules("src/a.jl" => "f(x) = (z = :$(word)s; z)\n")                       # a quoted symbol
+            @test :R14 in rules("configs/a.toml" => "$(word)_count = 1\n")                          # a TOML key
+        end
+        m = "measure" * "d"
+        @test :R14 in rules("src/a.jl" => "f(x) = ($(m)_us = x; $(m)_us)\n")                       # a bound name
+        @test quiet("src/a.jl" => "f(x) = x === :$(m) ? \"$(m)\" : nothing\n")                    # a provenance value
+        @test quiet("src/a.jl" => "f(x) = x   # the $(m) values\n")                                 # prose
+    end
+
     @testset "R9: a foreign library's function is accepted in a C/C++ source, nowhere else" begin
         name = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :c_source, NC.FOREIGN_FORMAT_TOKENS)])
         @test all(t -> last(t).accepted_in in (:format_literal, :c_source, :cli_argument), NC.FOREIGN_FORMAT_TOKENS)

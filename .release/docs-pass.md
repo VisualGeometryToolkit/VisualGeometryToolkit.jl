@@ -1,4 +1,4 @@
-docs-pass: db7bd7b1
+docs-pass: f6a3e7f2
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the SplineLens refine nor the forward fit)
 
 # 0.10.0 docs pass (julia-docs-pass) — release-chrome-095 (VisualGeometryToolkitEstimation 0.10.0, Features 0.8.2, Eval 0.7.1)
@@ -26,7 +26,12 @@ refused by name. `CameraPosesRefineMetadata.spline` loses the retired route's fi
 
 ## 3. Executed on the final RC
 
-(Filled in by the final gate's records commit.)
+The first 0.10.0 gate (66900bd9; jobs 10693–10696) was green on both Julia versions for every gated item; Features' strict
+run (recorded, not gated there) errored one item, the L0 smoothing, on a third-party deprecation: ImageSmooth 0.1.1, its
+latest release (2021, no newer upstream commit), calls ImageBase's deprecated `fdiff!` inside `L0Smooth`; Features calls
+only ImageSmooth's public `smooth!`. f6a3e7f2 runs that one item's check in a child Julia with `--depwarn=yes` when the
+suite is strict (the coordinator's option 2, the comment at the site names the cause); every other item stays strict, and
+Features' strict run gates. No docs change. The final gate's results are recorded by its records commit.
 
 ---
 

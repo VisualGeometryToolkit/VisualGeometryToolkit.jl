@@ -1,70 +1,76 @@
 # =============================================================================
-# The quantity JSON format — numbers in the declared unit
+# Quantities, sizes and feature frames on the style — one codec, `JSON.lower` / `JSON.lift`
 # =============================================================================
 #
-# A quantity in a JSON record is a NUMBER in the unit its record declares
-# (`"units": {"world": "mm", "density": "dpi"}`, a `UnitContract`): a length
-# in the world unit, a density in the density unit, a pixel count as a number
-# of pixels. The unit is not repeated beside every value. What a number IS —
-# a length, a pixel count, a density — is the record's to say, field by field
-# (`read_quantity(x, kind, contract)`, the required `kind` keyword of
-# `json_value` and `from_json`, never defaulted: a default would hand a
-# length or a pixel count back as a bare number),
-# because a pixel is dimensionless and a number alone cannot say it.
+# Every number a record holds is in a unit the file's `units` object declares
+# (the envelope, validate.jl; the style carries it, style.jl), never in one of
+# its own: a length in `units.length`, or in a ROLE of `units.length_roles` (a
+# board's pattern in pt), decimal-exact through `write_length`/`read_length`; a
+# pixel count as its number of pixels; a density in `units.density`; an angle
+# in radians. A value is written by `JSON.lower(::VgioStyle, x)` and read by
+# `JSON.lift(::VgioStyle, T, x)` — StructUtils' functions, on IO's own style
+# (no piracy) — as every VGC value a record embeds.
 #
-# ONE FORMAT. A `{"value": v, "unit": u}` object (the form
-# VisualGeometryToolkitFeatures' JSON.lower hooks wrote) is not read: a file
-# holding one is migrated once by its owner (vgio_migrate, migrate.jl).
+# WHAT A NUMBER IS, on read, is the field's to say: a pixel is dimensionless, so
+# `640` cannot say whether it is 640 px, 640 mm or a plain 640. A field says it
+# by its FIELD TAGS, StructUtils' fourth argument of `lower`/`lift`:
 #
-# LENGTH ROLES. A record whose lengths are declared in more than one unit (a
-# board's canvas in mm and its pattern in pt) names each further unit as a
-# ROLE of its contract, `UnitContract(world = mm, lengths = (pattern = pt,))`,
-# declared `"units": {"world": "mm", "density": "dpi", "lengths": {"pattern":
-# "pt"}}`; a length field read or written in a role names it (`role =
-# :pattern`), and `:world` is the default.
+#   (; quantity = :length | :pixel | :density[, role = <a length role>])
 #
-# The codecs of VisualGeometryToolkitCore's sizes, feature frames and
-# detections are explicit functions, `json_value(x, contract)` and
-# `json_value(x, contract; kind)` and
-# `from_json(T, d, contract; kind)`, not methods of JSON.jl's `lower`/`lift`
-# (those are JSON.jl's functions on Core's types: piracy).
+# A lift without tags reads plain numbers (a frame's pixel coordinates, an image
+# size in pixels counted as numbers). A writer lowers a quantity by its
+# dimension (a length in the role its tags name, `:world` — `units.length` —
+# otherwise); a tagged writer's value is checked against its tag, so nothing is
+# written as a number its reader's tag would read as something else.
+#
+# THE FRAME CODEC is one codec over VisualGeometryToolkitCore's FeatureFrame
+# interface (conventions/feature-frames.md, persisted-geometry.md): a frame is
+# its `center` and its shape, each type a case of one method pair; an uncertain
+# frame adds its `covariance` over the frame's `frame_dof` parameters, centre
+# first, in the storage it holds (transform_schema.jl's `_cov_json`, the one
+# covariance encoding). PointFrame is the 2-DOF case: `{"center"}` and the
+# uncertain point's 2×2. A detection file (`vgio/detection`, detection_schema.jl)
+# is built of these.
+#
+# UnitContract's own layout (`{"world", "density", "lengths"}`) is retired:
+# a record's units are the envelope's. `migrate_units` gives the units object of
+# a record that declared that layout (an owner's version step).
 
 # -----------------------------------------------------------------------------
 # One quantity
 # -----------------------------------------------------------------------------
 
-const _QUANTITY_KINDS = (:length, :pixel, :density)
+const _QUANTITY_TAGS = (:length, :pixel, :density)
 
-# The dimension a kind's quantities have (px is dimensionless).
-function _kind_dimension(kind::Symbol)
-    kind === :length && return dimension(m)
-    kind === :pixel && return dimension(px)
-    kind === :density && return dimension(dpi)
-    throw(ArgumentError("a quantity's kind is one of $(join(repr.(_QUANTITY_KINDS), ", ")), got $(repr(kind))"))
-end
-
-# The kind of a quantity, from its dimension.
-function _quantity_kind(q::Quantity)
+# The quantity tag of a value, from its dimension (`:plain` for a plain number).
+_quantity_of(::Real) = :plain
+function _quantity_of(q::Quantity)
     d = dimension(q)
     d == dimension(m) && return :length
     d == dimension(px) && return :pixel
     d == dimension(dpi) && return :density
-    throw(
-        ArgumentError(
-            "a quantity of dimension $(repr(d)) ($q) has no declared unit: a record declares lengths, " *
-                "pixel counts and densities only"
-        )
-    )
+    throw(ArgumentError("a quantity of dimension $(repr(d)) ($q) has no declared unit: a record declares lengths, pixel counts and densities"))
+end
+
+# A field's tags: what its numbers are, and the length role.
+function _tag_quantity(tags::NamedTuple)
+    q = get(tags, :quantity, :plain)
+    (q === :plain || q in _QUANTITY_TAGS) ||
+        throw(ArgumentError("a field's `quantity` tag is one of :length, :pixel, :density, got $(repr(q))"))
+    role = get(tags, :role, :world)
+    (role === :world || q === :length) ||
+        throw(ArgumentError("a length role ($(repr(role))) is for lengths; a field of $(repr(q)) has none"))
+    return q, role
 end
 
 """
     snap_integer(v) -> Real
 
 A file number as a record writes it: an integral value as an `Int` (`640`,
-`300`: a pixel count or a density, as the legacy writer did), anything else as
-it is — a float that is not integral or lies past Float64's exact integers, an
-integer past `Int`'s range, a `Bool` (a flag is not a number: `true` stays
-`true`), a `Rational` that is not integral as its `Float64`. A length is the Float64
+`300`: a pixel count or a density), anything else as it is — a float that is
+not integral or lies past Float64's exact integers, an integer past `Int`'s
+range, a `Bool` (a flag is not a number: `true` stays `true`), a `Rational`
+that is not integral as its `Float64`. A length is the Float64
 [`write_length`](@ref) returns and is not snapped.
 """
 snap_integer(v::AbstractFloat) = (isinteger(v) && abs(v) < maxintfloat(Float64)) ? Int(v) : v
@@ -73,50 +79,35 @@ snap_integer(v::Bool) = v   # a flag, not a number
 snap_integer(v::Rational) = isinteger(v) ? Int(v) : Float64(v)
 snap_integer(v) = v
 
-"""
-    write_quantity(q::Quantity, contract::UnitContract; role = :world) -> Real
-
-The number a JSON record holds for the quantity `q` under `contract`: a length
-in the unit of the contract's length `role` (`:world` is the default role, a
-named role's otherwise; through [`write_length`](@ref), decimal-exact), a pixel
-count (a dimensionless quantity: px is dimensionless) as its number of pixels,
-a density in `contract.density`. A pixel count or a density is an integer when
-it is integral. An `ArgumentError` for a quantity of any other dimension, a
-role the contract does not declare, or a role given for a quantity that is not
-a length.
-
-```jldoctest
-julia> VgtkIO.write_quantity(62.8mm, MM_PX)
-62.8
-
-julia> VgtkIO.write_quantity(640px, MM_PX), VgtkIO.write_quantity(300dpi, MM_PX)
-(640, 300)
-```
-"""
-function write_quantity(q::Quantity, contract::UnitContract; role::Symbol = :world)
-    kind = _quantity_kind(q)
-    _check_role(kind, role)
-    kind === :length && return write_length(q, role_unit(contract, role))
-    kind === :pixel && return snap_integer(Float64(ustrip(px, q)))
-    return snap_integer(Float64(ustrip(contract.density, q)))
+# A value as the number the style declares for it, under the field's tags: a
+# plain number as it is (its tag `:plain`); a quantity by its dimension, which
+# the tag (when it states one) must match.
+function _number_json(s::VgioStyle, x, tags::NamedTuple)
+    q, role = _tag_quantity(tags)
+    k = _quantity_of(x)
+    (haskey(tags, :quantity) || k === :plain) && k !== q && throw(
+        ArgumentError("a field of $(repr(q)) holds $(x), a $(k) value: it would read back as something else")
+    )
+    k === :plain && return x isa AbstractFloat ? Float64(x) : x   # a Float32 exactly, as its Float64
+    k === :length && return role === :world ? _leaf_length(x, s.length_unit) : write_length(x, role_unit(s.contract, role))
+    k === :pixel && return snap_integer(Float64(ustrip(px, x)))
+    return snap_integer(Float64(ustrip(s.contract.density, x)))
 end
-_check_role(kind::Symbol, role::Symbol) = (kind === :length || role === :world) || throw(
-    ArgumentError("a length role ($(repr(role))) is for lengths; a $(kind) quantity has none")
-)
-
-# A parsed JSON object, any dictionary with string keys, or a NamedTuple.
-const _JSONObject = Union{AbstractDict, NamedTuple}
-_has_key(x::AbstractDict, key::String) = haskey(x, key) || haskey(x, Symbol(key))
-_has_key(x::NamedTuple, key::String) = haskey(x, Symbol(key))
-_get_key(x::AbstractDict, key::String) = haskey(x, key) ? x[key] : x[Symbol(key)]
-_get_key(x::NamedTuple, key::String) = getproperty(x, Symbol(key))
-_key_names(x::_JSONObject) = (String(k) for k in keys(x))
+# …and back: the number `x` a field of these tags holds.
+function _number_from_json(s::VgioStyle, x, tags::NamedTuple)
+    q, role = _tag_quantity(tags)
+    v = _number(x, q === :plain ? "a plain field" : "a $(q) field")
+    q === :plain && return v
+    q === :length && return read_length(v, role_unit(s.contract, role))
+    q === :pixel && return Float64(v) * px
+    return Float64(v) * s.contract.density
+end
 
 # A quantity field holds a number; anything else is refused, an object naming
 # the retired `{value, unit}` form.
-_refuse_quantity(x::_JSONObject, what) = throw(
+_refuse_quantity(x::Union{AbstractDict, NamedTuple}, what) = throw(
     ArgumentError(
-        "$(what) holds an object, $(repr(x)); a quantity is a number in the record's declared unit " *
+        "$(what) holds an object, $(repr(x)); a quantity is a number in the file's declared unit " *
             "(the {value, unit} form is read only where an earlier schema version held it, by its owner's " *
             "version step on load; vgio_migrate rewrites such a file)"
     )
@@ -124,357 +115,161 @@ _refuse_quantity(x::_JSONObject, what) = throw(
 _refuse_quantity(x, what) = throw(ArgumentError("$(what) holds a number, got $(repr(x))"))
 _number(x, what) = (x isa Real && !(x isa Bool)) ? x : _refuse_quantity(x, what)
 
-"""
-    read_quantity(x, kind::Symbol, contract::UnitContract; role = :world) -> Quantity
+# A key of a parsed object (a `JSON.Object`, a Dict with String or Symbol keys, a NamedTuple).
+_get_key(x::AbstractDict, key::String) = haskey(x, key) ? x[key] : x[Symbol(key)]
+_get_key(x::NamedTuple, key::String) = getproperty(x, Symbol(key))
+_has_key(x::AbstractDict, key::String) = haskey(x, key) || haskey(x, Symbol(key))
+_has_key(x::NamedTuple, key::String) = haskey(x, Symbol(key))
 
-The quantity a JSON record holds as `x`, a NUMBER in a field of `kind` —
-`:length`, `:pixel` or `:density` — under `contract`: a length in the unit of
-the contract's length `role` (`:world`, the default),
-through [`read_length`](@ref); a pixel count in pixels; a density in
-`contract.density`. An `ArgumentError` for an unknown kind, a role the
-contract does not declare (or one given for a pixel count or a density), and
-a value that is not a number (a `{"value": v, "unit": u}` object is not read).
-
-```jldoctest
-julia> VgtkIO.read_quantity(2.5, :length, MM_PX) == 2.5mm
-true
-
-julia> VgtkIO.read_quantity(300, :density, MM_PX) == 300.0dpi
-true
-```
-"""
-function read_quantity(x, kind::Symbol, contract::UnitContract; role::Symbol = :world)
-    _kind_dimension(kind)
-    _check_role(kind, role)
-    v = _number(x, "a $(kind) field")
-    kind === :length && return read_length(v, role_unit(contract, role))
-    kind === :pixel && return Float64(v) * px
-    return Float64(v) * contract.density
-end
-
-# A field of a codec: `:plain` (plain numbers) or a quantity kind.
-function _read_field(x, kind::Symbol, contract::UnitContract; role::Symbol = :world)
-    kind === :plain || return read_quantity(x, kind, contract; role)
-    return _number(x, "a plain field")
-end
-
-_write_field(x::Real, ::UnitContract; role::Symbol = :world) = x
-_write_field(q::Quantity, contract::UnitContract; role::Symbol = :world) = write_quantity(q, contract; role)
-
-# A value is written under the kind its caller declares, the one its reader
-# will declare: a number of any other kind (a width in px under :length, a
-# plain number under :pixel) is refused, so nothing is written as a number
-# that reads back as something else.
-_kind_of(::Real) = :plain
-_kind_of(q::Quantity) = _quantity_kind(q)
-const _VALUE_KINDS = (:plain, :length, :pixel)
-function _check_kind(what, kind::Symbol, xs...)
-    kind in _VALUE_KINDS ||
-        throw(ArgumentError("$(what): the kind is one of $(join(repr.(_VALUE_KINDS), ", ")), got $(repr(kind))"))
-    for x in xs
-        _kind_of(x) === kind || throw(
-            ArgumentError("$(what) holds $(x), a $(_kind_of(x)) value, but is written as $(repr(kind))")
-        )
-    end
-    return nothing
-end
+# A quantity, by its dimension (a length in the `:world` role, or the role its tags name).
+JSON.lower(s::VgioStyle, q::Quantity) = _number_json(s, q, (;))
+JSON.lower(s::VgioStyle, q::Quantity, tags::NamedTuple) = _number_json(s, q, tags)
+JSON.lift(s::VgioStyle, ::Type{<:Quantity}, x, tags::NamedTuple) = (
+    haskey(tags, :quantity) || throw(ArgumentError("a quantity's field states what it is: tags (; quantity = :length | :pixel | :density)"));
+    _number_from_json(s, x, tags)
+)
 
 # -----------------------------------------------------------------------------
-# The contract's own declaration
+# Size2: {"width", "height"}
+# -----------------------------------------------------------------------------
+
+JSON.lower(s::VgioStyle, sz::Size2, tags::NamedTuple = (;)) =
+    (width = _number_json(s, sz.width, tags), height = _number_json(s, sz.height, tags))
+JSON.lift(s::VgioStyle, ::Type{<:Size2}, x, tags::NamedTuple = (;)) =
+    Size2(width = _number_from_json(s, _get_key(x, "width"), tags), height = _number_from_json(s, _get_key(x, "height"), tags))
+
+# -----------------------------------------------------------------------------
+# The retired UnitContract layout: an owner's version step
 # -----------------------------------------------------------------------------
 
 """
-    json_value(x, contract::UnitContract; kind, role = :world)
-    json_value(contract::UnitContract)
+    migrate_units(declaration) -> Dict{String, Any}
 
-The plain value (a NamedTuple of numbers, arrays and strings, which JSON.jl's
-`JSON.json` writes) a JSON record holds for `x` under `contract`, its
-quantities as numbers in the declared units ([`write_quantity`](@ref)); read
-it back with [`from_json`](@ref). Defined for VisualGeometryToolkitCore's
-`Size2` (`{"width": w, "height": h}`), `PointFrame` (`{"center": [x, y]}`, plain pixels), `Disc` (`{"center": [x, y], "σ": s}`),
-`OrientedDisc` (`… "θ": angle`), `EllipticFrame` (`{"center": …, "S": [S11,
-S21, S12, S22]}`, column order), `AffineFrame` (`… "A": …`) and a detection —
-an `Attributed` feature frame, VisualGeometryToolkitCore's
-`AbstractDetection` — written as its frame under `frame`, an `Uncertain`
-frame's covariance entries (column order) under `cov` (`null` when not
-finite, with the matrix's size N under `cov_size`: the size is the value's, an
-ASIFT `EllipticFrame`'s covariance is 3×3), and each metadata field under its
-own name. An uncertain `PointFrame` (VisualGeometryToolkitFeatures' Förstner
-detections) writes its 2×2 covariance as an uncertain point does
-(`vgio/target_points2d`'s `covariance`: rows, `{"diagonal": […]}` or
-`{"isotropic": λ}`, the storage it holds; `null` when not finite), the one
-encoding of a point and its covariance.
-
-`kind`, required, declares what the numbers of the value are — `:plain`
-(plain numbers), `:length` or `:pixel` — the same `kind` its reader gives
-`from_json`. A value holding a number of another kind, and a quantity in a
-detection's metadata (it has no declared kind), are an `ArgumentError`. The
-`OrientedDisc`, `EllipticFrame` and `AffineFrame` hold plain numbers only
-(`kind = :plain`). The lengths of a `Size2` or a `Disc` are written in the
-unit of the contract's length `role` (`:world` by default).
-
-`json_value(contract)` is the record's declaration of its units, `(world =
-"mm", density = "dpi")` for [`MM_PX`](@ref), with `lengths = (pattern =
-"pt", …)` when the contract declares further length roles (registered unit
-names; an `ArgumentError` for a unit without one).
-
-```jldoctest
-julia> import JSON
-
-julia> JSON.json(VgtkIO.json_value(Size2(width = 640px, height = 480px), MM_PX; kind = :pixel))
-"{\\"width\\":640,\\"height\\":480}"
-
-julia> JSON.json(VgtkIO.json_value(Disc(Point2(1.0mm, 2.0mm), 3.0mm), UnitContract(world = m); kind = :length))
-"{\\"center\\":[0.001,0.002],\\"σ\\":0.003}"
-
-julia> VgtkIO.json_value(MM_PX)
-(world = "mm", density = "dpi")
-
-julia> VgtkIO.json_value(UnitContract(world = mm, lengths = (pattern = pt,)))
-(world = "mm", density = "dpi", lengths = (pattern = "pt",))
-```
+The IO 0.10 `units` object (the envelope's: `length`, `time`, `angle`, `pixel`,
+`density`, `radiance`, `length_roles`) of a record that declared its units in
+the retired UnitContract layout, `{"world": "mm", "density": "dpi", "lengths":
+{"pattern": "pt"}}` (a BlobBoards board before IO 0.10): `world` is `length`,
+the further roles `length_roles`, a missing `density` dpi (the layout's own
+rule), and what the layout never declared is what its records meant — colmap
+pixels, seconds, radians, a relative radiance. For an owner's version step
+([`migrate_schema`](@ref)); a 0.10 record states no units of its own
+([`write_record`](@ref) writes the style's). An `ArgumentError` for a unit
+name that is not registered or of the wrong dimension, and for `world` named
+again under `lengths`.
 """
-function json_value(c::UnitContract)
-    # The file layout, known here alone: `world` top level, the other roles under `lengths`.
-    base = (world = unit_string(role_unit(c)), density = unit_string(c.density))
-    rest = _other_roles(c.lengths)
-    isempty(rest) && return base
-    return merge(base, (lengths = map(unit_string, rest),))
-end
-
-"""
-    from_json(T, d, contract::UnitContract; kind, role = :world)
-    from_json(UnitContract, d)
-
-The value of type `T` a JSON record holds as `d` (a parsed `JSON.Object`, any
-dictionary with string keys, or a NamedTuple), the inverse of
-[`json_value`](@ref): `T` is `Size2`, `PointFrame`, `Disc`, `OrientedDisc`,
-`EllipticFrame`, `AffineFrame` or a detection type (VisualGeometryToolkitCore's
-`AbstractDetection`, or VisualGeometryToolkitFeatures' `Detection`). `kind`,
-required and never defaulted, declares what the numbers of a `Size2` or a
-`Disc` are — `:plain` (plain numbers), `:length`, `:pixel` — and is read
-through [`read_quantity`](@ref) (a length in the unit of the contract's
-length `role`); the other frames hold plain numbers (`kind = :plain`). Every
-quantity is a number: a `{"value": v, "unit": u}` object is refused. A
-detection's frame type is read off its keys
-(`A`, `S`, `θ`, a `PointFrame` for a `center` alone, else a `Disc`); its documented metadata fields (`response`,
-`edge_score`, `laplacian_scale_score`) come first, as Float64, and the others
-follow sorted by name, each as it was parsed (a Symbol was written as a
-string and reads back a string, a `Point2` as a two-number array); a `cov`
-makes the frame `Uncertain` again, and so does a point frame's `covariance`
-(a `null` one the NaN 2×2). The frames read back in Float64: a Float32 frame
-is written exactly and reads back as the same numbers in Float64.
-
-`from_json(UnitContract, d)` reads a record's `"units"` declaration; a
-declaration without a `density` has dpi, one without `lengths` no further
-length roles.
-
-```jldoctest
-julia> import JSON
-
-julia> VgtkIO.from_json(Size2, JSON.parse("{\\"width\\": 640, \\"height\\": 480}"), MM_PX; kind = :pixel) ==
-           Size2(width = 640px, height = 480px)
-true
-
-julia> VgtkIO.from_json(UnitContract, JSON.parse("{\\"world\\": \\"m\\"}")) == UnitContract(world = m)
-true
-```
-"""
-function from_json(::Type{UnitContract}, d::_JSONObject)
+function migrate_units(d::Union{AbstractDict, NamedTuple})
     world = parse_unit(String(_get_key(d, "world")))
     density = _has_key(d, "density") ? parse_unit(String(_get_key(d, "density"))) : dpi
-    _has_key(d, "lengths") || return UnitContract(world, density)
-    ls = _get_key(d, "lengths")
-    ls isa _JSONObject || throw(ArgumentError("a units declaration's `lengths` is an object of role => unit name, got $(repr(ls))"))
-    lengths = NamedTuple(Symbol(k) => parse_unit(String(_get_key(ls, String(k)))) for k in _key_names(ls))
-    haskey(lengths, :world) && throw(ArgumentError(
-        "a units declaration names `world` twice: at its top level and under `lengths` (the file holds `world` top level only)"))
-    return UnitContract(world, density; lengths)
+    roles = _has_key(d, "lengths") ? _get_key(d, "lengths") : Dict{String, Any}()
+    roles isa Union{AbstractDict, NamedTuple} ||
+        throw(ArgumentError("a units declaration's `lengths` is an object of role => unit name, got $(repr(roles))"))
+    ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
+    haskey(ls, :world) && throw(ArgumentError("a units declaration names `world` twice: at its top level and under `lengths`"))
+    return _lower(_units_json(VgioStyle(UnitContract(density, merge((world = world,), ls)))))
 end
 
 # -----------------------------------------------------------------------------
-# Size2 and the feature frames
+# THE frame codec: every FeatureFrame a case
 # -----------------------------------------------------------------------------
 
-function json_value(s::Size2, contract::UnitContract; kind::Symbol, role::Symbol = :world)
-    _check_kind("a Size2", kind, s.width, s.height)
-    return (width = _write_field(s.width, contract; role), height = _write_field(s.height, contract; role))
+# The tag of each frame type in a file (the tag rule: snake_case of its name).
+const _FRAME_TAGS = VgtkCore.TagRegistry(:feature_frame, "",
+    "point_frame" => PointFrame, "disc" => Disc, "oriented_disc" => OrientedDisc,
+    "elliptic_frame" => EllipticFrame, "affine_frame" => AffineFrame)
+
+# A frame's shape after its centre, per type: its keys and values (a matrix in rows), and back.
+_shape_json(::PointFrame, n) = (;)
+_shape_json(f::Disc, n) = (sigma = n(f.σ),)
+_shape_json(f::OrientedDisc, n) = (sigma = n(f.σ), angle = _angle_json(f.θ))
+_shape_json(f::EllipticFrame, n) = (shape_matrix = _rows_json(f.S, n),)
+_shape_json(f::AffineFrame, n) = (affine_matrix = _rows_json(f.A, n),)
+_rows_json(M, n) = [[n(M[1, 1]), n(M[1, 2])], [n(M[2, 1]), n(M[2, 2])]]
+_angle_json(θ::Real) = Float64(θ)   # radians (`units.angle`)
+
+_frame_from(::Type{<:PointFrame}, ::Type{T}, c, x, n) where {T} = PointFrame{T}(c)
+_frame_from(::Type{<:Disc}, ::Type{T}, c, x, n) where {T} = Disc{T}(c, n(_get_key(x, "sigma")))
+_frame_from(::Type{<:OrientedDisc}, ::Type{T}, c, x, n) where {T} =
+    OrientedDisc{T}(c, n(_get_key(x, "sigma")), T(_number(_get_key(x, "angle"), "an angle")))
+_frame_from(::Type{<:EllipticFrame}, ::Type{T}, c, x, n) where {T} = EllipticFrame{T}(c, _rows_from(_get_key(x, "shape_matrix"), T, n))
+_frame_from(::Type{<:AffineFrame}, ::Type{T}, c, x, n) where {T} = AffineFrame{T}(c, _rows_from(_get_key(x, "affine_matrix"), T, n))
+_rows_from(r, ::Type{T}, n) where {T} = SMatrix{2, 2, T, 4}(n(r[1][1]), n(r[2][1]), n(r[1][2]), n(r[2][2]))
+
+# The element type a lift builds: the type's own parameter, Float64 for a plain
+# frame named without one, a quantity's for a tagged one.
+_frame_eltype(::Type{<:FeatureFrame{T}}, tags) where {T} = T
+_frame_eltype(::Type{<:FeatureFrame}, tags) = first(_tag_quantity(tags)) === :plain ? Float64 : BaseQuantity
+
+"""
+    JSON.lower(s::VgioStyle, f::FeatureFrame[, tags])
+    JSON.lower(s::VgioStyle, u::Uncertain{<:FeatureFrame})
+    JSON.lift(s::VgioStyle, F::Type{<:FeatureFrame}, x[, tags])
+    JSON.lift(s::VgioStyle, Uncertain{F}, x)
+
+THE frame codec, one over VisualGeometryToolkitCore's FeatureFrame interface:
+a frame is `{"center": [x, y]}` and its shape — a `PointFrame` nothing, a
+`Disc` `"sigma"`, an `OrientedDisc` `"sigma"` and `"angle"` (radians), an
+`EllipticFrame` `"shape_matrix"` and an `AffineFrame` `"affine_matrix"`, each
+in rows. Its numbers are plain (pixel coordinates in the file's pixel frame) or
+quantities under the field's tags (`(; quantity = :length[, role])`). The lift
+builds `F`'s element type (`PointFrame{Float32}` reads Float32; a type without
+one plain Float64).
+
+An uncertain frame adds its `"covariance"`: the frame's `frame_dof` ×
+`frame_dof` covariance over its parameters, the centre `(x, y)` first, in the
+storage it holds (rows, `{"diagonal": […]}`, `{"isotropic": λ}`); a
+`PointFrame`'s is the uncertain point's 2×2. Its entries are the frame's own
+numbers' (px², never converted): an uncertain frame holds plain numbers. A
+covariance of another size, a non-finite one (a detection states why it has
+none: `vgio/detection`'s `covariance_status`) and a labeled one are an
+`ArgumentError`. A precision form is written as its covariance and reads back
+as one.
+
+```jldoctest
+julia> import JSON
+
+julia> s = VgtkIO.VgioStyle();
+
+julia> JSON.json(OrientedDisc(1.0, 2.0, 3.0, 0.5); style = s)
+"{\\"center\\":[1.0,2.0],\\"sigma\\":3.0,\\"angle\\":0.5}"
+
+julia> u = Uncertain(PointFrame(10.5, 20.25), CovMat{2, Float64}(0.5, 0.0, 0.0, 0.25));
+
+julia> JSON.json(u; style = s)
+"{\\"center\\":[10.5,20.25],\\"covariance\\":[[0.5,0.0],[0.0,0.25]]}"
+
+julia> JSON.lift(s, Uncertain{PointFrame{Float64}}, JSON.parse(JSON.json(u; style = s))) == u
+true
+```
+"""
+function JSON.lower(s::VgioStyle, f::FeatureFrame, tags::NamedTuple = (;))
+    n = x -> _number_json(s, x, tags)
+    return merge((center = [n(f.center[1]), n(f.center[2])],), _shape_json(f, n))
+end
+function JSON.lift(s::VgioStyle, ::Type{F}, x, tags::NamedTuple = (;)) where {F <: FeatureFrame}
+    T = _frame_eltype(F, tags)
+    n = v -> T(_number_from_json(s, v, tags))
+    c = _get_key(x, "center")
+    return _frame_from(F, T, Point2{T}(n(c[1]), n(c[2])), x, n)
 end
 
-function from_json(::Type{<:Size2}, d::_JSONObject, contract::UnitContract; kind::Symbol, role::Symbol = :world)
-    width = _read_field(_get_key(d, "width"), kind, contract; role)
-    height = _read_field(_get_key(d, "height"), kind, contract; role)
-    return Size2(width = width, height = height)
-end
-
-function json_value(f::Disc, contract::UnitContract; kind::Symbol, role::Symbol = :world)
-    _check_kind("a Disc", kind, f.center[1], f.center[2], f.σ)
-    return (center = (_write_field(f.center[1], contract; role), _write_field(f.center[2], contract; role)), σ = _write_field(f.σ, contract; role))
-end
-
-function from_json(::Type{<:Disc}, d::_JSONObject, contract::UnitContract; kind::Symbol, role::Symbol = :world)
-    c = _get_key(d, "center")
-    center = Point2(_read_field(c[1], kind, contract; role), _read_field(c[2], kind, contract; role))
-    return Disc(center, _read_field(_get_key(d, "σ"), kind, contract; role))
-end
-
-_center_value(f) = (Float64(f.center[1]), Float64(f.center[2]))
-_matrix_value(M) = collect(Float64, vec(M))
-_center_from(d) = (c = _get_key(d, "center"); Point2{Float64}(c[1], c[2]))
-_matrix_from(v) = SMatrix{2, 2, Float64, 4}(v[1], v[2], v[3], v[4])
-
-_plain_frame_kind(T, kind) = kind === :plain ||
-    throw(ArgumentError("a $(T) holds plain numbers (pixels and radians); its kind is :plain, got $(repr(kind))"))
-
-json_value(f::OrientedDisc{<:Real}, ::UnitContract; kind::Symbol) =
-    (_plain_frame_kind(OrientedDisc, kind); (center = _center_value(f), σ = f.σ, θ = f.θ))
-json_value(f::EllipticFrame{<:Real}, ::UnitContract; kind::Symbol) =
-    (_plain_frame_kind(EllipticFrame, kind); (center = _center_value(f), S = _matrix_value(f.S)))
-json_value(f::AffineFrame{<:Real}, ::UnitContract; kind::Symbol) =
-    (_plain_frame_kind(AffineFrame, kind); (center = _center_value(f), A = _matrix_value(f.A)))
-
-# A point frame (a position, no scale: Förstner's) is the family's 2-DOF case, `{"center": [x, y]}`, on the leaves of an
-# uncertain point (target_points2d's `xy`, `_pixel_json` / `_pixel_from_json`): one encoding of a point and its covariance.
-json_value(f::PointFrame{<:Real}, ::UnitContract; kind::Symbol) = (_plain_frame_kind(PointFrame, kind); (center = _pixel_json(f.center),))
-
-function from_json(::Type{<:OrientedDisc}, d::_JSONObject, ::UnitContract; kind::Symbol)
-    _plain_frame_kind(OrientedDisc, kind)
-    return OrientedDisc{Float64}(_center_from(d), Float64(_get_key(d, "σ")), Float64(_get_key(d, "θ")))
-end
-function from_json(::Type{<:EllipticFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
-    _plain_frame_kind(EllipticFrame, kind)
-    return EllipticFrame{Float64}(_center_from(d), _matrix_from(_get_key(d, "S")))
-end
-function from_json(::Type{<:PointFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
-    _plain_frame_kind(PointFrame, kind)
-    return PointFrame(_pixel_from_json(_get_key(d, "center"), nothing))
-end
-function from_json(::Type{<:AffineFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
-    _plain_frame_kind(AffineFrame, kind)
-    return AffineFrame{Float64}(_center_from(d), _matrix_from(_get_key(d, "A")))
-end
-
-# -----------------------------------------------------------------------------
-# Detections: an Attributed feature frame, plain or Uncertain
-# -----------------------------------------------------------------------------
-
-# Metadata has no declared kind: a quantity there cannot be written as a number.
-_holds_quantity(::Quantity) = true
-_holds_quantity(x::AbstractArray) = any(_holds_quantity, x)
-_holds_quantity(x::Union{Tuple, NamedTuple}) = any(_holds_quantity, x)
-_holds_quantity(_) = false
-function _metadata_value(meta::NamedTuple)
-    for (k, v) in pairs(meta)
-        _holds_quantity(v) && throw(
-            ArgumentError(
-                "detection metadata `$(k)` holds a quantity ($(v)); metadata has no declared kind, " *
-                    "so write it as a plain number in a unit its name states"
-            )
-        )
-    end
-    return meta
-end
-
-function json_value(d::Attributed{<:FeatureFrame}, contract::UnitContract; kind::Symbol)
-    meta = _metadata_value(getfield(d, :attributes))
-    return (frame = json_value(getfield(d, :value), contract; kind), pairs(meta)...)
-end
-
-# An uncertain frame writes its covariance as `cov`, the matrix's entries in
-# column order — or `null` when it is not finite (an unrefined keypoint's),
-# which JSON cannot hold, with the matrix's size N under `cov_size`. The size
-# is the VALUE's, not the frame type's: an ASIFT `EllipticFrame` carries a 3×3
-# covariance over (x, y, log σ) (VisualGeometryToolkitFeatures' `asift_detections`),
-# not one over its five frame parameters. A frame of `kind = :length` (every parameter a
-# length: a Disc's center and σ) holds its covariance in base units, m², and
-# writes it in the declared length unit squared, as it writes its center; any
-# other kind's entries are written as they are (pixels are dimensionless).
-_cov_entry_json(x::Float64, contract::UnitContract, kind::Symbol) = kind === :length ? _write_power(x, role_unit(contract), 2) : x
-_cov_entry_from_json(x::Real, contract::UnitContract, kind::Symbol) = kind === :length ? _read_power(x, role_unit(contract), 2) : Float64(x)
-function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contract::UnitContract; kind::Symbol)
-    u = getfield(d, :value)
-    meta = _metadata_value(getfield(d, :attributes))
+function JSON.lower(s::VgioStyle, u::Uncertain{<:FeatureFrame})
+    f = geom(u)
     Σ = cov(u)
-    all(isfinite, Σ) || return (frame = json_value(geom(u), contract; kind), cov = nothing, cov_size = size(Σ, 1), pairs(meta)...)
-    c = Float64[_cov_entry_json(Float64(x), contract, kind) for x in vec(Σ)]
-    return (frame = json_value(geom(u), contract; kind), cov = c, pairs(meta)...)
+    f isa FeatureFrame{<:Real} ||
+        throw(ArgumentError("an uncertain frame's covariance is in its own numbers' units (px²): its frame holds plain numbers, got $(typeof(f))"))
+    _frame_cov_size(f, Σ)
+    _covariance_label(Σ) <: UnlabeledFrame ||
+        throw(ArgumentError("a frame's covariance is unlabeled in a file (its frame is the detection's); got one labeled $(_covariance_label(Σ))"))
+    all(isfinite, Σ) || throw(ArgumentError(
+        "a frame's covariance is finite; a detection without one omits it and states its `covariance_status` (vgio/detection)"))
+    return merge(JSON.lower(s, f), (covariance = _cov_json(Σ),))
 end
-
-# An uncertain point frame writes its 2×2 covariance as an uncertain point does (target_points2d's `covariance`,
-# `_cov_json`: rows, `{"diagonal"}` or `{"isotropic"}`, the storage it holds), px², under `covariance`; `null` when it
-# is not finite (Förstner's unclassified window), which JSON cannot hold — a point's covariance is 2×2, so no size.
-function json_value(d::Attributed{<:Uncertain{<:PointFrame, <:CovMat{2}}}, contract::UnitContract; kind::Symbol)
-    u = getfield(d, :value)
-    meta = _metadata_value(getfield(d, :attributes))
-    Σ = cov(u)
-    return (frame = json_value(geom(u), contract; kind), covariance = all(isfinite, Σ) ? _cov_json(Σ) : nothing, pairs(meta)...)
+JSON.lift(s::VgioStyle, ::Type{<:Uncertain{F}}, x) where {F <: FeatureFrame} = _uncertain_frame(JSON.lift(s, F, x), _get_key(x, "covariance"))
+# The frame with the covariance `c` (a wire form) over its parameters.
+function _uncertain_frame(f::FeatureFrame, c)
+    Σ = _cov_matrix(c isa NamedTuple ? _lower(c) : c, frame_dof(f))
+    return Uncertain(f, CovMat(Σ))
 end
-json_value(d::Attributed{<:Uncertain{<:PointFrame, <:CovMat}}, ::UnitContract; kind::Symbol) = throw(ArgumentError(
-    "a point frame's covariance is 2×2 (its position's), got $(size(cov(getfield(d, :value))))"))
-
-# The metadata fields every detector writes as Float64, in their canonical order.
-const _FLOAT_METADATA = (:response, :edge_score, :laplacian_scale_score)
-
-function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitContract; kind::Symbol)
-    frame_data = _get_key(d, "frame")
-    fr = if _has_key(frame_data, "A")
-        from_json(AffineFrame, frame_data, contract; kind)
-    elseif _has_key(frame_data, "S")
-        from_json(EllipticFrame, frame_data, contract; kind)
-    elseif _has_key(frame_data, "θ")
-        from_json(OrientedDisc, frame_data, contract; kind)
-    elseif collect(_key_names(frame_data)) == ["center"]  # a position alone: the 2-DOF frame, its covariance an uncertain point's
-        return _point_detection(from_json(PointFrame, frame_data, contract; kind), d)
-    else
-        from_json(Disc, frame_data, contract; kind)
-    end
-    # Every key but `frame` and `cov` is metadata: the documented fields first,
-    # as Float64 (a writer may print 1.0 as 1), then the others sorted by name,
-    # so the result does not depend on the key order of the input.
-    meta = _detection_metadata(d, ("frame", "cov", "cov_size"))
-    _has_key(d, "cov") || return Attributed(fr, meta)
-    c = _get_key(d, "cov")
-    N = _cov_size(c, d)
-    Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64[_cov_entry_from_json(x, contract, kind) for x in c], N, N)
-    return Attributed(Uncertain(fr, CovMat(SMatrix{N, N, Float64}(Σ))), meta)
-end
-# A detection's metadata: every key but the frame's and its covariance's (`skip`).
-function _detection_metadata(d::_JSONObject, skip)
-    present = Symbol[Symbol(k) for k in _key_names(d) if k ∉ skip]
-    names = (filter(in(present), collect(_FLOAT_METADATA))..., sort!(setdiff(present, _FLOAT_METADATA))...)
-    vals = Tuple(n in _FLOAT_METADATA ? Float64(_get_key(d, String(n))) : _get_key(d, String(n)) for n in names)
-    return NamedTuple{names}(vals)
-end
-
-# A point frame's detection: its metadata as every frame's (`_detection_metadata`), and an uncertain one's `covariance`
-# read by the uncertain point's leaf (`_cov_matrix`, as `_pixel_from_json` reads it), `null` the NaN 2×2. The other
-# frames' `cov`/`cov_size` is refused here.
-function _point_detection(fr::PointFrame, d::_JSONObject)
-    (_has_key(d, "cov") || _has_key(d, "cov_size")) &&
-        throw(ArgumentError("a point frame's covariance is its `covariance` (an uncertain point's), not `cov`/`cov_size`"))
-    meta = _detection_metadata(d, ("frame", "covariance"))
-    _has_key(d, "covariance") || return Attributed(fr, meta)
-    c = _get_key(d, "covariance")
-    Σ = c === nothing ? SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN) : _cov_matrix(_lower(c), 2)   # the uncertain point's leaf
-    return Attributed(Uncertain(fr, CovMat(Σ)), meta)
-end
-
-# The size N of a detection's covariance is the value's, not the frame type's
-# (an ASIFT EllipticFrame's is 3×3): an N×N matrix's N² entries, or, for a
-# `null` covariance, the `cov_size` written with it. A `null` without a size
-# is IO v0.1.0's record, which v0.1.0 read as 3×3.
-function _cov_size(c, d::_JSONObject)
-    if c === nothing
-        _has_key(d, "cov_size") || return 3
-        N = _get_key(d, "cov_size")
-        (N isa Integer && N > 0) ||
-            throw(ArgumentError("a null `cov` states its size `cov_size` as a positive integer, got $(repr(N))"))
-        return Int(N)
-    end
-    N = isqrt(length(c))
-    N * N == length(c) && N > 0 ||
-        throw(ArgumentError("a detection's `cov` holds an N×N matrix's N² entries, got $(length(c))"))
-    _has_key(d, "cov_size") && _get_key(d, "cov_size") != N &&
-        throw(ArgumentError("a detection's `cov` has $(length(c)) entries, its `cov_size` says $(_get_key(d, "cov_size"))"))
-    return N
-end
+_covariance_label(::CovMat{N, T, M, C}) where {N, T, M, C} = C
+_frame_cov_size(f, Σ) = size(Σ, 1) == frame_dof(f) || throw(ArgumentError(
+    "a $(nameof(typeof(f)))'s covariance is over its $(frame_dof(f)) parameters (frame_dof: the centre (x, y) first, then its shape), got $(size(Σ, 1))×$(size(Σ, 2))"))

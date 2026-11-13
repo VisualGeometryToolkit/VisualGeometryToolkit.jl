@@ -1,4 +1,4 @@
-# vgio/panorama/v1 (panorama_schema.jl): a panorama's results — the bounded camera body, the rotations as the
+# vgio/panorama/v2.0 (panorama_schema.jl; v1, IO 0.9.4's, through its step): a panorama's results — the bounded camera body, the rotations as the
 # trajectory body with zero translations, the vignetting body and the frames' gains — every field round trip
 # (Float64 and Float32 where a field holds numbers of either), the table's refusals, and the composition: each part's
 # bytes are the bytes its own kind writes.
@@ -40,7 +40,7 @@
             # the gains
             @test b.gains == gains && (gains === nothing || b.gains isa Matrix{Float64})
             d = JSON.parsefile(p)
-            @test haskey(d, "gains") == (gains !== nothing) && d["pixel_frame"] == "colmap" && d["length_unit"] == "mm"
+            @test haskey(d, "gains") == (gains !== nothing) && d["units"]["pixel"] == "colmap" && d["units"]["length"] == "mm"
         end
         # Float32: rotations, gains and vignetting control points of Float32 are written exactly and read back as the
         # same numbers in Float64
@@ -75,8 +75,8 @@ end
         @test JSON.json(P["camera"]) == JSON.json(c)
         @test collect(keys(P["rotations"])) == ["from", "to", "frames"] && all(JSON.json(P["rotations"][k]) == JSON.json(t[k]) for k in ("from", "to", "frames"))
         @test JSON.json(P["vignetting"]) == JSON.json(JSON.parsefile(joinpath(dir, "v.json"))["vignetting"])
-        @test all(P[k] == t[k] for k in ("length_unit", "rotation_encoding", "transform_convention"))
-        @test P["gains"] == [Dict("t" => 1, "gain" => [1.0, 1.0, 1.0])]
+        @test P["units"] == t["units"] && P["conventions"] == t["conventions"]
+        @test P["gains"] == [Dict("frame_index" => 1, "gain" => [1.0, 1.0, 1.0])]
     end
 end
 
@@ -107,13 +107,12 @@ end
         bad(f) = (d = deepcopy(good); f(d); q = joinpath(dir, "bad.json"); write(q, JSON.json(d)); q)
         for f in (d -> (d["rotations"]["frames"][2]["pose"]["translation"] = [0.0, 1.0, 0.0]),   # a translation
                   d -> pop!(d["gains"]),                                                          # a frame with no gains
-                  d -> (d["gains"][2]["t"] = 1),                                                  # a frame index twice
+                  d -> (d["gains"][2]["frame_index"] = 1),                                                  # a frame index twice
                   d -> (d["gains"][2]["gain"] = [1.0, 1.0]),                                      # another number of planes
                   d -> (d["gains"][2]["gain"][1] = -1.0),                                          # a gain not positive
-                  d -> (d["pixel_frame"] = "opencv"),                                             # the vignetting body's frame is colmap
                   d -> (d["rotations"]["to"] = "view:pano"),                                      # camera → world only
-                  d -> (foreach(f -> (f["t"] += 1), d["rotations"]["frames"]); foreach(g -> (g["t"] += 1), d["gains"])),   # gains of t ≠ 1:K
-                  d -> delete!(d, "rotation_encoding"),                                           # a declaration missing
+                  d -> (foreach(f -> (f["frame_index"] += 1), d["rotations"]["frames"]); foreach(g -> (g["frame_index"] += 1), d["gains"])),   # gains of t ≠ 1:K
+                  d -> delete!(d, "conventions"), d -> delete!(d["units"], "length"),           # a declaration missing
                   d -> delete!(d, "vignetting"), d -> delete!(d, "camera"), d -> delete!(d, "rotations"),
                   d -> (d["extra"] = 1))                                                          # an unknown key
             q = bad(f)
@@ -125,5 +124,43 @@ end
         # a file of another kind is refused by name
         save(joinpath(dir, "t.json"), rots)
         @test_throws ArgumentError load_panorama(joinpath(dir, "t.json"))
+    end
+end
+
+@testitem "panorama: a v1 file (IO 0.9.4) reads through its step to v2.0" setup = [VGIoFixtures] begin
+    using VisualGeometryToolkitIO: save_panorama, load_panorama
+    using VisualGeometryToolkitCore: Trajectory, CameraFrame, WorldFrame, RadialVignetting, LogVignetting, with_control_points, Sensor, μm, model, sensor
+    cam = BoundedCamera(CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 0, 800.0, 0, 320.5, 240.5, 1)); lens = KannalaBrandt(0.1, 0.0, 0.0, 0.0), pixel_frame = :colmap),
+                        Sensor(Size2(width = 640px, height = 480px), 5.94μm))
+    q = QuatRotation(0.9, 0.1, -0.3, 0.05)
+    rots = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), [0.0, 0.0, 0.0] .* m),
+                                                    2 => EuclideanMap(q, [0.0, 0.0, 0.0] .* m)); images = Dict(1 => "a.ARW", 2 => "b.ARW"))
+    v = LogVignetting(with_control_points(RadialVignetting(5, SVector(320.0, 240.0), 400.0), [0.0, -0.02, -0.07, -0.15, -0.26]))
+    G = [1.0 1.0 1.0; 1.1 1.0 0.9]
+    mktempdir() do dir
+        p = joinpath(dir, "p.json")
+        save_panorama(p, cam, rots, v, G)
+        cur = load_panorama(p)
+        # the same results as IO 0.9.4 wrote them: top-level declarations, the 0.9 camera body, `t`, camera_optical,
+        # a linear radial chart omitted
+        d = JSON.parsefile(p; dicttype = Dict{String, Any})
+        v1 = Dict{String, Any}("schema" => "vgio/panorama/v1", "pixel_frame" => "colmap", "length_unit" => d["units"]["length"],
+                               "rotation_encoding" => d["conventions"]["rotation_encoding"],
+                               "transform_convention" => d["conventions"]["transform_convention"])
+        c = d["camera"]
+        sz = pop!(c, "image_size"); c["width"] = sz["width"]; c["height"] = sz["height"]
+        c["pitch"] = [c["pitch"]["width"], c["pitch"]["height"]]
+        v1["camera"] = c
+        r = d["rotations"]; r["from"] = "camera_optical"
+        for f in r["frames"]; f["t"] = pop!(f, "frame_index"); end
+        f2 = r["frames"][2]["pose"]["rotation"]; r["frames"][2]["pose"]["rotation"] = -f2   # a w < 0 quaternion, as 0.9 allowed
+        v1["rotations"] = r
+        delete!(d["vignetting"]["spline"], "chart"); v1["vignetting"] = d["vignetting"]
+        v1["gains"] = [Dict("t" => g["frame_index"], "gain" => g["gain"]) for g in d["gains"]]
+        old = joinpath(dir, "v1.json")
+        write(old, JSON.json(v1))
+        b = load_panorama(old)
+        @test b.rotations == cur.rotations && b.gains == cur.gains && model(b.camera) == model(cam) && sensor(b.camera) == sensor(cam)
+        @test b.vignetting(SVector(100.5, 200.25)) == v(SVector(100.5, 200.25))
     end
 end

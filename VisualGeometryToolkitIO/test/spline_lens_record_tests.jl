@@ -142,7 +142,7 @@ end
         VisualGeometryToolkitIO.vgio_migrate_tree(dir; io)
         log = String(take!(io))
         @test occursin("grid.camera.json", log) && occursin("nc.noncentral.json", log)
-        @test sort(readdir(dir)) == ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json"]
+        @test sort(readdir(dir)) == ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json", "vgio_migrate_ids.json"]   # (the tree's persisted id map)
         @test read(joinpath(dir, "grid.json")) == before && read(joinpath(dir, "nc.json")) == read(nc)
         @test only(keys(load(Dict{Symbol, BoundedCamera}, joinpath(dir, "grid.camera.json")))) === :grid
     end
@@ -154,7 +154,7 @@ end
             io = IOBuffer()
             VisualGeometryToolkitIO.vgio_migrate_tree(dir; in_place = true, io)
             log = String(take!(io))
-            @test (run, sort(readdir(dir))) == (run, ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json"])
+            @test (run, sort(readdir(dir))) == (run, ["grid.camera.json", "grid.json", "nc.json", "nc.noncentral.json", "vgio_migrate_ids.json"])
             run == 2 && @test occursin("already migrated", log) && !occursin("FAILED", log)
         end
         @test read(joinpath(dir, "grid.json")) == before

@@ -194,8 +194,8 @@ end
     @test has_units(q) && typeof(q) == typeof(p) && Tuple(cov(q)) == Tuple(cov(p))
     @test JSON.lower(s, p).frame == "target_plane" && JSON.lower(s, p).covariance["diagonal"] ≈ [0.02^2, 0.03^2]   # mm² in an mm record
     # an IO 0.9 blur body (`{"unit", "covariance"}`), as another package's record of an earlier version embeds it: read as
-    # the unlabeled blur it held; its unit "px^2" or a length squared, told apart by NAME (FlexUnits gives px, px³ and
-    # pd² one dimension, none, and one scale, so they would pass a dimension check); a length is not an area
+    # the unlabeled blur it held; its unit "px^2" or a length squared, told apart by NAME (to FlexUnits px, px³ and pd²
+    # are all the same unitless scale-1 unit, so a dimension check accepts them all); a length is not an area
     old(u, c) = JSON.parse(JSON.json(Dict("unit" => u, "covariance" => c)))
     b9 = JSON.lift(s, GaussianBlur, old("px^2", Dict("diagonal" => [0.25, 0.5])))
     @test !has_units(b9) && Tuple(cov(b9)) == (0.25, 0.0, 0.0, 0.5)

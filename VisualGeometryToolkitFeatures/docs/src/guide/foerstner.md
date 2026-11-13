@@ -19,7 +19,7 @@ using VisualGeometryToolkitFeatures, VisualGeometryToolkitCore
 
 points  = detect_foerstner(img)                          # Float32, default_device()
 corners = filter(d -> d.label === :corner, points)
-Ellipse(first(corners); sigma = 1)                       # the 1σ error ellipse (ip_errell.m)
+Ellipse(first(corners).value; sigma = 1)                 # the 1σ error ellipse (ip_errell.m)
 ```
 
 ## What it returns

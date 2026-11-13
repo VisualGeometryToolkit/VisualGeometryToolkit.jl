@@ -211,7 +211,7 @@ end
 # A detection's uncertain centre through a map (detection_types.jl, moved from PanoramaStitching): its centre with the
 # (x, y) block of its frame's covariance, carried by Core's propagate.
 @testitem "detection covariance: propagate(map, detection) — the centre and its position block through the map" setup = [Fixtures, UncFixtures] begin
-    using VisualGeometryToolkitCore: Uncertain, CovMat, cov, geom, propagate, SimilarityMap, LinearMap, Translation
+    using VisualGeometryToolkitCore: Uncertain, CovMat, cov, geom, propagate, center, SimilarityMap, LinearMap, Translation
     using StaticArrays: SMatrix, SVector
     using LinearAlgebra: UniformScaling
     on = asift_detect(IMG; device = KA.CPU(), uncertainty = FeatureCovariance())
@@ -219,8 +219,8 @@ end
     S = SimilarityMap(Translation(SVector(1.0, -3.0))) ∘ SimilarityMap(LinearMap(UniformScaling(2.0)))   # x ↦ 2x + (1, −3)
     u = propagate(S, d)
     Σ = cov(d)
-    ref = propagate(S, Uncertain(SVector{2, Float64}(d.center[1], d.center[2]),
-                                 CovMat(SMatrix{2, 2, Float64, 4}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]))))
+    ref = propagate(S, center(d))                                # Core's one conversion: the centre and the (x, y) block
+    @test geom(center(d)) == d.center && SMatrix{2, 2}(cov(center(d))) == SMatrix{2, 2}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2])
     @test geom(u) == geom(ref) && cov(u) == cov(ref)
     @test geom(u) ≈ S(SVector(d.center[1], d.center[2]))
     @test SMatrix{2, 2}(cov(u)) ≈ 4 * SMatrix{2, 2}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2])

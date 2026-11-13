@@ -102,7 +102,7 @@ end
         # within the reported covariance, not to 0.01 px
         @test norm(e) < 0.15
         @test e' * (cov(d.value) \ e) < 13.8            # χ²₂(0.999)
-        ell = Ellipse(d; sigma = 1)
+        ell = Ellipse(d.value; sigma = 1)
         @test ell.center == d.center && ell.a ≈ sqrt(maximum(eigvals(Matrix(cov(d.value)))))
     end
 end

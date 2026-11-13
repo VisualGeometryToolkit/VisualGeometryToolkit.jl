@@ -49,7 +49,7 @@ Returns one row per optimal window, a `StructArray` of
   image noise `noise` propagated through the detector, below) or `:a_posteriori`
   (the reference's `Ω/redundancy · N⁻¹`, when `noise` is `nothing`).
 
-`filter(d -> d.label === :corner, points)` are the corners; `Ellipse(d; sigma = 1)`
+`filter(d -> d.label === :corner, points)` are the corners; `Ellipse(d.value; sigma = 1)`
 is a point's 1σ error ellipse (`ip_errell.m`'s default).
 
 `img` is any grey image the package's detectors take, read through

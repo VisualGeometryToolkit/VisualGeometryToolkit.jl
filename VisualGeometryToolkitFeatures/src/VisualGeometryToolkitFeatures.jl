@@ -54,6 +54,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map, bayer_plane_map
 using LinearAlgebra: isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
+using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse

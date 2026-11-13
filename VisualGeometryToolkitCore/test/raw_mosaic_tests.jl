@@ -605,6 +605,9 @@ end
         @test lin[findfirst(==(:R), names), :, :] .* gain == B.image[:, :, 1]
         @test lin[findfirst(==(:B), names), :, :] .* gain == B.image[:, :, 3]
         @test B.geometry.green_dn == (span[g[1]], span[g[2]])
+        cols = Tuple(Int.(collect(VgtkCore._cell_colors(m, "test"))[g]))
+        @test B.geometry.green_colors == cols && all(in((1, 3)), cols)              # each green's CFA colour index
+        @test VgtkCore.green_plane(B) == B.image[:, :, 2] && VgtkCore.green_plane(LinearRaw(m; mode = :green_cells, gain)) == B.image[:, :, 2]
         @test all(linear_value(m.white, black[k], span[k]) == 1 for k in 1:4)
     end
 end

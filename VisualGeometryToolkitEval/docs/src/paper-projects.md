@@ -219,8 +219,12 @@ against it instead of the binding name:
 
 ```toml
 [artifacts.eth3d_splg_correspondences]
-published_name = "eth3d_splg_csponds"    # the Zenodo file, published 2026-10
+published_name = "<the file name the record holds>"   # e.g. a name the record published in 2026-10
 ```
+
+Such a published name is data, not a binding: VisualGeometryToolkitCore's
+`check_naming` lists it among its foreign tokens and accepts it only in a
+quoted TOML value, a string literal or a data fixture (an `Artifacts.toml`).
 
 Every artifact tree holds paths relative to its mount root: `data` is
 `data_root()` and `results` is `results_root()`. The author's tree, a packed

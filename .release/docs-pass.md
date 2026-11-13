@@ -1,3 +1,36 @@
+docs-pass: 70202fe2
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change)
+
+# Core 0.9.9 docs pass (julia-docs-pass) — patch-core099
+
+The launch `pointwise!` makes, public and unlaunched, so a caller sizes it with `device_resident_threads` without
+mirroring Core's private kernel construction. Baseline: main ddbd9910 (Core 0.9.8, Eval 0.7.4).
+
+## 1. Public API since the baseline
+
+- Core: `pointwise_kernel(f, out, xs...; exec) -> (kernel, args, ndrange)`, public, not exported (transforms/pointwise.jl,
+  beside `pointwise!`; in the manual through api/batched.md's `@autodocs` of transforms/pointwise.jl). `pointwise!` is
+  it followed by the launch: one path. Nothing removed.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `pointwise_kernel` documented beside `pointwise!`; Core's docs build strict (green) |
+| naming | the docstring's and test's "passed" replaced by "given" (check_naming R7, gate 4ffb61e4) |
+| CHANGELOG | Core 0.9.9 |
+| landing page | unchanged |
+
+## 3. Executed on the release candidate (70202fe2)
+
+Gate, Julia 1.13.3. On 4ffb61e4 (jobs 14755–14758): prep green; Core CPU groups 3 and 4 (pointwise_tests.jl,
+device_tests.jl); the GPU tier, every package's GPU groups, green but Core's groups 10 (the device-vs-host FMA bit in
+the new test) and 12 (R7). On 70202fe2, which changes only that docstring word and that test (jobs 14831, 14835–14837):
+prep green (check_duplication 0 on all six, naming), Core CPU group 3 128099 / 2, GPU group 10 7771 / 0 and group 12
+3019 / 0, Core docs green.
+
+---
+
 docs-pass: 4209e867
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: a bug fix in the code identity of a run)
 

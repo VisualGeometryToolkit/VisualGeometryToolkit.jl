@@ -58,3 +58,9 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
   query, so `check_duplication` leaves its methods per backend alone (`_TRANSFER_NAMES`), a compute function's still not
   (tested).
 - [x] check_duplication: 0 findings on all six (gate prep 14548).
+
+## Core 0.9.9 (patch-core099): one construction of the pointwise launch, 2026-11-13
+
+- [x] ONE construction of `pointwise!`'s kernel, arguments and ndrange: `pointwise_kernel` (`_pointwise_launch`), which
+  `pointwise!` launches; a caller asks `device_resident_threads` about that triple, never a copy of the construction.
+- [x] check_duplication: 0 findings on all six (gate prep 14831).

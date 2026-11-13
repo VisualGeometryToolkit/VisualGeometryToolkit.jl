@@ -1,5 +1,18 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased
+
+- **Fixed: a held SplineLens camera is projected whole** (`fixed = (:controls,)`, and the poses-alone first stage of
+  every free SplineLens refine). Its rows were each correspondence's 4 × 4 window at the guess, extrapolated when a pose
+  moved the point to another cell and never rebuilt, so the poses came back optimal for those windows rather than for
+  the camera (on the 3-view fixture 1.4e-3 px off the camera's own rows, the poses 3.6e-7 off the exact truth; now 2e-13
+  px and 1e-15). Each row is now the parametric route's block, the whole camera a constant through `project`: no window,
+  no node column, no rounds.
+- **New: `fit_forward_spline(camera::BoundedCamera; tolerance, region, device)`**, public (not exported): give a
+  SplineLens camera its forward spline with its backward, K and frame kept (`fit_camera(SplineLens, …)` turns a gauge-K
+  camera onto its optical axis first). The stack's one forward fit, the one `fit_camera(…; forward = true)` and the
+  refine's forward refit run. With a forward, `project` evaluates the spline: no projection solve, no cold start.
+
 ## 0.9.1 (2026-11-12)
 
 Additive patch, on VisualGeometryToolkitCore 0.9.2 (its public `normalized_point`): `[compat]` VisualGeometryToolkitCore = "0.9.2".

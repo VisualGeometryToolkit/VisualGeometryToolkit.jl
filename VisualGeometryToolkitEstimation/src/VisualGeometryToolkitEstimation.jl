@@ -292,6 +292,7 @@ public views, edgelist, nedges, adjacent_views, components, label_components, re
     observers, observed, observed_in, observers_of, covisibility   # their queries and algorithms, public, not exported
 export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
 export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region (linear: no guess)
+public fit_forward_spline     # a SplineLens camera given its forward spline, its backward, K and frame kept (the stack's one forward fit)
 export refine_camera          # a camera model polished onto a source over a region from a guess (the chart LM)
 export approximate_camera     # fit_camera's linear start, then refine_camera
 public ViewAngleLimitError    # the camera regressions' refusal of a region past the target family's view-angle limit (its fields: the measured angle, the limit)

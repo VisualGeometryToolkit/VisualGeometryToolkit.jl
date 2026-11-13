@@ -31,7 +31,9 @@
 # the present nodes (Core's `difference_rows`, the P-spline fit's operator),
 # `√λ·Δ³c / ρ`, 3 rows on the 2 or 3 patches holding its 4 nodes, `ρ` the mean length
 # of those 4 controls at the current values (so the row stays within its patches and
-# is exactly invariant to a common scale).
+# is exactly invariant to a common scale). A HELD camera (`fixed = (:controls,)`, and
+# the poses-alone stage) has no window: each correspondence is the parametric route's
+# block (`_BoardViewResidual`), the whole camera a constant through its `project`.
 #
 # THE GAUGE. K is never a variable. One common scale of every control leaves every x*
 # where it is (the direction normalizes the weighted sum) and every Δ³ row (each is
@@ -117,17 +119,16 @@ const _SplineBox = NTuple{3, SVector{2, Float64}}
 const _WindowControls = SMatrix{4, 4, SVector{3, Float64}, 16}
 
 # One correspondence's block: the target point, its pixel, its window's cell and where
-# its 16 controls sit. `N > 1`: its `N − 1` patches (column-major over the window's 2 × 2,
+# its 16 controls sit: its `N − 1` patches (column-major over the window's 2 × 2,
 # 2 × 3 or 3 × 3 block of patches) and its pose, `slots[r, c] = (k, n)` the window control
-# `[r, c]`'s patch and control; `N = 1`: its pose alone, the window's controls held
-# (`held`). `pixel` the camera's pixel affinity (Core's `_pixel_affine`: linear part, offset).
+# `[r, c]`'s patch and control (a held camera has no such block: `_spline_problem`).
+# `pixel` the camera's pixel affinity (Core's `_pixel_affine`: linear part, offset).
 # `solve` the block's last projection solve, by its window controls and camera-frame point:
 # NLLSsolver evaluates an accepted trial point's cost and then linearizes at the same
 # point, and the solve (from the cell's centre) gives the same answer bit for bit.
-struct _SplineReprojection{N, H <: Union{Nothing, _WindowControls}, V <: Tuple} <: NLLSsolver.AbstractResidual
+struct _SplineReprojection{N, V <: Tuple} <: NLLSsolver.AbstractResidual
     varind::SVector{N, Int}
     slots::SMatrix{4, 4, NTuple{2, Int}, 16}
-    held::H
     cell::Rect2{Float64}
     box::_SplineBox
     pixel::Tuple{SMatrix{2, 2, Float64, 4}, SVector{2, Float64}}
@@ -135,14 +136,13 @@ struct _SplineReprojection{N, H <: Union{Nothing, _WindowControls}, V <: Tuple} 
     u::SVector{2, Float64}
     solve::Base.RefValue{Tuple{_WindowControls, SVector{3, Float64}, SVector{2, Float64}, Bool}}
 end
-_SplineReprojection{N, H, V}(varind, slots, held, cell, box, pixel, X, u) where {N, H, V} = _SplineReprojection{N, H, V}(
-    varind, slots, held, cell, box, pixel, X, u, Ref((_WindowControls(ntuple(_ -> SVector(NaN, NaN, NaN), Val(16))), SVector(NaN, NaN, NaN), SVector(NaN, NaN), false))
+_SplineReprojection{N, V}(varind, slots, cell, box, pixel, X, u) where {N, V} = _SplineReprojection{N, V}(
+    varind, slots, cell, box, pixel, X, u, Ref((_WindowControls(ntuple(_ -> SVector(NaN, NaN, NaN), Val(16))), SVector(NaN, NaN, NaN), SVector(NaN, NaN), false))
 )
-const _SplinePoseBlock = _SplineReprojection{1, _WindowControls, Tuple{VgtkCore.SubsetManifold{_CameraPosePose, 6, SVector{6, Int}}}}
 NLLSsolver.ndeps(::_SplineReprojection{N}) where {N} = NLLSsolver.static(N)
 NLLSsolver.nres(::_SplineReprojection) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_SplineReprojection) = r.varind
-NLLSsolver.getvars(r::_SplineReprojection{N, H, V}, vars::AbstractVector) where {N, H, V} = ntuple(k -> vars[r.varind[k]]::fieldtype(V, k), Val(N))
+NLLSsolver.getvars(r::_SplineReprojection{N, V}, vars::AbstractVector) where {N, V} = ntuple(k -> vars[r.varind[k]]::fieldtype(V, k), Val(N))
 Base.eltype(::_SplineReprojection) = Float64
 
 _reprojection_controls(r::_SplineReprojection, patches::Tuple) =
@@ -177,9 +177,8 @@ function _spline_rows(r::_SplineReprojection, C, pose)
     _, x, ok = _spline_solve(r, C, pose)
     return ok ? _spline_pixel(r, x) - r.u : SVector(NaN, NaN)
 end
-NLLSsolver.computeresidual(r::_SplineReprojection{N, Nothing}, vars...) where {N} =
+NLLSsolver.computeresidual(r::_SplineReprojection{N}, vars...) where {N} =
     _spline_rows(r, _reprojection_controls(r, ntuple(k -> vars[k], Val(N - 1))), vars[N])
-NLLSsolver.computeresidual(r::_SplinePoseBlock, pose) = _spline_rows(r, r.held, pose)
 NLLSsolver.computecost(vars::AbstractVector, r::_SplineReprojection) = finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 # The rows and their Jacobian in each variable's full chart at δ = 0, by implicit
@@ -217,7 +216,7 @@ end
 
 # NLLSsolver's residual Jacobian: the rows and their Jacobian over the variables' free
 # coordinates (all of them: every variable of a block is free in this refinement).
-function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{N, Nothing}, vars...) where {N}
+function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{N}, vars...) where {N}
     varflags == 2^N - 1 || throw(ArgumentError("refine_camera_and_poses: every patch and pose is free (varflags = $varflags)"))
     patches = ntuple(k -> vars[k], Val(N - 1))
     pose = vars[N]
@@ -227,15 +226,6 @@ function NLLSsolver.computeresjac(varflags, r::_SplineReprojection{N, Nothing}, 
     res, Jpose, Jpatch = lin
     J = Matrix{Float64}(undef, 2, width)
     _pack_columns!(J, (Jpatch..., Jpose), (patches..., pose))
-    return res, J
-end
-function NLLSsolver.computeresjac(varflags, r::_SplinePoseBlock, pose)
-    varflags == 1 || throw(ArgumentError("refine_camera_and_poses: the pose is free (varflags = $varflags)"))
-    lin = _window_jacobians(r, r.held, (), pose)
-    lin === nothing && return SVector(NaN, NaN), fill(NaN, 2, length(pose.idx))
-    res, Jpose, _ = lin
-    J = Matrix{Float64}(undef, 2, length(pose.idx))
-    _free_columns!(J, 0, Jpose, pose.idx)
     return res, J
 end
 
@@ -402,13 +392,13 @@ function _spline_problem(
     stencils = free && (λ === nothing ? penalty : λ) > 0 ? _stencils(Δ, gsz) : Tuple{NTuple{4, CartesianIndex{2}}, SVector{4, Float64}}[]   # weight 0: no Δ³ rows
     foreach(s -> foreach(i -> live[i] = true, s[1]), stencils)
     windows = [(w[1][2], w[1][1]) for (_, _, _, w, _) in found]
-    if !free
-        pose_variables = [_pose_variable(ch, true) for ch in pose_charts]
-        costs = _SplinePoseBlock[
-            _SplinePoseBlock(SVector(v), map(i -> (0, 0), win), _WindowControls(map(i -> b.controls[i], win)), cell, box, pixel, X, u)
-                for (X, u, v, win, cell) in found
+    if !free        # the camera held: the bundle's own block, the whole camera a constant (no window, no node)
+        world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))   # the held board
+        F = (false, true, false)
+        costs = _BoardViewResidual{1, F, typeof(cam), NLLSsolver.NoRobust, Nothing}[
+            _BoardViewResidual{1, F, typeof(cam)}(SVector(v), cam, world, world, X, u; chart = Nothing) for (X, u, v, _, _) in found
         ]
-        return (; variables = pose_variables, costs, smooth = Any[], λ = 0.0, dropped, unprojected, live, slot = nothing,
+        return (; variables = collect(_SplineVar, pose_charts), costs, smooth = Any[], λ = 0.0, dropped, unprojected, live, slot = nothing,
             present, nP = 0, windows, xs)
     end
     # the scale gauge's held log-scale (with the scales free): the live node nearest x = 0; the rotation gauge's
@@ -427,7 +417,7 @@ function _spline_problem(
         varind = SVector{np + 1, Int}(patches..., nP + v)
         slots = map(i -> (findfirst(==(slot[i][1]), varind), slot[i][2]), win)
         V = Tuple{map(k -> typeof(variables[k]), varind)...}
-        push!(costs, _SplineReprojection{np + 1, Nothing, V}(varind, slots, nothing, cell, box, pixel, X, u))
+        push!(costs, _SplineReprojection{np + 1, V}(varind, slots, cell, box, pixel, X, u))
     end
     λ₀ = λ
     λ = 0.0
@@ -519,13 +509,12 @@ end
 # The mean length of the controls at the nodes `live`.
 _mean_length(controls::AbstractMatrix, live::AbstractMatrix{Bool}) = sum(i -> norm(controls[i]), findall(live)) / count(live)
 
-# The forward spline of a refined SplineLens camera, over its imaged region: `fit_camera(SplineLens, …)`'s own forward
-# fit (`_forward_spline`), on the camera as it is — not `fit_camera` itself, which gauges a gauge-K source onto its
-# optical axis first, and the refine holds its entry's frame and K exactly.
+# The forward spline of a refined SplineLens camera, over its imaged region: `fit_forward_spline` on the camera as it
+# is — not `fit_camera` itself, which gauges a gauge-K source onto its optical axis first, and the refine holds its
+# entry's frame and K exactly.
 function _refit_forward(camera::BoundedCamera, tolerance)
-    cam = model(camera)
-    fwd = _forward_spline(cam, VgtkCore.imaged_region(camera), tolerance, default_device())
-    return VgtkCore.with_model(camera, _with_forward(cam, fwd.spline)), fwd.code, fwd.r.errors.max
+    r = fit_forward_spline(camera; tolerance)
+    return estimate(r), (retcode(r), stop_rule(r)), metadata(r).max_px
 end
 
 # The SplineLens route is least squares only: its `optimization_strategy` is `nothing` (the default here). A robust
@@ -553,7 +542,7 @@ const _SPLINE_REFINE_ROUNDS = 5
 
 # One NLLSsolver solve of the problem `p` from its variables: the result and the solved variables.
 function _spline_solve!(p, max_iter, ftol, xtol, max_time)
-    problem = p.nP > 0 ? NLLSsolver.NLLSProblem{Any, Any}() : NLLSsolver.NLLSProblem(eltype(p.variables), _SplinePoseBlock)
+    problem = p.nP > 0 ? NLLSsolver.NLLSProblem{Any, Any}() : NLLSsolver.NLLSProblem(_CameraPosePose, eltype(p.costs))
     foreach(v -> NLLSsolver.addvariable!(problem, v), p.variables)
     foreach(c -> NLLSsolver.addcost!(problem, c), _spline_blocks(p))
     result = NLLSsolver.optimize!(problem, nlls_options(; max_iter, ftol, xtol, max_time))
@@ -569,7 +558,7 @@ function _rebuilt_problem(p, solved::AbstractVector, cam::CameraModel, views, st
 end
 
 # The solved poses of a problem with patches, as plain maps (a rebuild's start).
-_solved_poses(p, solved::AbstractVector) = [_plain_pose(model(solved[k]::_SplinePose)) for k in (p.nP + 1):length(solved)]
+_solved_poses(p, solved::AbstractVector) = [_plain_pose(model(solved[k])) for k in (p.nP + 1):length(solved)]
 
 # The problem `p` with its Δ³ rows reweighted to `λ` (`p.λ > 0`).
 _with_λ(p, λ::Float64) = merge(p, (; λ, smooth = Any[typeof(s)(s.varind, s.slots, sqrt(λ / p.λ) * s.coef) for s in p.smooth]))
@@ -591,7 +580,7 @@ function _spline_rounds(p, back::CameraModel, views, max_iter, ftol, xtol, deadl
     return (; st.p, st.solved, result = st.out, st.rounds, st.settled, st.iterations, st.timed_out, st.cost_start, st.next)
 end
 
-# THE window-rebuild rounds of the spline blocks (the spline route's and the rotation-centre views'): solve the problem
+# THE window-rebuild rounds of the spline route's blocks (a free camera's; a held one has no window): solve the problem
 # `p` (`solve(p) -> (out, solved, iterations, timed_out, startcost)`), then rebuild it at the estimate (`rebuild(p,
 # solved, round)`: a point whose x* moved to another cell reads another window — the held one only extrapolates — or
 # a `_NotProjected`), and solve again until every window is the estimate's own (`windows` unchanged), at most
@@ -803,7 +792,7 @@ function _refine_spline_axis_gauged(
     # the estimate as solved: the frame and K the entry set, held exactly
     vars = solved
     controls = p.nP == 0 ? b.controls : _patch_controls(b, p, solved)
-    poses_out = [model(vars[p.nP + v]::_SplinePose) for v in 1:V]
+    poses_out = [model(vars[p.nP + v]) for v in 1:V]
     all(_finite_pose, poses_out) && all(c -> all(isfinite, c), controls[held]) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
 

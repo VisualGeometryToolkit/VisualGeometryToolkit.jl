@@ -646,3 +646,30 @@ end
     @test_throws TypeError fit_camera(NoncentralSplineModel, GRID_BOUNDED, REGION; tolerance = 1.0e-3, device = :none)
     @test_throws TypeError pspline_grid(SplineLens, GRID_BOUNDED, REGION, (12, 12); device = :none)
 end
+
+@testitem "fit_forward_spline: a SplineLens camera given its forward, its backward, K and frame kept" begin
+    using StaticArrays: SVector
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, KannalaBrandt, Size2, BoundedCamera, estimate,
+        metadata, model, lens, project, calibration_matrix, retcode_symbol, imaged_region, backproject
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, fit_forward_spline
+    kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
+    cam = BoundedCamera(CameraModel(SplineLens, kb, Size2(1280, 960); grid_size = (12, 10)), Size2(1280, 960))
+    @test lens(model(cam)).forward === nothing
+    r = fit_forward_spline(cam; tolerance = 1.0e-3)
+    est = estimate(r)
+    @test retcode_symbol(r) === :converged || VC.converged(r)
+    @test est isa BoundedCamera && lens(model(est)).forward !== nothing
+    # everything but the forward is the camera's own, bit for bit
+    @test lens(model(est)).backward.controls == lens(model(cam)).backward.controls && lens(model(est)).backward.area == lens(model(cam)).backward.area
+    @test calibration_matrix(model(est)) == calibration_matrix(model(cam))
+    @test metadata(r).max_px <= 1.0e-3
+    # the forward's projection agrees with the backward's solve to the tolerance over the image
+    back = model(cam)
+    for u in (SVector(640.0, 480.0), SVector(100.0, 80.0), SVector(1200.0, 900.0), SVector(900.0, 300.0))
+        X = backproject(back, u)
+        @test norm(project(model(est), X) - project(back, X)) <= 1.0e-3
+    end
+    # a parametric camera has no forward spline to fit
+    @test_throws ArgumentError fit_forward_spline(BoundedCamera(kb, Size2(1280, 960)); tolerance = 1.0e-3)
+end

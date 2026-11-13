@@ -1346,6 +1346,43 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
 # The SplineLens camera `cam` with the forward spline `forward`: its K, backward and presence kept.
 _with_forward(cam, forward) = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward, present = cam.lens.present))
 
+"""
+    fit_forward_spline(camera::BoundedCamera; tolerance, region = imaged_region(camera), device = default_device())
+        -> FitResult{<:BoundedCamera}
+
+Give a SplineLens `camera` its FORWARD spline, the camera itself kept: its K, its
+backward lattice (the camera's rays), its presence mask and its frame exactly as
+they are, any forward it held replaced. The forward is a `ChartSpline{2}` from
+the equidistant chart about ẑ (Core's `forward_chart(SplineLens)`) to the
+normalized point, fitted to the camera's own rays over `region` (pixels) with the
+P-spline penalty, its knot spacing searched until the held-out round trip
+`‖K·forward(chart(ray)) − u‖` meets `tolerance` (pixels) — the one forward fit of
+the stack, `fit_camera(SplineLens, …; forward = true)`'s and the SplineLens
+`refine_camera_and_poses`' refit. With a forward, `project` evaluates it inside its
+fitted chart: no projection solve, no cold start.
+
+Unlike `fit_camera(SplineLens, camera, region)`, which turns a gauge-`K` camera onto
+its optical axis first (a new frame), this keeps the frame, so poses estimated
+against the camera stay valid.
+
+The result's estimate is the bounded camera with its forward; its `rms` and the
+metadata's `max_px` / `max_px_edge` are the held-out round trip's (pixels), with
+the knot `spacing`, the `counts` of controls, `λ` and the search's
+`outer_iterations`. Any other camera (a lens that is not a `SplineLens`, a bare model) is an `ArgumentError`.
+"""
+function fit_forward_spline(camera::BoundedCamera{<:CameraModel{<:VgtkCore.AbstractIntrinsics, <:SplineLens}};
+                            tolerance::Real, region = VgtkCore.imaged_region(camera), device = default_device())
+    _check_tolerance(tolerance)
+    cam = model(camera)
+    fwd = _forward_spline(_without_forward(cam), region, tolerance, device)
+    e = fwd.r.errors
+    md = (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n, max_px = e.max, max_px_edge = e.max_edge)
+    return FitResult(VgtkCore.with_model(camera, _with_forward(cam, fwd.spline)), fwd.code..., fwd.n, e.rms, length(fwd.r.errors.values), md)
+end
+fit_forward_spline(camera; kwargs...) = throw(ArgumentError(
+    "fit_forward_spline: a SplineLens camera (a BoundedCamera of a CameraModel with a SplineLens) is given its forward spline, got a $(nameof(typeof(camera)))" *
+        (camera isa BoundedCamera ? " of a $(nameof(typeof(lens(model(camera))))) lens" : "")))
+
 function _forward_spline(cam, region, tolerance, device)
     q = _chart_quadrature(cam, region, device)
     r, code, n = _spacing_search(cells -> _forward_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))

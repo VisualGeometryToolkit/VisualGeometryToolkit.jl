@@ -575,6 +575,42 @@ end
     end
 end
 
+# A HELD SplineLens camera is a constant: its rows project through the whole camera (`project`, every node), so no
+# window is declared or rebuilt and no node is a column. Until 2026-11-12 the held route's blocks each carried the
+# 4 × 4 window of its point's cell at the guess and extrapolated its cubic pieces when the pose moved the point into
+# another cell (never rebuilt: the held problem has no rounds), so the poses came back optimal for those windows, not
+# for the camera. The poses move ≈ 20 px here (`perturbed_pose`), across many cells.
+@testitem "refine_camera_and_poses: a held SplineLens camera is projected whole — no window, no node column, its own rows" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using StaticArrays: SVector
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, retcode_symbol, estimate, reprojection_error, model, lens, spline_window,
+        nlls_rows_and_jacobian, project
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
+    truth = spline_truth(); Es = truth_poses(3)
+    views = spline_views(truth, Es, 1.1)
+    poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
+    gt, Rt = entry_gauge(truth)
+    turned = [VC.axis_gauged(P, Rt) for P in poses0]
+    # the held problem: one block per correspondence on its pose alone, the camera a constant (no window, no node)
+    p = VE._spline_problem(VE._without_forward(gt), turned, views, false, 0.0)
+    @test p.nP == 0 && all(c -> c isa VE._BoardViewResidual && length(c.varind) == 1, p.costs)
+    @test size(last(nlls_rows_and_jacobian(p.costs, p.variables)), 2) == 6 * 3
+    # many points change cells between the guess and the truth
+    b = lens(gt).backward
+    cell(P, X) = spline_window(b.area, size(b.controls), project(lens(gt), P.R * X + P.t))[1:2]
+    tt = [VC.axis_gauged(E, Rt) for E in Es]
+    crossed = sum(count(c -> cell(turned[v], first(c)) != cell(tt[v], first(c)), views[v]) for v in eachindex(views))
+    @test crossed > 20
+    held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))
+    est = estimate(held)
+    @test retcode_symbol(held) === :converged && held.spline.rounds == 1
+    # the rows are the camera's own reprojection errors at the estimate, and the exact data's optimum is the truth
+    own = reduce(vcat, [reduce(vcat, [Vector(reprojection_error(model(est.camera), est.poses[v], first(c), last(c))) for c in views[v]]) for v in eachindex(views)])
+    @test maximum(abs, held.residuals - own) <= 1.0e-9
+    @test maximum(abs, held.residuals) <= 1.0e-8
+    @test maximum(maximum(abs, P.R - E.R) + maximum(abs, P.t - E.t) for (P, E) in zip(est.poses, tt)) < 1.0e-9
+end
+
 @testitem "refine_camera_and_poses: a SplineLens camera's poses alone, a forward refitted, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector

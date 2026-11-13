@@ -140,8 +140,14 @@ radially symmetric camera over the camera's own bound (a circular fisheye's imag
 principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
+`fit_forward_spline(camera; tolerance)` gives a SplineLens camera its forward spline and keeps everything else — its
+backward, K and frame — so poses estimated against it stay valid; with a forward, `project` evaluates the spline and
+runs no projection solve. It runs the stack's one forward fit (the fit `fit_camera(SplineLens, …; forward = true)` and the
+SplineLens `refine_camera_and_poses` run).
+
 ```@docs
 fit_camera
+fit_forward_spline
 refine_camera
 approximate_camera
 optical_axis

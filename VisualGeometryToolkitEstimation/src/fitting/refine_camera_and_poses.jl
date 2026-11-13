@@ -292,7 +292,9 @@ trait, `GaugeIntrinsics`, selects it):
 - Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
   on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
   implicit differentiation at `x*` (no automatic differentiation reaches the
-  solve). A correspondence detected on a window with an absent node is
+  solve). With the camera held (`fixed = (:controls,)`, and the poses-alone
+  stage) there is no window: each row projects through the whole camera
+  (`project`), a constant. A correspondence detected on a window with an absent node is
   dropped and counted (`result.spline.n_dropped_window`), and so is one the
   camera does not project when detected within one knot cell of such a window
   (it images it onto the absent nodes; counted apart,

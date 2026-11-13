@@ -1,9 +1,9 @@
-docs-pass: (pending re-gate)
+docs-pass: 95189fdb
 
 # Features 0.9.0 docs pass (wave10, feat09)
 
-- Built: VisualGeometryToolkitFeatures/docs/make.jl on a fresh shared clone at c50c633e, Julia 1.13.3: rc 0 (no deploy).
-- Public API changes documented: `detect_foerstner(...; noise)` and the `covariance_source` attribute (docstring, guide/foerstner.md
+- Built: VisualGeometryToolkitFeatures/docs/make.jl on a fresh shared clone at 95189fdb, Julia 1.13.3: rc 0 (job 12829) (no deploy).
+- Public API changes documented: `variance_stabilize(L, ::SensorNoise)`, `detect_foerstner(L::LinearRaw; noise::SensorNoise)`, `load_raw(...; noise)`; `detect_foerstner(...; noise)` and the `covariance_source` attribute (docstring, guide/foerstner.md
   "The covariance"); `CorrespondenceSet` (renamed in docstrings and guide/matching.md); `propagate(m, d)` via Core's `center(d)`
   (docstring); a Förstner point's error ellipse `Ellipse(d.value; sigma)` (docstring, guide, test).
 - Terminology: "keypoint", "measurement", "cspond" absent from src, ext, docs, test and benchmark names and prose (outside

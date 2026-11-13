@@ -274,7 +274,10 @@ end
     # each metre value rounded to 15 significant digits (IO 0.10's identity spec, in metres). A
     # number of at most 15 significant digits, in any decimal unit, is exactly such a value; a
     # 16–17-digit one may straddle a 15th-digit rounding boundary between the value built in code
-    # and the ≤ 2-ulp-moved value its file reads back, so it is outside the claim.
+    # and the ≤ 2-ulp-moved value its file reads back, so it is outside the claim: a unit-agnostic
+    # normalisation (in metres, no unit chosen) cannot absorb that move — any grid has straddles —
+    # and ≤ 15 digits is every decimal a person or the stack writes (write_length reproduces those
+    # byte for byte).
     R = one(RotMatrix{3, Float64})
     rng = Xoshiro(3)
     n_fail = Ref(0)

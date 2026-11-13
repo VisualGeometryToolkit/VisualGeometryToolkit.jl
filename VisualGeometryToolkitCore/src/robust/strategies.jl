@@ -40,7 +40,7 @@ const _LOSS_TABLE = (
 The loss-shape registry (a `TagRegistry`, family suffix `Shape`): TOML `loss`
 tag → shape type, read off the one loss-identity table (`_LOSS_TABLE`).
 """
-const LOSS_TAGS = TagRegistry(:loss, "Shape", (tag => K for (K, tag) in _LOSS_TABLE)...;
+const LOSS_TAGS = TagRegistry(:loss, "Shape", [tag => K for (K, tag) in _LOSS_TABLE];
                               paths = [r"^(.*\.)?loss$"])
 
 """
@@ -544,10 +544,10 @@ function _register_lo_rows(M::Module, rows, defaults; retired = (), none::Bool =
             Core.eval(M, :((::Type{$T})(; kw...) = $E.lo_construct($T; kw...)))
         end
     end
+    pairs = Pair{String, Any}[tag => T for (T, tag) in rows]
+    none && pushfirst!(pairs, "none" => nothing)   # no local optimization: `nothing` (this package's registry only)
     return TagRegistry(
-        :optimization_strategy, "",
-        (none ? ("none" => nothing,) : ())...,   # no local optimization: `nothing` (this package's registry only)
-        (tag => T for (T, tag) in rows)...;
+        :optimization_strategy, "", pairs;
         retired, paths = [r"^(.*\.)?(local_)?optimization_strategy(\.inner)*\.type$"]
     )
 end

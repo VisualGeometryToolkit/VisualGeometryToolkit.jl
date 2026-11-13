@@ -109,6 +109,7 @@ export centroid, area
 public signed_area   # the signed shoelace area of a closed ring of 2-D points (primitives/operators.jl)
 export shape_matrix, characteristic_scale
 export iou, overlap_area, coverage, best_iou_match
+public iou_below   # a proof that IoU(e₁, e₂) < t without the exact intersection (bounds from areas and the circumscribed discs)
 public overlap_method, geom_rank
 
 # Feature frames (transformation-based geometric primitives)
@@ -345,6 +346,7 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+public check_region_support, RegionBeyondSupport   # THE refusal of a fit over a region beyond the source's calibrated support
 public farthest_radius   # how far a region reaches from a centre: an imaged region's radius, clipped by the sensor (image_circle.jl)
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
@@ -412,6 +414,7 @@ export AffineMap, Translation
 # Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features 0.8.0 keeps the LibRaw decoder and the
 # display demosaic, and does not re-export these names: Core alone exports them).
 export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
+public green_plane, pixel_noise # a LinearRaw's green cells (the cell grid's plane), a view; THE noise (α, σ²) of a pixel value per plane under a SensorNoise
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
 export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
 export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view
@@ -699,13 +702,15 @@ public check_naming, NamingViolation, naming_scope
 # VisualGeometryToolkitFeatures' raw module is a finding.
 public check_raw_decoding, RawDecodingViolation
 public check_duplication, DuplicationViolation
+# No call splats a collection whose length is data (the same extension; DUPLICATION.toml's [[splat]] exceptions).
+public check_splat, SplatViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
-public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs, thrown_message, test_quality_gates,
+public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, test_quality_gates,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
-public ReadmeExample, readme_examples, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
+public ReadmeExample, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
     test_readme_row, test_readme_example, julia_blocks
 public sqrt_weights   # its √weight buffer
 
@@ -971,6 +976,7 @@ include("geometry/primitives/primitives.jl")
 using .Primitives  # Import all exported symbols into parent namespace
 using .Primitives: rect_corners, _rect_edge_samples, _snap_outward   # the one corner order and per-edge rect walk (primitives/rectangles.jl)
 using .Primitives: is_positive_definite   # public here (feature_frames.jl)
+using .Primitives: iou_below   # public here (operators.jl): a proven IoU < t
 using .Primitives: frame_dof, _point_frame_hint   # the FeatureFrame interface (feature_frames.jl): public, and the absent verbs' hint
 using .Primitives: signed_area   # public here (operators.jl): the shoelace area of a closed ring of points
 
@@ -1072,6 +1078,7 @@ include("visualization_stubs.jl")
 include("quality/naming.jl")
 include("quality/raw_decoding.jl")   # check_raw_decoding: the one RAW path (entry point; the scan is the Test extension)
 include("quality/duplication.jl")    # check_duplication: one implementation per concept (entry point; the scan is the Test extension)
+include("quality/splat.jl")          # check_splat: no splat of a data-length collection (entry point; the scan is the Test extension)
 include("quality/test_helpers.jl")   # the rows checks, the quality gates (entry points)
 include("quality/contract_helpers.jl")   # the contract conformance helpers (entry points)
 # The stack's quality contracts: the tag registry's scans (the registry itself

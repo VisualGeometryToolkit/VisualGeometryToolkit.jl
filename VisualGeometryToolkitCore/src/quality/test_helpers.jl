@@ -60,6 +60,22 @@ keywords go to `check_duplication` (the stack repositories compared come from
 function test_duplication end
 
 """
+    test_splat(M::Module; mode = :enforce, extensions = true)
+
+The stack's splat rule ([`check_splat`](@ref)) over package `M`, as a test in
+a gate mode: `:enforce` (`@test` that there is no finding), `:report` (each
+finding logged with `@warn` and the test recorded `@test_broken`; none found,
+an ordinary test) or `:off`. `extensions` goes to `check_splat`. A package on
+[`test_quality_gates`](@ref) gets the same check as its `splat` gate.
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_splat end
+
+# A gate as a test in its mode (`:enforce`, `:report`, `:off`) over the findings `findings()` returns:
+# test_splat and every gate of test_quality_gates. Implemented by VisualGeometryToolkitCoreTestExt.
+function _test_gate end
+
+"""
     test_recorded(make; nested = RECORDED_NESTED_STATES) -> Int
 
 That a [`Recorded`](@ref) run of [`block_coordinate_descent!`](@ref) IS the bare
@@ -130,7 +146,7 @@ function test_docs end
                        config_dirs = nothing, registries = (), stack_dependencies = :enforce,
                        stack_name = string(nameof(M)), stack_extra = nothing,
                        public_names = :enforce, third_party_public = :report,
-                       contract_generics = :enforce)
+                       contract_generics = :enforce, splat = :report)
 
 The stack's static quality gates over package `M`, as one test set — RATCHETS:
 each bound is the value the package meets today and only ever moves down.
@@ -173,7 +189,11 @@ each bound is the value the package meets today and only ever moves down.
     `Dual`, StaticArraysCore's `StaticArray`);
   - `contract_generics`: every method `M` adds to another stack package's
     function lands on that owner's `CONTRACT_GENERICS`
-    ([`contract_generic_violations`](@ref)).
+    ([`contract_generic_violations`](@ref));
+  - `splat` (default `:report`): no call splats a collection whose length is
+    data — a `Vector`, a generator, an abstract type — which compiles the
+    callee once per length ([`check_splat`](@ref) over `M` and its loaded
+    extensions; exceptions are `DUPLICATION.toml`'s `[[splat]]` entries).
 
 Implemented by VisualGeometryToolkitCoreQualityExt: `using Test, Aqua,
 ExplicitImports, JET` loads it.
@@ -210,6 +230,25 @@ in page order, as [`ReadmeExample`](@ref)s. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """
 function readme_examples end
+
+"""
+    page_examples(examples, page; lang = "julia") -> Vector{String}
+
+The code of the `lang` examples of one page, in page order, from
+[`readme_examples`](@ref)'s records: what a README test compares between the
+README, the landing page and a guide ("one example, shown on every page").
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function page_examples end
+
+"""
+    install_lines(root, page) -> Vector{String}
+
+The packages of every `pkg> add …` line of the page at `root/page` (each line's
+text after `add`), in page order: what a README test compares with an install
+row's [`install_packages`](@ref). Implemented by VisualGeometryToolkitCoreTestExt.
+"""
+function install_lines end
 
 """
     install_table(path, tasks) -> Dict{String, String}

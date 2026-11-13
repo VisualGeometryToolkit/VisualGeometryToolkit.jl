@@ -88,6 +88,10 @@ const RETIRED_NAMES = String[
     # an OBSERVATION is a detection associated with a model entity (a target point, a landmark); "measured" is provenance only
     "measurement" * "_gradient_jacobian",                         # a model's constraint Jacobian in the observation: `observation_gradient_jacobian`
     "measurement" * "_covariance",                                # `observation_covariance`
+    "MEASUREMENT" * "_NOISES", "measurement" * "_noise",          # PanoramaStitching 0.7: `OBSERVATION_NOISES`, `observation_noise`
+    "Board" * "Detection",                                        # BlobBoards 0.7: one board observed in one frame, `BoardObservation`
+    "load_cs" * "pond_sets",                                      # BlobBoards 0.7: `load_correspondence_sets`
+    "BlobBoards" * ".write_tiff",                                 # the one TIFF writer is VisualGeometryToolkitIO's: `VgtkIO.write_tiff`
     "Target" * "Detections",                                      # per frame, per target, the observations of its points: `TargetObservations` (VisualGeometryToolkitCore 0.10)
     "Target" * "Points2D", "Target" * "Points3D", "Target" * "Point2D", "Target" * "Point3D",   # folded into `TargetObservations{F}` (a PixelFrame or a named 3D frame; weights a `weights` column)
     # the three public aliases (wave 10): one name per concept
@@ -1654,7 +1658,7 @@ function check_naming(pkgdir::AbstractString)
     end
     # rule 10: a type carries widths when it descends from a width-carrying
     # root, through the package's own declarations
-    supertypes = merge(Dict{Symbol, Symbol}(), (c.supertypes for c in values(ctxs))...)
+    supertypes = foldl((d, c) -> merge!(d, c.supertypes), values(ctxs); init = Dict{Symbol, Symbol}())
     function is_carrier(t::Symbol)
         seen = Set{Symbol}()
         while !(t in seen)

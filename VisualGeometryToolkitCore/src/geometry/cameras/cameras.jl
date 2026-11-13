@@ -78,6 +78,7 @@ using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key 
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
 using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
+using ..VisualGeometryToolkitCore: shape_matrix, boundary_point   # an ellipse's quadratic form and boundary: region containment (image_circle.jl)
 using ..VisualGeometryToolkitCore: rect_corners   # the one corner order of a rect (primitives/rectangles.jl): farthest_radius's corners
 using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
@@ -1219,6 +1220,7 @@ export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
 export image_circle                       # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region                      # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+export check_region_support, RegionBeyondSupport   # (public, not exported, at the top level)
 export farthest_radius                    # how far a region reaches from a centre, sensor-clipped (public, not exported, at the top level)
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre

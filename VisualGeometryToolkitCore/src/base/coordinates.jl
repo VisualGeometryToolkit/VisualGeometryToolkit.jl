@@ -27,7 +27,7 @@ to_affine(v::StaticVector{N, T}) where {N, T} = vcat(v, one(T))
 
 function to_affine(v::AbstractVector{T}) where {T}
     n = length(v)
-    return SVector{n + 1, T}(v..., one(T))
+    return SVector{n + 1, T}(vcat(v, one(T)))
 end
 
 """

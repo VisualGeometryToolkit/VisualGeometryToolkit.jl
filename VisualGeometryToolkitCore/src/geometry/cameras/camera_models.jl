@@ -359,12 +359,12 @@ ray = backproject(camera, u)  # Returns normalized Vec3 direction
     Vec3(backproject(model.intrinsics, model.lens, u))
 
 """
-    backproject(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = default_device()) -> rays
-    backproject_with_jacobian(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = default_device())
+    backproject(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = get_backend(pixels)) -> rays
+    backproject_with_jacobian(model::CameraModel, pixels::AbstractVector{<:StaticVector{2}}; device = get_backend(pixels))
         -> Vector{Tuple{SVector{3}, SMatrix{3, 2}}}
 
 The batched [`backproject`](@ref) (and [`backproject_with_jacobian`](@ref)) on the
-KernelAbstractions backend `device` (by default the pixels' own, `get_backend(points)`:
+KernelAbstractions backend `device` (by default the pixels' own, `get_backend(pixels)`:
 a host vector stays on the host, a device array on its device; give
 [`default_device`](@ref)`()` to send host pixels to the accelerator): the scalar map per pixel,
 one [`pointwise!`](@ref) over a device copy of the model and the pixels, each ray
@@ -372,11 +372,11 @@ an `SVector{3}`, the result back in the pixels' array kind — bit for bit the
 scalar value on the CPU. One kernel on every backend: the model goes in its device form (isbits, or its adapt rule); a model with neither fails on an accelerator.
 A SplineLens camera's batched `backproject` is its own kernel (spline_lens.jl).
 """
-backproject(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(points)) =
-    _batched_backprojection(backproject, model, points, device)
+backproject(model::CameraModel, pixels::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(pixels)) =
+    _batched_backprojection(backproject, model, pixels, device)
 "See [`backproject`](@ref)`(model, pixels)`."
-backproject_with_jacobian(model::CameraModel, points::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(points)) =
-    _batched_backprojection(backproject_with_jacobian, model, points, device)
+backproject_with_jacobian(model::CameraModel, pixels::AbstractVector{<:StaticVector{2, <:Real}}; device::KA.Backend = get_backend(pixels)) =
+    _batched_backprojection(backproject_with_jacobian, model, pixels, device)
 
 # One pixel's datum as the batched forms store it: the ray an `SVector{3}` (the scalar's `Vec3`), a Jacobian as it is.
 @inline _ray_form(r::StaticVector{3}) = SVector{3}(r)

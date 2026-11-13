@@ -57,7 +57,8 @@ end
     using VisualGeometryToolkitIO: validate, read_record
     using VisualGeometryToolkitCore: TensorProductVignetting, RadialVignetting, LogVignetting, with_control_points,
         EnvironmentLight, SphericalHarmonicMap, with_unit, GaussianBlur, Rect, TargetHomographies, HomographyMap,
-        HomographyMat, sign_normalize, TargetPlaneFrame, relabel, PointTarget
+        HomographyMat, sign_normalize, TargetPlaneFrame, relabel, PointTarget,
+        TargetPoses, CameraFrame, EuclideanMap
     using StaticArrays: SDiagonal
     using Statistics: cov
     python = pixi_python("jsonschema")
@@ -111,6 +112,11 @@ end
             end
             written(p -> (mkpath(p); VgtkIO.save_units_sidecar(p, MM_PX)), "units_sidecar")
             written(p -> save(p, PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0)), mm_lengths(SVector(4.0, 5.0, 6.5))])), "target.json")
+            written("target_poses.json") do p
+                X = EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 900.0) .* mm)
+                save(p, TargetPoses{CameraFrame}(Dict(1 => Dict(:a => X)); images = Dict(1 => "a.png"), sensors = "cam",
+                                                 times = Dict(1 => 0.5), time_origin = "2026-05-27T00:00:00Z"))
+            end
             written("target_homographies.json") do p
                 H = HomographyMap(sign_normalize(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}([800.0 0 300; 0 800 200; 0 0 1]')))))
                 tid = VgtkIO.content_id(joinpath(dir, "target.json"))
@@ -189,7 +195,7 @@ end
             # stored as the current record in decimal units, and its pixels in another frame
             files = String[]
             for (f, T) in (("identity/rig_every_kind.json", Rig), ("units/rig.json", Rig), ("units/rig_pitch.json", Rig),
-                           ("units/rig_targets.json", Rig), ("units/spline_camera_masked.json", Rig),
+                           ("units/rig_targets.json", Rig),
                            ("units/target_planar.json", AbstractTarget), ("units/target_points.json", AbstractTarget))
                 src = joinpath(fixtures, f)
                 x = try

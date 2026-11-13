@@ -62,9 +62,12 @@ end
     #   SQLite.DB, DBInterface.execute/close! — the sqlite handle's user-facing
     #                                          surface is undeclared; nothing
     #                                          else to call.
+    #   VgtkCore.INTRINSICS_COORDINATE_OFFSET, VgtkCore.StackUnits.UNITS — Core's
+    #       registered pixel frames and units, which json_schema.jl publishes as
+    #       enums; not yet declared public by VisualGeometryToolkitCore (handoffs.md).
     @test check_all_qualified_accesses_are_public(
         VisualGeometryToolkitIO;
-        ignore = (:DB, :close!, :execute)
+        ignore = (:DB, :close!, :execute, :INTRINSICS_COORDINATE_OFFSET, :UNITS)
     ) === nothing
 end
 
@@ -125,7 +128,7 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     VgtkCore.test_quality_gates(
         VisualGeometryToolkitIO;
-        jet_bound = 0, qualified_ignore = (:DB, :close!, :execute, :params),
+        jet_bound = 0, qualified_ignore = (:DB, :close!, :execute, :params, :INTRINSICS_COORDINATE_OFFSET, :UNITS),
         tag_rules = :report, tag_tables = :report, config_tags = :report,
     )
     @test all(isempty ∘ VgtkCore.tag_rule_violations ∘ last, VgtkCore.tag_registries(VisualGeometryToolkitIO))

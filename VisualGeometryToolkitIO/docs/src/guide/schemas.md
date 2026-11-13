@@ -125,7 +125,7 @@ sensor, provenance) and move the arrays into an Apache Arrow sidecar. The
 sidecar is named by the reserved top-level key
 `"payload": {"file", "sha256"}`, following glTF's JSON-plus-binary pattern. No
 kind implements this yet, and a file that carries `payload` is refused until
-one does. (A sensor noise record's dark maps and defect mask are artifacts of
+one does. (A sensor characterisation's dark maps are artifacts of
 its own, named and hashed inside its body.)
 
 ## Earlier versions

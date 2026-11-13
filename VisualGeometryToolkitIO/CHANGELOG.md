@@ -11,7 +11,7 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 - **`vgio/raster/v2.0`** (IO 0.9.5's v1 in the envelope; v1 reads through its step): the frame is `{"type": "page" |
   "texture", "area"}` (lengths in `units.length`) or `{"type": "pixel"}` (`units.pixel`); `element_type` `float32` or
   `uint8` (a uint8 raster's `nan` is `"none"`). Its payload body `{file, sha256}` + a TIFF of the raster profile is the
-  stack's ONE binding of a bulk array to a file: `vgio/sensor_noise`'s dark maps and defect mask are such TIFFs (no raw
+  stack's ONE binding of a bulk array to a file: `vgio/sensor_characterisation`'s dark maps are such TIFFs (no raw
   `.f32`/`.u8` artifacts).
 - **THE lattice codec** is public and 0.10's: `lattice_json(spline; name, present, length_unit)` /
   `lattice_from_json(record, Val(K); name, length_unit)` write and read `{area, grid_size: {width, height}, present
@@ -101,10 +101,16 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
   `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`, through the one frame codec; the file declares once
   the type of every detection (frame type, number type, covariance storage, each attribute's type), so it reads back
   exact by type. A detection without a covariance omits it and states its `covariance_status` attribute.
-- **`vgio/sensor_noise/v1.0`** (new kind): VisualGeometryToolkitCore's `SensorNoise` (`save(path, noise)`,
-  `load(SensorNoise, path)`), keyed by `device.body` (the one device-identity encoding), every field with its source
-  and standard error or absent; a master dark's maps and the defect mask are row-major artifacts beside the record,
-  bound by their SHA-256.
+- **`vgio/sensor_characterisation/v1.0`** (new kind): VisualGeometryToolkitCore's `SensorCharacterisation`
+  (`save(path, characterisation)`, `load(SensorCharacterisation, path)`): one sensor keyed by `device.body` (the one
+  device-identity encoding) and per ISO its black, noise and defect slots, each ONE component body told by its `type`
+  (`channel` | `dark`; `read_noise` | `poisson_gaussian` | `relative`; a `DefectList`'s `sites` `[x, y, onset]`, 1-based,
+  x the column) with its `source` (measured, estimated, specified) and standard error; an absent slot is absent and loads
+  as its absent type (`FileBlack`, `NoNoise`, `NoDefects`); a dark's offset and variance maps are raster payload bodies
+  beside the record, bound by their SHA-256. It replaces the `vgio/sensor_noise/v1.0` kind of IO 0.10's earlier drafts,
+  which never shipped: that tag is an unknown kind, with no migration.
+- `canonical_json` is VisualGeometryToolkitCore's (the ONE RFC 8785 canonical JSON, moved there verbatim); IO
+  re-exports it, and every content identity is unchanged.
 - `schema_versions()`, `with_caller`, `validate_record`; the published JSON Schemas (draft 2020-12) of every kind.
 
 ## 0.9.5 (unreleased)

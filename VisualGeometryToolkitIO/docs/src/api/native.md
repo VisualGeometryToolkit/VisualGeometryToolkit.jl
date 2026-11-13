@@ -17,6 +17,6 @@ Pages = [
     "VisualGeometryToolkitIO.jl", "lengths.jl", "core_json.jl", "json.jl", "style.jl", "validate.jl", "frame_names.jl",
     "units_sidecar.jl", "transform_schema.jl", "camera_schema.jl",
     "rig_schema.jl", "captures_schema.jl", "capture_settings_schema.jl", "radiometry_schema.jl", "canonical.jl", "json_schema.jl", "jsonl.jl", "calibration_manifest.jl",
-    "panorama_schema.jl", "detection_schema.jl", "sensor_noise_schema.jl", "radial_profile_schema.jl", "tiff.jl", "raster_schema.jl",
+    "panorama_schema.jl", "detection_schema.jl", "sensor_characterisation_schema.jl", "radial_profile_schema.jl", "tiff.jl", "raster_schema.jl",
 ]
 ```

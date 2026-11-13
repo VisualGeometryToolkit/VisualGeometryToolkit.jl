@@ -59,7 +59,7 @@ end
         EnvironmentLight, SphericalHarmonicMap, with_unit, GaussianBlur, Rect, TargetHomographies, HomographyMap,
         HomographyMat, sign_normalize, TargetPlaneFrame, relabel, PointTarget,
         TargetPoses, CameraFrame, EuclideanMap, Trajectory, WorldFrame, BoundedCamera, CameraModel, CameraCalibrationMat, KannalaBrandt,
-        Size2, PointFrame, Point2, CovMat, Uncertain, Attributed, BinnedRadialProfile, SensorNoise, DarkFrame, DeviceIdentity, noise_value
+        Size2, PointFrame, Point2, CovMat, Uncertain, Attributed, BinnedRadialProfile, DeviceIdentity, SensorSource
     using StaticArrays: SDiagonal
     using Statistics: cov
     python = pixi_python("jsonschema")
@@ -137,18 +137,17 @@ end
                                                      [829, 2499, 4173]; focal_length = 933.2)), "radial_profile_equisolid.json")
             written(p -> save(p, BinnedRadialProfile(:linear, SVector(2120.5, 1416.25), 2551.0, [0.0, 0.25, 0.5, 1.0], [0.9 0.8 0.6; 0.95 0.85 0.7],
                                                      [100, 300, 900])), "radial_profile_linear.json")
-            written("sensor_noise.json") do p
-                s = parse_unit("s")
-                dark = DarkFrame(fill(510.0f0, 4, 6), fill(1.5f0, 4, 6), (1 // 500 * s, 0.8 * s), 16)
-                defects = falses(4, 6); defects[2, 5] = true
-                save(p, SensorNoise(; body = DeviceIdentity("Sony", "ILME-FX3", "5012345"), iso = 100,
-                    electrons_per_dn = noise_value(2.1, :measured; std_error = 0.01),
-                    read_noise = noise_value((1.5, 1.25, 1.75, 1.3), :estimated; std_error = (0.01, 0.02, 0.01, 0.02)),
-                    black = noise_value((512.0, 511.5, 512.25, 511.75), :file),
-                    dark = noise_value(dark, :measured), defects = noise_value(defects, :measured)))
+            written("sensor_characterisation.json") do p                  # every component's body, a dark's rasters, an empty entry
+                s = parse_unit("s"); body = DeviceIdentity("Sony", "ILME-FX3", "5012345")
+                c(; kw...) = VisualGeometryToolkitCore.sensor_fixture(; body, kw...).characterisation
+                save(p, VisualGeometryToolkitCore.sensor_fixture(
+                    c(; iso = 100, black = (512.0, 511.5, 512.25, 511.75), black_std_error = (0.01, 0.02, 0.01, 0.02),
+                      dark = (offset = fill(510.0f0, 4, 6), variance = fill(1.5f0, 4, 6), exposure_band = (1 // 500 * s, 0.8 * s), frames = 16),
+                      gain = 2.1, gain_std_error = 0.01, read_noise = (1.5, 1.25, 1.75, 1.3), read_noise_std_error = (0.01, 0.02, 0.01, 0.02),
+                      defects = (x = [5], y = [2], onset = [0.25 * s], size = (4, 6)), source = SensorSource.measured),
+                    c(; iso = 400, black = (512.0, 512.0, 512.0, 512.0), read_noise = (2.0, 2.0, 2.0, 2.0)),
+                    c(; iso = 800, relative_noise = 0.01), c(; iso = 3200)))
             end
-            written(p -> save(p, SensorNoise(; body = DeviceIdentity("Sony", "ILME-FX3", nothing), iso = 3200.0,
-                    black = noise_value((512.0, 512.0, 512.0, 512.0), :file), reason = "too few flat pixels")), "sensor_noise_unknown.json")
             written(p -> VgtkIO.save_raster(p, Float32[0.5 NaN32; 0.25 1.0]; nan = :unobserved,
                     frame = (chart = :page, area = VisualGeometryToolkitCore.Rect2{Float64}(-0.105, -0.1485, 0.21, 0.297))), "raster_page.json")
             written(p -> VgtkIO.save_raster(p, UInt8[0 1; 1 0]; frame = PixelFrame{:colmap}, nan = :none), "raster_mask.json")

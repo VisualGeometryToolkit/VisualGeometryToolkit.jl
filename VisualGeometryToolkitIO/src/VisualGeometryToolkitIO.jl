@@ -91,6 +91,7 @@ import VisualGeometryToolkitCore as VgtkCore
 
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
+using VisualGeometryToolkitCore: canonical_json   # RFC 8785 (JCS): the ONE canonical JSON, Core's; IO re-exports it (content identities hash it)
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
     spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS, RADIAL_CHARTS, radial_chart,
@@ -127,7 +128,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
-using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noise/v1.0, radial_profile/v1.0
+using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   # sensor_characterisation/v1.0, radial_profile/v1.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -160,7 +161,7 @@ using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noi
 #                                                vgio/panorama/v2.0  a panorama's results (a NamedTuple: no VGC type)
 #   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
 #   load(BinnedRadialProfile, path)              vgio/radial_profile/v1.0  a measured radial profile (a flat field by field angle)
-#   load(SensorNoise, path)                      vgio/sensor_noise/v1.0  a body's noise at an ISO, its dark maps as hashed artifacts
+#   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v1.0  one sensor's components per ISO, a dark's maps as hashed artifacts
 #   load_raster(path) / save_raster(path, values; frame, nan)
 #                                                vgio/raster/v2.0    a Float32 or UInt8 raster: a JSON header + its TIFF payload
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
@@ -213,7 +214,7 @@ include("radial_profile_schema.jl")  # vgio/radial_profile/v1.0: a measured radi
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
 include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its TIFF payload (the one bulk-array binding; after the manifest: its path rule)
-include("sensor_noise_schema.jl")  # vgio/sensor_noise/v1.0: a body's SensorNoise, its dark maps and defect mask as hashed artifacts
+include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v1.0: one sensor's components per ISO, a dark's maps as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
@@ -222,7 +223,7 @@ include("conventions.jl")  # OpenCV's and Kalibr's lens models as VGC lenses, ex
 include("external_calibration.jl")  # OpenCV / MATLAB calibration exports (load-only)
 include("exporters.jl")    # TUM, EuRoC, BOP, TRC: our kinds in the community formats (write-only)
 include("jsonl.jl")
-include("canonical.jl")   # RFC 8785 (JCS) canonical JSON — content identities, hashed by Core's sha256_hex
+
 include("migrate.jl")     # the version steps, vgio_migrate, vgio_migrate_tree + the bin/vgio_migrate.jl command
 include("migrate_v010.jl")   # the IO 0.10 steps: every kind's previous version → its 0.10 major
 

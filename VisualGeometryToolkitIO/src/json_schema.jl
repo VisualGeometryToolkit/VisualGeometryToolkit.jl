@@ -25,7 +25,7 @@
 #                 table states for the check (`allOf`) where JSON Schema can say it
 #   _SchemaTok    the kind's schema string at its major version, any minor (`pattern`)
 #   _Cov          `oneOf` the three storages (rows, {"diagonal"}, {"isotropic"})
-#   _RowRuns, _LengthRoles, _VignettingBody   their structure, their order rules in words
+#   _RowRuns, _LengthRoles, _VignettingBody, _ByType   their structure, their order rules in words
 #
 # The Julia validator stays the authority: a cross-field check JSON Schema
 # cannot state (a lattice's node count, a covariance's symmetry) is the
@@ -185,6 +185,8 @@ function _json_schema(::_VignettingBody, defs)
 end
 
 _json_schema(::_Bool, defs) = _jobj("type" => "boolean")
+# A slot's component body, its kind by `type`: one of the bodies (each states its `type` as a const).
+_json_schema(s::_ByType, defs) = _jobj("description" => "$(s.what), its kind by `type`", "oneOf" => Any[_json_schema(b, defs) for (_, b) in s.alts])
 # A detection file declares its records' shape in its header (`detection`: the frame type, the attributes, the
 # covariance storage): the record schema of each frame type, selected by the header's `frame` (`if`/`then`), its
 # `attributes` an object of the declared types' values (which names, the validator checks against the header).

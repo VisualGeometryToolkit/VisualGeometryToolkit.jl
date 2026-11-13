@@ -524,7 +524,7 @@ function _canonical_json_v09(io::IO, x)
         print(io, '{')
         for (i, k) in enumerate(sort!(collect(String, keys(x))))
             i > 1 && print(io, ',')
-            _canonical_string(io, k)
+            canonical_json(io, k)   # a key: a JSON string (JCS escaping, as 0.9 wrote its ASCII keys)
             print(io, ':')
             _canonical_json_v09(io, x[k])
         end

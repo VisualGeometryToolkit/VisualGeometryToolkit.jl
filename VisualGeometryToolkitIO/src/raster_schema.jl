@@ -16,8 +16,8 @@
 # a TIFF, bound by the SHA-256 of its bytes: a payload whose digest is not the
 # header's is refused before it is decoded. The PAYLOAD BODY `{file, sha256}` + a
 # TIFF of the profile is the stack's ONE binding of a bulk array to a file:
-# another kind that holds a raster (vgio/sensor_noise's dark maps and defect
-# mask) embeds the same body (`_raster_payload_json`, `_raster_payload_from_json`).
+# another kind that holds a raster (vgio/sensor_characterisation's dark offset and
+# variance maps) embeds the same body (`_raster_payload_json`, `_raster_payload_from_json`).
 #
 # THE TIFF PROFILE (checked on write, on the file written, and on read):
 #   - baseline TIFF: classic (not BigTIFF), little-endian ("II*\0"), ONE image (one IFD);

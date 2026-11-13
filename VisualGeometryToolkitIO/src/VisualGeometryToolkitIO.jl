@@ -151,7 +151,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v2
 #   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
-#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting; gains)
+#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting, gains)
 #                                                vgio/panorama/v1    a panorama's results (a NamedTuple: no VGC type)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)

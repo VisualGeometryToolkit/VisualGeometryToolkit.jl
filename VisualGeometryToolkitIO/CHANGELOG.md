@@ -6,25 +6,30 @@ Additive: one new kind and one more frame in the detection codec. No existing fi
 
 - **`vgio/panorama/v1`: a panorama's results** (PanoramaStitching's: the owner's ruling of 2026-11-13, "everything an
   experiment produces or consumes is saved and loaded through IO"). `save_panorama(path, camera, rotations,
-  vignetting; gains, length_unit = mm, provenance = (;))` and `load_panorama(path) -> (; camera, rotations,
+  vignetting, gains; length_unit = mm, provenance = (;))` and `load_panorama(path) -> (; camera, rotations,
   vignetting, gains)`, both public. The kind is composed ONLY of bodies other kinds already write, each through its own
   lower and lift: the camera store's bounded camera body (`camera`), the trajectory body (`rotations`: per frame index
-  its pose camera → world, with its image and time; no IO body holds a rotation alone, so every translation is a zero
-  length, and a translation that is not zero is refused on write and on read) and the vgio/vignetting body
-  (`vignetting`). `gains` (required keyword: `nothing`, every frame at one exposure, or the `K × C` exposure gains,
-  `gains[k, c]` of frame index `k` in colour plane `c`, every one positive) is written per frame index `t` as plain
-  numbers, `{"t": k, "gain": [g_R, g_G, g_B]}`: no IO body holds a gain. Its validator (`validate`, the readers and the
-  bytes before every write) composes the three bodies' tables: `_TRAJECTORY_BODY` is the trajectory file's table
-  without its schema and declarations (the trajectory kind's own table is now built from it; the same checks). A
-  panorama has no VisualGeometryToolkitCore type of its own, so its value is the NamedTuple of the four VGC values,
-  through a pair of verbs as the calibration manifest's (`save_manifest`/`load_manifest`).
+  its pose camera → world, `Trajectory{CameraFrame, WorldFrame}`, with its image and time; no IO body holds a rotation
+  alone, so every translation is a zero length, and other frames or a translation that is not zero are refused on
+  write and on read) and the vgio/vignetting body (`vignetting`). `gains` (positional, stated: `nothing`, every frame
+  at one exposure, or the `K × C` exposure gains, `gains[k, c]` of frame index `k` in colour plane `c`, every one
+  positive, the rotations' frame indices then `1:K`) is written per frame index `t` as plain numbers,
+  `{"t": k, "gain": [g_R, g_G, g_B]}`: no IO body holds a gain. Its validator (`validate`, the readers and the bytes
+  before every write) composes the three bodies' tables: `_TRAJECTORY_BODY` is the trajectory file's table without
+  its schema and declarations (the trajectory kind's own table is now built from it; the same checks). A matrix stored
+  as rows is written and read by one pair of private helpers (`_matrix_rows`, `_rows_matrix`: the vignetting and light
+  bodies' and the gains'; the same bytes). A panorama has no VisualGeometryToolkitCore type of its own, so its value is
+  the NamedTuple of the four VGC values, through a pair of verbs as the calibration manifest's
+  (`save_manifest`/`load_manifest`).
 - **`PointFrame` in the detection codec** (`json_value` / `from_json`; VisualGeometryToolkitFeatures' Förstner
   detections, `Attributed{Uncertain{PointFrame}}`): the family's 2-DOF frame, `{"center": [x, y]}`, plain pixels, and an
   uncertain one's 2×2 covariance under `covariance` on the leaves an uncertain point (`Uncertain{Point2}`, a
   `vgio/target_points2d` point's `xy` and `covariance`) is written with: rows, `{"diagonal": […]}` or
   `{"isotropic": λ}`, the storage it holds; `null` when not finite (Förstner's unclassified window). One encoding of a
   point and its covariance. A frame object with a `center` alone reads as a `PointFrame` (it was refused before: a
-  `Disc` without `σ`); a point frame's covariance under the other frames' `cov` is refused. A Float32 frame is written
+  `Disc` without `σ`); a frame with any other key reads as before. A point frame's covariance under the other frames'
+  `cov`/`cov_size` is refused; a covariance object keyed by Symbol or a NamedTuple (a record built in memory) reads as
+  a parsed one. A Float32 frame is written
   exactly and reads back as the same numbers in Float64; metadata read as parsed (a Symbol as a string, a `Point2` as
   an array), as for every frame.
 

@@ -97,12 +97,14 @@ const _BLUR_SPEC = _CheckedSpec(
 # A matrix stored as its rows (a tensor surface's control points, a light's coefficients per channel, a panorama's gains
 # per frame), read back as a Matrix{Float64}.
 _rows_matrix(rows) = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in rows))
+# …and written: its rows, each a Vector{Float64}.
+_matrix_rows(A::AbstractMatrix) = [Float64[A[i, j] for j in axes(A, 2)] for i in axes(A, 1)]
 
 # The `vignetting` body, on the style (positions in COLMAP pixels: the fields' own convention, no length).
 JSON.lower(::VgioStyle, v::TensorProductVignetting) = (
     type = tag_of(VIGNETTING_TAGS, v), degree = collect(spline_degree(v)),
     knots_x = Float64.(collect(knot_vectors(v)[1])), knots_y = Float64.(collect(knot_vectors(v)[2])),
-    control_points = [Float64[control_points(v)[i, j] for j in axes(control_points(v), 2)] for i in axes(control_points(v), 1)],
+    control_points = _matrix_rows(control_points(v)),
 )
 # A linear profile's body has no `chart`: byte for byte the body IO 0.8 writes and reads (its validator refuses an unknown
 # key under the same schema string), as a camera body's `pitch` is absent for a bare extent.
@@ -180,7 +182,7 @@ function JSON.lower(s::VgioStyle, light::EnvironmentLight{<:SphericalHarmonicMap
     return (
         center = [_leaf_length(c, s.length_unit) for c in VgtkCore.center(light)], radius = _leaf_length(VgtkCore.radius(light), s.length_unit),
         map = (type = "spherical_harmonics", basis = _SH_BASIS, l_max = max_degree(light),
-               coefficients = [Float64[a[c, j] for j in axes(a, 2)] for c in axes(a, 1)]),
+               coefficients = _matrix_rows(a)),
     )
 end
 function JSON.lift(s::VgioStyle{<:Units}, ::Type{EnvironmentLight}, d::Record)

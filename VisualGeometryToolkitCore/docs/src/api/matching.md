@@ -5,10 +5,10 @@ CurrentModule = VisualGeometryToolkitCore
 ```
 
 Correspondence types and the solver layer built on them. Terminology: a
-**correspondence** (`Cspond`) is a pair; a **correspondence set** (an n-tuple
+**correspondence** (`Correspondence`) is a pair; a **correspondence set** (an n-tuple
 of mutually corresponding elements, e.g. multiview tracks) lives in
-VisualGeometryToolkitFeatures as `CspondSet`; the columnar **collection** of
-pair-correspondences is `Csponds`.
+VisualGeometryToolkitFeatures as `CorrespondenceSet`; the columnar **collection** of
+pair-correspondences is `Correspondences`.
 
 Descriptor matching (`NNMatch`, `match`, strategies) lives in
 VisualGeometryToolkitFeatures.
@@ -18,7 +18,7 @@ VisualGeometryToolkitFeatures.
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["base/cspond_set.jl"]
+Pages = ["base/correspondence_set.jl"]
 ```
 
 ## Solver Layer: Frames, Verbs, Registry

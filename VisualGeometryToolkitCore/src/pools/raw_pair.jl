@@ -18,7 +18,7 @@ the accessor):
 
 | Accessor | Default field | Meaning |
 |---|---|---|
-| [`pair_csponds`](@ref) | `csponds` | pixel correspondences `x₁ => x₂` |
+| [`pair_correspondences`](@ref) | `correspondences` | pixel correspondences `x₁ => x₂` |
 | [`pair_snn`](@ref) | `snn` | per-correspondence second-nearest-neighbour ratio (low = good) |
 | [`pair_K1`](@ref), [`pair_K2`](@ref) | `K1`, `K2` | pixel calibration matrices |
 | [`pair_size1`](@ref), [`pair_size2`](@ref) | `size1`, `size2` | image sizes (`Size2`) |
@@ -31,8 +31,8 @@ its two image sizes.
 """
 abstract type StereoRawPair end
 
-"`pair_csponds(raw::StereoRawPair)`: the pixel correspondences `x₁ => x₂` (see [`StereoRawPair`](@ref))."
-pair_csponds(raw::StereoRawPair) = raw.csponds
+"`pair_correspondences(raw::StereoRawPair)`: the pixel correspondences `x₁ => x₂` (see [`StereoRawPair`](@ref))."
+pair_correspondences(raw::StereoRawPair) = raw.correspondences
 
 "`pair_snn(raw::StereoRawPair)`: the per-correspondence second-nearest-neighbour ratio, low = good (see [`StereoRawPair`](@ref))."
 pair_snn(raw::StereoRawPair) = raw.snn

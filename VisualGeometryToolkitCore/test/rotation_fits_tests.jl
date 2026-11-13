@@ -11,7 +11,7 @@
     using Rotations: RotMatrix, RotationVec, RotXYZ, rotation_angle
     using VisualGeometryToolkitCore: EuclideanMap
     using FiniteDiff: FiniteDiff
-    using VisualGeometryToolkitCore: kabsch, chordal_mean, withattrs, Csponds
+    using VisualGeometryToolkitCore: kabsch, chordal_mean, withattrs, Correspondences
 
     @testset "rotation fits" begin
         rng = MersenneTwister(20260806)
@@ -26,7 +26,7 @@
             @test R isa RotMatrix{3, Float64}
             @test rotation_angle(RotMatrix{3}(R' * Rgt)) < 1.0e-6
             @test _rms(R, as, bs) < 1.0e-12                          # noise-free pairs
-            @test kabsch(Csponds(as, bs)) == R                        # any cspond container
+            @test kabsch(Correspondences(as, bs)) == R                        # any correspondence container
 
             # noisy directions still recover to ~noise level
             bsn = [normalize(b + 1.0e-3 * randn(rng, SVector{3, Float64})) for b in bs]
@@ -41,9 +41,9 @@
             @test_throws ArgumentError kabsch(as[1:1] .=> bs[1:1])
             # a zero weight drops its pair: fewer than 2 of positive weight is refused, not an arbitrary rotation
             w1 = zeros(40); w1[7] = 1.0
-            @test_throws ArgumentError kabsch(withattrs(Csponds(as, bs); weights = w1))
+            @test_throws ArgumentError kabsch(withattrs(Correspondences(as, bs); weights = w1))
             w2 = zeros(40); w2[7] = 1.0; w2[11] = 2.0
-            @test rotation_angle(RotMatrix{3}(kabsch(withattrs(Csponds(as, bs); weights = w2))' * Rgt)) < 1.0e-6
+            @test rotation_angle(RotMatrix{3}(kabsch(withattrs(Correspondences(as, bs); weights = w2))' * Rgt)) < 1.0e-6
             @test_throws MethodError kabsch(as, bs)                   # correspondences only
         end
 
@@ -114,14 +114,14 @@ end
 @testitem "kabsch: a weights column" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: kabsch, exp_so3, mm, Csponds, withattrs
+    using VisualGeometryToolkitCore: kabsch, exp_so3, mm, Correspondences, withattrs
 
     rng = MersenneTwister(11)
     Rt = exp_so3(SVector(0.2, 0.5, -0.3))
     as = [normalize(SVector(randn(rng), randn(rng), randn(rng))) for _ in 1:30]
     bs = [normalize(Rt * a + 0.01 * SVector(randn(rng), randn(rng), randn(rng))) for a in as]
     w = rand(rng, 30) .+ 0.1
-    cs = Csponds(as, bs)
+    cs = Correspondences(as, bs)
     # the weighted reference: R = U·diag(1, 1, det(UVᵀ))·Vᵀ of Σ wᵢ bᵢ aᵢᵀ
     B = sum(w[i] * (bs[i] * as[i]') for i in 1:30)
     F = svd(Matrix(B))
@@ -129,13 +129,13 @@ end
     @test SMatrix{3, 3}(kabsch(withattrs(cs; weights = w))) ≈ Rref atol = 1.0e-14
     @test kabsch(withattrs(cs; weights = ones(30))) ≈ kabsch(cs) atol = 1.0e-15        # unit weights: the unweighted fit
     # a gross outlier with zero weight is ignored
-    bad = withattrs(Csponds(vcat(as, [SVector(1.0, 0.0, 0.0)]), vcat(bs, [SVector(0.0, 0.0, -1.0)])); weights = vcat(ones(30), 0.0))
+    bad = withattrs(Correspondences(vcat(as, [SVector(1.0, 0.0, 0.0)]), vcat(bs, [SVector(0.0, 0.0, -1.0)])); weights = vcat(ones(30), 0.0))
     @test kabsch(bad) ≈ kabsch(cs) atol = 1.0e-14
     @test !(kabsch(withattrs(bad; weights = ones(31))) ≈ kabsch(cs))
     # invalid weights: the caller's error
     @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(-1.0, ones(29))))
     @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(NaN, ones(29))))
     # physical pairs keep their weights
-    csm = withattrs(Csponds([a .* mm for a in as], [b .* mm for b in bs]); weights = w)
+    csm = withattrs(Correspondences([a .* mm for a in as], [b .* mm for b in bs]); weights = w)
     @test SMatrix{3, 3}(kabsch(csm)) ≈ Rref atol = 1.0e-14
 end

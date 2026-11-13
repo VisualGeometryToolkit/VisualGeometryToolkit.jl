@@ -131,7 +131,7 @@ const CONTRACT_GENERICS = (
     # the constraint-problem protocol (robust/problem.jl)
     data_size, codimension, minimal_sample_size, mahalanobis_distances!, mahalanobis_distance,
     residual_context, whitened_residual,
-    measurement_covariance, solver_covariance, provides_solver_covariance, refine!, refine_workspace,
+    observation_covariance, solver_covariance, provides_solver_covariance, refine!, refine_workspace,
     # the scoring contract (robust/scoring_contract.jl, robust/baseline_scorers.jl)
     scoring_workspace, score!, inlier_count, consensus_order, decision_boundary, has_decision_boundary,
     is_predictive, scored_model, scale_prior, outlier_halfwidth, score_bound, check_workspace,
@@ -164,7 +164,7 @@ const CONTRACT_GENERICS = (
     # the TOML config hooks (base/config_toml.jl)
     toml_key, toml_skip_fields, toml_field,
     # geometry and camera accessors other packages implement for their own types
-    centroid, region, shape_matrix, feature_frame, geom, csponds, focal_length, propagate,
+    centroid, region, shape_matrix, feature_frame, geom, correspondences, focal_length, propagate,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene, division_coeffs,
     free_names,   # a lens family's free coefficients: a calibrator's own lens target (CaliBlobs' LensTarget) answers it
     # the support protocol a node model implements (geometry/cameras/support.jl)

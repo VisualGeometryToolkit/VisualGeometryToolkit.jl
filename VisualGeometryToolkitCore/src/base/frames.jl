@@ -57,7 +57,7 @@ struct UnlabeledFrame{N} <: Frame{N} end
 
 # THE junction rule of every frame-checked operation — a map composition `∘`
 # (the junction is `B.Dst` meeting `A.Src`), a form's slot meeting a map's
-# `Src` (`∘` on an `EpipolarMap`), a measurement meeting a slot, a statistical form meeting a
+# `Src` (`∘` on an `EpipolarMap`), an observation meeting a slot, a statistical form meeting a
 # map (`propagate`): two frames meet iff they are the same tag, or either is the
 # unlabeled wildcard of the same dimension (gradual typing — labels never force
 # themselves onto unlabeled code). Constant-folded for concrete tags, so a

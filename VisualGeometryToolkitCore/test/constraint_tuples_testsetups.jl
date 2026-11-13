@@ -1,6 +1,6 @@
 # A constraint tuple `(g, G_x, G_θ)` scored through the constraint-problem
 # protocol: a problem that IS its list of tuples, with optional per-point noise
-# (`measurement_covariance`) and rounding scales (`constraint_rounding_scale`).
+# (`observation_covariance`) and rounding scales (`constraint_rounding_scale`).
 # The public whitened residual and rows of a bare tuple are those of a one-point
 # problem holding it.
 
@@ -19,7 +19,7 @@
     VgtkCore.codimension(p::CDProblem) = length(first(p.cds)[1])
     VgtkCore.minimal_sample_size(::CDProblem) = 2
     VgtkCore.constraint_with_jacobians(p::CDProblem, _model, i::Int) = p.cds[i]
-    VgtkCore.measurement_covariance(p::CDProblem{<:Any, <:AbstractVector}, i::Int) = p.Σs[i]
+    VgtkCore.observation_covariance(p::CDProblem{<:Any, <:AbstractVector}, i::Int) = p.Σs[i]
     VgtkCore.constraint_rounding_scale(p::CDProblem{<:Any, <:Any, <:AbstractVector}, _model, i::Int) = p.ρs[i]
 
     _one(cd, Σ, ρ) = CDProblem([cd], Σ === nothing ? nothing : [Σ], ρ === nothing ? nothing : [ρ])

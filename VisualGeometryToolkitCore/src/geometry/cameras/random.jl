@@ -37,9 +37,9 @@ sensor bounds are unitless (the construction boundary stripped units).
 - `max_retries=1000`: Maximum number of sampling attempts
 
 # Returns
-- `(extrinsics, csponds)`: Tuple containing:
+- `(extrinsics, correspondences)`: Tuple containing:
   - `extrinsics::Vector{Extrinsics3}`: Camera extrinsics (world-to-camera transforms) for valid P3P solutions
-  - `csponds::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used for P3P, backed by `SVector{3}` columns
+  - `correspondences::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used for P3P, backed by `SVector{3}` columns
 
 Throws an error if no valid configuration is found after max_retries attempts.
 
@@ -56,16 +56,16 @@ model = CameraModel(f, s.pitch, pp)
 X = [Point3(100.0, 100.0, 0.0), Point3(200.0, 150.0, 0.0), ...]
 
 # With default RNG
-extrinsics, csponds = sample_p3p(model, X, sensor_bounds)
+extrinsics, correspondences = sample_p3p(model, X, sensor_bounds)
 
 # With explicit RNG for reproducibility
 rng = Random.MersenneTwister(12345)
-extrinsics, csponds = sample_p3p(rng, model, X, sensor_bounds)
+extrinsics, correspondences = sample_p3p(rng, model, X, sensor_bounds)
 
 # Access correspondence data (StructArray interface)
-X_used = csponds.first   # All 3D points
-u_used = csponds.second  # All 2D image points
-# Or index individual correspondences: csponds[1].first, csponds[1].second
+X_used = correspondences.first   # All 3D points
+u_used = correspondences.second  # All 2D image points
+# Or index individual correspondences: correspondences[1].first, correspondences[1].second
 
 # Use best extrinsics (e.g., based on reprojection error)
 cameras = PosedCamera.(Ref(model), extrinsics)
@@ -98,7 +98,7 @@ function sample_p3p(
         rng, model, r -> _draw_world_image(r, X, sensor_bounds), max_retries,
         "Failed to find valid P3P configuration after $max_retries attempts"
     ) do sols, X3, u3
-        isempty(sols) ? nothing : (collect(sols), csponds(X3, u3))
+        isempty(sols) ? nothing : (collect(sols), correspondences(X3, u3))
     end
 end
 
@@ -165,9 +165,9 @@ camera is "in front of" the target plane.
 - `max_retries=1000`: Maximum number of sampling attempts
 
 # Returns
-- `(camera, csponds)`: Tuple containing:
+- `(camera, correspondences)`: Tuple containing:
   - `camera::PosedCamera`: The camera with valid pose (in front of plane)
-  - `csponds::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used
+  - `correspondences::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used
 
 # Example
 ```julia
@@ -175,7 +175,7 @@ camera is "in front of" the target plane.
 board_plane = Plane3D()  # z=0, normal = (0,0,1)
 
 # Sample camera that is in front of the board (z > 0)
-camera, csponds = sample_p3p(model, X, sensor_bounds, board_plane)
+camera, correspondences = sample_p3p(model, X, sensor_bounds, board_plane)
 ```
 """
 function sample_p3p(
@@ -228,7 +228,7 @@ image points to CW (matching winding due to y-axis inversion between coordinate 
 - `plane::Plane3D`: Reference plane for chirality test
 
 # Returns
-- `(camera, csponds)`: Camera and the 3 correspondences used (in CCW order)
+- `(camera, correspondences)`: Camera and the 3 correspondences used (in CCW order)
 
 # Example
 ```julia
@@ -237,7 +237,7 @@ board_rect = Rect(bundle, :world)
 corners = coordinates(board_rect)  # 4 corners
 X3 = SVector{3}(Point3.(vcat.(corners[[1,2,3]], 0.0)))  # any 3 corners
 
-camera, csponds = sample_p3p(model, X3, sensor_bounds, Plane3D())
+camera, correspondences = sample_p3p(model, X3, sensor_bounds, Plane3D())
 ```
 """
 function sample_p3p(

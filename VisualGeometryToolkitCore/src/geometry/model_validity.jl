@@ -14,7 +14,7 @@
 #
 # INNER-LOOP GATES (the frame-in = frame-out rule, conventions/frames.md): they take data
 # and model in the enclosing estimator's normalization — the frame
-# `CspondNormalization(M, cs)` builds for the model class (Hartley on both
+# `CorrespondenceNormalization(M, cs)` builds for the model class (Hartley on both
 # sides for H/F, the target about the distortion centre for RadialHomography)
 # — and never normalize on their own. NOT ALL TOLERANCES LIVE IN THAT FRAME,
 # and the difference is the whole subject of this file:
@@ -29,7 +29,7 @@
 # generators call them with their normalized view.
 #
 # `cs` is a correspondence container satisfying the `sources`/`targets`
-# protocol (Csponds, StructArray of Pairs, plain Pair vector); `idx` is the
+# protocol (Correspondences, StructArray of Pairs, plain Pair vector); `idx` is the
 # minimal-sample index vector; `mask` is a BitVector selecting the consensus
 # set.
 # =============================================================================
@@ -197,7 +197,7 @@ end
 # compared against must be in the SAME frame. The three rows above are one
 # frame mismatch — data against a constant; this is the other — a bound against
 # a residual, and it is the one that appears the moment a problem solves
-# through measurement maps. It need not be assumed. The TransferForm ↔
+# through observation maps. It need not be assumed. The TransferForm ↔
 # HomographyMap composition (geometry/forms.jl) pins the conversion: for an AFFINE destination map the
 # transfer residual obeys `g′ = A₂ g` EXACTLY, not to first order, because an
 # affine map has a constant Jacobian — measured to 3.2e-13 relative over 2000
@@ -221,7 +221,7 @@ end
 # tail on a hard case, and nothing that trips an assertion. The HEB defect lost
 # 22.1 points of clean minimal samples with every suite in the stack green; it
 # was found by COUNTING ADMITTED SAMPLES against a pre-change baseline, which
-# is the only measurement that sees it. A test that asserts this gate's verdict
+# is the only observation that sees it. A test that asserts this gate's verdict
 # on clean data is therefore not evidence either — it succeeds whether or not the
 # tolerance means what it says.
 #
@@ -241,7 +241,7 @@ end
 # At metres RANSAC burns 36× the trials and fails 8 times in 20 — and WHEN IT
 # CONVERGES IT IS STILL EXACTLY RIGHT: 380 true inliers, zero false. The model
 # never degrades. The damage is entirely in ADMISSION, which is the reason no
-# suite turns red, stated as a measurement rather than as a worry.
+# suite turns red, stated as an observation rather than as a worry.
 #
 # BB's own board sources are millimetres with 7× headroom — closest pair 0.7014
 # mm over 50 bundles and 60,361 blobs, and not one pair under 0.1 mm — so the
@@ -253,11 +253,11 @@ end
 # is where a caller is told what happens if they do.
 #
 # THE REMEDY IS STRUCTURAL, NOT A BETTER CONSTANT: a problem carries its
-# measurement maps (`src_map`/`dst_map`, data → model), so there is no supported
+# observation maps (`src_map`/`dst_map`, data → model), so there is no supported
 # way to construct an image-to-image problem whose data is not pixels — the
 # precondition is not a thing a caller must remember. That invariant covers
 # image-to-image only. A board → image homography's SOURCE side is in board
-# units by nature, and no measurement map makes it pixels, so 0.1 there is a
+# units by nature, and no observation map makes it pixels, so 0.1 there is a
 # board-unit tolerance.
 const COINCIDENT_PX = 0.1
 
@@ -458,7 +458,7 @@ end
 Homography feasibility: SVD conditioning (κ ≤ 100) AND projective cheirality
 (uniform-sign λ) over the sample. Composes [`test_conditioning`](@ref) and
 [`test_cheirality`](@ref). An inner-loop gate: `H` and `cs` are both in the
-estimator's normalization, `CspondNormalization(HomographyMat, cs)` — where the
+estimator's normalization, `CorrespondenceNormalization(HomographyMat, cs)` — where the
 κ bound is calibrated.
 
 (`test_model(F::FundMat, cs, idx)` — the oriented epipolar check — is defined

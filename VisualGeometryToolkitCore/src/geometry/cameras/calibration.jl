@@ -185,7 +185,7 @@ radial_rows(m::RadialCamera) = m.P
 # The radial camera's minimal manifold: its rows up to scale and sign are a point
 # of S⁵ (vec(P), column-major — the vectorization `constraint_with_jacobians`' G_θ
 # differentiates), the centre riding along. One constraint per plane ↔ pixel
-# correspondence, the pixel its measurement: the covariance machinery
+# correspondence, the pixel its observation: the covariance machinery
 # (`implicit_covariance`) takes it as is.
 struct _RadialCameraRows{T}
     center::Point2{T}
@@ -195,7 +195,7 @@ minimal_manifold(m::RadialCamera) = SphereManifold(SVector{6}(Tuple(m.P)), _Radi
 ambient_coordinates(m::RadialCamera) = SVector{6}(Tuple(m.P))
 local_coordinates(ch::SphereManifold{6}, m::RadialCamera) = local_coordinates(ch, SVector{6}(Tuple(m.P)))
 constraint_dim(::Type{<:RadialCamera}) = 1
-_measurement_dim(::Type{<:RadialCamera}) = 2
+_observation_dim(::Type{<:RadialCamera}) = 2
 RadialCamera(P::SMatrix{2, 3, T, 6}) where {T} = RadialCamera{T}(P)
 RadialCamera(P::SMatrix{2, 3, T, 6}, center) where {T} =
     RadialCamera{T}(P, Point2{T}(center[1], center[2]))
@@ -415,7 +415,7 @@ end
 
 # ∂G_x/∂vec(P) of the radial constraint: G_x = (p₂·X̃, −p₁·X̃) is linear in P
 # and independent of the pixel (column-major vec(P): P₁₁, P₂₁, P₁₂, P₂₂, P₁₃, P₂₃).
-@inline function measurement_gradient_jacobian(::RadialCamera, X::StaticVector{2}, ::StaticVector{2})
+@inline function observation_gradient_jacobian(::RadialCamera, X::StaticVector{2}, ::StaticVector{2})
     z = zero(eltype(X)); o = one(eltype(X))
     return SMatrix{2, 6}(z, -X[1], X[1], z, z, -X[2], X[2], z, z, -o, o, z)
 end
@@ -466,7 +466,7 @@ it is the problem's geometry, carried onto every returned camera.
 dependent equations) gives `count == 0`.
 
 Deliberately NOT entered in the `minimal_solvers` registry: generic
-`Cspond{Point2, Point2}` data carries no pencil centre (the same reason
+`Correspondence{Point2, Point2}` data carries no pencil centre (the same reason
 `Homography5ptRadial` stays out). Construct it where the centre is known.
 """
 struct RadialCamera5pt <: MinimalSolver{RadialCamera{Float64}}

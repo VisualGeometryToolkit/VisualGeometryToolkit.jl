@@ -1,6 +1,6 @@
 # The Sampson LM rows through a chart: `sampson_residual_with_jacobian` (the one
 # path's residual and exact model Jacobian), the residual and Jacobian kernels,
-# the epipolar models' `measurement_gradient_jacobian` and their bilinear
+# the epipolar models' `observation_gradient_jacobian` and their bilinear
 # contraction of it, and the E-manifold anchors — against finite differences of
 # the residual along the chart's own retraction.
 @testitem "sampson_rows" begin
@@ -13,8 +13,8 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialManifold6, retract, retract_jacobian, retract_directions,
-        sampson_residual_with_jacobian, measurement_gradient_jacobian, sampson_residuals!, sampson_jacobian_rows!,
-        sampson_residual, constraint_with_jacobians, Csponds, PointSet, withattrs
+        sampson_residual_with_jacobian, observation_gradient_jacobian, sampson_residuals!, sampson_jacobian_rows!,
+        sampson_residual, constraint_with_jacobians, Correspondences, PointSet, withattrs
 
     rng = Xoshiro(11)
     R = RotMatrix(RotXYZ(0.2, -0.1, 0.3)); t = normalize(SVector(1.0, 0.2, -0.3))
@@ -58,27 +58,27 @@
 
     # The epipolar models compute (∂G_x/∂θ)ᵀG_x in the bilinear form's structure
     # (fundmat.jl `_normal_rate`); it must equal the dense product with
-    # `measurement_gradient_jacobian`, which must equal finite differences of G_x.
-    @testset "measurement_gradient_jacobian and the bilinear contraction" begin
+    # `observation_gradient_jacobian`, which must equal finite differences of G_x.
+    @testset "observation_gradient_jacobian and the bilinear contraction" begin
         F = SMatrix{3, 3}(retract(charts[2]...))
         Fm = FundMat(F)
         for i in (1, 7, 30, 60)
             G_x = constraint_with_jacobians(Fm, u₁[i], u₂[i])[2]
             Gfd = FiniteDiff.finite_difference_jacobian(θ -> Vector(constraint_with_jacobians(FundMat(SMatrix{3, 3}(θ)), u₁[i], u₂[i])[2]), Vector(vec(F)))
-            @test measurement_gradient_jacobian(Fm, u₁[i], u₂[i]) ≈ Gfd rtol = 1.0e-7 atol = 1.0e-9
+            @test observation_gradient_jacobian(Fm, u₁[i], u₂[i]) ≈ Gfd rtol = 1.0e-7 atol = 1.0e-9
             @test VgtkCore._normal_rate(Fm, G_x, u₁[i], u₂[i]) ≈
-                transpose(measurement_gradient_jacobian(Fm, u₁[i], u₂[i])) * G_x rtol = 1.0e-14 atol = 1.0e-16
+                transpose(observation_gradient_jacobian(Fm, u₁[i], u₂[i])) * G_x rtol = 1.0e-14 atol = 1.0e-16
         end
     end
 
-    @testset "kernels: √w-weighted rows over a measurement set" begin
+    @testset "kernels: √w-weighted rows over an observation set" begin
         # The √w rows are the LM's, `weighted_whitened_*`; on a set without noise
         # columns they are the geometric rows times √w. The geometric rows
         # themselves are unweighted, as the whitened ones are.
         wres!, wjac! = VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!
         ch, v = charts[1]
         M = retract(ch, v); dM = retract_directions(ch, v); A = retract_jacobian(ch, v)
-        xs = withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw)
+        xs = withattrs(Correspondences(u₁, u₂); sqrt_weights = sqrtw)
         r = zeros(n); J = zeros(n, 6)
         wres!(r, M, xs)
         wjac!(J, M, dM, xs)
@@ -106,17 +106,17 @@
         # Float32 storage and points: the same kernel, single precision
         r32 = zeros(Float32, n)
         wres!(r32, FundMat(SMatrix{3, 3, Float32}(M)),
-            withattrs(Csponds([Float32.(u) for u in u₁], [Float32.(u) for u in u₂]); sqrt_weights = Float32.(sqrtw)))
+            withattrs(Correspondences([Float32.(u) for u in u₁], [Float32.(u) for u in u₂]); sqrt_weights = Float32.(sqrtw)))
         @test r32 ≈ Float32.(r) rtol = 1.0f-3
         # without a weights column every √w is 1
-        r1 = zeros(n); sampson_residuals!(r1, M, Csponds(u₁, u₂))
+        r1 = zeros(n); sampson_residuals!(r1, M, Correspondences(u₁, u₂))
         @test r1 ≈ r ./ sqrtw rtol = 1.0e-13
-        r1w = zeros(n); wres!(r1w, M, Csponds(u₁, u₂))
+        r1w = zeros(n); wres!(r1w, M, Correspondences(u₁, u₂))
         @test r1w == r1
         # the geometric rows do not read sqrt_weights: one currency with the whitened rows
         rs = zeros(n); sampson_residuals!(rs, M, xs)
         @test rs == r1
-        J1 = zeros(n, 6); sampson_jacobian_rows!(J1, M, dM, Csponds(u₁, u₂))
+        J1 = zeros(n, 6); sampson_jacobian_rows!(J1, M, dM, Correspondences(u₁, u₂))
         Js = zeros(n, 6); sampson_jacobian_rows!(Js, M, dM, xs)
         @test Js == J1
         @test J ≈ sqrtw .* J1 rtol = 1.0e-13
@@ -130,7 +130,7 @@
         @test allocs(M, u₁[1], u₂[1], A) == 0
     end
 
-    @testset "one measurement per row: a conic's rows" begin
+    @testset "one observation per row: a conic's rows" begin
         C = VgtkCore.Conic(SMatrix{3, 3}(0.002, 0.0003, -0.5, 0.0003, 0.003, -0.4, -0.5, -0.4, 150.0))
         xs = [SVector(210.0 + 7k, 180.0 + 11k) for k in 1:12]; w = collect(range(0.5, 1.5; length = 12))
         D = SMatrix{6, 2}(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
@@ -157,7 +157,7 @@
         @test only(s) == Inf && all(iszero, ∂s)                                   # the residual keeps its Inf, the row is zero
         @test only(sampson_residual(F, o, o)) == Inf
         r = [1.0]; J = ones(1, 2)
-        sampson_residuals!(r, F, Csponds([o], [o])); sampson_jacobian_rows!(J, F, dM, Csponds([o], [o]))
+        sampson_residuals!(r, F, Correspondences([o], [o])); sampson_jacobian_rows!(J, F, dM, Correspondences([o], [o]))
         @test r == [0.0] && J == zeros(1, 2)
         # NaN propagates through the residual and the row
         sn, ∂n = sampson_residual_with_jacobian(F, SVector(NaN, 0.0), o; directions = SMatrix{9, 2}(transpose(VgtkCore._direction_rows(dM))))
@@ -167,7 +167,7 @@ end
 
 # A vector constraint (the homography's two rows): the exact Sampson rows —
 # the Cholesky factor of G_x·G_xᵀ differentiated with the model — against
-# ForwardDiff through the residuals, plain and under measurement noise (an
+# ForwardDiff through the residuals, plain and under observation noise (an
 # exact source: the whitened rows of the transfer error); the pool matrix.
 @testitem "sampson_rows: vector constraints and noise" begin
     import VisualGeometryToolkitCore as VgtkCore
@@ -179,7 +179,7 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: HomographyManifold8, retract, retract_jacobian, sampson_residuals!, whitened_residuals!,
         sampson_jacobian_rows!, whitened_jacobian_rows!, sampson_residual_with_jacobian, sampson_residual,
-        measurement_gradient_jacobian, constraint_with_jacobians, sampson_distances!, sampson_distance, Csponds, withattrs, exact,
+        observation_gradient_jacobian, constraint_with_jacobians, sampson_distances!, sampson_distance, Correspondences, withattrs, exact,
         noise_columns, mahalanobis_distance, Uncertain, CovMat, TransferForm
 
     rng = Xoshiro(31)
@@ -190,10 +190,10 @@ end
     sqrtw = sqrt.(rand(rng, n)) .+ 0.5
     ch = HomographyManifold8(H); a = SVector(0.01, -0.02, 0.005, 0.003, -0.01, 0.02, 0.001, -0.004)
 
-    @testset "the homography's measurement_gradient_jacobian (ForwardDiff of G_x)" begin
+    @testset "the homography's observation_gradient_jacobian (ForwardDiff of G_x)" begin
         for i in (1, 17, 40)
             G(h) = vec(constraint_with_jacobians(HomographyMat(Tuple(h)), u₁[i], u₂[i])[2])
-            @test measurement_gradient_jacobian(H, u₁[i], u₂[i]) ≈ ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(H)))) rtol = 1.0e-14
+            @test observation_gradient_jacobian(H, u₁[i], u₂[i]) ≈ ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(H)))) rtol = 1.0e-14
         end
     end
 
@@ -202,7 +202,7 @@ end
         for i in (2, 19), ΣGt in (nothing, SMatrix{4, 4}(Diagonal(SVector(2.0, 0.5, 1.0, 3.0))))
             Gx = constraint_with_jacobians(H, u₁[i], u₂[i])[2]
             St = ΣGt === nothing ? SMatrix{4, 2}(transpose(Gx)) : ΣGt * transpose(Gx)
-            dG = measurement_gradient_jacobian(H, u₁[i], u₂[i])
+            dG = observation_gradient_jacobian(H, u₁[i], u₂[i])
             Kref = [sum(dG[r % 2 + 1 + 2(k - 1), t] * St[k, r ÷ 2 + 1] for k in 1:4) for r in 0:3, t in 1:9]
             @test VgtkCore._noise_rate(H, St, u₁[i], u₂[i]) ≈ Kref rtol = 1.0e-14
         end
@@ -219,23 +219,23 @@ end
         R = SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, cos(0.2), sin(0.2), 0.0, -sin(0.2), cos(0.2))
         for i in (1, 9)
             Gb(h) = vec(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(h))), f[i], R * f[i]; M₁ = Mj[i], M₂ = Mj[i])[2])
-            @test measurement_gradient_jacobian(TransferForm(HomographyMat(Tuple(R))), f[i], R * f[i]; M₁ = Mj[i], M₂ = Mj[i]) ≈
+            @test observation_gradient_jacobian(TransferForm(HomographyMat(Tuple(R))), f[i], R * f[i]; M₁ = Mj[i], M₂ = Mj[i]) ≈
                 ForwardDiff.jacobian(Gb, SVector{9}(Tuple(R))) rtol = 1.0e-12 atol = 1.0e-16
         end
     end
 
     rows(xs, f!) = A -> (r = zeros(eltype(A), 2n); f!(r, retract(ch, A), xs); r)
     for (name, xs, f!, J!) in (
-            ("plain, geometric", withattrs(Csponds(u₁, u₂); sqrt_weights = sqrtw), sampson_residuals!, sampson_jacobian_rows!),
-            ("exact source, whitened", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
+            ("plain, geometric", withattrs(Correspondences(u₁, u₂); sqrt_weights = sqrtw), sampson_residuals!, sampson_jacobian_rows!),
+            ("exact source, whitened", withattrs(Correspondences(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
                 whitened_residuals!, whitened_jacobian_rows!),
-            ("exact source, whitened, weighted", withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
+            ("exact source, whitened, weighted", withattrs(Correspondences(u₁, u₂); noise_columns(exact.(u₁), u₂)..., sqrt_weights = sqrtw),
                 VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!),
             ("uncertain points, whitened",
-                withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
+                withattrs(Correspondences(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
                 whitened_residuals!, whitened_jacobian_rows!),
             ("uncertain points, whitened, weighted",
-                withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
+                withattrs(Correspondences(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw),
                 VgtkCore.weighted_whitened_residuals!, VgtkCore.weighted_whitened_jacobian_rows!))
         @testset "$name: exact rows (ForwardDiff through the residuals)" begin
             J = zeros(2n, 8); J!(J, retract(ch, a), retract_jacobian(ch, a), xs)
@@ -245,8 +245,8 @@ end
         end
     end
     @testset "whitened rows are unweighted; the weighted rows are √w times them" begin
-        xs = withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw)
-        x0 = withattrs(Csponds(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)...)
+        xs = withattrs(Correspondences(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)..., sqrt_weights = sqrtw)
+        x0 = withattrs(Correspondences(u₁, u₂); noise_columns([Uncertain(u, CovMat(SMatrix{2, 2}(2.0, 0.3, 0.3, 0.5))) for u in u₁], u₂)...)
         M = retract(ch, a)
         r, r0, rw = zeros(2n), zeros(2n), zeros(2n)
         whitened_residuals!(r, M, xs); whitened_residuals!(r0, M, x0); VgtkCore.weighted_whitened_residuals!(rw, M, xs)
@@ -273,13 +273,13 @@ end
         f₁ = [normalize(randn(rng, SVector{3, Float64}) + SVector(0, 0, 3.0)) for _ in 1:20]
         f₂ = [normalize(randn(rng, SVector{3, Float64}) + SVector(0, 0, 3.0)) for _ in 1:20]
         M₁ = [SMatrix{3, 2}(randn(rng, 3, 2)) for _ in 1:20]; M₂ = [SMatrix{3, 2}(randn(rng, 3, 2)) for _ in 1:20]
-        R = zeros(20, 1); sampson_distances!(R, [E], withattrs(Csponds(f₁, f₂); M₁, M₂))
+        R = zeros(20, 1); sampson_distances!(R, [E], withattrs(Correspondences(f₁, f₂); M₁, M₂))
         @test R[:, 1] ≈ [sampson_distance(E, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) for i in 1:20] rtol = 4eps()   # inlined: muladd fusion may differ by an ulp
-        @test_throws ArgumentError sampson_distances!(R, [E], Csponds(f₁, f₂))
+        @test_throws ArgumentError sampson_distances!(R, [E], Correspondences(f₁, f₂))
     end
 
     @testset "the residual rows are the one-element verbs" begin
-        xs = Csponds(u₁, u₂); r = zeros(2n); sampson_residuals!(r, H, xs)
+        xs = Correspondences(u₁, u₂); r = zeros(2n); sampson_residuals!(r, H, xs)
         @test r ≈ reduce(vcat, [sampson_residual(H, u₁[i], u₂[i]) for i in 1:n]) rtol = 1.0e-14
         xe = withattrs(xs; noise_columns(exact.(u₁), u₂)...); whitened_residuals!(r, H, xe)
         @test [norm(r[2i-1:2i]) for i in 1:n] ≈ [mahalanobis_distance(H, exact(u₁[i]), u₂[i]) for i in 1:n] rtol = 1.0e-13
@@ -291,7 +291,7 @@ end
         @test size(∂s) == (2, 8)
     end
     @testset "sampson_distances!: the pool matrix, models by elements" begin
-        xs = Csponds(u₁, u₂); F = FundMat(SMatrix{3, 3, Float64}(randn(rng, 3, 3)))
+        xs = Correspondences(u₁, u₂); F = FundMat(SMatrix{3, 3, Float64}(randn(rng, 3, 3)))
         R = sampson_distances!(Matrix{Float32}(undef, n, 2), [H, F], xs)
         @test R[:, 1] == Float32[sampson_distance(H, u₁[i], u₂[i]) for i in 1:n]
         @test R[:, 2] == Float32[sampson_distance(F, u₁[i], u₂[i]) for i in 1:n]
@@ -301,6 +301,6 @@ end
     @testset "a missing keyword column is refused" begin
         f = [normalize(SVector(u[1], u[2], 300.0)) for u in u₁]
         E = EssentialMat(SMatrix{3, 3}(skew(SVector(1.0, 0.0, 0.0))))
-        @test_throws ArgumentError sampson_residuals!(zeros(n), E, Csponds(f, f))
+        @test_throws ArgumentError sampson_residuals!(zeros(n), E, Correspondences(f, f))
     end
 end

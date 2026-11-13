@@ -68,7 +68,7 @@
 
     @testset "the radial camera on its sphere chart (S⁵): minimal and overdetermined" begin
         # plane points → pixels by a homography with perspective; the radial camera
-        # is the recentred H's first two rows. The pixel is the measurement.
+        # is the recentred H's first two rows. The pixel is the observation.
         function radial_trial(npts, σ)
             return rng -> begin
                 c = Point2(640.0, 480.0)

@@ -1,5 +1,5 @@
-# Solver/correspondence layer (#21): Csponds container + sources/targets
-# protocol, lazy lifts, CspondNormalization push/pull, the MinimalSolver
+# Solver/correspondence layer (#21): Correspondences container + sources/targets
+# protocol, lazy lifts, CorrespondenceNormalization push/pull, the MinimalSolver
 # protocol (solve → FixedModels), the DLT kernels on correspondences,
 # induced-model registry.
 
@@ -8,7 +8,7 @@
     using Test
     using VisualGeometryToolkitCore: max_solutions, induced_models, minimal_solver
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: CspondNormalization, planar_lift, source_map, destination_map, sample_size   # public, not exported
+    using VisualGeometryToolkitCore: CorrespondenceNormalization, planar_lift, source_map, destination_map, sample_size   # public, not exported
     using VisualGeometryToolkitCore: MappedColumn, lift
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotMatrix
@@ -28,12 +28,12 @@
         src = [Point2{Float64}(100rand(rng), 100rand(rng)) for _ in 1:20]
         dst = [_apply_h(H0, p) for p in src]
 
-        @testset "Csponds container" begin
+        @testset "Correspondences container" begin
             scores = collect(1.0:20.0)
             ratios = fill(0.8f0, 20)
-            cs = Csponds(src, dst; score = scores, ratio = ratios)
+            cs = Correspondences(src, dst; score = scores, ratio = ratios)
 
-            @test cs isa AbstractVector{<:Cspond}
+            @test cs isa AbstractVector{<:Correspondence}
             @test length(cs) == 20
             @test cs[3] === (src[3] => dst[3])
             @test sources(cs) === src
@@ -64,14 +64,14 @@
             @test csw[keep].weights == w[keep]
 
             # invariants enforced at construction
-            @test_throws ArgumentError Csponds(src, dst[1:19])
-            @test_throws ArgumentError Csponds(src, dst; score = scores[1:5])
-            @test_throws ArgumentError Csponds(src, dst; score = 1.0)
+            @test_throws ArgumentError Correspondences(src, dst[1:19])
+            @test_throws ArgumentError Correspondences(src, dst; score = scores[1:5])
+            @test_throws ArgumentError Correspondences(src, dst; score = 1.0)
         end
 
         @testset "sources/targets protocol across containers" begin
-            # legacy columnar StructArray (csponds constructor)
-            sa = csponds(src, dst)
+            # legacy columnar StructArray (correspondences constructor)
+            sa = correspondences(src, dst)
             @test sources(sa) === sa.first
             @test targets(sa) === sa.second
 
@@ -82,9 +82,9 @@
             @test collect(targets(pv)) == dst
 
             # scored legacy layout (VGF matcher output shape)
-            scored = StructArray{ScoredCspond{Point2{Float64}, Point2{Float64}}}(
+            scored = StructArray{ScoredCorrespondence{Point2{Float64}, Point2{Float64}}}(
                 (
-                    StructArray{Cspond{Point2{Float64}, Point2{Float64}}}((src, dst)),
+                    StructArray{Correspondence{Point2{Float64}, Point2{Float64}}}((src, dst)),
                     collect(1.0:20.0),
                 )
             )
@@ -92,14 +92,14 @@
             @test collect(targets(scored)) == dst
 
             # scored row-major fallback
-            rv = [ScoredCspond(src[i], dst[i], Float64(i)) for i in 1:20]
+            rv = [ScoredCorrespondence(src[i], dst[i], Float64(i)) for i in 1:20]
             @test collect(sources(rv)) == src
             @test collect(targets(rv)) == dst
         end
 
         @testset "lift / points / planar_lift" begin
             circles = [Circle(p, 2.0) for p in src]
-            cs = Csponds(circles, dst; score = collect(1.0:20.0))
+            cs = Correspondences(circles, dst; score = collect(1.0:20.0))
 
             pcs = points(cs)
             @test sources(pcs) isa MappedColumn
@@ -124,15 +124,15 @@
             # convention) — a UnionAll-aliased feature vector must still produce
             # concretely-typed point columns for typed solver signatures
             any_feats = Any[Circle(p, 1.0) for p in src]
-            acs = points(Csponds(any_feats, dst))
+            acs = points(Correspondences(any_feats, dst))
             @test eltype(sources(acs)) == Point2{Float64}
-            @test acs isa AbstractVector{<:Cspond{Point2{Float64}, Point2{Float64}}}
+            @test acs isa AbstractVector{<:Correspondence{Point2{Float64}, Point2{Float64}}}
         end
 
-        @testset "CspondNormalization" begin
-            cs = Csponds(src, dst)
-            f = CspondNormalization(HomographyMat, cs)
-            @test f isa CspondNormalization{Float64}
+        @testset "CorrespondenceNormalization" begin
+            cs = Correspondences(src, dst)
+            f = CorrespondenceNormalization(HomographyMat, cs)
+            @test f isa CorrespondenceNormalization{Float64}
 
             ncs = normalize(f, cs)
             ns = sources(ncs)
@@ -222,7 +222,7 @@
         end
 
         @testset "solve — Homography4pt" begin
-            cs = Csponds(src, dst)
+            cs = Correspondences(src, dst)
             s = Homography4pt()
             @test model_type(s) == HomographyMat
             @test sample_size(s) == 4
@@ -235,13 +235,13 @@
             @test all(norm(_apply_h(Hs, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
 
             # protocol interop: same solve on the legacy StructArray container
-            sols_legacy = solve(s, csponds(src, dst), 1:4)
+            sols_legacy = solve(s, correspondences(src, dst), 1:4)
             @test first(iterate(sols_legacy)) ≈ Hs
 
             # degenerate (repeated point) → count-0 FixedModels, NOT nothing
             src_d = [src[1], src[1], src[3], src[4]]
             dst_d = [dst[1], dst[1], dst[3], dst[4]]
-            bad = solve(s, Csponds(src_d, dst_d), 1:4)
+            bad = solve(s, Correspondences(src_d, dst_d), 1:4)
             @test bad isa FixedModels{1, HomographyMat{Float64}}
             @test length(bad) == 0
             @test isempty(collect(bad))
@@ -261,7 +261,7 @@
         _epi(F, a, b) = abs(dot(SVector(b[1], b[2], 1.0), SMatrix{3, 3, Float64}(F) * SVector(a[1], a[2], 1.0)))
 
         @testset "solve — Fundamental7pt" begin
-            cs = Csponds(u1, u2)
+            cs = Correspondences(u1, u2)
             s = Fundamental7pt()
             @test sample_size(s) == 7 && max_solutions(s) == 3
 
@@ -281,7 +281,7 @@
             @test best < 1.0e-6
 
             # degenerate sample (all identical) → count-0, not nothing
-            bad = solve(s, Csponds(fill(u1[1], 7), fill(u2[1], 7)), 1:7)
+            bad = solve(s, Correspondences(fill(u1[1], 7), fill(u2[1], 7)), 1:7)
             @test bad isa FixedModels{3, FundMat{Float64}}
             @test length(bad) == 0
         end
@@ -296,8 +296,8 @@
             # every fisheye and omnidirectional camera while still returning a
             # plausible EssentialMat. The refusal is by TYPE, so it cannot be
             # re-introduced by a caller's convention.
-            @test_throws MethodError solve(s, Csponds(u1, u2), 1:5)
-            for cs in (Csponds(x1b, x2b),)
+            @test_throws MethodError solve(s, Correspondences(u1, u2), 1:5)
+            for cs in (Correspondences(x1b, x2b),)
                 sols = solve(s, cs, 1:5)
                 @test sols isa FixedModels{10, EssentialMat{Float64}}
                 @test length(sols) >= 1
@@ -319,7 +319,7 @@
             tp = SVector(0.3, -0.5, 4.0)
             Xw = [SVector{3, Float64}(2randn(rng, 3)...) for _ in 1:3]
             xs = [SVector{3, Float64}(normalize(Rp * Xi + tp)) for Xi in Xw]
-            cs = Csponds(Xw, xs)
+            cs = Correspondences(Xw, xs)
 
             sols = solve(s, cs, 1:3)
             @test sols isa FixedModels{4, Extrinsics3}
@@ -343,7 +343,7 @@
         end
 
         @testset "DLT kernels — homography_dlt / fundamental_dlt on correspondences" begin
-            cs = Csponds(src, dst)
+            cs = Correspondences(src, dst)
             Hf = homography_dlt(cs)
             @test Hf isa HomographyMat{Float64}
             @test all(norm(_apply_h(Hf, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
@@ -352,15 +352,15 @@
             @test all(norm(_apply_h(homography_dlt(cs; mask), src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
             @test all(norm(_apply_h(homography_dlt(cs; mask = findall(mask)), src[i]) - dst[i]) < 1.0e-6 for i in 1:20)   # an index mask
             @test homography_dlt(cs; mask = findall(mask)) == homography_dlt(cs; mask)
-            @test_throws MethodError homography_dlt(cs; normalization = CspondNormalization(HomographyMat, cs))   # public forms take none
+            @test_throws MethodError homography_dlt(cs; normalization = CorrespondenceNormalization(HomographyMat, cs))   # public forms take none
             # degenerate-but-finite data still yields a (garbage) model — validity
             # gating is the consumer's job (test_model); only non-finite rows are
             # refused, with `nothing`
-            @test homography_dlt(Csponds(fill(src[1], 8), fill(dst[1], 8))) isa HomographyMat{Float64}
+            @test homography_dlt(Correspondences(fill(src[1], 8), fill(dst[1], 8))) isa HomographyMat{Float64}
             src_nan = [[Point2{Float64}(NaN, NaN)]; src[2:8]]
-            @test homography_dlt(Csponds(src_nan, dst[1:8])) === nothing
+            @test homography_dlt(Correspondences(src_nan, dst[1:8])) === nothing
 
-            Ff = fundamental_dlt(Csponds(u1, u2))
+            Ff = fundamental_dlt(Correspondences(u1, u2))
             @test Ff isa FundMat{Float64}
             @test all(_epi(Ff, u1[i], u2[i]) < 1.0e-8 for i in 1:20)
         end
@@ -375,12 +375,12 @@
             u2n = [p + Point2{Float64}(1.0e-3randn(nrng), 1.0e-3randn(nrng)) for p in u2]
             w = [i == 1 ? 3.0 : 1.0 for i in 1:20]
             _same(A, B) = norm(SMatrix{3, 3, Float64}(A) - SMatrix{3, 3, Float64}(B)) < 1.0e-9
-            csH = Csponds(src, dn); csF = Csponds(u1, u2n)
+            csH = Correspondences(src, dn); csF = Correspondences(u1, u2n)
             Hw = homography_dlt(withattrs(csH; weights = w))
-            @test _same(Hw, homography_dlt(Csponds([fill(src[1], 2); src], [fill(dn[1], 2); dn])))
+            @test _same(Hw, homography_dlt(Correspondences([fill(src[1], 2); src], [fill(dn[1], 2); dn])))
             @test !_same(Hw, homography_dlt(csH))                        # the weight moved the estimate
             Fw = fundamental_dlt(withattrs(csF; weights = w))
-            @test _same(Fw, fundamental_dlt(Csponds([fill(u1[1], 2); u1], [fill(u2n[1], 2); u2n])))
+            @test _same(Fw, fundamental_dlt(Correspondences([fill(u1[1], 2); u1], [fill(u2n[1], 2); u2n])))
             @test !_same(Fw, fundamental_dlt(csF))
             keep = BitVector(i > 3 for i in 1:20); z = Float64.(keep)
             @test _same(homography_dlt(withattrs(csH; weights = z)), homography_dlt(csH; mask = keep))
@@ -399,7 +399,7 @@
             ws = VgtkCore.SvdWorkspace{Float64}(40, 9)
             # (the estimator's normalization is built once, at its entry; the
             # inner-loop form takes it and never builds one)
-            N = CspondNormalization(HomographyMat, withattrs(csH; weights = w))
+            N = CorrespondenceNormalization(HomographyMat, withattrs(csH; weights = w))
             _lo_refit(A, N, cs, w, ws) = homography_dlt!(A, N, withattrs(cs; weights = w); svd_ws = ws)
             _lo_refit(A, N, csH, w, ws)
             @test (@allocated _lo_refit(A, N, csH, w, ws)) == 0
@@ -413,7 +413,7 @@
             # tests" inside a green suite and no reader can tell it ran. The
             # `isa Any` is the recorded form of exactly the claim `@inferred`
             # proves: this call inferred, and returned.
-            cs = Csponds(src, dst; score = collect(1.0:20.0))
+            cs = Correspondences(src, dst; score = collect(1.0:20.0))
             @test (@inferred sources(cs)) isa Any
             @test (@inferred targets(cs)) isa Any
             @test (@inferred cs[3]) isa Any
@@ -421,15 +421,15 @@
 
             @test (@inferred solve(Homography4pt(), cs, collect(1:4))) isa Any
             @test (@inferred solve(Fundamental7pt(), cs, collect(1:7))) isa Any
-            @test (@inferred solve(Essential5pt(), Csponds(x1b, x2b), collect(1:5))) isa Any
+            @test (@inferred solve(Essential5pt(), Correspondences(x1b, x2b), collect(1:5))) isa Any
             Xw3 = [SVector(1.0, 0.0, 5.0), SVector(-1.0, 1.0, 6.0), SVector(0.5, -1.0, 4.0)]
             xs3 = [normalize(SVector(0.1, 0.05, 1.0)), normalize(SVector(-0.2, 0.1, 1.0)), normalize(SVector(0.0, -0.15, 1.0))]
-            @test (@inferred solve(P3P(), Csponds(Xw3, xs3), collect(1:3))) isa Any
-            @test (@inferred Union{Nothing, FundMat{Float64}} fundamental_dlt(Csponds(u1, u2))) isa Any
+            @test (@inferred solve(P3P(), Correspondences(Xw3, xs3), collect(1:3))) isa Any
+            @test (@inferred Union{Nothing, FundMat{Float64}} fundamental_dlt(Correspondences(u1, u2))) isa Any
             @test (@inferred Union{Nothing, HomographyMat{Float64}} homography_dlt(withattrs(cs; weights = ones(20)))) isa Any   # the kernel returns `nothing` on non-finite rows
 
-            f = CspondNormalization(HomographyMat, cs)
-            @test (@inferred CspondNormalization(HomographyMat, cs)) isa Any
+            f = CorrespondenceNormalization(HomographyMat, cs)
+            @test (@inferred CorrespondenceNormalization(HomographyMat, cs)) isa Any
             Sf, Df = HomographyMap(source_map(f)), HomographyMap(destination_map(f))
             @test (@inferred Df ∘ HomographyMap(H0) ∘ inv(Sf)) isa Any
             @test (@inferred inv(Df) ∘ HomographyMap(H0) ∘ Sf) isa Any
@@ -450,7 +450,7 @@
             @test !(EssentialMat in induced_models(P2, P2))
             @test induced_models(Point2{Float64}, V3) == ()
 
-            cs = Csponds(src, dst)
+            cs = Correspondences(src, dst)
             @test induced_models(cs) == (HomographyMat, FundMat)
 
             # (3D, 3D) is genuinely ambiguous — P3P's source is a world POINT,

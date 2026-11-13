@@ -757,18 +757,18 @@ StructArrays.createinstance(::Type{Attributed{V, A}}, v, a) where {V, A} = Attri
 # ========================================================================
 
 """
-    Cspond{S,T} = Pair{S,T}
+    Correspondence{S,T} = Pair{S,T}
 
 A correspondence between a source element of type `S` and a target of type `T`.
 This is a type alias — correspondences are plain `Pair`s.
 
-Correspondences are stored in columnar layout via `StructArray{Cspond{S,T}}`,
+Correspondences are stored in columnar layout via `StructArray{Correspondence{S,T}}`,
 accessed as `cs.first` (sources) and `cs.second` (targets).
 """
-const Cspond{S, T} = Pair{S, T}
+const Correspondence{S, T} = Pair{S, T}
 
 """
-    csponds(sources, targets) -> StructArray{Cspond{S,T}}
+    correspondences(sources, targets) -> StructArray{Correspondence{S,T}}
 
 Construct a columnar correspondence array from parallel source and target vectors.
 
@@ -776,37 +776,37 @@ Construct a columnar correspondence array from parallel source and target vector
 ```julia
 src = [SA[1.0, 2.0], SA[3.0, 4.0]]
 dst = [SA[5.0, 6.0], SA[7.0, 8.0]]
-cs = csponds(src, dst)
+cs = correspondences(src, dst)
 cs.first   # sources
 cs.second  # targets
 cs[1]      # first correspondence as Pair
 ```
 """
-function csponds(sources::AbstractVector{S}, targets::AbstractVector{T}) where {S, T}
+function correspondences(sources::AbstractVector{S}, targets::AbstractVector{T}) where {S, T}
     length(sources) == length(targets) ||
         error("Source and target vectors must have the same length")
-    return StructArrays.StructArray{Cspond{S, T}}((sources, targets))
+    return StructArrays.StructArray{Correspondence{S, T}}((sources, targets))
 end
 
 """
-    ScoredCspond{S,T} = Attributed{Cspond{S,T}, Float64}
+    ScoredCorrespondence{S,T} = Attributed{Correspondence{S,T}, Float64}
 
 A correspondence with an associated match score (e.g., SNN ratio).
 """
-const ScoredCspond{S, T} = Attributed{Cspond{S, T}, Float64}
+const ScoredCorrespondence{S, T} = Attributed{Correspondence{S, T}, Float64}
 
-ScoredCspond(source::S, target::T, score::Float64) where {S, T} =
-    Attributed(Cspond{S, T}(source, target), score)
+ScoredCorrespondence(source::S, target::T, score::Float64) where {S, T} =
+    Attributed(Correspondence{S, T}(source, target), score)
 
 # Method delegation to the wrapped value (`a.value`, which `getproperty` reads as
 # `getfield(a, :value)`), by the stack's one idiom, MacroTools.@forward: iterating
-# the wrapped Pair for destructuring, `(source, target) = scored_cspond`; and index,
+# the wrapped Pair for destructuring, `(source, target) = scored_correspondence`; and index,
 # length and size of a wrapped vector, so pixel coordinates read alike in
-# `Attributed{Point2, …}` (RoMa csponds with precision attributes) and a bare
-# `Point2` (SP+LG csponds with none), without an `_pixel_of`-style helper. Two
+# `Attributed{Point2, …}` (RoMa correspondences with precision attributes) and a bare
+# `Point2` (SP+LG correspondences with none), without an `_pixel_of`-style helper. Two
 # lines because the two hold for two kinds of value (a Pair, a vector): one over
 # every `Attributed` would forward these to values that have no such method.
-MacroTools.@forward Attributed{<:Cspond}.value (Base.iterate,)
+MacroTools.@forward Attributed{<:Correspondence}.value (Base.iterate,)
 MacroTools.@forward Attributed{<:AbstractVector}.value (Base.getindex, Base.length, Base.size)
 
 # ========================================================================
@@ -868,7 +868,7 @@ storage: an `SMatrix` (full), an `SDiagonal` (diagonal) or a
 
 Used as the storage form for sources that emit precision natively (e.g.,
 RoMa v2 dense matcher, factor-graph SLAM backends, any EIV estimator that
-propagates measurement noise to the constraint).
+propagates observation noise to the constraint).
 
 ## Tensor character and transformation law
 
@@ -1027,7 +1027,7 @@ boundary, never in the inner loop.
 
 ## Two roles, one wrapper
 
-- **Measurement-side**: `Uncertain{Point2, PrecMat{2,T,SMatrix{2,2,T,4}}}` — a feature
+- **Observation-side**: `Uncertain{Point2, PrecMat{2,T,SMatrix{2,2,T,4}}}` — a feature
   detection (e.g. RoMa-v2 dense match) carrying its per-observation
   precision. Consumed by heteroscedastic Sampson, weighted DLT, IRLS.
 - **Model-side**: `Uncertain{HomographyMat{T}, CovMat{8,T,SMatrix{8,8,T,64}}}` — a fitted
@@ -1193,7 +1193,7 @@ end
 @inline unlabel(Σ::CovMat{N}) where {N} = relabel(UnlabeledFrame{N}, Σ)
 @inline unlabel(Λ::PrecMat{N}) where {N} = relabel(UnlabeledFrame{N}, Λ)
 
-# Internal frame accessor (measurement side): the frame a statistical form's
+# Internal frame accessor (observation side): the frame a statistical form's
 # coordinates live in, `UnlabeledFrame` when nothing is recorded. Used by the
 # checked propagate/Sampson layers; not exported.
 @inline _frame(::CovMat{N, T, L, C}) where {N, T, L, C} = C
@@ -1271,11 +1271,11 @@ covariance dropped), `x` itself otherwise.
     prec(u::Uncertain) -> PrecMat
     prec(x) -> LinearAlgebra.I
 
-The precision (information) form of a measurement's uncertainty: returns
+The precision (information) form of an observation's uncertainty: returns
 the stored [`PrecMat`](@ref) directly, or `inv` of a stored
 [`CovMat`](@ref) (paying the inversion once at the boundary). The fallback
 for plain values is the identity `LinearAlgebra.I` — an unweighted
-measurement — so call sites that mix plain points and `Uncertain` inputs
+observation — so call sites that mix plain points and `Uncertain` inputs
 need no special case for the no-weighting branch. Counterpart of `cov`
 (the `Statistics.cov` extension below); see [`Uncertain`](@ref).
 """
@@ -1292,7 +1292,7 @@ import Statistics: cov
 """
     cov(u::Uncertain) -> CovMat
 
-The covariance form of a measurement's uncertainty: returns the stored
+The covariance form of an observation's uncertainty: returns the stored
 [`CovMat`](@ref) directly, or `inv` of a stored [`PrecMat`](@ref) (paying
 the inversion once at the boundary). Extends `Statistics.cov` for
 [`Uncertain`](@ref) only; counterpart of [`prec`](@ref).

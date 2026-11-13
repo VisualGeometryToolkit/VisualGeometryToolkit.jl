@@ -140,7 +140,7 @@ end
 """
     AbstractOptimizationStrategy
 
-A local-optimization strategy: refines a seed model on the full measurement
+A local-optimization strategy: refines a seed model on the full observation
 set. Strategies are routed by [`RefitFamily`](@ref); in-loop IRLS-family
 strategies additionally plug into the solver via a weight policy
 ([`AbstractWeightPolicy`](@ref)).

@@ -2,7 +2,7 @@
 # additively. This file registers a relative-pose-from-imaged-circles solver
 # (two views, two coplanar circles, calibrated cameras: transfer +
 # circularity → unique pose up to scale) WITHOUT touching a single line of
-# Csponds / the sources-targets protocol / the solve verb / the registry
+# Correspondences / the sources-targets protocol / the solve verb / the registry
 # machinery. Everything below is what a downstream package would write:
 #
 #   1. a solver struct   `CircleRelPose <: MinimalSolver{Extrinsics3}`
@@ -171,8 +171,8 @@
         eB2 = to_ellipse(_crp_conic(n2, d2, cB2, r))
 
         # ---- the correspondence container needed ZERO new code
-        cs = Csponds([eA1, eB1], [eA2, eB2]; score = [1.0, 0.9])
-        @test cs isa AbstractVector{<:Cspond{Ellipse{Float64}, Ellipse{Float64}}}
+        cs = Correspondences([eA1, eB1], [eA2, eB2]; score = [1.0, 0.9])
+        @test cs isa AbstractVector{<:Correspondence{Ellipse{Float64}, Ellipse{Float64}}}
 
         # ---- registry: one method made the family discoverable
         @test induced_models(Ellipse{Float64}, Ellipse{Float64}) == (Extrinsics3,)
@@ -197,12 +197,12 @@
         # ---- degeneracy honors the count-0 protocol (concentric circles)
         eCd = to_ellipse(_crp_conic(n1, d1, cA1, 0.4 * r))
         eCd2 = to_ellipse(_crp_conic(n2, d2, cA2, 0.4 * r))
-        bad = solve(s, Csponds([eA1, eCd], [eA2, eCd2]), 1:2)
+        bad = solve(s, Correspondences([eA1, eCd], [eA2, eCd2]), 1:2)
         @test bad isa FixedModels{1, Extrinsics3}
         @test length(bad) == 0
 
         # ---- attribute columns ride along like any other family
         @test hasattr(cs, :score)
-        @test points(Csponds([eA1, eB1], [eA2, eB2]))[1] isa Pair  # centroid lift works on ellipses too
+        @test points(Correspondences([eA1, eB1], [eA2, eB2]))[1] isa Pair  # centroid lift works on ellipses too
     end
 end

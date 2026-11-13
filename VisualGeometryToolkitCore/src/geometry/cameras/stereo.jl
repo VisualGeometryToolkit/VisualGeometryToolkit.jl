@@ -230,7 +230,7 @@ function EpipolarForm(rig::StereoRig)
 # `Frame{2}` and it evaluates on `StaticVector{2}`. A bearing-domain FORM would
 # be a genuinely different object, not a relabelling — but no dispatch site
 # consumes one today (E reaches bearings through the constraint directly, and
-# RVG's only form-mediated E path is removed when E drops its measurement
+# RVG's only form-mediated E path is removed when E drops its observation
 # maps), and this repo adds a type when a consumer needs it. If one appears,
 # it is a new type beside this one, NOT a widening of this one: making
 # `EpipolarForm` mean both is the confusion the bearing/`GnomonicFrame` split
@@ -378,7 +378,7 @@ transfer(rig::StereoRig, p::Attributed{<:StaticVector{2}, <:Real}) =
 end
 
 # ============================================================================
-# Inlier mask: validate existing csponds against rig + depth ground truth
+# Inlier mask: validate existing correspondences against rig + depth ground truth
 # ============================================================================
 
 # The GT-validation defaults, in ONE place: `validate_gt_inliers` forwards to
@@ -391,13 +391,13 @@ const _GT_DEFAULTS = (rel_tol = 0.05, gross_outlier_pixel_frac = 0.01, bidirecti
 # unwrap on Attributed, recurse on Uncertain — one generic, no local helper.
 
 """
-    validate_gt_metric(rig, csponds, depth_src, depth_tgt;
+    validate_gt_metric(rig, correspondences, depth_src, depth_tgt;
                        rel_tol = 0.05, gross_outlier_pixel_frac = 0.01,
                        bidirectional_depth = true)
         -> (residuals::Vector{Vec3{Float64}}, valid::BitVector)
 
 Geometric pre-validation in metric space, without any pixel-residual
-threshold. A cspond is valid when it satisfies, in order:
+threshold. A correspondence is valid when it satisfies, in order:
 
 1. a gross-outlier gate: its GT-pose Sampson distance is at most
    `gross_outlier_pixel_frac` × the destination image diagonal (pose only, no depth);
@@ -419,7 +419,7 @@ tolerance gate.
 """
 function validate_gt_metric(
         rig::StereoRig,
-        csponds::AbstractVector,
+        correspondences::AbstractVector,
         depth_src::AbstractMatrix,
         depth_tgt::AbstractMatrix;
         rel_tol::Real = _GT_DEFAULTS.rel_tol,
@@ -428,9 +428,9 @@ function validate_gt_metric(
     )
     # the depth maps are plain metres: a physical rig is read in metres
     has_units(rig) && return validate_gt_metric(
-        ustrip(m, rig), csponds, depth_src, depth_tgt; rel_tol, gross_outlier_pixel_frac, bidirectional_depth
+        ustrip(m, rig), correspondences, depth_src, depth_tgt; rel_tol, gross_outlier_pixel_frac, bidirectional_depth
     )
-    n = length(csponds)
+    n = length(correspondences)
     residuals = Vector{Vec3{Float64}}(undef, n)
     valid = falses(n)
     src_model = model(source(rig))
@@ -443,7 +443,7 @@ function validate_gt_metric(
     # noisy depth (KITTI Velodyne, ScanNet Kinect) where the pixel depth-warp
     # filter would jitter or NaN-out most candidates. The filter is also
     # structurally distinct from the metric 3D residual (stage 3) which uses
-    # depth — so the cspond label still comes from a depth-based residual,
+    # depth — so the correspondence label still comes from a depth-based residual,
     # only gross-outlier pre-filtering uses pose-only Sampson.
     K_src = calibration_matrix(source(rig))
     K_tgt = calibration_matrix(destination(rig))
@@ -456,8 +456,8 @@ function validate_gt_metric(
 
     @inbounds for i in 1:n
         residuals[i] = Vec3{Float64}(NaN, NaN, NaN)
-        p_A = centroid(csponds[i].first)
-        p_B = centroid(csponds[i].second)
+        p_A = centroid(correspondences[i].first)
+        p_B = centroid(correspondences[i].second)
 
         # Stage 1 — gross outlier filter via GT-pose Sampson (pose-only,
         # no depth dependence).
@@ -512,13 +512,13 @@ function validate_gt_metric(
 end
 
 """
-    validate_gt_inliers(rig::StereoRig, csponds, depth_src, depth_tgt;
+    validate_gt_inliers(rig::StereoRig, correspondences, depth_src, depth_tgt;
                rel_tol                  = 0.05,
                metric_tol::Quantity,
                gross_outlier_pixel_frac = 0.01,
                bidirectional_depth      = true) -> BitVector
 
-Validate csponds against GT rig + per-view depth maps, returning a
+Validate correspondences against GT rig + per-view depth maps, returning a
 BitVector of inliers. The threshold is a physical **metric length at the
 surface** (e.g. `5mm`, `50mm`); see `_gt_inliers_metric` for the math.
 
@@ -528,7 +528,7 @@ resolutions/focal lengths.
 """
 function validate_gt_inliers(
         rig::StereoRig,
-        csponds::AbstractVector,
+        correspondences::AbstractVector,
         depth_src::AbstractMatrix,
         depth_tgt::AbstractMatrix;
         rel_tol::Real = _GT_DEFAULTS.rel_tol,
@@ -537,7 +537,7 @@ function validate_gt_inliers(
         bidirectional_depth::Bool = _GT_DEFAULTS.bidirectional_depth
     )
     return _gt_inliers_metric(
-        rig, csponds, depth_src, depth_tgt;
+        rig, correspondences, depth_src, depth_tgt;
         rel_tol = rel_tol,
         metric_tol = metric_tol,
         gross_outlier_pixel_frac = gross_outlier_pixel_frac,
@@ -547,7 +547,7 @@ end
 
 
 """
-    _gt_inliers_metric(rig, csponds, depth_src, depth_tgt;
+    _gt_inliers_metric(rig, correspondences, depth_src, depth_tgt;
                        rel_tol, metric_tol::Quantity, bidirectional_depth) -> BitVector
 
 Metric-tolerance variant. The 3D-disagreement vector at the surface is
@@ -566,7 +566,7 @@ all share one tolerance number in mm/cm/m).
 """
 function _gt_inliers_metric(
         rig::StereoRig,
-        csponds::AbstractVector,
+        correspondences::AbstractVector,
         depth_src::AbstractMatrix,
         depth_tgt::AbstractMatrix;
         rel_tol::Real,
@@ -575,7 +575,7 @@ function _gt_inliers_metric(
         bidirectional_depth::Bool
     )
     residuals, valid = validate_gt_metric(
-        rig, csponds, depth_src, depth_tgt;
+        rig, correspondences, depth_src, depth_tgt;
         rel_tol = rel_tol,
         gross_outlier_pixel_frac = gross_outlier_pixel_frac,
         bidirectional_depth = bidirectional_depth

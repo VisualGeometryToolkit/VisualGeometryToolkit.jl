@@ -86,7 +86,7 @@ end
 """
     propagate(m::EuclideanMap{N}, u::Uncertain) -> Uncertain
 
-Transport a measurement — geometry AND uncertainty — through a framed rigid
+Transport an observation — geometry AND uncertainty — through a framed rigid
 map in one checked call: the value moves by the map's point action `m(x)`,
 the statistical form by its own law (see the two-argument methods above,
 which also perform the frame check). The result's uncertainty carries the
@@ -136,7 +136,7 @@ propagate(m::SimilarityMap{N}, u::Uncertain{V, <:Union{CovMat{N}, PrecMat{N}}}) 
 Transport an uncertain 2D point through a framed collineation. The
 projective point action `x ↦ π(H·x̃)` is nonlinear, so the Jacobian is
 evaluated at the point — which is why the HomographyMap overloads take the
-measurement (`Uncertain`), not a bare statistical form. Frame checking and
+observation (`Uncertain`), not a bare statistical form. Frame checking and
 labeling follow the framed-map contract (frame meets `Src` under the
 wildcard truth table; result carries `Dst`), and the law dispatches on the
 representation: covariance pushes forward `Σ ↦ JΣJᵀ`, precision pulls back

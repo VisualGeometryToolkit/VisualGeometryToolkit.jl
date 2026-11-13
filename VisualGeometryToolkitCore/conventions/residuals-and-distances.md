@@ -6,12 +6,12 @@ fixed place.
 **The currency is the prefix.**
 
 - `sampson_` is GEOMETRIC: the first-order distance to the model's variety in
-  the data's own units, whatever noise the measurements carry.
-- `whitened_` and `mahalanobis_` are divided by the measurement noise: in σ
-  units, which for plain points is the pixel ("Measurement noise lives on the
-  measurements", `measurement-noise.md`).
+  the data's own units, whatever noise the observations carry.
+- `whitened_` and `mahalanobis_` are divided by the observation noise: in σ
+  units, which for plain points is the pixel ("Observation noise lives on the
+  observations", `observation-noise.md`).
 
-The noise comes from the measurements (plain, [`Uncertain`](@ref),
+The noise comes from the observations (plain, [`Uncertain`](@ref),
 [`exact`](@ref)), never from a type switch on one name and never from a
 whitening the caller supplies. One name for two currencies is what
 "Derivatives and Jacobians" forbids (`jacobians.md`), and for the same reason:

@@ -134,7 +134,7 @@ export Uncertain, PrecMat, CovMat
 export FullPrecMat, FullCovMat, DiagonalPrecMat, DiagonalCovMat, IsotropicPrecMat, IsotropicCovMat   # the forms by the matrix they hold: SMatrix, SDiagonal, ScaledIdentity (base/types.jl)
 export ScaledIdentity                    # the static N×N matrix λ·I, stored as λ (base/types.jl)
 export geom, prec   # `cov` is reachable via `Statistics.cov` (extended for Uncertain)
-export exact        # a zero-covariance measurement (the measurement-noise rule)
+export exact        # a zero-covariance observation (the observation-noise rule)
 public pair_covariance, noise_columns   # a correspondence's 4×4 covariance; Uncertain endpoints → Σ₁/Σ₂ columns
 
 # Hyperplanes (lines in 2D, planes in 3D)
@@ -302,7 +302,7 @@ export project!, backproject!, distort_normalized!, undistort_normalized!
 export undistort, undistort!, distortion_map
 export CameraCalibrationMat
 export project, backproject, unproject, transfer
-public bearing_csponds   # pixel pairs → bearing csponds carrying their pixel Jacobians (M₁, M₂)
+public bearing_correspondences   # pixel pairs → bearing correspondences carrying their pixel Jacobians (M₁, M₂)
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
 public normalized_point   # a pixel's normalized image point K⁻¹𝐩: the pixel-frame half of backproject, where a spline lattice is read
 export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
@@ -332,9 +332,9 @@ export regularizer   # the calibratable-target protocol
 public design, reference, board, canvas   # a planar target's design, its reference, its board and its canvas (not exported: common words)
 public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
-export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
-export TargetDetections, FrameStamps   # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
-export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
+export Trajectory, TargetPoses, TargetHomographies   # per-frame values of a capture (captures.jl)
+export TargetObservations, FrameStamps   # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
+export UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
 public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)
 export convert_frame   # the one way to change the pixel frame of pixel data
@@ -429,11 +429,11 @@ public weight_of, value_of         # a datum's weight (1.0 without one) and its 
 export AbstractDetection           # = Attributed{<:Union{FeatureFrame, Uncertain{<:FeatureFrame}}}
 export feature_frame               # Interface function stub: a detection's feature frame
 public BoundedRange                # Validated range type
-export Cspond, csponds, ScoredCspond
+export Correspondence, correspondences, ScoredCorrespondence
 # Columnar correspondence collection + access protocol + lazy lifts (#21).
-# NOTE: `Csponds` (collection of pair-correspondences) is distinct from
-# VGF's `CspondSet` (ONE n-tuple of mutually corresponding elements).
-export Csponds, PointSet, sources, targets, hasattr, withattrs
+# NOTE: `Correspondences` (collection of pair-correspondences) is distinct from
+# VGF's `CorrespondenceSet` (ONE n-tuple of mutually corresponding elements).
+export Correspondences, PointSet, sources, targets, hasattr, withattrs
 public block_order, split_blocks   # grouped data: the sorted-key block order (key sets checked); a block-ordered vector back per group
 export points
 public planar_lift, MappedColumn
@@ -515,7 +515,7 @@ public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, Extern
 # (`mahalanobis_distance` and `whitened_residuals!` are exported/public below,
 # with their model-level methods.)
 public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
-    residual_context, whitened_residual, measurement_covariance, solver_covariance, provides_solver_covariance,
+    residual_context, whitened_residual, observation_covariance, solver_covariance, provides_solver_covariance,
     refine!, refine_workspace
 # The robust-statistics toolkit.
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, partition_student_t, partition_rss, weighted_rss,
@@ -705,11 +705,11 @@ public sqrt_weights   # its √weight buffer
 # -----------------------------------------------------------------------------
 # 8. PROJECTIVE SOLVERS - Homography and fundamental matrix
 # -----------------------------------------------------------------------------
-# Solver layer (#21): the normalizations (strategies and CspondNormalization), the
+# Solver layer (#21): the normalizations (strategies and CorrespondenceNormalization), the
 # minimal-solver protocol, registry.
 # `solve(solver, cs, idx)` (FixedModels) is THE minimal protocol; the one-step
 # solvers are called by their algorithm names (`homography_dlt(cs)`).
-public CspondNormalization, source_map, destination_map   # a correspondence set's normalization as a value (models move by ∘ with its sides)
+public CorrespondenceNormalization, source_map, destination_map   # a correspondence set's normalization as a value (models move by ∘ with its sides)
 export HartleyNormalization, DiagonalNormalization   # normalization strategies, applied as AffineMap(strategy, points)
 export MinimalSolver, model_type
 public sample_size
@@ -760,9 +760,9 @@ export sampson_distance, sampson_residual, mahalanobis_distance   # geometric (S
 public sampson_residual_with_normal   # the Sampson residual and its normal basis: what `whiten` takes
 public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
 export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
-public constraint_rounding_scale   # a model's rounding scales at a measurement: what the Sampson degeneracy rule reads
-public sampson_residual_with_jacobian, measurement_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
-public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over a measurement set (columns: noise, keywords; unweighted): one KA kernel each
+public constraint_rounding_scale   # a model's rounding scales at an observation: what the Sampson degeneracy rule reads
+public sampson_residual_with_jacobian, observation_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
+public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over an observation set (columns: noise, keywords; unweighted): one KA kernel each
 public weighted_whitened_residuals!, weighted_whitened_jacobian_rows!   # the whitened rows times the set's sqrt_weights: a weighted fit's (the chart LM's) rows
 public constraint_keywords   # the attribute columns a model's constraint takes as keywords (M₁, M₂ on bearings)
 public sampson_distances!   # the n × M matrix of sampson_distance, models by elements (a pool's residuals)
@@ -901,7 +901,7 @@ include("base/feature_coords.jl")   # _strip_coords: the feature-coordinate comp
 include("base/frames.jl")   # Frame{N} tag hierarchy — BEFORE types.jl (CovMat/PrecMat frame params)
 include("base/image_frames.jl")   # 2-D image frames (retinal/pixel/target-plane/distorted) — AFTER frames, BEFORE types.jl
 include("base/types.jl")    # Loads interface.jl, defines AbstractDetection, conic matrices
-include("base/cspond_set.jl") # Csponds columnar container + sources/targets protocol + lift
+include("base/correspondence_set.jl") # Correspondences columnar container + sources/targets protocol + lift
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
 include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode_symbol/retcode_from_symbol/worst_retcode — the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
@@ -917,7 +917,7 @@ include("base/duals.jl")    # ForwardDiff value helpers: _primal (every layer), 
 include("base/fused_products.jl")   # _fma_dot, _fma_mul, _fma_tmul: product-sums as explicit fma chains (one rounding order in every compiled copy)
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations
-include("base/measurement_noise.jl")  # exact, pair_covariance, noise_columns: the measurement-noise rule
+include("base/observation_noise.jl")  # exact, pair_covariance, noise_columns: the observation-noise rule
 include("base/sampson.jl")       # the Sampson residual (geometry) and `whiten` (noise): two layers over constraint_with_jacobians
 include("base/manifold.jl")      # the Manifold CONTRACT (retraction + covariance transport); instances in geometry/manifolds/
 # FileCache moved to VisualGeometryToolkitFeatures
@@ -1002,7 +1002,7 @@ include("geometry/manifolds/ellipse.jl")     # EllipseManifold — a 2D ellipse'
 include("geometry/manifolds/covariance.jl")  # implicit-function solver covariance in the manifold coordinates
 include("geometry/confidence_regions.jl")          # image-domain confidence regions (confidence ellipses, epipolar bands)
 include("geometry/model_validity.jl")              # test_sample/test_model/test_consensus per model class
-include("geometry/solvers/solver_layer.jl")                # CspondNormalization + the MinimalSolver protocol + registry (#21)
+include("geometry/solvers/solver_layer.jl")                # CorrespondenceNormalization + the MinimalSolver protocol + registry (#21)
 include("geometry/solvers/circle_3pt.jl")                  # Circle3pt: the circle through three points
 include("geometry/solvers/ellipse_5pt.jl")                 # Ellipse5pt: the ellipse through five points
 
@@ -1049,7 +1049,7 @@ include("synthetic/synthetic.jl")
 
 # The benchmark pool record (PoolPair) and the raw-pair interface (StereoRawPair).
 # NOTE: AFTER Cameras (FramedAffine, similarity_scale, StereoRig) and the solver
-# layer (CspondNormalization, DiagonalNormalization). Not `using`'d here: its
+# layer (CorrespondenceNormalization, DiagonalNormalization). Not `using`'d here: its
 # accessor names (num_points, gt_pose, …) stay out of every `using VisualGeometryToolkitCore`.
 include("pools/pools.jl")
 include("robust/pool_grid_kernels.jl") # the exact selection kernels of a residual-quality family (KernelAbstractions, every backend)

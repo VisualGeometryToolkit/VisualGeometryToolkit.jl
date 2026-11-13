@@ -37,7 +37,7 @@
         ]
         H = HomographyMat{Float64}(Tuple(H_mat))
 
-        # Wrap into the cspond StructArray layout test_cheirality expects.
+        # Wrap into the correspondence StructArray layout test_cheirality expects.
         cs = StructArray((first = board_pts, second = image_pts))
 
         @testset "object→image (det H < 0) succeeds" begin

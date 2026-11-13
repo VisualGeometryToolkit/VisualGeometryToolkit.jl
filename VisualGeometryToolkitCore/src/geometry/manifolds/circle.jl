@@ -66,7 +66,7 @@ degeneracy (base/sampson.jl), judged at the circle's
     return g, 2 * e, SVector(-2 * e[1], -2 * e[2], -2 * r)
 end
 # ∂G_x/∂(c₁, c₂, r) of the point-on-circle constraint: G_x = 2(x − c), constant.
-@inline function measurement_gradient_jacobian(c::Circle, ::StaticVector{2})
+@inline function observation_gradient_jacobian(c::Circle, ::StaticVector{2})
     T = float(eltype(GeometryBasics.origin(c)))
     return SMatrix{2, 3, T}(-2, 0, 0, -2, 0, 0)
 end

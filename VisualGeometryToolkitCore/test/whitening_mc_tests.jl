@@ -1,5 +1,5 @@
 # The whitened residual currency against Monte Carlo: at the TRUE model, a
-# correspondence perturbed by its measurement covariance has a whitened residual
+# correspondence perturbed by its observation covariance has a whitened residual
 # distributed N(0, I_{d_g}) to first order — `whiten` of the Sampson residual
 # (vector constraint, a known anisotropic per-point Σx),
 # the epipolar batch rows (scalar, isotropic), the homography's whitened batch
@@ -12,7 +12,7 @@
     using StaticArrays
     using Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: whiten, sampson_residuals!, whitened_residuals!, Csponds, withattrs, exact, noise_columns,
+    using VisualGeometryToolkitCore: whiten, sampson_residuals!, whitened_residuals!, Correspondences, withattrs, exact, noise_columns,
         sampson_residual_with_normal, mahalanobis_distance, Uncertain, PrecMat
     const CHar = VgtkCore.Synthetic
 
@@ -37,7 +37,7 @@
         trial(rng) = begin
             _, _, F, _, cs, _ = CHar.sample_twoview_scene(rng, 1)
             c = noisy(rng, cs[1], σ, SMatrix{4, 4, Float64}(I))
-            r = sampson_residuals!(zeros(1), F, Csponds([sv(c.first)], [sv(c.second)]))
+            r = sampson_residuals!(zeros(1), F, Correspondences([sv(c.first)], [sv(c.second)]))
             (r / σ, ones(1, 1))
         end
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(92), 4000, 1))
@@ -50,7 +50,7 @@
             c = noisy(rng, cs[1], σ, SMatrix{4, 4, Float64}(I))
             u₁ = [sv(cs[1].first)]; u₂ = [sv(c.second)]     # the source exact (unperturbed), the target noisy
             r = zeros(2)
-            whitened_residuals!(r, H, withattrs(Csponds(u₁, u₂); noise_columns(exact.(u₁), u₂)...))
+            whitened_residuals!(r, H, withattrs(Correspondences(u₁, u₂); noise_columns(exact.(u₁), u₂)...))
             (r / σ, Matrix(1.0I, 2, 2))
         end
         @test CHar.is_calibrated(CHar.run_calibration(trial, MersenneTwister(93), 4000, 2))

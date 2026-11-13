@@ -6,7 +6,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools
-    using VisualGeometryToolkitCore: CspondNormalization, RansacScoring, MsacScoring, best_pool_model,
+    using VisualGeometryToolkitCore: CorrespondenceNormalization, RansacScoring, MsacScoring, best_pool_model,
         select_on_grid!, selection_staging, stage_selection, has_residual_quality, support_sq_loss_width, sorted_squared_residuals,
         exact_pm_score_kernel!, argmax_models_kernel!, residual_quality, AbstractConstraintProblem
     import VisualGeometryToolkitCore as VgtkCore
@@ -23,7 +23,7 @@
     N = pool_normalization(sz, sz)
     K = SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 500.0, 400.0, 1.0)
     function pair_of(n, M)
-        cs = csponds([SVector(rand(rng), rand(rng)) for _ in 1:n], [SVector(rand(rng), rand(rng)) for _ in 1:n])
+        cs = correspondences([SVector(rand(rng), rand(rng)) for _ in 1:n], [SVector(rand(rng), rand(rng)) for _ in 1:n])
         models = FundMat{Float64}[FundMat(SMatrix{3, 3, Float64}(randn(rng, 9)...)) for _ in 1:M]
         idx = M == 0 ? zeros(Int, 5, 0) : reduce(hcat, [sort(randperm(rng, n)[1:5]) for _ in 1:M])
         pair = PoolPair(cs, K, K, SMatrix{3, 3, Float64}(1.0I), SVector(1.0, 0.0, 0.0), models, idx, rand(rng, M), rand(rng, M),

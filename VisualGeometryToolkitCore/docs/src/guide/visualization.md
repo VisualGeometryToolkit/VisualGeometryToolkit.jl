@@ -112,7 +112,7 @@ poly!(ax, circles; strokecolor=:yellow, strokewidth=2.0)
 
 [`matches`](@ref)/`matches!` are the correspondence overlays.
 VisualGeometryToolkitFeatures extends them by dispatch for its feature types (the old
-`cspond!`/`matchlines` names are gone from both packages).
+`correspondence!`/`matchlines` names are gone from both packages).
 
 ## 3D Visualization
 

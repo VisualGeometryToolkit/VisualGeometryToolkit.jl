@@ -1,6 +1,6 @@
 # The constraint-problem protocol (`AbstractConstraintProblem`): the default
 # `whitened_residual` whitens each constraint through the Sampson layer, so a DEGENERATE
-# measurement follows the stack's one Sampson degeneracy rule — residual 0 when
+# observation follows the stack's one Sampson degeneracy rule — residual 0 when
 # the constraint vanishes (at the constraint's rounding scale, when it supplies
 # one), ±Inf otherwise — SIGNED and in the constraint's shape;
 # `mahalanobis_distance` (its norm, ≥ 0) is the per-point extension point
@@ -68,7 +68,7 @@
             Σg = Gx * Gx'
             @test distance_of((g, Gx, Gθ)) ≈ sqrt(dot(g, Σg \ g)) rtol = 1e-12
             @test distance_of((g, Gx, Gθ)) ≈ norm(cholesky(Symmetric(Gx * Gx')).L \ g) rtol = 1e-14
-            # heteroscedastic: the point's Σ̃_x (measurement_covariance) enters
+            # heteroscedastic: the point's Σ̃_x (observation_covariance) enters
             Σx = Diagonal(SVector(4.0, 1.0, 1.0, 0.25))
             @test distance_of((g, Gx, Gθ); Σ = Σx) ≈ sqrt(dot(g, (Gx * Σx * Gx') \ g)) rtol = 1e-12
             # rank-deficient Σ̃_g (parallel rows): an outlier, not a solve through a

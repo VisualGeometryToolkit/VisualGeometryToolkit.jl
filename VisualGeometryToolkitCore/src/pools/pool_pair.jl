@@ -12,10 +12,10 @@
 # frames are labeled with them (one source for both).
 const _POOL_VIEW_IDS = (:cam1, :cam2)
 
-# The stored correspondence type: `csponds(sources, targets)` of pool-frame 2-vectors.
-const _PoolCsponds = typeof(csponds(SVector{2, Float64}[], SVector{2, Float64}[]))
-_pool_csponds(cs::_PoolCsponds) = cs
-_pool_csponds(cs) = csponds([SVector{2, Float64}(c.first) for c in cs], [SVector{2, Float64}(c.second) for c in cs])
+# The stored correspondence type: `correspondences(sources, targets)` of pool-frame 2-vectors.
+const _PoolCorrespondences = typeof(correspondences(SVector{2, Float64}[], SVector{2, Float64}[]))
+_pool_correspondences(cs::_PoolCorrespondences) = cs
+_pool_correspondences(cs) = correspondences([SVector{2, Float64}(c.first) for c in cs], [SVector{2, Float64}(c.second) for c in cs])
 
 """
     PoolPair{M}
@@ -34,11 +34,11 @@ half-diagonal unit), through the per-image maps the record carries. See
   the E and F pools, `HomographyMat{Float64}` for the H pools).
 
 # Fields
-- `csponds`: Correspondences in `NormalizedImageFrame` — NOT pixels, stored as
-  the columnar `csponds(sources, targets)` of `SVector{2,Float64}` sides (any
+- `correspondences`: Correspondences in `NormalizedImageFrame` — NOT pixels, stored as
+  the columnar `correspondences(sources, targets)` of `SVector{2,Float64}` sides (any
   vector of 2-vector pairs is converted to it at construction). Each side is
   mapped pixel → normalized by its own map (`source_map`, `destination_map`).
-  [`pixel_csponds`](@ref) is the exact way back to pixels.
+  [`pixel_correspondences`](@ref) is the exact way back to pixels.
 - `K1::SMatrix{3,3,Float64,9}`, `K2::SMatrix{3,3,Float64,9}`: the **pixel**
   calibration of the source and target cameras ([`calibration_matrices`](@ref)).
 - `R_gt::SMatrix{3,3,Float64,9}`, `t_gt::SVector{3,Float64}`: the GT relative
@@ -51,7 +51,7 @@ half-diagonal unit), through the per-image maps the record carries. See
 - `gt_inliers::BitVector`: `(n,)` — GT inlier mask (from bundle adjustment), one
   entry per correspondence (checked at construction).
 - `gt_variance::Float64`: σ̂²_p = RSS/ν of the residuals under the **oracle**
-  pose (from the GT `R, t`) on the SfM-track keypoints — NOT a DLT refit.
+  pose (from the GT `R, t`) on the SfM-track detections — NOT a DLT refit.
   `ν = n·d_g` (oracle: no fitted DOF). NaN if too few tracks.
 - `source_map::SMatrix{3,3,Float64,9}`, `destination_map::SMatrix{3,3,Float64,9}`:
   the per-image maps `T` (pixel → `NormalizedImageFrame`) the data is stored in
@@ -64,7 +64,7 @@ half-diagonal unit), through the per-image maps the record carries. See
 
 # Coordinate frame
 
-All point data (`csponds`, `models`, and the separate residuals) lives in
+All point data (`correspondences`, `models`, and the separate residuals) lives in
 **`NormalizedImageFrame`**: each image is normalized by its own `T`
 (`source_map`/`destination_map`), **isotropically** — translate to the image centre
 and scale BOTH axes by `1/s`, `s = ½√(W²+H²)` HALF the image diagonal:
@@ -105,9 +105,9 @@ per-pair conversion. A pixel tolerance enters the pool frame only through
 
 # Construction
 
-    PoolPair(; csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r,
+    PoolPair(; correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r,
              errors_t, gt_inliers, gt_variance, source_map, destination_map, snn = nothing)
-    PoolPair(; csponds, …, gt_variance, normalization::CspondNormalization, snn = nothing)
+    PoolPair(; correspondences, …, gt_variance, normalization::CorrespondenceNormalization, snn = nothing)
     PoolPair{M}(; …)
 
 The keyword form is the one to build a record with (every field named; `M`
@@ -115,12 +115,12 @@ from `models` unless given): the maps come either as `source_map` and
 `destination_map` or as the `normalization` whose sides they are, never both. The
 positional forms below take the fields in declaration order.
 
-    PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices,
+    PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices,
                 errors_r, errors_t, gt_inliers, gt_variance,
                 source_map, destination_map, snn)
-    PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices,
+    PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices,
                 errors_r, errors_t, gt_inliers, gt_variance,
-                N::CspondNormalization, snn)
+                N::CorrespondenceNormalization, snn)
 
 (`M` is inferred from `models` when omitted.) The maps, or the
 [`pool_normalization`](@ref) whose sides they are, are REQUIRED: a record
@@ -137,7 +137,7 @@ The record is built by the loader from plain data; it is never serialized as a
 struct.
 """
 struct PoolPair{M}
-    csponds::_PoolCsponds
+    correspondences::_PoolCorrespondences
     K1::SMatrix{3, 3, Float64, 9}
     K2::SMatrix{3, 3, Float64, 9}
     R_gt::SMatrix{3, 3, Float64, 9}
@@ -149,18 +149,18 @@ struct PoolPair{M}
     gt_inliers::BitVector
     gt_variance::Float64
     # Per-image pool-frame maps `T` (pixel → NormalizedImageFrame) that the stored
-    # `csponds`/`models` are expressed in. The pool-frame calibration is `Kc = T·K`.
+    # `correspondences`/`models` are expressed in. The pool-frame calibration is `Kc = T·K`.
     source_map::SMatrix{3, 3, Float64, 9}
     destination_map::SMatrix{3, 3, Float64, 9}
     snn::Union{Nothing, Vector{Float32}}
 
     function PoolPair{M}(
-            csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+            correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
             gt_inliers, gt_variance, source_map, destination_map, snn
         ) where {M}
         _check_pool_map(:source_map, source_map)
         _check_pool_map(:destination_map, destination_map)
-        n = length(csponds); m = length(models)
+        n = length(correspondences); m = length(models)
         size(sample_indices, 2) == m || throw(DimensionMismatch(
             "PoolPair: sample_indices has $(size(sample_indices, 2)) columns for $m models"))
         (length(errors_r) == m && length(errors_t) == m) || throw(DimensionMismatch(
@@ -169,7 +169,7 @@ struct PoolPair{M}
             "PoolPair: gt_inliers has $(length(gt_inliers)) entries for $n correspondences"))
         (snn === nothing || length(snn) == n) || throw(DimensionMismatch(
             "PoolPair: snn has $(length(snn)) entries for $n correspondences"))
-        return new{M}(_pool_csponds(csponds), K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+        return new{M}(_pool_correspondences(correspondences), K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
             gt_inliers, gt_variance, source_map, destination_map, snn)
     end
 end
@@ -184,42 +184,42 @@ function _check_pool_map(name::Symbol, T::AbstractMatrix)
     return nothing
 end
 
-PoolPair(csponds, K1, K2, R_gt, t_gt, models::AbstractVector{M}, sample_indices, errors_r, errors_t,
+PoolPair(correspondences, K1, K2, R_gt, t_gt, models::AbstractVector{M}, sample_indices, errors_r, errors_t,
     gt_inliers, gt_variance, source_map, destination_map, snn) where {M} =
-    PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+    PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
         gt_inliers, gt_variance, source_map, destination_map, snn)
 
 # The record from its two-sided normalization: the sides are the stored maps.
-PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
-    gt_inliers, gt_variance, N::CspondNormalization, snn) where {M} =
-    PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+    gt_inliers, gt_variance, N::CorrespondenceNormalization, snn) where {M} =
+    PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
         gt_inliers, gt_variance, to_homogeneous(source_map(N)), to_homogeneous(destination_map(N)), snn)
-PoolPair(csponds, K1, K2, R_gt, t_gt, models::AbstractVector{M}, sample_indices, errors_r, errors_t,
-    gt_inliers, gt_variance, N::CspondNormalization, snn) where {M} =
-    PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+PoolPair(correspondences, K1, K2, R_gt, t_gt, models::AbstractVector{M}, sample_indices, errors_r, errors_t,
+    gt_inliers, gt_variance, N::CorrespondenceNormalization, snn) where {M} =
+    PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
         gt_inliers, gt_variance, N, snn)
 
 # The keyword form: every field named; the maps as `source_map`/`destination_map` or
 # as the `normalization` whose sides they are.
-function PoolPair{M}(; csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+function PoolPair{M}(; correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
         gt_inliers, gt_variance, source_map = nothing, destination_map = nothing,
-        normalization::Union{Nothing, CspondNormalization} = nothing, snn = nothing) where {M}
+        normalization::Union{Nothing, CorrespondenceNormalization} = nothing, snn = nothing) where {M}
     if normalization !== nothing
         (source_map === nothing && destination_map === nothing) || throw(ArgumentError(
             "PoolPair: give the maps as `source_map`/`destination_map` or as `normalization`, not both"))
-        return PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+        return PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
             gt_inliers, gt_variance, normalization, snn)
     end
     (source_map === nothing || destination_map === nothing) && _refuse_mapless()
-    return PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+    return PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
         gt_inliers, gt_variance, source_map, destination_map, snn)
 end
 PoolPair(; models::AbstractVector, kwargs...) = PoolPair{eltype(models)}(; models, kwargs...)
 
 # A pool record without its maps is refused, never read as the identity.
-PoolPair{M}(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+PoolPair{M}(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
     gt_inliers, gt_variance) where {M} = _refuse_mapless()
-PoolPair(csponds, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
+PoolPair(correspondences, K1, K2, R_gt, t_gt, models, sample_indices, errors_r, errors_t,
     gt_inliers, gt_variance) = _refuse_mapless()
 _refuse_mapless() = throw(ArgumentError(
     "a PoolPair pool record needs its maps `source_map`, `destination_map` " *
@@ -237,7 +237,7 @@ _refuse_mapless() = throw(ArgumentError(
 
 The number of correspondences of the pair: the residual matrix's row count.
 """
-num_points(pair::PoolPair) = length(pair.csponds)
+num_points(pair::PoolPair) = length(pair.correspondences)
 
 """
     num_models(pair::PoolPair) -> Int
@@ -327,9 +327,9 @@ unreadable.
 rig(pair::PoolPair) = StereoRig(pair.K1, pair.K2, pair.R_gt, pair.t_gt; check = false, ids = _POOL_VIEW_IDS)
 
 """
-    pool_normalization(pair::PoolPair) -> CspondNormalization
-    pool_normalization(size1, size2) -> CspondNormalization
-    pool_normalization(raw::StereoRawPair) -> CspondNormalization
+    pool_normalization(pair::PoolPair) -> CorrespondenceNormalization
+    pool_normalization(size1, size2) -> CorrespondenceNormalization
+    pool_normalization(raw::StereoRawPair) -> CorrespondenceNormalization
 
 The pool's two-sided normalization (pixel → `NormalizedImageFrame` per image),
 with its inverses. Of a record: its stored maps, `pair.source_map` and
@@ -345,9 +345,9 @@ names frame tags only. The same maps, frame-typed, are
 [`pool_frame_maps`](@ref).
 """
 pool_normalization(pair::PoolPair) =
-    CspondNormalization(affine_part(pair.source_map), affine_part(pair.destination_map))   # its own analytic inverses
+    CorrespondenceNormalization(affine_part(pair.source_map), affine_part(pair.destination_map))   # its own analytic inverses
 pool_normalization(size1, size2) =
-    CspondNormalization(AffineMap(DiagonalNormalization(size1)), AffineMap(DiagonalNormalization(size2)))
+    CorrespondenceNormalization(AffineMap(DiagonalNormalization(size1)), AffineMap(DiagonalNormalization(size2)))
 
 """
     pool_frame_maps(pair::PoolPair) -> (S, D)
@@ -413,7 +413,7 @@ function pool_pixel_scale(pair::PoolPair)
 end
 
 """
-    pixel_csponds(pair::PoolPair) -> StructArray
+    pixel_correspondences(pair::PoolPair) -> StructArray
 
 The pair's correspondences back in PIXELS: each side through the inverse of
 its stored map ([`pool_frame_maps`](@ref)), so the result is in the pixel frame
@@ -421,9 +421,9 @@ the pool's maps were built in (the generator's input frame). The exact
 inverse of the pool's normalization up to rounding; the way out of the pool
 frame for a consumer that works in pixels.
 """
-function pixel_csponds(pair::PoolPair)
+function pixel_correspondences(pair::PoolPair)
     S, D = pool_frame_maps(pair)
-    return csponds(map(inv(S), sources(pair.csponds)), map(inv(D), targets(pair.csponds)))
+    return correspondences(map(inv(S), sources(pair.correspondences)), map(inv(D), targets(pair.correspondences)))
 end
 
 """
@@ -435,7 +435,7 @@ its pixel bounds apply to them without any scalar approximation (the pool frame
 scales the two images independently, so [`pool_pixel_scale`](@ref) is a bound on
 the scale, not a conversion). One
 n×M scan of the light record: the correspondences come back to pixels through
-the stored maps ([`pixel_csponds`](@ref)), each model by composition with the
+the stored maps ([`pixel_correspondences`](@ref)), each model by composition with the
 pool normalization's two sides, `inv(D) ∘ M ∘ S` (a pool `F` → `T₂ᵀ F T₁`, a
 pool `H` → `T₂⁻¹ H T₁`). A model type with neither law (a bare matrix) has no
 `sampson_distance` and is a `MethodError`.
@@ -453,6 +453,6 @@ function pixel_residuals(pair::PoolPair)
     N = pool_normalization(pair)
     S, D = source_map(N), destination_map(N)
     iD = inv(D)
-    px = pixel_csponds(pair)
+    px = pixel_correspondences(pair)
     return sampson_distances!(Matrix{Float32}(undef, n, M), (iD ∘ m ∘ S for m in pair.models), px)
 end

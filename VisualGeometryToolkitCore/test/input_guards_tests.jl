@@ -75,7 +75,7 @@
         @test depth_at(D, SVector(2.9, 0.0)) == D[1, 3]
     end
 
-    @testset "whiten accepts a dense measurement covariance" begin
+    @testset "whiten accepts a dense observation covariance" begin
         g = SVector(1.0, 2.0)
         Gx = SMatrix{2, 4}(1, 0.2, -0.3, 1.1, 0.5, 0.4, 0, 0.9)
         Gθ = SMatrix{2, 3}(1, 0, 0.5, 2, -1, 0.3)

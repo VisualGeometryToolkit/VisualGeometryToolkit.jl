@@ -18,7 +18,7 @@ export plot_rectification
 export matches, matches!
 export ellipses!
 # VisualGeometryToolkitFeatures EXTENDS matches/matches! for its feature types (the old
-# cspond!/matchlines names are gone from both packages).
+# correspondence!/matchlines names are gone from both packages).
 
 # 3D visualization
 export LScene3D, camera!

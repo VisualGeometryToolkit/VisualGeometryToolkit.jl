@@ -18,7 +18,7 @@
 # DEPENDENCY GRAPH:
 #
 #   pool_pair.jl   (PoolPair, pool_normalization(size1, size2), accessors)
-#        ↓          Uses: CspondNormalization, DiagonalNormalization,
+#        ↓          Uses: CorrespondenceNormalization, DiagonalNormalization,
 #        ↓                FramedAffine, similarity_scale, StereoRig
 #   raw_pair.jl    (StereoRawPair + accessors; pool_normalization of a raw pair)
 #                   Uses: pool_normalization(size1, size2)
@@ -38,7 +38,7 @@ VisualGeometryToolkitCore.Pools`):
   [`pool_imc`](@ref), [`gt_pose`](@ref), [`calibration_matrices`](@ref),
   [`pool_normalization`](@ref), [`pool_frame_maps`](@ref),
   [`pool_frame_calibrations`](@ref), [`pool_pixel_scale`](@ref),
-  [`pixel_csponds`](@ref), [`pixel_residuals`](@ref) and [`rig`](@ref);
+  [`pixel_correspondences`](@ref), [`pixel_residuals`](@ref) and [`rig`](@ref);
 - [`StereoRawPair`](@ref): what a dataset reader's pair provides before a pool
   is drawn from it (pixel correspondences, calibration, image sizes, GT).
 
@@ -50,8 +50,8 @@ module Pools
 using StaticArrays: SMatrix, SVector
 using CoordinateTransformations: AffineMap
 using Rotations: RotMatrix
-using ..VisualGeometryToolkitCore: HomographyMat, CspondNormalization, DiagonalNormalization, SimilarityMap,
-    source_map, destination_map, to_homogeneous, affine_part,sampson_distances!, ImageFrame, NormalizedImageFrame, csponds, sources, targets
+using ..VisualGeometryToolkitCore: HomographyMat, CorrespondenceNormalization, DiagonalNormalization, SimilarityMap,
+    source_map, destination_map, to_homogeneous, affine_part,sampson_distances!, ImageFrame, NormalizedImageFrame, correspondences, sources, targets
 using ..VisualGeometryToolkitCore.Cameras: FramedAffine, StereoRig, similarity_scale, reframed_calibration, CameraCalibrationMat
 
 # =============================================================================
@@ -66,7 +66,7 @@ export num_points, num_models, pool_imc, gt_pose, calibration_matrices
 # The pool frame, named at every boundary: the record's two-sided normalization,
 # its framed maps (ImageFrame → NormalizedImageFrame), the pool-frame cameras,
 # the pool units per pixel, and the correspondences back in pixels.
-export pool_normalization, pool_frame_maps, pool_frame_calibrations, pool_pixel_scale, pixel_csponds
+export pool_normalization, pool_frame_maps, pool_frame_calibrations, pool_pixel_scale, pixel_correspondences
 export pixel_residuals
 public rig   # the GT StereoRig, built on access (not exported: `rig` is every caller's local name)
 # The residual-matrix contract and the one pool argmax every pool selection calls.
@@ -76,7 +76,7 @@ public check_residual_matrix, best_model_index
 # 2. THE RAW-PAIR INTERFACE - a dataset reader's pair, in pixels
 # -----------------------------------------------------------------------------
 export StereoRawPair
-export pair_csponds, pair_snn, pair_K1, pair_K2, pair_size1, pair_size2,
+export pair_correspondences, pair_snn, pair_K1, pair_K2, pair_size1, pair_size2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pair_scene
 
 # =============================================================================

@@ -2,10 +2,16 @@
 # Poisson–Gaussian noise, and ASIFT on it with its contrast threshold in noise σ, saturated pixels masked.
 
 @testsetup module NoisyMosaic
-    using VisualGeometryToolkitCore: RawMosaic
+    using VisualGeometryToolkitCore: RawMosaic, SensorNoise, DeviceIdentity, noise_value
 
 using Random: AbstractRNG
-export noisy_mosaic, poisson, RGGB, BLACK, WHITE
+export noisy_mosaic, poisson, measured_noise, RGGB, BLACK, WHITE
+
+# A record of the synthetic body: K electrons per code and σ_r codes per colour index (a scalar: every colour's), the
+# values the resolver hands on as `:measured`.
+measured_noise(K, σr) = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
+                                     electrons_per_dn = noise_value(Float64(K), :measured),
+                                     read_noise = noise_value(σr isa Real ? ntuple(_ -> Float64(σr), 4) : Float64.(σr), :measured))
 
 const RGGB = UInt8[0 1; 3 2]
 const BLACK = (512.0, 500.0, 520.0, 508.0)     # per colour index: the two greens (1, 3) differ
@@ -49,7 +55,7 @@ end
         m = noisy_mosaic(rng, (i, j) -> levels[cld(j, 128)], 128, 128 * length(levels); electrons_per_dn = K, read_dn = σr)
         L = LinearRaw(m; mode, gain)
         @test sort(collect(L.geometry.green_dn)) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
-        s = variance_stabilize(L; electrons_per_dn = K, read_noise)
+        s = variance_stabilize(L, measured_noise(K, read_noise))
         @test size(s.image) == (64, 64 * length(levels)) && s.saturated == L.saturated
         for (b, λ) in enumerate(levels)
             σ = std(s.image[:, (64(b - 1) + 1):(64b)])
@@ -57,13 +63,34 @@ end
         end
         # the transform is increasing, and the white level is its value at 1 × gain
         @test issorted([mean(s.image[:, (64(b - 1) + 1):(64b)]) for b in eachindex(levels)])
-        @test s.white ≈ variance_stabilize(LinearRaw(noisy_mosaic(rng, (i, j) -> 0.0, 2, 2; electrons_per_dn = K, read_dn = 0.0); mode, gain);
-                                           electrons_per_dn = K, read_noise).white
+        @test s.white ≈ variance_stabilize(LinearRaw(noisy_mosaic(rng, (i, j) -> 0.0, 2, 2; electrons_per_dn = K, read_dn = 0.0); mode, gain),
+                                           measured_noise(K, read_noise)).white
     end
-    @test_throws ArgumentError variance_stabilize(LinearRaw(noisy_mosaic(rng, (i, j) -> 1.0, 4, 4; electrons_per_dn = K, read_dn = σr); mode = :bin2);
-                                                  electrons_per_dn = 0, read_noise)
-    @test_throws ArgumentError variance_stabilize(LinearRaw(noisy_mosaic(rng, (i, j) -> 1.0, 4, 4; electrons_per_dn = K, read_dn = σr); mode = :bin2);
-                                                  electrons_per_dn = K, read_noise = -1)
+end
+
+@testitem "variance_stabilize: the resolved SensorNoise — each green its colour's read noise, a missing noise refused by its reason" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity
+    using VisualGeometryToolkitFeatures: variance_stabilize
+    import VisualGeometryToolkitFeatures as VF
+    using Random: Xoshiro
+    L = LinearRaw(noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
+    # σ² pairs each green's span with its own colour's read noise (G = 1, G2 = 3; the others never enter)
+    σr = (7.0, 2.0, 11.0, 5.0)
+    d1, d2 = L.geometry.green_dn
+    c1, c2 = L.geometry.green_colors
+    @test sort([c1, c2]) == [1, 3]
+    α, σ² = VF._green_noise(L, measured_noise(2.5, σr))
+    @test α ≈ L.gain / (4 * 2.5) * (1 / d1 + 1 / d2)
+    @test σ² ≈ L.gain^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
+    @test σ² ≈ L.gain^2 / 4 * ((c1 == 1 ? 2.0 : 5.0)^2 / d1^2 + (c2 == 1 ? 2.0 : 5.0)^2 / d2^2)
+    # the resolver's case 4: no K, no σ_r, its reason — refused, naming it; no constant is invented
+    unknown = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100, reason = "too few flat blocks")
+    err = try variance_stabilize(L, unknown) catch e; e end
+    @test err isa ArgumentError && occursin("too few flat blocks", err.msg)
+    # the 0.8 keywords, retired with a pointed refusal
+    err = try variance_stabilize(L; electrons_per_dn = 2.5, read_noise = 3.0) catch e; e end
+    @test err isa ArgumentError && occursin("`electrons_per_dn` is retired", err.msg)
+    @test_throws ArgumentError variance_stabilize(L)
 end
 
 @testitem "asift_detect on a stabilized image: the threshold in noise σ of the noisiest DoG slice" setup = [NoisyMosaic] begin
@@ -122,7 +149,7 @@ end
     m = noisy_mosaic(rng, scene, H, W; electrons_per_dn = K, read_dn = 3.0)
     L = LinearRaw(m; mode = :green_cells)
     @test count(L.saturated) > 100
-    s = variance_stabilize(L; electrons_per_dn = K, read_noise = 3.0)
+    s = variance_stabilize(L, measured_noise(K, 3.0))
     ds = asift_detect(s; device = KA.CPU(), tilts = [(1.0, 0.0)])
     # the cell grid is half the raw's: the window at (64, 32) r 15 cells, the blobs at y = 96 cells
     near_window(d) = hypot(centroid(d)[1] - 64, centroid(d)[2] - 32) < 15 + 3characteristic_scale(feature_frame(d))
@@ -146,6 +173,7 @@ end
     @test s32.image isa Matrix{Float64} && s32.image == Float64.(Float32.(img)) && s32.saturated isa BitMatrix
     # the transform's image is the one full-frame array variance_stabilize allocates
     L = LinearRaw(noisy_mosaic(Xoshiro(3), (i, j) -> 100.0, 600, 800; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
-    variance_stabilize(L; electrons_per_dn = 2.5, read_noise = 3.0)
-    @test @allocated(variance_stabilize(L; electrons_per_dn = 2.5, read_noise = 3.0)) < 1.5 * sizeof(Float64) * 300 * 400
+    noise = measured_noise(2.5, 3.0)
+    variance_stabilize(L, noise)
+    @test @allocated(variance_stabilize(L, noise)) < 1.5 * sizeof(Float64) * 300 * 400
 end

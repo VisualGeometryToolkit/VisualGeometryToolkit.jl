@@ -113,10 +113,12 @@ end
 end
 
 @testitem "raw: the display image has no green cells to stabilize" begin
-    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
     using VisualGeometryToolkitFeatures: variance_stabilize
     display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
-    @test_throws ArgumentError variance_stabilize(display_image; electrons_per_dn = 2.5, read_noise = 3.0)
+    noise = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
+                        electrons_per_dn = noise_value(2.5, :measured), read_noise = noise_value((3.0, 3.0, 3.0, 3.0), :measured))
+    @test_throws ArgumentError variance_stabilize(display_image, noise)
 end
 
 @testitem "raw: LibRaw_jll decoder" begin
@@ -332,4 +334,21 @@ end
     using LibRaw_jll
     @test Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) !== nothing
     @test_throws MethodError Base.invokelatest(VGF._decode_raw, LoadedDecoder(), @__FILE__)
+end
+
+# load_raw forwards the frame's resolved noise to Core's LinearRaw, the one black subtraction; the display demosaic
+# (LibRaw's own black) and a cached decode (a noise is no key) refuse one.
+@testitem "raw: load_raw forwards the resolved noise to LinearRaw" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
+    using VisualGeometryToolkitFeatures: load_raw
+    using Random: Xoshiro
+    m = noisy_mosaic(Xoshiro(6), (i, j) -> 200.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
+    noise = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
+                        black = noise_value((500.0, 490.0, 510.0, 495.0), :measured), reason = "a record of the black level alone")
+    for mode in (:green_cells, :bin2)
+        @test load_raw(m; mode, noise).image == LinearRaw(m; mode, noise).image
+        @test load_raw(m; mode, noise).image != load_raw(m; mode).image                   # the noise's black, not the file's
+    end
+    @test_throws ArgumentError load_raw(m; mode = :demosaic, noise)
+    @test_throws ArgumentError load_raw(@__FILE__; mode = :green_cells, noise, cache = Dict())
 end

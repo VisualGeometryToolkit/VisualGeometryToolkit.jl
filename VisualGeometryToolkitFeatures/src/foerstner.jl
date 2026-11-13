@@ -160,14 +160,20 @@ julia> round.(Tuple(only(points).center); digits = 1)   # COLMAP: (column − ½
 (20.0, 24.0)
 ```
 """
-detect_foerstner(img::AbstractMatrix; kw...) = detect_foerstner(Float32, img; kw...)
+detect_foerstner(img::Union{AbstractMatrix, LinearRaw}; kw...) = detect_foerstner(Float32, img; kw...)
 
-function detect_foerstner(
-        ::Type{T}, img::AbstractMatrix;
+detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = nothing, noise_sigma::Real = something(noise, 2.0),
+                 kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
+
+detect_foerstner(::Type{T}, L::LinearRaw; noise::Union{Nothing, SensorNoise} = nothing, kw...) where {T <: AbstractFloat} =
+    _detect_foerstner(T, green_plane(L), _pixel_noise(noise, L); kw...)
+
+# The detector on the grey image `img`; `model` the pixel noise it propagates (`_pixel_noise`) or `nothing`.
+function _detect_foerstner(
+        ::Type{T}, img::AbstractMatrix, model;
         device::KA.Backend = default_device(),
         method::Symbol = :foerstner,
-        noise::Union{Nothing, Real} = nothing,
-        noise_sigma::Real = something(noise, 2.0),
+        noise_sigma::Real = 2.0,
         derivative::Symbol = :gaussian2d,
         integration::Symbol = :box,
         derivative_sigma::Real = 1.0,
@@ -178,7 +184,6 @@ function detect_foerstner(
     ) where {T <: AbstractFloat}
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
-    σ² = noise === nothing ? nothing : _pixel_variance(noise)
     # a float matrix at its own precision (gray_f32 would round a Float64 one), anything else as gray_f32 reads it
     g = ka_upload(T, device, img isa AbstractMatrix{<:AbstractFloat} ? img : gray.(gray_f32(img)))
     doubled = KA.allocate(device, T, 2 .* size(g)...)
@@ -188,16 +193,28 @@ function detect_foerstner(
         integration_sigma, precision_threshold, roundness_threshold
     )
     classes = _foerstner_classes(found, significance_level)
-    σ² === nothing && return _foerstner_points(found, classes, _undouble)
-    covariances = _propagated_covariances(device, found, classes, size(g), σ²)
-    return _foerstner_points(found, classes, _undouble; covariances, covariance_source = :propagated)
+    model === nothing && return _foerstner_points(found, classes, _undouble)
+    α, σ², covariance_source = model
+    covariances = _propagated_covariances(device, found, classes, g, α, σ²)
+    return _foerstner_points(found, classes, _undouble; covariances, covariance_source)
 end
 
-# The variance of the iid pixel noise `detect_foerstner` propagates, on the `[0, 1]` image: `σn` grey levels of an
-# 8-bit image.
-function _pixel_variance(σn::Real)
+# The pixel noise `detect_foerstner` propagates, `(α, σ², covariance_source)`: a pixel of value x has variance
+# α·x + σ² (its Poisson part clamped at 0 below the black level). `nothing`: no noise is known, the covariance is the
+# a-posteriori one.
+_pixel_noise(::Nothing, img...) = nothing
+# iid noise of σn grey levels of an 8-bit image, on the [0, 1] image
+function _pixel_noise(σn::Real)
     isfinite(σn) && σn > 0 || throw(ArgumentError("detect_foerstner: the noise σ must be positive and finite, got $σn"))
-    return (σn / 255)^2
+    return 0.0, (σn / 255)^2, :propagated
+end
+# a RAW's green cells under its resolved sensor noise (the one model, `_green_noise`); a noise the resolver could not
+# give (its `reason`) leaves the a-posteriori covariance, marked so
+function _pixel_noise(noise::SensorNoise, L::LinearRaw)
+    _noise_reason(noise) === nothing || return nothing
+    α, σ² = _green_noise(L, noise)
+    measured = all(f -> getfield(f, :attributes).source === :measured, (noise.electrons_per_dn, noise.read_noise))
+    return α, σ², measured ? :propagated_measured : :propagated_estimated
 end
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
@@ -369,10 +386,12 @@ end
 @inline _band_start(p::Integer, r::Integer) = max(1, max(p - r, 1) >> 1)
 
 # The propagated covariance of every classified window (a 4 × K host matrix, column-major 2×2 on the doubled grid,
-# (row, column); NaN for an unknown window) for iid input noise of variance σ², on the device of `found`, through the
+# (row, column); NaN for an unknown window) for independent input noise of variance α·g + σ² at the input pixel of
+# value g (`g` the input on the device), on the device of `found`, through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
-function _propagated_covariances(device, found, classes, (H, W), σ²)
+function _propagated_covariances(device, found, classes, g::AbstractMatrix, α, σ²)
     (; centres, ρ, gradient, taps, centre_list, device_estimates) = found
+    H, W = size(g)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
     T = eltype(device_estimates)
@@ -380,24 +399,24 @@ function _propagated_covariances(device, found, classes, (H, W), σ²)
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient, centre_list, device_estimates,
-        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2), T(σ²); ndrange = K
+        _propagated_covariances!, device, out, gradient, g, centre_list, device_estimates,
+        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2), T(α), T(σ²); ndrange = K
     )
     return Float64.(Array(out))
 end
 
-# One window k: Σ = σ² Σ_q δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
+# One window k: Σ = Σ_q var(q) δ_q δ_qᵀ, var(q) = max(α·g[q], 0) + σ², δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
 # pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
 # |p − 2q| ≤ r + 2 along each axis.
 @kernel function _propagated_covariances!(
-        out, @Const(gradient), @Const(centres), @Const(estimates), @Const(classes),
-        @Const(rows), @Const(columns), ρ::Int32, r::Int32, σ²
+        out, @Const(gradient), @Const(g), @Const(centres), @Const(estimates), @Const(classes),
+        @Const(rows), @Const(columns), ρ::Int32, r::Int32, α, σ²
     )
     k = @index(Global)
     T = eltype(out)
     @inbounds class = classes[k]
     @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
-    H, W = size(rows, 2) ÷ 2, size(columns, 2) ÷ 2
+    H, W = size(g)
     w = Int(r) + 2
     Σrr = Σrc = Σcc = zero(T)
     if class == 0
@@ -428,15 +447,16 @@ end
                 s2 += ve * uc + eu * vc
             end
             δ = Ninv * SVector(s1, s2)
-            Σrr += δ[1]^2
-            Σrc += δ[1] * δ[2]
-            Σcc += δ[2]^2
+            @inbounds v = max(α * g[q1, q2], zero(T)) + σ²
+            Σrr += v * δ[1]^2
+            Σrc += v * δ[1] * δ[2]
+            Σcc += v * δ[2]^2
         end
     end
-    @inbounds out[1, k] = σ² * Σrr
-    @inbounds out[2, k] = σ² * Σrc
-    @inbounds out[3, k] = σ² * Σrc
-    @inbounds out[4, k] = σ² * Σcc
+    @inbounds out[1, k] = Σrr
+    @inbounds out[2, k] = Σrc
+    @inbounds out[3, k] = Σrc
+    @inbounds out[4, k] = Σcc
 end
 
 # A doubled-grid estimate and its (row, column) covariance `Σ` (column-major

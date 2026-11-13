@@ -44,24 +44,26 @@ struct StabilizedImage
 end
 
 """
-    variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage
+    variance_stabilize(L::LinearRaw, noise::SensorNoise) -> StabilizedImage
 
 The generalized Anscombe transform of the green cells of `L` (`:green_cells`,
 or `:bin2`'s G plane, the same values) for Poisson–Gaussian noise: after it the
 noise has σ ≈ 1 at every level, from a few electrons to the white level.
 
-- `electrons_per_dn` — the sensor's conversion gain at the frame's ISO,
-  electrons per raw code (> 0).
-- `read_noise` — the read noise in raw codes (≥ 0), the codes' rounding
-  included.
+`noise` is the frame's resolved sensor noise (VisualGeometryToolkitCore's
+`sensor_noise`, the one place a missing value is decided): its conversion gain
+`electrons_per_dn` (K, electrons per raw code) and its read noise per colour
+(σ_r, raw codes, the rounding included), each from a record (`:measured`) or
+estimated from the frame. A noise the resolver could not give (`nothing`, with
+its `reason`) is an `ArgumentError` naming that reason: there is no fallback.
+`L` is best made with the same noise (`LinearRaw(mosaic; mode, noise)`, or
+[`load_raw`](@ref)'s `noise`), so the black it subtracted is the noise's.
 
-Neither is in a RAW file's metadata (LibRaw reports neither): they are the
-camera's, at the frame's ISO, measured once (e.g. from the variance of the two
-greens' difference against their mean on a flat scene). The code spans are the
-photosites' own (`L.geometry.green_dn`, each green's `white − black`), and `L.gain`
-scales the photon and the read noise alike. A green cell whose value is
-`x = (x₁ + x₂)/2` is `α·P + N` with
-`α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²σ_r²/4·(1/d₁² + 1/d₂²)`, and its
+The code spans are the photosites' own (`L.geometry.green_dn`, each green's
+`white − black`) and each green's read noise its colour's
+(`L.geometry.green_colors`); `L.gain` scales the photon and the read noise
+alike. A green cell whose value is `x = (x₁ + x₂)/2` is `α·P + N` with
+`α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²/4·(σ_r₁²/d₁² + σ_r₂²/d₂²)`, and its
 transform is `(2/α)·√(max(α x + 3α²/8 + σ², 0))`.
 
 `L.saturated` is carried over: [`asift_detect`](@ref) masks those pixels
@@ -69,21 +71,36 @@ rather than reading the clipped values. The transform is pixel-wise, so the
 detections' positions are the cell grid's, as on any rendering of `L` (a
 display rendering for a descriptor among them).
 """
-function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Real)
-    isfinite(electrons_per_dn) && electrons_per_dn > 0 ||
-        throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
-    isfinite(read_noise) && read_noise >= 0 ||
-        throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    # the green-cell plane: the one whose frame IS the cell grid (Core's raw_frame_map; the display image refused there)
-    S = raw_frame_map(L)
-    G = view(L.image, :, :, findfirst(c -> bayer_plane_map(L, c) === S, 1:size(L.image, 3)))
-    d1, d2 = L.geometry.green_dn
-    g = L.gain
-    α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)
-    σ² = g^2 * read_noise^2 / 4 * (1 / d1^2 + 1 / d2^2)
+function variance_stabilize(L::LinearRaw, noise::SensorNoise)
+    G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
+    α, σ² = _green_noise(L, noise)
     f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    return StabilizedImage(f.(G), L.saturated, f(g))
+    return StabilizedImage(f.(G), L.saturated, f(L.gain))
 end
+
+# The 0.8 keywords, retired: the noise is the resolver's SensorNoise, the argument.
+function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), read_noise = RetiredKeyword())
+    refuse_retired_keyword(electrons_per_dn, :electrons_per_dn, "the frame's resolved noise, variance_stabilize(L, noise::SensorNoise)")
+    refuse_retired_keyword(read_noise, :read_noise, "the frame's resolved noise, variance_stabilize(L, noise::SensorNoise)")
+    throw(ArgumentError("variance_stabilize: give the frame's resolved noise, variance_stabilize(L, noise::SensorNoise) (VisualGeometryToolkitCore's sensor_noise)"))
+end
+
+# THE noise model of a green-cell value of `L` under the resolved `noise`: a cell `x` has variance `α·x + σ²` (module
+# header). A noise the resolver could not give is refused, naming its reason.
+function _green_noise(L::LinearRaw, noise::SensorNoise)
+    reason = _noise_reason(noise)
+    reason === nothing || throw(ArgumentError("the sensor noise of this frame is unknown: $reason"))
+    K = value_of(noise.electrons_per_dn)
+    σr = value_of(noise.read_noise)
+    d1, d2 = L.geometry.green_dn
+    c1, c2 = L.geometry.green_colors
+    g = L.gain
+    return g / (4K) * (1 / d1 + 1 / d2), g^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
+end
+
+# Why a resolved noise holds no K or σ_r (the resolver's `reason`), or `nothing` when it holds both.
+_noise_reason(noise::SensorNoise) =
+    noise.electrons_per_dn === nothing || noise.read_noise === nothing ? something(noise.reason, "no reason recorded") : nothing
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search

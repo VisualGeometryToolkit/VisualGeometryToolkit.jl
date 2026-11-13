@@ -174,7 +174,7 @@ end
 # its raw_frame_map. A cell image of another mode (`:bin2`, the display `:demosaic`) is refused, never re-read.
 _detection_plane(f::AbstractMatrix) = (f, nothing)
 _detection_plane(m::RawMosaic) = _detection_plane(LinearRaw(m; mode = :green_cells))
-_detection_plane(L::LinearRaw{:green_cells}) = (Array(view(L.image, :, :, 1)), unlabel(raw_frame_map(L)))
+_detection_plane(L::LinearRaw{:green_cells}) = (Array(green_plane(L)), unlabel(raw_frame_map(L)))
 _detection_plane(::LinearRaw{M}) where {M} = throw(ArgumentError(
     "detect_image_circle: a RAW frame is measured on its green cells: give the mosaic or LinearRaw(mosaic; mode = :green_cells), got LinearRaw{:$M}"
 ))

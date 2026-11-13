@@ -51,7 +51,8 @@ using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
-using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map, bayer_plane_map
+using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
+using VisualGeometryToolkitCore: SensorNoise, green_plane, value_of, RetiredKeyword, refuse_retired_keyword   # the resolved sensor noise and the green cells it models (variance_stabilization.jl, foerstner.jl)
 using LinearAlgebra: isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
 using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})

@@ -99,6 +99,17 @@ function _manifest_model_check(x)
         "`model` calibrates $(repr(i)) intrinsics, but the result's `result_kind` is $(repr(x[:result_kind]))" : nothing
 end
 
+# The model is VGC's closed `CameraModelSpec` table: VGC's reader is its check.
+function _manifest_model_problem(x)
+    try
+        VgtkCore.CameraModelSpec(_lower(x))
+    catch e
+        e isa ArgumentError && return e.msg
+        rethrow()
+    end
+    return nothing
+end
+
 const _CALIBRATION_SPEC = _kind_spec(
     "calibration",
     Pair{Symbol, _Spec}[
@@ -122,16 +133,6 @@ const _CALIBRATION_SPEC = _kind_spec(
     Pair{Symbol, _Spec}[:model => _CheckedSpec(_Free(), _manifest_model_problem), :metrics => _RealMap()];
     check = _manifest_model_check,
 )
-# The model is VGC's closed `CameraModelSpec` table: VGC's reader is its check.
-function _manifest_model_problem(x)
-    try
-        VgtkCore.CameraModelSpec(_lower(x))
-    catch e
-        e isa ArgumentError && return e.msg
-        rethrow()
-    end
-    return nothing
-end
 
 """
     validate_record(::Val{owner}, path, schema) -> Any

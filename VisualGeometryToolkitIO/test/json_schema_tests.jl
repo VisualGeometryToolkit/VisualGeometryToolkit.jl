@@ -77,7 +77,8 @@ end
                     return nothing
                 end
                 file = isdir(path) ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
-                push!(docs, name => (kind, plain_doc(read_record(file))))
+                # the record the reader meets: through its version steps, validated (`_checked_store`, the read boundary)
+                push!(docs, name => (kind, plain_doc(VgtkIO._checked_store(VgtkIO._read_vgio_json(file), file, kind))))
                 return nothing
             end
             fixtures = joinpath(@__DIR__, "fixtures")
@@ -128,8 +129,10 @@ end
             # unknown key at the top and in the first nested object (each must be refused)
             cases = Dict{String, Any}[]
             expect = Dict{String, Bool}()
+            # the validator's verdict at its own boundary: the document written as a file, `validate`d
+            n_case = Ref(0)
             refused(kind, doc) = try
-                VgtkIO._validate(VgtkIO._spec(kind), doc, "case", "")
+                validate((f = joinpath(dir, "case_$(n_case[] += 1).json"); write(f, JSON.json(doc)); f))
                 false
             catch e
                 e isa ArgumentError || rethrow()
@@ -160,11 +163,10 @@ end
             ok = success(pipeline(`$python $(joinpath(@__DIR__, "python", "check_json_schemas.py")) $(schema_dir()) $cases_file`; stdout = out))
             @test ok
             if ok
-                for r in JSON.parse(String(take!(out)))
-                    agrees = r["valid"] == expect[r["name"]]
-                    agrees || println(stderr, "json schemas: the schema and the validator disagree on ", r["name"], ": schema valid = ", r["valid"], " (", r["error"], ")")
-                    @test agrees
-                end
+                results = JSON.parse(String(take!(out)))
+                @test length(results) == length(cases)
+                disagreements = ["$(r["name"]): the schema says valid = $(r["valid"]) ($(r["error"]))" for r in results if r["valid"] != expect[r["name"]]]
+                @test disagreements == String[]
             end
         end
     end

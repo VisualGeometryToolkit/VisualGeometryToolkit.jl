@@ -364,7 +364,7 @@ migrate_schema(::Val{Symbol("vgio/capture_settings/v1")}, t::AbstractDict) = _ca
 # finite number), so an entry that is not a number — text, a list, a nested
 # object, which 0.9's free-form `metrics` held — moves, as it stands, under
 # `provenance.metrics` (the one free-form object), where nothing reads it.
-function _calibration_v2_to_v3(old::AbstractDict)
+function _manifest_v2_to_v3(old::AbstractDict)
     t = _renamed_key(_envelope_v010(old, "vgio/calibration/v3.0"), "kind", "result_kind")
     t["files"] = Any[_renamed_key(f, "kind", "schema") for f in t["files"]]
     if haskey(t, "metrics")
@@ -381,7 +381,7 @@ function _calibration_v2_to_v3(old::AbstractDict)
     end
     return t
 end
-migrate_schema(::Val{Symbol("vgio/calibration/v2")}, t::AbstractDict) = _calibration_v2_to_v3(t)
+migrate_schema(::Val{Symbol("vgio/calibration/v2")}, t::AbstractDict) = _manifest_v2_to_v3(t)
 
 # vgio/vignetting/v1 → v2.0: the envelope (v1's `pixel_frame`, always colmap);
 # a radial profile states its chart: absent, the linear chart v1 read it in

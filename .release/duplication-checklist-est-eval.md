@@ -1,7 +1,9 @@
 # Wave 10 duplication checklist: est-eval (Estimation 0.11.0, Eval 0.8.0, PoseLib 0.3.0)
 
 Every concept this theme added or folded, the stack searched BY CONCEPT first (Core, IO, Features, Estimation, Eval,
-PoseLib, BB, RSDR, LODR, PS, CB; RC read-only). A box is ticked when the final gate (2630a051) is green on it.
+PoseLib, BB, RSDR, LODR, PS, CB; RC read-only). A box is ticked when the final gate (2630a051) is green on it; rows 16–18
+(the code after it, up to 2d48ca86) on their dev jobs (docs-pass-est-eval.md §4), to be confirmed by the release
+integrator's final full gate.
 
 | # | concept | considered | done | status |
 |---|---|---|---|---|
@@ -20,6 +22,9 @@ PoseLib, BB, RSDR, LODR, PS, CB; RC read-only). A box is ticked when the final g
 | 13 | a second SHA-256 stack | Eval code_identity.jl | declared in DUPLICATION.toml (bare-julia bootstrap) | [x] |
 | 14 | the precompile job beside a phase mechanism | `_precompile_command` | the runner's `precompile` phase | [x] |
 | 15 | data-length splats | 3 Estimation, 10 Eval findings | fixed; 4 fixed-arity `[[splat]]` entries | [x] |
+| 16 | a precompile key beside the stage key | the runner's run key (d90bc914) | the precompile phase keys nothing; `precompile_time` recorded, not keyed | [x] |
+| 17 | a sensor model's provenance | Eval `write_provenance(…; sensor_model)` (28db5516); IO's sensor_characterisation writer (a characterisation's components, not a model's view) | Core's `component_sources(m::SensorModel)`, read as is; no copy in Eval | [x] |
+| 18 | a package's tree hash | Eval `code_trees` (3bc4eb10); Core's sync_manifest.jl (`Pkg.dependencies()` for direct versions: another question) | Pkg's API (`Pkg.dependencies()`), the one source; inside the one `code_trees` | [x] |
 | — | E11 `refine_width`, E12 `assert_unit_bearings` (PoseLib/Estimation copies) | handed to core10 (handoffs.md) | open with core10 | [ ] |
 
 check_duplication / check_splat (gate prep 14383, verbatim):

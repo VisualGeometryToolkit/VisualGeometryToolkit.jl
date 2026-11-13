@@ -12,7 +12,10 @@ function _seven_scenes_K()
     cx, cy = Float64.(_config_default("datasets.seven_scenes", "principal_point"))
     return SMatrix{3,3,Float64,9}(f, 0, 0, 0, f, 0, cx, cy, 1)
 end
-_seven_scenes_extent() = Size2(_config_default("datasets.seven_scenes", "image_size")...)
+function _seven_scenes_extent()
+    s = _config_default("datasets.seven_scenes", "image_size")   # a {width, height} table
+    return Size2(; width = s["width"], height = s["height"])
+end
 
 # A split's sequences, `"<scene>/<sequence>"`, in the order of record.
 function _seven_scenes_sequences(split::Symbol)

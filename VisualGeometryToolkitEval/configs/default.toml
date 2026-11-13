@@ -107,7 +107,7 @@ stride = 1
 # rule and splits (tests/datasets/seven_scenes.py), `<scene>/<sequence>`.
 focal = 585.0
 principal_point = [320.0, 240.0]
-image_size = [640, 480]
+image_size = { width = 640, height = 480 }   # a Size2 is a {width, height} table (the IO wave's one Size2 layout)
 interval = 50                # pairs (img[i], img[i + interval]) …
 stride = 10                  # … for i = 0, stride, 2·stride, …
 test_sequences = [

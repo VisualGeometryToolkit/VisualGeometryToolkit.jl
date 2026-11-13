@@ -477,17 +477,42 @@ A stage may set its own resources over the site's: `cpus_per_task`,
 gate's jobs; like the CPU count and a job-name prefix it is a label for the
 scheduler and keys no run (the local backend runs every stage alike).
 
-On a Slurm site a GPU stage compiles before its GPU job starts, so a GPU is
-never held while code compiles: a CPU-only job (no `--gres`; the stage's CPUs,
-memory and `nice`, `JULIA_NUM_PRECOMPILE_TASKS` its CPUs) runs
-`julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'`
-after the stages the GPU job runs after, and the GPU job runs after it
-(`afterok`); the GPU task then only loads and runs. `julia_flags` are the
-flags the stage's jobs run julia with (`julia_flags = ["--depwarn=error"]`):
-a cache compiled under other flags is compiled again. `precompile = false`
-leaves the job out (a GPU stage whose launcher runs no julia). The dry run
-prints it (`compile`); the manifest records its job id
-(`precompile_job_id`); it keys no run.
+**Phases: no GPU held for CPU work.** A stage's `phases` splits it into jobs
+run one after another, each the stage's launcher (or the phase's own `sbatch`
+or `command`) with the phase's environment (and `VGTK_PHASE=<name>`), device
+(`gpu = true`: the stage's or the site's `gres`; a CPU phase none) and
+resources (`cpus_per_task`, `mem_per_cpu`, `gres`, `time`). A phase of an
+array stage is an array over the same items (`per_item`, default true), task
+k of the next phase running after its task k (`--dependency=aftercorr`); a
+phase with `per_item = false` is one task (`afterok`). The last phase is the
+stage's job (its completion markers); each earlier one writes its markers
+under `<stage markers>/<phase>/`, and `status` names a failed one as the
+cause of the stage that never starts. A phase's command and environment key
+the stage like its own; its scheduler labels (CPUs, `nice`) do not.
+
+```toml
+[[stage]]                          # GPU drivers, then the CPU numbers, verify and deploy
+name = "regenerate_paper"
+sbatch = "cvpr2027/scripts/slurm/regenerate_paper.sbatch"
+phases = [{ name = "drivers", gpu = true, env = { REGENERATE_PHASE = "drivers" } },
+          { name = "numbers", env = { REGENERATE_PHASE = "numbers" } }]
+
+[[stage]]                          # per set: decode on the CPU, then detect on a GPU (task k after task k)
+name = "chrome_index_grid"
+array = { from = "grid.sets", select_env = "SETS" }
+phases = [{ name = "decode" }, { name = "detect", gpu = true }]
+```
+
+On a Slurm site a stage with a GPU phase (or a GPU stage) gets one phase more,
+first: `precompile`, a CPU-only job (the stage's CPUs, memory and `nice`,
+`JULIA_NUM_PRECOMPILE_TASKS` its CPUs, the site's `precompile_time`) running
+`julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'`,
+so a GPU task only loads and runs. `julia_flags` are the flags the stage's
+jobs run julia with (`julia_flags = ["--depwarn=error"]`): a cache compiled
+under other flags is compiled again. `precompile = false` leaves it out (a
+stage whose launcher runs no julia). The dry run prints every phase
+(`phase <name>:`); the manifest records their job ids (`phase_jobs`). A local
+site runs the declared phases in order, each whole, and no `precompile`.
 
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:

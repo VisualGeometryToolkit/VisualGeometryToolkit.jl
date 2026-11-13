@@ -459,7 +459,7 @@ end
         @test code == 0 && length(readlines(joinpath(f.results, "ran.txt"))) == 1 + 1 + 3 + 2
     end
 
-    @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
+    @testset "a GPU stage on Slurm compiles first: the runner's precompile phase, a CPU-only job its GPU job runs after" begin
         f = runner_project()
         text = read(f.graph, String)
         write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
@@ -467,41 +467,149 @@ end
         g = load_stage_graph(f.graph)
         @test g.stages[1].precompile && g.stages[1].julia_flags == ["--depwarn=error"] && !g.stages[3].precompile
         p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
-        pre = join(p.stages[1].precompile, " ")
-        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --time=0:30:00 --job-name=paper-setup-precompile")   # the site's precompile_time: a real limit
+        ph = only(p.stages[1].phases)
+        pre = join(ph.command, " ")
+        @test ph.name == "precompile" && !ph.spec.is_array && !Reproduce._stage_gpu(ph.spec)
+        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --job-name=paper-setup-precompile")
+        @test occursin("--time=0:30:00", pre)                                       # the site's precompile_time: a real limit
         @test !occursin("--gres", pre) && occursin("--depwarn=error -e", pre) && occursin("Pkg.precompile()", pre)
-        @test isempty(p.stages[2].precompile)                                       # a CPU stage: none
-        @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].precompile)
-        # not keyed: the same key with or without it
+        @test isempty(p.stages[2].phases)                                           # a CPU stage: none
+        @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].phases)
+        # a phase is keyed like the stage's own job (its command and environment): with or without it, another key
         k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
         kon = k(g)
         write(f.graph, text)
-        @test k(load_stage_graph(f.graph)) == kon
+        @test k(load_stage_graph(f.graph)) != kon
         write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
                                      "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))
+        @test k(load_stage_graph(f.graph)) == kon
         # the dry run shows it, and the GPU job after it
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run", "--results-root=$(f.results)"]; env = env0)
-        @test code == 0 && occursin("compile  sbatch --parsable --partition=gpu --cpus-per-task=2", out)
+        @test code == 0 && occursin("phase    precompile: sbatch --parsable --partition=gpu --cpus-per-task=2", out)
         @test occursin("sbatch --parsable --dependency=afterok:\$setup_precompile --partition=gpu --gres=gpu:1", out)
-        # submitted: the compile first, the GPU job after it (afterok), its id recorded
+        # submitted: the compile first (through the marker wrapper), the GPU job after it (afterok), its id recorded
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
         run(pipeline(`git -C $(f.repo) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam precompile`; stdout = devnull))
         code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
-        @test code == 0 && occursin(r"setup\s+101  \(precompile, CPU only\)", out)
+        @test code == 0 && occursin(r"setup\s+101  \(phase precompile, CPU\)", out)
         l = readlines(sb)
-        @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1]) && occursin("Pkg.precompile()", l[1])
+        @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1])
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(l[1])))
+        @test occursin("Pkg.precompile()", read(wrapper, String)) && basename(dirname(wrapper)) == "precompile"
         @test startswith(l[2], "102 --parsable --dependency=afterok:101 ") && occursin("--gres=gpu:1", l[2])
         m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
-        @test m["stages"]["setup"]["precompile_job_id"] == "101" && m["stages"]["setup"]["job_id"] == "102"
-        # the compile failed: the GPU job never starts, and status names the precompile job as the cause
+        r = m["stages"]["setup"]
+        @test r["phase_jobs"] == Dict("precompile" => "101") && r["job_id"] == "102" && r["phases"] == ["precompile"]
+        # the compile failed (its marker says so): the GPU job never starts, and status names the phase as the cause
         mkpath(joinpath(f.proj, "logs"))
         write(joinpath(f.proj, "logs", "paper_setup_precompile_101.log"), "Precompiling\nERROR: LoadError: no CUDA extension\n")
+        mkpath(joinpath(r["markers"], "precompile"))
+        write(joinpath(r["markers"], "precompile", "task-0.toml"), "state = \"failed\"\njob_id = \"101\"\nexit_status = 1\n")
         code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01", "--results-root=$(f.results)"]; env)
-        @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile job 101 failed", out) && occursin("ERROR: LoadError: no CUDA extension", out)
+        @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile phase, job 101, failed", out) &&
+              occursin("ERROR: LoadError: no CUDA extension", out)
         # precompile is true or false
         write(f.graph, replace(text, "gpu = true\nprecompile = false" => "gpu = true\nprecompile = \"false\""; count = 1))
         @test_throws r"precompile = \"false\" is not true or false" load_stage_graph(f.graph)
+    end
+
+    @testset "phases: a stage's CPU and GPU parts as jobs one after another (task k after task k between arrays)" begin
+        # RC's shapes: regenerate_paper, its GPU drivers then its CPU numbers (no GPU held for CPU work); chrome_index_grid,
+        # per set a CPU decode then a GPU detect
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
+        write(joinpath(f.proj, "slurm", "phased.sbatch"), raw"""#!/bin/bash
+            echo "phased task=${SLURM_ARRAY_TASK_ID:-} phase=${VGTK_PHASE:-} gpu=${CUDA_VISIBLE_DEVICES-unset} what=${WHAT:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${WHAT:-}" != "fail" ]
+            """)
+        write(f.graph, read(f.graph, String) * """
+
+            [[stage]]
+            name = "regen"
+            after = ["setup"]
+            sbatch = "slurm/phased.sbatch"
+            gpu = true
+            precompile = false
+            phases = [{ name = "drivers", gpu = true, env = { WHAT = "drivers" } },
+                      { name = "numbers", gpu = false, env = { WHAT = "numbers" }, cpus_per_task = 4 }]
+            default = false
+
+            [[stage]]
+            name = "grid"
+            after = ["setup"]
+            sbatch = "slurm/phased.sbatch"
+            config = "configs/experiments/texture_small.toml"
+            array = { items = ["a", "b"] }
+            phases = [{ name = "decode", env = { WHAT = "decode" } }, { name = "detect", gpu = true, env = { WHAT = "detect" } }]
+            default = false
+            """)
+        git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "phases")
+        g = load_stage_graph(f.graph)
+        regen, grid = g.stages[end - 1], g.stages[end]
+        @test [ph["name"] for ph in regen.phases] == ["drivers", "numbers"]
+        # Slurm: regen's drivers (GPU) then its numbers (CPU, the stage's job); grid's precompile, then decode (CPU array),
+        # then detect (GPU array, task k after decode's task k)
+        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["regen", "grid"], deps = false)
+        r, gr = p.stages
+        @test [ph.name for ph in r.phases] == ["drivers"] && !Reproduce._stage_gpu(r.spec) && r.env["VGTK_PHASE"] == "numbers"
+        @test any(==("--gres=gpu:1"), only(r.phases).command) && !any(a -> startswith(a, "--gres"), r.command)
+        @test any(==("--cpus-per-task=4"), r.command)
+        @test [ph.name for ph in gr.phases] == ["precompile", "decode"] && gr.phases[2].spec.is_array && gr.spec.is_array
+        @test !any(a -> startswith(a, "--gres"), gr.phases[2].command) && any(==("--gres=gpu:1"), gr.command)
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=regen,grid", "--no-deps", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test code == 0 && occursin("phase    drivers: sbatch --parsable --partition=gpu --gres=gpu:1", out)
+        @test occursin("sbatch --parsable --dependency=afterok:\$regen_drivers --partition=gpu --cpus-per-task=4", out)
+        @test occursin("phase    decode: sbatch --parsable --dependency=afterok:\$grid_precompile --partition=gpu --cpus-per-task=2", out)
+        @test occursin("--dependency=aftercorr:\$grid_decode --partition=gpu --gres=gpu:1", out)
+        # submitted through the stand-ins: the dependencies as planned; each phase's markers its own
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=regen,grid", "--no-deps", "--results-root=$(f.results)",
+                              "--data-root=$(f.data)"]; env)
+        @test code == 0
+        l = readlines(sb)
+        @test length(l) == 5 && occursin("--gres=gpu:1", l[1]) && startswith(l[2], "102 --parsable --dependency=afterok:101 ")
+        @test !occursin("--gres", l[2]) && startswith(l[4], "104 --parsable --dependency=afterok:103 ") && occursin("--array=0-1", l[4])
+        @test startswith(l[5], "105 --parsable --dependency=aftercorr:104 ") && occursin("--gres=gpu:1", l[5])
+        m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test m["stages"]["regen"]["phase_jobs"] == Dict("drivers" => "101") && m["stages"]["regen"]["job_id"] == "102"
+        @test m["stages"]["grid"]["phase_jobs"] == Dict("precompile" => "103", "decode" => "104")
+        # run as the job of decode's task 1: VGTK_PHASE and its env, its marker under <markers>/decode/
+        w = only(filter(endswith("marker_wrapper.sbatch"), split(l[4])))
+        n = isfile(joinpath(f.results, "ran.txt")) ? length(readlines(joinpath(f.results, "ran.txt"))) : 0
+        @test success(Cmd(`bash $w`; env = Dict("SLURM_ARRAY_TASK_ID" => "1", "SLURM_ARRAY_JOB_ID" => "104", "PATH" => ENV["PATH"],
+                                                 "VGTK_RESULTS_ROOT" => f.results, "VGTK_PHASE" => "decode", "WHAT" => "decode"), dir = f.proj))
+        @test readlines(joinpath(f.results, "ran.txt"))[end] == "phased task=1 phase=decode gpu=unset what=decode"
+        @test stage_markers(joinpath(m["stages"]["grid"]["markers"], "decode"))[1]["state"] == "completed"
+        # keyed: a phase's environment is part of the stage's key
+        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["regen"], deps = false,
+                                  results_root = f.results).stages[end].key
+        k0 = k(g)
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "env = { WHAT = \"drivers\" }" => "env = { WHAT = \"drivers2\" }"))
+        @test k(load_stage_graph(f.graph)) != k0
+        write(f.graph, text)
+        # a local site runs every phase in order, each whole (no precompile phase)
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=regen,grid", "--no-deps"]; env = env0)
+        @test code == 0
+        ran = readlines(joinpath(f.results, "ran.txt"))[(n + 2):end]
+        @test ran == ["phased task= phase=drivers gpu=0 what=drivers", "phased task= phase=numbers gpu= what=numbers",
+                      "phased task=0 phase=decode gpu= what=decode", "phased task=1 phase=decode gpu= what=decode",
+                      "phased task=0 phase=detect gpu=0 what=detect", "phased task=1 phase=detect gpu=0 what=detect"]
+        # a failing phase stops the stage on a local site
+        write(f.graph, replace(text, "env = { WHAT = \"drivers\" }" => "env = { WHAT = \"fail\" }"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=regen", "--no-deps"]; env = env0)
+        @test code == 4 && occursin("regen_drivers failed", out)
+        write(f.graph, text)
+        # refused: an unknown key, a duplicate or reserved name, per_item on no array, sbatch and command both
+        bad(ph) = (write(f.graph, replace(text, r"^phases = \[\{ name = \"drivers\".*\n.*\n"m => "phases = $ph\n"; count = 1)); f.graph)
+        @test_throws r"unknown key phases.qos" load_stage_graph(bad("[{ name = \"a\", qos = 1 }]"))
+        @test_throws r"phase a is given twice" load_stage_graph(bad("[{ name = \"a\" }, { name = \"a\" }]"))
+        @test_throws r"nor `precompile`" load_stage_graph(bad("[{ name = \"precompile\" }]"))
+        @test_throws r"phase a is per_item, and the stage is no array" load_stage_graph(bad("[{ name = \"a\", per_item = true }]"))
+        @test_throws r"phase a takes sbatch or command, not both" load_stage_graph(bad("[{ name = \"a\", sbatch = \"x\", command = [\"y\"] }]"))
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin

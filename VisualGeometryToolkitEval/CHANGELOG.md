@@ -61,12 +61,15 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
   of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
   no later value starts.
-- **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
-  held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
-  `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
-  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
-  never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
-  `precompile` must be `true` or `false`.
+- **Phases: a stage's CPU and GPU parts as separate jobs** (`[[stage]] phases = [{name, gpu, env, sbatch | command,
+  cpus_per_task, mem_per_cpu, gres, time, per_item}, …]`): run one after another, each with its own environment
+  (`VGTK_PHASE`), device and resources, task k after task k between arrays (`aftercorr`), so no GPU is held for CPU
+  work (cvpr2027's regenerate_paper: GPU drivers, then CPU numbers; chrome_index_grid: per set a CPU decode, then a GPU
+  detect). The last phase is the stage's job; an earlier one writes its markers under `<stage markers>/<phase>/`, and
+  `status` names a failed one (`failed (its <phase> phase, job <id>, failed …)`, with its log and error line). A
+  phase's command and environment key the stage. **A GPU stage on a Slurm site compiles first**: the runner's
+  `precompile` phase, a CPU-only job running `Pkg.precompile()` with the stage's `julia_flags` (new key: the flags its
+  jobs run julia with); `precompile = false` (a Bool) leaves it out. The manifest records `phases` and `phase_jobs`.
 - **A site's `[slurm] precompile_time`**: the `--time` of a GPU stage's CPU-only precompile job, its measured time × 2
   (dgx01: `"0:30:00"`); a real limit lets the scheduler backfill the job.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's

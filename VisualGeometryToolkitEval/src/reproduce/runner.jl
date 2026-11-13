@@ -131,7 +131,8 @@ const _GRAPH_KEYS = Dict(
     "results_branch" => ("project", "assets", "artifacts"))
 const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_branch", "driver", "config", "env", "job_name",
                      "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes",
-                     "nice", "precompile", "julia_flags")
+                     "nice", "precompile", "julia_flags", "phases")
+const _PHASE_KEYS = ("name", "gpu", "env", "sbatch", "command", "cpus_per_task", "mem_per_cpu", "gres", "time", "per_item")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s", "each")
 const _EACH_KEYS = ("from", "env")
@@ -178,12 +179,20 @@ validated: a count, `8G`/`4000M`, `gpu:4`), and `ntasks` and `nodes` its tasks a
 stage that needs 4 GPUs or 2 CPUs says so in the graph, not in its launcher; `gres` makes a stage a GPU stage. On a
 local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads. `nice` (a count, `0`: none) is the
 stage's Slurm `--nice`: a research stage yields to a release gate's jobs. Like the CPU count and a job-name prefix it
-is a label for the scheduler and keys no run; the local backend runs every stage alike. On a Slurm site a GPU stage's
-code is compiled before its GPU job starts, so the GPU task only loads and runs: a CPU-only job (no `--gres`, the
-stage's CPUs, memory and `nice`) runs `julia --project=<julia_project> <julia_flags> -e 'using Pkg;
-Pkg.precompile()'`, after the stages the GPU job runs after, and the GPU job runs after it (`afterok`). `julia_flags`
-are the flags the stage's jobs run julia with (`["--depwarn=error"]`): a cache compiled under other flags is compiled
-again. `precompile = false` leaves it out (a GPU stage that runs no julia). Neither keys the run.
+is a label for the scheduler and keys no run; the local backend runs every stage alike.
+
+`phases` (tables `{name, gpu, env, sbatch | command, cpus_per_task, mem_per_cpu, gres, time, per_item}`) splits the
+stage into jobs run one after another, each the stage's launcher (or the phase's own `sbatch`/`command`) with the
+phase's environment (and `VGTK_PHASE=<name>`), device (`gpu`: a GPU phase gets the stage's or the site's `gres`, a CPU
+phase none) and resources; `per_item` (default: whether the stage is an array) makes a phase an array over the
+stage's items, task k of the next phase running after task k of this one (`aftercorr`), and `false` one task (`afterok`).
+So no GPU is held for CPU work: a GPU drivers phase then a CPU numbers phase, or a CPU decode phase then a GPU detect
+phase per item. The last phase is the stage's job (its completion markers, its `job_id`); each earlier one writes its
+markers under `<stage markers>/<phase>/`, and `status` names a failed one. A phase's command and environment key the
+stage like its own. On a Slurm site a stage with a GPU phase (or a GPU stage) gets one more, first: `precompile`, a
+CPU-only job running `julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'` (`julia_flags`:
+the flags the stage's jobs run julia with, `["--depwarn=error"]`: a cache compiled under other flags is compiled
+again), so a GPU task only loads and runs; `precompile = false` leaves it out (a stage that runs no julia).
 """
 struct StageSpec
     name::String
@@ -217,6 +226,7 @@ struct StageSpec
     precompile::Bool
     julia_flags::Vector{String}
     after_items::Dict{String, Vector{String}}
+    phases::Vector{Dict{String, Any}}
 end
 
 """
@@ -276,6 +286,7 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
     end
     all(f -> haskey(f, "config") && haskey(f, "key"), from) || throw(ArgumentError("stage $name: inputs_from takes {config, key[, base]}"))
     after, after_items = _after_edges(name, get(t, "after", String[]))
+    phases = _phase_tables(name, get(t, "phases", Any[]), !isempty(a), get(t, "results_branch", false) === true)
     return StageSpec(name, after, get(t, "what", ""), get(t, "sbatch", ""),
                      String.(get(t, "command", String[])), get(t, "results_branch", false), get(t, "driver", ""),
                      get(t, "config", ""), Dict{String, String}(k => string(v) for (k, v) in get(t, "env", Dict())),
@@ -288,7 +299,68 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
                      _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
                      _cpus_count(name, get(t, "nice", 0), "nice"), _flag(name, get(t, "precompile", true), "precompile"),
-                     String.(get(t, "julia_flags", String[])), after_items)
+                     String.(get(t, "julia_flags", String[])), after_items, phases)
+end
+
+# A stage's `phases`, validated: each a table of `_PHASE_KEYS` with a `name` (letters, digits, _; unique; `precompile`
+# is the runner's own), at most one of `sbatch` and `command`, `gpu` and `per_item` true or false (`per_item` only on an
+# array stage), its resources valid.
+function _phase_tables(name, list, is_array::Bool, results_branch::Bool)
+    phases = Dict{String, Any}[]
+    for ph in list
+        ph isa AbstractDict || throw(ArgumentError("stage $name: phases takes tables {name, gpu, env, sbatch | command, …}"))
+        for k in keys(ph)
+            k in _PHASE_KEYS || throw(ArgumentError("stage $name: unknown key phases.$k (known: $(join(_PHASE_KEYS, ", ")))"))
+        end
+        p = get(ph, "name", "")
+        occursin(r"^[A-Za-z0-9_]+$", p) && p != "precompile" ||
+            throw(ArgumentError("stage $name: phase name $(repr(p)) is not letters, digits and _ (nor `precompile`, the runner's own)"))
+        any(q -> q["name"] == p, phases) && throw(ArgumentError("stage $name: phase $p is given twice"))
+        haskey(ph, "sbatch") && haskey(ph, "command") && throw(ArgumentError("stage $name: phase $p takes sbatch or command, not both"))
+        _flag(name, get(ph, "gpu", false), "phases.gpu"); _flag(name, get(ph, "per_item", false), "phases.per_item")
+        get(ph, "per_item", false) && !is_array && throw(ArgumentError("stage $name: phase $p is per_item, and the stage is no array"))
+        _cpus_count(name, get(ph, "cpus_per_task", 0), "phases.cpus_per_task")
+        _resource(name, "mem_per_cpu", get(ph, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$")
+        _resource(name, "gres", get(ph, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$")
+        push!(phases, Dict{String, Any}(ph))
+    end
+    results_branch && !isempty(phases) && throw(ArgumentError("stage $name: a results_branch stage has no phases"))
+    return phases
+end
+
+# The stage as phase `ph` runs it: its environment (and `VGTK_PHASE`), device, resources, command, and array; named
+# `<stage>_<phase>` and its job `<stage's job>-<phase>`, unless it is the stage's last phase (`last`: the stage's job).
+function _phase_spec(g::StageGraph, s::StageSpec, ph::AbstractDict; last::Bool = false)
+    p = String(ph["name"])
+    gpu = get(ph, "gpu", false)
+    per_item = s.is_array && get(ph, "per_item", s.is_array)
+    sbatch, command = haskey(ph, "command") ? ("", String.(ph["command"])) : haskey(ph, "sbatch") ? (String(ph["sbatch"]), String[]) :
+                      (s.sbatch, s.command)
+    env = merge(s.env, Dict{String, String}(k => string(v) for (k, v) in get(ph, "env", Dict{String, Any}())),
+                Dict("VGTK_PHASE" => p))
+    return StageSpec(last ? s.name : "$(s.name)_$p", s.after, s.what, sbatch, command, false, s.driver, s.config, env,
+                     last ? s.job_name : "$(_base_job_name(g, s))-$p", gpu, s.default, String(get(ph, "time", s.time)),
+                     s.items, s.items_from, s.select_env, per_item ? s.each_from : "", s.each_env,
+                     per_item ? s.max_time : "", s.time_margin_s, per_item, s.inputs_from,
+                     Int(get(ph, "cpus_per_task", s.cpus_per_task)), String(get(ph, "mem_per_cpu", s.mem_per_cpu)),
+                     gpu ? String(get(ph, "gres", s.gres)) : "", per_item ? s.ntasks : 0, per_item ? s.nodes : 0, s.nice,
+                     s.precompile, s.julia_flags, s.after_items, Dict{String, Any}[])
+end
+
+# The phases of a stage on `site`, as stage specs: the earlier ones in order (the runner's `precompile` first, on a
+# Slurm site for a stage with a GPU phase), and the last, the stage's own job (the stage itself when it declares none).
+function _stage_phases(g::StageGraph, site::Site, s::StageSpec, env)
+    declared = [_phase_spec(g, s, ph; last = i == length(s.phases)) for (i, ph) in enumerate(s.phases)]
+    last = isempty(declared) ? s : declared[end]
+    earlier = isempty(declared) ? StageSpec[] : declared[1:(end - 1)]
+    if site.backend === :slurm && s.precompile && (_stage_gpu(last) || any(_stage_gpu, earlier))
+        argv = [_julia(site, env); "--startup-file=no"; "--project=$(g.julia_project)"; s.julia_flags; "-e"; "using Pkg; Pkg.precompile()"]
+        pre = Dict{String, Any}("name" => "precompile", "gpu" => false, "per_item" => false, "command" => argv,
+                                "time" => site.precompile_time, "cpus_per_task" => _stage_cpus(site, s),
+                                "env" => Dict("JULIA_NUM_PRECOMPILE_TASKS" => string(max(1, _stage_cpus(site, s)))))
+        pushfirst!(earlier, _phase_spec(g, s, pre))
+    end
+    return earlier, last
 end
 
 # A stage's `after` entries: `"<stage>"` (the whole stage) or `"<stage>:<item>"` (one item of an array stage: its task
@@ -567,6 +639,20 @@ end
 # ---------------------------------------------------------------------------
 
 """
+    PlannedPhase
+
+A phase of a stage that runs before its last ([`StageSpec`](@ref) `phases`; on a Slurm site the runner's
+`precompile`): its `name`, the stage spec it runs as (`spec`: the stage's, with the phase's environment, device,
+resources and array), its backend `command` and its environment `env`.
+"""
+struct PlannedPhase
+    name::String
+    spec::StageSpec
+    command::Vector{String}
+    env::Dict{String, String}
+end
+
+"""
     PlannedStage
 
 One stage of a launch: its spec, its `items` (and per item the values its task loops over, `each`: `[]` for none), the selected stages it runs `after`, its run `key` (every file and
@@ -574,8 +660,8 @@ option the stage's jobs read, and the keys of the stages it runs after, their la
 launch does not run; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
-dependency; on a local site the argv run once per item), the sbatch argv of its `precompile` job (a GPU stage on a
-Slurm site; `[]` for none: [`StageSpec`](@ref)), its `--time` in minutes (`minutes`, 0 = the launcher's),
+dependency; on a local site the argv run once per item) and `spec` (its last phase: [`StageSpec`](@ref) `phases`),
+the `phases` before it ([`PlannedPhase`](@ref)), its `--time` in minutes (`minutes`, 0 = the launcher's),
 `reuse` (`""`; `"completed"`, finished in an earlier launch; or the job id of an earlier launch's job still in
 flight, which this launch depends on instead of submitting again) and, for that job, `reuse_markers`, the directory
 its completion markers go to ([`stage_markers_dir`](@ref)); and `rerun`, why an earlier run of the same key is
@@ -589,7 +675,7 @@ mutable struct PlannedStage
     key::String
     env::Dict{String, String}
     command::Vector{String}
-    precompile::Vector{String}
+    phases::Vector{PlannedPhase}
     minutes::Int
     reuse::String
     reuse_markers::String
@@ -655,17 +741,17 @@ _stage_cpus(site::Site, s::StageSpec) = s.cpus_per_task > 0 ? s.cpus_per_task : 
 # The sbatch options that key no run: the CPU count and the priority, labels for the scheduler.
 const _UNKEYED_OPTIONS = ("--cpus-per-task=", "--nice=")
 
-# A stage's sbatch options over the site's; `cpu_only`: those of its precompile job (no GPU, one task).
-function _slurm_options(site::Site, s::StageSpec; cpu_only::Bool = false)
+# A stage's (or a phase's) sbatch options over the site's.
+function _slurm_options(site::Site, s::StageSpec)
     o = String[]
     isempty(site.partition) || push!(o, "--partition=$(site.partition)")
     gres = isempty(s.gres) ? site.gres : s.gres
-    !cpu_only && _stage_gpu(s) && !isempty(gres) && push!(o, "--gres=$gres")
+    _stage_gpu(s) && !isempty(gres) && push!(o, "--gres=$gres")
     _stage_cpus(site, s) > 0 && push!(o, "--cpus-per-task=$(_stage_cpus(site, s))")
     mem = isempty(s.mem_per_cpu) ? site.mem_per_cpu : s.mem_per_cpu
     isempty(mem) || push!(o, "--mem-per-cpu=$mem")
-    !cpu_only && s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
-    !cpu_only && s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
+    s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
+    s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
     s.nice > 0 && push!(o, "--nice=$(s.nice)")
     append!(o, site.extra)
     return o
@@ -713,16 +799,31 @@ function _plan_command(g::StageGraph, site::Site, s::StageSpec, items, minutes, 
     return c
 end
 
-# The sbatch argv of a GPU stage's precompile job on a Slurm site (none elsewhere, or with `precompile = false`): the
-# project's environment compiled on the CPU, with the stage's julia flags, so its GPU job only loads and runs.
-function _precompile_command(g::StageGraph, site::Site, s::StageSpec, env; prefix::AbstractString = "")
-    (site.backend === :slurm && _stage_gpu(s) && s.precompile) || return String[]
-    argv = [_julia(site, env); "--startup-file=no"; "--project=$(g.julia_project)"; s.julia_flags; "-e"; "using Pkg; Pkg.precompile()"]
-    return vcat(["sbatch", "--parsable"], _slurm_options(site, s; cpu_only = true),
-                # its own limit, the site's measured one (a real limit lets the scheduler backfill it; none takes the partition's)
-                isempty(site.precompile_time) ? String[] : ["--time=$(site.precompile_time)"],
-                ["--job-name=$(prefix)$(_base_job_name(g, s))-precompile", "--output=logs/$(g.name)_$(s.name)_precompile_%j.log",
-                 "--wrap=$(_shell_line(argv))"])
+# The backend's command of an earlier phase: the stage's command for its spec, its log its own (a launcher's
+# `#SBATCH --output` names the stage's last phase's).
+function _phase_command(g::StageGraph, site::Site, spec::StageSpec, items, minutes, manifest, env; prefix::AbstractString = "")
+    c = _plan_command(g, site, spec, items, minutes, manifest, env; prefix)
+    site.backend === :slurm || return c
+    filter!(a -> !startswith(a, "--output="), c)
+    insert!(c, length(c), "--output=" * _phase_log(g, spec))
+    return c
+end
+
+# The log of an earlier phase's job: its own, `logs/<project>_<stage>_<phase>_<job>.log` (`_<job>_<task>` for an array).
+_phase_log(g::StageGraph, spec::StageSpec) = "logs/$(g.name)_$(spec.name)_" * (spec.is_array ? "%A_%a" : "%j") * ".log"
+_phase_log(g::StageGraph, p::PlannedPhase) = _phase_log(g, p.spec)
+
+# The environment a stage's (or a phase's) jobs get beyond the caller's: the roots, the site's and its own variables,
+# the selection, and on a local site the Slurm variables its launcher reads and its device.
+function _stage_env(g::StageGraph, site::Site, s::StageSpec, items, roots_env, site_env)
+    e = merge(roots_env, site_env, s.env)
+    isempty(s.select_env) || (e[s.select_env] = join(items, ","))
+    if site.backend === :local
+        e["SLURM_SUBMIT_DIR"] = g.workdir
+        _stage_cpus(site, s) > 0 && (e["SLURM_CPUS_PER_TASK"] = string(_stage_cpus(site, s)))
+        e["CUDA_VISIBLE_DEVICES"] = _stage_gpu(s) ? site.cuda_visible_devices : ""
+    end
+    return e
 end
 
 """
@@ -763,19 +864,19 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     # output upstream of it was made under another key, whichever launch made it.
     records = isempty(results) ? _StageRecord[] : _stage_records(joinpath(results, g.manifest_dir), g.name)
     keys_of = Dict{String, String}(x.name => x.record["key"] for x in records if x.state == "completed")
+    unkeyed(c) = filter(a -> !any(o -> startswith(a, o), _UNKEYED_OPTIONS), c)
     for name in names
-        s = g.stages[_stage(g, name)]
-        items = stage_items(g, s; env)
-        each = [stage_each(g, s, i; env) for i in items]
+        s0 = g.stages[_stage(g, name)]
+        items = stage_items(g, s0; env)
+        each = [stage_each(g, s0, i; env) for i in items]
+        earlier, s = _stage_phases(g, site, s0, env)          # the stage's last phase is its job: `s`
         minutes = _array_minutes(g, s, items, each)
-        e = merge(roots_env, site_env, s.env)
-        isempty(s.select_env) || (e[s.select_env] = join(items, ","))
-        if site.backend === :local
-            e["SLURM_SUBMIT_DIR"] = g.workdir
-            _stage_cpus(site, s) > 0 && (e["SLURM_CPUS_PER_TASK"] = string(_stage_cpus(site, s)))
-            e["CUDA_VISIBLE_DEVICES"] = _stage_gpu(s) ? site.cuda_visible_devices : ""
-        end
+        e = _stage_env(g, site, s, items, roots_env, site_env)
         cmd = _plan_command(g, site, s, items, minutes, manifest, env)
+        phase_plan(p; prefix = "") = PlannedPhase(String(p.env["VGTK_PHASE"]), p,
+            _phase_command(g, site, p, items, _array_minutes(g, p, items, each), manifest, env; prefix),
+            _stage_env(g, site, p, items, roots_env, site_env))
+        phases = [phase_plan(p) for p in earlier]
         files = Dict{String, String}()
         for f in unique(filter(!isempty, vcat([s.sbatch, s.driver], [_config_of(s, i) for i in items])))
             p = joinpath(g.workdir, f)
@@ -786,16 +887,22 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         # CUDA_VISIBLE_DEVICES).
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
-                                  "command" => filter(a -> !any(o -> startswith(a, o), _UNKEYED_OPTIONS), cmd), "site" => site.name)
+                                  "command" => unkeyed(cmd), "site" => site.name)
+        # the phases before the last, keyed like the stage's own job: their command and environment
+        isempty(phases) || (keyed["phases"] = [Dict{String, Any}("name" => p.name, "command" => unkeyed(p.command),
+                                                                 "env" => filter(q -> first(q) != "SLURM_CPUS_PER_TASK", p.env))
+                                               for p in phases])
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         isempty(s.each_from) || (keyed["each"] = each)    # the values each task loops over
         # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
         # stage with none, so its key is unchanged
         isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
         key = keys_of[name] = _content_key(keyed)
-        isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
-        push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd,
-                                   _precompile_command(g, site, s, env; prefix), minutes, "", "", ""))
+        if !isempty(prefix)
+            cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix)
+            phases = [phase_plan(p; prefix) for p in earlier]
+        end
+        push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd, phases, minutes, "", "", ""))
     end
     base = Dict{String, String}(env)
     # The jobs resolve a tier's root as this launch did: the site's [sites.<site>.tiers] become the variables a
@@ -1082,12 +1189,13 @@ function _write_run_manifest(plan::ReproducePlan, records)
 end
 
 function _stage_record(plan::ReproducePlan, st::PlannedStage; state, job_id = "", log = "", tasks = Dict{String, String}(), markers = "",
-                       precompile_job_id = "")
+                       phase_jobs = Dict{String, String}())
     return Dict{String, Any}("key" => st.key, "items" => st.items, "after" => st.after, "command" => _shell_line(st.command),
                              "code_trees" => plan.code_trees,
                              "state" => state, "job_id" => job_id, "log" => log, "tasks" => tasks, "markers" => markers,
                              "config" => st.spec.config, "driver" => st.spec.driver, "sbatch" => st.spec.sbatch,
-                             "precompile_job_id" => precompile_job_id)
+                             "phases" => [p.name for p in st.phases], "phase_jobs" => phase_jobs,
+                             "phase_logs" => Dict{String, String}(p.name => _phase_log(plan.graph, p) for p in st.phases))
 end
 
 # ---------------------------------------------------------------------------
@@ -1116,6 +1224,18 @@ function _dependency(plan::ReproducePlan, st::PlannedStage; ids = nothing)
         end
     end
     return deps
+end
+
+# The `--dependency` of a job of a stage: after the upstream jobs (`deps`, `afterok`) and after the stage's previous
+# phase (`prev = (job, spec)`): task k after its task k when both are arrays over the items (`aftercorr`), else after it
+# whole (`afterok`). "" for none.
+function _phase_dependency(deps::AbstractVector{<:AbstractString}, prev, spec::StageSpec)
+    parts = isempty(deps) ? String[] : ["afterok:" * join(deps, ":")]
+    if prev !== nothing
+        job, pspec = prev
+        push!(parts, (pspec.is_array && spec.is_array ? "aftercorr:" : "afterok:") * job)
+    end
+    return join(parts, ",")
 end
 
 """
@@ -1165,16 +1285,23 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
         if site.backend === :slurm
             st.reuse == "completed" && continue
             deps = _dependency(plan, st)                       # `$<stage>` placeholders: shown as they are, never quoted
-            if !isempty(st.precompile)
-                pline = _shell_line(st.precompile)
-                isempty(deps) || (pline = replace(pline, "sbatch --parsable" => "sbatch --parsable --dependency=afterok:" * join(deps, ":"); count = 1))
-                println(io, "    compile  ", pline)
-                push!(deps, "\$$(s.name)_precompile")
+            prev = nothing
+            for p in st.phases
+                dep = _phase_dependency(deps, prev, p.spec)
+                line = _shell_line(p.command)
+                isempty(dep) || (line = replace(line, "sbatch --parsable" => "sbatch --parsable --dependency=" * dep; count = 1))
+                println(io, "    phase    $(p.name): ", line)
+                prev = ("\$$(s.name)_$(p.name)", p.spec)
             end
+            dep = _phase_dependency(deps, prev, s)
             line = _shell_line(st.command)
-            isempty(deps) || (line = replace(line, "sbatch --parsable" => "sbatch --parsable --dependency=afterok:" * join(deps, ":"); count = 1))
+            isempty(dep) || (line = replace(line, "sbatch --parsable" => "sbatch --parsable --dependency=" * dep; count = 1))
             println(io, "    submit   ", isempty(envline) ? "" : envline * " ", line)
         else
+            for p in st.phases
+                println(io, "    phase    $(p.name): ", p.spec.is_array ? "SLURM_ARRAY_TASK_ID={0..$(length(st.items) - 1)} " : "",
+                        "VGTK_PHASE=$(p.name) ", _shell_line(p.command))
+            end
             task = s.is_array ? "SLURM_ARRAY_TASK_ID={0..$(length(st.items) - 1)} " : ""
             println(io, "    run      ", task, isempty(envline) ? "" : envline * " ", _shell_line(st.command))
         end
@@ -1310,8 +1437,8 @@ end
 # The script a Slurm stage is submitted as, written into its marker directory `dir`: the launcher's #SBATCH
 # directives, then the stage (a copy of the launcher, taken now as sbatch would take it and run through its
 # interpreter; or the command of a `command` stage, `wrap`) and its completion marker. Returns its path.
-function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractString; wrap::AbstractString = "")
-    g, s = plan.graph, st.spec
+function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractString; wrap::AbstractString = "", spec::StageSpec = st.spec)
+    g, s = plan.graph, spec
     mkpath(dir)
     header, body = if isempty(s.sbatch)
         String[], wrap
@@ -1324,7 +1451,7 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
         _sbatch_directives(text), _interpreted(snap, text)
     end
     traps = join(("trap '_vgtk_forwarded=$sig; kill -$sig \"\$_vgtk_child\" 2>/dev/null' $sig" for sig in _directive_signals(header)), "\n")
-    isempty(s.each_from) || (body = _each_loop(st, body, _directive_signals(header)))
+    isempty(s.each_from) || (body = _each_loop(st, s, body, _directive_signals(header)))
     text = _MARKER_WRAPPER
     for (k, v) in ("@@HEADER@@" => join(header, "\n"), "@@MANIFEST@@" => plan.manifest, "@@STAGE@@" => _shell_quote(s.name),
                    "@@DIR@@" => _shell_quote(dir), "@@COMMIT@@" => _shell_quote(plan.commit), "@@KEY@@" => _shell_quote(st.key),
@@ -1340,8 +1467,7 @@ end
 # variable exported), in order, and exits with the first failing run's status. A TERM, or a signal the launcher's
 # directives ask for, reaches the run in progress and stops the loop: no later value starts, and the subshell exits
 # 128 + the signal's number.
-function _each_loop(st::PlannedStage, body::AbstractString, signals)
-    s = st.spec
+function _each_loop(st::PlannedStage, s::StageSpec, body::AbstractString, signals)
     cases = join(("  $(t - 1)) _vgtk_each=($(join(_shell_quote.(v), " "))) ;;" for (t, v) in enumerate(st.each)), "\n")
     code(sig) = all(isdigit, sig) ? string(128 + parse(Int, sig)) : "\$((128 + \$(kill -l $sig)))"
     fwd = join(("trap '_vgtk_stop=$(code(sig)); kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "\n")
@@ -1367,17 +1493,17 @@ end
 # A job given no name is named as a prefix would name it, without the prefix (`_base_job_name`): Slurm would otherwise
 # name it after the script submitted, the wrapper, `marker_wrapper.sbatch` for every such stage. The run key, taken of
 # the planned command, is unchanged.
-function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{String}, dir::AbstractString)
+function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{String}, dir::AbstractString; spec::StageSpec = st.spec)
     c = copy(c)
-    if isempty(st.spec.sbatch)
+    if isempty(spec.sbatch)
         i = findfirst(a -> startswith(a, "--wrap="), c)
-        c[i] = _marker_wrapper(plan, st, dir; wrap = c[i][(length("--wrap=") + 1):end])
+        c[i] = _marker_wrapper(plan, st, dir; wrap = c[i][(length("--wrap=") + 1):end], spec)
     else
-        @assert c[end] == st.spec.sbatch
-        c[end] = _marker_wrapper(plan, st, dir)
+        @assert c[end] == spec.sbatch
+        c[end] = _marker_wrapper(plan, st, dir; spec)
     end
     any(a -> a == "-J" || startswith(a, "--job-name"), c) ||
-        insert!(c, length(c), "--job-name=$(_base_job_name(plan.graph, st.spec))")
+        insert!(c, length(c), "--job-name=$(_base_job_name(plan.graph, spec))")
     return c
 end
 
@@ -1415,8 +1541,9 @@ end
 Submits the plan's stages in order with sbatch, each after the jobs of the stages it depends on
 (`--dependency=afterok`; a GPU array also after the GPU array submitted before it, `afterany`, when the site sets
 `gpu_limit`); a reused stage is not submitted (a completed one is no dependency, one in flight is depended on). A
-GPU stage's precompile job ([`StageSpec`](@ref)) is submitted first, after the same jobs, and the GPU job after it;
-its id is the record's `precompile_job_id`. Each
+stage's earlier phases ([`StageSpec`](@ref) `phases`, the runner's `precompile` among them) are submitted first, each
+through the wrapper and after the one before it, the stage's job after the last of them; their ids are the record's
+`phase_jobs`. Each
 stage is submitted through a wrapper that runs it and writes each task's completion marker
 ([`stage_markers_dir`](@ref)): the stage's own launcher, copied as submitted, with its `#SBATCH` directives (a
 signal its `--signal` directive asks for is forwarded to it), named `<project>-<stage>` when neither the stage nor its
@@ -1451,37 +1578,40 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         _print_rerun(io, st)
         deps = _dependency(plan, st; ids)
         e = merge(base_env, st.env)
-        pre = ""
-        if !isempty(st.precompile)                         # the CPU-only compile the GPU job then waits for
-            c = copy(st.precompile)
-            isempty(deps) || insert!(c, 3, "--dependency=afterok:" * join(deps, ":"))
-            pe = merge(e, Dict("JULIA_NUM_PRECOMPILE_TASKS" => string(max(1, _stage_cpus(site, s))), "CUDA_VISIBLE_DEVICES" => ""))
-            pre, msg = _sbatch(site, c, pe, g.workdir)
-            if pre === nothing
-                records[s.name] = _stage_record(plan, st; state = "submit failed")
+        markers = stage_markers_dir(plan.manifest, s.name)
+        # the phases before the last, each through the marker wrapper (its markers under <markers>/<phase>/), each after
+        # the one before it (task k after task k between arrays)
+        phase_jobs, prev = Dict{String, String}(), nothing
+        for p in st.phases
+            c = copy(p.command)
+            dep = _phase_dependency(deps, prev, p.spec)
+            isempty(dep) || insert!(c, 3, "--dependency=$dep")
+            c = _through_wrapper(plan, st, c, joinpath(markers, p.name); spec = p.spec)
+            pid, msg = _sbatch(site, c, merge(base_env, p.env), g.workdir)
+            if pid === nothing
+                records[s.name] = _stage_record(plan, st; state = "submit failed", markers, phase_jobs)
                 _write_run_manifest(plan, records)
-                error("sbatch of stage $(s.name)'s precompile job failed: $msg\n  $(_shell_line(c))")
+                error("sbatch of stage $(s.name)'s $(p.name) phase failed: $msg\n  $(_shell_line(c))")
             end
-            push!(deps, pre)
-            println(io, rpad(s.name, 32), " ", pre, "  (precompile, CPU only)")
+            phase_jobs[p.name], prev = pid, (pid, p.spec)
+            println(io, rpad(s.name, 32), " ", pid, "  (phase $(p.name)", _stage_gpu(p.spec) ? ", GPU)" : ", CPU)")
         end
         c = copy(st.command)
-        dep = isempty(deps) ? "" : "afterok:" * join(deps, ":")
+        dep = _phase_dependency(deps, prev, s)
         if _stage_gpu(s) && s.is_array && site.gpu_limit > 0 && !isempty(last_gpu)
             dep = (isempty(dep) ? "" : dep * ",") * "afterany:" * last_gpu
         end
         isempty(dep) || insert!(c, 3, "--dependency=$dep")
-        markers = stage_markers_dir(plan.manifest, s.name)
         c = _through_wrapper(plan, st, c, markers)
         id, msg = _sbatch(site, c, e, g.workdir)
         if id === nothing
-            records[s.name] = _stage_record(plan, st; state = "submit failed", markers, precompile_job_id = pre)
+            records[s.name] = _stage_record(plan, st; state = "submit failed", markers, phase_jobs)
             _write_run_manifest(plan, records)
             error("sbatch of stage $(s.name) failed: $msg\n  $(_shell_line(c))")
         end
         ids[s.name] = id
         _stage_gpu(s) && s.is_array && (last_gpu = id)
-        records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers, precompile_job_id = pre)
+        records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers, phase_jobs)
         _write_run_manifest(plan, records)
         println(io, rpad(s.name, 32), " ", id, s.is_array ? "  (array 0-$(length(st.items) - 1): $(join(st.items, " ")))" : "")
     end
@@ -1508,7 +1638,7 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
     _refuse_dirty_code(plan)
     g, site = plan.graph, plan.site
     base_env = Dict(k => v for (k, v) in plan.base_env if !startswith(k, "SLURM_"))
-    logs = mkpath(joinpath(g.workdir, "logs")); mkpath(plan.results_root)
+    mkpath(joinpath(g.workdir, "logs")); mkpath(plan.results_root)
     records = Dict{String, Any}()
     for st in plan.stages
         s = st.spec
@@ -1518,47 +1648,65 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
             continue
         end
         _print_rerun(io, st)
-        tasks = Dict{String, String}()
         markers = stage_markers_dir(plan.manifest, s.name)
-        for (i, item) in enumerate(st.items)
-            t = i - 1
-            log = joinpath(logs, s.is_array ? "$(g.name)_$(s.name)_$t.log" : "$(g.name)_$(s.name).log")
-            e = merge(base_env, st.env)
-            s.is_array && (e["SLURM_ARRAY_TASK_ID"] = string(t))
-            t0, start = time(), _utc_now()
-            rc = open(log, "w") do f
-                # once, or once per value of `each` (its variable set to it), in order, up to the first that fails
-                for v in (isempty(s.each_from) ? [nothing] : st.each[i])
-                    v === nothing || (e[s.each_env] = v)
-                    r = try
-                        run(pipeline(Cmd(Cmd(_with_setup(site, st.command, e)); env = e, dir = g.workdir, ignorestatus = true);
-                                     stdout = f, stderr = f)).exitcode
-                    catch ex
-                        ex isa Base.IOError || rethrow()
-                        println(f, "ERROR: ", sprint(showerror, ex)); 127
-                    end
-                    r == 0 || return r
-                end
-                return 0
+        for p in st.phases                                 # the phases before the stage's job, each whole, in order
+            _run_local_tasks(plan, st, p.spec, p.command, merge(base_env, p.env), joinpath(markers, p.name), io) do i, ok, log, tasks
+                ok && return
+                records[s.name] = _stage_record(plan, st; state = "failed", log, markers)
+                _write_run_manifest(plan, records)
             end
-            ok = rc == 0
-            tasks[string(t)] = ok ? "completed" : "failed"
-            marker = Dict{String, Any}("stage" => s.name, "task" => t, "job_id" => "", "commit" => plan.commit, "key" => st.key,
-                                       "host" => gethostname(), "start" => start, "end" => _utc_now(), "exit_status" => rc,
-                                       "restart_count" => 0, "state" => tasks[string(t)])
-            _write_atomic(io -> TOML.print(io, marker; sorted = true), joinpath(markers, "task-$t.toml"))
-            println(io, rpad(s.name, 32), " ", s.is_array ? "task $t ($item) " : "", ok ? "ok" : "FAILED",
-                    "  $(round(time() - t0; digits = 1)) s  $(relpath(log, g.workdir))")
+        end
+        _run_local_tasks(plan, st, s, st.command, merge(base_env, st.env), markers, io) do i, ok, log, tasks
             records[s.name] = _stage_record(plan, st; state = ok ? (i == length(st.items) ? "completed" : "running") : "failed", log, tasks, markers)
             _write_run_manifest(plan, records)
-            if !ok
-                err = _first_error(log)
-                error("stage $(s.name)$(s.is_array ? " task $t ($item)" : "") failed; log $log" * (isempty(err) ? "" : "\n  $err"))
-            end
         end
     end
     _write_run_manifest(plan, records)
     return records
+end
+
+# The tasks of one job of a stage on this machine (an earlier phase's, or the stage's own: `spec`), in turn: each once,
+# or once per value of `each` (its variable set to it), its log `logs/<project>_<spec name>[_<task>].log`, its
+# completion marker written atomically into `markers`; `after_task(i, ok, log, tasks)` after each. The first failing
+# task stops the run, an error naming its log.
+function _run_local_tasks(after_task, plan::ReproducePlan, st::PlannedStage, spec::StageSpec, command, env, markers, io)
+    g, site = plan.graph, plan.site
+    tasks = Dict{String, String}()
+    for (i, item) in enumerate(spec.is_array ? st.items : [""])
+        t = i - 1
+        log = joinpath(g.workdir, "logs", spec.is_array ? "$(g.name)_$(spec.name)_$t.log" : "$(g.name)_$(spec.name).log")
+        e = copy(env)
+        spec.is_array && (e["SLURM_ARRAY_TASK_ID"] = string(t))
+        t0, start = time(), _utc_now()
+        rc = open(log, "w") do f
+            for v in (isempty(spec.each_from) ? [nothing] : st.each[i])
+                v === nothing || (e[spec.each_env] = v)
+                r = try
+                    run(pipeline(Cmd(Cmd(_with_setup(site, command, e)); env = e, dir = g.workdir, ignorestatus = true);
+                                 stdout = f, stderr = f)).exitcode
+                catch ex
+                    ex isa Base.IOError || rethrow()
+                    println(f, "ERROR: ", sprint(showerror, ex)); 127
+                end
+                r == 0 || return r
+            end
+            return 0
+        end
+        ok = rc == 0
+        tasks[string(t)] = ok ? "completed" : "failed"
+        marker = Dict{String, Any}("stage" => spec.name, "task" => t, "job_id" => "", "commit" => plan.commit, "key" => st.key,
+                                   "host" => gethostname(), "start" => start, "end" => _utc_now(), "exit_status" => rc,
+                                   "restart_count" => 0, "state" => tasks[string(t)])
+        _write_atomic(io -> TOML.print(io, marker; sorted = true), joinpath(markers, "task-$t.toml"))
+        println(io, rpad(spec.name, 32), " ", spec.is_array ? "task $t ($item) " : "", ok ? "ok" : "FAILED",
+                "  $(round(time() - t0; digits = 1)) s  $(relpath(log, g.workdir))")
+        after_task(i, ok, log, tasks)
+        if !ok
+            err = _first_error(log)
+            error("stage $(spec.name)$(spec.is_array ? " task $t ($item)" : "") failed; log $log" * (isempty(err) ? "" : "\n  $err"))
+        end
+    end
+    return tasks
 end
 
 # ---------------------------------------------------------------------------
@@ -1601,15 +1749,16 @@ The state of every stage of the launch a run manifest records: `(; stage, job_id
 [`slurm_queue_states`](@ref)), with its tasks counted by state (`"failed (completed 2, failed 1)"`); a task with no
 marker that is no longer queued is `unknown`, and where Slurm keeps accounting (`job_states(ids)`, by default
 [`slurm_job_states`](@ref): empty when sacct fails) its accounting state is added for that task, as information
-only. The log is the first failed or unknown task's (else the first's), with its first error line. A GPU stage whose
-precompile job ([`StageSpec`](@ref)) failed never starts (its dependency is never satisfied): it is `failed (its
-precompile job <id> failed)`, with that job's log and error line.
+only. The log is the first failed or unknown task's (else the first's), with its first error line. A stage
+whose earlier phase failed ([`StageSpec`](@ref) `phases`, the runner's `precompile` among them: read from that phase's
+completion markers) never starts (its dependency is never satisfied): it is `failed (its <phase> phase, job <id>,
+failed …)`, with that phase's log and error line.
 """
 function reproduce_status(manifest::AbstractString; queue_states = nothing, job_states = nothing, env = ENV)
     m = TOML.parsefile(manifest)
     g = load_stage_graph(joinpath(m["workdir"], m["graph"]))
     recs = m["stages"]
-    ids = unique(String[r[k] for (_, r) in recs for k in ("job_id", "precompile_job_id") if !isempty(get(r, k, ""))])
+    ids = unique(String[r["job_id"] for (_, r) in recs if !isempty(get(r, "job_id", ""))])
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : _queue_states(queue_states, ids, env)
     rows = NamedTuple[]
     acct = nothing                                          # sacct, asked once and only for a task without a marker
@@ -1634,18 +1783,24 @@ function reproduce_status(manifest::AbstractString; queue_states = nothing, job_
         else
             log = _slurm_log(g, s, id, isempty(bad) ? 0 : first(bad))
         end
-        # a GPU job that never started because its precompile job failed (pending forever, or gone without a marker)
-        pre = get(r, "precompile_job_id", "")
-        if !isempty(pre) && run_state.state in ("unknown", "in flight") && !any(==("completed"), values(run_state.tasks)) &&
-           isempty(get(queue, pre, Dict{Int, String}()))
-            plog = joinpath(g.workdir, "logs", "$(g.name)_$(s.name)_precompile_$pre.log")
-            perr = _first_error(plog)
-            if !isempty(perr)
-                push!(rows, (; stage = s.name, job_id = id, state = "failed (its precompile job $pre failed: the GPU job never starts)",
-                             log = plog, error = perr))
-                continue
+        # a stage whose job never starts because an earlier phase failed (its dependency never satisfied): that phase,
+        # from its own completion markers
+        failed_phase = nothing
+        if run_state.state in ("unknown", "in flight") && !any(==("completed"), values(run_state.tasks))
+            for p in get(r, "phases", String[])
+                pid = get(get(r, "phase_jobs", Dict{String, Any}()), p, "")
+                isempty(pid) && continue
+                bad_tasks = sort([t for (t, m) in stage_markers(joinpath(r["markers"], p); job_id = pid) if m["state"] == "failed"])
+                isempty(bad_tasks) && continue
+                plog = joinpath(g.workdir, replace(get(get(r, "phase_logs", Dict{String, Any}()), p, ""),
+                                                   "%A" => pid, "%a" => string(first(bad_tasks)), "%j" => pid))
+                failed_phase = (; stage = s.name, job_id = id,
+                                state = "failed (its $p phase, job $pid, failed: the jobs after it never start)",
+                                log = plog, error = _first_error(plog))
+                break
             end
         end
+        failed_phase === nothing || (push!(rows, failed_phase); continue)
         push!(rows, (; stage = s.name, job_id = id, state, log, error = isempty(log) ? "" : _first_error(log)))
     end
     return rows

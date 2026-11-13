@@ -111,14 +111,14 @@ end
     @test calibration_matrix(estimate(rp)) == calibration_matrix(FISHEYE)
 end
 
-@testitem "optical_axis: a bounded camera only — its region is the camera's own bound; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
+@testitem "optical_axis: a bounded camera only — its region is the camera's own bound or a given region within it; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, dot, normalize, I
     using Rotations: RotMatrix, AngleAxis
     using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, Rect, KannalaBrandt, backproject, px,
-        estimate, metadata, retcode, rotation, calibration_matrix
+        estimate, metadata, retcode, rotation, calibration_matrix, imaged_region
     using VisualGeometryToolkitEstimation: optical_axis
 
     # a bare model has no bound: refused, with the route (the region is the camera's bound, never a default)
@@ -142,6 +142,20 @@ end
     @test metadata(r).symmetry_residual < 0.05
     whole = optical_axis(BoundedCamera(spl, Size2(1400, 1000)))
     @test metadata(whole).symmetry_residual > 10 * metadata(r).symmetry_residual
+    # an explicit region (0.10.2): the fit over `region ∩ imaged_region(camera)`. The whole-sensor camera over the image
+    # circle finds the axis its coverage-bound twin finds (RadiometricCamera's siemens start camera stalled over its
+    # whole image and converges over its board's rectangle: the same case on a real lattice)
+    rc = optical_axis(BoundedCamera(spl, Size2(1400, 1000)), circle)
+    @test retcode_symbol(rc) === :converged
+    @test acosd(min(1.0, dot(rotation(metadata(rc).rotation)' * SVector(0.0, 0.0, 1.0), Q3 * SVector(0.0, 0.0, 1.0)))) < 0.01
+    @test metadata(rc).symmetry_residual < 0.05
+    # a region past the camera's image is clipped to it: the sensor rectangle on the coverage-bound camera is its bound
+    bounded = BoundedCamera(spl, Size2(1400, 1000); lens_coverage = circle)
+    rr = optical_axis(bounded, Rect(0, 0, 1400, 1000))
+    @test retcode_symbol(rr) === :converged && length(metadata(rr).residuals) == length(metadata(r).residuals)
+    @test calibration_matrix(estimate(rr)) == K       # the same pixels, in the same order: the same problem, the same bits
+    # no region: the camera's own imaged region, the one path, the same bits
+    @test metadata(optical_axis(bounded, imaged_region(bounded))).residuals == metadata(r).residuals
 end
 
 @testitem "refine_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin

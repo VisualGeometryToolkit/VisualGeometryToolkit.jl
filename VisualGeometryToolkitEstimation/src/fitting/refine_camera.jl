@@ -353,7 +353,8 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
     approximate_camera(::Type{L}, source, region; weight = :image, max_iter, device = default_device())
         -> FitResult{<:CameraModel, CameraFitMetadata}
 
-The camera of lens family `L` closest to `source` over `region`, from no guess:
+The camera of lens family `L` closest to `source` over `region` (a bounded source: `region ∩ imaged_region(source)`, no
+sample where it images nothing), from no guess:
 `refine_camera(estimate(fit_camera(L, source, region)), source, region)` — the linear fit's camera is the refine's
 start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` and `fixed` to
 both (the held coefficients keep the family's anchor values through both), `device` to both (a gauge-K source's rays are
@@ -375,7 +376,14 @@ function approximate_camera(
     start = _approximation_start(_linear_form(L), L, source, region, weight, fixed, device)
     return refine_camera(start, source, region; weight, fixed, device, kwargs...)
 end
-approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = approximate_camera(L, model(source), region; kwargs...)
+approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} =
+    approximate_camera(L, model(source), _imaged_part(source, region); kwargs...)
+# The part of `region` a bounded camera images: `region ∩ imaged_region(camera)` (Core's intersection), so no sample
+# lies where the camera images nothing; its own imaged region as it is (the same region value, the same samples).
+function _imaged_part(camera::BoundedCamera, region)
+    imaged = VgtkCore.imaged_region(camera)
+    return region == imaged ? imaged : region ∩ imaged
+end
 approximate_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
     ArgumentError("approximate_camera($L, …): a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
@@ -398,17 +406,21 @@ _anchor_camera(a::AbstractLensModel, source) =
 # ==============================================================================
 
 """
-    optical_axis(camera::BoundedCamera; device = default_device()) -> FitResult{<:CameraModel, CameraFitMetadata}
+    optical_axis(camera::BoundedCamera, region = imaged_region(camera); device = default_device())
+        -> FitResult{<:CameraModel, CameraFitMetadata}
 
-The radially symmetric camera closest to `camera` over the camera's own bound, its `imaged_region` (the sensor ∩ its
-lens coverage ∩ the model's valid domain). It is [`approximate_camera`](@ref) of the Fisheye624 form
+The radially symmetric camera closest to `camera` over `region ∩ imaged_region(camera)`: by default the camera's own
+bound, its `imaged_region` (the sensor ∩ its lens coverage ∩ the model's valid domain); given a `region` (a `Rect2`, an
+`Ellipse`, or their `∩`, in the camera's pixel frame), its part the camera images — a target's rectangle, where the rays
+are measured, keeps out a lattice's unconstrained edge (RadiometricCamera's siemens start camera stalls over its whole
+image and converges over its board). It is [`approximate_camera`](@ref) of the Fisheye624 form
 (COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, n})`, with
 `n = 4` radial terms, θ³…θ⁹: configs/default.toml `[optical_axis] radial_terms`, the smallest order that locates the axis
 as well as 6 terms do on the cameras studied, and far better conditioned;
 its decentering held at zero) onto `camera`, that one call, nothing more: the linear fit of its radial coefficients
 and focal, then the refine with the principal point and the axis free.
-- The region is the bound, never a default. A circular fisheye's lens coverage (its image circle) keeps the corners
-  out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
+- The region is the bound or a part of it, never more. A circular fisheye's lens coverage (its image circle) keeps the
+  corners out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
 - A bare model has no bound: an `ArgumentError`. Wrap it in `BoundedCamera(model, size; lens_coverage)`.
 - For a SplineLens camera (a gauge `K`), the principal point and the axis are free. Read them from the result.
   - The optical axis in the camera's frame is `rotation(metadata(r).rotation)' * ẑ`.
@@ -423,9 +435,9 @@ Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(e
 axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
 it returns the camera as given).
 """
-optical_axis(camera::BoundedCamera; device = default_device()) =
-    approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera); fixed = _AXIS_FIXED, device)
-optical_axis(camera::VgtkCore.AbstractCamera; device = nothing) = throw(
+optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera); device = default_device()) =
+    approximate_camera(_AXIS_FAMILY, camera, region; fixed = _AXIS_FIXED, device)
+optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; device = nothing) = throw(
     ArgumentError(
         "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
             "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"

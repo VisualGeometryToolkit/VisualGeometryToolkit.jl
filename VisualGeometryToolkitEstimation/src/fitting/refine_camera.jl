@@ -177,12 +177,11 @@ end
 
 function residual_cost!(_, lm::_LensRegressionLm, x)
     VgtkCore._launch_rows!(_cost_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    return 0.5 * sum(view(lm.partials, 1, :))
+    return VgtkCore.reduce_cost(lm.partials)
 end
 function residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64}) where {N}
     VgtkCore._launch_rows!(_normal_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    t = Array(sum(lm.partials; dims = 2))                       # the work items' columns summed where they are
-    return 0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N)))
+    return VgtkCore.reduce_normal_equations(lm.partials, Val(N))
 end
 
 # Each sample's round-trip error at the solution `x`, in pixels / fx₀: the forward form, a lift's radius capped at

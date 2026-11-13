@@ -125,8 +125,10 @@ observations' own frame by default. A type, it leads.
 component; a target present in several must carry the same points in each;
 `resolve` resolves a referenced planar design read from a path); when `obs`
 names its targets (`obs.targets`), the given ones must be exactly those, by
-[`content_id`](@ref). Every (target, index) must resolve, and every frame must
-name its image and sensor. The export is write-only: no reader reads it.
+[`content_id`](@ref) — an old rig or target file also by the identities its
+version named it by (the re-id map), which the observation files written beside
+it hold. Every (target, index) must resolve, and every frame must name its image
+and sensor. The export is write-only: no reader reads it.
 """
 save_correspondences(path::AbstractString, obs::TargetObservations{F}, targets...; kwargs...) where {F <: PixelFrame} =
     save_correspondences(F, path, obs, targets...; kwargs...)
@@ -139,8 +141,16 @@ function save_correspondences(
     list = collect(Any, targets)
     if !isempty(obs.targets)
         given = sort!(_target_hashes(list))
-        sort(obs.targets) == given || throw(
-            ArgumentError("the observations resolve against the targets $(sort(obs.targets)); the targets given are $(given)")
+        named = sort(obs.targets)
+        if named != given     # an old rig file is also named by the identities its version gave it (the re-id map)
+            old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
+            named = sort!(unique!([get(old, t, t) for t in obs.targets]))
+        end
+        named == given || throw(
+            ArgumentError(
+                "the observations resolve against the targets $(sort(obs.targets))" *
+                    (named == sort(obs.targets) ? "" : " (as current identities, $(named))") * "; the targets given are $(given)"
+            )
         )
     end
     return _write_correspondences(path, G, _correspondence_rows(G, obs, _target_rigs(list; resolve)); length_unit, provenance)

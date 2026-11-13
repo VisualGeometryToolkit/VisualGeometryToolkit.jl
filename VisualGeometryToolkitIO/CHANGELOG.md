@@ -1,5 +1,17 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.9.3 (unreleased)
+
+A patch: no API change.
+
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+- **Internal: the private `_json`, a forward to `JSON.json`, is deleted** (the owner's no-shim order); its callers
+  (the exporters' sorted JSON, the JSONL writer) call `JSON.json` directly. The same bytes.
+
 ## 0.9.2 (unreleased)
 
 ### Fixed

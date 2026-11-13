@@ -22,7 +22,7 @@ another camera by three verbs: `fit_camera` (one linear solve, no guess),
 pkg> add VisualGeometryToolkitCore VisualGeometryToolkitEstimation
 ```
 
-Julia 1.12 or later. Every dependency is in the General registry. The example
+Julia 1.13 or later. Every dependency is in the General registry. The example
 uses the geometry types of VisualGeometryToolkitCore, so the line adds both
 packages.
 

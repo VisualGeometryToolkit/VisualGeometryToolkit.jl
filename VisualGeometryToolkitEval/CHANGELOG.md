@@ -1,5 +1,17 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.7.2 (unreleased)
+
+A patch: no API change.
+
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+- **Internal: the private `_opted_file`, a forward to `haskey`, is deleted** (the owner's no-shim order); the paper-project
+  rule checks call `haskey(marks, rule)` directly.
+
 ## 0.7.1 (2026-11-13)
 
 A patch: on VisualGeometryToolkitEstimation 0.10 (`[compat]` VisualGeometryToolkitEstimation "0.10" in the package and

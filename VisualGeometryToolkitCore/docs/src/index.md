@@ -74,7 +74,7 @@ alias for a value whose attributes are a covariance or precision. See
 pkg> add VisualGeometryToolkitCore
 ```
 
-Julia 1.12 or later; every dependency is in the General registry. Any Makie
+Julia 1.13 or later; every dependency is in the General registry. Any Makie
 backend (`pkg> add GLMakie`) loads the plotting extension.
 
 ## A first example

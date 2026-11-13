@@ -19,7 +19,7 @@ stack, shared by the stack's research projects.
 pkg> add VisualGeometryToolkitEval
 ```
 
-The package requires Julia 1.12 or later.
+The package requires Julia 1.13 or later.
 
 ## Example
 

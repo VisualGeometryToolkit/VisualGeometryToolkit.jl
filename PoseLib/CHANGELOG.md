@@ -1,10 +1,15 @@
 # PoseLib changelog
 
-## Unreleased
+## 0.2.1 (unreleased)
 
-Test-only (no version bump: the registered 0.2.0 tree is unchanged outside `test/` and the README).
+A patch: no code change.
 
-- **Tests hardened for Julia 1.12** (CI runs 1.12.7): the refiners match the PoseLib 0.1.9 baselines
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+- **Tests hardened across Julia versions** (since 2026-11-13 CI runs 1.13 only): the refiners match the PoseLib 0.1.9 baselines
   (test/test_contract.jl) to 1e-12 relative instead of bit for bit; the last ulps move with the Julia version and the CPU.
 - README: the Eigen link points at https://libeigen.gitlab.io/ (the old host times out).
 

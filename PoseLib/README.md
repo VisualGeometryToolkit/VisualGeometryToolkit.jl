@@ -19,7 +19,7 @@ fundamental matrices, relative poses and absolute poses.
 pkg> add PoseLib VisualGeometryToolkitCore
 ```
 
-Julia 1.12 or later. Every dependency is in the General registry. The C++
+Julia 1.13 or later. Every dependency is in the General registry. The C++
 library is downloaded prebuilt, as the binary package `PoseLib_jll`, so no
 compiler is needed.
 

@@ -49,7 +49,7 @@ Its design principles:
 pkg> add VisualGeometryToolkitEval
 ```
 
-The package requires Julia 1.12 or later. It depends on
+The package requires Julia 1.13 or later. It depends on
 [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/),
 [VisualGeometryToolkitIO](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitIO/)
 and

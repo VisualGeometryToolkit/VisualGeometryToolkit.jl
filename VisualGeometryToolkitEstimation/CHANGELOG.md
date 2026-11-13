@@ -1,5 +1,30 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.10.1 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; no result changes.
+
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+- **Internal: the private `_camera_poses_result`, a forward to `FitResult`, is deleted** (the owner's no-shim order); the
+  `refine_camera_and_poses` entries build their `FitResult` directly.
+- **New: `held_parameters(camera)`, public** — the `fixed` that holds every parameter of a camera in a refine: a
+  parametric camera's `parameter_names`, a SplineLens camera's `(:controls,)`. It is the rotation-centre refine's
+  held-camera rule, until now private (`_held_camera_parameters`, which also applied it to the keywords; that part is
+  the private `_free_camera_parameters` now, reading it). A refine of `RotationCenterViews` takes
+  `fixed = held_parameters(camera)`. A keyword value `fixed = :all` was considered and not taken: every `fixed` of the
+  stack's refines is a tuple of parameter names, and one value of another type would need its own branch in each.
+- **New: `pixel_whitening_defect(f, M) -> Union{Nothing, Symbol}`, public** — why a back-projection Jacobian cannot
+  whiten a bearing residual into pixels (`:nonfinite`, `:not_tangent`, `:singular`), or `nothing`. It is
+  `BearingPoseProblem`'s test of its `M` column, until now private (`_whitening_defect(f, B, M)`: the tangent basis is
+  now formed inside), and the rotation-centre refine's test of a dot.
+- **`fit_camera` reads Core's `farthest_radius`** for the region's exit radius on each azimuth, in place of its private
+  `_exit_radii` (deleted). The bisection is the same; its bracket is the region's farthest box corner in pixels, so an
+  exit radius may differ from 0.10.0's in its last bit.
+
 ## 0.10.0 (2026-11-13)
 
 Breaking (the owner's ruling, 2026-11-13): **a SplineLens camera is refined only by back-projection, or held.**

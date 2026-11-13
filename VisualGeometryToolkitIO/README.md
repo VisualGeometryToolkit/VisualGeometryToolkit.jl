@@ -21,7 +21,7 @@ EuRoC, BOP and TRC formats.
 pkg> add VisualGeometryToolkitCore VisualGeometryToolkitIO
 ```
 
-Julia 1.12 or later. Every dependency is in the General registry.
+Julia 1.13 or later. Every dependency is in the General registry.
 VisualGeometryToolkitCore defines the types that are saved and loaded.
 
 ## Example

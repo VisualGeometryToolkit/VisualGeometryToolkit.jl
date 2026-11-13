@@ -19,8 +19,9 @@
 #     each entry parses and is bounded (no "*", no ">="); a compat on a stack
 #     package names THAT package's own series — its current breaking series in
 #     the workspace ("0.5" for 0.5.x, "1" for 1.x), or a raised floor inside it
-#     ("0.5.2") when a package needs a sibling's newer feature (the Downgrade
-#     workflow tests every package at its compat floors). Each package is
+#     ("0.5.2") when a package needs a sibling's newer feature (every floor is
+#     raised to the gated environment's resolution at a release, the owner's
+#     ruling of 2026-11-13, so no workflow tests older floors). Each package is
 #     versioned on its own: a breaking change bumps that package alone
 #     (2026-11-03; the stack no longer moves as one series)
 #   - no [sources], [extras] or [targets] in the registered file (test deps live

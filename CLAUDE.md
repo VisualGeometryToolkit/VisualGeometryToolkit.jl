@@ -6,7 +6,7 @@ code anywhere in this repository. Each package directory has its own
 
 ## The repository
 
-VisualGeometryToolkit.jl is a Julia 1.12 **workspace** holding six separately
+VisualGeometryToolkit.jl is a Julia 1.13 **workspace** holding six separately
 registered packages, one directory each (the directory name is the package
 name, the Registrator `subdir`, the TagBot tag prefix `<Name>-v…` and the docs
 `dirname`):

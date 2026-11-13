@@ -5,7 +5,7 @@ documentation assumes.
 
 ## Installation
 
-Install VisualGeometryToolkitCore from the General registry (Julia 1.12+):
+Install VisualGeometryToolkitCore from the General registry (Julia 1.13+):
 
 ```julia
 using Pkg

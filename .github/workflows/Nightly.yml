@@ -1,5 +1,5 @@
-# Nightly (DESIGN D14): all six packages on Linux with Julia 1.12 and the
-# latest 1.x under --depwarn=error; PoseLib on macOS and Windows (OFF, below); the
+# Nightly (DESIGN D14): all six packages on Linux with Julia 1.13, the stack's
+# only supported version, under --depwarn=error; PoseLib on macOS and Windows (OFF, below); the
 # downstream contract job (RANSACScoringDoneRight, LocalOptimizationDoneRight,
 # BlobBoards against this workspace).
 #
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        julia: ['1.12', '1']
+        julia: ['1.13']
         package: [VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, PoseLib]
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
-        with: { version: '1.12' }
+        with: { version: '1.13' }
       - uses: julia-actions/cache@v2
       - run: julia --project=PoseLib/test -e "using Pkg; Pkg.instantiate()"
       - run: julia --project=PoseLib -e "using Pkg; Pkg.test()"
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { repository: 'VisualGeometryToolkit/${{ matrix.repo }}', path: downstream }
       - uses: julia-actions/setup-julia@v2
-        with: { version: '1.12' }
+        with: { version: '1.13' }
       - uses: julia-actions/cache@v2
       - name: Point the downstream envs at this workspace, then test (CPU)
         working-directory: downstream

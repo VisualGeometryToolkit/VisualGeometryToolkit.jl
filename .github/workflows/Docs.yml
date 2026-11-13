@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: julia-actions/setup-julia@v2
-        with: { version: '1.12' }
+        with: { version: '1.13' }
       - id: p
         shell: bash
         run: |
@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
-        with: { version: '1.12' }
+        with: { version: '1.13' }
       - uses: julia-actions/cache@v2
       # The toolkit logo in every package site's sidebar (Documenter picks up
       # docs/src/assets/logo.svg); copied at build time, not committed.

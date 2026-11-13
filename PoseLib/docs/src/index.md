@@ -38,7 +38,7 @@ Design principles, each explained on the [Refiners](guide/refiners.md) page:
 pkg> add PoseLib VisualGeometryToolkitCore
 ```
 
-Julia 1.12 or later. The C++ library is downloaded prebuilt, as the binary
+Julia 1.13 or later. The C++ library is downloaded prebuilt, as the binary
 package `PoseLib_jll`, so no compiler is needed; see
 [Platforms and binaries](guide/binaries.md).
 

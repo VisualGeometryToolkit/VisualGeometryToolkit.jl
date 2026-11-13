@@ -5,6 +5,12 @@
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; the detector's
 default is unchanged.
 
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+
 - **New: `ContinuousRefinement`, exported, and `asift_detect(img; refinement = ContinuousRefinement())`** (also
   `asift_detect!`): an opt-in second refinement of every detection on a continuous model of its DoG response — the
   spatial gradient from Farid and Simoncelli's matched prefilter and first-derivative filters (IEEE TIP 2004), the scale

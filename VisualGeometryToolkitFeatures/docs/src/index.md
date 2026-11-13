@@ -45,7 +45,7 @@ return index matches, never coordinates.
 pkg> add VisualGeometryToolkitFeatures
 ```
 
-Julia 1.12 or later; every dependency is in the General registry. Add
+Julia 1.13 or later; every dependency is in the General registry. Add
 VisualGeometryToolkitCore as well when you construct frames or points
 yourself.
 

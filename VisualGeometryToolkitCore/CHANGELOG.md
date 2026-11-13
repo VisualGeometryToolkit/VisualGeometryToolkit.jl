@@ -19,14 +19,56 @@ implementation of its concept (the owner's rulings of 2026-11-13); no existing r
   first part.
 - **New: `spline_window_sums(control, zero, wx, wy, dwx, dwy[, ddwx, ddwy])`, public** — the one 4 × 4 cubic B-spline
   window sweep: the value, its two partials and, with the second-derivative weights, its three second partials. The
-  spline lattices' value-and-partials sweep (`_window_sums`) is this function, its operations in the same order (the
-  same bits).
+  spline lattices' value-and-partials sweep is this function, its operations in the same order (the same bits); the
+  private `_window_sums` that called it is deleted, its one remaining caller (`_projection_jacobians`, the SplineLens
+  bundle's differential) reading `_spline_value_and_partials` like every other.
 - **New: `cubic_bspline_prefilter_taps(K)`, public** — the cubic B-spline interpolation prefilter on an unbounded
   grid, `√3·z₁^|k|` truncated at K and renormalised: `_prefilter_matrix`'s concept as a local filter a kernel applies.
 - **Changed (additive): `is_positive_definite` at static N.** A static `N × N` matrix tests all N leading minors
   (Sylvester); at N = 2 the expression is the old one. Any other matrix still tests its leading 2×2 block.
 - **Docs:** a generic docstring for `score_sq_residuals!` (its methods keep theirs), so a cross-reference to the
   function names one docstring.
+- **New: `farthest_radius(region, center[, direction])`, public, not exported** — how far a region reaches from a
+  centre: the largest distance to a point of it (a `Rect`'s farthest corner exactly; any other region's exit radius on
+  720 azimuths, the largest refined by `grid_brent_minimum`), or the exit radius along one direction (bisected, in
+  units of the direction's length). Beside `imaged_region`, whose sensor `Rect` clips it: an image circle cut by the
+  sensor reaches only as far as the sensor. The one implementation of the concept: VisualGeometryToolkitEstimation's
+  `fit_camera` exit radii (its private `_exit_radii`, deleted) read it, and RadiometricCamera's `vignetting_radius` and
+  its rings' disc will. Core's own farthest-corner sums in both `division_bounded` methods read it too (the
+  coefficient form's `r_max` is the same bits; the lens form's normalized radius may move by an ulp).
+- **New: `bending_rows(mask; spacing)`, a method of the public `bending_rows`** — the bending energy's rows over the
+  cells of a uniform cubic lattice whose 16 nodes `mask` holds, as one sparse operator: `bending_stencils` assembled
+  over a mask, beside the masked `difference_rows(mask, order)`. RadiometricCamera's grid prior's `_bending_operator`
+  moves here, the same rows bit for bit.
+- **Changed (additive): `backproject(::NoncentralSplineModel, u)` at any number type.** It returns a `Ray3{T}`, `T`
+  the promoted type of the pixel and the model (`Float32` for a `Float32` model, a ForwardDiff `Dual` through the
+  pixel), and runs in a KernelAbstractions kernel on the model's device copy. `Ray3{T}` takes any `T <: Real` (it took
+  `T <: AbstractFloat`). A `Float64` model at a `Float64` pixel gives the same `Ray3{Float64}` bits as before.
+- **Changed: the CUDA extension's default device is `CUDABackend(; always_inline = true)`**, so every kernel launched on
+  `default_device()` inlines its calls. `on_device` compares an array's backend with the target by backend type (the
+  memory it lives in), not by value, so an array already on the GPU is not copied because its `get_backend` reports
+  the backend without the option. A device the caller names is used as given.
+- **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
+  package and in every environment of its workspace; CI runs 1.13 only.
+- **Every `[compat]` floor raised to the gated resolution** (the owner's ruling of 2026-11-13): a stack dependency at
+  its registry latest or its in-wave version, a third-party one at the version the release gate resolved (a floor
+  only, the semver upper bound kept); the monorepo's Downgrade workflow is deleted.
+- **Internal: private forwards and aliases deleted** (the owner's no-shim order), every caller calling the public
+  function directly, the same bits: `_strip_length` (→ `strip_or_bare`), SpatialQueries' `_Leaf`, `_Branch`, `_Rect`
+  and `_mbr` (→ SpatialIndexing's, qualified), check_naming's `_line_of` (→ `searchsortedlast`), the SIFT landing's
+  `_window_sums` (above), and `_homography_point_jacobian` (→ `transform_deriv` of the 2-D homography map, below).
+- **New: `transform_deriv(PerspectiveMap() ∘ h::HomographyMap{3}, x::StaticVector{2})`** — the 2 × 2 Jacobian of the
+  dehomogenised 2-D homography map, `transform_deriv(PerspectiveMap(), H·x̃) · H[:, 1:2]` in the promoted number type:
+  the one point Jacobian of a homography. The private `_homography_point_jacobian` is folded into it; `propagate` of an
+  uncertain point through a `HomographyMap{3}` reads it (the same bits).
+- **New: `plane_map(camera::PosedCamera)`, public, not exported** — the posed camera's map from the `z = 0` plane to
+  the image, `distortion_map(m) ∘ HomographyMap(PosedCamera(pinhole(m), extrinsics))`, the composition
+  `transfer_ellipse(::PosedCamera, _)` built inline; it now reads it (the same bits: the same stages, the Pinhole
+  short-cut and the cheirality test kept). Its linearisation is `transform_deriv(plane_map(camera), q)`.
+- **`check_duplication`: the idiom cap counts this repository's definitions only.** A shingle in more than 40 of the
+  checked repository's definitions is an idiom; the stack repositories of `VGTK_STACK_PATHS` no longer count towards
+  it, so a pair inside the repository is found alike with and without them (CI reads no stack, a release gate does).
+  The monorepo's two test-fixture `[[similar]]` entries are restored in DUPLICATION.toml.
 
 ## 0.9.4 (unreleased)
 

@@ -17,7 +17,7 @@ contracts that their robust estimators implement.
 pkg> add VisualGeometryToolkitCore
 ```
 
-Julia 1.12 or later. Every dependency is in the General registry.
+Julia 1.13 or later. Every dependency is in the General registry.
 
 ## Example
 

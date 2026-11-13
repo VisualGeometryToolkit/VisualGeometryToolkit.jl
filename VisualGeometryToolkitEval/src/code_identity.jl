@@ -162,15 +162,28 @@ changed: every file under the code paths and under each path-loaded package's `s
 path, size, modification and change time and inode: an edit, a new, deleted or replaced file), the project's
 `Project.toml` and Manifest, and per repository its `HEAD`, the ref `HEAD` names, `packed-refs`, the index and the
 ignore files (a commit, a checkout, a staged or unstaged change). A file rewritten within the file system's time
-resolution with the same size and inode keeps the kept answer, as [`file_sha256`](@ref)'s cache does.
+resolution with the same size and inode keeps the kept answer, as [`file_sha256`](@ref)'s cache does; so does a
+change to the index alone made while `code_trees` runs git (whose own status run rewrites the index).
 """
 function code_trees(workdir::AbstractString; code = nothing, julia_project::AbstractString = workdir)
     paths = code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
     k = (abspath(workdir), paths, abspath(julia_project))
-    seen = _code_state(workdir, paths, julia_project)                # before git runs: a change meanwhile is a change next time
+    seen = _code_state(workdir, paths, julia_project)
     hit = lock(() -> get(_CODE_TREES, k, nothing), _CODE_TREES_LOCK)
-    r = hit !== nothing && hit[1] == seen ? hit[2] : _code_trees(workdir, paths, julia_project)
-    hit !== nothing && hit[2] === r || lock(() -> (_CODE_TREES[k] = (seen, r)), _CODE_TREES_LOCK)
+    r = hit !== nothing && hit[1] == seen ? hit[2] : nothing
+    tries = 0
+    while r === nothing
+        # Kept only when the state held while git ran, the index aside: `git status` itself rewrites the index
+        # (refreshing its stat data, every time while an entry is as new as the index), so the answer is kept under
+        # the state after it. A file edited meanwhile is a change: computed again.
+        r = _code_trees(workdir, paths, julia_project)
+        after = _code_state(workdir, paths, julia_project)
+        if _but_index(after) == _but_index(seen)
+            lock(() -> (_CODE_TREES[k] = (after, r)), _CODE_TREES_LOCK)
+        elseif (tries += 1) < 3
+            seen, r = after, nothing
+        end
+    end
     return (; trees = copy(r.trees), dirty = copy(r.dirty), project_paths = copy(r.project_paths))
 end
 
@@ -207,7 +220,7 @@ function _repo_state!(out, dir::AbstractString, under)
     r = _git_dirs(dir)
     r === nothing && return push!(out, ("no git", String(abspath(dir))))
     head = joinpath(r.git, "HEAD")
-    push!(out, _stat_state(head), _stat_state(joinpath(r.git, "index")), _stat_state(joinpath(r.common, "packed-refs")),
+    push!(out, _stat_state(head), (:index, _stat_state(joinpath(r.git, "index"))...), _stat_state(joinpath(r.common, "packed-refs")),
           _stat_state(joinpath(r.common, "info", "exclude")))
     m = isfile(head) ? match(r"^ref:\s*(\S+)", read(head, String)) : nothing
     m === nothing || push!(out, _stat_state(joinpath(r.common, String(something(m.captures[1])))))
@@ -221,6 +234,9 @@ function _repo_state!(out, dir::AbstractString, under)
     end
     return out
 end
+
+# The state without the repositories' index files, which git's own status run may rewrite.
+_but_index(state) = filter(x -> !(first(x) === :index), state)
 
 # Every file under `p` (a file or a directory, `.git` left out), by its stat.
 function _tree_state!(out, p::AbstractString)

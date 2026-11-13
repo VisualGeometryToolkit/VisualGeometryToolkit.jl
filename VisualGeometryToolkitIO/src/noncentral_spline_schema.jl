@@ -29,7 +29,7 @@
 # store, a non-central one's record, to a new file beside it. A record naming the
 # central type is refused, pointing at that read.
 #
-# The spline record is the lens record's (`_spline_json`): the held nodes (Core's
+# The spline record is the lattice record (`lattice_json`, style.jl) with two control arrays: the held nodes (Core's
 # presence mask) as runs per lattice row and the controls over them; the absent
 # nodes read back as NaN, which no evaluation reads. The point controls are plain
 # METRES in memory — the unit VGC strips a physical camera's extrinsics in — and
@@ -82,7 +82,7 @@ const _NONCENTRAL_SPLINE_SPEC = _CheckedSpec(
 # its file holds them.
 function _model_body(s::VgioStyle, m::NoncentralSplineModel, ext::Size2; points = nothing)
     P = _held_mask(m.present, size(m.directions.controls))
-    sp = _spline_json(m.directions, P)
+    sp = lattice_json(m.directions; m.present)
     pts = points === nothing ? _controls_json(m.points.controls, P, x -> _leaf_power(x, s.length_unit, 1)) : points
     return (
         type = _NONCENTRAL_TYPE, width = Int(ext.width), height = Int(ext.height), K = _k_record(m.intrinsics.K, _pixel_frame(s)),

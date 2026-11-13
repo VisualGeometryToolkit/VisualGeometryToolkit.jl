@@ -191,6 +191,84 @@ function _ellipse_record_problem(e, what)
 end
 
 # -----------------------------------------------------------------------------
+# THE LATTICE RECORD: a uniform cubic B-spline lattice over a rectangle
+# -----------------------------------------------------------------------------
+
+"""
+    lattice_json(spline::ChartSpline; present = nothing, length_unit = nothing) -> NamedTuple
+
+A uniform cubic B-spline lattice — VisualGeometryToolkitCore's `ChartSpline`,
+its `K`-vector controls over a rectangle of a chart — as the lattice record,
+the spline lens record's (a `SplineLens`'s backward and forward splines) and
+every spline a package stores over one (RadiometricCamera's aperture spline):
+
+    {"area": [x, y, w, h], "grid_size": [gw, gh],
+     "present": [[row, [[col_lo, col_hi], …]], …],     (optional) the held nodes; absent = every node
+     "controls": [[c₁, …, c_K], …]}                    the held nodes' controls, row by row
+
+`area` is the spline's rectangle, `grid_size` its lattice (columns, rows).
+`present` (a `Bool` matrix of the lattice's size, `[gy, gx]`, Core's presence
+mask; `nothing`: every node) is written as runs per lattice row, 0-based and
+inclusive, and only the held nodes' controls are written. The controls are
+written as they are (JSON's shortest round-trip floats, so a `Float64` spline
+reads back bit for bit), or, with `length_unit`, as lengths: plain metres in
+memory, the file's numbers in that unit through [`write_length`](@ref)'s
+decimal shift. [`lattice_from_json`](@ref) reads it back.
+
+```jldoctest
+julia> rec = (area = [0.0, 0.0, 1.0, 1.0], grid_size = [4, 4], controls = fill([2.0], 16));   # radii, in mm
+
+julia> L = VgtkIO.lattice_from_json(rec, Val(1); length_unit = mm); L.spline.controls[1, 1][1]   # metres
+0.002
+
+julia> VgtkIO.lattice_json(L.spline; length_unit = mm) == rec
+true
+```
+"""
+function lattice_json(cs::ChartSpline; present::Union{Nothing, AbstractMatrix{Bool}} = nothing, length_unit::Union{Nothing, Units} = nothing)
+    present === nothing || size(present) == size(cs.controls) || throw(
+        ArgumentError("lattice_json: `present` is $(size(present, 1)) × $(size(present, 2)), the lattice $(size(cs.controls, 1)) × $(size(cs.controls, 2))")
+    )
+    P = _held_mask(present, size(cs.controls))
+    f = length_unit === nothing ? identity : x -> _metres_json(x, length_unit)
+    return merge(
+        (area = JSON.lower(VgioStyle(), cs.area), grid_size = [size(cs.controls, 2), size(cs.controls, 1)]),
+        all(P) ? (;) : (present = _present_runs(P),), (controls = _controls_json(cs.controls, P, f),),
+    )
+end
+
+"""
+    lattice_from_json(record, ::Val{K}; length_unit = nothing) -> (; spline::ChartSpline{K}, present)
+
+The lattice a lattice record states (the inverse of [`lattice_json`](@ref)):
+`spline` the `ChartSpline` of `K`-vector controls over its `area`, NaN in the
+nodes the record does not hold (no evaluation reads one), and `present` its
+presence mask (`[gy, gx]`), or `nothing` when the record holds every node.
+With `length_unit` the controls are lengths in that unit, read as plain
+metres, decimal-exactly. `record` is a [`Record`](@ref) or a parsed
+`AbstractDict`; it is validated first — exactly its keys, a finite area of
+positive widths, at least 4 × 4 nodes, the runs inside the lattice and apart,
+one `K`-vector control per held node — each problem an `ArgumentError`
+naming it.
+"""
+lattice_from_json(record, ::Val{K}; length_unit::Union{Nothing, Units} = nothing) where {K} =
+    _lattice_from_record(record isa NamedTuple ? _lower(record) : record, Val(K), length_unit, ("present",), "a lattice record")
+# …and the lens record's: its optional keys `optional` (`present`, the held nodes, among them; a
+# forward spline holds every node), named `what` in a message.
+function _lattice_from_record(s::AbstractDict, ::Val{K}, length_unit, optional, what) where {K}
+    spec = _Obj(
+        Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4), :grid_size => _Vec(_PosInt(), 2), :controls => _Vec(_Vec(_Real(), K))],
+        Pair{Symbol, _Spec}[Symbol(k) => (k == "present" ? _RowRuns() : _Free()) for k in optional],
+    )
+    _validate(spec, s, what, "")
+    msg = _lattice_problem(s, (:controls,))
+    msg === nothing || throw(ArgumentError("$(what): $(msg)"))
+    L = _lattice_from_json(_getkey(s, :grid_size), _haskey(s, :present) ? _getkey(s, :present) : nothing, _getkey(s, :area))
+    f = length_unit === nothing ? (x -> Float64(x)) : (x -> _read_power(x, length_unit, 1))
+    return (; spline = ChartSpline(L.area, _controls_from_json(_getkey(s, :controls), L.P, Val(K), f)), L.present)
+end
+
+# -----------------------------------------------------------------------------
 # A spline lattice's held nodes: the presence runs, and the controls over them
 # -----------------------------------------------------------------------------
 #

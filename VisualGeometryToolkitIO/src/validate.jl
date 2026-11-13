@@ -193,13 +193,16 @@ function _validate(::_RowRuns, x, file, at)
     return nothing
 end
 
+# A record's rectangle `a`, `[x, y, w, h]` (`what` names it): its widths positive; the message, or `nothing`.
+_area_problem(a, what) = (a[3] > 0 && a[4] > 0) ? nothing : "$(what) [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+
 # A spline lattice record's own check, the lens record's and the non-central
 # record's: its `area` a finite rectangle of positive widths, then its lattice
 # (`_lattice_count_problem`) with each of its control arrays `arrays` (keys).
 # `s` a parsed record (keys by Symbol or String); the message, or `nothing`.
 function _lattice_problem(s, arrays)
-    a = _getkey(s, :area)
-    (a[3] > 0 && a[4] > 0) || return "the spline's area [x, y, w, h] has positive widths; got w = $(a[3]), h = $(a[4])"
+    msg = _area_problem(_getkey(s, :area), "the spline's area")
+    msg === nothing || return msg
     gw, gh = _getkey(s, :grid_size)
     runs = _haskey(s, :present) ? _getkey(s, :present) : nothing
     return _lattice_count_problem(gw, gh, runs, [String(k) => _getkey(s, k) for k in arrays])
@@ -299,6 +302,7 @@ const _SCHEMA_VERSION = Dict(
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 2,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
     "panorama" => 1,                                           # 2026-11: a panorama's results (PanoramaStitching's)
+    "raster" => 1,                                             # 2026-11: a Float32 raster, a JSON header and its TIFF payload
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -414,16 +418,21 @@ function _refuse_schema(path, kind::AbstractString, s)
 end
 
 # THE RESERVED `payload` KEY. Every kind keeps its JSON header and may, once its
-# bulk numeric arrays exceed ~10 MB, move them to an Apache Arrow sidecar named
-# by `"payload": {"file": "<name>.arrow", "sha256": "<hex>"}` — glTF's JSON +
-# bin pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md). No kind
-# implements it yet; the key is reserved so adding it breaks no schema, and a
-# file carrying it is refused until its kind does.
+# bulk numeric arrays exceed ~10 MB, move them to a binary sidecar named by
+# `"payload": {"file": "<name>.<ext>", "sha256": "<hex>"}` — glTF's JSON + bin
+# pattern (VisualGeometryToolkitCore conventions/persisted-geometry.md: an Apache
+# Arrow sidecar for arrays). The key is reserved so adding it breaks no schema; a
+# file carrying it is refused unless its kind's table declares it: vgio/raster/v1,
+# whose payload is a TIFF of its profile (raster_schema.jl).
 const _PAYLOAD_KEY = :payload
-_refuse_payload(path, d) = haskey(d, _PAYLOAD_KEY) && throw(
+# whether a spec's object declares the key `k`
+_declares(s::_Obj, k::Symbol) = any(p -> p.first === k, s.required) || any(p -> p.first === k, s.optional)
+_declares(s::_CheckedSpec, k::Symbol) = _declares(s.inner, k)
+_declares(::_Spec, ::Symbol) = false
+_refuse_payload(path, kind, spec, d) = !_declares(spec, _PAYLOAD_KEY) && haskey(d, _PAYLOAD_KEY) && throw(
     ArgumentError(
-        "$(path): carries a `payload` sidecar reference — reserved for the Arrow sidecar of bulk arrays, " *
-            "which no kind implements yet"
+        "$(path): carries a `payload` sidecar reference — reserved for the binary sidecar of bulk arrays, " *
+            "which a $(kind) file does not hold"
     )
 )
 
@@ -441,7 +450,7 @@ function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Sp
     s = get(d, :schema, nothing)
     s == _schema(kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     get(d, :schema, nothing) == _schema(kind) || _refuse_schema(path, kind, s)
-    _refuse_payload(path, d)
+    _refuse_payload(path, kind, spec, d)
     _validate(spec, d, path, "")
     return d
 end
@@ -589,6 +598,7 @@ function _spec(kind::AbstractString)
     kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
     kind == "blur" && return _BLUR_SPEC
     kind == "panorama" && return _PANORAMA_SPEC
+    kind == "raster" && return _RASTER_SPEC
     kind == "correspondences" && return _CORRESPONDENCES_SPEC
     return nothing
 end

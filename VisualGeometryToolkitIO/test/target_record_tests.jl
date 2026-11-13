@@ -272,11 +272,31 @@ end
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
+        rec = parse_json(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
     @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
+end
+
+@testitem "target_calibration_json / target_calibration_from_json: every kind and composition, bare and Uncertain, reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # The public calibration codec (RadiometricCamera's in-plane print error): the record a target body embeds, alone.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rigid, Aspect, Skew
+    for (name, c) in pairs(kinds()), cc in (c isa Rigid ? (c,) : (c, uncertain(c)))
+        s = VgtkIO.VgioStyle(; length_unit = mm)
+        text = JSON.json(VgtkIO.target_calibration_json(s, cc))
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && back == cc
+        @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text          # the record a value writes is its own
+    end
+    # a calibration with lengths of plain numbers is refused (attach the unit), as a target's points are
+    @test_throws ArgumentError VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm),
+        VisualGeometryToolkitCore.HeightField(VisualGeometryToolkitCore.grid_nodes(3; lo = 0.0, hi = 1.0)))
+    # one without lengths has no form to refuse: the in-plane print error reads back in any unit
+    pe = Aspect(0.01) ∘ Skew(-0.002)
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = m),
+        JSON.parse(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), pe)))) == pe
 end
 
 @testitem "target/v3: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
@@ -680,5 +700,88 @@ end
         p = joinpath(dir, "rig.json")
         save(p, rig(t); length_unit = m)
         @test VgtkIO.content_id(p) == VgtkIO.content_id(rig(t)) == VgtkIO.content_id(load(Rig, p))
+    end
+end
+
+@testitem "height_field per-field units: chart nodes and heights in a length (RadiometricCamera's board warping) round-trip exactly" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # Owner ruling 2026-11-13 (IO 0.9.5): a height field's record may state `node_unit` and `height_unit`. RC's board
+    # warping is a 5 × 5 grid of PAGE FRACTIONS (the chart: the page width is not in the record) with heights in metres.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: HeightField, grid_nodes, is_pure_bending, PlanarTarget, Uncertain, geom, has_units,
+        bending_energy, ThinPlateSplineSystem
+    using Random: Xoshiro
+    nodes = grid_nodes(5; lo = 0.0, hi = 1.0)                                       # page fractions, plain
+    h = [VgtkIO.metres(round(x; digits = 4), mm) for x in 0.3 .* randn(Xoshiro(3), 25)]   # metres, mm-born
+    hf = HeightField(nodes, h)                                                     # Core projects onto pure bending (on these nodes)
+    @test !has_units(hf)
+    heights(c) = geom(c).h
+    for unit in (m, mm, VisualGeometryToolkitCore.μm), cc in (hf, uncertain(hf))
+        s = VgtkIO.VgioStyle(; length_unit = unit)
+        r = VgtkIO.target_calibration_json(s, cc; node_unit = :chart)
+        @test r.type == "height_field" && r.node_unit == "chart" && r.height_unit == unit_string(unit)
+        @test r.nodes == [Float64[q[1], q[2]] for q in nodes]                     # the chart's numbers as they are
+        text = JSON.json(r)
+        for reader in (VgtkIO.VgioStyle(; length_unit = mm), VgtkIO.VgioStyle(; length_unit = m))   # the record's units, not the style's
+            back = VgtkIO.target_calibration_from_json(reader, JSON.parse(text))
+            @test typeof(back) == typeof(cc) && geom(back).system.nodes == geom(cc).system.nodes
+            if unit === m
+                @test back == cc                     # heights in metres (RC's board warping): bit for bit
+            else
+                # in a decimal unit a COMPUTED metre value (Core's pure-bending projection) has no file number that reads
+                # back to it exactly when its shortest decimal needs more digits than the shifted one holds: it reads back
+                # as its persisted form, within the decimal codec's 2 ulp (read_length / write_length, `same_value`'s
+                # default), and that form is fixed from then on
+                @test all(abs.(heights(back) .- heights(cc)) .<= 2 .* eps.(heights(cc)))
+                text2 = JSON.json(VgtkIO.target_calibration_json(s, back; node_unit = :chart))
+                @test VgtkIO.target_calibration_from_json(reader, JSON.parse(text2)) == back
+            end
+        end
+        unit === m && @test JSON.json(VgtkIO.target_calibration_json(s, VgtkIO.target_calibration_from_json(s, JSON.parse(text)); node_unit = :chart)) == text
+    end
+    # an in-memory record (the NamedTuple the writer returns) reads as its file does
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = m), hf; node_unit = :chart)) == hf
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = mm), VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), kinds().canonical)) == kinds().canonical
+    # the bending energy is the field's over its chart nodes, in height_unit² (m² in memory): the same before and after
+    back = VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), JSON.parse(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = m), hf; node_unit = :chart))))
+    @test bending_energy(ThinPlateSplineSystem(nodes), back.h) == bending_energy(ThinPlateSplineSystem(nodes), hf.h)
+    # length nodes in one unit, heights in another: a physical field
+    k = kinds().height_field
+    r = VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = VisualGeometryToolkitCore.μm), k; node_unit = mm)
+    @test r.node_unit == "mm" && r.height_unit == unit_string(VisualGeometryToolkitCore.μm)
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), JSON.parse(JSON.json(r))) == k
+    # an old single-unit record still reads, in the style's unit
+    old = JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), k))
+    @test !occursin("node_unit", old) && VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = mm), JSON.parse(old)) == k
+    # refused by name: one key alone, the keys on another kind, an unknown unit, a member's, a target body's
+    rec(d) = JSON.parse(JSON.json(d))
+    good = rec(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), hf; node_unit = :chart))
+    for (why, f!) in (
+            "together, or neither" => d -> delete!(d, "height_unit"),
+            "not a scale's" => d -> (d["type"] = "scale"; d["parameters"] = [0.1]; delete!(d, "nodes")),
+            "registered length unit" => d -> (d["node_unit"] = "px"),
+            "registered length unit" => d -> (d["height_unit"] = "chart"),
+        )
+        d = deepcopy(good); f!(d)
+        e = try VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), d); nothing catch err; err end
+        @test e isa ArgumentError && occursin(why, e.msg)
+    end
+    comp = rec((type = "composition", compose = [good, (type = "aspect", parameters = [0.01])]))
+    @test_throws "unknown key" VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), comp)
+    # a height field written with chart nodes is plain; a physical one needs length nodes, and only a height field has node units
+    @test_throws "holds lengths" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(), k; node_unit = :chart)
+    @test_throws "is plain" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(), hf; node_unit = mm)
+    @test_throws "height field's" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(), kinds().aspect; node_unit = :chart)
+    @test_throws "or :chart" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(), hf; node_unit = :page)
+    # heights that are not pure bending on the record's nodes are refused (a piston-free field on other nodes)
+    d = deepcopy(good); d["parameters"] = Any[Float64(i) for i in 1:25]
+    @test_throws "pure bending" VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), d)
+    # a target body's calibration states no per-field units
+    mktempdir() do dir
+        p = joinpath(dir, "t.json")
+        save(p, PlanarTarget(design_points(); calibration = k))
+        t = JSON.parse(read(p, String)); t["target"]["calibration"]["node_unit"] = "mm"; t["target"]["calibration"]["height_unit"] = "mm"
+        write(p, JSON.json(t))
+        e = try load(VisualGeometryToolkitCore.AbstractTarget, p); nothing catch err; err end
+        @test e isa ArgumentError && occursin("node_unit: unknown key", e.msg)      # a target body's calibration table has neither key
     end
 end

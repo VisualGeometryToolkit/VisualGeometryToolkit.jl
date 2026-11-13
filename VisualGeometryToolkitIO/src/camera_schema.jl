@@ -389,7 +389,7 @@ is read in the colmap pixel frame (`CANONICAL_PIXEL_FRAME`), whatever `frame`
 is given: the old grid code reads every old grid body's numbers in that frame.
 """
 camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =
-    _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
+    _model_from_body(_current_camera_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)...)
 
 """
     camera_from_json(::Type{BoundedCamera}, body, frame; length_unit = mm) -> BoundedCamera
@@ -415,12 +415,12 @@ function _bounded_body(s::VgioStyle, bc::BoundedCamera)
     body = _model_body(s, m, ext)                      # the model's own body: a central camera's or a non-central one's
     return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
 end
+# (The body is a current one: a record's reader gets it through its version steps, and the one entry an
+# embedded body of an earlier shape reaches, `camera_from_json`, converts it first, `_current_camera_body`.)
 function _model_from_body(s::VgioStyle, b::Record)
-    s, b = _current_camera_body(s, b)                  # an embedded earlier body: its camera's (migrate.jl)
     return haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
 end
 function _bounded_from_body(s::VgioStyle, b::Record, pose = nothing)
-    s, b = _current_camera_body(s, b)
     m, ext = _model_from_body(s, b)
     return BoundedCamera(_posed(m, pose), _bound_from_body(b, ext, s.length_unit); lens_coverage = _lens_coverage_from_json(s, get(b, :lens_coverage, nothing)))
 end

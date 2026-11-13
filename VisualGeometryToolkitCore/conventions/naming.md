@@ -37,6 +37,12 @@ linear problem runs its one-step algorithm under the weights and ignores θ).
 The noise-model estimators (VGC's `fit_scale`, VisualGeometryToolkitEval's
 `fit_prior`) are outside this rule.
 
+**Detection, correspondence, observation — the terminology taxonomy (owner, 2026-11-13), enforced by `check_naming` (R14).**
+- A **detection** is a detector's output in one image, unassociated: `Attributed{Uncertain{<:FeatureFrame}}`, a [`PointFrame`](@ref) as first-class as any scaled frame (feature-frames). A keypoint IS a detection; with a descriptor it is VisualGeometryToolkitFeatures' `DescribedFeature`.
+- A **correspondence** is a hypothesised pairing ([`Correspondence`](@ref), [`Correspondences`](@ref), [`correspondences`](@ref)). A **match** comes from descriptors; an **inlier** is a verified correspondence.
+- An **observation** is a detection associated with a model entity (a target point, a landmark), in the form an estimator consumes: [`TargetObservations`](@ref), VisualGeometryToolkitIO's `observations` kind (its entity `target_point` or `landmark`), and a detection's point observation [`center`](@ref VisualGeometryToolkitCore.center)`(u)`. A **track** is the observations of one entity.
+- **measured** is a provenance adjective and value only (`:measured`, `"measured"`: the source of a [`SensorNoise`](@ref) field, a covariance's), never a bound name. No identifier — function, type, field, keyword, local, constant, quoted symbol, TOML key — holds the word "measurement", the old pairing abbreviation, "sighting" or "keypoint" (R14); each old public name is in `RETIRED_NAMES` with its replacement (R9). A published artifact's name that spells an old word is data: it is listed in `FOREIGN_FORMAT_TOKENS` and accepted only in string literals, quoted TOML values and data fixtures.
+
 **Iterative-estimator vocabulary — no exceptions, enforced by a quality test in every stack package.**
 1. An **iteration** is one cycle of `block_coordinate_descent!` through every block. Its counters are `iter`, `max_iter` and `iterations`; its hook is `post_iteration!`.
 2. A **block** is one component of the iteration state the loop overwrites: the model, the residuals, the nuisance and each of its parts (scale, inlier prior, ν, α), and the weights.

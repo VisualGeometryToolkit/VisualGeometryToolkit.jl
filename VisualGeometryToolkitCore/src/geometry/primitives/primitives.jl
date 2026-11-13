@@ -69,7 +69,7 @@ using ..VisualGeometryToolkitCore: _conic_work_type   # the precision a conic's 
 
 # Import detection types (needed for Circle construction)
 using ..VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, feature_frame
-using ..VisualGeometryToolkitCore: Uncertain, PrecMat, CovMat, cov, Attributed
+using ..VisualGeometryToolkitCore: Uncertain, PrecMat, CovMat, cov, Attributed, ScaledIdentity
 using ..VisualGeometryToolkitCore: px, _strip_coords, _coord_unit   # the feature-coordinate compute boundary (base/feature_coords.jl)
 import ..VisualGeometryToolkitCore: strip_or_bare   # extended for the feature frames (base/units.jl)
 using ..VisualGeometryToolkitCore: propagate   # the congruence A^{-T}·Q·A^{-1} (base/propagate.jl)
@@ -81,7 +81,7 @@ using Accessors: @set
 # Import interface traits and function stubs (to extend)
 using ..VisualGeometryToolkitCore: HasBoundary, AnalyticOverlap, BoundarySampled
 using ..VisualGeometryToolkitCore: CircleTrait, EllipseTrait
-using ..VisualGeometryToolkitCore: IsotropicScale, ShapeFactorScale
+using ..VisualGeometryToolkitCore: PointShape, IsotropicScale, ShapeFactorScale
 import ..VisualGeometryToolkitCore: has_boundary, classify_conic
 import ..VisualGeometryToolkitCore: frame_scale
 import ..VisualGeometryToolkitCore: centroid, normal, offset, signed_distance, closest_point

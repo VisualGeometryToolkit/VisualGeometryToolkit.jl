@@ -650,7 +650,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
     # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
     # output upstream of it was made under another key, whichever launch made it.
-    keys_of = isempty(results) ? Dict{String, String}() : _completed_keys(joinpath(results, g.manifest_dir))
+    records = isempty(results) ? Pair{String, Dict{String, Any}}[] : _stage_records(joinpath(results, g.manifest_dir))
+    keys_of = Dict{String, String}(name => r["key"] for (name, r) in records if stage_run_state(r).state == "completed")
     for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
@@ -692,15 +693,13 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     base["VGTK_SITE"] = site.name
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,
                          code.trees, code.dirty, code.project_paths)
-    _mark_reuse!(plan, ids -> _queue_states(queue_states, ids, env))
+    _mark_reuse!(plan, records, ids -> _queue_states(queue_states, ids, env))
     return plan
 end
 
 # ---------------------------------------------------------------------------
 # Run manifests and reuse
 # ---------------------------------------------------------------------------
-
-_manifest_dir(plan::ReproducePlan) = joinpath(plan.results_root, plan.graph.manifest_dir)
 
 """
     run_manifests(dir) -> Vector{String}
@@ -719,15 +718,10 @@ function _which(prog::AbstractString, env)
     return nothing
 end
 
-# The run key of each stage's last completed run among the manifests under `dir`, by stage name ([`stage_run_state`](@ref):
-# every task's marker completed, or a local record completed or reused).
-function _completed_keys(dir::AbstractString)
-    out = Dict{String, String}()
-    for m in run_manifests(dir), (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}())
-        haskey(r, "key") && stage_run_state(r).state == "completed" && (out[name] = r["key"])
-    end
-    return out
-end
+# The stage records of the earlier launches whose manifests are under `dir` (`stage name => record`, those with a run
+# key), oldest launch first: what reuse and the upstream keys read.
+_stage_records(dir::AbstractString) = Pair{String, Dict{String, Any}}[
+    name => r for m in run_manifests(dir) for (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}()) if haskey(r, "key")]
 
 _job_states(job_states, ids, env) = job_states === nothing ? slurm_job_states(ids; env) : job_states(ids)
 _queue_states(queue_states, ids, env) = queue_states === nothing ? slurm_queue_states(ids; env) : queue_states(ids)
@@ -913,14 +907,8 @@ end
 # the code trees it recorded are the current ones (`code_tree_changes`, the one rule): a completed stage whose code
 # changed runs again, the change named; one still in flight under other code stops the launch (a second job would
 # write the same results).
-function _mark_reuse!(plan::ReproducePlan, queue_states)
-    isempty(plan.results_root) && return plan
-    last = Dict{String, Dict{String, Any}}()
-    for m in run_manifests(_manifest_dir(plan))
-        for (_, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}())
-            haskey(r, "key") && (last[r["key"]] = r)
-        end
-    end
+function _mark_reuse!(plan::ReproducePlan, records, queue_states)
+    last = Dict{String, Dict{String, Any}}(r["key"] => r for (_, r) in records)   # the latest record of each key
     isempty(last) && return plan
     ids = unique(filter(!isempty, String[get(last[st.key], "job_id", "") for st in plan.stages if haskey(last, st.key)]))
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : queue_states(ids)

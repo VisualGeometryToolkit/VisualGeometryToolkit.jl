@@ -9,7 +9,8 @@
 #
 #     α  = gain / (4K) · (1/d₁ + 1/d₂),     σ² = gain² σ_r² / 4 · (1/d₁² + 1/d₂²),
 #
-# d_k = white − black[c_k] the two greens' code spans (`L.geometry.plane_sites`). The formula is Core's `pixel_noise`.
+# d_k = white − black[c_k] the two greens' code spans (`L.geometry.plane_sites`). Core's sensor model makes the
+# variance plane and `poisson_slope` gives α.
 # The generalized Anscombe transform (Starck, Murtagh and Bijaoui 1998; Mäkitalo
 # and Foi 2013)
 #
@@ -44,51 +45,50 @@ struct StabilizedImage
 end
 
 """
-    variance_stabilize(L::LinearRaw, noise::SensorNoise) -> StabilizedImage
+    variance_stabilize(L::LinearRaw, sensor_model::SensorModel) -> StabilizedImage
 
 The generalized Anscombe transform of the green cells of `L` (`:green_cells`,
 or `:bin2`'s G plane, the same values) for Poisson–Gaussian noise: after it the
 noise has σ ≈ 1 at every level, from a few electrons to the white level.
 
-`noise` is the frame's resolved sensor noise (VisualGeometryToolkitCore's
-`sensor_noise`, the one place a missing value is decided): its conversion gain
-`electrons_per_dn` (K, electrons per raw code) and its read noise per colour
-(σ_r, raw codes, the rounding included), each from a record (`:measured`) or
-estimated from the frame. A noise the resolver could not give (`nothing`, with
-its `reason`) is an `ArgumentError` naming that reason: there is no fallback.
-`L` is best made with the same noise (`LinearRaw(mosaic; mode, noise)`, or
-[`load_raw`](@ref)'s `noise`), so the black it subtracted is the noise's.
-
-The code spans are the photosites' own (each green's `white − black`) and each
-green's read noise its colour's (`L.geometry.plane_sites`), through Core's
-`pixel_noise`, the one model; `L.gain` scales the photon and the read noise
-alike. A green cell whose value is `x = (x₁ + x₂)/2` is `α·P + N` with
-`α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²/4·(σ_r₁²/d₁² + σ_r₂²/d₂²)`, and its
-transform is `(2/α)·√(max(α x + 3α²/8 + σ², 0))`.
+`sensor_model` is the frame's resolved VisualGeometryToolkitCore `SensorModel`
+(`sensor_model`, a lookup in the body's characterisation), the one `L` was
+linearised with (`LinearRaw(mosaic; mode, sensor_model)`, or [`load_raw`](@ref)'s
+`sensor_model`): under its Poisson–Gaussian noise (a gain) `L` carries each green
+value's variance `v(x)`, Core's one law. A model without a gain is an
+`ArgumentError` naming the missing gain; there is no fallback. The transform
+reads the variance plane and the green plane's Poisson slope α (Core's
+`poisson_slope`): a value `x` whose variance is `α·max(x, 0) + σ²` (σ² its
+Gaussian part, a dark frame's per photosite when the model holds one) maps to
+`(2/α)·√(max(α x + 3α²/8 + σ², 0))`. `white` is the transform at the white
+level, `L.gain`, with the plane's mean Gaussian variance.
 
 `L.saturated` is carried over: [`asift_detect`](@ref) masks those pixels
 rather than reading the clipped values. The transform is pixel-wise, so the
 detections' positions are the cell grid's, as on any rendering of `L` (a
 display rendering for a descriptor among them).
 """
-function variance_stabilize(L::LinearRaw, noise::SensorNoise)
+function variance_stabilize(L::LinearRaw, sensor_model::SensorModel)
+    sensor_model.noise isa PoissonGaussian || throw(ArgumentError(
+        "variance_stabilize: the sensor model has no gain (its noise is $(nameof(typeof(sensor_model.noise)))): the transform needs a Poisson–Gaussian noise, a characterisation's PoissonGaussian (photon_transfer or a record)"))
     G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
-    (; α, σ²) = _green_noise(L, noise)
-    f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    return StabilizedImage(f.(G), L.saturated, f(L.gain))
+    G isa StructArray || throw(ArgumentError(
+        "variance_stabilize: L holds no variances: linearise it with the same sensor model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
+    x, covs = components(G)
+    α = poisson_slope(L, sensor_model)[parentindices(x)[3]]   # the green plane's, its index Core's (read off the view)
+    gaussian(x, c) = c[1] - α * max(x, 0.0)                 # the value's variance less its Poisson part
+    f(x, σ²) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
+    σ²_mean = sum(gaussian(xi, ci) for (xi, ci) in zip(x, covs)) / length(x)
+    return StabilizedImage(f.(x, gaussian.(x, covs)), L.saturated, f(L.gain, σ²_mean))
 end
 
-# The 0.8 keywords, retired: the noise is the resolver's SensorNoise, the argument.
+# The 0.8 keywords, retired: the noise is the frame's sensor model, the argument.
 function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), read_noise = RetiredKeyword())
-    refuse_retired_keyword(electrons_per_dn, :electrons_per_dn, "the frame's resolved noise, variance_stabilize(L, noise::SensorNoise)")
-    refuse_retired_keyword(read_noise, :read_noise, "the frame's resolved noise, variance_stabilize(L, noise::SensorNoise)")
-    throw(ArgumentError("variance_stabilize: give the frame's resolved noise, variance_stabilize(L, noise::SensorNoise) (VisualGeometryToolkitCore's sensor_noise)"))
+    successor = "the frame's sensor model, variance_stabilize(L, sensor_model::SensorModel)"
+    refuse_retired_keyword(electrons_per_dn, :electrons_per_dn, successor)
+    refuse_retired_keyword(read_noise, :read_noise, successor)
+    throw(ArgumentError("variance_stabilize: give $successor (VisualGeometryToolkitCore's sensor_model)"))
 end
-
-# The green cells' noise under the resolved `noise`: Core's `pixel_noise` (THE model, per plane) of the plane
-# `green_plane(L)` views (its index Core's, read off that view). A noise without gain or read noise is refused there,
-# carrying the resolver's reason.
-_green_noise(L::LinearRaw, noise::SensorNoise) = pixel_noise(L, noise)[parentindices(green_plane(L))[3]]
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search

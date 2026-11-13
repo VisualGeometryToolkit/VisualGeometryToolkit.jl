@@ -53,6 +53,11 @@
     @test VgtkCore.successful_retcode(inside[4]) && abs(inside[1][1] - truth[1]) < 2.0e-3
     cut = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (128, H))
     @test cut[5] == VgtkCore.LeftBasin && cut[1] == v3
+    # the LM's stop settings are Core's (StaticLmStops, [lm]): the refinement's own are retired, refused by name
+    for kw in ((; max_iter = 10), (; converged_tol2 = 1.0e-12), (; cost_floor = 0.0))
+        err = try VgtkFeatures.ContinuousRefinement(; kw...) catch e; e end
+        @test err isa ArgumentError && occursin("is retired", err.msg)
+    end
 end
 
 @testitem "continuous refinement: CPU = GPU on one DoG — the same §14 records, points within the derived tolerance" setup = [UncFixtures] begin

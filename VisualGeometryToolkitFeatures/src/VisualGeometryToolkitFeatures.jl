@@ -52,7 +52,7 @@ using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # Lo
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
-using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
+using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, poisson_slope, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
 using LinearAlgebra: isposdef
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
 using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})

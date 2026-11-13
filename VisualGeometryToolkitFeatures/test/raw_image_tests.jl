@@ -22,7 +22,7 @@
 end
 
 @testitem "raw: the display demosaic keeps the sensor orientation (LibRaw_jll)" begin
-    using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance
+    using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance, linearview, photosite_colors
     using VisualGeometryToolkitFeatures
     using LibRaw_jll: LibRaw_jll, libraw
     VGF = VisualGeometryToolkitFeatures
@@ -77,7 +77,8 @@ end
         @test maximum(g[q...]) < minimum(g[1:20, 37:end])     # and bright top-right: no mirror either
         @test maximum(g[q...]) < minimum(g[29:end, 1:28])     # nor bright bottom-left
         # linear: the flat bright part reads its level, (raw − black) / (white − black) to LibRaw's 16 bits
-        @test isapprox(g[40, 50], (30000 - m.black[2]) / (m.white - m.black[2]); rtol = 1e-3)
+        (i, j) = first(Tuple(q) for q in CartesianIndices((39:41, 49:51)) if photosite_colors(m)[q] in (1, 3))   # a green photosite there
+        @test isapprox(g[40, 50], linearview(m)[i, j]; rtol = 1e-3)
     end
     m, rgb, md = demosaic_with_flip(0)
     L = VGF._demosaic_image(rgb, md, 1.0, nothing)
@@ -113,12 +114,12 @@ end
 end
 
 @testitem "raw: the display image has no green cells to stabilize" begin
-    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
+    using VisualGeometryToolkitCore: LinearRaw, sensor_fixture
     using VisualGeometryToolkitFeatures: variance_stabilize
+    using Test
     display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
-    noise = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
-                        electrons_per_dn = noise_value(2.5, :measured), read_noise = noise_value((3.0, 3.0, 3.0, 3.0), :measured))
-    @test_throws ArgumentError variance_stabilize(display_image, noise)
+    model = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0)).model
+    @test_throws ArgumentError variance_stabilize(display_image, model)
 end
 
 @testitem "raw: LibRaw_jll decoder" begin
@@ -363,48 +364,48 @@ end
     @test_throws MethodError Base.invokelatest(VGF._decode_raw, LoadedDecoder(), @__FILE__)
 end
 
-# load_raw forwards the frame's resolved noise to Core's LinearRaw, the one black subtraction; the display demosaic
-# (LibRaw's own black) and a cached decode (a noise is no key) refuse one.
-@testitem "raw: load_raw forwards the resolved noise to LinearRaw" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
+# load_raw forwards the frame's sensor model to Core's LinearRaw, the one black subtraction; the display demosaic
+# (LibRaw's own black) refuses one; a cached decode is keyed by the model's content (Core's content_digest), the absent
+# model by the plain key.
+@testitem "raw: load_raw forwards the sensor model to LinearRaw" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorModel, sensor_fixture
     using VisualGeometryToolkitFeatures: load_raw
     using Random: Xoshiro
+    using Test
     m = noisy_mosaic(Xoshiro(6), (i, j) -> 200.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
-    noise = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
-                        black = noise_value((500.0, 490.0, 510.0, 495.0), :measured), reason = "a record of the black level alone")
+    model = sensor_fixture(; black = (500.0, 490.0, 510.0, 495.0)).model
     for mode in (:green_cells, :bin2)
-        @test load_raw(m; mode, noise).image == LinearRaw(m; mode, noise).image
-        @test load_raw(m; mode, noise).image != load_raw(m; mode).image                   # the noise's black, not the file's
+        @test load_raw(m; mode, sensor_model = model).image == LinearRaw(m; mode, sensor_model = model).image
+        @test load_raw(m; mode, sensor_model = model).image != load_raw(m; mode).image          # the model's black, not the file's
+        @test load_raw(m; mode, sensor_model = SensorModel()).image == load_raw(m; mode).image  # the absent model: the file's, bit for bit
     end
-    @test_throws ArgumentError load_raw(m; mode = :demosaic, noise)
-    # the noise is part of a cached decode's key, by content: another noise is another entry, the same noise a hit
-    VGF = VisualGeometryToolkitFeatures
-    other = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
-                        black = noise_value((501.0, 490.0, 510.0, 495.0), :measured), reason = "a record of the black level alone")
-    @test VGF._noise_digest(noise) == VGF._noise_digest(deepcopy(noise)) != VGF._noise_digest(other)
+    @test_throws ArgumentError load_raw(m; mode = :demosaic, sensor_model = model)
+    @test load_raw(m; mode = :demosaic, sensor_model = SensorModel()).image == load_raw(m; mode = :demosaic).image
 end
 
-@testitem "raw: a cached decode is keyed by the noise" setup = [NoisyMosaic] begin
-    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value
+@testitem "raw: a cached decode is keyed by the sensor model" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorModel, sensor_fixture
     using VisualGeometryToolkitFeatures: load_raw
     using Random: Xoshiro
+    using Test
     const VGF = VisualGeometryToolkitFeatures
     # a decoder that "decodes" any file to one synthetic mosaic, counting its calls
     struct SyntheticDecoder <: VGF.RawDecoder end
     const DECODES = Ref(0)
     const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
     VGF._decode_raw(::SyntheticDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
-    body = DeviceIdentity(; make = "synthetic", model = "mosaic")
-    n1 = SensorNoise(; body, iso = 100, black = noise_value((512.0, 500.0, 520.0, 508.0), :measured), reason = "black only")
-    n2 = SensorNoise(; body, iso = 100, black = noise_value((520.0, 508.0, 528.0, 516.0), :measured), reason = "black only")
+    m1 = sensor_fixture(; black = (512.0, 500.0, 520.0, 508.0)).model
+    m2 = sensor_fixture(; black = (520.0, 508.0, 528.0, 516.0)).model
     cache = Dict{String, Any}()
-    a = load_raw(@__FILE__; mode = :green_cells, noise = n1, decoder = SyntheticDecoder(), cache)
+    a = load_raw(@__FILE__; mode = :green_cells, sensor_model = m1, decoder = SyntheticDecoder(), cache)
     @test length(cache) == 1 && DECODES[] == 1
-    @test load_raw(@__FILE__; mode = :green_cells, noise = deepcopy(n1), decoder = SyntheticDecoder(), cache) === a   # the same noise: a hit
+    @test load_raw(@__FILE__; mode = :green_cells, sensor_model = deepcopy(m1), decoder = SyntheticDecoder(), cache) === a   # the same model: a hit
     @test DECODES[] == 1
-    b = load_raw(@__FILE__; mode = :green_cells, noise = n2, decoder = SyntheticDecoder(), cache)
-    @test length(cache) == 2 && DECODES[] == 2 && b.image != a.image                                            # another noise: another entry
+    b = load_raw(@__FILE__; mode = :green_cells, sensor_model = m2, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 2 && DECODES[] == 2 && b.image != a.image                                            # another model: another entry
     c = load_raw(@__FILE__; mode = :green_cells, decoder = SyntheticDecoder(), cache)
-    @test length(cache) == 3 && c.image == LinearRaw(MOSAIC; mode = :green_cells).image                            # no noise: its own entry
-    @test a.image == LinearRaw(MOSAIC; mode = :green_cells, noise = n1).image
+    @test length(cache) == 3 && c.image == LinearRaw(MOSAIC; mode = :green_cells).image                            # no model: its own entry
+    @test load_raw(@__FILE__; mode = :green_cells, sensor_model = SensorModel(), decoder = SyntheticDecoder(), cache) === c   # the absent model: that key
+    @test length(cache) == 3 && DECODES[] == 3
+    @test a.image == LinearRaw(MOSAIC; mode = :green_cells, sensor_model = m1).image
 end

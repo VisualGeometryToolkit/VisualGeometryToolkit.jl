@@ -132,6 +132,7 @@ end
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
     u = rows[3]
     @test u.center == u.window == Point2(30.0, 25.0) && all(isnan, cov(u.value))
+    @test u.covariance_status === :unclassified && rows[1].covariance_status === rows[2].covariance_status === :a_posteriori
     @test isempty(detect_foerstner(fill(0.5f0, 40, 40)))
     @test_throws ArgumentError detect_foerstner(img; method = :harris)
     @test_throws ArgumentError detect_foerstner(img; derivative = :sobel)
@@ -139,8 +140,8 @@ end
     @test_throws ArgumentError detect_foerstner(img; significance_level = 1)
     @test_throws ArgumentError detect_foerstner(img; noise = 0)
     @test_throws ArgumentError detect_foerstner(img; noise = Inf)
-    @test all(d -> d.covariance_source === :a_posteriori, p64)
-    @test all(d -> d.covariance_source === :propagated, detect_foerstner(Float64, img; noise = 2.0))
+    @test all(d -> d.covariance_status === :a_posteriori, p64)
+    @test all(d -> d.covariance_status === :propagated, detect_foerstner(Float64, img; noise = 2.0))
 end
 
 # The kept line 423 (the circular point's residual sum takes two terms from the
@@ -210,7 +211,7 @@ end
         points = detect_foerstner(Float64, img; device = KA.CPU(), noise = σn)
         k = argmin(k -> norm(points[k].center - Point2(t)), eachindex(points))
         d = points[k]
-        @test d.label === label && d.covariance_source === :propagated
+        @test d.label === label && d.covariance_status === :propagated
         c = round.(Int, (d.window[2] + 0.5, d.window[1] + 0.5))     # the window centre's input (row, column)
         ε = 1.0e-5
         Σfd = zeros(2, 2)
@@ -227,7 +228,7 @@ end
         @test norm(Matrix(cov(d.value)) - Σfd) <= 1.0e-6 * norm(Σfd)
         # a Poisson–Gaussian pixel variance α·x + σ² weighs each column by its own pixel's variance, J diag(v) Jᵀ
         α = 4 * (σn / 255)^2
-        pg = VisualGeometryToolkitFeatures._detect_foerstner(Float64, img, (α, (σn / 255)^2, :propagated); device = KA.CPU())
+        pg = VisualGeometryToolkitFeatures._detect_foerstner(Float64, img, (max.(α .* img, 0) .+ (σn / 255)^2, :propagated); device = KA.CPU())
         dpg = only(filter(e -> e.window == d.window, pg))
         Σpg = zeros(2, 2)
         for q in CartesianIndices(img)
@@ -243,36 +244,47 @@ end
     end
 end
 
-# A RAW's green cells under the frame's resolved SensorNoise: the one noise model (variance_stabilize's), its source on
-# the rows; with K → ∞ (no Poisson part) the covariance is the iid one of the same σ, to the α·x term's share.
-@testitem "detect_foerstner on a LinearRaw: the resolved SensorNoise, its source, a missing noise left a-posteriori" setup = [NoisyMosaic] begin
+# A RAW's green cells under the frame's sensor model: fed only under a gain (the owner's ruling A), each pixel's variance
+# the uncertain image's (Core's one law), the status by the gain's source; read noise alone or none left a-posteriori,
+# bit for bit the detector on the plain green plane; with K → ∞ (no Poisson part) the covariance is the iid one of the
+# same σ, to the α·x term's share.
+@testitem "detect_foerstner on a LinearRaw: the sensor model's gain, its source, no gain left a-posteriori" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: LinearRaw, SensorNoise, DeviceIdentity, noise_value, green_plane
+    using VisualGeometryToolkitCore: LinearRaw, green_plane, sensor_fixture
+    using StructArrays: components
     using Statistics: cov
     using Random: Xoshiro
-    const VGF = VisualGeometryToolkitFeatures
+    using Test
+    import VisualGeometryToolkitCore
+    const SensorSource = VisualGeometryToolkitCore.SensorSource
     # a bright dot in the green cells (photosite (i, j) at cell ((i + 1) ÷ 2, (j + 1) ÷ 2))
     dot(i, j) = hypot((j + 1) ÷ 2 - 20.3, (i + 1) ÷ 2 - 18.7) < 3 ? 6000.0 : 600.0
-    L = LinearRaw(noisy_mosaic(Xoshiro(9), dot, 80, 80; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
-    body = DeviceIdentity(; make = "synthetic", model = "mosaic")
-    recorded = record_noise(2.5, 3.0)
-    p = detect_foerstner(Float64, L; noise = recorded, device = KA.CPU())
-    @test any(d -> d.label === :circular, p) && all(d -> d.covariance_source === :propagated_measured, p)
-    estimated = SensorNoise(; body, iso = 100, electrons_per_dn = noise_value(2.5, :estimated; std_error = 0.1),
-                            read_noise = noise_value(ntuple(_ -> 3.0, 4), :measured))
-    @test all(d -> d.covariance_source === :propagated_estimated, detect_foerstner(Float64, L; noise = estimated, device = KA.CPU()))
-    unknown = SensorNoise(; body, iso = 100, reason = "too few flat blocks")
-    a = detect_foerstner(Float64, L; noise = unknown, device = KA.CPU())
-    @test all(d -> d.covariance_source === :a_posteriori, a)
-    @test [cov(d.value) for d in a] == [cov(d.value) for d in detect_foerstner(Float64, L; device = KA.CPU())]
+    m = noisy_mosaic(Xoshiro(9), dot, 80, 80; electrons_per_dn = 2.5, read_dn = 3.0)
+    plain = detect_foerstner(Float64, LinearRaw(m; mode = :green_cells); device = KA.CPU())
+    @test any(d -> d.label === :circular, plain) && all(d -> d.covariance_status in (:a_posteriori, :unclassified), plain)
+    for (source, status) in ((SensorSource.measured, :propagated_measured), (SensorSource.estimated, :propagated_estimated))
+        model = pg_model(2.5, 3.0; source)
+        p = detect_foerstner(Float64, LinearRaw(m; mode = :green_cells, sensor_model = model); sensor_model = model, device = KA.CPU())
+        @test any(d -> d.label === :circular, p) && all(d -> d.covariance_status in (status, :unclassified), p)
+    end
+    # no gain: read noise alone, or none — the a-posteriori covariance, the plain detector's numbers bit for bit
+    for nogain in (sensor_fixture(; read_noise = (3.0, 3.0, 3.0, 3.0)).model, sensor_fixture().model)
+        a = detect_foerstner(Float64, LinearRaw(m; mode = :green_cells, sensor_model = nogain); sensor_model = nogain, device = KA.CPU())
+        @test [cov(d.value) for d in a] == [cov(d.value) for d in detect_foerstner(Float64, Array(green_plane(LinearRaw(m; mode = :green_cells))); device = KA.CPU())]
+    end
+    # a gain whose LinearRaw holds no variances (linearised without the model): refused
+    @test_throws ArgumentError detect_foerstner(Float64, LinearRaw(m; mode = :green_cells); sensor_model = pg_model(2.5, 3.0), device = KA.CPU())
     # no Poisson part: K = 1e12 electrons per code leaves σ² alone, the iid case of σn = 255·σ
-    (; σ²) = VGF._green_noise(L, record_noise(1.0e12, 3.0))
-    big = detect_foerstner(Float64, L; noise = record_noise(1.0e12, 3.0), device = KA.CPU())
-    iid = detect_foerstner(Float64, Array(green_plane(L)); noise = 255 * sqrt(σ²), noise_sigma = 2.0, device = KA.CPU())
+    big_model = pg_model(1.0e12, 3.0)
+    Lb = LinearRaw(m; mode = :green_cells, sensor_model = big_model)
+    x, covs = components(green_plane(Lb))
+    σ² = minimum(c -> c[1], covs)
+    big = detect_foerstner(Float64, Lb; sensor_model = big_model, device = KA.CPU())
+    iid = detect_foerstner(Float64, Array(x); noise = 255 * sqrt(σ²), noise_sigma = 2.0, device = KA.CPU())
     @test length(big) == length(iid)
-    for (x, y) in zip(big, iid)
-        x.label === :unknown && continue
-        @test isapprox(Matrix(cov(x.value)), Matrix(cov(y.value)); rtol = 1.0e-6)   # α·x/σ² ≤ 1e-8 here
+    for (p, q) in zip(big, iid)
+        p.label === :unknown && continue
+        @test isapprox(Matrix(cov(p.value)), Matrix(cov(q.value)); rtol = 1.0e-6)   # α·x/σ² ≤ 1e-8 here
     end
 end
 

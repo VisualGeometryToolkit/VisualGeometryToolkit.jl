@@ -5,9 +5,10 @@
 A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 (`[compat]` "0.10.0").
 
 ### Breaking
-- **`detect_foerstner`'s rows carry `covariance_source`** (their attributes are `(; label, window, F,
-  covariance_source)`): `:propagated` or `:a_posteriori`, which covariance the frame holds (the producer states its
-  covariance policy; no consumer substitutes one).
+- **`detect_foerstner`'s rows carry `covariance_status`** (their attributes are `(; label, window, F,
+  covariance_status)`): how the frame's covariance was obtained or why there is none — `:propagated`,
+  `:propagated_measured` / `:propagated_estimated` / `:propagated_specified`, `:a_posteriori`, or `:unclassified` on an
+  `:unknown` row (a NaN covariance). The producer states its covariance policy; no consumer substitutes one.
 - **`detect_foerstner(...; noise)`: the covariance propagated from the image noise.** With `noise = σn` (iid pixel
   noise, grey levels of an 8-bit image) the covariance is `σn² J Jᵀ`, `J` the exact first-order (implicit-function)
   derivative of the estimate with respect to every input pixel, through the detector's own doubling, derivative taps,
@@ -16,16 +17,18 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
   NEES 0.01–25). `noise_sigma`, the precision test's level, defaults to `noise` when that is given (else the
   reference's 2).
-- **`variance_stabilize(L, noise::SensorNoise)`** takes the frame's resolved sensor noise (VisualGeometryToolkitCore's
-  `sensor_noise`); the keywords `electrons_per_dn` and `read_noise` are retired with a pointed refusal. Each green's read
-  noise is its own colour's, through VisualGeometryToolkitCore's `pixel_noise` (the one model); a noise the resolver
-  could not give is an `ArgumentError` naming its reason, never a constant.
-- **`detect_foerstner(L::LinearRaw; noise::SensorNoise)`**: Förstner on a RAW's green cells, the covariance
-  `J diag(α·x + σ²) Jᵀ` of the resolved Poisson–Gaussian noise, `covariance_source` `:propagated_measured` or
-  `:propagated_estimated`; a missing noise leaves the a-posteriori covariance, marked so.
-- **`load_raw(...; noise)`** forwards the resolved noise to Core's `LinearRaw`, the one black subtraction (the noise's
-  black, its dark frame's offsets, its defects); refused with the display demosaic. A cached decode is keyed by the
-  noise's content (Core's `sha256_hex` over its values, sources and maps).
+- **The sensor model (VisualGeometryToolkitCore 0.10's `SensorModel`, owner rulings A and D1–D13):**
+  - `load_raw(...; sensor_model)` hands the frame's model to Core's `LinearRaw`, the one black subtraction (its black,
+    its defects, and under a Poisson–Gaussian or relative noise each value's variance); refused with the display
+    demosaic. A cached decode is keyed by Core's `content_digest(model)`; the absent model keeps the plain key.
+  - `detect_foerstner(L::LinearRaw; sensor_model)`: fed only under a gain (Poisson–Gaussian): `J diag(var) Jᵀ` from
+    the uncertain image's variances; read noise alone, relative noise or none → `:a_posteriori`.
+  - `variance_stabilize(L, sensor_model)` (was the keywords `electrons_per_dn`, `read_noise`, retired with a pointed
+    refusal): the variance plane and Core's `poisson_slope`; a model without a gain is an `ArgumentError` naming the
+    missing gain.
+- **The continuous refinement's LM stop settings are Core's** (`StaticLmStops`, `[lm]`, the one owner): the
+  `ContinuousRefinement` keywords and TOML keys `max_iter`, `converged_tol2` and `cost_floor` are retired (a pointed
+  refusal); success is Core's one rule (the point is stationary).
 - **`CspondSet` is `CorrespondenceSet`** (VisualGeometryToolkitCore 0.10's terminology: `Cspond` → `Correspondence`,
   `csponds` → `correspondences`); the old name is refused by Core's naming check, with no alias.
 - **A detection's `propagate(m, d)` is Core's one conversion carried through `m`**, `propagate(m, center(d))`: the

@@ -221,7 +221,8 @@ _entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k i
 # dispatch pair on a CPU and a GPU type, and two names that differ only by a
 # CPU/GPU marker are each a duplicate. The transfer and allocation helpers
 # (an upload or download, a zero array, an allocation, a synchronization, a
-# device query) are the backends' own and are left alone, by their WHOLE names:
+# device query: its names, free bytes, pool reclaim, default device and a
+# kernel's resident threads) are the backends' own and are left alone, by their WHOLE names:
 # every `_`-separated token of the name (its leading `_` and trailing `!`
 # dropped) is a word of `_HELPER_TOKENS`. A fragment is not enough —
 # `fill_sqrt_weights!`, `transfer_ellipse`, `_copy_sq_distances!` and

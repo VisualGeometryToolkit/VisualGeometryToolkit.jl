@@ -1805,12 +1805,23 @@ over the 0.10 identity tree), and earlier versions' identities differed too (a
 rig v4 file's hashed its record). Each migrated rig or target file's old
 identities — the ones its own version minted, and IO 0.9's identity of its
 value — map to its new one. The map is PERSISTED in `dir/vgio_migrate_ids.json`
-(`{"identities": {old: new, …}, "definitions": {new: path relative to dir, …}}`)
-before a definition is put in place, and read by a later run, so a run that
+(`{"identities": {old: new, …}, "definitions": {new: path relative to dir, …},
+"rewritten": {old path: {"path": its current file, "sha256": the old bytes'},
+…}}`, paths relative to `dir`) before a file is put in place, and read by a
+later run, so a run that
 fails after its definitions were migrated in place re-points correctly when
 rerun, and an observation file kept outside the tree can be re-pointed later
 from the map (the command's `repoint`); a rerun of a migrated tree is idempotent
-(every file current, logged so). A file the migration refuses — its migration
+(every file current, logged so).
+
+A calibration manifest of the tree (`vgio/calibration`) is migrated last: each
+listed file the run rewrote is bound again — its `path`, `sha256` and `schema`
+its current file's, every `derived_from` naming it renamed with it — and the
+manifest is written as the current version and checked as
+[`load_manifest`](@ref) checks it before it is put in place; a current
+manifest none of whose files moved is left as it is.
+
+A file the migration refuses — its migration
 does not read back, its `<stem>.migrated.json` exists and is not current, an
 observation file names an identity that is neither mapped nor a current
 definition's of the tree, or an observation does not resolve in its

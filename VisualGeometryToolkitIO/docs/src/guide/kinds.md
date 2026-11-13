@@ -398,11 +398,14 @@ beside an old rig name it by its old identity, and `save_correspondences` and
 migrates a directory's files, maps each rig's and target's old identities (its
 version's, and IO 0.9's) to its new `content_id`, and re-points the
 directory's observation and `target_homographies` files at them, refusing any
-identity that is neither mapped nor a current rig's. It persists the map in
-`vgio_migrate_ids.json`, `{"identities": {old: new}, "definitions": {new:
-relative path}}`, before it puts a rig in place, so a run interrupted after its
-rigs were migrated re-points correctly when rerun; a rerun of a migrated tree
-is idempotent, and every file it leaves as it is gets a log line saying why.
+identity that is neither mapped nor a current rig's. A calibration manifest
+of the tree is migrated last, each listed file it rewrote bound again (its
+path, SHA-256 and schema). It persists the map in `vgio_migrate_ids.json`,
+`{"identities": {old: new}, "definitions": {new: relative path}, "rewritten":
+{old path: {"path", "sha256"}}}`, before it puts a file in place, so a run
+interrupted after its rigs were migrated re-points correctly when rerun; a
+rerun of a migrated tree is idempotent, and every file it leaves as it is gets
+a log line saying why.
 The command's `repoint --ids DIR/vgio_migrate_ids.json --apply FILE` re-points
 an observation file kept outside the tree.
 

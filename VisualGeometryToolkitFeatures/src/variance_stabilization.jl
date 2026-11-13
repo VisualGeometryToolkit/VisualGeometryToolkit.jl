@@ -9,7 +9,7 @@
 #
 #     α  = gain / (4K) · (1/d₁ + 1/d₂),     σ² = gain² σ_r² / 4 · (1/d₁² + 1/d₂²),
 #
-# d_k = white − black[c_k] the two greens' code spans (`L.geometry.green_dn`).
+# d_k = white − black[c_k] the two greens' code spans (`L.geometry.plane_sites`). The formula is Core's `pixel_noise`.
 # The generalized Anscombe transform (Starck, Murtagh and Bijaoui 1998; Mäkitalo
 # and Foi 2013)
 #
@@ -59,9 +59,9 @@ its `reason`) is an `ArgumentError` naming that reason: there is no fallback.
 `L` is best made with the same noise (`LinearRaw(mosaic; mode, noise)`, or
 [`load_raw`](@ref)'s `noise`), so the black it subtracted is the noise's.
 
-The code spans are the photosites' own (`L.geometry.green_dn`, each green's
-`white − black`) and each green's read noise its colour's
-(`L.geometry.green_colors`); `L.gain` scales the photon and the read noise
+The code spans are the photosites' own (each green's `white − black`) and each
+green's read noise its colour's (`L.geometry.plane_sites`), through Core's
+`pixel_noise`, the one model; `L.gain` scales the photon and the read noise
 alike. A green cell whose value is `x = (x₁ + x₂)/2` is `α·P + N` with
 `α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²/4·(σ_r₁²/d₁² + σ_r₂²/d₂²)`, and its
 transform is `(2/α)·√(max(α x + 3α²/8 + σ², 0))`.
@@ -73,7 +73,7 @@ display rendering for a descriptor among them).
 """
 function variance_stabilize(L::LinearRaw, noise::SensorNoise)
     G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
-    α, σ² = _green_noise(L, noise)
+    (; α, σ²) = _green_noise(L, noise)
     f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
     return StabilizedImage(f.(G), L.saturated, f(L.gain))
 end
@@ -85,19 +85,10 @@ function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), r
     throw(ArgumentError("variance_stabilize: give the frame's resolved noise, variance_stabilize(L, noise::SensorNoise) (VisualGeometryToolkitCore's sensor_noise)"))
 end
 
-# THE noise model of a green-cell value of `L` under the resolved `noise`: a cell `x` has variance `α·x + σ²` (module
-# header). A noise the resolver could not give is refused, naming its reason.
-function _green_noise(L::LinearRaw, noise::SensorNoise)
-    Kf, σf = noise.electrons_per_dn, noise.read_noise
-    (Kf === nothing || σf === nothing) &&
-        throw(ArgumentError("the sensor noise of this frame is unknown: $(something(noise.reason, "no reason recorded"))"))
-    K = value_of(Kf)
-    σr = value_of(σf)
-    d1, d2 = L.geometry.green_dn
-    c1, c2 = L.geometry.green_colors
-    g = L.gain
-    return g / (4K) * (1 / d1 + 1 / d2), g^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
-end
+# The green cells' noise under the resolved `noise`: Core's `pixel_noise` (THE model, per plane) of the plane
+# `green_plane(L)` views (its index Core's, read off that view). A noise without gain or read noise is refused there,
+# carrying the resolver's reason.
+_green_noise(L::LinearRaw, noise::SensorNoise) = pixel_noise(L, noise)[parentindices(green_plane(L))[3]]
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search

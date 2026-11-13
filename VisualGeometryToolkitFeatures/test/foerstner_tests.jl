@@ -266,7 +266,7 @@ end
     @test all(d -> d.covariance_source === :a_posteriori, a)
     @test [cov(d.value) for d in a] == [cov(d.value) for d in detect_foerstner(Float64, L; device = KA.CPU())]
     # no Poisson part: K = 1e12 electrons per code leaves σ² alone, the iid case of σn = 255·σ
-    _, σ² = VGF._green_noise(L, record_noise(1.0e12, 3.0))
+    (; σ²) = VGF._green_noise(L, record_noise(1.0e12, 3.0))
     big = detect_foerstner(Float64, L; noise = record_noise(1.0e12, 3.0), device = KA.CPU())
     iid = detect_foerstner(Float64, Array(green_plane(L)); noise = 255 * sqrt(σ²), noise_sigma = 2.0, device = KA.CPU())
     @test length(big) == length(iid)

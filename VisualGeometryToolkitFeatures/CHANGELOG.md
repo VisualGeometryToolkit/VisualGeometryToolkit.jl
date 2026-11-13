@@ -18,8 +18,8 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   reference's 2).
 - **`variance_stabilize(L, noise::SensorNoise)`** takes the frame's resolved sensor noise (VisualGeometryToolkitCore's
   `sensor_noise`); the keywords `electrons_per_dn` and `read_noise` are retired with a pointed refusal. Each green's read
-  noise is its own colour's (`L.geometry.green_colors`); a noise the resolver could not give is an `ArgumentError`
-  naming its reason, never a constant.
+  noise is its own colour's, through VisualGeometryToolkitCore's `pixel_noise` (the one model); a noise the resolver
+  could not give is an `ArgumentError` naming its reason, never a constant.
 - **`detect_foerstner(L::LinearRaw; noise::SensorNoise)`**: Förstner on a RAW's green cells, the covariance
   `J diag(α·x + σ²) Jᵀ` of the resolved Poisson–Gaussian noise, `covariance_source` `:propagated_measured` or
   `:propagated_estimated`; a missing noise leaves the a-posteriori covariance, marked so.

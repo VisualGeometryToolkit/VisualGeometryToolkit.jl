@@ -216,12 +216,12 @@ function _pixel_noise(σn::Real)
     isfinite(σn) && σn > 0 || throw(ArgumentError("detect_foerstner: the noise σ must be positive and finite, got $σn"))
     return 0.0, (σn / 255)^2, :propagated
 end
-# a RAW's green cells under its resolved sensor noise (the one model, `_green_noise`); a noise the resolver could not
+# a RAW's green cells under its resolved sensor noise (Core's `pixel_noise`, the one model); a noise the resolver could not
 # give (its `reason`) leaves the a-posteriori covariance, marked so
 function _pixel_noise(noise::SensorNoise, L::LinearRaw)
     K, σr = noise.electrons_per_dn, noise.read_noise
     (K === nothing || σr === nothing) && return nothing
-    α, σ² = _green_noise(L, noise)
+    (; α, σ²) = _green_noise(L, noise)
     from_records = getfield(K, :attributes).source === :measured && getfield(σr, :attributes).source === :measured
     return α, σ², from_records ? :propagated_measured : :propagated_estimated
 end

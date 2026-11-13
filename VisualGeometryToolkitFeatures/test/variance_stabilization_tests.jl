@@ -54,7 +54,7 @@ end
     for gain in (1.0, 2.0), mode in (:green_cells, :bin2)
         m = noisy_mosaic(rng, (i, j) -> levels[cld(j, 128)], 128, 128 * length(levels); electrons_per_dn = K, read_dn = σr)
         L = LinearRaw(m; mode, gain)
-        @test sort(collect(L.geometry.green_dn)) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
+        @test sort([s.dn for s in L.geometry.plane_sites[mode === :bin2 ? 2 : 1]]) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
         s = variance_stabilize(L, record_noise(K, read_noise))
         @test size(s.image) == (64, 64 * length(levels)) && s.saturated == L.saturated
         for (b, λ) in enumerate(levels)
@@ -76,13 +76,17 @@ end
     L = LinearRaw(noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
     # σ² pairs each green's span with its own colour's read noise (G = 1, G2 = 3; the others never enter)
     σr = (7.0, 2.0, 11.0, 5.0)
-    d1, d2 = L.geometry.green_dn
-    c1, c2 = L.geometry.green_colors
+    (s1, s2) = L.geometry.plane_sites[1]
+    d1, d2, c1, c2 = s1.dn, s2.dn, s1.color, s2.color
     @test sort([c1, c2]) == [1, 3]
-    α, σ² = VF._green_noise(L, record_noise(2.5, σr))
+    (; α, σ²) = VF._green_noise(L, record_noise(2.5, σr))
     @test α ≈ L.gain / (4 * 2.5) * (1 / d1 + 1 / d2)
     @test σ² ≈ L.gain^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
     @test σ² ≈ L.gain^2 / 4 * ((c1 == 1 ? 2.0 : 5.0)^2 / d1^2 + (c2 == 1 ? 2.0 : 5.0)^2 / d2^2)
+    # :bin2's green plane is its second, the same noise
+    nb = VF._green_noise(LinearRaw(noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0); mode = :bin2),
+                         record_noise(2.5, σr))
+    @test nb.α ≈ α && nb.σ² ≈ σ²
     # the resolver's case 4: no K, no σ_r, its reason — refused, naming it; no constant is invented
     unknown = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100, reason = "too few flat blocks")
     err = try variance_stabilize(L, unknown) catch e; e end

@@ -101,6 +101,8 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `RelativeNoise` its elements are `Uncertain{Float64}`, each value with its scalar variance computed on the read by the
   one law `LinearRaw`'s kernel writes per plane (`_value_variance`); `copy` of it is the materialised `StructArray`
   (value and variance planes, on the view's device). Without a variance law, `Float64` as before, bit for bit.
+- **`RelativeNoise` is `SensorSource.specified` only**: any other source is an `ArgumentError` naming it. `LinearRaw`'s
+  cell image under a gain stays the materialised uncertain image (its binned variances computed once by its kernel).
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
   WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and

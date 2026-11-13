@@ -25,8 +25,10 @@ using VisualGeometryToolkitIO
 
 const FILES = [joinpath(@__DIR__, a) for a in ARGS if endswith(a, ".jl")]
 const NAMES = filter(a -> !endswith(a, ".jl"), ARGS)
+# (with files: the package's `src` first, which holds no item, so ReTestItems takes the package's
+# Project.toml as the project, not test/'s; the `*_testsetup.jl` files are always read)
 runtests(
-    isempty(FILES) ? (VisualGeometryToolkitIO,) : (FILES...,)...;
+    (isempty(FILES) ? (VisualGeometryToolkitIO,) : (joinpath(pkgdir(VisualGeometryToolkitIO), "src"), FILES...))...;
     nworkers = parse(Int, get(ENV, "RETESTITEMS_NWORKERS", string(max(1, Sys.CPU_THREADS ÷ 2)))),
     name = isempty(NAMES) ? nothing : Regex(join(NAMES, "|")),
 )

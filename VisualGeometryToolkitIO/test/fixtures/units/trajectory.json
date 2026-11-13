@@ -1,14 +1,31 @@
 {
-    "schema": "vgio/trajectory/v4",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/trajectory/v5.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "from": "body:board_rig",
     "to": "world",
-    "time_origin": "2026-05-27T00:00:00",
+    "time_origin": "2026-05-27T00:00:00Z",
     "frames": [
         {
-            "t": 1,
+            "frame_index": 1,
             "image": "a.png",
             "time": 0.5,
             "pose": {
@@ -26,7 +43,7 @@
             }
         },
         {
-            "t": 2,
+            "frame_index": 2,
             "image": "b.png",
             "time": 1.25,
             "pose": {
@@ -94,7 +111,7 @@
             }
         },
         {
-            "t": 5,
+            "frame_index": 5,
             "image": "c.png",
             "time": 3.0,
             "pose": {

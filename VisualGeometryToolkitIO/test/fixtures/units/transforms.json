@@ -1,12 +1,29 @@
 {
-    "schema": "vgio/transforms/v4",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/transforms/v5.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "transforms": [
         {
             "from": "body:camera_rig",
-            "to": "camera_optical",
+            "to": "camera",
             "rotation": [
                 0.9233805168766387,
                 0.10259783520851541,

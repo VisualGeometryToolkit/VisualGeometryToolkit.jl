@@ -2,16 +2,17 @@
 # Lengths in files: quantities in memory, the declared unit on disk
 # =============================================================================
 #
-# The fixtures under test/fixtures/units/ were written by the writer of
-# VisualGeometryToolkitIO before lengths became quantities (in-memory plain
-# millimetres, commit ddc1bbe). Read into metres and written again, every one
-# must come back byte for byte: a file of an existing schema version does not
-# change because memory moved to metres.
+# The fixtures under test/fixtures/units/ are the IO 0.10 forms of the files the
+# writer of VisualGeometryToolkitIO wrote before lengths became quantities
+# (in-memory plain millimetres, commit ddc1bbe; fixtures/make_current_fixtures.jl
+# says how they were carried to 0.10). Read into metres and written again,
+# every one must come back byte for byte: a file does not change because memory
+# holds metres.
 
 @testitem "units: every fixture of a physical kind reads and rewrites byte for byte" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetPoints2D, TargetPoints3D,
+    using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetObservations,
         has_units, geom, pose, translation, model
     using Statistics: cov
 
@@ -21,12 +22,12 @@
         "rig_pitch.json" => Rig,
         "target_points.json" => AbstractTarget, "target_planar.json" => AbstractTarget,
         "trajectory.json" => Trajectory, "target_poses.json" => TargetPoses,
-        "target_points3d.json" => TargetPoints3D, "noncentral_spline.json" => BoundedCamera,
+        "observations3d.json" => TargetObservations, "cameras_noncentral.json" => Dict{Symbol, BoundedCamera},
         "spline_camera_masked.json" => Dict{Symbol, BoundedCamera},
-        "target_points2d.json" => TargetPoints2D,
+        "observations2d.json" => TargetObservations,
     )
-    # the old grid files, kept as the migration inputs the two above were made from
-    # (fixtures/make_spline_fixtures.jl): read, never rewritten (spline_lens_record_tests.jl)
+    # the old grid files (vgio/generic_camera/v3), kept as migration inputs: read, never rewritten
+    # (spline_lens_record_tests.jl)
     inputs = ["generic_camera.json", "generic_camera_masked.json"]
     # every fixture is covered: the table above, the inputs and correspondences.json (an export, below)
     @test sort(readdir(fixtures)) == sort([collect(keys(kinds)); inputs; "correspondences.json"])
@@ -39,7 +40,7 @@
             @test read(out, String) == read(src, String)
         end
         # the export, regenerated from the fixtures it was written from
-        obs = load(TargetPoints2D, joinpath(fixtures, "target_points2d.json"))
+        obs = load(TargetObservations, joinpath(fixtures, "observations2d.json"))
         boards = load(Rig, joinpath(fixtures, "rig_targets.json"))
         out = joinpath(dir, "correspondences.json")
         save_correspondences(PixelFrame{:opencv}, out, obs, boards)
@@ -61,14 +62,15 @@
     @test ustrip(m, geom(VgtkCore.points(rig[:a1f2].target)[3])[1]) === -0.0139
     @test cov(VgtkCore.points(rig[:markers].target)[1])[3, 3] === 1.23e-8
     @test signbit(ustrip(m, geom(VgtkCore.points(rig[:markers].target)[2])[2]))    # -0.0 keeps its sign
-    gn = model(load(BoundedCamera, joinpath(fixtures, "generic_camera.json")))
+    gn = model(load(BoundedCamera, joinpath(fixtures, "cameras_noncentral.json")))
     @test gn.points.controls[2, 3][2] === -0.0005           # plain metres
+    @test model(load(BoundedCamera, joinpath(fixtures, "generic_camera.json"))).points.controls == gn.points.controls   # the old grid file it was
 end
 
 @testitem "units: a writer refuses plain numbers where a length is meant" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Trajectory, TargetPoses, TargetPoints3D,
-        TargetPoints2D, BoundedCamera, PosedCamera, StereoRig, WorldFrame, BodyFrame, CameraFrame, TargetFrame, relabel, has_units
+    using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, PointTarget, Trajectory, TargetPoses, TargetObservations,
+        BoundedCamera, PosedCamera, StereoRig, WorldFrame, BodyFrame, CameraFrame, TargetFrame, relabel, has_units, correspondences
 
     refused(f) = try
         f(); false
@@ -86,7 +88,7 @@ end
         @test refused(() -> save(p, Rig{WorldFrame}(Dict(:a => PosedTarget(PlanarTarget(pts), plain)))))
         @test refused(() -> save(p, StereoRig(BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), zero(SVector{3, Float64})), Size2(1280, 960)),
             BoundedCamera(PosedCamera(K, one(RotMatrix{3, Float64}), SVector(120.0, 0.0, 0.0)), Size2(1280, 960)))))
-        @test refused(() -> save(p, TargetPoints3D{WorldFrame}(Dict(1 => [(target = :a, index = 1, xyz = SVector(1.0, 2.0, 3.0))]); sensors = "m")))
+        @test refused(() -> save(p, TargetObservations{WorldFrame}(Dict(1 => Dict(:a => correspondences([1], [SVector(1.0, 2.0, 3.0)]))); sensors = "m")))
         @test refused(() -> save(p, PointTarget([SVector(1.0, 2.0, 3.0)])))
         @test refused(() -> save(p, PlanarTarget(pts)))
         @test refused(() -> VgtkIO.pose_json(plain))
@@ -95,7 +97,7 @@ end
         @test refused(() -> save_opencv_calibration(p, CameraModel(CameraCalibrationMat(K)), [plain]; rms = 0.1, to_unit = mm, images = ["a"]))
         # the correspondences export reads its object points from the targets
         targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64})))))
-        obs = TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(; target = :a, index = 1, xy = SVector(1.0, 2.0), weight = 1.0)]); images = Dict(1 => "a.png"), sensors = "cam")
+        obs = TargetObservations{PixelFrame{:colmap}}(Dict(1 => Dict(:a => correspondences([1], [SVector(1.0, 2.0)]))); images = Dict(1 => "a.png"), sensors = "cam")
         @test refused(() -> save_correspondences(p, obs, targets))
         # a resolver of a referenced design hands back lengths
         save(p, Rig{WorldFrame}(Dict(:b => PosedTarget(PlanarTarget(:b), EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0) .* mm)))))
@@ -106,7 +108,7 @@ end
 
 @testitem "units: a file in m or inch reads to the metres of its mm twin" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: TargetPoints3D, geom, translation, inch
+    using VisualGeometryToolkitCore: TargetObservations, geom, translation, inch
     using Statistics: cov
 
     fixtures = joinpath(@__DIR__, "fixtures", "units")
@@ -116,7 +118,7 @@ end
     mktempdir() do dir
         # metres, typed by hand: the mm decimals with the point moved — the same metre values, exactly
         dm = deepcopy(raw)
-        dm["length_unit"] = "m"
+        dm["units"]["length"] = "m"
         dm["transforms"][1]["translation"] = [0.2519, -0.1444, 0.9041]
         dm["transforms"][2]["translation"] = [0.0, 0.0628, 1.2122104]
         dm["transforms"][3]["translation"] = [-0.708695, 0.1486439, 0.0139]
@@ -133,7 +135,7 @@ end
         @test cov(m_poses[2]) == cov(mm_poses[2])
         # inches, typed by hand (1 inch = 25.4 mm): within the scale's one rounding
         di = deepcopy(raw)
-        di["length_unit"] = "inch"
+        di["units"]["length"] = "inch"
         di["transforms"][1]["translation"] = [1.0, 2.0, -10.0]
         dmm = deepcopy(raw)
         dmm["transforms"][1]["translation"] = [25.4, 50.8, -254.0]
@@ -146,7 +148,7 @@ end
         for u in (m, inch, mm)
             p = joinpath(dir, "w.json")
             save(p, mm_poses; length_unit = u)
-            @test parse_json(read(p, String)).length_unit == unit_string(u)
+            @test parse_json(read(p, String)).units.length == unit_string(u)
             back = load(Vector{EuclideanMap}, p)
             if u === inch
                 @test all(all(abs.(metres(x) .- metres(y)) .<= eps.(abs.(metres(y)))) for (x, y) in zip(back, mm_poses))
@@ -156,10 +158,10 @@ end
                 @test cov(back[2]) == cov(mm_poses[2])
             end
         end
-        obs = load(TargetPoints3D, joinpath(fixtures, "target_points3d.json"))
+        obs = load(TargetObservations, joinpath(fixtures, "observations3d.json"))
         p = joinpath(dir, "p3.json")
         save(p, obs; length_unit = m)
-        @test load(TargetPoints3D, p) == obs
+        @test load(TargetObservations, p) == obs
     end
 end
 
@@ -216,7 +218,7 @@ end
 end
 
 @testitem "units: a rig's identity survives a load, full-precision numbers included" setup = [VGIoFixtures] begin
-    using VisualGeometryToolkitCore: Rig, TargetPoints2D
+    using VisualGeometryToolkitCore: Rig, TargetObservations
     # 287.15788802842013 mm has no metre value that writes back to it (it comes
     # back 287.1578880284201): a file of computed target poses names the same targets
     # loaded or by path.
@@ -228,14 +230,14 @@ end
             @test occursin("287.15788802842013", read(p, String))
             @test content_id(p) == content_id(load(Rig, p))
         end
-        # a measurement file naming the targets by path resolves against the loaded rig
+        # an observation file naming the targets by path resolves against the loaded rig
         p = joinpath(dir, "rig_targets.json")
         id = content_id(p)
-        obs_src = joinpath(fixtures, "target_points2d.json")
-        old_id = only(load(TargetPoints2D, obs_src).targets)
-        obs_path = joinpath(dir, "target_points2d.json")
+        obs_src = joinpath(fixtures, "observations2d.json")
+        old_id = only(load(TargetObservations, obs_src).targets)
+        obs_path = joinpath(dir, "observations2d.json")
         write(obs_path, replace(read(obs_src, String), old_id => id))
-        obs = load(TargetPoints2D, obs_path)
+        obs = load(TargetObservations, obs_path)
         out = joinpath(dir, "correspondences.json")
         @test save_correspondences(PixelFrame{:opencv}, out, obs, load(Rig, p)) == out
         @test save_correspondences(PixelFrame{:opencv}, out, obs, p) == out

@@ -21,6 +21,7 @@
 # =============================================================================
 using TOML: TOML
 using SHA: sha256
+import Pkg   # a registered install's tree hash, from the active environment (`Pkg.dependencies`)
 
 # (realpath, size, mtime) → sha256: a file is hashed once per process while it is unchanged.
 const _FILE_SHA256 = Dict{Tuple{String, Int64, Float64}, String}()
@@ -135,6 +136,19 @@ function _loaded_entries(project::AbstractString, manifest::AbstractString)
     return out
 end
 
+# A registered install: a package's source in a depot (no git checkout), content-addressed and immutable, so
+# committed code. The active environment's record of it (Pkg's, never the Manifest parsed by hand): its name, uuid,
+# version and tree hash. `nothing` for a git checkout or a directory the active environment does not install.
+function _registered_install(dir::AbstractString)
+    (isdir(dir) && _git_line(dir, ["rev-parse", "--show-toplevel"]) === nothing) || return nothing
+    rd = realpath(dir)
+    for (uuid, info) in Pkg.dependencies()
+        (info.tree_hash === nothing || info.is_tracking_path || info.source === nothing || !isdir(info.source)) && continue
+        realpath(info.source) == rd && return (; info.name, uuid, info.version, tree = string(info.tree_hash))
+    end
+    return nothing
+end
+
 """
     code_trees(workdir; code = nothing, julia_project = workdir) -> (; trees, dirty, project_paths)
 
@@ -149,12 +163,23 @@ staged or deleted file, an untracked one), or that is in no git checkout: a run 
 recorded with it is never reused for committed code. `project_paths` lists the project's own paths recorded (none:
 nothing identifies the project's code).
 
+A `workdir` that is a REGISTERED install (a package's source in a depot, no git checkout: a registered package's
+example run with `gitpath = pkgdir(Pkg)`) is committed code, content-addressed and immutable: it is identified, by
+its name, by the tree hash the active environment records for it (`"<git-tree-sha1> <name> <version> <uuid>"`, from
+`Pkg.dependencies()`), and the environment searched for stack packages is the active project's. Only a git checkout
+with uncommitted changes, or a path that is neither, is refused.
+
 A tree moves only when a file under it changes: a commit that touches only docs, tests or the paper changes no tree.
 Compare two records with [`code_tree_changes`](@ref).
 """
 function code_trees(workdir::AbstractString; code = nothing, julia_project::AbstractString = workdir)
     trees, dirty = Dict{String, String}(), String[]
-    paths = code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
+    reg = _registered_install(workdir)
+    if reg !== nothing                                     # committed code in a depot: its tree, never "no git checkout"
+        trees[reg.name] = "$(reg.tree) $(reg.name) $(reg.version) $(reg.uuid)"
+        julia_project == workdir && Base.active_project() !== nothing && (julia_project = dirname(Base.active_project()))
+    end
+    paths = reg !== nothing ? String[] : code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
     for c in paths
         t = _head_tree(workdir, c)
         if t === nothing
@@ -168,7 +193,7 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
             trees[c] = t
         end
     end
-    project_paths = sort!(collect(keys(trees)))
+    project_paths = sort!(collect(keys(trees)))           # a registered install's: its name
     manifest = _find_manifest(julia_project)
     if manifest !== nothing
         for (name, e) in _loaded_entries(abspath(julia_project), manifest)
@@ -184,7 +209,7 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
                 marked = [(s, t === nothing ? "uncommitted" : _uncommitted(dir, [s]) ? t * _DIRTY_MARK : t) for (s, t) in parts]
                 trees[name] = join(("$s:$t" for (s, t) in marked), " ")
                 any(p -> p[2] == "uncommitted" || endswith(p[2], _DIRTY_MARK), marked) && push!(dirty, name)
-            elseif name in _STACK_PACKAGES && haskey(e, "git-tree-sha1")
+            elseif name in _STACK_PACKAGES && haskey(e, "git-tree-sha1") && !haskey(trees, name)   # (a registered workdir: named above)
                 trees[name] = e["git-tree-sha1"]
             end
         end

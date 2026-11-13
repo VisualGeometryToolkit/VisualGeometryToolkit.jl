@@ -1,5 +1,18 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.7.4 (unreleased)
+
+A patch: a bug fix in the code identity of a run, no API change.
+
+- **Fixed: a run of record of a REGISTERED package's code is no longer refused.** A registered install (the package's
+  source in the depot, `packages/<Name>/<slug>`: no git checkout) is committed code — content-addressed and immutable —
+  but `code_trees` read it as "no git checkout", so `refuse_uncommitted_code` refused every run of record whose
+  `gitpath` is a registered package (PanoramaStitching's example records its stages with
+  `cached_result(…; gitpath = pkgdir(PanoramaStitching))`; only `VGTK_SCRATCH=1` got past it). `code_trees` now
+  identifies such a directory by the tree hash the active environment records for it (`Pkg.dependencies()`: name,
+  version, uuid and git-tree-sha1), and searches the active project's environment for the stack packages. Still
+  refused: a git checkout with uncommitted changes, and a path that is neither a git checkout nor a registered install.
+
 ## 0.7.3 (unreleased)
 
 A patch: a bug fix in the reproduce runner, no API change.

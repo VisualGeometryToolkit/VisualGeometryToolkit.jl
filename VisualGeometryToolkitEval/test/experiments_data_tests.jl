@@ -7,6 +7,7 @@
     using Test, TOML
     using DrWatson: gitdescribe, produce_or_load
     using Pkg.Artifacts: create_artifact, bind_artifact!
+    import Pkg, StableRNGs   # a registered install (code_trees of a depot package)
     using VisualGeometryToolkitEval
     const E = VgtkEval.Experiments
 
@@ -405,6 +406,17 @@
             @test_logs (:warn, r"scratch run") match_mode = :any E.write_provenance(joinpath(loose, "run"); driver = "d")
         end
         @test E.read_provenance(joinpath(loose, "run"))["code_trees"]["src"] == "uncommitted"
+        # a REGISTERED install (a package's source in the depot: no git checkout, content-addressed, immutable) is
+        # committed code — a registered package's example records a run of record by its tree hash, never refused
+        rng_dir = pkgdir(StableRNGs)
+        info = Pkg.dependencies()[Base.PkgId(StableRNGs).uuid]
+        id = VgtkEval.code_trees(rng_dir)
+        @test isempty(id.dirty) && id.project_paths == ["StableRNGs"]
+        @test id.trees["StableRNGs"] == "$(info.tree_hash) StableRNGs $(info.version) $(Base.PkgId(StableRNGs).uuid)"
+        @test VgtkEval.refuse_uncommitted_code(id) === nothing
+        reg_run = joinpath(mktempdir(), "run")
+        E.write_provenance(reg_run; driver = "d", gitpath = rng_dir)                               # accepted, its tree recorded
+        @test startswith(E.read_provenance(reg_run)["code_trees"]["StableRNGs"], string(info.tree_hash))
         # no src: the record names none of the project's own code, which is warned
         E.set_project_root!(gitrepo())
         @test_logs (:warn, r"records no tree of the project's own code") match_mode = :any E.write_provenance(mktempdir(); driver = "d")

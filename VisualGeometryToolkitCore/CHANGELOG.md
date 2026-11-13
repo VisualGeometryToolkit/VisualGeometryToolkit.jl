@@ -49,7 +49,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
 - **`OnBackend` compiles every CUDA launch with `always_inline = true`**, whatever `CUDABackend` value it is given (C8).
 - **check_duplication** exempts a transfer/allocation helper only by its whole name (C7); **check_naming** R12 also flags
   `thresholds`/`Threshold`, R13 a typed keyword with no default (C15).
-- **The weak dependencies' floors are the pre-raise ones** (CUDA "5.11": CUDA ≥ 5.11.2 does not resolve beside cuDNN 1.x;
+- **The weak dependencies' floors are the pre-raise ones** (CUDA "5.11 - 5": CUDA ≥ 5.11.2 does not resolve beside cuDNN 1.x;
   Aqua "0.8.18", ChainRulesCore "1.26", Makie "0.24.16").
 
 ### Fixed
@@ -76,6 +76,11 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   kernel (bit-identical without a noise).
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
+- **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart
+  (`θ = 2 asin(d / 2f)`) in the one radial-chart registry `RADIAL_CHARTS` (a fitted `RadialVignetting` refuses it: not a
+  normalized radius); `radial_coordinate(p, u)`. VisualGeometryToolkitIO's `radial_profile` kind serializes it.
+- From the 0.9.6 patch: `reduce_normal_equations(partials, Val(N))`, `reduce_cost(partials)` (public), and the weak CUDA
+  compat `"5.11 - 5"` with the cuDNN-1 resolve test.
 - **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,
   `gpu_problem(prefix)`, `require_gpu(prefix)` (public): one decision for every stack suite, never a silent skip.
 

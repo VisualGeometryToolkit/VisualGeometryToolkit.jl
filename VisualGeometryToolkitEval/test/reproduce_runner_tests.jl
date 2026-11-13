@@ -3,7 +3,8 @@
 # selects a subset with its prerequisites (or alone); array stages take their items from the config's cases or a
 # list, sized and timed from it; the inputs are checked first and reported as data; the dry run prints the job
 # graph for a Slurm and a local site; the local backend runs a project's sbatch launchers under bash, records a
-# manifest and reuses a finished stage by its run key; the Slurm backend submits each stage through its marker
+# manifest and reuses a finished stage by its run key, which folds in its upstream stages' keys (an upstream stage
+# keyed anew reruns every stage after it); the Slurm backend submits each stage through its marker
 # wrapper and chains its jobs with afterok (through a stand-in sbatch); reuse and status read the completion markers
 # and the queue (stand-in squeue), never accounting (a stand-in sacct that fails as on a cluster without it); the
 # job-name prefix labels every job and keys nothing; markers are written atomically; the results-branch stage makes
@@ -501,6 +502,36 @@ end
         code, out = run_main(["status", "--graph=$(f.graph)", "--site=desktop"]; env = env0)
         @test code == 0 && occursin(r"broken\s+failed", out) && occursin("error ERROR: no such input photos/x", out)
         @test occursin("logs/paper_broken.log", out)
+    end
+
+    @testset "an upstream stage keyed anew reruns every stage after it, in one launch or in launches of their own" begin
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
+        nran() = (p = joinpath(f.results, "ran.txt"); isfile(p) ? length(readlines(p)) : 0)
+        # a launch: its exit code, its output and how many tasks it ran (setup 1, chrome_prepare 1, chrome 3, texture 2)
+        launch(only; deps = true) = (n = nran(); (c, o) = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=$only",
+                                     (deps ? () : ("--no-deps",))...]; env = env0); (c, o, nran() - n))
+        chrome_changed() = open(io -> println(io, "# changed"), joinpath(f.proj, "configs", "experiments", "chrome.toml"), "a")
+        code, _, ran = launch("texture")
+        @test code == 0 && ran == 1 + 1 + 3 + 2
+        # chrome's config changed: chrome_prepare and chrome read it and rerun; texture reads neither file, but its
+        # input is chrome's output, so it reruns too (it was reused, on chrome's old output); setup is reused
+        chrome_changed()
+        code, out, ran = launch("texture")
+        @test code == 0 && count("reused", out) == 1 && occursin(r"setup\s+reused", out) && ran == 1 + 3 + 2
+        # the same across launches of one stage each (`--no-deps`): texture's key folds the key of chrome's last completed
+        # run, whose output it reads. Before chrome reruns, that output is unchanged: texture is reused
+        chrome_changed()
+        code, out, ran = launch("texture"; deps = false)
+        @test code == 0 && occursin(r"texture\s+reused", out) && ran == 0
+        @test launch("chrome_prepare"; deps = false)[[1, 3]] == (0, 1)
+        @test launch("chrome"; deps = false)[[1, 3]] == (0, 3)
+        code, out, ran = launch("texture"; deps = false)
+        @test code == 0 && !occursin("reused", out) && ran == 2
+        # and unchanged, everything is reused again
+        code, out, ran = launch("texture")
+        @test code == 0 && count("reused", out) == 4 && ran == 0
     end
 
     @testset "the Slurm backend: through the marker wrapper, chained with afterok; reuse and status from the markers, never sacct" begin

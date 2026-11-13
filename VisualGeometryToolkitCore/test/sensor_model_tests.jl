@@ -361,6 +361,7 @@ end
             # the law, value by value: g·x/(m²K)·Σ 1/d + g²/m²·Σ σ_r[c]²/d² (x > 0 everywhere on this flat)
             α = gain / (mm^2 * K) * sum(q -> 1 / q.dn, ps)
             σ² = gain^2 / mm^2 * sum(q -> σ[q.color + 1]^2 / q.dn^2, ps)
+            @test isapprox(VisualGeometryToolkitCore.poisson_slope(L, pg)[p], α; rtol = 16eps())   # the slope the kernel writes with
             # (each side ≤ 8 roundings: rtol 16 ulp)
             @test all(>(0), x) && isapprox(vpix, α .* x .+ σ²; rtol = 16eps())
             # against the simulated flat: the rounding adds 1/12 code² per photosite, which σ_r includes in the model
@@ -374,6 +375,7 @@ end
     L = LinearRaw(m; mode = :green_cells, sensor_model = sensor_fixture(; relative_noise = 0.05).model)
     vals, covs = components(L.image)
     @test isapprox([c[1] for c in covs], (0.05 .* vals) .^ 2; rtol = 16eps())
+    @test VisualGeometryToolkitCore.poisson_slope(L, sensor_fixture(; relative_noise = 0.05).model) == (0.0,)   # no Poisson term
     # below the black level the Poisson term is 0: a value of 0 has the Gaussian variance alone
     m0 = RawMosaic(fill(UInt16(400), 4, 4), pattern, black, white, (0, 0), (4, 4), (;))
     L0 = LinearRaw(m0; mode = :green_cells, sensor_model = pg)

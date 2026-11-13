@@ -66,7 +66,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
-  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and passes its
+  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
   `stop_solver!` return `(reason, rule)`.
 

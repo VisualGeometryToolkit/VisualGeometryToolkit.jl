@@ -30,7 +30,7 @@ above 1) or below 0 (noise under the black level) is kept.
   a cell whose two greens straddle the white level is flagged rather than
   averaged into a plausible value; in `:green_cells` when either green is.
   Masked, never interpolated.
-- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn)`:
+- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn, green_colors)`:
   - `plane_maps`, per plane, its map onto the visible raw
     ([`bayer_plane_map`](@ref), which reads it);
   - `green_offsets`, the cell's two green photosites, `(Δx, Δy)` from the cell
@@ -43,6 +43,10 @@ above 1) or below 0 (noise under the black level) is kept.
     mosaic's) also when a dark map replaces it per photosite: the span is a
     scale, the same for every photosite of the channel, so a value is still
     `codes / green_dn` above its own black.
+  - `green_colors`, the two green photosites' CFA colour indices (LibRaw's: `1` G,
+    `3` the second G of an RGBG pattern; a pattern naming both greens `1` gives
+    `(1, 1)`), in the order of `green_offsets`: the index of each green's entry
+    in a per-colour [`SensorNoise`](@ref) field (`read_noise[c + 1]`, `black[c + 1]`).
 
   `nothing` for `:demosaic`, whose pixels are interpolated, not samples.
 - `gain` (positive and finite, `ArgumentError` otherwise) and the mosaic's
@@ -55,7 +59,7 @@ methods of the cell images, and the display image's are its refusals.
 map as plain data for a result to record.
 """
 struct LinearRaw{Mode, I <: AbstractArray{Float64, 3}, S <: AbstractMatrix{Bool},
-                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn)}}, M <: NamedTuple}
+                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn, :green_colors)}}, M <: NamedTuple}
     image::I
     saturated::S
     geometry::G
@@ -203,7 +207,7 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
     grid = _cell_grid_map(m, mode)
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
-    geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]))
+    geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]), green_colors = (Int(cell[g[1]]), Int(cell[g[2]])))
     return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
@@ -254,6 +258,19 @@ raw_frame_map(::Type{<:LinearRaw{:demosaic}}) = throw(_display_only("raw_frame_m
 # The plane holding the green cells (the cell grid): bin2's second (R, G, B), the green-cell image's one.
 _green_plane(::LinearRaw{:bin2}) = 2
 _green_plane(::LinearRaw{:green_cells}) = 1
+_green_plane(::LinearRaw{:demosaic}) = throw(_display_only("green_plane"))
+
+"""
+    green_plane(L::LinearRaw) -> AbstractMatrix{Float64}
+
+The image's green cells, a view: each cell's two greens' mean — `L.image`'s plane
+whose frame IS the cell grid ([`raw_frame_map`](@ref)`(L)`): a `:green_cells`
+image's one plane, a `:bin2` image's second (G). The plane every green-cell
+consumer reads (a detector, VisualGeometryToolkitFeatures' `variance_stabilize`);
+its photosites' spans and colours are `L.geometry.green_dn` and
+`L.geometry.green_colors`. A `:demosaic` image is refused (`ArgumentError`).
+"""
+green_plane(L::LinearRaw) = view(L.image, :, :, _green_plane(L))
 
 
 """

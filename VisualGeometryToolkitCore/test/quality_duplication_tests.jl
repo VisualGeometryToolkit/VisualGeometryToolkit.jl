@@ -75,6 +75,11 @@
     v = only(check_duplication(mine; stack = [upstream]))
     @test v.check == :similar && startswith(v.other, "Upstream:src/m.jl:1")
     @test isempty(@test_logs (:info, r"absent") check_duplication(mine; stack = [joinpath(upstream, "gone")]))
+    # an idiom of the stack is one across repositories: a body the upstream repeats past the cap does not pair a
+    # downstream single use with it (the cap counted in ANY repository), while an own pair still reads the own count
+    many = repo(("src/w$(k).jl" => body("misfit_$(k)", "x", "y") for k in 1:(ext._MAX_POSTINGS + 1))...; name = "Idiomatic")
+    @test isempty(check_duplication(mine; stack = [many]))
+    @test :similar in checks(check_duplication(repo("src/n.jl" => body("my_misfit", "p", "q"), "src/o.jl" => body("their_misfit", "r", "s")); stack = [many]))
 
     # the retired patterns, each outside its owner, and not in a comment or docstring
     nl = "NLLS" * "Options("; ac = "a" * "cos(clamp((tr("; sr = "0.00" * "31308"; nc = "\\\\" * "new" * "command"

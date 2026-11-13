@@ -18,6 +18,10 @@ const _DEFAULT_SIMILARITY = ((0.6, 60), (0.85, 25))
 # then the same whether or not a run reads the stack, so a pair inside the repository is found, or not, alike in CI
 # (no stack) and in a release gate (the stack). Counted over the whole corpus, the stack's extra definitions pushed a
 # test fixture's shingles over the cap in the gate only (wave 113: two fixture pairs CI found and the gate did not).
+# A pair ACROSS repositories (one side a stack repository's, which only the gate reads) is an idiom when its shingle is one
+# in ANY repository of the run: a language idiom one repository writes forty times (Core's one-field wrapper constructor
+# `S{T}(x::X) = S{T, X}(x)`) is an idiom for a downstream package's single use of it too (PanoramaStitching 0.7), with no
+# per-repository exception file. An own pair still reads the own count, so CI and the gate find the same own pairs.
 const _MAX_POSTINGS = 40
 
 # --- the retired patterns ----------------------------------------------------
@@ -416,9 +420,15 @@ function _similar_pairs(defs, similarity)
     keep = [i for (i, d) in enumerate(defs) if d.ntokens >= minimum_tokens && !isempty(d.shingles)]
     postings = Dict{UInt64, Vector{Int}}()
     in_repo = Dict{UInt64, Int}()            # the definitions of this repository holding a shingle (the idiom count)
+    by_repo = Dict{Tuple{UInt64, String}, Int}()   # per repository (its label prefix, "" for this one)
+    in_any = Dict{UInt64, Int}()             # the largest of those counts: the idiom count of a cross-repository pair
     for i in keep, h in defs[i].shingles
         push!(get!(postings, h, Int[]), i)
-        match(_EXTERNAL_ID, defs[i].file) === nothing && (in_repo[h] = get(in_repo, h, 0) + 1)
+        m = match(_EXTERNAL_ID, defs[i].file)
+        m === nothing && (in_repo[h] = get(in_repo, h, 0) + 1)
+        k = (h, m === nothing ? "" : String(m.captures[1]))
+        by_repo[k] = get(by_repo, k, 0) + 1
+        in_any[h] = max(get(in_any, h, 0), by_repo[k])
     end
     pairs = Tuple{Int, Int, Float64}[]
     count = zeros(Int, length(defs))
@@ -427,9 +437,12 @@ function _similar_pairs(defs, similarity)
         defs[a].own || continue
         for h in defs[a].shingles
             l = postings[h]
-            get(in_repo, h, 0) > _MAX_POSTINGS && continue
+            own_idiom = get(in_repo, h, 0) > _MAX_POSTINGS
+            any_idiom = get(in_any, h, 0) > _MAX_POSTINGS
+            own_idiom && continue
             for b in l
                 (b == a || (defs[b].own && b < a)) && continue          # an own pair counted once
+                any_idiom && match(_EXTERNAL_ID, defs[b].file) !== nothing && continue   # across repositories: an idiom anywhere
                 count[b] == 0 && push!(touched, b)
                 count[b] += 1
             end

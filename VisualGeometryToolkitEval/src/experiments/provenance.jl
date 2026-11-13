@@ -147,7 +147,7 @@ is a [`scratch_run`](@ref); a run of record refuses `inputs` that are a scratch
 run's output, and a directory already holding a record with the other flag is
 refused), and refuses a run of record of uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
 staged, deleted or untracked file in the project's `src` or a package it loads
-from a path, or code in no git checkout); a [`scratch_run`](@ref) records it
+from a path, or code in no git checkout that is no registered install); a [`scratch_run`](@ref) records it
 with a warning, its trees marked `+uncommitted`. `sensor_model` (a run's
 `SensorModel`, or one per frame) records where its black, noise and defects came
 from — VisualGeometryToolkitCore's `component_sources`, one table per distinct

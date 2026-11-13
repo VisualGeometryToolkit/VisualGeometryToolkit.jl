@@ -74,17 +74,12 @@ function variance_stabilize(L::LinearRaw, sensor_model::SensorModel)
     G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
     G isa AbstractMatrix{<:Uncertain} || throw(ArgumentError(
         "variance_stabilize: L holds no variances: linearise it with the same sensor model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
-    α = poisson_slope(L, sensor_model)[_plane_index(G)]       # the green plane's, its index Core's (read off the view)
+    α = poisson_slope(L, sensor_model, :G)                    # the green plane's Poisson slope (Core's)
     gaussian(u) = var(u) - α * max(value_of(u), 0.0)        # a value's variance less its Poisson part
     f(x, σ²) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
     σ²_mean = sum(gaussian, G) / length(G)
     return StabilizedImage(map(u -> f(value_of(u), gaussian(u)), G), L.saturated, f(L.gain, σ²_mean))
 end
-
-# The plane of `L.image` a plane view reads (Core's `green_plane` index, never re-derived): a SubArray's third index;
-# a materialised uncertain plane's, its components' (one view per component, the same indices).
-_plane_index(G::SubArray) = parentindices(G)[3]
-_plane_index(G::StructArray) = _plane_index(first(components(G)))
 
 # The 0.8 keywords, retired: the noise is the frame's sensor model, the argument.
 function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), read_noise = RetiredKeyword())

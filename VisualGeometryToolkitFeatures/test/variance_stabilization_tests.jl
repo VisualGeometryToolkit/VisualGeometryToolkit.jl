@@ -85,7 +85,7 @@ end
     L = LinearRaw(m; mode = :green_cells, sensor_model = model)
     (s1, s2) = L.geometry.plane_sites[1]
     @test sort([s1.color, s2.color]) == [1, 3]
-    α = poisson_slope(L, model)[1]
+    α = poisson_slope(L, model, :G)
     @test α ≈ L.gain / (4 * 2.5) * (1 / s1.dn + 1 / s2.dn)
     @test all(var(u) - α * max(value_of(u), 0) ≈ L.gain^2 / 4 * (σr[s1.color + 1]^2 / s1.dn^2 + σr[s2.color + 1]^2 / s2.dn^2)
               for u in green_plane(L))

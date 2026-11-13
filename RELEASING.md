@@ -47,6 +47,22 @@ The stack's LM driver is NLLSsolver, from the registry: `[compat] NLLSsolver = "
    is a version of the same record; the concept DOI in `CITATION.cff` and the
    README always resolves to the latest, and is the one to cite.
 
+## The published JSON Schemas (VisualGeometryToolkitIO)
+
+VisualGeometryToolkitIO's JSON Schemas (`VisualGeometryToolkitIO/docs/src/schemas/vgio/<kind>/v<major>.<minor>.json`,
+generated from the validator's tables; a test keeps the committed files equal to the generator's output) are published with
+each IO release on the stack's GitHub Pages site, the organisation site `VisualGeometryToolkit/visualgeometrytoolkit.github.io`,
+at `schemas/vgio/<kind>/v<major>.<minor>.json`, so every schema's `$id`
+(`https://visualgeometrytoolkit.github.io/schemas/vgio/<kind>/v<major>.<minor>.json`) resolves. The path is the schema's
+version, not the package's: a published schema file never changes.
+
+At an IO release (after its registration merges; the push waits for the owner, as every push does):
+1. Copy every file of `VisualGeometryToolkitIO/docs/src/schemas/` at the release commit into the site repository's `schemas/`.
+2. Refuse the step if a file already published differs from the release's (an existing `$id` is immutable: a changed schema
+   is a new minor or major version, a new file); new files are added, none deleted.
+3. Commit "VisualGeometryToolkitIO <version>: the JSON Schemas" in the site repository and push it.
+4. Check one `$id` of each new version answers 200 (`curl -sfI <$id>`).
+
 ## The Zenodo DOI
 
 The toolkit has ONE concept DOI, not one per package. Zenodo's GitHub

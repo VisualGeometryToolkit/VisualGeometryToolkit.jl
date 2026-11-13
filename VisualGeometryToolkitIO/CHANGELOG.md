@@ -89,6 +89,12 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 - **Retired**: `ScalarOrQuantity` (use `Number`; listed in Core's RETIRED_NAMES), `pose_declarations` (the envelope's
   objects), `json_value`/`from_json` (folded into `JSON.lower`/`JSON.lift` on `VgioStyle`).
 
+- **Detection records written before IO 0.10 without a schema** (`json_value`'s output, RC's hand-made Förstner CSVs) are
+  NOT read and have no importer or version step: they are derived results, regenerated from the photos (RC 0.9 re-detects).
+- **The JSON Schemas' `$id`s** are `https://visualgeometrytoolkit.github.io/schemas/vgio/<kind>/v<major>.<minor>.json`,
+  published with each IO release on the stack's GitHub Pages site at those stable, versioned paths (RELEASING.md, "The
+  published JSON Schemas"); a published schema never changes.
+
 ### Added
 
 - **`vgio/detection/v1.0`** (new kind): detections per image, `save(path, Dict(image => detections))` /

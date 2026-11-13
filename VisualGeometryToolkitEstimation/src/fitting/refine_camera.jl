@@ -200,10 +200,12 @@ end
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
 # zero), its termination record `(code, rule)` and its iterations — a function barrier static in the N
 # coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
-# device (one placeholder row, NLLSsolver's problem needs one).
+# device (one placeholder row, NLLSsolver's problem needs one). The chart LM's stop settings, every chart LM's
+# ([chart_lm]: the stall tolerance and the relative cost tolerance; the cap is `max_iter`, [refine_camera]).
 function _regress_lens(lm::_LensRegressionLm, ::Val{N}, max_iter::Int) where {N}
     ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
-    x, _, _, iterations, record = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
+    x, _, _, iterations, record = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
+                                                 ftol = _CHART_LM_FTOL)
     return x, record, iterations
 end
 

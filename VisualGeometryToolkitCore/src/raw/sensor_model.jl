@@ -33,18 +33,19 @@
 # helper, `sensor_fixture`.
 # =============================================================================
 
+# The module docstring's cross-references name the parent module: Documenter resolves a bare one in `SensorSource`.
 """
     SensorSource
 
 Where a sensor component's values came from, `SensorSource.T` (an isbits
 `@enum`): `SensorSource.measured` (a record of dark frames, flats or a
 photon-transfer capture), `SensorSource.estimated` (fitted by an estimator,
-[`photon_transfer`](@ref), with its standard error), `SensorSource.specified`
+[`photon_transfer`](@ref VisualGeometryToolkitCore.photon_transfer), with its standard error), `SensorSource.specified`
 (stated by a person: a datasheet, a config, TOML literals) or
-`SensorSource.file` (the RAW file's own metadata: [`FileBlack`](@ref)'s).
+`SensorSource.file` (the RAW file's own metadata: [`FileBlack`](@ref VisualGeometryToolkitCore.FileBlack)'s).
 `string(s)` is its tag (`"measured"`, …). Each present component holds one in
 its `source` field. A specified component wins over a measured one at the same
-slot ([`sensor_model`](@ref)).
+slot ([`sensor_model`](@ref VisualGeometryToolkitCore.sensor_model)).
 """
 module SensorSource
 @enum T::UInt8 measured estimated specified file

@@ -155,6 +155,11 @@ function propagate(
     return Uncertain(similar_type(P, R)(x′), CovMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
 end
 
+# An uncertain point frame: its point observation through the point law above, the frame kept (the FeatureFrame
+# interface: a PointFrame costs what its Point2 costs).
+propagate(h::HomographyMap{3}, u::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}) = _as_point_frame(propagate(h, center(u)))
+@inline _as_point_frame(u::Uncertain) = Uncertain(PointFrame(getfield(u, :value)), getfield(u, :attributes))
+
 function propagate(
         h::HomographyMap{3, T, M, Src, Dst},
         u::Uncertain{P, <:PrecMat{2, S, <:Any, C}}

@@ -145,7 +145,7 @@ const _SimilarityLinearMap = Union{
     CoordinateTransformations.LinearMap{<:Rotation{2}},
     CoordinateTransformations.LinearMap{<:UniformScaling},
 }
-for P in (:Circle, :Ellipse, :Disc, :OrientedDisc, :EllipticFrame, :AffineFrame)
+for P in (:Circle, :Ellipse, :FeatureFrame)
     @eval @inline (lm::_SimilarityLinearMap)(x::$P) = SimilarityMap(lm)(x)
 end
 
@@ -192,7 +192,7 @@ end
     (E::EuclideanMap{2})(x) -> same type as x
 
 The similarity (or rigid) action on a `Circle`, an `Ellipse`, a `Line2D` or a
-feature frame (`Disc`, `OrientedDisc`, `EllipticFrame`, `AffineFrame`), exact
+feature frame (`PointFrame`, `Disc`, `OrientedDisc`, `EllipticFrame`, `AffineFrame`), exact
 in its class: see the class table above. A rotation or a uniform scaling
 `LinearMap` acts through its `SimilarityMap`.
 """
@@ -244,16 +244,40 @@ end
     n′ = S.R * normal(l)
     return Line2D{V}(SVector{3, V}(n′[1], n′[2], S.s * l.coeffs[3] - dot(n′, SVector{2}(S.t))))
 end
-@inline (S::SimilarityMap{2})(f::Disc) = Disc(_similar_center(S, f.center), S.s * f.σ)
-@inline (S::SimilarityMap{2})(f::OrientedDisc) =
-    OrientedDisc(_similar_center(S, f.center), S.s * f.σ, f.θ + _rigid_angle(S.R))
-@inline function (S::SimilarityMap{2})(f::EllipticFrame)
-    R = SMatrix{2, 2}(S.R)
-    return EllipticFrame(_similar_center(S, f.center), S.s * (R * f.S * R'))
-end
-@inline (S::SimilarityMap{2})(f::AffineFrame) = AffineFrame(_similar_center(S, f.center), S.s * (SMatrix{2, 2}(S.R) * f.A))
+# A feature frame: ONE action for every frame (the FeatureFrame interface), its centre moved as a point and its
+# local shape by the per-type primitive `_similar_frame` — a point frame has no shape, so its action is the point's.
+@inline (S::SimilarityMap{2})(f::FeatureFrame) = _similar_frame(S, f, _similar_center(S, f.center))
+@inline _similar_frame(S, ::PointFrame, c) = PointFrame(c)
+@inline _similar_frame(S, f::Disc, c) = Disc(c, S.s * f.σ)
+@inline _similar_frame(S, f::OrientedDisc, c) = OrientedDisc(c, S.s * f.σ, f.θ + _rigid_angle(S.R))
+@inline _similar_frame(S, f::EllipticFrame, c) = (R = SMatrix{2, 2}(S.R); EllipticFrame(c, S.s * (R * f.S * R')))
+@inline _similar_frame(S, f::AffineFrame, c) = AffineFrame(c, S.s * (SMatrix{2, 2}(S.R) * f.A))
 
-for P in (:Circle, :Ellipse, :Line2D, :Disc, :OrientedDisc, :EllipticFrame, :AffineFrame)
+"""
+    transfer(m, f::FeatureFrame) -> FeatureFrame
+
+A feature frame carried through ANY point map `m` of the plane (a framed or
+plain affine, `PerspectiveMap() ∘ h` of a homography, a camera's lens or
+`plane_map` stage — anything callable on a 2-vector): the centre moves by `m`.
+A `PointFrame` is a point, so that is all of it, exact for every map. A scaled
+frame's shape moves by the map's Jacobian at the centre, its first-order image:
+an `AffineFrame(m(c), J·F)` (`F` its [`shape_factor`](@ref)) — except through a
+similarity (`SimilarityMap{2}`, `EuclideanMap{2}`), which keeps every frame's
+class exactly, `m(f)`. Plain-number frames; the Jacobian is ForwardDiff's,
+static and allocation-free. An uncertain frame moves with its covariance by
+[`propagate`](@ref).
+"""
+transfer(m, f::FeatureFrame) = _transfer(m, frame_scale(f), f)
+@inline _transfer(m, ::PointShape, f) = PointFrame(_point_action(m, f.center))
+@inline _transfer(m::Union{SimilarityMap{2}, EuclideanMap{2}}, ::Union{IsotropicScale, ShapeFactorScale}, f) = m(f)
+@inline function _transfer(m, ::Union{IsotropicScale, ShapeFactorScale}, f::FeatureFrame)
+    c = SVector{2}(f.center[1], f.center[2])
+    J = ForwardDiff.jacobian(m, c)
+    return AffineFrame(_point_action(m, f.center), J * shape_factor(f))
+end
+@inline _point_action(m, c) = (p = m(SVector{2}(c[1], c[2])); Point2(p[1], p[2]))
+
+for P in (:Circle, :Ellipse, :Line2D, :FeatureFrame)
     @eval @inline (E::EuclideanMap{2})(x::$P) =
         (has_units(E) && _refuse_unitful($(string("the action on a ", P))); SimilarityMap(E)(x))
 end

@@ -83,6 +83,7 @@ const RETIRED_NAMES = String[
     # abbreviation retired with every name built on it (VisualGeometryToolkitCore 0.10)
     "Cs" * "pond", "Cs" * "ponds", "cs" * "ponds", "cs" * "ponds(", "ScoredCs" * "pond", "Cs" * "pondNormalization",   # `Correspondence`, `Correspondences`, `correspondences(sources, targets)`, `ScoredCorrespondence`, `CorrespondenceNormalization`
     "bearing_cs" * "ponds", "pixel_cs" * "ponds", "pair_cs" * "ponds",   # `bearing_correspondences`, `pixel_correspondences`, `pair_correspondences`
+    "eth3d_splg_cs" * "ponds",                                    # a published artifact's name (RANSACScoringDoneRight's Zenodo record): data, a foreign token below
     "Cs" * "pondSet",                                             # VisualGeometryToolkitFeatures' n-tuple of corresponding elements: `CorrespondenceSet`
     # an OBSERVATION is a detection associated with a model entity (a target point, a landmark); "measured" is provenance only
     "measurement" * "_gradient_jacobian",                         # a model's constraint Jacobian in the observation: `observation_gradient_jacobian`
@@ -549,7 +550,9 @@ const RETIRED_NAMES = String[
 # accepted (`accepted_in`), never as an identifier, nor in a comment or prose elsewhere:
 # - `:format_literal`, a format's token: inside a Julia string literal (a reader or
 #   writer of that format names the token it parses) and anywhere in a data fixture
-#   (`.yaml`, `.yml`, `.json`);
+#   (`.yaml`, `.yml`, `.json`, an `Artifacts.toml`, whose keys are published names) —
+#   its key there included (R14) — and inside a quoted TOML string value (a path or a
+#   name a config quotes, `input_dir = ".../token"`), never a TOML key;
 # - `:c_source`, a library's function: in a C/C++ source (`_C_SOURCE_EXTENSIONS`), the
 #   wrapper that calls the library (built into a prebuilt artifact, so it is not edited
 #   for a Julia rename);
@@ -570,11 +573,17 @@ const FOREIGN_FORMAT_TOKENS = [
     "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
     "inlier" * "_threshold" => (; owner = "RansacLib's and SupeRANSAC's settings field (C++ and pysuperansac), set by name in a string",
         accepted_in = :format_literal),
+    "cs" * "ponds" => (; owner = "the key of the published correspondence records (the stored pool and dataset files, " *
+        "RANSACScoringDoneRight's and LocalOptimizationDoneRight's Zenodo artifacts): a published name is data", accepted_in = :format_literal),
+    "eth3d_splg_cs" * "ponds" => (; owner = "the name of RANSACScoringDoneRight's published ETH3D SuperPoint+LightGlue correspondence " *
+        "artifact (Zenodo record 23240469): a published name is data", accepted_in = :format_literal),
     "central" * "_generic" => (; owner = "the `--model` value of Schöps et al.'s camera_calibration program (its central generic model), " *
         "in the shell drivers that run it and the TOML provenance that quotes their command line", accepted_in = :cli_argument),
 ]
 _is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
-_is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json"))
+_is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json")) || basename(f) == "Artifacts.toml"   # an Artifacts.toml's keys are its artifacts' published names
+# Whether `name` is a registered stored-format token (a data fixture's key may spell one).
+_is_format_token(name) = any(t -> first(t) == name && last(t).accepted_in === :format_literal, FOREIGN_FORMAT_TOKENS)
 # Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a
 # Julia file's) is a foreign party's name where its entry accepts it.
 function _foreign_token(f, r, re, line, strings)
@@ -584,7 +593,17 @@ function _foreign_token(f, r, re, line, strings)
     accepted_in === :c_source && return _is_c_source(f)
     accepted_in === :cli_argument && return _cli_argument(f, re, line)
     _is_data_fixture(f) && return true
+    endswith(f, ".toml") && return _toml_string_value(re, line)
     return endswith(f, ".jl") && count(re, line) == count(re, strings)
+end
+# Whether every hit of `re` on a TOML `line` is inside a quoted string VALUE (`key = "…/token"`, or an array
+# element on its own line): not in a key, a table header or a comment.
+function _toml_string_value(re, line)
+    occursin(re, _hash_code(line; strings = false)) && return false      # a hit outside every quoted run (a bare key)
+    startswith(lstrip(line), "[") && return false                         # a table header, quoted keys included
+    eq = findfirst(==('='), _hash_code(line; strings = false))
+    eq === nothing && return true                                         # a value line of a multi-line array
+    return all(m -> m.offset > eq, eachmatch(re, line))                   # after the `=`: the value, never a quoted key
 end
 # Whether every hit of `re` on `line` is a `--flag`'s value on a command line: in a
 # shell script's code (comments blanked), or in a TOML file inside a quoted string.
@@ -1691,6 +1710,7 @@ function check_naming(pkgdir::AbstractString)
                 push!(out, NamingViolation(f, 1, "", :parse))
             else
                 for (n, line, kind) in bound, rule in _name_rules(String(n), kind, fits; julia = false)
+                    rule === :R14 && _is_data_fixture(f) && _is_format_token(String(n)) && continue
                     push!(out, NamingViolation(f, line, String(n), rule))
                 end
             end

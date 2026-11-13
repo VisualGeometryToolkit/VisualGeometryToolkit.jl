@@ -68,6 +68,7 @@ import KernelAbstractions as KA   # the spline models' batched kernels
 using ..VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # LensSpec refuses `free` (base/utils.jl)
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
 using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
+using ..VisualGeometryToolkitCore: PointFrame, _as_point_frame   # an uncertain point frame through a framed affine (the FeatureFrame interface)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (transforms/conversions.jl)
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)

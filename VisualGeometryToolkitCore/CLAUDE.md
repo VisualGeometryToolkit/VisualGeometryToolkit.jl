@@ -195,6 +195,7 @@ Edit them there, never in a CLAUDE.md. Imported in full:
 @conventions/pixel-origins.md
 @conventions/bearings.md
 @conventions/observation-noise.md
+@conventions/feature-frames.md
 @conventions/residuals-and-distances.md
 @conventions/persisted-geometry.md
 @conventions/jacobians.md

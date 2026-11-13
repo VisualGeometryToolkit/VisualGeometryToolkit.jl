@@ -65,6 +65,12 @@
 #               efficiency constants are read through each arm's own
 #               `format6_constant` hook (`tuned_width`, the identity unless
 #               the roster declares one)
+#           8 — the tuning hash, the stack's content key: the SHA-256 of the
+#               scheme table's canonical JSON (VisualGeometryToolkitCore's
+#               canonical_json), no longer of its sorted TOML (2026-11-13). A
+#               v7 file is read through its version step ("vgtk_eval/tuning/v7",
+#               persist.jl): its stored hash verified with the v7 recipe, then
+#               re-hashed; a v6 file through both steps
 # =============================================================================
 
 """
@@ -91,8 +97,8 @@ const ARTIFACT_FORMATS = (
     pnp_pool = (version = 2,
             change = "the per-query pseudo-GT gt_variance",
             remedy = "rebuild it with its accv2026 pool builder"),
-    tuning = (version = 7,
-            change = "the efficiency-constant names (`efficiency_constant`, `efficiency_constant_window`)",
+    tuning = (version = 8,
+            change = "the tuning hash, the stack's content key (SHA-256 of canonical JSON) in place of the sorted TOML's",
             remedy = "regenerate it by re-running its tuning",
             read_from = 6,
             read_from_change = "the tuned point as a NATIVE VALUE (`tuned_selection`/`tuned_width`) rather than a grid index"),

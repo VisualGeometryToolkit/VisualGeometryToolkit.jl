@@ -47,7 +47,7 @@ using Dates: Dates, DateTime, UTC, now
 using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
 import ..cli_option                             # src/cli.jl: runner.jl reads its options through it
-import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, .._toml_hash, .._git_line, ..scratch_run, .._write_atomic   # src/code_identity.jl, src/write_atomic.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, .._content_key, .._git_line, ..scratch_run, .._write_atomic   # src/code_identity.jl, src/write_atomic.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
 using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
 using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
 using ..Render: write_tsv                       # paper_assets.jl: the verification report

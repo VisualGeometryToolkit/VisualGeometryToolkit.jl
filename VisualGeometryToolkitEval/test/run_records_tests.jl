@@ -12,7 +12,7 @@
                                "arm" => Dict{String,Any}("efficiency_constant" => 1.5, "arms" => "a,b"),
                                "render" => Dict{String,Any}("xticks" => [1, 10, 100], "legend" => "l"))
         key = RR.run_key(cfg)
-        @test key isa String && length(key) == 16 && all(isxdigit, key)   # SHA-256 of the sorted TOML, Julia-version stable
+        @test key isa String && length(key) == 16 && all(isxdigit, key)   # SHA-256 of the canonical JSON, Julia-version stable
         # a render knob edit re-keys nothing; a data knob edit does
         c2 = deepcopy(cfg); c2["render"]["xticks"] = [5]
         @test RR.run_key(c2) == key
@@ -25,6 +25,18 @@
         back = TOML.parse(String(take!(io)))
         @test RR.run_key(back) == key
         @test "render" in RR.RUN_KEY_EXCLUDED
+    end
+
+    @testset "run_key: the stack's canonical JSON — key order and number spelling do not move it" begin
+        a = TOML.parse("n = 3\nw = 1.0\n[arm]\nefficiency_constant = 1.5\nscenes = [\"x\", \"y\"]\n")
+        b = TOML.parse("[arm]\nscenes = [\"x\", \"y\"]\nefficiency_constant = 15e-1\n\n[other]\n")
+        delete!(b, "other"); b["w"] = 1e0; b["n"] = 3.0          # 3 and 3.0, 1.0 and 1e0: one number each
+        @test RR.run_key(a) == RR.run_key(b)
+        @test RR.run_key(a) == VgtkEval._content_key(a) == VgtkEval._content_key(TOML.parse(sprint(io -> TOML.print(io, a))))
+        @test VgtkEval._content_key(a) == bytes2hex(VgtkEval.sha256(VgtkEval.canonical_json(a)))[1:16]   # Core's one encoding
+        a["n"] = 3.5
+        @test RR.run_key(a) != RR.run_key(b)                      # a value change moves it
+        @test_throws ArgumentError RR.run_key(Dict{String,Any}("w" => Inf))   # an unencodable value fails loudly
     end
 
     @testset "load_run_config sanity" begin

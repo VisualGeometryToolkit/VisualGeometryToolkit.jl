@@ -493,7 +493,8 @@ A driver reads an input of its config with
 [`input_path`](@ref VisualGeometryToolkitEval.Experiments.input_path)`(cfg, id)`
 (its tier's root, its `sha256` checked).
 
-`src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; and
+`src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; VisualGeometryToolkitCore's Base-only
+`src/base/canonical.jl`, the run keys' encoding, included by path where the package cannot load; and
 `src/cli.jl`, included before it, which brings `src/code_identity.jl`), so a launcher runs it by path from a bare
 `julia` before the project's environment exists; the setup stage then
 instantiates the environment inside the scheduler.

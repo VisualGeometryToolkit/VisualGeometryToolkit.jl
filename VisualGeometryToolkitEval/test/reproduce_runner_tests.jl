@@ -1162,8 +1162,12 @@ end
         boot = "include(ARGS[1]); include(ARGS[2]); exit(reproduce_main(ARGS[3:end]))"
         cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
                --graph=$(f.graph) --site=dgx01 --dry-run --results-root=$(f.results)`
-        out = read(addenv(cmd, "JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => ""), String)
+        # the content key's encoding is Core's canonical.jl, found as a package is (here: Core's own project)
+        out = read(addenv(cmd, "JULIA_LOAD_PATH" => "@:@stdlib", "JULIA_PROJECT" => pkgdir(VisualGeometryToolkitCore)), String)
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
+        # one implementation: the bare process keys every stage as the package does
+        p = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, results_root = f.results)
+        @test all(st -> occursin("key      $(st.key)", out), p.stages)
     end
 
     @testset "the results-branch stage: the renders of the graph's assets on a results branch, named in the launch's manifest" begin

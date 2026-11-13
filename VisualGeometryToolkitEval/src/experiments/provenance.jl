@@ -303,7 +303,7 @@ end
 LEGACY, version-UNSTABLE key: `string(hash(x))`. It names the existing caches of
 bmvc2026 and other paper projects (`<prefix>_<hash(cfg)>.jld2`, bmvc2026's detection
 `run_key`), which must not move before their next full regeneration — that one
-re-keys them to [`run_key`](@ref) (SHA-256 of the sorted TOML). Never use it
+re-keys them to [`run_key`](@ref) (SHA-256 of the canonical JSON). Never use it
 for a new key.
 """
 legacy_hash_key(x) = string(hash(x))

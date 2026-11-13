@@ -13,7 +13,7 @@
 #                            <project>/data/exp_raw | data/exp_pro (DrWatson's
 #                            datadir) → the project's fallback / artifact view
 #   load_run_config(path)    TOML.parsefile + [experiment] table sanity
-#   run_key(cfg)             the SHA-256 content hash (`_toml_hash`) of the
+#   run_key(cfg)             the SHA-256 content key (`_content_key`: canonical JSON) of the
 #                            EFFECTIVE config minus RUN_KEY_EXCLUDED, its [tuning.<name>] entries resolved
 #                            to their COMPLETE tables (`resolve_tuning!`), so
 #                            every tuning parameter keys the run, inherited
@@ -35,7 +35,7 @@
 #                            config source, run key, host, julia, timestamp and
 #                            the declared inputs relative to their roots)
 #
-# Justified extension of DrWatson: run_key is a SHA-256 of the sorted TOML, not
+# Justified extension of DrWatson: run_key is a SHA-256 of the canonical JSON, not
 # `savename`, because run configs are NESTED (savename drops every non-scalar
 # value, so two configs differing only inside a table would share a name).
 # =============================================================================
@@ -199,14 +199,14 @@ const RUN_KEY_EXCLUDED = ("render",)
 """
     run_key(cfg; files = nothing, upstream = nothing, parts = nothing) -> String
 
-The run identity: the SHA-256 (hex, first 16) of the effective config printed
-as sorted TOML (Tuning `_toml_hash`, the one content hash behind
-`tuning_hash` too), with the [`RUN_KEY_EXCLUDED`](@ref) sections removed
+The run identity: the SHA-256 (hex, first 16) of the effective config's
+canonical JSON (`_content_key`: VisualGeometryToolkitCore's `canonical_json`,
+the one content key behind `tuning_hash` and the runner's stage key too), with the [`RUN_KEY_EXCLUDED`](@ref) sections removed
 (`[render]` holds panel knobs of record, not experiment inputs) and every
 `[tuning.<name>]` entry resolved to its COMPLETE table (`resolve_tuning!`: a
 default of this package's configs/tuning.toml that the config inherits keys
-the run like a stated one). Key order does not move it, the Julia version does
-not move it, and a TOML round trip of the effective config reproduces it, so
+the run like a stated one). Key order does not move it, nor a number's
+spelling (`3` and `3.0` key alike), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
 `run_key(TOML.parsefile("_config.toml"))` names the directory that holds it.
 
 What a run depends on beyond its config is folded in by name, so a project
@@ -235,7 +235,7 @@ function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts =
     scratch_run() && (folded["scratch"] = true)          # a scratch run never shares a run of record's key
     parts === nothing || (folded["parts"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(parts)))
     isempty(folded) || (d["keyed_with"] = folded)
-    return _toml_hash(d)
+    return _content_key(d)
 end
 
 # An upstream run as a key: a key as given, or a run directory, read for its recorded `run_key`; a scratch run's

@@ -769,7 +769,7 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
         # stage with none, so its key is unchanged
         isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
-        key = keys_of[name] = _toml_hash(keyed)
+        key = keys_of[name] = _content_key(keyed)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd,
                                    _precompile_command(g, site, s, env; prefix), minutes, "", "", ""))

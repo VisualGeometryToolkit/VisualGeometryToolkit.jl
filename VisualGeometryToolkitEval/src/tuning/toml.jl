@@ -149,11 +149,12 @@ tuning_toml(specs::TuningSpec...) = Dict{String,Any}("tuning" => Dict{String,Any
     tuning_hash(spec) -> String
 
 The identity of a tuning protocol: the SHA-256 (hex, first 16) of its
-complete scheme table printed as sorted TOML. Two specs with equal parameters
+complete scheme table's canonical JSON (`_content_key`). Two specs with equal parameters
 hash equal whatever their names or how their configs spelled them; any
 parameter change moves it.
 """
-tuning_hash(x::Union{TuningSpec,TuningScheme}) = _toml_hash(Dict{String,Any}("scheme" => tuning_table(x)))
+tuning_hash(x::Union{TuningSpec,TuningScheme}) = _tuning_table_hash(tuning_table(x))
+_tuning_table_hash(t::AbstractDict) = _content_key(Dict{String,Any}("scheme" => t))
 
 
 # -----------------------------------------------------------------------------

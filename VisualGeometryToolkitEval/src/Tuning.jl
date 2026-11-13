@@ -36,7 +36,8 @@ module Tuning
 using Random: shuffle
 using StableRNGs: StableRNG
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # the TOML key helpers (toml.jl, sampling.jl)
-import .._toml_hash    # src/code_identity.jl: the content hash behind tuning_hash (toml.jl) and the v6 step (persist.jl)
+import .._content_key    # src/code_identity.jl: the content key behind tuning_hash (toml.jl) and the v7 step (persist.jl)
+using SHA: sha256          # persist.jl: the stored tuning hash of formats 6 and 7
 using TOML: TOML
 using JLD2: JLD2
 import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step: migrate_schema, migrate_record (persist.jl)

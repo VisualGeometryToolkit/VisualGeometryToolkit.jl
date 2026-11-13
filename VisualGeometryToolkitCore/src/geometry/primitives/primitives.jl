@@ -202,6 +202,7 @@ export RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, lazily, 
 # -----------------------------------------------------------------------------
 export FeatureFrame            # Abstract base type
 export PointFrame              # 2 DOF: center only (no scale)
+public frame_dof               # a frame's degrees of freedom (the FeatureFrame interface)
 export Disc                    # 3 DOF: center + σ (isotropic)
 export OrientedDisc            # 4 DOF: + orientation
 export EllipticFrame           # 5 DOF: + aspect ratio (a, b, θ)

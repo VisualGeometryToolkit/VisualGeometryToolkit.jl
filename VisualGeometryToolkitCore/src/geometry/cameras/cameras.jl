@@ -1235,7 +1235,7 @@ export AbstractBlur, GaussianBlur, convolve   # one blur of an imaging model by 
 export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
-export RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
+export RADIAL_CHARTS, BinnedRadialProfile, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
 export Ray3                              # a non-central pixel's observation line

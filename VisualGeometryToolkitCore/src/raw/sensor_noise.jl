@@ -124,9 +124,9 @@ resolved value came from is its fields' sources: all `:measured` (a record),
 mixed (a partial record, the rest estimated), `:estimated`/`:file` (no
 record), or a `nothing` noise with its `reason` (the estimate failed).
 """
-# Every field's type is a parameter, so a value is stored as it is built (no conversion into the field's Union).
 struct SensorNoise{K <: NoiseField{Float64}, R <: NoiseField{NTuple{4, Float64}}, B <: NoiseField{NTuple{4, Float64}},
                    D <: Union{Nothing, Attributed{<:DarkFrame}}, M <: NoiseField{<:AbstractMatrix{Bool}}}
+    # every field's type is a parameter, so a value is stored as it is built (no conversion into the field's Union)
     body::DeviceIdentity
     iso::Float64
     electrons_per_dn::K

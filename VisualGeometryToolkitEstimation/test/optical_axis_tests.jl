@@ -175,24 +175,52 @@ end
     using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using CUDA: CUDA
+    using StaticArrays: SMatrix
+    using LinearAlgebra: norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, metadata, retcode, iterations, rotation,
-        calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, approximate_camera, optical_axis
+        calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms, model, free_parameter_names,
+        tangent_size, view_angle_limit
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, approximate_camera
     # the reduction kernel (each sample's 2-D residual and Jacobian rows, Σ‖r‖², Jᵀr, JᵀJ) is the same KernelAbstractions
-    # kernel on every backend: the CPU's and the GPU's fits agree to the reduction's rounding (the work items' sums in
-    # another order), with the same steps
+    # kernel on every backend: on the SAME samples the CPU's and the GPU's regressions agree to the reduction's rounding
+    # (the work items' sums in another order), with the same steps. Since 0.11.0 `device` also draws a gauge-K source's
+    # samples (its rays back-projected on that device, E6), so the public calls no longer share them; the kernel alone
+    # is compared on the host's samples, and the public call on a physical K, whose samples are its host-side profile.
     cpu = VC.KA.CPU()
+    # a physical K: the samples are the lens's radial profile, on the host whatever the device
+    rc = approximate_camera(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)
+    @test retcode_symbol(rc) === :converged
+    # a gauge K (the off-axis spline over its disc): the regression state built as refine_camera builds it, its samples
+    # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    fits = [(VE._AXIS_FAMILY, b, imaged_region(b), VE._AXIS_FIXED), (KannalaBrandt{4}, FISHEYE, REGION, ())]   # a gauge K, a physical K
-    for (L, src, region, fixed) in fits
-        rc = approximate_camera(L, src, region; fixed, device = cpu)
-        @test retcode_symbol(rc) === :converged
-        CUDA.functional() || continue
-        rg = approximate_camera(L, src, region; fixed, device = VC.default_device())
+    src = model(b); region = imaged_region(b); L = VE._AXIS_FAMILY; fixed = VE._AXIS_FIXED
+    role = VC.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VE._offset_matrix(K0)
+    guess = VE._approximation_start(VE._linear_form(L), L, src, region, :image, fixed, cpu)
+    gl = lens(guess); moving = free_parameter_names(guess, fixed)
+    start = VE._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
+    pr = VE._profile_samples(role, L, src, region, K0, :image, cpu)
+    P = VE._regression_manifold(role, VE._lens_family_manifold(role, gl, moving), start, moving)
+    N = tangent_size(P)
+    θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
+    function regress(dev)
+        lm = VE._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+        x, record, its = VE._regress_lens(lm, Val(N), VE._dflt("refine_camera", "max_iter"))
+        e = K0[1, 1] .* VE._sample_errors(lm, x, θcap)                                    # px
+        return (; x, record, its, rms = sqrt(sum(i -> pr.w[i] * sum(abs2, e[i]), eachindex(e)) / sum(pr.w)), max_px = maximum(norm, e))
+    end
+    c = regress(cpu)
+    @test c.record[1] == VC.ReturnCode.Success
+    if CUDA.functional()
+        gpu = VC.default_device()
+        g = regress(gpu)
+        @test g.record == c.record && g.its == c.its
+        @test maximum(abs, g.x - c.x) < 1.0e-9                                                  # chart coordinates
+        @test abs(g.rms - c.rms) < 1.0e-12 && abs(g.max_px - c.max_px) < 1.0e-12                 # px
+        # the physical K's public call: the same samples on both backends, so the same comparison end to end
+        rg = approximate_camera(KannalaBrandt{4}, FISHEYE, REGION; device = gpu)
         @test retcode_symbol(rg) === :converged && iterations(rg) == iterations(rc)
         @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9
-        @test maximum(abs, rotation(metadata(rg).rotation) - rotation(metadata(rc).rotation)) < 1.0e-12
         @test abs(rms(rg) - rms(rc)) < 1.0e-12 && abs(metadata(rg).max_px - metadata(rc).max_px) < 1.0e-12   # px
     end
 end

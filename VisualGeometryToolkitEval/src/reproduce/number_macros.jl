@@ -20,7 +20,7 @@
 # by path).
 # =============================================================================
 using FileWatching.Pidfile: mkpidlock
-isdefined(@__MODULE__, :_write_atomic) || include(joinpath(@__DIR__, "..", "write_atomic.jl"))
+isdefined(@__MODULE__, :_write_atomic) || include("../write_atomic.jl")   # a literal path: ExplicitImports analyses Reproduce
 
 # ---------------------------------------------------------------------------
 # Typesetting a number

@@ -479,7 +479,8 @@ end
     PlannedStage
 
 One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
-option the stage's jobs read, never the code: a stage of the same key that finished before is reused while the code
+option the stage's jobs read, and the keys of the stages it runs after, transitively: a stage rerun under a new key
+reruns every stage after it; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
 dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
@@ -646,7 +647,10 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     isempty(results) || (roots_env[g.results_env] = results)
     site_env = merge(Dict{String, String}(k => string(v) for (k, v) in get(get(g.site_roots, site.name, Dict()), "env", Dict())), site.env)
     stages = PlannedStage[]
-    for name in names
+    keys_of = Dict{String, String}()
+    # Every stage the selected ones run after, transitively, is keyed too (selected or not, in dependency order): a
+    # stage's key folds the keys of the stages it runs after, so a stage rerun under a new key reruns every stage after it.
+    for name in select_stages(g; only = names)
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
         minutes = _array_minutes(g, s, items)
@@ -665,8 +669,10 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         end
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => e, "command" => cmd, "site" => site.name)
+        isempty(s.after) || (keyed["after"] = [keys_of[d.name] for d in g.stages if d.name in s.after])   # in dependency order
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
-        key = _toml_hash(keyed)
+        key = keys_of[name] = _toml_hash(keyed)
+        name in names || continue
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end

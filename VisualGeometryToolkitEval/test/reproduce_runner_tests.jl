@@ -495,6 +495,14 @@ end
         open(joinpath(f.proj, "configs", "experiments", "texture_small.toml"), "a") do io; println(io, "# changed"); end
         code, out = run_main(args; env = env0)
         @test code == 0 && count("reused", out) == 3 && length(readlines(joinpath(f.results, "ran.txt"))) == 9
+        # a changed config upstream: its stages rerun, and so does every stage after them, whose own files are unchanged
+        # (texture runs after chrome: reused, it would hold results of chrome's old output)
+        open(joinpath(f.proj, "configs", "experiments", "chrome.toml"), "a") do io; println(io, "# changed"); end
+        code, out = run_main(args; env = env0)
+        @test code == 0 && count("reused", out) == 1 && occursin(r"setup\s+reused", out) && !occursin(r"texture\s+reused", out)
+        @test length(readlines(joinpath(f.results, "ran.txt"))) == 9 + 1 + 3 + 2
+        p = plan_reproduction(load_stage_graph(f.graph), load_site("desktop"); env = env0, queue_states = noqueue, only = ["texture"], deps = false)
+        @test only(p.stages).key == TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))["stages"]["texture"]["key"]   # without its prerequisites: the same key
         # a failing stage: stops the run, exit 4, its log and first error line; status reads it back
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=broken", "--no-deps"]; env = env0)
         @test code == 4 && occursin("stage broken failed", out) && occursin("ERROR: no such input photos/x", out)

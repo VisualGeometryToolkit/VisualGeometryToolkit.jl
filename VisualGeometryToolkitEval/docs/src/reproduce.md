@@ -339,7 +339,9 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   configs (sha256), the data and results roots, the site, the code trees
   (below), and per stage its run key, command, job id, state and code trees.
   A stage's run key hashes its launcher, driver and configs, its items,
-  environment and command, never the code; a later launch reuses a stage of
+  environment and command, and the run keys of the stages it runs after (so a
+  stage that reruns under a new key reruns every stage after it), never the
+  code; a later launch reuses a stage of
   the same key that completed (and depends on one still in flight, by its job
   id) instead of running it again, while its code trees are the current ones.
 - **Completion markers.** Each task writes

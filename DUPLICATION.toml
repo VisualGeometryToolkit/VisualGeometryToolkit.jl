@@ -62,3 +62,10 @@ reason = "not a CPU/GPU twin of any computation: the test runner's one decision 
 file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
 function = "gpu_problem"
 reason = "not a CPU/GPU twin of any computation: a GPU-tier worker's re-check that its default device is still an accelerator, so the GPU items error rather than run on the CPU path"
+
+# The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
+# per-channel black for the display demosaic; it subtracts nothing in the stack.
+[[pattern]]
+use = "black_subtraction"
+file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
+reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"

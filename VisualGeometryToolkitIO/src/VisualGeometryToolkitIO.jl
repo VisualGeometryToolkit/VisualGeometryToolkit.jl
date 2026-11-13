@@ -258,6 +258,7 @@ public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized na
 public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
     target_json, target_from_json,    # building blocks for a package's own kind (a calibration pipeline's session)
     target_calibration_json, target_calibration_from_json   # a target's calibration record alone (an in-plane print error)
+public lattice_json, lattice_from_json   # the lattice record: a uniform cubic B-spline over a rectangle (a spline lens's, an aperture spline's)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
     keypoints, descriptors, raw_matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids

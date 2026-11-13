@@ -794,11 +794,10 @@ Base.:-(f::FeatureFrame, offset::Union{AbstractVector, Tuple}) = @set f.center =
 
 """
     *(frame::FeatureFrame, scale)
-    /(frame::FeatureFrame, scale)
 
-The frame with its centre and every length (σ, a shape factor) scaled by a
-scalar factor, its angles kept: a change of unit (`frame * 300dpi`,
-`frame / 300dpi`) or of length scale.
+The frame with its centre and every length (σ, a shape factor) multiplied by a
+scalar factor, its angles kept: a change of unit (`frame * 300dpi`) or of length
+scale; `frame / scale` divides.
 
 # Example
 ```julia
@@ -807,6 +806,12 @@ scaled = disc * 300dpi  # Scale to logical units
 ```
 """
 Base.:*(f::FeatureFrame, scale::Number) = _map_lengths(x -> x * scale, f)
+"""
+    /(frame::FeatureFrame, scale)
+
+The frame with its centre and every length divided by a scalar factor, its angles
+kept (`frame / 300dpi`): the inverse of `frame * scale`.
+"""
 Base.:/(f::FeatureFrame, scale::Number) = _map_lengths(x -> x / scale, f)
 
 # =============================================================================

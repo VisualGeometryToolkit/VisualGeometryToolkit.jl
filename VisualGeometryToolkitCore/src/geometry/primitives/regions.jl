@@ -91,9 +91,7 @@ Base.in(::Rect{2}, ::WholePlane) = true
 # `Ellipse`, their `∩`, the `WholePlane` — so Base's iterable `issubset` is never reached. An intersection lies in a
 # region when either part does (sufficient: a ∩ b ⊆ a), and in an intersection when it lies in both parts.
 const _PlaneRegion = Union{Rect{2}, Ellipse, RegionIntersection, WholePlane}
-Base.issubset(a::Rect{2}, b::Rect{2}) =
-    all(GeometryBasics.origin(b) .<= GeometryBasics.origin(a)) &&
-    all(GeometryBasics.origin(a) .+ GeometryBasics.widths(a) .<= GeometryBasics.origin(b) .+ GeometryBasics.widths(b))
+Base.issubset(a::Rect{2}, b::Rect{2}) = a ∈ b                 # GeometryBasics' box-in-box
 Base.issubset(a::Rect{2}, b::Ellipse) = a ∈ b                 # the corners (containment.jl): the ellipse is convex
 Base.issubset(a::Ellipse, b::Rect{2}) = a ∈ b                 # the ellipse's exact bounding box (containment.jl)
 # an ellipse in an ellipse: cameras/image_circle.jl (it reads the 1-D minimizer, numerics/minimize.jl, loaded later)

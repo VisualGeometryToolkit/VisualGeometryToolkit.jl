@@ -27,6 +27,8 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   a number's spelling: an integral float is the integer (`3` and `3.0` key alike). Every keyed run directory, cache
   file and stage reruns under its new key once. Tuning artifacts are format 8: a v7 (or v6) file reads, its stored
   sorted-TOML hash verified with that format's recipe and re-hashed; nothing new is written with the old recipe.
+  A config (or tuning table) holding an integer beyond ±2^53, `Inf` or `NaN` has no canonical JSON and is now refused
+  with an `ArgumentError` where it was keyed before.
   The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path
   (`Base.find_package`), so Core must be findable there (it is wherever Eval is).
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every

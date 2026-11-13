@@ -121,7 +121,7 @@ end
 # `frame_index`, `camera_optical` → `camera`; the vignetting body's step (`_vignetting_body_v010`, the vignetting kind's); the gains'
 # `t` → `frame_index`. No number moves but a w < 0 quaternion's signs (the envelope step's).
 function _panorama_v1_to_v2(old::AbstractDict)
-    t = _envelope_v010(old, "vgio/panorama/v2.0")
+    t = migrate_envelope(old, "vgio/panorama/v2.0")
     t["camera"] = _camera_body_v010(old["camera"])
     t["rotations"] = _frame_names_v010(_frames_v010(t["rotations"]))
     t["vignetting"] = _vignetting_body_v010(old["vignetting"])

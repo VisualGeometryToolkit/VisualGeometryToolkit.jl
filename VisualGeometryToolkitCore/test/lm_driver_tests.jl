@@ -1,11 +1,13 @@
 @testitem "lm_driver" begin
-# The chart LM's driver, NLLSsolver (src/robust/lm_core.jl): the open upstream
+# The one LM adapter, NLLSsolver (src/robust/lm_core.jl): the open upstream
 # addition (#60) is detected, a reused run gives a fresh workspace's results,
-# NLLSsolver's termination bits decode to the chart LM's stop codes, and a NaN
-# trial is a rejected step.
+# NLLSsolver's termination bits decode to the chart LM's stop codes, the stop
+# settings have one owner, a stop is a success only at a stationary point, and a
+# NaN trial is a rejected step. (One of the adapter's own tests: the LM gate,
+# check_duplication's `:lm_primitive`, lets this file reach its internals.)
 import VisualGeometryToolkitCore as VgtkCore
 using Test, LinearAlgebra, StaticArrays
-using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, retcode_symbol, nlls_features, nlls_options
+using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, retcode_symbol, nlls_features, LmStops
 import NLLSsolver
 
 # A 4-parameter nonlinear fit with a closed-form Jacobian: y = a·exp(b·s) + c·s + d.
@@ -54,9 +56,9 @@ end
     for (k, ptrue) in enumerate((SVector(1.5, -0.8, 0.3, 0.2), SVector(0.4, 1.1, -0.5, 1.0), SVector(2.0, 0.2, 0.0, -1.0)))
         y = [ptrue[1] * exp(ptrue[2] * si) + ptrue[3] * si + ptrue[4] + 1.0e-3 * sin(7k * si) for si in s]
         lm = _ExpFitLm(s, y, SVector(1.0, 0.0, 0.0, 0.0))
-        x1, F1, c1, it1, r1 = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+        x1, F1, c1, it1, r1 = lmsolve_chart!(ws, lm)
         k == 1 ? (run₁ = ws.run; @test(run₁ !== nothing)) : @test(ws.run === run₁)   # the run is reused
-        x2, F2, c2, it2, r2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+        x2, F2, c2, it2, r2 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
         @test retcode_symbol(r1...) === :converged && retcode_symbol(r2...) === :converged
         @test isapprox(x1, x2; rtol = 1.0e-10, atol = 1.0e-12)
         @test isapprox(F1, F2; rtol = 1.0e-10)
@@ -66,7 +68,7 @@ end
 end
 
 # A function barrier: the testitem's locals are globals.
-_refit!(ws, lm) = lmsolve_chart!(ws, lm; stationarity_tol = 0.05, ftol = 1.0e-10)
+_refit!(ws, lm) = lmsolve_chart!(ws, lm)
 _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
 
 @testset "a refit through the typed cache allocates nothing" begin
@@ -106,8 +108,14 @@ end
     term = VgtkCore.nlls_termination
     @test retcode_symbol(term(1 << 7, true)...) === :converged               # once the postcondition holds
     @test retcode_symbol(term(1 << 0, true)...) === :solve_failed && retcode_symbol(term(1 << 9, true)...) === :max_time
-    # public, with the bits named
-    @test Base.ispublic(VgtkCore, :nlls_stop_code) && Base.ispublic(VgtkCore, :nlls_stop_reasons)
+    # THE success rule: a cost-decrease stop is a success only where the postcondition holds
+    @test term(1 << 2, true) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
+    @test term(1 << 2, false) === (VgtkCore.ReturnCode.Stalled, VgtkCore.CostDecrease)
+    calls = Ref(0); probe = () -> (calls[] += 1; true)
+    @test term(1 << 2, probe) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && calls[] == 1
+    @test term(1 << 8, probe) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && calls[] == 1   # a cap needs none
+    # the bits named in public; the decode is the adapter's own
+    @test !Base.ispublic(VgtkCore, :nlls_stop_code) && !Base.ispublic(VgtkCore, :nlls_termination) && Base.ispublic(VgtkCore, :nlls_stop_reasons)
     @test VgtkCore.nlls_stop_reasons(0) == Symbol[]
     @test VgtkCore.nlls_stop_reasons((1 << 2) | (1 << 8)) == [:relative_cost_decrease, :max_iterations]
     @test VgtkCore.nlls_stop_reasons((1 << 0) | (1 << 6) | (1 << 16)) == [:cost_infinite, :delta_size, :callback]
@@ -115,30 +123,54 @@ end
 end
 
 @testset "a NaN wall at the production cost tolerance" begin
-    # The LO's ftol (1e-10, configs [chart_lm]): near the wall the last steps'
+    # The stack's ftol (1e-10, Core's configs [lm]): near the wall the last steps'
     # cost decrease and step size shrink together; the step stop is decoded
     # first, so the stall postcondition runs and the stop is :stalled.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
-    x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall; stationarity_tol = 0.05, ftol = 1.0e-10)
+    x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall)
     @test isfinite(F) && x[3] <= 0.25
     @test retcode_symbol(term...) === :stalled
     # the termination record agrees: a step-size stop that fails the postcondition
     @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
 end
 
-@testset "the knob map" begin
-    o = nlls_options(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11)
+@testset "the stop settings: one owner, mapped once" begin
+    # every default is Core's configuration of record, configs/default.toml [lm]
+    lm_table = VgtkCore._CORE_DEFAULTS["lm"]
+    d = LmStops()
+    @test (d.max_iter, d.ftol, d.xtol, d.stationarity_tol) == (lm_table["max_iter"], lm_table["ftol"], lm_table["xtol"], lm_table["stationarity_tol"])
+    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0).max_iter == lm_table["device_max_iter"]
+    @test VgtkCore.StaticLmStops(SVector(1.0f0); acceptance = 1).stationarity_tol === Float32(lm_table["stationarity_tol"])
+    @test isbits(VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0))
+    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0)).acceptance == lm_table["device_acceptance"] == Inf   # stationarity alone
+    o = VgtkCore._nlls_options(LmStops(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11))
     @test o.maxiters == 7 && o.reldcost == 1.0e-9 && o.dstep == 1.0e-11 && o.absdcost == 0.0 && o.maxfails == 3
-    @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd
-    @test NLLSsolver.dynamic(nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, iterator = :levenbergmarquardt).iterator) === :levenbergmarquardt
+    @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd                  # Marquardt's damping, not a knob
     @test o.maxtime == UInt64(1.0e6 * 1.0e9)                                     # no time cap by default
-    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5).maxtime == UInt64(2.5e9)
-    @test typeof(nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 2.5)) === typeof(o)
-    # Inf is no cap, as `nothing` is; a negative or NaN cap is refused
-    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = Inf).maxtime == nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0).maxtime
-    @test nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = 0).maxtime == 0
-    @test_throws ArgumentError nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = -1.0)
-    @test_throws ArgumentError nlls_options(; max_iter = 1, ftol = 0.0, xtol = 0.0, max_time = NaN)
+    @test VgtkCore._nlls_options(LmStops(; max_time = 2.5)).maxtime == UInt64(2.5e9)
+    @test typeof(VgtkCore._nlls_options(LmStops(; max_time = 2.5))) === typeof(o)
+    # Inf is no cap, as `nothing` is; a negative or NaN cap is refused, as is a cosine outside (0, 1]
+    @test LmStops(; max_time = Inf).max_time == LmStops().max_time
+    @test LmStops(; max_time = 0).max_time == 0
+    @test_throws ArgumentError LmStops(; max_time = -1.0)
+    @test_throws ArgumentError LmStops(; max_time = NaN)
+    @test_throws ArgumentError LmStops(; stationarity_tol = 0.0)
+    @test_throws ArgumentError LmStops(; ftol = -1.0)
+    @test Base.ispublic(VgtkCore, :LmStops) && Base.ispublic(VgtkCore, :LmProblem) && Base.ispublic(VgtkCore, :StaticLmStops)
+end
+
+@testset "a cost-decrease stop short of stationarity is :stalled" begin
+    # A relative cost tolerance of 1 − 1e-6 stops at the first accepted step that does not lower the cost by 99.9999%:
+    # far from the minimizer (the start's slope b = 0 against the data's −0.8, the residuals of order 100 — far above
+    # the exact-fit floor, which this ftol also sets), where the gradient is not orthogonal to the rows. The old rule
+    # called a cost-decrease stop converged unchecked; THE success rule tests it.
+    s = collect(range(0.0, 2.0; length = 40))
+    lm = _ExpFitLm(s, [100 * (1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 + 0.05 * sin(7si)) for si in s], SVector(1.0, 0.0, 0.0, 0.0))
+    x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm, LmStops(; ftol = 1 - 1.0e-6))
+    @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.CostDecrease) && c == -2
+    # the same fit at the stack's settings is a success at a stationary point
+    _, _, c0, _, term0 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
+    @test retcode_symbol(term0...) === :converged && c0 in (1, 2)
 end
 
 @testset "a NaN trial is a rejected step" begin
@@ -147,7 +179,7 @@ end
     # adapter reads a non-finite cost as +Inf, so a NaN trial is rejected and a
     # step at the wall does not throw.
     lm2 = _ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0))   # optimum at c = 2: x[3] = 1, behind the wall
-    x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), _NaNBeyond(lm2); stationarity_tol = 0.05)
+    x, F, c, _ = lmsolve_chart!(ManifoldLmWorkspace(5, 4), _NaNBeyond(lm2))
     @test isfinite(F) && x[3] <= 0.25
 end
 end
@@ -159,7 +191,7 @@ end
     # redescending loss with every datum past its cutoff is a plateau, not a fit.
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
-    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, loss_robustifier, WelschShape, TLSShape
+    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, loss_robustifier, WelschShape, TLSShape, LmStops
     import NLLSsolver
 
     pts = circle_points()
@@ -169,22 +201,29 @@ end
     rows_at(x) = VgtkCore.residual_rows!(zeros(n), lm, x)
     k = loss_robustifier(WelschShape(), 0.1)
     ws = ManifoldLmWorkspace(n, 3)
-    x, F, _, _ = lmsolve_chart!(ws, lm, k, Val(1); stationarity_tol = 0.05, ftol = 1.0e-12)
+    x, F, _, _ = lmsolve_chart!(ws, lm, k, Val(1))
     @test x ≈ SVector(0.5, 0.2, -0.5) atol = 1.0e-6
     @test ws.r == rows_at(x)
     @test F ≈ sum(r -> NLLSsolver.robustify(k, r^2), rows_at(x)) rtol = 1.0e-10
-    # the stall postcondition, taken directly: stationary, rows untouched
-    S = VgtkCore._RobustChartState{3, typeof(lm), typeof(k)}
-    state = S(lm, k, zero(SVector{3, Float64}), false, false, ws.r, ws.J)
-    @test VgtkCore._robust_stationary(ws, state, x, Val(1), 0.05, 1.0e-12)
+    # the run (problem, cache, data blocks) is kept in the workspace, as the plain chart LM's is: a refit reuses it
+    run = ws.run
+    @test run isa VgtkCore.LmProblem && length(run.blocks) == n
+    x2, F2, _, _ = lmsolve_chart!(ws, lm, k, Val(1))
+    @test ws.run === run && x2 == x && F2 == F
+    # the stall postcondition, taken directly on the run's data blocks: stationary, rows untouched
+    tol, ftol = LmStops().stationarity_tol, LmStops().ftol
+    stationary(blocks, x) = VgtkCore._blocks_stationary!(ws.g, ws.w, (0,), blocks, [x], (true,), tol, ftol)
+    @test stationary(run.blocks, x)
     @test ws.r == rows_at(x)
-    @test !VgtkCore._robust_stationary(ws, state, x + SVector(0.05, 0.0, 0.0), Val(1), 0.05, 1.0e-12)
+    @test !stationary(run.blocks, x + SVector(0.05, 0.0, 0.0))
     @test ws.r == rows_at(x + SVector(0.05, 0.0, 0.0))
+    # ... the same test as the public multi-block form's
+    @test VgtkCore.is_stationary(run.blocks, [x], [true]; tol, ftol)
     # every datum past a TLS cutoff: ρ′ = 0 throughout, the exact-fit test reads the rows themselves
     kt = loss_robustifier(TLSShape(), 1.0e-3)
     St = VgtkCore._RobustChartState{3, typeof(lm), typeof(kt)}
     tstate = St(lm, kt, zero(SVector{3, Float64}), false, false, ws.r, ws.J)
-    @test !VgtkCore._robust_stationary(ws, tstate, SVector(5.0, 5.0, 0.0), Val(1), 0.05, 1.0e-12)
+    @test !stationary([VgtkCore._DatumRows{3, 1, St}(tstate, i) for i in 1:n], SVector(5.0, 5.0, 0.0))
 end
 
 # NLLSsolver 5.3.2's damping loop spun on a non-finite linearization at an accepted point (every damped step NaN,
@@ -192,7 +231,7 @@ end
 # a failed solve by the stack's one decoder. No block wraps its linearization.
 @testitem "NLLSsolver ≥ 5.3.3: a NaN linearization at an accepted point stops the LM (bit 12)" begin
     using StaticArrays: SVector, SMatrix
-    using VisualGeometryToolkitCore: nlls_options, nlls_stop_code, nlls_stop_reasons, NLLSsolver
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, NonFinite
     # r(x) = [acos(min(x, 1)), x − 2]: finite everywhere, its derivative NaN for x ≥ 1 (acos′(1)·0); from x = 0 the first
     # step crosses x = 1 and lowers the cost, so it is accepted, and the linearization there is NaN
     struct NaNPastOne <: NLLSsolver.AbstractResidual end
@@ -207,15 +246,82 @@ end
         J = SMatrix{2, 1, Float64}(x < 1 ? -1 / sqrt(1 - x^2) : NaN, 1.0)
         return 0.5 * sum(abs2, res), J' * res, J' * J
     end
-    problem = NLLSsolver.NLLSProblem(Float64, NaNPastOne)
-    NLLSsolver.addvariable!(problem, 0.0)
-    NLLSsolver.addcost!(problem, NaNPastOne())
-    result = NLLSsolver.optimize!(problem, nlls_options(; max_iter = 100, ftol = 1.0e-12, xtol = 1.0e-12))   # returns, rather than spinning
-    @test :nonfinite_gradient in nlls_stop_reasons(result.termination)
-    @test nlls_stop_code(result.termination) == -3                # a failed solve
-    @test result.niterations <= 3
-    @test isfinite(result.bestcost) && result.bestcost < result.startcost
-    @test problem.variables[1] >= 1                              # the accepted step is kept
+    p = LmProblem([0.0], [NaNPastOne()])
+    start_cost = sum(abs2, NLLSsolver.computeresidual(NaNPastOne(), 0.0))
+    sol = lmsolve_chart!(p)                                     # returns, rather than spinning
+    @test (sol.code, sol.rule) === (ReturnCode.Failure, NonFinite)   # a failed solve (bit 12: the decoder's −3)
+    @test sol.iterations <= 3
+    @test isfinite(sol.cost) && sol.cost < start_cost
+    @test p.variables[1] >= 1                                    # the accepted step is kept
+end
+
+# THE multi-block form: heterogeneous variables and blocks, a block's robustifier, a kept problem, a callback, and an
+# indefinite normal system read as a failed solve.
+@testitem "lmsolve_chart!(::LmProblem): multi-block, robust, reused, the success rule" begin
+    using Test, StaticArrays, LinearAlgebra
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, loss_robustifier, WelschShape
+    # a line y = a + b·s (variable 1, an SVector{2}) and an offset c (variable 2, an SVector{1}) seen as c − a = z
+    struct _LineRow <: NLLSsolver.AbstractResidual
+        s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_LineRow) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_LineRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_LineRow) = SVector(1)
+    NLLSsolver.getvars(::_LineRow, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_LineRow) = Float64
+    NLLSsolver.computeresidual(r::_LineRow, ab) = SVector(ab[1] + ab[2] * r.s - r.y)
+    struct _OffsetRow{K} <: NLLSsolver.AbstractResidual
+        z::Float64; kernel::K
+    end
+    NLLSsolver.ndeps(::_OffsetRow) = NLLSsolver.static(2)
+    NLLSsolver.nres(::_OffsetRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_OffsetRow) = SVector(1, 2)
+    NLLSsolver.getvars(::_OffsetRow, vars::Vector) = (vars[1]::SVector{2, Float64}, vars[2]::SVector{1, Float64})
+    Base.eltype(::_OffsetRow) = Float64
+    NLLSsolver.robustkernel(r::_OffsetRow) = r.kernel
+    NLLSsolver.computeresidual(r::_OffsetRow, ab, c) = SVector(c[1] - ab[1] - r.z)
+    s = collect(range(-1.0, 1.0; length = 21)); y = [0.5 + 2.0 * si + 0.01 * sin(5si) for si in s]
+    z = [1.0 + 0.01 * cos(3k) for k in 1:7]
+    vars() = Union{SVector{2, Float64}, SVector{1, Float64}}[SVector(0.0, 0.0), SVector(0.0)]
+    blocks = [[_LineRow(si, yi) for (si, yi) in zip(s, y)]; [_OffsetRow(zk, NLLSsolver.NoRobust()) for zk in z]]
+    p = LmProblem(vars(), blocks)
+    @test p.variables isa Vector{Union{SVector{2, Float64}, SVector{1, Float64}}}
+    sol = lmsolve_chart!(p)
+    # the linear least-squares answer
+    A = [ones(21) s zeros(21); -ones(7) zeros(7) ones(7)]; θ = A \ [y; z]
+    @test sol.code === ReturnCode.Success
+    @test p.variables[1] ≈ θ[1:2] atol = 1.0e-9
+    @test p.variables[2][1] ≈ θ[3] atol = 1.0e-9
+    @test sol.cost ≈ sum(abs2, A * θ - [y; z]) rtol = 1.0e-8
+    # reused: the kept problem and cache, restarted in place, give the same bits; a callback sees every iteration
+    x1 = copy(p.variables)
+    p.variables[1] = SVector(0.0, 0.0); p.variables[2] = SVector(0.0)
+    seen = Ref(0)
+    sol2 = lmsolve_chart!(p; callback = (cost, args...) -> (seen[] += 1; (cost, 0)))
+    @test p.variables == x1 && sol2 == sol && seen[] >= 1
+    # robust: a Welsch loss on the offset rows (width 3: the start sits 1 off, the outlier 49), one of them a gross outlier, is down-weighted
+    zo = copy(z); zo[3] = 50.0
+    pr = LmProblem(vars(), [[_LineRow(si, yi) for (si, yi) in zip(s, y)]; [_OffsetRow(zk, loss_robustifier(WelschShape(), 3.0)) for zk in zo]])
+    solr = lmsolve_chart!(pr)
+    @test solr.code === ReturnCode.Success && abs(pr.variables[2][1] - pr.variables[1][1] - 1.0) < 0.02
+    # a cap is a cap, not a success
+    ps = LmProblem(vars(), [[_LineRow(si, 100yi) for (si, yi) in zip(s, y)]; [_OffsetRow(zk, NLLSsolver.NoRobust()) for zk in z]])
+    @test lmsolve_chart!(ps, LmStops(; max_iter = 1)).code === ReturnCode.MaxIters
+    # an indefinite normal system thrown inside the solver is a failed solve; any other exception propagates
+    struct _Throws{E} <: NLLSsolver.AbstractResidual
+        e::E
+    end
+    NLLSsolver.ndeps(::_Throws) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_Throws) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_Throws) = SVector(1)
+    NLLSsolver.getvars(::_Throws, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_Throws) = Float64
+    NLLSsolver.computeresidual(t::_Throws, ab) = (ab[1] == 0 ? SVector(ab[1] - 1.0) : throw(t.e))
+    pf = LmProblem([SVector(0.0, 0.0)], [_Throws(PosDefException(1))])
+    @test (lmsolve_chart!(pf).code, lmsolve_chart!(pf).rule) == (ReturnCode.Failure, VgtkCore.NonFinite)
+    pe = LmProblem([SVector(0.0, 0.0)], [_Throws(ErrorException("a bug"))])
+    @test_throws ErrorException lmsolve_chart!(pe)
 end
 
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
@@ -245,4 +351,55 @@ end
     @test (c, g, H) === (0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N))))
     @test reduce_cost(partials) === 0.5 * sum(view(partials, 1, :))
     @test reduce_cost(partials[1:1, :]) === reduce_cost(partials) && reduce_cost(partials) ≈ c
+end
+
+# NLLSsolver's termination bits decoded into the termination record (`nlls_termination`, the adapter's own decode).
+@testitem "nlls_termination: NLLSsolver's bits, in nlls_stop_code's order" begin
+    import NLLSsolver
+    import VisualGeometryToolkitCore
+    using Test
+    using VisualGeometryToolkitCore: ReturnCode, CostDecrease, IncrementSize, RejectionCap, IterationCap, TimeCap, NonFinite, Callback
+    using VisualGeometryToolkitCore: nlls_termination
+    # a synthetic NLLSsolver result whose only meaningful field is its termination bits
+    res(bits) = NLLSsolver.NLLSResult(map(fieldnames(NLLSsolver.NLLSResult), fieldtypes(NLLSsolver.NLLSResult)) do f, F
+        f === :termination ? F(bits) : F <: Enum ? first(instances(F)) : zero(F)
+    end...)
+    t(bits, p = true) = @inferred nlls_termination(res(bits), p)
+    for b in (0, 1, 4, 5, 10, 12)
+        @test t(1 << b) === (ReturnCode.Failure, NonFinite)
+    end
+    @test t(1 << 11) === (ReturnCode.InitialFailure, NonFinite)
+    @test t((1 << 1) | (1 << 11)) === (ReturnCode.InitialFailure, NonFinite)
+    @test t(1 << 2) === (ReturnCode.Success, CostDecrease) && t(1 << 3) === (ReturnCode.Success, CostDecrease)
+    @test t(1 << 2, false) === (ReturnCode.Stalled, CostDecrease)               # THE success rule: a cost stop too
+    @test t(1 << 6) === (ReturnCode.Success, IncrementSize)
+    @test t(1 << 6, false) === (ReturnCode.Stalled, IncrementSize)
+    @test t((1 << 2) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # the step stop first
+    @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # a NaN trial at a step stop
+    @test t(1 << 7) === (ReturnCode.Success, RejectionCap)
+    @test t(1 << 7, false) === (ReturnCode.Stalled, RejectionCap)
+    @test t(1 << 16, false) === (ReturnCode.Terminated, Callback)
+    @test t(1 << 9) === (ReturnCode.MaxTime, TimeCap)
+    @test t((1 << 8) | (1 << 9)) === (ReturnCode.MaxTime, TimeCap)              # time outranks iterations
+    @test t(1 << 8) === (ReturnCode.MaxIters, IterationCap)
+    @test t((1 << 8) | (1 << 2)) === (ReturnCode.Success, CostDecrease)         # a tolerance outranks the cap
+    @test t((1 << 8) | (1 << 2), false) === (ReturnCode.Stalled, CostDecrease)
+    @test t((1 << 1) | (1 << 8) | (1 << 9)) === (ReturnCode.Failure, NonFinite)  # failure outranks the caps
+    # the postcondition runs only where it decides
+    calls = Ref(0)
+    probe = () -> (calls[] += 1; false)
+    @test nlls_termination(1 << 8, probe) === (ReturnCode.MaxIters, IterationCap) && calls[] == 0
+    @test nlls_termination(1 << 2, probe) === (ReturnCode.Stalled, CostDecrease) && calls[] == 1
+    @test nlls_termination(1 << 6, probe) === (ReturnCode.Stalled, IncrementSize) && calls[] == 2
+    # with the real postcondition (`is_stationary`), at a least-squares optimum and off it: THE success rule reads it at
+    # every stop that is not a failure or a cap — a cost-decrease stop off the optimum is :stalled (until the one
+    # success rule, 2026-11-13, it was :converged unchecked)
+    J = [1.0 0.0; 0.0 2.0; 1.0 1.0]; y = [1.0, 2.0, 4.0]; x̂ = J \ y
+    r_opt = J * x̂ - y; r_off = J * (x̂ .+ 0.1) - y
+    sym(bits, r) = VisualGeometryToolkitCore.retcode_symbol(nlls_termination(bits, () -> VisualGeometryToolkitCore.is_stationary(J, r; tol = 1.0e-6, ftol = eps()))...)
+    @test sym(1 << 2, r_opt) === :converged && sym(1 << 2, r_off) === :stalled
+    @test sym((1 << 8) | (1 << 2), r_opt) === :converged && sym((1 << 8) | (1 << 2), r_off) === :stalled
+    @test sym(1 << 6, r_opt) === :converged && sym((1 << 2) | (1 << 6), r_off) === :stalled
+    @test sym(1 << 7, r_opt) === :converged && sym(1 << 7, r_off) === :stalled
+    @test sym(1 << 8, r_off) === :max_iterations
 end

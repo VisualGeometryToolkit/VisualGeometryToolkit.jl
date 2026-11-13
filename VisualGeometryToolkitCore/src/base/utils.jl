@@ -157,7 +157,7 @@ stable_seed(seed::Integer, keys...) =
     sha256_hex(io::IO) -> String
 
 Lower-case hex SHA-256 — the one hash behind every content identity in the
-stack (VisualGeometryToolkitIO's `sha256_hex(canonical_json(tree))`) and every
+stack (`sha256_hex(canonical_json(tree))`, [`canonical_json`](@ref)) and every
 file digest (a pinned model's, a data artifact's). A string is hashed as its
 bytes (never opened as a path); a stream is read to its end. A file's digest is
 the stream form, `open(sha256_hex, path)`.

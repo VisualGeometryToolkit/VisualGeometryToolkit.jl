@@ -6,6 +6,37 @@ The breaking wave of 2026-11-13 (wave 10): the terminology taxonomy, one observa
 interface with PointFrame first-class, sensor noise, and the conventions of the IO breaking wave.
 
 ### Breaking
+- **One LM: one adapter, one owner of its stop settings, one success rule** (the owner's "NO DUPLICATIONS" ruling,
+  2026-11-13; src/robust/lm_core.jl, configs/default.toml `[lm]`).
+  - `LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time)` is the ONE owner of the host LM's knobs; its defaults are
+    Core's `[lm]` table (1000, 1e-10, 1e-10, 0.05: VisualGeometryToolkitEstimation's `[chart_lm]` values, moved here
+    with their measurements). `nlls_options` is DELETED (retired name; `LmStops`, which the adapter maps itself).
+  - `lmsolve_chart!` takes `stops::LmStops` (positional, default `LmStops()`) in place of the keywords `maxit`, `ftol`,
+    `xtol`, `stationarity_tol`, in both chart forms; the robust form now keeps its problem and NLLSsolver cache in the
+    workspace as the plain one does (one caching path).
+  - NEW: the multi-block form, `lmsolve_chart!(p::LmProblem, stops; callback) -> (; code, rule, iterations, cost)`, on
+    `LmProblem(variables, blocks)` (heterogeneous variables and residual blocks, each block's robustifier; kept and
+    reused), for the bundles that built their own NLLSsolver problems. An indefinite or singular normal system in the
+    step solve is `(Failure, NonFinite)`.
+  - THE SUCCESS RULE: a stop is `Success` only where the stationarity postcondition holds at the returned point — now
+    the cost-decrease stop too (it was converged unchecked), so a `CostDecrease` stop short of stationarity is
+    `Stalled` (code `-2`). The multi-block and robust postcondition is `is_stationary(blocks, …)`; the robust chart
+    LM's own copy (`_robust_stationary`) is deleted.
+  - `nlls_termination` and `nlls_stop_code` are no longer public (the adapter's decode); `nlls_stop_reasons` stays.
+  - `static_lm` moves to lm_core.jl (still `VisualGeometryToolkitCore.static_lm`; `Cameras` no longer exports it) and
+    takes `StaticLmStops(scale; acceptance, residual_scale, cost_floor, max_iter, stationarity_tol)` in place of
+    `s, maxiter, tol2, fs, …, cost_floor`: `static_lm(fj, x₀, lb, ub, stops[, bound])`. Its `converged` is the same
+    success rule: stationary AND `F < acceptance`; acceptance alone no longer succeeds. Stationary on the device: its
+    exact-fit or gradient floor, the exact-fit floor no finer than the data resolve (`residual_resolution`: a Float32
+    ray or Float32 controls in a Float64 solve), the undamped Gauss–Newton step below its step tolerance (the device
+    form of the host's exact-fit test: at the root of a square system the cosine says nothing), or the host's column
+    cosine; on its box, a coordinate a bound holds drops out (the bounded problem's KKT stationarity). Its `cost_floor` defaults to 0 (resolved to rounding); the spline lenses
+    give the reference's `eps(Float64)`. Its iteration cap defaults to `[lm] device_max_iter` (100), which replaces the
+    spline lenses' `_PROJECT_MAXITER` and the mapped surfaces' `_BOARD_MAXITER`.
+  - THE LM GATE: `check_duplication`'s retired pattern `:lm_primitive` fails any call of NLLSsolver's
+    `optimize!`/`NLLSProblem`/`OptimizeCache`/`NLLSOptions`, of `nlls_options`/`_nlls_options`, `nlls_termination`,
+    `nlls_stop_code`, `_lm_run!` or `_static_lm_increment` in any file of any stack package (src/, test/, benchmark/)
+    outside lm_core.jl and its own tests (test/lm_driver_tests.jl, test/static_lm_tests.jl).
 - **The terminology taxonomy** (the owner's ruling of 2026-11-13; conventions/naming.md): a detection, a correspondence,
   an observation. Renamed, no aliases; each old public name is in `check_naming`'s retired names with its replacement:
   `Cspond` → `Correspondence`, `Csponds` → `Correspondences`, `csponds` → `correspondences`, `ScoredCspond` →
@@ -35,7 +66,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   object per file, every `Size2` a `{"width", "height"}` object, every index 1-based (`"index_base": 1`), one
   `covariance` key with a producer-stated `covariance_status` when absent, matrices in rows, `v<major>.<minor>` schema
   tags, a stored quaternion with `w < 0` refused, the JCS identity in metres, the `observations`, `detection` and
-  `sensor_noise` kinds.
+  `sensor_characterisation` kinds.
 
 - **The Student-t scorer's workspace records its codimension** (review C2): `ScoringWorkspace` holds `dg`;
   `alloc_scoring_workspace`/`scoring_workspace(::StudentTUniformScoring, n, d_g)` refuse a `d_g` other than the scorer's
@@ -66,7 +97,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
-  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and passes its
+  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
   `stop_solver!` return `(reason, rule)`.
 
@@ -90,11 +121,32 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `HomographyMap` and `FramedAffine`; the similarity actions, `extrema`, `Rect2`, `bbox`, `ustrip`, `*`, `/` for every
   frame, PointFrame included; `shape_factor` of a `Disc` (`σI`) and an `OrientedDisc` (`σR(θ)`); the DOF trait
   `PointShape`.
-- **Sensor noise** (spec 2026-11-13-sensor-noise): `SensorNoise` (a body's Poisson–Gaussian noise at an ISO, every field
-  with its source `:measured | :estimated | :file`), `DarkFrame`, THE resolver `sensor_noise(capture, t => mosaic;
-  record)`, THE estimators `photon_transfer` (K and σ_r from a frame) and `master_dark` (a record from lens-cap frames),
-  `NoiseEstimateFailed`; `LinearRaw(mosaic; mode, gain, noise)` subtracts the resolved black and dark offset in its one
-  kernel (bit-identical without a noise).
+- **The sensor model** (spec 2026-11-13-sensor-noise, Phase 1, owner rulings A and D1–D13), in three levels: `Sensor`
+  (geometry, unchanged); `SensorCharacterisation(body; entries)`, ONE body's per-ISO components (host-side, keyed by
+  its `DeviceIdentity`, held beside the camera); `SensorModel{B,N,D}`, ONE frame's black, noise and defect components,
+  isbits when they are, `Adapt` for the maps. Each slot's component is a type, absence included: black `FileBlack` (the
+  RAW's own) | `ChannelBlack(values, std_error; source)` | `Dark(black, offset, variance, exposure_band, frames;
+  source)` (all dark information in ONE black-slot component, D2); noise `NoNoise` | `ReadNoise(σ, std_error;
+  source)` | `PoissonGaussian(gain, σ, std_error; source)` | `RelativeNoise(σ_rel; source)`; defects `NoDefects` |
+  `DefectList(x, y, onset; size, source)`. Every present component states its `source`, a `SensorSource.T`
+  (`measured`, `estimated`, `specified`, `file`). THE resolver `sensor_model(characterisation, capture, t)` is a
+  lookup (D1): the body (serial, else make and model), the ISO exactly, per slot specified over measured over
+  estimated (`overrides_measured` notes it, D5), a `Dark` only inside its exposure band, a `DefectList` cut to the
+  sites whose onset is at most the exposure; with no characterisation, another body or another ISO, the absent model
+  `SensorModel()` and its `ModelReason` (`Matched`, `NoCharacterisation`, `UnmatchedISO`, `OtherBody`, D4).
+  `content_digest(model)`, the model's identity: `sha256_hex(canonical_json(tree))`, the stack's one content-identity
+  scheme (D9), with `canonical_json` now Core's (hoisted from VisualGeometryToolkitIO).
+  `LinearRaw(mosaic; mode, gain, sensor_model)` and `linearview(mosaic; sensor_model)` (the keyword is `sensor_model`,
+  D6) subtract the black slot's black in their one kernel (a `Dark`'s offset per photosite), mask a `DefectList`'s
+  photosites, and under a `PoissonGaussian` or `RelativeNoise` return an UNCERTAIN image: a `StructArray` of
+  `Uncertain{Float64}` values, each value's variance from the same kernel (D11; no separate variance function);
+  without a model, bit for bit the RAW's linearisation. The estimators build a characterisation's components offline:
+  `photon_transfer(mosaic; sensor_model)` an estimated `PoissonGaussian`, `master_dark(frames; exposure_band)` a `Dark`
+  (with its `ChannelBlack`), a `ReadNoise` and the band's defect mask, `defect_onsets(exposure => mask, …)` one
+  `DefectList` (D3); `NoiseEstimateFailed`. Tests build components only through `sensor_fixture` (D13), and
+  `check_duplication` refuses a component built elsewhere (`:sensor_component`), a hand-written value variance
+  (`:value_variance_law`) and a hand-indexed channel black (`:black_subtraction`). None of wave 10's earlier sensor-noise
+  names (never released) remains; `check_naming` retires them with their replacements.
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart

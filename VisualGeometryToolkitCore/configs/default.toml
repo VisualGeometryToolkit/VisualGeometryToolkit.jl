@@ -9,3 +9,33 @@
 
 [optimization_strategy.irls]
 max_iter = 25
+
+# The stack's Levenberg–Marquardt stop settings, their ONE owner (src/robust/lm_core.jl: `LmStops`, which
+# every host fit hands to `lmsolve_chart!`, and `StaticLmStops`, the device LM `static_lm`'s). A fit overrides a
+# value only from its own configuration table, never with a literal.
+[lm]
+# The iteration cap: accepted iterations (NLLSsolver's outer iterations, one ACCEPTED step each; an iteration's
+# damping loop may reject ~8–10 candidate steps first), so the cap bounds accepted steps, not work.
+max_iter = 1000
+# The relative cost tolerance (NLLSsolver's `reldcost`: stop once a step lowers the cost by less than ftol·F).
+# eps runs every refit to its rounding floor; 1e-10 stops it once the cost has settled (the LO-refit
+# measurements: CHANGELOG.md, the LM driver). Also the stationarity postcondition's exact-fit test (F < ftol).
+ftol = 1.0e-10
+# The step tolerance: NLLSsolver's `dstep`, ABSOLUTE (max|pᵢ| < xtol, chart units; a chart LM starts at x = 0).
+xtol = 1.0e-10
+# THE stationarity postcondition every LM's success requires (host and device alike): the cost is zero by the
+# exact-fit test, or max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point. Measured 2026-10-01 (the cosine at
+# every step-size stop): genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM benchmark
+# scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a residual's rounding floor — the noiseless
+# hand-eye fit, whose rotation log is accurate to ~√eps — 0.0045–0.037; real stalls — a NaN or discontinuity
+# wall in the radial-camera, radial-homography and lens rows (no step along −Jᵀf lowers F) — 0.084–0.42, and
+# the two stall reproductions of the suite (a wrong-sign Jacobian, a NaN wall) 1.0. The value sits in the gap
+# between the last two.
+stationarity_tol = 0.05
+# The device LM's (`static_lm`) iteration cap: the spline lenses' projection and the mapped surfaces' ray hit
+# (the reference routine's 100).
+device_max_iter = 100
+# The device LM's acceptance, the cost a solution must be below besides being stationary: `inf` — success by the
+# stationarity rule alone, unless the problem itself bounds its residual (a root-finding solve: a projection, a
+# lens inverse, a ray hit) and passes its own bound.
+device_acceptance = inf

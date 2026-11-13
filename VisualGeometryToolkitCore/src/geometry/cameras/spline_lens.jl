@@ -585,243 +585,16 @@ convert_eltype(::Type{T}, l::SplineLens) where {T <: AbstractFloat} =
 # ------------------------------------------------------------------------------
 
 # The host budget of the one projection solve: a cold start from the area's
-# centre gets 100 LM iterations (the batched form takes warm starts and a
-# caller-set `iters`). ONE convergence criterion for every projection solve, host
-# and batched: the residual norm below `_PROJECT_TOL` — the reference's 1e-12 cost.
-const _PROJECT_MAXITER = 100
+# centre gets the device LM's iteration cap (`_STATIC_LM_MAX_ITER`, configs/default.toml
+# [lm] device_max_iter; the batched form takes warm starts and a caller-set `iters`).
+# ONE acceptance for every projection solve, host and batched: the residual norm below
+# `_PROJECT_TOL` — the reference's 1e-12 cost.
 const _PROJECT_TOL = 1.0e-6
+# The absolute cost floor of the spline lenses' LM: the reference routine's `eps(Float64)`
+# (a residual of order one, a difference of unit directions, resolved to √eps), which the
+# recorded reference runs (test/fixtures/pixel_lm) were made with.
+const _SPLINE_REFERENCE_COST_FLOOR = eps(Float64)
 
-# THE two-unknown LM of the spline models: `fj(p) -> (r, ∂r/∂p)`, the residual and
-# its Jacobian from ONE evaluation at `p` (a spline's basis weights once per point:
-# every trial point's Jacobian is the next iteration's when the step is accepted),
-# from `x₀`, the point bounded to the box `[lb, ub]` (a step is clipped at the
-# bound), for at most `maxiter` LM iterations; converged means a final cost below
-# `tol2`. Returns the point, whether it converged and the Jacobian at the point
-# (the callers that need only the first two destructure them; the lens inverse
-# reads its determinant). `s` is the problem's unit per axis, as the reference's
-# pixel: its pixel constants are read in it — the step tolerance `ϵx = 1e-10 / s`,
-# the DᵀD clamp `[1e-12, 1e16]·s²`. Device-safe — static arrays only, no
-# allocation, no Union return — so the batched kernels run it per ray.
-# Generic in the float type `T` of its arguments (Float32 in a device
-# kernel; at Float64 the reference's operations and constants exactly). Its stops
-# are precision-aware: the step tolerance is the reference's in ulps of T
-# (`1e-10·eps(T)/eps(Float64)`), and the absolute residual and gradient stops are
-# the reference's `eps(Float64)` or what T resolves of a residual of scale `fs`
-# (`(16 eps(T) fs)²`), whichever is larger — so a Float32 solve stops where
-# Float32 can resolve it, and at Float64 with `fs` of order one (the SplineLens
-# residual, a difference of unit directions) every stop is the reference's
-# exactly. The ray–board root of a MappedSurface calls it with `fs` its chart's
-# diagonal (mapped_surface.jl `_board_root`). `bound` limits every step: `nothing`
-# (the reference's: no limit), or a relative radius `b`, a step longer than
-# `b·max(‖x‖, 1)` shortened to it along its direction — COLMAP's
-# IterativeUndistortion clipping (`b = 0.1`), which the parametric lens inverse
-# reads (lens_rays.jl `_inverse_lm`). It returns `(x, converged, J, e)`, `e` the
-# evaluation `fj(x)` itself (anything `fj` returns past `(r, J)` with it: the
-# board root's surface point). `cost_floor` is the absolute stops' floor, the
-# reference's `eps(Float64)` by default: a cost below it ends the solve, a residual
-# of order one resolved to √eps. A root that must be resolved to rounding (the lens
-# inverse: a seed whose residual is 1e-9 is not its root) gives 0, leaving the
-# stops at what T resolves.
-#
-# It is the ONE device-side exception to the stack's one LM driver: NLLSsolver
-# builds heap problems and cannot run inside a KernelAbstractions kernel, so
-# this kernel is the stated single instance the retired-names rule allows
-# (`check_naming`'s RETIRED_NAMES: the hand-rolled LM cores stay retired).
-#
-# Levenberg's and Marquardt's damped Gauss–Newton (Levenberg 1944; Marquardt
-# 1963) with Marquardt's diagonal scaling, at any static N (N = 2: the spline lenses'
-# inverse, the MappedSurface root; N = 3: VisualGeometryToolkitFeatures' continuous
-# DoG-extremum refinement) and derived
-# from a static bounded `lmsolve` (Copyright (c) 2023 kamesy, MIT License),
-# with its defaults and operations in its order — the damping (λ₀ = 1e-6,
-# ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
-# [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
-# unrolled N × N Cholesky-type solve (`_static_lm_increment`), the ftol = gtol = eps and xtol = 1e-10 stops (at
-# s = 1). NOT the same bits as a run of that routine: its products are the
-# explicit fused ones (`_fma_dot`, `_fma_mul`, `_fma_tmul`: base/fused_products.jl; the increment's
-# `fma`s), the same in every compiled copy, where the routine's fuse as LLVM decides.
-# Measured against a recorded run of it on 1000 seeded problems
-# (test/fixtures/pixel_lm), at s = 1: at most 5.5e-12 px (Julia 1.13) /
-# 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
-# converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
-"""
-    static_lm(fj, x₀::SVector{N, T}, lb, ub, s, maxiter, tol2[, fs, bound, cost_floor]) -> (x, converged, J, e, rule::StopRule)
-
-The stack's ONE device-side Levenberg–Marquardt (the spline lenses' inverse at
-N = 2, any static N): Marquardt-scaled, bounded to the box `[lb, ub]` (a step is
-clipped to it), with an unrolled Cholesky-type solve and explicit fused products,
-so it allocates nothing, never throws, and runs inside a KernelAbstractions kernel
-with the same bits in every compiled copy. `fj(x)` returns `(r, J, …)` (the residual
-`SVector`, its `SMatrix` Jacobian, anything else returned with them as `e`); `s` the
-per-coordinate scale its step and damping floors are read in; `converged` is
-`‖r(x)‖² < tol2`. `rule` is the stop that fired: `ExactFit` (the cost floor),
-`ToleranceMet` (the gradient floor), `IncrementSize` (the step), `CostDecrease`
-(the relative cost decrease) or `IterationCap`; [`static_lm_termination`](@ref)
-gives the §14 record. NLLSsolver (`lmsolve_chart!`) remains every host fit's LM.
-"""
-@inline function static_lm(
-        fj::FJ, x₀::SVector{N, T}, lb::SVector{N, T}, ub::SVector{N, T},
-        s::SVector{N, T}, maxiter::Int, tol2::T, fs::T = one(T), bound::B = nothing, cost_floor::T = T(eps(Float64))
-    ) where {FJ, N, T <: AbstractFloat, B <: Union{Nothing, T}}
-    ϵ = eps(T)
-    ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
-    # the absolute stops: the cost floor (the reference's eps(Float64)), or what T resolves of a residual of scale fs
-    ϵF = max(cost_floor, (16 * ϵ * fs)^2)
-    ϵG = max(cost_floor, (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
-    λ = T(1.0e-6)
-    x = min.(max.(x₀, lb), ub)
-    ex = fj(x)
-    f, Jx = ex[1], ex[2]
-    F = sum(abs2, f)
-    F < ϵF && return x, F < tol2, Jx, ex, ExactFit
-    g = _fma_tmul(Jx, f)
-    norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex, ToleranceMet
-    JtJ = _fma_tmul(Jx, Jx)
-    DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
-    DtD_max = T(1.0e16) .* s .^ 2
-    iter = 0
-    rule = IterationCap
-    while iter < maxiter
-        iter += 1
-        accepted = false
-        ac = zero(T)
-        pr = zero(T)
-        ρ = zero(T)
-        xk = x
-        ek = ex
-        fk = f
-        Jk = Jx
-        Fk = F
-        p, info = _static_lm_increment(JtJ, λ, DtD, g)
-        # a step clipped to zero by either bound is rejected, as a failed solve is
-        clipped = false
-        if info == 0
-            p = _bounded_increment(bound, p, x)
-            p = min.(x .- lb, p)
-            clipped = all(iszero, p)
-            if !clipped
-                p = max.(x .- ub, p)
-                clipped = all(iszero, p)
-            end
-        end
-        if info == 0 && !clipped
-            xk = x .- p
-            ek = fj(xk)
-            fk, Jk = ek[1], ek[2]
-            Fk = sum(abs2, fk)
-            if Fk < F
-                ac = F - Fk
-                pr = _fma_dot(p, (@. λ * DtD * p + g))
-                ρ = ac / pr
-                accepted = true
-            end
-            if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
-                if accepted
-                    x, f, F, Jx, ex = xk, fk, Fk, Jk, ek
-                end
-                rule = IncrementSize
-                break
-            end
-        end
-        if accepted
-            x = xk
-            f = fk
-            Fold = F
-            F = Fk
-            Jx = Jk
-            ex = ek
-            # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
-            abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && (rule = CostDecrease; break)
-            g = _fma_tmul(Jx, f)
-            norm(g, Inf) < ϵG && (rule = ToleranceMet; break)
-            JtJ = _fma_tmul(Jx, Jx)
-            DtD = clamp.(diag(JtJ), DtD, DtD_max)
-            if ρ > T(0.75)
-                λ *= T(1 / 13)
-            elseif ρ < T(1.0e-3)
-                λ *= 3
-            end
-        else
-            λ *= 3
-        end
-        λ = clamp(λ, T(1.0e-28), T(1.0e32))
-    end
-    return x, F < tol2, Jx, ex, rule
-end
-
-
-"""
-    static_lm_termination(converged::Bool, rule::StopRule) -> (ReturnCode.T, StopRule)
-
-The §14 termination record of a [`static_lm`](@ref) solve: `ReturnCode.Success`
-when it converged; otherwise `ReturnCode.MaxIters` at the iteration cap and
-`ReturnCode.Stalled` at any other stop (a step, cost or gradient stop short of
-the tolerance).
-"""
-static_lm_termination(converged::Bool, rule::StopRule) =
-    (converged ? ReturnCode.Success : rule == IterationCap ? ReturnCode.MaxIters : ReturnCode.Stalled, rule)
-
-# The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.
-@inline _bounded_increment(::Nothing, p, x) = p
-@inline function _bounded_increment(b::T, p::SVector{N, T}, x::SVector{N, T}) where {N, T}
-    r2 = b * b * max(_plain_sumsq(x), one(T))
-    n2 = _plain_sumsq(p)
-    return ifelse(n2 > r2, p * sqrt(r2 / n2), p)
-end
-# x₁² + x₂² + … left to right in plain (never contracted) arithmetic: at N = 2 the
-# expression `x[1] * x[1] + x[2] * x[2]` exactly.
-@generated function _plain_sumsq(x::SVector{N}) where {N}
-    ex = :(x[1] * x[1])
-    for k in 2:N
-        ex = :($ex + x[$k] * x[$k])
-    end
-    return :(@inbounds $ex)
-end
-
-# The unrolled solve of (JᵀJ + λ·DᵀD) p = g at static N: the damped diagonals
-# checked first, in order (`info` = the first negative one's index: a rejected
-# step), then symmetric Gaussian elimination on the lower triangle and back
-# substitution, every product-sum an explicit `fma`. At N = 2 it is the reference
-# routine's 2 × 2 operations in its order exactly:
-#   A11 = fma(λ, D1, J11); A22 = fma(λ, D2, J22); A22 = fma(−A21, A21/A11, A22);
-#   x2 = fma(−x1, A21/A11, x2); x2 /= A22; x1 = fma(−x2, A21, x1); x1 /= A11.
-@generated function _static_lm_increment(JtJ::StaticMatrix{N, N}, λ, DtD, g) where {N}
-    A(i, j) = Symbol(:A, i, :_, j)
-    X(i) = Symbol(:x, i)
-    body = Expr[]
-    for i in 1:N
-        push!(body, :($(X(i)) = g[$i]))
-    end
-    for i in 1:N
-        for j in 1:(i - 1)
-            push!(body, :($(A(i, j)) = JtJ[$i, $j]))
-        end
-        push!(body, :($(A(i, i)) = fma(λ, DtD[$i], JtJ[$i, $i])))
-        push!(body, :($(A(i, i)) >= zero($(A(i, i))) || return zero(SVector{$N, typeof($(A(i, i)))}), $i))
-    end
-    for k in 1:(N - 1), i in (k + 1):N
-        for j in (k + 1):i
-            push!(body, :($(A(i, j)) = fma(-$(A(i, k)), $(A(j, k)) / $(A(k, k)), $(A(i, j)))))
-        end
-        push!(body, :($(X(i)) = fma(-$(X(k)), $(A(i, k)) / $(A(k, k)), $(X(i)))))
-    end
-    for i in N:-1:1
-        for j in (i + 1):N
-            push!(body, :($(X(i)) = fma(-$(X(j)), $(A(j, i)), $(X(i)))))
-        end
-        push!(body, :($(X(i)) /= $(A(i, i))))
-    end
-    return quote
-        @inbounds begin
-            $(body...)
-        end
-        return SVector($([X(i) for i in 1:N]...)), 0
-    end
-end
-
-# The units an area is read in by `_spline_lm_box`: the reference's pixel constants
-# are kept at its 1000-px calibrated area.
-const _LM_AREA_UNITS = 1000
 
 # The scale-free setting of `static_lm` on a rectangle `area` of any unit (the
 # lens's normalized plane, a pixel rectangle): the area read as
@@ -852,9 +625,16 @@ end
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
     fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
-    x, ok = static_lm(fj, x₀, lb, ub, s, maxiter, tol2)
+    stops = StaticLmStops(s; acceptance = tol2, max_iter = maxiter, cost_floor = _SPLINE_REFERENCE_COST_FLOOR,
+        residual_resolution = _spline_residual_resolution(controls, t))
+    x, ok = static_lm(fj, x₀, lb, ub, stops)
     return x, ok
 end
+
+# The residual norm a direction solve's data resolve (`StaticLmStops`' `residual_resolution`): 16 ulps of a unit
+# direction in the coarser of the controls' and the ray's precision — the target t̂ of a Float32 ray, or the directions
+# of Float32 controls, are unit vectors to eps(Float32), and no Float64 solve resolves a residual finer than that.
+@inline _spline_residual_resolution(controls, t) = 16 * Float64(max(eps(eltype(eltype(controls))), eps(float(eltype(t)))))
 
 # THE direction of a spline of direction controls over `area` at `x`, and its
 # Jacobian: `(d, n⁻¹S, ∂d/∂x, n)` (`n = ‖S‖`) from the value and partials of
@@ -914,7 +694,7 @@ end
 # be one cell of a lattice with its 4 × 4 window as `controls` (the pieces extrapolate
 # off the cell): the window a refinement holds between rebuilds.
 @inline _solved_projection(controls, area::Rect2, t::StaticVector{3}, lb, ub, s) =
-    _spline_project(controls, area, t, SVector{2, Float64}(centroid(area)), lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    _spline_project(controls, area, t, SVector{2, Float64}(centroid(area)), lb, ub, s, _STATIC_LM_MAX_ITER, _PROJECT_TOL^2)
 
 # A SplineLens's bearing at the normalized point `x` and its Jacobian (the BackwardLens
 # route of `backproject_with_jacobian`): the analytic one, NaN where the lens does not
@@ -1021,7 +801,7 @@ pinhole point `(X₁/X₃, X₂/X₃)` where the lens images that point, else fr
 backward area's centre; NaN unless it converges onto a point whose window is present.
 """
 @inline project(l::SplineLens, X::StaticVector{3}) =
-    first(_project_lens(l, X, _cold_start(l, X), _PROJECT_MAXITER, _PROJECT_TOL^2))
+    first(_project_lens(l, X, _cold_start(l, X), _STATIC_LM_MAX_ITER, _PROJECT_TOL^2))
 
 # A ray carrying ForwardDiff Duals (a pose refine's `transform_deriv`, `ForwardDiff.jacobian` of a projection): the
 # value and its partials from the SAME map. With a forward spline, that map: the ray's chart point and the forward's
@@ -1074,7 +854,7 @@ end
 # not finite where the lattice folds (no projection Jacobian exists there).
 function _spline_projections(
         l::SplineLens, rays::AbstractVector{<:StaticVector{3}}, seeds::Union{Nothing, AbstractVector{<:StaticVector{2}}};
-        iters::Int = _PROJECT_MAXITER, tol::Real = _PROJECT_TOL, device::KA.Backend = default_device(), fold::Bool = false
+        iters::Int = _STATIC_LM_MAX_ITER, tol::Real = _PROJECT_TOL, device::KA.Backend = default_device(), fold::Bool = false
     )
     seeds === nothing || length(seeds) == length(rays) || throw(ArgumentError("project: length(seeds) != length(rays)"))
     N = length(rays)

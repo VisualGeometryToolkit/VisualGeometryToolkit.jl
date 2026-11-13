@@ -53,3 +53,7 @@ Modules = [VisualGeometryToolkitCore]
 Private = false
 Pages = ["raw/sensor_model.jl", "raw/sensor_estimators.jl"]
 ```
+
+```@docs
+VisualGeometryToolkitCore.SensorSource
+```

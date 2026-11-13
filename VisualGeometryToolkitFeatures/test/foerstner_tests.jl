@@ -231,8 +231,8 @@ end
 # The Förstner study's Monte Carlo (Part 2): one dot geometry in each of n × n tiles, each with its own iid noise of
 # known σn, NEES about the tiles' empirical mean (the noise-only spread: the estimator's own bias is not the noise's)
 # and the χ²₂ 95 % coverage, at σi = 1.41 and 3. Bounds from the sampling alone, 4 standard errors at m = n² trials:
-# NEES is the mean of χ²₂ (variance 4), so ±4·2/√m; the coverage a binomial share, ±4·√(0.95·0.05/m). The suite runs
-# 16 × 16 tiles; the study's 32 × 32 (45 s on the CPU) runs with VGTK_BENCHMARK_TESTS=1.
+# NEES is the mean of χ²₂ (variance 4), so ±4·2/√m; the coverage a binomial share, ±4·√(0.95·0.05/m). The study's
+# 32 × 32 tiles (seconds on the CPU).
 @testsetup module FoerstnerMonteCarlo
 import KernelAbstractions as KA
 using Random: Xoshiro, randn
@@ -271,15 +271,6 @@ end
 end
 
 @testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin
-    n = 16
-    for (_, r) in foerstner_calibration(n, render, mc_summary)
-        @test r.m == n^2
-        @test abs(r.mean_e2 - 2) < 4 * 2 / sqrt(r.m)
-        @test abs(r.cov95_2 - 0.95) < 4 * sqrt(0.95 * 0.05 / r.m)
-    end
-end
-
-@testitem "detect_foerstner: the propagated covariance is calibrated, the study's 32 × 32 tiles" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
     n = 32
     for (_, r) in foerstner_calibration(n, render, mc_summary)
         @test r.m == n^2

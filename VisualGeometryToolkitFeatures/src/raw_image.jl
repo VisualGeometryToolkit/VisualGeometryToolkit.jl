@@ -143,9 +143,9 @@ function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecod
 end
 
 """
-    load_raw(path; mode::Symbol, gain::Real = 1, noise = nothing, white_balance = nothing,
+    load_raw(path; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
              decoder::RawDecoder = LibRawDecoder(), cache = nothing) -> LinearRaw
-    load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise = nothing, white_balance = nothing,
+    load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
              decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
 
 A camera RAW file — or a mosaic already in memory, decoded or corrected
@@ -155,7 +155,7 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
 `mode`:
 
 - `:green_cells` or `:bin2` — exact: [`load_raw_mosaic`](@ref) (for a file),
-  then Core's `LinearRaw(mosaic; mode, gain, noise)`, on the half-resolution cell grid
+  then Core's `LinearRaw(mosaic; mode, gain, sensor_model)`, on the half-resolution cell grid
   that `raw_frame_map` maps onto the raw. `:green_cells` is THE image
   for geometry and radiometry. Rounded to 16 bits
   (`round(UInt16, clamp(x, 0, 1) * 65535)`), `:bin2` equals the linear PNG of
@@ -180,12 +180,14 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
 `white_balance` is accepted with `:demosaic` only: the exact modes are camera
 raw colour, white balance 1.
 
-`noise` (the exact modes only): the frame's resolved sensor noise
-(VisualGeometryToolkitCore's `SensorNoise`, from `sensor_noise`), handed to
-Core's `LinearRaw`, the stack's one black subtraction: the noise's black level
-per channel, its dark frame's per-photosite offset when it holds one, its defect
-mask joined to `saturated`. `nothing` (the default) subtracts the file's
-per-channel black. The display demosaic is LibRaw's own and takes none.
+`sensor_model` (the exact modes only): the frame's resolved
+VisualGeometryToolkitCore `SensorModel` (from `sensor_model`), handed to Core's
+`LinearRaw`, the stack's one black subtraction: the model's black (the file's,
+per channel, or a dark frame's per photosite), its defects joined to
+`saturated`, and under a Poisson–Gaussian or relative noise each value's
+variance (an uncertain image). The absent model, `SensorModel()` (the
+default), is the file's black, bit for bit. The display demosaic is LibRaw's
+own and takes none.
 
 `cache` (a file only; a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
 decoded once per content and settings — the entry is keyed by the file's
@@ -193,59 +195,43 @@ SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
 version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
 another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
-default) decodes every call. A `noise` is part of the key by its content (its
-values, sources, dark frame and defect mask), so an entry is never served for
-another noise.
+default) decodes every call. A sensor model other than the absent one is part of
+the key by its content (Core's `content_digest`), so an entry is never served
+for another model; the absent model keeps the plain key.
 """
-function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing,
+function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
                   white_balance = nothing, decoder::RawDecoder = LibRawDecoder(), cache = nothing)
-    _check_raw_options(mode, white_balance, noise)
-    cache === nothing && return _load_raw(path, mode, gain, noise, white_balance, decoder)
+    _check_raw_options(mode, white_balance, sensor_model)
+    cache === nothing && return _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
-                    _decoder_version(decoder), (noise === nothing ? () : (_noise_digest(noise),))...)
-    return get!(() -> _load_raw(path, mode, gain, noise, white_balance, decoder), cache, key)
+                    _decoder_version(decoder), (_absent(sensor_model) ? () : (content_digest(sensor_model),))...)
+    return get!(() -> _load_raw(path, mode, gain, sensor_model, white_balance, decoder), cache, key)
 end
 
-# A resolved noise's identity for the cache key: Core's sha256_hex over its values with their sources and the bytes of
-# its maps (the dark frame's offset and variance, the defect mask), read to the host.
-function _noise_digest(noise::SensorNoise)
-    io = IOBuffer()
-    for f in (:body, :iso, :electrons_per_dn, :read_noise, :black, :reason)
-        println(io, repr(getfield(noise, f)))
-    end
-    if noise.dark !== nothing
-        d = value_of(noise.dark)
-        println(io, repr(getfield(noise.dark, :attributes)), ' ', repr(d.exposure_band), ' ', d.frames, ' ', size(d.offset))
-        write(io, Array(d.offset), Array(d.variance))
-    end
-    if noise.defects !== nothing
-        println(io, repr(getfield(noise.defects, :attributes)), ' ', size(value_of(noise.defects)))
-        write(io, Array{Bool}(value_of(noise.defects)))
-    end
-    return sha256_hex(take!(io))
-end
+# The absent sensor model (the file's black, no noise, no defects): today's image, bit for bit, whatever its reason.
+_absent(m::SensorModel) = m.black isa FileBlack && m.noise isa NoNoise && m.defects isa NoDefects
 
-# The options' rules: the white balance is the display demosaic's, the noise the exact modes'.
-function _check_raw_options(mode, white_balance, noise)
+# The options' rules: the white balance is the display demosaic's, the sensor model the exact modes'.
+function _check_raw_options(mode, white_balance, sensor_model)
     mode === :demosaic || white_balance === nothing ||
         throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
-    mode === :demosaic && noise !== nothing &&
-        throw(ArgumentError("load_raw: the display demosaic is LibRaw's, black level and all; a `noise` applies to :green_cells and :bin2"))
+    mode === :demosaic && !_absent(sensor_model) &&
+        throw(ArgumentError("load_raw: the display demosaic is LibRaw's, black level and all; a `sensor_model` applies to :green_cells and :bin2"))
     return nothing
 end
 
-function _load_raw(path, mode, gain, noise, white_balance, decoder)
-    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain, noise)
+function _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
+    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain, sensor_model)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     rgb, metadata = _decode_demosaic(decoder, String(path))
     return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
 end
 
-function load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing,
+function load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
                   white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
-    _check_raw_options(mode, white_balance, noise)
-    mode === :demosaic || return LinearRaw(mosaic; mode, gain, noise)
+    _check_raw_options(mode, white_balance, sensor_model)
+    mode === :demosaic || return LinearRaw(mosaic; mode, gain, sensor_model)
     rgb, metadata = _decode_demosaic(decoder, mosaic)
     return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
 end

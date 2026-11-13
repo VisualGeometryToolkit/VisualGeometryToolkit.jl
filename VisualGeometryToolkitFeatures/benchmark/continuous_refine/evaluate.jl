@@ -412,7 +412,7 @@ for (name, dev) in (GPU ? [(:gpu, device), (:cpu, KA.CPU())] : [(:cpu, KA.CPU())
         tc += best[1]; tr += best[2]; n += length(st)
         # CPU = GPU: the same kernels on the host, on THIS device's DoG copied over (one pyramid, two backends), and the
         # attribution of their gap: (i) the coefficients' relative difference; (ii) the GPU LM on the CPU's coefficients
-        # (one model, two LMs); (iii) both backends again with the cost floor at 0 (the LM stops only at rounding)
+        # (one model, two LMs); (iii) both backends again (Core's StaticLmStops: the cost floor is 0, the LM stops only at rounding)
         if name == :gpu
             kw = (; seed_sigma = plan.seed_sigma, S = plan.nb_scales)
             eg, wg, _ = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; kw..., cfg = CFG)
@@ -420,7 +420,7 @@ for (name, dev) in (GPU ? [(:gpu, device), (:cpu, KA.CPU())] : [(:cpu, KA.CPU())
             ec, wc, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), dogh, st; kw..., cfg = CFG)
             cg = parent(wg[1].coef); cc = parent(wc[1].coef)
             el, _, _ = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; kw..., cfg = CFG, coefficients = cc)
-            CF0 = VgtkFeatures._continuous_refinement(MODE; cost_floor = 0.0)
+            CF0 = CFG
             eg0, _, _ = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; kw..., cfg = CF0)
             ec0, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), dogh, st; kw..., cfg = CF0)
             vs[oi] = (; eg, ec, el, eg0, ec0, dcoef = maximum(abs, cg .- cc) / maximum(abs, cc))

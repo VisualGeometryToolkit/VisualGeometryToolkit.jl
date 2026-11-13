@@ -16,7 +16,7 @@ using KernelAbstractions: @kernel, @index, @Const
 # covariance, labelled, with its window centre and the classification statistic.
 const _FoerstnerDetection = Attributed{
     Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}},
-    @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_source::Symbol},
+    @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_status::Symbol},
 }
 
 """
@@ -26,7 +26,7 @@ const _FoerstnerDetection = Attributed{
                      derivative_sigma = 1.0, integration_sigma = 1.41 * derivative_sigma,
                      precision_threshold = 0.5, roundness_threshold = 0.3,
                      significance_level = 0.999) -> StructArray{<:Detection}
-    detect_foerstner([T = Float32], L::LinearRaw; noise::Union{Nothing, SensorNoise} = nothing, kwargs...)
+    detect_foerstner([T = Float32], L::LinearRaw; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner interest operator [Foerstner1987](@cite): the junction (corner)
 points and circular points of a grey image at sub-pixel precision, each with
@@ -46,11 +46,13 @@ Returns one row per optimal window, a `StructArray` of
   covariance (the reference returns no estimate for it);
 - `window`: the window centre, a `Point2`;
 - `F`: the classification statistic `Ω_corner / Ω_circular`;
-- `covariance_source`: which covariance the frame carries: the image noise
-  propagated through the detector (below) — `:propagated` for a given σₙ,
-  `:propagated_measured` / `:propagated_estimated` for a RAW's resolved
-  `SensorNoise` from a record / estimated from the frame — or `:a_posteriori`
-  (the reference's `Ω/redundancy · N⁻¹`, when no noise is known).
+- `covariance_status`: how the frame's covariance was obtained, or why there is
+  none: the image noise propagated through the detector (below) — `:propagated`
+  for a given σₙ, `:propagated_measured` / `:propagated_estimated` /
+  `:propagated_specified` for a RAW under its frame's `SensorModel`, by the
+  source of its Poisson–Gaussian noise — `:a_posteriori` (the reference's
+  `Ω/redundancy · N⁻¹`, when no noise is known), or `:unclassified` on an
+  `:unknown` row (no estimate, a NaN covariance).
 
 `filter(d -> d.label === :corner, points)` are the corners; `Ellipse(d.value; sigma = 1)`
 is a point's 1σ error ellipse (`ip_errell.m`'s default).
@@ -70,15 +72,17 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
   `noise_sigma`). The covariance is then `σₙ² J Jᵀ` (`σₙ` on the `[0, 1]` image),
   `J` the exact first-order derivative of the estimate with respect to every input
   pixel, through the detector's own doubling, derivative taps, squared gradient
-  and window estimate (step 6). On a RAW's green cells (`L::LinearRaw`, read
-  through VisualGeometryToolkitCore's `green_plane`, positions on the cell grid)
-  `noise` is the frame's resolved `SensorNoise` (`sensor_noise`): each pixel's
-  Poisson–Gaussian variance `α·x + σ²` ([`variance_stabilize`](@ref)'s model)
-  weighs its column, `Σ = J diag(α·x + σ²) Jᵀ`; a noise the resolver could not
-  give (its `reason`) leaves the a-posteriori covariance. `nothing`: no noise is known, and the covariance
+  and window estimate (step 6). `nothing`: no noise is known, and the covariance
   is the reference's a-posteriori `Ω/redundancy · N⁻¹` (step 4), marked
-  `covariance_source = :a_posteriori`; that one is not calibrated (it carries the
+  `covariance_status = :a_posteriori`; that one is not calibrated (it carries the
   model misfit, which does not scale with the noise).
+- `sensor_model` (a RAW's green cells, `L::LinearRaw`, read through
+  VisualGeometryToolkitCore's `green_plane`, positions on the cell grid): the
+  frame's resolved `SensorModel` (`sensor_model`), the one `L` was linearised
+  with. Under a Poisson–Gaussian noise (a gain) `L` carries each value's
+  variance (Core's one law), and each pixel's variance weighs its column,
+  `Σ = J diag(var) Jᵀ`; read noise alone, a relative noise or none leaves the
+  a-posteriori covariance (the owner's ruling: only a gain-carrying model is fed).
 - `noise_sigma`: the noise level of the PRECISION TEST (step 3), in grey levels
   of an 8-bit image (0–255), as the reference's for a `uint8` image;
   `σₙ = noise_sigma / 255` on the `[0, 1]` image. It defaults to `noise` when that
@@ -173,8 +177,12 @@ detect_foerstner(img::Union{AbstractMatrix, LinearRaw}; kw...) = detect_foerstne
 detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = nothing, noise_sigma::Real = something(noise, 2.0),
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
 
-detect_foerstner(::Type{T}, L::LinearRaw; noise::Union{Nothing, SensorNoise} = nothing, kw...) where {T <: AbstractFloat} =
-    _detect_foerstner(T, green_plane(L), _pixel_noise(noise, L); kw...)
+detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
+    _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
+
+# The values of a green plane: the plane itself, or an uncertain plane's value component.
+_green_values(G::AbstractMatrix{<:Real}) = G
+_green_values(G::StructArray) = components(G)[1]
 
 # The detector on the grey image `img`; `model` the pixel noise it propagates (`_pixel_noise`) or `nothing`.
 function _detect_foerstner(
@@ -202,29 +210,29 @@ function _detect_foerstner(
     )
     classes = _foerstner_classes(found, significance_level)
     model === nothing && return _foerstner_points(found, classes, _undouble)
-    α, σ², covariance_source = model
-    covariances = _propagated_covariances(device, found, classes, g, α, σ²)
-    return _foerstner_points(found, classes, _undouble; covariances, covariance_source)
+    variance, covariance_status = model
+    v = variance isa Real ? fill!(KA.allocate(device, T, size(g)...), T(variance)) : ka_upload(T, device, variance)
+    covariances = _propagated_covariances(device, found, classes, v)
+    return _foerstner_points(found, classes, _undouble; covariances, covariance_status)
 end
 
-# The pixel noise `detect_foerstner` propagates, `(α, σ², covariance_source)`: a pixel of value x has variance
-# α·x + σ² (its Poisson part clamped at 0 below the black level). `nothing`: no noise is known, the covariance is the
+# The pixel noise `detect_foerstner` propagates, `(variance, covariance_status)`: the variance of every input pixel (a
+# scalar for iid noise, else a matrix of the image's size). `nothing`: no noise is known, the covariance is the
 # a-posteriori one.
-_pixel_noise(::Nothing, img...) = nothing
+_pixel_noise(::Nothing) = nothing
 # iid noise of σn grey levels of an 8-bit image, on the [0, 1] image
 function _pixel_noise(σn::Real)
     isfinite(σn) && σn > 0 || throw(ArgumentError("detect_foerstner: the noise σ must be positive and finite, got $σn"))
-    return 0.0, (σn / 255)^2, :propagated
+    return (σn / 255)^2, :propagated
 end
-# a RAW's green cells under its resolved sensor noise (Core's `pixel_noise`, the one model); a noise the resolver could not
-# give (its `reason`) leaves the a-posteriori covariance, marked so
-function _pixel_noise(noise::SensorNoise, L::LinearRaw)
-    K, σr = noise.electrons_per_dn, noise.read_noise
-    (K === nothing || σr === nothing) && return nothing
-    (; α, σ²) = _green_noise(L, noise)
-    from_records = getfield(K, :attributes).source === :measured && getfield(σr, :attributes).source === :measured
-    return α, σ², from_records ? :propagated_measured : :propagated_estimated
-end
+# A RAW's green cells: fed only under a gain-carrying model (Poisson–Gaussian, the owner's ruling A), each pixel's
+# variance from the uncertain image the model made (Core's one law, D11); read noise alone, relative noise or none
+# leaves the a-posteriori covariance. A gain whose image carries no variances was not linearised with the model.
+_pixel_noise(::NoiseComponent, G::AbstractMatrix) = nothing
+_pixel_noise(n::PoissonGaussian, G::StructArray) =
+    map(c -> c[1], components(G)[2]), Symbol("propagated_", string(n.source))
+_pixel_noise(::PoissonGaussian, G::AbstractMatrix) = throw(ArgumentError(
+    "detect_foerstner: the sensor model has a gain but the LinearRaw holds no variances: linearise it with the same model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
 # `OnBackend`, the backend's choice of workgroup), completed before the next:
@@ -336,8 +344,8 @@ end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is
 # the reference's a-posteriori `Ω/redundancy · N⁻¹` unless `covariances` (a 4 × K matrix, column-major 2×2 on the
-# doubled grid, (row, column)) gives the propagated one; `covariance_source` names which.
-function _foerstner_points(found, classes, undouble; covariances = nothing, covariance_source::Symbol = :a_posteriori)
+# doubled grid, (row, column)) gives the propagated one; `covariance_status` names which.
+function _foerstner_points(found, classes, undouble; covariances = nothing, covariance_status::Symbol = :a_posteriori)
     (; centres, estimates, redundancy, upscale) = found
     unknown_cov = CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))
     rows = map(enumerate(centres)) do (k, p)
@@ -350,10 +358,11 @@ function _foerstner_points(found, classes, undouble; covariances = nothing, cova
         elseif class == -1
             _uncertain_point(undouble, e[8], e[9], Σ(e[10:13], e[14]), upscale)
         else
-            Uncertain(PointFrame(window), unknown_cov)   # the reference's noclass: no estimate
+            Uncertain(PointFrame(window), unknown_cov)   # the reference's noclass: no estimate (its status :unclassified)
         end
         label = class == 1 ? :corner : class == -1 ? :circular : :unknown
-        _FoerstnerDetection(frame, (; label, window, F = e[7] / e[14], covariance_source))
+        status = class == 0 ? :unclassified : covariance_status
+        _FoerstnerDetection(frame, (; label, window, F = e[7] / e[14], covariance_status = status))
     end
     return StructArray(collect(_FoerstnerDetection, rows); unwrap = T -> T <: NamedTuple)   # never `[rows...]`: a splat per point count
 end
@@ -395,12 +404,12 @@ end
 @inline _band_start(p::Integer, r::Integer) = max(1, max(p - r, 1) >> 1)
 
 # The propagated covariance of every classified window (a 4 × K host matrix, column-major 2×2 on the doubled grid,
-# (row, column); NaN for an unknown window) for independent input noise of variance α·g + σ² at the input pixel of
-# value g (`g` the input on the device), on the device of `found`, through the
+# (row, column); NaN for an unknown window) for independent input noise of variance `variance[q]` at input pixel q
+# (on the device of `found`), through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
-function _propagated_covariances(device, found, classes, g::AbstractMatrix, α, σ²)
+function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
     (; centres, ρ, gradient, taps, centre_list, device_estimates) = found
-    H, W = size(g)
+    H, W = size(variance)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
     T = eltype(device_estimates)
@@ -408,24 +417,24 @@ function _propagated_covariances(device, found, classes, g::AbstractMatrix, α, 
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient, g, centre_list, device_estimates,
-        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2), T(α), T(σ²); ndrange = K
+        _propagated_covariances!, device, out, gradient, variance, centre_list, device_estimates,
+        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
 end
 
-# One window k: Σ = Σ_q var(q) δ_q δ_qᵀ, var(q) = max(α·g[q], 0) + σ², δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
+# One window k: Σ = Σ_q variance[q] δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
 # pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
 # |p − 2q| ≤ r + 2 along each axis.
 @kernel function _propagated_covariances!(
-        out, @Const(gradient), @Const(g), @Const(centres), @Const(estimates), @Const(classes),
-        @Const(rows), @Const(columns), ρ::Int32, r::Int32, α, σ²
+        out, @Const(gradient), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
+        @Const(rows), @Const(columns), ρ::Int32, r::Int32
     )
     k = @index(Global)
     T = eltype(out)
     @inbounds class = classes[k]
     @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
-    H, W = size(g)
+    H, W = size(variance)
     w = Int(r) + 2
     Σrr = Σrc = Σcc = zero(T)
     if class == 0
@@ -456,7 +465,7 @@ end
                 s2 += ve * uc + eu * vc
             end
             δ = Ninv * SVector(s1, s2)
-            @inbounds v = max(α * g[q1, q2], zero(T)) + σ²
+            @inbounds v = variance[q1, q2]
             Σrr += v * δ[1]^2
             Σrc += v * δ[1] * δ[2]
             Σcc += v * δ[2]^2

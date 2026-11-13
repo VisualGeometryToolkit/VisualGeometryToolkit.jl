@@ -34,33 +34,31 @@
 # =============================================================================
 
 using VisualGeometryToolkitCore: ReturnCode, StopRule, successful_retcode, LeftBasin, ShapeGate, NonFinite,
-    static_lm, static_lm_termination, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
+    static_lm, static_lm_termination, StaticLmStops, RetiredKeyword, refuse_retired_keyword, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
     spline_window_sums, is_positive_definite, parse_defaults, toml_default
 
 const _CR_DEFAULTS = parse_defaults(joinpath(dirname(dirname(@__DIR__)), "configs", "continuous_refinement.toml"))
 _cr(key) = toml_default(_CR_DEFAULTS, "continuous_refinement", key)
 
 """
-    ContinuousRefinement(; prefilter_halfwidth, spatial_bound, scale_bound, min_curvature, max_iter,
-                           converged_tol2, cost_floor)
+    ContinuousRefinement(; prefilter_halfwidth, spatial_bound, scale_bound, min_curvature)
 
 The continuous DoG-extremum refinement, opt-in: `asift_detect(img; refinement = ContinuousRefinement())`
 (the detector's default, `refinement = nothing`, is today's one-step refinement). One recipe: the
 spatial gradient is Farid and Simoncelli's matched first-derivative filters on the prefiltered slices
 (IEEE TIP 2004), interpolated by the cardinal cubic spline; the scale row is the cardinal spline of the
 UNFILTERED slices, Lagrange in scale — so the prefilter sharpens the position and leaves the scale
-unbiased; the LM's Jacobian is the exact derivative of that gradient. The keywords are the bounds and
-tolerances of `_refine_dog_extremum`; every default is configs/continuous_refinement.toml's (its
-comments give each derivation). An isbits value, so a kernel takes it.
+unbiased; the LM's Jacobian is the exact derivative of that gradient. The keywords are the bounds of
+`_refine_dog_extremum`; every default is configs/continuous_refinement.toml's (its comments give each
+derivation). The LM's stop settings are VisualGeometryToolkitCore's, the stack's one owner (`StaticLmStops`,
+its `[lm]` table); `max_iter`, `converged_tol2` and `cost_floor` are retired here. An isbits value, so a
+kernel takes it.
 """
 struct ContinuousRefinement{M}
     prefilter_halfwidth::Int
     spatial_bound::Float64
     scale_bound::Float64
     min_curvature::Float64
-    max_iter::Int
-    converged_tol2::Float64
-    cost_floor::Float64
 end
 ContinuousRefinement(; kw...) = _continuous_refinement(:farid_simoncelli_spatial; kw...)
 # The refinement on response `M`: the recipe (`:farid_simoncelli_spatial`), or the plain spline response (`:spline`,
@@ -68,12 +66,14 @@ ContinuousRefinement(; kw...) = _continuous_refinement(:farid_simoncelli_spatial
 function _continuous_refinement(
         M::Symbol; prefilter_halfwidth::Integer = _cr("prefilter_halfwidth"),
         spatial_bound::Real = _cr("spatial_bound"), scale_bound::Real = _cr("scale_bound"), min_curvature::Real = _cr("min_curvature"),
-        max_iter::Integer = _cr("max_iter"), converged_tol2::Real = _cr("converged_tol2"), cost_floor::Real = _cr("cost_floor")
+        max_iter = RetiredKeyword(), converged_tol2 = RetiredKeyword(), cost_floor = RetiredKeyword()
     )
+    for (value, name) in ((max_iter, :max_iter), (converged_tol2, :converged_tol2), (cost_floor, :cost_floor))
+        refuse_retired_keyword(value, name, "VisualGeometryToolkitCore's LM stop settings, the stack's one owner (`StaticLmStops`, `[lm]`)")
+    end
     M in (:spline, :farid_simoncelli_spatial) || throw(ArgumentError("the continuous refinement's response is :farid_simoncelli_spatial or :spline, got :$M"))
     return ContinuousRefinement{M}(
-        Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature), Int(max_iter),
-        Float64(converged_tol2), Float64(cost_floor)
+        Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature)
     )
 end
 _response(::ContinuousRefinement{M}) where {M} = M
@@ -313,7 +313,7 @@ detection on the CPU and any GPU.
         (SVector{3, Float64}(gu) ./ t .* ia, SMatrix{3, 3, Float64}(Hu) ./ t .* ia, Float64(Du), SMatrix{3, 3, Float64}(Hu))
     end
     lb = lo - v0; ub = hi - v0
-    u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, t, cfg.max_iter, cfg.converged_tol2, 1.0, nothing, cfg.cost_floor)
+    u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, StaticLmStops(t))   # Core's stop settings, `t` the scale
     code, rule = static_lm_termination(ok, rule)
     if !successful_retcode(code)
         onbox = any(u .<= lb) || any(u .>= ub)

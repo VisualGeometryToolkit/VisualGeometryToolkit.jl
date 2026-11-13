@@ -1,12 +1,12 @@
 # =============================================================================
 # vgio_migrate: target/v1 → v3 and rig/v4 → v6 (and v2 → v3, v5 → v6) by the guarded pattern, the
-# measurement files re-pointed, the command, and the extension point
+# observation files re-pointed, the command, and the extension point
 # =============================================================================
 
 @testsetup module MigrateFixtures
     import VisualGeometryToolkitIO
     import VisualGeometryToolkitIO as VgtkIO
-    export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_measurements, V4_ID, ID09, current_id,
+    export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_observations, V4_ID, ID09, current_id,
         current_text, v09_tree
 
     # the IO 0.9 fixtures (test/fixtures/old/, the 0.9 current versions the
@@ -29,7 +29,7 @@
     # target_points2d.json as vgio/target_points2d/v1 held it: the same record (covariances as rows), the earlier schema token
     as_v1_points2d(text) = replace(text, "\"schema\": \"vgio/target_points2d/v2\"" => "\"schema\": \"vgio/target_points2d/v1\"")
     # rig_targets.json's identity as vgio/rig/v4 defined it, which the
-    # measurements named before the migration, and its identity now
+    # observations named before the migration, and its identity now
     const V4_ID = "a19adf2a1b6cb5d352dac3d6f1018f844cf9cf8f413ddf480539652e80957a88"
     # …its identity in IO 0.9 (the one target_points2d.json names), and its identity now (IO 0.10's re-id)
     const ID09 = "980c47d473610daa038b633cf5d4d133931699a9cafe1ee210f507b9b1c793b3"
@@ -49,9 +49,9 @@
         haskey(d, "sensors") && (d["pixel_frame"] = "colmap")
         return d
     end
-    # the measurement fixtures as they were (target_points2d naming the v4 id;
+    # the observation fixtures as they were (target_points2d naming the v4 id;
     # target_points3d names no targets)
-    function as_v4_measurements(dir)
+    function as_v4_observations(dir)
         write(joinpath(dir, "target_points2d.json"), replace(read(units_fixture("target_points2d.json"), String), ID09 => V4_ID))
         cp(units_fixture("target_points3d.json"), joinpath(dir, "target_points3d.json"))
         return joinpath(dir, "target_points2d.json")
@@ -197,7 +197,7 @@ end
     end
 end
 
-@testitem "vgio_migrate: a v4 rig, its content identity, and the measurements re-pointed" setup = [VGIoFixtures, MigrateFixtures] begin
+@testitem "vgio_migrate: a v4 rig, its content identity, and the observations re-pointed" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, TargetObservations
     mktempdir() do dir
@@ -217,7 +217,7 @@ end
         rs = vgio_migrate(sensors; out = sensors)
         @test read(sensors, String) == current_text("rig.json")
         @test load(Rig, sensors).members == load(Rig, units_fixture("rig.json")).members
-        # re-pointing: guarded, the measurements otherwise unchanged
+        # re-pointing: guarded, the observations otherwise unchanged
         ids = Dict(r.old_id => r.new_id)
         d = VgtkIO._repoint_targets(obs, ids, [r.out]; dry_run = true)
         @test d.out === nothing && d.repointed == 1 && d.unchecked == 0
@@ -387,7 +387,7 @@ end
         for name in ("target_planar.json", "target_points.json")
             old_copy(tree, name, as_v1_target)
         end
-        as_v4_measurements(tree)
+        as_v4_observations(tree)
         before = Dict(f => read(joinpath(tree, f), String) for f in readdir(tree))
         io = IOBuffer()
         @test VgtkIO._migrate_cli(["tree", tree]; io) == 0                      # a dry run
@@ -441,14 +441,14 @@ end
     mktempdir() do dir
         tree = mkpath(joinpath(dir, "tree"))
         old_copy(tree, "rig_targets.json", as_v4_rig)
-        obs = as_v4_measurements(tree)
+        obs = as_v4_observations(tree)
         # re-pointing: an identity neither mapped nor a given rig's is refused, naming the file and the id
         rig = vgio_migrate(joinpath(tree, "rig_targets.json"); out = joinpath(dir, "rig_v5.json"))
         e = try VgtkIO._repoint_targets(obs, Dict{String, String}(), [rig.out]; out = joinpath(dir, "x.json")); nothing catch e; e end
         @test e isa ArgumentError && occursin(obs, e.msg) && occursin(V4_ID, e.msg) && !isfile(joinpath(dir, "x.json"))
         rm(rig.out)
         # a tree whose run was interrupted after its rigs were migrated in place: the
-        # measurements were not seen (here: not yet .json), the map was persisted
+        # observations were not seen (here: not yet .json), the map was persisted
         mv(obs, obs * ".later")
         io = IOBuffer()
         vgio_migrate_tree(tree; in_place = true, io)
@@ -458,7 +458,7 @@ end
         out = (vgio_migrate_tree(tree; in_place = true, io); String(take!(io)))
         @test occursin("current   $(joinpath(tree, "rig_targets.json"))", out) && occursin("re-pointed  $(obs)", out)
         @test only(load(TargetObservations, obs).targets) == current_id()
-        # a measurement file naming an identity no rig of the tree has: FAILED, nothing written for it, the run an error
+        # an observation file naming an identity no rig of the tree has: FAILED, nothing written for it, the run an error
         stray = joinpath(tree, "stray.json")
         write(stray, replace(read(units_fixture("target_points2d.json"), String), ID09 => "0"^64))
         before = read(stray, String)
@@ -818,12 +818,12 @@ end
     end
 end
 
-# The order of the tree's two loops, settled: an earlier-version measurement file
+# The order of the tree's two loops, settled: an earlier-version observation file
 # naming a stale rig id is left to the re-pointing step, beside the originals too
 # (in_place = false). Were it migrated by its file form in the first loop (IO
 # 0.6.0's order), its `<stem>.migrated.json` would keep the stale id and the
 # second loop would find it already there ("already re-pointed").
-@testitem "vgio_migrate_tree: beside the originals, an earlier measurement file naming a stale rig id is re-pointed" setup = [VGIoFixtures, MigrateFixtures] begin
+@testitem "vgio_migrate_tree: beside the originals, an earlier observation file naming a stale rig id is re-pointed" setup = [VGIoFixtures, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: TargetObservations
     mktempdir() do dir

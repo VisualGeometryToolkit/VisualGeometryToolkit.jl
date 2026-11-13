@@ -121,6 +121,7 @@ cell gives an operator with no rows.
 """
 function bending_rows(mask::AbstractMatrix{Bool}; spacing = (1.0, 1.0))
     nx, ny = size(mask)
+    min(nx, ny) < 4 && return sparse(Int[], Int[], Float64[], 0, nx * ny)   # a lattice below 4 × 4 has no cell: no rows
     st = bending_stencils(nx, ny; spacing)
     I, J, V = Int[], Int[], Float64[]
     row = 0

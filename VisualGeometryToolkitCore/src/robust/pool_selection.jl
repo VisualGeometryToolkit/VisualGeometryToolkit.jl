@@ -119,34 +119,41 @@ _width_of(::LossWidth, w::Float64) = LossWidth(w)
 _width_of(::OutlierHalfwidth, a::Float64) = OutlierHalfwidth(a)
 _width_of(::EfficiencyConstant, m::Float64) = EfficiencyConstant(m)
 
-# The exact selection of a residual-quality family, pair by pair on `backend`: the score kernel
-# over the pair's models at every width, then the argmax kernel over its widths (one work item
-# per workgroup on the CPU, so it spreads the items over its threads; one warp per workgroup on a device: `OnBackend`). The kernels' inputs go to
-# `backend` through `on_device` (the host arrays themselves on the CPU) and the selections come
-# back to the host. A pair without a model selects 0.
+# The exact selection of a residual-quality family on `backend`: every pair's sorted squared residuals staged end to
+# end (`sorted_squared_residuals`, one column per model), then ONE launch of the score kernel over (pair, model) at
+# every width and ONE of the argmax kernel over (pair, width), at one item per workgroup through `OnBackend` (every
+# thread on the CPU, one warp per workgroup on a device). The staged arrays go to `backend` through `on_device` (the
+# host arrays themselves on the CPU) and the selections come back to the host. A pair without a model selects 0.
 function _select_exact!(idxs::AbstractMatrix{Int32}, backend::KA.Backend, scoring, loss_widths::Vector{Float64}, pairs, Rs)
-    T = length(loss_widths)
-    support = support_sq_loss_width(scoring, maximum(loss_widths))
-    score_models! = OnBackend(backend; workgroupsize = 1)(exact_pm_score_kernel!)
-    pick_models! = OnBackend(backend; workgroupsize = 1)(argmax_models_kernel!)
-    widths = on_device(Float64, backend, loss_widths)
-    offset = on_device(Int64, backend, Int64[0])
-    errors = device_zeros(Float64, backend, 1, T); best = device_zeros(Int32, backend, 1, T)
-    for p in eachindex(pairs)
-        n, M = Pools.num_points(pairs[p]), Pools.num_models(pairs[p])
-        if M == 0
-            idxs[p, :] .= 0
-            continue
-        end
-        flat = on_device(Float32, backend, vec(sorted_squared_residuals(pairs[p], Rs[p])))
-        scores = KA.allocate(backend, Float64, 1, M, T); fill!(scores, -Inf)
-        n_per = on_device(Int32, backend, Int32[n]); M_per = on_device(Int32, backend, Int32[M])
-        score_models!(scores, flat, offset, n_per, M_per, widths, Int32(T), Int32(0), scoring, support;
-                      ndrange = (1, M))
-        KA.synchronize(backend)
-        pick_models!(errors, best, scores, M_per, device_zeros(Float64, backend, M), offset, Int32(0); ndrange = (1, T))
-        KA.synchronize(backend)
-        idxs[p, :] .= vec(on_device(KA.CPU(), best))
+    T = length(loss_widths); P = length(pairs)
+    ns = Int32[Pools.num_points(pair) for pair in pairs]; Ms = Int32[Pools.num_models(pair) for pair in pairs]
+    M_max = P == 0 ? 0 : Int(maximum(Ms))
+    M_max == 0 && (fill!(idxs, 0); return idxs)
+    # pair p's model m reads its residuals from pair_offset[p] + (m − 1)·n_p; its (unread) error from model_offset[p] + m
+    pair_offset = zeros(Int64, P); model_offset = zeros(Int64, P)
+    for p in 2:P
+        pair_offset[p] = pair_offset[p - 1] + Int64(ns[p - 1]) * Ms[p - 1]
+        model_offset[p] = model_offset[p - 1] + Ms[p - 1]
+    end
+    flat = Vector{Float32}(undef, pair_offset[P] + Int64(ns[P]) * Ms[P])
+    Threads.@threads for p in 1:P
+        Ms[p] == 0 && continue
+        copyto!(flat, pair_offset[p] + 1, sorted_squared_residuals(pairs[p], Rs[p]), 1, Int(ns[p]) * Ms[p])
+    end
+    n_d = on_device(Int32, backend, ns); M_d = on_device(Int32, backend, Ms)
+    scores = KA.allocate(backend, Float64, P, M_max, T); fill!(scores, -Inf)
+    OnBackend(backend; workgroupsize = 1)(exact_pm_score_kernel!)(
+        scores, on_device(Float32, backend, flat), on_device(Int64, backend, pair_offset), n_d, M_d,
+        on_device(Float64, backend, loss_widths), Int32(T), Int32(0), scoring, support_sq_loss_width(scoring, maximum(loss_widths));
+        ndrange = (P, M_max))
+    errors = KA.allocate(backend, Float64, P, T); best = KA.allocate(backend, Int32, P, T)
+    OnBackend(backend; workgroupsize = 1)(argmax_models_kernel!)(
+        errors, best, scores, M_d, device_zeros(Float64, backend, model_offset[P] + Ms[P] + 1),
+        on_device(Int64, backend, model_offset), Int32(0); ndrange = (P, T))
+    KA.synchronize(backend)
+    copyto!(idxs, on_device(KA.CPU(), best))
+    for p in 1:P
+        Ms[p] == 0 && (idxs[p, :] .= 0)
     end
     return idxs
 end

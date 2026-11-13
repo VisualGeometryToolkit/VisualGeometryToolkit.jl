@@ -1224,23 +1224,36 @@ function _gauge_pixel(pixel_direction::ChartSpline{3}, rect::Rect2, present)
 end
 
 """
-    has_spline_gauge(controls::AbstractMatrix{<:StaticVector{3}}, size; calib_area, present = nothing) -> Bool
+    has_spline_gauge(controls::AbstractMatrix{<:StaticVector{3}}, size; calib_area, present = nothing,
+                     unit_controls = false) -> Bool
 
 Whether the pixel lattice of `CameraModel(SplineLens, controls, size; calib_area,
-present)` gives its own gauge `K`: whether its 4 × 4 window at the gauge's pixel
-(the pixel imaging ẑ, else the calibrated area's centre) holds only present
-nodes. Where it does not, that constructor refuses to build without a supplied
-`intrinsics`; a reader that can supply one asks this first.
+present, unit_controls)` gives its own gauge `K`: whether its 4 × 4 window at the
+gauge's pixel (the pixel imaging ẑ, else the calibrated area's centre) holds only
+present nodes. Where it does not, that constructor refuses to build without a
+supplied `intrinsics`; a reader that can supply one asks this first. The lattice
+is the constructor's own (`_spline_lattice`: the controls normalized as it does,
+NaN in the absent slots), so the two agree whatever the absent slots hold.
 """
 function has_spline_gauge(
         controls::AbstractMatrix{<:StaticVector{3}}, size::Size2;
         calib_area::GeometryBasics.HyperRectangle{2} = Rect(size),
         present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
+        unit_controls::Bool = false,
     )
+    rect, C = _spline_lattice(controls, size, calib_area, present, unit_controls)
+    return last(_gauge_pixel(ChartSpline(rect, C), rect, present))
+end
+
+# The pixel lattice of THE constructor (and of `has_spline_gauge`, which predicts its refusal): the backward rectangle
+# of the calibrated area, and the controls as Float64, each normalized under `unit_controls`, NaN in the absent slots
+# (a debugging aid, read by nothing).
+function _spline_lattice(controls, size::Size2, calib_area, present, unit_controls::Bool)
     gh, gw = Base.size(controls)
     rect, _ = _spline_layout(size, (gw, gh), calib_area)
-    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(v), controls))
-    return last(_gauge_pixel(ChartSpline(rect, C), rect, present))
+    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
+    present === nothing || (C = _absent_nan(C, present))
+    return rect, C
 end
 
 # The K a SplineLens camera built from `source` keeps: a camera's own (checked by
@@ -1357,10 +1370,7 @@ function CameraModel(
         present::Union{Nothing, AbstractMatrix{Bool}} = nothing,
         unit_controls::Bool = false,
     )
-    gh, gw = Base.size(controls)
-    rect, _ = _spline_layout(size, (gw, gh), calib_area)
-    C = Matrix{SVector{3, Float64}}(map(v -> SVector{3, Float64}(unit_controls ? _unit_or_normalize(v) : v), controls))
-    present === nothing || (C = _absent_nan(C, present))   # NaN in the absent slots: a debugging aid, read by nothing
+    rect, C = _spline_lattice(controls, size, calib_area, present, unit_controls)
     intrinsics === nothing || _check_spline_gauge(intrinsics)   # before the lattice is laid under it
     K = intrinsics === nothing ? _spline_gauge(ChartSpline(rect, C), rect, present) : intrinsics
     return _spline_camera(K, rect, C; present)
@@ -1416,7 +1426,8 @@ The poses turn with the frame.
   `(R·R_p, R·t)`, its frame tags kept (the third form). Every projection is
   then kept.
 - A posed camera turns its extrinsics with its model.
-- A bounded camera keeps its image and lens coverage.
+- A bounded camera keeps its image and lens coverage, and turns its camera as
+  above: a posed one's model and extrinsics together.
 
 A spline that is never gauged this way keeps its source's ẑ: one read from a
 record, or one built by `CameraModel(SplineLens, source, size)`.

@@ -194,7 +194,7 @@ result's estimate is concrete and simply mapped.
 function map_estimate(f, r::FitResult{P, R}) where {P, R}
     E = estimate(r)
     Nothing <: P || return FitResult(f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
-    N = Base.promote_op(f, P)
+    N = Base.promote_op(f, Base.nonnothingtype(P))   # f's image of the present model (f needs no `nothing` method)
     return FitResult{Union{N, Nothing}, R}(E === nothing ? nothing : f(E), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 

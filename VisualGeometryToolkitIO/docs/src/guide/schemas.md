@@ -29,7 +29,7 @@ Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
 rig v9; cameras and target v5; transforms and trajectory v4;
 target_poses, target_points2d, target_points3d and target_detections v2;
 noncentral_spline, target_homographies, capture_settings, calibration, vignetting,
-environment_light and blur v1; and
+environment_light, blur and panorama v1; and
 v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 

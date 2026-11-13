@@ -387,13 +387,16 @@ function bayer_plane_map(m::RawMosaic, k::Integer)
     return _sample_map(_cell_grid_map(m), Val(bayer_channels(m)[k]), _site_offset(k))
 end
 
-# The levels of the four channels of `channelview(m)`, in the channels' order: each channel's black level (`m.black`
-# of its colour index) and its span `white − black`, the codes that run from 0 to 1 — the constants the cell kernel and
-# `linearview` read, computed once per mosaic. Private: the public linear values are `linearview(m)`, and the levels
-# themselves are the mosaic's fields, `m.black` (per colour index) and `m.white`.
-function _bayer_levels(m::RawMosaic)
+# The levels of the four channels of `channelview(m)`, in the channels' order: each channel's black level (`black`
+# of its colour index: the mosaic's own `m.black`, or a resolved SensorNoise's, sensor_noise.jl's `_noise_levels`) and
+# its span `white − black`, the codes that run from 0 to 1 — the constants the cell kernel and `linearview` read,
+# computed once per mosaic. Private: the public linear values are `linearview(m)`, and the levels themselves are the
+# mosaic's fields, `m.black` (per colour index) and `m.white`.
+function _bayer_levels(m::RawMosaic, black_by_colour::NTuple{4, Float64} = m.black)
+    all(<(m.white), black_by_colour) ||
+        throw(ArgumentError("the Bayer levels: every black level must be below the white level $(m.white), got $black_by_colour"))
     cell = _cell_colors(m, "the Bayer levels")
-    black = ntuple(k -> m.black[cell[k] + 1], Val(4))
+    black = ntuple(k -> black_by_colour[cell[k] + 1], Val(4))
     return (black, ntuple(k -> m.white - black[k], Val(4)))
 end
 
@@ -417,31 +420,36 @@ The lazy linear view of a mosaic's photosites on the raw grid,
 [`linearview`](@ref)`(m)`: element `(i, j)` is the linear value of the
 held array's code there, with its channel's black level and span, computed when
 read. It holds the photosites (`parent`, the mosaic's held array, a device array
-too) and the four channels' levels; `similar`, a broadcast and `copy` are the
+too), the four channels' levels and, from a resolved noise, the dark offset map
+over the visible raw (`dark`, on the same device; `nothing` without one) read at
+the mosaic's `window_origin`; `similar`, a broadcast and `copy` are the
 held array's kind (a broadcast over a device view runs on the device),
 `adapt` moves it, and a KernelAbstractions kernel reads it as it is (its
-indexing is two parities and one linearisation).
+indexing is two parities, the one black rule and one linearisation).
 """
-struct LinearRawView{A <: AbstractMatrix} <: AbstractMatrix{Float64}
+struct LinearRawView{A <: AbstractMatrix, D <: Union{Nothing, AbstractMatrix{Float32}}} <: AbstractMatrix{Float64}
     raw::A
     black::NTuple{4, Float64}
     span::NTuple{4, Float64}
+    dark::D
+    origin::NTuple{2, Int}
 end
 Base.size(v::LinearRawView) = size(v.raw)
 Base.parent(v::LinearRawView) = v.raw
 Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
 Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
     k = _quad_site(i, j)
-    return _linear_value(v.raw[i, j], v.black[k], v.span[k])
+    return _linear_value(v.raw[i, j], _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]), v.span[k])
 end
 Base.similar(v::LinearRawView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
 Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{A}}) where {A} = Base.Broadcast.BroadcastStyle(A)
 Base.copy(v::LinearRawView) = identity.(v)
-Adapt.adapt_structure(to, v::LinearRawView) = LinearRawView(Adapt.adapt(to, v.raw), v.black, v.span)
+Adapt.adapt_structure(to, v::LinearRawView) =
+    LinearRawView(Adapt.adapt(to, v.raw), v.black, v.span, v.dark === nothing ? nothing : Adapt.adapt(to, v.dark), v.origin)
 ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
 
 """
-    linearview(m::RawMosaic) -> LinearRawView
+    linearview(m::RawMosaic; noise = nothing) -> LinearRawView
 
 The mosaic's linear values on the raw grid, lazily, as ImageCore's
 `normedview` reads codes as numbers without a copy: element `(i, j)` is
@@ -461,10 +469,17 @@ levels, nor a `MappedArrays.mappedarray` of the codes, whose function sees the
 value alone: the black level and span depend on the photosite's position (its
 colour in the phase), so the view reads its index — one parity rule, the cell
 sites' (`k = di + 2dj + 1`).
+
+`noise`, a resolved [`SensorNoise`](@ref) (or `nothing`), sets the levels as it
+does [`LinearRaw`](@ref)'s, by the same resolution: its per-colour-index black
+when it holds one (the span `white − black[c]`), and its dark offset in place
+of the black per photosite when it holds a dark frame. Its defect mask is not a
+value: it joins `LinearRaw`'s mask, not this view. With `noise = nothing` the
+view is the mosaic's own levels, as before.
 """
-function linearview(m::RawMosaic)
-    black, span = _bayer_levels(m)
-    return LinearRawView(parent(m), black, span)
+function linearview(m::RawMosaic; noise = nothing)
+    black, span, dark, _ = _noise_levels(m, noise, KA.get_backend(parent(m)))
+    return LinearRawView(parent(m), black, span, dark, m.window_origin)
 end
 
 """
@@ -496,7 +511,9 @@ ImageCore.channelview(v::SaturationView) = _cell_channels(v)
 The mosaic's saturation flags on the raw grid, lazily: `true` at a photosite
 whose code is at or above the white level, `raw ≥ white` with no margin — THE
 saturation rule, the one [`LinearRaw`](@ref)'s flags apply per cell (a cell is
-flagged when any photosite its planes read is). The `Bool` match of
+flagged when any photosite its planes read is; with a resolved noise LinearRaw also
+masks its defects: `saturationview(m) .| value_of(noise.defects)` is that photosite
+mask). The `Bool` match of
 [`linearview`](@ref)`(m)`: the same grid, and `channelview` of it is the flags
 channel-first. A mask of the usable photosites of one colour is a plain
 broadcast with [`photosite_colors`](@ref):

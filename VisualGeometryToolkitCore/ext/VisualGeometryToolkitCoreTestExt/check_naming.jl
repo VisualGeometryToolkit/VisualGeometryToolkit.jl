@@ -1498,7 +1498,7 @@ function _name_rules(name::AbstractString, kind::Symbol, fits::Set{String}; juli
         end
     end
     # rule 14: the terminology taxonomy's retired words, in any binding; "measured" a value only
-    lw = lowercase.(words)
+    lw = push!(lowercase.(words), join(lowercase.(words)))   # each word, and the name joined (a term split across words: `KeyPoint`, `key_point`)
     (any(w -> any(t -> occursin(t, w), _RETIRED_TERMS), lw) ||
      (kind !== :symbol && any(w -> occursin(_PROVENANCE_ONLY, w), lw))) && push!(rules, :R14)
     # rule 10: an abbreviation is never a binding; a letter is not a TOML key
@@ -1617,7 +1617,7 @@ or as a field of a type outside those roots, cannot be told from a loop index or
 another quantity by syntax and is not flagged; neither is a quoted single
 letter (`:k`) or a letter used as a dict key (a lens coefficient `"k"` is one).
 Rule R12: the Student-t + uniform scorer has no threshold. That word (the
-whole token, not a compound name that holds it) within six tokens of the
+whole token, in any case and the plural too, not a compound name that holds it) within six tokens of the
 scorer's type name or
 its TOML tag (`_STUDENT_T_ANCHORS`) is flagged in every file but a
 changelog — code, comments, docs and configuration alike. Limits: a sentence
@@ -1632,7 +1632,8 @@ name.
 
 Rule R13: the one parameter-holding keyword is `fixed`. `free`, `fix`,
 `fixed_params` and `hold` as a KEYWORD of a fit, refine or target call or
-signature, or as a key of a refine/target/LM TOML table, are flagged; the bare
+signature (typed or not, with a default or without), or as a key of a
+refine/target/LM TOML table (at its line in that table), are flagged; the bare
 word (comments, locals, fields, other functions) is not (see `_fixed_keyword_rules!`).
 """
 function check_naming(pkgdir::AbstractString)
@@ -1752,7 +1753,7 @@ end
 # Its one width is `outlier_halfwidth` (the half-width of the uniform outlier
 # component); a threshold is a threshold scorer's (RANSAC, MSAC, the loss-width
 # families). The word `threshold` — the whole token, not a compound name that
-# holds it — within
+# holds it, in any case and the plural too — within
 # `_STUDENT_T_WINDOW` tokens of the scorer's type or TOML tag, in code, comments,
 # docs or config alike, misnames that half-width.
 const _STUDENT_T_ANCHORS = ("StudentTUniformScoring", "student_t_uniform")
@@ -1762,7 +1763,7 @@ function _student_t_threshold_rules!(out, f, src::AbstractString)
     toks = collect(eachmatch(r"[\p{L}\p{N}_!]+", src))
     anchors = findall(m -> m.match in _STUDENT_T_ANCHORS, toks)
     for (i, m) in enumerate(toks)
-        m.match == "threshold" && any(j -> abs(j - i) <= _STUDENT_T_WINDOW, anchors) || continue
+        lowercase(m.match) in ("threshold", "thresholds") && any(j -> abs(j - i) <= _STUDENT_T_WINDOW, anchors) || continue
         push!(out, NamingViolation(f, count(==('\n'), SubString(src, 1, prevind(src, m.offset))) + 1, m.match, :R12))
     end
     return out
@@ -1807,6 +1808,8 @@ function _r13_keywords!(acc, ex, line::Int)
                     name in _R13_SPELLINGS && !_r13_refusal(k.args[2]) && push!(acc, (name, line))
                 elseif k isa Symbol && Meta.isexpr(a, :parameters) && k in _R13_SPELLINGS
                     push!(acc, (k, line))       # `f(x; free)`
+                elseif Meta.isexpr(k, :(::)) && Meta.isexpr(a, :parameters) && k.args[1] in _R13_SPELLINGS
+                    push!(acc, (k.args[1], line))   # a typed keyword with no default, `f(x; free::Tuple)`
                 end
             end
         end
@@ -1831,7 +1834,10 @@ function _fixed_keyword_rules!(out, f, src::AbstractString, parsed)
         doc, lines = toml
         _walk_toml(doc) do d, k, path, _table
             if Symbol(k) in _R13_SPELLINGS && (occursin(_R13_TABLES, path) || haskey(d, "lens"))
-                line = something(findfirst(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines), 1)
+                # the key's line in ITS table: the first `k =` after the table's header (`[path]` or `[[path]]`)
+                header = isempty(path) ? nothing :
+                    findfirst(l -> occursin(Regex("^\\s*\\[\\[?\\s*\\Q" * path * "\\E\\s*\\]"), l), lines)
+                line = something(findnext(l -> occursin(Regex("^\\s*" * k * "\\s*="), l), lines, something(header, 0) + 1), 1)
                 push!(out, NamingViolation(f, line, k, :R13))
             end
         end

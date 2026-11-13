@@ -300,3 +300,31 @@ end
     end
     @test n_points == 36
 end
+
+# A log-domain radial field has the radial profile's centre parameter: `with_center` moves it, and `center_gradient` is
+# the chain rule `V(u)·∂(log V)/∂c` (ForwardDiff's exp of a Dual: the product, one rounding), against central differences
+# as the radial profile's own gradient is (the item above); a tensor-product field, with no centre parameter, keeps zero.
+@testitem "vignetting: the centre of a log-domain radial field" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: RadialVignetting, LogVignetting, TensorProductVignetting, Rect, with_control_points,
+        center, with_center, center_gradient, radial_chart
+    for chart in (:linear, :projective)
+        s = with_control_points(RadialVignetting(17, SVector(2128.0, 1424.0), 2560.5; chart), [-0.05 * i for i in 0:16])
+        v = LogVignetting(s)
+        c = SVector(2100.0, 1500.0)
+        @test with_center(v, c) isa LogVignetting && center(with_center(v, c)) == c && radial_chart(with_center(v, c)) == chart
+        @test with_center(v, c)(SVector(10.0, 20.0)) == exp(with_center(s, c)(SVector(10.0, 20.0)))
+        for u in (SVector(100.0, 200.0), SVector(3000.0, 2000.0), SVector(2128.3, 1423.8))
+            g = center_gradient(v, u)
+            @test g ≈ v(u) .* center_gradient(s, u) rtol = 2eps()
+            h = 1e-3; c0 = center(v)
+            fd = SVector((with_center(v, c0 + SVector(h, 0.0))(u) - with_center(v, c0 - SVector(h, 0.0))(u)) / 2h,
+                         (with_center(v, c0 + SVector(0.0, h))(u) - with_center(v, c0 - SVector(0.0, h))(u)) / 2h)
+            @test g ≈ fd rtol = 1e-5 atol = 1e-12
+            @test any(!iszero, g)
+        end
+    end
+    @test center_gradient(LogVignetting(TensorProductVignetting((4, 4), Rect(0, 0, 400, 300); degree = 2)), SVector(10.0, 20.0)) ==
+          zeros(SVector{2, Float64})
+end

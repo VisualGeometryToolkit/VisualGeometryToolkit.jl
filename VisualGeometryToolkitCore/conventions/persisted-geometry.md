@@ -21,7 +21,7 @@ rigid transform), stores uncertainty exactly as the in-memory type states it:
 - **An absent covariance is stated by its producer.** A record whose producer has no
   finite covariance omits the key and states a per-record `covariance_status` (for
   example `"unrefined"`) with its reason. A `null` covariance is refused, and a reader
-  never substitutes a default for an omitted one (the producer owns its measurement
+  never substitutes a default for an omitted one (the producer owns its observation
   policy).
 - A reader returns the matching type, so a value round-trips exactly, type included.
 - A precision-form `Uncertain` (`PrecMat`) is written as its covariance and read back

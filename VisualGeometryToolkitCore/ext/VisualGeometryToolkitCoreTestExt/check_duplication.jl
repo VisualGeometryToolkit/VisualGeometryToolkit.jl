@@ -188,7 +188,11 @@ _entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k i
 # dispatch pair on a CPU and a GPU type, and two names that differ only by a
 # CPU/GPU marker are each a duplicate. The transfer and allocation helpers
 # (an upload or download, a zero array, an allocation, a synchronization, a
-# device query) are the backends' own and are left alone, by their names.
+# device query) are the backends' own and are left alone, by their WHOLE names:
+# every `_`-separated token of the name (its leading `_` and trailing `!`
+# dropped) is a word of `_HELPER_TOKENS`. A fragment is not enough —
+# `fill_sqrt_weights!`, `transfer_ellipse`, `_copy_sq_distances!` and
+# `cones` compute, so their backend tests are checked.
 # Like the retired patterns, the tests are built from fragments.
 
 const _KA = "(KA\\.|KernelAbstractions\\.)?"
@@ -197,7 +201,10 @@ const _BACKEND_TEST = Regex("\\bisa\\s+" * _KA * "(CPU|GPU)\\b|get_backend\\s*\\
                             "\\bisa\\s+" * _GPU_ARRAYS * "\\b|(===?|!==?)\\s*" * _KA * "CPU\\(\\)")
 const _CPU_SIGNATURE = Regex("::\\s*" * _KA * "CPU\\b")
 const _GPU_SIGNATURE = Regex("::\\s*" * _KA * "(GPU|Backend)\\b|::\\s*" * _GPU_ARRAYS * "\\b")
-const _TRANSFER_NAMES = r"(upload|download|to_host|to_device|on_device|zeros|ones|fill|allocat|synchroni[sz]e|adapt|copy|transfer|device_names|free_bytes|reclaim|default_device)"
+const _HELPER_TOKENS = Set(["upload", "download", "to", "on", "host", "device", "devices", "zeros", "ones", "fill", "allocate",
+                            "synchronize", "synchronise", "adapt", "structure", "storage", "copy", "copyto", "transfer",
+                            "names", "free", "bytes", "reclaim", "default", "buffer", "buffers", "ka", "memory"])
+_is_helper_name(name) = all(in(_HELPER_TOKENS), split(rstrip(lstrip(_bare_name(name), '_'), '!'), '_'; keepempty = false))
 # a CPU/GPU marker: the suffix pairs and the prefix pair, and `_cuda` beside the plain name
 const _TWIN_SUFFIXES = (("_cpu", "_gpu"), ("_host", "_device"))
 const _TWIN_PREFIXES = (("cpu_", "gpu_"),)
@@ -241,7 +248,7 @@ function _backend_violations(files, entries)
             first_line = _JS.source_line(node)
             last_line = first_line + count(==('\n'), _JS.sourcetext(node))
             get!(names, _bare_name(name), (label, first_line))
-            occursin(_TRANSFER_NAMES, name) && continue
+            _is_helper_name(name) && continue
             sig = _signature_text(node)
             occursin(_CPU_SIGNATURE, sig) && push!(get!(sigs, name, Tuple{String, Int, Symbol}[]), (label, first_line, :cpu))
             occursin(_GPU_SIGNATURE, sig) && push!(get!(sigs, name, Tuple{String, Int, Symbol}[]), (label, first_line, :gpu))
@@ -265,14 +272,16 @@ function _backend_violations(files, entries)
     # twin names
     twins = Tuple{String, String}[]
     for n in keys(names)
-        occursin(_TRANSFER_NAMES, n) && continue
+        _is_helper_name(n) && continue
+        # by characters, not bytes: a name may be non-ASCII (`θ_cpu`)
         for (a, b) in _TWIN_SUFFIXES
-            endswith(n, a) && haskey(names, n[1:(end - length(a))] * b) && push!(twins, (n, n[1:(end - length(a))] * b))
+            endswith(n, a) && haskey(names, chop(n; tail = length(a)) * b) && push!(twins, (n, chop(n; tail = length(a)) * b))
         end
         for (a, b) in _TWIN_PREFIXES
-            startswith(n, a) && haskey(names, b * n[(length(a) + 1):end]) && push!(twins, (n, b * n[(length(a) + 1):end]))
+            startswith(n, a) && haskey(names, b * chop(n; head = length(a), tail = 0)) &&
+                push!(twins, (n, b * chop(n; head = length(a), tail = 0)))
         end
-        endswith(n, "_cuda") && haskey(names, n[1:(end - 5)]) && push!(twins, (n[1:(end - 5)], n))
+        endswith(n, "_cuda") && haskey(names, chop(n; tail = 5)) && push!(twins, (String(chop(n; tail = 5)), n))
     end
     for (a, b) in twins
         i = findfirst(e -> Set(String.(e["names"])) == Set([a, b]), entries["twin"])

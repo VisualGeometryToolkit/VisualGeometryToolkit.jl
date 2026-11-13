@@ -40,3 +40,14 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
   Estimation refine_camera.jl:178/182, found BEFORE (job 14318: 2 findings), gone against Estimation 0.10.3 with RC
   unchanged (job 14319: 0) and AFTER RC's change (job 14322: 0): docs-pass.md, verbatim.
 - [x] check_duplication: 0 findings on all six (gate prep 14112).
+
+## Eval 0.7.4 (patch-eval074): a registered install is committed code, 2026-11-13
+
+- [x] ONE decision of a path's code tree: `code_trees` (code_identity.jl), which `refuse_uncommitted_code`, the runner
+  and every driver record (`_recorded_code_trees`) already go through; the registered install is a branch of it, no
+  second code path (7271049c, 4209e867).
+- [x] ONE source of a registered install's tree hash: the active environment, through Pkg's API (`Pkg.dependencies()`:
+  name, version, uuid, tree_hash); no hand-parsed Manifest for it. Searched by concept: Core's sync_manifest.jl:56 reads
+  `Pkg.dependencies()` for direct dependencies' versions (another question: a Manifest's sync), and the Manifest
+  `git-tree-sha1` of a loaded stack package stays `code_trees`' own (code_identity.jl `_loaded_entries`).
+- [x] check_duplication 0, check_naming 0, check_splat 0 on Eval 0.7.4 (gate prep 14587).

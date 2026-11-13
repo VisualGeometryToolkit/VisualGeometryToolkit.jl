@@ -1,3 +1,46 @@
+docs-pass: 4209e867
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: a bug fix in the code identity of a run)
+
+# Eval 0.7.4 docs pass (julia-docs-pass) — patch-eval074
+
+A run of record whose `gitpath` is a REGISTERED install (PanoramaStitching's example: `cached_result(…; gitpath =
+pkgdir(PanoramaStitching))`, run from a registered install, no git checkout) was refused as "no git checkout".
+`code_trees` now identifies such a directory by the tree hash the active environment records for it
+(`Pkg.dependencies()`: name, version, uuid, git-tree-sha1). Baseline: main 2a5838ae (Core 0.9.7, Estimation 0.10.3,
+Eval 0.7.3).
+
+## 1. Public API since the baseline
+
+None changed: `code_trees`, `refuse_uncommitted_code` and `write_provenance` keep their signatures. A registered
+`workdir` is recorded under its package name (`"<git-tree-sha1> <name> <version> <uuid>"`), its project path is that
+name, and its stack packages are those of the active project's environment. Internal: `_registered_install`.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `code_trees`' docstring names the registered install; docs/src/reproduce.md lists it among the identities and narrows the refusal to code in no git checkout that is no registered install (accedc52) |
+| CHANGELOG | Eval 0.7.4 |
+| versions | Eval 0.7.4; every other package as on main |
+| in-repo compat | unchanged (Eval's Core "0.9.5", Estimation "0.10.1" and IO "0.9.3" admit General's Core 0.9.6 and Estimation 0.10.2: 0.7.4 does not wait on Core 0.9.7 / Estimation 0.10.3) |
+
+## 3. Executed on the release candidate
+
+Gate on 4209e867 (~/logs/dgx-agent/scripts/w10-est-eval, `NICE=0 BR=patch-eval074 GATE_PKGS=VisualGeometryToolkitEval`;
+General 665b2de2763; jobs 14587 prep, 14588 CPU, 14589 docs). Julia 1.13.3. Prep: registration_lint 0 errors 0 warnings,
+agent_docs 0, floor_compat --latest, audit_manifests, check_duplication 0, check_naming 0, check_splat 0. Eval's CPU groups
+2917 / 2917 (6 groups), docs green.
+
+The first candidate, 7271049c (jobs 14538–14540), failed one test: quality: JET, `dirname(::Nothing)` on
+`Base.active_project()` behind an `&&`. 4209e867 binds it to a local before the `nothing` test. The new test
+(experiments_data: `code_trees(pkgdir(StableRNGs))`, a registered depot install, accepted with its tree hash, and
+`write_provenance(…; gitpath = pkgdir(StableRNGs))` recorded) passes, as do the unchanged refusals of a dirty checkout
+and of a path in no git checkout, and a clean checkout's git tree.
+
+The release-records commit on top changes only .release/; its docs build is run again on it.
+
+---
+
 docs-pass: 54447cd7
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change)
 

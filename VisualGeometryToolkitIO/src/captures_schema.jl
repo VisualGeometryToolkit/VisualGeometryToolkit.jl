@@ -478,7 +478,7 @@ _observations_frame_spec(d::Int, required::Vector{Symbol}) = _CheckedSpec(
         Pair{Symbol, _Spec}[:frame_index => _Int(), _stamp_specs(required)[1]..., :observations => _Vec(_observation_set_spec(d))],
         _stamp_specs(required)[2],
     ),
-    f -> _unique_check([get(r, :target, "") for r in f[:observations]], "the targets of a frame"),
+    f -> _unique_check([r[:target] for r in f[:observations] if haskey(r, :target)], "the targets of a frame"),
 )
 # The entity a set names agrees with the file's `entity`: a target point's set
 # names its `target`, a landmark's does not.

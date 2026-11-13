@@ -207,6 +207,7 @@ export canonical_map, logpolar_map, logpolar_to_cartesian
 export dilate, intersects
 # Pointwise maps over arrays: one KernelAbstractions kernel on every backend, the CPU's included.
 export pointwise!
+public pointwise_kernel   # the one launch pointwise! makes, unlaunched: (kernel, args, ndrange), for device_resident_threads
 public OnBackend   # the stack's one kernel-launch policy: a kernel instantiated on a given backend value (its compiler options kept), its workgroup per backend
 # Iterative Cox–de Boor B-spline kernels (0.14; hoisted from
 # RayTracedCalibration): broadcast-fused basis/surface/4D evaluation with

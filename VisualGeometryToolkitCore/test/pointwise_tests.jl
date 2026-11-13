@@ -211,3 +211,47 @@
         end
     end
 end
+
+# The launch pointwise! makes, unlaunched (0.9.9): the same kernel and arguments, so a launch of the triple writes the same bits,
+# and device_resident_threads of it counts that kernel (a functor passed as its fields, and one passed whole).
+@testitem "pointwise_kernel: the one launch pointwise! makes, for device_resident_threads" begin
+    using Test
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: pointwise!, pointwise_kernel, device_resident_threads, OnBackend
+    struct Affine{A, B}      # splattable: its fields reach the kernel as arguments
+        a::A
+        b::B
+    end
+    (f::Affine)(x) = f.a * x + f.b
+    struct VecAffine         # not splattable (a Vector field): passed whole
+        w::Vector{Float64}
+    end
+    (f::VecAffine)(x) = f.w[1] * x + f.w[2]
+    x = collect(range(-2.0, 3.0; length = 1001))
+    for f in (Affine(1.5, -0.25), VecAffine([1.5, -0.25]))
+        y = pointwise!(f, similar(x), x)
+        k, a, n = pointwise_kernel(f, similar(x), x)
+        @test k isa KA.Kernel && n == size(x)
+        k(a...; ndrange = n)
+        @test a[1] == y && a[1] == f.(x)                    # the same bits as pointwise! and the per-point map
+        @test device_resident_threads(k, a...; ndrange = n) == Threads.nthreads()
+    end
+    @test_throws DimensionMismatch pointwise_kernel(Affine(1.0, 0.0), zeros(3), zeros(4))
+    using CUDA: CUDA
+    if CUDA.functional()
+        dev = CUDA.CUDABackend(; always_inline = true)
+        xd = CUDA.CuArray(x)
+        sms = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+        raw = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR) * sms
+        f = Affine(1.5, -0.25)
+        yd = pointwise!(f, similar(xd), xd; exec = OnBackend(dev)); KA.synchronize(dev)
+        k, a, n = pointwise_kernel(f, similar(xd), xd; exec = OnBackend(dev))
+        k(a...; ndrange = n); KA.synchronize(dev)
+        @test Array(a[1]) == Array(yd) == f.(x)
+        r = device_resident_threads(k, a...; ndrange = n)
+        @test 0 < r <= raw
+        # the count is of THIS kernel: the same as for its instance built by hand on the same backend and arguments
+        @test r == device_resident_threads(OnBackend(dev)(VisualGeometryToolkitCore._POINTWISE_FIELDS_KERNELS[3]), a...; ndrange = n)
+    end
+end

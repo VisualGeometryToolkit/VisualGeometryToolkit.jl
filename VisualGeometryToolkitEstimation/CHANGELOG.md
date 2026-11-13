@@ -1,5 +1,14 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.10.3 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.7 (`[compat]` VisualGeometryToolkitCore "0.9.7"). No API change, no result
+changes.
+
+- **Internal: `refine_camera`'s lens regression reduces through Core's launch-and-reduce**
+  (`reduce_normal_equations(row!, …)`, `reduce_cost(row!, …)`), its own launch-then-reduce pair deleted; the same bits
+  (tested against 0.10.2's two calls).
+
 ## 0.10.2 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.6 (`[compat]` VisualGeometryToolkitCore "0.9.6"). No API change; no result

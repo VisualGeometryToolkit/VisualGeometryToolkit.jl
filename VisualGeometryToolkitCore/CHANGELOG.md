@@ -1,5 +1,15 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.7 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New methods: `reduce_normal_equations(row!, Val(N), args...; partials)` and `reduce_cost(row!, args...; partials)`**
+  — a device LM state's launch and reduction in one call: `row!(partials, w, args...)` for every work item as one
+  kernel on `partials`' backend (the stack's one row launch, KernelAbstractions on every backend), then the existing
+  reduction of the partial sums. The one copy of the launch-then-reduce pair VisualGeometryToolkitEstimation's lens
+  regression and RadiometricCamera's radiometry LM each wrote; `partials` is the caller's scratch (a keyword).
+
 ## 0.9.6 (unreleased)
 
 A patch: two bug fixes, and two new public names (additive).

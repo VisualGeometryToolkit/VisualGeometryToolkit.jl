@@ -286,7 +286,8 @@ function post_iteration!(state::PosteriorIrlsState{M}, method::PosteriorIrlsMeth
     state.best = _with_cost(M, θ, nll)
     return nothing
 end
-stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel}) = StopWhenNoImprovement(1, 1)
+# (the incumbent's rule: a parameter change, held model or not, is the method below — one method each, no ambiguity)
+stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel, NoImprovementStop}) = StopWhenNoImprovement(1, 1)
 
 # The termination record's rule (§14) of a run its stop rule ended `:converged`, by the
 # configured stop and model update — the ONE map: the parameter change; the incumbent's
@@ -305,7 +306,6 @@ end
 # The parameter-change rule: its criterion, and the LAST iterate as the result (on
 # `:solve_failed`, the last model the model block produced).
 stopping_criterion(m::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
-stopping_criterion(m::PosteriorIrlsMethod{<:Any, KeepModel, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
 block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter) =
     lo_estimate(θ, stop_reason, _stop_rule(method); iterations = final_iter)
 

@@ -118,7 +118,8 @@ the reprojection error per point in pixels). Here:
   `X => u` in order)
 - `s2::Float64` — the variance factor `RSS/dof` (≈1 for the fit when
   `σ_rot`/`σ_trans` match the data; the pixel variance for the refinement);
-  `dof::Int` — the rows minus `6(M + 1)`
+  `dof::Int` — the rows minus `6(M + 1)` (a robust estimate's: the weighted rows; with
+  none left, `dof = 0`, `s2 = NaN` and `cov` unbounded)
 - `cov::Matrix{Float64}` — the joint covariance of the estimate in (rad,
   translation-unit) tangent coordinates at it, block order `[Y | X_{ids…}]`,
   each block `(δω, δt)` in the left-perturbation chart `exp(δω)·R, t + δt` (VGC
@@ -208,11 +209,14 @@ function _robot_world_hand_eye_result(
         dof_w = w * sum_w - N
         round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), used
     end
-    s2 = strategy === nothing ? RSS / dof : RSS / max(w * sum(weights) - N, eps())
+    # no degrees of freedom left (a redescending loss that zeroes most rows: 6Σw ≤ N): no variance factor, no covariance
+    dof_left = strategy === nothing ? dof > 0 : w * sum(weights) - N > 0
+    s2 = !dof_left ? NaN : strategy === nothing ? RSS / dof : RSS / (w * sum(weights) - N)
+    dof = dof_left ? dof : 0
     λ_min, v_min, cov = if all(isfinite, J)
         F = svd(J)                                    # singular values descending: JᵀJ's eigenpairs
         λ = F.S .^ 2
-        C = λ[end] > _ROBOT_WORLD_HAND_EYE_RANK_RTOL * λ[1] ? covariance(s2) : nothing
+        C = dof_left && λ[end] > _ROBOT_WORLD_HAND_EYE_RANK_RTOL * λ[1] ? covariance(s2) : nothing
         λ[end], Vector(F.V[:, end]), (C !== nothing && all(isfinite, C) ? C : fill(Inf, N, N))
     else
         NaN, fill(NaN, N), fill(Inf, N, N)

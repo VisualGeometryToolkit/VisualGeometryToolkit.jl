@@ -16,6 +16,48 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10.
   generics, `observation_covariance(problem, i)` and `observation_gradient_jacobian`. A homography problem's K⁻¹-style
   maps are its observation maps, and the observation-noise rule (Core's `conventions/observation-noise.md`) is the
   measurement-noise rule renamed; no number moves.
+- **A held SplineLens camera's `refine_camera_and_poses` returns the camera AS GIVEN** (the review of wave 10, E2):
+  its controls are no variable, so there is no gauge to fix. The route no longer fits the optical axis first
+  (`optical_axis`, a Fisheye624 fit and an LM, whose retcode it dropped), no longer turns the camera and the poses
+  onto that axis (the poses come back in the camera's own frame), and no longer drops and refits the forward spline
+  (a forward the camera holds is kept). A bare SplineLens `CameraModel` is accepted (no bound is needed). The
+  keywords `refit_forward` and `forward_tolerance` are retired, refused by name (`ArgumentError`: nothing is
+  refitted; give a camera its forward with `fit_forward_spline`), and `configs/default.toml`'s
+  `[refine_camera_and_poses] forward_tolerance` key is deleted. The result's `spline` record is
+  `(; n_dropped_window, n_dropped_unprojected)`: `forward`, `forward_max_px`, `axis_rotation` and
+  `symmetry_residual` are gone.
+- **The held SplineLens route takes the bundle's strategy** (E3, E4): it solves through the bundle's one held-camera
+  path (`_refine_bundle`, with `_spline_problem` as its filter), so `optimization_strategy`, `scale` and `width` are
+  read by the bundle's one reader. A robust strategy (`Triggs{K}`) is no longer refused, and the route's own default
+  `optimization_strategy = nothing` is gone: the default is the bundle's, `Triggs{WelschShape}()`, which needs a
+  `scale` or a `width` — give `optimization_strategy = nothing` for least squares.
+- **`image_size` is deleted** (E5): it was an alias of Core's `extent(::BoundedCamera)` (a `Size2{Int}`). The spline
+  fits read `extent`; a source that is not a `BoundedCamera` keeps its refusal. It is removed from `public` and from
+  `CONTRACT_GENERICS` (no downstream method extended it).
+- **`check_penalty_weight`'s keyword `allow_nothing` is retired** (E18; no caller since 0.10.0), refused by name. No
+  penalty is `β = 0`.
+- **The retired spellings of `fixed`** (`free`, `fix`, `fixed_params`, `hold`) are refused by Core's one refusal,
+  `refuse_retired_keyword` (E13): the message is now Core's, "the keyword `free` is retired: give `fixed`".
+- **`fit_residual_mixture` refuses a `stop` other than `NoImprovementStop`** (E22): its model is held, so a
+  `ParameterChangeStop` (TOML `parameter_change`) would stop the EM at iteration 1 with the nuisance unconverged; it
+  raised a `MethodError` (`parameter_vector` of the distances) instead. The `KeepModel` + `ParameterChangeStop`
+  `stopping_criterion` method is deleted.
+
+### Fixed
+
+- **`device` reaches a SplineLens source's ray sampling** (E6), the expensive step: `refine_camera`, the linear
+  `fit_camera(L, source, region; device)` (a new keyword), `approximate_camera` (now to both stages) and
+  `optical_axis(camera; device)` (a new keyword; `fit_camera(SplineLens, …)` hands it its `device`) back-project on the
+  caller's backend; before, they used `default_device()` whatever the caller gave.
+- **`fit_forward_spline` names a bounded `NoncentralSplineModel`** in its refusal (E16; it raised a `MethodError`).
+- **A robust `fit_robot_world_hand_eye` with no degrees of freedom left** (E23: `6Σw ≤ N`, a redescending loss
+  zeroing most rows) records `dof = 0`, `s2 = NaN` and an unbounded covariance; it recorded a negative dof and a
+  covariance scaled by `RSS/eps` ≈ 1e15.
+
+### Internal
+
+- `_adaptive_trials`, a test-only wrapper of `first(_adaptive_count(…))`, is deleted (E18).
+- `pixel_whitening_defect` and `BearingPoseProblem`'s whitening share one test, which forms `BᵀM` once (E19).
 
 ## 0.10.1 (unreleased)
 

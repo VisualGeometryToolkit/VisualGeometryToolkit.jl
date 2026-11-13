@@ -52,3 +52,13 @@ reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay re
 file = "VisualGeometryToolkitFeatures/src/onnx_runtime.jl"
 function = "_onnx_device_free"
 reason = "not a CPU/GPU twin of any computation: it reads the free device memory around an ONNX Runtime CUDA session's creation and runs, to measure what that session's arena took; on the host there is no device memory to read (an arena is device memory), so it reads nothing"
+
+[[backend]]
+file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
+function = "gpu_tier"
+reason = "not a CPU/GPU twin of any computation: the test runner's one decision whether a GPU tier runs at all reads which backend the default device is (the backend require_gpu hands the GPU items); no kernel or arithmetic is chosen by it"
+
+[[backend]]
+file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
+function = "gpu_problem"
+reason = "not a CPU/GPU twin of any computation: a GPU-tier worker's re-check that its default device is still an accelerator, so the GPU items error rather than run on the CPU path"

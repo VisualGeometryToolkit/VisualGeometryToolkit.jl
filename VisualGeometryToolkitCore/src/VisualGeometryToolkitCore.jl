@@ -363,7 +363,7 @@ public radiance, exit_direction, radiance_map, coefficients, with_coefficients, 
 public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
 public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
-public RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart of its normalized radius, its centre moved and differentiated
+public RADIAL_CHARTS, BinnedRadialProfile, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart of its normalized radius, its centre moved and differentiated
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
@@ -687,6 +687,7 @@ public keep_best
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, is_stationary, loss_robustifier
+public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)

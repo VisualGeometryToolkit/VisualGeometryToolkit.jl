@@ -1235,7 +1235,7 @@ export AbstractBlur, GaussianBlur, convolve   # one blur of an imaging model by 
 export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
 export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
        field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
-export RADIAL_CHARTS, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
+export RADIAL_CHARTS, BinnedRadialProfile, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
 export Ray3                              # a non-central pixel's observation line
@@ -1337,8 +1337,11 @@ MacroTools.@forward BoundedCamera.camera (
     p3p, transfer, radial_homography,
 )
 # `transfer(m, f::FeatureFrame)` (ct_contravariant.jl) meets the forwarded `transfer(bc, args...)` at a BoundedCamera
-# and a frame: the forward's meaning, stated once (the ambiguity resolved).
-transfer(bc::BoundedCamera, f::FeatureFrame) = transfer(bc.camera, f)
+# and a frame. A camera images 3-D points, so it is no map of the plane: refused, naming the maps that are.
+transfer(::BoundedCamera, ::FeatureFrame) = throw(ArgumentError(
+    "transfer(camera, frame): a camera images 3-D points, not a map of the plane; transfer a frame through a plane map " *
+        "(`plane_map(camera)` of a posed camera, a lens stage, a homography's `PerspectiveMap() ∘ h`)"
+))
 # A mutating verb takes its destination first and the camera after it (Julia's order), which `@forward` cannot reach:
 # `undistort!` (and its typed and rect forms) reaches the wrapped camera by hand.
 undistort!(dst::AbstractMatrix, bc::BoundedCamera, src::AbstractMatrix, args...; kwargs...) =

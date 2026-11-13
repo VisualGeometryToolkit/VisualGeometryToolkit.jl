@@ -175,12 +175,21 @@ end
         @test occursin(why, r.reason) && src(r.black) === :file
         @test_throws NoiseEstimateFailed photon_transfer(synth_mosaic(raw))
     end
+    # a partial record whose missing part the frame cannot give: its measured gain is kept, the reason names the rest
+    let saturated = synth_mosaic(fill(UInt16(WHITE), 64, 64)), partial = SensorNoise(; body = cap.body, iso = cap[1].exposure.iso,
+                                                                                     electrons_per_dn = noise_value(1.6, :measured))
+        r = sensor_noise(cap, 1 => saturated; record = partial)
+        @test r.electrons_per_dn == partial.electrons_per_dn && r.read_noise === nothing
+        @test occursin("the read noise", r.reason) && !occursin("the gain", r.reason)
+        @test hash(r) == hash(sensor_noise(cap, 1 => saturated; record = partial))
+    end
     @test_throws ArgumentError sensor_noise(cap, 9 => m)
 
     # the values' guards: a source among NOISE_SOURCES; a reason only with no noise
     @test_throws ArgumentError noise_value(1.0, :guessed)
     @test_throws ArgumentError SensorNoise(; body, iso = 100, electrons_per_dn = noise_value(-1.0, :measured))
-    @test_throws ArgumentError SensorNoise(; body, iso = 100, electrons_per_dn = noise_value(1.0, :measured), reason = "no")
+    @test_throws ArgumentError SensorNoise(; body, iso = 100, electrons_per_dn = noise_value(1.0, :measured),
+                                           read_noise = noise_value((1.0, 1.0, 1.0, 1.0), :measured), reason = "no")
     @test_throws ArgumentError SensorNoise(; body, iso = 0)
 end
 
@@ -194,14 +203,14 @@ end
     rec(b) = SensorNoise(; body = b, iso = 100, electrons_per_dn = noise_value(1.6, :measured),
                          read_noise = noise_value((2.5, 2.5, 2.5, 2.5), :measured))
     cap(b) = CaptureSettings(Dict(1 => (; exposure = ExposureSettings(0.8s, 8, 100), lens_settings = LensSettings(14mm))); body = b)
-    measured(b, records) = sensor_noise(cap(b), 1 => m; record = records).electrons_per_dn.attributes.source === :measured
-    @test measured(fx3("A"), rec(fx3("A")))                                   # the serial
-    @test !measured(fx3("B"), rec(fx3("A")))                                  # another body of the model
-    @test measured(fx3(nothing), rec(fx3("A")))                               # no serial stated: make and model
-    @test measured(fx3("A"), rec(DeviceIdentity(; serial = "A")))             # a record by serial alone
-    @test !measured(DeviceIdentity(; make = "CANON", model = "ILME-FX3", serial = "A"), rec(fx3("A")))   # a serial whose make disagrees
-    @test !measured(DeviceIdentity(), rec(DeviceIdentity()))                  # nothing stated: no match
-    @test_throws ArgumentError measured(fx3(nothing), [rec(fx3("A")), rec(fx3("B"))])   # two bodies of the model: ambiguous
+    uses_record(b, records) = sensor_noise(cap(b), 1 => m; record = records).electrons_per_dn.attributes.source === :measured
+    @test uses_record(fx3("A"), rec(fx3("A")))                                   # the serial
+    @test !uses_record(fx3("B"), rec(fx3("A")))                                  # another body of the model
+    @test uses_record(fx3(nothing), rec(fx3("A")))                               # no serial stated: make and model
+    @test uses_record(fx3("A"), rec(DeviceIdentity(; serial = "A")))             # a record by serial alone
+    @test !uses_record(DeviceIdentity(; make = "CANON", model = "ILME-FX3", serial = "A"), rec(fx3("A")))   # a serial whose make disagrees
+    @test !uses_record(DeviceIdentity(), rec(DeviceIdentity()))                  # nothing stated: no match
+    @test_throws ArgumentError uses_record(fx3(nothing), [rec(fx3("A")), rec(fx3("B"))])   # two bodies of the model: ambiguous
 end
 
 @testitem "sensor noise: LinearRaw's one black subtraction — bit-identical without a dark, the dark per photosite, defects masked" setup = [NoiseFixtures] begin

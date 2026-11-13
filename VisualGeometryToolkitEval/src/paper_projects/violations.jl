@@ -172,11 +172,11 @@ function _reached_files(root::AbstractString, file::AbstractString, scripts::Abs
             isempty(parts) && continue
             base = m.captures[1] == "srcdir" ? joinpath(root, "src") :
                    m.captures[1] == "scriptsdir" ? joinpath(root, "scripts") : root
-            push!(todo, normpath(joinpath(base, parts...)))
+            push!(todo, normpath(foldl(joinpath, parts; init = base)))
         end
         for m in eachmatch(r"\binclude\(\s*joinpath\(\s*@__DIR__\s*,([^)]*)\)\s*\)", code)
             parts = [String(something(p.captures[1])) for p in eachmatch(r"\"([^\"]+)\"", something(m.captures[1]))]
-            isempty(parts) || push!(todo, normpath(joinpath(dirname(f), parts...)))
+            isempty(parts) || push!(todo, normpath(foldl(joinpath, parts; init = dirname(f))))
         end
         for m in eachmatch(r"\binclude\(\s*\"([^\"]+)\"\s*\)", code)
             push!(todo, normpath(joinpath(dirname(f), something(m.captures[1]))))
@@ -388,7 +388,7 @@ function _git_ignored(root::String, rel::String)
     gi = joinpath(root, ".gitignore")
     isfile(gi) || return false
     parts = splitpath(rel)
-    anc = [joinpath(parts[1:k]...) for k in eachindex(parts)]
+    anc = [foldl(joinpath, parts[1:k]) for k in eachindex(parts)]
     for l in eachline(gi)
         s = strip(l)
         (isempty(s) || startswith(s, "#")) && continue

@@ -71,6 +71,16 @@ reason = "not a CPU/GPU twin of any computation: a GPU-tier worker's re-check th
 # check_splat's exceptions (a splat of a collection whose length is data, VisualGeometryToolkitCore's `check_splat`):
 # each is a splat whose length is fixed by a type or bounded by construction, or an API with no collection form.
 [[splat]]
+file = "VisualGeometryToolkitEval/src/Experiments.jl"
+function = "run_isolated"
+reason = "Base's withenv takes its pairs only as varargs (no collection form); the count is the few variables one isolated driver run sets, so withenv is compiled once per such count, never per datum"
+
+[[splat]]
+file = "VisualGeometryToolkitEval/src/tuning/toml.jl"
+function = "_read_struct"
+reason = "fixed arity: the values are the fields of the struct type `C` read from TOML, one per field, built positionally by `C`'s own constructor; their count is fieldcount(C), one per type"
+
+[[splat]]
 file = "VisualGeometryToolkitCore/src/base/fit_result.jl"
 function = "propertynames"
 reason = "the names are a function of the type `FitResult{P, M}` alone (its metadata's fields and the nested ones), so the tuple has one length per FitResult type, as the type's own fieldnames do; Base's propertynames contract is that tuple"

@@ -15,8 +15,8 @@
 # A tree hash moves only when the files under it change, so a commit that touches the docs, the tests or the paper
 # leaves every tree, and with it every stored result, as it was.
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and VisualGeometryToolkitCore's Base-only
-# src/base/canonical.jl, the content key's encoding, which a bare `julia` includes by path): src/cli.jl includes it, so
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and `canonical_json`, VisualGeometryToolkitCore's
+# Base-only src/base/canonical.jl, which a bare `julia` includes by path before src/cli.jl): src/cli.jl includes it, so
 # the package has it (the Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl
 # and reproduce/runner.jl by path from a bare `julia` before the project's environment is instantiated.
 # =============================================================================
@@ -63,16 +63,15 @@ run of record ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.w
 """
 scratch_run(env = ENV) = get(env, "VGTK_SCRATCH", "") == "1"
 
-# `canonical_json`: VisualGeometryToolkitCore's one canonical encoding (its src/base/canonical.jl, Base only). The package
-# has Core's binding (the top module imports it before including src/cli.jl); a bare `julia` that includes this file by
-# path (a project's runner bootstrap) includes Core's file by path, found as a package is: one implementation.
-if !isdefined(@__MODULE__, :canonical_json)
-    let core = Base.find_package("VisualGeometryToolkitCore")
-        core === nothing && error("src/code_identity.jl: VisualGeometryToolkitCore is not in this environment, and its " *
-                                  "canonical_json (src/base/canonical.jl) is the content key's encoding")
-        include(joinpath(dirname(core), "base", "canonical.jl"))
-    end
-end
+# `canonical_json`: VisualGeometryToolkitCore's one canonical encoding (its src/base/canonical.jl, Base only), bound by
+# the includer: the package's top module imports Core's before including src/cli.jl; a bare `julia` (a project's runner
+# bootstrap, scripts/reproduce/reproduce.sh) includes Core's file by path first. A bootstrap generated before 0.8.0 does
+# not: it is told to regenerate itself, never left to fail on an undefined name.
+isdefined(@__MODULE__, :canonical_json) || error(
+    "src/code_identity.jl needs VisualGeometryToolkitCore's canonical_json, the run keys' encoding: a bare julia includes " *
+    "Core's src/base/canonical.jl before src/cli.jl. A project's scripts/reproduce/reproduce.sh from before " *
+    "VisualGeometryToolkitEval 0.8.0 does not: regenerate it with Reproduce.write_reproduce_script(<repository root>; " *
+    "julia_project = \"<project>\")")
 
 """
     _content_key(tree) -> String

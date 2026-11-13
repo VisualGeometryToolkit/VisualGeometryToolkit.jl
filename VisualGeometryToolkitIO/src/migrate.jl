@@ -2037,8 +2037,8 @@ _read_rewritten(p) = isfile(p) ?
     Dict{String, Dict{String, String}}()
 function _write_ids(p, ids::AbstractDict, defs::AbstractDict, rewritten::AbstractDict)
     t = tempname(dirname(abspath(p)))
-    _write_json(t, Dict("identities" => Dict(sort!(collect(ids))), "definitions" => Dict(sort!(collect(defs))),
-                        "rewritten" => Dict(sort!(collect(rewritten)))))
+    _write_json(t, Dict("identities" => Dict(sort!(collect(ids); by = first)), "definitions" => Dict(sort!(collect(defs); by = first)),
+                        "rewritten" => Dict(sort!(collect(rewritten); by = first))))
     Base.Filesystem.rename(t, p)
     return nothing
 end

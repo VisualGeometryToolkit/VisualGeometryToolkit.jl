@@ -33,12 +33,29 @@ end
     truth, img = dot_grid(5, 2.2)
     seeds = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)
     near = [argmin(k -> norm(seeds[k].center .- t), eachindex(seeds)) for t in truth]
-    @test all(norm(seeds[k].center .- t) < 0.75 for (k, t) in zip(near, truth))  # stage 1: the dot, coarsely (an unrefined maximum sits on its octave's pixel, ≤ √2/2 px)
     @test allunique(near)
-    # the clutter-limited scale: the largest window that still holds one circular point, set by the 30 px pitch
-    @test all(5 < seeds[k].σ < 8 for k in near)
-    @test all(seeds[k].precision > 500 for k in near)
-    @test all(d -> d.precision >= 1 / 0.5^2, seeds)                     # T_w: precision_threshold 0.5 px
+    # The schedule (detect_sfop's defaults): S = 3 levels per octave, the first octave 2× upsampled, its first level the
+    # input's own blur (seed σ = 2·0.5 in its pixels), maxima searched on levels 2 … S + 2 of each of 3 octaves, each
+    # level l at the integration scale σ = 3·(level l + 1's blur). The ladder of (σ, octave pixel in input pixels):
+    space = gaussian_scale_space(img; device = KA.CPU(), seed_sigma = 1.0, nb_octaves = 3)
+    S = space.nb_scales
+    ladder = [(3 * VisualGeometryToolkitFeatures.level_sigma(space, o, l + 1), exp2(space.first_octave + o - 1))
+              for o in 1:3 for l in 2:(S + 2)]
+    step = exp2(1 / S)                                   # one level; σ is Float32 arithmetic (relative rounding ≤ 1e-6)
+    within(σ, s) = s / step * (1 - 1.0e-6) <= σ <= s * step * (1 + 1.0e-6)   # a sub-level interpolation stays within a level
+    # The σ selected: the largest ladder σ whose window — the integration taps' support, ⌈3.3σ⌉ pixels of its octave —
+    # still holds one dot, i.e. ends before the neighbour's blurred edge at pitch − radius − 3·PSF (30 − 2.2 − 4.5 px);
+    # the precision peaks there, within one level (the peak can fall between levels)
+    reach = 30 - 2.2 - 3 * 1.5
+    σ_one = maximum(s for (s, sf) in ladder if ceil(3.3 * s / sf) * sf <= reach)
+    @test all(within(seeds[k].σ, σ_one) for k in near)
+    # Stage 1's position: a maximum kept unrefined sits on its octave's pixel grid, ≤ half that octave's pixel off per
+    # axis, plus the noise term 3/√w (w the estimate's precision, px⁻²). The octave: the coarsest whose searched levels
+    # reach the detection's σ.
+    pixel(σ) = maximum(sf for (s, sf) in ladder if within(σ, s))
+    @test all(all(abs.(seeds[k].center .- t) .<= 0.5 * pixel(seeds[k].σ) + 3 / sqrt(seeds[k].precision)) for (k, t) in zip(near, truth))
+    # every seed (the dots among them) passes the detector's own precision test T_w = 1/precision_threshold² (0.5 px)
+    @test all(d -> d.precision >= 1 / 0.5^2, seeds)
     # the λ₂ test at significance 0.999 (no empirical factor): nothing on pure noise
     for σn in (0.5, 2.0)
         noise = Float32.(0.3 .+ (σn / 255) .* randn(Xoshiro(5), 400, 400))

@@ -8,7 +8,7 @@
 # VisualGeometryToolkitCore and StaticArrays.
 # =============================================================================
 using VisualGeometryToolkitCore: CameraModel, Correspondences, EssentialMat, Point2
-using VisualGeometryToolkitEstimation: EssentialProblem
+using VisualGeometryToolkitEstimation: EssentialProblem, locally_optimize
 using StaticArrays: SMatrix
 
 "The recorded call set, beside this file."
@@ -71,3 +71,13 @@ call_set_arm(make, pairs, reps) = function ()
     bytes = @allocated run_call_set(call, pairs)
     return sort!([time_call_set(call, pairs) for _ in 1:reps]), bytes / call_set_size(pairs)
 end
+
+# A local-optimization strategy's arm over the call set (THE binding of every LO timing bench: this package's and
+# LocalOptimizationDoneRight's): `locally_optimize` of pair `i`'s problem from each recorded seed under the strategy
+# `make_lo()` builds (once per arm), with pair `i`'s scoring and workspace — the bench's own (its scorer is its
+# choice: MSAC here, Student-t + uniform in LocalOptimizationDoneRight), built outside the timing.
+lo_call_set_arm(make_lo, problems, scorings, workspaces, pairs, reps) = call_set_arm(pairs, reps) do
+    lo = make_lo()
+    (i, seed) -> locally_optimize(problems[i], seed; local_optimization_strategy = lo, scoring = scorings[i], workspace = workspaces[i])
+end
+

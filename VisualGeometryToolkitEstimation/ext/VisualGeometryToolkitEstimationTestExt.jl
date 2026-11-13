@@ -85,12 +85,12 @@ module TestScenes
     using Random: AbstractRNG
     using LinearAlgebra: normalize
     using StaticArrays: SA, SMatrix, SVector
-    using Rotations: RotXYZ, RotZ
-    using VisualGeometryToolkitCore: CameraModel, EssentialMat, Pinhole, Point2, TLSShape, cost, correspondences, project, px,
-        sampson_residual
+    using Rotations: RotXYZ, RotY, RotZ
+    using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, Pinhole, Point2, TLSShape, calibration_matrix, cost,
+        correspondences, project, px, sampson_residual
     using VisualGeometryToolkitEstimation: EssentialProblem
 
-    export box_point, box_point_far, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, truncated_sampson_cost,
+    export box_point, box_point_far, calibrated_pairs, perturbed_essential, stereo_pixel_pairs, fundmat_scene, truncated_sampson_cost,
         FPX, CX, CY, ECAM, topx, essential_problem, ecs, PIXEL_PAIRS_K, contaminated_pixel_pairs
 
     # The pinhole of `contaminated_pixel_pairs` (fx = 800, fy = 820, a 640 × 480 frame).
@@ -192,6 +192,33 @@ module TestScenes
             push!(u₁, o₁); push!(u₂, o₂)
         end
         return u₁, u₂
+    end
+
+    # The two cameras of `fundmat_scene` (different intrinsics) and view 2's pose, `x₂ = R·x₁ + t`.
+    const _FUNDMAT_CAMERAS = (CameraModel(; focal = 500.0, pp = (320.0, 240.0)), CameraModel(; focal = 600.0, pp = (300.0, 250.0)))
+    const _FUNDMAT_POSE = (RotY(0.15), SA[1.0, 0.2, 0.1])
+
+    """
+        fundmat_scene(rng; n_inliers = 100, n_outliers = 30, σ = 0.5) -> (; source, target, F, n_inliers)
+
+    THE two-camera fundamental-matrix scene: two pinhole cameras of different
+    intrinsics (f = 500 at (320, 240), f = 600 at (300, 250)), view 2 at
+    `x₂ = R·x₁ + t` with `R = RotY(0.15)`, `t = (1, 0.2, 0.1)`; `stereo_pixel_pairs` of
+    `n_inliers` draws of `box_point_far`, both views perturbed by `σ` px (no draw at
+    σ = 0), then `n_outliers` pairs uniform in `[100, 540] × [50, 430]` and
+    `[80, 520] × [60, 440]`. `source`/`target` are the pixels (inliers first; draws behind view
+    2 are skipped, so `n_inliers` is the number kept), `F` the true fundamental
+    matrix `K₂⁻ᵀ [t]× R K₁⁻¹`. `n_outliers = 0, σ = 0` is the exact scene (the
+    minimal-solver tests). Every draw is the caller's `rng`'s, in this order.
+    """
+    function fundmat_scene(rng::AbstractRNG; n_inliers = 100, n_outliers = 30, σ = 0.5)
+        cam₁, cam₂ = _FUNDMAT_CAMERAS; R, t = _FUNDMAT_POSE
+        source, target = stereo_pixel_pairs(
+            rng, cam₁, cam₂, R, t; n = n_inliers, σ₁ = σ, σ₂ = σ, point = box_point_far, n_out = n_outliers,
+            outlier = rng -> (SA[100.0 + 440.0 * rand(rng), 50.0 + 380.0 * rand(rng)], SA[80.0 + 440.0 * rand(rng), 60.0 + 380.0 * rand(rng)])
+        )
+        F = FundMat(EssentialMat(R, t), calibration_matrix(cam₁), calibration_matrix(cam₂))
+        return (; source, target, F, n_inliers = length(source) - n_outliers)
     end
 
     # The truncated least-squares cost (MSAC at the squared width `c2`) of F's

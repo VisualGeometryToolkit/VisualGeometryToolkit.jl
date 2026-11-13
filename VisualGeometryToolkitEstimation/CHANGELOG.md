@@ -1,5 +1,29 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.1 (unreleased)
+
+A patch: one shared test fixture and one shared bench binding (the owner's no-duplication ruling), no API change.
+
+### Added
+
+- **`fundmat_scene(rng; n_inliers = 100, n_outliers = 30, σ = 0.5)`, THE two-camera fundamental-matrix scene**, in
+  `synthetic_scenes().EpipolarScenes` (the shared synthetic scenes, built on its `stereo_pixel_pairs`): two pinhole
+  cameras of different intrinsics, view 2 at `RotY(0.15)`, `(1, 0.2, 0.1)`, the pixel pairs (`source`, `target`,
+  inliers first), the true `F` and the inlier count. `n_outliers = 0, σ = 0` is the exact scene. The local copy in
+  this package's `test/ransac_fundmat_tests.jl` (`make_fundmat_data`, `make_exact_fundmat_data`) is deleted, its draws
+  unchanged (the same RNG stream, in the same order); LocalOptimizationDoneRight's copy goes the same way.
+- **`lo_call_set_arm(make_lo, problems, scorings, workspaces, pairs, reps)`** in `test/lo_timing/call_set.jl` (the call
+  set's file, which LocalOptimizationDoneRight's bench includes from `pkgdir(VisualGeometryToolkitEstimation)`): THE
+  binding of an LO strategy's timed arm, `locally_optimize` of each pair's problem from each recorded seed with that
+  pair's scoring and workspace, through `call_set_arm`. This package's `lo_timing/bench.jl` uses it (its `lo_call` and
+  `lo_arm` deleted); LocalOptimizationDoneRight's two identical definitions go the same way.
+
+### Fixed
+
+- **The LO timing bench runs again** (`test/lo_timing/bench.jl`, the opt-in timing gate's): it read the essential
+  class's MSAC threshold as `[pipelines.essential] threshold`, a key 0.10 moved into the class's `scoring` table; it now
+  reads `scoring.threshold` (the same 1 px).
+
 ## 0.11.0 (unreleased)
 
 The breaking wave 10, on VisualGeometryToolkitCore 0.10.

@@ -55,7 +55,9 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
   point). `metrics` is a closed object of named numbers; `model` VGC's closed `CameraModelSpec` table.
 - **Content identity, one deliberate re-id**: `canonical_json` is RFC 8785 (JCS); the identity tree is the writer's
   0.10 record under its current names (specified in the docs, "Content identity"), lengths normalised in metres to 15
-  significant digits; the v2/v3 converters left the identity path. Every `content_id` changes once.
+  significant digits (a rig built in code from decimals of at most 15 digits, its file in any decimal unit and the rig
+  loaded back share one identity; IO 0.9's millimetre grid also absorbed a 16–17-digit file number's ≤2-ulp rewrite, which
+  no unit-free normalisation can); the v2/v3 converters left the identity path. Every `content_id` changes once.
 - **Quaternions with w < 0 are refused on read**, never flipped (an earlier file's are written w ≥ 0 by its step, as
   its reader read them).
 - **Blurs state their plane** (`blur/v2.0`): `pixel_frame` (or `frame: "image:<id>"`) on a sensor, px²; `frame:

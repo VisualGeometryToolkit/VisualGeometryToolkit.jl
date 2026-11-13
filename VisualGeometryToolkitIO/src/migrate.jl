@@ -1331,7 +1331,7 @@ function _central_grid_store(d, path)
     t = _lower(d)
     t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
     store = try
-        merge(_envelope_v010(_file_head(t), "vgio/cameras/v6.0"),
+        merge(migrate_envelope(_file_head(t), "vgio/cameras/v6.0"),
               Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => first(splitext(basename(path)))), _central_grid_body(t))]))
     catch e
         e isa Union{ArgumentError, KeyError} || rethrow()

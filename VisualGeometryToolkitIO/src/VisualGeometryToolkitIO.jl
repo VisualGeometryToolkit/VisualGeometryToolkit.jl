@@ -259,6 +259,7 @@ public save_panorama, load_panorama     # vgio/panorama/v2.0: a panorama's camer
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)
 public schema_versions, with_caller   # the versions each kind reads (from its steps); the calling package a file's generator names
+public migrate_envelope               # a pre-0.10 record's envelope as the 0.10 one: an owner's version step
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
 public same_value                     # two typed records the same, a length within the codec's ulps (a migration's check)
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified

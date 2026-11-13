@@ -181,6 +181,7 @@ export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours
 export detect_foerstner        # the Förstner interest operator: labelled corner / circular points
+export gaussian_gradient       # an image's Gaussian-derivative gradient (gx, gy), optionally masked as gaussian_blur: one KA kernel, CPU and GPU (Förstner's)
 export detect_image_circle    # a lens's image circle measured from photographs: dark MSERs, their hull, the RANSAC ellipse (Estimation extension)
 
 # -----------------------------------------------------------------------------

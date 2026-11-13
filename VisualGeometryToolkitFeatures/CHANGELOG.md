@@ -1,5 +1,16 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.1 (unreleased)
+
+A patch, additive, on VisualGeometryToolkitCore 0.10.
+
+- **New: `gaussian_gradient(img, σ[, mask]; derivative = :gaussian2d) -> (gx, gy)`**, exported: an image's gradient at
+  scale σ (∂/∂column, ∂/∂row, per pixel), the derivative of a Gaussian along one axis and the Gaussian across, zero
+  padded — the Förstner operator's own gradient, which `detect_foerstner` now calls (one implementation; its results
+  are unchanged, bit for bit). One KernelAbstractions kernel, on the image's device (CPU or GPU). With a `mask` it is
+  the gradient of `gaussian_blur`'s normalized convolution `blur(img·mask)/blur(mask)`: nothing bleeds in from outside
+  the mask, and the gradient is 0 there.
+
 ## 0.9.0 (unreleased)
 
 A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 (`[compat]` "0.10.0").

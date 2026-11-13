@@ -279,12 +279,9 @@ function _foerstner_windows(
     derivative_taps, across_taps = _derivative_taps(derivative, σd)
     integration_taps, integration_radius = _integration_taps(integration, σi)
     up(taps) = ka_upload(T, device, taps)
-    dr = KA.allocate(device, T, rows, cols, 2)
-    tmp = similar(dr)
-    _launch!(_correlate_rows!, device, tmp, reshape(doubled, rows, cols, 1), up([derivative_taps across_taps]); ndrange = size(tmp))
-    _launch!(_correlate_columns!, device, dr, tmp, up([across_taps derivative_taps]); ndrange = size(dr))
+    gx, gy = gaussian_gradient(doubled, σd; derivative)    # the package's one Gaussian gradient (∂/∂column, ∂/∂row)
     gamma = KA.allocate(device, T, rows, cols, 3)
-    _launch!(_squared_gradient!, device, gamma, dr; ndrange = (rows, cols))
+    _launch!(_squared_gradient!, device, gamma, gy, gx; ndrange = (rows, cols))
     mean_gamma = similar(gamma)
     tmp3 = similar(gamma)
     it = up(repeat(integration_taps, 1, 3))
@@ -326,7 +323,8 @@ function _foerstner_windows(
     KA.synchronize(device)
     return (;
         centres, estimates = Float64.(Array(device_estimates)), ρ, redundancy = (2ρ + 1)^2 - 2, upscale,
-        gamma = Array(gamma), gradient = dr, taps = [derivative_taps across_taps], centre_list, device_estimates,
+        gamma = Array(gamma), gradient_rows = gy, gradient_columns = gx, taps = [derivative_taps across_taps], centre_list,
+        device_estimates,
     )
 end
 
@@ -408,7 +406,7 @@ end
 # (on the device of `found`), through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
 function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
-    (; centres, ρ, gradient, taps, centre_list, device_estimates) = found
+    (; centres, ρ, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
     H, W = size(variance)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
@@ -417,7 +415,7 @@ function _propagated_covariances(device, found, classes, variance::AbstractMatri
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient, variance, centre_list, device_estimates,
+        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, centre_list, device_estimates,
         ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
@@ -427,7 +425,7 @@ end
 # pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
 # |p − 2q| ≤ r + 2 along each axis.
 @kernel function _propagated_covariances!(
-        out, @Const(gradient), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
+        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
         @Const(rows), @Const(columns), ρ::Int32, r::Int32
     )
     k = @index(Global)
@@ -454,7 +452,7 @@ end
                 (1 <= k1 <= w) & (1 <= k2 <= w) || continue
                 @inbounds δr = rows[k1, pr, 1] * columns[k2, pc, 1]
                 @inbounds δc = rows[k1, pr, 2] * columns[k2, pc, 2]
-                @inbounds gr, gc = gradient[pr, pc, 1], gradient[pr, pc, 2]
+                @inbounds gr, gc = gradient_rows[pr, pc], gradient_columns[pr, pc]
                 # v = R∇g and u = Rδ∇g (R the 90° rotation for the circular point), e = p − x̂
                 vr, vc = dot ? (-gc, gr) : (gr, gc)
                 ur, uc = dot ? (-δc, δr) : (δr, δc)
@@ -567,11 +565,11 @@ end
     @inbounds out[i, j, k] = s
 end
 
-# 196–199: (∂r g)², (∂c g)², ∂r g ∂c g from the two derivative slices.
-@kernel function _squared_gradient!(gamma, @Const(d))
+# 196–199: (∂r g)², (∂c g)², ∂r g ∂c g from the gradient's row and column components.
+@kernel function _squared_gradient!(gamma, @Const(grad_r), @Const(grad_c))
     i, j = @index(Global, NTuple)
     @inbounds begin
-        gr, gc = d[i, j, 1], d[i, j, 2]
+        gr, gc = grad_r[i, j], grad_c[i, j]
         gamma[i, j, 1] = gr * gr
         gamma[i, j, 2] = gc * gc
         gamma[i, j, 3] = gr * gc
@@ -641,6 +639,87 @@ end
     for n in 1:14
         @inbounds out[n, k] = e[n]
     end
+end
+
+# ----- the Gaussian gradient ---------------------------------------------------------
+
+"""
+    gaussian_gradient(img::AbstractMatrix{<:Real}, σ[, mask]; derivative = :gaussian2d) -> (gx, gy)
+
+The gradient of `img` at scale `σ` (pixels): `gx` the derivative along the
+columns (COLMAP x, ∂/∂column), `gy` along the rows (y, ∂/∂row), each the
+image's size, in its element type (an integer image's `float`), on its device
+(the image's KernelAbstractions backend: a host array on the CPU, a GPU array on
+its GPU — one kernel for both). Per pixel, so a step of height 1 gives a peak
+of ≈ 1/(√(2π)σ) per pixel for `:gaussian2d`.
+
+The derivative of a Gaussian, correlated along one axis: the taps
+`x·exp(−x²/2σ²)/(√(2π)σ³)` on radius `⌈3.3σ⌉`; along the other axis
+`derivative = :gaussian2d` smooths with the unit-sum Gaussian of the same σ and
+radius, `:gaussian1d` not at all. Zero padding at the image border (MATLAB's
+`imfilter`): the Förstner operator's gradient ([`detect_foerstner`](@ref) calls
+this one), bit for bit.
+
+With a `mask` (an `H × W` array of weights, `0` outside the support — a
+fisheye's image circle) it honours [`gaussian_blur`](@ref)'s semantics: the
+gradient of the NORMALIZED convolution `blur(img·mask) / blur(mask)` (the blur
+the across-axis Gaussian), `(∂N·D − N·∂D) / D²` with `N` and `∂N` of
+`img·mask`, `D` and `∂D` of `mask`; pixels outside the mask do not bleed in, and
+the gradient is `0` where the mask is zero.
+"""
+function gaussian_gradient(img::AbstractMatrix{<:Real}, σ::Real, mask::Union{Nothing, AbstractMatrix{<:Real}} = nothing;
+                           derivative::Symbol = :gaussian2d)
+    isfinite(σ) && σ > 0 || throw(ArgumentError("gaussian_gradient: σ must be positive and finite, got $σ"))
+    derivative in (:gaussian2d, :gaussian1d) ||
+        throw(ArgumentError("gaussian_gradient: derivative must be :gaussian2d or :gaussian1d, got :$derivative"))
+    H, W = size(img)
+    mask === nothing || size(mask) == (H, W) ||
+        throw(DimensionMismatch("gaussian_gradient: an $(H)×$(W) image and a $(join(size(mask), '×')) mask"))
+    T = float(eltype(img))
+    device = KA.get_backend(img)
+    a = img isa AbstractMatrix{T} ? img : T.(img)
+    d, c = _derivative_taps(derivative, σ)
+    if mask === nothing                                     # ∂row then ∂column: the rows' taps (d, c), the columns' (c, d)
+        g = _separable_correlate(device, reshape(a, H, W, 1), ka_upload(T, device, [d c]), ka_upload(T, device, [c d]))
+        return view(g, :, :, 2), view(g, :, :, 1)
+    end
+    m = ka_upload(T, device, mask)
+    # N, ∂rN, ∂cN of img·mask and D, ∂rD, ∂cD of mask: the rows' taps (c, d, c), the columns' (c, c, d) — the blur across
+    # the derivative is the across taps (the Gaussian, or the identity for :gaussian1d), the blur itself the across taps
+    rows, cols = ka_upload(T, device, [c d c]), ka_upload(T, device, [c c d])
+    am = similar(a, H, W, 1)
+    _launch!(_masked_product!, device, am, a, m; ndrange = (H, W))
+    nm = _separable_correlate(device, am, rows, cols)
+    dm = _separable_correlate(device, reshape(m, H, W, 1), rows, cols)
+    g = similar(a, H, W, 2)
+    _launch!(_normalized_gradient!, device, g, nm, dm, m; ndrange = (H, W))
+    return view(g, :, :, 2), view(g, :, :, 1)
+end
+
+# `a` (H × W × 1, or × K) correlated along the rows with each column of `rows` and then along the columns with the same
+# column of `cols`: one H × W × K slice per taps column.
+function _separable_correlate(device, a::AbstractArray{T, 3}, rows, cols) where {T}
+    H, W = size(a, 1), size(a, 2)
+    tmp = KA.allocate(device, T, H, W, size(rows, 2))
+    out = similar(tmp)
+    _launch!(_correlate_rows!, device, tmp, a, rows; ndrange = size(tmp))
+    _launch!(_correlate_columns!, device, out, tmp, cols; ndrange = size(out))
+    return out
+end
+
+@kernel function _masked_product!(out, @Const(a), @Const(m))
+    i, j = @index(Global, NTuple)
+    @inbounds out[i, j, 1] = a[i, j] * m[i, j]
+end
+
+# The gradient of N/D from (N, ∂rN, ∂cN) and (D, ∂rD, ∂cD): (∂N·D − N·∂D)/D², 0 where the mask or D is 0 (gaussian_blur's).
+@kernel function _normalized_gradient!(g, @Const(n), @Const(d), @Const(m))
+    i, j = @index(Global, NTuple)
+    T = eltype(g)
+    @inbounds N, Nr, Nc, D, Dr, Dc = n[i, j, 1], n[i, j, 2], n[i, j, 3], d[i, j, 1], d[i, j, 2], d[i, j, 3]
+    inside = (D > zero(T)) & (m[i, j] > zero(T))
+    @inbounds g[i, j, 1] = ifelse(inside, (Nr * D - N * Dr) / (D * D), zero(T))
+    @inbounds g[i, j, 2] = ifelse(inside, (Nc * D - N * Dc) / (D * D), zero(T))
 end
 
 # ----- taps -----------------------------------------------------------------------

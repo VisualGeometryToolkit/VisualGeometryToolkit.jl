@@ -470,9 +470,12 @@ end
             end
             stored(cr) = [[all(isfinite.(project(c, X))) for X in rays] for (c, rays) in cr]
         end)
-        st = Base.invokelatest(M.stored, cam_rays)
+        # the bindings Core.eval just made are read in the latest world, inside invokelatest: read in this item's
+        # world, they do not exist yet (Julia ≥ 1.12; a depwarn there, an UndefVarError under --depwarn=error)
+        latest(name, args...) = Base.invokelatest(() -> getglobal(M, name)(args...))
+        st = latest(:stored, cam_rays)
         for form in (:by_loop, :by_comprehension, :by_loop_of_comprehensions)
-            a = Base.invokelatest(getfield(M, form), cam_rays)
+            a = latest(form, cam_rays)
             @test (level, form, a) == (level, form, st)
             for (k, (_, rays, n64, nrest)) in enumerate(cases)
                 if nrest === nothing

@@ -22,7 +22,8 @@
     @test VgtkCore.static_lm_termination(false, VgtkCore.IncrementSize)[1] == VgtkCore.ReturnCode.Stalled
     # Float32 runs in Float32; its step tolerance is the reference's in ulps of Float32 (1e-10·eps(Float32)/eps(Float64),
     # 0.05 relative), so it stops coarser than Float64
-    x32, _ = VgtkCore.static_lm(x -> (d = x - SVector{3, Float32}(xs); (A * d, SMatrix{3, 3, Float32}(A))), zero(SVector{3, Float32}),
+    A32 = SMatrix{3, 3, Float32}(A); xs32 = SVector{3, Float32}(xs)
+    x32, _ = VgtkCore.static_lm(x -> (d = x - xs32; (A32 * d, A32)), zero(SVector{3, Float32}),
         SVector{3, Float32}(lb), SVector{3, Float32}(ub), SVector{3, Float32}(s), 50, 1.0f-10)
     @test x32 isa SVector{3, Float32} && maximum(abs, x32 - xs) < 0.05
 end

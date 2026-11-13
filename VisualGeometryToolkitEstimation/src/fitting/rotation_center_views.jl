@@ -33,6 +33,8 @@
 # =============================================================================
 
 const _ViewRotationChart = VgtkCore.SO3Manifold{Float64}
+# A rotation-centre problem variable: a view's rotation chart, the centre or the offset.
+const _CenterVar = Union{SVector{3, Float64}, _ViewRotationChart}
 
 """
     rotation_center_pose(R, center, offset) -> EuclideanMap
@@ -142,7 +144,7 @@ function refine_camera_and_poses(
     _check_rotation_center_gauge([views.rotations[k] for k in ids])
     N = length(ids)
     # the variables: the centre, the offset, then each view's rotation chart, in block order
-    vars0 = Union{SVector{3, Float64}, _ViewRotationChart}[views.center, views.offset]
+    vars0 = _CenterVar[views.center, views.offset]
     foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
     blocks, without = _rotation_center_bearing_blocks(cm, ids, csponds)
     p = 6 + 3N
@@ -222,7 +224,11 @@ _with_robust(r::_BearingCenterBlock{P}, sqrt_weight::Float64, robust::K) where {
 NLLSsolver.ndeps(::_BearingCenterBlock) = NLLSsolver.static(3)
 NLLSsolver.nres(::_BearingCenterBlock) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_BearingCenterBlock) = r.varind
-NLLSsolver.getvars(r::_BearingCenterBlock, vars::AbstractVector) =
+# The rotation-centre problem's variable vector is `Vector{_CenterVar}` exactly (`refine_camera_and_poses`' `vars0`), and
+# only it: these methods match no other problem's variables, so a call on another problem's (an abstract call site in
+# the LM's generic code, which inference splits over every block type) finds no method of this block rather than an
+# impossible typeassert.
+NLLSsolver.getvars(r::_BearingCenterBlock, vars::AbstractVector{_CenterVar}) =
     (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
 Base.eltype(::_BearingCenterBlock) = Float64
 function NLLSsolver.computeresidual(r::_BearingCenterBlock, ch, c, d)
@@ -230,7 +236,7 @@ function NLLSsolver.computeresidual(r::_BearingCenterBlock, ch, c, d)
     e = _bearing_residual(r.problem, rotation(P), translation(P), r.i)
     return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e
 end
-NLLSsolver.computecost(vars::AbstractVector, r::_BearingCenterBlock) = finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
+NLLSsolver.computecost(vars::AbstractVector{_CenterVar}, r::_BearingCenterBlock) = finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 
 # The bearing blocks of the rotation-centre views (block order `ids`): each view's dots back-projected by the camera to
 # their unit bearings and Jacobians (`backproject_with_jacobian`), its BearingPoseProblem of them (the `M` column: rows

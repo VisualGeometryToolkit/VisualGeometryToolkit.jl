@@ -196,7 +196,7 @@ follows that one law.
 - THE RANGE is derived from the data, at least 3 points: the upper end below the
   variance's rollover (the top point dropped while it lies significantly below
   the line fitted to the points under it, one-sided), then the lower end, the
-  lowest point from which the line passes the μ² test (the lowest point dropped
+  lowest point from which the μ² test on the line succeeds (the lowest point dropped
   until it does). Each search runs its tests at `significance / m`, `m` the tests
   it can perform (Bonferroni: the search's family-wise false-alarm rate is
   `significance`); the range (in codes and as fractions of the white level), `m`
@@ -251,7 +251,7 @@ offset per photosite in its place) and its defect slot's photosites; its noise
 slot is not read. Throws [`NoiseEstimateFailed`](@ref) with the reason when
 fewer than 16 whole blocks of at least 8 usable samples remain (a saturated
 frame), the points hold one level only (no slope), one frame's μ² term is
-significant, no contiguous range of at least 3 points passes the series' μ² test,
+significant, the series' μ² test fails on every contiguous range of at least 3 points,
 or the fit is not physical (K, or one frame's σ_r², not positive). A group of
 fewer than 2 frames, frames of another size, pattern or white level, or a group's
 exposure without darks, is an `ArgumentError`.
@@ -467,7 +467,7 @@ _birge_ratio(prediction, p, nparams) =
 # THE range of the series' fit, derived from the data (owner rulings 1–2), at least 3 points (the slope and a μ² term
 # with one degree of freedom left): the UPPER end below the rollover — the top point dropped while it lies significantly
 # BELOW the line fitted to the points under it (one-sided, its median's variance plus the line's at it) — then the
-# LOWER end, the lowest point dropped until the line passes the μ² test. Each search runs its tests at
+# LOWER end, the lowest point dropped until the μ² test on the line succeeds. Each search runs its tests at
 # `significance / m`, `m` the tests it can perform (Bonferroni: its family-wise false-alarm rate is `significance`).
 function _ptc_range(p, significance)
     np = length(p.xs)

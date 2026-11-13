@@ -14,7 +14,7 @@ Purely additive: the single-frame method keeps its signature and return type.
   against its mean. The intercept is FIXED at each group's own exposure, σ₀²(t), the greens' read noise² of its darks
   (read noise and dark-current noise); a group whose exposure has no darks is refused, never interpolated or
   substituted. The fit is the slope alone, `v − σ₀²(t) = μ/K`, over a range derived from the data: the upper end below
-  the variance's rollover, the lower end the lowest from which the line passes the μ² test, each search at
+  the variance's rollover, the lower end the lowest from which the μ² test on the line succeeds, each search at
   `significance / m` (Bonferroni, `m` its candidate tests). K's standard error is the line's from the counts, times the
   Birge ratio R = √(χ²/dof) of the fitted points when R > 1 (never shrunk; R recorded). Returns the stack's `FitResult`: its estimate a measured
   `PoissonGaussian`, its metadata a `PhotonTransferMetadata` (public): the range in codes and as fractions of the white

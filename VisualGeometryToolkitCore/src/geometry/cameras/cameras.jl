@@ -120,7 +120,7 @@ using ..VisualGeometryToolkitCore: pointwise!, OnBackend   # a lens over a batch
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
-using ..VisualGeometryToolkitCore: ReturnCode, StopRule, ExactFit, ToleranceMet, IterationCap, IncrementSize, CostDecrease   # the static LM's termination record (base/return_code.jl)
+using ..VisualGeometryToolkitCore: static_lm, StaticLmStops, _LM_AREA_UNITS, _STATIC_LM_MAX_ITER   # the one device LM and its stop settings (robust/lm_core.jl)
 using ..VisualGeometryToolkitCore: _fma_dot, _fma_mul, _fma_tmul   # explicit fused products (base/fused_products.jl): the spline LM and the MappedSurface root
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
@@ -1244,7 +1244,6 @@ export directions, grid_size, window_offset, spline_weights   # its control grid
 export direction_tangents, default_spline_grid   # a direction's tangent basis; the reference's control grid of an area
 export ControlPatchManifold              # a block of a spline lattice's controls as a manifold (public, not exported, at the top level)
 export spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice as a primitive (any control type); the 4th-order quasi-interpolant
-export static_lm, static_lm_termination   # the one device-side LM at static N, and its §14 record (public, not exported, at the top level)
 export cubic_bspline_weight_derivatives   # their first and second derivatives (public, not exported, at the top level)
 export cubic_bspline_prefilter_taps       # the cubic B-spline interpolation prefilter as a local filter (public, not exported, at the top level)
 export spline_window_sums                 # the one 4 × 4 window sweep: value, partials, second partials (public, not exported, at the top level)

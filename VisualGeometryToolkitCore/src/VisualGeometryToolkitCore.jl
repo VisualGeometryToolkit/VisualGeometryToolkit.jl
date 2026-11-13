@@ -689,10 +689,11 @@ public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, is_stationary, loss_robustifier
 public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
-# The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
+# The LM's stop settings (their one owner), its multi-block problem and the device LM's stop settings; whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
+public LmStops, LmProblem, StaticLmStops
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
-public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, nlls_termination, finite_cost, nlls_rows_and_jacobian   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded (and as a ReturnCode and StopRule); a block's cost as its LM reads it; a problem's rows and sparse Jacobian
+public nlls_features, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # its Schur system detected, NLLSsolver's termination bits named; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope
@@ -918,6 +919,8 @@ include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale
 include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
 include("base/utils.jl")    # Geometry utilities - uses types
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
+# THE defaults of record of this package (configs/default.toml): the strategies' tables and the LM's stop settings ([lm])
+const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs", "default.toml")))
 include("base/artifacts.jl")    # install_artifact, huggingface_token: the one artifact install (uses config_toml.jl's TOML)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)

@@ -85,7 +85,24 @@
     nl = "NLLS" * "Options("; ac = "a" * "cos(clamp((tr("; sr = "0.00" * "31308"; nc = "\\\\" * "new" * "command"
     uses(src; name = "Consumer", file = "src/a.jl") =
         [v.text[2:(findfirst(']', v.text) - 1)] for v in check_duplication(repo(file => src; name); stack = String[])]
-    @test uses("o = NLLSsolver.$(nl)maxiters = 3)\n") == ["nlls_options"]
+    @test uses("o = NLLSsolver.$(nl)maxiters = 3)\n") == ["lm_primitive"]
+    # THE LM GATE: every LM primitive, anywhere in a package (src/, test/, benchmark/), outside the one adapter's home
+    op = "NLLSsolver.optimize" * "!("; np = "NLLSsolver.NLLS" * "Problem("; oc = "NLLSsolver.Optimize" * "Cache("
+    nt = "nlls_" * "termination("; sc = "nlls_" * "stop_code("; no = "nlls_" * "options("; si = "_static_lm_" * "increment("
+    for call in ("r = $(op)p, o)\n", "p = $(np)T, R)\n", "c = $(oc)p)\n", "rec = VgtkCore.$(nt)r, true)\n", "k = $(sc)b)\n",
+                 "o = $(no)max_iter = 3)\n", "o = VgtkCore._$(no)s)\n", "p, i = $(si)A, λ, D, g)\n")
+        @test uses(call) == ["lm_primitive"]
+        @test uses(call; file = "test/fit_tests.jl") == ["lm_primitive"]
+        @test uses(call; file = "benchmark/bench.jl") == ["lm_primitive"]
+        @test uses(call; name = "VisualGeometryToolkitCore", file = "test/other_tests.jl") == ["lm_primitive"]
+        @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "src/robust/lm_core.jl"))   # the home
+        @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "test/lm_driver_tests.jl"))  # its own tests
+    end
+    # the entry points are not primitives, nor is a name that ends in one
+    for call in ("sol = lmsolve_chart!(p, LmStops())\n", "x, ok = static_lm(fj, x0, lb, ub, StaticLmStops(s; acceptance = 1.0))\n",
+                 "p = LmProblem(vars, blocks)\n", "r = locally_optimize!(L, lo, p, m)\n", "k = my_nlls_termination(b)\n")
+        @test isempty(uses(call))
+    end
     @test uses("θ = $(ac)R) - 1) / 2, -1, 1))\n") == ["rotation_angle"]
     @test uses("srgb(x) = x <= $sr ? 12.92x : 1.055x^(1 / 2.4) - 0.055\n") == ["srgb_transfer"]
     @test uses("println(io, \"$nc{\\\\\", k, \"}{\", v, \"}\")\n") == ["tex_macro_writer"]

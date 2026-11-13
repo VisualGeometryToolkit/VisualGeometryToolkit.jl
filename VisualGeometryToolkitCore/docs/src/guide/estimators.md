@@ -236,15 +236,19 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   what a lifted local optimizer reads of a chart problem: its whitened rows,
   their Jacobian and per-point norms. The lifts and their continuation
   schedules are LocalOptimizationDoneRight's.
-- **Chart LM** (`ManifoldLmWorkspace`, `lmsolve_chart!`) — the stack's
-  Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) on a
-  linearization state's `residual_rows!` / `residual_jacobian_rows!`, the
-  problem and the solver's internal data kept in buffers allocated once. The
-  stack's LM knobs (`max_iter`, `ftol`, `xtol`) map onto NLLSsolver's options
-  in one place, `nlls_options`; block-structured fits (the
-  relative-pose bundle, the robot-world refinement) build their own NLLSsolver
-  problems and share that map and the stall postcondition
-  (`nlls_termination`). The Schur complement (NLLSsolver pull request #60, still
+- **The one LM** (`lmsolve_chart!`, `LmStops`; `static_lm`, `StaticLmStops`) — the
+  stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) through ONE
+  adapter, `lmsolve_chart!`, on a linearization state's `residual_rows!` /
+  `residual_jacobian_rows!` (a `ManifoldLmWorkspace` keeps the problem and the
+  solver's internal data), the same robustified per datum, or a multi-block
+  `LmProblem` (the bundles: heterogeneous variables and residual blocks, each with
+  its own robustifier). Its stop settings have ONE owner, `LmStops`
+  (configs/default.toml `[lm]`), and every solve ONE success rule: the
+  stationarity postcondition at the returned point (`is_stationary`), at every
+  stop that is not a failure or a cap. A kernel's fixed-N solve is the one device
+  LM, `static_lm`, under `StaticLmStops` and the same rule. No package calls
+  NLLSsolver's solver API directly: `check_duplication` fails it. The Schur
+  complement (NLLSsolver pull request #60, still
   open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The
   Schur complement of the LM driver" in [Getting Started](getting-started.md).
 

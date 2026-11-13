@@ -556,7 +556,6 @@ end
 # -----------------------------------------------------------------------------
 # The core strategies' registry, its defaults this package's configs/default.toml
 # -----------------------------------------------------------------------------
-const _STRATEGY_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "..", "configs", "default.toml")))
 
 #   type      tag       path     scale    family   label    shape    parametric
 const _CORE_STRATEGY_ROWS = (
@@ -572,4 +571,4 @@ The core optimization strategies' registry (a `TagRegistry` built by
 [`Triggs`](@ref). A package with strategies of its own merges it with its
 registry (VisualGeometryToolkitEstimation's `OPTIMIZATION_STRATEGY_TAGS`).
 """
-const STRATEGY_TAGS = @lo_registry _CORE_STRATEGY_ROWS defaults = _STRATEGY_DEFAULTS["optimization_strategy"]
+const STRATEGY_TAGS = @lo_registry _CORE_STRATEGY_ROWS defaults = _CORE_DEFAULTS["optimization_strategy"]

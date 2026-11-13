@@ -20,9 +20,8 @@ using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialMani
     ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
     local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
     tangent_size
-using VisualGeometryToolkitCore: WelschShape, loss_robustifier, nlls_termination, retcode_symbol, is_stationary
+using VisualGeometryToolkitCore: WelschShape, loss_robustifier, retcode_symbol, is_stationary
 # the legacy Symbol of an NLLSsolver solve's termination record, under the stall postcondition at (J, r)
-nlls_symbol(res, J, r; kw...) = retcode_symbol(nlls_termination(res, () -> is_stationary(J, r; kw...))...)
 
 pose(ω, t) = EuclideanMap(RotMatrix{3}(RotXYZ(ω...)), SVector{3, Float64}(t))
 
@@ -159,13 +158,9 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         r = _PointResidual(xs[1], truth(xs[1]))
         _, J = NLLSsolver.computeresjac(NLLSsolver.static(1), r, ch)
         @test J ≈ ForwardDiff.jacobian(δ -> retract(ch, δ)(r.x) - r.y, zero(SVector{6, Float64})) atol = 1.0e-12
-        problem = NLLSsolver.NLLSProblem(RigidExpManifold6{Float64}, _PointResidual)
-        NLLSsolver.addvariable!(problem, RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))))
-        for x in xs
-            NLLSsolver.addcost!(problem, _PointResidual(x, truth(x)))
-        end
-        result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
-        @test result.bestcost < 1.0e-20
+        problem = VgtkCore.LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))], [_PointResidual(x, truth(x)) for x in xs])
+        result = VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
+        @test result.cost < 2.0e-20 && result.code === VgtkCore.ReturnCode.Success
         @test norm(local_coordinates(problem.variables[1], truth)) < 1.0e-9
     end
 
@@ -177,12 +172,11 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         for start in (EuclideanMap(QuatRotation(RotXYZ(0.1, 0.0, 0.05)), SVector(0.4, -0.1, 0.9)),
                 EuclideanMap(RotMatrix{3}(RotXYZ(0.1, 0.0, 0.05)), SVector{3, Float32}(0.4, -0.1, 0.9)))
             ch₀ = VgtkCore.minimal_manifold(start)
-            problem = NLLSsolver.NLLSProblem(typeof(ch₀), _PointResidual)
-            NLLSsolver.addvariable!(problem, ch₀)
-            foreach(x -> NLLSsolver.addcost!(problem, _PointResidual(x, truth(x))), xs)
-            result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
+            blocks = [_PointResidual(x, truth(x)) for x in xs]
+            problem = VgtkCore.LmProblem([ch₀], blocks)
+            result = VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
             @test problem.variables[1] isa typeof(ch₀)
-            @test result.bestcost < result.startcost
+            @test result.cost < sum(abs2, first(VgtkCore.nlls_rows_and_jacobian(blocks, [ch₀])))
             @test norm(local_coordinates(problem.variables[1], truth)) < (eltype(ch₀.t) === Float32 ? 1.0e-5 : 1.0e-9)
         end
     end
@@ -203,11 +197,9 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         xs = [SVector(cos(k), sin(2k), 0.3k) for k in 1:12]
         noise = [0.01 * SVector(sin(3k), cos(5k), sin(7k)) for k in 1:12]
         blocks = [_PointResidual(x, truth(x) + e) for (x, e) in zip(xs, noise)]
-        problem = NLLSsolver.NLLSProblem(RigidExpManifold6{Float64}, _PointResidual)
-        NLLSsolver.addvariable!(problem, RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8))))
-        foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
+        problem = VgtkCore.LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8)))], blocks)
         start = copy(problem.variables)
-        NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
+        VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
         # the cosine the matrix method reads, of the stacked rows and Jacobian (Core's assembler)
         cosine(vars) = ((r, J) = VgtkCore.nlls_rows_and_jacobian(blocks, vars); VgtkCore._residual_cosine!(zeros(6), zeros(6), Matrix(J), r))
         for vars in (problem.variables, start)
@@ -236,42 +228,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         end
     end
 
-    @testset "nlls_termination (its legacy Symbol) and loss_robustifier" begin
-        J = [1.0 0.0; 0.0 2.0; 1.0 1.0]
-        y = [1.0, 2.0, 4.0]
-        x̂ = J \ y
-        r_opt = J * x̂ - y
-        r_off = J * (x̂ .+ 0.1) - y
-        kw = (; tol = 1.0e-6, ftol = eps())
-        # an NLLSsolver result whose only meaningful field is its termination
-        # bits, every other field zero (built from the struct's fields: their
-        # number differs between NLLSsolver releases)
-        res(bits) = NLLSsolver.NLLSResult(map(fieldnames(NLLSsolver.NLLSResult), fieldtypes(NLLSsolver.NLLSResult)) do f, F
-            f === :termination ? F(bits) : F <: Enum ? first(instances(F)) : zero(F)
-        end...)
-        @test nlls_symbol(res(1 << 1), J, r_opt; kw...) === :solve_failed
-        for b in (0, 1, 4, 5, 10)
-            @test nlls_symbol(res(1 << b), J, r_opt; kw...) === :solve_failed
-        end
-        @test nlls_symbol(res((1 << 1) | (1 << 9) | (1 << 8)), J, r_opt; kw...) === :solve_failed   # failure outranks the caps
-        @test nlls_symbol(res((1 << 9) | (1 << 8)), J, r_opt; kw...) === :max_time                  # time outranks iterations
-        @test nlls_symbol(res(1 << 9), J, r_opt; kw...) === :max_time
-        # The one order (VGC `nlls_stop_code`, ruled 2026-10-27; until then this
-        # decoder tested the caps before the cost tolerance and ran the
-        # postcondition on a cost-decrease stop): a cost-decrease stop is
-        # converged and outranks a cap; a step stop is checked first and takes
-        # the postcondition.
-        @test nlls_symbol(res((1 << 8) | (1 << 2)), J, r_opt; kw...) === :converged
-        @test nlls_symbol(res((1 << 8) | (1 << 3)), J, r_opt; kw...) === :converged
-        @test nlls_symbol(res(1 << 8), J, r_opt; kw...) === :max_iterations
-        @test nlls_symbol(res(1 << 2), J, r_opt; kw...) === :converged
-        @test nlls_symbol(res(1 << 2), J, r_off; kw...) === :converged
-        @test nlls_symbol(res((1 << 2) | (1 << 6)), J, r_off; kw...) === :stalled   # the step stop first
-        @test nlls_symbol(res(1 << 6), J, r_opt; kw...) === :converged
-        @test nlls_symbol(res((1 << 1) | (1 << 6)), J, r_off; kw...) === :stalled   # a NaN trial at a step stop
-        @test nlls_symbol(res(1 << 7), J, r_off; kw...) === :stalled
-        @test nlls_symbol(res(1 << 7), J, r_opt; kw...) === :converged
-
+    @testset "loss_robustifier" begin
         # The oracle: CaliBlobs' production WelschRobustifier, written out.
         w2 = 2.0^2
         oracle_ρ(c) = w2 * (1 - exp(-c / w2))

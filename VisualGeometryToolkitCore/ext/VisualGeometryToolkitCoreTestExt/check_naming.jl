@@ -95,6 +95,9 @@ const RETIRED_NAMES = String[
     "Liftable" * "Problem",                                       # VisualGeometryToolkitEstimation: its one name, `MinimalSolveProblem`
     "ScalarOr" * "Quantity",                                      # VisualGeometryToolkitIO: its one name, `Number`
     "POOL" * "_RNG",                                              # VisualGeometryToolkitEval: its one name, StableRNGs' `StableRNG`
+    # one owner of the LM's stop settings (owner, "NO DUPLICATIONS", 2026-11-13): `LmStops`, which `lmsolve_chart!` maps
+    # onto NLLSsolver's options itself (VisualGeometryToolkitCore 0.10)
+    "nlls" * "_options",
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
     # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):

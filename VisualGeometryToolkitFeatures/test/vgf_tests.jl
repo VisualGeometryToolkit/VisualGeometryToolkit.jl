@@ -690,8 +690,11 @@ end
     rng = MersenneTwister(3)
     a = 3.0f0 .* randn(rng, Float32, 20, 16)   # deliberately not normalized
     b = randn(rng, Float32, 25, 16)
-    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b)
-    @test l2 == VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    # on the default device (a GPU once CUDA is loaded in the process) the same kernel: its sum of 16 squared
+    # differences and square root may round each step differently from the CPU's (fused multiply-adds, its own
+    # sqrt), at most one Float32 ulp per step of the 16-term sum and the root, so 17 ulps relative
+    @test isapprox(VgtkFeatures.pairwise_matrix(L2(), a, b), l2; rtol = 17 * eps(Float32))
     exact = [sqrt(sum(abs2, a[i, :] .- b[j, :])) for i in 1:20, j in 1:25]
     @test isapprox(l2, exact; rtol = 1.0e-3)
     # Float32 stays Float32 and Float64 stays Float64 — never narrowed

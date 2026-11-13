@@ -2,7 +2,7 @@
 
 ## 0.9.0 (unreleased)
 
-A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 and VisualGeometryToolkitIO 0.10.
+A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 (`[compat]` "0.10.0").
 
 ### Breaking
 - **`detect_foerstner`'s rows carry `covariance_source`** (their attributes are `(; label, window, F,
@@ -16,6 +16,12 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
   NEES 0.01–25). `noise_sigma`, the precision test's level, defaults to `noise` when that is given (else the
   reference's 2).
+- **`CspondSet` is `CorrespondenceSet`** (VisualGeometryToolkitCore 0.10's terminology: `Cspond` → `Correspondence`,
+  `csponds` → `correspondences`); the old name is refused by Core's naming check, with no alias.
+- **A detection's `propagate(m, d)` is Core's one conversion carried through `m`**, `propagate(m, center(d))`: the
+  centre is now a `Point2` (was an `SVector{2}`), the covariance the frame's position block as before.
+- **A Förstner point's error ellipse is `Ellipse(d.value; sigma)`** (Core 0.10 deleted the detection forwarders; a
+  `PointFrame` detection has no region, so `Ellipse(d)` is a MethodError naming why).
 - **Terminology** (the owner's ruling of 2026-11-13): "keypoint" and "measurement" are out of every name, docstring
   and page — a keypoint is a detection. Internal names renamed: `_keypoint_cov` → `_detection_cov`,
   `_loma_keypoints` → `_loma_points`; the benchmark `benchmark/mc/keypoint_uncertainty_mc.jl` →
@@ -24,6 +30,20 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
 ### Fixed
 - **`detect_foerstner(Float64, img)` computes in `Float64` from the input on**: a `Float64` image was rounded to
   `Float32` before the upload, so the `Float64` path ran on `Float32` grey values.
+- **The continuous refinement stays inside the level** (`refinement = ContinuousRefinement()`): its LM box is also
+  bounded by the level's extent, the detector's keep test; a point whose extremum lies beyond the level's edge ends
+  `LeftBasin` with its start, never outside the canvas.
+- **`detect_image_circle` checks `smoothing_weight` before it reads a frame**, with its other keywords.
+- **The RAW decoder's fallbacks are Core's `require_extension`**: without the decoder's extension they name the
+  package to load; with it loaded, a call it has no method for raises that MethodError (it said the extension was
+  missing).
+
+### Internal
+- The detection covariance of a continuously refined point builds the refinement's field taps once per chunk, not per
+  detection. A non-CPU backend builds each ASIFT kernel once (only the CPU has a static form).
+- The Förstner propagation's one-axis pipeline columns are the adjoints ASIFT's covariance already has
+  (`_correlate_adj`, the zero-padded correlation's, of which the symmetric blur's `_blur_adj` is now the special case,
+  bit for bit; `_up_adj` with an optional bounded edge).
 
 ## 0.8.3 (unreleased)
 

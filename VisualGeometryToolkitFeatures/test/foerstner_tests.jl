@@ -242,8 +242,8 @@ using VisualGeometryToolkitCore: Point2
 using VisualGeometryToolkitFeatures: detect_foerstner
 export foerstner_calibration
 
-# (σd, σi) => (; m, mean_e2, cov95_2) of the circular points found, one per tile; `render` is FoerstnerFixture's and
-# `mc_summary` UncFixtures' (another setup's names are the item's, passed in).
+# (σd, σi) => (; m, mean_e2, cov95_2) of the circular points found, one per tile. `render` (FoerstnerFixture) and
+# `mc_summary` (UncFixtures) are arguments: a setup module does not see the other setups.
 function foerstner_calibration(n, render, mc_summary; tile = 30, σn = 2.0, settings = ((1.0, 1.41), (1.0, 3.0)))
     o = (14.31, 13.77)                                   # the dot centre in its tile
     clean = render(tile * n, tile * n) do x, y

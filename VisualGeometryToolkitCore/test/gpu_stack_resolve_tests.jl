@@ -5,6 +5,7 @@
 
 @testitem "a GPU stack of cuDNN 1.x resolves with VisualGeometryToolkitCore" begin
     using Test
+    using TOML: TOML
     import VisualGeometryToolkitCore as VgtkCore
     env = mktempdir()
     write(joinpath(env, "Project.toml"), """
@@ -24,5 +25,5 @@
     ok = success(pipeline(cmd; stdout = log, stderr = log))
     ok || print(read(log, String))
     @test ok
-    @test ok && occursin(r"\[\[deps\.cuDNN\]\][^\[]*version = \"1\."s, read(joinpath(env, "Manifest.toml"), String))
+    @test ok && startswith(only(TOML.parsefile(joinpath(env, "Manifest.toml"))["deps"]["cuDNN"])["version"], "1.")
 end

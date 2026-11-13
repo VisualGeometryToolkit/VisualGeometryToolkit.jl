@@ -340,7 +340,7 @@ const _HOMOGRAPHY_RECORD = _Obj(
     Pair{Symbol, _Spec}[:covariance => _cov_spec(8)],
 )
 const _TARGETS_IDS = _CheckedSpec(_Vec(_HEX64), h -> isempty(h) ? "at least one targets identity (a rig's or a single target's `content_id`)" : _unique_check(h, "targets identities");
-                                  rule = "at least one targets identity, each once", schema = ["minItems" => 1, "uniqueItems" => true])
+                                  rule = "at least one targets identity, each once", schema = Pair{String, Any}["minItems" => 1, "uniqueItems" => true])
 
 const _TARGET_HOMOGRAPHIES_SPEC = _kind_spec(
     "target_homographies",
@@ -484,7 +484,7 @@ _observation_set_spec(d::Int) = _CheckedSpec(
     end;
     rule = "at least one point; the point indices are unique; `points` and `weights` have one entry per index; every " *
            "point states its `covariance`, or none does",
-    schema = ["properties" => Dict("index" => Dict("minItems" => 1, "uniqueItems" => true))],
+    schema = ["properties" => Dict("index" => Dict{String, Any}("minItems" => 1, "uniqueItems" => true))],
 )
 _observations_frame_spec(d::Int, required::Vector{Symbol}) = _CheckedSpec(
     _Obj(

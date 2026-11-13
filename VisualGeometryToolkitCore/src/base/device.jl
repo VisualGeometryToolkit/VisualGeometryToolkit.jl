@@ -76,9 +76,11 @@ reset_default_device!() = (_DEFAULT_DEVICE[] = nothing; nothing)
 """
     _DEVICE_MEMORY
 
-The accelerator extensions' device-memory queries, `(; free, reclaim, names)` or
+The accelerator extensions' device queries, `(; free, reclaim, names, resident_threads)` or
 `nothing`: `free(dev)` the bytes free on a backend it defines (`nothing` for another),
-`reclaim(dev)` its pool handed back to the device, `names()` its devices' names.
+`reclaim(dev)` its pool handed back to the device, `names()` its devices' names,
+`resident_threads(kernel, args, ndrange)` how many threads of a kernel instance on its
+backend can be resident at once (`nothing` for another backend).
 Assigned at load time, as `_DEVICE_RESOLVER` is (Core's CUDA extension).
 """
 const _DEVICE_MEMORY = Ref{Any}(nothing)
@@ -98,6 +100,29 @@ function device_free_bytes(dev)
     f === nothing || return Int(f)
     @warn "no free-memory query for $(typeof(dev)): tilt and score chunking are disabled" maxlog = 1
     return typemax(Int)
+end
+
+"""
+    device_resident_threads(kernel, args...; ndrange) -> Int
+
+How many threads of `kernel` can be resident on its device at once: the work its device runs in one wave. `kernel` is a
+KernelAbstractions kernel instance — `OnBackend(dev)(f!)` or `f!(dev[, workgroupsize])`, the one the caller launches as
+`kernel(args...; ndrange)` — and `args`, `ndrange` that launch's: the count is of THAT kernel compiled for those
+arguments, at the workgroup size the launch takes.
+
+- A GPU (the accelerator extension's backend; CUDA): register- and shared-memory-aware. The compiled kernel's occupancy
+  (CUDA's `active_blocks` at the launch's block size, the size the backend picks for a dynamic workgroup) times the
+  block size times the multiprocessors. Never the device's raw maximum of threads per multiprocessor: a kernel that
+  uses 255 registers a thread fits about an eighth of it.
+- The host (`KA.CPU()`): `Threads.nthreads()`, the threads its kernels run on.
+- Another backend: an `ArgumentError` (no query; a caller must not guess a capacity).
+"""
+function device_resident_threads(kernel::KA.Kernel, args...; ndrange)
+    KA.backend(kernel) isa KA.CPU && return Threads.nthreads()
+    q = _DEVICE_MEMORY[]
+    n = q === nothing ? nothing : q.resident_threads(kernel, args, ndrange)
+    n === nothing && throw(ArgumentError("device_resident_threads: no occupancy query for a $(typeof(KA.backend(kernel))) kernel"))
+    return Int(n)
 end
 
 """

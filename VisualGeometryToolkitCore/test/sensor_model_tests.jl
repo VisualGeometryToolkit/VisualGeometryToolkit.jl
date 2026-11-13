@@ -1,0 +1,431 @@
+# The sensor model (raw/sensor_model.jl, raw/sensor_estimators.jl) on SYNTHETIC Poisson–Gaussian RGGB mosaics: the
+# estimators (photon_transfer, master_dark, defect_onsets), the resolver's cases, the body match, THE black subtraction
+# of LinearRaw / linearview under a model (bit-identical with the absent model, CPU = GPU), the uncertain image (D11),
+# and the model's identity. Every component comes from Core's one fixture helper, `sensor_fixture` (D13).
+#
+# Every bound is the estimator's own standard error (or a first-principles count) times Z, the two-sided normal
+# quantile at a 0.1% false-failure rate per comparison (Z_N: the same over N photosites at once, Bonferroni). The
+# frames are seeded, so a run is deterministic; Z states how unlikely a failure of a correct estimator would be.
+
+@testsetup module SensorFixtures
+    using VisualGeometryToolkitCore: RawMosaic
+    using Distributions: Poisson, Normal, quantile
+    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame
+    const RGGB = UInt8[0 1; 3 2]
+    const BLACK = 512.0
+    const WHITE = 16383.0
+    const K_TRUE = 1.6                                  # electrons per code
+    const SIGMA_R = 2.5                                 # the Gaussian read noise, codes
+    const SIGMA_EFF = sqrt(SIGMA_R^2 + 1 / 12)          # with the code's rounding (uniform, variance 1/12: Sheppard)
+    z_over(N; α = 0.001) = quantile(Normal(), 1 - α / (2N))   # two-sided, α over N comparisons
+    const Z = z_over(1)
+    synth_mosaic(raw; black = (BLACK, BLACK, BLACK, BLACK)) =
+        RawMosaic(Matrix{UInt16}(raw), RGGB, black, WHITE, (0, 0), size(raw), (; model = "synthetic"))
+    # One code: an offset (the black, or a photosite's own), the photo-electrons Poisson(μK)/K (`pois`, or none) and a
+    # Gaussian read noise σ, rounded and clipped to [0, white].
+    code(rng, offset, pois, σ) =
+        UInt16(clamp(round(offset + (pois === nothing ? 0.0 : rand(rng, pois) / K_TRUE) + σ * randn(rng)), 0, WHITE))
+    # 16 flat levels above black, geometric from 2 to 12000 codes: the low ones pin σ_r², the high ones K.
+    const LEVELS = [2.0 * 6000.0^((l - 1) / 15) for l in 1:16]
+    # A photon-transfer scene: 16 × 32 blocks of the estimator's 8 × 8 cells (16 × 16 photosites), block column bj
+    # flat at LEVELS[cld(bj, 2)] — 32 blocks per level, so the estimator's 32 groups of 16 blocks hold one level each.
+    # `offset` (a per-photosite black, a DSNU) replaces the constant black.
+    function ptc_frame(rng; offset = nothing)
+        H, W = 16 * 16, 32 * 16
+        pois = [Poisson(μ * K_TRUE) for μ in LEVELS]
+        raw = Matrix{UInt16}(undef, H, W)
+        for j in 1:W, i in 1:H
+            raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[cld(cld(j, 16), 2)], SIGMA_R)
+        end
+        return synth_mosaic(raw)
+    end
+end
+
+@testitem "sensor model: photon_transfer — an estimated PoissonGaussian within its standard errors" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: photon_transfer, SensorSource, NoiseEstimateFailed, sensor_fixture, parse_unit
+    using StableRNGs: StableRNG
+    using Distributions: Chisq, quantile
+    using Statistics: mean, var
+    R = 24
+    ests = [photon_transfer(ptc_frame(StableRNG(100 + r))) for r in 1:R]
+    e = ests[1]
+    @test e isa PoissonGaussian && e.source === SensorSource.estimated
+    @test allequal(e.σ) && allequal(e.std_error.σ)      # the greens' read noise, stated for every colour
+    # one frame: the truth within Z of its returned standard errors (σ_r's truth with the rounding)
+    @test abs(e.gain - K_TRUE) <= Z * e.std_error.gain
+    @test abs(e.σ[1] - SIGMA_EFF) <= Z * e.std_error.σ[1]
+    # The standard errors (the WLS line's, from the counts: each group's median of m blocks of n cells, v̂/v ~
+    # χ²_{n−1}/(n−1)) against a seeded Monte Carlo of R frames: if they are right, the spread of the R estimates over
+    # the mean squared standard error is χ²_{R−1}/(R−1), two-sided at 0.1%; and the mean of the R estimates lies
+    # within Z standard errors of the mean (no bias at the Monte Carlo's resolution).
+    lo, hi = quantile(Chisq(R - 1), 0.0005) / (R - 1), quantile(Chisq(R - 1), 0.9995) / (R - 1)
+    for (val, se, truth) in ((n -> n.gain, n -> n.std_error.gain, K_TRUE), (n -> n.σ[1], n -> n.std_error.σ[1], SIGMA_EFF))
+        xs = val.(ests)
+        s2 = mean(se.(ests) .^ 2)
+        @test lo <= var(xs) / s2 <= hi
+        @test abs(mean(xs) - truth) <= Z * sqrt(s2 / R)
+    end
+    # the model's black slot is what it subtracts: without the fixed pattern the DSNU reads as read noise,
+    # √(σ_eff² + s_dsnu²), far outside the bound; with the Dark it is gone
+    s = parse_unit("s")
+    rng = StableRNG(11)
+    offset = BLACK .+ 3.0 .* randn(rng, 256, 512)
+    m_dark = ptc_frame(rng; offset)
+    e0 = photon_transfer(m_dark)
+    @test e0.σ[1] - SIGMA_EFF > Z * e0.std_error.σ[1]
+    fx = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), exposure = 0.8s,
+                        dark = (; offset = Float32.(offset), variance = fill(Float32(SIGMA_EFF^2), size(offset)),
+                                exposure_band = (0.5s, 1.0s), frames = 16))
+    @test fx.model.black isa Dark
+    ed = photon_transfer(m_dark; sensor_model = fx.model)
+    @test abs(ed.gain - K_TRUE) <= Z * ed.std_error.gain && abs(ed.σ[1] - SIGMA_EFF) <= Z * ed.std_error.σ[1]
+    # the failures: a saturated frame, a frame of one level
+    for (raw, why) in ((fill(UInt16(WHITE), 64, 64), "too few usable blocks"), (fill(UInt16(1000), 256, 256), "one level"))
+        err = try photon_transfer(synth_mosaic(raw)); nothing catch x; x end
+        @test err isa NoiseEstimateFailed && occursin(why, err.reason)
+    end
+    @test_throws ArgumentError photon_transfer(ptc_frame(StableRNG(1)); block = 1)
+end
+
+@testitem "sensor model: master_dark — a Dark, its ChannelBlack, the ReadNoise and the defects; defect_onsets" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: master_dark, defect_onsets, photosite_colors, parse_unit, ustrip, SensorSource
+    using StableRNGs: StableRNG
+    s = parse_unit("s")
+    rng = StableRNG(7)
+    H, W, n = 128, 128, 16
+    black = (512.0, 500.0, 520.0, 508.0)                # per colour index (0 R, 1 G, 2 B, 3 G2)
+    σr = (2.5, 2.3, 2.7, 2.4)
+    σeff = sqrt.(σr .^ 2 .+ 1 / 12)
+    s_dsnu = 3.0                                        # the fixed-pattern offsets' spread, codes
+    col = collect(photosite_colors(synth_mosaic(zeros(UInt16, H, W))))
+    offset = [black[col[i, j] + 1] + s_dsnu * randn(rng) for i in 1:H, j in 1:W]
+    σ = [σr[col[i, j] + 1] for i in 1:H, j in 1:W]
+    planted = falses(H, W)
+    sites = unique([CartesianIndex(rand(rng, 1:H), rand(rng, 1:W)) for _ in 1:12])
+    for (q, p) in enumerate(sites)
+        planted[p] = true
+        q <= 8 ? (offset[p] += 300) : (offset[p] = 0.0; σ[p] = 0.0)   # hot, or dead (stuck at code 0)
+    end
+    frames = [synth_mosaic([code(rng, offset[i, j], nothing, σ[i, j]) for i in 1:H, j in 1:W]; black) for _ in 1:n]
+    r = master_dark(frames; exposure_band = (0.5s, 1.0s))
+    @test r.dark isa Dark && r.dark.black isa ChannelBlack && r.read_noise isa ReadNoise
+    @test r.dark.source === r.dark.black.source === r.read_noise.source === SensorSource.measured
+    @test size(r.dark.offset) == (H, W) && r.dark.frames == n
+    @test map(t -> ustrip(s, t), r.dark.exposure_band) == (0.5, 1.0)
+    # the defects exactly (hot +300 codes and dead are far past z·σ; no false defect at the 1% expected over the sensor)
+    @test r.defects == planted
+    good = .!planted
+    # the offset map: per photosite the mean of n codes, σ_eff/√n about its offset, at Z_N over the N photosites (plus
+    # the Float32 storage's half-ulp at the offset's magnitude)
+    N = count(good)
+    @test all(abs(r.dark.offset[p] - offset[p]) <= z_over(N) * σeff[col[p] + 1] / sqrt(n) + eps(Float32(offset[p])) / 2
+              for p in findall(good))
+    b = r.dark.black
+    for c in 0:3
+        Nc = count(good .& (col .== c))
+        # the black: the channel's population black (the DSNU drawn about it) within Z of its standard error
+        @test abs(b.values[c + 1] - black[c + 1]) <= Z * b.std_error[c + 1]
+        # that standard error against its first-principles count: the offsets' spread √(s_dsnu² + σ_eff²/n) over √Nc,
+        # within the sample standard deviation's own relative error, Z/√(2(Nc − 1))
+        se0 = sqrt(s_dsnu^2 + σeff[c + 1]^2 / n) / sqrt(Nc)
+        @test abs(b.std_error[c + 1] / se0 - 1) <= Z / sqrt(2 * (Nc - 1))
+        # the read noise (with the rounding) within Z of its standard error, √(2/((n − 1)Nc))·σ²/(2σ)
+        @test abs(r.read_noise.σ[c + 1] - σeff[c + 1]) <= Z * r.read_noise.std_error[c + 1]
+        @test r.read_noise.std_error[c + 1] ≈ sqrt(2 / ((n - 1) * Nc)) * r.read_noise.σ[c + 1] / 2
+    end
+    @test_throws ArgumentError master_dark(frames[1:1]; exposure_band = (0.5s, 1.0s))
+    @test_throws ArgumentError master_dark([frames[1], synth_mosaic(zeros(UInt16, 4, 4))]; exposure_band = (0.5s, 1.0s))
+    @test_throws ArgumentError master_dark(frames; exposure_band = (1.0s, 0.5s))
+
+    # the onsets: each site's shortest flagging exposure, the masks in any order
+    m1 = falses(4, 5); m1[2, 3] = true
+    m2 = falses(4, 5); m2[2, 3] = true; m2[4, 1] = true
+    m3 = falses(4, 5); m3[4, 1] = true; m3[1, 5] = true
+    d = defect_onsets([0.8s => m3, (1 / 2000)s => m1, (1 / 500)s => m2])
+    @test d isa DefectList && d.size == (4, 5) && d.source === SensorSource.measured
+    onset(x, y) = ustrip(s, d.onset[only(findall(i -> d.x[i] == x && d.y[i] == y, eachindex(d.x)))])
+    @test length(d.x) == 3 && onset(3, 2) == 1 / 2000 && onset(1, 4) == 1 / 500 && onset(5, 1) == 0.8
+    @test_throws ArgumentError defect_onsets([1s => m1, 2s => falses(3, 3)])
+    @test_throws ArgumentError defect_onsets(Pair{typeof(1.0s), BitMatrix}[])
+end
+
+@testitem "sensor model: the resolver — full, partial, absent, unmatched ISO, other body, precedence, onset" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, NoCharacterisation, UnmatchedISO, OtherBody
+    s = parse_unit("s")
+    body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "5012345")
+    frame(t, iso) = (; exposure = ExposureSettings(t, 8, iso), lens_settings = LensSettings(14mm))
+    cap = CaptureSettings(Dict(1 => frame(0.8s, 100), 2 => frame(0.002s, 100), 3 => frame(0.8s, 400), 4 => frame(1 / 1000 * s, 100),
+                               5 => frame(3.2s, 100)); body)
+    H, W = 8, 10
+    dark = (; offset = fill(512.0f0, H, W), variance = fill(6.0f0, H, W), exposure_band = (0.5s, 1.0s), frames = 16)
+    defects = (; x = [1, 2, 3], y = [1, 2, 3], onset = [(1 / 2000)s, (1 / 500)s, 0.8s], size = (H, W))
+    full = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), black_std_error = (0.1, 0.1, 0.1, 0.1), dark,
+                          gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5), defects, source = SensorSource.measured).characterisation
+
+    # FULL: every slot selected; the dark inside its band, its channel black outside it
+    m = sensor_model(full, cap, 1)
+    @test m.reason === Matched && !m.overrides_measured
+    @test m.black isa Dark && m.noise isa PoissonGaussian && m.defects isa DefectList
+    @test m.noise == full.entries[100.0].noise
+    m2 = sensor_model([full], cap, 2)                    # 1/500 s: outside the dark's band
+    @test m2.black isa ChannelBlack && m2.black == full.entries[100.0].black.black
+    # ONSET: the sites whose onset is at most the exposure, the boundary included
+    sites(t) = sort(collect(sensor_model(full, cap, t).defects.x))
+    @test sites(4) == [1]                                # 1/1000 s: the 1/2000 s site
+    @test sites(2) == [1, 2]                             # 1/500 s: its own onset included
+    @test sites(1) == [1, 2, 3] && sites(5) == [1, 2, 3]   # 0.8 s (its onset), 3.2 s
+    @test sensor_model(sensor_fixture(; body, defects = (; defects..., onset = fill(1.0s, 3))).characterisation, cap, 4).defects isa NoDefects
+
+    # PARTIAL: a black and defects only → the noise is NoNoise, typed
+    partial = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), defects).characterisation
+    mp = sensor_model(partial, cap, 1)
+    @test mp.reason === Matched && mp.black isa ChannelBlack && mp.noise isa NoNoise && mp.defects isa DefectList
+
+    # ABSENT, UNMATCHED ISO, ANOTHER BODY: the absent model, with the reason
+    absent = SensorModel()
+    for (chars, t, why) in ((nothing, 1, NoCharacterisation), (SensorCharacterisation[], 1, NoCharacterisation), (full, 3, UnmatchedISO),
+                            (sensor_fixture(; body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "9"),
+                                            read_noise = (1, 1, 1, 1)).characterisation, 1, OtherBody))
+        r = sensor_model(chars, cap, t)
+        @test r.reason === why && r.black isa FileBlack && r.noise isa NoNoise && r.defects isa NoDefects
+        @test (r == absent) == (why === NoCharacterisation)
+    end
+    @test absent.reason === NoCharacterisation
+
+    # PRECEDENCE (D5): per slot, specified over measured over estimated; the override noted
+    spec = sensor_fixture(; body, gain = 2.0, read_noise = (3, 3, 3, 3)).characterisation        # specified
+    est = sensor_fixture(; body, gain = 1.5, read_noise = (2, 2, 2, 2), source = SensorSource.estimated).characterisation
+    r = sensor_model([full, spec], cap, 1)
+    @test r.noise == spec.entries[100.0].noise && r.overrides_measured
+    @test r.black isa Dark && r.defects isa DefectList     # the other slots still the measured characterisation's
+    r = sensor_model([full, est], cap, 1)
+    @test r.noise == full.entries[100.0].noise && !r.overrides_measured
+    @test sensor_model([spec, est], cap, 1).noise == spec.entries[100.0].noise
+    # two of one source at one slot: refused; a frame the capture lacks: refused
+    @test_throws ArgumentError sensor_model([full, full], cap, 1)
+    @test_throws ArgumentError sensor_model(full, cap, 9)
+    @test_throws ArgumentError sensor_model([1.0], cap, 1)
+
+    # the merged characterisation: two ISOs of one body
+    both = sensor_fixture(full, sensor_fixture(; body, iso = 400, read_noise = (1, 1, 1, 1)).characterisation)
+    @test sort(collect(keys(both.entries))) == [100.0, 400.0]
+    @test sensor_model(both, cap, 3).noise isa ReadNoise && sensor_model(both, cap, 1).noise isa PoissonGaussian
+    @test_throws ArgumentError sensor_fixture(full, sensor_fixture(; iso = 400).characterisation)   # another body
+    @test_throws ArgumentError sensor_fixture(full, full)                                           # ISO 100 twice
+end
+
+@testitem "sensor model: a characterisation matches the body by serial, else make and model" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, Matched
+    s = parse_unit("s")
+    fx3(serial) = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial)
+    rec(b) = sensor_fixture(; body = b, gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5)).characterisation
+    cap(b) = CaptureSettings(Dict(1 => (; exposure = ExposureSettings(0.8s, 8, 100), lens_settings = LensSettings(14mm))); body = b)
+    uses(b, chars) = sensor_model(chars, cap(b), 1).reason === Matched
+    @test uses(fx3("A"), rec(fx3("A")))                                   # the serial
+    @test !uses(fx3("B"), rec(fx3("A")))                                  # another body of the model
+    @test uses(fx3(nothing), rec(fx3("A")))                               # no serial stated: make and model
+    @test uses(fx3("A"), rec(DeviceIdentity(; serial = "A")))             # a characterisation by serial alone
+    @test !uses(DeviceIdentity(; make = "CANON", model = "ILME-FX3", serial = "A"), rec(fx3("A")))   # a serial whose make disagrees
+    @test !uses(DeviceIdentity(), rec(DeviceIdentity()))                  # nothing stated: no match
+    @test_throws ArgumentError uses(fx3(nothing), [rec(fx3("A")), rec(fx3("B"))])   # two bodies of the model: ambiguous
+end
+
+@testitem "sensor model: the components' guards, isbits, Adapt, equality and content_digest" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, content_digest, parse_unit, SensorSource
+    using Adapt: adapt
+    s = parse_unit("s")
+    # the guards, through the one fixture helper
+    @test_throws ArgumentError sensor_fixture(; read_noise = (-1, 1, 1, 1))
+    @test_throws ArgumentError sensor_fixture(; gain = 0.0, read_noise = (1, 1, 1, 1))
+    @test_throws ArgumentError sensor_fixture(; gain = 1.0)                                    # a gain without σ_r
+    @test_throws ArgumentError sensor_fixture(; relative_noise = -0.1)
+    @test_throws ArgumentError sensor_fixture(; black = (NaN, 0, 0, 0))
+    @test_throws ArgumentError sensor_fixture(; black = (1, 1, 1, 1), source = SensorSource.file)   # the RAW's own is FileBlack
+    @test_throws ArgumentError sensor_fixture(; defects = (; x = [11], y = [1], onset = [1s], size = (8, 10)))
+    @test_throws ArgumentError sensor_fixture(; defects = (; x = [1, 1], y = [1, 1], onset = [1s, 2s], size = (8, 10)))
+    @test_throws ArgumentError sensor_fixture(; defects = (; x = [1], y = [1], onset = [0s], size = (8, 10)))
+    @test_throws ArgumentError sensor_fixture(; dark = (; offset = zeros(Float32, 2, 2), variance = zeros(Float32, 2, 2),
+                                                        exposure_band = (1s, 0.5s), frames = 4))
+    @test_throws DimensionMismatch sensor_fixture(; dark = (; offset = zeros(Float32, 2, 2), variance = zeros(Float32, 3, 2),
+                                                           exposure_band = (0.5s, 1s), frames = 4))
+    # isbits: a model of isbits components; Adapt moves the maps and lists, the model unchanged
+    rn = sensor_fixture(; read_noise = (1, 2, 3, 4)).model
+    @test isbits(rn) && isbits(SensorModel()) && isbits(sensor_fixture(; gain = 1, read_noise = (1, 1, 1, 1), black = (1, 1, 1, 1)).model)
+    dark = (; offset = rand(Float32, 4, 6), variance = rand(Float32, 4, 6), exposure_band = (0.5s, 2s), frames = 8)
+    defects = (; x = [1, 2], y = [3, 4], onset = [0.1s, 0.2s], size = (4, 6))
+    full = sensor_fixture(; dark, black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1), defects).model
+    @test adapt(Array, full) == full && hash(adapt(Array, full)) == hash(full)
+    # the identity: equal models one digest; a value, a map's byte, a source or the reason moves it
+    again = sensor_fixture(; dark, black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1), defects).model
+    @test full == again && content_digest(full) == content_digest(again) && occursin(r"^[0-9a-f]{64}$", content_digest(full))
+    moved = [sensor_fixture(; dark, black = (1, 2, 3, 4), gain = 1.6, read_noise = (1, 1, 1, 1), defects).model,
+             sensor_fixture(; dark = (; dark..., offset = dark.offset .+ 1.0f-3), black = (1, 2, 3, 4), gain = 1.5,
+                            read_noise = (1, 1, 1, 1), defects).model,
+             sensor_fixture(; dark, black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1), defects,
+                            source = SensorSource.measured).model,
+             SensorModel(), rn]
+    @test allunique(content_digest.(vcat([full], moved)))
+    empty = sensor_fixture().model                       # an entry with every slot absent: the absent types, Matched
+    @test empty.black isa FileBlack && empty.noise isa NoNoise && empty.defects isa NoDefects
+    @test content_digest(SensorModel()) != content_digest(empty)   # Matched ≠ NoCharacterisation
+end
+
+@testitem "sensor model: LinearRaw's one black subtraction — bit-identical with the absent model, the dark per photosite, defects masked" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, channelview, photosite_colors, bayer_channels
+    using StableRNGs: StableRNG
+    s = parse_unit("s")
+    rng = StableRNG(5)
+    H, W = 12, 16
+    black = (512.0, 500.0, 520.0, 508.0)
+    m = synth_mosaic(UInt16[rand(rng, 300:16000) for i in 1:H, j in 1:W]; black)
+    parent(m)[5, 6] = UInt16(WHITE)
+    col = collect(photosite_colors(m))
+    offset = Float32[black[col[i, j] + 1] + 3 * randn(rng) for i in 1:H, j in 1:W]
+    # an R photosite (odd, odd) and a G (even, odd), as (x, y) = (column, row)
+    defects = (; x = [3, 9], y = [3, 8], onset = [0.1s, 0.1s], size = (H, W))
+    mask = falses(H, W); mask[3, 3] = true; mask[8, 9] = true
+    same = sensor_fixture(; black = m.black).model                        # a ChannelBlack equal to the file's
+    noisy = sensor_fixture(; read_noise = (2, 2, 2, 2)).model              # ReadNoise defines no variance: plain
+    with_dark = sensor_fixture(; black, dark = (; offset, variance = fill(1.0f0, H, W), exposure_band = (0.5s, 1.0s), frames = 8),
+                               defects, exposure = 0.8s).model
+    @test with_dark.black isa Dark && with_dark.defects isa DefectList
+    for w in (m, view(m, 3:12, 2:15), view(m, 2:11, 1:16)), mode in (:green_cells, :bin2), gain in (1.0, 2.5)
+        L = LinearRaw(w; mode, gain)
+        @test L.image isa Array{Float64, 3}
+        # the absent model, a black equal to the file's, a read noise alone: bit for bit, a plain image
+        for model in (SensorModel(), same, noisy)
+            Ln = LinearRaw(w; mode, gain, sensor_model = model)
+            @test Ln.image isa Array{Float64, 3} && Ln.image == L.image && Ln.saturated == L.saturated && Ln.geometry == L.geometry
+            @test copy(linearview(w; sensor_model = model)) == copy(linearview(w))
+        end
+        # the dark: (raw − offset) / (white − black[c]) per photosite, at the window's offset into the visible raw
+        o = w.window_origin
+        Ld = LinearRaw(w; mode, gain, sensor_model = with_dark)
+        lv = linearview(w; sensor_model = with_dark)
+        @test all(lv[i, j] == (Float64(w[i, j]) - Float64(offset[i + o[1], j + o[2]])) / (WHITE - black[col[i + o[1], j + o[2]] + 1])
+                  for i in axes(w, 1), j in axes(w, 2))
+        v = channelview(lv)
+        g = findall(n -> n in (:G1, :G2), collect(bayer_channels(w)))
+        Gp = mode === :bin2 ? 2 : 1
+        @test Ld.image[:, :, Gp] == (v[g[1], :, :] .+ v[g[2], :, :]) ./ 2 .* gain
+        @test Ld.geometry.plane_sites == L.geometry.plane_sites               # the span is the channel's, dark or not
+        # the defects join the mask: a cell is masked when a photosite its planes read is defective
+        sites = mode === :bin2 ? (1:4) : g
+        # (channel k of cell (i, j) is photosite (2i − 1 + di, 2j − 1 + dj), k = di + 2dj + 1, at the window's offset)
+        hit(i, j) = any(mask[2i - 1 + (k - 1) % 2 + o[1], 2j - 1 + (k - 1) ÷ 2 + o[2]] for k in sites)
+        @test Ld.saturated == L.saturated .| [hit(i, j) for i in axes(L.saturated, 1), j in axes(L.saturated, 2)]
+    end
+    @test any(LinearRaw(m; mode = :bin2, sensor_model = with_dark).saturated .& .!LinearRaw(m; mode = :bin2).saturated)
+    # a map that does not reach the mosaic's photosites
+    short = sensor_fixture(; dark = (; offset = offset[1:10, :], variance = fill(1.0f0, 10, W), exposure_band = (0.5s, 1.0s), frames = 8),
+                           exposure = 0.8s).model
+    @test_throws DimensionMismatch LinearRaw(m; mode = :green_cells, sensor_model = short)
+    @test_throws DimensionMismatch linearview(m; sensor_model = short)
+    small = sensor_fixture(; defects = (; x = [1], y = [1], onset = [0.1s], size = (4, 4))).model
+    @test_throws DimensionMismatch LinearRaw(m; mode = :green_cells, sensor_model = small)
+    @test_throws MethodError linearview(m; sensor_model = 1.0)
+end
+
+@testitem "sensor model: the uncertain image (D11) — each value's variance under PoissonGaussian and RelativeNoise" begin
+    using Test, StableRNGs, Statistics
+    using Distributions: Poisson, Normal
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: RawMosaic, sensor_fixture, parse_unit, Uncertain, value_of, green_plane
+    using StructArrays: StructArray, components
+    s = parse_unit("s")
+    K, σ, black, white = 2.0, (3.0, 2.5, 4.0, 2.5), (510.0, 512.0, 514.0, 513.0), 16383.0
+    rng = StableRNG(7)
+    H, W, μe = 400, 400, 2000.0                          # a flat field of μe electrons per photosite
+    pattern = UInt8[0 1; 3 2]                             # RGGB, LibRaw's indices (G2 = 3)
+    col(i, j) = pattern[mod1(i, 2), mod1(j, 2)]
+    raw = [UInt16(round(black[col(i, j) + 1] + rand(rng, Poisson(μe)) / K + rand(rng, Normal(0, σ[col(i, j) + 1])))) for i in 1:H, j in 1:W]
+    m = RawMosaic(raw, pattern, black, white, (0, 0), (H, W), (;))
+    pg = sensor_fixture(; gain = K, read_noise = σ, black).model
+    for gain in (1.0, 2.5), mode in (:green_cells, :bin2)
+        Lp = LinearRaw(m; mode, gain, sensor_model = sensor_fixture(; black).model)      # the same black, no noise: plain
+        L = LinearRaw(m; mode, gain, sensor_model = pg)
+        @test L.image isa StructArray && eltype(L.image) <: Uncertain{Float64}
+        vals, covs = components(L.image)
+        @test vals == Lp.image && L.saturated == Lp.saturated                 # the values bit for bit the plain image's
+        @test green_plane(L) isa StructArray && value_of.(green_plane(L)) == green_plane(Lp)
+        for p in axes(vals, 3)
+            ps = L.geometry.plane_sites[p]; mm = length(ps)
+            x = vec(vals[:, :, p])
+            vpix = [c[1] for c in vec(covs[:, :, p])]
+            # the law, value by value: g·x/(m²K)·Σ 1/d + g²/m²·Σ σ_r[c]²/d² (x > 0 everywhere on this flat)
+            α = gain / (mm^2 * K) * sum(q -> 1 / q.dn, ps)
+            σ² = gain^2 / mm^2 * sum(q -> σ[q.color + 1]^2 / q.dn^2, ps)
+            # (each side ≤ 8 roundings: rtol 16 ulp)
+            @test all(>(0), x) && isapprox(vpix, α .* x .+ σ²; rtol = 16eps())
+            # against the simulated flat: the rounding adds 1/12 code² per photosite, which σ_r includes in the model
+            # (Sheppard), so the truth here is the law plus the rounding's. The sample variance of n iid values has
+            # relative standard error √(2/(n − 1)) (Gaussian, here ≈ Poisson at 2000 e⁻); 3.29 of them: two-sided 0.1%.
+            v = α * mean(x) + σ² + gain^2 / mm^2 * sum(q -> (1 / 12) / q.dn^2, ps)
+            @test abs(var(x) / v - 1) <= 3.29 * sqrt(2 / (length(x) - 1))
+        end
+    end
+    # RelativeNoise: (σ_rel·x)², no read-noise or dark term
+    L = LinearRaw(m; mode = :green_cells, sensor_model = sensor_fixture(; relative_noise = 0.05).model)
+    vals, covs = components(L.image)
+    @test isapprox([c[1] for c in covs], (0.05 .* vals) .^ 2; rtol = 16eps())
+    # below the black level the Poisson term is 0: a value of 0 has the Gaussian variance alone
+    m0 = RawMosaic(fill(UInt16(400), 4, 4), pattern, black, white, (0, 0), (4, 4), (;))
+    L0 = LinearRaw(m0; mode = :green_cells, sensor_model = pg)
+    ps = L0.geometry.plane_sites[1]
+    @test all(c -> isapprox(c[1], sum(q -> σ[q.color + 1]^2 / q.dn^2, ps) / 4; rtol = 16eps()), components(L0.image)[2])
+    # a Dark: the photosite's dark variance × (1 + 1/frames) in place of σ_r[c]²
+    dv = fill(9.0f0, H, W)
+    Ld = LinearRaw(m; mode = :green_cells, sensor_model = sensor_fixture(; gain = K, read_noise = σ, black, exposure = 1s,
+        dark = (; offset = Float32.(fill(512.0, H, W)), variance = dv, exposure_band = (0.5s, 2s), frames = 8)).model)
+    xd, cd = components(Ld.image)
+    ps = Ld.geometry.plane_sites[1]
+    @test isapprox([c[1] for c in vec(cd)], (1 / (4K) * sum(q -> 1 / q.dn, ps)) .* max.(vec(xd), 0) .+
+                                            1 / 4 * sum(q -> 9 * (1 + 1 / 8) / q.dn^2, ps); rtol = 16eps())
+end
+
+@testitem "sensor model: CPU = GPU — LinearRaw with a ChannelBlack, a Dark, a DefectList and a PoissonGaussian; the estimators" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit
+    using StableRNGs: StableRNG
+    using Adapt: adapt
+    using StructArrays: components
+    using CUDA: CUDA
+    s = parse_unit("s")
+    if CUDA.functional()
+        rng = StableRNG(9)
+        H, W = 12, 16
+        m = synth_mosaic(UInt16[rand(rng, 300:16000) for i in 1:H, j in 1:W])
+        offset = Float32.(BLACK .+ 3 .* randn(rng, H, W))
+        defects = (; x = [7, 2], y = [4, 9], onset = [0.1s, 2.0s], size = (H, W))    # the second's onset past the exposure
+        dark = (; offset, variance = rand(rng, Float32, H, W) .+ 5.0f0, exposure_band = (0.5s, 1.0s), frames = 8)
+        models = [sensor_fixture(; black = (500.0, 505, 510, 515), defects, exposure = 0.8s).model,
+                  sensor_fixture(; black = (500.0, 505, 510, 515), dark, defects, gain = 1.6, read_noise = (2.5, 2.4, 2.6, 2.5),
+                                 exposure = 0.8s).model,
+                  sensor_fixture(; relative_noise = 0.03).model]
+        @test models[1].defects isa DefectList && length(models[1].defects.x) == 1
+        d = adapt(CUDA.CuArray, m)
+        for model in models, (wh, wd) in ((m, d), (view(m, 3:12, 2:15), view(d, 3:12, 2:15))), mode in (:green_cells, :bin2)
+            for md in (model, adapt(CUDA.CuArray, model))                  # the model on the host or on the device
+                Lh = LinearRaw(wh; mode, sensor_model = model)
+                Ld = LinearRaw(wd; mode, sensor_model = md)
+                @test adapt(Array, Ld.image) == Lh.image && Array(Ld.saturated) == Lh.saturated
+                @test Array(copy(linearview(wd; sensor_model = md))) == copy(linearview(wh; sensor_model = model))
+            end
+        end
+        @test components(LinearRaw(d; mode = :bin2, sensor_model = models[2]).image)[1] isa CUDA.CuArray
+        f = ptc_frame(StableRNG(21))
+        @test photon_transfer(adapt(CUDA.CuArray, f)) == photon_transfer(f)
+        frames = [synth_mosaic([code(rng, BLACK, nothing, SIGMA_R) for i in 1:32, j in 1:32]) for _ in 1:4]
+        rh = master_dark(frames; exposure_band = (0.5s, 1.0s))
+        rd = master_dark([adapt(CUDA.CuArray, f) for f in frames]; exposure_band = (0.5s, 1.0s))
+        @test adapt(Array, rd.dark) == rh.dark && rd.read_noise == rh.read_noise && rd.defects == rh.defects
+    else
+        @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
+    end
+end

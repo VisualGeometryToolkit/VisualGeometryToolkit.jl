@@ -5,7 +5,7 @@
 # `check_naming` and `naming_scope` (stubs in src/quality/naming.jl), `check_raw_decoding`
 # (src/quality/raw_decoding.jl), `check_duplication` (src/quality/duplication.jl), and the
 # helpers every stack package's tests share — `rows_cost`, `check_rows_jacobian`,
-# `test_naming`, `test_docs` (stubs in src/quality/test_helpers.jl).
+# `test_naming`, `test_docs`, `sensor_fixture` (stubs in src/quality/test_helpers.jl).
 # Every caller is a test, so they load with the Test standard library rather
 # than with the package.
 # =============================================================================
@@ -19,7 +19,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, Raw
     Attributed, Recorded, block_coordinate_descent!, current_cost, estimate, retcode, iterations, RECORDED_NESTED_STATES
 import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication,
     test_recorded, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
-    test_readme_row, test_readme_example, julia_blocks
+    test_readme_row, test_readme_example, julia_blocks, sensor_fixture
 using VisualGeometryToolkitCore: ReadmeExample
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,
     test_manifold_contract
@@ -32,5 +32,6 @@ include("VisualGeometryToolkitCoreTestExt/test_helpers.jl")
 include("VisualGeometryToolkitCoreTestExt/test_docs.jl")         # the docstring gates every package runs
 include("VisualGeometryToolkitCoreTestExt/contracts.jl")
 include("VisualGeometryToolkitCoreTestExt/readme.jl")       # the README's examples, run as a reader runs them
+include("VisualGeometryToolkitCoreTestExt/sensor_fixture.jl")   # the ONE builder of sensor-model fixtures (D13)
 
 end # module VisualGeometryToolkitCoreTestExt

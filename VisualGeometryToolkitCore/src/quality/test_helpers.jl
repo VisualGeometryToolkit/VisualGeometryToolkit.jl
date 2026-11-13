@@ -318,3 +318,36 @@ code run with `readme` the example's module. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """
 function test_readme_example end
+
+"""
+    sensor_fixture(; body, iso = 100, exposure = 1.0s, black = nothing, black_std_error = nothing, dark = nothing,
+                   gain = nothing, gain_std_error = nothing, read_noise = nothing, read_noise_std_error = nothing,
+                   relative_noise = nothing, defects = nothing, source = SensorSource.specified)
+        -> (; characterisation, capture, model)
+    sensor_fixture(characterisations::SensorCharacterisation...) -> SensorCharacterisation
+
+THE builder of sensor-model fixtures for tests (owner ruling D13): a test never
+constructs a sensor component, a [`SensorCharacterisation`](@ref) or a
+[`SensorModel`](@ref) itself (check_duplication's `:sensor_component` pattern;
+the absent model `SensorModel()` excepted), it describes one here in plain
+numbers. The slots, each absent when its keywords are `nothing`:
+
+- black: `black` (a 4-tuple per colour index) → [`ChannelBlack`](@ref) (with
+  `black_std_error`); `dark = (; offset, variance, exposure_band, frames)` → a
+  [`Dark`](@ref) over that channel black (the [`FileBlack`](@ref) without `black`);
+- noise: `read_noise` → [`ReadNoise`](@ref) (with `read_noise_std_error`); with
+  a `gain` → [`PoissonGaussian`](@ref) (`gain_std_error` and
+  `read_noise_std_error` its standard errors); `relative_noise` →
+  [`RelativeNoise`](@ref);
+- defects: `defects = (; x, y, onset, size)` → [`DefectList`](@ref).
+
+`source` is one `SensorSource.T` for every slot or a named tuple by slot
+(`(; black = SensorSource.measured)`, specified where it names none). Returns
+the characterisation of `body` with that one entry at `iso`, a one-frame
+`capture` (frame `1` at `iso` and `exposure`, f/8, 14 mm) and the frame's
+`model`, resolved by [`sensor_model`](@ref). The second form merges
+characterisations of one body (their ISOs) into one. The components' own
+`ArgumentError`s reach the caller. Implemented by VisualGeometryToolkitCoreTestExt
+(`using Test` loads it).
+"""
+function sensor_fixture end

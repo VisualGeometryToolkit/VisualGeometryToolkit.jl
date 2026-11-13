@@ -381,9 +381,13 @@ end
     # at n = 4, 40, 400, 4000, the postcondition 0 throughout), so the sizes compared are the two past it.
     @test c[2].solve == c[3].solve
     u = [counts(n; build = two_types) for n in (40, 400, 4000)]
-    # the postcondition allocates nothing for two block types either; the solve's own count is NLLSsolver's (job 14076:
-    # 35 and 37 at n = 400 and 4000 with two block types, the postcondition 0), compared above on one type only
     @test all(x -> x.code === ReturnCode.Success && x.postcondition == 0, u)
+    # and the two-type solve does not grow from n = 400 to 4000 beyond NLLSsolver's own constant. Measured in job 14076:
+    # 35 and 37 allocations, with the postcondition at 0 in both. So the whole difference of 2 is NLLSsolver's, and
+    # NLLSSOLVER_GROWTH = 2 is that difference. A per-block or per-variable allocation in our code adds at least
+    # 3600 here (n grows by 3600).
+    NLLSSOLVER_GROWTH = 2
+    @test u[3].solve - u[2].solve <= NLLSSOLVER_GROWTH
 end
 
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
@@ -464,4 +468,41 @@ end
     @test sym(1 << 6, r_opt) === :converged && sym((1 << 2) | (1 << 6), r_off) === :stalled
     @test sym(1 << 7, r_opt) === :converged && sym(1 << 7, r_off) === :stalled
     @test sym(1 << 8, r_off) === :max_iterations
+end
+
+# The launch-and-reduce forms (0.9.7): a row functor over the work items, one kernel on the scratch's backend, then the
+# reduction — the same bits as the launch (`_launch_rows!`) and the reduction called apart, the device states' copy
+# (Estimation's lens regression, RadiometricCamera's radiometry LM) folded here.
+@testitem "reduce_normal_equations and reduce_cost of a row functor: one launch, then the reduction" begin
+    using StaticArrays: SVector, SMatrix
+    using StableRNGs: StableRNG
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: reduce_normal_equations, reduce_cost
+    rng = StableRNG(20261113)
+    N, n, W = 3, 101, 7
+    r = [randn(rng, SVector{2, Float64}) for _ in 1:n]; J = [randn(rng, SMatrix{2, N, Float64}) for _ in 1:n]
+    # work item w's share over samples w, w + W, …: Σ‖rᵢ‖², Σ Jᵢᵀrᵢ, Σ JᵢᵀJᵢ (column-major) into column w
+    function normal_row!(out, w, r, J)
+        s = 0.0; g = zero(SVector{3, Float64}); H = zero(SMatrix{3, 3, Float64})
+        for i in w:size(out, 2):length(r)
+            s += r[i][1] * r[i][1] + r[i][2] * r[i][2]; g += J[i]' * r[i]; H += J[i]' * J[i]
+        end
+        out[1, w] = s
+        for a in 1:3; out[1 + a, w] = g[a]; end
+        for k in 1:9; out[4 + k, w] = H[k]; end
+        return nothing
+    end
+    function cost_row!(out, w, r)
+        s = 0.0
+        for i in w:size(out, 2):length(r); s += r[i][1] * r[i][1] + r[i][2] * r[i][2]; end
+        out[1, w] = s
+        return nothing
+    end
+    partials = zeros(1 + N + N * N, W)
+    got = reduce_normal_equations(normal_row!, Val(N), r, J; partials)
+    apart = zeros(1 + N + N * N, W)
+    VgtkCore._launch_rows!(normal_row!, apart, W, r, J)
+    @test got === reduce_normal_equations(apart, Val(N)) && partials == apart
+    @test reduce_cost(cost_row!, r; partials) === reduce_cost(apart) && got[1] ≈ reduce_cost(apart)
+    @test got[1] ≈ 0.5 * sum(x -> sum(abs2, x), r) && got[2] ≈ sum(i -> J[i]' * r[i], 1:n)
 end

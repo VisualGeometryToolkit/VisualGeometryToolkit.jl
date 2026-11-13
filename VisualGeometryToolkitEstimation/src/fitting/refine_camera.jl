@@ -65,8 +65,8 @@ _regression_parts(parts::Tuple{Any, Any, Any, Any}) =
 # normalized plane and its row weight √w; and the reduction's partial sums there, one column per work item.
 #
 # THE ROWS NEVER REACH THE HOST. The state answers the chart LM's two reductions (`residual_cost!`,
-# `residual_normal_equations!`) with ONE kernel (Core's `_launch_rows!`, the same on every backend, the CPU's
-# included): each work item evaluates its samples' 2-D residuals — and, at a linearization, their Jacobian rows,
+# `residual_normal_equations!`) with ONE kernel (Core's launch-and-reduce, `reduce_normal_equations(row!, …)` /
+# `reduce_cost(row!, …)`: the stack's one row launch, the same on every backend, the CPU's included): each work item evaluates its samples' 2-D residuals — and, at a linearization, their Jacobian rows,
 # ForwardDiff duals of the chart vector inside the kernel — and sums ‖r‖², Jᵀr and JᵀJ into its column. The columns'
 # sum is the one device reduction after it; only the N × N step is the host's.
 struct _LensRegressionLm{D, TP <: ProductManifold, R, A, Y, B}
@@ -175,14 +175,13 @@ Base.@propagate_inbounds function _normal_row!(out, w, P, angle_residual, θcap,
     return nothing
 end
 
-function residual_cost!(_, lm::_LensRegressionLm, x)
-    VgtkCore._launch_rows!(_cost_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    return VgtkCore.reduce_cost(lm.partials)
-end
-function residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64}) where {N}
-    VgtkCore._launch_rows!(_normal_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    return VgtkCore.reduce_normal_equations(lm.partials, Val(N))
-end
+# The two reductions: Core's launch-and-reduce over the work items (one kernel on the state's backend, then the sum).
+residual_cost!(_, lm::_LensRegressionLm, x) = VgtkCore.reduce_cost(
+    _cost_row!, lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x; partials = lm.partials
+)
+residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64}) where {N} = VgtkCore.reduce_normal_equations(
+    _normal_row!, Val(N), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x; partials = lm.partials
+)
 
 # Each sample's round-trip error at the solution `x`, in pixels / fx₀: the forward form, a lift's radius capped at
 # `θcap` (one kernel, the same backend), back on the host.

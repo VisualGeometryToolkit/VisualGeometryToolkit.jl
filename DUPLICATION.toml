@@ -10,16 +10,6 @@
 # kernel holds just the norms (fit_rotation's angles, the radial-homography lift seed). There is no
 # public norms form, so a reader of `mad_scale` never wonders whether norms are re-centred.
 
-[[similar]]
-functions = ["VisualGeometryToolkitCore/test/data/chain_equivalence/core_values.jl::canonical",
-             "VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::lit"]
-reason = "different output grammars: `canonical` writes the chain-equivalence record's canonical text (\",\" with no space, sorted keys, every number as a Float64), `lit` writes Julia source literals (\", \", a Float32 kept); no input gives both the same text"
-
-[[similar]]
-functions = ["VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::rows",
-             "VisualGeometryToolkitIO/test/migrate_versions_tests.jl::vec_"]
-reason = "different output grammars: `rows` writes a multi-line Julia array literal of literals, `vec_` a one-line JSON array of numbers inside a hand-written record"
-
 [[name]]
 module = "VisualGeometryToolkitEval"
 name = "_TOML_DEFAULTS"

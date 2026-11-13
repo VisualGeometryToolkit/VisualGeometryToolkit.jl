@@ -78,7 +78,7 @@ end
         g = onnx_session(model; execution_provider = :cuda, gpu_mem_limit = 3 * 2^20)
         @test g.execution_provider === :cuda
         @test 0 <= VgtkFeatures._onnx_cuda_reserve() - before <= 3 * 2^20  # the cap, less what its creation took
-        @test only(values(VgtkFeatures._onnx_run(g, Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
+        @test only(values(VgtkFeatures.onnx_run(g, Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
         @test 0 <= VgtkFeatures._onnx_cuda_reserve() - before <= 3 * 2^20   # less what the arena now holds
         VgtkFeatures.ORT.release(g)                                          # released: its room is free again
         @test VgtkFeatures._onnx_cuda_reserve() == before
@@ -134,12 +134,17 @@ end
                                              g.output_names, g.reverse_dims)   # the CPU session, read as a CUDA one
     VgtkFeatures._reserve_arena!(g.session, 1000)
     frees = [5000, 4600]
-    out = VgtkFeatures._onnx_run(cuda, Dict("input" => zeros(Float32, 2, 3)), () -> popfirst!(frees))
+    out = VgtkFeatures._onnx_run(() -> cuda(Dict("input" => zeros(Float32, 2, 3))), cuda, () -> popfirst!(frees))
     @test only(values(out)) == ones(Float32, 2, 3) && isempty(frees)
     @test reserve() - before == 700 + 600
-    VgtkFeatures._onnx_run(cuda, Dict("input" => zeros(Float32, 2, 3)), () -> nothing)   # no device query: no measure
+    VgtkFeatures._onnx_run(() -> cuda(Dict("input" => zeros(Float32, 2, 3))), cuda, () -> nothing)   # no device query: no measure
     @test reserve() - before == 700 + 600
-    @test only(values(VgtkFeatures._onnx_run(g, Dict("input" => zeros(Float32, 2, 3)), () -> error("a CPU run measures nothing")))) ==
+    # the public forms (BlobBoards' descriptor runs): any call that runs the session, its value returned, measured as
+    # above (here the CPU's default backend has no device query, so nothing more is charged); the host form is the call
+    @test VgtkFeatures.onnx_run(() -> (cuda(Dict("input" => zeros(Float32, 2, 3))); 42), cuda) == 42
+    @test only(values(VgtkFeatures.onnx_run(cuda, Dict("input" => zeros(Float32, 2, 3))))) == ones(Float32, 2, 3)
+    @test reserve() - before == 700 + 600
+    @test only(values(VgtkFeatures._onnx_run(() -> g(Dict("input" => zeros(Float32, 2, 3))), g, () -> error("a CPU run measures nothing")))) ==
           ones(Float32, 2, 3)
     VgtkFeatures.ORT.release(g)
     @test reserve() - before == 700

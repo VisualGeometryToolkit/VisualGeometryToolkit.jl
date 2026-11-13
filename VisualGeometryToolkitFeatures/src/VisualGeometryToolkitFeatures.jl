@@ -207,6 +207,7 @@ export spread_strongest             # about n of the strongest detections spread
 public loma_provenance              # the model, the execution provider used and the threads, as plain data
 public onnx_cuda_status, OnnxCudaStatus, resolve_execution_provider   # whether ONNX Runtime's CUDA provider runs here (why not); :auto's answer
 public onnx_session                 # an ONNX Runtime session as the package builds its own: provider, threads, CUDA arena cap
+public onnx_run                     # a run of such a session, its CUDA arena growth counted in the detector's device budget
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

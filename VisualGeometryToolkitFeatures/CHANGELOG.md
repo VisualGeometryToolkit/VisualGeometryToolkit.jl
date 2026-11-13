@@ -37,6 +37,12 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   `_loma_keypoints` → `_loma_points`; the benchmark `benchmark/mc/keypoint_uncertainty_mc.jl` →
   `benchmark/mc/detection_uncertainty_mc.jl`; the test items "keypoint covariance: …" → "detection covariance: …".
 
+### New
+- **`onnx_run(session, inputs)` / `onnx_run(f, session)`**, public: a run of an `onnx_session` whose CUDA arena growth
+  is measured around it and charged to the session, so the ASIFT detector's device plans leave exactly the room the
+  arena may still take (was the private `_onnx_run`, LoMa's runs only). The `f` form takes any call that runs the
+  session (a device-tensor `CAPI.Run`), for BlobBoards' descriptor runs.
+
 ### Fixed
 - **`detect_foerstner(Float64, img)` computes in `Float64` from the input on**: a `Float64` image was rounded to
   `Float32` before the upload, so the `Float64` path ran on `Float32` grey values.

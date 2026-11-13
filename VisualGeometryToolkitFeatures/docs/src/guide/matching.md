@@ -104,7 +104,10 @@ Another package's ONNX network runs on the same runtime through
 [`onnx_session`](@ref)`(path; execution_provider, threads, gpu_mem_limit)`:
 the provider resolved as above, the thread pool the caller's, and on CUDA the
 session's device arena capped at `gpu_mem_limit` bytes (8 GiB by default),
-which the ASIFT detector's device plans leave free.
+which the ASIFT detector's device plans leave free. Run it through
+[`onnx_run`](@ref)`(session, inputs)` (or `onnx_run(f, session)` for any call
+that runs it, a device-tensor run among them): the arena's growth is then
+measured and the detector's budget counts it.
 
 The package's `examples/loma.jl` runs this on a pair of downloaded images and
 draws the matches. Cite the LoMa and DeDoDe papers when you use these networks

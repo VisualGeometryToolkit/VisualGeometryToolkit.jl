@@ -24,7 +24,8 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
   stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
   in its `[[stage]]`; the count keys no run.
-- **`Render.station_cells` labels each attempt by the station nearest its angle** on the `stations` grid, not by rank:
+- **`Render.station_cells` labels each attempt by the member of `stations` nearest its angle** (an angle beyond either
+  end at that end), not by rank:
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.
 

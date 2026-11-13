@@ -214,7 +214,8 @@ end
     mktempdir() do dir
         save(dir, ColmapModel([cam], [im], [pt], UnknownScale()))
         sidecar = joinpath(dir, VgtkIO.UNITS_SIDECAR)
-        @test parse_json(read(sidecar, String)).world == "unknown"   # the model states it
+        @test parse_json(read(sidecar, String)).units.length == "unknown"   # the model states it
+        @test parse_json(read(sidecar, String)).schema == "vgio/units/v3.0"
         back = load(ColmapModel, dir)
         @test back.contract === UnknownScale()
         @test back.images[1].tvec == SVector(0.25, -1.5, 3.0)       # plain numbers, unscaled

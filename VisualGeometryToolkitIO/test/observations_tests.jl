@@ -46,6 +46,12 @@
             @test rt(x; length_unit = u) == x
         end
         @test cov(rt(u3; length_unit = mm)[7][:body][1].second) == Σ3
+        # 3D, every covariance storage (m² in memory, units.length² on disk), with weights
+        for Σ in (Σ3, CovMat(SDiagonal(1.0e-8, 4.0e-8, 9.0e-8)), CovMat(ScaledIdentity{3}(2.5e-7)))
+            w3 = TargetObservations{WorldFrame}(Dict(7 => Dict(:body => withattrs(correspondences([3, 1], [Uncertain(mm_lengths(SVector(1.0, 2.0, 3.0)), Σ), Uncertain(mm_lengths(SVector(-4.0, 0.5, 6.0)), Σ)]); weights = [0.25, 1.0]))); sensors = "mocap")
+            b3 = rt(w3)
+            @test b3 == w3 && typeof(b3) === typeof(w3) && typeof(parent(cov(b3[7][:body][1].second))) == typeof(parent(Σ)) && b3[7][:body].weights == [0.25, 1.0]
+        end
         save(joinpath(dir, "obs.json"), u3)                          # mm²
         d3 = doc()
         @test d3.units.length == "mm" && d3.frame == "world" && !haskey(d3, :targets)
@@ -105,7 +111,7 @@ end
                 Dict("target" => "b", "index" => 2, "xy" => [1.0, 2.0], "weight" => 1.0),
                 Dict("target" => "b", "index" => 2, "xy" => [1.5, 2.5], "weight" => 1.0)])])))
         s = thrown_message(() -> load(TargetObservations, p))
-        @test occursin(p, s) && occursin("frame 3", s) && occursin("index 2", s)
+        @test occursin(p, s) && occursin("frame 3 observes point 2 of target b twice", s)
         # plain and Uncertain points in one file: the 0.9 target_points3d kind allowed it
         p3 = joinpath(dir, "mixed_points3d.json")
         write(p3, JSON.json(Dict(

@@ -270,15 +270,19 @@ end
     using Random: Xoshiro
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetFrame
     # `v * mm` is `v * 0.001`, an ulp from the nearest decimal of `v` for about a quarter of
-    # values, while a file holds (and reads) the decimal: the identity is of the persisted form.
+    # values, while a file holds (and reads) the decimal: the identity is of the persisted form,
+    # each metre value rounded to 15 significant digits (IO 0.10's identity spec, in metres). A
+    # number of at most 15 significant digits, in any decimal unit, is exactly such a value; a
+    # 16–17-digit one may straddle a 15th-digit rounding boundary between the value built in code
+    # and the ≤ 2-ulp-moved value its file reads back, so it is outside the claim.
     R = one(RotMatrix{3, Float64})
     rng = Xoshiro(3)
     n_fail = Ref(0)
     mktempdir() do dir
         p = joinpath(dir, "rig.json")
         for _ in 1:10_000
-            t = [round(rand(rng) * 1000 - 500; sigdigits = rand(rng, 15:17)) * mm for _ in 1:3]
-            board = [round(rand(rng) * 100; sigdigits = rand(rng, 15:17)) * mm for _ in 1:2]
+            t = [round(rand(rng) * 1000 - 500; sigdigits = rand(rng, 1:15)) * mm for _ in 1:3]
+            board = [round(rand(rng) * 100; sigdigits = rand(rng, 1:15)) * mm for _ in 1:2]
             rig = Rig{TargetFrame{:a}}(
                 Dict(
                     :a => PosedTarget(PlanarTarget([board, [0.0mm, 0.0mm]]), EuclideanMap(R, [0.0mm, 0.0mm, 0.0mm])),
@@ -290,11 +294,17 @@ end
         end
     end
     @test n_fail[] == 0
-    # the persisted form is idempotent, and the same in a file of any decimal unit
+    # the persisted form is idempotent, moves a value by at most half a unit of its 15th significant
+    # digit (and the Float64 rounding of that decimal), and is the value a file of any decimal unit reads
     for _ in 1:10_000
         y = (rand(rng) - 0.5) * 10.0^rand(rng, -4:1)
         c = VgtkIO._persisted(y)
         @test VgtkIO._persisted(c) === c
-        @test abs(c - y) <= 2 * eps(abs(y))
+        @test abs(c - y) <= 5 * 10.0^(floor(Int, log10(abs(y))) - 15) + eps(abs(c))
+        x = round(y * 1000; sigdigits = rand(rng, 1:15))           # a file number of at most 15 digits
+        for u in (mm, VisualGeometryToolkitCore.cm, m, VisualGeometryToolkitCore.μm)
+            q = ustrip(m, VgtkIO.read_length(x, u))
+            @test VgtkIO._persisted(q) === q
+        end
     end
 end

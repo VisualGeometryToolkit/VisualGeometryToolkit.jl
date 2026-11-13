@@ -253,6 +253,7 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
         end
         haskey(a, "items") == haskey(a, "from") &&
             throw(ArgumentError("stage $name: an array takes items = [...] or from = \"<dotted key of its config>\""))
+        haskey(a, "items") && isempty(a["items"]) && throw(ArgumentError("stage $name: array.items = [] is an array of no task"))
         haskey(a, "from") && (!haskey(t, "config") || occursin("{item}", t["config"])) &&
             throw(ArgumentError("stage $name: array.from = $(repr(a["from"])) needs the stage's config, one for every item"))
         each = get(a, "each", Dict{String, Any}())
@@ -280,10 +281,11 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
                      _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
-                     _cpus_count(name, get(t, "nice", 0), "nice"), get(t, "precompile", true) === true,
+                     _cpus_count(name, get(t, "nice", 0), "nice"), _flag(name, get(t, "precompile", true), "precompile"),
                      String.(get(t, "julia_flags", String[])))
 end
 
+_flag(name, v, key) = v isa Bool ? v : throw(ArgumentError("stage $name: $key = $(repr(v)) is not true or false"))
 _cpus_count(name, v, key = "cpus_per_task") = (v isa Integer && v >= 0) ? Int(v) :
     throw(ArgumentError("stage $name: $key = $(repr(v)) is not a count"))
 _resource(name, key, v, re) = (v isa AbstractString && (isempty(v) || occursin(re, v))) ? String(v) :
@@ -405,26 +407,28 @@ function stage_items(g::StageGraph, s::StageSpec; env = ENV)
     s.is_array || return [""]
     picked = _picked(s.select_env, env)
     isempty(s.items_from) && return isempty(picked) ? s.items : picked
-    return _array_values(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from, picked, "stage $(s.name): $(s.select_env)")
+    return _array_values(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from, picked, s.name, s.select_env)
 end
 
 # The comma-separated values the variable `var` of `env` selects; none when it is unset (or there is no variable).
 _picked(var, env) = isempty(var) ? String[] : String.(split(get(env, var, ""), ','; keepempty = false))
 
-# The values at the dotted key `key` of config `t`: a table's keys sorted by name, a list of strings in its order;
-# `picked` (when not empty) selects among them, sorted for a table, in its own order for a list.
-function _array_values(t::AbstractDict, key::AbstractString, picked, what)
+# The values at the dotted key `key` of config `t` for stage `stage`: a table's keys sorted by name, a list of strings
+# in its order; `picked` (when not empty: the variable `var`) selects among them, sorted for a table, in its own order
+# for a list. None is refused: an array of no task, or a task that would run nothing and read as completed.
+function _array_values(t::AbstractDict, key::AbstractString, picked, stage, var)
     v = try
         _dotted(t, key)
     catch
-        throw(ArgumentError("$what: the config has no `$key`"))
+        throw(ArgumentError("stage $stage: the config has no `$key`"))
     end
     all_ = v isa AbstractDict ? sort(collect(String, keys(v))) :
            v isa AbstractVector && all(x -> x isa AbstractString, v) ? String.(v) :
-           throw(ArgumentError("$what: `$key` of the config is neither a table nor a list of strings"))
+           throw(ArgumentError("stage $stage: `$key` of the config is neither a table nor a list of strings"))
+    isempty(all_) && throw(ArgumentError("stage $stage: `$key` of the config holds no value"))
     isempty(picked) && return all_
     bad = setdiff(picked, all_)
-    isempty(bad) || throw(ArgumentError("$what names unknown value(s) $(join(bad, ", ")) (the config's `$key`: $(join(all_, ", ")))"))
+    isempty(bad) || throw(ArgumentError("stage $stage: $var names unknown value(s) $(join(bad, ", ")) (the config's `$key`: $(join(all_, ", ")))"))
     return v isa AbstractDict ? sort(picked) : picked
 end
 
@@ -438,7 +442,7 @@ set; `[]` for a stage without `each` (the task runs its command once).
 function stage_each(g::StageGraph, s::StageSpec, item::AbstractString; env = ENV)
     isempty(s.each_from) && return String[]
     return _array_values(TOML.parsefile(joinpath(g.workdir, _config_of(s, item))), s.each_from, _picked(s.each_env, env),
-                         "stage $(s.name): $(s.each_env)")
+                         s.name, s.each_env)
 end
 
 # --time in minutes: the largest selected entry's max_time (times its task's number of `each` values) plus the margin;
@@ -731,8 +735,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
     # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
     # output upstream of it was made under another key, whichever launch made it.
-    records = isempty(results) ? Pair{String, Dict{String, Any}}[] : _stage_records(joinpath(results, g.manifest_dir))
-    keys_of = Dict{String, String}(name => r["key"] for (name, r) in records if stage_run_state(r).state == "completed")
+    records = isempty(results) ? _StageRecord[] : _stage_records(joinpath(results, g.manifest_dir), g.name)
+    keys_of = Dict{String, String}(x.name => x.record["key"] for x in records if x.state == "completed")
     for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
@@ -792,10 +796,12 @@ end
 """
     run_manifests(dir) -> Vector{String}
 
-The run manifests of earlier launches in `dir` (`<results root>/<manifest_dir>`), oldest first.
+The run manifests of earlier launches in `dir` (`<results root>/<manifest_dir>`), oldest launch first: by the UTC
+launch stamp that begins each one's name (`<stamp>-<commit>[-dirty][_<n>].toml`), never by modification time (the
+results-branch stage rewrites its launch's manifest).
 """
 run_manifests(dir::AbstractString) =
-    isdir(dir) ? sort([joinpath(dir, f) for f in readdir(dir) if endswith(f, ".toml")]; by = f -> (mtime(f), f)) : String[]
+    isdir(dir) ? sort([joinpath(dir, f) for f in readdir(dir) if endswith(f, ".toml")]; by = basename) : String[]
 
 # A program on `env`'s PATH; nothing when there is none.
 function _which(prog::AbstractString, env)
@@ -806,10 +812,17 @@ function _which(prog::AbstractString, env)
     return nothing
 end
 
-# The stage records of the earlier launches whose manifests are under `dir` (`stage name => record`, those with a run
-# key), oldest launch first: what reuse and the upstream keys read.
-_stage_records(dir::AbstractString) = Pair{String, Dict{String, Any}}[
-    name => r for m in run_manifests(dir) for (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}()) if haskey(r, "key")]
+# A stage record of an earlier launch: the stage's name, the record, and its state read once from its completion
+# markers (`stage_run_state`, without the queue).
+const _StageRecord = @NamedTuple{name::String, record::Dict{String, Any}, state::String}
+
+# The stage records (those with a run key) of the earlier launches of `project` whose manifests are under `dir`,
+# oldest launch first (`run_manifests`): what reuse and the upstream keys read. A results root that several projects
+# share holds the others' launches too; they are not this project's runs.
+_stage_records(dir::AbstractString, project::AbstractString) = _StageRecord[
+    (; name = String(name), record = r, state = stage_run_state(r).state)
+    for m in run_manifests(dir) for d in (TOML.parsefile(m),) if get(d, "project", "") == project
+    for (name, r) in get(d, "stages", Dict{String, Any}()) if haskey(r, "key")]
 
 _job_states(job_states, ids, env) = job_states === nothing ? slurm_job_states(ids; env) : job_states(ids)
 _queue_states(queue_states, ids, env) = queue_states === nothing ? slurm_queue_states(ids; env) : queue_states(ids)
@@ -979,18 +992,21 @@ end
 # changed runs again, the change named; one still in flight under other code stops the launch (a second job would
 # write the same results).
 function _mark_reuse!(plan::ReproducePlan, records, queue_states)
-    last = Dict{String, Dict{String, Any}}(r["key"] => r for (_, r) in records)   # the latest record of each key
+    last = Dict{String, _StageRecord}(x.record["key"] => x for x in records)   # the latest record of each key
     isempty(last) && return plan
-    ids = unique(filter(!isempty, String[get(last[st.key], "job_id", "") for st in plan.stages if haskey(last, st.key)]))
+    ids = unique(filter(!isempty, String[get(last[st.key].record, "job_id", "") for st in plan.stages if haskey(last, st.key)]))
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : queue_states(ids)
     for st in plan.stages
-        r = get(last, st.key, nothing)
-        r === nothing && continue
-        state = stage_run_state(r, queue).state
+        x = get(last, st.key, nothing)
+        x === nothing && continue
+        r = x.record
+        # the markers' state, read once; read again with the queue only for a job the queue still holds
+        state = isempty(get(queue, get(r, "job_id", ""), Dict{Int, String}())) ? x.state : stage_run_state(r, queue).state
         if state in ("completed", "in flight")
             changes = code_tree_changes(get(r, "code_trees", nothing), plan.code_trees)
             if !isempty(changes)
-                state == "in flight" && error("stage $(st.spec.name): job $(r["job_id"]) of an earlier launch is still in flight, ",
+                # a job of uncommitted code in flight is neither depended on nor a reason to stop: this launch runs anew
+                state == "in flight" && !any(c -> endswith(c, ": uncommitted when recorded"), changes) && error("stage $(st.spec.name): job $(r["job_id"]) of an earlier launch is still in flight, ",
                                               "under other code ($(join(changes, "; "))): wait for it to end, or scancel it, then launch again")
                 st.rerun = "code changed: " * join(changes, "; ")
                 continue
@@ -1281,22 +1297,27 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
 end
 
 # The body of an `array.each` stage's wrapper: a subshell that runs `body` once per value of the task's item (its
-# variable exported), in order, and exits with the first failing run's status; a TERM, or a signal the launcher's
-# directives ask for, reaches the run in progress.
+# variable exported), in order, and exits with the first failing run's status. A TERM, or a signal the launcher's
+# directives ask for, reaches the run in progress and stops the loop: no later value starts, and the subshell exits
+# 128 + the signal's number.
 function _each_loop(st::PlannedStage, body::AbstractString, signals)
     s = st.spec
     cases = join(("  $(t - 1)) _vgtk_each=($(join(_shell_quote.(v), " "))) ;;" for (t, v) in enumerate(st.each)), "\n")
-    fwd = join(("trap 'kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "; ")
+    code(sig) = all(isdigit, sig) ? string(128 + parse(Int, sig)) : "\$((128 + \$(kill -l $sig)))"
+    fwd = join(("trap '_vgtk_stop=$(code(sig)); kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "\n")
     return """(
 case "\$_vgtk_task" in
 $cases
   *) _vgtk_each=() ;;
 esac
+_vgtk_stop=
 $fwd
 for _vgtk_value in "\${_vgtk_each[@]}"; do
+  [ -z "\$_vgtk_stop" ] || exit "\$_vgtk_stop"
   ( export $(s.each_env)="\$_vgtk_value"; $body ) & _vgtk_one=\$!
   _vgtk_r=0; wait "\$_vgtk_one" || _vgtk_r=\$?
   while kill -0 "\$_vgtk_one" 2>/dev/null; do wait "\$_vgtk_one"; _vgtk_r=\$?; done
+  [ -z "\$_vgtk_stop" ] || exit "\$_vgtk_stop"
   [ "\$_vgtk_r" -eq 0 ] || exit "\$_vgtk_r"
 done
 )"""
@@ -1322,11 +1343,11 @@ end
 
 # A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in (the
 # one refusal, the drivers' records too). A scratch launch (`VGTK_SCRATCH=1`) runs it with a warning, as a driver's
-# scratch records do: its trees carry `+uncommitted`, so its stages are never reused for committed code.
+# scratch records do: its trees carry `+uncommitted`, so its stages are never reused (the mark names HEAD, not the edits).
 function _refuse_dirty_code(plan::ReproducePlan)
     identity = (; dirty = plan.dirty_code, project_paths = plan.code_paths)
     if scratch_run(plan.base_env) && !isempty(plan.dirty_code)
-        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused for committed code" uncommitted = join(plan.dirty_code, ", ")
+        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused (the mark names HEAD, not the edits)" uncommitted = join(plan.dirty_code, ", ")
         identity = (; dirty = String[], project_paths = plan.code_paths)    # the project's code must still be identified
     end
     return refuse_uncommitted_code(identity)
@@ -1540,13 +1561,15 @@ The state of every stage of the launch a run manifest records: `(; stage, job_id
 [`slurm_queue_states`](@ref)), with its tasks counted by state (`"failed (completed 2, failed 1)"`); a task with no
 marker that is no longer queued is `unknown`, and where Slurm keeps accounting (`job_states(ids)`, by default
 [`slurm_job_states`](@ref): empty when sacct fails) its accounting state is added for that task, as information
-only. The log is the first failed or unknown task's (else the first's), with its first error line.
+only. The log is the first failed or unknown task's (else the first's), with its first error line. A GPU stage whose
+precompile job ([`StageSpec`](@ref)) failed never starts (its dependency is never satisfied): it is `failed (its
+precompile job <id> failed)`, with that job's log and error line.
 """
 function reproduce_status(manifest::AbstractString; queue_states = nothing, job_states = nothing, env = ENV)
     m = TOML.parsefile(manifest)
     g = load_stage_graph(joinpath(m["workdir"], m["graph"]))
     recs = m["stages"]
-    ids = unique(String[r["job_id"] for (_, r) in recs if !isempty(get(r, "job_id", ""))])
+    ids = unique(String[r[k] for (_, r) in recs for k in ("job_id", "precompile_job_id") if !isempty(get(r, k, ""))])
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : _queue_states(queue_states, ids, env)
     rows = NamedTuple[]
     acct = nothing                                          # sacct, asked once and only for a task without a marker
@@ -1570,6 +1593,18 @@ function reproduce_status(manifest::AbstractString; queue_states = nothing, job_
             log = get(r, "log", "")                         # a local run stops at its first failing task: its log
         else
             log = _slurm_log(g, s, id, isempty(bad) ? 0 : first(bad))
+        end
+        # a GPU job that never started because its precompile job failed (pending forever, or gone without a marker)
+        pre = get(r, "precompile_job_id", "")
+        if !isempty(pre) && run_state.state in ("unknown", "in flight") && !any(==("completed"), values(run_state.tasks)) &&
+           isempty(get(queue, pre, Dict{Int, String}()))
+            plog = joinpath(g.workdir, "logs", "$(g.name)_$(s.name)_precompile_$pre.log")
+            perr = _first_error(plog)
+            if !isempty(perr)
+                push!(rows, (; stage = s.name, job_id = id, state = "failed (its precompile job $pre failed: the GPU job never starts)",
+                             log = plog, error = perr))
+                continue
+            end
         end
         push!(rows, (; stage = s.name, job_id = id, state, log, error = isempty(log) ? "" : _first_error(log)))
     end

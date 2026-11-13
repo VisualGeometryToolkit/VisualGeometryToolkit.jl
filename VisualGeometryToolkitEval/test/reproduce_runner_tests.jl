@@ -394,6 +394,28 @@ end
         @test_throws r"nice = -5 is not a count" load_stage_graph(f.graph)
     end
 
+    @testset "the last completed run of an upstream stage: this project's, by launch stamp, never by mtime" begin
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        manifest(dir, stamp, project, key) = (mkpath(dir); p = joinpath(dir, "$stamp-abc1234.toml");
+            open(io -> TOML.print(io, Dict("project" => project, "stamp" => stamp, "stages" => Dict("setup" =>
+                Dict{String, Any}("key" => key, "items" => [""], "job_id" => "", "state" => "completed")))), p, "w"); p)
+        k(results) = only(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["chrome_prepare"],
+                                            deps = false, results_root = results).stages).key
+        root = mktempdir()                                        # one root: the stage's environment names it
+        dir = joinpath(root, "_reproduce")
+        old = manifest(dir, "20260101_000000_000", "paper", "old")
+        k_old = k(root)
+        manifest(dir, "20260102_000000_000", "paper", "new")
+        k_new = k(root)
+        manifest(dir, "20260103_000000_000", "another", "foreign")             # a project sharing the root
+        touch(old)                                                             # rewritten last: the newest mtime
+        @test basename.(run_manifests(dir)) ==
+              ["20260101_000000_000-abc1234.toml", "20260102_000000_000-abc1234.toml", "20260103_000000_000-abc1234.toml"]
+        @test [x.record["key"] for x in Reproduce._stage_records(dir, "paper")] == ["old", "new"]
+        @test k_new != k_old && k(root) == k_new
+    end
+
     @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
         f = runner_project()
         text = read(f.graph, String)
@@ -429,6 +451,14 @@ end
         @test startswith(l[2], "102 --parsable --dependency=afterok:101 ") && occursin("--gres=gpu:1", l[2])
         m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
         @test m["stages"]["setup"]["precompile_job_id"] == "101" && m["stages"]["setup"]["job_id"] == "102"
+        # the compile failed: the GPU job never starts, and status names the precompile job as the cause
+        mkpath(joinpath(f.proj, "logs"))
+        write(joinpath(f.proj, "logs", "paper_setup_precompile_101.log"), "Precompiling\nERROR: LoadError: no CUDA extension\n")
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01", "--results-root=$(f.results)"]; env)
+        @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile job 101 failed", out) && occursin("ERROR: LoadError: no CUDA extension", out)
+        # precompile is true or false
+        write(f.graph, replace(text, "gpu = true\nprecompile = false" => "gpu = true\nprecompile = \"false\""; count = 1))
+        @test_throws r"precompile = \"false\" is not true or false" load_stage_graph(f.graph)
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
@@ -597,18 +627,46 @@ end
         @test success(Cmd(`bash $wrapper`; env = job, dir = f.proj))
         @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets=", "grid task=1 variant=b sets="]
         @test stage_markers(dirname(wrapper))[1]["state"] == "completed"
+        # a TERM (scancel, the time limit) stops the loop: the run in progress gets it, and no later value starts
+        write(joinpath(f.proj, "slurm", "grid.sbatch"), raw"""#!/bin/bash
+            echo "grid task=${SLURM_ARRAY_TASK_ID:-} variant=${VARIANT:-} sets=${SETS:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${VARIANT:-}" != "a" ] || exec sleep 60
+            [ "${VARIANT:-}" != "fail" ]
+            """)
+        git!(f.repo, "commit", "-qam", "slow")
+        write(sb, "")
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
+        n = length(readlines(joinpath(f.results, "ran.txt")))
+        proc = run(pipeline(Cmd(`bash $wrapper`; env = job, dir = f.proj); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while length(readlines(joinpath(f.results, "ran.txt"))) == n && time() - t0 < 30
+            sleep(0.2)
+        end
+        sleep(0.5)
+        kill(proc, Base.SIGTERM); wait(proc)
+        @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets="]       # b never ran
+        mk = stage_markers(dirname(wrapper))[1]
+        @test mk["state"] == "failed" && mk["signal"] == "TERM"
         # a failing value fails the task, and stops it
         write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants.fail]\n[variants.z]\n")
         git!(f.repo, "commit", "-qam", "fail")
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid", "--no-deps"]; env = env0)
         @test code == 4 && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=0 variant=fail sets=s1"
         # the declaration is checked
-        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid.sets\".*$"m => a)); f.graph)
+        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid\.[a-z]+\".*$"m => a)); f.graph)
         @test_throws r"array.each takes" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\" } }"))
         @test_throws r"array.each.env = \"1x\" is no variable" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"1x\" } }"))
         @test_throws r"items = \[...\] or from" load_stage_graph(bad("array = { from = \"grid.sets\", items = [\"a\"] }"))
+        g3 = load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"VARIANT\" } }"))
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = []\n[variants]\n")
+        @test_throws r"stage grid: `grid.sets` of the config holds no value" stage_items(g3, g3.stages[_stage_index(g3, "grid")]; env = env0)
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants]\n")
+        @test_throws r"stage grid: `variants` of the config holds no value" stage_each(g3, g3.stages[_stage_index(g3, "grid")], "s1"; env = env0)
         g2 = load_stage_graph(bad("array = { from = \"grid.nope\" }"))
         @test_throws r"the config has no `grid.nope`" stage_items(g2, g2.stages[_stage_index(g2, "grid")]; env = env0)
+        @test_throws r"array.items = \[\] is an array of no task" load_stage_graph(bad("array = { items = [] }"))
     end
 
     @testset "the local backend: runs the launchers, writes the manifest, reuses a finished stage" begin
@@ -1025,9 +1083,13 @@ end
         @test code == 0 && occursin("DIRTY: StackPkg (a scratch launch: run with a warning)", out)
         code, out = @test_logs (:warn, r"a scratch launch runs uncommitted code") match_mode = :any run_main(args; env = scratch)
         @test code == 0 && ran() == 5
+        # ... and never reuses a scratch run of uncommitted code: other edits carry the same marked tree
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 4\nend\n")
+        code, out = run_main(args; env = scratch)
+        @test code == 0 && ran() == 6 && occursin("StackPkg: uncommitted when recorded", out)
         @test occursin("src:", rec()["stages"]["setup"]["code_trees"]["StackPkg"]) && occursin("+uncommitted", rec()["stages"]["setup"]["code_trees"]["StackPkg"])
         code, out = run_main(args; env = env0)                                      # a run of record still refuses it
-        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 5
+        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 6
         p!("checkout", "-q", "--", "src/StackPkg.jl")
         # the rule itself
         changes = VisualGeometryToolkitEval.code_tree_changes
@@ -1035,6 +1097,11 @@ end
         @test changes(Dict("a" => "x", "b" => "y"), Dict("a" => "x", "c" => "z")) == ["b: no longer loaded", "c: new"]
         @test changes(Dict("P" => "src:1 Project.toml:2"), Dict("P" => "src:1 Project.toml:3 ext:4")) ==
               ["P: Project.toml 2 → 3", "P: ext none → 4"]
+        for dirty in ("ab12+uncommitted", "uncommitted", "src:ab12+uncommitted Project.toml:9", "src:uncommitted Project.toml:9",
+                      "not in git: /x")                                          # the same marked value: still a change
+            @test changes(Dict("a" => dirty), Dict("a" => dirty)) == ["a: uncommitted when recorded"]
+        end
+        @test isempty(changes(Dict("uncommitted_name" => "ab12"), Dict("uncommitted_name" => "ab12")))
         # the registered stack packages are the published rows of the stack's allow-list
         allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
         @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))

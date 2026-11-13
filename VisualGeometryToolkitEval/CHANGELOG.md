@@ -24,7 +24,8 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
   stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
   in its `[[stage]]`; the count keys no run.
-- **`Render.station_cells` labels each attempt by the station nearest its angle** on the `stations` grid, not by rank:
+- **`Render.station_cells` labels each attempt by the member of `stations` nearest its angle** (an angle beyond either
+  end at that end), not by rank:
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.
 
@@ -42,11 +43,15 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
   and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
   set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
-  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's.
+  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
+  of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
+  no later value starts.
 - **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
   held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
   `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
-  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run.
+  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
+  never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
+  `precompile` must be `true` or `false`.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 
@@ -55,6 +60,14 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
   two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
   same bits at any thread count (a test at 2 and 8 threads).
+- **A result of uncommitted code is never reused** (`code_tree_changes`, the one reuse rule of the runner,
+  `run_complete` and `cached_result`): its tree's `+uncommitted` mark names HEAD, not the edits, so a scratch run under
+  other edits carried the same value and was reused. Each such tree is a change, `"<name>: uncommitted when recorded"`;
+  a scratch job of uncommitted code still in flight is not depended on.
+- **The runner reads only its own project's earlier launches, in launch order**: a results root shared by several
+  projects no longer lends one project's stage records to another, and `run_manifests` orders by the launch stamp
+  that names each manifest, not by modification time (the results-branch stage rewrites its manifest, which made an
+  older launch the "last completed" upstream run). Each record's state is read once from its markers.
 - **The runner honours `VGTK_SCRATCH`** beyond the key: a scratch launch reads another scratch run's output, and runs
   uncommitted code with a warning (a run of record still refuses both); the dry run says so.
 - **A local launch keeps `results_branch`** in its manifest (the stage writes it atomically, and the runner keeps it when

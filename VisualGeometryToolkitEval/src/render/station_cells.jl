@@ -9,9 +9,9 @@
 The cells of a floorplan fan from `df`, one row per (frame, marker) attempt with
 `rig_distances_bin` (mm), `rig_angles` (rad, the frame's), `error_distances`
 (mm, `missing` where nothing was placed) and `abs_error_angles_deg`. Each
-attempt belongs to the station of `stations` nearest its rig angle (the
-angle rounded onto the stations' grid, never numbered by rank: a station with
-no capture shifts no other, and per-frame jitter stays in its station); per
+attempt belongs to the member of `stations` nearest its rig angle (an angle
+beyond either end at that end; never numbered by rank: a station with no
+capture shifts no other, and per-frame jitter stays in its station); per
 (station, distance) a cell
 `(; angle, dist, n, rate, med, medr)`: the station's angle (degrees), the
 distance, the placed count, the placed fraction, the median distance error and
@@ -21,8 +21,8 @@ edge-on (a plane presenting no area) and are dropped; every station angle of
 hole in the fan always means no detection, never missing data.
 """
 function station_cells(df::AbstractDataFrame; stations::AbstractRange = -80:10:80)
-    a0, h = first(stations), step(stations)
-    station(a) = Float64(a0 + round(Int, (rad2deg(a) - a0) / h) * h)      # the angle on the stations' grid
+    a0, h, n = first(stations), step(stations), length(stations)
+    station(a) = Float64(stations[clamp(round(Int, (rad2deg(a) - a0) / h) + 1, 1, n)])   # the nearest member of `stations`
     d = transform(df, :rig_angles => ByRow(station) => :station)
     med(e) = (v = collect(skipmissing(e)); isempty(v) ? NaN : median(v))
     g = combine(

@@ -35,3 +35,7 @@ stationarity_tol = 0.05
 # The device LM's (`static_lm`) iteration cap: the spline lenses' projection and the mapped surfaces' ray hit
 # (the reference routine's 100).
 device_max_iter = 100
+# The device LM's acceptance, the cost a solution must be below besides being stationary: `inf` — success by the
+# stationarity rule alone, unless the problem itself bounds its residual (a root-finding solve: a projection, a
+# lens inverse, a ray hit) and passes its own bound.
+device_acceptance = inf

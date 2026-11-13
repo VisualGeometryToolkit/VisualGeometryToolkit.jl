@@ -64,6 +64,11 @@ each point at full resolution in its own window.
 - **Precision:** a maximum is kept when its point standard deviation `1/√w` is at
   most `precision_threshold` (input pixels, [`detect_foerstner`](@ref)'s
   keyword and default): the paper's `T_w`.
+- **Accuracy:** seeded [`detect_foerstner`](@ref) at the selected σ equals the best
+  fixed window within Monte Carlo error at dot radii 0.9–5 px, except near
+  1.8 px, where it is 0.0008 px RMS worse (0.0092 vs 0.0084 px): a measured,
+  accepted limit of the window estimator's pixel locking (no window rule tested
+  removed it).
 - **Suppression:** ASIFT's elliptical NMS ([`cross_warp_nms`](@ref)), the
   paper's eq. (8) with its defaults (fp = 1, fs = ½, T_r = 1) as footprint
   overlap: a footprint of radius `σ/√2` and half-octave scale bands, ± 1 band.

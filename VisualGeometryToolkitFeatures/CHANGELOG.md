@@ -23,6 +23,10 @@ A patch, additive, on VisualGeometryToolkitCore 0.10.
 - **New: `detect_foerstner(img, seeds)`**: the Förstner window estimation at given windows (each seed's centre and
   scale σ, the box window of `integration_sigma = σ`), the same rows as `detect_foerstner(img)`; at the windows
   `detect_foerstner(img)` chose it returns its rows bit for bit.
+- **Measured limitation, accepted (owner, 2026-11-14):** at a dot radius of about 1.8 px the window SFOP selects is 0.0008 px
+  RMS worse than the best fixed window (0.0092 vs 0.0084 px, synthetic discs, σi 1.41). Three window rules were tested and
+  failed (the smallest a-posteriori variance, a window ∝ the radius, Gaussian weighting) and Farid–Simoncelli derivatives
+  had no effect: the limit is the window estimator's pixel locking. Stage 2 keeps the selected window.
 - **`detect_foerstner` is faster** (results unchanged, bit for bit): the squared gradient stays on the device and the
   window centres are compacted there (12 MP photograph on a B200: 587 → 28 ms; on 32 CPU threads 1.2 → 0.42 s).
 

@@ -129,13 +129,15 @@ end
 
 const _DETECTION_HEADER = _Obj(
     Pair{Symbol, _Spec}[
-        :frame => _Named(t -> haskey(_FRAME_TAGS, t), "a frame type ($(join(keys(_FRAME_TAGS), ", ")))"),
-        :number_type => _Named(t -> any(p -> p[1] == t, _NUMBER_TYPES), "a number type (float64, float32)"),
-        :attributes => _CheckedSpec(_Free(), _attribute_types_problem),
+        :frame => _Named(in(collect(String, keys(_FRAME_TAGS))), "a frame type ($(join(keys(_FRAME_TAGS), ", ")))"),
+        :number_type => _Named(in(first.(_NUMBER_TYPES)), "a number type (float64, float32)"),
+        :attributes => _CheckedSpec(_Free(), _attribute_types_problem;
+                                    rule = "attribute name → its type, one of $(join(first.(_ATTRIBUTE_TYPES), ", "))",
+                                    schema = ["additionalProperties" => Dict("enum" => collect(first.(_ATTRIBUTE_TYPES)))]),
     ],
     Pair{Symbol, _Spec}[:covariance => _Obj(
-        :storage => _Named(t -> t in _COV_STORAGES, "a covariance storage (full, diagonal, isotropic)"),
-        :number_type => _Named(t -> any(p -> p[1] == t, _NUMBER_TYPES), "a number type (float64, float32)"),
+        :storage => _Named(in(_COV_STORAGES), "a covariance storage (full, diagonal, isotropic)"),
+        :number_type => _Named(in(first.(_NUMBER_TYPES)), "a number type (float64, float32)"),
     )],
 )
 
@@ -178,7 +180,7 @@ const _DETECTION_SPEC = _DetectionSpec(_kind_spec("detection",
     Pair{Symbol, _Spec}[
         :detection => _DETECTION_HEADER,
         :images => _CheckedSpec(_Vec(_Obj(:image => _NonEmpty(), :detections => _Vec(_Free()))),
-                                x -> _unique_check([im[:image] for im in x], "image names")),
+                                x -> _unique_check([im[:image] for im in x], "image names"); rule = "image names are unique"),
     ]))
 
 # --- save / load --------------------------------------------------------------

@@ -24,7 +24,7 @@
     VgtkCore.update_model!(state, ::MeanIRLS, data, θ) = sum(data) / length(data)
     VgtkCore.update_residuals!(state, ::MeanIRLS, data, θ) = (state.r .= data .- θ; state)
     VgtkCore.stopping_criterion(::MeanIRLS) = StopWhenMeanSettled()
-    VgtkCore.block_coordinate_result(state, ::MeanIRLS, data, θ, reason, iter) = (; θ, reason, iter)
+    VgtkCore.block_coordinate_result(state, ::MeanIRLS, data, θ, reason, iter, rule) = (; θ, reason, iter, rule)
 
     data = [1.0, 2.0, 6.0]
     policy = CountingPolicy(0, 0)
@@ -85,8 +85,9 @@ end
     VgtkCore.stop_reason(c::StopAtIteration, s::HalveState, m, prob, θ, θ_old, iter) =
         s.iter >= c.k ? :converged : :continue
     VgtkCore.stopping_criterion(m::Halve) = StopAtIteration(m.conv_at)
-    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{false}, prob, θ, reason, iter) = (; θ, reason, iter)
-    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{true}, prob, θ, reason, iter) =
+    VgtkCore.stop_rule(::StopAtIteration, ::Halve) = VgtkCore.CostDecrease
+    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{false}, prob, θ, reason, iter, rule) = (; θ, reason, iter, rule)
+    VgtkCore.block_coordinate_result(s::HalveState, ::Halve{true}, prob, θ, reason, iter, rule) =
         FitResult(θ, VgtkCore.retcode_from_symbol(reason, VgtkCore.CostDecrease)..., iter, sqrt(s.cost), 1, (;))
 end
 
@@ -99,13 +100,15 @@ end
         stopping_criterion, Recorded, current_cost, current_s2
 
     run(m, max_iter) = block_coordinate_descent!(HalveState(0, NaN), NoPolicy(), m, nothing, 1.0; max_iter)
-    @test run(Halve(0, 100), 5) == (; θ = 1 / 32, reason = :max_iterations, iter = 5)
-    @test run(Halve(0, 3), 5) == (; θ = 1 / 8, reason = :converged, iter = 3)
-    @test run(Halve(0, 5), 5) == (; θ = 1 / 32, reason = :converged, iter = 5)      # the method wins at the budget
-    @test run(Halve(3, 100), 5) == (; θ = 1 / 4, reason = :solve_failed, iter = 3)  # the last good model
+    # the rule of the member that fired reaches the result (`stop_rule`; StopAtIteration's: CostDecrease, the fixture's)
+    @test run(Halve(0, 100), 5) == (; θ = 1 / 32, reason = :max_iterations, iter = 5, rule = VgtkCore.IterationCap)
+    @test run(Halve(0, 3), 5) == (; θ = 1 / 8, reason = :converged, iter = 3, rule = VgtkCore.CostDecrease)
+    @test run(Halve(0, 5), 5) == (; θ = 1 / 32, reason = :converged, iter = 5, rule = VgtkCore.CostDecrease)   # the method wins at the budget
+    @test run(Halve(3, 100), 5) == (; θ = 1 / 4, reason = :solve_failed, iter = 3, rule = VgtkCore.NonFinite)  # the last good model
     @test run(Halve(5, 5), 5).reason === :solve_failed                              # a failed solve wins
-    @test run(Halve(1, 1), 0) == (; θ = 1.0, reason = :max_iterations, iter = 0)
-    @test run(Halve(1, 1), -2) == (; θ = 1.0, reason = :max_iterations, iter = 0)
+    @test run(Halve(1, 1), 0) == (; θ = 1.0, reason = :max_iterations, iter = 0, rule = VgtkCore.IterationCap)
+    @test run(Halve(1, 1), -2) == (; θ = 1.0, reason = :max_iterations, iter = 0, rule = VgtkCore.IterationCap)
+    @test VgtkCore.stop_rule(StopNever(), Halve(0, 0)) === VgtkCore.NoRule           # the default
 
     # composition: flat, typed by its tuple, first reason wins
     c = StopWhenSolveFailed() | StopNever() | StopAfterIteration(3)

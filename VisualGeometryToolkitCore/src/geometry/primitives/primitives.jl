@@ -194,6 +194,7 @@ include("traits.jl")
 export Ellipse, Circle
 export homogeneous_w, maps_within
 export best_iou_match
+public iou_below
 export is_ellipse, classify_conic, gradient
 export RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, lazily, and the identity of ∩ (regions.jl)
 

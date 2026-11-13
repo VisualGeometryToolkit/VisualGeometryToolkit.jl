@@ -109,6 +109,7 @@ export centroid, area
 public signed_area   # the signed shoelace area of a closed ring of 2-D points (primitives/operators.jl)
 export shape_matrix, characteristic_scale
 export iou, overlap_area, coverage, best_iou_match
+public iou_below   # a proof that IoU(e₁, e₂) < t without the exact intersection (bounds from areas and the circumscribed discs)
 public overlap_method, geom_rank
 
 # Feature frames (transformation-based geometric primitives)
@@ -707,7 +708,7 @@ public check_duplication, DuplicationViolation
 public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs, thrown_message, test_quality_gates,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
-public ReadmeExample, readme_examples, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
+public ReadmeExample, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
     test_readme_row, test_readme_example, julia_blocks
 public sqrt_weights   # its √weight buffer
 
@@ -973,6 +974,7 @@ include("geometry/primitives/primitives.jl")
 using .Primitives  # Import all exported symbols into parent namespace
 using .Primitives: rect_corners, _rect_edge_samples, _snap_outward   # the one corner order and per-edge rect walk (primitives/rectangles.jl)
 using .Primitives: is_positive_definite   # public here (feature_frames.jl)
+using .Primitives: iou_below   # public here (operators.jl): a proven IoU < t
 using .Primitives: frame_dof, _point_frame_hint   # the FeatureFrame interface (feature_frames.jl): public, and the absent verbs' hint
 using .Primitives: signed_area   # public here (operators.jl): the shoelace area of a closed ring of points
 

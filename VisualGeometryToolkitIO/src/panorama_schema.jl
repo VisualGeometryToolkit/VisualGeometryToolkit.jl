@@ -118,7 +118,7 @@ end
 
 # vgio/panorama/v1 (IO 0.9.4) → v2.0 (IO 0.10): the envelope (its `pixel_frame`, colmap, and pose declarations into
 # `units` and `conventions`); the camera body as 0.10's (`_camera_body_v010`); the rotations' frames `t` →
-# `frame_index`, `camera_optical` → `camera`; a radial vignetting's chart stated (v1 omitted a linear one); the gains'
+# `frame_index`, `camera_optical` → `camera`; the vignetting body's step (`_vignetting_body_v010`, the vignetting kind's); the gains'
 # `t` → `frame_index`. No number moves but a w < 0 quaternion's signs (the envelope step's).
 function _panorama_v1_to_v2(old::AbstractDict)
     t = _envelope_v010(old, "vgio/panorama/v2.0")
@@ -127,12 +127,5 @@ function _panorama_v1_to_v2(old::AbstractDict)
     t["vignetting"] = _vignetting_body_v010(old["vignetting"])
     haskey(old, "gains") && (t["gains"] = Any[_renamed_key(g, "t", "frame_index") for g in old["gains"]])
     return t
-end
-# A 0.9 vignetting body as 0.10's: a radial profile states its chart (absent: linear), a log one's spline likewise.
-function _vignetting_body_v010(v::AbstractDict)
-    n = Dict{String, Any}(v)
-    haskey(n, "spline") && (n["spline"] = _vignetting_body_v010(n["spline"]))
-    n["type"] == tag_of(VIGNETTING_TAGS, RadialVignetting) && !haskey(n, "chart") && (n["chart"] = "linear")
-    return n
 end
 migrate_schema(::Val{Symbol("vgio/panorama/v1")}, t::AbstractDict) = _panorama_v1_to_v2(t)

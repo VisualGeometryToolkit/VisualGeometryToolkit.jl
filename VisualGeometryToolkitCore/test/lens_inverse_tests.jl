@@ -92,10 +92,10 @@
 
     @testset "the increment bound: COLMAP's relative radius, `nothing` the reference's" begin
         p, x = SVector(3.0, 4.0), SVector(0.0, 0.0)
-        @test C._bounded_increment(nothing, p, x) === p
-        @test C._bounded_increment(0.1, p, x) ≈ SVector(0.06, 0.08)
-        @test C._bounded_increment(0.1, p, SVector(60.0, 80.0)) === p          # within 0.1·‖x‖
-        @test C._bounded_increment(0.1f0, SVector(3.0f0, 4.0f0), SVector(0.0f0, 0.0f0)) isa SVector{2, Float32}
+        @test VisualGeometryToolkitCore._bounded_increment(nothing, p, x) === p
+        @test VisualGeometryToolkitCore._bounded_increment(0.1, p, x) ≈ SVector(0.06, 0.08)
+        @test VisualGeometryToolkitCore._bounded_increment(0.1, p, SVector(60.0, 80.0)) === p          # within 0.1·‖x‖
+        @test VisualGeometryToolkitCore._bounded_increment(0.1f0, SVector(3.0f0, 4.0f0), SVector(0.0f0, 0.0f0)) isa SVector{2, Float32}
     end
 
     @testset "a Dual argument is differentiated at the root: J⁻¹ of the forward map" begin

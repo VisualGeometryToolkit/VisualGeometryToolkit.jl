@@ -20,13 +20,20 @@ A RAW image as linear values: `(raw − black[c]) / (white − black[c]) × gain
 `1.0` = the white level (before the gain). Not clipped: a value above 1 (a gain
 above 1) or below 0 (noise under the black level) is kept.
 
-- `image::AbstractArray{Float64, 3}` — `image[row, column, plane]`, the planes
-  plain arrays on the mosaic's device (an `Array` on the host); a plane's frame
-  is asked of the image with its index ([`bayer_plane_map`](@ref)`(L, c)`).
+- `image` — `image[row, column, plane]`, on the mosaic's device (an `Array` on
+  the host); a plane's frame is asked of the image with its index
+  ([`bayer_plane_map`](@ref)`(L, c)`). Under a sensor model whose noise defines
+  a variance ([`PoissonGaussian`](@ref), [`RelativeNoise`](@ref)) it is a
+  `StructArray` of `Uncertain{Float64}` values (owner ruling D11): its
+  `value` component the `Float64` values, its `attributes` component each
+  value's variance as a 1×1 [`CovMat`](@ref) (`cov(L.image[i, j, p])[1]`), both
+  planes from the one kernel. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
+  it is a plain `AbstractArray{Float64, 3}`. A consumer dispatches on the
+  image's element type.
 - `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the MASKED
   pixels: those whose value includes a photosite at the white level
-  (`raw ≥ white`) or, with a resolved noise holding a defect mask, a defective
-  photosite: in `:bin2` a cell is masked when ANY of its four photosites is, so
+  (`raw ≥ white`) or, under a sensor model holding a [`DefectList`](@ref), a
+  defective photosite: in `:bin2` a cell is masked when ANY of its four photosites is, so
   a cell whose two greens straddle the white level is flagged rather than
   averaged into a plausible value; in `:green_cells` when either green is.
   Masked, never interpolated.
@@ -38,12 +45,11 @@ above 1) or below 0 (noise under the black level) is kept.
     [`bayer_channels`](@ref); [`green_cell_sites`](@ref));
   - `plane_sites`, per plane, the photosites its value is the mean of, each
     `(; color, dn)`: its CFA colour index (LibRaw's `0` R, `1` G, `2` B, `3` the
-    second G; the index of its entry in a per-colour [`SensorNoise`](@ref) field,
-    `read_noise[color + 1]`) and its `white − black[c]`, the codes that span
-    `0 … 1` (before the gain) — what a value's photon and read noise scale by
-    ([`pixel_noise`](@ref)). The green plane's are in the order of
-    `green_offsets`. `black[c]` is the channel's constant (the resolved noise's,
-    else the mosaic's) also when a dark map replaces it per photosite: the span
+    second G; the index of a per-colour component's entry, `σ[color + 1]`) and
+    its `white − black[c]`, the codes that span `0 … 1` (before the gain) — what
+    a value's photon and read noise scale by. The green plane's are in the order
+    of `green_offsets`. `black[c]` is the channel's constant (the sensor model's
+    black slot's) also when a [`Dark`](@ref) replaces it per photosite: the span
     is a scale, the same for every photosite of the channel, so a value is still
     `codes / dn` above its own black.
 
@@ -57,7 +63,7 @@ methods of the cell images, and the display image's are its refusals.
 [`raw_provenance`](@ref) gives the mode, the gain, the metadata and the frame
 map as plain data for a result to record.
 """
-struct LinearRaw{Mode, I <: AbstractArray{Float64, 3}, S <: AbstractMatrix{Bool},
+struct LinearRaw{Mode, I <: AbstractArray{<:Union{Float64, Uncertain{Float64}}, 3}, S <: AbstractMatrix{Bool},
                  G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :plane_sites)}}, M <: NamedTuple}
     image::I
     saturated::S
@@ -82,7 +88,7 @@ _mode(::LinearRaw{Mode}) where {Mode} = Mode
 const RAW_MODES = (:green_cells, :bin2, :demosaic)
 
 """
-    LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing) -> LinearRaw
+    LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel()) -> LinearRaw
 
 The mosaic's linear values, `(raw − black[c]) / (white − black[c]) × gain`, on
 the half-resolution grid of 2×2 Bayer cells (`H ÷ 2 × W ÷ 2`; an odd last row
@@ -110,20 +116,32 @@ display figures) is VisualGeometryToolkitFeatures': `load_raw(path or mosaic; mo
 The values are those convert_raw.py writes (`--mode bin2`), in the same Float64
 arithmetic and order, before its clip to `[0, 1]` and 16-bit rounding.
 
-THE black subtraction is here, once, for every caller: `noise`, the frame's
-resolved [`SensorNoise`](@ref) ([`sensor_noise`](@ref)), or `nothing`.
+THE black subtraction is here, once, for every caller: `sensor_model`, the
+frame's [`SensorModel`](@ref) ([`sensor_model`](@ref) resolves it from a
+characterisation), each slot by its component:
 
-- `nothing` (the default): the mosaic's own per-channel black, `mosaic.black`
-  — bit for bit the values without the keyword.
-- A noise: the per-channel black is `noise.black`'s value when it holds one
-  (else the mosaic's), and the span `white − black[c]`; when it holds a dark
-  frame, the dark's per-photosite `offset` replaces the channel constant in the
-  subtraction (`(raw − offset) / (white − black[c])`; the per-channel scalar is
-  the constant-map case of the same kernel path), and its defect mask joins the
-  saturation flags (`saturated` is then "masked: saturated or defective"). The
-  maps cover the visible raw and are read at the mosaic's `window_origin`
-  (`DimensionMismatch` when they do not reach the mosaic's photosites); they
-  are moved to the mosaic's device.
+- black: [`FileBlack`](@ref) (the absent model's) the mosaic's own per-channel
+  `mosaic.black` — with the absent model `SensorModel()`, the default, bit for
+  bit the values without the keyword; [`ChannelBlack`](@ref) its values (the
+  span `white − black[c]`); a [`Dark`](@ref) its per-photosite `offset` in
+  place of the channel constant in the subtraction (`(raw − offset) / (white −
+  black[c])`, `black` its channel black: the per-channel scalar is the
+  constant-map case of the same kernel path);
+- defects: a [`DefectList`](@ref)'s photosites join the saturation flags
+  (`saturated` is then "masked: saturated or defective"); [`NoDefects`](@ref)
+  adds none;
+- noise: [`PoissonGaussian`](@ref) or [`RelativeNoise`](@ref) make `image` an
+  uncertain image, each value with its variance from the same kernel (D11):
+  `g·max(x, 0)/(m²K)·Σ 1/d + g²/m²·Σ s/d²` for a value `x` of `m` photosites
+  (spans `d`, gain `g`, `s` the photosite's `σ_r[c]²`, or under a `Dark` its
+  dark variance times `1 + 1/frames`: its read noise and dark current, and the
+  error of the offset subtracted), `(σ_rel·x)²` under a `RelativeNoise`;
+  [`NoNoise`](@ref) and [`ReadNoise`](@ref) leave it plain (a read-noise
+  variance alone underestimates a well-exposed pixel's, ruling A).
+
+The maps cover the visible raw and are read at the mosaic's `window_origin`
+(`DimensionMismatch` when they do not reach the mosaic's photosites); they are
+moved to the mosaic's device.
 
 Saturation is `raw ≥ white` with no margin: on the Sony ARW sets this was
 written for, codes pile up exactly at the white level (16383) while the
@@ -131,13 +149,13 @@ histogram runs smoothly through the camera's declared linear limit (15360,
 `metadata.linear_max`), so any margin would be a tuned constant. A caller who
 wants that stricter limit thresholds `mosaic.raw` itself.
 """
-function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, noise::Union{Nothing, SensorNoise} = nothing)
+function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel())
     mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$mode"))
     mode === :demosaic && throw(ArgumentError(
         "LinearRaw: the display demosaic is LibRaw's interpolation, made by VisualGeometryToolkitFeatures: " *
             "`load_raw(path_or_mosaic; mode = :demosaic)`"
     ))
-    return _cell_images(mosaic, _checked_gain(gain), mode, noise)
+    return _cell_images(mosaic, _checked_gain(gain), mode, sensor_model)
 end
 
 function _checked_gain(gain::Real)
@@ -154,6 +172,42 @@ end
     return _store_planes!(img, i, j, v, Base.tail(planes), gain, p + 1)
 end
 
+# THE Poisson slope α of a plane's value (its variance's `α·x` term): the gain over m² K times Σ 1/d over its m
+# photosites' spans — the kernel's and `poisson_slope`'s one expression.
+@inline _poisson_slope(gain, inv_gain, spans::Tuple) = gain * inv_gain / length(spans)^2 * foldl((s, d) -> s + 1 / d, spans; init = 0.0)
+
+"""
+    poisson_slope(L::LinearRaw, model::SensorModel) -> NTuple{P, Float64}
+
+Per plane of `L` (`L.image[:, :, p]`), the Poisson slope α of a value's variance
+under `model`: the `α` of `α·x + σ²`, `gain/(m²K)·Σ 1/d` over the plane's `m`
+photosites (`L.geometry.plane_sites[p]`), `0` without a Poisson term (a model
+whose noise is not `PoissonGaussian`). The one expression the kernel writes the
+variance plane with; the generalized Anscombe transform reads it beside the
+variance plane (VisualGeometryToolkitFeatures' `variance_stabilize`). A `:demosaic`
+image is refused (`ArgumentError`).
+"""
+poisson_slope(L::LinearRaw, model::SensorModel) =
+    map(ps -> _poisson_slope(L.gain, _inv_gain(model.noise), map(s -> s.dn, ps)), _geometry(L, "poisson_slope").plane_sites)
+_inv_gain(n::PoissonGaussian) = 1 / n.gain
+_inv_gain(::NoiseComponent) = 0.0
+
+# Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its value x: unrolled like the
+# values; no variance plane (`nothing`) stores nothing.
+@inline _store_variances!(::Nothing, img, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
+@inline _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
+@inline function _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p)
+    ks = first(planes)
+    m2 = length(ks)^2
+    @inbounds x = img[i, j, p]
+    poisson = max(x, 0.0) * _poisson_slope(gain, law.inv_gain, map(k -> span[k], ks))
+    gauss = gain^2 / m2 * foldl(ks; init = 0.0) do s, k
+        s + _site_variance(law, k, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]) / span[k]^2
+    end
+    @inbounds var[i, j, p] = CovMat(ScaledIdentity{1}(poisson + gauss + law.rel² * x^2))
+    return _store_variances!(var, img, i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
+end
+
 # Each cell's planes and whether any photosite its planes read (`sites`) is at
 # the white level. One work item per cell, reading the cell's four photosites
 # from the held array by the channel view's own index rule: channel k of cell
@@ -165,10 +219,11 @@ end
 # modes differ only in the planes they ask for. (convert_raw.py's order: the
 # gain after the cell's mean.) The black of each photosite is `_black_at` (the
 # dark map's offset at its visible-raw index, else the channel's constant; with
-# `dark === nothing` the constant itself, bit for bit), and a photosite under the
-# defect mask flags its cell as one at the white level does.
-@kernel function _cells_kernel!(img, sat, @Const(raw), planes, sites, black, span, gain::Float64, white::Float64,
-                                dark, defects, origin)
+# `dark === nothing` the constant itself, bit for bit), a photosite under the
+# defect mask flags its cell as one at the white level does, and under a variance law (`var` an array) each value's
+# variance is stored beside it.
+@kernel function _cells_kernel!(img, var, sat, @Const(raw), planes, sites, black, span, gain::Float64, white::Float64,
+                                dark, defects, origin, law)
     i, j = @index(Global, NTuple)
     r0, c0 = 2i - 1, 2j - 1
     @inbounds begin
@@ -176,12 +231,13 @@ end
         b = ntuple(k -> _black_at(dark, black[k], r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), Val(4))
         v = ntuple(k -> _linear_value(x[k], b[k], span[k]), Val(4))
         _store_planes!(img, i, j, v, planes, gain, 1)
+        _store_variances!(var, img, i, j, r0, c0, origin, planes, span, gain, law, 1)
         sat[i, j] = any(k -> _at_white(x[k], white) ||
                              _masked(defects, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), sites)
     end
 end
 
-function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
+function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, model::SensorModel)
     H, W = size(m)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))
@@ -192,15 +248,18 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
     r, g, b = planes[1]::NTuple{1, Int}, planes[2]::NTuple{2, Int}, planes[3]::NTuple{1, Int}
     raw = parent(m)
     backend = KA.get_backend(raw)
-    black, span, dark, defects = _noise_levels(m, noise, backend)    # THE resolution of the levels (sensor_noise.jl)
+    black, span, dark = _model_levels(m, model, backend)              # THE resolution of the levels (sensor_model.jl)
+    defects = _defect_mask(model.defects, m, backend)
+    law = _variance_law(model.noise, model.black, m, backend)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
     # on the photosites' device: the kernel reads the held array (the channel view's photosites), never the wrapper
     img = similar(raw, Float64, H2, W2, P)
+    var = law === nothing ? nothing : similar(raw, _ValueCovariance, H2, W2, P)
     sat = similar(raw, Bool, H2, W2)
-    OnBackend(backend)(_cells_kernel!)(img, sat, raw, used, sites, black, span, gain, m.white, dark, defects, m.window_origin;
-                                       ndrange = (H2, W2))
+    OnBackend(backend)(_cells_kernel!)(img, var, sat, raw, used, sites, black, span, gain, m.white, dark, defects, m.window_origin,
+                                       law; ndrange = (H2, W2))
     KA.synchronize(backend)
     # each plane's samples sit at the mean of its photosites' offsets from the cell centre: the one
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
@@ -208,7 +267,8 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
     plane_sites = map(ks -> map(k -> (color = Int(cell[k]), dn = span[k]), ks), used)
     geometry = (plane_maps = maps, green_offsets, plane_sites)
-    return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
+    image = var === nothing ? img : StructArrays.StructArray{Attributed{Float64, _ValueCovariance}}((img, var))
+    return LinearRaw{mode}(image, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
 # The display demosaic carries no geometry: the refusal every geometric accessor shares.
@@ -267,41 +327,11 @@ The image's green cells, a view: each cell's two greens' mean — `L.image`'s pl
 whose frame IS the cell grid ([`raw_frame_map`](@ref)`(L)`): a `:green_cells`
 image's one plane, a `:bin2` image's second (G). The plane every green-cell
 consumer reads (a detector, VisualGeometryToolkitFeatures' `variance_stabilize`);
-its photosites' colours and spans are `L.geometry.plane_sites` of that plane, its
-noise [`pixel_noise`](@ref)`(L, noise)`. A `:demosaic` image is refused (`ArgumentError`).
+its photosites' colours and spans are `L.geometry.plane_sites` of that plane. An
+uncertain image's green plane is uncertain too (a `StructArray` view: values and
+variances). A `:demosaic` image is refused (`ArgumentError`).
 """
 green_plane(L::LinearRaw) = view(L.image, :, :, _green_plane(L))
-
-"""
-    pixel_noise(L::LinearRaw, noise::SensorNoise) -> NTuple{P, @NamedTuple{α::Float64, σ²::Float64}}
-
-THE noise of a pixel value of `L` under a resolved [`SensorNoise`](@ref), per
-plane (`L.image[:, :, p]`): a value `x` of plane `p`, the mean of its `m`
-photosites (`L.geometry.plane_sites[p]`, each of colour `c` and span `d`),
-times the gain `g`, is Poisson–Gaussian with variance `α·x + σ²`:
-
-    α = g / (m² K) · Σ 1/d,       σ² = g² / m² · Σ σ_r[c]² / d²
-
-(K the gain in electrons per code, σ_r the read noise per colour, the rounding
-in it). For a green cell, `α = g/(4K)(1/d₁ + 1/d₂)` and
-`σ² = g²/4 (σ_r[c₁]²/d₁² + σ_r[c₂]²/d₂²)`. A noise whose `electrons_per_dn`
-or `read_noise` is `nothing` is an `ArgumentError` carrying its `reason`; a
-`:demosaic` image (interpolated, no photosites) is refused.
-"""
-function pixel_noise(L::LinearRaw, noise::SensorNoise)
-    sites = _geometry(L, "pixel_noise").plane_sites
-    (noise.electrons_per_dn === nothing || noise.read_noise === nothing) && throw(ArgumentError(
-        "pixel_noise: the noise has no $(noise.electrons_per_dn === nothing ? "gain" : "read noise"): " *
-            something(noise.reason, "the record holds none")))
-    K = value_of(noise.electrons_per_dn)
-    σr = value_of(noise.read_noise)
-    g = L.gain
-    return map(sites) do ps
-        m = length(ps)
-        (α = g / (m^2 * K) * sum(s -> 1 / s.dn, ps), σ² = g^2 / m^2 * sum(s -> σr[s.color + 1]^2 / s.dn^2, ps))
-    end
-end
-
 
 """
     raw_coordinates(img, x) -> SVector{2, Float64}

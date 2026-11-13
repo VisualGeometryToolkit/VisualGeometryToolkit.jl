@@ -52,7 +52,9 @@
 # widened by the target's own rounding: an absolute bound alone fails a converged
 # Float32 solve at a large radius, where eps·|target| exceeds it.
 @inline _residual_ok(f, target::StaticVector{2, S}) where {S} =
-    (f[1] - target[1])^2 + (f[2] - target[2])^2 <= _core_tol(S)^2 + (8 * eps(S))^2 * (target[1]^2 + target[2]^2)
+    (f[1] - target[1])^2 + (f[2] - target[2])^2 <= _residual_bound2(target)
+# The bound itself, a squared residual (the lens inverse's LM acceptance, `_inverse_lm`).
+@inline _residual_bound2(target::StaticVector{2, S}) where {S} = _core_tol(S)^2 + (8 * eps(S))^2 * (target[1]^2 + target[2]^2)
 
 @inline _float_static(v::StaticVector{N}) where {N} = SVector{N, float(eltype(v))}(Tuple(v))
 
@@ -94,10 +96,10 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
     x0 = ifelse(isfinite(seed[1]) & isfinite(seed[2]), seed, xd)
     # (its own names: a name of the enclosing body assigned in the closure is boxed)
     fj(z) = (yJ = _distort_and_jacobian(d, z); y = yJ[1]; (SVector{2, S}(y[1] - xd[1], y[2] - xd[2]), SMatrix{2, 2, S}(yJ[2])))
-    tol2 = _core_tol(S)^2 + (8 * eps(S))^2 * (xd[1]^2 + xd[2]^2)
     inf, s = S(Inf), _inverse_lm_scale(S)
     fs = max(one(S), sqrt(xd[1]^2 + xd[2]^2))
-    x, ok, J = static_lm(fj, x0, SVector(-inf, -inf), SVector(inf, inf), SVector(s, s), last(_trips(S)), tol2, fs, S(1) / 10, zero(S))
+    stops = StaticLmStops(SVector(s, s); acceptance = _residual_bound2(xd), residual_scale = fs, max_iter = last(_trips(S)))
+    x, ok, J = static_lm(fj, x0, SVector(-inf, -inf), SVector(inf, inf), stops, S(1) / 10)
     return x, ok, det(J)
 end
 

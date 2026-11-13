@@ -94,3 +94,10 @@ reason = "`Division(k₁, …, k_Q)` takes the lens's coefficients as varargs (C
 file = "VisualGeometryToolkitEstimation/src/config_toml.jl"
 function = "_tagged_from_toml"
 reason = "a tagged TOML table builds its type `T` from its fields' values in field order: the arity is `fieldcount(T)`, fixed by the type, so `T` is compiled once per tag type"
+
+# The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
+# per-channel black for the display demosaic; it subtracts nothing in the stack.
+[[pattern]]
+use = "black_subtraction"
+file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
+reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"

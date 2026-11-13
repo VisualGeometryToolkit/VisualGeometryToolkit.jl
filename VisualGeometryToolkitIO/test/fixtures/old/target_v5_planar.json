@@ -1,0 +1,32 @@
+{
+    "schema": "vgio/target/v5",
+    "length_unit": "mm",
+    "target": {
+        "type": "planar",
+        "nominal": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                62.8,
+                0.0
+            ],
+            [
+                -13.9,
+                40.25
+            ],
+            [
+                1234.5,
+                -0.001
+            ]
+        ],
+        "calibration": {
+            "type": "rigid"
+        }
+    },
+    "calibration_record": {
+        "tool": "board",
+        "n_images": 12
+    }
+}

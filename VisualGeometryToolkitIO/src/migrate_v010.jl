@@ -248,7 +248,7 @@ migrate_schema(::Val{Symbol("vgio/target_homographies/v1")}, t::AbstractDict) = 
 #
 # vgio/target_points2d/v2, vgio/target_points3d/v2 and vgio/target_detections/v2
 # → vgio/observations/v3.0 (the one observation kind; Core 0.10's
-# `TargetObservations`, which folded TargetPoints2D/3D into it): the envelope
+# `TargetObservations`, one container for pixels and 3D points): the envelope
 # (`point_index_base`, 1 in every 0.9 file, is the conventions' `index_base`;
 # a 3D file's `frame` named as 0.10 names it); `entity` "target_point"; per
 # frame (`t` → `frame_index`) one SET per target — its point indices, its

@@ -1,7 +1,7 @@
 # =============================================================================
 # Migrations — third-party calibrations into the native kinds (convert_opencv_calibration,
 # convert_matlab_calibration), earlier schema versions into the current ones (vgio_migrate,
-# migrate_schema; a migrated rig's measurement files re-pointed) — and the
+# migrate_schema; a migrated rig's observation files re-pointed) — and the
 # bin/vgio_migrate.jl command
 # =============================================================================
 #
@@ -253,16 +253,18 @@ steps), writes the current file to `dst` through its writer, reads `dst` back
 with the current reader and compares every number with `src`'s value (a length
 as its value, within the length conversion's 2-ulp guarantee), throwing an
 `ArgumentError` on any difference; it returns a summary `NamedTuple` with at
-least `to`, the schema written (and whatever the owner reports: a rig's
-`old_id` and `new_id`).
+least `to`, the schema written (and whatever the owner reports: a rig's or a
+target's `old_ids` and `new_id`).
 
 A declared extension point (VisualGeometryToolkitIO's `CONTRACT_GENERICS`): the
 owner of a schema adds both forms for each of its old versions.
-VisualGeometryToolkitIO's own: `vgio/cameras/v1` → … → v5,
-`vgio/target/v1` → … → v5, `vgio/rig/v4` → … → v9 and
-`vgio/generic_camera/v2` → v3 → `vgio/noncentral_spline/v1` (the kind renamed;
-an old grid file is read, never rewritten: its file form writes a central one's
-camera store, a non-central one's record, to a new file).
+VisualGeometryToolkitIO's own are listed by [`schema_versions`](@ref): every
+kind's earlier versions up to its IO 0.9 one, each with one step, and IO 0.9's
+version of each kind with its step to the 0.10 major (migrate_v010.jl); a
+renamed or folded kind's into its successor (`generic_camera` →
+`noncentral_spline` → `cameras`; `target_points2d`, `target_points3d`,
+`target_detections` → `observations`). An old grid file is read, never
+rewritten: its file form writes its camera store to a new file.
 """
 function migrate_schema end
 
@@ -349,16 +351,16 @@ end
 """
     vgio_migrate(path; out = <stem>.migrated.json beside path (an old grid file: <stem>.camera.json or <stem>.noncentral.json), dry_run = false) -> NamedTuple
 
-An old grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten: a
-central one's camera store — the `vgio/cameras/v5` record of its one camera,
-named after the file — is written to a NEW file, by default `<stem>.camera.json`
-beside it, a non-central one's `vgio/noncentral_spline/v1` record to
-`<stem>.noncentral.json` (an existing one refused, `out == path` refused).
+An old grid file (`vgio/generic_camera/v2` or `v3`) is never rewritten: its
+camera store — the `vgio/cameras` record of its one camera, named after the
+file — is written to a NEW file, by default `<stem>.camera.json` beside a
+central one, `<stem>.noncentral.json` beside a non-central one (an existing one
+refused, `out == path` refused).
 
 Rewrite the file at `path`, of the earlier schema version it declares, in its
 kind's current one, by the file form of [`migrate_schema`](@ref) for that
-schema (cameras v1–v4, target v1–v4, rig v4–v8, the measurement kinds' v1, an old grid file, and any
-a schema owner adds),
+schema (every earlier version [`schema_versions`](@ref) lists that a published
+file holds, and any a schema owner adds),
 which runs the same version steps a reader runs on load: an old file need not
 be rewritten to be read, and this is how it is rewritten once. The migration
 is written through the current writer to a staging directory BESIDE `out`
@@ -373,10 +375,10 @@ A number of at most 15 significant digits is rewritten as its own text. The orig
 migration, replaced by that rename only once verified); an existing `out` is
 otherwise refused. With `dry_run` the migration is verified and nothing is
 written. Returns `(; path, out, from, to, …)`, `out` `nothing` in a dry run,
-with whatever the schema's migration reports — a rig's `old_ids` (the v4
-identities measurement files may name it by: the one hashed from the file as
-written, and the one v4 minted for the value in millimetres, when the file is
-in another unit) and its `new_id`.
+with whatever the schema's migration reports — a rig's or a target's
+`old_ids` (the identities observation files may name it by: the ones its own
+version minted, and IO 0.9's identity of its value) and its `new_id`, its
+identity from IO 0.10 on.
 
 A `.toml` record whose schema has a step but no file form (a schema owner's
 TOML config) is rewritten by the generic file form: parse, [`migrate_record`](@ref),
@@ -584,7 +586,7 @@ function same_value(a::Uncertain, b::Uncertain; length_ulps::Integer = 2)
 end
 # A correspondence set: its endpoints and its attribute columns, through its
 # accessors (the AbstractArray method above would compare its pairs only).
-same_value(a::Csponds, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
+same_value(a::Correspondences, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
     same_value(sources(a), sources(b); length_ulps) && same_value(targets(a), targets(b); length_ulps) && same_value(a.attrs, b.attrs; length_ulps)
 # A non-central model's point controls are plain metres (its directions are not lengths).
 same_value(a::NoncentralSplineModel, b::NoncentralSplineModel; length_ulps::Integer = 2) =
@@ -1579,7 +1581,7 @@ end
 # file holds it (its parsed tree, hashed here) and `content_id(rig)` the record
 # of the value in MILLIMETRES, which differs for a rig whose file is in another
 # unit and is what a producer that named the rig by its value put in its
-# measurement files. Both are mapped.
+# observation files. Both are mapped.
 _rig_v4_id(old::AbstractDict) = _hash_v09(Dict{String, Any}(k => v for (k, v) in old if k != "provenance"))
 
 # v4's in-memory value held millimetre numbers, converted from the file's unit
@@ -1693,7 +1695,7 @@ _writes_length(::TargetHomographies) = false
 # version that reads) at the definitions its identities were migrated to: every
 # identity in its `targets` that `ids` (old → new, the definitions' migrations'
 # `old_ids` and `new_id`) maps is replaced; nothing else changes, and the file
-# is written as its kind's current version (an IO 0.9 measurement file as
+# is written as its kind's current version (an IO 0.9 target_points2d file as
 # `vgio/observations`). Every identity the file names must be mapped or be the
 # `content_id` of one of `rigs` (rigs, current rig or target paths; `hashes`
 # their identities, when the caller has them): any other is an `ArgumentError`

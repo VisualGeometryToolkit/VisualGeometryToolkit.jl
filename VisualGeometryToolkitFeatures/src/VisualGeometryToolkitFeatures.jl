@@ -41,7 +41,7 @@ using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-en
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
 import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
 using VisualGeometryToolkitCore: Point2
-using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
+using VisualGeometryToolkitCore: Correspondences  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!, free_device_buffers!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
 using VisualGeometryToolkitCore: ka_upload, on_device, device_zeros   # the family's one upload to a device (base/device.jl)
@@ -72,12 +72,12 @@ import VisualGeometryToolkitCore: propagate   # a detection's uncertain centre t
 #   batching.jl         batched_rows chunking for the describe backends
 #   asift/              KernelAbstractions ASIFT (IMAS-25) — THE detector.
 #                       Identity-only tilt schedule ≡ plain DoG-SIFT.
-#   matching.jl         CspondSet (Cspond and csponds come from VGC)
+#   matching.jl         CorrespondenceSet (Correspondence and correspondences come from VGC)
 #   nn_match.jl         NN/MutualNN/KnnMatch strategies, metrics, match
 #   matching_ka.jl      the one matcher (KernelAbstractions) behind match and nn_match; pairwise_matrix
 #   matching_stacked_ka.jl  nn_match_stacked over many galleries
 #   described_feature.jl  DescribedFeature, descriptor_matrix
-#   visualization_stubs.jl  detections! stub; matches!/matches Cspond overloads live in the Makie ext
+#   visualization_stubs.jl  detections! stub; matches!/matches Correspondence overloads live in the Makie ext
 #   cache.jl            FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)
 #
 # REMOVED 2026-07: the legacy scale-space detection stack (scalespace.jl,
@@ -192,9 +192,8 @@ export nn_match, pairwise_matrix
 public match
 export resolve_one_to_one, resolve_one_to_one!
 export StackedDescriptorIndex, nn_match_stacked
-# Cspond, csponds: VGC's pair alias and builder (the NNMatch method is added here), exported by VGC only (0.8.0)
-export CspondSet                # N-way correspondence
-# point_csponds deleted (#21) — use VGC points/planar_lift/lift
+# Correspondence, correspondences: VGC's pair alias and builder (the NNMatch method is added here), exported by VGC only (0.8.0)
+export CorrespondenceSet                # N-way correspondence
 
 # -----------------------------------------------------------------------------
 # 4. DESCRIBED FEATURES - Detection + descriptor, StructArray-backed

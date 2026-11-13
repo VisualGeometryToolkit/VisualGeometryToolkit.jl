@@ -792,14 +792,14 @@ end
     cs = [Point2(1.0 + i, 2.0) => Point2(3.0, 4.0 + i) for i in 1:10]
     fig, (a, b) = matches(rand(Gray{N0f8}, 20, 30), rand(Gray{N0f8}, 20, 30), cs)
     @test fig isa Figure && !isempty(a.scene.plots) && !isempty(b.scene.plots)
-    # a cspond carries its weight: the markers' alpha (a bare cspond is opaque)
+    # a correspondence carries its weight: the markers' alpha (a bare correspondence is opaque)
     wcs = [Attributed(c, (; weight = i / 10)) for (i, c) in enumerate(cs)]
     fig3 = Figure(); a3 = Axis(fig3[1, 1]); b3 = Axis(fig3[1, 2])
     matches!(a3, b3, wcs)
     @test [Makie.to_color(c).alpha for c in only(a3.scene.plots).color[]] ≈ (1:10) ./ 10
     matches!(a3, b3, cs)
     @test all(c -> Makie.to_color(c).alpha == 1, last(a3.scene.plots).color[])
-    # stochastic endpoints: one σ-ellipse per drawn cspond, at most max_display
+    # stochastic endpoints: one σ-ellipse per drawn correspondence, at most max_display
     Λ = PrecMat{2, Float64}(2.0, 0.1, 0.1, 3.0)
     scs = [Attributed(Point2(5.0 + i, 5.0), Λ) => Attributed(Point2(6.0, 7.0 + i), Λ) for i in 1:40]
     fig2 = Figure()

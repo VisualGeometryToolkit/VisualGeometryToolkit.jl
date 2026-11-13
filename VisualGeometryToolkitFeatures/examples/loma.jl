@@ -23,7 +23,7 @@ import GLMakie
 
 using VisualGeometryToolkitFeatures
 using VisualGeometryToolkitFeatures: loma_provenance, resolve_execution_provider
-using VisualGeometryToolkitCore: Point2, Rect, centroid, imshow, imshow!, matches!, csponds
+using VisualGeometryToolkitCore: Point2, Rect, centroid, imshow, imshow!, matches!, correspondences
 
 const execution_provider = resolve_execution_provider(Symbol(get(ENV, "LOMA_PROVIDER", "auto")))
 
@@ -63,7 +63,7 @@ img_b, desc_b, size_b = describe("toronto_B.jpg")
 
 matches = matcher(desc_a, desc_b, size_a, size_b; min_score = 0.0)
 
-cs = csponds(desc_a, desc_b, matches)   # matched features in pixels, with score/ratio columns
+cs = correspondences(desc_a, desc_b, matches)   # matched features in pixels, with score/ratio columns
 @info "LoMa" n_a = length(desc_a) n_b = length(desc_b) n_matches = length(cs)
 
 # B sits to the right of A in one plotting frame (COLMAP pixels, as the

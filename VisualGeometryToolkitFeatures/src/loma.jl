@@ -8,7 +8,7 @@
 # runs them; the README's Citing section has both BibTeX entries.
 #
 # The descriptor returns a StructArray{DescribedFeature}; the matcher returns
-# the stack's match type, Vector{NNMatch}, so `csponds(fa, fb, matches)` and
+# the stack's match type, Vector{NNMatch}, so `correspondences(fa, fb, matches)` and
 # everything downstream of `match` take LoMa output unchanged.
 #
 # ONNXRunTime.jl reverses dims at the boundary, so a Julia array's size IS the
@@ -296,7 +296,7 @@ image sizes, `(H, W)` or a channelview's `(C, H, W)`.
 Returns the same type as [`match`](@ref): `m.first` indexes `features_a`,
 `m.second` indexes `features_b`, sorted best-first. `m.score` is the network's
 match probability (higher is better, a similarity, so the default
-`csponds(features_a, features_b, matches)` reads it correctly); `m.ratio` is
+`correspondences(features_a, features_b, matches)` reads it correctly); `m.ratio` is
 `Inf32`, since the network has no second neighbour. Matches scoring below
 `min_score` are dropped.
 """

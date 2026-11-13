@@ -11,7 +11,7 @@
 #
 # =============================================================================
 
-# match, NNMatch, NNStrategy and MutualNN come from nn_match.jl; csponds is
+# match, NNMatch, NNStrategy and MutualNN come from nn_match.jl; correspondences is
 # VisualGeometryToolkitCore's (matching.jl imports it, nn_match.jl adds the NNMatch method)
 
 """
@@ -29,7 +29,7 @@ descriptor matrix extraction:
 ```julia
 sa = described_features(detections, desc_matrix)
 matches = VisualGeometryToolkitFeatures.match(sa_board, sa_query, MutualNN())
-scored = csponds(sa_board, sa_query, matches)
+scored = correspondences(sa_board, sa_query, matches)
 ```
 """
 struct DescribedFeature{D <: AbstractDetection, N}
@@ -112,7 +112,7 @@ function descriptor_matrix(sa::StructArray{<:DescribedFeature})
 end
 
 # =============================================================================
-# Matching integration — match and csponds on StructArray{DescribedFeature}
+# Matching integration — match and correspondences on StructArray{DescribedFeature}
 # =============================================================================
 
 """

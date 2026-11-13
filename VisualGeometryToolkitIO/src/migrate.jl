@@ -1253,14 +1253,15 @@ end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
 _old_grid_extras(b::AbstractDict) = merge(
     haskey(b, "domain") ? Dict{String, Any}("lens_coverage" => Dict{String, Any}("ellipse" => b["domain"]["ellipse"])) : Dict{String, Any}(),
-    haskey(b, "pitch") ? Dict{String, Any}("pitch" => b["pitch"]) : Dict{String, Any}(),
+    haskey(b, "pitch") ? Dict{String, Any}("pitch" => _size_v010(b["pitch"])) : Dict{String, Any}(),
 )
-# A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's).
+# A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's), in
+# the 0.10 body's shape (the one conversion builds the current body; `_camera_body_v010` leaves it as it is).
 function _central_grid_body(b::AbstractDict)
     cam = _old_grid_camera(b)
     body = Dict{String, Any}(
-        "width" => b["width"], "height" => b["height"], "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
-        "lens" => _lens_json(cam.lens),
+        "image_size" => _size_v010(Any[b["width"], b["height"]]), "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
+        "lens" => _lower(_lens_json(cam.lens)),
     )
     return merge(body, _old_grid_extras(b))
 end

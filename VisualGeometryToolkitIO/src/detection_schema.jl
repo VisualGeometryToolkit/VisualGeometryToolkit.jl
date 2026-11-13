@@ -122,14 +122,17 @@ const _ANY_STRING = _Named(_ -> true, "a string")
 _attribute_spec(name) = name in ("float64", "float32") ? _Real() : name == "int" ? _Int() : name == "bool" ? _Bool() :
     name == "string" ? _ANY_STRING : name == "symbol" ? _NonEmpty() : _XY
 
+# The header's attribute table: every attribute's declared type is one of `_ATTRIBUTE_TYPES`.
+function _attribute_types_problem(x)
+    bad = [k for (k, v) in x if !(v isa AbstractString && any(p -> p[1] == v, _ATTRIBUTE_TYPES))]
+    return isempty(bad) ? nothing : "the attribute $(first(bad))'s type is one of $(join(first.(_ATTRIBUTE_TYPES), ", "))"
+end
+
 const _DETECTION_HEADER = _Obj(
     Pair{Symbol, _Spec}[
         :frame => _Named(t -> haskey(_FRAME_TAGS, t), "a frame type ($(join(keys(_FRAME_TAGS), ", ")))"),
         :number_type => _Named(t -> any(p -> p[1] == t, _NUMBER_TYPES), "a number type (float64, float32)"),
-        :attributes => _CheckedSpec(_Free(), x -> begin
-            bad = [k for (k, v) in x if !(v isa AbstractString && any(p -> p[1] == v, _ATTRIBUTE_TYPES))]
-            isempty(bad) ? nothing : "the attribute $(first(bad))'s type is one of $(join(first.(_ATTRIBUTE_TYPES), ", "))"
-        end),
+        :attributes => _CheckedSpec(_Free(), _attribute_types_problem),
     ],
     Pair{Symbol, _Spec}[:covariance => _Obj(
         :storage => _Named(t -> t in _COV_STORAGES, "a covariance storage (full, diagonal, isotropic)"),

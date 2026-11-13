@@ -254,3 +254,73 @@
         @test project(Cu, Xw) == project(nc, ustrip(m, E1u)(SVector(0.05, -0.02, 1.2)))
     end
 end
+
+# backproject of a NoncentralSplineModel at any number type (2026-11, wave 113): Float32 on a Float32 model, Duals through the
+# pixel, and inside a KernelAbstractions kernel on the model's device copy (the CPU backend, and CUDA when it is functional).
+@testitem "NoncentralSplineModel: backproject at Float32 and Duals, in a kernel" setup = [SplineAxis] begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using ForwardDiff
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @Const
+    using CUDA
+    using Adapt: adapt
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, NoncentralSplineModel, KannalaBrandt, px,
+        backproject, backproject_with_jacobian, Ray3, convert_eltype
+
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+    G = GOLDEN
+    src = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
+    cam = CameraModel(SplineLens, src, Size2(G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
+    b = cam.lens.backward
+    nc = NoncentralSplineModel(cam.intrinsics, b, ChartSpline(b.area, map(d -> 0.01 * d, b.controls)))
+    pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2) if !far_edge_probe(G, i)]
+    vec3(v) = SVector{3}(v[1], v[2], v[3])
+
+    # Float32: the model's numbers and the pixel's, a Ray3{Float32} within Float32 rounding of the Float64 line
+    nc32 = convert_eltype(Float32, nc)
+    rays = map(u -> backproject(nc, u), pixels)
+    rays32 = map(u -> backproject(nc32, SVector{2, Float32}(u)), pixels)
+    @test all(r -> r isa Ray3{Float32}, rays32)
+    imaged = findall(r -> all(isfinite, r.direction), rays)
+    @test length(imaged) > 10
+    @test all(k -> all(isnan, rays32[k].direction) == all(isnan, rays[k].direction), eachindex(rays))
+    @test maximum(k -> norm(vec3(rays32[k].direction) - vec3(rays[k].direction)), imaged) <= 1.0e-5
+    @test maximum(k -> norm(vec3(rays32[k].origin) - vec3(rays[k].origin)), imaged) <= 1.0e-6
+    # a Float64 model at a Float32 pixel: the promoted type, Float64
+    @test backproject(nc, SVector{2, Float32}(pixels[imaged[1]])) isa Ray3{Float64}
+
+    # Duals through the pixel: the direction's partials are backproject_with_jacobian's M, the values the plain line's
+    for k in imaged[1:5]
+        u = pixels[k]
+        J = ForwardDiff.jacobian(v -> vec3(backproject(nc, v).direction), u)
+        _, M = backproject_with_jacobian(nc, u)
+        @test J ≈ M rtol = 1.0e-8
+        Jo = ForwardDiff.jacobian(v -> vec3(backproject(nc, v).origin), u)
+        @test all(isfinite, Jo)
+        r = backproject(nc, ForwardDiff.Dual.(u, (1.0, 0.0)))
+        @test r isa Ray3{<:ForwardDiff.Dual} && vec3(ForwardDiff.value.(r.direction)) == vec3(rays[k].direction)
+    end
+
+    # in a kernel: one launch per backend over the pixels, the model adapted, Float32 throughout, bit for bit the host's
+    @kernel function line_kernel!(out, model, @Const(us))
+        i = @index(Global)
+        @inbounds out[i] = backproject(model, us[i])
+    end
+    backends = Any[KA.CPU()]
+    CUDA.functional() && push!(backends, CUDA.CUDABackend(; always_inline = true))
+    us32 = map(u -> SVector{2, Float32}(u), pixels)
+    for be in backends
+        out = KA.allocate(be, Ray3{Float32}, length(us32))
+        us = KA.allocate(be, SVector{2, Float32}, length(us32)); copyto!(us, us32)
+        line_kernel!(be)(out, adapt(be, nc32), us; ndrange = length(us32))
+        KA.synchronize(be)
+        host = Array(out)
+        # the CPU kernel runs the host's code: the same bits (a device may contract differently: within rounding)
+        be isa KA.CPU && @test all(k -> isequal(vec3(host[k].direction), vec3(rays32[k].direction)) &&
+                                        isequal(vec3(host[k].origin), vec3(rays32[k].origin)), eachindex(host))
+        @test maximum(k -> norm(vec3(host[k].direction) - vec3(rays32[k].direction)), imaged) <= 1.0e-6
+    end
+end

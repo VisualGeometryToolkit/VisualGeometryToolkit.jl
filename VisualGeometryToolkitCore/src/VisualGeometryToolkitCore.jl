@@ -343,6 +343,7 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+public farthest_radius   # how far a region reaches from a centre: an imaged region's radius, clipped by the sensor (image_circle.jl)
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)
@@ -740,6 +741,7 @@ public radial_outline, radial_in_front, OUT_OF_FIELD_RESIDUAL   # the division m
 # camera verbs above.
 public sign_normalize, unit_normalize
 export transfer_ellipse
+public plane_map   # a posed camera's z = 0 plane → image map, distortion_map ∘ the pinhole twin's plane homography (cameras/cameras.jl)
 export constraint_with_jacobians
 public test_model, test_cheirality, test_conditioning
 public cheiral_pose_fast   # the 4-way cheirality vote over motion(E), on bearings

@@ -46,7 +46,7 @@ of the tensor-product surface on `Bx ⊗ By`, `vec(c)ᵀ G vec(c)` with `c` laid
 basis's derivatives, over the bases' domains. Positive semidefinite, the
 affine functions its null space. A regularizer reads it as rows
 ([`bending_rows`](@ref)) or, on a large uniform lattice, cell by cell
-([`bending_stencils`](@ref)); a lattice of vector-valued controls applies it
+([`bending_stencils`](@ref), and over a mask of held nodes `bending_rows(mask)`); a lattice of vector-valued controls applies it
 per component.
 """
 bending_gram(B) = _gram(B, 2)
@@ -102,6 +102,38 @@ function bending_stencils(nx::Integer, ny::Integer; spacing = (1.0, 1.0))
     lin = LinearIndices((nx, ny))
     windows = [ntuple(k -> lin[cx + (k - 1) % 4, cy + (k - 1) ÷ 4], Val(16)) for cy in 1:(ny - 3) for cx in 1:(nx - 3)]
     return (; windows, L)
+end
+
+"""
+    bending_rows(mask::AbstractMatrix{Bool}; spacing = (1, 1)) -> SparseMatrixCSC{Float64, Int}
+
+The bending energy's rows over the nodes of a uniform cubic lattice that `mask`
+holds (`true`: a node the rows may read), as a sparse operator on the lattice's
+column-major vector. These are the [`bending_stencils`](@ref) of the
+`size(mask)` lattice (cell size `spacing`) over the cells whose 16 nodes are all
+in `mask`: each cell's rows `L` in cell order, the first index fastest. It is
+the masked bending operator beside the masked differences of
+[`difference_rows`](@ref)`(mask, order)`. A regularizer of a lattice that holds
+only the nodes an imaged region reaches reads it as a penalty operator
+([`mean_positive_eigenvalue`](@ref), [`row_stencils`](@ref)). A lattice of
+vector-valued controls applies it per component. A mask that holds no complete
+cell gives an operator with no rows.
+"""
+function bending_rows(mask::AbstractMatrix{Bool}; spacing = (1.0, 1.0))
+    nx, ny = size(mask)
+    st = bending_stencils(nx, ny; spacing)
+    I, J, V = Int[], Int[], Float64[]
+    row = 0
+    for w in st.windows
+        all(n -> mask[n], w) || continue
+        for r in axes(st.L, 1)
+            row += 1
+            for (m, n) in enumerate(w)
+                push!(I, row); push!(J, n); push!(V, st.L[r, m])
+            end
+        end
+    end
+    return sparse(I, J, V, row, nx * ny)
 end
 
 """

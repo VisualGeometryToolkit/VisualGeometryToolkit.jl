@@ -355,15 +355,30 @@ function transfer_ellipse(camera::PosedCamera, shape::Union{Circle, Ellipse})
     c = centroid(shape)
     Xc = camera.extrinsics.R * SVector{3, Float64}(c[1], c[2], 0.0) + camera.extrinsics.t
     Xc[3] > 0 || return nothing
-    H = HomographyMap(PosedCamera(pinhole(m), camera.extrinsics))
-    return _lens_ellipse(m.lens, m, transfer_ellipse(H, shape))
+    P = plane_map(camera)
+    return _lens_ellipse(m.lens, P, transfer_ellipse(P.t2, shape))
 end
 
-# The lens's part of the transfer: `distortion_map(m)` is a `ComposedTransformation`
-# (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`), which `transfer_ellipse` walks stage by stage.
-_lens_ellipse(lens, m, ::Nothing) = nothing
-_lens_ellipse(::Pinhole, m, ep::Ellipse) = ep
-_lens_ellipse(lens, m, ep::Ellipse) = transfer_ellipse(distortion_map(m), ep)
+"""
+    plane_map(camera::PosedCamera) -> CoordinateTransformations.ComposedTransformation
+
+The map from the `z = 0` plane of the camera's world (a planar target's design
+plane, in its units) to the image, in the camera's pixel frame:
+`distortion_map(m) ∘ HomographyMap(PosedCamera(pinhole(m), extrinsics))`, the
+plane homography of the camera's pinhole twin followed by its lens's
+distortion map. `plane_map(camera)(q)` is `project(camera, [q; 0])` for a
+point in front of the camera (the map itself does not test cheirality), and
+`transform_deriv(plane_map(camera), q)` is the 2 × 2 Jacobian of the image
+point with respect to the plane point, the linearisation that
+[`transfer_ellipse`](@ref)`(camera, shape)` transfers a conic by.
+"""
+plane_map(camera::PosedCamera) = distortion_map(camera.model) ∘ HomographyMap(PosedCamera(pinhole(camera.model), camera.extrinsics))
+
+# The lens's part of the transfer: the plane map's outer stage `distortion_map(m)` is a `ComposedTransformation`
+# (`affine_part(K) ∘ lens ∘ affine_part(K⁻¹)`), which `transfer_ellipse` walks stage by stage; a pinhole's is the identity.
+_lens_ellipse(lens, P, ::Nothing) = nothing
+_lens_ellipse(::Pinhole, P, ep::Ellipse) = ep
+_lens_ellipse(lens, P, ep::Ellipse) = transfer_ellipse(P.t1, ep)
 
 # Rect: tessellate edges, lift to z=0, project → Polygon
 _camera_project_rect(camera::PosedCamera, rect::GeometryBasics.HyperRectangle{2}, n::Int) =
@@ -1189,6 +1204,7 @@ export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
 export image_circle                       # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region                      # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+export farthest_radius                    # how far a region reaches from a centre, sensor-clipped (public, not exported, at the top level)
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)
@@ -1222,6 +1238,7 @@ export with_present, with_directions, with_points, central_model   # a spline mo
 export axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis (spline_lens.jl)
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
+export plane_map                         # a posed camera's z = 0 plane → image map (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export forward_chart                     # the chart of every SplineLens forward spline (public, not exported, at the top level)
 export has_spline_gauge                  # whether a SplineLens pixel lattice gives its own K (public, not exported, at the top level)

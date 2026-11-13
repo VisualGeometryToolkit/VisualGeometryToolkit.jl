@@ -197,6 +197,72 @@ limit (`∩` returns it). The pixel mask of any residual is
 imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
 
 """
+    farthest_radius(region, center) -> Float64
+    farthest_radius(region, center, direction) -> Float64
+
+How far `region` reaches from the point `center`, in the region's units (pixels
+for an [`imaged_region`](@ref)).
+
+- `farthest_radius(region, center)` is the largest distance from `center` to a
+  point of the region. A `Rect` has the exact value, its farthest corner. Any
+  other region uses the second form on 720 azimuths, refines the largest by
+  Brent's method between its neighbours (`grid_brent_minimum`, Core's one 1-D
+  minimizer) and returns the largest value it evaluated.
+- `farthest_radius(region, center, direction)` is the largest `t` with
+  `center + t·direction` in the region, bisected to rounding, in units of
+  `‖direction‖`. A direction through a linear map, `A·d`, gives the radius in
+  the coordinates that `A` maps to pixels.
+
+The region is any bounded 2-D region that answers `p ∈ region`: a `Rect`, an
+`Ellipse`, a `Circle`, or their `∩`. It must contain `center` and be
+star-shaped about it, which every intersection of convex parts containing
+`center` is. A `Rect`'s farthest point is a corner from any `center`, inside or
+not (an image's farthest corner from a distortion centre:
+[`division_bounded`](@ref)).
+
+The sensor clips the result. An `imaged_region` is the sensor's `Rect`
+intersected with the lens coverage, so an image circle larger than the sensor,
+or cut by it, reaches only as far as the sensor does.
+
+The whole plane has no farthest point, so it is an `ArgumentError` (from its
+`Rect2`). So is a `center` outside any other region.
+
+```julia
+r = imaged_region(camera)
+farthest_radius(r, principal_point)   # a radial profile's domain: ρ ≤ 1 on every imaged pixel
+```
+"""
+farthest_radius(r::Rect{2}, center) = maximum(p -> norm(p - _plain_centre(center)), _rect_corners(Rect2{Float64}(r)))
+function farthest_radius(region, center)
+    c = _plain_centre(center)
+    _check_farthest_center(region, c)
+    reach(ψ) = -farthest_radius(region, c, SVector(cos(ψ), sin(ψ)))
+    return -_azimuth_minimum(reach, _FARTHEST_AZIMUTHS)
+end
+function farthest_radius(region, center, direction)
+    c = _plain_centre(center)
+    u = SVector{2, Float64}(direction[1], direction[2])
+    box = Rect2(region)               # an ArgumentError for the whole plane: the region must be bounded
+    _check_farthest_center(region, c)
+    nu = norm(u)
+    (isfinite(nu) && nu > 0) || throw(ArgumentError("farthest_radius: the direction $direction is not a finite non-zero vector"))
+    hi = (maximum(p -> norm(p - c), _rect_corners(box)) * (1 + 1.0e-9) + 1.0e-12) / nu
+    a, b = 0.0, hi
+    for _ in 1:60
+        m = (a + b) / 2
+        Point2{Float64}(c + m * u) ∈ region ? (a = m) : (b = m)
+    end
+    return a
+end
+const _FARTHEST_AZIMUTHS = 720
+_plain_centre(center) = SVector{2, Float64}(center[1], center[2])
+_rect_corners(b::Rect2) =
+    (lo = SVector{2, Float64}(minimum(b)); hi = SVector{2, Float64}(maximum(b));
+     (lo, SVector(hi[1], lo[2]), SVector(lo[1], hi[2]), hi))
+_check_farthest_center(region, center) = Point2{Float64}(_plain_centre(center)) ∈ region ||
+    throw(ArgumentError("farthest_radius: the region does not contain the centre $(Tuple(center))"))
+
+"""
     pixel_mask(region, width, height) -> BitMatrix
 
 The pixels of a `width × height` image whose CENTRES lie in `region` (any 2-D region answering `p ∈ region`: an

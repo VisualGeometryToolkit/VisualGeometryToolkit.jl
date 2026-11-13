@@ -42,7 +42,10 @@ const _DEVICE_RESOLVER = Ref{Any}(() -> KA.CPU())
 
 The device every KernelAbstractions-generic entry point in the package family
 uses when the caller supplies none: an accelerator when one is loaded AND
-functional, else `KA.CPU()`.
+functional, else `KA.CPU()`. The accelerator's backend value is built with the
+compiler options its extension chooses (the CUDA extension's
+`always_inline = true`); [`on_device`](@ref) treats it as the same memory as
+the backend of an array on that device.
 
 Memoized: resolution asks the vendor package whether it is functional, which
 is not free and cannot change within a session. `_DEVICE_RESOLVER[]` overrides
@@ -218,7 +221,12 @@ end
 [`ka_upload`](@ref)`(T, device, A)`. Also the way back: a result handed back in
 the caller's array kind is `on_device(get_backend(input), result)`.
 """
-on_device(::Type{T}, dev, A::AbstractArray) where {T} = get_backend(A) == dev && eltype(A) === T ? A : ka_upload(T, dev, A)
+on_device(::Type{T}, dev, A::AbstractArray) where {T} = _same_memory(get_backend(A), dev) && eltype(A) === T ? A : ka_upload(T, dev, A)
+# Whether arrays of the backends `a` and `b` live in one memory: the same backend TYPE. A backend value also carries
+# compiler options (CUDA's `always_inline`, `prefer_blocks`; the CPU's `static`), which `get_backend` of an array never
+# reports: `get_backend(::CuArray)` is `CUDABackend()`, while `default_device()` is `CUDABackend(; always_inline = true)`.
+# Comparing the values would copy every array already on the device.
+_same_memory(a, b) = typeof(a) === typeof(b)
 on_device(dev, A::AbstractArray) = on_device(eltype(A), dev, A)
 
 """

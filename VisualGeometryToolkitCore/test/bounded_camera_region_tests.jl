@@ -204,3 +204,47 @@ end
     r = imaged_region(with_lens_coverage(circ, c))
     @test Point2(2131.1, 1407.9) ∈ r && !(Point2(2131.1 + 1680.1 - 20.0, 1407.9) ∈ r) && Point2(2131.1 + 1680.1 - 20.0, 1407.9) ∈ imaged_region(circ)
 end
+
+# How far an imaged region reaches from a centre (image_circle.jl): RadiometricCamera's radial vignetting radius and its
+# rings' disc, and Estimation's fit_camera exit radii, read it.
+@testitem "farthest_radius: an imaged region's reach from a centre, clipped by the sensor" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: farthest_radius, WholePlane
+    using StaticArrays
+    W, H = 520, 348
+    c = SVector(W / 2, H / 2)
+    sensor = Rect(0, 0, W, H)
+    # the sensor alone: its farthest corner, exactly (the half diagonal from its centre)
+    @test farthest_radius(sensor, c) == hypot(W, H) / 2
+    @test farthest_radius(sensor, SVector(10.0, 20.0)) == hypot(W - 10.0, H - 20.0)
+    # a circle centred on the centre inside the sensor: its radius
+    circle = Circle(Point2(c...), 150.0)
+    @test farthest_radius(sensor ∩ circle, c) ≈ 150.0 rtol = 1.0e-9
+    # off centre: the farthest point of the arc inside the sensor (RadiometricCamera's 190 px case: 40 + 150)
+    off = sensor ∩ Ellipse(Point2(300.0, 174.0), 150.0, 150.0, 0.0)
+    @test farthest_radius(off, c) ≈ 190.0 rtol = 1.0e-9
+    # a circle larger than the sensor is clipped by it: the corners, not the rim (a corner is a kink of the reach over the
+    # azimuth, which Brent's method resolves to √eps in the azimuth: first order in the radius)
+    big = sensor ∩ Circle(Point2(c...), 400.0)
+    @test farthest_radius(big, c) ≈ hypot(W, H) / 2 rtol = 1.0e-7
+    @test farthest_radius(big, c) <= hypot(W, H) / 2
+    # a circle the sensor cuts: the farthest point is where the rim meets the sensor's edge
+    cut = sensor ∩ Circle(Point2(c...), 200.0)
+    @test farthest_radius(cut, c) ≈ 200.0 rtol = 1.0e-9
+    cut2 = sensor ∩ Circle(Point2(c...), 280.0)       # past the half width (260), short of the half diagonal (313)
+    @test farthest_radius(cut2, c) ≈ 280.0 rtol = 1.0e-9
+    # along a direction: the exit radius, in units of the direction's length
+    @test farthest_radius(sensor, c, SVector(1.0, 0.0)) ≈ W / 2 rtol = 1.0e-12
+    @test farthest_radius(sensor, c, SVector(2.0, 0.0)) ≈ W / 4 rtol = 1.0e-12
+    @test farthest_radius(sensor ∩ circle, c, SVector(0.0, -1.0)) ≈ 150.0 rtol = 1.0e-12
+    # the refusals: an unbounded region, a centre outside the region, a zero direction
+    @test_throws ArgumentError farthest_radius(WholePlane(), c)
+    @test_throws ArgumentError farthest_radius(off, SVector(5.0, 5.0))
+    @test farthest_radius(sensor, SVector(-1.0, 5.0)) == hypot(W + 1.0, H - 5.0)   # a Rect's farthest corner from any centre
+    @test_throws ArgumentError farthest_radius(sensor, c, SVector(0.0, 0.0))
+    # an imaged region: the sensor ∩ the lens coverage ∩ the valid domain
+    cam = BoundedCamera(CameraModel(416.0px, SA[260.0px, 174.0px]; lens = KannalaBrandt(-0.02)), Size2(W, H);
+                        lens_coverage = Circle(Point2(260.0, 174.0), 150.0))
+    @test farthest_radius(imaged_region(cam), c) ≈ 150.0 rtol = 1.0e-9
+end

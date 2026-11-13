@@ -259,7 +259,7 @@ end
 end
 
 @testitem "bspline: the bending energy and the natural boundary condition (BSplineKit)" begin
-    using Test, StaticArrays, LinearAlgebra
+    using Test, StaticArrays, LinearAlgebra, SparseArrays
     using VisualGeometryToolkitCore: cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation
     using BSplineKit: BSplineKit, Spline, Derivative, BSplineBasis, BSplineOrder, boundaries
     using QuadGK: gauss
@@ -311,6 +311,24 @@ end
     st = bending_stencils(nx, ny; spacing = (hx, hy))
     @test length(st.windows) == (nx - 3) * (ny - 3) && size(st.L, 2) == 16
     @test sum(norm(st.L * vec(c)[collect(w)])^2 for w in st.windows) ≈ dot(vec(c), G * vec(c)) rtol = 1.0e-10
+    # the masked rows: the stencils of the cells whose 16 nodes the mask holds, as one sparse operator (RadiometricCamera's
+    # grid prior over its interior nodes, the same rows built cell by cell here as it built them)
+    Lall = bending_rows(trues(nx, ny); spacing = (hx, hy))
+    @test size(Lall) == (size(st.L, 1) * (nx - 3) * (ny - 3), nx * ny)
+    @test norm(Lall * vec(c))^2 ≈ dot(vec(c), G * vec(c)) rtol = 1.0e-10
+    mask = trues(nx, ny); mask[1, 1] = false; mask[nx, 3] = false   # the corner cell and the right column's cells through row 3
+    Lm = bending_rows(mask; spacing = (hx, hy))
+    held = [w for w in st.windows if all(n -> mask[n], w)]
+    @test length(held) == (nx - 3) * (ny - 3) - 1 - 3 && size(Lm, 1) == size(st.L, 1) * length(held)
+    @test norm(Lm * vec(c))^2 ≈ sum(norm(st.L * vec(c)[collect(w)])^2 for w in held) rtol = 1.0e-12
+    @test all(iszero, Lm[:, LinearIndices(mask)[1, 1]]) && all(iszero, Lm[:, LinearIndices(mask)[nx, 3]])
+    I_, J_, V_ = Int[], Int[], Float64[]; row = 0
+    for w in held, r in axes(st.L, 1)
+        row += 1
+        for (m, n) in enumerate(w); push!(I_, row); push!(J_, n); push!(V_, st.L[r, m]); end
+    end
+    @test Lm == SparseArrays.sparse(I_, J_, V_, row, nx * ny)       # bit for bit the cell-by-cell assembly
+    @test size(bending_rows(falses(nx, ny))) == (0, nx * ny)
     # the natural boundary condition: BSplineKit's recombination is c₀ = 2c₁ − c₂, and it makes f'' vanish at the border knot
     w₁, w₂ = natural_extrapolation()
     @test w₁ ≈ 2 && w₂ ≈ -1

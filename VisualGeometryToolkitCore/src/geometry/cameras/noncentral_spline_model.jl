@@ -22,9 +22,10 @@
 A 3D ray: `origin + t·direction`, `direction` unit by contract. The
 unprojection currency of [`NoncentralSplineModel`](@ref) — a non-central
 pixel observes a LINE in the camera frame, not a direction through a common
-center.
+center. Its numbers are any `Real`: `Float64`, `Float32` in a kernel, a
+ForwardDiff `Dual` through a back-projection.
 """
-struct Ray3{T <: AbstractFloat}
+struct Ray3{T <: Real}
     origin::Vec3{T}
     direction::Vec3{T}
 end
@@ -198,19 +199,28 @@ Where the model is defined, in pixels: its [`central_model`](@ref)'s valid domai
 valid_domain(m::NoncentralSplineModel) = valid_domain(central_model(m))
 
 """
-    backproject(m::NoncentralSplineModel, u::StaticVector{2}) -> Ray3{Float64}
+    backproject(m::NoncentralSplineModel, u::StaticVector{2}) -> Ray3{T}
 
 The observation LINE of the pixel `u`: the direction of the
 [`central_model`](@ref) (normalized) and the point spline's value (plain metres
 in the camera frame). A ray of NaN origin and direction where the direction lens
 does not image `u` (outside the area, or a window holding an absent node): the
 lens contract's form, never `nothing`.
+
+`T` is the promoted number type of the pixel and the model: `Float64` for a
+`Float64` model, `Float32` for `convert_eltype(Float32, m)` at a `Float32`
+pixel, a ForwardDiff `Dual` at a `Dual` pixel. It allocates nothing, never
+throws and has no branch of another type, so a KernelAbstractions kernel runs
+it on the model's device copy (`Adapt.adapt(backend, m)`) on every backend.
 """
-function backproject(m::NoncentralSplineModel, u::StaticVector{2})
+@inline function backproject(m::NoncentralSplineModel, u::StaticVector{2})
     x = normalized_point(m.intrinsics, u)
     d = backproject(_direction_lens(m), x)
-    o = isnan(d[1]) ? SVector(NaN, NaN, NaN) : m.points(x)
-    return Ray3{Float64}(Vec3{Float64}(o[1], o[2], o[3]), Vec3{Float64}(d[1], d[2], d[3]))
+    p = m.points(x)        # continued past the area: a non-finite point gives NaN weights, never an error
+    T = promote_type(eltype(d), eltype(p))
+    nan = T(NaN)
+    o = isnan(d[1]) ? Vec3{T}(nan, nan, nan) : Vec3{T}(p[1], p[2], p[3])
+    return Ray3{T}(o, Vec3{T}(d[1], d[2], d[3]))
 end
 
 """

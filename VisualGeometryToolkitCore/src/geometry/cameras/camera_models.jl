@@ -876,13 +876,7 @@ scale an undistorted image needs to keep every input pixel in bounds.
 function division_bounded(k::Real, center, sz; margin::Real = HORIZON_MARGIN)
     width, height = sz[1], sz[2]
     k >= 0 && return true
-    r_max = sqrt(
-        max(
-            (0 - center[1])^2, (width - center[1])^2
-        ) + max(
-            (0 - center[2])^2, (height - center[2])^2
-        )
-    )
+    r_max = farthest_radius(Rect(0, 0, width, height), center)   # the farthest image corner (image_circle.jl)
     return r_max < margin / sqrt(-k)
 end
 division_bounded(m::RadialHomography{<:Any, 1}, sz; kwargs...) =
@@ -902,7 +896,10 @@ function division_bounded(
     width, height = sz[1], sz[2]
     K = _K(model.intrinsics)
     cx, cy = K[1, 3], K[2, 3]
-    rmax = sqrt(max((0 - cx)^2, (width - cx)^2) / K[1, 1]^2 + max((0 - cy)^2, (height - cy)^2) / K[2, 2]^2)
+    # the farthest image corner in the lens's normalized radius: the image's rect in that plane (each axis by its own
+    # focal length, the skew not read), about its origin (image_circle.jl)
+    fx, fy = K[1, 1], K[2, 2]
+    rmax = farthest_radius(Rect((0 - cx) / fx, (0 - cy) / fy, width / fx, height / fy), SVector(0.0, 0.0))
     return rmax < margin * monotone_radius(model.lens)
 end
 

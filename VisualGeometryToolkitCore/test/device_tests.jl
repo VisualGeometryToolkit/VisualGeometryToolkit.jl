@@ -253,3 +253,24 @@ end
         Base.invokelatest(free_device_buffers!, e)
     end
 end
+
+# The CUDA extension's default backend inlines every kernel call (`always_inline = true`), and an array already on the device
+# is that backend's memory: `on_device` hands it back as it is, never a copy (the backend VALUES differ: `get_backend` of a
+# CuArray is `CUDABackend()`).
+@testitem "default_device: the GPU backend with always_inline, the same memory as its arrays (CUDA availability-gated)" begin
+    using Test
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: default_device, reset_default_device!, on_device
+    using CUDA: CUDA
+    a = rand(Float32, 8)
+    @test on_device(KA.CPU(), a) === a && on_device(KA.CPU(; static = true), a) === a
+    if CUDA.functional()
+        reset_default_device!()
+        dev = default_device()
+        @test dev isa CUDA.CUDABackend && dev.always_inline
+        d = on_device(dev, a)
+        @test d isa CUDA.CuArray && KA.get_backend(d) != dev                    # the array's backend value is the default one
+        @test on_device(dev, d) === d && on_device(KA.get_backend(d), d) === d   # the same memory: no copy either way
+        @test Array(on_device(KA.CPU(), d)) == a
+    end
+end

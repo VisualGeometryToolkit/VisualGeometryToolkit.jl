@@ -37,5 +37,6 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
 - [x] ONE launch of a device LM state's rows and reduction of their partial sums: Core's `reduce_normal_equations(row!,
   Val(N), args...; partials)` / `reduce_cost(row!, args...; partials)` (737813d1); Estimation's `_LensRegressionLm` calls
   them (a4978736), RadiometricCamera's `_RadiometryLm` too (RC 2d074aef). The pair RC linear_solve.jl:298/302 ⇔
-  Estimation refine_camera.jl:178/182, found BEFORE (2 findings) and gone AFTER (0): docs-pass.md, verbatim.
+  Estimation refine_camera.jl:178/182, found BEFORE (job 14318: 2 findings), gone against Estimation 0.10.3 with RC
+  unchanged (job 14319: 0) and AFTER RC's change (job 14322: 0): docs-pass.md, verbatim.
 - [x] check_duplication: 0 findings on all six (gate prep 14112).

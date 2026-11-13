@@ -74,7 +74,8 @@ end
 @testitem "variance_stabilize: the sensor model's gain — each green its colour's read noise, no gain refused" setup = [NoisyMosaic] begin
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: LinearRaw, green_plane, poisson_slope, sensor_fixture
-    using VisualGeometryToolkitCore: value_of, var
+    using VisualGeometryToolkitCore: value_of
+    using Statistics: var
     using VisualGeometryToolkitFeatures: variance_stabilize
     using Random: Xoshiro
     m = noisy_mosaic(Xoshiro(5), (i, j) -> 100.0, 8, 8; electrons_per_dn = 2.5, read_dn = 3.0)

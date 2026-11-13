@@ -251,7 +251,8 @@ end
 @testitem "detect_foerstner on a LinearRaw: the sensor model's gain, its source, no gain left a-posteriori" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitCore: LinearRaw, green_plane, sensor_fixture
-    using VisualGeometryToolkitCore: value_of, var
+    using VisualGeometryToolkitCore: value_of
+    using Statistics: var
     using Statistics: cov
     using Random: Xoshiro
     using Test

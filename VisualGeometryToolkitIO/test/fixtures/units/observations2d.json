@@ -1,0 +1,124 @@
+{
+    "schema": "vgio/observations/v3.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "julia",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
+    "entity": "target_point",
+    "targets": [
+        "53e19ec98b80cdbc9b2b03afd1900dc1781c6a794a89bb9bc2a27f7543c0ad52"
+    ],
+    "frames": [
+        {
+            "frame_index": 1,
+            "image": "DSC0001.png",
+            "sensor": "cam",
+            "observations": [
+                {
+                    "target": "a1f2",
+                    "index": [
+                        2
+                    ],
+                    "points": [
+                        {
+                            "xy": [
+                                640.0,
+                                480.0
+                            ],
+                            "covariance": [
+                                [
+                                    0.25,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.25
+                                ]
+                            ]
+                        }
+                    ],
+                    "weights": [
+                        1.0
+                    ]
+                }
+            ]
+        },
+        {
+            "frame_index": 3,
+            "image": "DSC0003.png",
+            "sensor": "cam",
+            "observations": [
+                {
+                    "target": "a1f2",
+                    "index": [
+                        4
+                    ],
+                    "points": [
+                        {
+                            "xy": [
+                                100.0,
+                                50.0
+                            ],
+                            "covariance": [
+                                [
+                                    0.25,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.25
+                                ]
+                            ]
+                        }
+                    ],
+                    "weights": [
+                        1.0
+                    ]
+                },
+                {
+                    "target": "b0c1",
+                    "index": [
+                        1
+                    ],
+                    "points": [
+                        {
+                            "xy": [
+                                1.5,
+                                2.5
+                            ],
+                            "covariance": [
+                                [
+                                    0.25,
+                                    0.0
+                                ],
+                                [
+                                    0.0,
+                                    0.25
+                                ]
+                            ]
+                        }
+                    ],
+                    "weights": [
+                        0.5
+                    ]
+                }
+            ]
+        }
+    ]
+}

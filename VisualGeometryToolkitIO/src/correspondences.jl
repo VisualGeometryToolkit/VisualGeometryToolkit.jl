@@ -1,46 +1,50 @@
 # =============================================================================
-# correspondences/v2 — an EXPORT: a session's 2D–3D pairs in the shape external
-# calibrators take (write-only, like TUM / EuRoC / BOP / TRC)
+# export/correspondences/v2 — an EXPORT: a session's 2D–3D pairs in the shape
+# external calibrators take (write-only, like TUM / EuRoC / BOP / TRC)
 # =============================================================================
 #
-# The measurements (target_points2d/v1, VGC `TargetPoints2D`) and the targets
-# (a vgio/rig file, a VGC `Rig` of targets) are COLMAP's points2D → points3D
+# The observations (VGC `TargetObservations{F}`, pixels) and the targets (a
+# vgio/rig file, a VGC `Rig` of targets) are COLMAP's points2D → points3D
 # decomposition: a pixel and a reference into a target's point list. Feeding a
 # third-party calibrator — cv::calibrateCamera, MATLAB's
 # estimateCameraParameters, the python side — means resolving the references
 # into point arrays and moving the pixels into that library's frame. This is
 # that resolution, once, so no driver script redoes the pixel-origin
 # arithmetic. It is not a VGC value of its own (it is derived from two that
-# are), so VGIo writes it and never reads it back as a kind.
+# are), so VGIo writes it and never reads it back: its schema is not a `vgio/`
+# kind (no reader), `export/correspondences/v2`, and its file states its units
+# in the one `units` object every file has.
 #
 # ONE ROW PER (FRAME, TARGET): object points are in their target's own frame,
 # so the points of two boards seen in one frame are two views of two planar
-# targets, never one array — v1 concatenated them, which a calibrator fed a
-# multi-board frame could not tell apart.
+# targets, never one array.
 #
-# {"schema": "vgio/correspondences/v2", "pixel_frame": "opencv", "length_unit": "mm",
-#  "rows": [{"t": 1, "image": "image_1.png", "sensor": "cam1", "target": "a1f2",
+# {"schema": "export/correspondences/v2", <envelope: units.pixel the calibrator's frame, units.length>,
+#  "rows": [{"frame_index": 1, "image": "image_1.png", "sensor": "cam1", "target": "a1f2",
 #            "object_points": [[x, y, z], …], "image_points": [[u, v], …]}],
 #  "provenance": {…}}                                               (optional)
 
+const _CORRESPONDENCES_SCHEMA = "export/correspondences/v2"
 const _CORRESPONDENCES_SPEC = _CheckedSpec(
     _Obj(
         Pair{Symbol, _Spec}[
-            :schema => _schema_tok("correspondences"), :pixel_frame => _PIXEL_FRAME, :length_unit => _LENGTH_UNIT,
+            :schema => _Tok(_CORRESPONDENCES_SCHEMA), :generator => _GENERATOR, :units => _UNITS_OBJECT, :conventions => _CONVENTIONS_OBJECT,
             :rows => _Vec(
                 _CheckedSpec(
                     _Obj(
-                        :t => _Int(), :image => _NonEmpty(), :sensor => _NonEmpty(), :target => _NonEmpty(),
+                        :frame_index => _Int(), :image => _NonEmpty(), :sensor => _NonEmpty(), :target => _NonEmpty(),
                         :object_points => _Vec(_XYZ), :image_points => _Vec(_XY),
                     ),
                     r -> length(r[:object_points]) == length(r[:image_points]) ? nothing :
-                        "object_points and image_points must pair one to one",
+                        "object_points and image_points must pair one to one";
+                    rule = "object_points and image_points pair one to one (equal lengths)",
                 )
             ),
         ],
         _PROVENANCE,
     ),
-    x -> _unique_check([(r[:t], r[:target]) for r in x[:rows]], "(t, target) rows"),
+    x -> _unique_check([(r[:frame_index], r[:target]) for r in x[:rows]], "(frame_index, target) rows");
+    rule = "one row per (frame_index, target)",
 )
 
 # One (frame, target) row: object points as plain METRES (read from the
@@ -52,7 +56,7 @@ const _CorrespondenceRow = @NamedTuple{
 }
 
 # The rows of `obs` resolved against `rigs`, image points moved into `G`.
-function _correspondence_rows(::Type{G}, obs::TargetPoints2D{F}, rigs) where {G <: PixelFrame, F <: PixelFrame}
+function _correspondence_rows(::Type{G}, obs::TargetObservations{F}, rigs) where {G <: PixelFrame, F <: PixelFrame}
     _check_resolves(obs, rigs)
     points = Dict{Symbol, Vector}()
     for rig in rigs, id in ids(rig)
@@ -66,24 +70,19 @@ function _correspondence_rows(::Type{G}, obs::TargetPoints2D{F}, rigs) where {G 
     end
     shift = EuclideanMap(F, G)
     out = _CorrespondenceRow[]
-    for t in sort!(collect(keys(obs)))
-        by_target = Dict{Symbol, Vector{TargetPoint2D}}()
-        for o in obs[t]
-            push!(get!(() -> TargetPoint2D[], by_target, o.target), o)
+    for t in sort!(collect(keys(obs))), id in sort!(collect(keys(obs[t])))
+        cs = obs[t][id]
+        n = length(cs)
+        X = Matrix{Float64}(undef, n, 3)
+        U = Matrix{Float64}(undef, n, 2)
+        for (i, (j, xy)) in enumerate(zip(sources(cs), targets(cs)))
+            p = geom(points[id][j])
+            has_units(p) || _refuse_plain("save_correspondences: target $(id)'s points")
+            X[i, 1] = ustrip(m, p[1]); X[i, 2] = ustrip(m, p[2]); X[i, 3] = length(p) >= 3 ? ustrip(m, p[3]) : 0.0
+            u = shift(SVector{2, Float64}(geom(xy)))
+            U[i, 1] = u[1]; U[i, 2] = u[2]
         end
-        for id in sort!(collect(keys(by_target)))
-            os = by_target[id]
-            X = Matrix{Float64}(undef, length(os), 3)
-            U = Matrix{Float64}(undef, length(os), 2)
-            for (i, o) in enumerate(os)
-                p = geom(points[id][o.index])
-                has_units(p) || _refuse_plain("save_correspondences: target $(id)'s points")
-                X[i, 1] = ustrip(m, p[1]); X[i, 2] = ustrip(m, p[2]); X[i, 3] = length(p) >= 3 ? ustrip(m, p[3]) : 0.0
-                u = shift(SVector{2, Float64}(geom(o.xy)))
-                U[i, 1] = u[1]; U[i, 2] = u[2]
-            end
-            push!(out, (; t, image = get(obs.images, t, ""), sensor = get(obs.sensors, t, ""), target = id, object_points = X, image_points = U))
-        end
+        push!(out, (; t, image = get(obs.images, t, ""), sensor = get(obs.sensors, t, ""), target = id, object_points = X, image_points = U))
     end
     return out
 end
@@ -91,11 +90,12 @@ end
 function _write_correspondences(
         path::AbstractString, ::Type{G}, rows; length_unit::Units = mm, provenance::NamedTuple = (;)
     ) where {G <: PixelFrame}
+    style = VgioStyle(; length_unit, pixel_frame = G)
     body = (
-        schema = _schema("correspondences"), pixel_frame = pixel_frame_name(G), length_unit = unit_string(length_unit),
+        schema = _CORRESPONDENCES_SCHEMA, _envelope_tail(style)...,
         rows = [
             (
-                t = r.t, image = r.image, sensor = r.sensor, target = String(r.target),
+                frame_index = r.t, image = r.image, sensor = r.sensor, target = String(r.target),
                 object_points = [
                     Float64[_write_power(r.object_points[i, k], length_unit, 1) for k in 1:3] for i in axes(r.object_points, 1)
                 ],
@@ -103,79 +103,57 @@ function _write_correspondences(
             ) for r in rows
         ],
     )
-    _write_store(path, _CORRESPONDENCES_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit, pixel_frame = G))
+    text = _json_text(with_provenance(body, provenance), style)
+    _validate(_CORRESPONDENCES_SPEC, _parse_vgio_text(text, path), path, "")
+    write(path, text)
     return path
 end
 
 """
-    save_correspondences([to_frame = F,] path, obs::TargetPoints2D{F}, targets...; resolve = nothing, length_unit = mm, provenance = (;)) -> path
+    save_correspondences([to_frame = F,] path, obs::TargetObservations{F}, targets...; resolve = nothing, length_unit = mm, provenance = (;)) -> path
 
-Export a session's 2D–3D correspondences as one `vgio/correspondences/v2`
-file, one row per (frame, target) in frame then target order:
-`object_points` N×3 in the target's own frame (the target's points on its
-surface: z = 0 for a planar calibration, the height a `HeightField` gives
-otherwise; in `length_unit`, from the targets' lengths — plain points are an
-`ArgumentError`) and `image_points` N×2, moved into `to_frame` — the
-external calibrator's convention, declared in the file: `PixelFrame{:opencv}`
-for `cv::calibrateCamera` (the top-left pixel's centre at (0, 0)),
-`PixelFrame{:julia}` for MATLAB's (1, 1); the measurements' own frame by
-default. A type, it leads.
+Export a session's 2D–3D correspondences — pixel observations `obs` of target
+points — as one `export/correspondences/v2` file, one row per (frame, target)
+in frame then target order: `object_points` N×3 in the target's own frame (the
+target's points on its surface: z = 0 for a planar calibration, the height a
+`HeightField` gives otherwise; in `length_unit`, from the targets' lengths —
+plain points are an `ArgumentError`) and `image_points` N×2, moved into
+`to_frame` — the external calibrator's convention, declared in the file's
+`units.pixel`: `PixelFrame{:opencv}` for `cv::calibrateCamera` (the top-left
+pixel's centre at (0, 0)), `PixelFrame{:julia}` for MATLAB's (1, 1); the
+observations' own frame by default. A type, it leads.
 
 `targets` is one or more rigs or rig file paths (one per connected
 component; a target present in several must carry the same points in each;
-`resolve` resolves a referenced planar design read from a path); when `obs` names its targets (`obs.targets`), the given ones must be
-exactly those, by [`content_id`](@ref) — an old rig file (`vgio/rig/v4`, or a
-`v5` whose calibration held the retired affine kind) also by the identity its
-version named it by, which the measurement files written beside it hold.
-Every (target, index) must resolve,
-and every frame must name its image and sensor.
+`resolve` resolves a referenced planar design read from a path); when `obs`
+names its targets (`obs.targets`), the given ones must be exactly those, by
+[`content_id`](@ref) — an old rig or target file also by the identities its
+version named it by (the re-id map), which the observation files written beside
+it hold. Every (target, index) must resolve, and every frame must name its image
+and sensor. The export is write-only: no reader reads it.
 """
-save_correspondences(path::AbstractString, obs::TargetPoints2D{F}, targets...; kwargs...) where {F <: PixelFrame} =
+save_correspondences(path::AbstractString, obs::TargetObservations{F}, targets...; kwargs...) where {F <: PixelFrame} =
     save_correspondences(F, path, obs, targets...; kwargs...)
 
 function save_correspondences(
-        ::Type{G}, path::AbstractString, obs::TargetPoints2D, targets...;
+        ::Type{G}, path::AbstractString, obs::TargetObservations{<:PixelFrame}, targets...;
         resolve = nothing, length_unit::Units = mm, provenance::NamedTuple = (;)
     ) where {G <: PixelFrame}
     isempty(targets) && throw(ArgumentError("save_correspondences needs at least one targets rig or file"))
     list = collect(Any, targets)
     if !isempty(obs.targets)
         given = sort!(_target_hashes(list))
-        # an old rig file is also named by the identities its version gave it
         named = sort(obs.targets)
-        if named != given
+        if named != given     # an old rig file is also named by the identities its version gave it (the re-id map)
             old = Dict(reduce(vcat, [_old_id_map(t) for t in list]; init = Pair{String, String}[]))
-            named = sort!(unique!([get(old, t, t) for t in obs.targets]))     # (both of a v4 rig's identities: one rig)
+            named = sort!(unique!([get(old, t, t) for t in obs.targets]))
         end
         named == given || throw(
             ArgumentError(
-                "the measurements resolve against the targets $(sort(obs.targets))" *
+                "the observations resolve against the targets $(sort(obs.targets))" *
                     (named == sort(obs.targets) ? "" : " (as current identities, $(named))") * "; the targets given are $(given)"
             )
         )
     end
     return _write_correspondences(path, G, _correspondence_rows(G, obs, _target_rigs(list; resolve)); length_unit, provenance)
-end
-
-# The file back, for the migration's verification only (correspondences is an
-# export; no kind reads it): its frame and its rows, object points in plain metres.
-function _read_correspondences(path::AbstractString)
-    d = _read_store(path, "correspondences", _CORRESPONDENCES_SPEC)
-    unit = parse_unit(d.length_unit::String)
-    rows = _CorrespondenceRow[
-        (
-            t = Int(r.t::Integer), image = r.image::String, sensor = r.sensor::String, target = Symbol(r.target::String),
-            object_points = _point_matrix(r.object_points::Vector{Any}, 3, p -> [_read_power(x, unit, 1) for x in p]),
-            image_points = _point_matrix(r.image_points::Vector{Any}, 2, identity),
-        ) for r in d.rows::Vector{Any}
-    ]
-    return pixel_frame_from_name(d.pixel_frame::String), rows
-end
-
-function _point_matrix(a, n::Int, f)
-    M = Matrix{Float64}(undef, length(a), n)
-    for (i, v) in enumerate(a)
-        M[i, :] = f(Float64[Float64(c::Real) for c in v::Vector{Any}])
-    end
-    return M
 end

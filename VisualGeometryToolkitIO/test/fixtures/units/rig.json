@@ -1,16 +1,34 @@
 {
-    "schema": "vgio/rig/v9",
-    "pixel_frame": "colmap",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/rig/v10.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "frame": "body:camera_rig",
     "sensors": [
         {
             "id": "cam",
             "camera": {
-                "width": 1280,
-                "height": 960,
+                "image_size": {
+                    "width": 1280,
+                    "height": 960
+                },
                 "K": {
                     "fx": 900.0,
                     "fy": 900.0,
@@ -39,8 +57,10 @@
         {
             "id": "cam2",
             "camera": {
-                "width": 1280,
-                "height": 960,
+                "image_size": {
+                    "width": 1280,
+                    "height": 960
+                },
                 "K": {
                     "fx": 900.0,
                     "fy": 900.0,
@@ -71,7 +91,7 @@
         {
             "id": "a1f2",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "nominal": [
                     [
                         0.0,
@@ -111,7 +131,7 @@
         {
             "id": "b76e",
             "target": {
-                "type": "planar",
+                "type": "planar_target",
                 "reference": "b76e",
                 "calibration": {
                     "type": "rigid"
@@ -134,76 +154,80 @@
         {
             "id": "markers",
             "target": {
-                "type": "points",
+                "type": "point_target",
                 "points": [
-                    [
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    [
-                        30.0,
-                        -0.0,
-                        5.5
-                    ],
-                    [
-                        0.0,
-                        40.0,
-                        -2.0
-                    ]
-                ],
-                "point_covariances": [
-                    [
-                        [
-                            0.25,
-                            0.01,
+                    {
+                        "xyz": [
+                            0.0,
+                            0.0,
                             0.0
                         ],
-                        [
-                            0.01,
-                            0.16,
-                            -0.002
-                        ],
-                        [
-                            0.0,
-                            -0.002,
-                            0.0123
+                        "covariance": [
+                            [
+                                0.25,
+                                0.01,
+                                0.0
+                            ],
+                            [
+                                0.01,
+                                0.16,
+                                -0.002
+                            ],
+                            [
+                                0.0,
+                                -0.002,
+                                0.0123
+                            ]
                         ]
-                    ],
-                    [
-                        [
-                            0.25,
-                            0.01,
-                            0.0
+                    },
+                    {
+                        "xyz": [
+                            30.0,
+                            -0.0,
+                            5.5
                         ],
-                        [
-                            0.01,
-                            0.16,
-                            -0.002
-                        ],
-                        [
-                            0.0,
-                            -0.002,
-                            0.0123
+                        "covariance": [
+                            [
+                                0.25,
+                                0.01,
+                                0.0
+                            ],
+                            [
+                                0.01,
+                                0.16,
+                                -0.002
+                            ],
+                            [
+                                0.0,
+                                -0.002,
+                                0.0123
+                            ]
                         ]
-                    ],
-                    [
-                        [
+                    },
+                    {
+                        "xyz": [
                             0.0,
-                            0.0,
-                            0.0
+                            40.0,
+                            -2.0
                         ],
-                        [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        [
-                            0.0,
-                            0.0,
-                            0.0
+                        "covariance": [
+                            [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0
+                            ]
                         ]
-                    ]
+                    }
                 ]
             },
             "pose": {

@@ -1,63 +1,73 @@
 # =============================================================================
-# vgio/capture_settings/v1 ↔ VGC `CaptureSettings` — a capture's camera settings
+# vgio/capture_settings/v2.0 ↔ VGC `CaptureSettings` — a capture's camera settings
 # =============================================================================
 #
-# {"schema": "vgio/capture_settings/v1", "length_unit": "mm", "time_unit": "s",
-#  "body": {"make": "Sony", "model": "ILME-FX3", "source": "exif"},
-#  "lens": {"make": "SIGMA", "model": "14mm F1.8 DG HSM | Art", "source": "config",
-#           "exif": {"model": "DT 14mm F2.8 SAM"}},                 (exif: optional, config only)
-#  "frames": [{"t": 1, "exposure_time": 0.016666667535901070, "f_number": 4.0, "iso": 100.0,
+# {"schema": "vgio/capture_settings/v2.0", <envelope>,
+#  "sensor": "cam1",                                                 (optional) the camera these settings are of
+#  "device": {"body": {"make": "Sony", "model": "ILME-FX3"},
+#             "lens": {"make": "SIGMA", "model": "14mm F1.8 DG HSM | Art"}},
+#  "identity_sources": {"body": "exif", "lens": "config"},
+#  "exif_lens": {"model": "DT 14mm F2.8 SAM"},                       (optional; beside a config-stated lens only)
+#  "frames": [{"frame_index": 1, "exposure_time": 0.016666667535901070, "f_number": 4.0, "iso": 100.0,
 #              "focal_length": 14.0, "focus_distance": 1200.0}]}   (focus_distance: optional)
 #
-# Per frame index `t` (unique; the join key of the capture's other kinds), the
-# exposure and the NOMINAL lens settings — `exposure_time` in `time_unit`
-# (seconds), `focal_length` and `focus_distance` in `length_unit` through the
+# Per frame index (unique; the join key of the capture's other kinds, with
+# `sensor` naming the camera when a capture holds several), the exposure and the
+# NOMINAL lens settings — `exposure_time` in `units.time` (seconds),
+# `focal_length` and `focus_distance` in `units.length` through the
 # decimal-exact pair — and, once per file, the identities of the body and the
-# lens. Values are math and identity is an attribute: the camera store holds
-# no names, so which hardware took a capture is recorded here.
+# lens: `device`, the ONE device-identity encoding (a camera's
+# `calibration_record.device` is the same object), each a VGC `DeviceIdentity`
+# (`make`, `model`, `serial`, each stated or omitted). Values are math and
+# identity is an attribute: the camera store holds no names, so which hardware
+# took a capture is recorded here.
 #
-# PROVENANCE OF AN IDENTITY: each states its `source`, `"exif"` (what the
-# files said) or `"config"` (what the user stated). EXIF is unreliable for an
+# PROVENANCE OF AN IDENTITY: `identity_sources` states, for each, `"exif"` (what
+# the files said) or `"config"` (what the user stated). EXIF is unreliable for an
 # adapted lens (an FX3 with Sigma EF lenses names a Sony "DT" lens), so a
-# config-stated lens may keep the claim it overrode, `exif`, beside it. In the
-# value the sources are an attribute:
+# config-stated lens may keep the claim it overrode, `exif_lens`. In the value
+# the sources, that claim and the camera's name are attributes:
 #
 #     Attributed(cs::CaptureSettings, (; identity_sources = (body = "exif", lens = "config"),
-#                                        exif_lens = DeviceIdentity(…)))       (exif_lens optional)
+#                                        exif_lens = DeviceIdentity(…), sensor = "cam1"))    (exif_lens, sensor optional)
 
-const _TIME_UNIT = "s"   # the one time unit a file states (exposure times)
 const _IDENTITY_SOURCES = ("exif", "config")
-const _IDENTITY_SOURCE = _Named(s -> s in _IDENTITY_SOURCES, "an identity source (exif, config)")
+const _IDENTITY_SOURCE = _Named(in(_IDENTITY_SOURCES), "an identity source (exif, config)")
+const _DEVICE = _Obj(:body => _DEVICE_IDENTITY, :lens => _DEVICE_IDENTITY)
 
-const _CAPTURE_SETTINGS_SPEC = _CheckedSpec(
-    _Obj(
-        Pair{Symbol, _Spec}[
-            :schema => _schema_tok("capture_settings"), :length_unit => _LENGTH_UNIT, :time_unit => _Tok(_TIME_UNIT),
-            :body => _Obj(Pair{Symbol, _Spec}[:source => _IDENTITY_SOURCE], _DEVICE_IDENTITY_FIELDS),
-            :lens => _CheckedSpec(
-                _Obj(Pair{Symbol, _Spec}[:source => _IDENTITY_SOURCE], Pair{Symbol, _Spec}[_DEVICE_IDENTITY_FIELDS..., :exif => _DEVICE_IDENTITY]),
-                x -> (haskey(x, :exif) && x[:source] != "config") ? "`exif` is the claim a config-stated lens overrode; this lens's source is $(repr(x[:source]))" : nothing,
-            ),
-            :frames => _Vec(
-                _Obj(
-                    Pair{Symbol, _Spec}[:t => _Int(), :exposure_time => _Real(), :f_number => _Real(), :iso => _Real(), :focal_length => _Real()],
-                    Pair{Symbol, _Spec}[:focus_distance => _Real()],
-                )
-            ),
-        ],
-        Pair{Symbol, _Spec}[_PROVENANCE...],
+const _CAPTURE_SETTINGS_SPEC = _kind_spec(
+    "capture_settings",
+    Pair{Symbol, _Spec}[
+        :device => _DEVICE,
+        :identity_sources => _Obj(:body => _IDENTITY_SOURCE, :lens => _IDENTITY_SOURCE),
+        :frames => _Vec(
+            _Obj(
+                Pair{Symbol, _Spec}[:frame_index => _Int(), :exposure_time => _Real(), :f_number => _Real(), :iso => _Real(), :focal_length => _Real()],
+                Pair{Symbol, _Spec}[:focus_distance => _Real()],
+            )
+        ),
+    ],
+    Pair{Symbol, _Spec}[:sensor => _NonEmpty(), :exif_lens => _DEVICE_IDENTITY];
+    check = x -> something(
+        (haskey(x, :exif_lens) && x[:identity_sources][:lens] != "config") ?
+            "`exif_lens` is the claim a config-stated lens overrode; this lens's source is $(repr(x[:identity_sources][:lens]))" : nothing,
+        _unique_check([f[:frame_index] for f in x[:frames]], "frame indices `frame_index`"),
+        Some(nothing),
     ),
-    x -> _unique_check([f[:t] for f in x[:frames]], "frame indices `t`"),
+    rule = "`exif_lens` only where the lens's identity source is \"config\"; frame indices are unique",
+    schema = ["if" => Dict("required" => ["exif_lens"]),
+              "then" => Dict("properties" => Dict("identity_sources" => Dict("properties" => Dict("lens" => Dict("const" => "config")))))],
 )
 
 const _CaptureSettingsRecord = Attributed{CaptureSettings, <:NamedTuple}
 
 # The attributes' shape; the values (each source one of exif/config, `exif_lens`
 # only beside a config-stated lens) are the spec's, checked on the bytes written.
+const _CAPTURE_ATTRIBUTES = ((:identity_sources,), (:identity_sources, :exif_lens), (:identity_sources, :sensor), (:identity_sources, :exif_lens, :sensor))
 function _identity_sources(a::NamedTuple)
-    (keys(a) in ((:identity_sources,), (:identity_sources, :exif_lens)) && a.identity_sources isa NamedTuple{(:body, :lens)} &&
-        get(a, :exif_lens, DeviceIdentity()) isa DeviceIdentity) || throw(
-        ArgumentError("capture settings: the attributes are `(; identity_sources = (body = …, lens = …)[, exif_lens::DeviceIdentity])`, got $(a)")
+    (keys(a) in _CAPTURE_ATTRIBUTES && a.identity_sources isa NamedTuple{(:body, :lens)} &&
+        get(a, :exif_lens, DeviceIdentity()) isa DeviceIdentity && get(a, :sensor, "") isa AbstractString) || throw(
+        ArgumentError("capture settings: the attributes are `(; identity_sources = (body = …, lens = …)[, exif_lens::DeviceIdentity][, sensor::String])`, got $(a)")
     )
     return a.identity_sources
 end
@@ -65,13 +75,14 @@ end
 """
     save(path, x::Attributed{CaptureSettings}; length_unit = mm, provenance = (;))
 
-Write a VGC `CaptureSettings` as a `vgio/capture_settings/v1` file: per frame
+Write a VGC `CaptureSettings` as a `vgio/capture_settings/v2.0` file: per frame
 index (sorted) its exposure time (seconds), f-number and ISO, its nominal
 focal length and its focus distance where known, in `length_unit`; and the
-body and lens identities. The value is `Attributed` with where each identity
-came from, `(; identity_sources = (body = "exif" | "config", lens = …))`, and
-optionally `exif_lens`, the EXIF claim a config-stated lens overrode. A bare
-`CaptureSettings` is an `ArgumentError`: an identity's source is not guessed.
+body and lens identities (`device`). The value is `Attributed` with where each
+identity came from, `(; identity_sources = (body = "exif" | "config", lens =
+…))`, optionally `exif_lens`, the EXIF claim a config-stated lens overrode, and
+optionally `sensor`, the camera these settings are of. A bare `CaptureSettings`
+is an `ArgumentError`: an identity's source is not guessed.
 """
 function save(path::AbstractString, x::_CaptureSettingsRecord; length_unit::Units = mm, provenance::NamedTuple = (;))
     a = getfield(x, :attributes)
@@ -81,17 +92,18 @@ function save(path::AbstractString, x::_CaptureSettingsRecord; length_unit::Unit
     frames = map(sort!(collect(keys(cs)))) do t
         e, l = cs[t].exposure, cs[t].lens_settings
         f = (
-            t = t, exposure_time = Float64(ustrip(sec, e.exposure_time)), f_number = e.f_number, iso = e.iso,
+            frame_index = t, exposure_time = Float64(ustrip(sec, e.exposure_time)), f_number = e.f_number, iso = e.iso,
             focal_length = write_length(l.focal_length, length_unit),
         )
         l.focus_distance === nothing ? f : merge(f, (focus_distance = write_length(l.focus_distance, length_unit),))
     end
-    lens = merge(_identity_json(cs.lens), (source = src.lens,), haskey(a, :exif_lens) ? (exif = _identity_json(a.exif_lens),) : (;))
-    body = (
-        schema = _schema("capture_settings"), length_unit = unit_string(length_unit), time_unit = _TIME_UNIT,
-        body = merge(_identity_json(cs.body), (source = src.body,)), lens = lens, frames = frames,
+    body = merge(
+        haskey(a, :sensor) ? (sensor = String(a.sensor),) : (;),
+        (device = _device_json((body = cs.body, lens = cs.lens)), identity_sources = (body = src.body, lens = src.lens)),
+        haskey(a, :exif_lens) ? (exif_lens = _identity_json(a.exif_lens),) : (;),
+        (frames = frames,),
     )
-    _write_store(path, _CAPTURE_SETTINGS_SPEC, with_provenance(body, provenance); style = VgioStyle(; length_unit))
+    _write_kind(path, "capture_settings", body, provenance; style = VgioStyle(; length_unit))
     return nothing
 end
 save(::AbstractString, ::CaptureSettings; kwargs...) = throw(
@@ -104,23 +116,27 @@ save(::AbstractString, ::CaptureSettings; kwargs...) = throw(
 """
     load(CaptureSettings, path) -> Attributed{CaptureSettings}
 
-Read a `vgio/capture_settings/v1` file: the VGC `CaptureSettings` (exposure
+Read a `vgio/capture_settings/v2.0` file: the VGC `CaptureSettings` (exposure
 times in seconds, lengths in metres), `Attributed` with its
-`identity_sources` and, where the file keeps it, `exif_lens` — exactly the
-value [`save`](@ref) wrote.
+`identity_sources` and, where the file states them, `exif_lens` and `sensor` —
+exactly the value [`save`](@ref) wrote. A v1 file is read through its version
+step.
 """
 function load(::Type{CaptureSettings}, path::AbstractString)
-    d = _read_store(path, "capture_settings", _CAPTURE_SETTINGS_SPEC)
-    u, sec = parse_unit(d.length_unit::String), parse_unit(_TIME_UNIT)
+    d = _read_store(path, "capture_settings")
+    u, sec = _file_length_unit(d), parse_unit(_TIME_UNIT)
     frames = Dict{Int, FrameSettings}()
     for f in d.frames::Vector{Any}
         fd = haskey(f, :focus_distance) ? read_length(f.focus_distance::Real, u) : nothing
-        frames[Int(f.t::Integer)] = (
+        frames[Int(f.frame_index::Integer)] = (
             exposure = ExposureSettings(Float64(f.exposure_time::Real) * sec, f.f_number::Real, f.iso::Real),
             lens_settings = LensSettings(read_length(f.focal_length::Real, u), fd),
         )
     end
-    cs = CaptureSettings(frames; body = _identity_from_json(d.body), lens = _identity_from_json(d.lens))
-    src = (identity_sources = (body = String(d.body.source::String), lens = String(d.lens.source::String)),)
-    return Attributed(cs, haskey(d.lens, :exif) ? merge(src, (exif_lens = _identity_from_json(d.lens.exif),)) : src)
+    dev = _device_from_json(d.device)
+    cs = CaptureSettings(frames; body = dev.body, lens = dev.lens)
+    a = (identity_sources = (body = String(d.identity_sources.body::String), lens = String(d.identity_sources.lens::String)),)
+    haskey(d, :exif_lens) && (a = merge(a, (exif_lens = _identity_from_json(d.exif_lens),)))
+    haskey(d, :sensor) && (a = merge(a, (sensor = String(d.sensor::String),)))
+    return Attributed(cs, a)
 end

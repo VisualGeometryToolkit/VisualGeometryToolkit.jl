@@ -1,0 +1,48 @@
+{
+    "schema": "vgio/target_points3d/v2",
+    "length_unit": "mm",
+    "frame": "world",
+    "point_index_base": 1,
+    "frames": [
+        {
+            "t": 1,
+            "image": "DSC1.JPG",
+            "sensor": "mocap",
+            "points": [
+                {
+                    "target": "board_rig",
+                    "index": 1,
+                    "xyz": [
+                        1140.24,
+                        327.55,
+                        1614.39
+                    ]
+                },
+                {
+                    "target": "camera_rig",
+                    "index": 3,
+                    "xyz": [
+                        2113.1,
+                        -0.0,
+                        -1319.0
+                    ]
+                }
+            ]
+        },
+        {
+            "t": 2,
+            "sensor": "mocap",
+            "points": [
+                {
+                    "target": "board_rig",
+                    "index": 2,
+                    "xyz": [
+                        0.001,
+                        2.0,
+                        300000.0
+                    ]
+                }
+            ]
+        }
+    ]
+}

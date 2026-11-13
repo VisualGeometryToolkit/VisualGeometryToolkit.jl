@@ -80,12 +80,12 @@
         @test_throws ArgumentError VgtkIO.image_name(cdb, 99)
     end
 
-    @testset "keypoints / descriptors" begin
-        @test VgtkIO.keypoints(cdb, 1) == ref.kp1
-        @test VgtkIO.keypoints(cdb, 2) == ref.kp2
-        @test size(VgtkIO.keypoints(cdb, 7)) == (0, 4)       # NULL blob, 0 rows
+    @testset "detections / descriptors" begin
+        @test VgtkIO.detections(cdb, 1) == ref.kp1
+        @test VgtkIO.detections(cdb, 2) == ref.kp2
+        @test size(VgtkIO.detections(cdb, 7)) == (0, 4)       # NULL blob, 0 rows
         @test VgtkIO.descriptors(cdb, 1) == ref.d1
-        @test_throws ArgumentError VgtkIO.keypoints(cdb, 99)
+        @test_throws ArgumentError VgtkIO.detections(cdb, 99)
     end
 
     @testset "matched_pairs" begin

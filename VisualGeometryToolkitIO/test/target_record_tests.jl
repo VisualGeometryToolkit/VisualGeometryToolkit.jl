@@ -1,97 +1,11 @@
 # =============================================================================
-# vgio/target/v3 and vgio/rig/v6: a planar target's calibration record — every
+# vgio/target/v6.0 and vgio/rig/v10.0: a planar target's calibration record — every
 # TargetCalibration kind and composition, with and without its covariance,
 # round-tripped
 # =============================================================================
 
-@testsetup module TargetRecordFixtures
-    using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, Uncertain, CovMat,
-        grid_nodes, parameter_vector, geom, reference, calibration
-    using Statistics: cov
-    using StaticArrays: SVector, SMatrix
-    using LinearAlgebra: Diagonal
-    using Rotations: QuatRotation, RotMatrix, Angle2d
-    import VisualGeometryToolkitIO as VgtkIO
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: mm, m
 
-    export kinds, uncertain, design_points, mmq, identity_rig, fileborn
-
-    # one millimetre number as a reader returns it (lengths.jl: decimal-exact)
-    mmq(x) = VgtkIO.read_length(x, mm)
-    design_points() = [SVector(mmq(0.0), mmq(0.0)), SVector(mmq(62.8), mmq(0.0)), SVector(mmq(-13.9), mmq(40.25)), SVector(mmq(30.5), mmq(77.0))]
-    # a plain metre value as a millimetre file holds it and reads it back
-    fileborn(x::Real) = VgtkIO.read_length(VgtkIO.write_length(x * m, mm), mm)
-
-    # every kind, physical, its numbers file-born (each length the metre value
-    # nearest a millimetre decimal, so the record writes it back exactly). The
-    # thin-plate kinds are pure bending (VGC projects their values: a spline's
-    # affine displacement, a field's plane, dropped), so theirs are LITERALS:
-    # pure-bending values, which the constructor keeps bit for bit. They are
-    # never computed here. The projection is a BLAS product whose last ulp
-    # depends on the OpenBLAS kernel the CPU selects (Haswell/Zen vs
-    # Sandybridge, Prescott or GitHub's AVX-512 runners), so a computed value,
-    # and the content_id pinned on it, would differ by machine. (The literals
-    # are the file-born projections, on the Haswell kernel, of
-    # fx = [0.01, 0, -0.02, 0.03, 0, 0, 0.01, -0.01, 0] mm,
-    # fy = [-0.02, 0.01, 0, 0, 0.04, 0, 0, 0.02, -0.03] mm and
-    # h = [0.1, 0, -0.1, 0.2, 0, 0, 0, 0.3, 0] mm.)
-    function kinds()
-        nodes = [SVector(mmq(p[1]), mmq(p[2])) for p in grid_nodes(3; lo = 0.0, hi = 100.0)]
-        E = VgtkCore.EuclideanMap(Angle2d{Float64}(0.01), SVector(mmq(0.5), mmq(-0.25)); check = false)   # the member stores its angle
-        S, A, U = Scale(0.001), Aspect(0.002), Skew(-0.003)
-        T = ThinPlateSpline(nodes,
-            [1.5764702259321875e-5, 1.5158418539816482e-5, 4.552134820311087e-6, 2.9552134820311098e-5, 8.945851100805704e-6,
-                1.833956738130031e-5, 3.33956738130032e-6, -7.266716338205075e-6, 1.2126999942289532e-5] .* m,
-            [6.897225551491389e-5, 0.00010177539737466663, 9.457853923441935e-5, 9.238168109417197e-5, 0.0001351848229539247,
-                9.798796481367743e-5, 9.579110667343005e-5, 0.00011859424853318279, 7.139739039293552e-5] .* m)
-        H = HeightField(nodes, [0.0002615206031300322, 0.00020545776593497856, 0.00014939492873992493, 0.00037970911471519355,
-            0.0002236462775201399, 0.0002675834403250863, 0.0001978976263003549, 0.0005418347891053013, 0.0002857719519102476] .* m)
-        right(cs...) = foldr(∘, cs)   # right-associated, as a target stores a composition
-        return (rigid = Rigid(), euclidean = E, scale = S, aspect = A, skew = U, thin_plate_spline = T, height_field = H,
-            print_error = A ∘ U, affine_factors = right(E, S, A, U), calibration_chain = H ∘ T, chain_affine = right(H, A, U),
-            canonical = right(H, T, E, S, A, U))
-    end
-
-    # A rig of targets of every kind — rigid, affine, thin-plate, height field,
-    # a composition, Uncertain calibrations, a point target with covariances, an
-    # Uncertain pose — its numbers file-born: content_id's pin.
-    # rotation = :quat builds the poses as the reader returns them (QuatRotation);
-    # :matrix as RotMatrix; :quat_of_matrix as QuatRotation(RotMatrix(...)).
-    function identity_rig(; boards::Bool = false, rotation::Symbol = :quat)
-        k = kinds()
-        bd = boards ? VgtkCore.Board(VgtkCore.Size2(width = mmq(150.0), height = mmq(77.25)), SVector(mmq(-13.9), mmq(0.0))) : nothing
-        rot(q) = rotation === :quat ? q : rotation === :matrix ? RotMatrix{3, Float64}(q) : QuatRotation(RotMatrix{3, Float64}(q))
-        X(t) = VgtkCore.EuclideanMap(rot(QuatRotation(0.9128709291752769, 0.18257418583505536, 0.36514837167011072, 0.0, false)), SVector(mmq(t[1]), mmq(t[2]), mmq(t[3])))
-        I6 = VgtkCore.CovMat(SMatrix{6, 6, Float64}(Diagonal([1.0e-6, 1.0e-6, 1.0e-6, 2.5e-7, 2.5e-7, 4.0e-7])))
-        ident = VgtkCore.EuclideanMap(rot(QuatRotation(1.0, 0.0, 0.0, 0.0, false)), SVector(mmq(0.0), mmq(0.0), mmq(0.0)))
-        pt = VgtkCore.PointTarget([VgtkCore.Uncertain(SVector(mmq(0.0), mmq(1.5), mmq(-2.0)), VgtkCore.CovMat(SMatrix{3, 3, Float64}(Diagonal([1.0e-8, 1.0e-8, 4.0e-8]))))])
-        members = Dict(
-            :a_rigid => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), Rigid(), bd), ident),
-            :b_affine => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = uncertain(k.affine_factors)), X((10.0, 0.0, 900.0))),
-            :c_tps => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(:c_tps; calibration = k.thin_plate_spline), X((-200.0, 15.5, 850.0))),
-            :d_height => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(design_points(); calibration = k.height_field), VgtkCore.Uncertain(X((0.0, 120.0, 910.0)), I6)),
-            :e_chain => VgtkCore.PosedTarget(VgtkCore.PlanarTarget(nothing, design_points(), uncertain(k.calibration_chain), bd), X((300.0, -40.25, 1000.0))),
-            :f_points => VgtkCore.PosedTarget(pt, X((5.0, 5.0, 700.0))),
-        )
-        return VgtkCore.Rig{VgtkCore.TargetFrame{:a_rigid}}(members)
-    end
-
-    # an Uncertain one: a covariance over its parameters (lengths² in m²), its
-    # entries file-born decimals (i·10⁻⁶ on the diagonal, a correlation in the
-    # first row and column) so the record writes them back exactly
-    function uncertain(c)
-        n = length(parameter_vector(c))
-        Σ = Matrix(Diagonal([parse(Float64, "$(i)e-6") for i in 1:n]))
-        if n >= 2
-            Σ[1, 2] = Σ[2, 1] = 2.5e-7
-            Σ[1, n] = Σ[n, 1] = -1.5e-7
-        end
-        return Uncertain(c, CovMat(SMatrix{n, n, Float64}(Σ)))
-    end
-end
-
-@testitem "target/v3: every calibration kind round-trips, with and without its covariance" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: every calibration kind round-trips, with and without its covariance" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Attributed, Uncertain, calibration, points, geom,
         is_resolved, reference, parameter_names, Rigid, members
     using Statistics: cov
@@ -102,7 +16,8 @@ end
             save(p, t; length_unit)
             d = parse_json(read(p, String))
             composed = length(members(c)) > 1
-            @test d.schema == "vgio/target/v5" && d.target.calibration.type == (composed ? "composition" : String(name))
+            @test d.schema == "vgio/target/v6.0" && d.target.type == "planar_target" && d.units.length == unit_string(length_unit)
+            @test d.target.calibration.type == (composed ? "composition" : String(name))
             composed && @test length(d.target.calibration.compose) == length(members(c))   # flat, outer first
             @test haskey(d.target.calibration, :covariance) == (cc isa Uncertain)
             back = load(AbstractTarget, p)
@@ -118,7 +33,7 @@ end
     end
 end
 
-@testitem "target/v3: the record as written — tags, parameter order, units" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: the record as written — tags, parameter order, units" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Rigid, parameter_vector, with_parameters, calibration
     using Random: Random
@@ -186,7 +101,7 @@ end
     end
 end
 
-@testitem "target/v3: refusals — plain calibrations, malformed records, the v1 keys" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: refusals — plain calibrations, malformed records, the v1 keys" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, HeightField, Aspect, Skew, Scale, grid_nodes, EuclideanMap
     mktempdir() do dir
         p = joinpath(dir, "target.json")
@@ -246,10 +161,10 @@ end
         q = joinpath(dir, "old_attribute.json")
         e = try save(q, VisualGeometryToolkitCore.Attributed(PlanarTarget(design_points()), (; calibration = (; tool = "t")))); nothing catch e; e end
         @test e isa ArgumentError && occursin("calibration_record", e.msg) && occursin("vgio_migrate", e.msg) && !isfile(q)
-        # a v2 file (a composition in application order) is read through its migration, as the v3 record
-        dd = deepcopy(good)
-        dd["schema"] = "vgio/target/v2"
-        dd["target"]["calibration"] = VisualGeometryToolkitIO._composition_v3_to_v2(dd["target"]["calibration"])
+        # a v2 file (a composition in application order; IO 0.9's top-level `length_unit`, the `planar` tag) is read
+        # through its version steps, as the current record
+        old09(schema, body) = Dict{String, Any}("schema" => schema, "length_unit" => "mm", "target" => merge(body, Dict("type" => "planar")))
+        dd = old09("vgio/target/v2", merge(good["target"], Dict("calibration" => VisualGeometryToolkitIO._composition_v3_to_v2(good["target"]["calibration"]))))
         write(p, JSON.json(dd))
         q = joinpath(dir, "good.json")
         write(q, JSON.json(good))
@@ -260,26 +175,45 @@ end
         write(p, JSON.json(dd))
         e = try load(AbstractTarget, p); nothing catch e; e end
         @test e isa ArgumentError && occursin("target.warp: unknown key", e.msg)
-        dd = deepcopy(good)
-        dd["schema"] = "vgio/target/v1"
+        dd = old09("vgio/target/v1", good["target"])
         write(p, JSON.json(dd))
         e = try load(AbstractTarget, p); nothing catch e; e end
         @test e isa ArgumentError && occursin("vgio/target/v1", e.msg) && occursin("was not written by them", e.msg)
     end
 end
 
-@testitem "target/v3: a record's parameter counts are VGC's length_mask, for every kind and composition" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: a record's parameter counts are VGC's length_mask, for every kind and composition" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: length_mask, parameter_vector
     import VisualGeometryToolkitIO as VgtkIO
     for (name, c) in pairs(kinds())
-        rec = parse_json(JSON.json(VgtkIO._target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
+        rec = parse_json(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), c)))   # the parametric record
         @test VgtkIO._n_parameters(rec) == length(length_mask(c)) == length(parameter_vector(c))
     end
     @test_throws ArgumentError VgtkIO._record_parameter_count("affine", ())        # the retired kind: VGC's registry names its successor
     @test_throws ArgumentError VgtkIO._record_parameter_count("bogus", ())
 end
 
-@testitem "target/v3: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target_calibration_json / target_calibration_from_json: every kind and composition, bare and Uncertain, reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # The public calibration codec (RadiometricCamera's in-plane print error): the record a target body embeds, alone.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: Rigid, Aspect, Skew
+    for (name, c) in pairs(kinds()), cc in (c isa Rigid ? (c,) : (c, uncertain(c)))
+        s = VgtkIO.VgioStyle(; length_unit = mm)
+        text = JSON.json(VgtkIO.target_calibration_json(s, cc))
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && back == cc
+        @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text          # the record a value writes is its own
+    end
+    # a calibration with lengths of plain numbers is refused (attach the unit), as a target's points are
+    @test_throws ArgumentError VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm),
+        VisualGeometryToolkitCore.HeightField(VisualGeometryToolkitCore.grid_nodes(3; lo = 0.0, hi = 1.0)))
+    # one without lengths has no form to refuse: the in-plane print error reads back in any unit
+    pe = Aspect(0.01) ∘ Skew(-0.002)
+    @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(; length_unit = m),
+        JSON.parse(JSON.json(VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_unit = mm), pe)))) == pe
+end
+
+@testitem "target/v6.0: a thin-plate kind pure bending in the unit it was built in reads back ==" setup = [VGIoFixtures, TargetRecordFixtures] begin
     # "No affine term" depends on the nodes' unit (scaling them moves a piston),
     # and VGC's with_unit does not re-project: a field built from millimetre
     # numbers and given the unit is pure bending in mm, not in metres. The
@@ -320,7 +254,7 @@ end
     end
 end
 
-@testitem "rig/v6: a non-rigid posed target, and its content identity" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "rig/v10.0: a non-rigid posed target, and its content identity" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: Rig, PosedTarget, PlanarTarget, TargetFrame, WorldFrame, Uncertain, CovMat, pose, points,
         calibration, is_planar, ids, geom
     using LinearAlgebra: LinearAlgebra
@@ -337,7 +271,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "rig.json")
         save(p, rig)
-        @test parse_json(read(p, String)).schema == "vgio/rig/v9"
+        @test parse_json(read(p, String)).schema == "vgio/rig/v10.0"
         back = load(Rig, p)
         @test ids(back) == ids(rig) && all(id -> back[id].target == rig[id].target, ids(rig))
         @test pose(back, :b) isa Uncertain && geom(pose(back, :b)).t == X.t && pose(back, :c).t == X.t
@@ -353,19 +287,21 @@ end
     end
 end
 
-@testitem "rig/v6: content_id is pinned on a fixed canonical tree" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "rig/v10.0: content_id is pinned on a fixed canonical tree" setup = [VGIoFixtures, TargetRecordFixtures] begin
     # The identity measurement files name a rig by is the SHA-256 of a FIXED
     # identity tree (content_id's docstring), built from the value under its own
     # names. Changing what the tree holds re-ids every rig and orphans every
     # measurement file: if a literal below fails, the change must say why and
-    # migrate the measurement files that name the old ids.
+    # migrate the observation files that name the old ids. (IO 0.10 re-ided every rig ONCE, deliberately: the tree
+    # is the 0.10 record under its current names, JCS-serialized; `vgio_migrate_tree` repoints a tree's observation
+    # files and keeps the id map. The IO 0.9 pins are in the comments, each with its 0.10 successor.)
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, TargetPoints2D
+    using VisualGeometryToolkitCore: Rig, TargetObservations
     fixtures = joinpath(@__DIR__, "fixtures", "units")
     id = content_id(joinpath(fixtures, "rig_targets.json"))
-    @test id == "980c47d473610daa038b633cf5d4d133931699a9cafe1ee210f507b9b1c793b3"
-    @test only(load(TargetPoints2D, joinpath(fixtures, "target_points2d.json")).targets) == id
-    @test content_id(joinpath(fixtures, "rig.json")) == "5cdb12271e474c04c68ac5ea539f509a720449fcf42b79d8cc4a506cddcf9fe0"   # sensors
+    @test id == "53e19ec98b80cdbc9b2b03afd1900dc1781c6a794a89bb9bc2a27f7543c0ad52"                 # IO 0.9: 980c47d473610daa038b633cf5d4d133931699a9cafe1ee210f507b9b1c793b3
+    @test only(load(TargetObservations, joinpath(fixtures, "observations2d.json")).targets) == id
+    @test content_id(joinpath(fixtures, "rig.json")) == "06a13cf56a3be5c3f9206a6512b78198fddaf5cd5e95f47122725ccca507b265"   # sensors; IO 0.9: 5cdb12271e474c04c68ac5ea539f509a720449fcf42b79d8cc4a506cddcf9fe0
     # a rig of every target kind, Uncertain calibrations and poses, a point target
     rig = identity_rig()
     # (re-pinned 2026-11-03: the rig's composed target, `e_chain`, was an Affine →
@@ -378,8 +314,9 @@ end
     # Skew instead of the retired AffineMap, and `c_tps`, `d_height` and
     # `e_chain`'s thin-plate kinds hold pure bending, their values projected
     # (no affine term in the interpolant); `a_rigid` and `f_points` are as
-    # they were. No measurement file names this rig.)
-    @test content_id(rig) == "e7d6b28fde6a1ac9d1a13ee041897919192f13b9379c6aa9719e35fec5c356d7"   # poses as the reader returns them
+    # they were. No measurement file names this rig. Re-ided by IO 0.10, from
+    # e7d6b28fde6a1ac9d1a13ee041897919192f13b9379c6aa9719e35fec5c356d7.)
+    @test content_id(rig) == "da15a2c10460ba678e01f0bc895769890132a6abfdd43a6bdc4e8de1a98cea3c"   # poses as the reader returns them
     # The identity is of the PERSISTED rotation, the quaternion the writer
     # stores (one conversion, `_qvec`, shared by the writer and the tree): a
     # rig held with RotMatrix poses, the same rig built from
@@ -393,17 +330,17 @@ end
     end
     # a rig whose targets carry boards: the board is part of the identity
     brig = identity_rig(; boards = true)
-    @test content_id(brig) == "f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865"   # (re-pinned with `rig`'s)
+    @test content_id(brig) == "e23da893b6af548df3508e029a3fd50b9fcedc82f71e3a995fb14da36b599380"   # (re-pinned with `rig`'s; IO 0.9: f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865)
     @test content_id(brig) != content_id(rig)
     # the same identity from a checked-in file of that rig (every target kind,
     # thin-plate and height-field values with 17 significant digits): a file's
     # identity hashes its numbers as read (the reader does not re-project), so
     # it is the same on every CPU, OpenBLAS kernel, thread count and Julia version
     every_kind = joinpath(@__DIR__, "fixtures", "identity", "rig_every_kind.json")
-    @test content_id(every_kind) == content_id(load(Rig, every_kind)) == "f34bee5347b45f2a9d6bca72741e8d2bf47dd2fa7e1b3d12ddb237694b8ef865"
+    @test content_id(every_kind) == content_id(load(Rig, every_kind)) == content_id(brig)
     tb = VgtkIO._identity_tree(brig)
     @test only(x for x in tb["targets"] if x["id"] == "a_rigid")["target"]["board"] ==
-        Dict("size" => [0.15, 0.07725], "origin" => [-0.0139, 0.0])
+        Dict("size" => Dict("width" => 0.15, "height" => 0.07725), "origin" => [-0.0139, 0.0])   # a Size2 is {width, height}
     # the identity is the value's: every unit, and a file read back, agree
     mktempdir() do dir
         for r in (rig, brig), u in (mm, m)
@@ -412,12 +349,16 @@ end
             @test content_id(p) == content_id(r) == content_id(load(Rig, p))
         end
     end
-    # its names are the identity's own, not the record's
+    # its names are the current record's (IO 0.10: no v5 names), with no envelope
     t = VgtkIO._identity_tree(rig)
     @test sort!(collect(keys(t))) == ["frame", "targets"]
     e = only(x for x in t["targets"] if x["id"] == "e_chain")
-    @test e["target"]["kind"] == "planar" && e["target"]["calibration"]["kind"] == "calibration_chain" &&
-        haskey(e["target"]["calibration"], "covariance") && [x["kind"] for x in e["target"]["calibration"]["members"]] == ["thin_plate_spline", "height_field"]   # application order, as v5
+    @test e["target"]["type"] == "planar_target" && e["target"]["calibration"]["type"] == "composition" &&
+        haskey(e["target"]["calibration"], "covariance") && [x["type"] for x in e["target"]["calibration"]["compose"]] == ["height_field", "thin_plate_spline"]   # CT's order, outer first
+    f = only(x for x in t["targets"] if x["id"] == "f_points")
+    @test f["target"]["type"] == "point_target" && f["target"]["points"][1]["xyz"] == [0.0, 0.0015, -0.002]   # metres
+    # the canonical form is RFC 8785 (JCS): sorted keys, no whitespace, ECMAScript numbers
+    @test VgtkIO.canonical_json(Dict("b" => 1.0, "a" => [1.0e-7, 0.5, 100.0])) == "{\"a\":[1e-7,0.5,100],\"b\":1}"
     # grid sensors — a SplineLens camera with an image circle, a non-central grid camera — enter under the identity's own names
     using VisualGeometryToolkitCore: PosedCamera, ViewFrame, relabel, KannalaBrandt, EuclideanMap, CameraModel, Ellipse, Point2,
         SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, Size2
@@ -430,21 +371,25 @@ end
     Xl = relabel(ViewFrame{:g}, ViewFrame{:g}, EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.0, 0.0, 0.0)), [0.0mm, 0.0mm, 0.0mm]))
     grig = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(gc, Xl), Size2(64, 48); lens_coverage = circle),))
     nrig = Rig{ViewFrame{:g}}((BoundedCamera(PosedCamera(nc, Xl), Size2(64, 48); lens_coverage = circle),))
-    @test content_id(grig) == "ce2186d905e16b001fd7cd378e37b26fbab24d2901e825c28db088d6a5eeea6a"
-    @test content_id(nrig) == "9acbebe8c01572b2fb57d0c4976ca33fc3d158a37b55998d875a0a6cab5d2409"
+    @test content_id(grig) == "0395ac67410bb147ee1f2762239b545998ac1865919f6855f8c7ebe3134e0c2d"   # IO 0.9: ce2186d905e16b001fd7cd378e37b26fbab24d2901e825c28db088d6a5eeea6a
+    @test content_id(nrig) == "34469e4ca04c91574fa9750f330ec42b767c9fe8865145e2f31fb71eaaa7124b"   # IO 0.9: 9acbebe8c01572b2fb57d0c4976ca33fc3d158a37b55998d875a0a6cab5d2409
     cam = only(VgtkIO._identity_tree(grig)["sensors"])["camera"]
     K = gc.intrinsics.K
-    @test cam["intrinsics"] == [K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
+    @test cam["K"] == Dict("fx" => K[1, 1], "fy" => K[2, 2], "cx" => K[1, 3], "cy" => K[2, 3], "skew" => K[1, 2])   # the canonical (colmap) frame
+    @test cam["image_size"] == Dict("width" => 64, "height" => 48)
     @test cam["lens_coverage"] == Dict("ellipse" => [circle.center[1], circle.center[2], circle.a, circle.b, circle.θ])
-    @test sort!(collect(keys(cam))) == ["extent", "intrinsics", "lens", "lens_coverage"]
-    @test sort!(collect(keys(only(VgtkIO._identity_tree(nrig)["sensors"])["camera"]))) == ["extent", "intrinsics", "lens_coverage", "noncentral_spline"]
+    @test sort!(collect(keys(cam))) == ["K", "image_size", "lens", "lens_coverage"]
+    @test sort!(collect(keys(only(VgtkIO._identity_tree(nrig)["sensors"])["camera"]))) == ["K", "image_size", "lens_coverage", "spline", "type"]
     # the same camera in a rig/v8 file (its old grid body, with the source's pinhole and the circle as its domain):
     # the identity v8 minted for it, pinned before the spline lens (9cfb569c…), is the old identity its migration reports
     mktempdir() do dir
         p = joinpath(dir, "grig.json"); save(p, grig)
-        t = JSON.parse(read(p, String))
+        t0 = JSON.parse(read(p, String))
         Kv = Any[K[1, 1], K[2, 2], K[1, 3], K[2, 3], K[1, 2]]
-        t["schema"] = "vgio/rig/v8"
+        # the record as IO 0.9 wrote a rig/v8 file: its declarations at the top level, no envelope
+        t = Dict{String, Any}("schema" => "vgio/rig/v8", "length_unit" => "mm", "pixel_frame" => "colmap",
+                              "rotation_encoding" => "quaternion_wxyz_hamilton", "transform_convention" => "x_to = R * x_from + t",
+                              "frame" => t0["frame"], "sensors" => t0["sensors"])
         t["sensors"][1]["camera"] = Dict(
             "type" => "CentralGenericModel", "width" => 64, "height" => 48,
             "calibration_min_x" => 0, "calibration_min_y" => 0, "calibration_max_x" => 63, "calibration_max_y" => 47,
@@ -454,7 +399,8 @@ end
         )
         v8 = joinpath(dir, "grig_v8.json"); write(v8, JSON.json(t, 4))
         r = VgtkIO.vgio_migrate(v8)
-        @test r.old_ids == ["9cfb569ce7b14e9e31416b3e70e13af89819a36e5c64f4a8899720579c577d51"] && r.new_id == content_id(grig)
+        # (IO 0.10: the old ids are every identity an earlier IO minted for it, the v8 one first; the new id the 0.10 one)
+        @test r.old_id == "9cfb569ce7b14e9e31416b3e70e13af89819a36e5c64f4a8899720579c577d51" && r.old_id in r.old_ids && r.new_id == content_id(grig)
         # a grid sensor that stores no K: the reader supplies it, keyed by sensor id; the sensor's rays are the same
         # camera's; a sensor that holds its K, or an unknown id, refuses one
         delete!(t["sensors"][1]["camera"], "nominal_intrinsics")
@@ -473,7 +419,7 @@ end
     end
 end
 
-@testitem "target/v3: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: a planar target's board — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, board, Rig, PosedTarget, TargetFrame, Uncertain
     import VisualGeometryToolkitCore as VgtkCore
@@ -534,7 +480,7 @@ end
     end
 end
 
-@testitem "rig/v6, target/v3: a code-built board size round-trips bit for bit" setup = [VGIoFixtures] begin
+@testitem "rig/v10.0, target/v6.0: a code-built board size round-trips bit for bit" setup = [VGIoFixtures] begin
     # Board sizes built in code (`297mm`, `0.142m`), written in mm and in m and
     # read back: every one is the identical quantity. The size is written by
     # `write_length` and read through the same decimal shift (`read_length`).
@@ -564,7 +510,7 @@ end
     end
 end
 
-@testitem "rig/v6, target/v3: a planar target's canvas and its texture — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "rig/v10.0, target/v6.0: a planar target's canvas and its texture — present and absent" setup = [VGIoFixtures, TargetRecordFixtures] begin
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, Board, Canvas, CanvasTexture, canvas, board, Rig, PosedTarget,
         TargetFrame, Rigid
     using VisualGeometryToolkitIO: content_id
@@ -612,12 +558,12 @@ end
         @test refused(x -> (x["target"]["canvas"]["extra"] = 1)) isa ArgumentError
         e = refused(x -> (x["target"]["canvas"]["size"] = Dict("width" => 50.0, "height" => 50.0)))
         @test e isa ArgumentError && occursin("off the canvas", e.msg)
-        pt = deepcopy(dd); pt["target"] = Dict("type" => "points", "points" => [[0, 0, 0]], "canvas" => dd["target"]["canvas"])
+        pt = deepcopy(dd); pt["target"] = Dict("type" => "point_target", "points" => [Dict("xyz" => [0, 0, 0])], "canvas" => dd["target"]["canvas"])
         write(q, JSON.json(pt)); @test (try load(AbstractTarget, q); nothing catch e; e end) isa ArgumentError
     end
 end
 
-@testitem "target/v3: a placement — the calibration in plain chart numbers, the placement in the file's unit" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "target/v6.0: a placement — the calibration in plain chart numbers, the placement in the file's unit" setup = [VGIoFixtures, TargetRecordFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: PlanarTarget, AbstractTarget, SimilarityMap, HeightField, ThinPlateSpline, Aspect, Skew, Rigid,
         Uncertain, CovMat, Rig, PosedTarget, TargetFrame, grid_nodes, calibration, parameter_vector, geom, placement
@@ -681,4 +627,71 @@ end
         save(p, rig(t); length_unit = m)
         @test VgtkIO.content_id(p) == VgtkIO.content_id(rig(t)) == VgtkIO.content_id(load(Rig, p))
     end
+end
+
+@testitem "height_field per-field units: the roles node and height — chart nodes and heights in a length (RadiometricCamera's board warping) round-trip exactly" setup = [VGIoFixtures, TargetRecordFixtures] begin
+    # Owner ruling 2026-11-13 (IO 0.9.5's node_unit/height_unit; IO 0.10: the length roles `node` and `height` of the
+    # units object, "chart" a chart role). RC's board warping: a 5 × 5 grid of PAGE FRACTIONS with heights in metres.
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: HeightField, grid_nodes, has_units, geom, bending_energy, ThinPlateSplineSystem, PlanarTarget
+    using Random: Xoshiro
+    nodes = grid_nodes(5; lo = 0.0, hi = 1.0)                                       # page fractions, plain
+    h = [VgtkIO.metres(round(x; digits = 4), mm) for x in 0.3 .* randn(Xoshiro(3), 25)]   # metres, mm-born
+    hf = HeightField(nodes, h)
+    @test !has_units(hf)
+    heights(c) = geom(c).h
+    roles(u) = VgtkIO.VgioStyle(; length_roles = (node = :chart, height = u))
+    for unit in (m, mm, VisualGeometryToolkitCore.μm), cc in (hf, uncertain(hf))
+        s = roles(unit)
+        r = VgtkIO.target_calibration_json(s, cc)
+        @test r.type == "height_field" && !haskey(r, :node_unit) && !haskey(r, :height_unit)   # the units are the style's
+        @test r.nodes == [Float64[q[1], q[2]] for q in nodes]                     # the chart's numbers as they are
+        @test VgtkIO._units_json(s).length_roles == Dict("node" => "chart", "height" => unit_string(unit))
+        text = JSON.json(r)
+        back = VgtkIO.target_calibration_from_json(s, JSON.parse(text))
+        @test typeof(back) == typeof(cc) && geom(back).system.nodes == geom(cc).system.nodes
+        if unit === m
+            @test back == cc
+            @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text
+        else
+            @test all(abs.(heights(back) .- heights(cc)) .<= 2 .* eps.(heights(cc)))   # the decimal codec's persisted form
+            @test VgtkIO.target_calibration_from_json(s, JSON.parse(JSON.json(VgtkIO.target_calibration_json(s, back)))) == back
+        end
+    end
+    # a record of an owner's kind: its envelope's units object declares the roles, and its style reads them back
+    mktempdir() do dir
+        p = joinpath(dir, "warp.json")
+        VgtkIO.write_record(p, (schema = "rc/board_warp/v1.0", warp = VgtkIO.target_calibration_json(roles(m), hf)); style = roles(m))
+        d = VgtkIO.read_record(p)
+        @test d.units.length_roles.node == "chart" && d.units.length_roles.height == "m"
+        @test VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(d), d.warp) == hf
+    end
+    # the bending energy is the field's over its chart nodes (m² in memory): the same before and after
+    back = VgtkIO.target_calibration_from_json(roles(m), JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf))))
+    @test bending_energy(ThinPlateSplineSystem(nodes), back.h) == bending_energy(ThinPlateSplineSystem(nodes), hf.h)
+    # length nodes in one unit, heights in another: a physical field
+    k = kinds().height_field
+    s2 = VgtkIO.VgioStyle(; length_roles = (node = mm, height = VisualGeometryToolkitCore.μm))
+    @test VgtkIO.target_calibration_from_json(s2, JSON.parse(JSON.json(VgtkIO.target_calibration_json(s2, k)))) == k
+    # refused by name: one role alone, the roles on another kind, a chart height, chart nodes holding lengths, plain over lengths
+    @test_throws "both or neither" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_roles = (node = :chart,)), hf)
+    @test_throws "height field's" VgtkIO.target_calibration_json(roles(m), kinds().aspect)
+    @test_throws "not a chart" VgtkIO.target_calibration_json(VgtkIO.VgioStyle(; length_roles = (node = :chart, height = :chart)), hf)
+    @test_throws "holds lengths" VgtkIO.target_calibration_json(roles(m), k)
+    @test_throws "is plain" VgtkIO.target_calibration_json(s2, hf)
+    @test_throws "height field's" VgtkIO.target_calibration_from_json(roles(m), JSON.parse("{\"type\":\"scale\",\"parameters\":[1.5]}"))
+    # heights that are not pure bending on the record's nodes are refused
+    d = JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf)); dicttype = Dict{String, Any})
+    d["parameters"] = Any[Float64(i) for i in 1:25]
+    @test_throws "pure bending" VgtkIO.target_calibration_from_json(roles(m), JSON.parse(JSON.json(d)))
+    # IO 0.9.5's record keys are unknown in 0.10; its file's step moves them to the roles
+    d = JSON.parse(JSON.json(VgtkIO.target_calibration_json(roles(m), hf)); dicttype = Dict{String, Any})
+    d["node_unit"] = "chart"; d["height_unit"] = "m"
+    @test_throws "unknown key" VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(), JSON.parse(JSON.json(d)))
+    old = Dict{String, Any}("schema" => "rc/board_warp/v1", "warp" => d)
+    t = VgtkIO.migrate_envelope(old, "rc/board_warp/v1.0")
+    @test t["units"]["length_roles"] == Dict("node" => "chart", "height" => "m") && !haskey(t["warp"], "node_unit")
+    @test (tp = JSON.parse(JSON.json(t)); VgtkIO.target_calibration_from_json(VgtkIO.VgioStyle(tp), tp.warp)) == hf
+    # a chart role is no length unit: "chart" is refused as the file's `length`
+    @test_throws ArgumentError VgtkIO.VgioStyle(; length_roles = (world = :chart,))
 end

@@ -3,8 +3,8 @@
 *File formats for the VisualGeometryToolkit stack.*
 
 VisualGeometryToolkitIO saves and loads the geometry of a calibration or
-reconstruction: cameras, poses, rigs, targets, trajectories and target
-measurements. Each `vgio/<kind>` file is the JSON serialization of one
+reconstruction: cameras, poses, rigs, targets, trajectories, detections and
+target observations, and a camera's radiometry and sensor characterisation. Each `vgio/<kind>` file is the JSON serialization of one
 [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)
 type. `load` returns a value of that type, `save` takes one, and the round
 trip is exact. There are no record structs of the package's own between the
@@ -18,16 +18,21 @@ file and the value.
   rewritten once by `vgio_migrate`;
 - COLMAP model directories, read and written (`.bin` and `.txt`), and COLMAP
   `database.db` files, read lazily;
-- OpenCV and MATLAB calibration exports, read and migrated to native files;
+- OpenCV and MATLAB calibration exports, read and converted to native files;
+- a published JSON Schema of every kind, and a content identity any language
+  can recompute ([JSON Schemas](guide/json-schemas.md),
+  [Content Identity](guide/content-identity.md));
 - write-only exporters to TUM, EuRoC, BOP, OpenSim TRC, and the flat
   correspondence arrays that external calibrators take.
 
 Three principles shape the files:
 
-- **A file declares its conventions.** The pixel frame, length unit, rotation
-  encoding and pose direction are written in the file, derived from the
-  value's types, so a file reads correctly without outside knowledge
-  ([Conventions on Disk](guide/conventions.md)).
+- **A file declares its conventions.** Every file opens with one envelope: a
+  `units` object (length, pixel frame, density, …) and a `conventions` object
+  (rotation encoding, pose direction, matrix layout, 1-based indices), derived
+  from the value's types, so a file reads correctly without outside knowledge
+  ([The envelope](guide/kinds.md#The-envelope),
+  [Conventions on Disk](guide/conventions.md)).
 - **Lengths cross the file boundary decimal-exactly.** Memory holds metres, a
   file the unit that reads naturally, converted by a decimal shift, not a
   multiplication ([Conventions on Disk](guide/conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
@@ -91,6 +96,9 @@ tests ([Testing and Verification](guide/verification.md)).
 
 **Explanation.** [Schema Rules](guide/schemas.md) says why the files look the
 way they do and what every vgio file guarantees;
+[JSON Schemas](guide/json-schemas.md) and
+[Content Identity](guide/content-identity.md) specify the files for tools
+outside Julia;
 [Conventions on Disk](guide/conventions.md),
 [Quantities, Frames and Detections](guide/serialization.md) and
 [Layers and Design](guide/design.md) explain the design.

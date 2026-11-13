@@ -1,11 +1,11 @@
 # =============================================================================
-# migrate_opencv: a third-party OpenCV calibration → native v2 files
+# convert_opencv_calibration: a third-party OpenCV calibration → native v2 files
 # =============================================================================
 
-@testitem "migrate_opencv: camera + image-named poses, verified, original untouched" setup = [VGIoFixtures] begin
+@testitem "convert_opencv_calibration: camera + image-named poses, verified, original untouched" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitIO: migrate_opencv, load_opencv_calibration, validate
+    using VisualGeometryToolkitIO: convert_opencv_calibration, load_opencv_calibration, validate
     using Rotations: RotationVec
 
     mktempdir() do dir
@@ -23,16 +23,16 @@
         out = mkpath(joinpath(dir, "v2"))
 
         # no tvec unit declared and none stated: refused, never defaulted
-        @test_throws ArgumentError migrate_opencv(src; images = names, image_size = (4240, 2832), out)
+        @test_throws ArgumentError convert_opencv_calibration(src; images = names, image_size = (4240, 2832), out)
         # images must name every pose, uniquely
-        @test_throws ArgumentError migrate_opencv(src; images = names[1:2], image_size = (4240, 2832), file_unit = m, out)
-        @test_throws ArgumentError migrate_opencv(src; images = ["a", "a", "b"], image_size = (4240, 2832), file_unit = m, out)
-        @test_throws UndefKeywordError migrate_opencv(src; image_size = (4240, 2832), file_unit = m, out)
-        @test_throws UndefKeywordError migrate_opencv(src; images = names, file_unit = m, out)
+        @test_throws ArgumentError convert_opencv_calibration(src; images = names[1:2], image_size = (4240, 2832), file_unit = m, out)
+        @test_throws ArgumentError convert_opencv_calibration(src; images = ["a", "a", "b"], image_size = (4240, 2832), file_unit = m, out)
+        @test_throws UndefKeywordError convert_opencv_calibration(src; image_size = (4240, 2832), file_unit = m, out)
+        @test_throws UndefKeywordError convert_opencv_calibration(src; images = names, file_unit = m, out)
 
-        dry = migrate_opencv(src; images = names, image_size = (4240, 2832), file_unit = m, out, dry_run = true)
+        dry = convert_opencv_calibration(src; images = names, image_size = (4240, 2832), file_unit = m, out, dry_run = true)
         @test dry.cameras === nothing && isempty(readdir(out)) && (dry.n_posed, dry.n_unposed) == (2, 1)
-        r = migrate_opencv(src; images = names, image_size = (4240, 2832), file_unit = m, out)
+        r = convert_opencv_calibration(src; images = names, image_size = (4240, 2832), file_unit = m, out)
         @test read(src, String) == original                                          # the original is never touched
         @test validate(r.cameras) == "cameras" && validate(r.poses) == "transforms"
 
@@ -55,25 +55,25 @@
         # export's own unit, metres), the rotation to the quaternion encoding's precision
         @test poses[1].t == cal.poses[1].t && maximum(abs, Matrix(poses[1].R) - Matrix(cal.poses[1].R)) <= 8 * eps()
         @test ustrip.(m, poses[1].t) == [0.17, 0.0122, 1.3969]
-        @test parse_json(read(r.poses, String)).length_unit == "m"
+        @test parse_json(read(r.poses, String)).units.length == "m"
         @test poses[2].t == cal.poses[3].t && maximum(abs, Matrix(poses[2].R) - Matrix(cal.poses[3].R)) <= 8 * eps()
 
         # nothing is overwritten
-        @test_throws ArgumentError migrate_opencv(src; images = names, image_size = (4240, 2832), file_unit = m, out)
+        @test_throws ArgumentError convert_opencv_calibration(src; images = names, image_size = (4240, 2832), file_unit = m, out)
 
         # a file that declares its tvec unit supplies it, and a contradicting caller is refused
         declared = joinpath(dir, "calibration_opencv_rational.json")
         write(declared, JSON.json(merge(body, Dict(:tvec_unit => "m"))))
         o2 = mkpath(joinpath(dir, "v2b"))
-        r2 = migrate_opencv(declared; images = names, image_size = (4240, 2832), out = o2)
+        r2 = convert_opencv_calibration(declared; images = names, image_size = (4240, 2832), out = o2)
         @test load(Vector{EuclideanMap}, r2.poses)[1].t == cal.poses[1].t                    # tvec_unit "m" honoured
-        @test_throws ArgumentError migrate_opencv(declared; images = names, image_size = (4240, 2832), file_unit = mm, out = mkpath(joinpath(dir, "v2c")))
+        @test_throws ArgumentError convert_opencv_calibration(declared; images = names, image_size = (4240, 2832), file_unit = mm, out = mkpath(joinpath(dir, "v2c")))
         # the reader holds a declared tvec_unit too
         @test_throws ArgumentError load_opencv_calibration(declared; file_unit = mm)
 
         # the frame override, for a calibration VERIFIED to be in another frame
         o3 = mkpath(joinpath(dir, "v2d"))
-        r3 = migrate_opencv(PixelFrame{:julia}, src; images = names, image_size = (4240, 2832), file_unit = m, out = o3)
+        r3 = convert_opencv_calibration(PixelFrame{:julia}, src; images = names, image_size = (4240, 2832), file_unit = m, out = o3)
         @test load(CameraModel, r3.cameras).intrinsics.K[1, 3] == 2175.69 - 0.5
 
         # the command line: a dry run unless --apply; the images from a directory's sorted names

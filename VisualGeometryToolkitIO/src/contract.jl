@@ -29,8 +29,9 @@ unit of translations, 3D points and every other length. Further roles
 (`pattern = pt`) serve a record whose lengths are declared in more than one
 unit — a board's canvas in mm and its pattern in pt, each written
 decimal-exactly in its own unit. A field read or written in a role names it
-([`read_quantity`](@ref)`(x, :length, c; role = :pattern)`). Pixel counts need
-no declaration: pixels are the only image unit.
+in its field tags (`JSON.lift(style, Quantity, x, (; quantity = :length, role
+= :pattern))`). Pixel counts need no declaration: pixels are the only image
+unit.
 
 In memory the contract is that table, `world` first:
 `UnitContract(mm, dpi; lengths = (pattern = pt,)).lengths == (world = mm,
@@ -39,12 +40,11 @@ the table (the keyword form also reads a `world` already in `lengths`; naming
 it twice is an error); the third is the canonical one and refuses a table
 without `world`.
 
-The FILE layout is separate and unchanged: the serialiser alone knows it.
-Inline fields in vgio JSON records hold `"units": {"world": "mm", "density":
-"dpi", "lengths": {"pattern": "pt"}}` — `world` top level, the other roles
-under `lengths` — written by [`json_value`](@ref)`(contract)` and read by
-`from_json(UnitContract, d)`; a `vgio_units.json` sidecar for COLMAP model
-directories holds world and density only. Files stay self-describing. The
+The FILE form is the envelope's `units` object (`"length"`, `"length_roles"`,
+`"density"`, …; a [`VgioStyle`](@ref) carries the contract and writes it); a
+`vgio_units.json` sidecar for COLMAP model directories holds world and density
+only. The contract's own layout of IO before 0.10 (`{"world", "density",
+"lengths"}`) is retired ([`migrate_units`](@ref)). The
 roles are a CLOSED set, the ones the contract declares: an `ArgumentError` for
 a missing `world`, a role that is not a length, a role named `density`, a role
 name that is not snake_case, a `density` that is not pixels per length, and
@@ -140,55 +140,3 @@ _world_unit(::UnknownScale) = throw(
     )
 )
 
-# Sidecar for formats we can't extend in-band (COLMAP model directories).
-const UNITS_SIDECAR = "vgio_units.json"
-
-# A sidecar's `world` is a unit name, or this word for an UnknownScale model —
-# not a unit, so `parse_unit` (and every older reader) refuses it loudly.
-const _UNKNOWN_SCALE_NAME = "unknown"
-_world_name(c::UnitContract) = unit_string(role_unit(c))
-_world_name(::UnknownScale) = _UNKNOWN_SCALE_NAME
-
-# {"schema": "vgio/units/v2", "world": "mm" | "m" | … | "unknown"}
-# The one declaration a COLMAP model directory needs beyond COLMAP's own
-# format, which fixes everything else (pixel centres at 0.5, world → camera
-# poses, Hamilton w-x-y-z quaternions, the per-model parameter order).
-# A `density` is optional: absent, it is dpi, and a contract whose density is
-# dpi writes none, so a sidecar holds what it held before densities existed.
-const _UNITS_SPEC = _Obj(
-    Pair{Symbol, _Spec}[
-        :schema => _schema_tok("units"),
-        :world => _Named(s -> s == _UNKNOWN_SCALE_NAME || _is_length_name(s), "a registered length unit, or \"unknown\""),
-    ],
-    Pair{Symbol, _Spec}[:density => _DENSITY_UNIT],
-)
-
-_sidecar_body(c::UnitContract) = c.density == dpi ? (schema = _schema("units"), world = _world_name(c)) :
-    (schema = _schema("units"), world = _world_name(c), density = unit_string(c.density))
-_sidecar_body(c::UnknownScale) = (schema = _schema("units"), world = _world_name(c))
-
-function save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale})
-    (contract isa UnitContract && length(contract.lengths) > 1) && throw(
-        ArgumentError("a COLMAP model's units sidecar declares its world and density only; this contract has length roles $(keys(contract.lengths))")
-    )
-    return _write_store(joinpath(dir, UNITS_SIDECAR), _UNITS_SPEC, _sidecar_body(contract); style = VgioStyle())   # (declares no VGC value's unit)
-end
-
-"""
-    load_units_sidecar(dir) -> Union{UnitContract, UnknownScale, Nothing}
-
-Read the `vgio_units.json` sidecar of a COLMAP model directory; `nothing` if
-absent (a model produced by other tools — the caller must then declare units
-explicitly). `"world": "unknown"` is an [`UnknownScale`](@ref) model. A v1
-sidecar is refused by name: nothing reads a retired version. A sidecar
-without a `density` has dpi.
-"""
-function load_units_sidecar(dir::AbstractString)
-    path = joinpath(dir, UNITS_SIDECAR)
-    isfile(path) || return nothing
-    d = _read_store(path, "units", _UNITS_SPEC)
-    world = d.world::String
-    world == _UNKNOWN_SCALE_NAME && return UnknownScale()
-    density = haskey(d, :density) ? parse_unit(d.density::String) : dpi
-    return UnitContract(parse_unit(world), density)
-end

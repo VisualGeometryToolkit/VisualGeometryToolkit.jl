@@ -1,11 +1,11 @@
 # =============================================================================
-# migrate_matlab: a third-party MATLAB calibration → native v2 files
+# convert_matlab_calibration: a third-party MATLAB calibration → native v2 files
 # =============================================================================
 
-@testitem "migrate_matlab: radial and fisheye, verified, original untouched" setup = [VGIoFixtures] begin
+@testitem "convert_matlab_calibration: radial and fisheye, verified, original untouched" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitIO: migrate_matlab, load_matlab_calibration, validate
+    using VisualGeometryToolkitIO: convert_matlab_calibration, load_matlab_calibration, validate
     using VisualGeometryToolkitCore: Scaramuzza
 
     mktempdir() do dir
@@ -37,11 +37,11 @@
         originals = Dict(p => read(p, String) for p in (radial, fisheye))
 
         # the toolbox declares no unit: it must be stated — never defaulted
-        @test_throws ArgumentError migrate_matlab(radial; images = names, image_size = (4240, 2832), out = mkpath(joinpath(dir, "x")))
+        @test_throws ArgumentError convert_matlab_calibration(radial; images = names, image_size = (4240, 2832), out = mkpath(joinpath(dir, "x")))
 
         for (src, lens_type, n_posed) in ((radial, Lens{Perspective}, 2), (fisheye, Scaramuzza, 1))
             out = mkpath(joinpath(dir, "v2_$(splitext(basename(src))[1])"))
-            r = migrate_matlab(src; images = names, image_size = (4240, 2832), file_unit = mm, target = "aprilgrid_matlab", out)
+            r = convert_matlab_calibration(src; images = names, image_size = (4240, 2832), file_unit = mm, target = "aprilgrid_matlab", out)
             @test read(src, String) == originals[src]                                # never touched
             @test validate(r.cameras) == "cameras" && validate(r.poses) == "transforms"
             @test (r.n_posed, r.n_unposed) == (n_posed, 2 - n_posed)
@@ -66,7 +66,7 @@
         @test load(CameraModel, joinpath(dir, "v2_calibration_matlab_3radial2tangential", "calibration_matlab_3radial2tangential_cameras.json")).intrinsics.K[1, 3] == 2155.82 - 0.5
         # …and the override is positional, for a file verified to be in another frame
         o = mkpath(joinpath(dir, "v2_opencv_frame"))
-        r = migrate_matlab(PixelFrame{:opencv}, radial; images = names, image_size = (4240, 2832), file_unit = mm, out = o)
+        r = convert_matlab_calibration(PixelFrame{:opencv}, radial; images = names, image_size = (4240, 2832), file_unit = mm, out = o)
         @test load(CameraModel, r.cameras).intrinsics.K[1, 3] == 2155.82 + 0.5
 
         # the command line: `matlab`, a dry run unless --apply

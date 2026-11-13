@@ -6,12 +6,13 @@
 [![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitIO)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitIO)
 
 VisualGeometryToolkitIO saves and loads cameras, poses, rigs, trajectories and
-target measurements as self-describing JSON files, one schema per
+target observations as self-describing JSON files, one schema per
 [VisualGeometryToolkitCore](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore)
 type, and a value read back from a file equals the value that was written.
-Each file declares its conventions (pixel frame, length unit, rotation
-encoding, pose direction), and every earlier schema version a published file
-holds still loads. It also reads and writes COLMAP models, reads COLMAP
+Each file opens with one envelope that declares its units (length, pixel
+frame, density, …) and its conventions (rotation encoding, pose direction,
+1-based indices) and names the software that wrote it, and every earlier
+schema version a published file holds still loads. It also reads and writes COLMAP models, reads COLMAP
 databases and OpenCV and MATLAB calibration exports, and exports to the TUM,
 EuRoC, BOP and TRC formats.
 

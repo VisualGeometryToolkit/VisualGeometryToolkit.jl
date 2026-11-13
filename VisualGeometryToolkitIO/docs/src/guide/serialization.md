@@ -2,141 +2,80 @@
 
 ```@meta
 CurrentModule = VisualGeometryToolkitIO
+DocTestSetup = :(using VisualGeometryToolkitCore, VisualGeometryToolkitIO; import VisualGeometryToolkitIO as VgtkIO)
 ```
 
-VisualGeometryToolkitIO owns the stack's quantity JSON format. A quantity in a
-JSON record is a **number in the unit the record declares**, and the record
-declares its units once, inline: `"units": {"world": "mm", "density": "dpi"}`,
-a [`UnitContract`](@ref) (with further length roles where one record needs
-more than one length unit, below). A length is a number in the world unit, a density
-(pixels per length) a number in the density unit, and a pixel count a number
-of pixels. The unit is not repeated beside every value.
+Every number a vgio record holds is in a unit its file's `units` object
+declares — the envelope every file opens with (`"units": {"length": "mm",
+"pixel": "colmap", "density": "dpi", "length_roles": {…}, …}`) — and no field
+states a unit of its own. A value is written by `JSON.lower(::VgioStyle, x)`
+and read by `JSON.lift(::VgioStyle, T, x)`, on the style that carries those
+units ([`VgioStyle`](@ref)); a writer that leaves a quantity in a record gets
+it written in the declared unit.
 
-What a number *is* — a length, a pixel count or a density — is the record's to
-say, field by field, because a pixel is dimensionless and a number alone cannot
-tell a pixel count from an angle or a ratio. [`write_quantity`](@ref) and
-[`read_quantity`](@ref) convert one quantity:
+## What a number is: the field tag
 
-```jldoctest serialization
-julia> using VisualGeometryToolkitCore, VisualGeometryToolkitIO
+A pixel is dimensionless, so `640` cannot say whether it is 640 px, 640 mm or a
+plain 640. A field says it by its FIELD TAGS, StructUtils' fourth argument of
+`lift` (and `lower`): `(; quantity = :length | :pixel | :density[, role])`. A
+lift without tags reads plain numbers. A length is decimal-exact in
+`units.length`, or in the role its tag names (`units.length_roles`):
 
+```jldoctest
 julia> import JSON
 
-julia> import VisualGeometryToolkitIO as VgtkIO
+julia> using FlexUnits: Quantity
 
-julia> VgtkIO.write_quantity(62.8mm, MM_PX), VgtkIO.write_quantity(640px, MM_PX), VgtkIO.write_quantity(300dpi, MM_PX)
+julia> s = VgtkIO.VgioStyle(; length_unit = mm);
+
+julia> JSON.lower(s, 62.8mm), JSON.lower(s, 640px), JSON.lower(s, 300dpi)
 (62.8, 640, 300)
 
-julia> VgtkIO.read_quantity(0.0628, :length, UnitContract(world = m)) == 62.8mm
+julia> JSON.lift(s, Quantity, 62.8, (; quantity = :length)) == VgtkIO.read_length(62.8, mm)
 true
 
-julia> VgtkIO.json_value(MM_PX)   # the record's declaration
-(world = "mm", density = "dpi")
-```
+julia> JSON.json(Size2(width = 640px, height = 480px); style = s)
+"{\"width\":640,\"height\":480}"
 
-A length crosses through [`read_length`](@ref) and [`write_length`](@ref), so a
-millimetre number reads and writes back to its own text. A pixel count and a
-density are written as integers when they are integral. A quantity of any
-other dimension has no declared unit and is an `ArgumentError`.
-
-## Sizes, feature frames and detections
-
-[`json_value`](@ref)`(x, contract; kind)` is the plain value a record holds for one
-of VisualGeometryToolkitCore's values, which `JSON.json` writes, and
-[`from_json`](@ref)`(T, d, contract; kind)` reads it back from a parsed object.
-These are explicit functions of a `UnitContract`, not `lower` and `lift`
-methods (the records of the native kinds' geometric values — poses, cameras,
-targets with their calibrations — are, on `VgioStyle`; see "Building blocks for
-other kinds" in [Kinds and the I/O Surface](kinds.md)).
-
-| Value | JSON object |
-|---|---|
-| `Size2` | `{"width": w, "height": h}` |
-| `Disc` | `{"center": [x, y], "σ": s}` |
-| `OrientedDisc` | `{"center": [x, y], "σ": s, "θ": angle}` |
-| `EllipticFrame` | `{"center": [x, y], "S": [S11, S21, S12, S22]}` |
-| `AffineFrame` | `{"center": [x, y], "A": [A11, A21, A12, A22]}` |
-
-Matrices are written as their four entries in column order. A `Size2` or a
-`Disc` holds plain numbers or quantities of ONE kind, and both its writer and
-its reader declare which with the required keyword `kind` (`:plain`,
-`:length` or `:pixel`); there is no default, because a default would hand a
-length or a pixel count back as a bare number. The other frames hold plain
-numbers (`kind = :plain`).
-
-```jldoctest serialization
-julia> s = JSON.json(VgtkIO.json_value(Size2(width = 210.0mm, height = 297.0mm), MM_PX; kind = :length))
-"{\"width\":210.0,\"height\":297.0}"
-
-julia> VgtkIO.from_json(Size2, JSON.parse(s), MM_PX; kind = :length) == Size2(width = 210.0mm, height = 297.0mm)
+julia> JSON.lift(s, Size2, JSON.parse("{\"width\": 640, \"height\": 480}"), (; quantity = :pixel)) == Size2(width = 640px, height = 480px)
 true
 ```
 
-A detection — an `Attributed` feature frame, VisualGeometryToolkitCore's
-`AbstractDetection`, which VisualGeometryToolkitFeatures' `Detection` is — is
-one JSON object. Its frame is under `frame`, and every metadata field is under
-its own name; the frame's type is read off its keys. A detection with an
-`Uncertain` frame (from `uncertainty = FeatureCovariance()`) also has `cov`, the
-covariance's entries in column order, or `null` when the covariance is not
-finite (a keypoint the detector could not refine), written with the matrix's
-size N under `cov_size`; reading it back makes the frame `Uncertain` again,
-with the same N×N covariance. The size is the value's, not the frame's: an
-ASIFT `EllipticFrame` carries a 3×3 covariance over (x, y, log σ). A `null`
-without `cov_size` (IO v0.1.0's record) reads as 3×3, as v0.1.0 read it, and
-`cov_size` is not a metadata name. On reading, the documented metadata fields
-(`response`, `edge_score`, `laplacian_scale_score`) come first and as
-`Float64`, and the other fields follow, sorted by name, as they were parsed.
-Metadata has no declared kind, so a quantity in it is refused on writing.
+The `{"value": v, "unit": u}` form, and UnitContract's own layout
+(`{"world", "density", "lengths"}`), are never a current record's. A record of
+an earlier version that holds them is read by its owner's version step;
+[`migrate_units`](@ref) gives such a record's 0.10 `units` object.
 
-```jldoctest serialization
-julia> d = Attributed(Disc(Point2(10.5, 20.25), 3.0), (response = 0.25, laplacian_scale_score = 1.0));
+## The frame codec
 
-julia> s = JSON.json(VgtkIO.json_value(d, MM_PX; kind = :plain))
-"{\"frame\":{\"center\":[10.5,20.25],\"σ\":3.0},\"response\":0.25,\"laplacian_scale_score\":1.0}"
+Every VisualGeometryToolkitCore `FeatureFrame` is a case of ONE codec: `{"center": [x, y]}` and
+its shape — a `Disc`'s `sigma`, an `OrientedDisc`'s `sigma` and `angle`, an
+`EllipticFrame`'s `shape_matrix`, an `AffineFrame`'s `affine_matrix` (rows); a
+`PointFrame` has none. An uncertain frame adds its `covariance` over the
+frame's `frame_dof` parameters, centre first, in the storage it holds (a
+`PointFrame`'s is the uncertain point's 2×2):
 
-julia> VgtkIO.from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain) == d
+```jldoctest
+julia> import JSON
+
+julia> s = VgtkIO.VgioStyle();
+
+julia> u = Uncertain(PointFrame(10.5, 20.25), CovMat{2, Float64}(0.5, 0.0, 0.0, 0.25));
+
+julia> JSON.json(u; style = s)
+"{\"center\":[10.5,20.25],\"covariance\":[[0.5,0.0],[0.0,0.25]]}"
+
+julia> JSON.lift(s, Uncertain{PointFrame{Float64}}, JSON.parse(JSON.json(u; style = s))) == u
 true
 ```
 
-With VisualGeometryToolkitFeatures loaded, `from_json(Detection, obj, contract; kind)`
-reads the same object.
+## Detections
 
-## Length roles: more than one length unit in one record
-
-A record whose lengths are declared in more than one unit — a board's canvas
-in millimetres and its pattern in points — names each further unit as a
-LENGTH ROLE of its contract: `UnitContract(world = mm, lengths = (pattern =
-pt,))`, declared `"units": {"world": "mm", "density": "dpi", "lengths":
-{"pattern": "pt"}}`. In memory the contract is the table of its roles, with
-`world` an ordinary, required entry of it
-(`c.lengths == (world = mm, pattern = pt)`; `role_unit(c, role)` reads one and
-lists the declared roles when asked for another); only the serialiser knows
-the file layout above, `world` at the top level and the other roles under
-`"lengths"`. A length field read or written in a role names it
-(`role = :pattern`; `:world` is the default), so each number is decimal-exact
-in its own unit: a point value has no exact millimetre decimal.
-
-```jldoctest serialization
-julia> c = UnitContract(world = mm, lengths = (pattern = pt,));
-
-julia> q = VgtkIO.read_length(2.12598425197, pt);
-
-julia> VgtkIO.write_quantity(q, c; role = :pattern), VgtkIO.read_quantity(2.12598425197, :length, c; role = :pattern) === q
-(2.12598425197, true)
-
-julia> VgtkIO.json_value(c)
-(world = "mm", density = "dpi", lengths = (pattern = "pt",))
-```
-
-## One quantity form
-
-The `{"value": v, "unit": u}` object that VisualGeometryToolkitFeatures'
-JSON.jl hooks once wrote, and that BlobBoards' older board files hold, is not
-a current record's: `read_quantity` and every `from_json` refuse it, naming
-the migration. A file of an earlier schema version that holds it is read by
-its owner's version step for that version (`migrate_schema(::Val{schema},
-tree)`, run by `migrate_record` on load), and rewritten once, if the owner
-wants it rewritten, by `vgio_migrate`.
-
-[`ScalarOrQuantity`](@ref) is the type of a field that may hold a plain number
-or a quantity.
+A detector's output per image is a `vgio/detection/v1.0` file
+(`save(path, Dict(image => detections))`,
+`load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`): each
+detection is its frame through the codec above and its attributes, and the
+file declares once the type every detection has (frame type, number type,
+covariance storage, each attribute's type), so it reads back exact by type. A
+detection without a covariance omits it and states its `covariance_status`
+attribute, the producer's reason: there is no `null`, and no default.

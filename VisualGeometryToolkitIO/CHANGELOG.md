@@ -1,5 +1,203 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.0 (unreleased)
+
+The IO breaking wave (specs/2026-11-13-io-breaking-wave.md), on VisualGeometryToolkitCore 0.10. Every kind moves up a
+major version; every earlier version a published file holds is still READ (its version steps), only the 0.10 one is
+written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its observation files at the re-identified rigs.
+
+### Breaking
+
+- **`vgio/raster/v2.0`** (IO 0.9.5's v1 in the envelope; v1 reads through its step): the frame is `{"type": "page" |
+  "texture", "area"}` (lengths in `units.length`) or `{"type": "pixel"}` (`units.pixel`); `element_type` `float32` or
+  `uint8` (a uint8 raster's `nan` is `"none"`). Its payload body `{file, sha256}` + a TIFF of the raster profile is the
+  stack's ONE binding of a bulk array to a file: `vgio/sensor_characterisation`'s dark maps are such TIFFs (no raw
+  `.f32`/`.u8` artifacts).
+- **THE lattice codec** is public and 0.10's: `lattice_json(spline; name, present, length_unit)` /
+  `lattice_from_json(record, Val(K); name, length_unit)` write and read `{area, grid_size: {width, height}, present
+  (1-based), controls: {<name>: […]}}`, the one implementation every spline record (lens, non-central, an owner's
+  aperture spline) goes through (0.9.5's positional `grid_size`, 0-based runs and bare `controls` array are gone).
+- **A height field's per-field units are length ROLES**: `units.length_roles.node` (`"chart"`, a reserved role value:
+  plain numbers of the owner's chart; or a length unit) and `units.length_roles.height`; `target_calibration_json` /
+  `target_calibration_from_json` read them off the style (`VgioStyle(; length_roles = (node = :chart, height = m))`).
+  IO 0.9.5's `node_unit`/`height_unit` keyword and record keys are gone; `migrate_envelope` moves the keys to the roles.
+- **One codec of quantities, sizes and feature frames, on the style** (core_json.jl): `json_value`, `from_json`,
+  `read_quantity` and `write_quantity` are retired (no alias): a quantity, a `Size2` (`{"width", "height"}`) and every
+  `FeatureFrame` are written by `JSON.lower(::VgioStyle, x)` and read by `JSON.lift(::VgioStyle, T, x[, tags])`; what a
+  number is (a pixel is dimensionless) is the field's TAG, `(; quantity = :length | :pixel | :density[, role])`, a lift
+  without tags reading plain numbers. `migrate_units(declaration)` (public) gives the 0.10 `units` object of a record in
+  the retired UnitContract layout (an owner's version step: BlobBoards' boards).
+- **THE frame codec**: a frame is `{"center"}` and its shape under ASCII keys (`sigma`, `angle`, `shape_matrix`,
+  `affine_matrix`, matrices in rows); an uncertain frame's `covariance` is over the frame's `frame_dof` parameters,
+  centre first, in the storage it holds (rows / `{"diagonal"}` / `{"isotropic"}`). `cov`, `cov_size`, a `null`
+  covariance and the 3×3 fallback for a size-less `null` are gone. `PointFrame` (0.9.4's codec) is its 2-DOF case.
+- **`vgio/panorama/v2.0`**: 0.9.4's v1 in the envelope, `frame_index` for `t`, the rotations `camera` → `world`; v1 reads
+  through its step (`fit = nothing`). `vignetting` is optional (`nothing`: a panorama with no Core vignetting), and an
+  optional `fit` records the bundle's termination (`retcode`, `stop_rule`, `iterations`, `rms`, `n`, the stack's one
+  record; read back as a `FitResult{Nothing, Nothing}`): `save_panorama(path, camera, rotations, vignetting, gains,
+  fit = nothing; length_unit, provenance)`, `load_panorama(path) -> (; camera, rotations, vignetting, gains, fit)`.
+- **One envelope for every file**: `schema`, `generator` (`{"name": "VisualGeometryToolkitIO", "version", "caller"?}`,
+  the caller named by `with_caller(f, Mod)`), ONE `units` object (`length`, `time`, `angle`, `pixel`, `density`,
+  `radiance`, `length_roles`) and ONE `conventions` object (`rotation_encoding`, `transform_convention`,
+  `matrix_layout`, `grid_layout`, `index_base: 1`), then the body, then `provenance`. Every key is always written; a
+  file missing one is refused. The top-level `length_unit`, `pixel_frame`, `time_unit`, `rotation_encoding`,
+  `transform_convention` and `point_index_base` are gone; no block states a unit of its own (a field's unit is a power
+  of a declared base). `VgioStyle` holds a `UnitContract` and the pixel frame; `VgioStyle(record)` is a record's
+  declared style. `UnitContract`'s own JSON layout (`{"world", "density", "lengths"}`) is retired. `write_record`
+  writes the envelope of an owner's record from its style (the record states none of it).
+- **Versions are `v<major>.<minor>`**: a reader reads its major at any minor; a higher minor's undeclared keys are
+  tolerated, an unknown key at its own minor is refused. The versions read are derived from the version steps
+  (`schema_versions()`), never a hand list. 0.10 majors: cameras v6.0, rig v10.0, transforms v5.0, trajectory v5.0,
+  target v6.0, target_poses v3.0, target_homographies v2.0, observations v3.0, capture_settings v2.0, calibration
+  v3.0, vignetting v2.0, environment_light v2.0, blur v2.0, units v3.0.
+- **One observation kind**, `vgio/observations/v3.0` (VGC 0.10's `TargetObservations`; the entity `target_point` or
+  `landmark`): `target_points2d`, `target_points3d` and `target_detections` are read through version steps into it;
+  `save`/`load` of `TargetPoints2D`/`TargetPoints3D`/`TargetDetections` are gone (the types are gone from Core). One
+  point vocabulary, `{"xy"|"xyz", "covariance"?}`, also a point target's (`point_covariances` retired).
+- **The correspondences export** is `export/correspondences/v2` (not a vgio kind; it has no reader) and takes
+  `TargetObservations`; `save_trc` takes a 3-D `TargetObservations`; Schöps' `dataset.bin` reads as
+  `load(TargetObservations, path; target)`.
+- **One camera kind**: the cameras store holds any bounded camera, central or non-central (`vgio/noncentral_spline/v1`
+  retired; read as a store of its one camera). ONE lattice record for every spline, `{area, grid_size: {width,
+  height}, present (1-based), controls: {direction, point?}}`. A camera body's size is `image_size: {width, height}`,
+  a pitch `{width, height}`. A camera's `calibration` block is `calibration_record` (as a target's).
+- **Every Size2 is a `{width, height}` object; every index is 1-based**, declared once (`index_base: 1`); lattice
+  `present` runs moved from 0-based to 1-based (a +1 version step).
+- **Names**: the frame join key `t` is `frame_index`; the frame `camera_optical` is `camera` (the name mirrors its
+  type); target body tags `points`/`planar` are `point_target`/`planar_target`; environment light `l_max` is
+  `max_degree`; the manifest's `kind` is `result_kind` and `files[].kind` is `schema`.
+- **The manifest binds any owner's records** (`<owner>/<kind>/v<major>[.<minor>]`): every listed file is hash-checked,
+  VGIo's kinds are validated and another owner's when it has a `validate_record` method (a new declared extension
+  point). `metrics` is a closed object of named numbers; `model` VGC's closed `CameraModelSpec` table.
+- **Content identity, one deliberate re-id**: `canonical_json` is RFC 8785 (JCS); the identity tree is the writer's
+  0.10 record under its current names (specified in the docs, "Content identity"), lengths normalised in metres to 15
+  significant digits (a rig built in code from decimals of at most 15 digits, its file in any decimal unit and the rig
+  loaded back share one identity; IO 0.9's millimetre grid also absorbed a 16–17-digit file number's ≤2-ulp rewrite, which
+  no unit-free normalisation can); the v2/v3 converters left the identity path. Every `content_id` changes once.
+- **Quaternions with w < 0 are refused on read**, never flipped (an earlier file's are written w ≥ 0 by its step, as
+  its reader read them).
+- **Blurs state their plane** (`blur/v2.0`): `pixel_frame` (or `frame: "image:<id>"`) on a sensor, px²; `frame:
+  "target_plane"` on a print, `units.length`²; read back into the labeled `CovMat`. `blur/v1` (no published file) is
+  refused by name.
+- **Vignetting** (`v2.0`): a radial profile always states its `chart`; positions in any registered pixel frame
+  (`units.pixel`). The `chart` that IO 0.9 added inside v1 is read by v1's version step.
+- **Capture settings** (`v2.0`): the device identities are the one `device` encoding (`{"body", "lens"}`, a camera's
+  `calibration_record.device` too), with `identity_sources` and `exif_lens`; an optional `sensor` names the camera.
+- **Renamed**: `migrate_opencv` → `convert_opencv_calibration`, `migrate_matlab` → `convert_matlab_calibration`
+  ("migrate" is schema migration only); ColmapDatabase's `keypoints` → `detections` (the terminology). `save_manifest`
+  takes `result_kind`.
+- **Retired**: `ScalarOrQuantity` (use `Number`; listed in Core's RETIRED_NAMES), `pose_declarations` (the envelope's
+  objects), `json_value`/`from_json` (folded into `JSON.lower`/`JSON.lift` on `VgioStyle`).
+
+- **Detection records written before IO 0.10 without a schema** (`json_value`'s output, RC's hand-made Förstner CSVs) are
+  NOT read and have no importer or version step: they are derived results, regenerated from the photos (RC 0.9 re-detects).
+- **The JSON Schemas' `$id`s** are `https://visualgeometrytoolkit.github.io/schemas/vgio/<kind>/v<major>.<minor>.json`,
+  published with each IO release on the stack's GitHub Pages site at those stable, versioned paths (RELEASING.md, "The
+  published JSON Schemas"); a published schema never changes.
+
+### Added
+
+- **THE region body** (core_json.jl), one encoding of VisualGeometryToolkitCore's 2-D regions: `{"rect": [x, y, w, h]}`
+  | `{"ellipse": [cx, cy, a, b, θ]}` | `{"circle": [cx, cy, r]}` | `{"intersection": [<region>, <region>]}` (Core's
+  binary `RegionIntersection`, nested to any depth, read back as stored, by type) | `{"whole_plane": {}}`, pixels in
+  `units.pixel`. `JSON.lower(::VgioStyle, region)` (a leaf with the tag `(; region = true)`) / `JSON.lift(::VgioStyle, T,
+  record)` (`T` a region type or a `Union` of them; a parsed record is checked first) for an owner's record (RC's
+  initialization region). A camera's `lens_coverage` is this body restricted to its leaves (same bytes as before); the
+  published schemas state it once, as `$defs/region` and `$defs/region_leaf`.
+- **`vgio/detection/v1.0`** (new kind): detections per image, `save(path, Dict(image => detections))` /
+  `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`, through the one frame codec; the file declares once
+  the type of every detection (frame type, number type, covariance storage, each attribute's type), so it reads back
+  exact by type. A detection without a covariance omits it and states its `covariance_status` attribute.
+- **`vgio/sensor_characterisation/v1.0`** (new kind): VisualGeometryToolkitCore's `SensorCharacterisation`
+  (`save(path, characterisation)`, `load(SensorCharacterisation, path)`): one sensor keyed by `device.body` (the one
+  device-identity encoding) and per ISO its black, noise and defect slots, each ONE component body told by its `type`
+  (`channel` | `dark`; `read_noise` | `poisson_gaussian` | `relative`; a `DefectList`'s `sites` `[x, y, onset]`, 1-based,
+  x the column) with its `source` (measured, estimated, specified) and standard error; an absent slot is absent and loads
+  as its absent type (`FileBlack`, `NoNoise`, `NoDefects`); a dark's offset and variance maps are raster payload bodies
+  beside the record, bound by their SHA-256. It replaces the `vgio/sensor_noise/v1.0` kind of IO 0.10's earlier drafts,
+  which never shipped: that tag is an unknown kind, with no migration.
+- `canonical_json` is VisualGeometryToolkitCore's (the ONE RFC 8785 canonical JSON, moved there verbatim); IO
+  re-exports it, and every content identity is unchanged.
+- `schema_versions()`, `with_caller`, `validate_record`; the published JSON Schemas (draft 2020-12) of every kind.
+
+## 0.9.5 (unreleased)
+
+Additive: one new kind, the stack's TIFF codec, and three building blocks made public (RadiometricCamera's IO audit; the
+owner's rulings of 2026-11-13). No existing file, writer or reader changes: every file 0.9.4 writes is written byte for
+byte, and every file it reads still reads.
+
+- **`target_calibration_json(s::VgioStyle, c; node_unit = nothing)` and `target_calibration_from_json(s, record)`, public**
+  (formerly the private `_target_calibration_json` / `_target_calibration_from_json`): a target's calibration record —
+  the parametric record of every `TargetCalibration` kind and composition, `Uncertain` with its `covariance` — alone, for a
+  package that stores one in a kind of its own (RadiometricCamera's in-plane print error, `Aspect ∘ Skew`). The public
+  reader validates the record against the calibration table first, as a calibration in a file is (an unknown or retired
+  kind, a parameter count, Core's composition order, each refused by name); a target body's reader, whose file is already
+  validated, reads its calibration as before.
+- **`lattice_json(spline::ChartSpline; present, length_unit)` and `lattice_from_json(record, Val(K); length_unit)`,
+  public**: the ONE lattice record, `{"area", "grid_size", "present"?, "controls"}`, which the spline lens record writes
+  each of its splines with (formerly camera_schema.jl's private `_spline_json` / `_spline_from_json`, moved beside the
+  lattice codec in style.jl; the lens record and the non-central record call it, unchanged on disk). New: `length_unit`
+  for controls that are lengths (an aperture spline's radii: plain metres in memory, decimal-exact in the file's unit).
+- **`write_tiff(path, image; compression, predictor, rows_per_strip, density, software, icc)` and `read_tiff(T, path)`,
+  public: the stack's one TIFF codec**, libtiff (`Libtiff_jll`, a new dependency, `[compat] "4.7.3"`), hoisted from
+  BlobBoards (its board writer, `src/authoring/tiff.jl`, and its page reader, `_read_grey_tiff`), which ports to it and
+  deletes its copy in its next release. A grey image, `UInt8` or `Float32` (bit for bit, NaN included), one sample per
+  pixel, little-endian, in strips; uncompressed, LZW or Deflate, the horizontal predictor optional; a density, a
+  `Software` string and an ICC profile as optional tags (a predictor only with a compression). BlobBoards' board TIFFs are byte-identical through it.
+- **`vgio/raster/v1`: a Float32 raster**, `save_raster(path, values; frame, nan, length_unit = mm, compression = :deflate,
+  provenance)` and `load_raster(path) -> (; values, frame, nan)`, public: a JSON header (validated on read and on the bytes
+  before write) — the size `{width, height}`, the element type `"float32"`, the frame (a page or texture chart rectangle in
+  the design chart with its `length_unit`, or a pixel frame), what a NaN means (`"unobserved"`, or `"none"`) and the
+  SHA-256 of the payload — beside its TIFF payload, the reserved `payload` key's first kind (`{"file", "sha256"}`; every
+  other kind still refuses it). The TIFF profile, checked on write, on the file written and on read: baseline,
+  little-endian, one image, one 32-bit IEEE floating-point sample per pixel (`SampleFormat` 3), uncompressed or Deflate
+  with no predictor, strips, no meaning in the tags. A payload whose digest is not the header's is refused before it is
+  decoded. Python's `tifffile` reads the payload bit for bit, and a TIFF it writes reads as a raster (a test run when the
+  pixi `py` environment holds tifffile, which now lists it; IO's CI does not install it, the release gate does).
+- **Height-field records with per-field units** (owner ruling 2026-11-13, option i): a `height_field` calibration record
+  may state `"node_unit"` (`"chart"`, dimensionless numbers of a chart its owner defines, or a length unit) and
+  `"height_unit"` (a length unit), together, in a calibration record of its own (a target body's calibration states
+  neither: unknown keys there); `target_calibration_json(s, field; node_unit)` writes them (the heights in
+  the style's `length_unit`). Pure bending depends on the nodes' unit, never on the heights', and the field is checked
+  pure bending on its nodes as written; its bending energy is in `height_unit² · node_unit⁻²`. Over chart nodes the
+  field reads back as a plain `HeightField` (the chart's numbers, heights in plain metres): RadiometricCamera's board
+  warping, 5 × 5 page fractions with heights in metres (`height_unit` "m"), round-trips bit for bit; in a decimal unit
+  (mm) a computed height reads back as its persisted form, within the decimal codec's 2 ulp, and is fixed from then on. A record without the two keys (every target
+  body's) is in its file's one unit, as before.
+
+## 0.9.4 (unreleased)
+
+Additive: one new kind and one more frame in the detection codec. No existing file, writer or reader changes.
+
+- **`vgio/panorama/v1`: a panorama's results** (PanoramaStitching's: the owner's ruling of 2026-11-13, "everything an
+  experiment produces or consumes is saved and loaded through IO"). `save_panorama(path, camera, rotations,
+  vignetting, gains; length_unit = mm, provenance = (;))` and `load_panorama(path) -> (; camera, rotations,
+  vignetting, gains)`, both public. The kind is composed ONLY of bodies other kinds already write, each through its own
+  lower and lift: the camera store's bounded camera body (`camera`), the trajectory body (`rotations`: per frame index
+  its pose camera → world, `Trajectory{CameraFrame, WorldFrame}`, with its image and time; no IO body holds a rotation
+  alone, so every translation is a zero length, and other frames or a translation that is not zero are refused on
+  write and on read) and the vgio/vignetting body (`vignetting`). `gains` (positional, stated: `nothing`, every frame
+  at one exposure, or the `K × C` exposure gains, `gains[k, c]` of frame index `k` in colour plane `c`, every one
+  positive, the rotations' frame indices then `1:K`) is written per frame index `t` as plain numbers,
+  `{"t": k, "gain": [g_R, g_G, g_B]}`: no IO body holds a gain. Its validator (`validate`, the readers and the bytes
+  before every write) composes the three bodies' tables: `_TRAJECTORY_BODY` is the trajectory file's table without
+  its schema and declarations (the trajectory kind's own table is now built from it; the same checks). A matrix stored
+  as rows is written and read by one pair of private helpers (`_matrix_rows`, `_rows_matrix`: the vignetting and light
+  bodies' and the gains'; the same bytes). A panorama has no VisualGeometryToolkitCore type of its own, so its value is
+  the NamedTuple of the four VGC values, through a pair of verbs as the calibration manifest's
+  (`save_manifest`/`load_manifest`).
+- **`PointFrame` in the detection codec** (`json_value` / `from_json`; VisualGeometryToolkitFeatures' Förstner
+  detections, `Attributed{Uncertain{PointFrame}}`): the family's 2-DOF frame, `{"center": [x, y]}`, plain pixels, and an
+  uncertain one's 2×2 covariance under `covariance` on the leaves an uncertain point (`Uncertain{Point2}`, a
+  `vgio/target_points2d` point's `xy` and `covariance`) is written with: rows, `{"diagonal": […]}` or
+  `{"isotropic": λ}`, the storage it holds; `null` when not finite (Förstner's unclassified window). One encoding of a
+  point and its covariance. A frame object with a `center` alone reads as a `PointFrame` (it was refused before: a
+  `Disc` without `σ`); a frame with any other key reads as before. A point frame's covariance under the other frames'
+  `cov`/`cov_size` is refused; a covariance object keyed by Symbol or a NamedTuple (a record built in memory) reads as
+  a parsed one. A Float32 frame is written
+  exactly and reads back as the same numbers in Float64; metadata read as parsed (a Symbol as a string, a `Point2` as
+  an array), as for every frame.
+
 ## 0.9.3 (unreleased)
 
 A patch: no API change.

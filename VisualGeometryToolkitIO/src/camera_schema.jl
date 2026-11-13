@@ -1,21 +1,33 @@
 # =============================================================================
-# vgio/cameras/v5 — the camera store
+# vgio/cameras/v6.0 — the camera store
 # =============================================================================
 #
-# {"schema": "vgio/cameras/v5", "pixel_frame": "colmap",
-#  "cameras": [{"name": "sony-fx3_tamron-20mm_f22", "width": 4240, "height": 2832,
+# {"schema": "vgio/cameras/v6.0", <envelope: generator, units, conventions>,
+#  "cameras": [{"name": "sony-fx3_tamron-20mm_f22", "image_size": {"width": 4240, "height": 2832},
 #               "K": {"fx": …, "fy": …, "cx": …, "cy": …, "skew": 0.0},
 #               "lens": {"perspective": [],
 #                        "add": [{"radial": [[k1, k2, k3], [k4, k5, k6]]},
 #                                {"tangential": [p1, p2]}, …]},
-#               "calibration": {"tool": …, "source": …, "date": "2026-01-19",
-#                               "reprojection_rms": 0.159, "n_images": 36},   (optional)
-#               "lens_coverage": {"ellipse": [cx, cy, a, b, θ]}}],               (optional; or {"circle": [cx, cy, r]})
-#  "provenance": {…}}                                               (optional)
+#               "pitch": {"width": …, "height": …},                              (optional) the sensor's pixel pitch, units.length
+#               "lens_coverage": {"ellipse": [cx, cy, a, b, θ]},                 (optional; or {"circle": [cx, cy, r]}, {"rect": …}: a region leaf)
+#               "calibration_record": {"tool": …, "source": …, "date": "2026-01-19",
+#                                      "reprojection_rms": 0.159, "n_images": 36}},   (optional)
+#              {"name": "tamron-17cm-noncentral", "type": "noncentral_spline", "image_size": {…}, "K": {…},
+#               "spline": {"area": [x, y, w, h], "grid_size": {"width": gw, "height": gh}, "present": […],
+#                          "controls": {"direction": [[x, y, z], …], "point": [[x, y, z], …]}}}],
+#  "provenance": {…}}                                                             (optional)
 #
-# `lens_coverage` is the camera's LENS COVERAGE (VGC's `lens_coverage`): where light reaches the sensor, in pixels in the
-# canonical frame — a Circle, or an Ellipse with its major semi-axis first. Absent, the whole sensor is lit. (v5;
-# a v4 store, which has none, reads through its migration with the whole sensor lit.)
+# THE STORE HOLDS ANY BOUNDED CAMERA, central or non-central, as a rig's sensors
+# do: a camera of a `CameraModel` (any lens family, a `SplineLens` included) is
+# a camera body, a non-central grid camera (`NoncentralSplineModel`) the
+# non-central body, told apart by its `type`. One body codec serves the store,
+# a rig sensor and another package's record (`camera_json`). (The non-central
+# camera's own kind, `vgio/noncentral_spline/v1`, is read as a store of its one
+# camera, named after its file, and never written.)
+#
+# `lens_coverage` is the camera's LENS COVERAGE (VGC's `lens_coverage`): where light reaches the sensor, in pixels in
+# the file's pixel frame — a Circle, an Ellipse with its major semi-axis first, or a Rect: a leaf of THE region body
+# (core_json.jl; Core's BoundedCamera holds no intersection). Absent, the whole sensor is lit.
 #
 # WHY THIS EXISTS, given COLMAP model directories already store cameras:
 # COLMAP's camera vocabulary is closed and smaller than VGC's lens families.
@@ -25,18 +37,16 @@
 # would surface at export time — long after calibration. COLMAP stays an
 # export for the expressible subset; this is the store.
 #
-# THE PIXEL FRAME IS DECLARED ONCE, for every K in the file, and it is GIVEN BY
-# THE TYPE: VGC models a pixel-origin convention as `PixelFrame{Origin}` and
-# owns the registered set behind `EuclideanMap(PixelFrame{From},
-# PixelFrame{To})`, so the half pixel is a labeled rigid map between two frame
-# types rather than an ad-hoc ±0.5 each reader has to remember. Every pixel
-# quantity is in pixels, so no unit is stated beside it.
+# THE PIXEL FRAME IS DECLARED ONCE, for every K in the file (`units.pixel`), and
+# it is GIVEN BY THE TYPE: VGC models a pixel-origin convention as
+# `PixelFrame{Origin}` and owns the registered set behind
+# `EuclideanMap(PixelFrame{From}, PixelFrame{To})`, so the half pixel is a
+# labeled rigid map between two frame types rather than an ad-hoc ±0.5 each
+# reader has to remember. Every pixel quantity is in pixels.
 #
 # THE LENS IS VGC'S RECORD: `lens` is VGC's `lens_record` — the structure and
 # every coefficient, its arity the array lengths — and VGIo keeps no second
-# list of lens names or orders to drift from VGC's. A camera body (`width`,
-# `height`, `K`, `lens`) is the same object wherever a kind embeds a camera
-# (a rig sensor; a calibration pipeline's session, through `camera_json`).
+# list of lens names or orders to drift from VGC's.
 
 # ONE SOURCE OF TRUTH, and it is the type. This package keeps NO list of
 # valid pixel frames: VGC owns the registered set (the offset table behind the
@@ -108,26 +118,25 @@ _lens_json(l) = applicable(lens_record, l) ? lens_record(l) :
 
 # THE SPLINE LENS RECORD. A `SplineLens` (the central grid camera, Schöps et al.)
 # is stored under its own key, in the K-normalized plane x = K⁻¹u (K is the
-# camera body's, a gauge of skew 0):
+# camera body's, a gauge of skew 0), as the ONE lattice record (validate.jl):
 #
-#   {"spline": {"area": [x, y, w, h], "grid_size": [gw, gh],
-#               "present": [[row, [[col_lo, col_hi], …]], …],     (optional) the held nodes; absent = every node
-#               "controls": [[x, y, z], …],                      the held nodes' direction controls, row by row
-#               "forward": {"area": [x, y, w, h], "grid_size": [gw, gh],
-#                           "controls": [[x, y], …]}}}           (optional) the fitted forward spline, every node
+#   {"spline": {"area": [x, y, w, h], "grid_size": {"width": gw, "height": gh},
+#               "present": [[row, [[col_lo, col_hi], …]], …],     (optional) the held nodes, 1-based; absent = every node
+#               "controls": {"direction": [[x, y, z], …]},       the held nodes' direction controls, row by row
+#               "forward": {"area": [x, y, w, h], "grid_size": {…},
+#                           "controls": {"point": [[x, y], …]}}}}  (optional) the fitted forward spline, every node
 #
 # `area` is the backward spline's rectangle of the normalized plane, `grid_size`
 # its lattice (columns, rows), the controls as stored (never re-normalized:
 # a fit's controls may be off the sphere, and normalizing would change the
-# spline). The forward spline (from the equidistant chart about ẑ
-# to x) is stored exactly when it has been fitted (owner, 2026-11-09). Floats
-# are JSON's shortest round-trip form, so a lens reads back bit for bit.
-_spline_json(cs::ChartSpline, P::AbstractMatrix{Bool}) =
-    merge((area = JSON.lower(VgioStyle(), cs.area), grid_size = [size(cs.controls, 2), size(cs.controls, 1)]),
-          all(P) ? (;) : (present = _present_runs(P),), (controls = _controls_json(cs.controls, P),))
+# spline). The forward spline (from the equidistant chart about ẑ to the
+# normalized-plane point x) is stored exactly when it has been fitted (owner,
+# 2026-11-09). Floats are JSON's shortest round-trip form, so a lens reads back
+# bit for bit.
+# Each spline is the lattice record (`lattice_json`, style.jl).
 function _lens_json(l::SplineLens)
-    b = _spline_json(l.backward, _held_mask(l.present, size(l.backward.controls)))
-    f = l.forward === nothing ? (;) : (forward = _spline_json(l.forward, trues(size(l.forward.controls))),)
+    b = lattice_json(l.backward; name = :direction, l.present)
+    f = l.forward === nothing ? (;) : (forward = lattice_json(l.forward; name = :point),)
     return (spline = merge(b, f),)
 end
 
@@ -138,25 +147,16 @@ function _spline_lens_from_json(r::Dict{String, Any})
     length(r) == 1 || throw(ArgumentError("$(what) is {\"spline\": {…}} alone; got the keys $(join(sort!(collect(keys(r))), ", "))"))
     s = r["spline"]
     s isa AbstractDict || throw(ArgumentError("$(what): \"spline\" is an object"))
-    b = _spline_from_json(s, Val(3), ("present", "forward"), "$(what)'s \"spline\"")
-    forward = haskey(s, "forward") ? _spline_from_json(s["forward"], Val(2), (), "$(what)'s \"forward\"").spline : nothing
+    fw = get(s, "forward", nothing)
+    b = lattice_from_json(Dict{String, Any}(k => v for (k, v) in s if k != "forward"), Val(3); name = :direction, what = "$(what)'s \"spline\"")
+    forward = if fw === nothing
+        nothing
+    else
+        F = lattice_from_json(fw, Val(2); name = :point, what = "$(what)'s \"forward\"")
+        F.present === nothing || throw(ArgumentError("$(what)'s \"forward\": a forward spline holds every node (no `present`)"))
+        F.spline
+    end
     return SplineLens(b.spline; forward, present = b.present)
-end
-
-# A spline record (`area`, `grid_size`, its controls of `K`-vectors, the optional
-# keys `optional`, `present` among them) as `(; spline::ChartSpline, present)`,
-# `present` `nothing` for every node. Validated against the spec below and the
-# lattice's own check (`_lattice_problem`), named `what` in the message.
-function _spline_from_json(s::AbstractDict, ::Val{K}, optional, what) where {K}
-    spec = _Obj(
-        Pair{Symbol, _Spec}[:area => _Vec(_Real(), 4), :grid_size => _Vec(_PosInt(), 2), :controls => _Vec(_Vec(_Real(), K))],
-        Pair{Symbol, _Spec}[Symbol(k) => (k == "present" ? _RowRuns() : _Free()) for k in optional],
-    )
-    _validate(spec, s, what, "")
-    msg = _lattice_problem(s, (:controls,))
-    msg === nothing || throw(ArgumentError("$(what): $(msg)"))
-    L = _lattice_from_json(s["grid_size"], get(s, "present", nothing), s["area"])
-    return (; spline = ChartSpline(L.area, _controls_from_json(s["controls"], L.P, Val(K))), L.present)
 end
 
 function _lens_from_json(x)
@@ -201,43 +201,77 @@ function _lens_check(x)
     return nothing
 end
 
-const _LENS = _CheckedSpec(_Free(), _lens_check)
+const _LENS = _CheckedSpec(_Free(), _lens_check;
+    rule = "VisualGeometryToolkitCore's lens record (`lens_record`): every key a lens leaf's tag or a combinator (`add`, " *
+           "`lift`, `spline`), every value its coefficient array of the leaf's arity, as `lens_from_record` reads it")
 
 # -----------------------------------------------------------------------------
-# A camera body: its pixel extent, K and lens, in the file's pixel frame
+# A bounded camera's body: its image size, K and lens (or a non-central model's
+# spline), in the file's pixel frame; its sensor's pitch and its lens coverage
 # -----------------------------------------------------------------------------
 
 const _K_SPEC = _Obj(:fx => _Real(), :fy => _Real(), :cx => _Real(), :cy => _Real(), :skew => _Real())
-const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:width => _PosInt(), :height => _PosInt(), :K => _K_SPEC, :lens => _LENS]
-const _CAMERA_BODY = _Obj(_CAMERA_BODY_FIELDS, Pair{Symbol, _Spec}[])
-
 # A camera bounded by its physical `Sensor` carries the sensor's pixel pitch
-# beside its body: `"pitch": [width, height]`, a length per pixel in the file's
-# declared `length_unit` (px is dimensionless, so a pitch IS a length;
+# beside its body: `"pitch": {"width", "height"}`, a length per pixel in the
+# file's `units.length` (px is dimensionless, so a pitch IS a length;
 # `write_length`/`read_length`, decimal-exact). Absent, the body is the bare
-# extent's, byte for byte. Written by the rig (sensor bodies, parametric and
-# generic) and by the camera store; never dropped.
+# extent's. Written by the rig and the camera store; never dropped.
 const _PITCH = _CheckedSpec(
-    _Vec(_Real(), 2),
-    x -> all(v -> v > 0 && isfinite(v), x) ? nothing :
-        "a pixel pitch is [width, height], two positive lengths per pixel in the file's length_unit",
+    _Obj(:width => _Real(), :height => _Real()),
+    x -> (x[:width] > 0 && x[:height] > 0) ? nothing : "a pixel pitch is {width, height}, two positive lengths per pixel in units.length";
+    rule = "a pixel pitch is two positive lengths per pixel, in units.length",
+    schema = ["properties" => Dict("width" => Dict("exclusiveMinimum" => 0), "height" => Dict("exclusiveMinimum" => 0))],
 )
 _with_pitch(body, ::Nothing, ::_LeafUnit) = body
-_with_pitch(body, s::Sensor, unit::_LeafUnit) = merge(body, (pitch = [_leaf_length(s.pitch.width, unit), _leaf_length(s.pitch.height, unit)],))
+_with_pitch(body, s::Sensor, unit::_LeafUnit) =
+    merge(body, (pitch = (width = _leaf_length(s.pitch.width, unit), height = _leaf_length(s.pitch.height, unit)),))
 # The extent, or the physical sensor when the body carries a pitch.
 _bound_from_body(b, ext::Size2, u::Units) = haskey(b, :pitch) ? _sensor_from_pitch(b.pitch, ext, u) : ext
 function _sensor_from_pitch(p, ext::Size2, u::Units)
-    pw, ph = read_length(p[1]::Real, u), read_length(p[2]::Real, u)
+    pw, ph = read_length(p.width::Real, u), read_length(p.height::Real, u)
     return Sensor(Size2(width = ext.width * px, height = ext.height * px), Size2(width = pw / px, height = ph / px))
 end
+
+# A camera's lens coverage (VisualGeometryToolkitCore's `lens_coverage`: where the lens covers the sensor) as the store's
+# optional `lens_coverage`: THE region body (core_json.jl) restricted to its leaves — {"circle": [cx, cy, r]},
+# {"ellipse": [cx, cy, a, b, θ]} or {"rect": [x, y, w, h]} (a letterboxed or padded image) — pixels in the file's frame.
+# The whole sensor covered writes nothing.
+_lens_coverage_json(s::VgioStyle, r, ext::Size2) =
+    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) : (lens_coverage = _region_json(s, r),)
+_lens_coverage_from_json(::VgioStyle, ::Nothing) = nothing
+_lens_coverage_from_json(s::VgioStyle, lc) = JSON.lift(s, _RegionLeaf, lc)
+
+# The body of a camera of a CameraModel, and of a non-central grid camera.
+const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:image_size => _SIZE_INT, :K => _K_SPEC, :lens => _LENS]
+# The record's type: a token of the format, never a Julia type's name (a renamed type would otherwise force a new schema).
+const _NONCENTRAL_TYPE = "noncentral_spline"
+const _NONCENTRAL_LATTICE = _lattice_spec([:direction => 3, :point => 3])
+const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
+    :type => _Named(
+        ==(_NONCENTRAL_TYPE),
+        "\"$(_NONCENTRAL_TYPE)\" — a central grid camera is a camera with a spline lens (its `lens` the spline record)",
+    ),
+    :image_size => _SIZE_INT, :K => _K_SPEC, :spline => _NONCENTRAL_LATTICE,
+]
+const _BOUND_FIELDS = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _REGION_LEAF]
+# A bounded camera's body with the keys `extra` (required) and `extra_optional`
+# of its enclosing record (a store entry's `name` and `calibration_record`): a
+# camera body or a non-central one, told apart by `lens` / `type`.
+_bounded_body_spec(extra = Pair{Symbol, _Spec}[], extra_optional = Pair{Symbol, _Spec}[]) = _Either(Pair{Symbol, _Spec}[
+    :lens => _Obj(_spec_table(extra, _CAMERA_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
+    :type => _Obj(_spec_table(extra, _NONCENTRAL_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
+])
+const _BOUNDED_CAMERA_BODY = _bounded_body_spec()
+
+_image_size_json(ext::Size2) = (width = Int(ext.width), height = Int(ext.height))
+_extent_from_body(b) = Size2(Int(b.image_size.width::Integer), Int(b.image_size.height::Integer))
 
 # A CameraModel on IO's style (style.jl): its K — canonical by construction —
 # with the principal point in the style's pixel frame (the file's declaration;
 # a frame-typed container written in another moves it with the declaration),
-# and its lens record. A body is its pixel extent and these.
+# and its lens record. A body is its image size and these.
 JSON.lower(s::VgioStyle, model::CameraModel) = (K = _k_record(model.intrinsics.K, _pixel_frame(s)), lens = _lens_json(model.lens))
-_model_body(s::VgioStyle, model::CameraModel, extent::Size2) =
-    merge((width = Int(extent.width), height = Int(extent.height)), JSON.lower(s, model))
+_model_body(s::VgioStyle, model::CameraModel, extent::Size2) = merge((image_size = _image_size_json(extent),), JSON.lower(s, model))
 
 # …and back, its K read in the style's pixel frame and moved into the canonical
 # one by `_k_from_record(k, frame)` (style.jl), the exact inverse of `_k_record`
@@ -245,17 +279,41 @@ _model_body(s::VgioStyle, model::CameraModel, extent::Size2) =
 # camera's alike (a SplineLens lens is frame-free: x = K⁻¹u).
 JSON.lift(s::VgioStyle, ::Type{CameraModel}, b::Record) =
     CameraModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), _lens_from_json(b.lens))
-_extent_from_body(b) = Size2(Int(b.width::Integer), Int(b.height::Integer))
+
+# A non-central camera's body on IO's style: its image size, K (in the style's
+# pixel frame) and the lattice record of its two splines, laid over one
+# rectangle of the K-normalized plane x = K⁻¹u — the directions and the line
+# points of its observation lines (Schöps, Larsson, Pollefeys, Sattler, CVPR
+# 2020) — the points (plain metres in memory) in the style's length form (the
+# file's unit; the identity tree's persisted metres), or `points`, a
+# migration's own numbers as its file holds them.
+function _model_body(s::VgioStyle, m::NoncentralSplineModel, ext::Size2; points = nothing)
+    P = _held_mask(m.present, size(m.directions.controls))
+    sp = _lattice_json(m.directions.area, P, (direction = (m.directions.controls, identity),
+                                               point = (m.points.controls, x -> _leaf_power(x, s.length_unit, 1))))
+    points === nothing || (sp = merge(sp, (controls = merge(sp.controls, (point = points,)),)))
+    return (type = _NONCENTRAL_TYPE, image_size = _image_size_json(ext), K = _k_record(m.intrinsics.K, _pixel_frame(s)), spline = sp)
+end
+# …and back: the model and its extent, from a validated body whose K is in the
+# style's pixel frame and whose points are in its length unit.
+function _noncentral_from_body(s::VgioStyle, b::Record)
+    sp = b.spline
+    L = _lattice_from_json(sp)
+    D = ChartSpline(L.area, _controls_from_json(sp.controls.direction::Vector{Any}, L.P, Val(3)))
+    X = ChartSpline(L.area, _controls_from_json(sp.controls.point::Vector{Any}, L.P, Val(3), x -> _read_power(x, s.length_unit, 1)))
+    m = NoncentralSplineModel(LogicalIntrinsics(_k_from_record(b.K, _pixel_frame(s))), D, X; L.present)
+    return m, _extent_from_body(b)
+end
 
 """
     camera_json(model::CameraModel, extent, frame = CANONICAL_PIXEL_FRAME) -> NamedTuple
     camera_from_json(body, frame; length_unit = mm) -> (model, extent)
 
-The camera body every camera-carrying kind embeds — `width`, `height`, `K`
-(`fx, fy, cx, cy, skew`) and the `lens` record — written with its principal
-point in the pixel `frame` the enclosing file declares, and read back into
-VGC's canonical frame. Building blocks for a package serializing its own kind;
-a bounded camera's body (its pitch and lens coverage too) is
+The camera body every camera-carrying kind embeds — `image_size` (`{width,
+height}`), `K` (`fx, fy, cx, cy, skew`) and the `lens` record — written with its
+principal point in the pixel `frame` the enclosing file declares, and read back
+into VGC's canonical frame. Building blocks for a package serializing its own
+kind; a bounded camera's body (its pitch and lens coverage too) is
 `camera_json(camera::BoundedCamera, frame)`.
 """
 camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
@@ -264,10 +322,10 @@ camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANON
 """
     camera_json(model::NoncentralSplineModel, extent, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
 
-A non-central grid camera's body, the `vgio/noncentral_spline/v1` record's and a
-rig sensor's: `type = "noncentral_spline"`, `width`, `height`, the gauge `K` in
-the pixel `frame` and the `spline` record (the held nodes, the directions, and the
-line points — plain metres in memory — in `length_unit`).
+A non-central grid camera's body, a camera store's and a rig sensor's: `type =
+"noncentral_spline"`, `image_size`, the gauge `K` in the pixel `frame` and the
+`spline` lattice record (the held nodes, the `direction` and `point` controls,
+the line points — plain metres in memory — in `length_unit`).
 [`camera_from_json`](@ref) reads it back (it tells the two bodies apart by `type`).
 """
 camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
@@ -276,8 +334,8 @@ camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFram
 """
     camera_json(camera::BoundedCamera, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
 
-A bounded camera's body — the one a camera store's entry, a rig sensor and a
-non-central record embed: its model's body (a `CameraModel`'s of any lens, or a
+A bounded camera's body — the one a camera store's entry and a rig sensor
+embed: its model's body (a `CameraModel`'s of any lens, or a
 `NoncentralSplineModel`'s), the sensor's `pitch` in `length_unit` when it is
 bounded by a physical `Sensor`, and its `lens_coverage` in the pixel `frame` when
 the lens does not cover the whole sensor. `camera_from_json(BoundedCamera, body,
@@ -294,17 +352,18 @@ principal point is in the pixel `frame` the enclosing file declares: a
 `CameraModel`, or a `NoncentralSplineModel` (a body with a `type`, its line
 points in `length_unit`), in VGC's canonical pixel frame, and its extent.
 
-An old grid body (the body of a `vgio/generic_camera/v2`/`v3` record, as
-another package's record embeds it — RadiometricCamera's
-`rc/calibration_state/v1` camera) reads as the camera it migrates to, through
-the same conversion as an old grid file: a central one as a `CameraModel` with
-a `SplineLens`, a non-central one as a `NoncentralSplineModel` (its line points
-in `length_unit`). Such a body is read in the colmap pixel frame
-(`CANONICAL_PIXEL_FRAME`), whatever `frame` is given: the old grid code reads
-every old grid body's numbers in that frame.
+A body of an earlier shape, as another package's record of an earlier version
+embeds it, reads as the camera it migrates to: an IO 0.9 body (`width`,
+`height`, 0-based lattice runs) through the body's 0.10 step, and an old grid
+body (the body of a `vgio/generic_camera/v2`/`v3` record — RadiometricCamera's
+`rc/calibration_state/v1` camera) through the same conversion as an old grid
+file: a central one as a `CameraModel` with a `SplineLens`, a non-central one as
+a `NoncentralSplineModel` (its line points in `length_unit`). An old grid body
+is read in the colmap pixel frame (`CANONICAL_PIXEL_FRAME`), whatever `frame`
+is given: the old grid code reads every old grid body's numbers in that frame.
 """
 camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =
-    _model_from_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)
+    _model_from_body(_current_camera_body(VgioStyle(; pixel_frame = frame, length_unit), body::Record)...)
 
 """
     camera_from_json(::Type{BoundedCamera}, body, frame; length_unit = mm) -> BoundedCamera
@@ -313,28 +372,29 @@ Read a bounded camera's body (the inverse of [`camera_json`](@ref) of a
 `BoundedCamera`), a parsed JSON object: checked against the body's table first
 (an `ArgumentError` naming the field otherwise), then its model, its bound (a
 `pitch`, in `length_unit`: the physical `Sensor`; none: the pixel extent) and its
-lens coverage (none: the whole sensor), in VGC's canonical pixel frame.
+lens coverage (none: the whole sensor), in VGC's canonical pixel frame. A body of
+an earlier shape reads as `camera_from_json(body, frame)` says.
 """
 function camera_from_json(::Type{BoundedCamera}, body, frame::Type{<:PixelFrame}; length_unit::Units = mm)
-    s, b = _current_camera_body(VgioStyle(; pixel_frame = frame, length_unit), body)   # an embedded old grid body: its camera's
+    s, b = _current_camera_body(VgioStyle(; pixel_frame = frame, length_unit), body)   # an embedded earlier body: its camera's
     _validate(_BOUNDED_CAMERA_BODY, b, "a camera body", "")
     return _bounded_from_body(s, b::Record)
 end
 
 # A bounded camera's body on IO's style, and back: the one form every kind that stores one embeds (a camera store's
-# entry, a rig sensor, the non-central record). The model's body, its sensor's pitch (the style's length form) and its
-# lens coverage; read back, a body with a `type` is a non-central one, posed by `pose` when given (a rig sensor's).
+# entry, a rig sensor). The model's body, its sensor's pitch (the style's length form) and its lens coverage; read
+# back, a body with a `type` is a non-central one, posed by `pose` when given (a rig sensor's).
 function _bounded_body(s::VgioStyle, bc::BoundedCamera)
     m, ext = model(bc), extent(bc)
     body = _model_body(s, m, ext)                      # the model's own body: a central camera's or a non-central one's
     return merge(_with_pitch(body, sensor(bc), s.length_unit), _lens_coverage_json(s, lens_coverage(bc), ext))
 end
+# (The body is a current one: a record's reader gets it through its version steps, and the one entry an
+# embedded body of an earlier shape reaches, `camera_from_json`, converts it first, `_current_camera_body`.)
 function _model_from_body(s::VgioStyle, b::Record)
-    s, b = _current_camera_body(s, b)                  # an embedded old grid body: its camera's (migrate.jl)
     return haskey(b, :type) ? _noncentral_from_body(s, b) : (JSON.lift(s, CameraModel, b), _extent_from_body(b))
 end
 function _bounded_from_body(s::VgioStyle, b::Record, pose = nothing)
-    s, b = _current_camera_body(s, b)
     m, ext = _model_from_body(s, b)
     return BoundedCamera(_posed(m, pose), _bound_from_body(b, ext, s.length_unit); lens_coverage = _lens_coverage_from_json(s, get(b, :lens_coverage, nothing)))
 end
@@ -342,16 +402,17 @@ _posed(m, ::Nothing) = m
 _posed(m, X) = PosedCamera(m, X)
 
 # -----------------------------------------------------------------------------
-# The calibration block — where a stored camera's numbers came from
+# The calibration record — where a stored camera's numbers came from
 # -----------------------------------------------------------------------------
 #
 # A camera's own calibration facts are an ATTRIBUTE of the value (the metadata
 # rule: envelope for the file, attributes for the value):
 #
-#     Attributed(bc::BoundedCamera, (; calibration = (; tool = "OpenCV calibrateCamera",
-#                                                     date = "2026-05-27", reprojection_rms = 0.21)))
+#     Attributed(bc::BoundedCamera, (; calibration_record = (; tool = "OpenCV calibrateCamera",
+#                                                            date = "2026-05-27", reprojection_rms = 0.21)))
 #
-# and the camera's `calibration` block on disk, read back exactly. Its keys
+# and the camera's `calibration_record` block on disk (a target's is the same
+# block under the same name), read back exactly. Its keys
 # form a closed set, every one optional but at least one stated:
 #
 #   tool              what fitted it
@@ -364,7 +425,8 @@ _posed(m, X) = PosedCamera(m, X)
 #   note              free text
 #   device            the hardware it was made for: `{"body": {…}, "lens": {…}}`,
 #                     each a VGC `DeviceIdentity` (`make`, `model`, `serial`,
-#                     each stated or omitted); in the value
+#                     each stated or omitted: the ONE device-identity encoding,
+#                     capture_settings' too); in the value
 #                     `(; body::DeviceIdentity, lens::DeviceIdentity)`
 #
 # Unlike the file's free-form `provenance`, which VGIo never reads, the block
@@ -423,7 +485,9 @@ const _CALIBRATION = _CheckedSpec(
             :device => _Obj(:body => _DEVICE_IDENTITY, :lens => _DEVICE_IDENTITY),
         ],
     ),
-    _calibration_check,
+    _calibration_check;
+    rule = "a calibration block states at least one key",
+    schema = ["minProperties" => 1],
 )
 
 # The block as the value holds it: the stated keys in declaration order, typed.
@@ -441,84 +505,42 @@ end
 # The cameras store ↔ Dict{Symbol, BoundedCamera}
 # -----------------------------------------------------------------------------
 #
-# THE VALUE: a store of named, unposed cameras — `Dict{Symbol, …}` from the
-# camera's name (the identity a config refers to) to a VGC `BoundedCamera` of a
-# `CameraModel` (COLMAP's "camera" row: intrinsics, lens, image size, no pose),
-# or an `Attributed` one carrying its `calibration` block. Once a pose is known,
-# `BoundedCamera(PosedCamera(model(bc), pose), bc.bound; lens_coverage = lens_coverage(bc))` is the posed camera.
+# THE VALUE: a store of named cameras — `Dict{Symbol, …}` from the camera's
+# name (the identity a config refers to) to a VGC `BoundedCamera` (of a
+# `CameraModel`: COLMAP's "camera" row, intrinsics, lens, image size; or of a
+# `NoncentralSplineModel`), or an `Attributed` one carrying its
+# `calibration_record`. Once a pose is known, `BoundedCamera(PosedCamera(model(bc),
+# pose), bc.bound; lens_coverage = lens_coverage(bc))` is the posed camera.
 #
 # No pixel frame is stored per camera: a model's K is in VGC's canonical frame
 # by construction. On disk the store still names its pixel frame, because a
 # FOREIGN file may declare `opencv` or `julia`, converted on the way in.
 
-const _StoredCamera = Union{BoundedCamera{<:CameraModel}, Attributed{<:BoundedCamera{<:CameraModel}, <:NamedTuple{(:calibration,)}}}
+const _StoredCamera = Union{BoundedCamera, Attributed{<:BoundedCamera, <:NamedTuple{(:calibration_record,)}}}
 
-# A camera's lens coverage (VisualGeometryToolkitCore's `lens_coverage`: where the lens covers the sensor) as the store's
-# optional `lens_coverage`, pixels in the store's frame (moved between frames as K's principal point is):
-# {"circle": [cx, cy, r]}, {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis first) or
-# {"rect": [x, y, w, h]} (a letterboxed or padded image). The whole sensor covered writes nothing.
-const _LENS_COVERAGE = _Obj(Pair{Symbol, _Spec}[],
-                            Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5), :rect => _Vec(_Real(), 4)])
-_lens_coverage_tag(::Circle) = :circle
-_lens_coverage_tag(::Ellipse) = :ellipse
-_lens_coverage_tag(::Rect2) = :rect
-# pixel frames differ by a translation: a Circle or an Ellipse moves under the map, a Rect by its origin
-_in_frame(m, x::Union{Circle, Ellipse}) = m(x)
-_in_frame(m, r::Rect2) = (o = m(Point2{Float64}(r.origin[1], r.origin[2])); Rect2{Float64}(o[1], o[2], r.widths[1], r.widths[2]))
-_lens_coverage_json(s::VgioStyle, r, ext::Size2) =
-    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) :
-    (lens_coverage = NamedTuple{(_lens_coverage_tag(r),)}((JSON.lower(s, _in_frame(EuclideanMap(CANONICAL_PIXEL_FRAME, _pixel_frame(s)), r)),)),)
-# A stored lens coverage's own check (a camera store's camera, a rig sensor, a non-central record), the
-# message naming `what`, or `nothing`.
-function _lens_coverage_problem(ic, what)
-    ic === nothing && return nothing
-    length(ic) == 1 || return "$(what): its lens_coverage is ONE of {\"circle\": [cx, cy, r]}, {\"ellipse\": [cx, cy, a, b, θ]} or {\"rect\": [x, y, w, h]}"
-    haskey(ic, :circle) && !(ic[:circle][3] > 0) && return "$(what): the image circle's radius is positive"
-    haskey(ic, :rect) && !(ic[:rect][3] > 0 && ic[:rect][4] > 0) && return "$(what): the coverage rect's width and height are positive"
-    return haskey(ic, :ellipse) ? _ellipse_record_problem(ic[:ellipse], "$(what): the image ellipse") : nothing
-end
-_lens_coverage_from_json(::VgioStyle, ::Nothing) = nothing
-function _lens_coverage_from_json(s::VgioStyle, lc)
-    k = Symbol(only(keys(lc)))
-    x = JSON.lift(s, k === :circle ? Circle : k === :ellipse ? Ellipse : Rect2, lc[k]::Vector{Any})
-    return _in_frame(EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME), x)
-end
-
-const _CAMERAS_SPEC = _CheckedSpec(
-    _Obj(
-        Pair{Symbol, _Spec}[
-            :schema => _schema_tok("cameras"), :pixel_frame => _PIXEL_FRAME,
-            :cameras => _Vec(_Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), _CAMERA_BODY_FIELDS...],
-                                  Pair{Symbol, _Spec}[:calibration => _CALIBRATION, :pitch => _PITCH, :lens_coverage => _LENS_COVERAGE])),
-        ],
-        Pair{Symbol, _Spec}[_PROVENANCE..., :length_unit => _LENGTH_UNIT],
-    ),
-    function (x)
-        allunique(c[:name] for c in x[:cameras]) || return "camera names must be unique — they are the identity configs refer to"
-        any(c -> haskey(c, :pitch), x[:cameras]) == haskey(x, :length_unit) ||
-            return "`length_unit` is declared iff a camera carries a pitch"
-        for c in x[:cameras]
-            p = _lens_coverage_problem(get(c, :lens_coverage, nothing), "camera $(c[:name])")
-            p === nothing || return p
-        end
-        return nothing
-    end,
+const _CAMERAS_SPEC = _kind_spec(
+    "cameras",
+    Pair{Symbol, _Spec}[:cameras => _Vec(_bounded_body_spec(Pair{Symbol, _Spec}[:name => _NonEmpty()],
+                                                            Pair{Symbol, _Spec}[:calibration_record => _CALIBRATION]))];
+    check = x -> allunique(c[:name] for c in x[:cameras]) ? nothing : "camera names must be unique — they are the identity configs refer to",
+    rule = "camera names are unique (the identity configs refer to)",
 )
 
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
-    bc = value_of(c)
-    e = merge((name = String(name),), _bounded_body(s, bc))
-    return c isa Attributed ? merge(e, (calibration = _calibration_json(c.calibration),)) : e
+    e = merge((name = String(name),), _bounded_body(s, value_of(c)))
+    return c isa Attributed ? merge(e, (calibration_record = _calibration_json(c.calibration_record),)) : e
 end
 
 """
     save(path, cameras::AbstractDict{Symbol}; length_unit = mm, provenance = (;))
 
-Write a camera store — name → `BoundedCamera` of a `CameraModel`, or an
-`Attributed` one carrying its `calibration` block — as a `vgio/cameras/v5`
-file, cameras sorted by name. A camera bounded by its physical `Sensor`
-carries the sensor's `pitch` in `length_unit`, which the file then declares. `provenance` is the file's one free-form object,
-which VGIo never reads back.
+Write a camera store — name → `BoundedCamera` (of a `CameraModel`, any lens,
+or of a `NoncentralSplineModel`), or an `Attributed` one carrying its
+`calibration_record` — as a `vgio/cameras/v6.0` file, cameras sorted by name.
+A camera bounded by its physical `Sensor` carries the sensor's `pitch`, and a
+non-central camera its line points, in `length_unit` (the file's
+`units.length`). `provenance` is the file's one free-form object, which VGIo
+never reads back.
 
 JSON only, deliberately: cameras are configuration-adjacent (referenced by
 name from a TOML, hand-inspected, diffed on recalibration), the payload is
@@ -529,33 +551,37 @@ function save(path::AbstractString, cameras::AbstractDict{Symbol}; length_unit::
     for (name, c) in cameras
         c isa _StoredCamera || throw(
             ArgumentError(
-                "camera $(name): a stored camera is a BoundedCamera of a CameraModel (or one Attributed with " *
-                    "`(; calibration)`); got a $(typeof(c))"
+                "camera $(name): a stored camera is a BoundedCamera (or one Attributed with " *
+                    "`(; calibration_record)`); got a $(typeof(c))"
             )
         )
         isempty(String(name)) && throw(ArgumentError("a camera name is non-empty — it is the identity a config refers to"))
     end
-    pitched = any(c -> sensor(value_of(c)) !== nothing, values(cameras))
     s = VgioStyle(; length_unit)
-    body = merge(
-        (schema = _schema("cameras"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME)),
-        pitched ? (length_unit = unit_string(length_unit),) : (;),
-        (cameras = [_camera_entry(s, k, cameras[k]) for k in sort!(collect(keys(cameras)))],),
-    )
-    _write_store(path, _CAMERAS_SPEC, with_provenance(body, provenance); style = s)
+    _write_kind(path, "cameras", (cameras = [_camera_entry(s, k, cameras[k]) for k in sort!(collect(keys(cameras)))],), provenance; style = s)
     return nothing
 end
 
 """
+    save(path, camera::BoundedCamera; name, length_unit = mm, provenance = (;))
+
+Write one bounded camera as a camera store of that camera under `name`
+(`save(path, Dict(name => camera))`).
+"""
+save(path::AbstractString, camera::Union{BoundedCamera, Attributed{<:BoundedCamera}}; name::Union{Symbol, AbstractString},
+     length_unit::Units = mm, provenance::NamedTuple = (;)) =
+    save(path, Dict{Symbol, Any}(Symbol(name) => camera); length_unit, provenance)
+
+"""
     load(Dict{Symbol, BoundedCamera}, path; intrinsics = nothing) -> Dict{Symbol, Union{BoundedCamera, Attributed{<:BoundedCamera}}}
 
-Read a `vgio/cameras/v5` store: name → `BoundedCamera` of a `CameraModel`
-(its K moved from the file's declared pixel frame into the canonical one), an
-`Attributed` one where the file states the camera's `calibration` block. A
-v1–v4 store is read through its version steps (`migrate_record`), and a
-central `vgio/generic_camera/v2` or `v3` file as the store of its one camera,
-named after the file's basename (`fisheye_14mm.json` → `:fisheye_14mm`; a
-`CameraModel` with a `SplineLens`: noncentral_spline_schema.jl).
+Read a `vgio/cameras/v6.0` store: name → `BoundedCamera` (its K moved from the
+file's declared pixel frame into the canonical one), an `Attributed` one where
+the file states the camera's `calibration_record`. An earlier store is read
+through its version steps (`migrate_record`); a `vgio/noncentral_spline/v1`
+record, and an old grid file (`vgio/generic_camera/v2` or `v3`, central or
+not), as the store of its one camera, named after the file's basename
+(`fisheye_14mm.json` → `:fisheye_14mm`).
 
 `intrinsics` (a `CameraCalibrationMat`, in the canonical pixel frame) supplies K
 to an old grid file that stores no nominal pinhole — one whose lattice has no
@@ -566,15 +592,13 @@ load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Unio
     _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)
 # The store of a parsed file (`d`, its JSON).
 function _load_store(d, path::AbstractString)
-    _is_central_grid(d) && (d = _central_grid_store(d, path))   # a vgio/generic_camera/v2 or v3 central file: a store of its camera
-    d = _checked_store(d, path, "cameras", _CAMERAS_SPEC)
-    s = VgioStyle(; pixel_frame = pixel_frame_from_name(d.pixel_frame::String),
-                  length_unit = haskey(d, :length_unit) ? parse_unit(d.length_unit::String) : mm)   # declared iff a camera carries a pitch
+    d = _checked_store(d, path, "cameras")   # (an old grid file or a noncentral_spline record: the store of its one camera)
+    s = VgioStyle(d)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
         bc = _bounded_from_body(s, c::Record)
-        out[Symbol(c.name::String)] = haskey(c, :calibration) ?
-            Attributed(bc, (; calibration = _calibration_from_json(c.calibration::AbstractDict))) : bc
+        out[Symbol(c.name::String)] = haskey(c, :calibration_record) ?
+            Attributed(bc, (; calibration_record = _calibration_from_json(c.calibration_record::AbstractDict))) : bc
     end
     return out
 end
@@ -583,21 +607,21 @@ end
     load(BoundedCamera, path; name = nothing, file_unit = nothing, intrinsics = nothing) -> BoundedCamera
     load(CameraModel,  path; name = nothing) -> CameraModel
 
-Read ONE camera from a `vgio/cameras/v5` store — the bounded camera, or just
-its model (its `calibration` block, if any, is the store's to read). Without
+Read ONE camera from a `vgio/cameras/v6.0` store — the bounded camera, or just
+its model (its `calibration_record`, if any, is the store's to read). Without
 `name` the store must hold exactly one camera: a multi-camera store is
 REFUSED with the available names rather than defaulting to the first —
 which camera a run uses is an identity, and silently guessing it is how a
 config ends up calibrated for the wrong lens while reporting success.
 
 The grid cameras of Schöps et al. read through the same call, by the file's
-content: a central `vgio/generic_camera/v2` or `v3` file as its camera with a
+content: an old grid file (`vgio/generic_camera/v2` or `v3`) or a
+`vgio/noncentral_spline/v1` record as its one camera — a central one with a
 `SplineLens` (its nominal pinhole the K, else the lattice's gauge; its domain
-the lens coverage), a `vgio/noncentral_spline` record (or an old non-central
-`vgio/generic_camera/v2`/`v3` file, through its steps) as a
-`BoundedCamera{<:NoncentralSplineModel}`, and the reference implementation's
-`intrinsics0.yaml` as either (schoeps.jl; a non-central YAML's `point_grid`
-unit is the caller's `file_unit`). Old grid files are read, never rewritten.
+the lens coverage), a non-central one a `BoundedCamera{<:NoncentralSplineModel}`
+— and the reference implementation's `intrinsics0.yaml` as either (schoeps.jl;
+a non-central YAML's `point_grid` unit is the caller's `file_unit`). Old files
+are read, never rewritten.
 
 `load(CameraModel, path)` refuses a camera whose lens coverage is not its whole
 sensor (an image circle, an old grid file's domain) rather than drop it: load
@@ -614,13 +638,8 @@ function load(
         return _load_schoeps_camera(path, file_unit)
     end
     file_unit === nothing ||
-        throw(ArgumentError("$(path): a vgio file declares its own length_unit; `file_unit` is for a Schöps YAML"))
-    d = _with_given_intrinsics(_read_vgio_json(path), intrinsics, path)   # parsed once (a grid file is large), read as the kind it is
-    if _is_noncentral_grid(d)                           # a non-central record (noncentral_spline_schema.jl)
-        name === nothing || throw(ArgumentError("$(path) holds one non-central camera; `name` names a camera of a store"))
-        return _load_noncentral(d, path)
-    end
-    store = _load_store(d, path)
+        throw(ArgumentError("$(path): a vgio file declares its own units.length; `file_unit` is for a Schöps YAML"))
+    store = _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)   # parsed once (a grid file is large)
     if name === nothing
         length(store) == 1 || throw(
             ArgumentError("$(path) holds $(length(store)) cameras; supply `name` — one of $(sort!(String.(collect(keys(store)))))")
@@ -686,4 +705,32 @@ function colmap_cameras(cameras::AbstractDict{Symbol})
             for (i, n) in enumerate(names)
     ]
     return cams, Dict(n => i for (i, n) in enumerate(names))
+end
+
+# A noncentral_spline record (`vgio/noncentral_spline/v1`, the non-central grid
+# camera's own kind before IO 0.10), or an old grid file (vgio/generic_camera/v2
+# or v3, central or not): the store of its one camera, named after the file
+# (`fisheye_14mm.json` → `fisheye_14mm`), the record through its version steps.
+function _one_camera_store(d, path)
+    d isa AbstractDict || return d
+    _is_central_grid(d) && return _central_grid_store(d, path)
+    v = _split_schema(get(d, :schema, nothing))
+    (v !== nothing && v.kind in ("noncentral_spline", "generic_camera")) || return d
+    name = first(splitext(basename(path)))
+    t = _lower(d)
+    store = try
+        if v.kind == "generic_camera"          # a non-central old grid file: its 0.10 body built by the one old-grid conversion
+            t["schema"] in _OLD_GRID_SCHEMAS || return d   # (a version no published file holds: the boundary refuses it by name)
+            t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
+            merge(migrate_envelope(_file_head(t), "vgio/cameras/v6.0"),
+                  Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => name), _noncentral_grid_body(t))]))
+        else
+            v.major == 1 || return d           # (an unknown version: the boundary refuses it by name)
+            _noncentral_store_v6(t, name)
+        end
+    catch e
+        e isa Union{ArgumentError, KeyError} || rethrow()
+        throw(ArgumentError("$(path): a $(t["schema"]) non-central grid camera, read as the store of its one camera: $(sprint(showerror, e))"))
+    end
+    return _parse_vgio_text(JSON.json(store), path)
 end

@@ -50,6 +50,8 @@ makedocs(;
             "Schema Rules" => "guide/schemas.md",
             "Kinds and the I/O Surface" => "guide/kinds.md",
             "Conventions on Disk" => "guide/conventions.md",
+            "JSON Schemas" => "guide/json-schemas.md",
+            "Content Identity" => "guide/content-identity.md",
             "Quantities, Frames and Detections" => "guide/serialization.md",
             "Third-Party Calibrations" => "guide/third-party.md",
             "Related Formats and Exporters" => "guide/related-formats.md",

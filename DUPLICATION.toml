@@ -80,9 +80,25 @@ file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts
 function = "test_scoring_contract"
 reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"
 
+[[splat]]
+file = "VisualGeometryToolkitIO/src/migrate.jl"
+function = "write_staged"
+reason = "the public API's callback receives one staged path per output it names, `f(staged...)`: its arity is the caller's written number of outputs (1 or 2 at every call site, a fixed arity per call), and the outputs are varargs Pairs by design"
+
+[[splat]]
+file = "VisualGeometryToolkitIO/src/rig_schema.jl"
+function = "_rig_from_record"
+reason = "VisualGeometryToolkitCore's `Rig` holds its sensors as a Tuple (each sensor's type in the rig's type), so a rig read from a file is built from a tuple of its sensors: one length per rig layout, the length the type itself carries"
+
 # The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
 # per-channel black for the display demosaic; it subtracts nothing in the stack.
 [[pattern]]
 use = "black_subtraction"
 file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
 reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"
+
+
+[[pattern]]
+use = "sensor_component"
+file = "VisualGeometryToolkitIO/src/sensor_characterisation_schema.jl"
+reason = "the vgio/sensor_characterisation kind's codec is the ONE reader that turns a file into sensor-model components (ChannelBlack, Dark, ReadNoise, PoissonGaussian, RelativeNoise, DefectList) and a SensorCharacterisation, through their public constructors"

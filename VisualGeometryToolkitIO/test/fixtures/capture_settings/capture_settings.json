@@ -1,30 +1,53 @@
 {
-    "schema": "vgio/capture_settings/v1",
-    "length_unit": "mm",
-    "time_unit": "s",
-    "body": {
-        "make": "Sony",
-        "model": "ILME-FX3",
-        "source": "exif"
+    "schema": "vgio/capture_settings/v2.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
     },
-    "lens": {
-        "make": "SIGMA",
-        "model": "14mm F1.8 DG HSM | Art",
-        "source": "config",
-        "exif": {
-            "model": "DT 14mm F2.8 SAM"
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
+    "sensor": "cam1",
+    "device": {
+        "body": {
+            "make": "Sony",
+            "model": "ILME-FX3"
+        },
+        "lens": {
+            "make": "SIGMA",
+            "model": "14mm F1.8 DG HSM | Art"
         }
+    },
+    "identity_sources": {
+        "body": "exif",
+        "lens": "config"
+    },
+    "exif_lens": {
+        "model": "DT 14mm F2.8 SAM"
     },
     "frames": [
         {
-            "t": 1,
+            "frame_index": 1,
             "exposure_time": 0.01666666753590107,
             "f_number": 4.0,
             "iso": 100.0,
             "focal_length": 14.0
         },
         {
-            "t": 4,
+            "frame_index": 4,
             "exposure_time": 0.01666666753590107,
             "f_number": 4.0,
             "iso": 200.0,

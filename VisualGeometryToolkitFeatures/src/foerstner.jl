@@ -284,7 +284,7 @@ function _foerstner_points(found, significance_level, undouble)
         label = class == 1 ? :corner : class == -1 ? :circular : :unknown
         _FoerstnerDetection(frame, (; label, window, F = statistic))
     end
-    return StructArray(_FoerstnerDetection[rows...]; unwrap = T -> T <: NamedTuple)
+    return StructArray(collect(_FoerstnerDetection, rows); unwrap = T -> T <: NamedTuple)   # never `[rows...]`: a splat per point count
 end
 
 # A doubled-grid estimate and its (row, column) covariance `Σ` (column-major

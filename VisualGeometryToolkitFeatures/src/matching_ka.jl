@@ -101,8 +101,9 @@ end
 # =============================================================================
 
 # The float type descriptors are compared in: their own, never narrowed —
-# Float32 stays Float32, Float64 stays Float64, integers and fixed-point widen.
-_score_eltype(As...) = float(promote_type(map(eltype, As)...))
+# Float32 stays Float32, Float64 stays Float64, integers and fixed-point widen. `As` is a collection — a tuple, or the
+# galleries of a stacked index, never splatted: their number is data.
+_score_eltype(As) = float(mapreduce(eltype, promote_type, As))
 
 # A `T` copy of `A` on `dev` (`ka_upload`), `A` on `dev` in `T` (`on_device`): Core's
 # (base/device.jl), the family's one upload.
@@ -145,7 +146,7 @@ function pairwise_matrix(
         metric::DescriptorMetric, desc1::AbstractMatrix, desc2::AbstractMatrix,
         device::KA.Backend = default_device()
     )
-    T = _score_eltype(desc1, desc2)
+    T = _score_eltype((desc1, desc2))
     d1 = ka_upload(T, device, desc1); d2 = ka_upload(T, device, desc2)
     S = KA.allocate(device, T, size(d1, 1), size(d2, 1))
     return on_device(KA.CPU(), _score_rows!(S, metric, d1, d2, _norms(metric, d1, d2), 1, size(d1, 1)))
@@ -349,7 +350,7 @@ function _match(
     D1 == D2 || throw(DimensionMismatch("Descriptor dimensions must match: $D1 ≠ $D2"))
     (N1 < 1 || N2 < 1) && return NNMatch[]
     top_idx, top_sc, rev_idx = if dm === nothing
-        T = _score_eltype(desc1, desc2)
+        T = _score_eltype((desc1, desc2))
         _nn_select(
             strategy, metric, dev, [0], [N1];
             gal = ka_upload(T, dev, desc1), feat = ka_upload(T, dev, desc2)

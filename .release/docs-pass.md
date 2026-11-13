@@ -1,3 +1,55 @@
+docs-pass: 54447cd7
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change)
+
+# Core 0.9.7 / Estimation 0.10.3 docs pass (julia-docs-pass) — patch-core097-est0103
+
+One launch-and-reduce helper: RadiometricCamera's `_RadiometryLm` and Estimation's `_LensRegressionLm` each launched a
+per-row kernel and then reduced; Core 0.9.7 holds the pair once. Baseline: main 252dbca9, then main da7e0948 (IO 0.9.5)
+and 0a49da23 (Features 0.8.4) merged in (54447cd7, bfb7f7ed; Core, Estimation and Eval trees unchanged by them).
+
+## 1. Public API since the baseline
+
+- Core: new methods `reduce_normal_equations(row!, Val(N), args...; partials)` and `reduce_cost(row!, args...;
+  partials)` (robust/lm_core.jl; docstrings each, in the manual through api/robust_statistics.md's `@autodocs`).
+- Estimation: none (the lens regression's launch-then-reduce pair replaced by the helper). `[compat]` Core "0.9.7".
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | the two methods documented; Core's docs build strict |
+| CHANGELOG | Core 0.9.7, Estimation 0.10.3 |
+| versions | Core 0.9.7, Estimation 0.10.3; IO 0.9.5, Features 0.8.4, Eval 0.7.3, PoseLib 0.2.1 as on main |
+
+## 3. Executed on the release candidate (54447cd7; trees equal at bfb7f7ed)
+
+Gate (jobs 14112–14116; `ONLY_PKGS` Core, Estimation, Eval), Julia 1.13.3: prep green (lint 0/0, agent_docs 0,
+floor --latest, audit, GPU stacks, check_duplication 0 on all six); Core CPU 410201 / 30 (8 groups), GPU 53121 / 0 (4);
+Estimation CPU 8834 / 2 (6), GPU 55 / 0; Eval CPU 2913 / 0 (6), GPU 359 / 0; docs of the three green. The docs pass: the two new methods' docstrings (signature
+lines checked by Core's `docs` item, green in CPU group 8), Estimation's lens-regression comment, both CHANGELOGs; the
+landing page names no LM internals (unchanged).
+IO's tree is main's (gated with IO 0.9.5), Features' the 0.8.4 tree gated at 3d8203a4.
+
+The pair, RC's side (check_duplication of RadiometricCamera with the monorepo as its stack path), verbatim:
+
+BEFORE (job 14318; RC 35c9172ba, monorepo 252dbca9):
+```
+== check_duplication(/raid/data/jpr/rc080-dev-35c9172b): 2 finding(s)
+   src/calibration_pipeline/linear_solve.jl:298  [similar] VgtkCore.residual_cost! (76 tokens; Jaccard 0.67)  ⇔  VisualGeometryToolkitEstimation:src/fitting/refine_camera.jl:178 residual_cost! (74 tokens)  — a function body that restates another: keep one
+   src/calibration_pipeline/linear_solve.jl:302  [similar] VgtkCore.residual_normal_equations! (94 tokens; Jaccard 0.64)  ⇔  VisualGeometryToolkitEstimation:src/fitting/refine_camera.jl:182 residual_normal_equations! (92 tokens)  — a function body that restates another: keep one
+```
+The unchanged RC against Estimation 0.10.3 (job 14319; RC 35c9172ba, monorepo bfb7f7ed): Estimation's half of the pair is
+Core's call, so the pair is gone from RC's side before RC changes:
+```
+== check_duplication(/raid/data/jpr/rc080-dev-35c9172b): 0 finding(s)
+```
+AFTER (job 14322; RC 2d074aefe calling the helper, monorepo bfb7f7ed):
+```
+== check_duplication(/raid/data/jpr/rc080-after-2d074aef): 0 finding(s)
+```
+
+---
+
 docs-pass: 3d8203a4
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: a compile-time fix)
 

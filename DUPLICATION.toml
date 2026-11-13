@@ -94,3 +94,20 @@ reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no
 file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts.jl"
 function = "test_scoring_contract"
 reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"
+
+[[splat]]
+file = "VisualGeometryToolkitEstimation/src/fitting/division_camera_step.jl"
+function = "CameraModel"
+reason = "`Division(k₁, …, k_Q)` takes the lens's coefficients as varargs (Core's one constructor) and Q is the division model's order, the fit's configured number of coefficients (1–3), fixed for a run, never a data length: `Division` is compiled once per order"
+
+[[splat]]
+file = "VisualGeometryToolkitEstimation/src/config_toml.jl"
+function = "_tagged_from_toml"
+reason = "a tagged TOML table builds its type `T` from its fields' values in field order: the arity is `fieldcount(T)`, fixed by the type, so `T` is compiled once per tag type"
+
+# The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
+# per-channel black for the display demosaic; it subtracts nothing in the stack.
+[[pattern]]
+use = "black_subtraction"
+file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
+reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"

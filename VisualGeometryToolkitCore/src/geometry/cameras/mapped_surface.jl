@@ -101,13 +101,12 @@ end
 @inline _across(u1, u2, v::StaticVector{3}) = SVector(_fma_dot(u1, v), _fma_dot(u2, v))
 @inline _across(u1, u2, J::StaticMatrix{3}) = _fma_tmul(hcat(u1, u2), J)
 
-# The iteration budget of a board root, its box and its scale: the chart's
+# The box of a board root and its scale (its iteration budget is the device LM's, `_STATIC_LM_MAX_ITER`): the chart's
 # rectangle (in primal Float64: a Dual pose's frame contributes its values), its
 # unit per axis, the acceptance of a final residual below √eps of the chart's
 # diagonal (rounding amplified at grazing incidence; the root itself is resolved
 # to rounding, `_board_root`), and the diagonal itself, the residual's scale for
 # the LM's precision-aware stops.
-const _BOARD_MAXITER = 100
 @inline function _board_box(q::Quad)
     r = q.rect
     o, wr = map(_primal, SVector{2}(r.origin)), map(_primal, SVector{2}(r.widths))
@@ -208,7 +207,7 @@ end
     # resolved to rounding (cost floor 0): the stops are what T resolves of a residual of the chart's scale L, so a
     # nearly flat surface's plane-hit seed (a residual of its heights, below √eps·L for heights of 1e-8 L) is not
     # taken for its root, and the hit is a smooth function of the surface; `tol2` is only the acceptance
-    p, ok, _, (_, _, X) = static_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), SVector{2, T}(s), _BOARD_MAXITER, T(tol2), T(L), nothing, zero(T))
+    p, ok, _, (_, _, X) = static_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), StaticLmStops(SVector{2, T}(s); acceptance = tol2, residual_scale = L))
     return p, ok, X
 end
 @inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}

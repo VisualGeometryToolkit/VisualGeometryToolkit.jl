@@ -1,14 +1,13 @@
 # =============================================================================
 # The termination record: ReturnCode (SciMLBase's names, matched), StopRule,
-# retcode/stop_rule/converged/found_model, nlls_termination, worst_retcode
-# (base/return_code.jl, robust/lm_core.jl; the robust-estimation contract, §14)
+# retcode/stop_rule/converged/found_model, worst_retcode (base/return_code.jl;
+# the robust-estimation contract, §14). NLLSsolver's decode into it: lm_driver_tests.jl
 # =============================================================================
 
 @testitem "return_code" begin
     import VisualGeometryToolkitCore as VgtkCore
-    import NLLSsolver
     using VisualGeometryToolkitCore: FitResult, ReturnCode, successful_retcode, StopRule, retcode, stop_rule,
-        converged, found_model, retcode_symbol, worst_retcode, nlls_termination, test_termination_record
+        converged, found_model, retcode_symbol, worst_retcode, test_termination_record
     using VisualGeometryToolkitCore: NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap, ParameterChange,
         NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap, NonFinite, Callback,
         TrialBudget, AdaptiveCount
@@ -133,41 +132,9 @@
         end
     end
 
-    @testset "nlls_termination: NLLSsolver's bits, in nlls_stop_code's order" begin
-        # a synthetic NLLSsolver result whose only meaningful field is its termination bits
-        res(bits) = NLLSsolver.NLLSResult(map(fieldnames(NLLSsolver.NLLSResult), fieldtypes(NLLSsolver.NLLSResult)) do f, F
-            f === :termination ? F(bits) : F <: Enum ? first(instances(F)) : zero(F)
-        end...)
-        t(bits, p = true) = @inferred nlls_termination(res(bits), p)
-        for b in (0, 1, 4, 5, 10, 12)
-            @test t(1 << b) === (ReturnCode.Failure, NonFinite)
-        end
-        @test t(1 << 11) === (ReturnCode.InitialFailure, NonFinite)
-        @test t((1 << 1) | (1 << 11)) === (ReturnCode.InitialFailure, NonFinite)
-        @test t(1 << 2) === (ReturnCode.Success, CostDecrease) && t(1 << 3) === (ReturnCode.Success, CostDecrease)
-        @test t(1 << 2, false) === (ReturnCode.Success, CostDecrease)               # no postcondition on a cost stop
-        @test t(1 << 6) === (ReturnCode.Success, IncrementSize)
-        @test t(1 << 6, false) === (ReturnCode.Stalled, IncrementSize)
-        @test t((1 << 2) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # the step stop first
-        @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # a NaN trial at a step stop
-        @test t(1 << 7) === (ReturnCode.Success, RejectionCap)
-        @test t(1 << 7, false) === (ReturnCode.Stalled, RejectionCap)
-        @test t(1 << 16, false) === (ReturnCode.Terminated, Callback)
-        @test t(1 << 9) === (ReturnCode.MaxTime, TimeCap)
-        @test t((1 << 8) | (1 << 9)) === (ReturnCode.MaxTime, TimeCap)              # time outranks iterations
-        @test t(1 << 8) === (ReturnCode.MaxIters, IterationCap)
-        @test t((1 << 8) | (1 << 2)) === (ReturnCode.Success, CostDecrease)         # a tolerance outranks the cap
-        @test t((1 << 1) | (1 << 8) | (1 << 9)) === (ReturnCode.Failure, NonFinite)  # failure outranks the caps
-        # the postcondition runs only where it decides
-        calls = Ref(0)
-        probe = () -> (calls[] += 1; false)
-        @test nlls_termination(1 << 2, probe) === (ReturnCode.Success, CostDecrease) && calls[] == 0
-        @test nlls_termination(1 << 6, probe) === (ReturnCode.Stalled, IncrementSize) && calls[] == 1
-    end
-
     @testset "public" begin
         for n in (:ReturnCode, :successful_retcode, :StopRule, :stop_rule, :found_model,
-                  :retcode_symbol, :retcode_from_symbol, :worst_retcode, :nlls_termination, :test_termination_record, :LadderConverged, :SeedKept)
+                  :retcode_symbol, :retcode_from_symbol, :worst_retcode, :test_termination_record, :LadderConverged, :SeedKept)
             @test Base.ispublic(VgtkCore, n)
         end
         @test !isdefined(VgtkCore, :return_code)          # the record has no metadata copy

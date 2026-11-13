@@ -414,7 +414,7 @@ export AffineMap, Translation
 # Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features 0.8.0 keeps the LibRaw decoder and the
 # display demosaic, and does not re-export these names: Core alone exports them).
 export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
-public green_plane, pixel_noise # a LinearRaw's green cells (the cell grid's plane), a view; THE noise (α, σ²) of a pixel value per plane under a SensorNoise
+public green_plane, poisson_slope # a LinearRaw's green cells (the cell grid's plane), a view (an uncertain image's: values and variances)
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
 export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
 export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view
@@ -424,9 +424,17 @@ export linearview, saturationview   # the mosaic's linear values and its saturat
 public LinearRawView, SaturationView, PhotositeColors   # the lazy views' types (photosite_colors returns the last)
 public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
-export SensorNoise, DarkFrame, sensor_noise   # a body's Poisson–Gaussian noise at an ISO, per-field provenance; a master dark; THE resolver (raw/sensor_noise.jl)
-export photon_transfer, master_dark           # THE frame estimator of K and σ_r; THE dark-frame estimator
-public NOISE_SOURCES, NoiseField, noise_value, NoiseEstimateFailed   # the sources (:measured, :estimated, :file), a field's type and constructor, the estimators' failure
+# The sensor model (raw/sensor_model.jl; spec 2026-11-13, rulings D1–D13): a body's characterisation, per ISO a component
+# per slot; a frame's model, resolved from it; absence is a type
+export SensorCharacterisation, SensorModel, sensor_model   # ONE body's per-ISO components (host); ONE frame's black, noise and defects; THE resolver (a lookup)
+export FileBlack, ChannelBlack, Dark               # the black slot: the RAW's own; per channel; a master dark (its channel black + per-photosite offset and variance)
+export NoNoise, ReadNoise, PoissonGaussian, RelativeNoise   # the noise slot: none; σ_r alone; the gain and σ_r; (σ_rel·x)²
+export NoDefects, DefectList                       # the defect slot: none; photosites with their onset exposures
+public BlackComponent, NoiseComponent, DefectComponent, SensorEntry   # the slots' supertypes; a characterisation entry
+public SensorSource, ModelReason, Matched, NoCharacterisation, UnmatchedISO, OtherBody   # a component's source (an enum module); why a frame got its model
+public content_digest                              # a SensorModel's identity: sha256_hex(canonical_json(its tree))
+export photon_transfer, master_dark, defect_onsets # the estimators (raw/sensor_estimators.jl): an estimated PoissonGaussian; a Dark and ReadNoise; masks into a DefectList
+public NoiseEstimateFailed                         # the estimators' failure
 
 # -----------------------------------------------------------------------------
 # 4. COMPOSITION & INTERFACE - Abstract types for feature packages
@@ -463,6 +471,7 @@ export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
 public stable_seed   # the seed of every random stream, keyed by name (base/utils.jl)
+public canonical_json   # the canonical JSON of a lowered tree (sorted keys, shortest round-trip numbers): what a content identity hashes
 public sha256_hex    # lower-case hex SHA-256 of a string's bytes, a byte vector or a stream (a file: `open(sha256_hex, path)`)
 public RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (base/utils.jl)
 public require_extension   # the one check for a package extension a call needs: its message, or the MethodError (base/utils.jl)
@@ -691,10 +700,11 @@ public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, is_stationary, loss_robustifier
 public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
-# The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
+# The LM's stop settings (their one owner), its multi-block problem and the device LM's stop settings; whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
+public LmStops, LmProblem, StaticLmStops
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
-public nlls_options, nlls_features, nlls_stop_code, nlls_stop_reasons, nlls_termination, finite_cost, nlls_rows_and_jacobian   # NLLSsolver's knobs, its Schur system detected, its termination bits decoded (and as a ReturnCode and StopRule); a block's cost as its LM reads it; a problem's rows and sparse Jacobian
+public nlls_features, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # its Schur system detected, NLLSsolver's termination bits named; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope
@@ -707,7 +717,7 @@ public check_splat, SplatViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
-public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, test_quality_gates,
+public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, test_quality_gates, sensor_fixture,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
 public ReadmeExample, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
@@ -921,7 +931,10 @@ include("base/termination_accessors.jl")  # retcode/stop_rule/converged/found_mo
 include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
 include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
 include("base/utils.jl")    # Geometry utilities - uses types
+include("base/canonical.jl")   # canonical_json: the canonical JSON every content identity is the sha256_hex of
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
+# THE defaults of record of this package (configs/default.toml): the strategies' tables and the LM's stop settings ([lm])
+const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs", "default.toml")))
 include("base/artifacts.jl")    # install_artifact, huggingface_token: the one artifact install (uses config_toml.jl's TOML)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
@@ -1056,7 +1069,8 @@ import .Cameras: pnp_pixel_whitening
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
-include("raw/sensor_noise.jl") # SensorNoise, DarkFrame, the resolver sensor_noise, photon_transfer, master_dark (before LinearRaw, which takes a resolved noise)
+include("raw/sensor_model.jl") # the sensor model: its components, SensorCharacterisation, SensorModel, sensor_model, content_digest (before LinearRaw, which reads a model)
+include("raw/sensor_estimators.jl") # photon_transfer, master_dark, defect_onsets: a characterisation's components from frames (offline)
 include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl

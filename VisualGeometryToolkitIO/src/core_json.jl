@@ -203,7 +203,7 @@ The plain value (a NamedTuple of numbers, arrays and strings, which JSON.jl's
 `JSON.json` writes) a JSON record holds for `x` under `contract`, its
 quantities as numbers in the declared units ([`write_quantity`](@ref)); read
 it back with [`from_json`](@ref). Defined for VisualGeometryToolkitCore's
-`Size2` (`{"width": w, "height": h}`), `Disc` (`{"center": [x, y], "σ": s}`),
+`Size2` (`{"width": w, "height": h}`), `PointFrame` (`{"center": [x, y]}`, plain pixels), `Disc` (`{"center": [x, y], "σ": s}`),
 `OrientedDisc` (`… "θ": angle`), `EllipticFrame` (`{"center": …, "S": [S11,
 S21, S12, S22]}`, column order), `AffineFrame` (`… "A": …`) and a detection —
 an `Attributed` feature frame, VisualGeometryToolkitCore's
@@ -211,7 +211,11 @@ an `Attributed` feature frame, VisualGeometryToolkitCore's
 frame's covariance entries (column order) under `cov` (`null` when not
 finite, with the matrix's size N under `cov_size`: the size is the value's, an
 ASIFT `EllipticFrame`'s covariance is 3×3), and each metadata field under its
-own name.
+own name. An uncertain `PointFrame` (VisualGeometryToolkitFeatures' Förstner
+detections) writes its 2×2 covariance as an uncertain point does
+(`vgio/target_points2d`'s `covariance`: rows, `{"diagonal": […]}` or
+`{"isotropic": λ}`, the storage it holds; `null` when not finite), the one
+encoding of a point and its covariance.
 
 `kind`, required, declares what the numbers of the value are — `:plain`
 (plain numbers), `:length` or `:pixel` — the same `kind` its reader gives
@@ -256,7 +260,7 @@ end
 
 The value of type `T` a JSON record holds as `d` (a parsed `JSON.Object`, any
 dictionary with string keys, or a NamedTuple), the inverse of
-[`json_value`](@ref): `T` is `Size2`, `Disc`, `OrientedDisc`,
+[`json_value`](@ref): `T` is `Size2`, `PointFrame`, `Disc`, `OrientedDisc`,
 `EllipticFrame`, `AffineFrame` or a detection type (VisualGeometryToolkitCore's
 `AbstractDetection`, or VisualGeometryToolkitFeatures' `Detection`). `kind`,
 required and never defaulted, declares what the numbers of a `Size2` or a
@@ -265,10 +269,13 @@ through [`read_quantity`](@ref) (a length in the unit of the contract's
 length `role`); the other frames hold plain numbers (`kind = :plain`). Every
 quantity is a number: a `{"value": v, "unit": u}` object is refused. A
 detection's frame type is read off its keys
-(`A`, `S`, `θ`, else a `Disc`); its documented metadata fields (`response`,
+(`A`, `S`, `θ`, a `PointFrame` for a `center` alone, else a `Disc`); its documented metadata fields (`response`,
 `edge_score`, `laplacian_scale_score`) come first, as Float64, and the others
-follow sorted by name, each as it was parsed; a `cov` makes the frame
-`Uncertain` again.
+follow sorted by name, each as it was parsed (a Symbol was written as a
+string and reads back a string, a `Point2` as a two-number array); a `cov`
+makes the frame `Uncertain` again, and so does a point frame's `covariance`
+(a `null` one the NaN 2×2). The frames read back in Float64: a Float32 frame
+is written exactly and reads back as the same numbers in Float64.
 
 `from_json(UnitContract, d)` reads a record's `"units"` declaration; a
 declaration without a `density` has dpi, one without `lengths` no further
@@ -338,6 +345,10 @@ json_value(f::EllipticFrame{<:Real}, ::UnitContract; kind::Symbol) =
 json_value(f::AffineFrame{<:Real}, ::UnitContract; kind::Symbol) =
     (_plain_frame_kind(AffineFrame, kind); (center = _center_value(f), A = _matrix_value(f.A)))
 
+# A point frame (a position, no scale: Förstner's) is the family's 2-DOF case, `{"center": [x, y]}`, on the leaves of an
+# uncertain point (target_points2d's `xy`, `_pixel_json` / `_pixel_from_json`): one encoding of a point and its covariance.
+json_value(f::PointFrame{<:Real}, ::UnitContract; kind::Symbol) = (_plain_frame_kind(PointFrame, kind); (center = _pixel_json(f.center),))
+
 function from_json(::Type{<:OrientedDisc}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(OrientedDisc, kind)
     return OrientedDisc{Float64}(_center_from(d), Float64(_get_key(d, "σ")), Float64(_get_key(d, "θ")))
@@ -345,6 +356,10 @@ end
 function from_json(::Type{<:EllipticFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(EllipticFrame, kind)
     return EllipticFrame{Float64}(_center_from(d), _matrix_from(_get_key(d, "S")))
+end
+function from_json(::Type{<:PointFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
+    _plain_frame_kind(PointFrame, kind)
+    return PointFrame(_pixel_from_json(_get_key(d, "center"), nothing))
 end
 function from_json(::Type{<:AffineFrame}, d::_JSONObject, ::UnitContract; kind::Symbol)
     _plain_frame_kind(AffineFrame, kind)
@@ -397,6 +412,18 @@ function json_value(d::Attributed{<:Uncertain{<:FeatureFrame, <:CovMat}}, contra
     return (frame = json_value(geom(u), contract; kind), cov = c, pairs(meta)...)
 end
 
+# An uncertain point frame writes its 2×2 covariance as an uncertain point does (target_points2d's `covariance`,
+# `_cov_json`: rows, `{"diagonal"}` or `{"isotropic"}`, the storage it holds), px², under `covariance`; `null` when it
+# is not finite (Förstner's unclassified window), which JSON cannot hold — a point's covariance is 2×2, so no size.
+function json_value(d::Attributed{<:Uncertain{<:PointFrame, <:CovMat{2}}}, contract::UnitContract; kind::Symbol)
+    u = getfield(d, :value)
+    meta = _metadata_value(getfield(d, :attributes))
+    Σ = cov(u)
+    return (frame = json_value(geom(u), contract; kind), covariance = all(isfinite, Σ) ? _cov_json(Σ) : nothing, pairs(meta)...)
+end
+json_value(d::Attributed{<:Uncertain{<:PointFrame, <:CovMat}}, ::UnitContract; kind::Symbol) = throw(ArgumentError(
+    "a point frame's covariance is 2×2 (its position's), got $(size(cov(getfield(d, :value))))"))
+
 # The metadata fields every detector writes as Float64, in their canonical order.
 const _FLOAT_METADATA = (:response, :edge_score, :laplacian_scale_score)
 
@@ -408,22 +435,42 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
         from_json(EllipticFrame, frame_data, contract; kind)
     elseif _has_key(frame_data, "θ")
         from_json(OrientedDisc, frame_data, contract; kind)
+    elseif collect(_key_names(frame_data)) == ["center"]  # a position alone: the 2-DOF frame, its covariance an uncertain point's
+        return _point_detection(from_json(PointFrame, frame_data, contract; kind), d)
     else
         from_json(Disc, frame_data, contract; kind)
     end
     # Every key but `frame` and `cov` is metadata: the documented fields first,
     # as Float64 (a writer may print 1.0 as 1), then the others sorted by name,
     # so the result does not depend on the key order of the input.
-    present = Symbol[Symbol(k) for k in _key_names(d) if k ∉ ("frame", "cov", "cov_size")]
-    names = (filter(in(present), collect(_FLOAT_METADATA))..., sort!(setdiff(present, _FLOAT_METADATA))...)
-    vals = Tuple(n in _FLOAT_METADATA ? Float64(_get_key(d, String(n))) : _get_key(d, String(n)) for n in names)
-    meta = NamedTuple{names}(vals)
+    meta = _detection_metadata(d, ("frame", "cov", "cov_size"))
     _has_key(d, "cov") || return Attributed(fr, meta)
     c = _get_key(d, "cov")
     N = _cov_size(c, d)
     Σ = c === nothing ? fill(NaN, N, N) : reshape(Float64[_cov_entry_from_json(x, contract, kind) for x in c], N, N)
     return Attributed(Uncertain(fr, CovMat(SMatrix{N, N, Float64}(Σ))), meta)
 end
+# A detection's metadata: every key but the frame's and its covariance's (`skip`).
+function _detection_metadata(d::_JSONObject, skip)
+    present = Symbol[Symbol(k) for k in _key_names(d) if k ∉ skip]
+    names = (filter(in(present), collect(_FLOAT_METADATA))..., sort!(setdiff(present, _FLOAT_METADATA))...)
+    vals = Tuple(n in _FLOAT_METADATA ? Float64(_get_key(d, String(n))) : _get_key(d, String(n)) for n in names)
+    return NamedTuple{names}(vals)
+end
+
+# A point frame's detection: its metadata as every frame's (`_detection_metadata`), and an uncertain one's `covariance`
+# read by the uncertain point's leaf (`_cov_matrix`, as `_pixel_from_json` reads it), `null` the NaN 2×2. The other
+# frames' `cov`/`cov_size` is refused here.
+function _point_detection(fr::PointFrame, d::_JSONObject)
+    (_has_key(d, "cov") || _has_key(d, "cov_size")) &&
+        throw(ArgumentError("a point frame's covariance is its `covariance` (an uncertain point's), not `cov`/`cov_size`"))
+    meta = _detection_metadata(d, ("frame", "covariance"))
+    _has_key(d, "covariance") || return Attributed(fr, meta)
+    c = _get_key(d, "covariance")
+    Σ = c === nothing ? SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN) : _cov_matrix(_lower(c), 2)   # the uncertain point's leaf
+    return Attributed(Uncertain(fr, CovMat(Σ)), meta)
+end
+
 # The size N of a detection's covariance is the value's, not the frame type's
 # (an ASIFT EllipticFrame's is 3×3): an N×N matrix's N² entries, or, for a
 # `null` covariance, the `cov_size` written with it. A `null` without a size

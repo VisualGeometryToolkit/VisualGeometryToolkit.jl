@@ -298,6 +298,7 @@ const _SCHEMA_VERSION = Dict(
     "target" => 5, "target_poses" => 2, "target_points2d" => 2, "target_points3d" => 2,
     "target_homographies" => 1, "capture_settings" => 1, "target_detections" => 2, "calibration" => 2,
     "vignetting" => 1, "environment_light" => 1, "blur" => 1,   # 2026-11: a radiometric camera's fields, light and blurs
+    "panorama" => 1,                                           # 2026-11: a panorama's results (PanoramaStitching's)
 )
 _schema_version(kind) = get(_SCHEMA_VERSION, kind, 2)
 _schema(kind) = "vgio/$(kind)/v$(_schema_version(kind))"
@@ -587,6 +588,7 @@ function _spec(kind::AbstractString)
     kind == "vignetting" && return _VIGNETTING_SPEC
     kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
     kind == "blur" && return _BLUR_SPEC
+    kind == "panorama" && return _PANORAMA_SPEC
     kind == "correspondences" && return _CORRESPONDENCES_SPEC
     return nothing
 end

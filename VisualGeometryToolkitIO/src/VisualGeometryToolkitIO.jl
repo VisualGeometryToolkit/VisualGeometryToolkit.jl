@@ -36,7 +36,7 @@ Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
 versions: rig v9; cameras and target v5; transforms and trajectory v4;
 noncentral_spline v1 (the old grid kind generic_camera renamed); target_poses, target_points2d, target_points3d and
 target_detections v2; target_homographies, capture_settings, calibration,
-vignetting, environment_light and blur v1; the rest v2), and a file is
+vignetting, environment_light, blur and panorama v1; the rest v2), and a file is
 sufficient on its own and minimal:
 - every convention a reader needs is DECLARED in the file, once — the pixel
   frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,
@@ -118,7 +118,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, lens_coverage,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
-    Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
+    Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
@@ -151,6 +151,8 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v2
 #   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
+#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting, gains)
+#                                                vgio/panorama/v1    a panorama's results (a NamedTuple: no VGC type)
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -192,6 +194,7 @@ include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
 include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
+include("panorama_schema.jl")    # vgio/panorama/v1: a panorama's results, composed of the camera, trajectory and vignetting bodies
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v2, the hash-bound set of a result's records (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
@@ -244,6 +247,7 @@ public ColmapModel                    # a COLMAP model directory's contents + it
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
 public save_manifest, load_manifest     # vgio/calibration/v2: the manifest binding a result's record files by SHA-256
+public save_panorama, load_panorama     # vgio/panorama/v1: a panorama's camera, rotations, vignetting and gains
 public validate                       # check any vgio file against its kind's table
 public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs

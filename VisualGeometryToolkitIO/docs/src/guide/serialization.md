@@ -52,6 +52,7 @@ other kinds" in [Kinds and the I/O Surface](kinds.md)).
 | Value | JSON object |
 |---|---|
 | `Size2` | `{"width": w, "height": h}` |
+| `PointFrame` | `{"center": [x, y]}` |
 | `Disc` | `{"center": [x, y], "σ": s}` |
 | `OrientedDisc` | `{"center": [x, y], "σ": s, "θ": angle}` |
 | `EllipticFrame` | `{"center": [x, y], "S": [S11, S21, S12, S22]}` |
@@ -97,6 +98,30 @@ julia> s = JSON.json(VgtkIO.json_value(d, MM_PX; kind = :plain))
 julia> VgtkIO.from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain) == d
 true
 ```
+
+A `PointFrame` — a position with no scale, VisualGeometryToolkitFeatures'
+Förstner detections — is the family's 2-DOF frame, `{"center": [x, y]}`, and an
+object whose frame holds a `center` alone reads as one. An uncertain one writes
+its 2×2 covariance as an uncertain point (`Uncertain{Point2}`) does — a
+`vgio/target_points2d` point's `covariance`, in px²: rows, `{"diagonal": […]}`
+or `{"isotropic": λ}`, the storage it holds — under `covariance`, and `null`
+when it is not finite (Förstner's unclassified window). The stack has one
+encoding of a point and its covariance; a point frame's covariance under `cov`
+is refused.
+
+```jldoctest serialization
+julia> f = Attributed(Uncertain(PointFrame(10.5, 20.25), CovMat{2, Float64}((0.04, 0.003, 0.003, 0.09))), (response = 1.0,));
+
+julia> s = JSON.json(VgtkIO.json_value(f, MM_PX; kind = :plain))
+"{\"frame\":{\"center\":[10.5,20.25]},\"covariance\":[[0.04,0.003],[0.003,0.09]],\"response\":1.0}"
+
+julia> VgtkIO.from_json(AbstractDetection, JSON.parse(s), MM_PX; kind = :plain) == f
+true
+```
+
+A frame reads back in Float64: a Float32 frame is written exactly and reads back as
+the same numbers. Metadata reads back as it was parsed: a `Symbol` (Förstner's
+`label`) as a string, a `Point2` (its `window`) as a two-number array.
 
 With VisualGeometryToolkitFeatures loaded, `from_json(Detection, obj, contract; kind)`
 reads the same object.

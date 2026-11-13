@@ -196,7 +196,8 @@ change to the index alone made while `code_trees` runs git (whose own status run
 function code_trees(workdir::AbstractString; code = nothing, julia_project::AbstractString = workdir)
     reg = _registered_install(workdir)
     if reg !== nothing                                     # committed code in a depot: its tree, never "no git checkout"
-        julia_project == workdir && Base.active_project() !== nothing && (julia_project = dirname(Base.active_project()))
+        active = Base.active_project()                     # the environment that installed it
+        julia_project == workdir && active !== nothing && (julia_project = dirname(active))
     end
     paths = reg !== nothing ? String[] : code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
     k = (abspath(workdir), paths, abspath(julia_project))

@@ -77,6 +77,12 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 
+- **A run record states its sensor model's provenance**: `write_provenance(…; sensor_model)` (a `SensorModel`, or one
+  per frame) records VisualGeometryToolkitCore's `component_sources` under `sensor_model` — the black's, noise's and
+  defects' sources (`"measured"`, `"estimated"`, `"specified"`, `"file"`, or `"absent"`), the model's reason and its
+  `specified_override`, one table per distinct model with its frame count — so a table can say "measured" or
+  "estimated" per run (the sensor-model spec, §5).
+
 ### Fixed
 
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so

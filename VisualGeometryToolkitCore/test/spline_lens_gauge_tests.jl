@@ -424,12 +424,12 @@ end
 @testitem "axis_gauged: the frame rotated so ẑ is the given axis, K's principal point moved; every image kept with the poses turned" setup = [SplineAxis] begin
     using Test
     using StaticArrays
-    using LinearAlgebra: norm, normalize, I
+    using LinearAlgebra: norm, normalize, I, svdvals
     using Rotations: RotMatrix, AngleAxis
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, px, calibration_matrix, backproject,
         project, with_present, with_directions, axis_gauged, RotationMap, EuclideanMap, BoundedCamera, PosedCamera, Size2, model, Rect2,
-        relabel, map_frames, rotation, WorldFrame, CameraFrame
+        relabel, map_frames, rotation, WorldFrame, CameraFrame, backproject_with_jacobian, extent, lens_coverage, Circle, Point2
 
     # a radially symmetric camera's spline (axis ẑ, the axis's pixel (500, 500)) whose frame is turned by Q, 5° about a
     # tilted axis: its ẑ is off the optical axis by 5°, and its gauge K (the pixel imaging ẑ) is off the axis's pixel
@@ -477,4 +477,23 @@ end
     gp = axis_gauged(posed, R, Kn)
     @test gp isa PosedCamera && gp.extrinsics == turned && calibration_matrix(gp) == K′
     @test all(x -> norm(project(gp, x) - project(posed, x)) <= 1.0e-6, X)
+    # a posed bounded camera: the camera it wraps gauged, its extrinsics turned with its model (0.9.5 kept the old
+    # pose, so every point moved, ≈ 26 px here), its image and lens coverage kept
+    coverage = Circle(Point2(500.0, 500.0), 480.0)
+    pbc = BoundedCamera(posed, Size2(1000, 1000); lens_coverage = coverage)
+    gpb = axis_gauged(pbc, R, Kn)
+    @test gpb isa BoundedCamera && gpb.camera isa PosedCamera && gpb.camera.extrinsics == turned
+    @test calibration_matrix(model(gpb)) == Kn && model(gpb).lens.backward.controls == g.lens.backward.controls
+    @test extent(gpb) == extent(pbc) && lens_coverage(gpb) == lens_coverage(pbc)
+    # every world point imaged where it was, to the two projection solves' tolerance: each ends at a direction residual
+    # below √eps(Float64) (the cost floor, `static_lm`'s exact-fit stop) or on a 1e-10 relative step, so it is off the
+    # root by at most √eps / σ_min(∂d/∂u) pixels, σ_min the smaller singular value of the bearing's pixel Jacobian (the
+    # same for both cameras: R turns it); the turned controls' rounding (≈ eps) is far below it
+    function solve_bound(u)
+        _, M = backproject_with_jacobian(model(pbc), u)
+        return 2 * sqrt(eps(Float64)) / last(svdvals(Matrix(M)))
+    end
+    u₀ = [project(pbc, x) for x in X]
+    @test all(u -> all(isfinite, u), u₀)
+    @test all(i -> norm(project(gpb, X[i]) - u₀[i]) <= solve_bound(u₀[i]), eachindex(X))
 end

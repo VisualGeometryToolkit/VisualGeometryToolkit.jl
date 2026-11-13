@@ -1416,7 +1416,8 @@ The poses turn with the frame.
   `(R·R_p, R·t)`, its frame tags kept (the third form). Every projection is
   then kept.
 - A posed camera turns its extrinsics with its model.
-- A bounded camera keeps its image and lens coverage.
+- A bounded camera turns the camera it wraps, a posed one's extrinsics
+  included, and keeps its image and lens coverage.
 
 A spline that is never gauged this way keeps its source's ẑ: one read from a
 record, or one built by `CameraModel(SplineLens, source, size)`.

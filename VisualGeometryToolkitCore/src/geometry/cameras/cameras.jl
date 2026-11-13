@@ -660,10 +660,10 @@ its model's `with_directions`, the bound, the lens coverage and a pose kept.
 with_directions(bc::BoundedCamera, D::AbstractMatrix) = with_model(bc, with_directions(model(bc), D))
 
 # `axis_gauged` (spline_lens.jl) of a posed camera — its model and its extrinsics turned together — and of a bounded
-# one: its model's, the bound and the lens coverage kept (pixels do not move).
+# one: the camera it wraps, so a posed one's extrinsics too, the bound and the lens coverage kept (pixels do not move).
 axis_gauged(c::PosedCamera, rotation::Rotation{3}, K′::AbstractMatrix) =
     PosedCamera(axis_gauged(c.model, rotation, K′), axis_gauged(c.extrinsics, rotation))
-axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = with_model(bc, axis_gauged(model(bc), rotation, K′))
+axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = _rebound(bc, axis_gauged(bc.camera, rotation, K′))
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()

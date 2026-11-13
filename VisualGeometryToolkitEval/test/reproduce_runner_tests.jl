@@ -646,12 +646,18 @@ end
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid", "--no-deps"]; env = env0)
         @test code == 4 && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=0 variant=fail sets=s1"
         # the declaration is checked
-        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid.sets\".*$"m => a)); f.graph)
+        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid\.[a-z]+\".*$"m => a)); f.graph)
         @test_throws r"array.each takes" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\" } }"))
         @test_throws r"array.each.env = \"1x\" is no variable" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"1x\" } }"))
         @test_throws r"items = \[...\] or from" load_stage_graph(bad("array = { from = \"grid.sets\", items = [\"a\"] }"))
+        g3 = load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"VARIANT\" } }"))
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = []\n[variants]\n")
+        @test_throws r"stage grid: `grid.sets` of the config holds no value" stage_items(g3, g3.stages[_stage_index(g3, "grid")]; env = env0)
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants]\n")
+        @test_throws r"stage grid: `variants` of the config holds no value" stage_each(g3, g3.stages[_stage_index(g3, "grid")], "s1"; env = env0)
         g2 = load_stage_graph(bad("array = { from = \"grid.nope\" }"))
         @test_throws r"the config has no `grid.nope`" stage_items(g2, g2.stages[_stage_index(g2, "grid")]; env = env0)
+        @test_throws r"array.items = \[\] is an array of no task" load_stage_graph(bad("array = { items = [] }"))
     end
 
     @testset "the local backend: runs the launchers, writes the manifest, reuses a finished stage" begin

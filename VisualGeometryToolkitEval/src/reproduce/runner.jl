@@ -253,6 +253,7 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
         end
         haskey(a, "items") == haskey(a, "from") &&
             throw(ArgumentError("stage $name: an array takes items = [...] or from = \"<dotted key of its config>\""))
+        haskey(a, "items") && isempty(a["items"]) && throw(ArgumentError("stage $name: array.items = [] is an array of no task"))
         haskey(a, "from") && (!haskey(t, "config") || occursin("{item}", t["config"])) &&
             throw(ArgumentError("stage $name: array.from = $(repr(a["from"])) needs the stage's config, one for every item"))
         each = get(a, "each", Dict{String, Any}())
@@ -405,26 +406,28 @@ function stage_items(g::StageGraph, s::StageSpec; env = ENV)
     s.is_array || return [""]
     picked = _picked(s.select_env, env)
     isempty(s.items_from) && return isempty(picked) ? s.items : picked
-    return _array_values(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from, picked, "stage $(s.name): $(s.select_env)")
+    return _array_values(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from, picked, s.name, s.select_env)
 end
 
 # The comma-separated values the variable `var` of `env` selects; none when it is unset (or there is no variable).
 _picked(var, env) = isempty(var) ? String[] : String.(split(get(env, var, ""), ','; keepempty = false))
 
-# The values at the dotted key `key` of config `t`: a table's keys sorted by name, a list of strings in its order;
-# `picked` (when not empty) selects among them, sorted for a table, in its own order for a list.
-function _array_values(t::AbstractDict, key::AbstractString, picked, what)
+# The values at the dotted key `key` of config `t` for stage `stage`: a table's keys sorted by name, a list of strings
+# in its order; `picked` (when not empty: the variable `var`) selects among them, sorted for a table, in its own order
+# for a list. None is refused: an array of no task, or a task that would run nothing and read as completed.
+function _array_values(t::AbstractDict, key::AbstractString, picked, stage, var)
     v = try
         _dotted(t, key)
     catch
-        throw(ArgumentError("$what: the config has no `$key`"))
+        throw(ArgumentError("stage $stage: the config has no `$key`"))
     end
     all_ = v isa AbstractDict ? sort(collect(String, keys(v))) :
            v isa AbstractVector && all(x -> x isa AbstractString, v) ? String.(v) :
-           throw(ArgumentError("$what: `$key` of the config is neither a table nor a list of strings"))
+           throw(ArgumentError("stage $stage: `$key` of the config is neither a table nor a list of strings"))
+    isempty(all_) && throw(ArgumentError("stage $stage: `$key` of the config holds no value"))
     isempty(picked) && return all_
     bad = setdiff(picked, all_)
-    isempty(bad) || throw(ArgumentError("$what names unknown value(s) $(join(bad, ", ")) (the config's `$key`: $(join(all_, ", ")))"))
+    isempty(bad) || throw(ArgumentError("stage $stage: $var names unknown value(s) $(join(bad, ", ")) (the config's `$key`: $(join(all_, ", ")))"))
     return v isa AbstractDict ? sort(picked) : picked
 end
 
@@ -438,7 +441,7 @@ set; `[]` for a stage without `each` (the task runs its command once).
 function stage_each(g::StageGraph, s::StageSpec, item::AbstractString; env = ENV)
     isempty(s.each_from) && return String[]
     return _array_values(TOML.parsefile(joinpath(g.workdir, _config_of(s, item))), s.each_from, _picked(s.each_env, env),
-                         "stage $(s.name): $(s.each_env)")
+                         s.name, s.each_env)
 end
 
 # --time in minutes: the largest selected entry's max_time (times its task's number of `each` values) plus the margin;

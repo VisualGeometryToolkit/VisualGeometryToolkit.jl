@@ -237,3 +237,38 @@ end
     names = parameter_names(lens(estimate(optical_axis(with_lens_coverage(OFF_BOUNDED, DISC)))))
     @test :k4 in names && !(:k5 in names)
 end
+
+# The region-support guard (Core's `check_region_support`, the owner's ruling of 2026-11-13): a fit over a region that
+# reaches beyond the source camera's calibrated support is REFUSED (`RegionBeyondSupport`), never fitted over the model's
+# extrapolation. RadiometricCamera's siemens start camera is a re-gridded copy of a Schöps calibration whose support is
+# Rect(1616, 593, 2159, 2321): over its whole sensor (corners extrapolated to 179.8°) the axis fit stalled at every
+# radial order (wave10/optical-axis-order.md); over the support it converges.
+@testitem "region support: a fit beyond the source's calibrated support is refused; inside it, the axis converges" begin
+    using Test
+    using StaticArrays: SVector, SMatrix
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect,
+        LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, retcode_symbol, imaged_region, estimate, model, KannalaBrandt
+    using VisualGeometryToolkitEstimation: optical_axis, approximate_camera, refine_camera, fit_camera
+    c = include(joinpath(@__DIR__, "fixtures", "rc_siemens_start_camera.jl"))
+    C = [SVector{3, Float64}(c.controls[(i - 1) * c.gw + j]) for i in 1:c.gh, j in 1:c.gw]
+    K = SMatrix{3, 3, Float64}(c.fx, 0.0, 0.0, c.skew, c.fy, 0.0, c.cx, c.cy, 1.0)
+    cam = BoundedCamera(CameraModel(LogicalIntrinsics(CameraCalibrationMat(K; check = false)), SplineLens(ChartSpline(Rect(c.area...), C))),
+                        Size2(c.width, c.height))
+    support = Rect(1616.0, 593.0, 2159.0, 2321.0)   # the Schöps source's valid_domain
+    # the whole sensor: refused by each fit at its entry, naming the fit
+    for (who, f) in (("optical_axis", () -> optical_axis(cam; support)),
+                     ("approximate_camera", () -> approximate_camera(KannalaBrandt{4}, cam, imaged_region(cam); support)),
+                     ("fit_camera", () -> fit_camera(KannalaBrandt{4}, cam, imaged_region(cam); support)))
+        e = try f(); nothing catch err; err end
+        @test e isa RegionBeyondSupport && e.who == who && e.support == support
+    end
+    # the support itself: the axis converges
+    r = optical_axis(cam, support; support)
+    @test retcode_symbol(r) === :converged
+    # refine_camera refuses the whole sensor too, and fits inside
+    @test_throws RegionBeyondSupport refine_camera(estimate(r), cam, imaged_region(cam); support)
+    @test retcode_symbol(refine_camera(estimate(r), cam, support; support)) in (:converged, :solved)
+    # without `support`, a camera's own valid_domain bounds it: a region past a lens's injectivity disc is refused
+    kb = CameraModel(SMatrix{3, 3, Float64}(300, 0, 0, 0, 300, 0, 320, 240, 1); lens = KannalaBrandt(-0.135))
+    @test_throws RegionBeyondSupport fit_camera(KannalaBrandt{4}, kb, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5))
+end

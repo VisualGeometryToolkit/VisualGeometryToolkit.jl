@@ -647,7 +647,9 @@ end
     unit(n) = permutedims(reduce(hcat, [Float32.(normalize(randn(rng, 32))) for _ in 1:n]))
     d1 = unit(40); d2 = unit(55)
     for (metric, similarity) in ((CosineSimilarity(), true), (L2(), false))
-        dm = VGF.pairwise_matrix(metric, d1, d2)
+        # on the CPU, as `match`: the default device is a GPU once CUDA is loaded in the process (another item's), and
+        # a GPU's Float32 dot products may differ from the CPU's in the last bit
+        dm = VGF.pairwise_matrix(metric, d1, d2, KA.CPU())
         for strat in (NN(), MutualNN(), KnnMatch(1), KnnMatch(3), KnnMatch(7)),
                 kw in (
                     (;), (; min_similarity = 0.2), (; max_distance = 1.1), (; ratio_threshold = 0.9),
@@ -671,7 +673,7 @@ end
     r = VGF.match(d1, d2, NN())[1].ratio
     at_r = VGF.match(d1, d2, NN(); ratio_threshold = r)
     @test all(m -> m.ratio < r, at_r)
-    @test match_key(at_r) == ref_match(VGF.pairwise_matrix(CosineSimilarity(), d1, d2), NN(); ratio_threshold = r)
+    @test match_key(at_r) == ref_match(VGF.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU()), NN(); ratio_threshold = r)
     # one gallery row: no second neighbour, so ratio Inf32 and any ratio test
     # rejects (the device path once reported −Inf32 and kept every match)
     one = unit(1)
@@ -688,8 +690,11 @@ end
     rng = MersenneTwister(3)
     a = 3.0f0 .* randn(rng, Float32, 20, 16)   # deliberately not normalized
     b = randn(rng, Float32, 25, 16)
-    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b)
-    @test l2 == VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    # on the default device (a GPU once CUDA is loaded in the process) the same kernel: its sum of 16 squared
+    # differences and square root may round each step differently from the CPU's (fused multiply-adds, its own
+    # sqrt), at most one Float32 ulp per step of the 16-term sum and the root, so 17 ulps relative
+    @test isapprox(VgtkFeatures.pairwise_matrix(L2(), a, b), l2; rtol = 17 * eps(Float32))
     exact = [sqrt(sum(abs2, a[i, :] .- b[j, :])) for i in 1:20, j in 1:25]
     @test isapprox(l2, exact; rtol = 1.0e-3)
     # Float32 stays Float32 and Float64 stays Float64 — never narrowed

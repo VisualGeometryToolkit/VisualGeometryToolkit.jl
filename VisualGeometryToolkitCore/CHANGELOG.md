@@ -24,6 +24,12 @@ Purely additive: the single-frame method keeps its signature and return type.
   overpredicts the variance by up to about 26 % below 5 % of white. The derived range keeps the fit where one line holds;
   no low-signal noise term is modelled (its cause is not established).
 
+### Added
+- **`LmProblem(variables, blocks; fixed)`**: `fixed` holds variables (their indices) as constants the blocks read —
+  NLLSsolver's unfixed mask on the one construction path (`_lm_problem`); the stationarity postcondition reads the free
+  variables' columns only. The default `nothing` holds none, the problem as before, bit for bit. An index outside the
+  variables, a name, or every variable held is an `ArgumentError`.
+
 ### Fixed
 - **The single-frame `photon_transfer(mosaic)` refuses a μ² term**: its points fitted again as `v = a + μ/K + cμ²` at the
   same weights, a `c` significant at `significance` (a new keyword, default 0.001: |t| > 3.29, two-sided, by its own

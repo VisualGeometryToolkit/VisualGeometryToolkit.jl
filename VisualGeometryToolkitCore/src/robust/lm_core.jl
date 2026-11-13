@@ -378,7 +378,7 @@ NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N} = resid
 # =============================================================================
 
 """
-    LmProblem(variables::AbstractVector, blocks::AbstractVector)
+    LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing)
 
 An NLLSsolver problem as the stack's one LM adapter ([`lmsolve_chart!`](@ref)) solves it: `variables` (any NLLSsolver
 variables — Core [`Manifold`](@ref)s, `SVector`s, [`Eliminable`](@ref)s — of one type or several) and the residual
@@ -390,6 +390,11 @@ allow it), and kept: a later solve on the same structure (a RANSAC refit's bundl
 `p.variables` is the problem's variable vector: set the start in place before a solve, read the solution after it
 (NLLSsolver swaps its buffers, so read it through `p`, never through a saved reference). `p.blocks` are the blocks;
 the residual statistics of a solve are [`nlls_rows_and_jacobian`](@ref)`(p.blocks, p.variables)`.
+
+`fixed` holds variables: the indices into `variables` (an `Integer` or a collection of them) of those the solve keeps
+as constants the blocks read (NLLSsolver's unfixed mask); the stationarity postcondition reads the free variables'
+columns only. `nothing` (the default) holds none, the problem as without the keyword, bit for bit. An index outside
+`variables`, or every variable held, is an `ArgumentError`.
 """
 struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     problem::P
@@ -404,7 +409,7 @@ struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     w::Vector{Float64}
     free::BitVector
 end
-function LmProblem(variables::AbstractVector, blocks::AbstractVector)
+function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing)
     isempty(variables) && throw(ArgumentError("LmProblem: no variables"))
     isempty(blocks) && throw(ArgumentError("LmProblem: no residual blocks"))
     VT = _element_union(variables)
@@ -417,13 +422,26 @@ function LmProblem(variables::AbstractVector, blocks::AbstractVector)
     for b in bl
         NLLSsolver.addcost!(problem, b)
     end
-    return _lm_problem(problem, bl, nothing)
+    return _lm_problem(problem, bl, _unfixed(fixed, length(variables)))
+end
+# NLLSsolver's unfixed mask of `fixed` (indices into the variables): `nothing` when none is held.
+_unfixed(::Nothing, n) = nothing
+_unfixed(fixed::Union{Symbol, AbstractString}, n) =
+    throw(ArgumentError("LmProblem: fixed holds $(repr(fixed)): the variables are positional, fixed names their indices"))
+function _unfixed(fixed, n)
+    free = trues(n)
+    for i in fixed
+        i isa Integer && 1 <= i <= n || throw(ArgumentError("LmProblem: fixed holds $(repr(i)), not an index of the $n variables"))
+        free[i] = false
+    end
+    any(free) || throw(ArgumentError("LmProblem: every variable is fixed: nothing to solve"))
+    return free
 end
 # The element type a vector's values need: its own when concrete, else the union of the values' types (a camera
 # chart and pose charts; a pose and N points).
 _element_union(xs::AbstractVector) = isconcretetype(eltype(xs)) ? eltype(xs) : Union{unique(typeof.(xs))...}
 function _lm_problem(problem, blocks, unfixed)
-    free = trues(length(problem.variables))
+    free = unfixed === nothing ? trues(length(problem.variables)) : BitVector(unfixed)
     offsets = _free_offsets(problem.variables, free)
     return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), unfixed), blocks, unfixed,
         offsets, zeros(offsets[end]), zeros(offsets[end]), free)

@@ -61,19 +61,19 @@ end
 
 Convert a third-party OpenCV calibration export (`calibration_opencv_*.json`:
 `fx, fy, cx, cy`, named distortion coefficients, `rms`, one `{rvec, tvec}` per
-image) into native files (cameras v5, transforms v4), where everything the export leaves implicit is
+image) into native files (a `vgio/cameras` store, a `vgio/transforms` file), where everything the export leaves implicit is
 declared. The original is never touched. Written to `out`:
 
-- `<stem>_cameras.json` — a `vgio/cameras/v5` store holding one camera named
-  `<stem>`: `width`/`height` from `image_size`, `K` in the canonical pixel
+- `<stem>_cameras.json` — a `vgio/cameras` store holding one camera named
+  `<stem>`: its `image_size` from `image_size`, `K` in the canonical pixel
   frame, and the lens record of `opencv_lens` for the export's distortion
   vector (the terms its length evaluates). The export's reprojection
   statistic is its `provenance` (`reprojection_error`, `error_statistic =
   "rms"`, `source = "opencv"`, `migrated_from`).
-- `<stem>_poses.json` — a `vgio/transforms/v4` file, one record per image the
+- `<stem>_poses.json` — a `vgio/transforms` file, one record per image the
   solver posed, NAMED by that image: `from = "target:<target>"`, `to =
   "view:<image>"` — the target in the camera frame of that view, `x_view = R
-  x_target + t`, in the export's tvec unit (declared as its `length_unit`). An image whose pose the export has as `null`
+  x_target + t`, in the export's tvec unit (declared as its `units.length`). An image whose pose the export has as `null`
   has no record.
 
 `images` is REQUIRED — one unique, non-empty name per entry of the export's
@@ -313,8 +313,8 @@ earlier version; the reader of a schema owner's kind calls it before it reads
 a file, so an old file loads as the current version. An `ArgumentError` for a
 step that does not move the version, and whatever a step refuses.
 
-A `vgio/cameras/v1` record, carried to the current version by the v1, v2 and
-v3 steps:
+A `vgio/cameras/v1` record, carried to the current version by the v1 … v5
+steps:
 
 ```jldoctest
 julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
@@ -325,7 +325,7 @@ julia> v1 = Dict("schema" => "vgio/cameras/v1", "cameras" => [Dict(
            "lens" => Dict("model" => "KannalaBrandt", "params" => [0.1, -0.02, 0.003, -0.0004]))]);
 
 julia> VgtkIO.migrate_record(v1)["schema"]
-"vgio/cameras/v5"
+"vgio/cameras/v6.0"
 ```
 """
 function migrate_record(tree::AbstractDict)
@@ -1468,13 +1468,12 @@ migrate_schema(::Val{Symbol("vgio/units/v2")}, src::AbstractString, dst::Abstrac
 # name: a future step that changes an identity must add its arm, so any other
 # version is refused.
 function _old_rig_ids(s, old, value)
-    v09 = _v09_id(value)
     if s == "vgio/rig/v4"
-        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old), v09])
+        return unique!([_rig_v4_id(old), _rig_v4_id_mm(value, old), _v09_id(value)])
     elseif s in ("vgio/rig/v5", "vgio/rig/v6", "vgio/rig/v7", "vgio/rig/v8")
-        return unique!([_v5_id(old, value), v09])
+        return unique!([_v5_id(old, value), _v09_id(value)])
     elseif s == "vgio/rig/v9"
-        return [v09]
+        return [_v09_id(value)]
     else
         throw(ArgumentError("the identities a $(s) rig was named by are not known: a rig version's step that migrates it states them here"))
     end

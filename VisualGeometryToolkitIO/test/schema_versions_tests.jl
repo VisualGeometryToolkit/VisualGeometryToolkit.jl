@@ -200,19 +200,19 @@ end
     end
 end
 
-@testitem "schema versions: measurements naming an old rig's identity resolve against its file" setup = [VGIoFixtures, OldVersions, MigrateFixtures] begin
+@testitem "schema versions: observations naming an old rig's identity resolve against its file" setup = [VGIoFixtures, OldVersions, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: TargetPoints2D, PixelFrame
+    using VisualGeometryToolkitCore: TargetObservations, PixelFrame
     mktempdir() do dir
         rig = old_copy(dir, "rig_targets.json", as_v4_rig)
-        obs = load(TargetPoints2D, as_v4_measurements(dir))                       # naming the v4 identity
+        obs = load(TargetObservations, as_v4_measurements(dir))                       # naming the v4 identity
         @test only(obs.targets) == V4_ID != VgtkIO.content_id(rig) == current_id()
         a = joinpath(dir, "a.json")
         save_correspondences(a, obs, rig)
         b = joinpath(dir, "b.json")
-        save_correspondences(b, load(TargetPoints2D, units_fixture("target_points2d.json")), units_fixture("rig_targets.json"))
+        save_correspondences(b, load(TargetObservations, units_fixture("target_points2d.json")), units_fixture("rig_targets.json"))
         @test read(a, String) == read(b, String)
-        @test_throws ArgumentError save_correspondences(joinpath(dir, "c.json"), obs, units_fixture("rig_targets.json"))   # the current file has no old identity
+        @test_throws ArgumentError save_correspondences(joinpath(dir, "c.json"), obs, units_fixture("rig_targets.json"))   # the 0.9 file was never named by the v4 identity
     end
 end
 

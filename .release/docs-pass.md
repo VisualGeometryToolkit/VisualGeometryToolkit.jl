@@ -1,7 +1,7 @@
-docs-pass: 49bd5f38
+docs-pass: 80b9fb45
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 -> 6674c98 prepared locally (/raid/data/jpr/vgtk-landing-wave113, branch wave-113: "The packages require Julia 1.13"; not pushed)
 
-# Wave 10 docs pass: VisualGeometryToolkitIO 0.10.0 (julia-docs-pass) — branch w10-io10-docs 49bd5f38 (w10-io10 f698442e merged)
+# Wave 10 docs pass: VisualGeometryToolkitIO 0.10.0 (julia-docs-pass) — branch w10-io10-docs 80b9fb45 (w10-io10 0d6e90e5 merged)
 
 The IO breaking wave (specs/2026-11-13-io-breaking-wave.md): one envelope (`schema`, `generator`, one `units` object, one
 `conventions` object), every kind a new major `v<M>.<m>`, the observation kind, the detection / sensor_noise /
@@ -34,9 +34,9 @@ Baseline: the IO 0.9.3 docs pass (7c550857). Julia 1.13.3, dev jobs on dgx01 (2 
 
 | run | result |
 |---|---|
-| `docs/make.jl` strict (checkdocs = :public, doctest, linkcheck, no warnonly), job 12873 on 1554774a (= 49bd5f38's content) | BUILD OK |
-| test items README, docs, agent docs (12807, before the merge) | 22/22 |
-| test items README, docs, agent docs, json_schema, quality (12878, 49bd5f38) | see the io10 report |
+| `docs/make.jl` strict (checkdocs = :public, doctest, linkcheck, no warnonly) + Core's `test_docs`, job 13003, a detached clone of 80b9fb45 | BUILD OK; undocumented 0, detached 0, mismatches 0 |
+| test items README, docs, agent docs, panorama, json_schema (13004, the same clone) | 443/443 |
+| quality items (12878, 49bd5f38; not this slice's) | naming: R9 retired names in test/ only (calibration_manifest, covariance_storage, units_roundtrip, v2_validation tests); Aqua: JSON.lift ambiguities (tests slice fixing core_json.jl); ExplicitImports: `Base.unwrap_unionall` (migrate.jl:286, `schema_versions`); JET 10 > 0 |
 
 ## 4. Open
 

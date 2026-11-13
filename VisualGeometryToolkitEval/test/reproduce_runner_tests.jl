@@ -962,3 +962,49 @@ end
         @test read(joinpath(tree, "proj", "paper", "fig", "a.png")) == UInt8[1, 2, 4]
     end
 end
+
+# `code_trees` runs git several times per path; a driver asks before every cell. It answers once per process while
+# nothing git reads changed, and a change — an edit, an untracked or deleted file, a commit, a staging, in the project
+# or in a package it loads from a path — is seen at once.
+@testitem "code_trees: once per process while nothing changed, every change seen" begin
+    using Test
+    using VisualGeometryToolkitEval: code_trees
+    git(dir, args...) = run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+    pkg = mktempdir(); git(pkg, "init", "-q")
+    mkpath(joinpath(pkg, "src")); write(joinpath(pkg, "src", "P.jl"), "module P end\n")
+    write(joinpath(pkg, "Project.toml"), "name = \"P\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+    git(pkg, "add", "-A"); git(pkg, "commit", "-q", "-m", "p")
+    repo = mktempdir(); git(repo, "init", "-q")
+    mkpath(joinpath(repo, "src")); write(joinpath(repo, "src", "a.jl"), "a\n")
+    write(joinpath(repo, "Project.toml"), "[deps]\nP = \"00000000-0000-0000-0000-000000000001\"\n")
+    write(joinpath(repo, "Manifest.toml"), "manifest_format = \"2.0\"\n[[deps.P]]\npath = \"$pkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "r")
+    # a git that counts its runs, first on PATH
+    bin = mktempdir(); calls = joinpath(bin, "calls")
+    write(joinpath(bin, "git"), "#!/bin/sh\necho x >> '$calls'\nexec '$(Sys.which("git"))' \"\$@\"\n"); chmod(joinpath(bin, "git"), 0o755)
+    ran() = isfile(calls) ? countlines(calls) : 0
+    withenv("PATH" => bin * ":" * ENV["PATH"]) do
+        a = code_trees(repo)
+        @test ran() > 0 && isempty(a.dirty) && sort(collect(keys(a.trees))) == ["P", "src"]
+        n = ran()
+        @test code_trees(repo) == a && ran() == n                                   # nothing changed: no git
+        write(joinpath(repo, "src", "a.jl"), "b\n")                                 # an edit
+        @test code_trees(repo).dirty == ["src"] && ran() > n
+        n = ran(); @test code_trees(repo).dirty == ["src"] && ran() == n
+        git(repo, "commit", "-qam", "edit")                                         # committed: clean, another tree
+        c = code_trees(repo)
+        @test isempty(c.dirty) && c.trees["src"] != a.trees["src"]
+        write(joinpath(pkg, "src", "new.jl"), "x\n")                                # untracked, in a package's src
+        @test code_trees(repo).dirty == ["P"]
+        rm(joinpath(pkg, "src", "new.jl"))
+        @test code_trees(repo) == c
+        git(pkg, "rm", "-q", "--cached", "src/P.jl")                                # the index alone changes
+        @test code_trees(repo).dirty == ["P"]
+        git(pkg, "add", "src/P.jl")
+        @test code_trees(repo) == c
+        write(joinpath(pkg, "src", "P.jl"), "module P\nf() = 1\nend\n"); git(pkg, "commit", "-qam", "f")
+        @test isempty(code_trees(repo).dirty) && code_trees(repo).trees["P"] != c.trees["P"]
+        git(repo, "checkout", "-q", "HEAD~1")                                       # a checkout
+        @test code_trees(repo).trees["src"] == a.trees["src"]
+    end
+end

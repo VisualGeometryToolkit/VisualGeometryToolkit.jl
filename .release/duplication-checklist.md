@@ -40,3 +40,11 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
   Estimation refine_camera.jl:178/182, found BEFORE (job 14318: 2 findings), gone against Estimation 0.10.3 with RC
   unchanged (job 14319: 0) and AFTER RC's change (job 14322: 0): docs-pass.md, verbatim.
 - [x] check_duplication: 0 findings on all six (gate prep 14112).
+
+## Core 0.9.8 (patch-core098): one device-capacity query, 2026-11-13
+
+- [x] ONE count of a kernel's resident threads: `device_resident_threads` (base/device.jl), one method per backend of
+  `_resident_threads` (the host's threads; the CUDA extension's compiled-kernel occupancy), no `isa` branch; a device
+  query, so `check_duplication` leaves its methods per backend alone (`_TRANSFER_NAMES`), a compute function's still not
+  (tested).
+- [x] check_duplication: 0 findings on all six (gate prep 14548).

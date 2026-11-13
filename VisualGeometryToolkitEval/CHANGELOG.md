@@ -1,5 +1,22 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.7.3 (unreleased)
+
+A patch: a bug fix in the reproduce runner, no API change.
+
+- **Fixed: a stage is no longer reused after a stage it runs after reruns.** A stage's run key hashed its own files,
+  items, environment and command, never its upstream stages', and the reuse clearing skipped completed stages. So after
+  a change to stage A's config, A reran but a stage B after it (its own files unchanged) was "reused (completed
+  earlier)", its results computed from A's old output. Now a stage's key folds in the key of each stage it runs after:
+  that stage's key in this launch, or, for one the launch does not run (`--no-deps`), the key of its last completed
+  run, whose output the stage reads. So the fold is transitive, and launches of one stage at a time are covered in any
+  order. A stage whose upstream this launch runs again is never reused, completed or in flight.
+- **Existing run manifests** (`<results root>/_reproduce/*.toml`) are read as before; nothing is migrated. A stage
+  with no `after` keeps its 0.7.2 key and is still reused. Every stage that runs after another gets a new key, so the
+  first launch under 0.7.3 reruns it once (its results are rewritten, the same when its inputs were current). In a
+  project whose environment loads VisualGeometryToolkitEval (the usual case), the upgrade also changes Eval's recorded
+  code tree, and that first launch reruns every stage, "code changed" naming it, as after any Eval release.
+
 ## 0.7.2 (unreleased)
 
 A patch: no API change.

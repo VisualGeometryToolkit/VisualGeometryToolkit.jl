@@ -1,5 +1,16 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.10.2 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.6 (`[compat]` VisualGeometryToolkitCore "0.9.6"). No API change; no result
+changes.
+
+- **Internal: `refine_camera`'s lens regression reduces its partial sums through Core's `reduce_normal_equations` and
+  `reduce_cost`** (VisualGeometryToolkitCore 0.9.6), the one copy of that unpack; its hand-written copy is deleted. The
+  same bits (tested against the deleted unpack).
+- Core 0.9.6's `axis_gauged` fix (a posed `BoundedCamera` now turns its pose) changes nothing here: `fit_camera(SplineLens, …)`
+  and the SplineLens `refine_camera_and_poses` gauge unposed cameras only, which come back identical.
+
 ## 0.10.1 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; no result changes.

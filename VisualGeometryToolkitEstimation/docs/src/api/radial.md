@@ -135,12 +135,14 @@ Three verbs regress one camera model onto a source camera over a region of its s
 - `refine_camera(guess, source, region; …)` is the chart LM from a guess to the exact pixel least-squares minimum of
   the guess's family (for a SplineLens source also its principal point, aspect and axis).
 - `approximate_camera(L, source, region; …)` is the two: `refine_camera(estimate(fit_camera(L, source, region)), source, region)`,
-  a family with no linear form starting from its anchor.
+  a family with no linear form starting from its anchor. A bounded source is fitted over `region ∩ imaged_region(source)`:
+  no sample where the camera images nothing.
 
 A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
-`optical_axis(camera::BoundedCamera)` is the one `approximate_camera` call that finds the lens's optical axis: the closest
-radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out), with its
-principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
+`optical_axis(camera::BoundedCamera[, region])` is the one `approximate_camera` call that finds the lens's optical axis: the
+closest radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out),
+or over a given image region within it (a target's rectangle: the pixels whose rays are measured), with its principal
+point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
 `fit_forward_spline(camera; tolerance)` gives a SplineLens camera its forward spline and keeps everything else — its

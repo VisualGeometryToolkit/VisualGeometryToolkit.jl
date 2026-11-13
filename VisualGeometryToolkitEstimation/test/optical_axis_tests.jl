@@ -194,3 +194,19 @@ end
         VC.reset_default_device!()
     end
 end
+
+# The axis family's radial order is a configurable literal (configs/default.toml [optical_axis] radial_terms, read once):
+# 4 terms, θ³…θ⁹, the owner's ruling of 2026-11-13 from the order study (~/logs/dgx-agent/wave10/optical-axis-order.md:
+# the smallest order whose principal point is within ½σ of 6 terms' on every converging RC camera, cond(J) 47–160×
+# lower). Until 0.11.0 it was Fisheye624's 6 (θ³…θ¹³).
+@testitem "optical_axis: the axis family's radial order is the config's (4 terms)" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, Lens, Equidistant, Additive, Tangential, ThinPrism, Radial, estimate,
+        lens, parameter_names, with_lens_coverage
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, optical_axis
+    n = VE._dflt("optical_axis", "radial_terms")
+    @test n == 4
+    @test VE._AXIS_FAMILY === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
+    names = parameter_names(lens(estimate(optical_axis(with_lens_coverage(OFF_BOUNDED, DISC)))))
+    @test :k4 in names && !(:k5 in names)
+end

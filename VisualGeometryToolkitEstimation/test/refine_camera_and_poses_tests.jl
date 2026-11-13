@@ -296,7 +296,7 @@ end
         @test retcode_symbol(r) === :converged && err(r) < 0.4 && r.scale == 0.2
     end
     # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs;
-    # the record is the LM's own (NLLSsolver's bits, Core's nlls_termination), its iteration cap included
+    # the record is the LM's own (NLLSsolver's bits under Core's one success rule), its iteration cap included
     @test_throws r"Triggs\{HuberShape\}" refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Irls{HuberShape}(), scale = 0.2)
     @test retcode_symbol(refine_camera_and_poses(cam1, poses1, noisy; optimization_strategy = Triggs{HuberShape}(), scale = 0.2, max_iter = 1)) ===
         :max_iterations

@@ -24,8 +24,8 @@
 # accepted step; each correspondence is one residual block of 2 rows, depending
 # on the camera and its view's pose (on the pose alone with nothing free in the
 # camera), differentiated by NLLSsolver (ForwardDiff through the retractions and
-# the lens). The driver is VGC's `nlls_options` (Marquardt's DᵀD damping); the
-# stop is recorded by VGC's `nlls_termination`, under the stall postcondition on the rows and
+# the lens). The driver is Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`, Marquardt's DᵀD damping, its
+# stop settings `LmStops`); the stop is recorded under its one success rule, the stall postcondition on the rows and
 # their Jacobian at the estimate.
 #
 # Hoisted from RadiometricCamera's experiments (`refine_lens_and_poses`,
@@ -212,7 +212,7 @@ scratch and the camera keeps its family (its lens type).
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
 each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
-VisualGeometryToolkitCore's `nlls_termination`: `ReturnCode.Success` only at a stationary point, else `MaxIters`
+VisualGeometryToolkitCore's one LM (`lmsolve_chart!`): `ReturnCode.Success` only at a stationary point, else `MaxIters`
 (the iteration cap), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
 `Stalled`; `rms` is
 `√(Σ‖rᵢ‖² / n)` over the `n` correspondences (pixels). The metadata
@@ -529,38 +529,27 @@ end
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
 # loop.jl: under least squares every correspondence and √(S/n)).
 function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer, kw)
-    lo, loss, ftol = kw.lo, kw.loss, kw.ftol
+    lo, loss = kw.lo, kw.loss
     RT = Union{unique(typeof.(blocks))...}
     costs = convert(Vector{RT}, blocks)
     n = length(costs)
-    VT = eltype(vars0)
-    options = nlls_options(; max_iter = kw.max_iter, ftol, xtol = kw.xtol, max_time = kw.max_time)
-    function solve(blocks, start)
-        RTb = Union{unique(typeof.(blocks))...}
-        pr = NLLSsolver.NLLSProblem(VT, RTb)
-        foreach(x -> NLLSsolver.addvariable!(pr, x), start)
-        foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
-        return pr, NLLSsolver.optimize!(pr, options)
-    end
-    stationarity_blocks = costs
+    # Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`) at the bundle's own stop settings (its keywords, read from
+    # [refine_camera_and_poses]); its record is Core's one success rule (the √ρ′-weighted stationarity postcondition)
+    stops = LmStops(; max_iter = kw.max_iter, ftol = kw.ftol, xtol = kw.xtol, max_time = kw.max_time)
     if lo === nothing
-        problem, result = solve(costs, vars0)
-        weights = unit_weights(Float64, n)
+        lp = LmProblem(copy(vars0), costs)
     else
         shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
-        sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
-        problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(vars0))
-        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′/ρ′(0) (exactly as the stationarity rows read it)
-        # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
-        stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
+        lp = LmProblem(copy(vars0), [_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs])
     end
-    r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    # the termination record: NLLSsolver's bits under the stall postcondition at the returned point
-    code, rule = nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
-    lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
+    sol = lmsolve_chart!(lp, stops)
+    variables = lp.variables
+    r = first(nlls_rows_and_jacobian(costs, variables))   # the reprojection rows themselves
+    weights = lo === nothing ? unit_weights(Float64, n) :
+        _loss_weights(shape, sq, [r[2k - 1]^2 + r[2k]^2 for k in 1:n])   # ρ′/ρ′(0) at the estimate
     S = sum(abs2, r)
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
-    return (; variables = problem.variables, code, rule, iterations = result.niterations, residuals = r, S, ν = 2n - p, rms, n = support, weights)
+    return (; variables, sol.code, sol.rule, sol.iterations, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
 _bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
     _row_norms(sol.residuals), sol.weights, _recorded_scale(kw.input), VgtkCore.scale_source(kw.input),

@@ -86,11 +86,10 @@ record `family`, a `NamedTuple`, and:
 
 The family records:
 
-- a lens family: `(; focal_scale, aspect, θ_max, θ_source, clipped)`. These are the
+- a lens family: `(; focal_scale, aspect, θ_max, θ_source)`. These are the
   joint focal rescale `s`, the aspect `fy′/fy` (1 for a physical `K` and for a
-  linear fit), the fitted and the source's angular domains (radians), and whether
-  the region reached past the radii the source images (its domain then the
-  source's own). The errors are at the quadrature's
+  linear fit) and the fitted and the source's angular domains (radians); a region
+  past the radii the source images is refused at entry, never clipped. The errors are at the quadrature's
   samples;
 - `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
   n_held_out_dropped, tolerance, forward)`, `forward` being `(; spacing, counts, λ,
@@ -151,7 +150,8 @@ const _REGION_AZIMUTHS = 720
 The camera model of type `T` regressed onto `source` over `region`, a region of
 the source's sensor in its pixel frame (an [`imaged_region`](@extref
 `VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera}`), an `Ellipse`, a `Rect`, their `∩`;
-bounded), by ONE linear least squares — a fit has no guess. The objective is the
+bounded, and inside the source's calibrated support — the keyword `support`, its `valid_domain` by default, or a
+re-gridded camera's calibration's — else Core's `RegionBeyondSupport` at entry), by ONE linear least squares — a fit has no guess. The objective is the
 integrated squared pixel error of the round trip, `∫ ‖π_T(π⁻¹_source(u)) − u‖² du`
 over the region. The target type selects the family and the solve:
 
@@ -182,9 +182,9 @@ over the region. The target type selects the family and the solve:
     region reduces exactly to one over `θ`, with the density weighted by the fraction of
     each radius's circle about the principal point that lies in the region (the region
     must be star-shaped about the principal point, as a convex one containing it is).
-    The domain is the region's farthest radius, capped by the source's own view-angle
-    limit — a region reaching past the radii the source images is `clipped` and warned (its
-    domain is then the source's own). A region reaching past the TARGET family's view-angle
+    The domain is the region's farthest radius. A region reaching past the radii the
+    source images reaches past its `valid_domain` and is refused at entry (Core's
+    `RegionBeyondSupport`), never clipped (0.11.0; it was clipped with a warning). A region reaching past the TARGET family's view-angle
     limit (Core's `view_angle_limit`: a gnomonic family applies its distortion on the
     perspective plane, which ends at 90°) is a [`ViewAngleLimitError`](@ref) (the region's angle and the limit in its fields): the family cannot represent
     the source there, and it is never fitted over a clipped field. (The region's extent is measured along 720 azimuths: a corner between
@@ -316,20 +316,27 @@ _linear_form(::Type) = _NoLinearForm()
 
 function fit_camera(
         ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
     _refuse_held_spellings(free, fix, fixed_params, hold)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard: no fit over an extrapolated model
     return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed, device)
 end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function fit_camera(
         target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
     return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed, device)
 end
-fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), region; kwargs...)
+# A bounded source: the caller's region checked against the source's support (Core's guard, never clipped past it), then
+# fitted over its part the camera images (`_imaged_part`, refine_camera.jl: inside the support, so the model's check holds).
+fit_camera(target::AbstractLensModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
+    fit_camera(target, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "fit_camera")); kwargs...)
 fit_camera(target::AbstractLensModel, source::NoncentralSplineModel, region; kwargs...) = fit_camera(typeof(target), source, region; kwargs...)
 
 function _checked_linear_form(::Type{L}) where {L}
@@ -374,8 +381,9 @@ function _domain_cap(::Type{L}, fitted, ok::Bool, θ_max) where {L}
     θend = ok ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
     return L <: LiftLens || θend < θ_max - 1.0e-6 ? θend : Inf
 end
-# A bounded camera's model is the source (its image does not enter: the region bounds the fit).
-fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = fit_camera(L, model(source), region; kwargs...)
+# A bounded camera's model is the source, over the part of the region it images (`_imaged_part`, refine_camera.jl).
+fit_camera(::Type{L}, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) where {L <: AbstractLensModel} =
+    fit_camera(L, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "fit_camera")); kwargs...)
 fit_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
     ArgumentError("fit_camera($L, …): a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
@@ -398,7 +406,7 @@ function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, (code, rule):
         out, code, rule, iters, rms_px, length(pr.rays),
         CameraFitMetadata(
             region, weight, maximum(residuals), maximum(residuals[edge]),
-            (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source, pr.clipped),
+            (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source),
             _source_to_fitted(fit.R), _symmetry_residual(role, e, map(y -> M * (y - δ), pr.points), w), residuals,
         )
     )
@@ -580,20 +588,18 @@ function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, 
     exits = map(k -> VgtkCore.farthest_radius(region, pp, A * SVector(cospi(2 * (k - 0.5) / _REGION_AZIMUTHS), sinpi(2 * (k - 0.5) / _REGION_AZIMUTHS))),
                 1:_REGION_AZIMUTHS)
     ρmax = maximum(exits)
-    # past the source's fold (its profile's largest radius) the region's farthest
-    # radius has no view angle: the domain is the source's own, and the region is cut
+    # the region's farthest radius has a view angle: a region past the source's fold (its profile's largest radius)
+    # reaches past its valid domain and was refused at the fit's entry (Core's `check_region_support`); never clipped
     θ_region = Float64(view_angle(srcr, ρmax))
-    past_source = !isfinite(θ_region)
-    θ_source = past_source ? Float64(view_angle_limit(srcr)) : min(Float64(view_angle_limit(srcr)), θ_region)
-    past_source && @warn "fit_camera: the region reaches past the radii the source $(nameof(typeof(src))) images — fitting θ ∈ [0, $(round(rad2deg(θ_source); digits = 1))°], the source's own domain"
-    θ_max, cut = _family_domain(L, θ_source)
-    clipped = past_source || cut
+    isfinite(θ_region) || throw(VgtkCore.RegionBeyondSupport("fit_camera", region, VgtkCore.valid_domain(source)))
+    θ_source = min(Float64(view_angle_limit(srcr)), θ_region)
+    θ_max = _family_domain(L, θ_source)
 
     θs, qs, rA, dens = _forward_samples(srcr, float(θ_max), _PROFILE_NODES, weight)
     w = qs .* (dens .* map(r -> _coverage(exits, r), rA))
     rays = map(θ -> SVector(sin(θ), 0.0, cos(θ)), θs)
     points = map(r -> SVector(r, 0.0), rA)
-    return (; rays, angles = θs, points, w, rA, θ_max, θ_source, clipped, r_edge = rA[end])
+    return (; rays, angles = θs, points, w, rA, θ_max, θ_source, r_edge = rA[end])
 end
 
 # A GAUGE K (a SplineLens camera): its K is a choice of the normalized plane, so its lens has no radial profile of its
@@ -610,11 +616,11 @@ function _profile_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source,
     q = _image_quadrature(source, region; device)   # the expensive step: every pixel back-projected, on `device`
     θ_all = map(r -> angle_between(r, SVector(0.0, 0.0, 1.0)), q.fit_rays)   # the ray's off-axis angle, the stack's one angle
     θ_source = maximum(θ_all)
-    θ_max, clipped = _family_domain(L, θ_source)
+    θ_max = _family_domain(L, θ_source)
     keep = findall(<=(θ_max), θ_all)
     points = _normalized_points(source.intrinsics, q.fit_px[keep])
     rA = map(norm, points)
-    return (; rays = q.fit_rays[keep], angles = θ_all[keep], points, w = fill(1 / length(keep), length(keep)), rA, θ_max, θ_source, clipped, r_edge = maximum(rA))
+    return (; rays = q.fit_rays[keep], angles = θ_all[keep], points, w = fill(1 / length(keep), length(keep)), rA, θ_max, θ_source, r_edge = maximum(rA))
 end
 
 # The rotation from the source's camera frame to the fitted camera's, frame-labelled (`ViewFrame{:source}` →
@@ -702,14 +708,12 @@ _target_anchor(::Type{L}) where {L <: Lens{<:DoubleSphere}} = (z = zero(L); Lens
 # The fitted domain of the target family `L` on a source's domain [0, θ_source]: the source's, which must lie inside
 # the family's own view-angle limit (`_family_limit`, Core's `view_angle_limit`). A region reaching past it is refused,
 # never fitted over a clipped field: no family represents the source where it images nothing. The hard limit only, no
-# margin (near a limit the fit is ill-conditioned: the caller's choice of region). Whether it cut the source's domain
-# is always `false` now (a field the region reaches past the source's own radii is `_profile_samples`' cut).
+# margin (near a limit the fit is ill-conditioned: the caller's choice of region).
 function _family_domain(::Type{L}, θ_source) where {L}
     limit = _family_limit(L)
     θ_source <= limit || throw(ViewAngleLimitError(L, Float64(θ_source), Float64(limit)))
-    θ_max = θ_source
-    θ_max > 0.02 || throw(ArgumentError("fit_camera: empty fit domain (θ_max = $θ_max)"))
-    return θ_max, false
+    θ_source > 0.02 || throw(ArgumentError("fit_camera: empty fit domain (θ_max = $θ_source)"))
+    return θ_source
 end
 """
     ViewAngleLimitError <: Exception
@@ -1032,7 +1036,7 @@ _grid_metadata(r, g, extra::NamedTuple) = CameraFitMetadata(
 )
 
 """
-    pspline_grid(T, source, region, grid_size; device = default_device()) -> FitResult{<:model of T, CameraFitMetadata}
+    pspline_grid(T, source, region, grid_size; device = default_device(), support = valid_domain(source)) -> FitResult{<:model of T, CameraFitMetadata}
 
 The P-spline (penalized B-spline least squares, Eilers–Marx) of a spline
 camera's lattice onto `source` over `region`, on the GIVEN lattice: `T` is
@@ -1060,8 +1064,10 @@ n_held_out_dropped, …)` with `grid_size` the lattice's `(columns, rows)`, as
 `fit_camera` reports it, and no `tolerance` or `outer_iterations`.
 """
 function pspline_grid(
-        ::Type{G}, source, region, grid_size::Tuple{Integer, Integer}; device = default_device()
+        ::Type{G}, source, region, grid_size::Tuple{Integer, Integer}; device = default_device(),
+        support = source isa BoundedCamera ? VgtkCore.valid_domain(source) : nothing
     ) where {G <: Union{SplineLens, NoncentralSplineModel}}
+    support === nothing || VgtkCore.check_region_support(support, region; who = "pspline_grid")   # Core's one guard (a bounded source)
     g = _grid_data(G, source, region, device)
     r = _pspline_grid(G, g, grid_size)
     return FitResult(r.fitted, ReturnCode.Success, ClosedForm, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
@@ -1126,7 +1132,7 @@ _grid_errors(fitted::CameraModel, held, _) = (_held_out_errors(_direction_errors
 # line far away or never.
 
 """
-    fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing)
+    fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing, support = valid_domain(source))
         -> FitResult{<:NoncentralSplineModel, CameraFitMetadata}
 
 See [`fit_camera`](@ref): the non-central spline model's direction and point
@@ -1134,9 +1140,11 @@ splines on one lattice, from one penalized solve.
 """
 function fit_camera(
         ::Type{NoncentralSplineModel}, source, region;
-        tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, device = default_device()
+        tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, device = default_device(),
+        support = source isa BoundedCamera ? VgtkCore.valid_domain(source) : nothing
     )
     _check_tolerance(tolerance)
+    support === nothing || VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard (a bounded source)
     g = _grid_data(NoncentralSplineModel, source, region, device)
     r, code, n = _backward_search(NoncentralSplineModel, g, grid_size, tolerance)
     return FitResult(
@@ -1240,9 +1248,10 @@ end
 function fit_camera(
         ::Type{SplineLens}, source::BoundedCamera, region;
         tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, forward::Bool = true,
-        device = default_device()
+        device = default_device(), support = VgtkCore.valid_domain(source)
     )
     _check_tolerance(tolerance)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
     gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the later on a tie

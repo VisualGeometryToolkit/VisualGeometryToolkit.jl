@@ -381,9 +381,13 @@ end
     # at n = 4, 40, 400, 4000, the postcondition 0 throughout), so the sizes compared are the two past it.
     @test c[2].solve == c[3].solve
     u = [counts(n; build = two_types) for n in (40, 400, 4000)]
-    # the postcondition allocates nothing for two block types either; the solve's own count is NLLSsolver's (job 14076:
-    # 35 and 37 at n = 400 and 4000 with two block types, the postcondition 0), compared above on one type only
     @test all(x -> x.code === ReturnCode.Success && x.postcondition == 0, u)
+    # and the two-type solve does not grow from n = 400 to 4000 beyond NLLSsolver's own constant. Measured in job 14076:
+    # 35 and 37 allocations, with the postcondition at 0 in both. So the whole difference of 2 is NLLSsolver's, and
+    # NLLSSOLVER_GROWTH = 2 is that difference. A per-block or per-variable allocation in our code adds at least
+    # 3600 here (n grows by 3600).
+    NLLSSOLVER_GROWTH = 2
+    @test u[3].solve - u[2].solve <= NLLSSOLVER_GROWTH
 end
 
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same

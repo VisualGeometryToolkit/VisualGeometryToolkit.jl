@@ -422,7 +422,7 @@ end
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
         run(pipeline(`git -C $(f.repo) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam precompile`; stdout = devnull))
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0 && occursin(r"setup\s+101  \(precompile, CPU only\)", out)
         l = readlines(sb)
         @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1]) && occursin("Pkg.precompile()", l[1])
@@ -589,7 +589,7 @@ end
         # on Slurm the marker wrapper loops: run here as the job of task 1, it runs both values and writes the marker
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0
         wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
         n = length(readlines(joinpath(f.results, "ran.txt")))

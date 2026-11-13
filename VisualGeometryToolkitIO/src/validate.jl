@@ -392,7 +392,7 @@ _package_id(m::Module) = (name = String(nameof(m)), version = string(something(p
 function _generator_json()
     g = _package_id(@__MODULE__)
     c = _CALLER[]
-    return c === nothing || c === @__MODULE__ ? g : merge(g, (caller = _package_id(c),))
+    return (c === nothing || c === (@__MODULE__)) ? g : merge(g, (caller = _package_id(c),))
 end
 
 # The envelope a writer puts before a body of `kind` (or the schema string

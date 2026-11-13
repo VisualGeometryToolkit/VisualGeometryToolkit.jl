@@ -13,8 +13,8 @@
         @test sort(collect(keys(files))) == sort(KINDS)
         # every kind of a VGC value has a file here (not: units, the COLMAP sidecar's; calibration, the manifest of a
         # directory, calibration_manifest_tests.jl; the kinds of io10-kinds' own tests: detection, sensor_noise, panorama,
-        # radial_profile)
-        @test setdiff(keys(VgtkIO._SCHEMA_VERSION), ["units", "calibration", "detection", "sensor_noise", "panorama", "radial_profile"]) ⊆ KINDS
+        # radial_profile, raster)
+        @test setdiff(keys(VgtkIO._SCHEMA_VERSION), ["units", "calibration", "detection", "sensor_noise", "panorama", "radial_profile", "raster"]) ⊆ KINDS
         for (kind, (p, _, _)) in files
             d = JSON.parse(read(p, String))                     # (key order kept)
             @test collect(keys(d))[1:4] == ["schema", "generator", "units", "conventions"]

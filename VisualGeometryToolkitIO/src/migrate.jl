@@ -1332,7 +1332,7 @@ function _current_camera_body(s::VgioStyle, b)
     (b isa AbstractDict && haskey(b, :width)) || return s, b      # a current body
     return s, _parse_vgio_text(JSON.json(_camera_body_v010(_lower(b))), "an IO 0.9 camera body")
 end
-_with_pixel_frame(s::VgioStyle{U, F, C}, G::Type{<:PixelFrame}) where {U, F, C} = VgioStyle{U, G, C}(s.length_unit, s.contract)
+_with_pixel_frame(s::VgioStyle{U, F, C}, G::Type{<:PixelFrame}) where {U, F, C} = VgioStyle{U, G, C}(s.length_unit, s.contract, s.charts)
 # …as the vgio/cameras record of its one camera, named after the file (`fisheye_14mm.json` → `fisheye_14mm`;
 # `d` parsed, so the reader meets what a store file holds).
 function _central_grid_store(d, path)

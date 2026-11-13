@@ -194,50 +194,54 @@
             ]
         },
         "frame": {
-            "if": {
-                "required": [
-                    "area"
-                ]
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "a chart (page, texture) or \"pixel\"",
+                    "enum": [
+                        "page",
+                        "texture",
+                        "pixel"
+                    ]
+                },
+                "area": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                }
             },
-            "then": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "description": "a chart, page or texture",
-                        "enum": [
-                            "page",
-                            "texture"
+            "required": [
+                "type"
+            ],
+            "additionalProperties": false,
+            "description": "a chart frame (page, texture) states its area [x, y, w, h], of positive widths; a pixel frame states none",
+            "allOf": [
+                {
+                    "else": {
+                        "required": [
+                            "area"
                         ]
                     },
-                    "area": {
-                        "type": "array",
-                        "items": {
-                            "type": "number"
-                        },
-                        "minItems": 4,
-                        "maxItems": 4
+                    "if": {
+                        "properties": {
+                            "type": {
+                                "const": "pixel"
+                            }
+                        }
+                    },
+                    "then": {
+                        "not": {
+                            "required": [
+                                "area"
+                            ]
+                        }
                     }
-                },
-                "required": [
-                    "type",
-                    "area"
-                ],
-                "additionalProperties": false,
-                "description": "a chart frame's area [x, y, w, h] has positive widths"
-            },
-            "else": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "const": "pixel"
-                    }
-                },
-                "required": [
-                    "type"
-                ],
-                "additionalProperties": false
-            }
+                }
+            ]
         },
         "nan": {
             "type": "string",

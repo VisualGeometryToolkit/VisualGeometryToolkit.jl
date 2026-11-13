@@ -1,0 +1,486 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_noise/v1.0.json",
+    "title": "vgio/sensor_noise/v1.0",
+    "description": "A vgio/sensor_noise/v1.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. `reason` is stated exactly when electrons_per_dn or read_noise is not; electrons_per_dn is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/sensor_noise/v1.0, or the same major version at any minor",
+            "pattern": "^vgio/sensor_noise/v1(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "device": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "object",
+                    "properties": {
+                        "make": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "model": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "serial": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "body"
+            ],
+            "additionalProperties": false
+        },
+        "iso": {
+            "type": "number"
+        },
+        "electrons_per_dn": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string",
+                    "description": "a value's source (measured, estimated, file)",
+                    "enum": [
+                        "measured",
+                        "estimated",
+                        "file"
+                    ]
+                },
+                "std_error": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "value",
+                "source"
+            ],
+            "additionalProperties": false
+        },
+        "read_noise": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                },
+                "source": {
+                    "type": "string",
+                    "description": "a value's source (measured, estimated, file)",
+                    "enum": [
+                        "measured",
+                        "estimated",
+                        "file"
+                    ]
+                },
+                "std_error": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                }
+            },
+            "required": [
+                "value",
+                "source"
+            ],
+            "additionalProperties": false
+        },
+        "black": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                },
+                "source": {
+                    "type": "string",
+                    "description": "a value's source (measured, estimated, file)",
+                    "enum": [
+                        "measured",
+                        "estimated",
+                        "file"
+                    ]
+                },
+                "std_error": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                }
+            },
+            "required": [
+                "value",
+                "source"
+            ],
+            "additionalProperties": false
+        },
+        "dark": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "a value's source (measured, estimated, file)",
+                    "enum": [
+                        "measured",
+                        "estimated",
+                        "file"
+                    ]
+                },
+                "exposure_band": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                },
+                "frames": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "size": {
+                    "type": "object",
+                    "properties": {
+                        "width": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "height": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "required": [
+                        "width",
+                        "height"
+                    ],
+                    "additionalProperties": false
+                },
+                "offset": {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "a file name beside the record"
+                        },
+                        "sha256": {
+                            "type": "string",
+                            "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                            "pattern": "^[0-9a-f]{64}$"
+                        }
+                    },
+                    "required": [
+                        "file",
+                        "sha256"
+                    ],
+                    "additionalProperties": false
+                },
+                "variance": {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "a file name beside the record"
+                        },
+                        "sha256": {
+                            "type": "string",
+                            "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                            "pattern": "^[0-9a-f]{64}$"
+                        }
+                    },
+                    "required": [
+                        "file",
+                        "sha256"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "source",
+                "exposure_band",
+                "frames",
+                "size",
+                "offset",
+                "variance"
+            ],
+            "additionalProperties": false
+        },
+        "defects": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "a value's source (measured, estimated, file)",
+                    "enum": [
+                        "measured",
+                        "estimated",
+                        "file"
+                    ]
+                },
+                "size": {
+                    "type": "object",
+                    "properties": {
+                        "width": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "height": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "required": [
+                        "width",
+                        "height"
+                    ],
+                    "additionalProperties": false
+                },
+                "mask": {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "a file name beside the record"
+                        },
+                        "sha256": {
+                            "type": "string",
+                            "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                            "pattern": "^[0-9a-f]{64}$"
+                        }
+                    },
+                    "required": [
+                        "file",
+                        "sha256"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "source",
+                "size",
+                "mask"
+            ],
+            "additionalProperties": false
+        },
+        "reason": {
+            "type": "string",
+            "minLength": 1
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions",
+        "device",
+        "iso"
+    ],
+    "additionalProperties": false,
+    "allOf": [
+        {
+            "else": {
+                "required": [
+                    "reason"
+                ]
+            },
+            "if": {
+                "required": [
+                    "electrons_per_dn",
+                    "read_noise"
+                ]
+            },
+            "then": {
+                "not": {
+                    "required": [
+                        "reason"
+                    ]
+                }
+            }
+        },
+        {
+            "properties": {
+                "dark": {
+                    "properties": {
+                        "frames": {
+                            "minimum": 2
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}

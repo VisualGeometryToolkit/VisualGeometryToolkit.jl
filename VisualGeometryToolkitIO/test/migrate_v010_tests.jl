@@ -226,3 +226,39 @@ end
         end
     end
 end
+
+@testitem "migrate v0.10: a tree's manifest binds the files the migration rewrote, and loads" setup = [VGIoFixtures, V010Fixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: sha256_hex
+    mktempdir() do dir
+        cp(old09("rig_v9_targets.json"), joinpath(dir, "targets.json"))
+        cp(old09("target_points2d_v2_plain.json"), joinpath(dir, "points.json"))
+        cp(old09("cameras_v4.json"), joinpath(dir, "camera.json"))
+        cp(old09("generic_camera_v2.json"), joinpath(dir, "grid.json"))
+        entry(p; role = "authority", from = Any[]) = Dict{String, Any}("path" => p, "sha256" => open(sha256_hex, joinpath(dir, p)),
+            "kind" => VgtkIO._peek_schema(joinpath(dir, p)), "role" => role, "derived_from" => from)
+        m = Dict{String, Any}("schema" => "vgio/calibration/v2", "kind" => "metric",
+            "files" => Any[entry("camera.json"), entry("grid.json"), entry("targets.json"), entry("points.json"; role = "derived", from = Any["grid.json", "targets.json"])],
+            "metrics" => Dict{String, Any}("reprojection_rms" => 0.21))
+        write09(joinpath(dir, "calibration.json"), m)
+        # a dry run says what it would rebind and writes nothing
+        log = IOBuffer()
+        vgio_migrate_tree(dir; in_place = true, dry_run = true, io = log)
+        @test occursin("would rebind  $(joinpath(dir, "calibration.json"))", String(take!(log)))
+        @test VgtkIO._peek_schema(joinpath(dir, "calibration.json")) == "vgio/calibration/v2"
+        rs = vgio_migrate_tree(dir; in_place = true, io = log)
+        r = only(x for x in rs if haskey(x, :rebound))
+        @test r.rebound == 4 && r.to == "vgio/calibration/v3.0"
+        man = VgtkIO.load_manifest(dir)                                   # every hash, schema and target checked
+        byname = Dict(f.path => f for f in man.files)
+        @test sort!(collect(keys(byname))) == ["camera.json", "grid.noncentral.json", "points.json", "targets.json"]   # the old (non-central) grid's new store
+        @test byname["points.json"].derived_from == ["grid.noncentral.json", "targets.json"]
+        @test all(f -> VgtkIO._is_current(f.schema), man.files) && byname["points.json"].schema == "vgio/observations/v3.0"
+        @test man.result_kind == "metric"
+        @test haskey(VgtkIO._read_rewritten(joinpath(dir, "vgio_migrate_ids.json")), "grid.json")
+        # a rerun: every file current, the manifest left as it is
+        before = read(joinpath(dir, "calibration.json"), String)
+        @test isempty(vgio_migrate_tree(dir; in_place = true, io = log))
+        @test occursin("binds no rewritten file", String(take!(log))) && read(joinpath(dir, "calibration.json"), String) == before
+    end
+end

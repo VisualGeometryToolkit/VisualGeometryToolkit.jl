@@ -247,10 +247,11 @@
                         },
                         "chart": {
                             "type": "string",
-                            "description": "a radial chart (linear, projective)",
+                            "description": "a radial chart (linear, projective, equisolid)",
                             "enum": [
                                 "linear",
-                                "projective"
+                                "projective",
+                                "equisolid"
                             ]
                         },
                         "control_points": {

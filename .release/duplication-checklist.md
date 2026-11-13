@@ -186,3 +186,28 @@ findings on all six). The concept-level audit and the deleted shims: ~/logs/dgx-
 - [x] No shims: `_window_sums`, `_strip_length`, SpatialQueries' node aliases and `_mbr`, `_line_of`, `_camera_poses_result`, `_opted_file`, IO's `_json` deleted.
 - [x] The duplication item deterministic with and without the stack paths; the two test-fixture `[[similar]]` entries restored.
 - Reported, not deleted (public, breaking): `LiftableProblem`, `ScalarOrQuantity`, `POOL_RNG`.
+
+## IO 0.10.0 (wave10, the IO breaking wave; branch w10-io10)
+
+Concept-level duplication gate of the spec ("Tests": one units codec, one covariance codec, one lattice codec, one
+measurement kind) and the slices' concept checks. A box is ticked when its commit is in w10-io10 and the gate is green on it.
+
+- [x] ONE units codec: the envelope's `units` object, written from `VgioStyle` (`_units_json`) and read by `VgioStyle(record)`;
+  UnitContract's own layout, `json_value(contract)`/`from_json(UnitContract, …)`, the per-block blur `"unit"` and the top-level
+  `length_unit`/`pixel_frame`/`time_unit` retired (old files through their steps; `migrate_units` for BB's boards).
+- [x] ONE covariance codec: `covariance` in rows/{"diagonal"}/{"isotropic"} everywhere (`_cov_wire`/`_cov_from_wire`); `cov`,
+  `cov_size`, `point_covariances`, the null-plus-size and the default-3×3 fallback deleted; an absent covariance is the
+  producer's `covariance_status`.
+- [x] ONE lattice codec: `_lattice_json`/`_lattice_from_json`/`_lattice_spec` (style.jl, validate.jl) for the spline lens, its
+  forward spline and the non-central model; `_spline_json`, `_spline_from_json`, the non-central spline spec deleted.
+- [x] ONE observation kind: `vgio/observations` (`TargetObservations`); target_points2d/3d and target_detections only as steps.
+- [x] ONE frame codec (detections): every FeatureFrame a case of `JSON.lower/lift(::VgioStyle, ::FeatureFrame)`, PointFrame the
+  2-DOF case (io10-kinds); `json_value`/`from_json`/`read_quantity`/`write_quantity` deleted, no alias.
+- [x] ONE camera kind: the store holds any bounded camera; `noncentral_spline_schema.jl` deleted; one body spec `_bounded_body_spec`.
+- [x] ONE old-grid conversion entry: `_current_camera_body` at `camera_from_json` only (review I2).
+- [x] ONE version list: `schema_versions()` from the steps; `_MIGRATIONS_TO_CURRENT` and the docs' hand lists deleted.
+- [x] ONE envelope step for owners: `migrate_envelope` (public), used by IO's steps, panorama's and CaliBlobs'.
+- [x] ONE device-identity encoding: `device` {"body", "lens"} in capture_settings, calibration_record and sensor_noise.
+- [x] ONE identity path: `_identity_tree` is the writer's record on `_ID_STYLE`; the `_id_*` re-shapers deleted; the frozen 0.9
+  identity lives in migration only (`_v09_id`), for the re-id map.
+- [x] check_duplication(VisualGeometryToolkitIO): 0 findings (slices' runs 12228, 12569; the integrated gate re-runs it).

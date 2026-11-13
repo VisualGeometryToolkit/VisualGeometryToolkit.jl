@@ -308,15 +308,14 @@ function _observations_v010(old::AbstractDict, s::AbstractString, frame_sets)
     t = _time_origin_v010(_envelope_v010(old, "vgio/observations/v3.0"), s)
     haskey(t, "frame") && (t["frame"] = _frame_name_v010(t["frame"]))
     t["entity"] = _TARGET_POINT_ENTITY
-    t["frames"] = Any[
-        begin
-            n = Dict{String, Any}(k => v for (k, v) in f if !(k in ("t", "points", "detections")))
-            n["frame_index"] = f["t"]
-            n["observations"] = frame_sets(f)
-            n
-        end for f in t["frames"]
-    ]
+    t["frames"] = Any[_observation_frame_v010(f, frame_sets) for f in t["frames"]]
     return _check_one_point_type(t, s)
+end
+function _observation_frame_v010(f::AbstractDict, frame_sets)
+    n = Dict{String, Any}(k => v for (k, v) in f if !(k in ("t", "points", "detections")))
+    n["frame_index"] = f["t"]
+    n["observations"] = frame_sets(f)
+    return n
 end
 _with_covariance(p::AbstractDict, k::AbstractString) =
     merge(Dict{String, Any}(k => p[k]), haskey(p, "covariance") ? Dict{String, Any}("covariance" => p["covariance"]) : Dict{String, Any}())

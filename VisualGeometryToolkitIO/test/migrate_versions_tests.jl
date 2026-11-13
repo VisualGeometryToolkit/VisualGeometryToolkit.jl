@@ -605,7 +605,7 @@ end
     end
 end
 
-@testitem "vgio_migrate: rig/v5 → v6 reverses a sensor lens's chain and a target's composition, and maps the id" setup = [VGIoFixtures] begin
+@testitem "vgio_migrate: rig/v5 → v6 reverses a sensor lens's chain and a target's composition, and maps the id" setup = [VGIoFixtures, MigrateFixtures] begin
     # A v5 rig is the v6 text with every composed record's members in
     # application order (CoordinateTransformations' order reversed) under v5's
     # keys: a sensor's lens "chain" (v6: "compose") and a target's
@@ -690,7 +690,7 @@ end
     @test e isa ArgumentError && occursin("det A", e.msg)
 end
 
-@testitem "vgio_migrate: a v5 rig of every target kind and its v6 migration have one content_id, the id v5 had" setup = [VGIoFixtures, TargetRecordFixtures] begin
+@testitem "vgio_migrate: a v5 rig of every target kind and its v6 migration have one content_id, the id v5 had" setup = [VGIoFixtures, MigrateFixtures, TargetRecordFixtures] begin
     # persisted-geometry.md: "An identity does not change when the file format
     # does". The identity tree lists a composition's members (and a lens's
     # stages) in application order, the order v5's record held, whatever order

@@ -55,7 +55,7 @@
         # export's own unit, metres), the rotation to the quaternion encoding's precision
         @test poses[1].t == cal.poses[1].t && maximum(abs, Matrix(poses[1].R) - Matrix(cal.poses[1].R)) <= 8 * eps()
         @test ustrip.(m, poses[1].t) == [0.17, 0.0122, 1.3969]
-        @test parse_json(read(r.poses, String)).length_unit == "m"
+        @test parse_json(read(r.poses, String)).units.length == "m"
         @test poses[2].t == cal.poses[3].t && maximum(abs, Matrix(poses[2].R) - Matrix(cal.poses[3].R)) <= 8 * eps()
 
         # nothing is overwritten

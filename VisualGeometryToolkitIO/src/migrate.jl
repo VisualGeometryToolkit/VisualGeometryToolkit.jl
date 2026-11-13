@@ -1734,7 +1734,8 @@ function _repoint_targets(
     targets = String[get(map_, t, t) for t in obs.targets]
     repointed = count(t -> haskey(map_, t), obs.targets)
     named = [r for (r, h) in zip(rig_list, hashes) if h in targets]   # the definitions the observations resolve in
-    unchecked = _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
+    # (a file that names no definitions — 3D observations of an unknown constellation — resolves in none)
+    unchecked = isempty(targets) ? 0 : _check_resolves_by_id(obs, _target_rigs(named; resolve), path)
     current = migrate_record(old)
     return write_staged(out => basename(path); dry_run) do staged
         save(staged, _with_targets(obs, targets); _resave_kwargs(current; length = _writes_length(obs))...)

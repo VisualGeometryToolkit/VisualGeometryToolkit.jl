@@ -4,7 +4,7 @@
 
 VisualGeometryToolkitIO saves and loads the geometry of a calibration or
 reconstruction: cameras, poses, rigs, targets, trajectories and target
-measurements. Each `vgio/<kind>` file is the JSON serialization of one
+observations. Each `vgio/<kind>` file is the JSON serialization of one
 [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)
 type. `load` returns a value of that type, `save` takes one, and the round
 trip is exact. There are no record structs of the package's own between the

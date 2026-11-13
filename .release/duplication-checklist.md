@@ -144,6 +144,8 @@ Downstream copies, outside this release (listed for their owners; not release it
 
 ## 0.10.0 (Estimation; Features 0.8.2, Eval 0.7.1): the free-SplineLens image-space refine retired
 
+Final gate green on a0016dbb (jobs 10706–10709, both Julia versions; check_duplication 0 findings).
+
 - [x] ONE bundle solve: the held SplineLens route solves with `_solve_bundle` and reads its keywords with
   `_bundle_keywords`, the parametric and rotation-centre routes' own; its private NLLSsolver solve (`_spline_solve!`)
   and time-cap bookkeeping (`_remaining`, `_timed_out`) are deleted, not kept beside them.

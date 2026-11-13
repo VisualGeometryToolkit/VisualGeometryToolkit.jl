@@ -31,7 +31,24 @@ run (recorded, not gated there) errored one item, the L0 smoothing, on a third-p
 latest release (2021, no newer upstream commit), calls ImageBase's deprecated `fdiff!` inside `L0Smooth`; Features calls
 only ImageSmooth's public `smooth!`. f6a3e7f2 runs that one item's check in a child Julia with `--depwarn=yes` when the
 suite is strict (the coordinator's option 2, the comment at the site names the cause); every other item stays strict, and
-Features' strict run gates. No docs change. The final gate's results are recorded by its records commit.
+Features' strict run gates. No docs change.
+
+The final gate on a0016dbb (jobs 10706–10709): two fresh clones per Julia version, no Manifest, General cloned from
+GitHub (the package server bypassed), CauRegistry from the shared depot. Counts are pass / fail / error / broken.
+
+| | 1.13.3 GPU (10706) | 1.13.3 CPU (10707) | 1.12.7 GPU (10708) | 1.12.7 CPU (10709) |
+|---|---|---|---|---|
+| registration_lint --subsequent | 0 errors, 0 warnings | | 0 errors, 0 warnings | |
+| floor_compat --latest | rc 0 | | rc 0 | |
+| check_duplication(Estimation) | 0 findings | | 0 findings | |
+| Estimation (--depwarn=error) | 8817 / 0 / 0 / 2 | 8807 / 0 / 0 / 2 | 8805 / 0 / 0 / 2 | 8795 / 0 / 0 / 2 |
+| Features (--depwarn=error) | 3071 / 0 / 0 / 2 | | 3071 / 0 / 0 / 2 | |
+| Eval (--depwarn=error) | 2907 / 0 / 0 / 0 | | 2907 / 0 / 0 / 0 | |
+| Estimation docs (strict make.jl) | 0 | | 0 | |
+
+Estimation's count fell from 20979 (0.9.2) to 8817 with the retired route's items (174 → 171 items: the window
+blocks' finite-difference Jacobian item, the smoothness/GCV item, the free-route refine items and the opt-in benchmark
+item removed or converted; two refusal / held-camera items added).
 
 ---
 

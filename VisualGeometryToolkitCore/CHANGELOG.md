@@ -1,5 +1,57 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.0 (unreleased)
+
+The breaking wave of 2026-11-13 (wave 10): the terminology taxonomy, one observation container, the FeatureFrame
+interface with PointFrame first-class, sensor noise, and the conventions of the IO breaking wave.
+
+### Breaking
+- **The terminology taxonomy** (the owner's ruling of 2026-11-13; conventions/naming.md): a detection, a correspondence,
+  an observation. Renamed, no aliases; each old public name is in `check_naming`'s retired names with its replacement:
+  `Cspond` → `Correspondence`, `Csponds` → `Correspondences`, `csponds` → `correspondences`, `ScoredCspond` →
+  `ScoredCorrespondence`, `CspondNormalization` → `CorrespondenceNormalization`, `bearing_csponds`, `pixel_csponds`,
+  `pair_csponds` → `bearing_correspondences`, `pixel_correspondences`, `pair_correspondences`; `PoolPair`'s field and
+  keyword `csponds` → `correspondences`; `measurement_gradient_jacobian` → `observation_gradient_jacobian`; the
+  "measurement noise" rule → "observation noise" (conventions/observation-noise.md, base/observation_noise.jl); every
+  private `*cspond*`/`*measurement*` name likewise.
+- **`TargetDetections` → `TargetObservations`**, and `TargetPoints2D`, `TargetPoints3D`, `TargetPoint2D`, `TargetPoint3D`
+  are DELETED, folded into it (a 2D bundle weight is a `weights` column; the conversions from the old types go with them:
+  VisualGeometryToolkitIO reads the old kinds through version steps).
+- **`check_naming` R14**: no bound name or quoted symbol holds "measurement", the old pairing abbreviation, "sighting"
+  or "keypoint"; "measured" is a provenance value only (a binding holding it is flagged). Retired names added for the
+  renames above and for the three public aliases of the wave (`LiftableProblem`, `ScalarOrQuantity`, `POOL_RNG`).
+  Published names that spell an old word (`csponds`, `eth3d_splg_csponds`) are `FOREIGN_FORMAT_TOKENS`, accepted in
+  string literals, quoted TOML values, yaml/json fixtures and an `Artifacts.toml`.
+- **The FeatureFrame interface, every verb once** (conventions/feature-frames.md): deleted per-type copies —
+  `Ellipse(::Uncertain{<:PointFrame}; sigma)` (now one method for every frame, its centre's error ellipse) and the two
+  detection forwarders `Ellipse(::Attributed{<:Uncertain{<:PointFrame}}; sigma)` (call `Ellipse(d.value; sigma)`);
+  `AffineMap`, `scale`, `shape_matrix` of `Disc`/`OrientedDisc`; the per-type `ustrip`, `*`, `/`, similarity actions,
+  `extrema(::Disc)`, `Rect2(::Disc)`, `Rect2{Int}(::Disc)` — each now one method on `FeatureFrame` or its trait. The
+  scaled frames' verbs are absent from a `PointFrame` by design (a `MethodError` with a hint).
+- **`conventions/`**: `measurement-noise.md` is `observation-noise.md`; `feature-frames.md` joins the reading order
+  (`convention_files()` lists 14). `persisted-geometry.md` states the IO wave's rules: one `units` and one `conventions`
+  object per file, every `Size2` a `{"width", "height"}` object, every index 1-based (`"index_base": 1`), one
+  `covariance` key with a producer-stated `covariance_status` when absent, matrices in rows, `v<major>.<minor>` schema
+  tags, a stored quaternion with `w < 0` refused, the JCS identity in metres, the `observations`, `detection` and
+  `sensor_noise` kinds.
+
+### New
+- **`center(u::Uncertain{<:FeatureFrame})`, `center(d::Attributed{<:Uncertain{<:FeatureFrame}})`** — THE detection → point
+  observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
+  precision's marginal). `frame_dof` (public) — a frame's degrees of freedom, its covariance's size, the centre first.
+- **`transfer(m, f::FeatureFrame)`** — a frame through any point map (a PointFrame exactly; a scaled frame to first
+  order, an `AffineFrame`; exact through a similarity). `propagate` of an `Uncertain{PointFrame}` through
+  `HomographyMap` and `FramedAffine`; the similarity actions, `extrema`, `Rect2`, `bbox`, `ustrip`, `*`, `/` for every
+  frame, PointFrame included; `shape_factor` of a `Disc` (`σI`) and an `OrientedDisc` (`σR(θ)`); the DOF trait
+  `PointShape`.
+- **Sensor noise** (spec 2026-11-13-sensor-noise): `SensorNoise` (a body's Poisson–Gaussian noise at an ISO, every field
+  with its source `:measured | :estimated | :file`), `DarkFrame`, THE resolver `sensor_noise(capture, t => mosaic;
+  record)`, THE estimators `photon_transfer` (K and σ_r from a frame) and `master_dark` (a record from lens-cap frames),
+  `NoiseEstimateFailed`; `LinearRaw(mosaic; mode, gain, noise)` subtracts the resolved black and dark offset in its one
+  kernel (bit-identical without a noise).
+- **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,
+  `gpu_problem(prefix)`, `require_gpu(prefix)` (public): one decision for every stack suite, never a silent skip.
+
 ## 0.9.5 (unreleased)
 
 A patch. Additive: the pieces VisualGeometryToolkitFeatures 0.8.3's opt-in continuous DoG refinement reads, each the one

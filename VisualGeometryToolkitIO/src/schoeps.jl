@@ -14,7 +14,7 @@
 # They are read through the typed `load` of the VGC type they hold, the same
 # verb as the vgio JSON form of that type: `load(BoundedCamera, path; file_unit)`
 # (a central model as a camera with a `SplineLens`, a non-central one as a
-# `NoncentralSplineModel`), `load(TargetPoints2D, path;
+# `NoncentralSplineModel`), `load(TargetObservations, path;
 # target)`. Which form a file is, is decided by its CONTENT, never its name:
 # a vgio file is a JSON object (its first non-blank byte is `{`), a
 # `dataset.bin` starts with the magic `calib_data`, and anything else is read
@@ -26,7 +26,7 @@
 # `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:colmap})` — no half pixel is
 # added anywhere. `SCHOEPS_PIXEL_FRAME` names it once: the spline models are
 # defined in it (VGC's own types are COLMAP-frame by construction), and the
-# detections come back typed in it (`TargetPoints2D{SCHOEPS_PIXEL_FRAME}`),
+# detections come back typed in it (`TargetObservations{SCHOEPS_PIXEL_FRAME}`),
 # so moving them to another convention is `convert_frame`, explicitly.
 #
 # What the files do NOT declare is the reader's argument, as for the OpenCV and
@@ -36,7 +36,7 @@
 #               does not record;
 #   target      the target the detections' feature ids index (one pattern
 #               per file), and the ids' 0-based numbering becomes the
-#               1-based `index` of a `TargetPoint2D` (`index = id + 1`).
+#               1-based point index of a `TargetObservations` set (`index = id + 1`).
 # =============================================================================
 
 """
@@ -378,7 +378,7 @@ function _check_left(io, nbytes::Integer, path, what)
 end
 
 function _load_schoeps_dataset(path::AbstractString, target::Symbol)
-    frames = Dict{Int, Vector{TargetPoint2D}}()
+    frames = Dict{Int, Dict{Symbol, Any}}()
     images = Dict{Int, String}()
     open(path, "r") do io
         _check_left(io, 10 + 5 * 4, path, "the header")
@@ -397,17 +397,23 @@ function _load_schoeps_dataset(path::AbstractString, target::Symbol)
             images[t] = String(read(io, nname))
             nf = _be_u32(io)
             _check_left(io, 12 * nf, path, "image $(images[t])'s $(nf) features")
-            points = Vector{TargetPoint2D}(undef, nf)
+            idx = Vector{Int}(undef, nf)
+            xy = Vector{SVector{2, Float64}}(undef, nf)
             for k in 1:nf
                 x = Float64(ltoh(read(io, Float32))); y = Float64(ltoh(read(io, Float32))); id = _be_i32(io)
                 (isfinite(x) && isfinite(y)) || throw(ArgumentError("$(path): image $(images[t]): a non-finite feature position"))
                 id >= 0 || throw(ArgumentError("$(path): image $(images[t]): negative feature id $(id)"))
-                points[k] = (target = target, index = id + 1, xy = SVector{2, Float64}(x, y), weight = 1.0)
+                idx[k], xy[k] = id + 1, SVector{2, Float64}(x, y)   # the reference's 0-based ids, converted at this importer only
             end
-            frames[t] = points
+            frames[t] = nf == 0 ? Dict{Symbol, Any}() : Dict{Symbol, Any}(target => correspondences(idx, xy))
         end
         # The known pattern geometries that may follow are the pattern's, not
         # the detections'; they are not read.
     end
-    return TargetPoints2D{SCHOEPS_PIXEL_FRAME}(frames; images)
+    try
+        return TargetObservations{SCHOEPS_PIXEL_FRAME}(frames; images)
+    catch e
+        e isa ArgumentError && throw(ArgumentError("$(path): $(e.msg)"))
+        rethrow()
+    end
 end

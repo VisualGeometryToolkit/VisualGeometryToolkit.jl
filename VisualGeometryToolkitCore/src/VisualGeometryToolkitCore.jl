@@ -421,6 +421,9 @@ export linearview, saturationview   # the mosaic's linear values and its saturat
 public LinearRawView, SaturationView, PhotositeColors   # the lazy views' types (photosite_colors returns the last)
 public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
+export SensorNoise, DarkFrame, sensor_noise   # a body's Poisson–Gaussian noise at an ISO, per-field provenance; a master dark; THE resolver (raw/sensor_noise.jl)
+export photon_transfer, master_dark           # THE frame estimator of K and σ_r; THE dark-frame estimator
+public NOISE_SOURCES, NoiseField, noise_value, NoiseEstimateFailed   # the sources (:measured, :estimated, :file), a field's type and constructor, the estimators' failure
 
 # -----------------------------------------------------------------------------
 # 4. COMPOSITION & INTERFACE - Abstract types for feature packages
@@ -1045,6 +1048,7 @@ import .Cameras: pnp_pixel_whitening
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
+include("raw/sensor_noise.jl") # SensorNoise, DarkFrame, the resolver sensor_noise, photon_transfer, master_dark (before LinearRaw, which takes a resolved noise)
 include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl

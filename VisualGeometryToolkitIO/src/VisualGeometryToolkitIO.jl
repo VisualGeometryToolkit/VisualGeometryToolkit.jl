@@ -25,23 +25,26 @@ keep adapter types of their own (`ColmapModel`, `ExternalCalibration`,
 BOP, TRC, correspondences) take VGC values and are write-only.
 
 METADATA: envelope for the FILE, attributes for the VALUE. The envelope holds
-what is about the file — the `schema` tag, the declared conventions, the
-reserved `payload`, the free-form `provenance` (a `save` keyword, never read
-back) — and none of it is part of the value. A fact about the value that must
-round-trip is part of the VGC value: a field (a trajectory's per-frame images
-and times) or an `Attributed` attribute (a camera's `calibration` block, a target's
-`calibration_record`; a covariance, as `Uncertain`).
+what is about the file — the `schema` tag (`vgio/<kind>/v<major>.<minor>`),
+the `generator` (this package and its version, and the calling package), the
+ONE `units` object (length, time, angle, pixel frame, density, radiance and the
+length roles), the ONE `conventions` object (rotation encoding, transform
+convention, matrix layout, grid layout, index base 1), the reserved `payload`,
+the free-form `provenance` (a `save` keyword, never read back) — and none of it
+is part of the value. A fact about the value that must round-trip is part of
+the VGC value: a field (a trajectory's per-frame images and times) or an
+`Attributed` attribute (a camera's and a target's `calibration_record`; a
+covariance, as `Uncertain`).
 
-Every vgio file is a versioned schema (`vgio/<kind>/v<n>`, the current
-versions: rig v9; cameras and target v5; transforms and trajectory v4;
-noncentral_spline v1 (the old grid kind generic_camera renamed); target_poses, target_points2d, target_points3d and
-target_detections v2; target_homographies, capture_settings, calibration,
-vignetting, environment_light and blur v1; the rest v2), and a file is
-sufficient on its own and minimal:
-- every convention a reader needs is DECLARED in the file, once — the pixel
-  frame, the length unit, the rotation encoding (Hamilton quaternions, w-x-y-z,
-  w ≥ 0 — a raw 3×3 never appears) and what a transform does to a point — and
-  a reader refuses a file missing any of them; nothing defaults;
+Every vgio file is a versioned schema; the current versions are the table
+`_SCHEMA_VERSION` (validate.jl) and `schema_versions()` lists, per kind, every
+version read (derived from the version steps). A file is sufficient on its own
+and minimal:
+- every convention a reader needs is DECLARED in the file, once, in its
+  envelope — the pixel frame, the length unit, the rotation encoding (Hamilton
+  quaternions, w-x-y-z, w ≥ 0 — a raw 3×3 never appears; a stored w < 0 is
+  refused), what a transform does to a point, the index base — and a reader
+  refuses a file missing any of them; nothing defaults;
 - every value has ONE authority: a pose's frames are given by where it sits,
   and a value derivable from another stored one is not stored beside it;
 - one validator per kind (`validate.jl`) checks a file on read AND before it
@@ -59,18 +62,16 @@ sufficient on its own and minimal:
 EVERY EARLIER VERSION A PUBLISHED FILE HOLDS IS READ, and only the current one
 is written. A schema change must not force the published data (Zenodo, Hugging
 Face; multi-GB archives) to be uploaded again, so a published file keeps
-loading: a reader that meets cameras v1–v3, target v1–v2, rig v4–v5 or
-generic_camera v2 runs the
-version steps in memory (`migrate_record`: one `migrate_schema(::Val{schema},
-tree)` step per version, migrate.jl), silently but for an `@debug`, and reads
-the current record they give. `vgio_migrate` rewrites a file once with the same
-steps; a schema's owner adds the steps of its own kinds (`migrate_schema`) and
-calls `migrate_record` in its reader. A version no published file held and no
-step reads — transforms and trajectory v1/v2 (free-form frame names), rig
-v1/v2, generic_camera v1 — and the retired kinds are refused by name, with
-their successor. COLMAP model directories keep COLMAP's own format (world → camera
-poses, pixel centres at 0.5) and get a `vgio_units.json` sidecar declaring
-their world unit.
+loading: a reader that meets an earlier version runs the version steps in
+memory (`migrate_record`: one `migrate_schema(::Val{schema}, tree)` step per
+version, migrate.jl and migrate_v010.jl), silently but for an `@debug`, and
+reads the current record they give. A reader of a version's major reads it at
+any minor (a higher minor's added keys tolerated). `vgio_migrate` rewrites a
+file once with the same steps; a schema's owner adds the steps of its own kinds
+(`migrate_schema`) and calls `migrate_record` in its reader. A version no
+published file held and no step reads is refused by name, with its successor.
+COLMAP model directories keep COLMAP's own format (world → camera poses, pixel
+centres at 0.5) and get a `vgio_units.json` sidecar declaring their world unit.
 =#
 """
     VisualGeometryToolkitIO
@@ -95,6 +96,8 @@ using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, Ra
     spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS, RADIAL_CHARTS, radial_chart,
     EnvironmentLight, SphericalHarmonicMap, coefficients, max_degree, GaussianBlur, with_unit, ImageFrame   # the radiometric kinds (radiometry_schema.jl)
 using Statistics: cov
+using Printf: @sprintf
+using Base.ScopedValues: ScopedValue, with
 using Rotations: QuatRotation, RotMatrix, RotationVec, RotZ, Angle2d, params
 using JSON: JSON
 using SQLite: SQLite
@@ -113,8 +116,8 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     AbstractTargetLayout, AprilGrid, SchoepsPattern, layout, design, TARGET_LAYOUT_TAGS, tag_of,
     Rigid, ThinPlateSpline, HeightField, Scale, Aspect, Skew, TARGET_CALIBRATION_TAGS, calibration_tag, parameter_vector, with_parameters, length_mask,
     TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending, ThinPlateSplineSystem, iwasawa_parameters_with_jacobian, strip_or_bare,
-    Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS, TargetPoints2D, TargetPoints3D, TargetPoint2D, TargetPoint3D,
-    TargetDetections, Csponds, withattrs, sources, targets,
+    Trajectory, TargetPoses, TargetHomographies, HomographyMap, HomographyMat, PLANAR_MAP_TAGS,
+    TargetObservations, Correspondences, correspondences, withattrs, sources, targets,
     SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, lens_coverage,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
     Uncertain, CovMat, geom,
@@ -135,22 +138,21 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # transforms file errors instead of guessing, and the return type is what you
 # asked for. `save` needs no type argument; the value already carries it.
 #
-#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v5     the camera store
+#   load(Dict{Symbol, BoundedCamera}, path)      vgio/cameras/v6.0   the camera store (any bounded camera, central or not)
 #   load(BoundedCamera | CameraModel, path; name = nothing)          one of its cameras (multi refused unnamed); the
-#                                                grid cameras of Schöps et al. too (a SplineLens camera, a
-#                                                NoncentralSplineModel: vgio/noncentral_spline, old grid files, intrinsics0.yaml)
-#   load(BoundedCamera, path)                    vgio/noncentral_spline/v1  a non-central grid camera (BoundedCamera{<:NoncentralSplineModel})
-#   load(Vector{EuclideanMap}, path)             vgio/transforms/v4  labeled poses
-#   load(Rig, path; resolve = nothing)           vgio/rig/v9         sensors, targets, or both
-#   load(AbstractTarget, path; resolve = nothing) vgio/target/v5     one target (+ its calibration record)
-#   load(PlanarTarget, path)                     a planar vgio/target/v5, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
-#   load(Trajectory, path)                       vgio/trajectory/v4  a body's pose over time
-#   load(TargetPoses, path)                      vgio/target_poses/v2
-#   load(TargetHomographies, path)               vgio/target_homographies/v1 (and `load(TargetHomographies{F}, path)`)
-#   load(TargetPoints2D, path)                   vgio/target_points2d/v2 (or a Schöps dataset.bin; `target`)
-#   load(TargetPoints3D, path)                   vgio/target_points3d/v2
-#   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
-#   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
+#                                                grid cameras of Schöps et al. too (old grid files, a vgio/noncentral_spline/v1
+#                                                record, intrinsics0.yaml)
+#   load(Vector{EuclideanMap}, path)             vgio/transforms/v5.0  labeled poses
+#   load(Rig, path; resolve = nothing)           vgio/rig/v10.0      sensors, targets, or both
+#   load(AbstractTarget, path; resolve = nothing) vgio/target/v6.0   one target (+ its calibration record)
+#   load(PlanarTarget, path)                     a planar vgio/target, or a Schöps pattern YAML or a Kalibr aprilgrid YAML
+#   load(Trajectory, path)                       vgio/trajectory/v5.0  a body's pose over time
+#   load(TargetPoses, path)                      vgio/target_poses/v3.0
+#   load(TargetHomographies, path)               vgio/target_homographies/v2.0 (and `load(TargetHomographies{F}, path)`)
+#   load(TargetObservations, path)               vgio/observations/v3.0 (IO 0.9's target_points2d/3d and target_detections
+#                                                through their steps; a Schöps dataset.bin with `target`)
+#   load(CaptureSettings, path)                  vgio/capture_settings/v2.0 (Attributed with its identities' sources)
+#   load(AbstractVignetting | EnvironmentLight | Dict{Symbol, GaussianBlur}, path)   vignetting, environment_light, blur v2.0
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -163,7 +165,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
 #   pose_declarations                            building blocks for a package's own kind
 #
-# PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetPoints2D{F}`): the producer
+# PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetObservations{F}`): the producer
 # attaches it, `save` writes it as the file's declaration without converting a
 # number, `load` returns the file's frame as the type, and VGC's
 # `convert_frame(G, x)` — which moves the numbers — is the only way to change
@@ -176,9 +178,10 @@ function save end
 
 include("lengths.jl")     # read_length / write_length: decimal-exact file lengths (before every schema)
 include("json.jl")
+include("contract.jl")    # UnitContract: a file's length units (its roles) and density
 include("style.jl")       # VgioStyle: the lower/lift of every embedded VGC value, the parametric record, the minimal forms
-include("validate.jl")    # the v2 spec combinators + read/write boundaries (before every schema: specs are consts)
-include("contract.jl")
+include("validate.jl")    # the spec combinators, the envelope, the read/write boundaries (before every schema: specs are consts)
+include("units_sidecar.jl")  # vgio/units: a COLMAP model directory's units sidecar
 include("core_json.jl")     # the quantity JSON format: numbers in the declared unit; VGC sizes, frames, detections
 include("wire.jl")
 include("colmap_text.jl")
@@ -187,21 +190,21 @@ include("colmap_database.jl")
 include("frame_names.jl")     # the frame grammar: frame types ↔ names (every pose-carrying kind)
 include("transform_schema.jl")
 include("camera_schema.jl")
-include("noncentral_spline_schema.jl")  # the non-central grid camera, vgio/noncentral_spline/v1 (must precede rig_schema: sensors embed it)
 include("rig_schema.jl")
-include("captures_schema.jl")  # trajectory/v4, target_poses/v2, target_homographies/v1, target_points2d/v2, target_points3d/v2, target_detections/v2: VGC's captures
-include("capture_settings_schema.jl")  # capture_settings/v1: the camera's settings per frame, the body and lens identities
-include("radiometry_schema.jl")  # vignetting/v1, environment_light/v1, blur/v1: a radiometric camera's fields, light and blurs
-include("calibration_manifest.jl")  # calibration.json: vgio/calibration/v2, the hash-bound set of a result's records (after the kinds it checks)
+include("captures_schema.jl")  # trajectory, target_poses, target_homographies, observations: VGC's captures
+include("capture_settings_schema.jl")  # capture_settings: the camera's settings per frame, the device identities
+include("radiometry_schema.jl")  # vignetting, environment_light, blur: a radiometric camera's fields, light and blurs
+include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
-include("correspondences.jl")  # export: measurements + targets → per-(frame, target) point arrays for external calibrators
+include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
 include("conventions.jl")  # OpenCV's and Kalibr's lens models as VGC lenses, exactly
 include("external_calibration.jl")  # OpenCV / MATLAB calibration exports (load-only)
 include("exporters.jl")    # TUM, EuRoC, BOP, TRC: our kinds in the community formats (write-only)
 include("jsonl.jl")
-include("canonical.jl")   # canonical JSON — content identities, hashed by Core's sha256_hex (hoisted from BlobBoards)
-include("migrate.jl")     # migrate_opencv / migrate_matlab + the bin/vgio_migrate.jl command
+include("canonical.jl")   # RFC 8785 (JCS) canonical JSON — content identities, hashed by Core's sha256_hex
+include("migrate.jl")     # the version steps, vgio_migrate, vgio_migrate_tree + the bin/vgio_migrate.jl command
+include("migrate_v010.jl")   # the IO 0.10 steps: every kind's previous version → its 0.10 major
 
 # Layer 2 — unit contract (the COLMAP adapter's world-unit declaration)
 export UnitContract, MM_PX
@@ -212,12 +215,12 @@ export ColmapCamera, ColmapImage, ColmapPoint3D
 export ColmapDatabase
 export colmap_cameras
 export frame_name, frame_from_name
-export content_id                     # the identity a measurement names its target rig by
-export save_correspondences           # export: measurements + targets → external calibrators' point arrays
+export content_id                     # the identity an observation names its target rig by
+export save_correspondences           # export: observations + targets → external calibrators' point arrays
 export save_tum_trajectory, save_euroc_trajectory, save_bop_scene, save_trc   # exporters to the community formats
 export ros_pose_covariance, pose_covariance_from_ros   # the pose covariance in ROS PoseWithCovariance order
-export migrate_opencv, migrate_matlab # a third-party OpenCV / MATLAB calibration → native v3 camera + image-named poses
-export vgio_migrate, vgio_migrate_tree   # an earlier schema version → the current one, once; a tree's measurements re-pointed at its migrated rigs
+export convert_opencv_calibration, convert_matlab_calibration   # a third-party OpenCV / MATLAB calibration → a camera store + image-named poses ("migrate" is schema migration only)
+export vgio_migrate, vgio_migrate_tree   # an earlier schema version → the current one, once; a tree's observations re-pointed at its migrated rigs
 export append_jsonl
 export canonical_json   # its hash is Core's `sha256_hex(canonical_json(tree))`
 
@@ -242,18 +245,19 @@ public with_provenance, metres        # a record body with the writer's provenan
 public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
-public read_quantity, write_quantity, json_value, from_json, ScalarOrQuantity, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
-public save_manifest, load_manifest     # vgio/calibration/v2: the manifest binding a result's record files by SHA-256
+public read_quantity, write_quantity, json_value, from_json, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
+public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
 public validate                       # check any vgio file against its kind's table
-public migrate_schema, CONTRACT_GENERICS   # the per-schema migration a schema owner extends (its declared extension points)
+public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)
+public schema_versions, with_caller   # the versions each kind reads (from its steps); the calling package a file's generator names
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
 public same_value                     # two typed records the same, a length within the codec's ulps (a migration's check)
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified
 public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized name, and back (VGC decides which exist)
-public pose_json, pose_from_json, pose_declarations, camera_json, camera_from_json,
+public pose_json, pose_from_json, camera_json, camera_from_json,
     target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
-    keypoints, descriptors, raw_matches, matched_pairs, verified_matches,
+    detections, descriptors, raw_matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids
 
 """
@@ -269,6 +273,6 @@ package whose own kinds are files (BlobBoards' boards and patterns) adds
 `load(::Type{<:ItsType}, path)` and `save(path, x::ItsType)` methods, so a
 reader reaches every kind of the stack through the same two verbs.
 """
-const CONTRACT_GENERICS = (migrate_schema, load, save)
+const CONTRACT_GENERICS = (migrate_schema, validate_record, load, save)
 
 end # module

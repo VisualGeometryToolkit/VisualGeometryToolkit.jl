@@ -208,16 +208,16 @@ function write_length(q::Quantity, u::Units)
     return _write_scaled(Float64(ustrip(m, q)), scale, 1)
 end
 
-# The PERSISTED form of a plain base-unit number of length dimension `n`: what a
-# file in millimetres (the default file unit) holds for it and reads back as,
-# `read(write(y))`. It is idempotent: a loaded value is its own persisted form.
-# The identity tree (`content_id`) hashes this form, so a value built in code
-# (`v * mm`, one ulp off the nearest decimal of `v`) and the file written from it
-# have one identity. With the registry's exact scales it is the identity on a
-# length built from an integer (`142mm` is the decimal-nearest 0.142 m) and on
-# any loaded value; it still moves a float-built one (`14.2mm`, about one
-# decimal in seven) and a computed one.
-_persisted(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), mm, n)
+# The PERSISTED form of a plain base-unit number (a length in metres, a
+# covariance entry in m^n): the Float64 nearest to it rounded to 15 significant
+# decimal digits. The identity tree (`content_id`) hashes this form. Every file
+# number of at most 15 significant digits, in any decimal unit, reads back
+# (decimal-exact, `read_length`) as exactly such a value, so a value built in
+# code (`v * mm`, one ulp off the nearest decimal of `v`), the file written from
+# it and the value loaded back have one identity; it moves a value by at most
+# one rounding at the 15th digit and is idempotent. No unit is chosen: the
+# normalisation is of the metre value itself.
+_persisted(y::Real, n::Int = 1) = (x = Float64(y); isfinite(x) && !iszero(x) ? parse(Float64, @sprintf("%.14e", x)) : x)
 
 # Where a writer puts a length leaf: a file's unit (`Units`), or `_PERSISTED`,
 # the identity tree's (`content_id`) persisted metre value. The target, pose and

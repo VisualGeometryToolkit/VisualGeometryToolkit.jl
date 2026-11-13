@@ -599,6 +599,7 @@ end
 # Whether every hit of `re` on a TOML `line` is inside a quoted string VALUE (`key = "…/token"`, or an array
 # element on its own line): not in a key, a table header or a comment.
 function _toml_string_value(re, line)
+    count(re, _hash_code(line)) == count(re, line) || return false        # a hit in a comment
     occursin(re, _hash_code(line; strings = false)) && return false      # a hit outside every quoted run (a bare key)
     startswith(lstrip(line), "[") && return false                         # a table header, quoted keys included
     eq = findfirst(==('='), _hash_code(line; strings = false))

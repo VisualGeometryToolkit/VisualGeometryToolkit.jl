@@ -11,4 +11,4 @@ PoseLib = {path = ".."}
 julia = "1.13"
 Documenter = "1.20"
 DocumenterInterLinks = "1.1"
-VisualGeometryToolkitCore = "0.9.5"
+VisualGeometryToolkitCore = "0.10.0"

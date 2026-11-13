@@ -588,7 +588,7 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     haskey(b, "nominal") && (n["nominal"] = Any[_lengths_v09(p, leaf) for p in b["nominal"]])
     if layout_points && haskey(b, "layout")
         delete!(n, "layout")
-        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)]
+        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
     end
     placed = haskey(b, "placement")
     n["calibration"] = _calibration_v09(b["calibration"], placed ? (x, k) -> x : leaf)   # a placed one: chart numbers

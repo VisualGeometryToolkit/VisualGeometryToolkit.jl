@@ -359,7 +359,14 @@ end
 function _bundle_optimize(
         v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback
     ) where {E}
-    run = _bundle_run(v, N)
+    # a function barrier: the task's kept run is stored without its LmProblem's concrete type (the slot holds any size's
+    # run), so the per-point setup and the solve run in a method specialized on it — one dynamic call per bundle, not one
+    # per point (without it a call allocated ~2N times)
+    return _bundle_solve!(_bundle_run(v, N), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback)
+end
+function _bundle_solve!(
+        run::_BundleRun{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback::F
+    ) where {E, F}
     d = run.data
     d.K1 = SMatrix{3, 3, Float64, 9}(K1); d.K2 = SMatrix{3, 3, Float64, 9}(K2)
     for i in 1:N                              # the call's data copied into the run's own buffers (bounds-checked: the caller's lengths)

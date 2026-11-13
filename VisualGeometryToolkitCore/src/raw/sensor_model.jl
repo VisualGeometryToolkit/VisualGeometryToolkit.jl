@@ -242,8 +242,11 @@ end
     RelativeNoise(σ_rel; source::SensorSource.T)
 
 A noise proportional to the value: a value `x` has variance `(σ_rel·x)²`
-(`σ_rel` positive, finite; typically `SensorSource.specified`). The model of a
-processed (tone-mapped) intensity, not of the photosites' physics; a
+(`σ_rel` positive, finite). Its source is `SensorSource.specified` only, stated
+by a person (owner ruling on D14): no estimator or measurement makes one, so any
+other source is an `ArgumentError` naming it — the one rule, at the source (an
+IO reader of a stored one meets it here too). The model of a processed
+(tone-mapped) intensity, not of the photosites' physics; a
 [`LinearRaw`](@ref) image under it carries each value's variance (an
 `Uncertain` image), with no read-noise or dark term.
 """
@@ -252,6 +255,8 @@ struct RelativeNoise <: NoiseComponent
     source::SensorSource.T
     function RelativeNoise(σ_rel::Real; source::SensorSource.T)
         isfinite(σ_rel) && σ_rel > 0 || throw(ArgumentError("RelativeNoise: σ_rel is positive and finite, got $σ_rel"))
+        source === SensorSource.specified || throw(ArgumentError(
+            "RelativeNoise: a relative noise is stated by a person (source SensorSource.specified), got source $(string(source))"))
         return new(Float64(σ_rel), _component_source(source, "RelativeNoise"))
     end
 end
@@ -407,6 +412,23 @@ Base.isequal(a::SensorModel, b::SensorModel) = isequal(_sensor_fields(a), _senso
 Base.hash(m::SensorModel, h::UInt) = hash(_sensor_fields(m), hash(:SensorModel, h))
 Adapt.adapt_structure(to, m::SensorModel) =
     SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.specified_override)
+
+"""
+    sources(m::SensorModel) -> NamedTuple{(:black, :noise, :defects, :reason, :specified_override)}
+
+Where each of a frame's sensor components came from — the provenance a run
+record states (ruling A): `black`, `noise` and `defects` each the component's
+[`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
+for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
+frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
+…); `specified_override` whether a specified component won over a measured one.
+The one public view of a model's provenance: a consumer reads it, never the
+components' fields.
+"""
+sources(m::SensorModel) = (black = _source_of(m.black), noise = _source_of(m.noise), defects = _source_of(m.defects),
+                           reason = m.reason, specified_override = m.specified_override)
+_source_of(::Union{NoNoise, NoDefects}) = nothing
+_source_of(c::_SensorComponent) = c.source
 
 # ------------------------------------------------------------------------------
 # The identity of a model (D9): the stack's one content-identity scheme, sha256_hex(canonical_json(tree))
@@ -629,6 +651,23 @@ _dark_scale(d::Dark) = 1 + 1 / d.frames
 # The Gaussian variance of cell site k's photosite (visible-raw index r, c).
 @inline _site_variance(l::_VarianceLaw{Nothing}, k, r, c) = l.σ²[k]
 @inline _site_variance(l::_VarianceLaw, k, r, c) = @inbounds Float64(l.dark_variance[r, c]) * l.dark_scale
+
+# THE variance of a value x of the photosites at cell sites `ks` (spans `span[k]`, cell origin r0, c0 in the photosite
+# grid, `origin` the visible raw's offset) times the gain: the law above. LinearRaw's kernel writes it per plane and
+# `linearview`'s getindex per photosite (one site, gain 1) — the one expression of both (D14: lazy and materialised agree).
+@inline function _value_variance(law::_VarianceLaw, x::Float64, ks::Tuple, span, gain::Float64, r0, c0, origin)
+    poisson = max(x, 0.0) * _poisson_slope(gain, law.inv_gain, map(k -> span[k], ks))
+    gauss = gain^2 / length(ks)^2 * foldl(ks; init = 0.0) do s, k
+        s + _site_variance(law, k, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]) / span[k]^2
+    end
+    return poisson + gauss + law.rel² * x^2
+end
+# An element of the lazy view (D14): the value alone without a law, else the value with its scalar variance.
+@inline _with_variance(::Nothing, x, k, span, i, j, origin) = x
+@inline _with_variance(law::_VarianceLaw, x, k, span, i, j, origin) =
+    Uncertain(x, CovMat(ScaledIdentity{1}(_value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin))))
+_view_eltype(::Nothing) = Float64
+_view_eltype(::_VarianceLaw) = Attributed{Float64, _ValueCovariance}
 
 # The element type of an uncertain image's covariance plane: a value's variance as a 1×1 isotropic covariance.
 const _ValueCovariance = typeof(CovMat(ScaledIdentity{1}(0.0)))

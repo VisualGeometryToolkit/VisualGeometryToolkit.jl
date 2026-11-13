@@ -27,7 +27,11 @@ above 1) or below 0 (noise under the black level) is kept.
   `StructArray` of `Uncertain{Float64}` values (owner ruling D11): its
   `value` component the `Float64` values, its `attributes` component each
   value's variance as a 1×1 [`CovMat`](@ref) (`cov(L.image[i, j, p])[1]`), both
-  planes from the one kernel. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
+  planes from the one kernel. This cell image is the MATERIALISED uncertain
+  image (owner ruling D14, (a)): its binned variances are computed once, in the
+  one kernel, from the one variance formula, and a consumer never re-derives
+  them; the photosites' uncertain image, [`linearview`](@ref)`(m; sensor_model)`,
+  is the lazy default. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
   it is a plain `AbstractArray{Float64, 3}`. A consumer dispatches on the
   image's element type.
 - `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the MASKED
@@ -186,9 +190,17 @@ whose noise is not `PoissonGaussian`). The one expression the kernel writes the
 variance plane with; the generalized Anscombe transform reads it beside the
 variance plane (VisualGeometryToolkitFeatures' `variance_stabilize`). A `:demosaic`
 image is refused (`ArgumentError`).
+
+    poisson_slope(L::LinearRaw, model::SensorModel, plane) -> Float64
+
+The slope of one plane: `plane` its index `p`, or its colour, `:R`, `:G` or `:B`
+(`:G` the green plane, [`green_plane`](@ref)`(L)`'s; a `:green_cells` image has
+`:G` alone). A colour the image does not hold is an `ArgumentError`.
 """
 poisson_slope(L::LinearRaw, model::SensorModel) =
     map(ps -> _poisson_slope(L.gain, _inv_gain(model.noise), map(s -> s.dn, ps)), _geometry(L, "poisson_slope").plane_sites)
+poisson_slope(L::LinearRaw, model::SensorModel, plane::Integer) = poisson_slope(L, model)[plane]
+poisson_slope(L::LinearRaw, model::SensorModel, colour::Symbol) = poisson_slope(L, model)[_colour_plane(L, colour)]
 _inv_gain(n::PoissonGaussian) = 1 / n.gain
 _inv_gain(::NoiseComponent) = 0.0
 
@@ -197,14 +209,8 @@ _inv_gain(::NoiseComponent) = 0.0
 @inline _store_variances!(::Nothing, img, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
 @inline _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
 @inline function _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p)
-    ks = first(planes)
-    m2 = length(ks)^2
     @inbounds x = img[i, j, p]
-    poisson = max(x, 0.0) * _poisson_slope(gain, law.inv_gain, map(k -> span[k], ks))
-    gauss = gain^2 / m2 * foldl(ks; init = 0.0) do s, k
-        s + _site_variance(law, k, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]) / span[k]^2
-    end
-    @inbounds var[i, j, p] = CovMat(ScaledIdentity{1}(poisson + gauss + law.rel² * x^2))
+    @inbounds var[i, j, p] = CovMat(ScaledIdentity{1}(_value_variance(law, x, first(planes), span, gain, r0, c0, origin)))
     return _store_variances!(var, img, i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
 end
 
@@ -315,10 +321,12 @@ raw_frame_map(::Type{<:LinearRaw{:green_cells}}) = _CELL_FRAME_MAP
 raw_frame_map(::Type{<:LinearRaw{:bin2}}) = _CELL_FRAME_MAP      # the green plane IS the cell grid in both modes
 raw_frame_map(::Type{<:LinearRaw{:demosaic}}) = throw(_display_only("raw_frame_map"))
 
-# The plane holding the green cells (the cell grid): bin2's second (R, G, B), the green-cell image's one.
-_green_plane(::LinearRaw{:bin2}) = 2
-_green_plane(::LinearRaw{:green_cells}) = 1
-_green_plane(::LinearRaw{:demosaic}) = throw(_display_only("green_plane"))
+# THE plane of a colour: bin2's (R, G, B), the green-cell image's G alone; the green plane holds the cell grid.
+_colour_plane(::LinearRaw{:bin2}, c::Symbol) = c === :R ? 1 : c === :G ? 2 : c === :B ? 3 : _no_colour(c, (:R, :G, :B))
+_colour_plane(::LinearRaw{:green_cells}, c::Symbol) = c === :G ? 1 : _no_colour(c, (:G,))
+_colour_plane(::LinearRaw{:demosaic}, c::Symbol) = throw(_display_only("a plane's colour"))
+_no_colour(c, held) = throw(ArgumentError("LinearRaw: no plane of colour :$c; the image holds $held"))
+_green_plane(L::LinearRaw) = _colour_plane(L, :G)
 
 """
     green_plane(L::LinearRaw) -> AbstractMatrix{Float64}

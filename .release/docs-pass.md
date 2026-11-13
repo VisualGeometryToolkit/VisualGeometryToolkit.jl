@@ -14,6 +14,21 @@ Eval 0.7.3).
 None changed: `code_trees`, `refuse_uncommitted_code` and `write_provenance` keep their signatures. A registered
 `workdir` is recorded under its package name (`"<git-tree-sha1> <name> <version> <uuid>"`), its project path is that
 name, and its stack packages are those of the active project's environment. Internal: `_registered_install`.
+docs-pass: c835af7d
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change)
+
+# Core 0.9.8 docs pass (julia-docs-pass) — patch-core098
+
+One device-capacity query for a kernel: how many of its threads the device holds at once, register-aware (the
+owner's ruling: no constant, no config key). Baseline: main bfb7f7ed, main 2a5838ae merged in (bf4d9ac3).
+
+## 1. Public API since the baseline
+
+- Core: `device_resident_threads(kernel, args...; ndrange) -> Int`, public, not exported (base/device.jl, beside
+  `device_free_bytes`; in the manual through base/device.jl's `@autodocs`). One method per backend of the private
+  `_resident_threads`: the host's threads; the CUDA extension's method (the compiled kernel's occupancy); any other
+  backend refused. `check_duplication` counts a kernel's resident threads among the device queries
+  (`_TRANSFER_NAMES`). Nothing removed.
 
 ## 2. Static findings
 
@@ -38,6 +53,18 @@ The first candidate, 7271049c (jobs 14538–14540), failed one test: quality: JE
 and of a path in no git checkout, and a clean checkout's git tree.
 
 The release-records commit on top changes only .release/; its docs build is run again on it.
+| docstrings and pages | the new name documented; Core's docs build strict (green) |
+| CHANGELOG | Core 0.9.8 |
+| versions | Core 0.9.8; every other package as on main |
+| landing page | no device API named: unchanged |
+
+## 3. Executed on the release candidate (c835af7d)
+
+Gate (jobs 14548–14551), Julia 1.13.3: prep green (lint 0/0, agent_docs 0, floor --latest, audit, GPU stacks,
+check_duplication 0 on all six); Core's CPU groups with device_tests.jl and quality_duplication_tests.jl 74704 / 6 and
+61054 / 7; the GPU tier, every package's GPU groups: Core 53128 / 0 (4; device_resident_threads on the device, its
+register-heavy kernel below half the raw maximum), Features 2011 / 0 (2), Estimation 55 / 0, Eval 359 / 0; Core docs
+green. The other trees are 2a5838ae's (gated as Core 0.9.7 / Estimation 0.10.3).
 
 ---
 

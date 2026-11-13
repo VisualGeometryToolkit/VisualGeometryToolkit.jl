@@ -185,6 +185,50 @@ end
     end
 end
 
+@testitem "device_resident_threads: a kernel's threads resident at once, register-aware (CUDA availability-gated)" begin
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index
+    using StaticArrays: SMatrix
+    using VisualGeometryToolkitCore: device_resident_threads, OnBackend
+    @kernel function light!(out)
+        i = @index(Global)
+        @inbounds out[i] = 2 * out[i]
+    end
+    # a 12 × 12 Float64 product held in registers per thread: 288 values live, past the 255-register cap, so its
+    # occupancy is a fraction of a light kernel's
+    @kernel function heavy!(out, @Const(x))
+        i = @index(Global)
+        @inbounds begin
+            A = SMatrix{12, 12, Float64}(ntuple(k -> x[i] * k, Val(144)))
+            B = A * A' * A
+            out[i] = sum(B)
+        end
+    end
+    # the host: the threads its kernels run on
+    v = zeros(64)
+    @test device_resident_threads(OnBackend(KA.CPU())(light!), v; ndrange = 64) == Threads.nthreads()
+    struct UnknownGPU <: KA.GPU end
+    @test_throws r"no occupancy query" device_resident_threads(light!(UnknownGPU()), v; ndrange = 64)
+    using CUDA: CUDA
+    if CUDA.functional()
+        dev = CUDA.CUDABackend(; always_inline = true)
+        n = 1 << 20
+        out = CUDA.zeros(Float64, n); x = CUDA.rand(Float64, n)
+        sms = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+        raw = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR) * sms
+        nl = device_resident_threads(OnBackend(dev)(light!), out; ndrange = n)
+        nh = device_resident_threads(OnBackend(dev)(heavy!), out, x; ndrange = n)
+        @test 0 < nl <= raw && 0 < nh
+        @test nh < raw ÷ 2 && nh < nl      # registers bound the heavy kernel's occupancy, far below the raw maximum
+        # a static workgroup: whole blocks of it, at most the raw maximum
+        ns = device_resident_threads(OnBackend(dev; workgroupsize = 128)(light!), out; ndrange = n)
+        @test ns % 128 == 0 && 0 < ns <= raw
+        # it launches as queried
+        OnBackend(dev)(heavy!)(out, x; ndrange = n); KA.synchronize(dev)
+        @test all(isfinite, Array(out))
+    end
+end
+
 @testitem "device_zeros: a zero array on a backend (host)" begin
     # KernelAbstractions' own `zeros` is not public, so a package cannot call it
     # across the boundary; PanoramaStitching, Core's cgls and Features' spread

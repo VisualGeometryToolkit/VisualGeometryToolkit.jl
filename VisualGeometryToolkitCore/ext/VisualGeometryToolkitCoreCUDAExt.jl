@@ -30,4 +30,26 @@ function __init__()
     return nothing
 end
 
+# `device_resident_threads` on the CUDA backend (Core's `_resident_threads`, one method per backend): the threads of a
+# KernelAbstractions kernel resident on the device at once: the kernel compiled as the CUDA backend
+# compiles it for this launch (CUDA's KernelAbstractions backend, `(::KA.Kernel{CUDABackend})(args...; ndrange)`: the
+# same context, `always_inline` and static `maxthreads`), its block size the launch's (static, or the occupancy
+# choice a dynamic workgroup takes, `prefer_blocks` included), then CUDA's occupancy of that function at that block
+# size — the registers and shared memory it uses — times the block size times the multiprocessors.
+function VgtkCore._resident_threads(backend::CUDABackend, obj::KA.Kernel, args, ndrange)
+    nd, _, iterspace, _ = KA.launch_config(obj, ndrange, nothing)
+    ctx = KA.mkcontext(obj, nd, iterspace)
+    static = KA.workgroupsize(obj) <: KA.StaticSize
+    maxthreads = static ? prod(KA.get(KA.workgroupsize(obj))) : nothing
+    k = CUDA.@cuda launch = false always_inline = backend.always_inline maxthreads = maxthreads obj.f(ctx, args...)
+    threads = if static
+        maxthreads
+    else
+        config = CUDA.launch_configuration(k.fun; max_threads = prod(nd))
+        backend.prefer_blocks ? cld(prod(nd), max(cld(prod(nd), min(prod(nd), config.threads)), config.blocks)) : config.threads
+    end
+    sms = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+    return CUDA.active_blocks(k.fun, threads) * threads * sms
+end
+
 end # module

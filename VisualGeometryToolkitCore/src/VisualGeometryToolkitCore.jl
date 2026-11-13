@@ -126,6 +126,7 @@ export bbox
 export ClosedInterval  # Re-export from IntervalSets
 export default_device, reset_default_device!   # the ONE KA backend resolver (base/device.jl)
 public device_free_bytes, reclaim_device!, device_names, free_device_buffers!   # the accelerator's memory and devices, the extension's queries (base/device.jl)
+public device_resident_threads   # how many threads of a kernel its device holds at once, register-aware (base/device.jl)
 export ka_upload, on_device   # the ONE upload to a device, beside the resolver: a `T` copy there; the array itself when it is there (base/device.jl)
 public device_zeros   # a zero array on a backend (base/device.jl; KernelAbstractions' `zeros` is not public)
 

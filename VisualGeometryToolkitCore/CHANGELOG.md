@@ -1,5 +1,16 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.8 (unreleased)
+
+A patch. Additive: no result changes.
+
+- **New: `device_resident_threads(kernel, args...; ndrange) -> Int`, public** (base/device.jl) — how many threads of a
+  KernelAbstractions kernel instance (`OnBackend(dev)(f!)`, launched as `kernel(args...; ndrange)`) its device holds
+  at once, register-aware. On a CUDA device it is the compiled kernel's occupancy at the launch's block size, times the
+  block size, times the multiprocessors; never the raw maximum of threads per multiprocessor, which overstates a
+  register-heavy kernel (255 registers a thread: about 8×). On the host it is `Threads.nthreads()`; another backend is
+  refused. The accelerator extension answers it beside `device_free_bytes`.
+
 ## 0.9.7 (unreleased)
 
 A patch. Additive: no result changes.

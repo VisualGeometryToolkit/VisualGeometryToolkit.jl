@@ -51,3 +51,10 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
   `Pkg.dependencies()` for direct dependencies' versions (another question: a Manifest's sync), and the Manifest
   `git-tree-sha1` of a loaded stack package stays `code_trees`' own (code_identity.jl `_loaded_entries`).
 - [x] check_duplication 0, check_naming 0, check_splat 0 on Eval 0.7.4 (gate prep 14587).
+## Core 0.9.8 (patch-core098): one device-capacity query, 2026-11-13
+
+- [x] ONE count of a kernel's resident threads: `device_resident_threads` (base/device.jl), one method per backend of
+  `_resident_threads` (the host's threads; the CUDA extension's compiled-kernel occupancy), no `isa` branch; a device
+  query, so `check_duplication` leaves its methods per backend alone (`_TRANSFER_NAMES`), a compute function's still not
+  (tested).
+- [x] check_duplication: 0 findings on all six (gate prep 14548).

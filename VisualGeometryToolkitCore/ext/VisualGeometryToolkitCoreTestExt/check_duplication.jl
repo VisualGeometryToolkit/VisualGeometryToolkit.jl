@@ -187,8 +187,10 @@ _entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k i
 # backend, `get_backend`'s answer or a GPU array type to run other code, a
 # dispatch pair on a CPU and a GPU type, and two names that differ only by a
 # CPU/GPU marker are each a duplicate. The transfer and allocation helpers
-# (an upload or download, a zero array, an allocation, a synchronization, a
-# device query) are the backends' own and are left alone, by their names.
+# (an upload or download, a zero array, an allocation, a synchronization) and
+# the device queries (its names, free bytes, pool reclaim, default device and a
+# kernel's resident threads: answers about the device that no shared kernel
+# computes) are the backends' own and are left alone, by their names.
 # Like the retired patterns, the tests are built from fragments.
 
 const _KA = "(KA\\.|KernelAbstractions\\.)?"
@@ -197,7 +199,7 @@ const _BACKEND_TEST = Regex("\\bisa\\s+" * _KA * "(CPU|GPU)\\b|get_backend\\s*\\
                             "\\bisa\\s+" * _GPU_ARRAYS * "\\b|(===?|!==?)\\s*" * _KA * "CPU\\(\\)")
 const _CPU_SIGNATURE = Regex("::\\s*" * _KA * "CPU\\b")
 const _GPU_SIGNATURE = Regex("::\\s*" * _KA * "(GPU|Backend)\\b|::\\s*" * _GPU_ARRAYS * "\\b")
-const _TRANSFER_NAMES = r"(upload|download|to_host|to_device|on_device|zeros|ones|fill|allocat|synchroni[sz]e|adapt|copy|transfer|device_names|free_bytes|reclaim|default_device)"
+const _TRANSFER_NAMES = r"(upload|download|to_host|to_device|on_device|zeros|ones|fill|allocat|synchroni[sz]e|adapt|copy|transfer|device_names|free_bytes|reclaim|default_device|resident_threads)"
 # a CPU/GPU marker: the suffix pairs and the prefix pair, and `_cuda` beside the plain name
 const _TWIN_SUFFIXES = (("_cpu", "_gpu"), ("_host", "_device"))
 const _TWIN_PREFIXES = (("cpu_", "gpu_"),)

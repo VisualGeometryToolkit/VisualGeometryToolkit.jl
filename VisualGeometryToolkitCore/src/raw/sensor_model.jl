@@ -413,6 +413,23 @@ Base.hash(m::SensorModel, h::UInt) = hash(_sensor_fields(m), hash(:SensorModel, 
 Adapt.adapt_structure(to, m::SensorModel) =
     SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.specified_override)
 
+"""
+    sources(m::SensorModel) -> NamedTuple{(:black, :noise, :defects, :reason, :specified_override)}
+
+Where each of a frame's sensor components came from — the provenance a run
+record states (ruling A): `black`, `noise` and `defects` each the component's
+[`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
+for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
+frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
+…); `specified_override` whether a specified component won over a measured one.
+The one public view of a model's provenance: a consumer reads it, never the
+components' fields.
+"""
+sources(m::SensorModel) = (black = _source_of(m.black), noise = _source_of(m.noise), defects = _source_of(m.defects),
+                           reason = m.reason, specified_override = m.specified_override)
+_source_of(::Union{NoNoise, NoDefects}) = nothing
+_source_of(c::_SensorComponent) = c.source
+
 # ------------------------------------------------------------------------------
 # The identity of a model (D9): the stack's one content-identity scheme, sha256_hex(canonical_json(tree))
 # ------------------------------------------------------------------------------

@@ -41,8 +41,8 @@ end
     S = space.nb_scales
     ladder = [(3 * VisualGeometryToolkitFeatures.level_sigma(space, o, l + 1), exp2(space.first_octave + o - 1))
               for o in 1:3 for l in 2:(S + 2)]
-    step = exp2(1 / S)                                   # one level; σ is Float32 arithmetic (relative rounding ≤ 1e-6)
-    within(σ, s) = s / step * (1 - 1.0e-6) <= σ <= s * step * (1 + 1.0e-6)   # a sub-level interpolation stays within a level
+    level_ratio = exp2(1 / S)                                 # one level; σ is Float32 arithmetic (relative rounding ≤ 1e-6)
+    within(σ, s) = s / level_ratio * (1 - 1.0e-6) <= σ <= s * level_ratio * (1 + 1.0e-6)   # a sub-level interpolation stays within a level
     # The σ selected: the largest ladder σ whose window — the integration taps' support, ⌈3.3σ⌉ pixels of its octave —
     # still holds one dot, i.e. ends before the neighbour's blurred edge at pitch − radius − 3·PSF (30 − 2.2 − 4.5 px);
     # the precision peaks there, within one level (the peak can fall between levels)
@@ -54,7 +54,7 @@ end
     # reach the detection's σ.
     pixel(σ) = maximum(sf for (s, sf) in ladder if within(σ, s))
     @test all(all(abs.(seeds[k].center .- t) .<= 0.5 * pixel(seeds[k].σ) + 3 / sqrt(seeds[k].precision)) for (k, t) in zip(near, truth))
-    # every seed (the dots among them) passes the detector's own precision test T_w = 1/precision_threshold² (0.5 px)
+    # every seed (the dots among them) succeeds in the detector's own precision test T_w = 1/precision_threshold² (0.5 px)
     @test all(d -> d.precision >= 1 / 0.5^2, seeds)
     # the λ₂ test at significance 0.999 (no empirical factor): nothing on pure noise
     for σn in (0.5, 2.0)

@@ -920,25 +920,32 @@ end
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
     end
 
-    @testset "the results-branch stage: the renders of the graph's assets on a results branch" begin
+    @testset "the results-branch stage: the renders of the graph's assets on a results branch, named in the launch's manifest" begin
         f = runner_project()
         git!(f.repo, "checkout", "-q", "-b", "main")
         mkpath(joinpath(f.proj, "paper", "fig")); write(joinpath(f.proj, "paper", "fig", "a.png"), UInt8[1, 2, 3])
         git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "submitted")
         mkpath(joinpath(f.proj, "plots")); write(joinpath(f.proj, "plots", "a.png"), UInt8[1, 2, 4]); write(joinpath(f.proj, "plots", "a.txt"), "x")
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
         g = load_stage_graph(f.graph)
         @test results_branch_assets(g) == [joinpath(f.proj, "plots", "a.png") => "paper/fig/a.png"]
-        p = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
-        recs = Dict{String, Any}("setup" => Dict{String, Any}("key" => p.stages[1].key, "job_id" => "", "state" => "completed"))
-        mkpath(dirname(p.manifest))
-        open(io -> TOML.print(io, Dict{String, Any}("workdir" => g.workdir, "graph" => relpath(g.path, g.workdir), "commit" => p.commit,
-                                                   "dirty" => false, "site" => "desktop", "stages" => recs)), p.manifest, "w")
-        r = redirect_stdout(devnull) do
-            results_branch_of_run(p.manifest; scratch_root = joinpath(mktempdir(), "wt"))
-        end
-        @test startswith(r.branch, "results/") && TOML.parsefile(p.manifest)["results_branch"] == r.branch
-        run_toml = TOML.parsefile(joinpath(r.worktree, "proj", "RUN.toml"))
-        @test run_toml["run_keys"] == [p.stages[1].key] && run_toml["machine"] == "desktop" && run_toml["assets"] == ["proj/paper/fig/a.png"]
-        @test read(joinpath(r.worktree, "proj", "paper", "fig", "a.png")) == UInt8[1, 2, 4]
+        # a local launch: the results-branch stage runs in a julia that loads this package (this suite's environment),
+        # writes the branch name into the launch's manifest, and the runner's own later rewrites keep it
+        wt = mktempdir()
+        env = merge(env0, Dict("JULIA" => joinpath(Sys.BINDIR, Base.julia_exename()),
+                               "JULIA_LOAD_PATH" => join(["@"; Base.load_path(); "@stdlib"], Sys.iswindows() ? ';' : ':'),
+                               "VGTK_RESULTS_WORKTREES" => wt))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=results"]; env)
+        @test code == 0
+        m = TOML.parsefile(only(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test m["stages"]["results"]["state"] == "completed"
+        branch = get(m, "results_branch", "")
+        @test startswith(branch, "results/") && !isempty(readchomp(`git -C $(f.repo) branch --list $branch`))
+        tree = joinpath(wt, only(filter(d -> isfile(joinpath(wt, d, "proj", "RUN.toml")), readdir(wt))))
+        run_toml = TOML.parsefile(joinpath(tree, "proj", "RUN.toml"))
+        @test run_toml["run_keys"] == sort([String(r["key"]) for (n, r) in m["stages"] if n != "results"])   # the stages before it
+        @test run_toml["machine"] == "desktop" && run_toml["assets"] == ["proj/paper/fig/a.png"]
+        @test read(joinpath(tree, "proj", "paper", "fig", "a.png")) == UInt8[1, 2, 4]
     end
 end

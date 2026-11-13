@@ -955,9 +955,15 @@ function _manifest_dict(plan::ReproducePlan, records)
         "graph_sha256" => file_sha256(g.path), "code_trees" => plan.code_trees, "stages" => records)
 end
 
-# Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs).
+# Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs). The results-branch
+# stage adds `results_branch` to the manifest (`results_branch_of_run`); a later rewrite keeps it.
 function _write_manifest(plan::ReproducePlan, records)
-    _write_atomic(io -> TOML.print(io, _manifest_dict(plan, records); sorted = true), plan.manifest)
+    d = _manifest_dict(plan, records)
+    if isfile(plan.manifest)
+        branch = get(TOML.parsefile(plan.manifest), "results_branch", nothing)
+        branch === nothing || (d["results_branch"] = branch)
+    end
+    _write_atomic(io -> TOML.print(io, d; sorted = true), plan.manifest)
     return plan.manifest
 end
 

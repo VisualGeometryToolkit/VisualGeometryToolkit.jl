@@ -345,6 +345,7 @@ export view_angle_limit  # the honest θ-domain of a lens
 export valid_domain      # where the lens MODEL is valid (its view-angle limit's image), not where light falls
 export image_circle      # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region     # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+public check_region_support, RegionBeyondSupport   # THE refusal of a fit over a region beyond the source's calibrated support
 public farthest_radius   # how far a region reaches from a centre: an imaged region's radius, clipped by the sensor (image_circle.jl)
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
@@ -412,7 +413,7 @@ export AffineMap, Translation
 # Moved from VisualGeometryToolkitFeatures in 0.9.2 (Features 0.8.0 keeps the LibRaw decoder and the
 # display demosaic, and does not re-export these names: Core alone exports them).
 export RawMosaic, LinearRaw     # the decoded mosaic (an AbstractMatrix{UInt16}); its linear values on the 2×2 cells
-public green_plane              # a LinearRaw's green cells (the cell grid's plane), a view
+public green_plane, pixel_noise # a LinearRaw's green cells (the cell grid's plane), a view; THE noise (α, σ²) of a pixel value per plane under a SensorNoise
 export BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites   # a plane's frame, the image's and each plane's exact map onto the raw, a green cell's footprint
 export raw_coordinates          # THE accessor of an image's sensor-pixel coordinates (raw_frame_map applied)
 export channelview              # ImageCore's (re-exported, the same binding): its RawMosaic method is the photosites channel-first, 4 × H/2 × W/2, a view

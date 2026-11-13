@@ -87,6 +87,13 @@ Base.in(::StaticVector{2}, ::WholePlane) = true
 # a rectangle in a region: in an intersection when in both parts; in the whole plane always
 Base.in(r::Rect{2}, s::RegionIntersection) = r ∈ s.a && r ∈ s.b
 Base.in(::Rect{2}, ::WholePlane) = true
+# a region in a region (⊆): an ellipse or an intersection in an intersection when in both parts; an intersection is
+# in a region when either part is (a sufficient test: a ∩ b ⊆ a); the whole plane is only in the whole plane
+Base.in(e::Union{Ellipse, RegionIntersection, WholePlane}, s::RegionIntersection) = e ∈ s.a && e ∈ s.b
+Base.in(s::RegionIntersection, r::Union{Rect{2}, Ellipse}) = s.a ∈ r || s.b ∈ r
+Base.in(::Union{Ellipse, RegionIntersection}, ::WholePlane) = true
+Base.in(::WholePlane, ::WholePlane) = true
+Base.in(::WholePlane, ::Union{Rect{2}, Ellipse}) = false
 
 GeometryBasics.Rect2(::WholePlane; snap_to_grid::Bool = false) =
     throw(ArgumentError("the whole plane has no bounding box; intersect it with a Rect first"))

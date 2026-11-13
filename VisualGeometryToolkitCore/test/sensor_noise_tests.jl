@@ -250,7 +250,7 @@ end
         g = findall(n -> n in (:G1, :G2), collect(names))
         Gp = mode === :bin2 ? 2 : 1
         @test Ld.image[:, :, Gp] == (v[g[1], :, :] .+ v[g[2], :, :]) ./ 2 .* gain
-        @test Ld.geometry.green_dn == L.geometry.green_dn                     # the span is the channel's, dark or not
+        @test Ld.geometry.plane_sites == L.geometry.plane_sites               # the span is the channel's, dark or not
         # the defects join the mask: a cell is masked when a photosite its planes read is defective
         sites = mode === :bin2 ? (1:4) : g
         # (channel k of cell (i, j) is photosite (2i − 1 + di, 2j − 1 + dj), k = di + 2dj + 1, at the window's offset)
@@ -297,4 +297,35 @@ end
     else
         @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
     end
+end
+
+@testitem "sensor noise: pixel_noise — a pixel value's α and σ² per plane, the variance of a simulated flat" begin
+    using Test, StableRNGs, Statistics
+    using Distributions: Poisson, Normal
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: RawMosaic, pixel_noise, noise_value, value_of
+    K, σ, black, white = 2.0, (3.0, 2.5, 4.0, 2.5), (510.0, 512.0, 514.0, 513.0), 16383.0
+    rng = StableRNG(7)
+    H, W, μe = 400, 400, 2000.0                          # a flat field of μe electrons per photosite
+    pattern = UInt8[0 1; 3 2]                             # RGGB, LibRaw's indices (G2 = 3)
+    col(i, j) = pattern[mod1(i, 2), mod1(j, 2)]
+    raw = [UInt16(round(black[col(i, j) + 1] + rand(rng, Poisson(μe)) / K + rand(rng, Normal(0, σ[col(i, j) + 1])))) for i in 1:H, j in 1:W]
+    m = RawMosaic(raw, pattern, black, white, (0, 0), (H, W), (;))
+    noise = SensorNoise(; body = DeviceIdentity(), iso = 100, electrons_per_dn = noise_value(K, :measured),
+                        read_noise = noise_value(σ, :measured), black = noise_value(black, :measured))
+    for gain in (1.0, 2.5)
+        L = LinearRaw(m; mode = :bin2, gain, noise)
+        pn = pixel_noise(L, noise)
+        for p in 1:3
+            ps = L.geometry.plane_sites[p]; mm = length(ps)
+            @test pn[p].α ≈ gain / (mm^2 * K) * sum(s -> 1 / s.dn, ps)
+            x = vec(L.image[:, :, p])
+            # the rounding adds 1/12 code² per photosite: the model's σ_r includes it, so the truth here is σ² + the rounding's
+            v = pn[p].α * mean(x) + pn[p].σ² + gain^2 / mm^2 * sum(s -> (1 / 12) / s.dn^2, ps)
+            # the sample variance of n iid values has relative standard error √(2/(n − 1)) (Gaussian, here ≈ Poisson at 2000 e⁻); 5 of them
+            @test abs(var(x) / v - 1) <= 5 * sqrt(2 / (length(x) - 1))
+        end
+    end
+    @test_throws ArgumentError pixel_noise(LinearRaw(m; mode = :green_cells), SensorNoise(; body = DeviceIdentity(), iso = 100,
+                                                                                         electrons_per_dn = noise_value(K, :measured)))
 end

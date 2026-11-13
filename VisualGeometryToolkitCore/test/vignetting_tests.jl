@@ -206,7 +206,7 @@ end
         pole_regular_basis, convert_eltype, bspline_basis, RADIAL_CHARTS, projective_chart, projective_knots, radial_chart,
         with_center, center_gradient
 
-    @test RADIAL_CHARTS == (:linear, :projective)
+    @test RADIAL_CHARTS == (:linear, :projective, :equisolid)   # equisolid: a measured profile's (BinnedRadialProfile)
     @test only(projective_chart(4.0)(SVector(4.0))) == 0.5 && only(projective_chart(4.0)(SVector(12.0))) == 0.75
     W, H = 4256, 2848
     c0 = SVector(2126.0, 1554.0)

@@ -88,6 +88,7 @@ const RETIRED_NAMES = String[
     # an OBSERVATION is a detection associated with a model entity (a target point, a landmark); "measured" is provenance only
     "measurement" * "_gradient_jacobian",                         # a model's constraint Jacobian in the observation: `observation_gradient_jacobian`
     "measurement" * "_covariance",                                # `observation_covariance`
+    "MEASUREMENT" * "_NOISES", "measurement" * "_noise",          # PanoramaStitching 0.7: `OBSERVATION_NOISES`, `observation_noise`
     "Target" * "Detections",                                      # per frame, per target, the observations of its points: `TargetObservations` (VisualGeometryToolkitCore 0.10)
     "Target" * "Points2D", "Target" * "Points3D", "Target" * "Point2D", "Target" * "Point3D",   # folded into `TargetObservations{F}` (a PixelFrame or a named 3D frame; weights a `weights` column)
     # the three public aliases (wave 10): one name per concept

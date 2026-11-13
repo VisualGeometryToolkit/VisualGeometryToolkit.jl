@@ -604,9 +604,10 @@ end
         B = LinearRaw(m; mode = :bin2, gain)
         @test lin[findfirst(==(:R), names), :, :] .* gain == B.image[:, :, 1]
         @test lin[findfirst(==(:B), names), :, :] .* gain == B.image[:, :, 3]
-        @test B.geometry.green_dn == (span[g[1]], span[g[2]])
-        cols = Tuple(Int.(collect(VgtkCore._cell_colors(m, "test"))[g]))
-        @test B.geometry.green_colors == cols && all(in((1, 3)), cols)              # each green's CFA colour index
+        cell = collect(VgtkCore._cell_colors(m, "test"))
+        @test B.geometry.plane_sites[2] == ((color = Int(cell[g[1]]), dn = span[g[1]]), (color = Int(cell[g[2]]), dn = span[g[2]]))
+        @test all(s -> s.color in (1, 3), B.geometry.plane_sites[2])                # each green's CFA colour index
+        @test only(B.geometry.plane_sites[1]).color == 0 && only(B.geometry.plane_sites[3]).color == 2
         @test VgtkCore.green_plane(B) == B.image[:, :, 2] && VgtkCore.green_plane(LinearRaw(m; mode = :green_cells, gain)) == B.image[:, :, 2]
         @test all(linear_value(m.white, black[k], span[k]) == 1 for k in 1:4)
     end

@@ -30,6 +30,26 @@ end
 
 test_naming(M::Module) = _test_none(check_naming(pkgdir(M)))
 test_duplication(M::Module; kwargs...) = _test_none(check_duplication(M; kwargs...))
+test_splat(M::Module; mode::Symbol = :enforce, kwargs...) =
+    _test_gate(mode, "splat of a data-length collection", () -> check_splat(M; kwargs...))
+
+# A gate in a mode (stub in src/quality/test_helpers.jl; test_quality_gates' gates and test_splat):
+# `:enforce` — `@test` the findings are empty, each logged on failure; `:report` — each finding logged
+# and the gate recorded broken (empty: an ordinary test that holds); `:off` — nothing. `findings()` is
+# called only when the gate runs.
+const _GATE_MODES = (:report, :enforce, :off)
+function _test_gate(mode::Symbol, what::AbstractString, findings)
+    mode in _GATE_MODES || throw(ArgumentError("gate mode for $what must be one of $_GATE_MODES, got :$mode"))
+    mode === :off && return nothing
+    found = findings()
+    isempty(found) || @warn "$what: $(length(found)) finding(s) ($mode)" findings = join(string.(found), "\n")
+    if mode === :enforce || isempty(found)
+        Test.@test isempty(found)
+    else
+        Test.@test_broken isempty(found)
+    end
+    return found
+end
 
 function thrown_message(f; shown::Bool = false)
     try

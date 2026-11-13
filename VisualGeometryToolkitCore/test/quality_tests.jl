@@ -96,6 +96,10 @@
         # window is typed `HyperRectangle{2}`; measured with the package analysed
         # alone, 13 at 02dfb2ed and 12 after.
         jet_bound = 12,
+        # No call splats a collection whose length is data (check_splat; Features 0.8.3's
+        # `zip(map(_identity_fields, ids)...)`, one `zip` per capture size). Core's own sites were
+        # fixed in 0.10; its two inherent ones are DUPLICATION.toml [[splat]] entries.
+        splat = :enforce,
     )
 end
 

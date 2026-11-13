@@ -702,10 +702,12 @@ public check_naming, NamingViolation, naming_scope
 # VisualGeometryToolkitFeatures' raw module is a finding.
 public check_raw_decoding, RawDecodingViolation
 public check_duplication, DuplicationViolation
+# No call splats a collection whose length is data (the same extension; DUPLICATION.toml's [[splat]] exceptions).
+public check_splat, SplatViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
-public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_docs, thrown_message, test_quality_gates,
+public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, test_quality_gates,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
 public ReadmeExample, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
@@ -1076,6 +1078,7 @@ include("visualization_stubs.jl")
 include("quality/naming.jl")
 include("quality/raw_decoding.jl")   # check_raw_decoding: the one RAW path (entry point; the scan is the Test extension)
 include("quality/duplication.jl")    # check_duplication: one implementation per concept (entry point; the scan is the Test extension)
+include("quality/splat.jl")          # check_splat: no splat of a data-length collection (entry point; the scan is the Test extension)
 include("quality/test_helpers.jl")   # the rows checks, the quality gates (entry points)
 include("quality/contract_helpers.jl")   # the contract conformance helpers (entry points)
 # The stack's quality contracts: the tag registry's scans (the registry itself

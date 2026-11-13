@@ -7,7 +7,7 @@
     using Statistics: cov
 
     # Per-frame values of a capture (captures.jl): a body's Trajectory, the
-    # TargetPoses of a detector, TargetPoints2D / TargetPoints3D of a sensor;
+    # TargetPoses of a detector, the TargetObservations of a sensor;
     # the frame index is the join key, absent means unobserved, Uncertain
     # members keep their covariance; convert_frame moves pixels with the frame.
 
@@ -40,23 +40,23 @@
         @test_throws ArgumentError TargetPoses{UnlabeledFrame{3}}(Dict(1 => Dict(:b => X)))
     end
 
-    @testset "TargetPoints2D / TargetPoints3D, convert_frame" begin
+    @testset "TargetObservations, convert_frame" begin
         Σ2 = CovMat(SMatrix{2, 2, Float64}(0.25I))
-        o = TargetPoints2D{PixelFrame{:opencv}}(
-            Dict(1 => [(target = :b, index = 1, xy = SVector(1.0, 2.0), weight = 1.0), (target = :b, index = 2, xy = Uncertain(SVector(3.0, 4.0), Σ2), weight = 0.5)]);
+        o = TargetObservations{PixelFrame{:opencv}}(
+            Dict(1 => Dict(:b => withattrs(correspondences([1, 2], [Uncertain(SVector(1.0, 2.0), Σ2), Uncertain(SVector(3.0, 4.0), Σ2)]); weights = [1.0, 0.5])));
             sensors = "cam", images = Dict(1 => "a.png"), targets = ["ab"],
         )
         c = convert_frame(PixelFrame{:colmap}, o)
-        @test c isa TargetPoints2D{PixelFrame{:colmap}}
-        @test c[1][1].xy == SVector(1.5, 2.5)                             # opencv → colmap: +½ px
-        @test cov(c[1][2].xy) == Σ2                                       # a translation leaves the covariance
+        @test c isa TargetObservations{PixelFrame{:colmap}}
+        @test geom(targets(c[1][:b])[1]) == SVector(1.5, 2.5)            # opencv → colmap: +½ px
+        @test cov(targets(c[1][:b])[2]) == Σ2                             # a translation leaves the covariance
+        @test c[1][:b].weights == [1.0, 0.5]                              # the columns ride along
         @test convert_frame(PixelFrame{:opencv}, c) == o
         @test c != o                                                      # equal numbers, different frames: different
         @test (c.images, c.sensors, c.targets) == (o.images, o.sensors, o.targets)
-        @test_throws ArgumentError TargetPoints2D{PixelFrame{:colmap}}(Dict(1 => [(target = :b, index = 1, xy = SVector(1.0, 2.0))]))
-        p3 = TargetPoints3D{WorldFrame}(Dict(7 => [(target = :body, index = 3, xyz = SVector(1.0, 2.0, 3.0))]); sensors = "mocap")
-        @test p3[7][1].xyz == SVector(1.0, 2.0, 3.0) && p3.sensors[7] == "mocap"
-        @test_throws ArgumentError TargetPoints3D{UnlabeledFrame{3}}(Dict(7 => []))
+        p3 = TargetObservations{WorldFrame}(Dict(7 => Dict(:body => correspondences([3], [SVector(1.0, 2.0, 3.0)]))); sensors = "mocap")
+        @test targets(p3[7][:body])[1] == SVector(1.0, 2.0, 3.0) && p3.sensors[7] == "mocap"
+        @test_throws ArgumentError TargetObservations{UnlabeledFrame{3}}(Dict(7 => Dict(:body => correspondences([3], [SVector(1.0, 2.0, 3.0)]))))
     end
 
     @testset "an unposed BoundedCamera" begin

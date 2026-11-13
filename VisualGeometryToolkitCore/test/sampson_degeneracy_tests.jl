@@ -1,5 +1,5 @@
 # One degeneracy rule for the Sampson distance, its signed form and whitening:
-# where the measurement gradient vanishes to rounding the distance is 0 when the
+# where the observation gradient vanishes to rounding the distance is 0 when the
 # constraint vanishes with it (the correspondence satisfies it exactly) and Inf when
 # it does not; the Sampson residual is ±Inf, a Sampson Jacobian row and a frozen
 # whitening factor are zero there. Every test is relative, so a homogeneous model's scale never
@@ -80,7 +80,7 @@
         @test sampson_distance(FundMat(SMatrix{3, 3, Float32}(F)), Float32.(u), Float32.(v)) ≈ abs(d) rtol = 1.0e-4
     end
 
-    @testset "a degenerate measurement: residual 0 or ±Inf, Jacobian row and frozen factor zero" begin
+    @testset "a degenerate observation: residual 0 or ±Inf, Jacobian row and frozen factor zero" begin
         Z4 = SVector(0.0, 0.0, 0.0, 0.0); Gθ3 = SVector(1.0, 2.0, 3.0)
         @test whitened_of((0.7, Z4, Gθ3)) == Inf
         @test whitened_of((-0.7, Z4, Gθ3)) == -Inf

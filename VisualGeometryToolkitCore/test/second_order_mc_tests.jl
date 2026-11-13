@@ -13,7 +13,7 @@
     const CHar = VgtkCore.Synthetic
 
     # the H transfer of a query point: the implicit chart solution v(x) of the 4-point
-    # constraints and the output π(H(v)·q̃); noise σ on all 16 + 2 measurements
+    # constraints and the output π(H(v)·q̃); noise σ on all 16 + 2 observations
     function transfer_moments(seed, q₀, σ; N = 20000)
         rng = MersenneTwister(seed)
         H, cs = CHar.sample_homography_scene(rng)

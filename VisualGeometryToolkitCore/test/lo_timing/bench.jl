@@ -20,7 +20,7 @@
 # =============================================================================
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, Csponds, withattrs, retract, retract_directions,
+using VisualGeometryToolkitCore: weighted_whitened_residuals!, weighted_whitened_jacobian_rows!, Correspondences, withattrs, retract, retract_directions,
     zero_tangent, backproject_with_jacobian, EssentialManifold5, FundMatManifold7, minimal_manifold
 using StaticArrays, LinearAlgebra, Random
 
@@ -52,8 +52,8 @@ const aE = zero_tangent(CHE); const aF = zero_tangent(CHF)
 const EE = retract(CHE, aE); const dE = retract_directions(CHE, aE)
 const FF = retract(CHF, aF); const dF = retract_directions(CHF, aF)
 
-const XE = withattrs(Csponds(F1, F2); M₁ = M1, M₂ = M2, sqrt_weights = SQRTW)
-const XF = withattrs(Csponds(U1, U2); sqrt_weights = SQRTW)
+const XE = withattrs(Correspondences(F1, F2); M₁ = M1, M₂ = M2, sqrt_weights = SQRTW)
+const XF = withattrs(Correspondences(U1, U2); sqrt_weights = SQRTW)
 const KERNELS = [
     "E-rows"     => () -> weighted_whitened_residuals!(r, EE, XE),
     "E-jacobian" => () -> weighted_whitened_jacobian_rows!(JE, EE, dE, XE),

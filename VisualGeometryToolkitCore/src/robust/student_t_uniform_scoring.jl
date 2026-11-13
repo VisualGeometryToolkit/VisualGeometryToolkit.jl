@@ -35,7 +35,7 @@
 #   model::M (certain)     → scores[i] = rᵢ²,         penalties[i] = 0
 #   model::Uncertain{M}   → scores[i] = rᵢᵀ Ṽᵢ⁻¹ rᵢ, penalties[i] = log|Ṽᵢ|
 #
-# Measurement-space ℓᵢ = 0: the outlier density in whitened constraint space
+# Observation-space ℓᵢ = 0: the outlier density in whitened constraint space
 # rᵢ = Lᵢ⁻¹gᵢ is (2·outlier_halfwidth)^{-dg}, constant and θ-independent. The inlier
 # Gaussian normalization |Σ̃_{gᵢ}|^{-1/2} cancels with the whitening Jacobian.
 # Model-uncertainty ℓᵢ = log|Ṽᵢ|: the predictive inflation Ṽᵢ = I + G Σ̃_θ Gᵀ ≥ I
@@ -450,7 +450,7 @@ end
 # Model-uncertain score and penalty for a scalar constraint (dg = 1), in the
 # MULTIPLICATIVE predictive-covariance convention of the generalized sweep
 # lemma: Ṽᵢ = s²·Vᵢ with the unit-scale shape Vᵢ = 1 + (∂θgᵢ_w)ᵀ Σ̃_unit (∂θgᵢ_w),
-# Σ̃_unit the propagation of UNIT measurement noise through the fit. The returned
+# Σ̃_unit the propagation of UNIT observation noise through the fit. The returned
 # qᵢ = rᵢ²/Vᵢ and ℓᵢ = log Vᵢ are s-free; the s-dependence factors into the
 # common scale marginal exactly as the lemma's separation requires.
 @inline function _predictive_score_penalty(rᵢ::T, ∂θgᵢ_w::SVector{n_θ,T},

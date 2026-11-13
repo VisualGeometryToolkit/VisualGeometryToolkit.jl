@@ -16,7 +16,7 @@
 
 Kabsch/Wahba: the rotation minimizing `Σᵢ ‖bᵢ − R·aᵢ‖²` over the vector
 pairs `cs` (`aᵢ => bᵢ`, `StaticVector{3}` each side; any
-[`sources`](@ref)/[`targets`](@ref) container, a [`Csponds`](@ref)
+[`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref)
 preferred): one closed-form step, `Rotations.nearest_rotation` of the
 cross-covariance `Σ bᵢaᵢᵀ` (an SVD with the determinant-sign correction).
 A `weights` attribute column (`withattrs(cs; weights = w)`, `data-arguments.md`)
@@ -35,7 +35,7 @@ weight (a single pair leaves a one-parameter family of solutions).
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
     stripped = [strip_metres(first(p)) => strip_metres(last(p)) for p in cs]
     w = weights_column(cs)
-    return kabsch(w === nothing ? stripped : withattrs(Csponds(sources(stripped), targets(stripped)); weights = w))
+    return kabsch(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w))
 end
 function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
     length(cs) >= 2 ||

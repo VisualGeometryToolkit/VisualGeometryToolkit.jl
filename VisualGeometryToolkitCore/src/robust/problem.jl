@@ -10,7 +10,7 @@
 #   codimension(p)                         — constraint codimension d_g
 #   minimal_sample_size(p)                 — model DOF m (for ν = (k−m)·d_g)
 #   constraint_with_jacobians(p, model, i) — (g, ∂ₓg, ∂_θg) at point i
-#   measurement_covariance(p, i)           — Σ̃_x of point i's measurements (default I)
+#   observation_covariance(p, i)           — Σ̃_x of point i's observations (default I)
 #   constraint_rounding_scale(p, model, i) — the rounding scales at point i (default
 #                                            `nothing`: the exact-zero degeneracy rule)
 #   solver_covariance(p, model, idx)       — Σ̃_θ of the model estimated from the points
@@ -34,7 +34,7 @@
 
 Supertype of a problem that scoring and local optimization can run on.
 Implementors provide `data_size`, `codimension`, `minimal_sample_size`, and
-`constraint_with_jacobians`; optionally `measurement_covariance` and
+`constraint_with_jacobians`; optionally `observation_covariance` and
 `constraint_rounding_scale` (the point's noise and its degeneracy scales),
 `solver_covariance` with
 `provides_solver_covariance` (predictive scoring), `residual_context` with
@@ -136,7 +136,7 @@ The default is the Sampson residual of `constraint_with_jacobians(problem, ctx,
 i)` at the problem's [`constraint_rounding_scale`](@ref)`(problem, ctx, i)`
 (base/sampson.jl's geometry layer, the stack's one Sampson path and its one
 degeneracy rule: `±Inf` for an unsatisfiable degenerate point, `0` for one that
-vanishes exactly), whitened by the point's [`measurement_covariance`](@ref) (one
+vanishes exactly), whitened by the point's [`observation_covariance`](@ref) (one
 Cholesky of `G_x·Σ̃_x·G_xᵀ`). An override returns the same shape: a scalar for a
 vector constraint is a distance, not a residual, and
 [`test_constraint_problem`](@ref) refuses it. The distance is
@@ -145,7 +145,7 @@ vector constraint is a distance, not a residual, and
 """
 @inline function whitened_residual(p::AbstractConstraintProblem, ctx, i::Int)
     g, G_x, G_θ = _three(constraint_with_jacobians(p, ctx, i))
-    s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, ctx, i), measurement_covariance(p, i), nothing)
+    s, _ = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, ctx, i), observation_covariance(p, i), nothing)
     return _constraint_shape(g, s)
 end
 
@@ -225,16 +225,16 @@ end
 end
 
 """
-    measurement_covariance(problem, i) -> Σ̃_x
+    observation_covariance(problem, i) -> Σ̃_x
 
-The covariance of data point `i`'s measurements, over the coordinates its
+The covariance of data point `i`'s observations, over the coordinates its
 constraint's `G_x` differentiates (a correspondence's pair block): what
-[`whitened_residual`](@ref) whitens by. A problem's measurements
-carry their noise (conventions/measurement-noise.md) — `I` for plain points,
+[`whitened_residual`](@ref) whitens by. A problem's observations
+carry their noise (conventions/observation-noise.md) — `I` for plain points,
 the default — and a problem that stores covariances (a correspondence set's
 `Σ₁`/`Σ₂` columns, a line fit's per-point shapes) returns point `i`'s.
 """
-measurement_covariance(::AbstractConstraintProblem, ::Int) = I
+observation_covariance(::AbstractConstraintProblem, ::Int) = I
 
 """
     whitened_constraint_rows(problem, model, i) -> (r, J_w)
@@ -256,7 +256,7 @@ rows (the LM's exact rows are [`whitened_jacobian_rows!`](@ref)'s).
 """
 @inline function whitened_constraint_rows(p::AbstractConstraintProblem, model, i::Int)
     g, G_x, G_θ = _three(constraint_with_jacobians(p, model, i))
-    s, J = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), measurement_covariance(p, i), _as_row(G_θ))
+    s, J = _whitened_constraint(g, G_x, G_θ, constraint_rounding_scale(p, model, i), observation_covariance(p, i), _as_row(G_θ))
     return _constraint_shape(g, s), _rows_shape(G_θ, J)
 end
 # A problem's constraint is exactly `(g, G_x, G_θ)`: a longer tuple (the retired
@@ -264,7 +264,7 @@ end
 @inline _three(cd::NTuple{3, Any}) = cd
 @noinline _three(cd::Tuple) = throw(ArgumentError(
     "constraint_with_jacobians(problem, model, i) returns (g, G_x, G_θ), got $(length(cd)) values: " *
-        "a point's noise is `measurement_covariance(problem, i)` and its rounding scale " *
+        "a point's noise is `observation_covariance(problem, i)` and its rounding scale " *
         "`constraint_rounding_scale(problem, model, i)`"))
 # Rows back in `G_θ`'s shape.
 @inline _rows_shape(::StaticVector{n}, J::StaticMatrix{1, n, T}) where {n, T} = SVector{n, T}(Tuple(J))

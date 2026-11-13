@@ -253,7 +253,7 @@ Well-defined on the WHOLE sphere `θ ∈ [0, π]` (the only retinal frame that
 reaches the antipode), with bounded radius `r ∈ [0, 2]`; equal areas on
 the sphere map to equal areas in the frame, which is why equisolid
 ("equal-area fisheye") lenses are the standard for sky photometry and
-illuminance measurement. The antipode `θ = π` maps to radius 2 under the
+illuminance observation. The antipode `θ = π` maps to radius 2 under the
 pole azimuth convention `ψ = 0`.
 
 The defining frame of the pure equisolid fisheye projection:

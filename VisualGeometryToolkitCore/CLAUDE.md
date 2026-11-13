@@ -64,7 +64,7 @@ It owns the CONTRACTS of the composable RANSAC (`src/robust/`): the constraint-p
 
 The minimal-solver kernels (P3P, homography, fundamental/essential) are not in
 Cameras: they live in `src/geometry/solvers/`, direct includes of the main
-module. Cameras holds only camera-level wrappers over them (`p3p(model, csponds)`,
+module. Cameras holds only camera-level wrappers over them (`p3p(model, correspondences)`,
 `sample_p3p`) and the radial calibration solver `radial_camera_5pt`.
 
 **Transforms** (`src/geometry/transforms/`) are NOT a submodule due to dependency ordering:
@@ -145,7 +145,7 @@ Image display functions:
 
 Correspondence visualization is VGC's `matches!`/`matches`;
 VisualGeometryToolkitFeatures extends them by dispatch for its feature types (the old
-`cspond!`/`matchlines` names are gone from both packages).
+`correspondence!`/`matchlines` names are gone from both packages).
 
 Other functions:
 - `poly!(lscene, shape)` - Add geometric primitives to scene
@@ -181,7 +181,7 @@ Key types and helpers:
 
 The conventions every stack package follows (naming and the estimator verbs,
 signatures, data arguments, coordinate frames and normalization, pixel origins,
-bearings, measurement noise, residuals and distances, Jacobians, units, stack contracts) live ONCE, in
+bearings, observation noise, residuals and distances, Jacobians, units, stack contracts) live ONCE, in
 `conventions/` at the repository root; `conventions/README.md` indexes them. They ship with the
 package (`VisualGeometryToolkitCore.conventions_dir()`), the other packages' CLAUDE.md
 files point at them, and the docs' Conventions page is generated from them.
@@ -194,7 +194,7 @@ Edit them there, never in a CLAUDE.md. Imported in full:
 @conventions/frames.md
 @conventions/pixel-origins.md
 @conventions/bearings.md
-@conventions/measurement-noise.md
+@conventions/observation-noise.md
 @conventions/residuals-and-distances.md
 @conventions/persisted-geometry.md
 @conventions/jacobians.md
@@ -211,7 +211,7 @@ Edit them there, never in a CLAUDE.md. Imported in full:
 
 ### Coordinate Frames and Normalization in this package
 
-VisualGeometryToolkitCore owns the strategies and `CspondNormalization`. Its `!` forms,
+VisualGeometryToolkitCore owns the strategies and `CorrespondenceNormalization`. Its `!` forms,
 its validity predicates (`test_sample`, `test_model`, `test_consensus`,
 `test_conditioning`) and its minimal kernels are inner-loop pieces: each
 docstring names the normalization it expects. **Their tolerances do not all
@@ -238,9 +238,9 @@ end
 # Forward properties: a.field → a.attributes.field, then a.value.field
 
 # Avoid: Deep inheritance chains
-# abstract type AbstractCspond end
-# struct Cspond <: AbstractCspond ... end
-# struct AttributedCspond <: AbstractCspond ... end  # duplicates fields
+# abstract type AbstractCorrespondence end
+# struct Correspondence <: AbstractCorrespondence ... end
+# struct AttributedCorrespondence <: AbstractCorrespondence ... end  # duplicates fields
 ```
 
 ### Accessors, Not Field Reflection
@@ -271,7 +271,7 @@ internal code must bypass it; that is the idiom, not a violation.
 
 Use type aliases when a simple existing type suffices:
 ```julia
-const Cspond{S,T} = Pair{S,T}  # Correspondence is just a Pair
+const Correspondence{S,T} = Pair{S,T}  # Correspondence is just a Pair
 ```
 
 ### Parameter Structs with `@kwdef`
@@ -481,7 +481,7 @@ include("blob_types.jl")
 
 ## Benchmarking
 
-**ALWAYS use `@btime` or `@benchmark` from BenchmarkTools.jl** for performance measurements. Never use `@time` or `@elapsed` for benchmarking as they include JIT compilation time on first run.
+**ALWAYS use `@btime` or `@benchmark` from BenchmarkTools.jl** for performance observations. Never use `@time` or `@elapsed` for benchmarking as they include JIT compilation time on first run.
 
 ```julia
 using BenchmarkTools

@@ -9,12 +9,12 @@
    `find_*`, `refine_*`, or a one-step algorithm's public form such as
    `homography_dlt(cs)`): data mapped into the normalized frame once at entry,
    models composed back and covariances propagated back once at exit. The
-   strategy is chosen in one place, `CspondNormalization(M, cs; center)`, by
+   strategy is chosen in one place, `CorrespondenceNormalization(M, cs; center)`, by
    model class.
 3. The inner loop never normalizes — minimal kernels, `*_step` updates,
    workspace `!` forms, RANSAC problem internals and their validity gates.
    They take normalized data plus the estimator's
-   [`CspondNormalization`](@ref); a `frame = nothing` keyword that falls back
+   [`CorrespondenceNormalization`](@ref); a `frame = nothing` keyword that falls back
    to normalizing is a bug.
 4. Public thresholds and tolerances are in the caller's units, converted
    inside by the normalization's scale ([`similarity_scale`](@ref)).
@@ -30,7 +30,7 @@
    frame. Every API where pool data enters or leaves names that frame
    ([`pool_frame_maps`](@ref VisualGeometryToolkitCore.Pools.pool_frame_maps),
    [`pool_pixel_scale`](@ref VisualGeometryToolkitCore.Pools.pool_pixel_scale),
-   [`pixel_csponds`](@ref VisualGeometryToolkitCore.Pools.pixel_csponds)); nothing
+   [`pixel_correspondences`](@ref VisualGeometryToolkitCore.Pools.pixel_correspondences)); nothing
    converts silently.
 
 | Layer | Examples | Normalizes |
@@ -43,7 +43,7 @@
 
 ```julia
 function homography_dlt(cs)                       # pixels in
-    N = CspondNormalization(HomographyMat, cs)    # the one strategy, private
+    N = CorrespondenceNormalization(HomographyMat, cs)    # the one strategy, private
     return homography_dlt!(A, N, cs)              # inner loop: uses N, never builds one
 end                                               # H back in pixels
 τ_n = similarity_scale(destination_map(N)) * τ_px # a pixel tolerance, inside
@@ -52,7 +52,7 @@ end                                               # H back in pixels
 Names: the strategies `HartleyNormalization(; center)` (centroid, or a known
 centre; mean distance √2) and `DiagonalNormalization(size; center)` (the pool
 frame), applied as `AffineMap(strategy, points)`; the two-sided value
-[`CspondNormalization`](@ref), whose two sides ([`source_map`](@ref),
+[`CorrespondenceNormalization`](@ref), whose two sides ([`source_map`](@ref),
 `destination_map`) move a model by COMPOSITION — `D ∘ M ∘ inv(S)` into the
 normalized frame and `inv(D) ∘ M ∘ S` back, with `S = source_map(N)`,
 `D = destination_map(N)`, `M` a map or a bare model matrix (a `HomographyMat` comes
@@ -109,11 +109,10 @@ world, a tracker's room, or a member's own frame — the gauge). Each member is 
 A capture's per-frame values keep the same frames: a [`Trajectory`](@ref)
 maps one body's frame into one frame over time (`BodyFrame{:board_rig} →
 WorldFrame`), [`TargetPoses`](@ref) map `TargetFrame{id} → F` per frame (`F`
-the camera's frame), and [`TargetDetections`](@ref)`{F}` are pixels in a
+the camera's frame), and [`TargetObservations`](@ref)`{F}` are pixels in a
 declared `PixelFrame` or points in a declared 3D frame, the dimension the
-frame's (the older [`TargetPoints2D`](@ref) and [`TargetPoints3D`](@ref),
-pixels and 3D points apart, are replaced by it in 0.7). A measurement names a
-target point by (target id, point index) — in `TargetDetections`, per frame and
+frame's (one container for both since 0.10). An observation names a
+target point by (target id, point index) — in `TargetObservations`, per frame and
 target, `index => observation` — resolved against the target's definition,
 the rig member.
 

@@ -1,4 +1,4 @@
-# The DLT DESIGN matrix's null-space gap: the measurement, the gate over it, and
+# The DLT DESIGN matrix's null-space gap: the observation, the gate over it, and
 # the boundary they share with VisualGeometryToolkitEstimation's refusal. Tested at the
 # boundary rather than in the middle — a mid-range sample agrees by construction
 # and proves nothing about a discrete outcome.
@@ -9,7 +9,7 @@
     using Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: SvdWorkspace, dlt_conditioning, test_dlt_conditioning,
-        CspondNormalization, HartleyNormalization, DiagonalNormalization,
+        CorrespondenceNormalization, HartleyNormalization, DiagonalNormalization,
         homography_dlt, homography_dlt!
 
     @testset "the ratio is RVG's quantity: S[1] / max(S[8], eps)" begin
@@ -57,7 +57,7 @@
 
         A = Matrix{Float64}(undef, 2n, 9)
         ws = SvdWorkspace{Float64}(2n, 9)
-        N = CspondNormalization(HomographyMat, cs)
+        N = CorrespondenceNormalization(HomographyMat, cs)
         homography_dlt!(A, N, cs; svd_ws = ws)
         S = ws.S
         @test dlt_conditioning(ws) ≈ S[1] / S[8] rtol = 1.0e-15
@@ -76,13 +76,13 @@
 
         A = Matrix{Float64}(undef, 2n, 9)
         ws = SvdWorkspace{Float64}(2n, 9)
-        homography_dlt!(A, CspondNormalization(HomographyMat, collinear), collinear; svd_ws = ws)
+        homography_dlt!(A, CorrespondenceNormalization(HomographyMat, collinear), collinear; svd_ws = ws)
         @test dlt_conditioning(ws) > 100.0
         @test !test_dlt_conditioning(ws)
 
         general = [SVector(50 + 400rand(rng), 50 + 400rand(rng)) for _ in 1:n]
         healthy = general .=> [PerspectiveMap()(SMatrix{3, 3}(H) * SVector(u[1], u[2], 1.0)) for u in general]
-        homography_dlt!(A, CspondNormalization(HomographyMat, healthy), healthy; svd_ws = ws)
+        homography_dlt!(A, CorrespondenceNormalization(HomographyMat, healthy), healthy; svd_ws = ws)
         @test test_dlt_conditioning(ws)
     end
 
@@ -100,12 +100,12 @@
 
         A = Matrix{Float64}(undef, 2n, 9)
         ws_h = SvdWorkspace{Float64}(2n, 9)
-        homography_dlt!(A, CspondNormalization(HomographyMat, cs), cs; svd_ws = ws_h)
+        homography_dlt!(A, CorrespondenceNormalization(HomographyMat, cs), cs; svd_ws = ws_h)
         hartley = dlt_conditioning(ws_h)
 
         ws_d = SvdWorkspace{Float64}(2n, 9)
         d = AffineMap(DiagonalNormalization((1600, 1200)))
-        Nd = CspondNormalization(d, d)
+        Nd = CorrespondenceNormalization(d, d)
         homography_dlt!(A, Nd, cs; svd_ws = ws_d)
         diagonal = dlt_conditioning(ws_d)
 

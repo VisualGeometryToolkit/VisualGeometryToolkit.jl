@@ -630,7 +630,7 @@ end
     radial_transfer_rows!(r, m::RadialHomography, u₁, u₂, sqrtw) -> r
     radial_transfer_jacobian_rows!(J, m::RadialHomography, dH, u₁, sqrtw) -> J
 
-The √w-weighted measurement-space transfer rows of `m` over `u₁[i] => u₂[i]`, two
+The √w-weighted observation-space transfer rows of `m` over `u₁[i] => u₂[i]`, two
 per correspondence (`r[2i-1:2i] = sqrtw[2i-1:2i] .* (radial_transfer(m, u₁[i]) − u₂[i])`),
 and their Jacobian: columns `1:M` along the directions `dH = (∂H/∂θ₁, …, ∂H/∂θ_M)`
 of `H` (e.g. the reshaped columns of `retract_jacobian(HomographyManifold8(H₀), v)`),
@@ -657,7 +657,7 @@ function radial_transfer_jacobian_rows!(J::AbstractMatrix, m::RadialHomography, 
 end
 
 """
-    CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing)
+    CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing)
 
 The radial family's normalization of `plane_point => pixel` correspondences
 (a [`RadialHomography`](@ref), a `RadialCamera`; the H/F one lives in
@@ -669,8 +669,8 @@ isotropic scale that keeps a division model in its class (`k′ = k/s²`) — ov
 one. A centroid image-side frame would move the centre off the origin
 (measured: 1.4 px misfit against 4e-13 px).
 """
-CspondNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
-    CspondNormalization(HartleyNormalization(), HartleyNormalization(; center), cs, _bitmask(mask, length(cs)), weights_column(cs))
+CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
+    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(; center), cs, _bitmask(mask, length(cs)), weights_column(cs))
 
 # -----------------------------------------------------------------------------
 # Frame change — composition with the plane-side and image-side maps.
@@ -747,7 +747,7 @@ hemisphere consistency is checked without any perspective division.
 The conditioning bound (`test_conditioning`, κ ≤ 100) is a property of the
 frame `m` is written in, and it is calibrated for Hartley frames — the H/F
 convention. `m` and `cs` are therefore meant to be in the normalization of
-`CspondNormalization(RadialHomography, cs; center)`: Hartley on both sides,
+`CorrespondenceNormalization(RadialHomography, cs; center)`: Hartley on both sides,
 the target about the distortion centre. (In a smaller-scale frame, e.g. the
 earlier full-diagonal target frame, κ rejected true-model candidates:
 measured 1 of 124.)

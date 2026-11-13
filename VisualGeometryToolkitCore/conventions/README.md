@@ -12,7 +12,7 @@ with VisualGeometryToolkitCore: in an installed copy the folder is
 5. `frames.md` — frame in = frame out; normalization; the benchmark-pool exception
 6. `pixel-origins.md` — the three pixel-origin conventions; COLMAP by default
 7. `bearings.md` — calibrated geometry is on unit bearings
-8. `measurement-noise.md` — plain = unit isotropic, `Uncertain` = its covariance, `exact` = none
+8. `observation-noise.md` — plain = unit isotropic, `Uncertain` = its covariance, `exact` = none
 9. `residuals-and-distances.md` — the prefix is the currency (`sampson_` geometric, `whitened_`/`mahalanobis_` in noise units), the noun is the shape (residual signed, distance ≥ 0); the RANSAC per-point scalar, the exception until 0.7
 10. `persisted-geometry.md` — on disk, `covariance` present iff `Uncertain`; the pose chart; the JSON + payload storage rule
 11. `jacobians.md` — derivative and Jacobian names

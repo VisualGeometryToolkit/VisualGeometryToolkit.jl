@@ -56,7 +56,7 @@
     end
 
     # Central-difference sensitivity of the local constrained solution in the
-    # chart anchored at the base solution: perturb one measurement coordinate,
+    # chart anchored at the base solution: perturb one observation coordinate,
     # re-obtain the solution single-valuedly, read its chart coordinates.
     _flat_pairs(cs) = collect(
         Iterators.flatten(
@@ -224,7 +224,7 @@
         @test rel(Σnw, inv(Symmetric(A' * Wn * A))) < 1.0e-8
         @test implicit_covariance(eblock, 1:12; noise_weighted = true) == implicit_covariance(eblock, 1:12)   # no Σx: the same
         @test implicit_covariance(eblock, 1:0) === nothing                    # no blocks
-        # a degenerate block (zero measurement gradient) drops out, as from the estimator
+        # a degenerate block (zero observation gradient) drops out, as from the estimator
         withzero(i) = i == 13 ? (SVector{5}(ones(5)), zero(SVector{4, Float64})) : eblock(i)
         @test implicit_covariance(withzero, 1:13) ≈ implicit_covariance(eblock, 1:12) rtol = 1.0e-14
         # pose correspondences X => u (calibrated) in the generic machinery: the ambient
@@ -236,7 +236,7 @@
         AP, BP = constraint_jacobians(chP, zero(SVector{6, Float64}), csP)
         _, _, Gθ = constraint_with_jacobians(pose, Xs[2], SVector(csP[2].second[1], csP[2].second[2], 1.0))
         @test AP[3:4, :] ≈ Gθ atol = 1.0e-15
-        @test BP == kron(Matrix(1.0I, 3, 3), -Matrix(1.0I, 2, 2))            # the image point is the measurement
+        @test BP == kron(Matrix(1.0I, 3, 3), -Matrix(1.0I, 2, 2))            # the image point is the observation
         shP = [SMatrix{2, 2}(1.0, 0.2, 0.2, 0.7) for _ in 1:3]
         @test rel(implicit_covariance(i -> (blocks(AP, BP, 2, 2)(i)..., shP[i]), 1:3), implicit_covariance(chP, csP; Σx = shP)) < 1.0e-10
     end

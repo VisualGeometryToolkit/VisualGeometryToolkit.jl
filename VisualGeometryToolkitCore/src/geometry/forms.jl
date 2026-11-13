@@ -368,9 +368,9 @@ end
 # The epipolar constraint of a form — checked, delegating to the Mat machinery
 # -----------------------------------------------------------------------------
 
-# Measurement-frame accessor for the checked delegation below: an `Uncertain`
+# Observation-frame accessor for the checked delegation below: an `Uncertain`
 # whose statistical form is framed (0.9) exposes its frame; plain points and
-# unframed measurements are the unlabeled wildcard.
+# unframed observations are the unlabeled wildcard.
 @inline _meas_frame(::Any) = UnlabeledFrame{2}
 @inline _meas_frame(u::Uncertain{V, <:Union{CovMat{2}, PrecMat{2}}}) where {V} =
     _frame(getfield(u, :attributes))
@@ -384,16 +384,16 @@ The epipolar constraint of the wrapped Mat, with the slot convention of
 [`sampson_residual`](@ref), [`mahalanobis_distance`](@ref).
 
 The delegation is CHECKED where a frame is available: an `Uncertain`
-measurement whose `CovMat`/`PrecMat` carries a frame label must meet the slot
+observation whose `CovMat`/`PrecMat` carries a frame label must meet the slot
 it feeds (standing wildcard truth table — a labeled mismatch is a
 `MethodError`; plain points and unlabeled matrices are the wildcard), before
 the Sampson layer strips the covariance.
 """
 @inline constraint_with_jacobians(f::EpipolarForm, x₁, x₂) = constraint_with_jacobians(f.mat, x₁, x₂)
 @inline constraint_rounding_scale(f::EpipolarForm, x₁, x₂) = constraint_rounding_scale(f.mat, x₁, x₂)
-@inline measurement_gradient_jacobian(f::EpipolarForm, x₁, x₂) = measurement_gradient_jacobian(f.mat, x₁, x₂)
+@inline observation_gradient_jacobian(f::EpipolarForm, x₁, x₂) = observation_gradient_jacobian(f.mat, x₁, x₂)
 @inline _normal_rate(f::EpipolarForm, G_x, x₁, x₂) = _normal_rate(f.mat, G_x, x₁, x₂)
-@inline function _check_measurements(f::EpipolarForm{S1, S2}, x₁, x₂) where {S1, S2}
+@inline function _check_observations(f::EpipolarForm{S1, S2}, x₁, x₂) where {S1, S2}
     (_junction_ok(S1, _meas_frame(x₁)) && _junction_ok(S2, _meas_frame(x₂))) ||
         throw(MethodError(sampson_residual_with_normal, (f, x₁, x₂)))
     return nothing
@@ -511,13 +511,13 @@ infinite homography of a calibrated camera (under a pure rotation `H = R`):
 
 - `G_x = [D·H·M₁  −P·M₂]` (2×4) in PIXEL coordinates, `M₁`/`M₂` the 3×2
   back-projection Jacobians of [`backproject_with_jacobian`](@ref) and
-  `D = P·(I − ĥĥᵀ)/‖H f₁‖`, the derivative of `g` along the joint measurement
-  (both images' pixels), so that at `Σ = I` (assumed by the rows; keypoint
+  `D = P·(I − ĥĥᵀ)/‖H f₁‖`, the derivative of `g` along the joint observation
+  (both images' pixels), so that at `Σ = I` (assumed by the rows; detection
   covariances are a planned extension) the Sampson denominator `G_x G_xᵀ =
   P(H̄M₁M₁ᵀH̄ᵀ + M₂M₂ᵀ)Pᵀ` (`H̄` the normalized transfer, `R` for a rotation) is the
   Sampson covariance in `f₂`'s tangent plane. The `f₂` block is the
   first-order derivative at `ĥ = f₂` (Sampson's linearization at the
-  measurement), exact there.
+  observation), exact there.
 - `G_θ = D·(f₁ᵀ ⊗ I₃)` (2×9, ∂g/∂vec(H) column-major) — the pixel form's
   `_transfer_params_jacobian` with `D` in the place of `Jπ`.
 
@@ -538,11 +538,11 @@ end
 # [`constraint`](@ref) needs neither `M₁` nor `M₂`.
 @inline constraint(f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3}) = _bearing_transfer_parts(f.mat, f₁, f₂).g
 
-# ∂vec(G_x)/∂vec(H) of the transfer form (`measurement_gradient_jacobian`,
+# ∂vec(G_x)/∂vec(H) of the transfer form (`observation_gradient_jacobian`,
 # 8 × 9, both column-major). On pixels G_x goes through the perspective divide,
 # whose second derivative is ForwardDiff's (exact, element-type generic,
 # allocation-free on static arrays; no LM descends the pixel transfer form).
-@inline function measurement_gradient_jacobian(f::TransferForm, x₁::StaticVector{2}, x₂::StaticVector{2})
+@inline function observation_gradient_jacobian(f::TransferForm, x₁::StaticVector{2}, x₂::StaticVector{2})
     G(v) = vec(constraint_with_jacobians(TransferForm(HomographyMat(Tuple(v))), x₁, x₂)[2])
     return ForwardDiff.jacobian(G, SVector{9}(Tuple(SMatrix{3, 3}(f.mat))))
 end
@@ -552,7 +552,7 @@ end
 #     dA = −(P·dĥ)(ĥᵀHM₁)/‖h‖ − (P·ĥ)(dĥᵀHM₁)/‖h‖ − A·d‖h‖/‖h‖ + D[:, a]·M₁[b, :],
 # the derivative of D = P·Q/‖h‖ times HM₁ plus D·(∂H)·M₁ (pinned against
 # ForwardDiff in the tests).
-@inline function measurement_gradient_jacobian(
+@inline function observation_gradient_jacobian(
         f::TransferForm, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
     )
@@ -596,7 +596,7 @@ map's composition (frame-checked by the map's own junction rule): with `D₁`,
 
     TransferForm(D₂ ∘ HomographyMap(f) ∘ inv(D₁))   has   H′ = D₂ · H · D₁⁻¹.
 
-An estimator that solves in a model frame holds MEASUREMENT maps `Cᵢ` carrying
+An estimator that solves in a model frame holds OBSERVATION maps `Cᵢ` carrying
 data-frame points into the model frame (`x̃ᵢ = Cᵢ xᵢ`; for calibrated homography
 `Cᵢ = Kᵢ⁻¹`), so moving the solved model back to the data frame is
 `inv(C₂) ∘ HomographyMap(f) ∘ C₁`. `inv` on a `HomographyMap` is an O(1) swap
@@ -617,7 +617,7 @@ stays exact in every frame). Measured over 2000 random draws with `κ(H)`,
 | algebraic `c = x̃₂ × H x̃₁` | `c′ = (λ₁λ₂ det D₂)·D₂⁻ᵀ c` | 3.5e-14 |
 | transfer residual `g = π(H x̃₁) − x₂`, affine `dst` | `g′ = A₂ g` (`A₂` = `D₂`'s linear part) | 3.2e-13 |
 
-(The same grid puts the WRONG direction — the measurement maps composed
+(The same grid puts the WRONG direction — the observation maps composed
 uninverted — no closer than 4.5e-2 on the first row.)
 
 Public, not exported (as `TransferForm` is).

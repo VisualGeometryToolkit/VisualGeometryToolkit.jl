@@ -73,7 +73,7 @@ using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel 
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)
 using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid: the frame walk (camera_models.jl)
 using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (primitives/regions.jl): a node's support clip (support.jl)
-using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/cspond_set.jl)
+using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/correspondence_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
 using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
@@ -112,7 +112,7 @@ using ..VisualGeometryToolkitCore: SphereManifold   # RadialCamera's minimal man
 using ..VisualGeometryToolkitCore: _lift            # a restriction's coordinates lifted (lens_chart.jl's boxed recenter)
 import ..VisualGeometryToolkitCore: _primal         # every Dual layer stripped (base/duals.jl); lens_rays.jl adds the lens method
 using ..VisualGeometryToolkitCore: _is_dual_type, primal_float   # (base/duals.jl)
-import ..VisualGeometryToolkitCore: constraint_dim, _measurement_dim, ambient_coordinates   # … and its place in the covariance machinery
+import ..VisualGeometryToolkitCore: constraint_dim, _observation_dim, ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
 import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_chart.jl): a lens writes as its record
 using ..VisualGeometryToolkitCore: pointwise!, OnBackend   # a lens over a batch of points (lens_rays.jl)
@@ -124,7 +124,7 @@ using ..VisualGeometryToolkitCore: _fma_dot, _fma_mul, _fma_tmul   # explicit fu
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
-using ..VisualGeometryToolkitCore: Attributed, csponds, Csponds, withattrs  # composition primitives (depth-attributed points, correspondence sets)
+using ..VisualGeometryToolkitCore: Attributed, correspondences, Correspondences, withattrs  # composition primitives (depth-attributed points, correspondence sets)
 using ..VisualGeometryToolkitCore: sources, targets, centroid  # correspondence access protocol (#21)
 using ..VisualGeometryToolkitCore: AbstractCamera  # Abstract camera type from interface
 import ..VisualGeometryToolkitCore: is_posed  # the pose trait, answered per camera type
@@ -182,7 +182,7 @@ using ..VisualGeometryToolkitCore: check_weights, weight_of, value_of   # a homo
 import ..VisualGeometryToolkitCore: propagate   # extended for FramedAffine (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: CovMat, PrecMat, Uncertain, _junction_ok, _check_junction   # the checked statistical forms and the one frame-junction rule (base/frames.jl)
 import ..VisualGeometryToolkitCore: constraint_with_jacobians   # extended for the radial camera and the division lift (calibration.jl), the full camera (camera_models.jl)
-import ..VisualGeometryToolkitCore: measurement_gradient_jacobian   # extended for the radial camera (calibration.jl): its Sampson row
+import ..VisualGeometryToolkitCore: observation_gradient_jacobian   # extended for the radial camera (calibration.jl): its Sampson row
 import ..VisualGeometryToolkitCore: transfer_ellipse          # extended for the lens camera (ellipse-preserving image of a plane conic)
 import ..VisualGeometryToolkitCore: PerspectiveMap  # From CoordinateTransformations (imported to extend)
 import ..VisualGeometryToolkitCore: p3p  # P3P solver from solvers.jl (imported to extend with correspondence wrapper)
@@ -1078,7 +1078,7 @@ include("targets.jl")  # AbstractTarget, PointTarget, PlanarTarget{C} (+ the cal
 include("rig.jl")     # Rig (sensors: tuple storage; targets: dict storage; both: the two side by side; gauge in the frame) + PosedTarget — before the stereo alias
 include("mapped_surface.jl")   # MappedSurface: the surface of a chart map, its ray root (after spline_lens.jl: its LM)
 include("target_surfaces.jl")  # surface(::PosedTarget): the Quad or MappedSurface a ray meets
-include("captures.jl")  # Trajectory, TargetPoses, TargetPoints2D/3D: per-frame values of a capture (+ convert_frame)
+include("captures.jl")  # Trajectory, TargetPoses, TargetObservations: per-frame values of a capture (+ convert_frame)
 include("stereo.jl")
 include("rectify.jl")    # stereo rectification on the rig types (0.16)
 include("utilities.jl")
@@ -1205,9 +1205,9 @@ export TARGET_CALIBRATION_TAGS, PLANAR_MAP_TAGS, calibration_tag, length_mask   
 export TARGET_CALIBRATION_ORDER, planar_kind, members, is_pure_bending   # the composition's structure (public, not exported, at the top level)
 export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwasawa factors' parameters (public, not exported, at the top level)
 export regularizer, TargetManifold      # the calibratable-target protocol
-export Trajectory, TargetPoses, TargetHomographies, TargetPoints2D, TargetPoints3D   # per-frame values of a capture (captures.jl)
-export TargetDetections, FrameStamps      # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
-export TargetPoint2D, TargetPoint3D, UncertainPixel, UncertainPoint3
+export Trajectory, TargetPoses, TargetHomographies   # per-frame values of a capture (captures.jl)
+export TargetObservations, FrameStamps      # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
+export UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings, is_constant   # a capture's camera settings per frame, its hardware's identity (captures.jl; is_constant public, not exported, at the top level)
 export convert_frame                      # the one way to change the pixel frame of pixel data
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair
@@ -1282,7 +1282,7 @@ export FramedLensProjection
 export project, backproject, unproject, transfer
 export backproject_with_jacobian   # the bearing AND its pixel Jacobian: calibrated geometry entry point
 export normalized_point   # a pixel's normalized image point K⁻¹𝐩, the pixel-frame half of backproject (public, not exported, at the top level)
-export bearing_csponds   # pixel pairs → bearing csponds with their M₁/M₂ pixel Jacobians
+export bearing_correspondences   # pixel pairs → bearing correspondences with their M₁/M₂ pixel Jacobians
 
 # -----------------------------------------------------------------------------
 # 7. CAMERA ACCESSORS - Extract camera properties

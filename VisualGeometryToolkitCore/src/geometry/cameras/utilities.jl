@@ -358,7 +358,7 @@ lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <
 # =============================================================================
 
 """
-    p3p(model::CameraModel, csponds) -> FixedModels{4, Extrinsics3}
+    p3p(model::CameraModel, correspondences) -> FixedModels{4, Extrinsics3}
 
 Solve the Perspective-3-Point (P3P) problem using correspondences.
 
@@ -369,9 +369,9 @@ the core solver.
 
 # Arguments
 - `model::CameraModel`: Camera model for backprojecting image points to rays
-- `csponds`: Correspondence container with exactly 3 point pairs
+- `correspondences`: Correspondence container with exactly 3 point pairs
   (3D world → 2D image); any container satisfying the `sources`/`targets`
-  protocol (`Csponds`, StructArray of Pairs, plain Pair vector)
+  protocol (`Correspondences`, StructArray of Pairs, plain Pair vector)
 
 # Returns
 - `FixedModels{4, Extrinsics3}`: Stack-allocated container of 0–4 rigid poses.
@@ -390,7 +390,7 @@ model = CameraModel(f, s.pitch, pp)
 # Create correspondences (3D world points → 2D image points)
 X3 = [Point3(100.0, 100.0, 0.0), Point3(200.0, 150.0, 0.0), Point3(150.0, 200.0, 0.0)]
 u3 = [Point2(640.0, 480.0), Point2(700.0, 500.0), Point2(680.0, 550.0)]
-cs = csponds(X3, u3)
+cs = correspondences(X3, u3)
 
 # Solve P3P — always a FixedModels; empty (length 0) when no valid pose
 result = p3p(model, cs)
@@ -401,13 +401,13 @@ cameras = PosedCamera.(Ref(model), collect(result))
 - `p3p(rays, X)`: Core P3P solver that works with rays directly
 - `sample_p3p`: Sample valid camera poses by randomly sampling correspondences
 """
-function p3p(model::CameraModel, csponds)
-    length(csponds) == 3 ||
-        throw(ArgumentError("P3P requires exactly 3 correspondences, got $(length(csponds))"))
+function p3p(model::CameraModel, correspondences)
+    length(correspondences) == 3 ||
+        throw(ArgumentError("P3P requires exactly 3 correspondences, got $(length(correspondences))"))
 
     # Extract 3D world points and 2D image points via the protocol
-    X = sources(csponds)
-    u = targets(csponds)
+    X = sources(correspondences)
+    u = targets(correspondences)
 
     # Backproject 2D points to normalized rays
     rays = backproject.(Ref(model), u)

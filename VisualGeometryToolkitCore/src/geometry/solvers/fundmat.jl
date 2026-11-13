@@ -89,7 +89,7 @@ end
 
 Compute a fundamental matrix from N >= 8 correspondences `cs` (`u₁ => u₂`
 pairs; any [`sources`](@ref)/[`targets`](@ref) container, a
-[`Csponds`](@ref) preferred) by the Direct Linear Transform with Hartley
+[`Correspondences`](@ref) preferred) by the Direct Linear Transform with Hartley
 normalization and rank-2 enforcement.
 
 Per-correspondence weights are the container's `weights` column (set with
@@ -98,7 +98,7 @@ index list) is given, only those correspondences are used.
 
 # Example
 ```julia
-cs = Csponds(pts1, pts2)
+cs = Correspondences(pts1, pts2)
 F = fundamental_dlt(cs)
 F = fundamental_dlt(cs; mask = inlier_mask)
 ```
@@ -111,7 +111,7 @@ function fundamental_dlt(
     A = Matrix{T}(undef, n, 9)
     # the one normalization of this estimator: built here, once, from the
     # data (and its `weights` column); the `!` form only uses it
-    return fundamental_dlt!(A, CspondNormalization(FundMat, cs; mask), cs; mask, svd_ws)
+    return fundamental_dlt!(A, CorrespondenceNormalization(FundMat, cs; mask), cs; mask, svd_ws)
 end
 
 # One correspondence's DLT row in normalized homogeneous points `s`, `d`: the
@@ -125,7 +125,7 @@ Base.@propagate_inbounds function _fundmat_dlt_row!(A, r, s, d)
 end
 
 """
-    fundamental_dlt!(A, N::CspondNormalization, cs; mask = nothing, svd_ws = nothing) -> FundMat or nothing
+    fundamental_dlt!(A, N::CorrespondenceNormalization, cs; mask = nothing, svd_ws = nothing) -> FundMat or nothing
 
 In-place N-point DLT for the fundamental matrix of the correspondences `cs`
 using the pre-allocated buffer `A` (N × 9). Weights are the container's
@@ -133,7 +133,7 @@ using the pre-allocated buffer `A` (N × 9). Weights are the container's
 
 When `mask::BitVector` is provided, only masked points are used and rows are
 compacted into the top of `A`. The inner-loop form: `N` is the enclosing
-estimator's [`CspondNormalization`](@ref), built once at its entry (the public
+estimator's [`CorrespondenceNormalization`](@ref), built once at its entry (the public
 form builds it from the data); this form applies it row by row and composes the
 model back into the data frame (`inv(D) ∘ F ∘ S`), and never
 normalizes on its own.
@@ -145,7 +145,7 @@ heteroscedastic); its first-order covariance, if ever needed, is
 """
 function fundamental_dlt!(
         A::AbstractMatrix{T},
-        N::CspondNormalization{T},
+        N::CorrespondenceNormalization{T},
         cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}};
         mask = nothing,
         svd_ws = nothing
@@ -284,7 +284,7 @@ function cheiral_pose_fast(E, f₁::AbstractVector, f₂::AbstractVector)
 end
 
 # =============================================================================
-# The epipolar and homography constraints' measurements: one element type
+# The epipolar and homography constraints' observations: one element type
 # =============================================================================
 
 # The epipolar and homography constraints compute in ONE element type: a model
@@ -302,7 +302,7 @@ end
     constraint_with_jacobians(_promoted_plane(F, u₁, u₂)...)
 @inline constraint_with_jacobians(H::HomographyMat, u₁::StaticVector{2}, u₂::StaticVector{2}) =
     constraint_with_jacobians(_promoted_plane(H, u₁, u₂)...)
-# A plane measurement as the model's 2-vector.
+# A plane observation as the model's 2-vector.
 @inline _plane_point(::Type{T}, u::StaticVector{2}) where {T} = SVector{2, T}(u[1], u[2])
 # A model matrix in the element type T (the same wrapper).
 @inline _with_eltype(M::StaticMatrix, ::Type{T}) where {T} =
@@ -396,7 +396,7 @@ algebra for F and E — the wrapper type signals input coordinate space
 
 Returns:
 - `g::T`              — epipolar constraint value
-- `G_x::SVector{4,T}` — ∂g/∂(x₁,y₁,x₂,y₂) (measurement Jacobian)
+- `G_x::SVector{4,T}` — ∂g/∂(x₁,y₁,x₂,y₂) (observation Jacobian)
 - `G_θ::SVector{9,T}` — ∂g/∂vec(F) (model Jacobian, column-major)
 """
 @inline function constraint_with_jacobians(
@@ -489,8 +489,8 @@ end
 end
 
 """
-    measurement_gradient_jacobian(F::AbstractFundMat, u₁, u₂) -> SMatrix{4, 9}
-    measurement_gradient_jacobian(E::EssentialMat, f₁, f₂; M₁, M₂) -> SMatrix{4, 9}
+    observation_gradient_jacobian(F::AbstractFundMat, u₁, u₂) -> SMatrix{4, 9}
+    observation_gradient_jacobian(E::EssentialMat, f₁, f₂; M₁, M₂) -> SMatrix{4, 9}
 
 `∂G_x/∂vec(F)` of the epipolar constraint (column-major vec, the coordinates
 of its `G_θ`). The constraint is bilinear, so each entry is one coordinate of a
@@ -498,7 +498,7 @@ point: on the plane `G_x = ((Fᵀd)₁,₂, (Fs)₁,₂)` and `∂(Fs)_k/∂F_ij
 `∂(Fᵀd)_k/∂F_ij = δ_jk·d_i`; on bearings the two pixel gradients are those
 carried by `M₁`, `M₂` (per-point data, constant in the model).
 """
-@inline function measurement_gradient_jacobian(F::AbstractFundMat, u₁::StaticVector{2}, u₂::StaticVector{2})
+@inline function observation_gradient_jacobian(F::AbstractFundMat, u₁::StaticVector{2}, u₂::StaticVector{2})
     T = float(promote_type(eltype(F), eltype(u₁), eltype(u₂)))
     s = _lift_image_point(u₁, T); d = _lift_image_point(u₂, T); z = zero(T)
     return SMatrix{4, 9, T}(ntuple(Val(36)) do k
@@ -525,7 +525,7 @@ end
 # On bearings the constraint reads the back-projection Jacobians per element.
 constraint_keywords(::EssentialMat, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
     (; M₁ = _required_column(xs, :M₁), M₂ = _required_column(xs, :M₂))
-@inline function measurement_gradient_jacobian(
+@inline function observation_gradient_jacobian(
         E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}
     )

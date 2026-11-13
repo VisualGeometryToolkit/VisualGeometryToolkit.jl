@@ -39,16 +39,16 @@
 #
 # Estimators take correspondences, and dictionaries of them for groups:
 #
-#   ungrouped  est(models…, cs::AbstractVector{<:Cspond}; config…) — any
-#              sources/targets container, a `Csponds` preferred. Per-
+#   ungrouped  est(models…, cs::AbstractVector{<:Correspondence}; config…) — any
+#              sources/targets container, a `Correspondences` preferred. Per-
 #              correspondence priors, weights and covariances are ATTRIBUTE
 #              COLUMNS (`withattrs(cs; weights = w)`, read as `cs.score`),
 #              never keywords; per-correspondence outputs come back as columns.
-#   grouped    est(models…, groups::AbstractDict{K, <:AbstractVector{<:Cspond}}; config…)
+#   grouped    est(models…, groups::AbstractDict{K, <:AbstractVector{<:Correspondence}}; config…)
 #              — the key is the identity of the per-group unknown; the block
 #              order is `ids = block_order(groups)` (sorted keys), stored on the result.
 #   nested     a measured quantity paired with its point evidence is the element
-#              `Cspond{S, <:AbstractVector{<:Cspond}}` (rig pose => its features).
+#              `Correspondence{S, <:AbstractVector{<:Correspondence}}` (rig pose => its features).
 #
 # Given per-group models lead, keyed by the same `K` (key sets checked, an
 # `ArgumentError` otherwise: `block_order(groups, given…)`). Results are keyed by `K`; a joint covariance is
@@ -424,7 +424,7 @@ coverage(large, small)  # ~0.08 (only small portion of large is covered)
 function coverage end
 
 # =============================================================================
-# Stochastic Measurement Interface
+# Stochastic Observation Interface
 # =============================================================================
 
 

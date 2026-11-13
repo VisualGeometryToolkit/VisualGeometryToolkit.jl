@@ -37,11 +37,11 @@
         # tolerance. A dropped keyword produces no error and no warning — the
         # gate simply ignores you — so it needs a test that varies the value and
         # demands the verdict move with it.
-        using VisualGeometryToolkitCore: HomographyMat, FundMat, EssentialMat, test_sample, Csponds
+        using VisualGeometryToolkitCore: HomographyMat, FundMat, EssentialMat, test_sample, Correspondences
         pts = [SVector(100.0, 100.0), SVector(100.03, 100.0),      # 0.03 px apart
                SVector(300.0, 140.0), SVector(180.0, 320.0),
                SVector(240.0, 260.0), SVector(150.0, 210.0), SVector(275.0, 305.0)]
-        cs = Csponds(pts, pts)
+        cs = Correspondences(pts, pts)
         # F and E through the full gate: coincidence IS their whole gate, so the
         # verdict is the check.
         for (M, k) in ((FundMat, 7), (EssentialMat, 5))
@@ -65,8 +65,8 @@
         c4 = (SVector(320.0, 320.0), SVector(320.03, 320.0),
               SVector(328.0, 322.0), SVector(323.0, 330.0))
         if _not_collinear(c4)
-            @test !test_sample(HomographyMat, Csponds(collect(c4), collect(c4)), 1:4; tol_px = 0.1)
-            @test test_sample(HomographyMat, Csponds(collect(c4), collect(c4)), 1:4; tol_px = 1.0e-3)
+            @test !test_sample(HomographyMat, Correspondences(collect(c4), collect(c4)), 1:4; tol_px = 0.1)
+            @test test_sample(HomographyMat, Correspondences(collect(c4), collect(c4)), 1:4; tol_px = 1.0e-3)
         end
     end
 
@@ -192,7 +192,7 @@
         # rejected after that round trip, and that a genuinely distinct pair
         # (1 px) still is not.
         using VisualGeometryToolkitCore: CameraModel, LogicalIntrinsics, CameraCalibrationMat,
-            Pinhole, KannalaBrandt, backproject_with_jacobian, Csponds, withattrs,
+            Pinhole, KannalaBrandt, backproject_with_jacobian, Correspondences, withattrs,
             EssentialMat, test_sample
         f = 800.0; c = 320.0
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c, c, 1))
@@ -208,7 +208,7 @@
                     us[3] = us[2] + offset * SVector(cos(φ), sin(φ))
                     bm = [backproject_with_jacobian(cam, u) for u in us]
                     fs = [b[1] for b in bm]; Ms = [b[2] for b in bm]
-                    cs = withattrs(Csponds(fs, fs); M₁ = Ms, M₂ = Ms)
+                    cs = withattrs(Correspondences(fs, fs); M₁ = Ms, M₂ = Ms)
                     test_sample(EssentialMat, cs, 1:5) && (admits += 1)
                 end
                 # exact: the conversion is deterministic given the camera
@@ -237,16 +237,16 @@
     end
 
     @testset "E without M columns: the pixel gate, on any container" begin
-        using VisualGeometryToolkitCore: Csponds, EssentialMat, FundMat, test_sample
+        using VisualGeometryToolkitCore: Correspondences, EssentialMat, FundMat, test_sample
         us = [SVector(100.0, 100.0), SVector(200.0, 150.0), SVector(300.0, 260.0),
             SVector(140.0, 330.0), SVector(260.0, 90.0)]
         vs = us .+ Ref(SVector(3.0, -2.0))
         dup = copy(us); dup[3] = dup[2] + SVector(DUP, 0.0)
         for (a, expect) in ((us, true), (dup, false))
             pairs = [x => y for (x, y) in zip(a, vs)]
-            # a plain Pair vector carries no columns: the same answer as Csponds
+            # a plain Pair vector carries no columns: the same answer as Correspondences
             @test test_sample(EssentialMat, pairs, 1:5) == expect
-            @test test_sample(EssentialMat, Csponds(a, vs), 1:5) == expect
+            @test test_sample(EssentialMat, Correspondences(a, vs), 1:5) == expect
             @test test_sample(FundMat, pairs, 1:5) == expect
         end
     end

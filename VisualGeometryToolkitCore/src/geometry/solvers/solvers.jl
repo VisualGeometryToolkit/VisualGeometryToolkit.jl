@@ -20,7 +20,7 @@
 #   homography_solvers.jl       homography_4pt, DLT, the normalizations
 #   homography_5pt_radial.jl    5-pt one-sided radial homography (HomLib port)
 #   fundmat.jl                  F/E matrices, 7-pt, motion()
-#   solver_layer.jl             CspondNormalization + the MinimalSolver protocol + registry
+#   solver_layer.jl             CorrespondenceNormalization + the MinimalSolver protocol + registry
 #
 # Forward declarations shared by the native solver ports (p3p_native.jl,
 # essential_5pt_native.jl) and the `PoseLib` extension package (which adds
@@ -53,7 +53,7 @@ function essential_5pt end
 
 8-point linear DLT for the essential matrix from N >= 8 correspondences
 `cs` (`x1 => x2` bearing pairs, `StaticVector{3}` each side; any
-[`sources`](@ref)/[`targets`](@ref) container, a [`Csponds`](@ref)
+[`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref)
 preferred), the same correspondence currency as [`homography_dlt`](@ref)
 and [`fundamental_dlt`](@ref). Only the PoseLib backend exists; load
 `using PoseLib` to make this callable (`essential_dlt(PoseLibSolver(), cs)`,

@@ -99,7 +99,7 @@ board = [Point2(x, y) for x in -0.2:0.1:0.2 for y in -0.2:0.1:0.2]
 pixels = [project(camera, Point3(p[1], p[2], 0.0) .* m) for p in board]
 
 # The board-to-image homography, and what it does to the board.
-H = HomographyMap(homography_dlt(csponds(board, pixels)))
+H = HomographyMap(homography_dlt(correspondences(board, pixels)))
 to_euclidean(H(board[1])) ≈ pixels[1]                # true
 image = transfer_ellipse(H, Circle(Point2(0.0, 0.0), 0.05))   # a 5 cm circle's image: an Ellipse (nothing past the horizon)
 ```

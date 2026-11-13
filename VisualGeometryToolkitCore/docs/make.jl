@@ -29,7 +29,7 @@ const LINKS = InterLinks((p => vgtk_inventory(p) for p in (
 # of `convention_files()`; docs/src/guide/conventions.md is ignored by git. A
 # guide-page link there is written relative to conventions/ and rewritten here.
 # The `@meta` block is required: the files' `@ref` links resolve public,
-# not-exported names (`CspondNormalization`, `test_model`, ...) in this module.
+# not-exported names (`CorrespondenceNormalization`, `test_model`, ...) in this module.
 let page = joinpath(@__DIR__, "src", "guide", "conventions.md")
     body = join((rstrip(read(f, String)) for f in VisualGeometryToolkitCore.convention_files()), "\n\n")
     body = replace(body, "](../docs/src/guide/" => "](")

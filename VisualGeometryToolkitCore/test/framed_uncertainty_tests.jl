@@ -51,7 +51,7 @@
             @test dot(r, PrecMat{2, Float64}(1.0, 0.0, 0.0, 1.0) * r) ≈ dot(r, r)
             # storage-boundary convert (the EuclideanMap idiom): containers typed
             # against the historical 3-parameter surface keep accepting values —
-            # the downstream RoMa-cspond pattern (VGF dense_match.jl).
+            # the downstream RoMa-correspondence pattern (VGF dense_match.jl).
             T = Float32
             v = Vector{Uncertain{Point2{T}, PrecMat{2, T, SMatrix{2, 2, T, 4}}}}(undef, 1)
             v[1] = Uncertain(Point2{T}(1, 2), PrecMat{2, T}(SMatrix{2, 2, T}(I)))
@@ -152,7 +152,7 @@
             @test geom(u′) ≈ Rm * SVector(1.0, 2.0) + SVector(3.0, -1.0)
             @test cov(u′) isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, Vb}
             @test SMatrix{2, 2}(cov(u′)) ≈ J * Σ0 * J' rtol = 1.0e-14
-            # precision-side measurement: same one checked call, pullback law
+            # precision-side observation: same one checked call, pullback law
             up′ = propagate(m, Uncertain(Point2(1.0, 2.0), relabel(Va, PrecMat(Λ0))))
             @test prec(up′) isa PrecMat{2, Float64, SMatrix{2, 2, Float64, 4}, Vb}
             Jinv = inv(J)
@@ -178,12 +178,12 @@
             upre′ = propagate(h, Uncertain(x, relabel(Va, PrecMat(Λ0))))
             @test prec(upre′) isa PrecMat{2, Float64, SMatrix{2, 2, Float64, 4}, Vb}
             @test SMatrix{2, 2}(inv(prec(upre′))) ≈ SMatrix{2, 2}(cov(u′)) rtol = 1.0e-8
-            # mismatch throws; unlabeled measurement is the wildcard and lands on Dst
+            # mismatch throws; unlabeled observation is the wildcard and lands on Dst
             @test_throws MethodError propagate(h, Uncertain(x, relabel(ImageFrame{:c}, CovMat(Σ0))))
             @test cov(propagate(h, Uncertain(x, CovMat(Σ0)))) isa CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, Vb}
         end
 
-        @testset "checked Sampson delegation — slot meets measurement frame" begin
+        @testset "checked Sampson delegation — slot meets observation frame" begin
             K1 = @SMatrix [600.0 0.0 320.0; 0.0 600.0 240.0; 0.0 0.0 1.0]
             K2 = @SMatrix [700.0 0.0 330.0; 0.0 700.0 250.0; 0.0 0.0 1.0]
             R = RotMatrix{3, Float64}(RotXYZ(0.08, -0.15, 0.05))
@@ -206,7 +206,7 @@
             @test sampson_distance(form, x₁, x₂) == sampson_distance(F, x₁, x₂)
             @test sampson_distance(form, Uncertain(x₁, Λ), Uncertain(x₂, Λ)) ==
                 sampson_distance(F, Uncertain(x₁, Λ), Uncertain(x₂, Λ))
-            # unlabeled form accepts labeled measurements (slot side is the wildcard)
+            # unlabeled form accepts labeled observations (slot side is the wildcard)
             @test sampson_distance(EpipolarForm(F), u₁, u₂) == sampson_distance(F, u₁, u₂)
         end
     end

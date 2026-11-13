@@ -20,8 +20,8 @@
         ts = randn(rng, 5)
         lines = [(X + ts[i] * dirs[i]) => 3.7 * dirs[i] for i in 1:5]        # any direction length
         @test norm(nearest_point(lines) - X) < 1.0e-12
-        @test norm(nearest_point(csponds(first.(lines), last.(lines))) - X) < 1.0e-12
-        two = csponds([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 0.0, 1.0), SVector(-1.0, 0.0, 1.0)])
+        @test norm(nearest_point(correspondences(first.(lines), last.(lines))) - X) < 1.0e-12
+        two = correspondences([SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0)], [SVector(0.0, 0.0, 1.0), SVector(-1.0, 0.0, 1.0)])
         @test nearest_point(two) ≈ SVector(0.0, 0.0, 1.0) atol = 1.0e-14
         # 2-D lines
         l2 = [SVector(0.0, 1.0) => SVector(1.0, 0.0), SVector(2.0, 0.0) => SVector(0.0, 1.0), SVector(0.0, -1.0) => SVector(1.0, 1.0)]
@@ -53,16 +53,16 @@
         lines = [SVector(0.0, 0.0, 0.0) => SVector(1.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0) => SVector(0.0, 0.0, 1.0),
             SVector(0.0, 0.0, 0.0) => SVector(0.0, 1.0, 0.0), SVector(5.0, 5.0, 5.0) => SVector(1.0, 1.0, 0.0)]
         w = [1.0, 2.0, 0.5, 3.0]
-        cs = withattrs(csponds(first.(lines), last.(lines)); weights = w)
+        cs = withattrs(correspondences(first.(lines), last.(lines)); weights = w)
         x = nearest_point(cs)
         for k in 1:3, s in (-1, 1)
             @test cost(lines, x, w) <= cost(lines, x + s * 1.0e-6 * SVector(ntuple(j -> j == k ? 1.0 : 0.0, 3)), w)
         end
         # a zero weight drops the line; integer weights scale the same answer
-        @test nearest_point(withattrs(csponds(first.(lines), last.(lines)); weights = [1.0, 1.0, 1.0, 0.0])) ≈ nearest_point(lines[1:3]) atol = 1.0e-12
-        @test nearest_point(withattrs(csponds(first.(lines), last.(lines)); weights = 2w)) ≈ x atol = 1.0e-12
-        @test_throws ArgumentError nearest_point(withattrs(csponds(first.(lines), last.(lines)); weights = [1.0, 0.0, 0.0, 0.0]))
-        @test_throws ArgumentError nearest_point(withattrs(csponds(first.(lines), last.(lines)); weights = [1.0, -1.0, 1.0, 1.0]))
+        @test nearest_point(withattrs(correspondences(first.(lines), last.(lines)); weights = [1.0, 1.0, 1.0, 0.0])) ≈ nearest_point(lines[1:3]) atol = 1.0e-12
+        @test nearest_point(withattrs(correspondences(first.(lines), last.(lines)); weights = 2w)) ≈ x atol = 1.0e-12
+        @test_throws ArgumentError nearest_point(withattrs(correspondences(first.(lines), last.(lines)); weights = [1.0, 0.0, 0.0, 0.0]))
+        @test_throws ArgumentError nearest_point(withattrs(correspondences(first.(lines), last.(lines)); weights = [1.0, -1.0, 1.0, 1.0]))
     end
 
     @testset "degenerate: parallel lines, a zero direction, too few lines" begin
@@ -84,7 +84,7 @@
         inm = nearest_point([ustrip.(m, first(l)) => last(l) for l in lines])
         @test ustrip.(m, x) == inm
         w = [1.0, 0.5, 2.0, 0.0]
-        lw = withattrs(csponds(first.(lines), last.(lines)); weights = w)
-        @test ustrip.(m, nearest_point(lw)) == nearest_point(withattrs(csponds([ustrip.(m, first(l)) for l in lw], last.(lines)); weights = w))
+        lw = withattrs(correspondences(first.(lines), last.(lines)); weights = w)
+        @test ustrip.(m, nearest_point(lw)) == nearest_point(withattrs(correspondences([ustrip.(m, first(l)) for l in lw], last.(lines)); weights = w))
     end
 end

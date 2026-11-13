@@ -9,7 +9,7 @@ The reason is not tidiness: a ray at or beyond 90° has no coordinate on that
 plane, so any `K⁻¹u` dehomogenized to a 2-vector, any silent `[x, y, 1]` lift and
 any scoring through `F = K⁻ᵀEK⁻¹` excludes the fisheye and omnidirectional
 cameras this stack calibrates. Calibrated solvers and problems are typed
-`Cspond{<:StaticVector{3},<:StaticVector{3}}` so a 2-vector is a `MethodError`
+`Correspondence{<:StaticVector{3},<:StaticVector{3}}` so a 2-vector is a `MethodError`
 rather than a silent narrowing.
 
 **The type is a necessary condition, not a guarantee.** A three-vector still on
@@ -45,7 +45,7 @@ Consequences worth stating:
 
 **Three declared pinhole islands**, one fact with three instances. A matrix
 cannot express a general camera's nonlinear back-projection, so (1) the
-mapped-homography path, where `K⁻¹` declares the calibration as measurement
+mapped-homography path, where `K⁻¹` declares the calibration as observation
 maps, and (2) VisualGeometryToolkitEstimation's relative-pose bundle, which holds K
 matrices rather than camera models, are pinhole by construction. (3)
 LocalOptimizationDoneRight's vendored RansacLib baseline is third-party and exempt.

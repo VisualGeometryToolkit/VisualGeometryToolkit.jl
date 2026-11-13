@@ -15,7 +15,7 @@
 # scalar `constraint_with_jacobians(E, f₁, f₂; M₁, M₂)` that the scoring path
 # uses, and the residual and its model Jacobian from
 # `sampson_residual_with_jacobian`, the same family-agnostic function the
-# image-plane rows use. Only E's `measurement_gradient_jacobian` on bearings is
+# image-plane rows use. Only E's `observation_gradient_jacobian` on bearings is
 # new, and it is finite-differenced below rather than derived and checked
 # against itself.
 #
@@ -34,8 +34,8 @@
     using VisualGeometryToolkitCore: EssentialMat, EssentialManifold6, retract, retract_jacobian,
         CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
         backproject, project, backproject_with_jacobian, sampson_distance,
-        sampson_residuals!, sampson_jacobian_rows!, sampson_residual, measurement_gradient_jacobian, constraint_with_jacobians,
-        Csponds, withattrs
+        sampson_residuals!, sampson_jacobian_rows!, sampson_residual, observation_gradient_jacobian, constraint_with_jacobians,
+        Correspondences, withattrs
 
     cam(f, c) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1))),
@@ -64,8 +64,8 @@
     Eᵥ = retract(ch, v₀)                     # an EssentialMat
     dEof(c, v) = VgtkCore.retract_directions(c, v)
     dE = dEof(ch, v₀)
-    # the measurement set: bearings with their per-view Jacobians and the rows' √w as columns
-    bset(a, b, w; src = f₁, dst = f₂) = withattrs(Csponds(src, dst); M₁ = a, M₂ = b, sqrt_weights = w)
+    # the observation set: bearings with their per-view Jacobians and the rows' √w as columns
+    bset(a, b, w; src = f₁, dst = f₂) = withattrs(Correspondences(src, dst); M₁ = a, M₂ = b, sqrt_weights = w)
 
     @testset "the rows ARE the scalar residual — the canary against a second route" begin
         # Even with a shared core the batched and scalar paths assemble inputs
@@ -96,12 +96,12 @@
         end
     end
 
-    @testset "E's measurement_gradient_jacobian on bearings, and its bilinear contraction" begin
+    @testset "E's observation_gradient_jacobian on bearings, and its bilinear contraction" begin
         Em = SMatrix{3, 3, Float64}(Eᵥ)
         for i in (1, 5, 11)
             G(θ) = Vector(constraint_with_jacobians(EssentialMat(Tuple(θ)), f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])[2])
             Gfd = FiniteDiff.finite_difference_jacobian(G, Vector(vec(Em)))
-            Mg = measurement_gradient_jacobian(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
+            Mg = observation_gradient_jacobian(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])
             @test Mg ≈ Gfd rtol = 1.0e-7 atol = 1.0e-6
             G_x = constraint_with_jacobians(Eᵥ, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i])[2]
             @test VgtkCore._normal_rate(Eᵥ, G_x, f₁[i], f₂[i]; M₁ = M₁[i], M₂ = M₂[i]) ≈ transpose(Mg) * G_x rtol = 1.0e-13
@@ -128,8 +128,8 @@
         @test_throws MethodError sampson_jacobian_rows!(J, SMatrix{3, 3, Float64}(Eᵥ), dE, bset(M₁, M₂, sqrtw))
         # …and a bearing set cannot silently fall through to the image-plane
         # constraint by omitting the Jacobian columns.
-        @test_throws ArgumentError sampson_residuals!(r, Eᵥ, Csponds(f₁, f₂))
-        @test_throws ArgumentError sampson_jacobian_rows!(J, Eᵥ, dE, Csponds(f₁, f₂))
+        @test_throws ArgumentError sampson_residuals!(r, Eᵥ, Correspondences(f₁, f₂))
+        @test_throws ArgumentError sampson_jacobian_rows!(J, Eᵥ, dE, Correspondences(f₁, f₂))
     end
 
     @testset "a per-view Jacobian SWAP is caught — and needs two focals to be" begin

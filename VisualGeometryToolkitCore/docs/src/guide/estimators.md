@@ -17,7 +17,7 @@ An estimator's name states its kind: a one-step algorithm is called by its
 algorithm's name; a minimal solver runs through the `solve(solver, cs, idx)`
 protocol; iterative fits (`fit_*`), robust searches (`find_*`) and
 refinements from a guess (`refine_*`) live in VisualGeometryToolkitEstimation. Data go
-in as correspondences (`a => b` pairs, a [`Csponds`](@ref) preferred), with
+in as correspondences (`a => b` pairs, a [`Correspondences`](@ref) preferred), with
 per-correspondence weights as its `weights` column.
 
 | Task | Function | Kind | Package |
@@ -33,7 +33,7 @@ per-correspondence weights as its `weights` column.
 | Ellipse through 2D points (algebraic, always an ellipse) | [`direct_ellipse`](@ref)`(points)` | one-step | VGC |
 | A pure-bending height field through scattered heights (`point => height` pairs, the plane dropped) | [`HeightField`](@ref)`(nodes, points .=> heights; smoothing)` | one-step | VGC |
 | Normalize points for a solve (centroid, or a known centre) | `AffineMap(`[`HartleyNormalization`](@ref)`(; center), points)` | normalization | VGC |
-| Normalize a correspondence set for a model class | [`CspondNormalization`](@ref VisualGeometryToolkitCore.CspondNormalization)`(M, cs; center)` | normalization | VGC |
+| Normalize a correspondence set for a model class | [`CorrespondenceNormalization`](@ref VisualGeometryToolkitCore.CorrespondenceNormalization)`(M, cs; center)` | normalization | VGC |
 | Store image points resolution-independently (pools) | `AffineMap(`[`DiagonalNormalization`](@ref)`(size))` | normalization | VGC |
 | Homography from a 4-point sample | `solve(`[`Homography4pt`](@ref)`(), cs, idx)` | minimal | VGC |
 | Radially distorted homography from 5 points | `solve(`[`Homography5ptRadial`](@ref)`(), cs, idx)` | minimal | VGC |

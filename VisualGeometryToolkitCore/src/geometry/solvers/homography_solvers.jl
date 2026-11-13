@@ -257,13 +257,13 @@ end
 #
 
 # =============================================================================
-# CspondNormalization — a correspondence set's normalization as a value (#21)
+# CorrespondenceNormalization — a correspondence set's normalization as a value (#21)
 # =============================================================================
 
 """
-    CspondNormalization(T_src::AffineMap, T_dst::AffineMap)
-    CspondNormalization(src::Normalization, dst::Normalization, cs[, mask, weights])
-    CspondNormalization(M::Type, cs; center)
+    CorrespondenceNormalization(T_src::AffineMap, T_dst::AffineMap)
+    CorrespondenceNormalization(src::Normalization, dst::Normalization, cs[, mask, weights])
+    CorrespondenceNormalization(M::Type, cs; center)
 
 The normalization of a correspondence set as a first-class value: the
 forward homogeneous maps of the source and target sides AND their analytic
@@ -291,16 +291,16 @@ Verbs:
 
 The pose family builds none (bearings are already metric).
 """
-struct CspondNormalization{T}
+struct CorrespondenceNormalization{T}
     src::SMatrix{3, 3, T, 9}
     dst::SMatrix{3, 3, T, 9}
     src_inv::SMatrix{3, 3, T, 9}
     dst_inv::SMatrix{3, 3, T, 9}
 end
 
-function CspondNormalization(T_src::AffineMap, T_dst::AffineMap)
+function CorrespondenceNormalization(T_src::AffineMap, T_dst::AffineMap)
     T = promote_type(eltype(T_src.translation), eltype(T_dst.translation))
-    return CspondNormalization{T}(
+    return CorrespondenceNormalization{T}(
         SMatrix{3, 3, T, 9}(to_homogeneous(T_src)),
         SMatrix{3, 3, T, 9}(to_homogeneous(T_dst)),
         SMatrix{3, 3, T, 9}(to_homogeneous(inv(T_src))),
@@ -310,14 +310,14 @@ end
 
 # `mask` is any selection `_selection` reads (nothing, a Bool mask, an index
 # list), resolved once and walked by both sides.
-function CspondNormalization(src::HartleyNormalization, dst::HartleyNormalization, cs, mask = nothing, weights = nothing)
+function CorrespondenceNormalization(src::HartleyNormalization, dst::HartleyNormalization, cs, mask = nothing, weights = nothing)
     u₁ = sources(cs); u₂ = targets(cs)
     sel = _selection(mask, u₁, u₂)
-    return CspondNormalization(_hartley_map(u₁, sel, weights, src.center), _hartley_map(u₂, sel, weights, dst.center))
+    return CorrespondenceNormalization(_hartley_map(u₁, sel, weights, src.center), _hartley_map(u₂, sel, weights, dst.center))
 end
 
-CspondNormalization(::Type{<:Union{HomographyMat, AbstractFundMat}}, cs; mask = nothing) =
-    CspondNormalization(HartleyNormalization(), HartleyNormalization(), cs, mask, weights_column(cs))
+CorrespondenceNormalization(::Type{<:Union{HomographyMat, AbstractFundMat}}, cs; mask = nothing) =
+    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(), cs, mask, weights_column(cs))
 
 # A selection as a BitVector (an index list expanded once), for callers that
 # hold one; the DLT normalization walks an index list as given (`_selection`).
@@ -326,37 +326,37 @@ _bitmask(mask::BitVector, n) = mask
 _bitmask(idx, n) = (b = falses(n); b[idx] .= true; b)
 
 """
-    source_map(f::CspondNormalization) -> AffineMap
+    source_map(f::CorrespondenceNormalization) -> AffineMap
 
 The forward normalization of the source side, as a 2D affine map
 (`source_map(f)(x)` is the normalized source point); its inverse is `inv` of
 it. The destination side is [`destination_map`](@ref).
 """
-source_map(f::CspondNormalization) = affine_part(f.src)
+source_map(f::CorrespondenceNormalization) = affine_part(f.src)
 """
-    destination_map(f::CspondNormalization) -> AffineMap
+    destination_map(f::CorrespondenceNormalization) -> AffineMap
 
 The forward normalization of the destination side (the correspondences'
 `targets`), as a 2D affine map; its inverse is `inv` of it. The source side is
 [`source_map`](@ref).
 """
-destination_map(f::CspondNormalization) = affine_part(f.dst)
+destination_map(f::CorrespondenceNormalization) = affine_part(f.dst)
 
 """
-    normalize(N::CspondNormalization, cs) -> Csponds
+    normalize(N::CorrespondenceNormalization, cs) -> Correspondences
 
 Materialize the normalized view of a correspondence container: source
-points through `N.src`, target points through `N.dst`. The measurement
+points through `N.src`, target points through `N.dst`. The observation
 covariance columns `Σ₁`/`Σ₂` ([`noise_columns`](@ref)) move with their points,
 `Σ′ = A·Σ·Aᵀ` with `A` the side's linear part (so a similarity of scale `s`
 gives `s²·Σ`); every other attribute column is forwarded unchanged. Built once
 per problem (the RANSAC hot loop then samples the normalized columns directly).
 """
-function LinearAlgebra.normalize(f::CspondNormalization{T}, cs::AbstractVector) where {T}
+function LinearAlgebra.normalize(f::CorrespondenceNormalization{T}, cs::AbstractVector) where {T}
     S, D = source_map(f), destination_map(f)
     ns = [Point2{T}(S(p)) for p in sources(cs)]
     nt = [Point2{T}(D(p)) for p in targets(cs)]
-    return Csponds(ns, nt, _transport_noise(attrs_of(cs), S.linear, D.linear))
+    return Correspondences(ns, nt, _transport_noise(attrs_of(cs), S.linear, D.linear))
 end
 
 
@@ -491,7 +491,7 @@ end
     homography_dlt(cs; mask = nothing, svd_ws = nothing) -> HomographyMat or nothing
 
 Compute a homography from N >= 4 correspondences `cs` (`u₁ => u₂` pairs; any
-[`sources`](@ref)/[`targets`](@ref) container, a [`Csponds`](@ref) preferred)
+[`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref) preferred)
 by the Direct Linear Transform with Hartley normalization.
 
 Per-correspondence weights are the container's `weights` column (set with
@@ -501,7 +501,7 @@ squared algebraic residual and the Hartley normalization. When `mask` (a
 
 # Example
 ```julia
-cs = Csponds(src_pts, dst_pts)
+cs = Correspondences(src_pts, dst_pts)
 H = homography_dlt(cs)
 H = homography_dlt(withattrs(cs; weights = [1.0, 0.5, 1.0, 0.8]))
 H = homography_dlt(cs; mask = inlier_mask)
@@ -515,7 +515,7 @@ function homography_dlt(
     A = Matrix{T}(undef, 2n, 9)
     # the one normalization of this estimator: built here, once, from the
     # data (and its `weights` column); the `!` form only uses it
-    return homography_dlt!(A, CspondNormalization(HomographyMat, cs; mask), cs; mask, svd_ws)
+    return homography_dlt!(A, CorrespondenceNormalization(HomographyMat, cs; mask), cs; mask, svd_ws)
 end
 
 # One correspondence's two DLT rows in normalized homogeneous points `s`, `d`
@@ -552,7 +552,7 @@ gives `nothing` (non-finite rows poison LAPACK, whose gesdd throws an opaque
 (overwriting `A`); otherwise an allocating SVD of the compacted rows.
 """
 function _dlt!(
-        fill_rows!::F, A::AbstractMatrix{T}, N::CspondNormalization, cs,
+        fill_rows!::F, A::AbstractMatrix{T}, N::CorrespondenceNormalization, cs,
         rows_per_point::Int, mask, svd_ws
     ) where {F, T}
     u₁ = sources(cs); u₂ = targets(cs); weights = weights_column(cs)
@@ -581,7 +581,7 @@ end
 _mask_indices(mask::AbstractVector{Bool}) = (i for i in eachindex(mask) if mask[i])
 
 """
-    homography_dlt!(A, N::CspondNormalization, cs; mask = nothing, svd_ws = nothing) -> HomographyMat or nothing
+    homography_dlt!(A, N::CorrespondenceNormalization, cs; mask = nothing, svd_ws = nothing) -> HomographyMat or nothing
 
 In-place N-point DLT of the correspondences `cs` using the pre-allocated
 buffer `A` (2N × 9). Weights are the container's `weights` column, as for
@@ -590,7 +590,7 @@ buffer `A` (2N × 9). Weights are the container's `weights` column, as for
 
 When `mask::BitVector` is provided, only masked points are used and rows are
 compacted into the top of `A`. The inner-loop form: `N` is the enclosing
-estimator's [`CspondNormalization`](@ref), built once at its entry (the public
+estimator's [`CorrespondenceNormalization`](@ref), built once at its entry (the public
 form builds it from the data); this form applies it row by row and composes the
 model back into the data frame (`inv(D) ∘ H ∘ S`), and never
 normalizes on its own.
@@ -607,7 +607,7 @@ the DLT's identity weighting.
 """
 function homography_dlt!(
         A::AbstractMatrix{T},
-        N::CspondNormalization{T},
+        N::CorrespondenceNormalization{T},
         cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}};
         mask = nothing,
         svd_ws = nothing
@@ -775,7 +775,7 @@ Matches Shekhovtsov's `is_homography_ill_conditioned`
 
 κ is a property of the frame `H` is written in, not of the map: the bound is
 calibrated for `H` between Hartley-normalized frames (both sides, as
-[`CspondNormalization`](@ref) builds them), so evaluate it on the normalized
+[`CorrespondenceNormalization`](@ref) builds them), so evaluate it on the normalized
 `H`, never on a pixel-frame one.
 """
 function test_conditioning(H::HomographyMat{T}; max_cond::T = T(100)) where {T}
@@ -808,7 +808,7 @@ The constraint `g = 0` encodes `ũ₂ ∝ H·ũ₁` (2 equations):
 
 Returns:
 - `g::SVector{2,T}`      — constraint vector
-- `G_x::SMatrix{2,4,T}`  — ∂g/∂(x,y,x',y') (measurement Jacobian)
+- `G_x::SMatrix{2,4,T}`  — ∂g/∂(x,y,x',y') (observation Jacobian)
 - `G_θ::SMatrix{2,9,T}`  — ∂g/∂vec(H) (model Jacobian, column-major)
 """
 @inline function constraint_with_jacobians(
@@ -892,10 +892,10 @@ end
     return (; gradient = zero(T), value = SVector{2, T}(tol * r1, tol * r2))
 end
 
-# ∂vec(G_x)/∂vec(H) of the algebraic constraint (`measurement_gradient_jacobian`,
+# ∂vec(G_x)/∂vec(H) of the algebraic constraint (`observation_gradient_jacobian`,
 # 8 × 9, both column-major): G_x is linear in H — rows of vec(G_x) over
 # (x₁, y₁, x₂, y₂) per constraint row, columns over vec(H).
-@inline function measurement_gradient_jacobian(H::HomographyMat, u₁::StaticVector{2}, u₂::StaticVector{2})
+@inline function observation_gradient_jacobian(H::HomographyMat, u₁::StaticVector{2}, u₂::StaticVector{2})
     T = float(promote_type(eltype(H), eltype(u₁), eltype(u₂)))
     x, y = T(u₁[1]), T(u₁[2]); xp, yp = T(u₂[1]), T(u₂[2])
     o, z = one(T), zero(T)
@@ -915,7 +915,7 @@ end
 
 # The contraction of that derivative with Σ·G_xᵀ (`_noise_rate`, 4 × 9: rows
 # (i, j) ↦ i + 2(j − 1), columns vec(H)), from its sparsity: the generic
-# product with the dense 8 × 9 `measurement_gradient_jacobian` (pinned equal in
+# product with the dense 8 × 9 `observation_gradient_jacobian` (pinned equal in
 # the tests) does 288 multiplications for these 24.
 @inline function _noise_rate(H::HomographyMat, ΣGt::StaticMatrix{4, 2}, u₁::StaticVector{2}, u₂::StaticVector{2})
     T = promote_type(float(eltype(H)), eltype(ΣGt), eltype(u₁), eltype(u₂))

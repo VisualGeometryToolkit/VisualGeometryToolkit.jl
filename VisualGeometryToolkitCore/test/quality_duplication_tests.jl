@@ -242,6 +242,15 @@ end
     @test kinds("cones(backend::KA.CPU, x) = x\ncones(backend::KA.GPU, x) = 2x\n") == [:backend_branch]
     # a twin of non-ASCII names is compared by characters (a byte slice of `θ_cpu` threw)
     @test kinds("θ_cpu(x) = x\nθ_gpu(x) = 2x\n") == [:twin_name]
+    # a device query's method per backend (the resident threads of a kernel, Core's `_resident_threads`) is left
+    # alone; a compute function's methods per backend, beside it in the same file, still are not
+    v = only(found("""
+        _resident_threads(::KA.CPU, kernel, args, ndrange) = Threads.nthreads()
+        _resident_threads(backend::KA.Backend, kernel, args, ndrange) = throw(ArgumentError("no query"))
+        accumulate!(::KA.CPU, y, x) = (for i in eachindex(x); y[i] += x[i]; end; y)
+        accumulate!(backend::KA.GPU, y, x) = (acc_kernel!(backend)(y, x; ndrange = length(x)); y)
+        """))
+    @test v.check === :backend_branch && occursin("accumulate!", v.text) && !occursin("resident", v.text)
     # in a comment or a docstring: not code
     @test isempty(found("# if backend isa KA.CPU, the loop runs\n\"\"\"\n    f(x)\n\nNo `x isa CuArray` here.\n\"\"\"\nf(x) = x\n"))
 

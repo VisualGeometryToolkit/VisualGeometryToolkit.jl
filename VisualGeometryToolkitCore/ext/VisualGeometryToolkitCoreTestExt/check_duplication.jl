@@ -236,7 +236,8 @@ const _CPU_SIGNATURE = Regex("::\\s*" * _KA * "CPU\\b")
 const _GPU_SIGNATURE = Regex("::\\s*" * _KA * "(GPU|Backend)\\b|::\\s*" * _GPU_ARRAYS * "\\b")
 const _HELPER_TOKENS = Set(["upload", "download", "to", "on", "host", "device", "devices", "zeros", "ones", "fill", "allocate",
                             "synchronize", "synchronise", "adapt", "structure", "storage", "copy", "copyto", "transfer",
-                            "names", "free", "bytes", "reclaim", "default", "buffer", "buffers", "ka", "memory"])
+                            "names", "free", "bytes", "reclaim", "default", "buffer", "buffers", "ka", "memory",
+                            "resident", "threads"])   # a kernel's resident threads: a device query, no shared kernel computes it
 _is_helper_name(name) = all(in(_HELPER_TOKENS), split(rstrip(lstrip(_bare_name(name), '_'), '!'), '_'; keepempty = false))
 # a CPU/GPU marker: the suffix pairs and the prefix pair, and `_cuda` beside the plain name
 const _TWIN_SUFFIXES = (("_cpu", "_gpu"), ("_host", "_device"))

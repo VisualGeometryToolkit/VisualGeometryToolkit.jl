@@ -55,6 +55,10 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
   two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
   same bits at any thread count (a test at 2 and 8 threads).
+- **A result of uncommitted code is never reused** (`code_tree_changes`, the one reuse rule of the runner,
+  `run_complete` and `cached_result`): its tree's `+uncommitted` mark names HEAD, not the edits, so a scratch run under
+  other edits carried the same value and was reused. Each such tree is a change, `"<name>: uncommitted when recorded"`;
+  a scratch job of uncommitted code still in flight is not depended on.
 - **The runner honours `VGTK_SCRATCH`** beyond the key: a scratch launch reads another scratch run's output, and runs
   uncommitted code with a warning (a run of record still refuses both); the dry run says so.
 - **A local launch keeps `results_branch`** in its manifest (the stage writes it atomically, and the runner keeps it when

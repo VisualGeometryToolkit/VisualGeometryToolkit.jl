@@ -1025,9 +1025,13 @@ end
         @test code == 0 && occursin("DIRTY: StackPkg (a scratch launch: run with a warning)", out)
         code, out = @test_logs (:warn, r"a scratch launch runs uncommitted code") match_mode = :any run_main(args; env = scratch)
         @test code == 0 && ran() == 5
+        # ... and never reuses a scratch run of uncommitted code: other edits carry the same marked tree
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 4\nend\n")
+        code, out = run_main(args; env = scratch)
+        @test code == 0 && ran() == 6 && occursin("StackPkg: uncommitted when recorded", out)
         @test occursin("src:", rec()["stages"]["setup"]["code_trees"]["StackPkg"]) && occursin("+uncommitted", rec()["stages"]["setup"]["code_trees"]["StackPkg"])
         code, out = run_main(args; env = env0)                                      # a run of record still refuses it
-        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 5
+        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 6
         p!("checkout", "-q", "--", "src/StackPkg.jl")
         # the rule itself
         changes = VisualGeometryToolkitEval.code_tree_changes
@@ -1035,6 +1039,11 @@ end
         @test changes(Dict("a" => "x", "b" => "y"), Dict("a" => "x", "c" => "z")) == ["b: no longer loaded", "c: new"]
         @test changes(Dict("P" => "src:1 Project.toml:2"), Dict("P" => "src:1 Project.toml:3 ext:4")) ==
               ["P: Project.toml 2 → 3", "P: ext none → 4"]
+        for dirty in ("ab12+uncommitted", "uncommitted", "src:ab12+uncommitted Project.toml:9", "src:uncommitted Project.toml:9",
+                      "not in git: /x")                                          # the same marked value: still a change
+            @test changes(Dict("a" => dirty), Dict("a" => dirty)) == ["a: uncommitted when recorded"]
+        end
+        @test isempty(changes(Dict("uncommitted_name" => "ab12"), Dict("uncommitted_name" => "ab12")))
         # the registered stack packages are the published rows of the stack's allow-list
         allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
         @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))

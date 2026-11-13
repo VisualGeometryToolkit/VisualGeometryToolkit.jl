@@ -51,8 +51,8 @@ end
 
 Whether this process runs scratch work rather than runs of record: `VGTK_SCRATCH=1` in the environment (`env`: the runner gives its launch's environment). A run of
 record (the default) refuses to record a result of uncommitted code (`refuse_uncommitted_code`, the runner's
-refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused for
-committed code.
+refusal); a scratch run records it with a warning, its trees marked `+uncommitted`, so it is never reused (the
+mark names HEAD, not the edits).
 
 A scratch run is kept apart from the runs of record: its record says `scratch = true` ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.write_provenance),
 [`cached_result`](@ref VisualGeometryToolkitEval.Experiments.cached_result)); its keys fold `scratch` ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)), so it never shares a keyed directory or a
@@ -151,7 +151,7 @@ it or above it, a workspace's): a package loaded from a path (`[sources]`, `Pkg.
 stack package by its Manifest `git-tree-sha1`. `dirty` names each of them whose files differ from HEAD (an edit, a
 staged or deleted file, an untracked one), or that is in no git checkout: a run of record refuses to run with it
 ([`refuse_uncommitted_code`](@ref)). Such a tree's value carries `+uncommitted` (or is `"uncommitted"`), so a result
-recorded with it is never reused for committed code. `project_paths` lists the project's own paths recorded (none:
+recorded with it is never reused (the mark names HEAD, not the edits). `project_paths` lists the project's own paths recorded (none:
 nothing identifies the project's code).
 
 A tree moves only when a file under it changes: a commit that touches only docs, tests or the paper changes no tree.
@@ -331,6 +331,9 @@ function refuse_uncommitted_code(identity; what::AbstractString = "a run of reco
     return nothing
 end
 
+# Whether a recorded tree names no committed code: marked, uncommitted, or in no git checkout (`code_trees`).
+_is_uncommitted_tree(v::AbstractString) = occursin(_DIRTY_MARK, v) || occursin(r"(^|:)uncommitted( |$)", v) || startswith(v, "not in git: ")
+
 # A package loaded from a path: "src:<tree> ext:<tree> Project.toml:<blob>", by part.
 const _PARTS = r"^(src|ext|Project\.toml):"
 _tree_parts(v) = Dict(String(p[1]) => String(p[2]) for p in (split(x, ':'; limit = 2) for x in split(v)))
@@ -345,12 +348,17 @@ empty. `recorded` is the code trees stored with the result (`nothing` when it ha
 identity was kept, which is computed once more and then records them), `current` the code's now
 ([`code_trees`](@ref)'s `trees`). Each entry names what changed: `"VisualGeometryToolkitCore: src 3fa29c01e2 →
 b71d0e44a9"`, `"src: 18c2… → 9e0a…"`, `"<name>: new"` (loaded now, not then), `"<name>: no longer loaded"`.
+
+A result recorded with uncommitted code (a scratch run's: a tree marked `+uncommitted`, `"uncommitted"`, or in no
+git checkout) is never reused, even for the same marked trees: the mark names HEAD, not the edits, so two runs under
+different uncommitted edits carry the same value. Each such tree is a change, `"<name>: uncommitted when recorded"`.
 """
 function code_tree_changes(recorded, current::AbstractDict)
     recorded === nothing && return ["no code trees recorded (a result from before code identity was kept)"]
     out = String[]
     for k in sort!(unique!([String.(collect(keys(recorded))); String.(collect(keys(current)))]))
         a, b = get(recorded, k, nothing), get(current, k, nothing)
+        a !== nothing && _is_uncommitted_tree(string(a)) && (push!(out, "$k: uncommitted when recorded"); continue)
         a == b && continue
         if a === nothing
             push!(out, "$k: new")

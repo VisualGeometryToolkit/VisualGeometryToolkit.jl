@@ -990,7 +990,8 @@ function _mark_reuse!(plan::ReproducePlan, records, queue_states)
         if state in ("completed", "in flight")
             changes = code_tree_changes(get(r, "code_trees", nothing), plan.code_trees)
             if !isempty(changes)
-                state == "in flight" && error("stage $(st.spec.name): job $(r["job_id"]) of an earlier launch is still in flight, ",
+                # a job of uncommitted code in flight is neither depended on nor a reason to stop: this launch runs anew
+                state == "in flight" && !any(c -> endswith(c, ": uncommitted when recorded"), changes) && error("stage $(st.spec.name): job $(r["job_id"]) of an earlier launch is still in flight, ",
                                               "under other code ($(join(changes, "; "))): wait for it to end, or scancel it, then launch again")
                 st.rerun = "code changed: " * join(changes, "; ")
                 continue
@@ -1322,11 +1323,11 @@ end
 
 # A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in (the
 # one refusal, the drivers' records too). A scratch launch (`VGTK_SCRATCH=1`) runs it with a warning, as a driver's
-# scratch records do: its trees carry `+uncommitted`, so its stages are never reused for committed code.
+# scratch records do: its trees carry `+uncommitted`, so its stages are never reused (the mark names HEAD, not the edits).
 function _refuse_dirty_code(plan::ReproducePlan)
     identity = (; dirty = plan.dirty_code, project_paths = plan.code_paths)
     if scratch_run(plan.base_env) && !isempty(plan.dirty_code)
-        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused for committed code" uncommitted = join(plan.dirty_code, ", ")
+        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused (the mark names HEAD, not the edits)" uncommitted = join(plan.dirty_code, ", ")
         identity = (; dirty = String[], project_paths = plan.code_paths)    # the project's code must still be identified
     end
     return refuse_uncommitted_code(identity)

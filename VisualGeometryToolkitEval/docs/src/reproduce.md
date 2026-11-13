@@ -446,7 +446,7 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
   `VGTK_SCRATCH=1`
   ([`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)):
   its results are recorded with a warning, their trees marked `+uncommitted`,
-  and never reused for committed code. A dirty paper or docs tree is no code
+  and never reused (the mark names HEAD, not the edits). A dirty paper or docs tree is no code
   and is not refused. A launch that identifies none of the project's own code
   (no `src`, no `[project] code`) is refused.
 - **Results from before the trees were kept** record none, and run once more;

@@ -155,6 +155,7 @@ end
 
 @testitem "reproduce_runner" setup = [RunnerFixture, GitFixture] begin
     using Test
+    import VisualGeometryToolkitCore   # pkgdir: the bare-julia testset finds Core's canonical.jl as a package
     using TOML: TOML
     using VisualGeometryToolkitEval.Reproduce
     using VisualGeometryToolkitEval.Reproduce: SITES_DIR

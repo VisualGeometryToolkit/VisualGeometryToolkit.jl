@@ -1,0 +1,219 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/environment_light/v2.0.json",
+    "title": "vgio/environment_light/v2.0",
+    "description": "A vgio/environment_light/v2.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema.",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/environment_light/v2.0, or the same major version at any minor",
+            "pattern": "^vgio/environment_light/v2(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "center": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+        },
+        "radius": {
+            "type": "number"
+        },
+        "map": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "const": "spherical_harmonics"
+                },
+                "basis": {
+                    "const": "real_orthonormal_no_condon_shortley"
+                },
+                "max_degree": {
+                    "type": "integer"
+                },
+                "coefficients": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                }
+            },
+            "required": [
+                "type",
+                "basis",
+                "max_degree",
+                "coefficients"
+            ],
+            "additionalProperties": false,
+            "description": "every channel (a row of `coefficients`) has (max_degree + 1)² coefficients"
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions",
+        "center",
+        "radius",
+        "map"
+    ],
+    "additionalProperties": false
+}

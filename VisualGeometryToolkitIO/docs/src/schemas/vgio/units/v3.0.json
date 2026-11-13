@@ -1,0 +1,191 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/units/v3.0.json",
+    "title": "vgio/units/v3.0",
+    "description": "A vgio/units/v3.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. a COLMAP model's units sidecar declares no length roles, and its pixels are colmap's",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/units/v3.0, or the same major version at any minor",
+            "pattern": "^vgio/units/v3(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit, or \"unknown\"",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm",
+                        "unknown"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions"
+    ],
+    "additionalProperties": false,
+    "allOf": [
+        {
+            "properties": {
+                "units": {
+                    "properties": {
+                        "length_roles": {
+                            "maxProperties": 0
+                        },
+                        "pixel": {
+                            "const": "colmap"
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}

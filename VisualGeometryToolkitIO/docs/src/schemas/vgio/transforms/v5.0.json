@@ -1,0 +1,283 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/transforms/v5.0.json",
+    "title": "vgio/transforms/v5.0",
+    "description": "A vgio/transforms/v5.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema.",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/transforms/v5.0, or the same major version at any minor",
+            "pattern": "^vgio/transforms/v5(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "transforms": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "from": {
+                        "type": "string",
+                        "description": "a frame name (\"world\", \"camera\", \"view:<id>\", \"target:<id>\", \"body:<id>\")",
+                        "pattern": "^(world|camera|(view:|target:|body:).+)$"
+                    },
+                    "to": {
+                        "type": "string",
+                        "description": "a frame name (\"world\", \"camera\", \"view:<id>\", \"target:<id>\", \"body:<id>\")",
+                        "pattern": "^(world|camera|(view:|target:|body:).+)$"
+                    },
+                    "rotation": {
+                        "type": "array",
+                        "description": "[w, x, y, z]",
+                        "prefixItems": [
+                            {
+                                "title": "w",
+                                "description": "the scalar part, w ≥ 0",
+                                "type": "number"
+                            },
+                            {
+                                "title": "x",
+                                "description": "the vector part's x",
+                                "type": "number"
+                            },
+                            {
+                                "title": "y",
+                                "description": "the vector part's y",
+                                "type": "number"
+                            },
+                            {
+                                "title": "z",
+                                "description": "the vector part's z",
+                                "type": "number"
+                            }
+                        ],
+                        "items": false,
+                        "minItems": 4
+                    },
+                    "translation": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                    },
+                    "covariance": {
+                        "description": "a covariance in the storage it holds: 6 × 6 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                        "oneOf": [
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "minItems": 6,
+                                    "maxItems": 6
+                                },
+                                "minItems": 6,
+                                "maxItems": 6
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "diagonal": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "minItems": 6,
+                                        "maxItems": 6
+                                    }
+                                },
+                                "required": [
+                                    "diagonal"
+                                ],
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "isotropic": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": [
+                                    "isotropic"
+                                ],
+                                "additionalProperties": false
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "from",
+                    "to",
+                    "rotation",
+                    "translation"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions",
+        "transforms"
+    ],
+    "additionalProperties": false
+}

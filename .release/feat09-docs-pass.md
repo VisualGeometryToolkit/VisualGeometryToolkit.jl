@@ -1,8 +1,8 @@
-docs-pass: 95189fdb
+docs-pass: f363b258
 
 # Features 0.9.0 docs pass (wave10, feat09)
 
-- Built: VisualGeometryToolkitFeatures/docs/make.jl on a fresh shared clone at 95189fdb, Julia 1.13.3: rc 0 (job 12829) (no deploy).
+- Built: VisualGeometryToolkitFeatures/docs/make.jl on a fresh shared clone at f363b258, Julia 1.13.3: rc 0 (job 13045) (no deploy).
 - Public API changes documented: `variance_stabilize(L, ::SensorNoise)`, `detect_foerstner(L::LinearRaw; noise::SensorNoise)`, `load_raw(...; noise)`; `detect_foerstner(...; noise)` and the `covariance_source` attribute (docstring, guide/foerstner.md
   "The covariance"); `CorrespondenceSet` (renamed in docstrings and guide/matching.md); `propagate(m, d)` via Core's `center(d)`
   (docstring); a Förstner point's error ellipse `Ellipse(d.value; sigma)` (docstring, guide, test).

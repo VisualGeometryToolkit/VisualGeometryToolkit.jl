@@ -15,4 +15,6 @@ gated clone: Features 0 findings; Core's findings are core10's (gpu_tier.jl back
 | `propagate(m, d)` src/detection_types.jl:168 | detection → point observation | Core `center(d)` (the ONE conversion); the hand conversion deleted | [x] |
 | `_require_decoder` src/raw_image.jl:52 | extension-missing fallback | Core `require_extension`; private `_missing_decoder` deleted (review F1) | [x] |
 | `_refine_dog_extremum(...; extent)` asift/continuous_refine.jl:296 | keep a point in the level | the driver's keep test bounds (1 ≤ x ≤ W) (review F4) | [x] |
+| `_refine_dog_extremum` LM call | the LM's coordinate scaling | Core `static_lm`'s scale `s` (the local θ rescale deleted; owner ruling) | [x] |
+| `_noise_digest` src/raw_image.jl | a resolved noise's identity for the cache key | Core `sha256_hex`, Features `cache_key` | [x] |
 | `variance_stabilize(L, ::SensorNoise)`, `_green_noise` src/variance_stabilization.jl | the green-cell noise model, the green plane | Core `green_plane`, `L.geometry.green_colors`, `SensorNoise`, `value_of`; the ONE model, also Förstner's (`_pixel_noise`) | [x] |

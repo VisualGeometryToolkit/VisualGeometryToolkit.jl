@@ -22,3 +22,12 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
 == check_duplication(VisualGeometryToolkitIO 0.9.5): 0 finding(s)
 == check_duplication(VisualGeometryToolkitEval 0.7.2): 0 finding(s)
 ```
+
+## Features 0.8.4 (patch-features084): no splat of a data-length collection, 2026-11-13
+
+- [x] ONE transpose of a capture's identities into columns: StructArrays' `components(StructArray(ids))` (already a
+  Features dependency), in `_merged`; no hand-written column loop (09a662e3, 3d8203a4).
+- [x] ONE score-type rule over any number of descriptor sets: `_score_eltype(As)` on a collection (29888695).
+- [x] The sweep of the stack's splats of a data-length collection, by owner, and the lint design for core10: wave10/handoffs.md
+  ("patch084 → every owner", "patch084 → core10").
+- [x] check_duplication: 0 findings on all six, Features 0.8.4 included (gate prep 14059).

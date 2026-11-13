@@ -47,7 +47,7 @@ function StackedDescriptorIndex(backend::KA.Backend, galleries::AbstractDict)
     descs = [_descmat(galleries[k]) for k in ks]
     sizes = [size(d, 1) for d in descs]
     offsets = cumsum([0; sizes[1:(end - 1)]])
-    T = isempty(descs) ? Float32 : _score_eltype(descs...)
+    T = isempty(descs) ? Float32 : _score_eltype(descs)
     all_desc = Matrix{T}(undef, sum(sizes), isempty(descs) ? 0 : size(first(descs), 2))
     for (i, d) in enumerate(descs)
         copyto!(view(all_desc, (offsets[i] + 1):(offsets[i] + sizes[i]), :), d)
@@ -92,7 +92,7 @@ function nn_match_stacked(
     ) where {K}
     idx = index === nothing ? StackedDescriptorIndex(backend, galleries) : index
     fd = _descmat(features)
-    T = _score_eltype(idx.d_all, fd)
+    T = _score_eltype((idx.d_all, fd))
     metric = CosineSimilarity()
     top_idx, top_sc, rev_idx = _nn_select(
         strategy, metric, backend, idx.offsets, idx.sizes;

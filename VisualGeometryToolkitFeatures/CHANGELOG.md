@@ -1,5 +1,21 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.8.4 (unreleased)
+
+A patch: a compile-time fix, no API change, no result changes.
+
+- **Fixed: `extract_capture_settings` no longer compiles per capture size.** It merged the frames' body and lens
+  identities by splatting one tuple per frame into `zip`, so each frame count compiled a zip of that arity, its LLVM
+  time super-linear in it: a 171-photo set took 518 s, about 90 % of it compiling (decoding takes ~0.2 s a photo). The
+  identities now merge field by field over `DeviceIdentity`'s three fields, over the distinct identities in frame order
+  (the first stated field kept, a disagreement refused, as before); tested at 500 frames after a warm-up at 300.
+- **No other splat of a data-length collection**: `detect_foerstner` collects its detections (was `[rows...]`, one
+  argument per detected point, per image), the stacked descriptor index finds its score type over a collection of
+  galleries (was one argument per gallery), and `compare_images` links its axes through Makie's vector method.
+- Tests: the matcher items take their reference matrix on the CPU, and `pairwise_matrix` on the default device is
+  checked against the CPU within its derived rounding (17 Float32 ulps); the default device is a GPU once another item
+  has loaded CUDA in the process.
+
 ## 0.8.3 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; the detector's

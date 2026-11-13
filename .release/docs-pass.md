@@ -1,3 +1,37 @@
+docs-pass: 3d8203a4
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: a compile-time fix)
+
+# Features 0.8.4 docs pass (julia-docs-pass) — patch-features084
+
+`extract_capture_settings` compiled one zip per capture size (a 171-photo set: 518 s, ~90 % LLVM; a 500-frame test
+never finished in 1500 s); the identities now merge as columns (StructArrays' `components` of a `StructArray` of the
+identities), and Features' other splats of a data-length collection are gone. Baseline: main 252dbca9 (Core 0.9.6,
+Estimation 0.10.2, Eval 0.7.3), then main da7e0948 (IO 0.9.5) merged in (9a3c962b; Features' tree unchanged by it).
+
+## 1. Public API since the baseline
+
+None changed. Internal: `_merged`, `_one_identity`, `_score_eltype` (takes a collection), `detect_foerstner`'s
+collect, `compare_images`' `linkaxes!(axes)`.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | unchanged (no public name moved); `extract_capture_settings`' docstring states the merge rule as before |
+| CHANGELOG | Features 0.8.4 |
+| versions | Features 0.8.4; every other package as on main |
+| in-repo compat | unchanged (Features' Estimation weak compat "0.10.1" admits 0.10.2) |
+
+## 3. Executed on the release candidate (3d8203a4; Features' tree 70e050f55549, the same at the merge 9a3c962b)
+
+Gate (~/logs/dgx-agent/scripts/patch096, `ONLY_PKGS=VisualGeometryToolkitFeatures`; jobs 14059–14062): the full prep
+(registration_lint --subsequent 0 errors 0 warnings, agent_docs 0, floor_compat --latest, audit_manifests,
+check_duplication 0 on all six, the GPU stacks with cuDNN 1), then Features' groups: CPU 3069 / 9 (6 groups),
+GPU 2011 / 0 (2 groups), docs green. Julia 1.13.3. Features loads no IO (not in its package, test or docs
+environment), so IO 0.9.5 under it changes none of these.
+
+---
+
 docs-pass: 458f816b
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: the portal names packages and links their docs; it lists no vgio kind or IO function)
 

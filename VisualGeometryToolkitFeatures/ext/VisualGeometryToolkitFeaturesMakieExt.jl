@@ -214,7 +214,7 @@ function compare_images(entries::AbstractVector{<:Pair}; titles = nothing, defau
         hidedecorations!(ax)
         VgtkCore.imshow!(ax, img)                 # Core's orientation rule
     end
-    n > 1 && linkaxes!(axes...)
+    n > 1 && linkaxes!(axes)                      # Makie's vector method: the image count is data
     on(menu.selection) do name
         next = _entry_images(lookup[name])
         length(next) == n || throw(ArgumentError("compare_images: entry $(repr(name)) has $(length(next)) images, the others $n"))

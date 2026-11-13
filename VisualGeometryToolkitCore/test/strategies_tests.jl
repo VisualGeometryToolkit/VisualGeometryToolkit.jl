@@ -15,7 +15,7 @@
         GaussianShape, WelschShape, GemanMcclureShape, CauchyShape, SmoothTLSShape, TLSShape, HuberShape, BarronShape
 
     @testset "the defaults file: Core's configs/default.toml" begin
-        table = VgtkCore._STRATEGY_DEFAULTS["optimization_strategy"]
+        table = VgtkCore._CORE_DEFAULTS["optimization_strategy"]
         @test table["irls"]["max_iter"] == 25
         @test lo_defaults(Irls{WelschShape}) === table                       # the registry reads that table
         @test Irls{WelschShape}().max_iter == 25                             # an omitted field is its default

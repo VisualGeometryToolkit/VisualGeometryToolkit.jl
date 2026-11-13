@@ -1436,14 +1436,19 @@ migrate_schema(::Val{Symbol("vgio/noncentral_spline/v1")}, src::AbstractString, 
 # file is checked where the manifest lies: `load_manifest`, not here).
 function _migrate_manifest(src, dst)
     t = migrate_record(_raw_tree(src))
+    _write_manifest(dst, t)
+    back = _raw_tree(dst)
+    _verify(_same_tree(merge(back, Dict("generator" => t["generator"])), t), src, "the calibration manifest")
+    return (; to = _schema("calibration"))
+end
+# A current manifest record `t` (a parsed tree), written by its kind's writer.
+function _write_manifest(dst, t::AbstractDict)
     body = (result_kind = t["result_kind"], files = [(path = f["path"], sha256 = f["sha256"], schema = f["schema"], role = f["role"],
                                                        derived_from = f["derived_from"]) for f in t["files"]])
     haskey(t, "model") && (body = merge(body, (model = t["model"],)))
     haskey(t, "metrics") && (body = merge(body, (metrics = t["metrics"],)))
     _write_kind(dst, "calibration", body, _provenance_of(t); style = VgioStyle())
-    back = _raw_tree(dst)
-    _verify(_same_tree(merge(back, Dict("generator" => t["generator"])), t), src, "the calibration manifest")
-    return (; to = _schema("calibration"))
+    return nothing
 end
 migrate_schema(::Val{Symbol("vgio/calibration/v1")}, src::AbstractString, dst::AbstractString) = _migrate_manifest(src, dst)
 migrate_schema(::Val{Symbol("vgio/calibration/v2")}, src::AbstractString, dst::AbstractString) = _migrate_manifest(src, dst)
@@ -1711,7 +1716,7 @@ _writes_length(::TargetHomographies) = false
 function _repoint_targets(
         path::AbstractString, ids::AbstractDict, rigs; resolve = nothing,
         out::AbstractString = _migrated_path(path), dry_run::Bool = false,
-        hashes = _target_hashes(_target_list(rigs)), old::AbstractDict = _raw_tree(path),
+        hashes = _target_hashes(_target_list(rigs)), old::AbstractDict = _raw_tree(path), before_rename = r -> nothing,
     )
     s = get(old, "schema", nothing)
     T = _target_naming_type(s)
@@ -1743,7 +1748,9 @@ function _repoint_targets(
         _verify(re.targets == targets, path, "its targets")
         _verify(all(f -> f === :targets || same_value(getfield(re, f), getfield(obs, f)), fieldnames(typeof(obs))) &&
             _same_file_extras(_raw_tree(staged), current), path, "the observations")
-        (; path = String(path), out = dry_run ? nothing : String(out), to = String(current["schema"]), repointed, unchecked)
+        r = (; path = String(path), out = dry_run ? nothing : String(out), to = String(current["schema"]), repointed, unchecked)
+        before_rename(r)
+        r
     end
 end
 
@@ -1816,7 +1823,8 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     files = _tree_json(dir; io)
     schemas = Dict(f => _try_schema(f) for f in files)
     results = NamedTuple[]
-    ids, defs = _read_ids(idsfile)
+    m = _TreeMap(idsfile, _read_ids(idsfile)..., _read_rewritten(idsfile), dry_run)
+    ids = m.ids
     rigs = String[]                                                    # the current target definitions of the tree (rigs, single targets)
     failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
@@ -1824,8 +1832,8 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         if s === nothing
             println(io, "SKIPPED   ", f, ": no readable schema")
             continue
-        elseif _target_naming_type(s) !== nothing
-            continue                                                   # re-pointed below
+        elseif _target_naming_type(s) !== nothing || _is_manifest(s)
+            continue                                                   # re-pointed below; a manifest last
         elseif _is_current(s)
             _is_target_definition(s) && push!(rigs, f)
             println(io, "current   ", f, ": ", s)
@@ -1842,7 +1850,7 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
         end
         # verified, its identities mapped (and persisted before it is put in place)
         r = _refused(failed, f, io) do
-            _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(ids, defs, r, relpath(out, dir), idsfile, dry_run))
+            _vgio_migrate(f; out, dry_run, before_rename = r -> _map_ids!(m, r, dir, f, out))
         end
         r === nothing && continue
         (!dry_run && _is_target_definition(r.to)) && push!(rigs, out)
@@ -1878,11 +1886,19 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
             println(io, "would re-point  ", f, isempty(ts) ? " (names no targets: rewritten as $(_schema(_current_kind(_split_schema(s).kind))))" : " (once the definitions are written)")
             continue
         end
-        r = _refused(() -> _repoint_targets(f, ids, rigs; out, hashes, old), failed, f, io)
+        r = _refused(() -> _repoint_targets(f, ids, rigs; out, hashes, old, before_rename = r -> _map_ids!(m, r, dir, f, out)), failed, f, io)
         r === nothing && continue
         push!(results, r)
         println(io, "re-pointed  ", f, ": ", s, " → ", r.to, out == f ? "" : " in $(out)", ", ", r.repointed, " targets identit$(r.repointed == 1 ? "y" : "ies")",
             r.unchecked > 0 ? " ($(r.unchecked) observations of referenced targets checked by id)" : "")
+    end
+    # the manifests last: each binds files this run (or an interrupted one) rewrote
+    for f in files
+        s = schemas[f]
+        (s !== nothing && _is_manifest(s)) || continue
+        out = in_place ? f : _migrated_path(f)
+        r = _refused(() -> _migrate_tree_manifest(f, s, dir, m; out, dry_run, io), failed, f, io)
+        r === nothing || push!(results, r)
     end
     isempty(failed) || throw(
         ArgumentError(
@@ -1908,17 +1924,83 @@ function _refused(work, failed::AbstractVector, f::AbstractString, io::IO)
     end
 end
 
-# A migrated definition's old → new identities, into the tree's map, and its
-# new identity → its path (relative to the tree) — persisted, unless a dry run,
-# before the definition is put in place.
-function _map_ids!(ids::AbstractDict, defs::AbstractDict, r, rel::AbstractString, idsfile, dry_run::Bool)
-    haskey(r, :old_ids) || return nothing
-    for o in r.old_ids
-        ids[o] = r.new_id
+# The tree's persisted map (`vgio_migrate_ids.json`): a migrated definition's
+# old → new identities, its new identity → its path, and every file the run
+# rewrote → where its current file is and the SHA-256 of the bytes it held
+# before (what a manifest that binds it recorded) — persisted, unless a dry
+# run, before the file is put in place.
+struct _TreeMap
+    file::String
+    ids::Dict{String, String}
+    defs::Dict{String, String}
+    rewritten::Dict{String, Dict{String, String}}
+    dry_run::Bool
+end
+function _map_ids!(m::_TreeMap, r, dir::AbstractString, f::AbstractString, out::AbstractString)
+    if haskey(r, :old_ids)
+        for o in r.old_ids
+            m.ids[o] = r.new_id
+        end
+        m.defs[r.new_id] = relpath(out, dir)
     end
-    defs[r.new_id] = rel
-    dry_run || _write_ids(idsfile, ids, defs)
+    m.rewritten[relpath(f, dir)] = Dict{String, String}("path" => relpath(out, dir), "sha256" => open(sha256_hex, f))
+    m.dry_run || _write_ids(m.file, m.ids, m.defs, m.rewritten)
     return nothing
+end
+
+_is_manifest(s) = (v = _split_schema(s); v !== nothing && v.kind == "calibration")
+# One listed file of a manifest in `mdir`, bound again if the tree rewrote it
+# (marked `_rebound`; a renamed path recorded in `renamed`), else as it stands.
+function _rebound_entry(e::AbstractDict, m::_TreeMap, dir, mdir, renamed::AbstractDict, dry_run::Bool)
+    w = get(m.rewritten, relpath(normpath(joinpath(mdir, e["path"])), dir), nothing)
+    (w === nothing || w["sha256"] != e["sha256"]) && return Dict{String, Any}(e)
+    new = joinpath(dir, w["path"])
+    np = relpath(new, mdir)
+    np == e["path"] || (renamed[e["path"]] = np)
+    n = merge(Dict{String, Any}(e), Dict{String, Any}("path" => np, "_rebound" => true))
+    dry_run || merge!(n, Dict{String, Any}("sha256" => open(sha256_hex, new), "schema" => _peek_schema(new)))
+    return n
+end
+# A manifest of the tree (`vgio/calibration`, any version that reads), after
+# the tree's files: each listed file this migration rewrote (the map's
+# `rewritten`, its recorded SHA-256 the manifest's) bound again — its `path` (a
+# file written beside, an old grid's new camera store), `sha256` and `schema`
+# its current file's, every `derived_from` naming it renamed with it — and the
+# manifest written as the current version (in place, or beside as
+# `<stem>.migrated.json`) by the guarded pattern: written by its writer, read
+# back, and checked as `load_manifest` checks it (every listed file's hash and
+# schema, its owner's reader, the observations' targets) before it is put in
+# place. A current manifest none of whose files moved is left as it is.
+function _migrate_tree_manifest(f, s, dir, m::_TreeMap; out, dry_run::Bool, io::IO)
+    if out != f && isfile(out) && (so = _try_schema(out); so isa String && _is_current(so))
+        println(io, "current   ", f, ": already migrated to ", out)
+        return nothing
+    end
+    t = migrate_record(_raw_tree(f))
+    mdir = dirname(f)
+    renamed = Dict{String, String}()
+    t["files"] = Any[_rebound_entry(e, m, dir, mdir, renamed, dry_run) for e in t["files"]]
+    moved = count(e -> haskey(e, "_rebound"), t["files"])
+    foreach(e -> delete!(e, "_rebound"), t["files"])
+    for e in t["files"]
+        e["derived_from"] = Any[get(renamed, p, p) for p in e["derived_from"]]
+    end
+    if _is_current(s) && moved == 0
+        println(io, "current   ", f, ": ", s, " (binds no rewritten file)")
+        return nothing
+    end
+    if dry_run
+        println(io, "would rebind  ", f, ": ", s, " → ", _schema("calibration"), ", ", moved, " rewritten file(s)")
+        return nothing
+    end
+    (out == f || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
+    r = write_staged(out => basename(f); dry_run = false) do staged
+        _write_manifest(staged, t)
+        _check_manifest_files(mdir, _read_store(staged, "calibration"), staged)
+        (; path = String(f), out = String(out), from = String(s), to = _schema("calibration"), rebound = moved)
+    end
+    println(io, "rebound   ", f, ": ", s, " → ", r.to, out == f ? "" : " in $(out)", ", ", moved, " rewritten file(s)")
+    return r
 end
 
 # The `.json` files of a tree, sorted, without the identity map and without
@@ -1938,20 +2020,25 @@ function _tree_json(dir; io::IO = stdout)
     return sort!(out)
 end
 
-# The persisted identity map of a tree's migration (the sidecar's format,
-# interfaces.md "io10-migrate"): `{"identities": {old: new, …}, "definitions":
-# {new: path relative to the tree, …}}`, its keys sorted; a sidecar written by
-# IO 0.9's migration holds `identities` only.
+# The persisted map of a tree's migration (the sidecar's format, interfaces.md
+# "io10-migrate"): `{"identities": {old: new, …}, "definitions": {new: path
+# relative to the tree, …}, "rewritten": {path: {"path": its current file's,
+# "sha256": its bytes' before}, …}}`, its keys sorted; a sidecar written by IO
+# 0.9's migration holds `identities` only.
 const _IDS_SIDECAR = "vgio_migrate_ids.json"
+_str_dict(x) = Dict{String, String}(String(k) => String(v) for (k, v) in x)
 function _read_ids(p)
     isfile(p) || return Dict{String, String}(), Dict{String, String}()
     d = _read_json(p)
-    str(x) = Dict{String, String}(String(k) => String(v) for (k, v) in x)
-    return str(d["identities"]), str(get(d, "definitions", Dict{String, String}()))
+    return _str_dict(d["identities"]), _str_dict(get(d, "definitions", Dict{String, String}()))
 end
-function _write_ids(p, ids::AbstractDict, defs::AbstractDict)
+_read_rewritten(p) = isfile(p) ?
+    Dict{String, Dict{String, String}}(String(k) => _str_dict(v) for (k, v) in get(_read_json(p), "rewritten", Dict{String, Any}())) :
+    Dict{String, Dict{String, String}}()
+function _write_ids(p, ids::AbstractDict, defs::AbstractDict, rewritten::AbstractDict)
     t = tempname(dirname(abspath(p)))
-    _write_json(t, Dict("identities" => Dict(sort!(collect(ids))), "definitions" => Dict(sort!(collect(defs)))))
+    _write_json(t, Dict("identities" => Dict(sort!(collect(ids); by = first)), "definitions" => Dict(sort!(collect(defs); by = first)),
+                        "rewritten" => Dict(sort!(collect(rewritten); by = first))))
     Base.Filesystem.rename(t, p)
     return nothing
 end

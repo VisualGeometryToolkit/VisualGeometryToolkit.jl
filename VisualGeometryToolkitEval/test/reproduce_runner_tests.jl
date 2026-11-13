@@ -169,11 +169,11 @@ end
     @testset "the shipped sites and the template" begin
         @test shipped_sites() == ["desktop", "dgx01"]
         dgx = load_site("dgx01")
-        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M"
+        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M" && dgx.precompile_time == "0:30:00"
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
-        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == ""
+        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == "" && tpl.precompile_time == "0:20:00"
         @test_throws r"unknown site \"nowhere\".*desktop, dgx01" load_site("nowhere")
         d = mktempdir()
         write(joinpath(d, "mine.toml"), "[site]\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"1\"\n")
@@ -425,7 +425,7 @@ end
         @test g.stages[1].precompile && g.stages[1].julia_flags == ["--depwarn=error"] && !g.stages[3].precompile
         p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
         pre = join(p.stages[1].precompile, " ")
-        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --job-name=paper-setup-precompile")
+        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --time=0:30:00 --job-name=paper-setup-precompile")   # the site's precompile_time: a real limit
         @test !occursin("--gres", pre) && occursin("--depwarn=error -e", pre) && occursin("Pkg.precompile()", pre)
         @test isempty(p.stages[2].precompile)                                       # a CPU stage: none
         @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].precompile)

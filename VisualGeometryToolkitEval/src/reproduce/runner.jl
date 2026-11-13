@@ -33,7 +33,7 @@ const SITES_DIR = normpath(joinpath(@__DIR__, "..", "..", "configs", "sites"))
 
 const _SITE_KEYS = Dict(
     "site"  => ("name", "backend", "description", "setup"),
-    "slurm" => ("partition", "gres", "cpus_per_task", "mem_per_cpu", "gpu_limit", "extra", "job_name_prefix"),
+    "slurm" => ("partition", "gres", "cpus_per_task", "mem_per_cpu", "gpu_limit", "extra", "job_name_prefix", "precompile_time"),
     "local" => ("cuda_visible_devices", "cpus_per_task"),
     "env"   => nothing)                                    # any variable
 
@@ -60,6 +60,7 @@ struct Site
     gpu_limit::Int
     extra::Vector{String}
     job_name_prefix::String
+    precompile_time::String
     cuda_visible_devices::String
     env::Dict{String, String}
 end
@@ -116,7 +117,7 @@ function load_site(spec::AbstractString; dirs::AbstractVector{<:AbstractString} 
     prefix = _check_job_name_prefix(get(sl, "job_name_prefix", ""), "site profile $path: [slurm] job_name_prefix")
     return Site(get(s, "name", first(splitext(basename(path)))), path, Symbol(backend), get(s, "description", ""), get(s, "setup", ""),
                 get(sl, "partition", ""), get(sl, "gres", ""), cpus, get(sl, "mem_per_cpu", ""), get(sl, "gpu_limit", 0),
-                String.(get(sl, "extra", String[])), prefix, string(get(lo, "cuda_visible_devices", "")),
+                String.(get(sl, "extra", String[])), prefix, string(get(sl, "precompile_time", "")), string(get(lo, "cuda_visible_devices", "")),
                 Dict{String, String}(k => string(v) for (k, v) in get(d, "env", Dict{String, Any}())))
 end
 
@@ -695,6 +696,8 @@ function _precompile_command(g::StageGraph, site::Site, s::StageSpec, env; prefi
     (site.backend === :slurm && _stage_gpu(s) && s.precompile) || return String[]
     argv = [_julia(site, env); "--startup-file=no"; "--project=$(g.julia_project)"; s.julia_flags; "-e"; "using Pkg; Pkg.precompile()"]
     return ["sbatch", "--parsable", _slurm_options(site, s; cpu_only = true)...,
+            # its own limit, the site's measured one (a real limit lets the scheduler backfill it; none takes the partition's)
+            (isempty(site.precompile_time) ? String[] : ["--time=$(site.precompile_time)"])...,
             "--job-name=$(prefix)$(_base_job_name(g, s))-precompile", "--output=logs/$(g.name)_$(s.name)_precompile_%j.log",
             "--wrap=$(_shell_line(argv))"]
 end

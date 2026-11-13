@@ -1,6 +1,8 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased
+## 0.9.2 (2026-11-13)
+
+Additive patch (`[compat]` VisualGeometryToolkitCore "0.9.2", unchanged): one fix and one public name.
 
 - **Fixed: a held SplineLens camera is projected whole** (`fixed = (:controls,)`, and the poses-alone first stage of
   every free SplineLens refine). Its rows were each correspondence's 4 × 4 window at the guess, extrapolated when a pose
@@ -12,6 +14,7 @@
   SplineLens camera its forward spline with its backward, K and frame kept (`fit_camera(SplineLens, …)` turns a gauge-K
   camera onto its optical axis first). The stack's one forward fit, the one `fit_camera(…; forward = true)` and the
   refine's forward refit run. With a forward, `project` evaluates the spline: no projection solve, no cold start.
+  `refine_camera_and_poses`' docstring names it as the refit (it named `fit_camera(SplineLens, …)`).
 
 ## 0.9.1 (2026-11-12)
 

@@ -29,8 +29,10 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   sorted-TOML hash verified with that format's recipe and re-hashed; nothing new is written with the old recipe.
   A config (or tuning table) holding an integer beyond ±2^53, `Inf` or `NaN` has no canonical JSON and is now refused
   with an `ArgumentError` where it was keyed before.
-  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path
-  (`Base.find_package`), so Core must be findable there (it is wherever Eval is).
+  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path before
+  `src/cli.jl`: **a paper project regenerates its `scripts/reproduce/reproduce.sh`**
+  (`Reproduce.write_reproduce_script(<repository root>; julia_project)`); an older one stops at once with an error that
+  says so.
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
   stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
   in its `[[stage]]`; the count keys no run.

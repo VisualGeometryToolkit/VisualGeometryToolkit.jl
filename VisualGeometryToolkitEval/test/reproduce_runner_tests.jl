@@ -467,6 +467,7 @@ end
         t = reproduce_script(; julia_project = "cvpr2027")
         @test occursin("--project=cvpr2027 -e", t) && occursin("-- --graph=cvpr2027/configs/reproduce.toml \"\$@\"", t)
         @test occursin("bash cvpr2027/scripts/reproduce/reproduce.sh --site=", t) && !occursin("@@", t)
+        @test findfirst("canonical.jl", t)[1] < findfirst("cli.jl\")", t)[1]       # the run keys' encoding first
         @test_throws r"not a path relative" reproduce_script(; julia_project = "/abs")
         @test_throws r"not a path relative" reproduce_script(; julia_project = "a b")
         # written into a repository and run from inside it: the runner's command line, from the repository root
@@ -1160,15 +1161,23 @@ end
     @testset "dependency-free: a bare julia (the stdlibs only) runs it by path, before any environment exists" begin
         f = runner_project()
         src = pkgdir(VisualGeometryToolkitEval, "src")
-        boot = "include(ARGS[1]); include(ARGS[2]); exit(reproduce_main(ARGS[3:end]))"
-        cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
+        # as the generated bootstrap does: Core's canonical.jl (the run keys' encoding), then cli.jl and runner.jl
+        canonical = pkgdir(VisualGeometryToolkitCore, "src", "base", "canonical.jl")
+        boot = "foreach(include, ARGS[1:3]); exit(reproduce_main(ARGS[4:end]))"
+        cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $canonical $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
                --graph=$(f.graph) --site=dgx01 --dry-run --results-root=$(f.results)`
-        # the content key's encoding is Core's canonical.jl, found as a package is (here: Core's own project)
-        out = read(addenv(cmd, "JULIA_LOAD_PATH" => "@:@stdlib", "JULIA_PROJECT" => pkgdir(VisualGeometryToolkitCore)), String)
+        bare = ("JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => "")
+        out = read(addenv(cmd, bare...), String)
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
         # one implementation: the bare process keys every stage as the package does
         p = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, results_root = f.results)
         @test all(st -> occursin("key      $(st.key)", out), p.stages)
+        # a bootstrap from before 0.8.0 (no canonical.jl): told to regenerate itself
+        old = "include(ARGS[1]); include(ARGS[2])"
+        err = IOBuffer()
+        ok = success(pipeline(addenv(`$(Base.julia_cmd()) --startup-file=no -e $old $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))`,
+                                     bare...); stdout = devnull, stderr = err))
+        @test !ok && occursin("regenerate it with Reproduce.write_reproduce_script", String(take!(err)))
     end
 
     @testset "the results-branch stage: the renders of the graph's assets on a results branch, named in the launch's manifest" begin

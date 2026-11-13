@@ -465,7 +465,8 @@ instantiates the environment inside the scheduler.
 ### Adding your machine
 
 The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
-partition `gpu`, 28 CPUs and one GPU per task) and `configs/sites/desktop.toml`
+partition `gpu`, 2 CPUs per task unless a stage declares its own
+`cpus_per_task`, 8480M per CPU, one GPU per GPU task) and `configs/sites/desktop.toml`
 (one RTX 4090, no scheduler, device 0). For another machine:
 
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`

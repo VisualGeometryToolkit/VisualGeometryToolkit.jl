@@ -21,6 +21,9 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   holds its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`): the results are the same bits at any thread count,
   so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
   (The fold of the upstream stages' keys is 0.7.3's.)
+- **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
+  stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
+  in its `[[stage]]`; the count keys no run.
 - **`Render.station_cells` labels each attempt by the station nearest its angle** on the `stations` grid, not by rank:
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.

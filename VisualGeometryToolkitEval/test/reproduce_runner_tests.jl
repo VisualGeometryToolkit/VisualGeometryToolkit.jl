@@ -166,7 +166,7 @@ end
     @testset "the shipped sites and the template" begin
         @test shipped_sites() == ["desktop", "dgx01"]
         dgx = load_site("dgx01")
-        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 28 && dgx.mem_per_cpu == "8G"
+        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M"
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
@@ -349,16 +349,16 @@ end
     @testset "per-stage resources: a stage's cpus_per_task, mem_per_cpu and gres over the site's" begin
         f = runner_project()
         text = read(f.graph, String)
-        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 2\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 6\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
                                count = 1) |> t -> replace(t, "name = \"pdf\"\n" => "name = \"pdf\"\ngres = \"gpu:1\"\n"))
         g = load_stage_graph(f.graph)
         plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
         cmd(n) = plan.stages[findfirst(st -> st.spec.name == n, plan.stages)].command
-        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=2 --mem-per-cpu=4G", join(cmd("setup"), " "))
-        @test occursin("--gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("pdf"), " "))      # gres: a GPU stage
-        @test occursin("--partition=gpu --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("chrome_prepare"), " "))   # the site's
+        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=6 --mem-per-cpu=4G", join(cmd("setup"), " "))
+        @test occursin("--gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M", join(cmd("pdf"), " "))      # gres: a GPU stage
+        @test occursin("--partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M", join(cmd("chrome_prepare"), " "))   # the site's
         local_plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
-        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "2" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
+        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "6" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = \"many\"\n"; count = 1))
         @test_throws r"cpus_per_task = \"many\" is not a count" load_stage_graph(f.graph)
     end
@@ -429,7 +429,7 @@ end
         text = read(f.graph, String)
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
         plan = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"])
-        @test occursin("--mem-per-cpu=8G --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
+        @test occursin("--mem-per-cpu=8480M --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
         for (k, v) in (("gres", "\"gpu 4\""), ("mem_per_cpu", "\"lots\""), ("mem_per_cpu", "8"), ("ntasks", "-1"))
             write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\n$k = $v\n"; count = 1))
             @test_throws ArgumentError load_stage_graph(f.graph)
@@ -447,9 +447,9 @@ end
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out)
         @test occursin("[1] setup\n", out) && occursin("[3] chrome  array of 3: alpha mid zeta", out)
         # each stage's own launcher, the site's options, the dependencies on this launch's stages
-        @test occursin("submit   sbatch --parsable --partition=gpu --gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G slurm/setup.sbatch", out)
-        @test occursin("EXPERIMENT=chrome sbatch --parsable --dependency=afterok:\$setup --partition=gpu --cpus-per-task=28 --mem-per-cpu=8G --job-name=paper-prepare-chrome slurm/prepare.sbatch", out)
-        @test occursin("CASES=alpha,mid,zeta sbatch --parsable --dependency=afterok:\$chrome_prepare --partition=gpu --gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G --array=0-2 --time=130 slurm/chrome.sbatch", out)
+        @test occursin("submit   sbatch --parsable --partition=gpu --gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M slurm/setup.sbatch", out)
+        @test occursin("EXPERIMENT=chrome sbatch --parsable --dependency=afterok:\$setup --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --job-name=paper-prepare-chrome slurm/prepare.sbatch", out)
+        @test occursin("CASES=alpha,mid,zeta sbatch --parsable --dependency=afterok:\$chrome_prepare --partition=gpu --gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M --array=0-2 --time=130 slurm/chrome.sbatch", out)
         @test occursin("SETS=small,large sbatch --parsable --dependency=afterok:\$chrome", out) && occursin("--array=0-1 slurm/texture.sbatch", out)
         @test occursin("--job-name=paper-pdf --time=00:30:00 --output=logs/paper_pdf_%j.log '--wrap=make -C paper'", out)
         @test occursin("results_branch_of_run(ARGS[1])'", out)

@@ -102,9 +102,9 @@ plan's image must hold the kernel's support.
 """
 function impulse_M(plan, oi, sl, px, py)
     W, H = plan.W, plan.H
-    o = oi - 1 + plan.o_first
+    o = oi - 1 + plan.space.first_octave
     q = o <= 0 ? 1 : 1 << o                 # input pixels per level pixel
-    Wo, Ho = plan.dims[oi]
+    Wo, Ho = plan.space.dims[oi]
     M = zeros(9, 9)
     margin = 6                              # level pixels kept clear of the border
     for φy in 0:(q - 1), φx in 0:(q - 1)
@@ -211,14 +211,14 @@ back-projection, warp canvas → input), `S`, and `patch`, the DoG on
 pixels of the border.
 """
 function extremum_of(plan, d)
-    S = plan.nb_scales; σ0 = plan.seed_sigma
+    S = plan.space.nb_scales; σ0 = plan.space.seed_sigma
     w = d.warp_idx
     wp = plan.wp isa Array ? plan.wp[:, w] : Array(view(plan.wp, :, w))
     A = [wp[1] wp[2]; wp[4] wp[5]]
     xw = A \ ([d.center[1] - 0.5, d.center[2] - 0.5] - [wp[3], wp[6]])
     x = xw[1]; y = xw[2]; σ = d.σ / sqrt(abs(det(A)))     # the warp's σ: d.σ = σ_w·√t
-    for oi in 1:plan.nb_octaves
-        o = oi - 1 + plan.o_first
+    for oi in 1:length(plan.space.levels)
+        o = oi - 1 + plan.space.first_octave
         sf = 2.0^o
         sx = (x - (sf - 1)) / sf; sy = (y - (sf - 1)) / sf
         ss = S * log2(σ / (σ0 * sf)) - 0.5

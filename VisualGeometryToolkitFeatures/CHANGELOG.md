@@ -10,6 +10,21 @@ A patch, additive, on VisualGeometryToolkitCore 0.10.
   are unchanged, bit for bit). One KernelAbstractions kernel, on the image's device (CPU or GPU). With a `mask` it is
   the gradient of `gaussian_blur`'s normalized convolution `blur(img·mask)/blur(mask)`: nothing bleeds in from outside
   the mask, and the gradient is 0 there.
+- **New: `gaussian_scale_space(img; …) -> GaussianScaleSpace`**, exported (and `level_sigma`, public): an image's
+  Gaussian scale space, built by ASIFT's own pyramid (its taps, its fused tiled blur, Lowe's downsample, the 2×
+  upsampled first octave), level for level what `asift_detect` builds for the untilted warp. ASIFT now holds its
+  levels in one (`AsiftPlan.space`, replacing the fields `gauss`, `dims`, `pyr_taps`, `pyr_r`, `nb_octaves`,
+  `nb_scales`, `o_first`, `seed_sigma`); its detections are unchanged, bit for bit (pinned by a test).
+- **New: `detect_sfop(img; noise_sigma, significance_level, precision_threshold, …)`**, exported: SFOP scale selection
+  (Förstner, Dickscheid & Schindler 2009) for circular points (α = 90°) on that scale space — the precision
+  `(N(σ) − 2)·λ₂/Ω` per level, its 3-D maxima (ASIFT's extraction), the λ₂ significance test derived from the image
+  noise (no empirical factor), `T_w` from `precision_threshold`, ASIFT's elliptical NMS. Rows `Detection(Disc(x, σ),
+  (; precision))`.
+- **New: `detect_foerstner(img, seeds)`**: the Förstner window estimation at given windows (each seed's centre and
+  scale σ, the box window of `integration_sigma = σ`), the same rows as `detect_foerstner(img)`; at the windows
+  `detect_foerstner(img)` chose it returns its rows bit for bit.
+- **`detect_foerstner` is faster** (results unchanged, bit for bit): the squared gradient stays on the device and the
+  window centres are compacted there (12 MP photograph on a B200: 587 → 28 ms; on 32 CPU threads 1.2 → 0.42 s).
 
 ## 0.9.0 (unreleased)
 

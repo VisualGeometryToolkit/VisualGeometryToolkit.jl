@@ -316,8 +316,8 @@ end
 #     from it, keeping this kernel's registers (and occupancy) the default's
 @inline function _extract_at!(
         out, count, dog, X, Y, Sl, Lw, W, H, ::Val{NS},
-        dog_thr, edge_thr, seed_sigma, octave_idx, nb_scales, capacity, rawcov
-    ) where {NS}
+        dog_thr, edge_thr, seed_sigma, octave_idx, nb_scales, capacity, rawcov, ::Val{PRECISION} = Val(false)
+    ) where {NS, PRECISION}
     @inbounds begin
         c = dog[X, Y, Sl, Lw]
         if abs(c) > 0.8f0 * dog_thr
@@ -328,7 +328,7 @@ end
             # rejects BOTH pixels of an exact tie — a blob centred exactly
             # between two pixels then lost its refined detection and a coarser,
             # unrefined one was returned 0.5 px off.
-            ismax = true; ismin = true
+            ismax = true; ismin = !PRECISION      # PRECISION: detect_sfop's precision field, its maxima only
             for dy in -1:1, dx in -1:1
                 (dx == 0 && dy == 0) && continue
                 v = dog[X + dx, Y + dy, Sl, Lw]
@@ -391,13 +391,20 @@ end
                 end
                 if !good                     # the refinement failed: dropped, counted
                     Atomix.@atomic count[2] += Int32(1)
-                    return nothing
+                    PRECISION || return nothing
+                    # detect_sfop's maxima seed a localisation at full resolution, which needs the extremum, not its
+                    # interpolation: an unrefined maximum is kept, on its own pixel and level (its precision field,
+                    # sharp at a point and stepping where clutter enters the window, is no quadratic there)
+                    xi = X; yi = Y; sl = Sl; offX = 0.0f0; offY = 0.0f0; offS = 0.0f0
                 end
                 sx = Float32(xi - 1) + offX; sy = Float32(yi - 1) + offY; ssv = Float32(sl - 1) + offS
                 gX = 0.5f0 * (dog[xi + 1, yi, sl, Lw] - dog[xi - 1, yi, sl, Lw])
                 gY = 0.5f0 * (dog[xi, yi + 1, sl, Lw] - dog[xi, yi - 1, sl, Lw])
                 gS = 0.5f0 * (dog[xi, yi, sl + 1, Lw] - dog[xi, yi, sl - 1, Lw])
                 new_val = dog[xi, yi, sl, Lw] + 0.5f0 * (gS * offS + gX * offX + gY * offY)
+                # the precision field reports its sample at the extremum: across a clutter step the quadratic
+                # extrapolates past the field's range
+                PRECISION && (new_val = dog[xi, yi, sl, Lw])
                 keep = abs(new_val) > dog_thr &&
                     0.0f0 <= sx <= Float32(W - 1) && 0.0f0 <= sy <= Float32(H - 1) &&
                     0.0f0 <= ssv <= Float32(NS - 1)
@@ -438,7 +445,7 @@ end
         out, count, @Const(dog),
         dog_thr::Float32, edge_thr::Float32, seed_sigma::Float32,
         octave_idx::Int32, nb_scales::Int32, capacity::Int32,
-        @Const(aw), @Const(ah), rawcov, @Const(tiles), ::Val{NS}, ::Val{NY}
+        @Const(aw), @Const(ah), rawcov, @Const(tiles), ::Val{NS}, ::Val{NY}, precision::Val
     ) where {NS, NY}
     lx, ly = @index(Local, NTuple)
     gi = @index(Group, Linear)
@@ -451,7 +458,7 @@ end
             if 2 <= Y <= H - 1 && Y <= ah[Lw]
                 _extract_at!(
                     out, count, dog, X, Y, Sl, Lw, W, H, Val(NS), dog_thr, edge_thr,
-                    seed_sigma, octave_idx, nb_scales, capacity, rawcov
+                    seed_sigma, octave_idx, nb_scales, capacity, rawcov, precision
                 )
             end
         end
@@ -682,26 +689,19 @@ julia> asift_detect!(plan, img)
 ImasFeatureKA[]
 ```
 """
-mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
+mutable struct AsiftPlan{D, A2, A3, A4, AI, AU, AU8, GT, KN, SP}
     const dev::D
     const W::Int
     const H::Int
     const tilts::Vector{Tuple{Float64, Float64}}
     const nw::Int
     const nwc::Int                       # warps resident per chunk (≤ nw)
-    const nb_octaves::Int
-    const nb_scales::Int
-    const o_first::Int                   # index of the finest octave: −1 when
-    # upsampling (2× seed), else 0
     const inp::A2
     const inp_u8::AU8                    # (H,W) raw byte upload staging
     const rot::A3                        # (Wr_max, Hr_max, nw) batched rotate
     const canvas::A3                     # (W,H,nw)
-    const gauss::Vector{A4}              # [o] :: (Wo,Ho,S+3,nw)
+    const space::SP                      # the Gaussian levels, (Wo,Ho,S+3,nw) per octave (`GaussianScaleSpace`)
     const dogs::Vector{A4}               # [o] :: (Wo,Ho,S+2,nw)
-    const dims::Vector{Tuple{Int, Int}}
-    const pyr_taps::Vector{A1}
-    const pyr_r::Vector{Int32}
     # batched warp-stage parameter tables (device)
     const rp::A2                         # (8,nw)  affine warp params + dims
     const fpt::A2                        # (5,nw)  fproj params (t,cw,ch,Wr,Hr)
@@ -729,7 +729,6 @@ mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     const counth::Vector{Int32}
     refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed, or whose covariance was singular or NaN (dropped)
     const kern::KN
-    const seed_sigma::Float64            # the pyramid's seed blur, and the σ the extractor reports
     # detection covariance (uncertainty.jl), built on the first call that asks for
     # it: per octave the (45, NS, 4, nw) IFT tables, and two (6, capacity) pool
     # buffers — or (6, 0) — that `_grow_pool!` grows with the pool
@@ -815,9 +814,7 @@ function AsiftPlan(
     Wr_max = maximum(g.W_rot for g in geo)
     Hr_max = maximum(g.H_rot for g in geo)
 
-    # `>>` with a negative shift is a LEFT shift in Julia, so octave −1 comes
-    # out at (2W, 2H) from the same expression.
-    dims = [(W >> o, H >> o) for o in o_first:(o_first + no - 1)]
+    dims = _octave_dims(W, H, o_first, no)
 
     # Resident-pyramid footprint per warp. Chunking the tilt schedule scales
     # this linearly, which is what lets the full 25-tilt IMAS schedule run on a
@@ -833,22 +830,15 @@ function AsiftPlan(
     inp_u8 = KA.allocate(dev, UInt8, H, W)
     rot, canvas, gauss, dogs, nwc = _pyramid_buffers(dev, W, H, Wr_max, Hr_max, dims, S, nwc, chunk > 0)
 
-    # Blur bookkeeping for the 2× seed: the input's nominal blur is stated in
+    # Blur bookkeeping for the 2× seed (`_scale_space_taps`): the input's nominal blur is stated in
     # NATIVE pixels, so at octave −1 — whose pixels are half a native pixel —
-    # it doubles. Only `seps[1]` depends on `input_blur`, so this is the whole
+    # it doubles. Only the first level's taps depend on `input_blur`, so this is the whole
     # correction: √(1.6²−1.0²)=1.249 upsampled px instead of √(1.6²−0.5²)=1.520.
     # Leaving it at 0.5 would over-blur by ~22% and throw away much of the
     # resolution the upsample just bought. (VLFeat reaches the same number the
     # other way: it keeps σ in input units and divides Δσ by step=2^o.)
-    seps = sift_sep_sigmas(seed_sigma, upsample ? 2 * input_blur : input_blur, S)
-    pyr_taps = [ka_upload(Float32, dev, gaussian_taps(s)) for s in seps]
-    pyr_r = Int32[Int32(length(gaussian_taps(s)) - 1) for s in seps]
-    maximum(pyr_r) <= 13 || throw(
-        ArgumentError(
-            "seed_sigma = $seed_sigma needs a blur tap radius of $(maximum(pyr_r)), beyond the " *
-                "tiled blur's RMAX = 13 (with nb_scales = 3 and upsampling, seed_sigma must be ≲ 1.68)"
-        )
-    )
+    pyr_taps, pyr_r = _scale_space_taps(dev, seed_sigma, input_blur, S, upsample)
+    space = GaussianScaleSpace(gauss, dims, o_first, S, Float64(seed_sigma), Float64(input_blur), pyr_taps, pyr_r)
 
     # batched warp-stage tables
     rph = zeros(Float32, 8, nw)
@@ -917,11 +907,10 @@ function AsiftPlan(
     kern = _scheduled(_asift_kernels, dev)
 
     return AsiftPlan(
-        dev, Int(W), Int(H), collect(tilts), nw, nwc, no, S, o_first,
-        inp, inp_u8, rot, canvas, gauss, dogs, dims,
-        pyr_taps, pyr_r, rp, fpt, tapm, rads, geo, wp, awd, ahd, tiles, masked, seedtiles,
+        dev, Int(W), Int(H), collect(tilts), nw, nwc,
+        inp, inp_u8, rot, canvas, space, dogs, rp, fpt, tapm, rads, geo, wp, awd, ahd, tiles, masked, seedtiles,
         pool.raw, pool.feat, count, splat, pool.nmskeep, pool.band,
-        pool.feath, pool.keeph, pool.bandh, Int32[0, 0], 0, kern, Float64(seed_sigma),
+        pool.feath, pool.keeph, pool.bandh, Int32[0, 0], 0, kern,
         empty(gauss), KA.allocate(dev, Float32, 6, 0), KA.allocate(dev, Float32, 6, 0),
         Float32[]
     )
@@ -1076,7 +1065,7 @@ function asift_detect!(
     # disagreed with the other; then a keyword that could only repeat the
     # plan's value, or throw.
     dev = plan.dev
-    W, H, nw, S = plan.W, plan.H, plan.nw, plan.nb_scales
+    W, H, nw, S = plan.W, plan.H, plan.nw, plan.space.nb_scales
     K = plan.kern
     if img_xy isa AbstractMatrix{UInt8}
         # H×W raw bytes: upload (4× smaller than f32) + transpose/scale on device
@@ -1130,42 +1119,7 @@ function asift_detect!(
         )
 
         # ---- pyramid: tiled fused h+v+DoG per level ----
-        for o in 1:plan.nb_octaves
-            Wo, Ho = plan.dims[o]
-            g4 = view(plan.gauss[o], :, :, :, 1:m); d4 = view(plan.dogs[o], :, :, :, 1:m)
-            aw = view(plan.awd[o], r); ah = view(plan.ahd[o], r)
-            if o == 1   # seed blur of the canvas (writedog = 0)
-                if plan.o_first < 0
-                    # Octave −1: upsample the canvas 2× first. Slot 2 is free
-                    # scratch here — the s=1 blur below overwrites it in full
-                    # after reading only slot 1 — so this needs no extra buffer.
-                    st = plan.seedtiles[c]
-                    K.up(view(g4, :, :, 2, :), cv, st; ndrange = (32, 8 * (length(st) ÷ 3)))
-                    _blur_level!(
-                        K, plan, c, o, 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :),
-                        view(g4, :, :, 2, :), view(g4, :, :, 2, :), aw, ah, Int32(0)
-                    )
-                else
-                    _blur_level!(
-                        K, plan, c, o, 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :), cv, cv,
-                        aw, ah, Int32(0)
-                    )
-                end
-            end
-            for s in 1:(S + 2)
-                _blur_level!(
-                    K, plan, c, o, s + 1, view(g4, :, :, s + 1, :), view(d4, :, :, s, :),
-                    view(g4, :, :, s, :), view(g4, :, :, s, :), aw, ah, Int32(1)
-                )
-            end
-            if o < plan.nb_octaves
-                Wn, Hn = plan.dims[o + 1]
-                K.down(
-                    view(plan.gauss[o + 1], :, :, 1, 1:m), view(g4, :, :, :, :),
-                    Int32(S + 1); ndrange = (Wn, Hn, m)
-                )
-            end
-        end
+        _fill_scale_space!(K, plan.space, plan.dogs, cv, plan.tiles[c], plan.masked[c], plan.seedtiles[c], plan.awd, plan.ahd, r)
 
         # ---- extract: every octave's extrema into the pool ----
         # `ext` counts past the capacity but stores nothing beyond it, so an
@@ -1176,15 +1130,14 @@ function asift_detect!(
         nbefore = npooled
         dbefore = Int32(plan.counth[2])      # the failed refinements before this chunk (a rerun recounts its own)
         for attempt in 1:2
-            for o in 1:plan.nb_octaves
-                Wo, Ho = plan.dims[o]
+            for o in eachindex(plan.dogs)
                 t = plan.tiles[c][o]
                 length(t) > 0 && K.ext(
                     plan.raw, plan.count, view(plan.dogs[o], :, :, :, 1:m), dog_thr,
-                    Float32(edge_thr), Float32(plan.seed_sigma), Int32(o - 1 + plan.o_first),
+                    Float32(edge_thr), Float32(plan.space.seed_sigma), Int32(o - 1 + plan.space.first_octave),
                     Int32(S), Int32(_capacity(plan)), view(plan.awd[o], r),
                     view(plan.ahd[o], r), refinement === nothing ? _ext_cov_arg(plan, uncertainty) : plan.rawcov, t, Val(Int(NS)),
-                    Val(_TILE_NY); ndrange = (32, _TILE_NY * (length(t) ÷ 3))
+                    Val(_TILE_NY), Val(false); ndrange = (32, _TILE_NY * (length(t) ÷ 3))
                 )
             end
             copyto!(plan.counth, plan.count)
@@ -1258,12 +1211,62 @@ function asift_detect!(
     return (features = feats, cov = cov)
 end
 
-# Level `lev` of octave `o` (tilt chunk `c`): the active tiles blurred, the
+# The Gaussian levels (and, with `dogs`, ASIFT's DoG slices) of the scale space's slots 1:m from `canvas` (W, H, ≥ m),
+# warp slot l of the chunk being the schedule's warp `r[l]`: per octave the seed blur of the first level (octave −1:
+# of the 2× upsampled canvas; octave ≥ 1: the previous octave's level S + 1, downsampled), then each next level, fused
+# with its DoG when `dogs` is given (`writedog = 1`); `tiles[o]`, `masked[o]` the octave's active and fully masked
+# tiles, `seedtiles` the first octave's tiles the seed blur reads, `awd[o][r]`, `ahd[o][r]` the warps' content bounds.
+# The one pyramid of the package: `asift_detect!` per tilt chunk, `gaussian_scale_space` for one image.
+function _fill_scale_space!(K, space::GaussianScaleSpace, dogs, cv, tiles, masked, seedtiles, awd, ahd, r)
+    m = length(r)
+    S = space.nb_scales
+    writedog = dogs === nothing ? Int32(0) : Int32(1)
+    for o in eachindex(space.levels)
+        g4 = view(space.levels[o], :, :, :, 1:m)
+        aw = view(awd[o], r); ah = view(ahd[o], r)
+        if o == 1   # seed blur of the canvas (writedog = 0)
+            if space.first_octave < 0
+                # Octave −1: upsample the canvas 2× first. Slot 2 is free
+                # scratch here — the s=1 blur below overwrites it in full
+                # after reading only slot 1 — so this needs no extra buffer.
+                K.up(view(g4, :, :, 2, :), cv, seedtiles; ndrange = (32, 8 * (length(seedtiles) ÷ 3)))
+                _blur_level!(
+                    K, space, tiles[o], masked[o], 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :),
+                    view(g4, :, :, 2, :), view(g4, :, :, 2, :), aw, ah, Int32(0)
+                )
+            else
+                _blur_level!(
+                    K, space, tiles[o], masked[o], 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :), cv, cv,
+                    aw, ah, Int32(0)
+                )
+            end
+        end
+        for s in 1:(S + 2)
+            _blur_level!(
+                K, space, tiles[o], masked[o], s + 1, view(g4, :, :, s + 1, :), _dog_slice(dogs, g4, o, s, m),
+                view(g4, :, :, s, :), view(g4, :, :, s, :), aw, ah, writedog
+            )
+        end
+        if o < length(space.levels)
+            Wn, Hn = space.dims[o + 1]
+            K.down(
+                view(space.levels[o + 1], :, :, 1, 1:m), view(g4, :, :, :, :),
+                Int32(S + 1); ndrange = (Wn, Hn, m)
+            )
+        end
+    end
+    return nothing
+end
+
+# The DoG slice level s + 1 writes (`dogs[o]`'s slice s), or, without DoGs, the level itself (`writedog = 0`: unwritten).
+_dog_slice(::Nothing, g4, o, s, m) = view(g4, :, :, s + 1, :)
+_dog_slice(dogs, g4, o, s, m) = view(view(dogs[o], :, :, :, 1:m), :, :, s, :)
+
+# Level `lev` of an octave whose active and fully masked tiles are `t` and `mk`: the active tiles blurred, the
 # masked ones filled.
-function _blur_level!(K, plan, c, o, lev, gout, dog, inp, gprev, aw, ah, writedog)
-    t = plan.tiles[c][o]; mk = plan.masked[c][o]
+function _blur_level!(K, space, t, mk, lev, gout, dog, inp, gprev, aw, ah, writedog)
     length(t) > 0 && K.tile(
-        gout, dog, inp, gprev, plan.pyr_taps[lev], Val(Int(plan.pyr_r[lev])), Val(_TILE_NY),
+        gout, dog, inp, gprev, space.taps[lev], Val(Int(space.radii[lev])), Val(_TILE_NY),
         aw, ah, 0.5f0, writedog, t; ndrange = (32, _TILE_NY * (length(t) ÷ 3))
     )
     length(mk) > 0 && K.tfill(gout, dog, 0.5f0, writedog, mk; ndrange = (32, 8 * (length(mk) ÷ 3)))
@@ -1284,7 +1287,7 @@ function _chunk_covs!(plan, ::FeatureCovariance, r, nbefore, nnew)
     ctabs = Tuple(view(t, :, :, :, r) for t in plan.ctab)
     plan.kern.cov(
         plan.featcov, plan.rawcov, plan.raw, dogs, ctabs, Int32(nbefore), Int32(nnew),
-        Int32(plan.o_first), Int32(plan.nb_scales); ndrange = nnew
+        Int32(plan.space.first_octave), Int32(plan.space.nb_scales); ndrange = nnew
     )
     return nothing
 end
@@ -1324,9 +1327,9 @@ function _ensure_cov!(plan::AsiftPlan)
 end
 function _ensure_cov_tables!(plan::AsiftPlan)
     if isempty(plan.ctab)
-        taps = [Array(t) for t in plan.pyr_taps]
+        taps = [Array(t) for t in plan.space.taps]
         tabs = _cov_tables(
-            taps, plan.nb_scales, plan.o_first < 0, plan.nb_octaves, plan.geo, plan.W, plan.H
+            taps, plan.space.nb_scales, plan.space.first_octave < 0, length(plan.dogs), plan.geo, plan.W, plan.H
         )
         for t in tabs
             push!(plan.ctab, ka_upload(Float32, plan.dev, t))

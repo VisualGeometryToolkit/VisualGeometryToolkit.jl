@@ -106,10 +106,10 @@ function _noise_intensity_thr(seed_sigma::Real, upsample::Bool)
             impulse = zeros(Float32, n, n); impulse[n ÷ 2, n ÷ 2] = 1
             asift_detect!(plan, impulse; intensity_thr = Inf)
             dog = Array(plan.dogs[1])
-            f = plan.o_first < 0 ? 2 : 1                       # an upsampled octave: one impulse response per sample phase
+            f = plan.space.first_octave < 0 ? 2 : 1                       # an upsampled octave: one impulse response per sample phase
             σ = maximum(sqrt(sum(abs2, view(dog, px:f:size(dog, 1), py:f:size(dog, 2), sl, 1)))
                         for px in 1:f, py in 1:f, sl in 2:(size(dog, 3) - 1))
-            plan.nb_scales * Float64(σ)
+            plan.space.nb_scales * Float64(σ)
         end
     end
 end

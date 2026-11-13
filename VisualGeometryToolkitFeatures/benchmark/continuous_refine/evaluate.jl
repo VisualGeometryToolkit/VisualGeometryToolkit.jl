@@ -114,7 +114,7 @@ function detect_and_refine(plan, img, blobs::Vector{Blob}; dev = device, with_co
     for oi in unique(f.e.oi for f in found if f !== nothing)
         ks = [k for k in eachindex(found) if found[k] !== nothing && found[k].e.oi == oi]
         starts = [(found[k].vA..., 1) for k in ks]
-        ext, wins, t = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], starts; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg = CFG)
+        ext, wins, t = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], starts; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = CFG)
         tim = (; coefficients = tim.coefficients + t.coefficients, refinement = tim.refinement + t.refinement, n = tim.n + length(ks))
         for (j, k) in enumerate(ks)
             Σ = with_cov && VgtkCore.successful_retcode(ext[j].retcode) ? VgtkFeatures._continuous_covariance(plan, oi, 1, wins[j], ext[j], CFG) : nothing
@@ -403,10 +403,10 @@ for (name, dev) in (GPU ? [(:gpu, device), (:cpu, KA.CPU())] : [(:cpu, KA.CPU())
     tc = 0.0; tr = 0.0; n = 0; vs = Dict{Int, Any}()
     for oi in unique(e.oi for e in es if e !== nothing)
         st = [(e.X + e.off[2], e.Y + e.off[3], e.sl + e.off[1], 1) for e in es if e !== nothing && e.oi == oi]
-        VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg = CFG)
+        VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = CFG)
         best = (Inf, Inf); ext = nothing
         for _ in 1:3
-            ext, _, t = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg = CFG)
+            ext, _, t = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = CFG)
             best = (min(best[1], t.coefficients), min(best[2], t.refinement))
         end
         tc += best[1]; tr += best[2]; n += length(st)
@@ -414,7 +414,7 @@ for (name, dev) in (GPU ? [(:gpu, device), (:cpu, KA.CPU())] : [(:cpu, KA.CPU())
         # attribution of their gap: (i) the coefficients' relative difference; (ii) the GPU LM on the CPU's coefficients
         # (one model, two LMs); (iii) both backends again (Core's StaticLmStops: the cost floor is 0, the LM stops only at rounding)
         if name == :gpu
-            kw = (; seed_sigma = plan.seed_sigma, S = plan.nb_scales)
+            kw = (; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales)
             eg, wg, _ = VgtkFeatures._refine_dog_extrema(dev, plan.dogs[oi], st; kw..., cfg = CFG)
             dogh = Array(plan.dogs[oi])
             ec, wc, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), dogh, st; kw..., cfg = CFG)

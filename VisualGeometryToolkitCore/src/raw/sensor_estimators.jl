@@ -2,8 +2,9 @@
 # The sensor estimators — a characterisation's components from frames, offline (D1)
 # =============================================================================
 #
-#   photon_transfer   the ONE estimator of the gain K and σ_r from a frame: an
-#                     estimated PoissonGaussian
+#   photon_transfer   the ONE estimator of the gain K and σ_r: from one frame (its green pairs, an estimated
+#                     PoissonGaussian) or from groups of frames at equal exposure (the per-photosite temporal
+#                     variance, a measured PoissonGaussian); one block kernel, one fit
 #   master_dark       the ONE dark-frame estimator: a Dark (its ChannelBlack, the
 #                     per-photosite offset and variance), the ReadNoise, the defects
 #   defect_onsets     per-exposure defect masks into ONE DefectList (each site's
@@ -31,105 +32,252 @@ struct NoiseEstimateFailed <: Exception
 end
 Base.showerror(io::IO, e::NoiseEstimateFailed) = print(io, "NoiseEstimateFailed: ", e.reason)
 
-# Per block of `B × B` 2×2 cells, the green pairs' statistics, one work item per block: the count of usable cells
-# (neither green at the white level, or masked), Σm, Σd and Σd² of m = the pair's black-subtracted mean and d = its
-# difference (both in codes). The photosites are read from the held array by the channel view's index rule (the two
-# greens' cell sites `s1`, `s2`, `_QUAD_SITES` entries), as LinearRaw's cell kernel reads them; the blacks are the
-# greens' (a dark map's offsets per photosite when given, `_black_at`).
-@kernel function _green_pair_blocks_kernel!(n, sm, sd, sd2, @Const(raw), dark, mask, s1, s2, black, white::Float64,
-                                             B::Int, origin)
+# Per block of `B × B` 2×2 cells, one work item each: the count of usable samples and the sums Σm, Σd and Σq the fit
+# reads, from the cell rule `rule` (`_cell_moments`):
+# - `_GreenPair` (one frame): per cell its two greens, m = their black-subtracted mean, d = their difference and q = d²
+#   (a cell with a green at the white level, or masked, gives nothing);
+# - `_FrameStack` (N frames at one exposure, each scaled to the group's mean): per cell each green photosite, m = its
+#   mean over the frames, d = 0 and q = Σₖ(yₖ − m)², its sum of squares about that mean (a photosite at the white level
+#   in any frame, or masked, gives nothing).
+# The photosites are read from the held arrays by the channel view's index rule (the greens' cell sites `s1`, `s2`,
+# `_QUAD_SITES` entries), as LinearRaw's cell kernel reads them; the blacks are the greens' (a dark map's offsets per
+# photosite when given, `_black_at`). A cell that gives nothing adds zeros, which leaves every sum bit for bit as is.
+@kernel function _difference_blocks_kernel!(n, sm, sd, sd2, rule, dark, mask, black, white::Float64, B::Int, origin)
     bi, bj = @index(Global, NTuple)
-    H2, W2 = size(raw, 1) ÷ 2, size(raw, 2) ÷ 2
+    H2, W2 = _cell_extent(rule)
     c = 0; t1 = 0.0; t2 = 0.0; t3 = 0.0
     for jj in 1:B, ii in 1:B
         i = (bi - 1) * B + ii; j = (bj - 1) * B + jj
         (i <= H2 && j <= W2) || continue
-        r1 = 2i - 1 + s1[1]; c1 = 2j - 1 + s1[2]
-        r2 = 2i - 1 + s2[1]; c2 = 2j - 1 + s2[2]
-        @inbounds x1 = raw[r1, c1]; @inbounds x2 = raw[r2, c2]
-        (_at_white(x1, white) || _at_white(x2, white)) && continue
-        (_masked(mask, r1 + origin[1], c1 + origin[2]) || _masked(mask, r2 + origin[1], c2 + origin[2])) && continue
-        y1 = Float64(x1) - _black_at(dark, black[1], r1 + origin[1], c1 + origin[2])
-        y2 = Float64(x2) - _black_at(dark, black[2], r2 + origin[1], c2 + origin[2])
-        c += 1; t1 += (y1 + y2) / 2; t2 += y1 - y2; t3 += (y1 - y2)^2
+        k, a, b, q = _cell_moments(rule, i, j, dark, mask, black, white, origin)
+        c += k; t1 += a; t2 += b; t3 += q
     end
     @inbounds n[bi, bj] = c; @inbounds sm[bi, bj] = t1; @inbounds sd[bi, bj] = t2; @inbounds sd2[bi, bj] = t3
 end
 
-"""
-    photon_transfer(mosaic::RawMosaic; sensor_model::SensorModel = SensorModel(), block = 8) -> PoissonGaussian
-
-THE estimator of a frame's Poisson–Gaussian noise, an estimated
-[`PoissonGaussian`](@ref) (`SensorSource.estimated`, with its standard errors)
-for a characterisation's entry, built offline (owner ruling D1: the resolver
-[`sensor_model`](@ref) never estimates): the conversion gain K (electrons per code) and the read
-noise σ_r (codes, the rounding included: a Gaussian read noise σ plus the code's
-rounding is `√(σ² + 1/12)`), from the frame itself, by a photon-transfer fit of
-local variance against mean, in the line of Foi et al. (2008).
-
-Each 2×2 cell's two greens see the same light, so their difference `d` carries
-no scene where the scene is flat across the cell, and `Var d = 2(μ/K + σ_r²)`
-about their black-subtracted mean μ. Per block of `block × block` cells (one
-KernelAbstractions work item each, on the mosaic's device) the cells' mean and
-the difference's sample variance give a point `(μ̂, v̂ = s²/2)`; a cell with a
-green at the white level, or under `mask`, is left out (CLIPPED, never
-modelled), and only whole blocks (the most usable cells any block has, `n`)
-enter the fit, so every `v̂/v` follows one law, `χ²_{n−1}/(n − 1)` for a
-Gaussian difference. The blocks are sorted by μ̂ into groups of equal count
-(`min(32, blocks ÷ 8)` groups); each group's median μ̂ and median `v̂ / q`
-(`q` that law's median, so the ratio is median-unbiased for v) are a point of
-the line `v = μ/K + σ_r²`. The line is fitted by weighted least squares, each
-point weighted by the inverse of its median's variance from the counts,
-`v²/(4 m f(q)² q²)` over a group of `m` blocks (`f` the law's density: the
-sample median's asymptotic variance), with v the line's own prediction
-(iterated to a fixed point from a start weighted at each point's own value, so
-the final weights do not read their own point's noise). The median is robust to the blocks a scene edge
-raises. The standard errors are the fitted line's covariance from those counts;
-K's and σ_r's by first order. The read noise is the greens': the result states
-it for every colour index (`σ[c + 1]`, the same four numbers).
-
-`sensor_model` gives what is subtracted and left out, as it does for
-[`LinearRaw`](@ref): its black slot's per-colour black (a [`Dark`](@ref)'s
-offset per photosite in its place) and its defect slot's photosites (left out
-like clipped cells); its noise slot is not read. Throws
-[`NoiseEstimateFailed`](@ref) with the reason when fewer than 16 whole blocks
-of at least 8 usable cells remain (a saturated frame), the groups hold one
-level only (no slope), or the fit is not physical (K or σ_r² not positive).
-"""
-function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel(), block::Integer = 8)
-    block >= 2 || throw(ArgumentError("photon_transfer: a block holds at least 2 × 2 cells, got $block"))
-    cell = _cell_colors(m, "photon_transfer")
-    gks = Tuple(k for k in 1:4 if cell[k] in (0x01, 0x03))
-    black = _channel_black(sensor_model.black, m)
-    gblack = (black[cell[gks[1]] + 1], black[cell[gks[2]] + 1])
-    raw = parent(m)
-    H2, W2 = size(raw, 1) ÷ 2, size(raw, 2) ÷ 2
-    H2 >= 1 && W2 >= 1 || throw(NoiseEstimateFailed("a $(join(size(m), '×')) mosaic holds no 2×2 cell"))
-    nb, mb = cld(H2, block), cld(W2, block)
-    backend = KA.get_backend(raw)
-    dark_d = _offset_map(sensor_model.black, m, backend)
-    mask_d = _defect_mask(sensor_model.defects, m, backend)
-    n = similar(raw, Int, nb, mb); sm = similar(raw, Float64, nb, mb); sd = similar(raw, Float64, nb, mb); sd2 = similar(raw, Float64, nb, mb)
-    OnBackend(backend)(_green_pair_blocks_kernel!)(n, sm, sd, sd2, raw, dark_d, mask_d, _QUAD_SITES[gks[1]], _QUAD_SITES[gks[2]],
-                                                   gblack, m.white, Int(block), m.window_origin; ndrange = (nb, mb))
-    KA.synchronize(backend)
-    e = _photon_transfer_fit(Array(n), Array(sm), Array(sd), Array(sd2))
-    return PoissonGaussian(e.gain, ntuple(_ -> e.σ, Val(4)), (gain = e.gain_std_error, σ = ntuple(_ -> e.σ_std_error, Val(4)));
-                           source = SensorSource.estimated)
+# One frame's green pairs: the held array and the two greens' cell sites.
+struct _GreenPair{A, S}
+    raw::A
+    s1::S
+    s2::S
+end
+Adapt.adapt_structure(to, r::_GreenPair) = _GreenPair(Adapt.adapt(to, r.raw), r.s1, r.s2)
+@inline _cell_extent(r::_GreenPair) = (size(r.raw, 1) ÷ 2, size(r.raw, 2) ÷ 2)
+@inline function _cell_moments(r::_GreenPair, i, j, dark, mask, black, white, origin)
+    r1 = 2i - 1 + r.s1[1]; c1 = 2j - 1 + r.s1[2]
+    r2 = 2i - 1 + r.s2[1]; c2 = 2j - 1 + r.s2[2]
+    @inbounds x1 = r.raw[r1, c1]; @inbounds x2 = r.raw[r2, c2]
+    (_at_white(x1, white) || _at_white(x2, white)) && return (0, 0.0, 0.0, 0.0)
+    (_masked(mask, r1 + origin[1], c1 + origin[2]) || _masked(mask, r2 + origin[1], c2 + origin[2])) && return (0, 0.0, 0.0, 0.0)
+    y1 = Float64(x1) - _black_at(dark, black[1], r1 + origin[1], c1 + origin[2])
+    y2 = Float64(x2) - _black_at(dark, black[2], r2 + origin[1], c2 + origin[2])
+    return (1, (y1 + y2) / 2, y1 - y2, (y1 - y2)^2)
 end
 
-# The fit over the blocks' sums (host; a few thousand numbers).
-function _photon_transfer_fit(n, sm, sd, sd2)
+# N frames at one exposure, stacked (H × W × N), each frame's black-subtracted values times its `scale` (the group's
+# mean over the frame's); the greens' cell sites.
+struct _FrameStack{A, V, S}
+    stack::A
+    scale::V
+    s1::S
+    s2::S
+end
+Adapt.adapt_structure(to, r::_FrameStack) = _FrameStack(Adapt.adapt(to, r.stack), Adapt.adapt(to, r.scale), r.s1, r.s2)
+@inline _cell_extent(r::_FrameStack) = (size(r.stack, 1) ÷ 2, size(r.stack, 2) ÷ 2)
+@inline function _cell_moments(r::_FrameStack, i, j, dark, mask, black, white, origin)
+    k1, m1, q1 = _site_moments(r, 2i - 1 + r.s1[1], 2j - 1 + r.s1[2], dark, mask, black[1], white, origin)
+    k2, m2, q2 = _site_moments(r, 2i - 1 + r.s2[1], 2j - 1 + r.s2[2], dark, mask, black[2], white, origin)
+    return (k1 + k2, m1 + m2, 0.0, q1 + q2)
+end
+# One photosite over the frames: (1, its mean, its sum of squares about the mean), or nothing when any frame is at the
+# white level there or the photosite is masked.
+@inline function _site_moments(r::_FrameStack, row, col, dark, mask, black, white, origin)
+    _masked(mask, row + origin[1], col + origin[2]) && return (0, 0.0, 0.0)
+    nf = size(r.stack, 3)
+    b = _black_at(dark, black, row + origin[1], col + origin[2])
+    s = 0.0
+    for k in 1:nf
+        @inbounds x = r.stack[row, col, k]
+        _at_white(x, white) && return (0, 0.0, 0.0)
+        @inbounds s += (Float64(x) - b) * r.scale[k]
+    end
+    μ = s / nf
+    q = 0.0
+    for k in 1:nf
+        @inbounds q += ((Float64(r.stack[row, col, k]) - b) * r.scale[k] - μ)^2
+    end
+    return (1, μ, q)
+end
+
+# The blocks every estimate reads: the whole blocks (the most usable samples any block has, `full`), at least 16 of at
+# least 8 samples.
+function _whole_blocks(n)
     full = maximum(n)
     keep = findall(==(full), vec(n))                     # whole blocks only: one χ² law, one median correction
     full >= 8 && length(keep) >= 16 || throw(NoiseEstimateFailed(
         "too few usable blocks: $(length(keep)) unclipped blocks of $(full) cells (at least 16 of at least 8 cells)"
     ))
+    return full, keep
+end
+
+"""
+    photon_transfer(mosaic::RawMosaic; sensor_model::SensorModel = SensorModel(), block = 8, significance = 0.001)
+        -> PoissonGaussian
+    photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model::SensorModel = SensorModel(),
+                    block = 8, normalize = true, significance = 0.001) -> PoissonGaussian
+
+THE estimator of a sensor's Poisson–Gaussian noise for a characterisation's
+entry, built offline (owner ruling D1: the resolver [`sensor_model`](@ref)
+never estimates): the conversion gain K (electrons per code) and the read noise
+σ_r (codes, the rounding included: a Gaussian read noise σ plus the code's
+rounding is `√(σ² + 1/12)`), by a photon-transfer fit of variance against mean,
+`v = μ/K + σ_r²`. Two inputs, one fit:
+
+- **one frame** (`mosaic`), in the line of Foi et al. (2008), an ESTIMATED
+  [`PoissonGaussian`](@ref) (`SensorSource.estimated`): each 2×2 cell's two
+  greens see the same light, so their difference `d` carries no scene where the
+  scene is flat across the cell, and `Var d = 2(μ/K + σ_r²)` about their
+  black-subtracted mean μ. Per block, the cells' mean and the difference's sample
+  variance give a point `(μ̂, v̂ = s²/2)`, `v̂/v` following `χ²_{n−1}/(n − 1)` over
+  a whole block of `n` cells. A fixed pattern between the two greens (their gain
+  or response mismatch) does NOT cancel in `d`: it adds a term in μ², negligible
+  in a dim natural scene, dominant on a bright flat; the fit refuses it (below).
+- **groups of frames** (`groups`, the photon-transfer series: one group per
+  exposure, at least 2 frames each, of one body at one ISO), a MEASURED
+  `PoissonGaussian` (`SensorSource.measured`, a dedicated capture): per green
+  photosite its TEMPORAL variance over the group's frames, which cancels the
+  scene and every fixed pattern, `v = μ/K + σ_r²` about its mean μ. Pairs are the
+  case of 2 frames. With `normalize` (the default) each frame is first scaled to
+  its group's mean (its greens' black-subtracted mean over the group's: a source
+  that flickers between frames adds no μ² term). Per block, the photosites' means
+  and their pooled variance give a point, `v̂/v` following
+  `χ²_{p(N−1)}/(p(N − 1))` over a whole block of `p` photosites and `N` frames;
+  every group gives its first `N` frames, `N` the smallest group's, so every
+  block follows that one law.
+
+Per block of `block × block` cells (one KernelAbstractions work item each, on
+the frames' device), a sample with a photosite at the white level, or under the
+model's defect mask, is left out (CLIPPED, never modelled), and only whole blocks
+(the most usable samples any block has) enter the fit, every group's alike. The
+blocks are sorted by μ̂ into groups of equal count (`min(32, blocks ÷ 8)`); each
+group's median μ̂ and median `v̂ / q` (`q` that law's median, so the ratio is
+median-unbiased for v) are a point of the line. The line is fitted by weighted
+least squares, each point weighted by the inverse of its median's variance from
+the counts, `v²/(4 m f(q)² q²)` over a group of `m` blocks (`f` the law's
+density: the sample median's asymptotic variance), with v the line's own
+prediction (iterated to a fixed point from a start weighted at each point's own
+value). The median is robust to the blocks a scene edge raises. The standard
+errors are the fitted line's covariance from those counts; K's and σ_r's by
+first order. The read noise is the greens': the result states it for every
+colour index (`σ[c + 1]`, the same four numbers); a characterisation that holds
+σ_r per colour takes it from [`master_dark`](@ref)'s `ReadNoise`.
+
+THE REFUSAL: with at least 4 points, the same points are fitted again with a μ²
+term, `v = a + μ/K + cμ²`, at the same weights, and the estimate is refused when
+`c` is significant, `|ĉ / se(ĉ)|` above the two-sided normal quantile at
+`significance` (3.29 at the default 0.001): a fixed pattern the input does not
+cancel, or a nonlinear response. It never returns a K biased by it.
+
+`sensor_model` gives what is subtracted and left out, as it does for
+[`LinearRaw`](@ref): its black slot's per-colour black (a [`Dark`](@ref)'s
+offset per photosite in its place) and its defect slot's photosites; its noise
+slot is not read. Throws [`NoiseEstimateFailed`](@ref) with the reason when
+fewer than 16 whole blocks of at least 8 usable samples remain (a saturated
+frame), the points hold one level only (no slope), the μ² term is significant,
+or the fit is not physical (K or σ_r² not positive). A group of fewer than 2
+frames, or frames of another size, pattern or white level, is an `ArgumentError`.
+"""
+function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel(), block::Integer = 8,
+                         significance::Real = 0.001)
+    raw = parent(m)
+    g = _green_sites(m, sensor_model, block, "photon_transfer")
+    n, sm, sd, sd2 = _block_moments(_GreenPair(raw, g.s1, g.s2), m, sensor_model, g, block)
+    full, keep = _whole_blocks(n)
     μ = [sm[k] / full for k in keep]
     v = [(sd2[k] - sd[k]^2 / full) / (full - 1) / 2 for k in keep]   # the difference's sample variance, halved
-    groups = min(32, length(keep) ÷ 8)
+    e = _photon_transfer_fit(μ, v, full - 1, significance,
+        "a fixed pattern the single-frame green difference does not cancel (a bright flat field): " *
+        "use photon_transfer(groups) on frames at equal exposure")
+    return PoissonGaussian(e.gain, ntuple(_ -> e.σ, Val(4)), (gain = e.gain_std_error, σ = ntuple(_ -> e.σ_std_error, Val(4)));
+                           source = SensorSource.estimated)
+end
+
+function photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model::SensorModel = SensorModel(),
+                         block::Integer = 8, normalize::Bool = true, significance::Real = 0.001)
+    isempty(groups) && throw(ArgumentError("photon_transfer: no group of frames"))
+    all(gr -> length(gr) >= 2, groups) ||
+        throw(ArgumentError("photon_transfer: a group's temporal variance needs at least 2 frames, got $(map(length, groups))"))
+    m = first(first(groups))
+    for gr in groups, f in gr
+        (size(f) == size(m) && f.pattern == m.pattern && f.white == m.white && f.window_origin == m.window_origin) ||
+            throw(ArgumentError("photon_transfer: every frame is of one sensor (size, pattern, white level and window)"))
+    end
+    N = minimum(length, groups)                          # one χ² law: every group gives its first N frames
+    g = _green_sites(m, sensor_model, block, "photon_transfer")
+    stats = map(groups) do gr
+        frames = gr[1:N]
+        stack = cat((parent(f) for f in frames)...; dims = 3)
+        scale = normalize ? _flicker_scale(frames, g) : ones(N)
+        _block_moments(_FrameStack(stack, Adapt.adapt(KA.get_backend(stack), scale), g.s1, g.s2), m, sensor_model, g, block)
+    end
+    n = reduce(vcat, (vec(st[1]) for st in stats))
+    sm = reduce(vcat, (vec(st[2]) for st in stats)); sq = reduce(vcat, (vec(st[4]) for st in stats))
+    full, keep = _whole_blocks(n)
+    μ = [sm[k] / full for k in keep]
+    v = [sq[k] / (full * (N - 1)) for k in keep]         # the photosites' pooled temporal variance
+    e = _photon_transfer_fit(μ, v, full * (N - 1), significance,
+        "the groups' temporal variance is not linear in the mean: frames of a group at unequal light " *
+        "(normalize = true scales them to the group's mean) or a nonlinear response")
+    return PoissonGaussian(e.gain, ntuple(_ -> e.σ, Val(4)), (gain = e.gain_std_error, σ = ntuple(_ -> e.σ_std_error, Val(4)));
+                           source = SensorSource.measured)
+end
+
+# The greens' cell sites and their blacks (the model's black slot, per colour index) of a mosaic, and the block count.
+function _green_sites(m::RawMosaic, sensor_model::SensorModel, block::Integer, who)
+    block >= 2 || throw(ArgumentError("$who: a block holds at least 2 × 2 cells, got $block"))
+    cell = _cell_colors(m, who)
+    gks = Tuple(k for k in 1:4 if cell[k] in (0x01, 0x03))
+    black = _channel_black(sensor_model.black, m)
+    H2, W2 = size(m, 1) ÷ 2, size(m, 2) ÷ 2
+    H2 >= 1 && W2 >= 1 || throw(NoiseEstimateFailed("a $(join(size(m), '×')) mosaic holds no 2×2 cell"))
+    return (s1 = _QUAD_SITES[gks[1]], s2 = _QUAD_SITES[gks[2]], black = (black[cell[gks[1]] + 1], black[cell[gks[2]] + 1]),
+            blocks = (cld(H2, block), cld(W2, block)))
+end
+
+# The blocks' count and sums under a cell rule, one launch on the frames' device, read back to the host.
+function _block_moments(rule, m::RawMosaic, sensor_model::SensorModel, g, block::Integer)
+    backend = KA.get_backend(parent(m))
+    nb, mb = g.blocks
+    dark_d = _offset_map(sensor_model.black, m, backend)
+    mask_d = _defect_mask(sensor_model.defects, m, backend)
+    n = KA.allocate(backend, Int, nb, mb); sm = KA.allocate(backend, Float64, nb, mb)
+    sd = KA.allocate(backend, Float64, nb, mb); sd2 = KA.allocate(backend, Float64, nb, mb)
+    OnBackend(backend)(_difference_blocks_kernel!)(n, sm, sd, sd2, rule, dark_d, mask_d, g.black, m.white, Int(block),
+                                                   m.window_origin; ndrange = (nb, mb))
+    KA.synchronize(backend)
+    return Array(n), Array(sm), Array(sd), Array(sd2)
+end
+
+# Each frame's scale to its group's mean: the group's mean over the frame's, of the greens' black-subtracted codes (the
+# channel blacks; a clipped photosite included: the scale is a ratio of whole-frame means).
+function _flicker_scale(frames, g)
+    means = map(frames) do f
+        raw = parent(f)
+        a = view(raw, (1 + g.s1[1]):2:size(raw, 1), (1 + g.s1[2]):2:size(raw, 2))
+        b = view(raw, (1 + g.s2[1]):2:size(raw, 1), (1 + g.s2[2]):2:size(raw, 2))
+        (sum(Float64, a) - g.black[1] * length(a) + sum(Float64, b) - g.black[2] * length(b)) / (length(a) + length(b))
+    end
+    all(>(0), means) || throw(NoiseEstimateFailed("a frame of a group holds no light above the black level: no scale to its group"))
+    return Statistics.mean(means) ./ means
+end
+
+# The fit over the blocks' points (host; a few thousand numbers): `μ`, `v` the whole blocks' means and variances,
+# each `v̂/v ~ χ²_dof/dof`; the refusal of a significant μ² term at `significance`, its message ending with `remedy`.
+function _photon_transfer_fit(μ, v, dof::Integer, significance::Real, remedy::AbstractString)
+    0 < significance < 1 || throw(ArgumentError("photon_transfer: significance is in (0, 1), got $significance"))
+    groups = min(32, length(μ) ÷ 8)
     order = sortperm(μ)
-    G = Distributions.Gamma((full - 1) / 2, 2 / (full - 1))          # the law of v̂/v: χ²_{n−1}/(n − 1)
+    G = Distributions.Gamma(dof / 2, 2 / dof)                         # the law of v̂/v: χ²_dof/dof
     q = Statistics.median(G)
     rel = 1 / (4 * Distributions.pdf(G, q)^2 * q^2)                  # m·Var(median v̂ / q) / v², the counts' own
     xs = zeros(groups); ys = zeros(groups); ms = zeros(groups)
@@ -149,12 +297,32 @@ function _photon_transfer_fit(n, sm, sd, sd2)
         β = β′
         done && break
     end
+    _refuse_curvature(xs, ys, ms, rel, A * β, significance, remedy)
     slope, intercept = β
     (slope > 0 && intercept > 0) || throw(NoiseEstimateFailed(
         "the photon-transfer line is not physical: slope $(slope) (1/K), intercept $(intercept) (σ_r²)"
     ))
     σr = sqrt(intercept)
     return (; gain = 1 / slope, σ = σr, gain_std_error = sqrt(C[1, 1]) / slope^2, σ_std_error = sqrt(C[2, 2]) / (2σr))
+end
+
+# THE refusal of a μ² term: the points fitted again as v = a + μ/K + cμ², each weighted at the line's prediction (at
+# its own value where the line predicts none), and `c` significant at `significance` (two-sided, by its own standard
+# error from the counts). Needs 4 points (one degree of freedom beyond the quadratic).
+function _refuse_curvature(xs, ys, ms, rel, prediction, significance, remedy)
+    length(xs) >= 4 || return nothing
+    vw = ifelse.(prediction .> 0, prediction, ys)
+    w = ms ./ (rel .* vw .^ 2)
+    Q = hcat(xs, ones(length(xs)), xs .^ 2)
+    Cq = inv(Symmetric(Q' * Diagonal(w) * Q))
+    c = (Cq * (Q' * (w .* ys)))[3]
+    t = c / sqrt(Cq[3, 3])
+    z = Distributions.quantile(Distributions.Normal(), 1 - significance / 2)
+    abs(t) > z && throw(NoiseEstimateFailed(
+        "the photon-transfer points carry a μ² term (c = $(c) per code, t = $(round(t; sigdigits = 4)), |t| > $(round(z; sigdigits = 4)) " *
+        "at significance $(significance)): $(remedy)"
+    ))
+    return nothing
 end
 
 # Per photosite of the stacked frames (H × W × n), the temporal mean and sample variance, one work item each.

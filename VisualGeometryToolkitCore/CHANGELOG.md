@@ -1,5 +1,28 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.1
+
+The photon transfer of a dedicated capture, and the refusal of a biased gain (owner ruling, 2026-11-13: the FX3
+characterisation, where the single-frame estimator's K drifted from 31 to 13 e⁻/code over the exposures of a flat-field
+series and refused 69 of its 111 frames).
+
+### New
+- **`photon_transfer(groups::AbstractVector{<:AbstractVector{<:RawMosaic}}; sensor_model, block, normalize, significance)`**,
+  a method of the one estimator: the photon-transfer series, one group per exposure (at least 2 frames each; pairs are
+  the case of two). Per green photosite its TEMPORAL variance over the group's frames, which cancels the scene and every
+  fixed pattern, against its mean; each frame first scaled to its group's mean (`normalize`, the default: flicker).
+  Returns a `PoissonGaussian` with `SensorSource.measured` (a dedicated capture), K and σ_r with their standard errors.
+  Both inputs share ONE block kernel (`_difference_blocks_kernel!`, a cell rule per input) and ONE fit.
+
+### Changed
+- **The single-frame `photon_transfer(mosaic)` refuses a μ² term**: the fit's points are fitted again as
+  `v = a + μ/K + cμ²` at the same weights, and a `c` significant at `significance` (a new keyword, default 0.001: |t| >
+  3.29, two-sided, by its own standard error from the counts) is a `NoiseEstimateFailed` naming the term and the groups'
+  method, never a biased K (a fixed pattern between the two greens, which the single-frame difference does not cancel,
+  on a bright flat). The groups' method refuses the same way (frames of a group at unequal light, a nonlinear response).
+  Where it accepts, the single-frame estimate is 0.10.0's, bit for bit (tested). No caller outside Core: the resolver
+  never estimates (a lookup).
+
 ## 0.10.0 (unreleased)
 
 The breaking wave of 2026-11-13 (wave 10): the terminology taxonomy, one observation container, the FeatureFrame

@@ -10,7 +10,7 @@
 @testsetup module SensorFixtures
     using VisualGeometryToolkitCore: RawMosaic
     using Distributions: Poisson, Normal, quantile
-    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame
+    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame, scene_frame
     const RGGB = UInt8[0 1; 3 2]
     const BLACK = 512.0
     const WHITE = 16383.0
@@ -36,6 +36,19 @@
         raw = Matrix{UInt16}(undef, H, W)
         for j in 1:W, i in 1:H
             raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[cld(cld(j, 16), 2)], SIGMA_R)
+        end
+        return synth_mosaic(raw)
+    end
+    # The photon-transfer scene of `ptc_frame` at `light` times its levels, each photosite's expected electrons times its
+    # fixed response `response[i, j]` (a G1/G2 gain mismatch, a PRNU: 1 when `nothing`) and `texture[i, j]` (a scene:
+    # 1 when `nothing`) — the frames of one exposure share the response and the texture, and differ only in their noise.
+    function scene_frame(rng; levels = LEVELS, light = 1.0, response = nothing, texture = nothing)
+        H, W = 16 * 16, 32 * 16
+        raw = Matrix{UInt16}(undef, H, W)
+        for j in 1:W, i in 1:H
+            μ = light * levels[cld(cld(j, 16), 2)] * (response === nothing ? 1.0 : response[i, j]) *
+                (texture === nothing ? 1.0 : texture[i, j])
+            raw[i, j] = code(rng, BLACK, Poisson(μ * K_TRUE), SIGMA_R)
         end
         return synth_mosaic(raw)
     end
@@ -86,6 +99,90 @@ end
         @test err isa NoiseEstimateFailed && occursin(why, err.reason)
     end
     @test_throws ArgumentError photon_transfer(ptc_frame(StableRNG(1)); block = 1)
+end
+
+# Core 0.10.1: the frames-at-equal-exposure photon transfer (the photosites' temporal variance, which cancels every fixed
+# pattern) and the refusal of a μ² term in the one fit both inputs share. A G1/G2 gain mismatch and a PRNU make the
+# single-frame green difference carry a μ² term on a bright flat: the single-frame estimator refuses, the groups'
+# estimate is unbiased; a dim textured scene without a fixed pattern is the single-frame estimator's design case: it
+# accepts, unbiased. Every bound is Z times the estimate's own standard error (the file's rule).
+@testitem "sensor model: photon_transfer(groups) and the μ² refusal — a G1/G2 mismatch, flicker, a dim textured scene" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: photon_transfer, SensorSource, NoiseEstimateFailed
+    using StableRNGs: StableRNG
+    refusal(f) = (try f(); nothing catch e; e end)
+    # the fixed response: G2 (LibRaw index 3: even row, odd column of RGGB) 2 % above G1, and a 1 % PRNU everywhere
+    rr = StableRNG(41)
+    response = [(1 + 0.01 * randn(rr)) * (iseven(i) && isodd(j) ? 1.02 : 1.0) for i in 1:256, j in 1:512]
+    # (a) one frame of the bright scene: the single-frame estimator refuses the μ² term, naming the groups' method
+    e = refusal(() -> photon_transfer(scene_frame(StableRNG(42); response)))
+    @test e isa NoiseEstimateFailed && occursin("μ² term", e.reason) && occursin("photon_transfer(groups)", e.reason)
+    # the groups: two exposures (the scene at its light and at half), 4 frames each, one frame of each 0.5 % brighter
+    # (flicker); each frame scaled to its group's mean (normalize, the default): unbiased within Z standard errors
+    groups = [[scene_frame(StableRNG(100 + 10l + k); light = l == 1 ? (k == 2 ? 1.005 : 1.0) : (k == 2 ? 0.5025 : 0.5), response)
+               for k in 1:4] for l in 1:2]
+    pg = photon_transfer(groups)
+    @test pg isa PoissonGaussian && pg.source === SensorSource.measured && allequal(pg.σ)
+    @test abs(pg.gain - K_TRUE) <= Z * pg.std_error.gain
+    @test abs(pg.σ[1] - SIGMA_EFF) <= Z * pg.std_error.σ[1]
+    # without the scale the flicker is a μ² term, and the refusal names the scale
+    e = refusal(() -> photon_transfer(groups; normalize = false))
+    @test e isa NoiseEstimateFailed && occursin("μ² term", e.reason) && occursin("normalize", e.reason)
+    # pairs are the case of two frames
+    pp = photon_transfer([g[1:2] for g in groups])
+    @test abs(pp.gain - K_TRUE) <= Z * pp.std_error.gain && pp.std_error.gain > pg.std_error.gain
+    # a larger group gives its first N frames, N the smallest group's: one χ² law
+    @test photon_transfer([groups[1], groups[2][1:3]]) == photon_transfer([groups[1][1:3], groups[2][1:3]])
+    # (b) a dim textured scene, no fixed pattern (levels ≤ 10 % of the white level, a smooth texture ±10 %): the
+    # single-frame estimator's design case accepts, unbiased
+    texture = [1 + 0.1 * sinpi(i / 64) * cospi(j / 96) for i in 1:256, j in 1:512]
+    dim = [2.0 * (1600.0 / 2)^((l - 1) / 15) for l in 1:16]
+    pd = photon_transfer(scene_frame(StableRNG(43); levels = dim, texture))
+    @test pd.source === SensorSource.estimated
+    @test abs(pd.gain - K_TRUE) <= Z * pd.std_error.gain && abs(pd.σ[1] - SIGMA_EFF) <= Z * pd.std_error.σ[1]
+    # the guards
+    @test_throws ArgumentError photon_transfer([groups[1][1:1], groups[2]])        # a group of one frame
+    @test_throws ArgumentError photon_transfer(Vector{typeof(groups[1])}())         # no group
+    @test_throws ArgumentError photon_transfer(scene_frame(StableRNG(1)); significance = 0)
+    @test_throws ArgumentError photon_transfer([groups[1], [synth_mosaic(zeros(UInt16, 64, 64)) for _ in 1:2]])   # another size
+end
+
+# The single-frame estimator of 0.10.1 is 0.10.0's, bit for bit, where it accepts: the refactor onto the shared block
+# kernel (the cell rule) and the shared fit changed no arithmetic. The numbers are 0.10.0's (release 7b9bec70) on the
+# file's seeded `ptc_frame`s.
+@testitem "sensor model: photon_transfer of one frame is 0.10.0's, bit for bit" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore: photon_transfer
+    using StableRNGs: StableRNG
+    # (seed, K, σ_r, se(K), se(σ_r)) of 0.10.0, printed with repr (round-trip exact)
+    for (seed, K, σ, sK, sσ) in (
+            (101, 1.5827201366016779, 2.4720165752103225, 0.019932146541470762, 0.03680304426500703),
+            (102, 1.6663151369327605, 2.54356250910606, 0.021150720040122115, 0.03680884658603527),
+            (103, 1.5628511965896894, 2.535740224174987, 0.01972960712385458, 0.03728417731866704))
+        e = photon_transfer(ptc_frame(StableRNG(seed)))
+        @test (e.gain, e.σ[1], e.std_error.gain, e.std_error.σ[1]) === (K, σ, sK, sσ)
+    end
+end
+
+# The contract a per-frame caller of the single-frame estimator relies on (Core never estimates per frame: the
+# resolver is a lookup): a refusal is a `NoiseEstimateFailed`, caught by its type, and the caller falls back to the
+# characterisation's read noise — on a bright flat with a fixed pattern it falls back, on a dim scene it estimates.
+@testitem "sensor model: a refusal is a NoiseEstimateFailed a caller falls back on" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, sensor_fixture
+    using StableRNGs: StableRNG
+    recorded = sensor_fixture(; read_noise = (SIGMA_EFF, SIGMA_EFF, SIGMA_EFF, SIGMA_EFF)).model.noise
+    noise_of(frame) = try
+        (photon_transfer(frame), :estimated)
+    catch e
+        e isa NoiseEstimateFailed || rethrow()
+        (recorded, :fallback)                               # the caller's policy, marked in its record
+    end
+    rr = StableRNG(41)
+    response = [(1 + 0.01 * randn(rr)) * (iseven(i) && isodd(j) ? 1.02 : 1.0) for i in 1:256, j in 1:512]
+    @test noise_of(scene_frame(StableRNG(42); response)) == (recorded, :fallback)
+    dim = [2.0 * (1600.0 / 2)^((l - 1) / 15) for l in 1:16]
+    n, how = noise_of(scene_frame(StableRNG(43); levels = dim))
+    @test how === :estimated && n isa PoissonGaussian
 end
 
 @testitem "sensor model: master_dark — a Dark, its ChannelBlack, the ReadNoise and the defects; defect_onsets" setup = [SensorFixtures] begin
@@ -500,6 +597,13 @@ end
         @test components(LinearRaw(d; mode = :bin2, sensor_model = models[2]).image)[1] isa CUDA.CuArray
         f = ptc_frame(StableRNG(21))
         @test photon_transfer(adapt(CUDA.CuArray, f)) == photon_transfer(f)
+        # the groups' estimate (0.10.1): the frames on the device, their scales and stacks there
+        gs = [[scene_frame(StableRNG(200 + 10l + k); light = l == 1 ? 1.0 : 0.5) for k in 1:3] for l in 1:2]
+        gd = [[adapt(CUDA.CuArray, f) for f in g] for g in gs]
+        @test photon_transfer(gd; normalize = false) == photon_transfer(gs; normalize = false)   # the same sums, one work item each
+        # with the scale, each frame's mean is a reduction whose order the device chooses: the estimate within its own SE
+        ph, pd = photon_transfer(gs), photon_transfer(gd)
+        @test abs(pd.gain - ph.gain) <= Z * ph.std_error.gain
         frames = [synth_mosaic([code(rng, BLACK, nothing, SIGMA_R) for i in 1:32, j in 1:32]) for _ in 1:4]
         rh = master_dark(frames; exposure_band = (0.5s, 1.0s))
         rd = master_dark([adapt(CUDA.CuArray, f) for f in frames]; exposure_band = (0.5s, 1.0s))

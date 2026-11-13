@@ -29,6 +29,14 @@ end
     d = only(filter(c -> c.dist == 1000 && c.angle == -10, cells))
     @test d.n == 1 && d.rate == 0.5 && d.med == 2.0
     @test only(filter(c -> c.dist == 2000 && c.n > 0, cells)).angle == 0
+    # a station by its angle, never by its rank: captures at -40, -30, -10 and 0° (no -20° capture) are those four
+    # stations, -20° the hole; per-frame jitter stays in its station
+    df = DataFrame(rig_distances_bin = fill(1000, 6), rig_angles = deg2rad.([-40.0, -30.0, -10.4, -9.7, 0.0, 0.3]),
+                   error_distances = [1.0, 2.0, 3.0, 5.0, 4.0, 6.0], abs_error_angles_deg = fill(0.1, 6))
+    cells = station_cells(df)
+    n(a) = only(filter(c -> c.angle == a, cells)).n
+    @test (n(-40), n(-30), n(-20), n(-10), n(0)) == (1, 1, 0, 2, 2) && length(cells) == 17
+    @test only(filter(c -> c.angle == -10, cells)).med == 4.0
 end
 
 @testitem "paper_support: save_hand_eye, load_hand_eye" begin

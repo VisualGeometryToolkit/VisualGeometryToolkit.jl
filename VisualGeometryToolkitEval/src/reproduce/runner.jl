@@ -1029,7 +1029,7 @@ end
 
 # Atomically (a launch's reuse reads the manifests of launches that may still be writing theirs). The results-branch
 # stage adds `results_branch` to the manifest (`results_branch_of_run`); a later rewrite keeps it.
-function _write_manifest(plan::ReproducePlan, records)
+function _write_run_manifest(plan::ReproducePlan, records)
     d = _manifest_dict(plan, records)
     if isfile(plan.manifest)
         branch = get(TOML.parsefile(plan.manifest), "results_branch", nothing)
@@ -1398,7 +1398,7 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
             pre, msg = _sbatch(site, c, pe, g.workdir)
             if pre === nothing
                 records[s.name] = _stage_record(plan, st; state = "submit failed")
-                _write_manifest(plan, records)
+                _write_run_manifest(plan, records)
                 error("sbatch of stage $(s.name)'s precompile job failed: $msg\n  $(_shell_line(c))")
             end
             push!(deps, pre)
@@ -1415,16 +1415,16 @@ function submit_slurm!(plan::ReproducePlan; io::IO = stdout)
         id, msg = _sbatch(site, c, e, g.workdir)
         if id === nothing
             records[s.name] = _stage_record(plan, st; state = "submit failed", markers, precompile_job_id = pre)
-            _write_manifest(plan, records)
+            _write_run_manifest(plan, records)
             error("sbatch of stage $(s.name) failed: $msg\n  $(_shell_line(c))")
         end
         ids[s.name] = id
         _stage_gpu(s) && s.is_array && (last_gpu = id)
         records[s.name] = _stage_record(plan, st; state = "submitted", job_id = id, markers, precompile_job_id = pre)
-        _write_manifest(plan, records)
+        _write_run_manifest(plan, records)
         println(io, rpad(s.name, 32), " ", id, s.is_array ? "  (array 0-$(length(st.items) - 1): $(join(st.items, " ")))" : "")
     end
-    _write_manifest(plan, records)
+    _write_run_manifest(plan, records)
     return records
 end
 
@@ -1489,14 +1489,14 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
             println(io, rpad(s.name, 32), " ", s.is_array ? "task $t ($item) " : "", ok ? "ok" : "FAILED",
                     "  $(round(time() - t0; digits = 1)) s  $(relpath(log, g.workdir))")
             records[s.name] = _stage_record(plan, st; state = ok ? (i == length(st.items) ? "completed" : "running") : "failed", log, tasks, markers)
-            _write_manifest(plan, records)
+            _write_run_manifest(plan, records)
             if !ok
                 err = _first_error(log)
                 error("stage $(s.name)$(s.is_array ? " task $t ($item)" : "") failed; log $log" * (isempty(err) ? "" : "\n  $err"))
             end
         end
     end
-    _write_manifest(plan, records)
+    _write_run_manifest(plan, records)
     return records
 end
 

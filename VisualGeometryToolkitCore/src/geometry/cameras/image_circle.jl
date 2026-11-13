@@ -197,6 +197,45 @@ limit (`∩` returns it). The pixel mask of any residual is
 imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
 
 """
+    RegionBeyondSupport(who, region, support) <: Exception
+
+What [`check_region_support`](@ref) throws: `who` (the fit that refused) was
+asked to work over `region`, which reaches beyond `support`, the source
+camera's calibrated support (its [`valid_domain`](@ref)) — a fit there would
+read the model where it is extrapolated.
+"""
+struct RegionBeyondSupport <: Exception
+    who::String
+    region::Any
+    support::Any
+end
+Base.showerror(io::IO, e::RegionBeyondSupport) = print(io, "RegionBeyondSupport: ", e.who, ": the region ", e.region,
+    " reaches beyond the source camera's calibrated support ", e.support, " (its valid_domain): a fit there reads the model ",
+    "where it is extrapolated. Fit over a region inside the support (`imaged_region` of the camera bounded to it, ",
+    "`with_lens_coverage(camera, support)`), or calibrate the rest.")
+
+"""
+    check_region_support(camera, region; who::AbstractString) -> region
+    check_region_support(support, region; who::AbstractString) -> region
+
+THE guard of every fit over a camera's region (`optical_axis`,
+`approximate_camera`, `refine_camera`, …): `region` back when it lies inside
+the source's calibrated support — `valid_domain(camera)`, or a `support`
+region given directly (a source camera's, when the camera fitted from is a
+re-gridded copy whose own domain no longer records it) — and a
+[`RegionBeyondSupport`](@ref) naming `who`, the region and the support
+otherwise. Never a warning: a fit over an extrapolated model is refused.
+Containment is `region ∈ support` (a `Rect`, an `Ellipse`, their `∩`, the
+`WholePlane`).
+"""
+check_region_support(camera::Union{CameraModel, PosedCamera, BoundedCamera, NoncentralSplineModel}, region; who::AbstractString) =
+    check_region_support(valid_domain(camera), region; who)
+function check_region_support(support, region; who::AbstractString)
+    region ∈ support || throw(RegionBeyondSupport(String(who), region, support))
+    return region
+end
+
+"""
     farthest_radius(region, center) -> Float64
     farthest_radius(region, center, direction) -> Float64
 

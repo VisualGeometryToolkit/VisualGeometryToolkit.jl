@@ -1219,6 +1219,7 @@ export view_angle_limit                   # honest θ-domains
 export valid_domain                       # where the lens MODEL is valid, not where light falls
 export image_circle                       # the lens coverage of the sensor, from a datasheet through the pitch
 export imaged_region                      # Rect(extent) ∩ the camera's lens coverage ∩ its valid domain: what a bounded camera images
+export check_region_support, RegionBeyondSupport   # (public, not exported, at the top level)
 export farthest_radius                    # how far a region reaches from a centre, sensor-clipped (public, not exported, at the top level)
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre

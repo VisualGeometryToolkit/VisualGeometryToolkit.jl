@@ -258,3 +258,14 @@ end
     end
     @test e isa ArgumentError && occursin("a part needs `using SomePackage`", e.msg)
 end
+
+@testitem "detect_image_circle: every keyword is checked before a frame is read" begin
+    using VisualGeometryToolkitFeatures
+    unread = (error("a frame was read") for _ in 1:1)
+    err = try
+        detect_image_circle(unread; smoothing_weight = -1, outlier_halfwidth = 1, min_hole_area = 0)
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("smoothing_weight", err.msg)
+end

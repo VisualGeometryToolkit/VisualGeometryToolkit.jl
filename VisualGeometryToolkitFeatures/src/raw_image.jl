@@ -45,19 +45,21 @@ layout of every structure it reads against LibRaw's own accessors, and refuses
 struct LibRawDecoder <: RawDecoder end
 
 _decoder_trigger(::LibRawDecoder) = "LibRaw_jll"
+_decoder_extension(::LibRawDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
 
-# The decode hooks: an extension adds the methods for its decoder. Without the
-# extension loaded these fallbacks name the package to load.
-_missing_decoder(decoder::RawDecoder) = throw(ArgumentError(
-    "load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $(_decoder_trigger(decoder))` (its package extension is not loaded)"
-))
-_decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
+# The decode hooks: an extension adds the methods for its decoder. These fallbacks are Core's `require_extension`'s:
+# without the extension loaded they name the package to load; with it loaded, the MethodError the call raises.
+_require_decoder(f, decoder::RawDecoder, args::Tuple) =
+    require_extension(f, args, @__MODULE__, _decoder_extension(decoder)) do
+        ArgumentError("load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $(_decoder_trigger(decoder))` (its package extension is not loaded)")
+    end
+_decode_raw(decoder::RawDecoder, path::AbstractString) = _require_decoder(_decode_raw, decoder, (decoder, path))
 # The display demosaic: LibRaw's interpolated, linear, 16-bit camera-RGB image of
 # the visible area in the sensor's orientation, and the file's metadata — of a
 # file, or of a mosaic in memory (its photosites, colour phase and levels handed
 # to LibRaw, its own metadata kept).
-_decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
-_decode_demosaic(decoder::RawDecoder, mosaic::RawMosaic) = _missing_decoder(decoder)
+_decode_demosaic(decoder::RawDecoder, path::AbstractString) = _require_decoder(_decode_demosaic, decoder, (decoder, path))
+_decode_demosaic(decoder::RawDecoder, mosaic::RawMosaic) = _require_decoder(_decode_demosaic, decoder, (decoder, mosaic))
 # The decoder library's version, part of `load_raw`'s cache key (a library upgrade can move the black levels, the white
 # level or the crop): the extension's (LibRaw's `libraw_version()`); `nothing` for a decoder that states none.
 _decoder_version(::RawDecoder) = nothing

@@ -120,6 +120,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
         throw(ArgumentError("detect_image_circle: outlier_halfwidth must be > 0 px, got $outlier_halfwidth"))
     (isfinite(min_hole_area) && min_hole_area >= 0) ||
         throw(ArgumentError("detect_image_circle: min_hole_area must be ≥ 0 px², got $min_hole_area"))
+    smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
                       @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
     upper, S = nothing, nothing                                       # 1. the per-pixel maximum, one frame at a time
@@ -136,7 +137,6 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
     end
     upper === nothing && throw(ArgumentError("detect_image_circle: no frames"))
     H, W = size(upper)
-    smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     levels = Matrix{Gray{N0f8}}(undef, H, W)                          # 2. VLFeat's 8 bits (after an L0 smoothing only when asked)
     if smoothing_weight > 0
         require_extension(() -> _missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"), @__MODULE__, :VisualGeometryToolkitFeaturesImageSmoothExt)

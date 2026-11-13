@@ -277,28 +277,30 @@ struct _DogExtremum
 end
 
 """
-    _refine_dog_extremum(model, v0, σ, S, cfg) -> (v, D, H, code::ReturnCode.T, rule::StopRule)
+    _refine_dog_extremum(model, v0, σ, S, cfg, extent) -> (v, D, H, code::ReturnCode.T, rule::StopRule)
 
 Refine the DoG extremum near `v0` = (x, y, s) (1-based level coordinates) on the
 continuous response `model` (`_dog_response`) with Core's device LM
 (`static_lm`) on the rows r(θ) = ∇_θ D/|D(v₀)|, θ = ((x − x₀)/σ, (y − y₀)/σ,
 (s − s₀)·ln2/S), σ the start's scale in level pixels, its box the displacement
 bound (|Δx|, |Δy| ≤ `spatial_bound`, |Δs| ≤ `scale_bound`) within the model's
-domain. The §14 record: the LM's (`static_lm_termination`); a solve that did not
+domain and the level's extent `(W, H)` (1 ≤ x ≤ W, 1 ≤ y ≤ H: the detector's keep
+test, so a refined point never leaves the level; the window's mirrored border
+samples are no image). The §14 record: the LM's (`static_lm_termination`); a solve that did not
 converge with the point on the box is `LeftBasin`; a converged point that is not
 an extremum of the start's type, or whose curvature −sign(D)·H_θ/|D| has an
 eigenvalue below `min_curvature`, is `ShapeGate`. Every failure returns the start
 (the last valid estimate). Kernel-lawful: `_dog_extrema_kernel!` calls it per
 detection on the CPU and any GPU.
 """
-@inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement)
+@inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement, extent::NTuple{2, Int})
     D0, _, H0 = _dog_response(model, v0)
     H0d = SMatrix{3, 3, Float64}(H0)
     (isfinite(D0) && D0 != 0) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, NonFinite
     t = SVector(1 / σ, 1 / σ, 0.6931471805599453 / S)
     mlo, mhi = _model_box(model)
     b = SVector(cfg.spatial_bound, cfg.spatial_bound, cfg.scale_bound)
-    lo = max.(mlo, v0 - b); hi = min.(mhi, v0 + b)
+    lo = max.(mlo, v0 - b, SVector(1.0, 1.0, -Inf)); hi = min.(mhi, v0 + b, SVector(Float64(extent[1]), Float64(extent[2]), Inf))
     all(lo .<= v0 .<= hi) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin
     ia = 1 / abs(Float64(D0))
     # the closure's locals are its own (Dθ, gθ, Hθ): reusing D or H, assigned below, would box them (inference: Any)
@@ -327,13 +329,13 @@ end
 # `org[:, k]` = (X0, Y0, s0)), its start `starts[:, k]` = (x, y, s, σ), refined;
 # `out[:, k]` = (x, y, s, D, H[:] (column-major, 9), code, rule): H in full — the recipe's Jacobian is not
 # symmetric.
-@kernel function _dog_extrema_kernel!(out, @Const(coef), @Const(org), @Const(starts), S::Int, cfg::ContinuousRefinement, ::Val{N}, ::Val{F}) where {N, F}
+@kernel function _dog_extrema_kernel!(out, @Const(coef), @Const(org), @Const(starts), S::Int, cfg::ContinuousRefinement, extent::NTuple{2, Int}, ::Val{N}, ::Val{F}) where {N, F}
     k = @index(Global)
     @inbounds if k <= size(out, 2)
         c = view(coef, :, :, :, :, k)
         m = _DogSplineWindow{N, F, typeof(c)}(c, Int(org[1, k]), Int(org[2, k]), Int(org[3, k]))
         v0 = SVector{3, Float64}(starts[1, k], starts[2, k], starts[3, k])
-        v, D, H, code, rule = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg)
+        v, D, H, code, rule = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg, extent)
         out[1, k] = v[1]; out[2, k] = v[2]; out[3, k] = v[3]; out[4, k] = D
         for q in 1:9
             out[4 + q, k] = H[q]
@@ -384,7 +386,7 @@ function _refine_dog_extrema(
         else
             copyto!(coef_d, coefficients)       # another run's windows (the CPU = GPU attribution: one set of coefficients, two LMs)
         end
-        t2 = @elapsed _launch!(_dog_extrema_kernel!, dev, out_d, coef_d, org_d, st_d, Int(S), cfg, Val(NSW), Val(F); ndrange = n)
+        t2 = @elapsed _launch!(_dog_extrema_kernel!, dev, out_d, coef_d, org_d, st_d, Int(S), cfg, (size(dog, 1), size(dog, 2)), Val(NSW), Val(F); ndrange = n)
     end
     coef = Array(coef_d); out = Array(out_d)
     windows = [_DogSplineWindow(view(coef, :, :, :, :, k), org[1, k], org[2, k], org[3, k]) for k in 1:n]
@@ -428,7 +430,8 @@ through the pyramid's adjoint — the same estimator and map as the refinement.
 function _continuous_covariance(
         plan, oi::Integer, w::Integer, m::_DogSplineWindow, e::_DogExtremum, cfg::ContinuousRefinement = ContinuousRefinement();
         taps = [Array(t) for t in plan.pyr_taps],
-        autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H)
+        autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H),
+        fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
     )
     S = plan.nb_scales
     upsample = plan.o_first < 0
@@ -440,7 +443,7 @@ function _continuous_covariance(
     lev(c) = (λ = zeros(N + 1); for q in 1:N; λ[q + 1] += c[q]; λ[q] -= c[q]; end; λ)
     λL = lev(L); λdL = lev(dL)
     # the gradient functionals (gx, gy, gs) of the window's response: per axis (spline order, composite taps)
-    fx, fy = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
+    fx, fy = fields
     size(fx, 2) == size(m.coef, 4) || throw(ArgumentError("_continuous_covariance: the window has $(size(m.coef, 4)) fields, the refinement's response $(size(fx, 2))"))
     spec = size(m.coef, 4) == 1 ?
         (((1, fx[:, 1]), (0, fy[:, 1]), λL), ((0, fx[:, 1]), (1, fy[:, 1]), λL), ((0, fx[:, 1]), (0, fy[:, 1]), λdL)) :
@@ -518,8 +521,9 @@ function _refined_covs!(plan, cfg::ContinuousRefinement, refined, r, nbefore::In
     fc = Array(view(plan.featcov, :, sl))
     taps = [Array(t) for t in plan.pyr_taps]
     ac = Dict(w => _canvas_autocov(plan.geo[r[w]], plan.W, plan.H) for w in unique(x[3] for x in refined))
+    fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)   # the configuration's, once for every detection
     Threads.@threads :dynamic for (col, oi, w, win, e) in refined
-        Σ = _continuous_covariance(plan, oi, r[w], win, e, cfg; taps, autocov = ac[w])
+        Σ = _continuous_covariance(plan, oi, r[w], win, e, cfg; taps, autocov = ac[w], fields)
         i = col - nbefore
         fc[1, i] = Σ[1, 1]; fc[2, i] = Σ[1, 2]; fc[3, i] = Σ[1, 3]
         fc[4, i] = Σ[2, 2]; fc[5, i] = Σ[2, 3]; fc[6, i] = Σ[3, 3]

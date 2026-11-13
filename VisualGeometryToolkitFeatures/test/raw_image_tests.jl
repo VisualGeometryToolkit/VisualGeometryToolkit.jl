@@ -311,3 +311,25 @@ end
         close_cache(cache)
     end
 end
+
+# The decode hooks' fallbacks are Core's `require_extension`: a decoder whose extension is not loaded names the package
+# to load; a decoder whose extension is loaded but has no method for the arguments raises the call's MethodError.
+@testitem "raw: a decoder without its extension names the package; with it, the call's MethodError" begin
+    using VisualGeometryToolkitFeatures
+    const VGF = VisualGeometryToolkitFeatures
+    struct UnloadedDecoder <: VGF.RawDecoder end
+    VGF._decoder_trigger(::UnloadedDecoder) = "SomeDecoder_jll"
+    VGF._decoder_extension(::UnloadedDecoder) = :VisualGeometryToolkitFeaturesSomeDecoderExt
+    err = try
+        load_raw_mosaic(@__FILE__; decoder = UnloadedDecoder())
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("needs `using SomeDecoder_jll`", err.msg)
+    @test_throws ArgumentError VGF._decode_demosaic(UnloadedDecoder(), @__FILE__)
+    struct LoadedDecoder <: VGF.RawDecoder end                           # its extension (LibRaw's) is loaded below
+    VGF._decoder_extension(::LoadedDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
+    using LibRaw_jll
+    @test Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) !== nothing
+    @test_throws MethodError Base.invokelatest(VGF._decode_raw, LoadedDecoder(), @__FILE__)
+end

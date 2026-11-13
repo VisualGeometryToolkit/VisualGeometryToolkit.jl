@@ -606,11 +606,11 @@ end
 # safe. Both paths compute every work item identically: the results do not
 # depend on the scheduling.
 #
-# One launch path for every backend (the owner's one-kernel policy): each kernel
-# is built twice, on the device's static form and on the device itself, and
-# launched through `_ScheduledKernel`. Only KernelAbstractions' CPU backend has
-# a static form (`_static_form`); on any other backend the two are the same
-# kernel and the launch is that kernel's.
+# One kernel for every backend (the owner's one-kernel policy). On the CPU it is
+# built twice, on the backend's static form and on the backend itself, and
+# launched through `_ScheduledKernel`; only KernelAbstractions' CPU backend has
+# a static form, so on any other backend the kernel is built once and launched
+# as built.
 struct _ScheduledKernel{S, D}
     static::S
     dynamic::D
@@ -631,10 +631,10 @@ end
 _in_threaded_region() = ccall(:jl_in_threaded_region, Cint, ()) != 0
 _static_conflict(e) = e isa ErrorException && occursin("@threads :static", e.msg)
 
-# The kernels `build(dev)` returns, launched as above: statically where the device has a static form, else as built.
-_scheduled(build, dev) = map(_ScheduledKernel, build(_static_form(dev)), build(dev))
-_static_form(dev) = dev
-_static_form(dev::KA.CPU) = KA.CPU(static = true)   # a backend parameter: the same kernels, spread by `@threads :static`
+# The kernels `build(dev)` returns, launched as above on the CPU (its static form: a backend parameter, the same
+# kernels spread by `@threads :static`); any other backend has no static form and launches them as built.
+_scheduled(build, dev) = build(dev)
+_scheduled(build, dev::KA.CPU) = map(_ScheduledKernel, build(KA.CPU(static = true)), build(dev))
 
 # ----- plan ------------------------------------------------------------------
 

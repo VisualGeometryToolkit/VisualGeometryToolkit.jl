@@ -44,6 +44,10 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   session (a device-tensor `CAPI.Run`), for BlobBoards' descriptor runs.
 
 ### Fixed
+- **`extract_capture_settings` no longer compiles per frame count** (patch 0.8.4's fix, carried): a capture's identities
+  merge field by field (StructArrays' `components`), not by splatting one tuple per frame into `zip` (a 171-photo set
+  took 518 s, ~90 % LLVM). The other splats of a data-length collection go too: `detect_foerstner` collects its rows,
+  `_score_eltype` takes a collection, `compare_images` links its axes through Makie's vector method.
 - **`detect_foerstner(Float64, img)` computes in `Float64` from the input on**: a `Float64` image was rounded to
   `Float32` before the upload, so the `Float64` path ran on `Float32` grey values.
 - **The continuous refinement stays inside the level** (`refinement = ContinuousRefinement()`): its LM box is also

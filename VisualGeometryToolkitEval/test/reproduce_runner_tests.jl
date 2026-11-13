@@ -402,17 +402,18 @@ end
                 Dict{String, Any}("key" => key, "items" => [""], "job_id" => "", "state" => "completed")))), p, "w"); p)
         k(results) = only(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["chrome_prepare"],
                                             deps = false, results_root = results).stages).key
-        both, newest, oldest = mktempdir(), mktempdir(), mktempdir()
-        old = manifest(joinpath(both, "_reproduce"), "20260101_000000_000", "paper", "old")
-        manifest(joinpath(both, "_reproduce"), "20260102_000000_000", "paper", "new")
-        manifest(joinpath(both, "_reproduce"), "20260103_000000_000", "another", "foreign")     # a project sharing the root
-        touch(old)                                                                  # rewritten last: the newest mtime
-        @test basename.(run_manifests(joinpath(both, "_reproduce"))) ==
+        root = mktempdir()                                        # one root: the stage's environment names it
+        dir = joinpath(root, "_reproduce")
+        old = manifest(dir, "20260101_000000_000", "paper", "old")
+        k_old = k(root)
+        manifest(dir, "20260102_000000_000", "paper", "new")
+        k_new = k(root)
+        manifest(dir, "20260103_000000_000", "another", "foreign")             # a project sharing the root
+        touch(old)                                                             # rewritten last: the newest mtime
+        @test basename.(run_manifests(dir)) ==
               ["20260101_000000_000-abc1234.toml", "20260102_000000_000-abc1234.toml", "20260103_000000_000-abc1234.toml"]
-        @test [x.record["key"] for x in Reproduce._stage_records(joinpath(both, "_reproduce"), "paper")] == ["old", "new"]
-        manifest(joinpath(newest, "_reproduce"), "20260102_000000_000", "paper", "new")
-        manifest(joinpath(oldest, "_reproduce"), "20260101_000000_000", "paper", "old")
-        @test k(both) == k(newest) != k(oldest)
+        @test [x.record["key"] for x in Reproduce._stage_records(dir, "paper")] == ["old", "new"]
+        @test k_new != k_old && k(root) == k_new
     end
 
     @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin

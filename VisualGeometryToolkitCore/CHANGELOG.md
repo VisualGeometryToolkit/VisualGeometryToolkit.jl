@@ -117,7 +117,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
   precision's marginal). `frame_dof` (public) — a frame's degrees of freedom, its covariance's size, the centre first.
 - **`transfer(m, f::FeatureFrame)`** — a frame through any point map (a PointFrame exactly; a scaled frame to first
-  order, an `AffineFrame`; exact through a similarity; a `BoundedCamera` forwards to its camera). `propagate` of an `Uncertain{PointFrame}` through
+  order, an `AffineFrame`; exact through a similarity; a `BoundedCamera` refuses it, naming the plane maps: a camera images 3-D points). `propagate` of an `Uncertain{PointFrame}` through
   `HomographyMap` and `FramedAffine`; the similarity actions, `extrema`, `Rect2`, `bbox`, `ustrip`, `*`, `/` for every
   frame, PointFrame included; `shape_factor` of a `Disc` (`σI`) and an `OrientedDisc` (`σR(θ)`); the DOF trait
   `PointShape`.

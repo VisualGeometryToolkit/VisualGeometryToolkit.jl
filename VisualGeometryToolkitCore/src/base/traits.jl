@@ -158,12 +158,17 @@ function classify_conic end
 """
     FrameScaleTrait
 
-Trait distinguishing feature frame scale types for dispatch.
+Trait distinguishing feature frames by their local shape, the DOF levels of the
+FeatureFrame interface (conventions: the FeatureFrame interface table):
 
+- `PointShape()`: a point, no scale and no shape (`PointFrame`, 2 DOF)
 - `IsotropicScale()`: Frames with a single scale σ (Disc, OrientedDisc)
 - `ShapeFactorScale()`: Frames with a 2×2 shape factor (EllipticFrame, AffineFrame)
 """
 abstract type FrameScaleTrait end
+
+"Trait indicating a point frame: a centre and no local shape (the scaled frames' verbs are absent)."
+struct PointShape <: FrameScaleTrait end
 
 "Trait indicating an isotropic frame with single scale σ."
 struct IsotropicScale <: FrameScaleTrait end

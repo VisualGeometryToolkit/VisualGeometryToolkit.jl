@@ -696,6 +696,7 @@ function propagate(m::FramedAffine{Src, Dst, T}, Λ::PrecMat{2, S, L, C}) where 
 end
 propagate(m::FramedAffine, u::Uncertain{V, <:Union{CovMat{2}, PrecMat{2}}}) where {V} =
     Uncertain(m(getfield(u, :value)), propagate(m, getfield(u, :attributes)))
+propagate(m::FramedAffine, u::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}) = _as_point_frame(propagate(m, center(u)))
 
 """
     similarity_scale(m::FramedAffine) -> Real

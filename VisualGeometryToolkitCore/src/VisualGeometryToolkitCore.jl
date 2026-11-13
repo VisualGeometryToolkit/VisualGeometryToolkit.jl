@@ -117,6 +117,8 @@ export Paraboloid3D, coeffs
 export is_valid_shape
 public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached qualified
 public is_positive_definite       # the 2×2 positive-definiteness test (Sylvester), reached qualified
+public gpu_tier, gpu_problem, require_gpu   # the one GPU test-tier decision of every stack suite (quality/gpu_tier.jl)
+public frame_dof                  # a frame's degrees of freedom, its uncertain form's covariance size (FeatureFrame interface)
 public grid_brent_minimum       # the one 1-D minimizer: a grid scan, then Brent's method (numerics/minimize.jl)
 export is_peak
 export boundary, region, scale, shape_factor
@@ -419,6 +421,9 @@ export linearview, saturationview   # the mosaic's linear values and its saturat
 public LinearRawView, SaturationView, PhotositeColors   # the lazy views' types (photosite_colors returns the last)
 public raw_provenance           # decoder, mode, LibRaw version and frame map, as plain data
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
+export SensorNoise, DarkFrame, sensor_noise   # a body's Poisson–Gaussian noise at an ISO, per-field provenance; a master dark; THE resolver (raw/sensor_noise.jl)
+export photon_transfer, master_dark           # THE frame estimator of K and σ_r; THE dark-frame estimator
+public NOISE_SOURCES, NoiseField, noise_value, NoiseEstimateFailed   # the sources (:measured, :estimated, :file), a field's type and constructor, the estimators' failure
 
 # -----------------------------------------------------------------------------
 # 4. COMPOSITION & INTERFACE - Abstract types for feature packages
@@ -481,7 +486,7 @@ public OverlapMethod, AnalyticOverlap, BoundarySampled
 # Conic traits
 export ConicTrait,
     CircleTrait, EllipseTrait, ParabolaTrait, HyperbolaTrait, DegenerateTrait
-public FrameScaleTrait, IsotropicScale, ShapeFactorScale, frame_scale
+public FrameScaleTrait, PointShape, IsotropicScale, ShapeFactorScale, frame_scale
 
 # Solver backend trait (select implementation: NativeSolver, PoseLibSolver)
 export AbstractSolverBackend, NativeSolver, PoseLibSolver
@@ -964,6 +969,7 @@ include("geometry/primitives/primitives.jl")
 using .Primitives  # Import all exported symbols into parent namespace
 using .Primitives: rect_corners, _rect_edge_samples, _snap_outward   # the one corner order and per-edge rect walk (primitives/rectangles.jl)
 using .Primitives: is_positive_definite   # public here (feature_frames.jl)
+using .Primitives: frame_dof, _point_frame_hint   # the FeatureFrame interface (feature_frames.jl): public, and the absent verbs' hint
 using .Primitives: signed_area   # public here (operators.jl): the shoelace area of a closed ring of points
 
 # Geometry Transforms (remaining - these use Ellipse from Primitives)
@@ -1042,6 +1048,7 @@ import .Cameras: pnp_pixel_whitening
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
+include("raw/sensor_noise.jl") # SensorNoise, DarkFrame, the resolver sensor_noise, photon_transfer, master_dark (before LinearRaw, which takes a resolved noise)
 include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl
@@ -1089,9 +1096,16 @@ include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
 include("quality/sync_manifest.jl")   # sync_manifest, install_githooks: the git hooks' Julia side (dependency-free; the hooks include it by path)
+include("quality/gpu_tier.jl")        # gpu_tier, gpu_problem, require_gpu: the one GPU test-tier decision (hoisted from RadiometricCamera)
 
 # The precompile workload: the camera models' native code, cached in the package image
 using PrecompileTools: @setup_workload, @compile_workload
 include("precompile.jl")
+
+# The FeatureFrame interface's absent verbs (a PointFrame has no scale or shape): a pointed MethodError hint.
+function __init__()
+    Base.Experimental.register_error_hint(_point_frame_hint, MethodError)
+    return nothing
+end
 
 end # module VisualGeometryToolkitCore

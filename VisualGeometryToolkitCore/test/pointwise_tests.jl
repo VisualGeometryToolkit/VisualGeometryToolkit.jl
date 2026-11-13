@@ -213,7 +213,7 @@
 end
 
 # The launch pointwise! makes, unlaunched (0.9.9): the same kernel and arguments, so a launch of the triple writes the same bits,
-# and device_resident_threads of it counts that kernel (a functor passed as its fields, and one passed whole).
+# and device_resident_threads of it counts that kernel (a functor given as its fields, and one given whole).
 @testitem "pointwise_kernel: the one launch pointwise! makes, for device_resident_threads" begin
     using Test
     import KernelAbstractions as KA
@@ -224,7 +224,7 @@ end
         b::B
     end
     (f::Affine)(x) = f.a * x + f.b
-    struct VecAffine         # not splattable (a Vector field): passed whole
+    struct VecAffine         # not splattable (a Vector field): given whole
         w::Vector{Float64}
     end
     (f::VecAffine)(x) = f.w[1] * x + f.w[2]
@@ -248,7 +248,10 @@ end
         yd = pointwise!(f, similar(xd), xd; exec = OnBackend(dev)); KA.synchronize(dev)
         k, a, n = pointwise_kernel(f, similar(xd), xd; exec = OnBackend(dev))
         k(a...; ndrange = n); KA.synchronize(dev)
-        @test Array(a[1]) == Array(yd) == f.(x)
+        # the triple's launch is pointwise!'s on the same device, bit for bit; against the host's per-point map, to the
+        # device's contraction of `a * x + b` into one FMA: one rounding fewer, so within 1 ulp of the result (eps relative)
+        @test Array(a[1]) == Array(yd)
+        @test isapprox(Array(yd), f.(x); rtol = eps(Float64))
         r = device_resident_threads(k, a...; ndrange = n)
         @test 0 < r <= raw
         # the count is of THIS kernel: the same as for its instance built by hand on the same backend and arguments

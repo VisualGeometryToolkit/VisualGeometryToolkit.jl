@@ -99,7 +99,7 @@ The one launch [`pointwise!`](@ref)`(f, out, xs...; exec)` makes, unlaunched: th
 its arguments and its `ndrange`, so `kernel(args...; ndrange)` is that call. `pointwise!` is exactly this followed by
 the launch (none for an empty `out`). Its use is to ask about the launch without restating how it is built:
 `device_resident_threads(pointwise_kernel(f, out, xs...)...)` counts the threads of the very kernel `pointwise!` runs
-(the functor adapted to the backend and passed as its fields or whole, the kernel compiled for those arguments). The
+(the functor adapted to the backend and given to the kernel as its fields or whole, the kernel compiled for those arguments). The
 arguments are checked as `pointwise!` checks them (`DimensionMismatch`).
 """
 function pointwise_kernel(f::F, out::AbstractArray, xs::AbstractArray...; exec::OnBackend = OnBackend(KernelAbstractions.get_backend(out))) where {F}

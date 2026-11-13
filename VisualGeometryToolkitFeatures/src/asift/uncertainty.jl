@@ -137,15 +137,16 @@ function _down_adj(l::_Line)
 end
 
 # Adjoint of `_bupsample!` (`_upsample_sample`, the package's one 2× upsampling): dst[2k] = src[k],
-# dst[2k+1] = (src[k] + src[k+1]) / 2, and at its clamped edge dst[1] = src[1].
-function _up_adj(l::_Line)
+# dst[2k+1] = (src[k] + src[k+1]) / 2 — on the unbounded line, or, given the input length `n`, over dst[1 … 2n] with
+# its clamped edge dst[1] = src[1] (`l` then lies in 1 … 2n).
+function _up_adj(l::_Line, n::Union{Nothing, Integer} = nothing)
     lo = fld(l.i0 - 1, 2)
     out = zeros(cld(l.i0 + length(l.v), 2) - lo + 2)
     for (j, a) in enumerate(l.v)
         I = l.i0 + j - 1
         if iseven(I)
             out[I ÷ 2 - lo + 1] += a
-        elseif I == 1
+        elseif n !== nothing && I == 1
             out[1 - lo + 1] += a
         else
             k = fld(I - 1, 2)

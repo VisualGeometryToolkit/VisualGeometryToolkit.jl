@@ -21,7 +21,7 @@ const _FoerstnerDetection = Attributed{
 
 """
     detect_foerstner([T = Float32], img; device = default_device(),
-                     method = :foerstner, noise = nothing, noise_sigma = 2.0,
+                     method = :foerstner, noise = nothing, noise_sigma = something(noise, 2.0),
                      derivative = :gaussian2d, integration = :box,
                      derivative_sigma = 1.0, integration_sigma = 1.41 * derivative_sigma,
                      precision_threshold = 0.5, roundness_threshold = 0.3,
@@ -71,10 +71,10 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
   is the reference's a-posteriori `Ω/redundancy · N⁻¹` (step 4), marked
   `covariance_source = :a_posteriori`; that one is not calibrated (it carries the
   model misfit, which does not scale with the noise).
-- `noise_sigma`: the noise level of the PRECISION TEST (step 3), the
-  reference's knob, in grey levels of an 8-bit image (0–255), as the reference's
-  for a `uint8` image; `σₙ = noise_sigma / 255` on the `[0, 1]` image. It does not
-  enter the covariance.
+- `noise_sigma`: the noise level of the PRECISION TEST (step 3), in grey levels
+  of an 8-bit image (0–255), as the reference's for a `uint8` image;
+  `σₙ = noise_sigma / 255` on the `[0, 1]` image. It defaults to `noise` when that
+  is given, else to the reference's 2. It does not enter the covariance.
 - `derivative`: `:gaussian2d` (a Gaussian derivative smoothed across by a
   Gaussian of the same σ) or `:gaussian1d` (the derivative alone).
 - `integration`: `:box` (a box whose standard deviation is `integration_sigma`)
@@ -167,7 +167,7 @@ function detect_foerstner(
         device::KA.Backend = default_device(),
         method::Symbol = :foerstner,
         noise::Union{Nothing, Real} = nothing,
-        noise_sigma::Real = 2.0,
+        noise_sigma::Real = something(noise, 2.0),
         derivative::Symbol = :gaussian2d,
         integration::Symbol = :box,
         derivative_sigma::Real = 1.0,
@@ -178,7 +178,9 @@ function detect_foerstner(
     ) where {T <: AbstractFloat}
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
-    g = ka_upload(T, device, Float32.(gray.(gray_f32(img))))
+    σ² = noise === nothing ? nothing : _pixel_variance(noise)
+    # a float matrix at its own precision (gray_f32 would round a Float64 one), anything else as gray_f32 reads it
+    g = ka_upload(T, device, img isa AbstractMatrix{<:AbstractFloat} ? img : gray.(gray_f32(img)))
     doubled = KA.allocate(device, T, 2 .* size(g)...)
     _launch!(_upsample_doubled!, device, doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
     found = _foerstner_windows(
@@ -186,17 +188,16 @@ function detect_foerstner(
         integration_sigma, precision_threshold, roundness_threshold
     )
     classes = _foerstner_classes(found, significance_level)
-    noise === nothing && return _foerstner_points(found, classes, _undouble)
-    α, σ² = _pixel_variance(noise)
-    covariances = _propagated_covariances(device, found, classes, g, α, σ², derivative, derivative_sigma)
+    σ² === nothing && return _foerstner_points(found, classes, _undouble)
+    covariances = _propagated_covariances(device, found, classes, size(g), σ²)
     return _foerstner_points(found, classes, _undouble; covariances, covariance_source = :propagated)
 end
 
-# The image noise `detect_foerstner` propagates, as the per-pixel variance `α·x + σ²` of the `[0, 1]` image `x`:
-# iid noise of `σn` grey levels of an 8-bit image is `α = 0`, `σ² = (σn/255)²`.
+# The variance of the iid pixel noise `detect_foerstner` propagates, on the `[0, 1]` image: `σn` grey levels of an
+# 8-bit image.
 function _pixel_variance(σn::Real)
     isfinite(σn) && σn > 0 || throw(ArgumentError("detect_foerstner: the noise σ must be positive and finite, got $σn"))
-    return 0.0, (σn / 255)^2
+    return (σn / 255)^2
 end
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
@@ -284,15 +285,15 @@ function _foerstner_windows(
 
     # 314–423: both point models in each window
     ρ = ceil(Int, sqrt(12 * σi^2 + 1) / 2) + 1
-    estimates = zeros(Float64, 14, length(centres))
-    if !isempty(centres)
-        centre_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
-        out = KA.allocate(device, T, 14, length(centres))
-        _launch!(_window_estimates!, device, out, gamma, centre_list, Int32(ρ); ndrange = length(centres))
-        estimates .= Array(out)
-    end
+    centre_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
+    device_estimates = KA.allocate(device, T, 14, length(centres))
+    isempty(centres) ||
+        _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, Int32(ρ); ndrange = length(centres))
     KA.synchronize(device)
-    return (; centres, estimates, ρ, redundancy = (2ρ + 1)^2 - 2, upscale, gamma = Array(gamma), gradient = dr)
+    return (;
+        centres, estimates = Float64.(Array(device_estimates)), ρ, redundancy = (2ρ + 1)^2 - 2, upscale,
+        gamma = Array(gamma), gradient = dr, taps = [derivative_taps across_taps], centre_list, device_estimates,
+    )
 end
 
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
@@ -349,14 +350,14 @@ end
 # The doubled grid's samples along one axis of `n` input pixels as linear maps of the input, after the doubling
 # (`_upsample_sample`) and the correlation along that axis with each column of `taps` (the detector's
 # `_correlate_rows!` / `_correlate_columns!` taps, radius r, zero padded): column p is the adjoint of both stages
-# applied to the doubled sample p (ASIFT's `_correlate_adj`, `_up_adj`, exact at the borders). `B[k, p, s]` is the
+# applied to the doubled sample p (ASIFT's `_correlate_adj`, `_up_adj`, bounded: exact at the borders). `B[k, p, s]` is the
 # weight of input pixel `_band_start(p, r) + k − 1` for taps column s: a doubled sample m reads input ⌊m/2⌋ and
 # ⌊m/2⌋ + 1 (clamped), so p reads at most r + 2 consecutive input pixels.
 function _pipeline_bands(taps::AbstractMatrix{Float64}, n::Integer)
     r = size(taps, 1) ÷ 2
     B = zeros(r + 2, 2n, size(taps, 2))
     for s in axes(taps, 2), p in 1:(2n)
-        line = _up_adj(_correlate_adj(_Line(p, [1.0]), view(taps, :, s), 2n))
+        line = _up_adj(_correlate_adj(_Line(p, [1.0]), view(taps, :, s), 2n), n)
         for (j, w) in enumerate(line.v)
             w == 0 && continue
             B[line.i0 + j - 1 - _band_start(p, r) + 1, p, s] = w
@@ -368,37 +369,35 @@ end
 @inline _band_start(p::Integer, r::Integer) = max(1, max(p - r, 1) >> 1)
 
 # The propagated covariance of every classified window (a 4 × K host matrix, column-major 2×2 on the doubled grid,
-# (row, column); NaN for an unknown window), the input `g`'s per-pixel noise variance α·g + σ², on `device`.
-function _propagated_covariances(device, found, classes, g::AbstractMatrix{T}, α, σ², derivative, derivative_sigma) where {T}
-    (; centres, estimates, ρ, upscale, gradient) = found
+# (row, column); NaN for an unknown window) for iid input noise of variance σ², on the device of `found`, through the
+# taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
+function _propagated_covariances(device, found, classes, (H, W), σ²)
+    (; centres, ρ, gradient, taps, centre_list, device_estimates) = found
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
-    derivative_taps, across_taps = _derivative_taps(derivative, upscale * derivative_sigma)
-    H, W = size(g)
-    rows = ka_upload(T, device, _pipeline_bands([derivative_taps across_taps], H))
-    columns = ka_upload(T, device, _pipeline_bands([across_taps derivative_taps], W))
+    T = eltype(device_estimates)
+    rows = ka_upload(T, device, _pipeline_bands(taps, H))
+    columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient, g,
-        ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres]),
-        ka_upload(T, device, estimates), ka_upload(Int8, device, classes), rows, columns,
-        Int32(ρ), Int32(length(derivative_taps) ÷ 2), T(α), T(σ²); ndrange = K
+        _propagated_covariances!, device, out, gradient, centre_list, device_estimates,
+        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2), T(σ²); ndrange = K
     )
     return Float64.(Array(out))
 end
 
-# One window k: Σ = Σ_q var(q) δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
+# One window k: Σ = σ² Σ_q δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
 # pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
 # |p − 2q| ≤ r + 2 along each axis.
 @kernel function _propagated_covariances!(
-        out, @Const(gradient), @Const(g), @Const(centres), @Const(estimates), @Const(classes),
-        @Const(rows), @Const(columns), ρ::Int32, r::Int32, α, σ²
+        out, @Const(gradient), @Const(centres), @Const(estimates), @Const(classes),
+        @Const(rows), @Const(columns), ρ::Int32, r::Int32, σ²
     )
     k = @index(Global)
     T = eltype(out)
     @inbounds class = classes[k]
     @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
-    H, W = size(g)
+    H, W = size(rows, 2) ÷ 2, size(columns, 2) ÷ 2
     w = Int(r) + 2
     Σrr = Σrc = Σcc = zero(T)
     if class == 0
@@ -429,16 +428,15 @@ end
                 s2 += ve * uc + eu * vc
             end
             δ = Ninv * SVector(s1, s2)
-            @inbounds v = α * g[q1, q2] + σ²
-            Σrr += v * δ[1]^2
-            Σrc += v * δ[1] * δ[2]
-            Σcc += v * δ[2]^2
+            Σrr += δ[1]^2
+            Σrc += δ[1] * δ[2]
+            Σcc += δ[2]^2
         end
     end
-    @inbounds out[1, k] = Σrr
-    @inbounds out[2, k] = Σrc
-    @inbounds out[3, k] = Σrc
-    @inbounds out[4, k] = Σcc
+    @inbounds out[1, k] = σ² * Σrr
+    @inbounds out[2, k] = σ² * Σrc
+    @inbounds out[3, k] = σ² * Σrc
+    @inbounds out[4, k] = σ² * Σcc
 end
 
 # A doubled-grid estimate and its (row, column) covariance `Σ` (column-major

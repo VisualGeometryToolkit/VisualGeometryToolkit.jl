@@ -186,10 +186,14 @@ end
 
 # The propagated covariance is σn² J Jᵀ with J the derivative of the estimate with respect to every input pixel:
 # against J by central differences of the detector itself (Float64), for a circular point in the interior, one
-# whose window and derivative support reach the image border (the doubling's clamp, the correlations' zero
-# padding), and a corner. Central differences err by O(ε²) (the estimate is smooth in the pixels while the window
-# stays) and by rounding ≈ eps/ε of the estimate's scale: at ε = 1e-5 both are ≤ 1e-9 of J relative, so 1e-6 holds
-# them with room and is far below any real error (one missed pixel of the support is a percent).
+# whose derivative support crosses the image border (the dot at x = 5.8 puts the window centre near doubled column
+# 12.6; the second suppression keeps none below 12, so the window starts at column 6 or 7 and its derivative taps,
+# radius 7, read doubled columns 1 and 2 (the doubling's clamp) and the zero padding beyond), and a corner. The
+# pixels perturbed are those the window can read: (ρ + r)/2 = 6.5 input pixels for its doubled half-width ρ = 6 and
+# the taps' radius r = 7, plus 2 for the doubling and the rounding of the window centre. Central
+# differences err by O(ε²) (the estimate is smooth in the pixels while the window stays) and by rounding ≈ eps/ε of
+# the estimate's scale: at ε = 1e-5 both are ≤ 1e-9 of J relative, so 1e-6 holds them with room and is far below
+# any real error (one missed pixel of the support is a percent).
 @testitem "detect_foerstner: the propagated covariance is σn² J Jᵀ (central differences)" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using LinearAlgebra: norm
@@ -198,17 +202,20 @@ end
     σn = 2.0
     scenes = (
         ((24.31, 23.77), render((x, y) -> (x - 24.31)^2 + (y - 23.77)^2 < 2.5^2 ? 0.8 : 0.2, 48, 48), :circular),
-        ((7.62, 30.4), render((x, y) -> (x - 7.62)^2 + (y - 30.4)^2 < 2.5^2 ? 0.8 : 0.2, 48, 48), :circular),
+        ((5.8, 30.4), render((x, y) -> (x - 5.8)^2 + (y - 30.4)^2 < 2.5^2 ? 0.8 : 0.2, 48, 48), :circular),
         ((20.37, 21.81), render((x, y) -> 0.2 + 0.6 * ((x > 20.37) & (y > 21.81)), 40, 44), :corner),   # an L corner
     )
+    reach = cld(6 + 7, 2) + 2
     for (t, img, label) in scenes
         points = detect_foerstner(Float64, img; device = KA.CPU(), noise = σn)
         k = argmin(k -> norm(points[k].center - Point2(t)), eachindex(points))
         d = points[k]
         @test d.label === label && d.covariance_source === :propagated
+        c = round.(Int, (d.window[2] + 0.5, d.window[1] + 0.5))     # the window centre's input (row, column)
         ε = 1.0e-5
         Σfd = zeros(2, 2)
         for q in CartesianIndices(img)
+            maximum(abs.(Tuple(q) .- c)) <= reach || continue
             moved = map((-ε, ε)) do h
                 im = copy(img); im[q] += h
                 p = detect_foerstner(Float64, im; device = KA.CPU())

@@ -14,17 +14,16 @@ A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10
   squared gradient and window estimate, exact at the image borders; one KernelAbstractions kernel on the CPU and any
   GPU. Its Monte Carlo calibration (NEES₂ ≈ 2, χ²₂ 95 % coverage) is a test. `noise = nothing` (the default) keeps the
   reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
-  NEES 0.01–25). `noise_sigma` is the precision test's level only, as in the reference.
+  NEES 0.01–25). `noise_sigma`, the precision test's level, defaults to `noise` when that is given (else the
+  reference's 2).
 - **Terminology** (the owner's ruling of 2026-11-13): "keypoint" and "measurement" are out of every name, docstring
   and page — a keypoint is a detection. Internal names renamed: `_keypoint_cov` → `_detection_cov`,
   `_loma_keypoints` → `_loma_points`; the benchmark `benchmark/mc/keypoint_uncertainty_mc.jl` →
   `benchmark/mc/detection_uncertainty_mc.jl`; the test items "keypoint covariance: …" → "detection covariance: …".
 
 ### Fixed
-- **The ASIFT covariance's adjoint of the 2× upsampling at its clamped edge** (`_up_adj`): the upsampled pixel 1
-  reads input pixel 1 alone (the clamp); the adjoint split it between input pixels 0 (outside the image) and 1. It is
-  now the exact adjoint everywhere; interior detections are unchanged, bit for bit. The separable blur's adjoint is
-  the zero-padded correlation's adjoint `_correlate_adj` with symmetric taps, the same arithmetic.
+- **`detect_foerstner(Float64, img)` computes in `Float64` from the input on**: a `Float64` image was rounded to
+  `Float32` before the upload, so the `Float64` path ran on `Float32` grey values.
 
 ## 0.8.3 (unreleased)
 

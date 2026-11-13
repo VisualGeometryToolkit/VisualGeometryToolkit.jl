@@ -88,19 +88,16 @@ end
 # THE noise model of a green-cell value of `L` under the resolved `noise`: a cell `x` has variance `α·x + σ²` (module
 # header). A noise the resolver could not give is refused, naming its reason.
 function _green_noise(L::LinearRaw, noise::SensorNoise)
-    reason = _noise_reason(noise)
-    reason === nothing || throw(ArgumentError("the sensor noise of this frame is unknown: $reason"))
-    K = value_of(noise.electrons_per_dn)
-    σr = value_of(noise.read_noise)
+    Kf, σf = noise.electrons_per_dn, noise.read_noise
+    (Kf === nothing || σf === nothing) &&
+        throw(ArgumentError("the sensor noise of this frame is unknown: $(something(noise.reason, "no reason recorded"))"))
+    K = value_of(Kf)
+    σr = value_of(σf)
     d1, d2 = L.geometry.green_dn
     c1, c2 = L.geometry.green_colors
     g = L.gain
     return g / (4K) * (1 / d1 + 1 / d2), g^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
 end
-
-# Why a resolved noise holds no K or σ_r (the resolver's `reason`), or `nothing` when it holds both.
-_noise_reason(noise::SensorNoise) =
-    noise.electrons_per_dn === nothing || noise.read_noise === nothing ? something(noise.reason, "no reason recorded") : nothing
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search

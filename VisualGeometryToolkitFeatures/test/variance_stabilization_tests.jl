@@ -5,11 +5,11 @@
     using VisualGeometryToolkitCore: RawMosaic, SensorNoise, DeviceIdentity, noise_value
 
 using Random: AbstractRNG
-export noisy_mosaic, poisson, measured_noise, RGGB, BLACK, WHITE
+export noisy_mosaic, poisson, record_noise, RGGB, BLACK, WHITE
 
 # A record of the synthetic body: K electrons per code and σ_r codes per colour index (a scalar: every colour's), the
 # values the resolver hands on as `:measured`.
-measured_noise(K, σr) = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
+record_noise(K, σr) = SensorNoise(; body = DeviceIdentity(; make = "synthetic", model = "mosaic"), iso = 100,
                                      electrons_per_dn = noise_value(Float64(K), :measured),
                                      read_noise = noise_value(σr isa Real ? ntuple(_ -> Float64(σr), 4) : Float64.(σr), :measured))
 
@@ -55,7 +55,7 @@ end
         m = noisy_mosaic(rng, (i, j) -> levels[cld(j, 128)], 128, 128 * length(levels); electrons_per_dn = K, read_dn = σr)
         L = LinearRaw(m; mode, gain)
         @test sort(collect(L.geometry.green_dn)) == [WHITE - BLACK[4], WHITE - BLACK[2]]   # the two greens (colour indices 1 and 3)
-        s = variance_stabilize(L, measured_noise(K, read_noise))
+        s = variance_stabilize(L, record_noise(K, read_noise))
         @test size(s.image) == (64, 64 * length(levels)) && s.saturated == L.saturated
         for (b, λ) in enumerate(levels)
             σ = std(s.image[:, (64(b - 1) + 1):(64b)])
@@ -64,7 +64,7 @@ end
         # the transform is increasing, and the white level is its value at 1 × gain
         @test issorted([mean(s.image[:, (64(b - 1) + 1):(64b)]) for b in eachindex(levels)])
         @test s.white ≈ variance_stabilize(LinearRaw(noisy_mosaic(rng, (i, j) -> 0.0, 2, 2; electrons_per_dn = K, read_dn = 0.0); mode, gain),
-                                           measured_noise(K, read_noise)).white
+                                           record_noise(K, read_noise)).white
     end
 end
 
@@ -79,7 +79,7 @@ end
     d1, d2 = L.geometry.green_dn
     c1, c2 = L.geometry.green_colors
     @test sort([c1, c2]) == [1, 3]
-    α, σ² = VF._green_noise(L, measured_noise(2.5, σr))
+    α, σ² = VF._green_noise(L, record_noise(2.5, σr))
     @test α ≈ L.gain / (4 * 2.5) * (1 / d1 + 1 / d2)
     @test σ² ≈ L.gain^2 / 4 * (σr[c1 + 1]^2 / d1^2 + σr[c2 + 1]^2 / d2^2)
     @test σ² ≈ L.gain^2 / 4 * ((c1 == 1 ? 2.0 : 5.0)^2 / d1^2 + (c2 == 1 ? 2.0 : 5.0)^2 / d2^2)
@@ -149,7 +149,7 @@ end
     m = noisy_mosaic(rng, scene, H, W; electrons_per_dn = K, read_dn = 3.0)
     L = LinearRaw(m; mode = :green_cells)
     @test count(L.saturated) > 100
-    s = variance_stabilize(L, measured_noise(K, 3.0))
+    s = variance_stabilize(L, record_noise(K, 3.0))
     ds = asift_detect(s; device = KA.CPU(), tilts = [(1.0, 0.0)])
     # the cell grid is half the raw's: the window at (64, 32) r 15 cells, the blobs at y = 96 cells
     near_window(d) = hypot(centroid(d)[1] - 64, centroid(d)[2] - 32) < 15 + 3characteristic_scale(feature_frame(d))
@@ -173,7 +173,7 @@ end
     @test s32.image isa Matrix{Float64} && s32.image == Float64.(Float32.(img)) && s32.saturated isa BitMatrix
     # the transform's image is the one full-frame array variance_stabilize allocates
     L = LinearRaw(noisy_mosaic(Xoshiro(3), (i, j) -> 100.0, 600, 800; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
-    noise = measured_noise(2.5, 3.0)
+    noise = record_noise(2.5, 3.0)
     variance_stabilize(L, noise)
     @test @allocated(variance_stabilize(L, noise)) < 1.5 * sizeof(Float64) * 300 * 400
 end

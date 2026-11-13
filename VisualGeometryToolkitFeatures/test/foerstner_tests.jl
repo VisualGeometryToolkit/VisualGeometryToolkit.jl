@@ -255,8 +255,8 @@ end
     dot(i, j) = hypot((j + 1) ÷ 2 - 20.3, (i + 1) ÷ 2 - 18.7) < 3 ? 6000.0 : 600.0
     L = LinearRaw(noisy_mosaic(Xoshiro(9), dot, 80, 80; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells)
     body = DeviceIdentity(; make = "synthetic", model = "mosaic")
-    measured = measured_noise(2.5, 3.0)
-    p = detect_foerstner(Float64, L; noise = measured, device = KA.CPU())
+    recorded = record_noise(2.5, 3.0)
+    p = detect_foerstner(Float64, L; noise = recorded, device = KA.CPU())
     @test any(d -> d.label === :circular, p) && all(d -> d.covariance_source === :propagated_measured, p)
     estimated = SensorNoise(; body, iso = 100, electrons_per_dn = noise_value(2.5, :estimated; std_error = 0.1),
                             read_noise = noise_value(ntuple(_ -> 3.0, 4), :measured))
@@ -266,8 +266,8 @@ end
     @test all(d -> d.covariance_source === :a_posteriori, a)
     @test [cov(d.value) for d in a] == [cov(d.value) for d in detect_foerstner(Float64, L; device = KA.CPU())]
     # no Poisson part: K = 1e12 electrons per code leaves σ² alone, the iid case of σn = 255·σ
-    _, σ² = VGF._green_noise(L, measured_noise(1.0e12, 3.0))
-    big = detect_foerstner(Float64, L; noise = measured_noise(1.0e12, 3.0), device = KA.CPU())
+    _, σ² = VGF._green_noise(L, record_noise(1.0e12, 3.0))
+    big = detect_foerstner(Float64, L; noise = record_noise(1.0e12, 3.0), device = KA.CPU())
     iid = detect_foerstner(Float64, Array(green_plane(L)); noise = 255 * sqrt(σ²), noise_sigma = 2.0, device = KA.CPU())
     @test length(big) == length(iid)
     for (x, y) in zip(big, iid)

@@ -219,10 +219,11 @@ end
 # a RAW's green cells under its resolved sensor noise (the one model, `_green_noise`); a noise the resolver could not
 # give (its `reason`) leaves the a-posteriori covariance, marked so
 function _pixel_noise(noise::SensorNoise, L::LinearRaw)
-    _noise_reason(noise) === nothing || return nothing
+    K, σr = noise.electrons_per_dn, noise.read_noise
+    (K === nothing || σr === nothing) && return nothing
     α, σ² = _green_noise(L, noise)
-    measured = all(f -> getfield(f, :attributes).source === :measured, (noise.electrons_per_dn, noise.read_noise))
-    return α, σ², measured ? :propagated_measured : :propagated_estimated
+    from_records = getfield(K, :attributes).source === :measured && getfield(σr, :attributes).source === :measured
+    return α, σ², from_records ? :propagated_measured : :propagated_estimated
 end
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's

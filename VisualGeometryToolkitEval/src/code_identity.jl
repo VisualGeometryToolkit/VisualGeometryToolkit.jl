@@ -177,7 +177,8 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
     reg = _registered_install(workdir)
     if reg !== nothing                                     # committed code in a depot: its tree, never "no git checkout"
         trees[reg.name] = "$(reg.tree) $(reg.name) $(reg.version) $(reg.uuid)"
-        julia_project == workdir && Base.active_project() !== nothing && (julia_project = dirname(Base.active_project()))
+        active = Base.active_project()                     # the environment that installed it
+        julia_project == workdir && active !== nothing && (julia_project = dirname(active))
     end
     paths = reg !== nothing ? String[] : code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
     for c in paths

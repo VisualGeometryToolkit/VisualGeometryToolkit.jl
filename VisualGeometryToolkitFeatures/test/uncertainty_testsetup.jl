@@ -1,5 +1,5 @@
-# Shared fixtures for the keypoint-uncertainty items (uncertainty_tests.jl) and
-# the full Monte Carlo study (benchmark/mc/keypoint_uncertainty_mc.jl, which includes
+# Shared fixtures for the detection-uncertainty items (uncertainty_tests.jl) and
+# the full Monte Carlo study (benchmark/mc/detection_uncertainty_mc.jl, which includes
 # this file outside ReTestItems).
 @testsetup module UncFixtures
 
@@ -285,7 +285,7 @@ end
     zeisl_cov(e, response; window = 3) -> Matrix (2×2, input pixels)
 
 Zeisl, Georgel, Schweiger, Steinbach and Navab (BMVC 2009), raw: `Σ = ∓H⁻¹` with
-H the 2×2 SPATIAL Hessian of the DoG at the keypoint on its detection layer
+H the 2×2 SPATIAL Hessian of the DoG at the detection on its detection layer
 (eq. 6; the sign negative at a maximum), or with `window = 5` the
 Gaussian-weighted sum of the Hessians over the 5×5 neighbourhood (eq. 14,
 weights `_ZW5`), back-projected to the input image by `(2^(octave + (σ̂ − σ)))²`

@@ -1,4 +1,4 @@
-# The ASIFT keypoint covariance (`uncertainty = FeatureCovariance()`) against
+# The ASIFT detection covariance (`uncertainty = FeatureCovariance()`) against
 # Zeisl, Georgel, Schweiger, Steinbach and Navab, "Estimation of Location
 # Uncertainty for Scale Invariant Feature Points", BMVC 2009. Not part of the
 # test suite.
@@ -24,7 +24,7 @@
 # the detector's 3×3 Hessian in (s, x, y) inverted, one fitted constant.
 #
 # Experiments
-#   1. calibration: the configurations of keypoint_uncertainty_mc.jl, per blob
+#   1. calibration: the configurations of detection_uncertainty_mc.jl, per blob
 #      mean e₂ = dᵀΣ⁻¹d over the position (target 2) and χ² coverage.
 #   2. contrast sweep: blobs of σ 2.5 / 5 / 10 at amplitude a ∈ [0.03, 1]
 #      (1.5 decades), σn = 0.005; empirical and predicted position variance
@@ -111,7 +111,7 @@ function writecsv(name, header, rows)
 end
 
 summary = IOBuffer()
-println(summary, "# Keypoint covariance vs Zeisl et al. (BMVC 2009)\n")
+println(summary, "# Detection covariance vs Zeisl et al. (BMVC 2009)\n")
 println(summary, "Device: $(typeof(device)); trials: $NTR (calibration, §5), $NSW (sweeps). Zeisl-5×5 weight σ = $(ZEISL_W5_SIGMA) level px.\n")
 
 cF3 = zeisl_frobenius_constant(; window = 3, device)
@@ -192,7 +192,7 @@ println(summary)
 σs = exp.(range(log(1.6), log(40.0), length = 15))
 # Five blobs per scale at seeded random sub-pixel positions, the medians over
 # them: a single position can sit where noise flips the refinement between two
-# start pixels or octaves (a two-mode estimate, see keypoint_uncertainty_mc.jl);
+# start pixels or octaves (a two-mode estimate, see detection_uncertainty_mc.jl);
 # the medians show the scaling, `switching` counts the blobs with ours e₂ > 4.
 srow = []
 for (q, s) in enumerate(σs)

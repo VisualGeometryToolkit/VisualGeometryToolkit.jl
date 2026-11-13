@@ -66,7 +66,7 @@ end
             eg, _, _ = VgtkFeatures._refine_dog_extrema(CUDA.CUDABackend(), plan.dogs[oi], st; kw...)
             ec, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), Array(plan.dogs[oi]), st; kw...)
             # the same verdict on both backends; the stop RULE may differ between two converged solves at a tie of their
-            # stops (measured: 2 of 386 dense-scene keypoints, both converged), so it is not compared
+            # stops (measured: 2 of 386 dense-scene detections, both converged), so it is not compared
             @test all(a.retcode == b.retcode for (a, b) in zip(eg, ec))
             @test maximum(maximum(abs, a.v - b.v) for (a, b) in zip(eg, ec)) <= tol
         end

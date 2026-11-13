@@ -124,7 +124,7 @@ contrast: on pure noise, extrema above it are rare.
 
 The saturated pixels are the `exclusion_mask` ([`asift_detect`](@ref)'s rule: a
 detection whose centre lies within three of its scales, the DoG's support, of a
-masked pixel is dropped): a clipped value is no measurement. A caller's `exclusion_mask`
+masked pixel is dropped): a clipped value is not a measured one. A caller's `exclusion_mask`
 joins them. The image is scaled by `1 / s.white` into `[0, 1]` for the
 detector (the warps' fill is mid-grey), the threshold with it. `kwargs` are
 [`asift_detect`](@ref)'s but `intensity_thr` (the threshold is `noise_sigmas`).

@@ -14,10 +14,10 @@
 #     cubic spline of the slice's samples, C² in (x, y), and across slices the degree-4
 #     Lagrange polynomial through five slices, C^∞ in s. Its local B-spline
 #     coefficients come from ONE KernelAbstractions kernel (`_dog_spline_coefficients!`,
-#     CPU and GPU alike) for all of an octave's keypoints;
+#     CPU and GPU alike) for all of an octave's detections;
 #   • the iteration — Core's ONE device-side LM (`static_lm`, the spline lenses'
 #     inverse at N = 3: Marquardt-scaled, bounded, explicit fused products), IN the
-#     kernel (`_dog_extrema_kernel!`, one keypoint per work item), on the rows
+#     kernel (`_dog_extrema_kernel!`, one detection per work item), on the rows
 #     r(θ) = ∇_θ D/|D(v₀)|, θ the scale-normalised displacement, with Jacobian
 #     ∇²_θ D/|D(v₀)|: the undamped step is Newton's, the LM safeguards it, and the
 #     response, gradient and Hessian are re-evaluated at every trial;
@@ -90,7 +90,7 @@ _slice_window(NS::Integer) = min(5, Int(NS))
 """
     _DogSplineWindow
 
-The product response model of one keypoint: the B-spline coefficients `coef[i, j, t, f]`
+The product response model of one detection: the B-spline coefficients `coef[i, j, t, f]`
 of the cardinal cubic spline of field `f` of DoG slices `s0 … s0 + NSW − 1` at level
 pixels `(X0 + i, Y0 + j)` (1-based), combined across slices by the Lagrange polynomial
 through them. `_dog_response(m, v)` gives D, ∇D and ∇²D at v = (x, y, s). Its fields
@@ -196,8 +196,8 @@ end
 
 # ----- the coefficient kernel ------------------------------------------------
 
-# The B-spline coefficients of every keypoint's window and field, one work item per
-# (column i, slice·field, keypoint): coef[i, j, t, f, k] = Σ_{a,b} fx[a, f]·fy[b, f]·dog[X + a, Y + b, s, w] (a
+# The B-spline coefficients of every detection's window and field, one work item per
+# (column i, slice·field, detection): coef[i, j, t, f, k] = Σ_{a,b} fx[a, f]·fy[b, f]·dog[X + a, Y + b, s, w] (a
 # correlation; a, b centred), X = Xc − RC − 1 + i, Y likewise, s = s0 + t − 1, the borders mirrored as the pyramid's
 # blur does (`_mirror_idx`). `fx`/`fy` columns are each field's composite taps: the cardinal prefilter, convolved with
 # the field's own filter along that axis (none for the spline response; a Farid–Simoncelli prefilter or derivative
@@ -289,7 +289,7 @@ converge with the point on the box is `LeftBasin`; a converged point that is not
 an extremum of the start's type, or whose curvature −sign(D)·H_θ/|D| has an
 eigenvalue below `min_curvature`, is `ShapeGate`. Every failure returns the start
 (the last valid estimate). Kernel-lawful: `_dog_extrema_kernel!` calls it per
-keypoint on the CPU and any GPU.
+detection on the CPU and any GPU.
 """
 @inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement)
     D0, _, H0 = _dog_response(model, v0)
@@ -323,7 +323,7 @@ keypoint on the CPU and any GPU.
     return v, D, H, code, rule
 end
 
-# One keypoint per work item: its window (coefficients `coef[:, :, :, k]`, origin
+# One detection per work item: its window (coefficients `coef[:, :, :, k]`, origin
 # `org[:, k]` = (X0, Y0, s0)), its start `starts[:, k]` = (x, y, s, σ), refined;
 # `out[:, k]` = (x, y, s, D, H[:] (column-major, 9), code, rule): H in full — the recipe's Jacobian is not
 # symmetric.
@@ -476,7 +476,7 @@ end
 
 # Stage C/B over one tilt chunk's new pool entries `nbefore+1 … nbefore+nnew`: their integer extrema and offsets (the
 # refinement state `_bextract!` stored in `rawcov`) are the starts, refined per octave on the chunk's resident DoG, and
-# each converged keypoint's (x, y, σ, response) overwrites its `raw` column in the warp canvas's reported coordinates (a
+# each converged detection's (x, y, σ, response) overwrites its `raw` column in the warp canvas's reported coordinates (a
 # failure keeps today's, its start). Returns the refined entries for `_refined_covs!`.
 function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, nnew::Int)
     sl = (nbefore + 1):(nbefore + nnew)
@@ -509,9 +509,9 @@ function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, n
     return refined
 end
 
-# The refined keypoints' covariances, over the ones `_bcov!` left in `featcov` (the canvas frame, packed
+# The refined detections' covariances, over the ones `_bcov!` left in `featcov` (the canvas frame, packed
 # (xx, xy, xℓ, yy, yℓ, ℓℓ)), before the back-projection maps them: `_continuous_covariance` at each refined point — the
-# refinement's own derivatives. Threaded over the keypoints.
+# refinement's own derivatives. Threaded over the detections.
 function _refined_covs!(plan, cfg::ContinuousRefinement, refined, r, nbefore::Int, nnew::Int)
     isempty(refined) && return nothing
     sl = (nbefore + 1):(nbefore + nnew)

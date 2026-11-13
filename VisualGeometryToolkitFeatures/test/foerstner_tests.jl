@@ -127,7 +127,7 @@ end
     estimates[7, :] .= (1.0, 50.0, 10.0)                # Ω_corner
     estimates[14, :] .= (50.0, 1.0, 10.0)               # Ω_circular: F = 0.02, 50, 1
     found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, redundancy = 167, upscale = 2)
-    rows = VGF._foerstner_points(found, 0.999, VGF._undouble)
+    rows = VGF._foerstner_points(found, VGF._foerstner_classes(found, 0.999), VGF._undouble)
     @test [d.label for d in rows] == [:corner, :circular, :unknown]
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
     u = rows[3]
@@ -137,6 +137,10 @@ end
     @test_throws ArgumentError detect_foerstner(img; derivative = :sobel)
     @test_throws ArgumentError detect_foerstner(img; integration = :median)
     @test_throws ArgumentError detect_foerstner(img; significance_level = 1)
+    @test_throws ArgumentError detect_foerstner(img; noise = 0)
+    @test_throws ArgumentError detect_foerstner(img; noise = Inf)
+    @test all(d -> d.covariance_source === :a_posteriori, p64)
+    @test all(d -> d.covariance_source === :propagated, detect_foerstner(Float64, img; noise = 2.0))
 end
 
 # The kept line 423 (the circular point's residual sum takes two terms from the
@@ -180,6 +184,82 @@ end
     @test count(<(5.99), nees_kept) > count(<(5.99), nees_derived)   # 95% coverage
 end
 
+# The propagated covariance is σn² J Jᵀ with J the derivative of the estimate with respect to every input pixel:
+# against J by central differences of the detector itself (Float64), for a circular point in the interior, one
+# whose window and derivative support reach the image border (the doubling's clamp, the correlations' zero
+# padding), and a corner. Central differences err by O(ε²) (the estimate is smooth in the pixels while the window
+# stays) and by rounding ≈ eps/ε of the estimate's scale: at ε = 1e-5 both are ≤ 1e-9 of J relative, so 1e-6 holds
+# them with room and is far below any real error (one missed pixel of the support is a percent).
+@testitem "detect_foerstner: the propagated covariance is σn² J Jᵀ (central differences)" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using LinearAlgebra: norm
+    using Statistics: cov
+    using VisualGeometryToolkitCore: Point2
+    σn = 2.0
+    scenes = (
+        ((24.31, 23.77), render((x, y) -> (x - 24.31)^2 + (y - 23.77)^2 < 2.5^2 ? 0.8 : 0.2, 48, 48), :circular),
+        ((7.62, 30.4), render((x, y) -> (x - 7.62)^2 + (y - 30.4)^2 < 2.5^2 ? 0.8 : 0.2, 48, 48), :circular),
+        ((20.37, 21.81), render((x, y) -> 0.2 + 0.6 * ((x > 20.37) & (y > 21.81)), 40, 44), :corner),   # an L corner
+    )
+    for (t, img, label) in scenes
+        points = detect_foerstner(Float64, img; device = KA.CPU(), noise = σn)
+        k = argmin(k -> norm(points[k].center - Point2(t)), eachindex(points))
+        d = points[k]
+        @test d.label === label && d.covariance_source === :propagated
+        ε = 1.0e-5
+        Σfd = zeros(2, 2)
+        for q in CartesianIndices(img)
+            moved = map((-ε, ε)) do h
+                im = copy(img); im[q] += h
+                p = detect_foerstner(Float64, im; device = KA.CPU())
+                only(filter(e -> e.window == d.window, p)).center
+            end
+            j = (moved[2] - moved[1]) / 2ε
+            Σfd .+= (σn / 255)^2 .* (j * j')
+        end
+        @test norm(Matrix(cov(d.value)) - Σfd) <= 1.0e-6 * norm(Σfd)
+    end
+end
+
+# The Förstner study's Monte Carlo (Part 2): one dot geometry in each of 32 × 32 tiles, each with its own iid noise
+# of known σn, NEES about the tiles' empirical mean (the noise-only spread: the estimator's own bias is not the
+# noise's) and the χ²₂ 95 % coverage. Bounds from the sampling alone, 4 standard errors at n = 1024: NEES is the
+# mean of χ²₂ (variance 4), so ±4·2/√n; the coverage a binomial share, ±4·√(0.95·0.05/n).
+@testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures] begin
+    import KernelAbstractions as KA
+    using Random: Xoshiro, randn
+    using LinearAlgebra: norm
+    using Statistics: cov
+    using VisualGeometryToolkitCore: Point2
+    tile, n = 30, 32
+    o = (14.31, 13.77)                                   # the dot centre in its tile
+    clean = render(tile * n, tile * n) do x, y
+        a, b = x - tile * fld(x, tile) - o[1], y - tile * fld(y, tile) - o[2]
+        a^2 + b^2 < 2.5^2 ? 0.8 : 0.2
+    end
+    σn = 2.0
+    rng = Xoshiro(11)
+    for (σd, σi) in ((1.0, 1.41), (1.0, 3.0))
+        img = clean .+ (σn / 255) .* randn(rng, size(clean))
+        points = filter(d -> d.label === :circular, detect_foerstner(Float64, img; device = KA.CPU(), noise = σn,
+                                                                     derivative_sigma = σd, integration_sigma = σi))
+        est, Σs = Vector{Float64}[], Matrix{Float64}[]
+        for ty in 0:(n - 1), tx in 0:(n - 1)
+            t = Point2(tile * tx + o[1], tile * ty + o[2])
+            i = findfirst(d -> norm(d.center - t) < 1.5, points)
+            i === nothing && continue
+            push!(est, [points[i].center[1] - t[1], points[i].center[2] - t[2], 0.0])
+            Σ = zeros(3, 3); Σ[1:2, 1:2] .= Matrix(cov(points[i].value)); Σ[3, 3] = 1
+            push!(Σs, Σ)
+        end
+        m = length(est)
+        @test m == n^2
+        s = mc_summary(est, Σs)
+        @test abs(s.mean_e2 - 2) < 4 * 2 / sqrt(m)
+        @test abs(s.cov95_2 - 0.95) < 4 * sqrt(0.95 * 0.05 / m)
+    end
+end
+
 # GPU: the same result as the CPU, within Float32 rounding. Runs only with a
 # functional CUDA device (CUDA_VISIBLE_DEVICES=0); records a skip otherwise.
 @testitem "detect_foerstner: CUDA matches the CPU" setup = [FoerstnerFixture] begin
@@ -198,9 +278,9 @@ end
         truth, img = blob_grid(100, 140)
         img = [img render((x, y) -> 0.2 + 0.6 * xor(x > 30.37, y > 50.2), 100, 64)]   # and a corner
         backend = Base.invokelatest(getproperty(cuda, :CUDABackend))
-        for (T, tol) in ((Float32, 1.0e-3), (Float64, 1.0e-9))
-            c = detect_foerstner(T, img; device = KA.CPU())
-            g = Base.invokelatest(detect_foerstner, T, img; device = backend)
+        for (T, tol) in ((Float32, 1.0e-3), (Float64, 1.0e-9)), noise in (nothing, 2.0)
+            c = detect_foerstner(T, img; device = KA.CPU(), noise)
+            g = Base.invokelatest(detect_foerstner, T, img; device = backend, noise)
             @test length(c) == length(g) && [d.label for d in c] == [d.label for d in g]
             @test any(d -> d.label === :corner, c)
             @test maximum(norm(a.center - b.center) for (a, b) in zip(c, g)) < tol

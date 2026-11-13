@@ -1,8 +1,8 @@
-# Full Monte Carlo study of the ASIFT keypoint covariance
+# Full Monte Carlo study of the ASIFT detection covariance
 # (`asift_detect(img; uncertainty = FeatureCovariance())`). Not part of the test
 # suite: many configurations and trials, on a GPU when one is available.
 #
-#   julia --project=<an env with VisualGeometryToolkitFeatures, CUDA> benchmark/mc/keypoint_uncertainty_mc.jl [out.md]
+#   julia --project=<an env with VisualGeometryToolkitFeatures, CUDA> benchmark/mc/detection_uncertainty_mc.jl [out.md]
 #
 # For each configuration: N noisy trials of a synthetic image with known blobs
 # (iid Gaussian noise of std σn on the float input path: no quantization), each
@@ -93,7 +93,7 @@ end
 rows = run_study()
 c = hessian_stats(rows)
 out = table(rows, c) * "\nHess-3D scale fitted over all rows: Σ = $(round(c, sigdigits = 4))·σn²·J(∓Ĥ)⁻¹Jᵀ (pooled mean e₃ = 3).\nTrials per config: $NTR; device: $(typeof(device)).\n"
-path = length(ARGS) >= 1 ? ARGS[1] : joinpath(tempdir(), "keypoint_uncertainty_mc.md")
+path = length(ARGS) >= 1 ? ARGS[1] : joinpath(tempdir(), "detection_uncertainty_mc.md")
 write(path, out)
 println(out)
 println("written to ", path)

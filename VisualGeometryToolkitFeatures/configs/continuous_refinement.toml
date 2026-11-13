@@ -4,9 +4,9 @@
 # the refinement is read from here (Core's parse_defaults/toml_default); there is no
 # second set of Julia literals.
 #
-# Units. `v = (x, y, s)` are a keypoint's octave-level coordinates (level pixels, and
+# Units. `v = (x, y, s)` are a detection's octave-level coordinates (level pixels, and
 # the DoG slice index). The LM iterates on the scale-normalised displacement
-# θ = (Δx/σ, Δy/σ, Δℓ), σ the keypoint's scale in level pixels at the start and
+# θ = (Δx/σ, Δy/σ, Δℓ), σ the detection's scale in level pixels at the start and
 # ℓ = ln σ (Δℓ = Δs·ln2/S): Gaussian scale space is invariant under (x, σ) ↦ (λx, λσ),
 # so a unit step in x/σ and a unit step in ln σ move the response comparably.
 # =============================================================================
@@ -29,7 +29,7 @@
 # renormalised to sum to 1, so a constant is reproduced exactly.
 prefilter_halfwidth = 10
 
-# The displacement box from the start (today's refined keypoint), per axis: |Δx|, |Δy|
+# The displacement box from the start (today's refined detection), per axis: |Δx|, |Δy|
 # ≤ spatial_bound level px and |Δs| ≤ scale_bound slices. Two distinct 26-neighbour
 # extrema are at least 2 samples apart on some axis, so a box of half-width 1 can
 # hold the refined point of at most the start's own extremum; the disagreement it

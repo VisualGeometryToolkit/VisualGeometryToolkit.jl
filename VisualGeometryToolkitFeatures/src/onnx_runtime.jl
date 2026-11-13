@@ -374,7 +374,7 @@ function _onnx_device_free()
 end
 
 # `f()` with the device's free memory (`free`: bytes, or nothing without a query) read around it: its value and the
-# drop in free memory, `nothing` without a query. The one arena-growth measurement (a run's, a session's creation).
+# drop in free memory, `nothing` without a query. The one measured arena growth (a run's, a session's creation).
 function _measure_growth(f, free::Function)
     before = free()
     out = f()

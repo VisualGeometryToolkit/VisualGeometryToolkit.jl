@@ -16,12 +16,12 @@ using KernelAbstractions: @kernel, @index, @Const
 # covariance, labelled, with its window centre and the classification statistic.
 const _FoerstnerDetection = Attributed{
     Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}},
-    @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64},
+    @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_source::Symbol},
 }
 
 """
     detect_foerstner([T = Float32], img; device = default_device(),
-                     method = :foerstner, noise_sigma = 2.0,
+                     method = :foerstner, noise = nothing, noise_sigma = 2.0,
                      derivative = :gaussian2d, integration = :box,
                      derivative_sigma = 1.0, integration_sigma = 1.41 * derivative_sigma,
                      precision_threshold = 0.5, roundness_threshold = 0.3,
@@ -44,7 +44,10 @@ Returns one row per optimal window, a `StructArray` of
   (px², `(x, y)` order); for an `:unknown` row the window centre with a NaN
   covariance (the reference returns no estimate for it);
 - `window`: the window centre, a `Point2`;
-- `F`: the classification statistic `Ω_corner / Ω_circular`.
+- `F`: the classification statistic `Ω_corner / Ω_circular`;
+- `covariance_source`: which covariance the frame carries, `:propagated` (the
+  image noise `noise` propagated through the detector, below) or `:a_posteriori`
+  (the reference's `Ω/redundancy · N⁻¹`, when `noise` is `nothing`).
 
 `filter(d -> d.label === :corner, points)` are the corners; `Ellipse(d; sigma = 1)`
 is a point's 1σ error ellipse (`ip_errell.m`'s default).
@@ -59,9 +62,19 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
 - `method`: `:foerstner` — windows where the roundness `4 det/tr² > roundness_threshold`
   and the precision `det/tr > (σₙ / precision_threshold)²`, ranked by `det/tr`;
   `:koethe` — windows whose precision test succeeds, ranked by the smaller eigenvalue.
-- `noise_sigma`: the standard deviation of the (constant) image noise, in GREY
-  LEVELS OF AN 8-BIT IMAGE (0–255), as the reference's for a `uint8` image;
-  `σₙ = noise_sigma / 255` on the `[0, 1]` image.
+- `noise`: the image noise the covariance is propagated from: the standard
+  deviation σₙ of iid pixel noise, in grey levels of an 8-bit image (0–255, as
+  `noise_sigma`). The covariance is then `σₙ² J Jᵀ` (`σₙ` on the `[0, 1]` image),
+  `J` the exact first-order derivative of the estimate with respect to every input
+  pixel, through the detector's own doubling, derivative taps, squared gradient
+  and window estimate (step 6). `nothing`: no noise is known, and the covariance
+  is the reference's a-posteriori `Ω/redundancy · N⁻¹` (step 4), marked
+  `covariance_source = :a_posteriori`; that one is not calibrated (it carries the
+  model misfit, which does not scale with the noise).
+- `noise_sigma`: the noise level of the PRECISION TEST (step 3), the
+  reference's knob, in grey levels of an 8-bit image (0–255), as the reference's
+  for a `uint8` image; `σₙ = noise_sigma / 255` on the `[0, 1]` image. It does not
+  enter the covariance.
 - `derivative`: `:gaussian2d` (a Gaussian derivative smoothed across by a
   Gaussian of the same σ) or `:gaussian1d` (the derivative alone).
 - `integration`: `:box` (a box whose standard deviation is `integration_sigma`)
@@ -89,12 +102,20 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
    the lines through every pixel ACROSS its gradient (normal matrix
    `Σ ∇g∇gᵀ`), the circular point that of the lines ALONG it (`Σ ∇g⊥∇g⊥ᵀ`).
    Each has a weighted residual sum `Ω`, redundancy `(2ρ + 1)² − 2` and
-   covariance `Ω/redundancy · N⁻¹` (lines 314–423, 440, 449).
+   a-posteriori covariance `Ω/redundancy · N⁻¹` (lines 314–423, 440, 449).
 5. `F = Ω_corner / Ω_circular` against the F distribution of (redundancy,
    redundancy) degrees of freedom, as the reference's
    `(T < F(α)) − (T > F(1 − α))` (line 429): a corner below the
    `1 − significance_level` quantile, a circular point above the
    `significance_level` quantile, unknown in between.
+6. With `noise` given, the covariance is propagated instead (not in the
+   reference): the estimate `x̂ = N⁻¹ b` moves, by the implicit-function theorem,
+   by `δx̂ = N⁻¹ Σₚ A(p) δ∇g(p)` with `A(p) w = (vᵀe) R w + v eᵀ R w`, `v = R∇g`,
+   `e = p − x̂` (`R` the identity for a corner, the 90° rotation for a circular
+   point), the window centre fixed; the gradient is linear in the input, so each
+   input pixel `q` gives the column `J[:, q]`, exact at the image borders, and
+   `Σ = Σ_q σₙ² J[:, q] J[:, q]ᵀ`. Monte Carlo against each dot's noise-free
+   estimate gives the χ²₂ NEES ≈ 2 and 95 % coverage (Förstner study, Part 2).
 
 # Coordinates
 COLMAP pixel centres of the input image, `(x, y) = (column, row)`, converted
@@ -145,6 +166,7 @@ function detect_foerstner(
         ::Type{T}, img::AbstractMatrix;
         device::KA.Backend = default_device(),
         method::Symbol = :foerstner,
+        noise::Union{Nothing, Real} = nothing,
         noise_sigma::Real = 2.0,
         derivative::Symbol = :gaussian2d,
         integration::Symbol = :box,
@@ -163,7 +185,18 @@ function detect_foerstner(
         device, doubled; method, noise_sigma, derivative, integration, derivative_sigma,
         integration_sigma, precision_threshold, roundness_threshold
     )
-    return _foerstner_points(found, significance_level, _undouble)
+    classes = _foerstner_classes(found, significance_level)
+    noise === nothing && return _foerstner_points(found, classes, _undouble)
+    α, σ² = _pixel_variance(noise)
+    covariances = _propagated_covariances(device, found, classes, g, α, σ², derivative, derivative_sigma)
+    return _foerstner_points(found, classes, _undouble; covariances, covariance_source = :propagated)
+end
+
+# The image noise `detect_foerstner` propagates, as the per-pixel variance `α·x + σ²` of the `[0, 1]` image `x`:
+# iid noise of `σn` grey levels of an 8-bit image is `α = 0`, `σ² = (σn/255)²`.
+function _pixel_variance(σn::Real)
+    isfinite(σn) && σn > 0 || throw(ArgumentError("detect_foerstner: the noise σ must be positive and finite, got $σn"))
+    return 0.0, (σn / 255)^2
 end
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
@@ -259,32 +292,153 @@ function _foerstner_windows(
         estimates .= Array(out)
     end
     KA.synchronize(device)
-    return (; centres, estimates, ρ, redundancy = (2ρ + 1)^2 - 2, upscale, gamma = Array(gamma))
+    return (; centres, estimates, ρ, redundancy = (2ρ + 1)^2 - 2, upscale, gamma = Array(gamma), gradient = dr)
 end
 
-# 323–460: the F-test and one labelled row per window, positions mapped by `undouble`.
-function _foerstner_points(found, significance_level, undouble)
-    (; centres, estimates, redundancy, upscale) = found
-    fdist = FDist(redundancy, redundancy)
+# 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
+# 0 unknown (the reference's noclass).
+function _foerstner_classes(found, significance_level)
+    fdist = FDist(found.redundancy, found.redundancy)
     corner_critical = quantile(fdist, significance_level)
     circular_critical = quantile(fdist, 1 - significance_level)
+    return Int8[
+        (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
+            for e in eachcol(found.estimates)
+    ]
+end
+
+# 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is
+# the reference's a-posteriori `Ω/redundancy · N⁻¹` unless `covariances` (a 4 × K matrix, column-major 2×2 on the
+# doubled grid, (row, column)) gives the propagated one; `covariance_source` names which.
+function _foerstner_points(found, classes, undouble; covariances = nothing, covariance_source::Symbol = :a_posteriori)
+    (; centres, estimates, redundancy, upscale) = found
     unknown_cov = CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))
     rows = map(enumerate(centres)) do (k, p)
         e = view(estimates, :, k)
-        statistic = e[7] / e[14]                                                # 427
-        class = (statistic < corner_critical) - (statistic > circular_critical) # 429
+        class = classes[k]
         window = undouble(p[1], p[2])
+        Σ(Ninv, Ω) = covariances === nothing ? Ninv .* (Ω / redundancy) : view(covariances, :, k)
         frame = if class == 1
-            _uncertain_point(undouble, e[1], e[2], e[3:6] .* (e[7] / redundancy), upscale)
+            _uncertain_point(undouble, e[1], e[2], Σ(e[3:6], e[7]), upscale)
         elseif class == -1
-            _uncertain_point(undouble, e[8], e[9], e[10:13] .* (e[14] / redundancy), upscale)
+            _uncertain_point(undouble, e[8], e[9], Σ(e[10:13], e[14]), upscale)
         else
             Uncertain(PointFrame(window), unknown_cov)   # the reference's noclass: no estimate
         end
         label = class == 1 ? :corner : class == -1 ? :circular : :unknown
-        _FoerstnerDetection(frame, (; label, window, F = statistic))
+        _FoerstnerDetection(frame, (; label, window, F = e[7] / e[14], covariance_source))
     end
     return StructArray(_FoerstnerDetection[rows...]; unwrap = T -> T <: NamedTuple)
+end
+
+# ----- the propagated covariance: the exact first-order propagation of the pixel noise -----------------------
+#
+# The window estimate is x̂ = N⁻¹ b, N = Σₚ M(p), b = Σₚ M(p) p over the window's pixels p (doubled grid), with
+# M = v vᵀ, v = R ∇g (R = I for the corner, the 90° rotation for the circular point: ip_fop.m's Γ and Γ⊥). By the
+# implicit-function theorem a perturbation δ∇g of the gradient moves it by
+#
+#     δx̂ = N⁻¹ Σₚ A(p) δ∇g(p),   A(p) w = (vᵀe) R w + v eᵀ R w,   e = p − x̂;
+#
+# the window centre is a discrete choice and does not move. The gradient is linear in the input: the doubling
+# then the correlation with the derivative taps along one axis and the across taps along the other, i.e. per
+# component a product of two one-axis operators (`_pipeline_bands`), exact at the borders (the doubling's clamp,
+# the correlations' zero padding). So an input pixel q moves the estimate by J[:, q] = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q),
+# and independent pixel noise of variance var(q) gives Σ = Σ_q var(q) J[:, q] J[:, q]ᵀ (σn² J Jᵀ for iid noise),
+# evaluated at the window's own gradient and estimate.
+
+# The doubled grid's samples along one axis of `n` input pixels as linear maps of the input, after the doubling
+# (`_upsample_sample`) and the correlation along that axis with each column of `taps` (the detector's
+# `_correlate_rows!` / `_correlate_columns!` taps, radius r, zero padded): column p is the adjoint of both stages
+# applied to the doubled sample p (ASIFT's `_correlate_adj`, `_up_adj`, exact at the borders). `B[k, p, s]` is the
+# weight of input pixel `_band_start(p, r) + k − 1` for taps column s: a doubled sample m reads input ⌊m/2⌋ and
+# ⌊m/2⌋ + 1 (clamped), so p reads at most r + 2 consecutive input pixels.
+function _pipeline_bands(taps::AbstractMatrix{Float64}, n::Integer)
+    r = size(taps, 1) ÷ 2
+    B = zeros(r + 2, 2n, size(taps, 2))
+    for s in axes(taps, 2), p in 1:(2n)
+        line = _up_adj(_correlate_adj(_Line(p, [1.0]), view(taps, :, s), 2n))
+        for (j, w) in enumerate(line.v)
+            w == 0 && continue
+            B[line.i0 + j - 1 - _band_start(p, r) + 1, p, s] = w
+        end
+    end
+    return B
+end
+
+@inline _band_start(p::Integer, r::Integer) = max(1, max(p - r, 1) >> 1)
+
+# The propagated covariance of every classified window (a 4 × K host matrix, column-major 2×2 on the doubled grid,
+# (row, column); NaN for an unknown window), the input `g`'s per-pixel noise variance α·g + σ², on `device`.
+function _propagated_covariances(device, found, classes, g::AbstractMatrix{T}, α, σ², derivative, derivative_sigma) where {T}
+    (; centres, estimates, ρ, upscale, gradient) = found
+    K = length(centres)
+    K == 0 && return zeros(Float64, 4, 0)
+    derivative_taps, across_taps = _derivative_taps(derivative, upscale * derivative_sigma)
+    H, W = size(g)
+    rows = ka_upload(T, device, _pipeline_bands([derivative_taps across_taps], H))
+    columns = ka_upload(T, device, _pipeline_bands([across_taps derivative_taps], W))
+    out = KA.allocate(device, T, 4, K)
+    _launch!(
+        _propagated_covariances!, device, out, gradient, g,
+        ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres]),
+        ka_upload(T, device, estimates), ka_upload(Int8, device, classes), rows, columns,
+        Int32(ρ), Int32(length(derivative_taps) ÷ 2), T(α), T(σ²); ndrange = K
+    )
+    return Float64.(Array(out))
+end
+
+# One window k: Σ = Σ_q var(q) δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
+# pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
+# |p − 2q| ≤ r + 2 along each axis.
+@kernel function _propagated_covariances!(
+        out, @Const(gradient), @Const(g), @Const(centres), @Const(estimates), @Const(classes),
+        @Const(rows), @Const(columns), ρ::Int32, r::Int32, α, σ²
+    )
+    k = @index(Global)
+    T = eltype(out)
+    @inbounds class = classes[k]
+    @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
+    H, W = size(g)
+    w = Int(r) + 2
+    Σrr = Σrc = Σcc = zero(T)
+    if class == 0
+        Σrr = Σrc = Σcc = T(NaN)
+    else
+        o = class == 1 ? 0 : 7                            # the corner's estimate, or the circular point's
+        @inbounds xr, xc = estimates[1 + o, k] - rw, estimates[2 + o, k] - cw
+        @inbounds Ninv = SMatrix{2, 2, T, 4}(estimates[3 + o, k], estimates[4 + o, k], estimates[5 + o, k], estimates[6 + o, k])
+        dot = class == -1
+        for q2 in _band_start(cw - Int(ρ), Int(r)):min(W, _band_start(cw + Int(ρ), Int(r)) + w - 1),
+                q1 in _band_start(rw - Int(ρ), Int(r)):min(H, _band_start(rw + Int(ρ), Int(r)) + w - 1)
+            s1 = s2 = zero(T)
+            for pc in max(cw - Int(ρ), 2q2 - w):min(cw + Int(ρ), 2q2 + w),
+                    pr in max(rw - Int(ρ), 2q1 - w):min(rw + Int(ρ), 2q1 + w)
+                k1 = q1 - _band_start(pr, Int(r)) + 1
+                k2 = q2 - _band_start(pc, Int(r)) + 1
+                (1 <= k1 <= w) & (1 <= k2 <= w) || continue
+                @inbounds δr = rows[k1, pr, 1] * columns[k2, pc, 1]
+                @inbounds δc = rows[k1, pr, 2] * columns[k2, pc, 2]
+                @inbounds gr, gc = gradient[pr, pc, 1], gradient[pr, pc, 2]
+                # v = R∇g and u = Rδ∇g (R the 90° rotation for the circular point), e = p − x̂
+                vr, vc = dot ? (-gc, gr) : (gr, gc)
+                ur, uc = dot ? (-δc, δr) : (δr, δc)
+                er, ec = T(pr - rw) - xr, T(pc - cw) - xc
+                ve = vr * er + vc * ec
+                eu = er * ur + ec * uc
+                s1 += ve * ur + eu * vr
+                s2 += ve * uc + eu * vc
+            end
+            δ = Ninv * SVector(s1, s2)
+            @inbounds v = α * g[q1, q2] + σ²
+            Σrr += v * δ[1]^2
+            Σrc += v * δ[1] * δ[2]
+            Σcc += v * δ[2]^2
+        end
+    end
+    @inbounds out[1, k] = Σrr
+    @inbounds out[2, k] = Σrc
+    @inbounds out[3, k] = Σrc
+    @inbounds out[4, k] = Σcc
 end
 
 # A doubled-grid estimate and its (row, column) covariance `Σ` (column-major

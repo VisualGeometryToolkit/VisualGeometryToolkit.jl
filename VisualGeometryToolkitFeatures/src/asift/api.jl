@@ -254,7 +254,7 @@ not take.
 
 **Tilts.** `tilts` is a [`tilt_schedule`](@ref) name or a vector of `(t, φ)`
 pairs: `:imas25` (the default) the 25 tilts of IMAS-25, `:untilted` the
-identity warp alone (plain DoG-SIFT), whose keypoints localize best (about
+identity warp alone (plain DoG-SIFT), whose detections localize best (about
 0.3 px rms on real panorama frames, against about 0.95 px for a tilted warp's):
 the schedule for views that differ by a rotation, such as a panorama's. Under
 `:untilted` every detection has `warp_idx == 1`, and they are exactly the
@@ -263,20 +263,20 @@ identity warp's detections under `:imas25`.
 **Exclusion mask.** `exclusion_mask`, an H×W `AbstractMatrix{Bool}` (`true` where
 detection is not allowed: clipped or saturated pixels, a vignetted rim, an
 overlay), drops every detection whose centre lies within three of its scales
-(`characteristic_scale`, the DoG's support) of a masked pixel, so no keypoint
+(`characteristic_scale`, the DoG's support) of a masked pixel, so no detection
 is read off masked pixels. It applies after the cross-warp NMS, to `raw`
 features and covariances alike. The detector on a [`StabilizedImage`](@ref)
 masks its saturated pixels by this rule.
 
 **Determinism.** The result is a function of the image and the keywords: the
-same keypoints, in the same order, run to run, on one thread or many, launched
+same detections, in the same order, run to run, on one thread or many, launched
 statically or from inside a threaded region. The extrema pool fills in the order
 the threads reach it, so before the cross-warp NMS (which breaks ties in its
 quantized response by pool order) it is sorted into a canonical order: by
 position, scale and response, then every other field (the covariance's too). The
 detections come back in that order.
 
-**Keypoint uncertainty.** `uncertainty = FeatureCovariance()` returns each
+**Detection uncertainty.** `uncertainty = FeatureCovariance()` returns each
 detection's frame as `Uncertain(frame, Σ̃)`, `Σ̃ = cov(d)` a 3×3 `CovMat` over
 `(x, y, log σ)` for unit iid pixel noise in the detector's intensity units — see
 [`FeatureCovariance`](@ref) for the model, the parameterization and the units.
@@ -287,8 +287,8 @@ runs the detector without it, the kernels compiled exactly as before.
 detection's one-step quadratic refinement, after it, by an iterative one on a continuous
 model of the DoG response (Core's device LM, in a kernel, on the CPU and any GPU): the same
 candidates, the half-sample jump of the one-step refinement gone, and with
-`uncertainty = FeatureCovariance()` each refined keypoint's covariance recomputed at its own
-point from that model's derivatives. A keypoint whose continuous refinement fails keeps
+`uncertainty = FeatureCovariance()` each refined detection's covariance recomputed at its own
+point from that model's derivatives. A detection whose continuous refinement fails keeps
 today's. See [`ContinuousRefinement`](@ref) for the response models; the default
 `refinement = nothing` is the detector unchanged.
 

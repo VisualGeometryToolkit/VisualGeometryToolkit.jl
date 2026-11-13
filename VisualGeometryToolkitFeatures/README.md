@@ -63,7 +63,7 @@ guide walks through it step by step.
 - [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/getting-started/):
   the example, step by step.
 - [Detection](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/detection/):
-  the ASIFT detector, its coordinates, accuracy and keypoint covariance.
+  the ASIFT detector, its coordinates, accuracy and detection covariance.
 - [Matching](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/guide/matching/):
   strategies, metrics, stacked galleries and LoMa.
 - [API Reference](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitFeatures/stable/api/detection/).

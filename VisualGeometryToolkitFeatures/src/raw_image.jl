@@ -162,7 +162,7 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
   level.
 - `:demosaic` — FOR DISPLAY FIGURES ONLY. LibRaw's demosaic (AHD) of the
   visible area at full resolution: it INTERPOLATES the two colours each
-  photosite did not record, so its values are not measurements and its
+  photosite did not record, so its values are not measured and its
   pixels carry no exact geometry. Evaluation code must not read it; it has no
   frame map (`raw_frame_map` and `green_cell_sites` refuse it).
   LibRaw's output is linear (gamma 1, no auto-brightening, no maximum

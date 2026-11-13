@@ -17,7 +17,7 @@ on any GPU backend (`device = CUDABackend()`, for instance).
 
 The tilt schedule is a keyword, a [`tilt_schedule`](@ref) name or a vector of
 `(t, φ)` pairs. `tilts = :untilted`, the identity alone, is plain DoG-SIFT. Its
-keypoints localize best (about 0.3 px rms on real panorama frames, against
+detections localize best (about 0.3 px rms on real panorama frames, against
 about 0.95 px for a tilted warp's), so it is the schedule for views that differ
 by a rotation, such as a panorama's:
 
@@ -117,7 +117,7 @@ Larger blobs and clutter do worse. The Monte Carlo study in the package's
 blobs with σ ≥ 6.5, and up to about 1 px in clutter. Treat 0.06 px as the bound
 for small, isolated blobs only.
 
-## Keypoint uncertainty
+## Detection uncertainty
 
 `asift_detect(img; uncertainty = FeatureCovariance())` returns each detection
 with its frame as VisualGeometryToolkitCore's `Uncertain(frame, Σ̃)`. `cov(d)`
@@ -129,7 +129,7 @@ that need only the position take the top-left 2×2 block.
 The covariance follows from the implicit function theorem at the refined DoG
 extremum; its noise term is tabulated exactly for the discrete pyramid once per
 plan. The [`FeatureCovariance`](@ref) docstring states the model. The Monte
-Carlo study that calibrates it is `benchmark/mc/keypoint_uncertainty_mc.jl`,
+Carlo study that calibrates it is `benchmark/mc/detection_uncertainty_mc.jl`,
 and `benchmark/mc/zeisl_comparison.jl` compares it with the covariance of
 Zeisl et al. (BMVC 2009). The default, `uncertainty = nothing`, compiles the
 detector exactly as without the option.
@@ -140,8 +140,8 @@ detector exactly as without the option.
 detector's one-step quadratic refinement. The detection candidates are the same. The second
 refinement is an iterative solve, Core's device Levenberg–Marquardt `static_lm`, run inside a
 kernel on the CPU and on a GPU, and it works on a continuous model of the DoG response in
-`(x, y, log σ)`. With `uncertainty = FeatureCovariance()`, each refined keypoint's covariance is
-recomputed at the refined point from that model's own derivatives. A keypoint whose continuous
+`(x, y, log σ)`. With `uncertainty = FeatureCovariance()`, each refined detection's covariance is
+recomputed at the refined point from that model's own derivatives. A detection whose continuous
 refinement fails keeps the one-step position. Without the keyword, the detector is unchanged.
 
 `ContinuousRefinement()` is one recipe. The spatial gradient comes from Farid and Simoncelli's
@@ -155,7 +155,7 @@ full sub-pixel period drops from 0.02–0.14 level pixels (one-step) to 0.0001�
 half-sample jump of the one-step refinement disappears. The scale error matches the spline
 model's, at most 0.0041 in `log σ` at octaves 1–3. The covariance is calibrated, with NEES₂
 between 1.94 and 2.09. On a GPU the refinement costs about twice the detector's own time per
-keypoint; on the CPU it adds about 16 %.
+detection; on the CPU it adds about 16 %.
 
 ## The image circle of a lens
 

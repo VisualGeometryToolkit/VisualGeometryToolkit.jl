@@ -153,7 +153,7 @@ end
     S = VgtkCore.unlabel(raw_frame_map(first(cells)))
     @test VgtkCore.scale(S) == 2
     full = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = a, min_hole_area = 8).circle
-    # the measurement on the cells' plane, taken to the raw by hand: what the RAW method does
+    # the estimate on the cells' plane, taken to the raw by hand: what the RAW method does
     planes = [L.image[:, :, 1] for L in cells]
     by_hand = detect_image_circle(Xoshiro(1), planes; outlier_halfwidth = a / 2, min_hole_area = 2)
     green = S(by_hand.circle)

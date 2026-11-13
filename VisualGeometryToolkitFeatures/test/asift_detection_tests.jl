@@ -22,7 +22,7 @@ const TEXTURE = let rng = Xoshiro(11), H = 120, W = 176
 end
 end
 
-@testitem "ASIFT: the same image, the same keypoints in the same order, under any scheduling and pool order" setup = [Fixtures, TextureFixture] begin
+@testitem "ASIFT: the same image, the same detections in the same order, under any scheduling and pool order" setup = [Fixtures, TextureFixture] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
     using VisualGeometryToolkitFeatures: spread_strongest
     using Random: Xoshiro, randperm
@@ -30,7 +30,7 @@ end
     # The pool fills through an atomic counter, so its order is the order the threads reach it: it varies run to run on
     # many threads and on a GPU, and the cross-warp NMS breaks its ties by pool index. The pool is put in canonical order
     # (position, scale, response, then every other field) before the NMS, so the result is a function of the pool's
-    # contents alone. On one thread (the suite's workers) or many (an interactive session), the same keypoints come back.
+    # contents alone. On one thread (the suite's workers) or many (an interactive session), the same detections come back.
     H, W = size(TEXTURE)
     fields(f) = (f.x, f.y, f.σ, f.intensity, f.s_xx, f.s_xy, f.s_yy, f.warp_idx)
     detect(dev; kw...) = asift_detect(TEXTURE; device = dev, raw = true, uncertainty = FeatureCovariance(), kw...)

@@ -199,7 +199,7 @@ end
     @test ran == [:dynamic]
     # any other error propagates
     @test_throws ArgumentError _ScheduledKernel(() -> throw(ArgumentError("x")), () -> nothing)()
-    # the detector launched both ways: asift_detection_tests.jl ("the same keypoints in the same order")
+    # the detector launched both ways: asift_detection_tests.jl ("the same detections in the same order")
 end
 
 @testitem "pyramid tile lists: active and masked tiles partition each level" setup = [Fixtures] begin
@@ -569,7 +569,7 @@ end
     @test all(nm -> isempty(getfield(small, nm)), pool_names)
     @test sort(key.(asift_detect!(small, img; nms = :none, intensity_thr = 0.01))) ==
         sort(key.(pool_big))
-    # the pool buffers and the keypoint-covariance buffers (grown alongside them
+    # the pool buffers and the detection-covariance buffers (grown alongside them
     # when in use) are exactly the plan's non-const fields but the last call's
     # count of failed refinements: `_grow_pool!` can replace every one of them,
     # and nothing else

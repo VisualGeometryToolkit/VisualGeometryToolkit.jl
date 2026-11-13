@@ -57,7 +57,7 @@ Properties are forwarded from frame and metadata:
 - `d.metadata`, `d.attributes` → the metadata
 - `d.center` → `frame.center`
 - `d.σ` → scale from frame (exact for Disc, characteristic_scale for anisotropic)
-- `d.Σ` → shape matrix (blob shape, not measurement covariance)
+- `d.Σ` → shape matrix (blob shape, not the position covariance)
 - `d.response`, `d.edge_score`, etc. → forwarded from metadata
 
 # Example

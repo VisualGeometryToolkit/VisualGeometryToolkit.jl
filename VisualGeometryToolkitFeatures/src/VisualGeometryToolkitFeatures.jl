@@ -53,7 +53,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map, bayer_plane_map
 using LinearAlgebra: isposdef
-using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
+using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
@@ -96,7 +96,7 @@ include("asift/pyramid.jl")
 include("asift/warp.jl")
 include("asift/backproject.jl")
 include("asift/crosswarp.jl")
-include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
+include("asift/uncertainty.jl")   # FeatureCovariance: the detection covariance tables and per-detection math
 include("asift/continuous_refine.jl")   # ContinuousRefinement: the opt-in continuous DoG-extremum refinement (before driver.jl, whose asift_detect! takes it; its kernels launch through foerstner.jl's helper, bound at run time)
 include("asift/driver.jl")
 include("asift/api.jl")
@@ -159,7 +159,7 @@ export asift_detect, asift_detect!, asift_detections
 export tilt_schedule             # ASIFT's tilts by name: :imas25 (the default), :untilted (the identity alone)
 export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
-export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
+export FeatureCovariance            # detection uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export ContinuousRefinement         # the opt-in continuous refinement: asift_detect(img; refinement = ContinuousRefinement())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample

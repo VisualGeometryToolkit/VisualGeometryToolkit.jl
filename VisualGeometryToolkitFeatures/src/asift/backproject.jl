@@ -51,7 +51,7 @@ longitude in radians), by name or as given (`tilts`, any collection of pairs):
   [`AsiftPlan`](@ref)): the identity, 8 tilts of 2.62 and 16 of 5.18 at evenly
   spaced longitudes. Affine invariance for wide-baseline views.
 - `:untilted` — the identity warp alone, `[(1.0, 0.0)]`: plain DoG-SIFT. Its
-  keypoints localize best: on real panorama frames a tilted warp's keypoints
+  detections localize best: on real panorama frames a tilted warp's detections
   land about 0.95 px rms from the untilted view's of the same structure, the
   untilted's about 0.3 px from debiased SIFT, so for views that differ by a
   rotation (a panorama) it is the better schedule.

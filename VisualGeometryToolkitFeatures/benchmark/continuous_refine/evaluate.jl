@@ -260,7 +260,7 @@ for (k, v) in sort(collect(codes), by = last, rev = true)
     say("- ", k[1], " / ", k[2], ": ", v)
 end
 say("- blobs without an A detection: ", count(r -> !r.ok, allrows), " of ", length(allrows))
-say(@sprintf("\nSweep kernel time (%s): coefficients %.3g s, refinement %.3g s over %d keypoints (%.2f / %.2f μs per keypoint; includes per-call launch latency).",
+say(@sprintf("\nSweep kernel time (%s): coefficients %.3g s, refinement %.3g s over %d detections (%.2f / %.2f μs per detection; includes per-call launch latency).",
     GPU ? "GPU" : "CPU", sweep_time.coefficients, sweep_time.refinement, sweep_time.n,
     1.0e6 * sweep_time.coefficients / max(sweep_time.n, 1), 1.0e6 * sweep_time.refinement / max(sweep_time.n, 1)))
 write(OUT * ".md", String(take!(copy(md))))
@@ -387,10 +387,10 @@ function dense_scene(H, W; seed = 9)
     end
     return img .+ 0.005 .* randn(rng, H, W)
 end
-say("\n## Table 6. Time per keypoint (dense 1536×1024 scene, identity tilt, upsample; warm, min of 3)\n")
+say("\n## Table 6. Time per detection (dense 1536×1024 scene, identity tilt, upsample; warm, min of 3)\n")
 H, W = 1024, 1536
 img = dense_scene(H, W)
-say("| device | keypoints | A: asift_detect! (whole detector) per kp | C: coefficient kernel per kp | C: refinement kernel per kp | C total / A |")
+say("| device | detections | A: asift_detect! (whole detector) per detection | C: coefficient kernel per detection | C: refinement kernel per detection | C total / A |")
 say("|---|---|---|---|---|---|")
 results = Dict{Symbol, Any}()
 for (name, dev) in (GPU ? [(:gpu, device), (:cpu, KA.CPU())] : [(:cpu, KA.CPU())])
@@ -438,7 +438,7 @@ let
     nbit = sum(count(a.v !== b.v for (a, b) in zip(r.eg, r.ec)) for r in values(R))
     nt = sum(length(r.eg) for r in values(R))
     tol = VgtkFeatures._cr("cpu_gpu_tolerance")
-    say(@sprintf("\nCPU = GPU (the same DoG, both backends' kernels), %d keypoints: records differing %d; max |Δv| = %.3g level units (tolerance %.3g, derived in the TOML); %d of %d not bit-identical.",
+    say(@sprintf("\nCPU = GPU (the same DoG, both backends' kernels), %d detections: records differing %d; max |Δv| = %.3g level units (tolerance %.3g, derived in the TOML); %d of %d not bit-identical.",
         nt, nrec(r -> r.eg, r -> r.ec), dv(r -> r.eg, r -> r.ec), tol, nbit, nt))
     say(@sprintf("Attribution: the coefficients differ by up to %.3g of their range (Float32 contraction); the GPU LM on the CPU's coefficients is %.3g from the CPU (records differing %d); with the cost floor at 0 the two backends are %.3g apart (records differing %d).",
         maximum(r.dcoef for r in values(R)), dv(r -> r.el, r -> r.ec), nrec(r -> r.el, r -> r.ec), dv(r -> r.eg0, r -> r.ec0), nrec(r -> r.eg0, r -> r.ec0)))

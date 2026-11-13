@@ -1,10 +1,10 @@
-# Keypoint uncertainty (`asift_detect(img; uncertainty = FeatureCovariance())`):
+# Detection uncertainty (`asift_detect(img; uncertainty = FeatureCovariance())`):
 # the table's exactness against the real kernels, the kernels' covariance against the refinement's Jacobian by
 # finite differences, the API and its round trips, and
 # a Monte Carlo calibration on synthetic blobs. The full study, many configs
-# and trials, is benchmark/mc/keypoint_uncertainty_mc.jl (not in the suite).
+# and trials, is benchmark/mc/detection_uncertainty_mc.jl (not in the suite).
 
-@testitem "keypoint covariance: the C table is the pyramid's K·Kᵀ" setup = [UncFixtures] begin
+@testitem "detection covariance: the C table is the pyramid's K·Kᵀ" setup = [UncFixtures] begin
     using VisualGeometryToolkitFeatures: AsiftPlan, _ensure_cov!, _unpack_M
     import KernelAbstractions as KA
     # Identity warp, 256²: octaves −1 (all four pixel parities), 0 and 1, every
@@ -22,7 +22,7 @@
     end
 end
 
-@testitem "keypoint covariance: the kernels' covariance is J·M·Jᵀ of the refinement, J by finite differences" setup = [UncFixtures] begin
+@testitem "detection covariance: the kernels' covariance is J·M·Jᵀ of the refinement, J by finite differences" setup = [UncFixtures] begin
     using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _unpack_M, _backproject_cov!
     using CUDA: CUDA
     import KernelAbstractions as KA
@@ -101,7 +101,7 @@ end
     @test out[:, 1] ≈ [Σb[1, 1], Σb[1, 2], Σb[1, 3], Σb[2, 2], Σb[2, 3], Σb[3, 3]]
 end
 
-@testitem "keypoint covariance: API, off path unchanged, round trips" setup = [Fixtures, UncFixtures] begin
+@testitem "detection covariance: API, off path unchanged, round trips" setup = [Fixtures, UncFixtures] begin
     using VisualGeometryToolkitCore: feature_frame
     using VisualGeometryToolkitFeatures: ImasFeatureKA
     using VisualGeometryToolkitCore: Uncertain, CovMat, UnlabeledFrame, cov, geom
@@ -144,7 +144,7 @@ end
     @test sa[1].center == d.center && cov(sa[1].detection) == cov(d)
 end
 
-@testitem "keypoint covariance: Monte Carlo calibration (CPU)" setup = [UncFixtures] begin
+@testitem "detection covariance: Monte Carlo calibration (CPU)" setup = [UncFixtures] begin
     # Isotropic blobs at sub-pixel positions over octaves −1…1, light and dark,
     # contrast 0.15–0.3, on the identity warp; iid Gaussian noise of σn = 0.01 on
     # the float input path (no quantization). The scales stay off the octave
@@ -184,7 +184,7 @@ end
     @test abs(mean(c95) - 0.95) < 0.04
 end
 
-@testitem "keypoint covariance: position variance scales as contrast⁻² (Zeisl's ∓H⁻¹ as contrast⁻¹)" setup = [UncFixtures] begin
+@testitem "detection covariance: position variance scales as contrast⁻² (Zeisl's ∓H⁻¹ as contrast⁻¹)" setup = [UncFixtures] begin
     using VisualGeometryToolkitFeatures: AsiftPlan
     using VisualGeometryToolkitCore: cov
     import KernelAbstractions as KA
@@ -210,7 +210,7 @@ end
 
 # A detection's uncertain centre through a map (detection_types.jl, moved from PanoramaStitching): its centre with the
 # (x, y) block of its frame's covariance, carried by Core's propagate.
-@testitem "keypoint covariance: propagate(map, detection) — the centre and its position block through the map" setup = [Fixtures, UncFixtures] begin
+@testitem "detection covariance: propagate(map, detection) — the centre and its position block through the map" setup = [Fixtures, UncFixtures] begin
     using VisualGeometryToolkitCore: Uncertain, CovMat, cov, geom, propagate, SimilarityMap, LinearMap, Translation
     using StaticArrays: SMatrix, SVector
     using LinearAlgebra: UniformScaling

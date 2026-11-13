@@ -97,7 +97,3 @@ use = "black_subtraction"
 file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
 reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"
 
-[[pattern]]
-use = "sensor_component"
-file = "VisualGeometryToolkitIO/src/sensor_characterisation_schema.jl"
-reason = "the vgio/sensor_characterisation kind's codec is the ONE reader that turns a file into sensor-model components (ChannelBlack, Dark, ReadNoise, PoissonGaussian, RelativeNoise, DefectList) and a SensorCharacterisation, through their public constructors"

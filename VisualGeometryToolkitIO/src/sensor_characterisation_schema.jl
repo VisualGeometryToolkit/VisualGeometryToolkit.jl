@@ -132,16 +132,16 @@ const _SENSOR_CHARACTERISATION_SPEC = _kind_spec(
 # ----------------------------------------------------------------------------- writing
 
 _four(t::NTuple{4, Float64}) = collect(t)
-_with_std_error(r::NamedTuple, ::Nothing) = r
-_with_std_error(r::NamedTuple, se::NTuple{4, Float64}) = merge(r, (std_error = _four(se),))
-_with_std_error(r::NamedTuple, se::NamedTuple) = merge(r, (std_error = (gain = se.gain, sigma = _four(se.σ)),))
+_std_error_json(r::NamedTuple, ::Nothing) = r
+_std_error_json(r::NamedTuple, se::NTuple{4, Float64}) = merge(r, (std_error = _four(se),))
+_std_error_json(r::NamedTuple, se::NamedTuple) = merge(r, (std_error = (gain = se.gain, sigma = _four(se.σ)),))
 _seconds(t) = ustrip(parse_unit(_TIME_UNIT), t)
 _iso_name(iso::Float64) = isinteger(iso) ? string(Int(iso)) : string(iso)
 
 # A slot's body (`nothing`: the absent type, absent from the entry); `files` names a dark's rasters.
 _component_json(::Union{VgtkCore.FileBlack, VgtkCore.NoNoise, VgtkCore.NoDefects}, files) = nothing
 _component_json(c::VgtkCore.ChannelBlack, files) =
-    _with_std_error((type = "channel", values = _four(c.values), source = string(c.source)), c.std_error)
+    _std_error_json((type = "channel", values = _four(c.values), source = string(c.source)), c.std_error)
 function _component_json(d::VgtkCore.Dark, files)
     r = (type = "dark", exposure_band = Float64[_seconds(d.exposure_band[1]), _seconds(d.exposure_band[2])], frames = d.frames,
          size = (width = size(d.offset, 2), height = size(d.offset, 1)),
@@ -150,9 +150,9 @@ function _component_json(d::VgtkCore.Dark, files)
     b = _component_json(d.black, files)
     return b === nothing ? r : merge((type = r.type, black = b), r)
 end
-_component_json(c::VgtkCore.ReadNoise, files) = _with_std_error((type = "read_noise", sigma = _four(c.σ), source = string(c.source)), c.std_error)
+_component_json(c::VgtkCore.ReadNoise, files) = _std_error_json((type = "read_noise", sigma = _four(c.σ), source = string(c.source)), c.std_error)
 _component_json(c::VgtkCore.PoissonGaussian, files) =
-    _with_std_error((type = "poisson_gaussian", gain = c.gain, sigma = _four(c.σ), source = string(c.source)), c.std_error)
+    _std_error_json((type = "poisson_gaussian", gain = c.gain, sigma = _four(c.σ), source = string(c.source)), c.std_error)
 _component_json(c::VgtkCore.RelativeNoise, files) = (type = "relative", sigma_rel = c.σ_rel, source = string(c.source))
 _component_json(d::VgtkCore.DefectList, files) =
     (size = (width = d.size[2], height = d.size[1]),

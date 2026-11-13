@@ -238,7 +238,7 @@ end
 
 # The files a manifest lists, against the directory: each exists, holds the recorded
 # schema, and hashes to the recorded SHA-256 (a mismatch names the file); then the
-# targets the measurement files name resolve in the listed target and rig files.
+# targets the observation files name resolve in the listed target and rig files.
 function _check_manifest_files(dir, d, mpath)
     for f in d.files::Vector{Any}
         full = joinpath(dir, f.path::String)

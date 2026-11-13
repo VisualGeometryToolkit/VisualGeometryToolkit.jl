@@ -1018,7 +1018,7 @@ function _target_rig(p::AbstractString; resolve = nothing)
     v !== nothing && v.kind == "target" && return _target_rig(load(AbstractTarget, p; resolve))
     return target_rig(load(Rig, p; resolve))
 end
-# A single unposed target as a one-member rig, under the name its measurements
+# A single unposed target as a one-member rig, under the name its observations
 # carry: its design `reference`, or its content id with none (the manifest's rule).
 _target_rig(t::Attributed{<:AbstractTarget}; resolve = nothing) = _target_rig(t.value; resolve)
 function _target_rig(t::AbstractTarget; resolve = nothing)

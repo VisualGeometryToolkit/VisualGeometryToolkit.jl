@@ -6,7 +6,7 @@
 [![Coverage](https://codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl/branch/main/graph/badge.svg?flag=VisualGeometryToolkitIO)](https://app.codecov.io/gh/VisualGeometryToolkit/VisualGeometryToolkit.jl?flags%5B0%5D=VisualGeometryToolkitIO)
 
 VisualGeometryToolkitIO saves and loads cameras, poses, rigs, trajectories and
-target measurements as self-describing JSON files, one schema per
+target observations as self-describing JSON files, one schema per
 [VisualGeometryToolkitCore](https://github.com/VisualGeometryToolkit/VisualGeometryToolkit.jl/tree/main/VisualGeometryToolkitCore)
 type, and a value read back from a file equals the value that was written.
 Each file declares its conventions (pixel frame, length unit, rotation

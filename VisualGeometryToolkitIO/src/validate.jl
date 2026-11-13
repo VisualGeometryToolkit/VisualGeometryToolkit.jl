@@ -496,7 +496,7 @@ const _RETIRED_KINDS = Dict(
 # a record of the former kind reads through its version steps into the current
 # one (and is never written). The non-central grid camera's records were the
 # old grid kind's, then a kind of their own; the cameras store holds them now.
-# The per-frame target measurement kinds are one kind, `observations`.
+# The per-frame target observation kinds of IO 0.9 are one kind, `observations`.
 const _RENAMED_KIND = Dict(
     "generic_camera" => "noncentral_spline", "noncentral_spline" => "cameras",
     "target_points2d" => "observations", "target_points3d" => "observations", "target_detections" => "observations",
@@ -568,6 +568,7 @@ _read_store(path::AbstractString, kind::AbstractString) = _read_store(path, kind
 # chose the kind from its `schema`.
 function _checked_store(d, path::AbstractString, kind::AbstractString, spec::_Spec = _spec(kind))
     d isa AbstractDict || throw(ArgumentError("$(path): not a JSON object"))
+    kind == "cameras" && (d = _one_camera_store(d, path))   # an old grid file or a noncentral_spline record: the store of its one camera
     s = get(d, :schema, nothing)
     _is_current_major(s, kind) || (_reads_through_migration(s, kind) && (d = _migrated_on_load(d, path, kind, s)))
     s2 = get(d, :schema, nothing)
@@ -753,7 +754,7 @@ offending key and the problem. A file of an earlier version is checked as
 the current record its version steps give (as `load` reads it); a version no
 step reads is refused by name, a retired kind with its successor. Semantic
 checks that
-need more than the one file — that measurements resolve in their targets —
+need more than the one file — that observations resolve in their targets —
 are the exporters'.
 """
 function validate(path::AbstractString)

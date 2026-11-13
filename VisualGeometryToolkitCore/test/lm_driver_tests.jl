@@ -324,6 +324,68 @@ end
     @test_throws ErrorException lmsolve_chart!(pe)
 end
 
+# A kept problem's repeated solve allocates O(1): the success rule's postcondition reads the problem's own scratch
+# (`p.offsets`, `p.g`, `p.w`, `p.free`, built once with it, as a chart run reads its workspace's), so neither it nor
+# the solve's count grows with the number of variables (VisualGeometryToolkitEstimation's relpose allocation gate).
+@testitem "lmsolve_chart!(::LmProblem): a repeated solve allocates O(1) in the number of variables" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: LmProblem, lmsolve_chart!, NLLSsolver, ReturnCode
+    # a line y = a + b·s (variable 1) and n offsets cₖ (variables 2…n+1), each seen as cₖ − a = zₖ: ONE concrete block
+    # type (a line row reads its line only: its offset column is zero), as a production bundle's blocks are
+    struct _AllocRow <: NLLSsolver.AbstractResidual
+        line::Bool; k::Int; s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_AllocRow) = NLLSsolver.static(2)
+    NLLSsolver.nres(::_AllocRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(r::_AllocRow) = SVector(1, r.k)
+    NLLSsolver.getvars(r::_AllocRow, vars::Vector) = (vars[1]::SVector{2, Float64}, vars[r.k]::SVector{1, Float64})
+    Base.eltype(::_AllocRow) = Float64
+    NLLSsolver.computeresidual(r::_AllocRow, ab, c) = SVector(r.line ? ab[1] + ab[2] * r.s - r.y : c[1] - ab[1] - r.y)
+    function problem(n)
+        vars = Union{SVector{2, Float64}, SVector{1, Float64}}[SVector(0.0, 0.0)]; append!(vars, (SVector(0.0) for _ in 1:n))
+        blocks = [[_AllocRow(true, 2, s, 0.5 + 2s + 0.01sin(5s)) for s in range(-1.0, 1.0; length = 21)];
+            [_AllocRow(false, k + 1, 0.0, 1.0 + 0.01cos(3k)) for k in 1:n]]
+        return LmProblem(vars, blocks)
+    end
+    # the same rows as TWO block types (the line's and the offsets'): the problem's blocks a Union, the postcondition
+    # one compiled loop per type
+    struct _AllocLine <: NLLSsolver.AbstractResidual
+        s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_AllocLine) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_AllocLine) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_AllocLine) = SVector(1)
+    NLLSsolver.getvars(::_AllocLine, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_AllocLine) = Float64
+    NLLSsolver.computeresidual(r::_AllocLine, ab) = SVector(ab[1] + ab[2] * r.s - r.y)
+    function two_types(n)
+        p = problem(n)
+        lines = [_AllocLine(b.s, b.y) for b in p.blocks if b.line]
+        return LmProblem(copy(p.variables), Union{_AllocLine, _AllocRow}[lines; filter(b -> !b.line, p.blocks)])
+    end
+    restart!(p) = (p.variables[1] = SVector(0.0, 0.0); for k in 2:length(p.variables); p.variables[k] = SVector(0.0); end; p)
+    postcondition(p) = VgtkCore._lm_problem_stationary!(p, 0.05, 1.0e-10)
+    function counts(n; build = problem)
+        p = build(n)
+        lmsolve_chart!(restart!(p)); lmsolve_chart!(restart!(p))     # compiled, the kept cache warm
+        restart!(p)
+        solve = @allocations lmsolve_chart!(p)
+        postcondition(p)
+        return (; solve, postcondition = (@allocations postcondition(p)), code = lmsolve_chart!(restart!(p)).code)
+    end
+    c = [counts(n) for n in (40, 400, 4000)]
+    @test all(x -> x.code === ReturnCode.Success, c)
+    @test all(x -> x.postcondition == 0, c)                  # the postcondition allocates nothing: its scratch is the problem's
+    # and a solve's count does not grow with n. NLLSsolver's own count is not monotone at small n (job 14072: 9, 12, 3, 3
+    # at n = 4, 40, 400, 4000, the postcondition 0 throughout), so the sizes compared are the two past it.
+    @test c[2].solve == c[3].solve
+    u = [counts(n; build = two_types) for n in (40, 400, 4000)]
+    # the postcondition allocates nothing for two block types either; the solve's own count is NLLSsolver's (job 14076:
+    # 35 and 37 at n = 400 and 4000 with two block types, the postcondition 0), compared above on one type only
+    @test all(x -> x.code === ReturnCode.Success && x.postcondition == 0, u)
+end
+
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
 # bits as the unpack VisualGeometryToolkitEstimation's lens regression wrote by hand until 0.10.1 (refine_camera.jl).
 @testitem "reduce_normal_equations and reduce_cost: a device state's reductions from its work items' partial sums" begin

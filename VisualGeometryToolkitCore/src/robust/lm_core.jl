@@ -369,6 +369,13 @@ struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     cache::C
     blocks::B
     unfixed::U            # NLLSsolver's free variables: `1` (a chart: one variable), or `nothing` (every one)
+    # the stationarity postcondition's scratch, built once with the problem (a repeated solve allocates nothing for
+    # it): each free variable's first column offset, the column gradient `g` and weight `w`, and the free flags.
+    # A chart run's are empty: its workspace holds them (`ews.g`, `ews.w`).
+    offsets::Vector{Int}
+    g::Vector{Float64}
+    w::Vector{Float64}
+    free::BitVector
 end
 function LmProblem(variables::AbstractVector, blocks::AbstractVector)
     isempty(variables) && throw(ArgumentError("LmProblem: no variables"))
@@ -388,13 +395,17 @@ end
 # The element type a vector's values need: its own when concrete, else the union of the values' types (a camera
 # chart and pose charts; a pose and N points).
 _element_union(xs::AbstractVector) = isconcretetype(eltype(xs)) ? eltype(xs) : Union{unique(typeof.(xs))...}
-_lm_problem(problem, blocks, unfixed) =
-    LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), unfixed), blocks, unfixed)
+function _lm_problem(problem, blocks, unfixed)
+    free = trues(length(problem.variables))
+    offsets = _free_offsets(problem.variables, free)
+    return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), unfixed), blocks, unfixed,
+        offsets, zeros(offsets[end]), zeros(offsets[end]), free)
+end
 # A chart LM's run, of its concrete type `R` (the typed cache converted to the inferred cache type, as `_kept_run` asserts)
 _chart_lm_problem(::Type{R}, problem, blocks) where {R} =
-    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), 1), blocks, 1)
+    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), 1), blocks, 1, Int[], Float64[], Float64[], falses(0))
 Base.getproperty(p::LmProblem, s::Symbol) = s === :variables ? getfield(p, :problem).variables : getfield(p, s)
-Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :variables)
+Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :offsets, :g, :w, :free, :variables)
 
 # The concrete LmProblem of a problem type `P` with blocks `B` and one free variable — the chart LMs' runs, whose
 # typed cache's type is the constructor's inferred return type (a constant of the types).
@@ -703,8 +714,7 @@ const _CHART_OFFSETS = (0,)   # its columns start at 1
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
     cb = callback === nothing ? NLLSsolver.nullcallback : callback
     out = try
-        _lm_run!(p, stops, cb, () -> is_stationary(p.blocks, p.variables, trues(length(p.variables));
-            tol = stops.stationarity_tol, ftol = stops.ftol))
+        _lm_run!(p, stops, cb, () -> _lm_problem_stationary!(p, stops.stationarity_tol, stops.ftol))
     catch e
         e isa _LM_LINEAR_FAILURES || rethrow()
         nothing
@@ -822,15 +832,35 @@ into `g`, `w` and `F`: the problem's Jacobian is never held.
 function is_stationary(blocks, variables::AbstractVector, free::AbstractVector{Bool}; tol::Real, ftol::Real)
     length(free) == length(variables) ||
         throw(DimensionMismatch("is_stationary: $(length(variables)) variables, $(length(free)) free flags"))
-    offsets = cumsum([0; [free[v] ? Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v]))) : 0 for v in eachindex(variables)]])
+    offsets = _free_offsets(variables, free)
     return _blocks_stationary!(zeros(offsets[end]), zeros(offsets[end]), offsets, blocks, variables, free, tol, ftol)
 end
+# Each variable's first column offset among the free chart coordinates (a held variable takes none); the last entry
+# is their count.
+_free_offsets(variables, free) =
+    cumsum([0; [free[v] ? Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v]))) : 0 for v in eachindex(variables)]])
 # The test itself, into the caller's scratch `g`, `w` (one entry per free chart coordinate): the multi-block LM's and
 # the robust chart LM's (its workspace's `g`, `w`: a refit allocates nothing). Free variable `v`'s columns are
-# `offsets[v] + 1 : offsets[v] + nvars`.
-function _blocks_stationary!(g, w, offsets, blocks, variables, free, tol::Real, ftol::Real)
+# `offsets[v] + 1 : offsets[v] + nvars`. `blocks` is one vector of blocks or a tuple of them: an `LmProblem`'s are its
+# NLLSsolver problem's per-type vectors (`values(p.problem.costs)`, a typed tuple), so each block type is one compiled
+# loop and a problem of several block types allocates nothing per block either.
+_blocks_stationary!(g, w, offsets, blocks::AbstractVector, variables, free, tol::Real, ftol::Real) =
+    _blocks_stationary!(g, w, offsets, (blocks,), variables, free, tol, ftol)
+function _blocks_stationary!(g, w, offsets, groups::Tuple, variables, free, tol::Real, ftol::Real)
     fill!(g, 0.0); fill!(w, 0.0)
-    F = 0.0; f2 = 0.0; carried = false
+    F, f2, carried = _accumulate_groups!(g, w, offsets, groups, variables, free, (0.0, 0.0, false))
+    F < ftol && return true
+    return _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+end
+# The multi-block LM's postcondition on its own scratch, block types grouped (the solve's and its allocation test's).
+_lm_problem_stationary!(p::LmProblem, tol::Real, ftol::Real) =
+    _blocks_stationary!(p.g, p.w, p.offsets, values(p.problem.costs), p.variables, p.free, tol, ftol)
+_accumulate_groups!(g, w, offsets, ::Tuple{}, variables, free, acc) = acc
+_accumulate_groups!(g, w, offsets, groups::Tuple, variables, free, acc) =
+    _accumulate_groups!(g, w, offsets, Base.tail(groups), variables, free,
+        _accumulate_blocks!(g, w, offsets, first(groups), variables, free, acc))
+# One vector of blocks into `g`, `w`, with the costs `F = Σ‖r‖²`, `f2 = Σρ′‖r‖²` and whether any ρ′ is positive.
+function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, carried))
     for c in blocks
         vi = NLLSsolver.varindices(c)
         # every variable of the block differentiated (static flags, as `nlls_rows_and_jacobian`); a held one's columns skipped
@@ -855,8 +885,7 @@ function _blocks_stationary!(g, w, offsets, blocks, variables, free, tol::Real, 
             col += nv
         end
     end
-    F < ftol && return true
-    return _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+    return (F, f2, carried)
 end
 
 """

@@ -1063,7 +1063,7 @@ The identity an observations file (`vgio/observations`, `target_homographies`)
 names a target definition by — `targets` a `Rig`, a single unposed
 `AbstractTarget` (`Attributed` ones by their target), or a `vgio/rig` or
 `vgio/target` path (any version that reads): the SHA-256 (lowercase hex) of the
-RFC 8785 (JCS) serialization ([`canonical_json`](@ref)) of its IDENTITY TREE.
+RFC 8785 (JCS) serialization (VisualGeometryToolkitCore's `canonical_json`) of its IDENTITY TREE.
 
 The identity tree is specified once, in the docs ("Content identity"), and is
 the writer's own record of the value with no envelope: a rig's is

@@ -78,7 +78,7 @@ The stack's no-duplication rule, checked over a package (`M`, its directory
    dropped (at least `min_file_tokens` tokens), equals another file's.
 4. **Retired patterns.** A line of code (comments and docstrings left out) that
    spells a pattern whose owner lives elsewhere: `NLLSOptions(` (Core's
-   `nlls_options`), `acos(clamp((tr(…` (Rotations' `rotation_angle`), the sRGB
+   `LmStops`, mapped in `lmsolve_chart!`), `acos(clamp((tr(…` (Rotations' `rotation_angle`), the sRGB
    transfer constants (Features' `src/linear_image.jl`), and a `\\newcommand`
    writer (Eval's `src/reproduce/number_macros.jl`). The failure names the owner.
 5. **Backend branches** (`:backend_branch`). A GPU branch's CPU branch is the

@@ -129,7 +129,8 @@ const _GRAPH_KEYS = Dict(
     "sites" => nothing, "stage" => nothing,
     "results_branch" => ("project", "assets", "artifacts"))
 const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_branch", "driver", "config", "env", "job_name",
-                     "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes")
+                     "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes",
+                     "nice")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
 const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s")
 const _SITE_ROOT_KEYS = ("data_root", "results_root", "env", "tiers")
@@ -165,7 +166,9 @@ its `--time`. `env` is exported to the stage, `job_name` and `time` override the
 validated: a count, `8G`/`4000M`, `gpu:4`), and `ntasks` and `nodes` its tasks and nodes (a distributed stage;
 `0`: one task, Slurm's default): a
 stage that needs 4 GPUs or 2 CPUs says so in the graph, not in its launcher; `gres` makes a stage a GPU stage. On a
-local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads.
+local site `cpus_per_task` is the `SLURM_CPUS_PER_TASK` its launcher reads. `nice` (a count, `0`: none) is the
+stage's Slurm `--nice`: a research stage yields to a release gate's jobs. Like the CPU count and a job-name prefix it
+is a label for the scheduler and keys no run; the local backend runs every stage alike.
 """
 struct StageSpec
     name::String
@@ -193,6 +196,7 @@ struct StageSpec
     gres::String
     ntasks::Int
     nodes::Int
+    nice::Int
 end
 
 """
@@ -253,7 +257,8 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _cpus_count(name, get(t, "cpus_per_task", 0), "cpus_per_task"),
                      _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
-                     _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"))
+                     _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
+                     _cpus_count(name, get(t, "nice", 0), "nice"))
 end
 
 _cpus_count(name, v, key = "cpus_per_task") = (v isa Integer && v >= 0) ? Int(v) :
@@ -562,6 +567,9 @@ _julia(site::Site, env) = get(site.env, "JULIA", get(env, "JULIA", "julia"))
 _stage_gpu(s::StageSpec) = s.gpu || !isempty(s.gres)
 _stage_cpus(site::Site, s::StageSpec) = s.cpus_per_task > 0 ? s.cpus_per_task : site.cpus_per_task
 
+# The sbatch options that key no run: the CPU count and the priority, labels for the scheduler.
+const _UNKEYED_OPTIONS = ("--cpus-per-task=", "--nice=")
+
 function _slurm_options(site::Site, s::StageSpec)
     o = String[]
     isempty(site.partition) || push!(o, "--partition=$(site.partition)")
@@ -572,6 +580,7 @@ function _slurm_options(site::Site, s::StageSpec)
     isempty(mem) || push!(o, "--mem-per-cpu=$mem")
     s.ntasks > 0 && push!(o, "--ntasks=$(s.ntasks)")
     s.nodes > 0 && push!(o, "--nodes=$(s.nodes)")
+    s.nice > 0 && push!(o, "--nice=$(s.nice)")
     append!(o, site.extra)
     return o
 end
@@ -674,10 +683,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
             files[f] = isfile(p) ? file_sha256(p) : "missing"
         end
         # The CPU count is no part of the key (results are the same bits at any thread count: a stage run at 8 CPUs is
-        # reused by a launch at 2); the device is (`gres`, CUDA_VISIBLE_DEVICES).
+        # reused by a launch at 2), nor its priority (`nice`): labels for the scheduler; the device is (`gres`,
+        # CUDA_VISIBLE_DEVICES).
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
-                                  "command" => filter(a -> !startswith(a, "--cpus-per-task="), cmd), "site" => site.name)
+                                  "command" => filter(a -> !any(o -> startswith(a, o), _UNKEYED_OPTIONS), cmd), "site" => site.name)
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
         # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
         # stage with none, so its key is unchanged

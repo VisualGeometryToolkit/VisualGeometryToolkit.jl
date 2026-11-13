@@ -28,6 +28,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
   jittered angles changes.
 
+### Added
+
+- **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
+  jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
+
 ### Fixed
 
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so

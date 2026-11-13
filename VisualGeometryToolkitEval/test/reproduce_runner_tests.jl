@@ -381,6 +381,14 @@ end
         cpu = load_stage_graph(f.graph)
         @test !cpu.stages[1].gpu
         @test key(cpu, "slurm2", "setup") != key(g, "slurm2", "setup") && key(cpu, "local2", "setup") != key(g, "local2", "setup")
+        # a stage's `nice`: its Slurm priority, a label for the scheduler like the CPU count, keying no run
+        write(f.graph, replace(text, "name = \"chrome\"\n" => "name = \"chrome\"\nnice = 100\n"; count = 1))
+        niced = load_stage_graph(f.graph)
+        p = plan_reproduction(niced, load_site("slurm2"; dirs = [d]); env = env0, queue_states = noqueue, only = ["chrome"])
+        @test any(==("--nice=100"), p.stages[end].command) && !any(a -> startswith(a, "--nice"), p.stages[end - 1].command)
+        @test key(niced, "slurm2", "chrome") == key(g, "slurm2", "chrome") && key(niced, "local2", "chrome") == key(g, "local2", "chrome")
+        write(f.graph, replace(text, "name = \"chrome\"\n" => "name = \"chrome\"\nnice = -5\n"; count = 1))
+        @test_throws r"nice = -5 is not a count" load_stage_graph(f.graph)
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin

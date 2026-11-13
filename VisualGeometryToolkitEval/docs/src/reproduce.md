@@ -445,6 +445,9 @@ project's own code. List the code a stage runs there, not the docs: a path in
 
 A stage may set its own resources over the site's: `cpus_per_task`,
 `mem_per_cpu` and `gres` in its `[[stage]]` (a `gres` makes it a GPU stage).
+`nice = <n>` is its Slurm `--nice`, so a research stage yields to a release
+gate's jobs; like the CPU count and a job-name prefix it is a label for the
+scheduler and keys no run (the local backend runs every stage alike).
 
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:

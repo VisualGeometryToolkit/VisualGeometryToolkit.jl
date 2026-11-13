@@ -270,6 +270,12 @@ end
     rn = rt(nan)
     @test typeof(getfield(rn, :value)) == typeof(getfield(nan, :value)) && all(isnan, cov(getfield(rn, :value)))
     @test_throws ArgumentError json_value(Attributed(Uncertain(f, CovMat{3, Float64}(Tuple(1.0:9.0))), meta), MM_PX; kind = :plain)
+    # a covariance object keyed by Symbol (a record built in memory) reads as a parsed one
+    sd = Dict(:frame => Dict(:center => [1.0, 2.0]), :covariance => Dict(:diagonal => [0.1, 0.2]))
+    @test cov(getfield(from_json(AbstractDetection, sd, MM_PX; kind = :plain), :value)) === CovMat(SDiagonal(0.1, 0.2))
+    # a frame with a centre and any other key is not a point frame (a Disc missing its σ is refused, never read as a point)
+    @test_throws Exception from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1,2],"sigma":2.5}}"""), MM_PX; kind = :plain)
+    @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1,2]},"cov_size":2}"""), MM_PX; kind = :plain)
     # the family's `cov` is not a point frame's covariance
     @test_throws ArgumentError from_json(AbstractDetection, JSON.parse("""{"frame":{"center":[1,2]},"cov":[1,0,0,1]}"""), MM_PX; kind = :plain)
 end

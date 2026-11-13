@@ -25,7 +25,7 @@
     mktempdir() do dir
         p = joinpath(dir, "panorama.json")
         for cam in cams, v in (tv, rv, LogVignetting(tv), LogVignetting(rv)), gains in (G, nothing)
-            save_panorama(p, cam, rots, v; gains)
+            save_panorama(p, cam, rots, v, gains)
             @test validate(p) == "panorama"
             b = load_panorama(p)
             @test keys(b) == (:camera, :rotations, :vignetting, :gains)
@@ -48,14 +48,14 @@
         r32 = Trajectory(CameraFrame, WorldFrame, Dict(k => EuclideanMap(r, z) for (k, r) in R32))
         G32 = Float32.(G)
         v32 = with_control_points(RadialVignetting(7, SVector(2120.3, 1416.7), 2551.25), Float32[w(i, 1) for i in 1:7])
-        save_panorama(p, cams[1], r32, v32; gains = G32)
+        save_panorama(p, cams[1], r32, v32, G32)
         b = load_panorama(p)
         @test all(Float32.(params(b.rotations[k].R)) == params(R32[k]) && params(b.rotations[k].R) == Float64.(params(R32[k])) for k in 1:3)
         @test b.gains isa Matrix{Float64} && b.gains == Float64.(G32) && Float32.(b.gains) == G32
         @test Float32.(control_points(b.vignetting)) == control_points(v32)
         # a rotation matrix is written as its quaternion (any rotation converted on write), read back as a QuatRotation
         rm = Trajectory(CameraFrame, WorldFrame, Dict(k => EuclideanMap(RotMatrix{3, Float64}(r), z) for (k, r) in R))
-        save_panorama(p, cams[1], rm, tv; gains = nothing)
+        save_panorama(p, cams[1], rm, tv, nothing)
         @test all(isapprox(RotMatrix(load_panorama(p).rotations[k].R), RotMatrix(R[k]); atol = 1e-15) for k in 1:3)
     end
 end
@@ -67,7 +67,7 @@ end
     rots = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), [0.0, 0.0, 0.0] .* m)))
     v = with_control_points(RadialVignetting(5, SVector(320.0, 240.0), 400.0), [1.0, 0.98, 0.93, 0.85, 0.74])
     mktempdir() do dir
-        save_panorama(joinpath(dir, "p.json"), cam, rots, v; gains = [1.0 1.0 1.0])
+        save_panorama(joinpath(dir, "p.json"), cam, rots, v, [1.0 1.0 1.0])
         save(joinpath(dir, "c.json"), Dict(:c => cam)); save(joinpath(dir, "t.json"), rots); save(joinpath(dir, "v.json"), v)
         P = JSON.parsefile(joinpath(dir, "p.json"))
         c = only(JSON.parsefile(joinpath(dir, "c.json"))["cameras"]); delete!(c, "name")
@@ -91,15 +91,18 @@ end
         p = joinpath(dir, "p.json")
         # the camera only rotates: a translation is refused, and so is a plain one (no unit)
         moved = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(I4, [0.0, 0.0, 1.0] .* mm), 2 => EuclideanMap(I4, [0.0, 0.0, 0.0] .* m)))
-        @test_throws ArgumentError save_panorama(p, cam, moved, v; gains = nothing)
+        @test_throws ArgumentError save_panorama(p, cam, moved, v, nothing)
         plain = Trajectory(CameraFrame, WorldFrame, Dict(k => EuclideanMap(I4, [0.0, 0.0, 0.0]) for k in 1:2))
-        @test_throws ArgumentError save_panorama(p, cam, plain, v; gains = nothing)
+        @test_throws ArgumentError save_panorama(p, cam, plain, v, nothing)
         # gains: one row per frame index 1:K, every gain positive; required, never defaulted
-        @test_throws ArgumentError save_panorama(p, cam, rots, v; gains = ones(3, 3))
-        @test_throws ArgumentError save_panorama(p, cam, rots, v; gains = [1.0 1.0 1.0; 1.0 0.0 1.0])
-        @test_throws UndefKeywordError save_panorama(p, cam, rots, v)
+        @test_throws ArgumentError save_panorama(p, cam, rots, v, ones(3, 3))
+        @test_throws ArgumentError save_panorama(p, cam, rots, v, [1.0 1.0 1.0; 1.0 0.0 1.0])
+        @test_throws MethodError save_panorama(p, cam, rots, v)                       # the gains are stated, `nothing` or a matrix
+        # the rotations map the camera to the world
+        inv_rots = Trajectory(WorldFrame, CameraFrame, Dict(k => EuclideanMap(I4, [0.0, 0.0, 0.0] .* m) for k in 1:2))
+        @test_throws ArgumentError save_panorama(p, cam, inv_rots, v, nothing)
         isfile(p) && rm(p)
-        save_panorama(p, cam, rots, v; gains = [1.0 1.0 1.0; 1.1 1.0 0.9])
+        save_panorama(p, cam, rots, v, [1.0 1.0 1.0; 1.1 1.0 0.9])
         good = JSON.parsefile(p)
         bad(f) = (d = deepcopy(good); f(d); q = joinpath(dir, "bad.json"); write(q, JSON.json(d)); q)
         for f in (d -> (d["rotations"]["frames"][2]["pose"]["translation"] = [0.0, 1.0, 0.0]),   # a translation
@@ -108,6 +111,8 @@ end
                   d -> (d["gains"][2]["gain"] = [1.0, 1.0]),                                      # another number of planes
                   d -> (d["gains"][2]["gain"][1] = -1.0),                                          # a gain not positive
                   d -> (d["pixel_frame"] = "opencv"),                                             # the vignetting body's frame is colmap
+                  d -> (d["rotations"]["to"] = "view:pano"),                                      # camera → world only
+                  d -> (foreach(f -> (f["t"] += 1), d["rotations"]["frames"]); foreach(g -> (g["t"] += 1), d["gains"])),   # gains of t ≠ 1:K
                   d -> delete!(d, "rotation_encoding"),                                           # a declaration missing
                   d -> delete!(d, "vignetting"), d -> delete!(d, "camera"), d -> delete!(d, "rotations"),
                   d -> (d["extra"] = 1))                                                          # an unknown key

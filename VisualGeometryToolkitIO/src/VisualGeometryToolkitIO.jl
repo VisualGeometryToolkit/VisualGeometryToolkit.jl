@@ -152,7 +152,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #   load(TargetPoints3D, path)                   vgio/target_points3d/v2
 #   load(TargetDetections, path)                 vgio/target_detections/v2 (or a target_points2d/3d file, converted, unless it has a duplicate or a form mix)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v1 (Attributed with its identities' sources)
-#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting; gains)
+#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting, gains)
 #                                                vgio/panorama/v1    a panorama's results (a NamedTuple: no VGC type)
 #   load_raster(path) / save_raster(path, values; frame, nan)
 #                                                vgio/raster/v1      a Float32 raster: a JSON header + its TIFF payload

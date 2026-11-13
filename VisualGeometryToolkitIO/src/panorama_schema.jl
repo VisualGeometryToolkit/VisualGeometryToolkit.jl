@@ -30,20 +30,21 @@
 const _GAIN_RECORD = _Obj(:t => _Int(), :gain => _Vec(_Real()))
 
 function _panorama_check(x)
-    for f in x[:rotations][:frames]
+    r = x[:rotations]
+    (r[:from] == frame_name(CameraFrame) && r[:to] == frame_name(WorldFrame)) ||
+        return "rotations: a panorama's rotations map the camera to the world (`from` \"camera_optical\", `to` \"world\"), got $(repr(r[:from])) → $(repr(r[:to]))"
+    for f in r[:frames]
         all(iszero, f[:pose][:translation]) ||
             return "rotations: frame $(f[:t]): a panorama's camera only rotates; its translation is zero, got $(collect(f[:pose][:translation]))"
     end
     haskey(x, :gains) || return nothing
     g = x[:gains]
     isempty(g) && return "gains: one record per frame of the rotations (none stated: omit `gains`)"
-    msg = _unique_check([r[:t] for r in g], "the gains' frame indices `t`")
-    msg === nothing || return msg
-    Set(r[:t] for r in g) == Set(f[:t] for f in x[:rotations][:frames]) ||
-        return "gains: one record per frame of the rotations (their frame indices `t`)"
+    Set(q[:t] for q in g) == Set(f[:t] for f in r[:frames]) == Set(1:length(g)) ||
+        return "gains: one record per frame of the rotations, whose frame indices are then 1:K (row k of the gains is frame index k)"
     C = length(first(g)[:gain])
-    C > 0 && all(r -> length(r[:gain]) == C, g) || return "gains: every frame has the same number ($(C) > 0) of colour planes"
-    all(r -> all(>(0), r[:gain]), g) || return "gains: an exposure gain is positive"
+    C > 0 && all(q -> length(q[:gain]) == C, g) || return "gains: every frame has the same number ($(C) > 0) of colour planes"
+    all(q -> all(>(0), q[:gain]), g) || return "gains: an exposure gain is positive"
     return nothing
 end
 
@@ -59,8 +60,8 @@ const _PANORAMA_SPEC = _CheckedSpec(
 )
 
 """
-    save_panorama(path, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting;
-                  gains, length_unit = mm, provenance = (;))
+    save_panorama(path, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting, gains;
+                  length_unit = mm, provenance = (;))
 
 Write a panorama's results — the camera of a sweep that only rotated, its frames'
 rotations, its vignetting and its frames' exposure gains (PanoramaStitching's) — as a
@@ -68,39 +69,33 @@ rotations, its vignetting and its frames' exposure gains (PanoramaStitching's) �
 store's bounded camera body (K, lens, a sensor's `pitch` in `length_unit`, its lens
 coverage), the trajectory body (`rotations`: per frame index its pose `from → to`,
 its `image` and `time` where the trajectory has them) and the vgio/vignetting body,
-positions in COLMAP pixels. Every pose's translation is a zero length: a
-translation that is not zero is an `ArgumentError` (the camera only rotates), and a
-plain one too (attach its unit, `EuclideanMap(R, zeros(3) .* m)`).
+positions in COLMAP pixels. The rotations map the camera to the world
+(`Trajectory{CameraFrame, WorldFrame}`) and every pose's translation is a zero length:
+other frames, a translation that is not zero (the camera only rotates) and a plain one
+(attach its unit, `EuclideanMap(R, zeros(3) .* m)`) are an `ArgumentError`, nothing
+written.
 
-`gains`, required, is `nothing` (every frame at one exposure) or a `K × C` matrix,
+`gains` is `nothing` (every frame at one exposure) or a `K × C` matrix,
 `gains[k, c]` the exposure gain of frame index `k` in colour plane `c`
 (PanoramaStitching's `fit_vignetting` `metadata.gains`), every one positive; the
 rotations' frame indices are then `1:K`. Numbers of a narrower type (Float32) are
 written exactly. [`load_panorama`](@ref) reads the file back.
 """
-function save_panorama(path::AbstractString, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting;
-                       gains::Union{Nothing, AbstractMatrix{<:Real}}, length_unit::Units = mm, provenance::NamedTuple = (;))
-    for (t, X) in rotations
-        all(iszero, translation(geom(X))) || throw(ArgumentError(
-            "save_panorama: frame $(t)'s pose translates by $(translation(geom(X))); a panorama's camera only rotates (its translation is zero)"))
-    end
+function save_panorama(path::AbstractString, camera::BoundedCamera, rotations::Trajectory, vignetting::AbstractVignetting,
+                       gains::Union{Nothing, AbstractMatrix{<:Real}}; length_unit::Units = mm, provenance::NamedTuple = (;))
     s = VgioStyle(; length_unit)
     body = merge(
         (schema = _schema("panorama"), pixel_frame = pixel_frame_name(CANONICAL_PIXEL_FRAME)), pose_declarations(length_unit),
         (camera = _bounded_body(s, camera), rotations = JSON.lower(s, rotations), vignetting = JSON.lower(s, vignetting)),
-        _gains_json(gains, rotations),
+        _gains_json(gains),
     )
     _write_store(path, _PANORAMA_SPEC, with_provenance(body, provenance); style = s)
     return nothing
 end
 
-_gains_json(::Nothing, _) = (;)
-function _gains_json(G::AbstractMatrix{<:Real}, rotations::Trajectory)
-    K = size(G, 1)
-    sort!(collect(keys(rotations))) == 1:K || throw(ArgumentError(
-        "save_panorama: `gains` has $(K) rows, one per frame index 1:$(K); the rotations' frame indices are $(sort!(collect(keys(rotations))))"))
-    return (gains = [(t = k, gain = Float64[G[k, c] for c in axes(G, 2)]) for k in 1:K],)
-end
+_gains_json(::Nothing) = (;)
+# Row k of the gains is frame index k: the table refuses gains whose frame indices are not the rotations', 1:K.
+_gains_json(G::AbstractMatrix{<:Real}) = (gains = [(t = k, gain = row) for (k, row) in enumerate(_matrix_rows(G))],)
 
 """
     load_panorama(path) -> (; camera, rotations, vignetting, gains)

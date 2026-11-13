@@ -269,7 +269,7 @@ through [`read_quantity`](@ref) (a length in the unit of the contract's
 length `role`); the other frames hold plain numbers (`kind = :plain`). Every
 quantity is a number: a `{"value": v, "unit": u}` object is refused. A
 detection's frame type is read off its keys
-(`A`, `S`, `θ`, `σ` for a `Disc`, else a `PointFrame`); its documented metadata fields (`response`,
+(`A`, `S`, `θ`, a `PointFrame` for a `center` alone, else a `Disc`); its documented metadata fields (`response`,
 `edge_score`, `laplacian_scale_score`) come first, as Float64, and the others
 follow sorted by name, each as it was parsed (a Symbol was written as a
 string and reads back a string, a `Point2` as a two-number array); a `cov`
@@ -435,12 +435,11 @@ function from_json(::Type{<:AbstractDetection}, d::_JSONObject, contract::UnitCo
         from_json(EllipticFrame, frame_data, contract; kind)
     elseif _has_key(frame_data, "θ")
         from_json(OrientedDisc, frame_data, contract; kind)
-    elseif _has_key(frame_data, "σ")
-        from_json(Disc, frame_data, contract; kind)
+    elseif collect(_key_names(frame_data)) == ["center"]  # a position alone: the 2-DOF frame, its covariance an uncertain point's
+        return _point_detection(from_json(PointFrame, frame_data, contract; kind), d)
     else
-        from_json(PointFrame, frame_data, contract; kind)
+        from_json(Disc, frame_data, contract; kind)
     end
-    fr isa PointFrame && return _point_detection(fr, d)
     # Every key but `frame` and `cov` is metadata: the documented fields first,
     # as Float64 (a writer may print 1.0 as 1), then the others sorted by name,
     # so the result does not depend on the key order of the input.
@@ -460,14 +459,16 @@ function _detection_metadata(d::_JSONObject, skip)
 end
 
 # A point frame's detection: its metadata as every frame's (`_detection_metadata`), and an uncertain one's `covariance`
-# read by the uncertain point's leaf (`_pixel_from_json`), `null` the NaN 2×2. The other frames' `cov` is refused here.
+# read by the uncertain point's leaf (`_cov_matrix`, as `_pixel_from_json` reads it), `null` the NaN 2×2. The other
+# frames' `cov`/`cov_size` is refused here.
 function _point_detection(fr::PointFrame, d::_JSONObject)
-    _has_key(d, "cov") && throw(ArgumentError("a point frame's covariance is its `covariance` (an uncertain point's), not `cov`"))
+    (_has_key(d, "cov") || _has_key(d, "cov_size")) &&
+        throw(ArgumentError("a point frame's covariance is its `covariance` (an uncertain point's), not `cov`/`cov_size`"))
     meta = _detection_metadata(d, ("frame", "covariance"))
     _has_key(d, "covariance") || return Attributed(fr, meta)
     c = _get_key(d, "covariance")
-    p = _pixel_from_json(fr.center, c === nothing ? fill(fill(NaN, 2), 2) : c)
-    return Attributed(Uncertain(PointFrame(geom(p)), cov(p)), meta)
+    Σ = c === nothing ? SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN) : _cov_matrix(_lower(c), 2)   # the uncertain point's leaf
+    return Attributed(Uncertain(fr, CovMat(Σ)), meta)
 end
 
 # The size N of a detection's covariance is the value's, not the frame type's

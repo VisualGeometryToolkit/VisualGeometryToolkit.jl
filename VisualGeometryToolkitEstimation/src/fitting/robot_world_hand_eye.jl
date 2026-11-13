@@ -210,8 +210,9 @@ function _robot_world_hand_eye_result(
         round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), used
     end
     # no degrees of freedom left (a redescending loss that zeroes most rows: 6Σw ≤ N): no variance factor, no covariance
-    dof_left = strategy === nothing ? dof > 0 : w * sum(weights) - N > 0
-    s2 = !dof_left ? NaN : strategy === nothing ? RSS / dof : RSS / (w * sum(weights) - N)
+    dof_eff = strategy === nothing ? dof : w * sum(weights) - N      # the robust fit's effective dof: real, not rounded
+    dof_left = dof_eff > 0
+    s2 = dof_left ? RSS / dof_eff : NaN
     dof = dof_left ? dof : 0
     λ_min, v_min, cov = if all(isfinite, J)
         F = svd(J)                                    # singular values descending: JᵀJ's eigenpairs

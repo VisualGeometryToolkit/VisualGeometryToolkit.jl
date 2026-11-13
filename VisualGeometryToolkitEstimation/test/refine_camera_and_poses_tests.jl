@@ -522,7 +522,7 @@ end
     rf = refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), optimization_strategy = nothing)
     @test retcode_symbol(rf) === :converged && estimate(rf).camera === bc
     # the forward refit's keywords are retired, naming why
-    @test_throws r"`refit_forward` is retired.*as given.*fit_forward_spline" refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), refit_forward = false)
+    @test_throws r"`refit_forward` is retired: give `fit_forward_spline" refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), refit_forward = false)
     @test_throws r"`forward_tolerance` is retired.*as given.*fit_forward_spline" refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), forward_tolerance = 1.0e-3)
     # the default strategy is the bundle's (Triggs{Welsch}): it needs a scale or a width
     @test_throws r"scale = σ" refine_camera_and_poses(bt, poses0, views; fixed = (:controls,))

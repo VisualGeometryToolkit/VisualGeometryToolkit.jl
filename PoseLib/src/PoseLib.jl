@@ -571,6 +571,10 @@ _refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::
                                               (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
               iterations, NaN, n, meta)
 
+# A seed pose in the type a refiner returns (Float64 matrix rotation and translation), so the result's type never
+# depends on the input's.
+_returned_pose(pose::Rigid3) = Rigid3(SMatrix{3, 3, Float64, 9}(pose.R), Vec3{Float64}(pose.t[1], pose.t[2], pose.t[3]))
+
 # Fewer correspondences than the model's minimal sample (`solver`'s `sample_size`): nothing to refine — the seed
 # `model`, unrefined, `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as VisualGeometryToolkitEstimation's
 # refines report it. `nothing` when there are enough.
@@ -720,7 +724,7 @@ function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
     _check_refine_keywords(:refine_relpose, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 1)
-    few = _below_minimal_sample(pose, cs, Essential5pt(PoseLibSolver()), meta)
+    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
     few === nothing || return few
     X1, X2 = _pack(cs)
     R0 = pose.R; t0 = pose.t
@@ -800,7 +804,7 @@ function refine_relpose(pose::Rigid3,
     # survive, just invisibly.
     _assert_unit_bearings(sources(cs), "source")
     _assert_unit_bearings(targets(cs), "target")
-    few = _below_minimal_sample(pose, cs, Essential5pt(PoseLibSolver()), meta)
+    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
     few === nothing || return few
     D1, D2 = _pack(cs)
     J1 = _pack_tangent(cs.M₁); J2 = _pack_tangent(cs.M₂)
@@ -943,7 +947,7 @@ function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
     _check_refine_keywords(:refine_absolute_pose, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 2)
     _require_3x3(K, "K")
-    few = _below_minimal_sample(pose, cs, P3P(PoseLibSolver()), meta)
+    few = _below_minimal_sample(_returned_pose(pose), cs, P3P(PoseLibSolver()), meta)
     few === nothing || return few
     Xb, xb = _pack(cs)
     R0 = pose.R; t0 = pose.t

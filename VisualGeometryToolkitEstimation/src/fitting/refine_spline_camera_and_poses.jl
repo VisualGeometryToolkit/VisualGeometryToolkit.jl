@@ -33,14 +33,6 @@ _refuse_spline_image_space(what::AbstractString) = throw(ArgumentError(
         "back-projection, or held. Hold it with `fixed = (:controls,)` (the poses alone), or fit its backward on " *
         "back-projected rays (`fit_camera(SplineLens, …)`, `pspline_grid`)"))
 
-# The refusal of the forward refit's keywords (`refit_forward`, `forward_tolerance`), retired in 0.11.0 with the
-# refit itself: the held camera comes back as given, its forward spline kept.
-_refuse_forward_refit(value::RetiredKeyword, ::Symbol) = nothing
-_refuse_forward_refit(_value, name::Symbol) = throw(ArgumentError(
-    "refine_camera_and_poses: the keyword `$name` is retired (VisualGeometryToolkitEstimation 0.11.0): a held SplineLens " *
-        "camera comes back as given, its forward spline kept, so nothing is refitted; give a camera its forward with " *
-        "`fit_forward_spline(camera; tolerance)`"))
-
 # A correspondence the camera does not project at the guess (or projects where the lattice folds), and the point.
 # A status, not an exception: the refine's boundary states it (`_not_projected_message`).
 struct _NotProjected
@@ -117,8 +109,9 @@ function _refine_camera_and_poses(::VgtkCore.Cameras.GaugeIntrinsics, camera::_R
     fixed == (:controls,) || throw(ArgumentError(
         "refine_camera_and_poses: a SplineLens camera's `fixed` is (:controls,) (the camera held, the poses refined), got $fixed"))
     box === nothing || throw(ArgumentError("refine_camera_and_poses: a SplineLens camera is held; a `box` has nothing to bound"))
-    _refuse_forward_refit(refit_forward, :refit_forward)
-    _refuse_forward_refit(forward_tolerance, :forward_tolerance)
+    # retired in 0.11.0 with the refit itself: the held camera comes back as given, its forward spline kept
+    VgtkCore.refuse_retired_keyword(refit_forward, :refit_forward, "fit_forward_spline(camera; tolerance)")
+    VgtkCore.refuse_retired_keyword(forward_tolerance, :forward_tolerance, "fit_forward_spline(camera; tolerance)")
     kw = _bundle_keywords(; fixed, kwargs...)
     back = _without_forward(_camera_model(camera))
     p = _spline_problem(back, poses, views)

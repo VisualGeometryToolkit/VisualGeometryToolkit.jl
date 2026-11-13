@@ -31,3 +31,11 @@ Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobB
 - [x] The sweep of the stack's splats of a data-length collection, by owner, and the lint design for core10: wave10/handoffs.md
   ("patch084 → every owner", "patch084 → core10").
 - [x] check_duplication: 0 findings on all six, Features 0.8.4 included (gate prep 14059).
+
+## Core 0.9.7 / Estimation 0.10.3 (patch-core097-est0103): one launch-and-reduce, 2026-11-13
+
+- [x] ONE launch of a device LM state's rows and reduction of their partial sums: Core's `reduce_normal_equations(row!,
+  Val(N), args...; partials)` / `reduce_cost(row!, args...; partials)` (737813d1); Estimation's `_LensRegressionLm` calls
+  them (a4978736), RadiometricCamera's `_RadiometryLm` too (RC 2d074aef). The pair RC linear_solve.jl:298/302 ⇔
+  Estimation refine_camera.jl:178/182, found BEFORE (2 findings) and gone AFTER (0): docs-pass.md, verbatim.
+- [x] check_duplication: 0 findings on all six (gate prep 14112).

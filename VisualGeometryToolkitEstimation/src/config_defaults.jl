@@ -61,7 +61,8 @@ _dflt(table::AbstractString, key::AbstractString) = toml_default(_TOML_DEFAULTS,
 # iteration, so it does not look the file up per call. The stall tolerance is
 # every chart LM's (the LO refit, `refine_camera`'s lens families) and the stall postcondition of
 # `refine_robot_world_hand_eye`'s NLLSsolver LM (`is_stationary`); the cost
-# tolerance `ftol` is the LO refit's alone.
+# tolerance `ftol` is every chart LM's too (the LO refits, `refine_camera`'s lens
+# families: until Estimation 0.10.2 these ran at `lmsolve_chart!`'s eps).
 const _CHART_LM_MAX_ITER = _dflt("chart_lm", "max_iter")::Int
 const _CHART_LM_STATIONARITY_TOL = _dflt("chart_lm", "stationarity_tol")::Float64
 const _CHART_LM_FTOL = _dflt("chart_lm", "ftol")::Float64

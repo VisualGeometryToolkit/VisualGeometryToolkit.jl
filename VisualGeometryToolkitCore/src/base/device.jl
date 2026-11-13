@@ -76,11 +76,9 @@ reset_default_device!() = (_DEFAULT_DEVICE[] = nothing; nothing)
 """
     _DEVICE_MEMORY
 
-The accelerator extensions' device queries, `(; free, reclaim, names, resident_threads)` or
+The accelerator extensions' device-memory queries, `(; free, reclaim, names)` or
 `nothing`: `free(dev)` the bytes free on a backend it defines (`nothing` for another),
-`reclaim(dev)` its pool handed back to the device, `names()` its devices' names,
-`resident_threads(kernel, args, ndrange)` how many threads of a kernel instance on its
-backend can be resident at once (`nothing` for another backend).
+`reclaim(dev)` its pool handed back to the device, `names()` its devices' names.
 Assigned at load time, as `_DEVICE_RESOLVER` is (Core's CUDA extension).
 """
 const _DEVICE_MEMORY = Ref{Any}(nothing)
@@ -117,13 +115,12 @@ arguments, at the workgroup size the launch takes.
 - The host (`KA.CPU()`): `Threads.nthreads()`, the threads its kernels run on.
 - Another backend: an `ArgumentError` (no query; a caller must not guess a capacity).
 """
-function device_resident_threads(kernel::KA.Kernel, args...; ndrange)
-    KA.backend(kernel) isa KA.CPU && return Threads.nthreads()
-    q = _DEVICE_MEMORY[]
-    n = q === nothing ? nothing : q.resident_threads(kernel, args, ndrange)
-    n === nothing && throw(ArgumentError("device_resident_threads: no occupancy query for a $(typeof(KA.backend(kernel))) kernel"))
-    return Int(n)
-end
+device_resident_threads(kernel::KA.Kernel, args...; ndrange) = Int(_resident_threads(KA.backend(kernel), kernel, args, ndrange))
+# One method per backend: the host's threads here; an accelerator extension adds its backend's method (CUDA:
+# ext/VisualGeometryToolkitCoreCUDAExt.jl, the compiled kernel's occupancy); any other backend has no query.
+_resident_threads(::KA.CPU, kernel, args, ndrange) = Threads.nthreads()
+_resident_threads(backend::KA.Backend, kernel, args, ndrange) =
+    throw(ArgumentError("device_resident_threads: no occupancy query for a $(typeof(backend)) kernel"))
 
 """
     reclaim_device!(dev) -> nothing

@@ -518,6 +518,37 @@ function iou(a, b)
     return u > 0 ? clamp(inter / u, 0.0, 1.0) : 0.0
 end
 
+# The relative slack of `iou_below`'s bounds: far above the exact IoU's own rounding (the analytic overlap area), so
+# rounding cannot turn a pair whose IoU could reach `t` into a pruned one.
+const _IOU_BELOW_SLACK = 1.0e-6
+
+"""
+    iou_below(e1::Ellipse, e2::Ellipse, t) -> Bool
+
+`true` only when `iou(e1, e2) < t` is PROVEN by a bound that needs no exact
+intersection, so a pair whose IoU could reach `t` is never declared below it
+(`false` means "not proven", not "at least t"). Three upper bounds on
+`IoU = |A∩B| / |A∪B|`, each from `|A∪B| ≥ max(|A|, |B|)`: the area ratio
+(`|A∩B| ≤ min(|A|, |B|)`); disjoint circumscribed discs (each ellipse lies in
+the disc of its semi-major axis about its centre); and those discs' lens
+(`|A∩B| ≤ lens`, the two [`Circle`](@ref)s' [`overlap_area`](@ref)). Each is
+compared with a relative slack of 1e-6, above the exact IoU's rounding. A
+pre-filter before [`iou`](@ref) over many pairs (BlobBoards' guided search).
+"""
+@inline function iou_below(e1::Ellipse, e2::Ellipse, t::Real)
+    t > 0 || return false
+    A1 = Float64(e1.a) * Float64(e1.b); A2 = Float64(e2.a) * Float64(e2.b)     # areas over π
+    Amax = max(A1, A2)
+    Amax > 0 || return false
+    tt = t * (1 - _IOU_BELOW_SLACK)
+    min(A1, A2) < tt * Amax && return true                                        # the area ratio
+    r1 = Float64(e1.a); r2 = Float64(e2.a)
+    d = hypot(Float64(e1.center[1]) - Float64(e2.center[1]), Float64(e1.center[2]) - Float64(e2.center[2]))
+    d >= (r1 + r2) * (1 + _IOU_BELOW_SLACK) && return true                        # disjoint circumscribed discs
+    lens = overlap_area(Circle(Point2{Float64}(e1.center), r1), Circle(Point2{Float64}(e2.center), r2))
+    return lens < tt * pi * Amax                                                  # the discs' lens
+end
+
 """
     coverage(subject, reference) -> Float64
 

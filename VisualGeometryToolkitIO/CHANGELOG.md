@@ -1,5 +1,88 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.0 (unreleased)
+
+The IO breaking wave (specs/2026-11-13-io-breaking-wave.md), on VisualGeometryToolkitCore 0.10. Every kind moves up a
+major version; every earlier version a published file holds is still READ (its version steps), only the 0.10 one is
+written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its observation files at the re-identified rigs.
+
+### Breaking
+
+- **One codec of quantities, sizes and feature frames, on the style** (core_json.jl): `json_value`, `from_json`,
+  `read_quantity` and `write_quantity` are retired (no alias): a quantity, a `Size2` (`{"width", "height"}`) and every
+  `FeatureFrame` are written by `JSON.lower(::VgioStyle, x)` and read by `JSON.lift(::VgioStyle, T, x[, tags])`; what a
+  number is (a pixel is dimensionless) is the field's TAG, `(; quantity = :length | :pixel | :density[, role])`, a lift
+  without tags reading plain numbers. `migrate_units(declaration)` (public) gives the 0.10 `units` object of a record in
+  the retired UnitContract layout (an owner's version step: BlobBoards' boards).
+- **THE frame codec**: a frame is `{"center"}` and its shape under ASCII keys (`sigma`, `angle`, `shape_matrix`,
+  `affine_matrix`, matrices in rows); an uncertain frame's `covariance` is over the frame's `frame_dof` parameters,
+  centre first, in the storage it holds (rows / `{"diagonal"}` / `{"isotropic"}`). `cov`, `cov_size`, a `null`
+  covariance and the 3×3 fallback for a size-less `null` are gone. `PointFrame` (0.9.4's codec) is its 2-DOF case.
+- **`vgio/panorama/v2.0`**: 0.9.4's v1 in the envelope, `frame_index` for `t`, the rotations `camera` → `world`; v1 reads
+  through its step. `save_panorama`/`load_panorama` keep their signatures.
+- **One envelope for every file**: `schema`, `generator` (`{"name": "VisualGeometryToolkitIO", "version", "caller"?}`,
+  the caller named by `with_caller(f, Mod)`), ONE `units` object (`length`, `time`, `angle`, `pixel`, `density`,
+  `radiance`, `length_roles`) and ONE `conventions` object (`rotation_encoding`, `transform_convention`,
+  `matrix_layout`, `grid_layout`, `index_base: 1`), then the body, then `provenance`. Every key is always written; a
+  file missing one is refused. The top-level `length_unit`, `pixel_frame`, `time_unit`, `rotation_encoding`,
+  `transform_convention` and `point_index_base` are gone; no block states a unit of its own (a field's unit is a power
+  of a declared base). `VgioStyle` holds a `UnitContract` and the pixel frame; `VgioStyle(record)` is a record's
+  declared style. `UnitContract`'s own JSON layout (`{"world", "density", "lengths"}`) is retired. `write_record`
+  writes the envelope of an owner's record from its style (the record states none of it).
+- **Versions are `v<major>.<minor>`**: a reader reads its major at any minor; a higher minor's undeclared keys are
+  tolerated, an unknown key at its own minor is refused. The versions read are derived from the version steps
+  (`schema_versions()`), never a hand list. 0.10 majors: cameras v6.0, rig v10.0, transforms v5.0, trajectory v5.0,
+  target v6.0, target_poses v3.0, target_homographies v2.0, observations v3.0, capture_settings v2.0, calibration
+  v3.0, vignetting v2.0, environment_light v2.0, blur v2.0, units v3.0.
+- **One observation kind**, `vgio/observations/v3.0` (VGC 0.10's `TargetObservations`; the entity `target_point` or
+  `landmark`): `target_points2d`, `target_points3d` and `target_detections` are read through version steps into it;
+  `save`/`load` of `TargetPoints2D`/`TargetPoints3D`/`TargetDetections` are gone (the types are gone from Core). One
+  point vocabulary, `{"xy"|"xyz", "covariance"?}`, also a point target's (`point_covariances` retired).
+- **The correspondences export** is `export/correspondences/v2` (not a vgio kind; it has no reader) and takes
+  `TargetObservations`; `save_trc` takes a 3-D `TargetObservations`; Schöps' `dataset.bin` reads as
+  `load(TargetObservations, path; target)`.
+- **One camera kind**: the cameras store holds any bounded camera, central or non-central (`vgio/noncentral_spline/v1`
+  retired; read as a store of its one camera). ONE lattice record for every spline, `{area, grid_size: {width,
+  height}, present (1-based), controls: {direction, point?}}`. A camera body's size is `image_size: {width, height}`,
+  a pitch `{width, height}`. A camera's `calibration` block is `calibration_record` (as a target's).
+- **Every Size2 is a `{width, height}` object; every index is 1-based**, declared once (`index_base: 1`); lattice
+  `present` runs moved from 0-based to 1-based (a +1 version step).
+- **Names**: the frame join key `t` is `frame_index`; the frame `camera_optical` is `camera` (the name mirrors its
+  type); target body tags `points`/`planar` are `point_target`/`planar_target`; environment light `l_max` is
+  `max_degree`; the manifest's `kind` is `result_kind` and `files[].kind` is `schema`.
+- **The manifest binds any owner's records** (`<owner>/<kind>/v<major>[.<minor>]`): every listed file is hash-checked,
+  VGIo's kinds are validated and another owner's when it has a `validate_record` method (a new declared extension
+  point). `metrics` is a closed object of named numbers; `model` VGC's closed `CameraModelSpec` table.
+- **Content identity, one deliberate re-id**: `canonical_json` is RFC 8785 (JCS); the identity tree is the writer's
+  0.10 record under its current names (specified in the docs, "Content identity"), lengths normalised in metres to 15
+  significant digits; the v2/v3 converters left the identity path. Every `content_id` changes once.
+- **Quaternions with w < 0 are refused on read**, never flipped (an earlier file's are written w ≥ 0 by its step, as
+  its reader read them).
+- **Blurs state their plane** (`blur/v2.0`): `pixel_frame` (or `frame: "image:<id>"`) on a sensor, px²; `frame:
+  "target_plane"` on a print, `units.length`²; read back into the labeled `CovMat`. `blur/v1` (no published file) is
+  refused by name.
+- **Vignetting** (`v2.0`): a radial profile always states its `chart`; positions in any registered pixel frame
+  (`units.pixel`). The `chart` that IO 0.9 added inside v1 is read by v1's version step.
+- **Capture settings** (`v2.0`): the device identities are the one `device` encoding (`{"body", "lens"}`, a camera's
+  `calibration_record.device` too), with `identity_sources` and `exif_lens`; an optional `sensor` names the camera.
+- **Renamed**: `migrate_opencv` → `convert_opencv_calibration`, `migrate_matlab` → `convert_matlab_calibration`
+  ("migrate" is schema migration only); ColmapDatabase's `keypoints` → `detections` (the terminology). `save_manifest`
+  takes `result_kind`.
+- **Retired**: `ScalarOrQuantity` (use `Number`; listed in Core's RETIRED_NAMES), `pose_declarations` (the envelope's
+  objects), `json_value`/`from_json` (folded into `JSON.lower`/`JSON.lift` on `VgioStyle`).
+
+### Added
+
+- **`vgio/detection/v1.0`** (new kind): detections per image, `save(path, Dict(image => detections))` /
+  `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`, through the one frame codec; the file declares once
+  the type of every detection (frame type, number type, covariance storage, each attribute's type), so it reads back
+  exact by type. A detection without a covariance omits it and states its `covariance_status` attribute.
+- **`vgio/sensor_noise/v1.0`** (new kind): VisualGeometryToolkitCore's `SensorNoise` (`save(path, noise)`,
+  `load(SensorNoise, path)`), keyed by `device.body` (the one device-identity encoding), every field with its source
+  and standard error or absent; a master dark's maps and the defect mask are row-major artifacts beside the record,
+  bound by their SHA-256.
+- `schema_versions()`, `with_caller`, `validate_record`; the published JSON Schemas (draft 2020-12) of every kind.
+
 ## 0.9.4 (unreleased)
 
 Additive: one new kind and one more frame in the detection codec. No existing file, writer or reader changes.

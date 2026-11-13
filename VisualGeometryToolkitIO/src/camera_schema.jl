@@ -615,8 +615,7 @@ load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Unio
     _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)
 # The store of a parsed file (`d`, its JSON).
 function _load_store(d, path::AbstractString)
-    d = _one_camera_store(d, path)        # an old grid file or a noncentral_spline record: the store of its one camera
-    d = _checked_store(d, path, "cameras")
+    d = _checked_store(d, path, "cameras")   # (an old grid file or a noncentral_spline record: the store of its one camera)
     s = VgioStyle(d)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
@@ -737,12 +736,23 @@ end
 # (`fisheye_14mm.json` → `fisheye_14mm`), the record through its version steps.
 function _one_camera_store(d, path)
     d isa AbstractDict || return d
-    s = get(d, :schema, nothing)
     _is_central_grid(d) && return _central_grid_store(d, path)
-    v = _split_schema(s)
+    v = _split_schema(get(d, :schema, nothing))
     (v !== nothing && v.kind in ("noncentral_spline", "generic_camera")) || return d
-    t = migrate_record(d)          # an old non-central grid file through its step to noncentral_spline/v1
-    t["schema"] == "vgio/noncentral_spline/v1" ||
-        throw(ArgumentError("$(path): a $(s) file, read through its migration, ends at $(repr(t["schema"])), not a non-central camera record"))
-    return _parse_vgio_text(JSON.json(_noncentral_store_v6(t, first(splitext(basename(path))))), path)
+    name = first(splitext(basename(path)))
+    t = _lower(d)
+    store = try
+        if v.kind == "generic_camera"          # a non-central old grid file: its 0.10 body built by the one old-grid conversion
+            t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
+            merge(_envelope_v010(_file_head(t), "vgio/cameras/v6.0"),
+                  Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => name), _noncentral_grid_body(t))]))
+        else
+            v.major == 1 || return d           # (an unknown version: the boundary refuses it by name)
+            _noncentral_store_v6(t, name)
+        end
+    catch e
+        e isa Union{ArgumentError, KeyError} || rethrow()
+        throw(ArgumentError("$(path): a $(t["schema"]) non-central grid camera, read as the store of its one camera: $(sprint(showerror, e))"))
+    end
+    return _parse_vgio_text(JSON.json(store), path)
 end

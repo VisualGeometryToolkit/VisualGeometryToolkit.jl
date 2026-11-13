@@ -25,22 +25,28 @@ _gpu_env(prefix::AbstractString, what::AbstractString) = string(prefix, "_", wha
     gpu_tier(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30) -> Bool
 
 The test runner's ONE decision whether to run a package's GPU tier: `true` when
-an accelerator is functional (its extension reports devices, `device_names()`, so
-the vendor package — `CUDA` — must be loaded), the environment does not opt out
+an accelerator is the default device ([`default_device`](@ref) is not `KA.CPU()`,
+the backend [`require_gpu`](@ref) hands the items, so the vendor package — `CUDA`
+— must be loaded and functional before it is first resolved), the environment does not opt out
 (`<prefix>_TEST_GPU=0`) and the device has at least `min_free_bytes` free
 ([`device_free_bytes`](@ref)). A yes is handed to the GPU tier's worker
 processes as `<prefix>_GPU_DECIDED=1` (set here, in `ENV`); a no logs why
-(`@info`) and leaves it unset. Called once, in `test/runtests.jl`, before the
+(`@info`) and clears it (a verdict inherited from an earlier process is not this
+one's). The GPU tier runs its items on ONE worker per device (RadiometricCamera's
+rule: two processes on one card fail spuriously), so each worker's re-check of the
+free memory sees the device as the runner did. Called once, in `test/runtests.jl`, before the
 GPU tier; each GPU item then starts with [`require_gpu`](@ref)`(prefix)`.
 """
 function gpu_tier(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30)
-    functional = !isempty(device_names())              # the accelerator extension's devices, when one is functional
+    dev = default_device()
+    functional = !(dev isa KA.CPU)                     # the backend the GPU items will be handed (require_gpu's)
     opted_out = get(ENV, _gpu_env(prefix, "TEST_GPU"), "1") == "0"
-    free = functional ? device_free_bytes(default_device()) : 0
+    free = functional ? device_free_bytes(dev) : 0
     ok = functional && !opted_out && free >= min_free_bytes
     if ok
         ENV[_gpu_env(prefix, "GPU_DECIDED")] = "1"
     else
+        delete!(ENV, _gpu_env(prefix, "GPU_DECIDED"))   # a verdict inherited from an earlier process is not this one's
         @info "GPU test tier skipped" functional opted_out free_GiB = round(free / 2^30; digits = 1) min_free_GiB = round(min_free_bytes / 2^30; digits = 1)
     end
     return ok
@@ -58,8 +64,9 @@ function gpu_problem(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30
     decided = _gpu_env(prefix, "GPU_DECIDED")
     get(ENV, decided, "0") == "1" ||
         return "the GPU items run only in the GPU tier the test runner decided on (`gpu_tier`; $(decided)=1 is not set)"
-    isempty(device_names()) && return "the runner decided to run the GPU tier, but no accelerator is functional on this worker (is CUDA loaded?)"
-    free = device_free_bytes(default_device())
+    dev = default_device()
+    dev isa KA.CPU && return "the runner decided to run the GPU tier, but this worker's default device is the CPU (is CUDA loaded and functional?)"
+    free = device_free_bytes(dev)
     free >= min_free_bytes ||
         return "the runner decided to run the GPU tier, but this worker sees only $(round(free / 2^30; digits = 1)) GiB free (< $(round(min_free_bytes / 2^30; digits = 1)) GiB)"
     return nothing

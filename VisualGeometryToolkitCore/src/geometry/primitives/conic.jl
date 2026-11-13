@@ -332,11 +332,7 @@ Construct a unitless GeometryBasics.Circle from a detection with radius
 strip. The geometry is the detection's [`feature_frame`](@ref), so a detection
 of an `Uncertain` frame gives the circle of its frame.
 """
-function GeometryBasics.Circle(det::AbstractDetection, cutoff::Real = 1.0)
-    f = feature_frame(det)
-    cx, cy, σ = _strip_coords((f.center[1], f.center[2], characteristic_scale(f)))
-    return GeometryBasics.Circle(Point2(float(cx), float(cy)), cutoff * float(σ))
-end
+GeometryBasics.Circle(det::AbstractDetection, cutoff::Real = 1.0) = GeometryBasics.Circle(feature_frame(det), cutoff)
 
 """
     aspect_ratio(c::Circle) -> T

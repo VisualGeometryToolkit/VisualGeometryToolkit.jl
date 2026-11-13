@@ -8,14 +8,11 @@
 # priors are required (the stack's default is a configuration's).
 # =============================================================================
 
-@testitem "student_t_uniform_scoring: the sweep is the best of every partition" begin
-    using Test
-    using Random: MersenneTwister
+# The score of every partition written out, and its brute-force maximum: the reference of the sweep items.
+@testsetup module PartitionBrute
     using SpecialFunctions: loggamma, logbeta
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: StudentTUniformScoring, Predictive, JeffreysPrior, IGPrior, FlatLabelPrior,
-        ProfiledLabelPrior, BetaLabelPrior, alloc_scoring_workspace, score_residuals!, sweep!, sweep_order,
-        penalties, sort_key
+    using VisualGeometryToolkitCore: ProfiledLabelPrior, BetaLabelPrior
+    export partition_value, brute
 
     # The score of the partition `I` (a bit mask over the points), written out: the inliers' Gaussian with the scale
     # integrated out against IG(α₀, β₀), the outliers' uniform box, the label prior's term at |I| = k.
@@ -33,6 +30,15 @@
     brute(q, m, dg, h, prior, label, pen = zeros(length(q))) =
         maximum(partition_value(q, BitVector(digits(b; base = 2, pad = length(q))), m, dg, h, prior, label, pen)
                 for b in 0:(2^length(q) - 1))
+end
+
+@testitem "student_t_uniform_scoring: the sweep is the best of every partition" setup = [PartitionBrute] begin
+    using Test
+    using Random: MersenneTwister
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: StudentTUniformScoring, Predictive, JeffreysPrior, IGPrior, FlatLabelPrior,
+        ProfiledLabelPrior, BetaLabelPrior, alloc_scoring_workspace, score_residuals!, sweep!, sweep_order,
+        penalties, sort_key
 
     rng = MersenneTwister(11)
     for prior in (JeffreysPrior(), IGPrior(2.0, 0.5)), label in (FlatLabelPrior(), ProfiledLabelPrior(), BetaLabelPrior(0.5, 0.5)),
@@ -134,4 +140,54 @@ end
     @test SCORING_TAGS["student_t_uniform"] === StudentTUniformScoring
     @test LABEL_PRIOR_TAGS["beta"] === BetaLabelPrior && VgtkCore.tag_of(LABEL_PRIOR_TAGS, FlatLabelPrior()) == "flat"
     @test isempty(label_prior_table(5, FlatLabelPrior())) && label_prior_table(4, BetaLabelPrior(1.0, 1.0))[4] ≈ -log(5)
+end
+
+# A workspace is built for ONE codimension (its log Γ table's d_g), which the sweep reads; its label-prior table is the one
+# for the swept n, on the bare form and on the partial-buffer path alike; an empty sweep sorts nothing.
+@testitem "student_t_uniform_scoring: the workspace's codimension and label prior are the ones swept" setup = [PartitionBrute] begin
+    using Test
+    using Random: MersenneTwister
+    using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, IGPrior, FlatLabelPrior, ProfiledLabelPrior,
+        BetaLabelPrior, alloc_scoring_workspace, default_scoring_workspace, scoring_workspace, score_residuals!, sweep!,
+        check_workspace, codimension, RadixPermBuffers, radix_sortperm!
+    rng = MersenneTwister(21)
+    n = 11; m = 2; h = 9.0
+    # the codimension: a scorer at d_g = 1 refuses a d_g = 2 table, and a workspace of another codimension is refused
+    s1 = StudentTUniformScoring(m, h; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    s2 = StudentTUniformScoring(m, h; codimension = 2, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    @test codimension(s1) == 1
+    @test_throws ArgumentError alloc_scoring_workspace(n, 2, s1)
+    @test_throws ArgumentError scoring_workspace(s1, n, 2)
+    @test_throws ArgumentError check_workspace(s2, scoring_workspace(s1, n, 1))
+    @test check_workspace(s2, scoring_workspace(s2, n, 2)) === nothing
+    for trial in 1:4
+        r = [rand(rng) < 0.6 ? 0.3randn(rng) : 20 * (2rand(rng) - 1) for _ in 1:n]
+        q = r .^ 2
+        for dg in (1, 2), label in (FlatLabelPrior(), ProfiledLabelPrior(), BetaLabelPrior(0.5, 0.5)),
+            prior in (JeffreysPrior(), IGPrior(2.0, 0.5))
+            ref = brute(q, m, dg, h, prior, label)
+            # the bare sweep reads the workspace's codimension and label prior
+            sws = default_scoring_workspace(n; dg, scale_prior = prior, label_prior = label)
+            @test first(sweep!(sws, copy(q), n; model_dof = m, log_two_outlier_halfwidth = log(2h))) ≈ ref rtol = 1e-12
+            # the partial-buffer path (a workspace for 13 points sweeping 11): the label prior of n = 11
+            s = StudentTUniformScoring(m, h; codimension = dg, scale_prior = prior, label_prior = label)
+            big = alloc_scoring_workspace(13, dg, s)
+            r13 = vcat(r, [0.1, 15.0])
+            @test first(score_residuals!(big, zeros(13), s, r13, n)) ≈ ref rtol = 1e-12
+            @test first(sweep!(big, vcat(q, Inf, Inf), n; model_dof = m, log_two_outlier_halfwidth = log(2h))) ≈ ref rtol = 1e-12
+            # and back on the exact-size path of the same workspace: the label prior of n = 13 again
+            @test first(score_residuals!(big, zeros(13), s, r13, 13)) ≈ brute(r13 .^ 2, m, dg, h, prior, label) rtol = 1e-12
+        end
+    end
+    # the codimension is the workspace's: the bare sweep's keyword is retired
+    sws = default_scoring_workspace(n; dg = 2, scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    @test_throws ArgumentError sweep!(sws, rand(rng, n), n; model_dof = m, log_two_outlier_halfwidth = log(2h), codimension = 2)
+    # the radix permutation is sortperm!'s at its key's precision: at UInt64 bit for bit, at the default UInt32 a
+    # Float64 near-tie within one Float32 ulp in index order (what the docstrings now claim, and no more)
+    near = [1.0 + 1e-12, 1.0]
+    p64 = zeros(Int, 2); radix_sortperm!(p64, near, RadixPermBuffers{UInt64}(2), 2); @test p64 == sortperm(near) == [2, 1]
+    p32 = zeros(Int, 2); radix_sortperm!(p32, near, RadixPermBuffers(2), 2); @test p32 == [1, 2]
+    # an empty sort: nothing to read (it walked off the bucket matrix)
+    @test radix_sortperm!(Int[], Float64[], RadixPermBuffers(0), 0) === nothing
+    @test radix_sortperm!(Int[], Float32[], RadixPermBuffers{UInt64}(0), 0) === nothing
 end

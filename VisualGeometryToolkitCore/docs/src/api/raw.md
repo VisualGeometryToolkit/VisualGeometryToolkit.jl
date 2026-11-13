@@ -32,12 +32,16 @@ Private = false
 Pages = ["raw/linear_raw.jl"]
 ```
 
-## Sensor noise
+## Sensor noise and the black level
 
-A body's Poisson–Gaussian noise at an ISO with the source of every value, the one
-resolver that decides what a frame uses when a record is missing, and the two
-estimators (a frame's photon transfer, a record's dark frames). `LinearRaw`'s
-kernel subtracts the resolved black and dark offset (`noise`).
+A frame's Poisson–Gaussian noise ([`SensorNoise`](@ref): the gain K, the read
+noise σ_r, the black level, a master dark and a defect mask, each with its
+source `:measured`, `:estimated` or `:file`) is resolved once per frame by
+[`sensor_noise`](@ref), from a body's record of record or, where none exists,
+estimated from the frame itself by [`photon_transfer`](@ref); a record is
+built from lens-capped frames by [`master_dark`](@ref). The resolved noise is
+what [`LinearRaw`](@ref)`(mosaic; mode, noise)` subtracts: THE one black
+subtraction.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

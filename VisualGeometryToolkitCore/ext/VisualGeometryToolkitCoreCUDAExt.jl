@@ -14,14 +14,17 @@ import VisualGeometryToolkitCore
 # `available_memory` (gone in 6) returned typemax through a bare `catch`, so chunking switched off silently.
 _cuda_function(name::Symbol) = getfield(Base.moduleroot(parentmodule(CUDABackend)), name)
 
-# The default GPU backend compiles every kernel with `always_inline = true`: the
-# stack's kernels are deep call trees of small `@inline`-less functions (a lens's
-# `project`, a static LM, a spline's window sums) that GPUCompiler otherwise
-# leaves as device calls, each with its stack frame. A caller who names a device
-# supplies their own backend value, which `OnBackend` keeps as it is.
+# Every CUDA launch compiles with `always_inline = true`: the stack's kernels are
+# deep call trees of small `@inline`-less functions (a lens's `project`, a static
+# LM, a spline's window sums) that GPUCompiler otherwise leaves as device calls,
+# each with its stack frame. `OnBackend` launches on this value whichever
+# `CUDABackend` the caller holds (`default_device()`, `get_backend(::CuArray)`,
+# one built by hand), so one kernel on the same data compiles once, one way.
+VgtkCore._launch_backend(b::CUDABackend) = CUDABackend(; prefer_blocks = b.prefer_blocks, always_inline = true)
+
 function __init__()
     VgtkCore._DEVICE_RESOLVER[] =
-        () -> CUDA.functional() ? CUDABackend(; always_inline = true) : KA.CPU()
+        () -> CUDA.functional() ? VgtkCore._launch_backend(CUDABackend()) : KA.CPU()
     VgtkCore._DEVICE_MEMORY[] = (;
         free = dev -> dev isa CUDABackend ? Base.invokelatest(_cuda_function(:free_memory)) : nothing,
         reclaim = dev -> (dev isa CUDABackend && Base.invokelatest(_cuda_function(:reclaim)); nothing),

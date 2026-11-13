@@ -29,8 +29,9 @@ unit of translations, 3D points and every other length. Further roles
 (`pattern = pt`) serve a record whose lengths are declared in more than one
 unit — a board's canvas in mm and its pattern in pt, each written
 decimal-exactly in its own unit. A field read or written in a role names it
-([`read_quantity`](@ref)`(x, :length, c; role = :pattern)`). Pixel counts need
-no declaration: pixels are the only image unit.
+in its field tags (`JSON.lift(style, Quantity, x, (; quantity = :length, role
+= :pattern))`). Pixel counts need no declaration: pixels are the only image
+unit.
 
 In memory the contract is that table, `world` first:
 `UnitContract(mm, dpi; lengths = (pattern = pt,)).lengths == (world = mm,
@@ -39,12 +40,11 @@ the table (the keyword form also reads a `world` already in `lengths`; naming
 it twice is an error); the third is the canonical one and refuses a table
 without `world`.
 
-The FILE layout is separate and unchanged: the serialiser alone knows it.
-Inline fields in vgio JSON records hold `"units": {"world": "mm", "density":
-"dpi", "lengths": {"pattern": "pt"}}` — `world` top level, the other roles
-under `lengths` — written by [`json_value`](@ref)`(contract)` and read by
-`from_json(UnitContract, d)`; a `vgio_units.json` sidecar for COLMAP model
-directories holds world and density only. Files stay self-describing. The
+The FILE form is the envelope's `units` object (`"length"`, `"length_roles"`,
+`"density"`, …; a [`VgioStyle`](@ref) carries the contract and writes it); a
+`vgio_units.json` sidecar for COLMAP model directories holds world and density
+only. The contract's own layout of IO before 0.10 (`{"world", "density",
+"lengths"}`) is retired ([`migrate_units`](@ref)). The
 roles are a CLOSED set, the ones the contract declares: an `ArgumentError` for
 a missing `world`, a role that is not a length, a role named `density`, a role
 name that is not snake_case, a `density` that is not pixels per length, and

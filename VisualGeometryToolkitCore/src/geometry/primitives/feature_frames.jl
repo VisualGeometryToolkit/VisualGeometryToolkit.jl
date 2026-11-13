@@ -612,12 +612,11 @@ circle = Circle(disc, 3.0)  # Circle with radius 15.0 (3σ)
 ```
 """
 Circle(f::FeatureFrame, r::Real = 1.0) = _frame_circle(frame_scale(f), f, r)
-# through the coordinate compute boundary, like `Circle(::AbstractDetection)`
-function _frame_circle(::IsotropicScale, d, r)
-    cx, cy, σ = _strip_coords((d.center[1], d.center[2], d.σ))
-    return Circle(Point2(cx, cy), r * σ)
+# through the coordinate compute boundary (a detection's is its frame's: `Circle(::AbstractDetection)`)
+function _frame_circle(::Union{IsotropicScale, ShapeFactorScale}, f, r)
+    cx, cy, σ = _strip_coords((f.center[1], f.center[2], characteristic_scale(f)))
+    return Circle(Point2(float(cx), float(cy)), r * float(σ))
 end
-_frame_circle(::ShapeFactorScale, f, r) = Circle(f.center, r * characteristic_scale(f))
 
 # =============================================================================
 # Ellipse Construction from FeatureFrame
@@ -661,24 +660,17 @@ Return the frame with inverted transformation.
 For a frame with transformation T: canonical → image,
 the inverse frame has transformation T⁻¹: image → canonical.
 """
-function Base.inv(d::Disc{T}) where {T}
-    # Inverse: x = σ·u + c  →  u = (x - c)/σ
-    # New frame: center at origin (in canonical), σ = 1/σ
-    # Actually, inversion changes the meaning... need to think about this
-    return Disc{T}(Point2{T}(-d.center[1] / d.σ, -d.center[2] / d.σ), one(T) / d.σ)
+Base.inv(f::FeatureFrame) = _inv_frame(frame_scale(f), f)
+# A disc's canonical frame x = σ·u + c inverts to u = x/σ - c/σ: centre -c/σ, σ ↦ 1/σ.
+_inv_frame(::IsotropicScale, d::Disc{T}) where {T} = Disc{T}(Point2{T}(-d.center[1] / d.σ, -d.center[2] / d.σ), one(T) / d.σ)
+# A shape-factor frame x = F·u + c inverts to u = F⁻¹x - F⁻¹c, in its own class (F⁻¹ of a symmetric S is symmetric).
+function _inv_frame(::ShapeFactorScale, f::FeatureFrame{T}) where {T}
+    Fi = SMatrix{2, 2, T}(inv(shape_factor(f)))
+    return _with_shape(f, Point2{T}(-(Fi * SVector{2, T}(f.center...))...), Fi)
 end
-
-function Base.inv(f::EllipticFrame{T}) where {T}
-    S_inv = inv(f.S)
-    new_center = Point2{T}(-(S_inv * SVector{2, T}(f.center...))...)
-    return EllipticFrame{T}(new_center, SMatrix{2, 2, T}(S_inv))
-end
-
-function Base.inv(f::AffineFrame{T}) where {T}
-    A_inv = inv(f.A)
-    new_center = Point2{T}(-(A_inv * SVector{2, T}(f.center...))...)
-    return AffineFrame{T}(new_center, SMatrix{2, 2, T}(A_inv))
-end
+# The frame of `f`'s class at centre `c` with shape factor `F`: the per-type constructor the hoisted shape verbs use.
+_with_shape(::EllipticFrame{T}, c, F) where {T} = EllipticFrame{T}(c, F)
+_with_shape(::AffineFrame{T}, c, F) where {T} = AffineFrame{T}(c, F)
 
 # =============================================================================
 # Conversions between MvNormal and Frames
@@ -689,17 +681,18 @@ end
 # EllipticFrame(d::AbstractMvNormal) is defined in mvnormal_geometry.jl
 
 """
-    MvNormal(f::EllipticFrame) -> MvNormal
-    MvNormal(f::AffineFrame) -> MvNormal
+    MvNormal(f::FeatureFrame) -> MvNormal
 
-Convert a shape-factor frame to an MvNormal (statistical).
+Convert a scaled frame (Disc, OrientedDisc, EllipticFrame, AffineFrame) to an
+MvNormal (statistical).
 
 The frame is read as the Gaussian's 1σ contour: its shape matrix
-M = F·Fᵀ ([`shape_matrix`](@ref), F the shape factor) is the covariance.
-Note: For AffineFrame, this loses the in-plane rotation since Σ = A·A' is symmetric.
+M = F·Fᵀ ([`shape_matrix`](@ref), F the shape factor; `σ²I` for a disc) is the
+covariance. Note: For OrientedDisc and AffineFrame, this loses the in-plane
+rotation since Σ = F·Fᵀ is symmetric. A `PointFrame` has none (absent).
 """
 MvNormal(f::FeatureFrame) = _frame_mvnormal(frame_scale(f), f)
-function _frame_mvnormal(::ShapeFactorScale, f)
+function _frame_mvnormal(::Union{IsotropicScale, ShapeFactorScale}, f)
     T = eltype(f.center)
     Σ = SMatrix{2, 2, T}(shape_matrix(f))
     return MvNormal(SVector{2, T}(f.center...), Σ)
@@ -915,6 +908,7 @@ const _SCALED_FRAME_VERBS = (
     :scale, :_isotropic_scale, :shape_factor, :shape_matrix, :_shape_matrix, :AffineMap, :_affine_map_frame,
     :region, :_frame_region, :Circle, :_frame_circle, :Ellipse, :_frame_ellipse, :characteristic_scale,
     :_characteristic_scale, :aspect_ratio, :_aspect_ratio, :boundary_point, :MvNormal, :_frame_mvnormal, :intersects, :inv,
+    :_inv_frame,
 )
 function _point_frame_hint(io::IO, e::MethodError, argtypes, kwargs)
     f = e.f

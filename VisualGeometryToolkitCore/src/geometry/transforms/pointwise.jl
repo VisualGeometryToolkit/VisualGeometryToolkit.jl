@@ -17,8 +17,11 @@
     (exec::OnBackend)(kernel[, ndrange]) -> KernelAbstractions.Kernel
 
 The stack's ONE kernel-launch policy. Called on a KernelAbstractions `@kernel`,
-it instantiates it on `backend` itself: the backend value, so its compiler
-options hold (`CUDABackend(; always_inline = true)`), with the workgroup
+it instantiates it on `backend`'s launch value: one per backend type, so a
+kernel compiles once whichever value of that type the caller holds (Core's
+CUDA extension compiles every CUDA launch with `always_inline = true`, the
+`default_device()` it registers, and `get_backend(::CuArray)`'s
+`CUDABackend()` launches the same), with the workgroup
 `workgroupsize` names, per backend:
 
 - `nothing`: the backend's choice (on the CPU, KernelAbstractions' default:
@@ -48,8 +51,15 @@ fields, rebuilt on the device: one large argument costs local memory there.
 struct OnBackend{B <: KernelAbstractions.Backend, W}
     backend::B
     workgroupsize::W
+    OnBackend(backend::KernelAbstractions.Backend, workgroupsize) =
+        (b = _launch_backend(backend); new{typeof(b), typeof(workgroupsize)}(b, workgroupsize))
 end
 OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing) = OnBackend(backend, workgroupsize)
+# The backend value a launch compiles for: one per backend TYPE, whatever value the caller holds, so a kernel on the same
+# data compiles once (one cache entry) whether the caller gave `default_device()` or `get_backend(array)`, which never
+# reports compiler options. Every backend as it is, except where an accelerator extension sets its type's launch options
+# (Core's CUDA extension: `always_inline`).
+_launch_backend(backend::KernelAbstractions.Backend) = backend
 # A one-item kernel's workgroup on a device is one warp, 32 items. Measured on a B200 (RANSACScoringDoneRight's five grids,
 # 128 pairs × 800 points × 48 models, min of 7): Student-t 1.55 / 30.6 / 1.35 ms, MSAC 10.9 / 19.6 / 6.5 ms,
 # MAGSAC++ 18.6 / 26.9 / 15.6 ms, Welsch marginal 86.6 / 67.7 / 30.6 ms, mixture marginal 90.4 / 62.1 / 17.7 ms at the

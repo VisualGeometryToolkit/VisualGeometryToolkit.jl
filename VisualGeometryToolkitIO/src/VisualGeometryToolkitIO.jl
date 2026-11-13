@@ -120,11 +120,12 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     TargetObservations, Correspondences, correspondences, withattrs, sources, targets,
     SplineLens, NoncentralSplineModel, ChartSpline, LogicalIntrinsics, Ellipse, Circle, Rect2, lens_coverage,
     Frame, WorldFrame, CameraFrame, ViewFrame, TargetFrame, BodyFrame, UnlabeledFrame,
-    Uncertain, CovMat, geom,
-    Point2, FeatureFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
+    Uncertain, CovMat, PrecMat, geom, frame_dof,
+    Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
+using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noise/v1.0, radial_profile/v1.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -153,6 +154,11 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 #                                                through their steps; a Schöps dataset.bin with `target`)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v2.0 (Attributed with its identities' sources)
 #   load(AbstractVignetting | EnvironmentLight | Dict{Symbol, GaussianBlur}, path)   vignetting, environment_light, blur v2.0
+#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting, gains)
+#                                                vgio/panorama/v2.0  a panorama's results (a NamedTuple: no VGC type)
+#   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
+#   load(BinnedRadialProfile, path)              vgio/radial_profile/v1.0  a measured radial profile (a flat field by field angle)
+#   load(SensorNoise, path)                      vgio/sensor_noise/v1.0  a body's noise at an ISO, its dark maps as hashed artifacts
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
 #   ColmapDatabase(dbpath)                       COLMAP sqlite database (lazy handle, read-only)
 #
@@ -182,7 +188,7 @@ include("contract.jl")    # UnitContract: a file's length units (its roles) and 
 include("style.jl")       # VgioStyle: the lower/lift of every embedded VGC value, the parametric record, the minimal forms
 include("validate.jl")    # the spec combinators, the envelope, the read/write boundaries (before every schema: specs are consts)
 include("units_sidecar.jl")  # vgio/units: a COLMAP model directory's units sidecar
-include("core_json.jl")     # the quantity JSON format: numbers in the declared unit; VGC sizes, frames, detections
+include("core_json.jl")     # quantities, Size2 and THE feature-frame codec on the style (JSON.lower / JSON.lift)
 include("wire.jl")
 include("colmap_text.jl")
 include("colmap_binary.jl")
@@ -194,6 +200,10 @@ include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory, target_poses, target_homographies, observations: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings: the camera's settings per frame, the device identities
 include("radiometry_schema.jl")  # vignetting, environment_light, blur: a radiometric camera's fields, light and blurs
+include("panorama_schema.jl")    # vgio/panorama/v2.0: a panorama's results, composed of the camera, trajectory and vignetting bodies
+include("detection_schema.jl")   # vgio/detection/v1.0: detections per image through the one frame codec (core_json.jl)
+include("radial_profile_schema.jl")  # vgio/radial_profile/v1.0: a measured radial profile, binned (Core's BinnedRadialProfile)
+include("sensor_noise_schema.jl")  # vgio/sensor_noise/v1.0: a body's SensorNoise, its dark maps and defect mask as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
@@ -246,8 +256,9 @@ public with_provenance, metres        # a record body with the writer's provenan
 public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
-public read_quantity, write_quantity, json_value, from_json, role_unit   # the quantity JSON format (core_json.jl); a contract's length roles
+public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
+public save_panorama, load_panorama     # vgio/panorama/v2.0: a panorama's camera, rotations, vignetting and gains
 public validate                       # check any vgio file against its kind's table
 public json_schema                    # a kind's JSON Schema (draft 2020-12), generated from that table
 public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)

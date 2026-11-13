@@ -248,8 +248,8 @@ the pixel frame `F`, part of the TYPE as in [`TargetObservations`](@ref) — the
 projective counterpart of [`TargetPoses`](@ref): `th[t]` is frame `t`'s target
 id → homography (stored unlabeled, plain or `Uncertain`, as `TargetPoses`
 stores its poses), [`homography`](@ref)`(th, t, id)` the labeled map
-[`TargetPlaneFrame`](@ref)` → F` (the plane frame is 2-D and carries no target
-id: `TargetFrame{id}` is the target's 3-D frame; the id is the entry's key). A
+[`TargetPlaneFrame`](@ref)`{id} → F` (the target's plane frame, by its id, as
+`TargetFrame{id}` is its 3-D frame; the id is the entry's key). A
 given map is unlabeled, or labeled exactly so; any other labels are an
 `ArgumentError`. An `H` is `RadialHomography`'s `H`: it
 acts BEFORE the lens of the camera `sensors[t]` names, about that camera's
@@ -298,18 +298,18 @@ function _unlabel_target_homography(::Type{F}, id::Symbol, h) where {F}
     h isa Union{HomographyMap{3}, Uncertain{<:HomographyMap{3}}} || throw(ArgumentError(
         "a target homography is a HomographyMap (plain or Uncertain); got a $(typeof(h)) — lift a matrix with HomographyMap(H)"))
     S, D = map_frames(h)
-    (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame && D === F) ||
-        throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame → $(F) is held"))
+    (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame{id} && D === F) ||
+        throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame{:$(id)} → $(F) is held"))
     return unlabel(h)
 end
 
 """
-    homography(th::TargetHomographies{F}, t, id) -> HomographyMap{3, …, TargetPlaneFrame, F} | Uncertain
+    homography(th::TargetHomographies{F}, t, id) -> HomographyMap{3, …, TargetPlaneFrame{id}, F} | Uncertain
 
 Target `id`'s plane → pixel homography in frame `t`, minted with its labels; an
 `Uncertain` one keeps its covariance.
 """
-homography(th::TargetHomographies{F}, t::Integer, id::Symbol) where {F} = relabel(TargetPlaneFrame, F, th.frames[t][id])
+homography(th::TargetHomographies{F}, t::Integer, id::Symbol) where {F} = relabel(TargetPlaneFrame{id}, F, th.frames[t][id])
 
 # ------------------------------------------------------------------------------
 # A plane homography's parameters: its nine entries, canonical

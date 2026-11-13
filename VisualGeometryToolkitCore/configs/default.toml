@@ -37,5 +37,5 @@ stationarity_tol = 0.05
 device_max_iter = 100
 # The device LM's acceptance, the cost a solution must be below besides being stationary: `inf` — success by the
 # stationarity rule alone, unless the problem itself bounds its residual (a root-finding solve: a projection, a
-# lens inverse, a ray hit) and passes its own bound.
+# lens inverse, a ray hit) and gives its own bound.
 device_acceptance = inf

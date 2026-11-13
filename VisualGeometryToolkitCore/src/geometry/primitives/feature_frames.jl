@@ -74,9 +74,6 @@ OrientedDisc(o::OrientedDisc) = o
 # Construct from Disc by adding orientation
 OrientedDisc(d::Disc{T}, θ::Real) where {T} = OrientedDisc{T}(d.center, d.σ, T(θ))
 
-# Properties
-scale(d::OrientedDisc) = d.σ
-
 # Strip orientation
 Disc(d::OrientedDisc) = Disc(d.center, d.σ)
 
@@ -376,9 +373,8 @@ function EllipticFrame(e::Ellipse{T}) where {T}
     return EllipticFrame{T}(e.center, SMatrix{2, 2, T}(_sym_sqrt(shape_matrix(e))))
 end
 
-# Properties
+# Properties (the shape factor: the per-type primitive the hoisted verbs read)
 shape_factor(f::EllipticFrame) = f.S
-shape_matrix(f::EllipticFrame) = f.S * f.S'  # M = S²
 
 # =============================================================================
 # AffineFrame (6 DOF) - Full Affine Frame
@@ -451,9 +447,12 @@ end
 
 # Properties
 shape_factor(f::AffineFrame) = f.A
-shape_matrix(f::AffineFrame) = f.A * f.A'  # M = A·A'
-# A disc's: `σ² I` (its EllipticFrame's `S = σ I`), oriented or not — the orientation turns nothing round.
-shape_matrix(d::Union{Disc, OrientedDisc}) = (s2 = d.σ * d.σ; z = zero(s2); SMatrix{2, 2, typeof(s2), 4}(s2, z, z, s2))
+# A disc's shape factor: `σ I`; an oriented disc's `σ R(θ)` (its canonical frame turned by θ).
+shape_factor(d::Disc{T}) where {T} = SMatrix{2, 2, T}(d.σ, 0, 0, d.σ)
+function shape_factor(d::OrientedDisc{T}) where {T}
+    c, s = cos(d.θ), sin(d.θ)
+    return d.σ * SMatrix{2, 2, T}(c, s, -s, c)
+end
 
 # Extract symmetric part (EllipticFrame)
 function EllipticFrame(f::AffineFrame{T}) where {T}
@@ -468,6 +467,27 @@ end
 characteristic_scale(f::FeatureFrame) = _characteristic_scale(frame_scale(f), f)
 _characteristic_scale(::ShapeFactorScale, f) = sqrt(abs(det(shape_factor(f))))
 _characteristic_scale(::IsotropicScale, f) = f.σ
+
+"""
+    scale(f::FeatureFrame) -> σ
+
+The single scale σ of an isotropic frame (`Disc`, `OrientedDisc`): its
+[`characteristic_scale`](@ref). A shape-factor frame has no single σ (read
+`characteristic_scale` or `shape_factor`), and a `PointFrame` none at all.
+"""
+scale(f::FeatureFrame) = _isotropic_scale(frame_scale(f), f)
+_isotropic_scale(::IsotropicScale, f) = f.σ
+
+"""
+    shape_matrix(f::FeatureFrame) -> SMatrix{2, 2}
+
+The frame's shape matrix `M = F·Fᵀ` (`F` its [`shape_factor`](@ref)): the region
+is `(x − c)ᵀ M⁻¹ (x − c) ≤ 1`. An isotropic frame's is exactly `σ² I`, oriented
+or not (the orientation turns nothing round).
+"""
+shape_matrix(f::FeatureFrame) = _shape_matrix(frame_scale(f), f)
+_shape_matrix(::IsotropicScale, d) = (s2 = d.σ * d.σ; z = zero(s2); SMatrix{2, 2, typeof(s2), 4}(s2, z, z, s2))
+_shape_matrix(::ShapeFactorScale, f) = (F = shape_factor(f); F * F')
 
 aspect_ratio(f::FeatureFrame) = _aspect_ratio(frame_scale(f), f)
 function _aspect_ratio(::ShapeFactorScale, f)
@@ -494,20 +514,9 @@ T = AffineMap(disc)
 image_point = T(canonical_point)
 ```
 """
-function CoordinateTransformations.AffineMap(d::Disc{T}) where {T}
-    M = SMatrix{2, 2, T}(d.σ, 0, 0, d.σ)
-    return AffineMap(M, SVector{2, T}(d.center...))
-end
-
-function CoordinateTransformations.AffineMap(d::OrientedDisc{T}) where {T}
-    c, s = cos(d.θ), sin(d.θ)
-    R = SMatrix{2, 2, T}(c, s, -s, c)
-    M = d.σ * R
-    return AffineMap(M, SVector{2, T}(d.center...))
-end
-
 CoordinateTransformations.AffineMap(f::FeatureFrame) = _affine_map_frame(frame_scale(f), f)
-_affine_map_frame(::ShapeFactorScale, f) = AffineMap(shape_factor(f), SVector{2}(f.center...))
+_affine_map_frame(::Union{IsotropicScale, ShapeFactorScale}, f::FeatureFrame{T}) where {T} =
+    AffineMap(shape_factor(f), SVector{2, T}(f.center...))
 
 # =============================================================================
 # Boundary Sampling (HasBoundary trait implementation)
@@ -743,26 +752,11 @@ The frame with its coordinates and scale stripped in unit `u` (`px`, `mm`, …):
 FlexUnits checks each component's dimension against `u`. Enables
 `ustrip.(px, frames)` on a vector of frames.
 """
-FlexUnits.ustrip(u::Units, d::Disc) =
-    Disc(Point2(ustrip(u, d.center[1]), ustrip(u, d.center[2])), ustrip(u, d.σ))
-
-FlexUnits.ustrip(u::Units, d::OrientedDisc) =   # θ is radians, a dimensionless quantity or a plain number
-    OrientedDisc(Point2(ustrip(u, d.center[1]), ustrip(u, d.center[2])), ustrip(u, d.σ), ustrip(d.θ))
-
-FlexUnits.ustrip(u::Units, f::EllipticFrame) =
-    EllipticFrame(Point2(ustrip(u, f.center[1]), ustrip(u, f.center[2])), ustrip.(u, f.S))
-
-FlexUnits.ustrip(u::Units, f::AffineFrame) =
-    AffineFrame(Point2(ustrip(u, f.center[1]), ustrip(u, f.center[2])), ustrip.(u, f.A))
+FlexUnits.ustrip(u::Units, f::FeatureFrame) = _map_lengths(x -> ustrip(u, x), f; angle = ustrip)
 
 # The unit-free frame a region is drawn from: through the compute boundary
 # (pixels in px, lengths in mm; plain numbers unchanged).
-function _strip_frame(d::Disc)
-    cx, cy, σ = _strip_coords((d.center[1], d.center[2], d.σ))
-    return Disc(Point2(cx, cy), σ)
-end
-_strip_frame(f::Union{OrientedDisc, EllipticFrame, AffineFrame}) =
-    f.center[1] isa Real ? f : ustrip(_coord_unit(f.center[1]), f)
+_strip_frame(f::FeatureFrame) = f.center[1] isa Real ? f : ustrip(_coord_unit(f.center[1]), f)
 
 # A frame as plain numbers in `u` (`strip_or_bare`, base/units.jl): stripped
 # when its coordinates are quantities, as it is when they are plain numbers.
@@ -806,9 +800,12 @@ translated = disc - (5.0mm, 5.0mm)  # Center at (5.0mm, 15.0mm)
 Base.:-(f::FeatureFrame, offset::Union{AbstractVector, Tuple}) = @set f.center = f.center .- offset
 
 """
-    *(disc::Disc, scale)
+    *(frame::FeatureFrame, scale)
+    /(frame::FeatureFrame, scale)
 
-Scale a Disc's center coordinates and σ by a scalar factor.
+The frame with its centre and every length (σ, a shape factor) scaled by a
+scalar factor, its angles kept: a change of unit (`frame * 300dpi`,
+`frame / 300dpi`) or of length scale.
 
 # Example
 ```julia
@@ -816,50 +813,119 @@ disc = Disc(Point2(10.0mm, 20.0mm), 2.0mm)
 scaled = disc * 300dpi  # Scale to logical units
 ```
 """
-function Base.:*(d::Disc, scale::Number)
-    return Disc(d.center .* scale, d.σ * scale)
-end
+Base.:*(f::FeatureFrame, scale::Number) = _map_lengths(x -> x * scale, f)
+Base.:/(f::FeatureFrame, scale::Number) = _map_lengths(x -> x / scale, f)
+
+# =============================================================================
+# The FeatureFrame interface (conventions/feature-frames.md)
+# =============================================================================
+#
+# Every verb is implemented ONCE, on FeatureFrame or on its DOF trait
+# (`frame_scale`: PointShape, IsotropicScale, ShapeFactorScale), from the
+# per-type primitives: the centre (`center`), the local shape where a frame has
+# one (`shape_factor`; `σ` for the isotropic frames), and the two constructors a
+# type states once — its frame from mapped lengths (`_map_lengths`) and its
+# similarity image (`_similar_frame`, ct_contravariant.jl). A `PointFrame` has
+# only the centre, so it reaches every verb a point has through the same code.
 
 """
-    /(disc::Disc, scale)
+    frame_dof(::Type{<:FeatureFrame}) -> Int
+    frame_dof(f::FeatureFrame) -> Int
 
-Divide a Disc's center coordinates and σ by a scalar factor.
-
-# Example
-```julia
-disc = Disc(Point2(300.0px, 600.0px), 15.0px)
-scaled = disc / 300dpi  # Scale to physical units
-```
+The frame's degrees of freedom, the size of its parameter vector and of an
+uncertain frame's covariance: `PointFrame` 2, `Disc` 3, `OrientedDisc` 4,
+`EllipticFrame` 5, `AffineFrame` 6. The covariance's coordinates are the centre
+`(x, y)` first, then the shape's in the producer's documented chart (a `Disc`'s
+`log σ`), so its first 2×2 block is always the centre's ([`center`](@ref)).
 """
-function Base.:/(d::Disc, scale::Number)
-    return Disc(d.center ./ scale, d.σ / scale)
-end
+frame_dof(f::FeatureFrame) = frame_dof(typeof(f))
+frame_dof(::Type{<:PointFrame}) = 2
+frame_dof(::Type{<:Disc}) = 3
+frame_dof(::Type{<:OrientedDisc}) = 4
+frame_dof(::Type{<:EllipticFrame}) = 5
+frame_dof(::Type{<:AffineFrame}) = 6
 
-# OrientedDisc scaling
-function Base.:*(d::OrientedDisc, scale::Number)
-    return OrientedDisc(d.center .* scale, d.σ * scale, d.θ)
-end
+# The frame with every length mapped by `g` (the centre's coordinates, σ, a
+# shape factor's entries) and every angle by `angle`: the one primitive of the
+# unit and scaling verbs (`ustrip`, `*`, `/`), one line per type.
+_map_lengths(g::G, f::PointFrame; angle::A = identity) where {G, A} = PointFrame(Point2(g(f.center[1]), g(f.center[2])))
+_map_lengths(g::G, d::Disc; angle::A = identity) where {G, A} = Disc(Point2(g(d.center[1]), g(d.center[2])), g(d.σ))
+_map_lengths(g::G, d::OrientedDisc; angle::A = identity) where {G, A} =
+    OrientedDisc(Point2(g(d.center[1]), g(d.center[2])), g(d.σ), angle(d.θ))   # θ in radians: a dimensionless quantity or a number
+_map_lengths(g::G, f::EllipticFrame; angle::A = identity) where {G, A} = EllipticFrame(Point2(g(f.center[1]), g(f.center[2])), map(g, f.S))
+_map_lengths(g::G, f::AffineFrame; angle::A = identity) where {G, A} = AffineFrame(Point2(g(f.center[1]), g(f.center[2])), map(g, f.A))
 
-function Base.:/(d::OrientedDisc, scale::Number)
-    return OrientedDisc(d.center ./ scale, d.σ / scale, d.θ)
-end
+"""
+    center(u::Uncertain{<:FeatureFrame}) -> Uncertain{Point2{T}}
+    center(d::Attributed{<:Uncertain{<:FeatureFrame}}) -> Uncertain{Point2{T}}
 
-# EllipticFrame scaling
-function Base.:*(f::EllipticFrame, scale::Number)
-    return EllipticFrame(f.center .* scale, f.S .* scale)
-end
+THE detection → point observation conversion, for every frame type: the
+frame's centre with the centre's block of its uncertainty — the first 2×2 block
+of the frame's covariance, whose coordinates start with `(x, y)`
+([`frame_dof`](@ref)). A covariance gives its block, in its storage (full,
+diagonal or isotropic), labeled by the frame's label when the frame is 2-DOF
+and unlabeled otherwise. A precision gives the precision of the centre's
+marginal (`inv` of the covariance block; for a `PointFrame` its own precision,
+unchanged). A detection (an `Attributed` uncertain frame with its metadata)
+gives its frame's. Allocation-free, and for an `Uncertain{PointFrame}` the
+identity on the numbers: no estimator, codec or consumer takes a centre and a
+covariance block apart by hand.
+"""
+@inline center(u::Uncertain{<:FeatureFrame{T}, <:Union{CovMat, PrecMat}}) where {T} =
+    Uncertain(Point2{T}(center(getfield(u, :value))), _center_block(getfield(u, :attributes)))
+@inline center(d::Attributed{<:Uncertain{<:FeatureFrame}}) = center(getfield(d, :value))
 
-function Base.:/(f::EllipticFrame, scale::Number)
-    return EllipticFrame(f.center ./ scale, f.S ./ scale)
-end
+# The centre's block: a 2-DOF form is the block (its frame kept); a larger covariance its leading 2×2 in its
+# storage; a larger precision the marginal's precision, the inverse of the covariance's block.
+@inline _center_block(Σ::Union{CovMat{2}, PrecMat{2}}) = Σ
+@inline _center_block(Σ::CovMat{N, T, <:SMatrix}) where {N, T} = CovMat{2, T}(SMatrix{2, 2, T, 4}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]))
+@inline _center_block(Σ::CovMat{N, T, <:LinearAlgebra.Diagonal}) where {N, T} =
+    CovMat(LinearAlgebra.Diagonal(SVector{2, T}(parent(Σ).diag[1], parent(Σ).diag[2])))
+@inline _center_block(Σ::CovMat{N, T, <:ScaledIdentity}) where {N, T} = CovMat(ScaledIdentity{2, T}(parent(Σ).λ))
+@inline _center_block(Λ::PrecMat) = inv(_center_block(inv(Λ)))
 
-# AffineFrame scaling
-function Base.:*(f::AffineFrame, scale::Number)
-    return AffineFrame(f.center .* scale, f.A .* scale)
-end
+"""
+    Ellipse(u::Uncertain{<:FeatureFrame}; sigma = 3) -> Ellipse
 
-function Base.:/(f::AffineFrame, scale::Number)
-    return AffineFrame(f.center ./ scale, f.A ./ scale)
+The `sigma`-σ error ellipse of an uncertain frame's centre, for every frame:
+`Ellipse(center(u); sigma)`, the error ellipse of its point observation
+([`center`](@ref)). (A scaled frame's REGION is `region(f, k)`, a different
+verb.)
+"""
+Ellipse(u::Uncertain{<:FeatureFrame, <:Union{CovMat, PrecMat}}; sigma::Real = 3) = Ellipse(center(u); sigma)
+
+"""
+    extrema(f::FeatureFrame) -> (Point2, Point2)
+
+The frame's axis-aligned bounding box at its 1σ contour, `(min, max)`: a
+point's is the point twice, an isotropic frame's `center ∓ σ`, a shape-factor
+frame's its region's (the ellipse's exact box). `Rect2(f)` and `Rect2{Int}(f)`
+read it.
+"""
+Base.extrema(f::FeatureFrame) = _frame_extrema(frame_scale(f), f)
+_frame_extrema(::PointShape, f::FeatureFrame) = (f.center, f.center)
+function _frame_extrema(::IsotropicScale, d::FeatureFrame{T}) where {T}
+    c, σ = d.center, d.σ
+    return (Point2{T}(c[1] - σ, c[2] - σ), Point2{T}(c[1] + σ, c[2] + σ))
+end
+_frame_extrema(::ShapeFactorScale, f::FeatureFrame) = extrema(Ellipse(f))
+
+# The scaled frames' verbs a PointFrame does not have: a MethodError with its hint (`__init__`).
+const _SCALED_FRAME_VERBS = (
+    :scale, :_isotropic_scale, :shape_factor, :shape_matrix, :_shape_matrix, :AffineMap, :_affine_map_frame,
+    :region, :_frame_region, :Circle, :_frame_circle, :Ellipse, :_frame_ellipse, :characteristic_scale,
+    :_characteristic_scale, :aspect_ratio, :_aspect_ratio, :boundary_point, :MvNormal, :_frame_mvnormal, :intersects, :inv,
+)
+function _point_frame_hint(io::IO, e::MethodError, argtypes, kwargs)
+    f = e.f
+    (f isa Function || f isa Type) && nameof(f) in _SCALED_FRAME_VERBS || return nothing
+    any(T -> T <: PointFrame || T <: PointShape, argtypes) || return nothing
+    print(io, "\nA PointFrame is the 2-DOF point feature: it has no scale and no shape, so `", nameof(f),
+          "` (a verb of the scaled frames only: scale, shape_factor, shape_matrix, AffineMap, region, Circle, ",
+          "Ellipse(frame, r), characteristic_scale, aspect_ratio, boundary_point, MvNormal, intersects, inv) ",
+          "is absent by design. Its centre is `center(f)`, an uncertain one's point observation `center(u)` and its ",
+          "error ellipse `Ellipse(u; sigma)` (VisualGeometryToolkitCore's FeatureFrame interface table).")
+    return nothing
 end
 
 # =============================================================================

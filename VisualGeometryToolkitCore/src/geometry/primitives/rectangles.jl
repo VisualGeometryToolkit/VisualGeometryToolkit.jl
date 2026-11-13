@@ -80,9 +80,10 @@ function GeometryBasics.Rect2(e::Ellipse{T}; snap_to_grid::Bool = false) where {
 end
 
 """
-    Rect2(d::Disc; snap_to_grid=false) -> Rect2
+    Rect2(f::FeatureFrame; snap_to_grid=false) -> Rect2
 
-Construct axis-aligned bounding box for a Disc.
+Construct the axis-aligned bounding box of a feature frame at its 1σ contour,
+its `extrema` (a `PointFrame`'s is the point, of zero size).
 
 # Arguments
 - `snap_to_grid::Bool=false`: If true, floor/ceil coordinates for pixel alignment
@@ -93,7 +94,7 @@ bbox = Rect2(d)
 bbox_aligned = Rect2(d; snap_to_grid=true)
 ```
 """
-function GeometryBasics.Rect2(d::Disc{T}; snap_to_grid::Bool = false) where {T}
+function GeometryBasics.Rect2(d::FeatureFrame{T}; snap_to_grid::Bool = false) where {T}
     min_pt, max_pt = extrema(d)
     return _make_rect2(T, min_pt, max_pt, snap_to_grid)
 end
@@ -174,11 +175,11 @@ function (::Type{GeometryBasics.Rect2{Int}})(e::Ellipse)
 end
 
 """
-    Rect2{Int}(d::Disc) -> Rect2{Int}
+    Rect2{Int}(f::FeatureFrame) -> Rect2{Int}
 
-Integer bounding box for a Disc.
+Integer bounding box of a feature frame (its `extrema`).
 """
-function (::Type{GeometryBasics.Rect2{Int}})(d::Disc)
+function (::Type{GeometryBasics.Rect2{Int}})(d::FeatureFrame)
     return _int_rect2(extrema(d)...)
 end
 

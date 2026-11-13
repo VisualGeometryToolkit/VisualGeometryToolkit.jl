@@ -731,8 +731,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
     # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
     # output upstream of it was made under another key, whichever launch made it.
-    records = isempty(results) ? Pair{String, Dict{String, Any}}[] : _stage_records(joinpath(results, g.manifest_dir))
-    keys_of = Dict{String, String}(name => r["key"] for (name, r) in records if stage_run_state(r).state == "completed")
+    records = isempty(results) ? _StageRecord[] : _stage_records(joinpath(results, g.manifest_dir), g.name)
+    keys_of = Dict{String, String}(x.name => x.record["key"] for x in records if x.state == "completed")
     for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
@@ -792,10 +792,12 @@ end
 """
     run_manifests(dir) -> Vector{String}
 
-The run manifests of earlier launches in `dir` (`<results root>/<manifest_dir>`), oldest first.
+The run manifests of earlier launches in `dir` (`<results root>/<manifest_dir>`), oldest launch first: by the UTC
+launch stamp that begins each one's name (`<stamp>-<commit>[-dirty][_<n>].toml`), never by modification time (the
+results-branch stage rewrites its launch's manifest).
 """
 run_manifests(dir::AbstractString) =
-    isdir(dir) ? sort([joinpath(dir, f) for f in readdir(dir) if endswith(f, ".toml")]; by = f -> (mtime(f), f)) : String[]
+    isdir(dir) ? sort([joinpath(dir, f) for f in readdir(dir) if endswith(f, ".toml")]; by = basename) : String[]
 
 # A program on `env`'s PATH; nothing when there is none.
 function _which(prog::AbstractString, env)
@@ -806,10 +808,17 @@ function _which(prog::AbstractString, env)
     return nothing
 end
 
-# The stage records of the earlier launches whose manifests are under `dir` (`stage name => record`, those with a run
-# key), oldest launch first: what reuse and the upstream keys read.
-_stage_records(dir::AbstractString) = Pair{String, Dict{String, Any}}[
-    name => r for m in run_manifests(dir) for (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}()) if haskey(r, "key")]
+# A stage record of an earlier launch: the stage's name, the record, and its state read once from its completion
+# markers (`stage_run_state`, without the queue).
+const _StageRecord = @NamedTuple{name::String, record::Dict{String, Any}, state::String}
+
+# The stage records (those with a run key) of the earlier launches of `project` whose manifests are under `dir`,
+# oldest launch first (`run_manifests`): what reuse and the upstream keys read. A results root that several projects
+# share holds the others' launches too; they are not this project's runs.
+_stage_records(dir::AbstractString, project::AbstractString) = _StageRecord[
+    (; name = String(name), record = r, state = stage_run_state(r).state)
+    for m in run_manifests(dir) for d in (TOML.parsefile(m),) if get(d, "project", "") == project
+    for (name, r) in get(d, "stages", Dict{String, Any}()) if haskey(r, "key")]
 
 _job_states(job_states, ids, env) = job_states === nothing ? slurm_job_states(ids; env) : job_states(ids)
 _queue_states(queue_states, ids, env) = queue_states === nothing ? slurm_queue_states(ids; env) : queue_states(ids)
@@ -979,14 +988,16 @@ end
 # changed runs again, the change named; one still in flight under other code stops the launch (a second job would
 # write the same results).
 function _mark_reuse!(plan::ReproducePlan, records, queue_states)
-    last = Dict{String, Dict{String, Any}}(r["key"] => r for (_, r) in records)   # the latest record of each key
+    last = Dict{String, _StageRecord}(x.record["key"] => x for x in records)   # the latest record of each key
     isempty(last) && return plan
-    ids = unique(filter(!isempty, String[get(last[st.key], "job_id", "") for st in plan.stages if haskey(last, st.key)]))
+    ids = unique(filter(!isempty, String[get(last[st.key].record, "job_id", "") for st in plan.stages if haskey(last, st.key)]))
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : queue_states(ids)
     for st in plan.stages
-        r = get(last, st.key, nothing)
-        r === nothing && continue
-        state = stage_run_state(r, queue).state
+        x = get(last, st.key, nothing)
+        x === nothing && continue
+        r = x.record
+        # the markers' state, read once; read again with the queue only for a job the queue still holds
+        state = isempty(get(queue, get(r, "job_id", ""), Dict{Int, String}())) ? x.state : stage_run_state(r, queue).state
         if state in ("completed", "in flight")
             changes = code_tree_changes(get(r, "code_trees", nothing), plan.code_trees)
             if !isempty(changes)

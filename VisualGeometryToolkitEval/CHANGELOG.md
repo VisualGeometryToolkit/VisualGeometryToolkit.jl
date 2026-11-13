@@ -59,6 +59,10 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   `run_complete` and `cached_result`): its tree's `+uncommitted` mark names HEAD, not the edits, so a scratch run under
   other edits carried the same value and was reused. Each such tree is a change, `"<name>: uncommitted when recorded"`;
   a scratch job of uncommitted code still in flight is not depended on.
+- **The runner reads only its own project's earlier launches, in launch order**: a results root shared by several
+  projects no longer lends one project's stage records to another, and `run_manifests` orders by the launch stamp
+  that names each manifest, not by modification time (the results-branch stage rewrites its manifest, which made an
+  older launch the "last completed" upstream run). Each record's state is read once from its markers.
 - **The runner honours `VGTK_SCRATCH`** beyond the key: a scratch launch reads another scratch run's output, and runs
   uncommitted code with a warning (a run of record still refuses both); the dry run says so.
 - **A local launch keeps `results_branch`** in its manifest (the stage writes it atomically, and the runner keeps it when

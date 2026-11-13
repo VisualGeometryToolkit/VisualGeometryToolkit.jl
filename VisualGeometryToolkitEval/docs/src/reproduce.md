@@ -363,7 +363,9 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   (below), and per stage its run key, command, job id, state and code trees.
   A stage's run key hashes its launcher, driver and configs, its items,
   environment and command, and the run keys of the stages it runs after (of
-  their last completed runs, for those a `--no-deps` launch does not run),
+  their last completed runs, for those a `--no-deps` launch does not run: the
+  project's own launches, in the order of the launch stamps that name their
+  manifests, never by modification time),
   never the code and never its CPU count (`--cpus-per-task`,
   `SLURM_CPUS_PER_TASK`: the results are the same bits at any thread count, so
   a stage run at 8 CPUs is reused by a launch at 2; its device, `gres` and

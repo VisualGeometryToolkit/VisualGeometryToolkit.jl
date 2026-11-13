@@ -394,6 +394,27 @@ end
         @test_throws r"nice = -5 is not a count" load_stage_graph(f.graph)
     end
 
+    @testset "the last completed run of an upstream stage: this project's, by launch stamp, never by mtime" begin
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        manifest(dir, stamp, project, key) = (mkpath(dir); p = joinpath(dir, "$stamp-abc1234.toml");
+            open(io -> TOML.print(io, Dict("project" => project, "stamp" => stamp, "stages" => Dict("setup" =>
+                Dict{String, Any}("key" => key, "items" => [""], "job_id" => "", "state" => "completed")))), p, "w"); p)
+        k(results) = only(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["chrome_prepare"],
+                                            deps = false, results_root = results).stages).key
+        both, newest, oldest = mktempdir(), mktempdir(), mktempdir()
+        old = manifest(joinpath(both, "_reproduce"), "20260101_000000_000", "paper", "old")
+        manifest(joinpath(both, "_reproduce"), "20260102_000000_000", "paper", "new")
+        manifest(joinpath(both, "_reproduce"), "20260103_000000_000", "another", "foreign")     # a project sharing the root
+        touch(old)                                                                  # rewritten last: the newest mtime
+        @test basename.(run_manifests(joinpath(both, "_reproduce"))) ==
+              ["20260101_000000_000-abc1234.toml", "20260102_000000_000-abc1234.toml", "20260103_000000_000-abc1234.toml"]
+        @test [x.record["key"] for x in Reproduce._stage_records(joinpath(both, "_reproduce"), "paper")] == ["old", "new"]
+        manifest(joinpath(newest, "_reproduce"), "20260102_000000_000", "paper", "new")
+        manifest(joinpath(oldest, "_reproduce"), "20260101_000000_000", "paper", "old")
+        @test k(both) == k(newest) != k(oldest)
+    end
+
     @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
         f = runner_project()
         text = read(f.graph, String)

@@ -269,6 +269,20 @@
             "allOf": [
                 {
                     "properties": {
+                        "chart": {
+                            "if": {
+                                "properties": {
+                                    "type": {
+                                        "const": "equisolid"
+                                    }
+                                }
+                            },
+                            "then": {
+                                "required": [
+                                    "focal_length"
+                                ]
+                            }
+                        },
                         "counts": {
                             "items": {
                                 "minimum": 0

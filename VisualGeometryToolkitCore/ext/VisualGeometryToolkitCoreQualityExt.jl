@@ -12,7 +12,7 @@
 module VisualGeometryToolkitCoreQualityExt
     import VisualGeometryToolkitCore as VgtkCore
 
-using Test: Test, @test, @test_broken, @testset
+using Test: Test, @test, @testset
 using Aqua: Aqua
 using ExplicitImports: check_no_implicit_imports, check_all_explicit_imports_via_owners,
     check_no_stale_explicit_imports, check_all_qualified_accesses_are_public,

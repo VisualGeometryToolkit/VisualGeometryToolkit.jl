@@ -563,8 +563,9 @@ kind's, a composition out of Core's order, a thin-plate kind that is not pure
 bending — each an `ArgumentError` naming the problem.
 """
 function target_calibration_from_json(s::VgioStyle, x::Record)
-    _validate(_TARGET_CALIBRATION, x isa NamedTuple ? _parse_json(JSON.json(x)) : x, "a target calibration record", "")
-    return _target_calibration_from_record(s, x)
+    r = x isa NamedTuple ? _parse_json(JSON.json(x)) : x      # an in-memory record read as its file would be (`Vector{Any}` arrays)
+    _validate(_TARGET_CALIBRATION, r, "a target calibration record", "")
+    return _target_calibration_from_record(s, r)
 end
 # …a record already validated (a target body's, its file checked): the target lift's.
 function _target_calibration_from_record(s::VgioStyle, x::Record)

@@ -41,7 +41,7 @@ end
         e = try VgtkIO.target_calibration_from_json(s, JSON.parse(rec)); nothing catch err; err end
         @test e isa ArgumentError && occursin("a target calibration record", e.msg) && occursin(why, e.msg)
     end
-    # past the table, the lift's own count check names the tag (a record a file's validation has passed)
+    # behind the table, the lift's own count check names the tag (a record a file's table has already checked)
     for (rec, n) in (("{\"type\":\"scale\",\"parameters\":[1.5,2.0]}", 2), ("{\"type\":\"scale\"}", 0))
         e = try VgtkIO._target_calibration_from_record(s, JSON.parse(rec)); nothing catch err; err end
         @test e isa ArgumentError && occursin("\"scale\"", e.msg) && occursin("got $n", e.msg)

@@ -216,14 +216,12 @@ memory, the file's numbers in that unit through [`write_length`](@ref)'s
 decimal shift. [`lattice_from_json`](@ref) reads it back.
 
 ```jldoctest
-julia> using StaticArrays: SVector
+julia> rec = (area = [0.0, 0.0, 1.0, 1.0], grid_size = [4, 4], controls = fill([2.0], 16));   # radii, in mm
 
-julia> r = ChartSpline(Rect2(0.0, 0.0, 1.0, 1.0), fill(SVector(0.002), 4, 4));   # radii, metres
+julia> L = VgtkIO.lattice_from_json(rec, Val(1); length_unit = mm); L.spline.controls[1, 1][1]   # metres
+0.002
 
-julia> b = VgtkIO.lattice_json(r; length_unit = mm); (b.grid_size, b.controls[1])
-([4, 4], [2.0])
-
-julia> VgtkIO.lattice_from_json(b, Val(1); length_unit = mm).spline.controls == r.controls
+julia> VgtkIO.lattice_json(L.spline; length_unit = mm) == rec
 true
 ```
 """
@@ -232,7 +230,7 @@ function lattice_json(cs::ChartSpline; present::Union{Nothing, AbstractMatrix{Bo
         ArgumentError("lattice_json: `present` is $(size(present, 1)) × $(size(present, 2)), the lattice $(size(cs.controls, 1)) × $(size(cs.controls, 2))")
     )
     P = _held_mask(present, size(cs.controls))
-    f = length_unit === nothing ? identity : x -> _leaf_power(x, length_unit, 1)
+    f = length_unit === nothing ? identity : x -> _metres_json(x, length_unit)
     return merge(
         (area = JSON.lower(VgioStyle(), cs.area), grid_size = [size(cs.controls, 2), size(cs.controls, 1)]),
         all(P) ? (;) : (present = _present_runs(P),), (controls = _controls_json(cs.controls, P, f),),

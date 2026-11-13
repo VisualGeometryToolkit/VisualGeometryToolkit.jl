@@ -1,3 +1,54 @@
+docs-pass: 5fb8889b
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (prepared, unpushed, branch wave-113; one open prose item below)
+
+# Wave 10 release docs pass (julia-docs-pass) — w10-release: Core 0.10.0, IO 0.10.0, Features 0.9.0, Estimation 0.11.0, Eval 0.8.0, PoseLib 0.3.0
+
+The release branch merges up-v13 a8f4aa02, core10's final tip 792557a6 and GitHub main 60b13da3 (the patch line: Core
+0.9.6–0.9.9, Estimation 0.10.2/0.10.3, Eval 0.7.3/0.7.4, IO 0.9.5, Features 0.8.4), and est-eval's records e06cde7c.
+Each leg's own pass stands below (core10 09018e60, IO 80b9fb45, Features f363b258 in feat09-docs-pass.md, Estimation /
+Eval / PoseLib 2d48ca86 in docs-pass-est-eval.md). This pass covers what the integration changed against the commit
+each leg's pass and gate covered.
+
+## 1. What the integration changed, per package (against the leg's passed commit)
+
+| package | leg commit | changed in the release |
+|---|---|---|
+| Core | 792557a6 | CHANGELOG only: the released 0.9.9–0.9.6 sections below 0.10.0 |
+| IO | c7854fa7 | nothing (main's IO is byte-identical to IO 0.9.5, 5dcb5e7e, already in the wave) |
+| Features | f1435702 | `_merged` takes 0.8.4's final form (3d8203a4, `components(StructArray(ids))`) with its test; CHANGELOG 0.8.4 section; the examples/ and validation/ environments' compat on Features "0.9.0" |
+| Estimation | 2d48ca86 | CHANGELOG only: 0.10.3/0.10.2 sections |
+| Eval | 2d48ca86 | CHANGELOG 0.7.4/0.7.3 sections; docs/src/reproduce.md takes accedc52 (0.7.4's page); one docstring fix (below) |
+| PoseLib | 2d48ca86 | nothing |
+
+## 2. Findings and fixes
+
+- **Eval reproduce.md** (accedc52, through the merge of main): the registered-install bullet under the code identity
+  ("a project that is itself a **registered install** … by the tree hash the active environment records for it"), and
+  the refusal narrowed to "code that is in no git checkout and is no registered install". Checked against the code:
+  `_registered_install` (src/code_identity.jl:155) and its use in `code_trees` (:197–:202), and Eval 0.8.0's
+  CHANGELOG entry "A run of record of a REGISTERED package's code is no longer refused".
+- **Fixed, 5fb8889b**: `write_provenance`'s docstring (src/experiments/provenance.jl:150) still said a run of record
+  refuses "code in no git checkout"; it now says "code in no git checkout that is no registered install", as the page
+  and `code_trees`' docstring (src/code_identity.jl:179) do. `refuse_uncommitted_code`'s docstring is exact as it
+  stands: it refuses by tree, and a registered install's tree is never a "not in git" one.
+- **Features**: `_merged` is private; its comment states the new form; CHANGELOG 0.9.0's "merge field by field
+  (StructArrays' `components`)" holds for it. No public docstring or page names it.
+- **CHANGELOGs**: every released patch section kept below the wave's (Core 0.9.9/0.9.8/0.9.7/0.9.6, Estimation
+  0.10.3/0.10.2, Eval 0.7.4/0.7.3, Features 0.8.4, IO 0.9.5); no version heading twice. The wave sections name what
+  they carry from the patch line (Core 0.10.0's forward ports; Estimation 0.11.0's launch-and-reduce and region rule;
+  Eval 0.8.0's registered install and 0.7.3's keyed upstream; Features 0.9.0's 0.8.4 fix).
+- **Open, landing**: index.html's IO card says "target measurements"; the terminology ruling retires "measurement" for
+  an associated detection (IO 0.10's kind is `vgio/observations`). Left for the site's owner on the prepared
+  wave-113 branch (not this repository); it goes with the publish.
+
+## 3. Executed
+
+The mechanical gates (`test_docs`: every public name documented, `detached_docstrings`, `signature_mismatches`; each
+package's docs build with `checkdocs = :public`, doctest, linkcheck) run in the release's final gate on the release
+commit, with every package's CPU and GPU groups: release-integration.md, "Final gate".
+
+---
+
 docs-pass: 09018e60
 
 # Wave 10 docs pass (julia-docs-pass) — VisualGeometryToolkitCore 0.10.0, branch w10-core10

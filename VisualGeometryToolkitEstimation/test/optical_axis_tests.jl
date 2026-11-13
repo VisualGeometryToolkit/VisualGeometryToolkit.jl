@@ -160,6 +160,19 @@ end
     @test metadata(optical_axis(bounded, imaged_region(bounded))).residuals == metadata(r).residuals
 end
 
+# optical_axis's LM takes every chart LM's stop settings ([chart_lm] ftol = 1e-10, Estimation 0.10.2; until 0.10.1 it ran at
+# lmsolve_chart!'s eps): on the whole sensor of the 5°-off-axis spline the default family's cost settles before its
+# steps reach the increment floor, so it stops on the relative cost decrease (at eps: IncrementSize, one iteration
+# later; the principal point moves by < 1e-6 px; wave10/optical-axis-order.md)
+@testitem "optical_axis: the chart LM's cost tolerance ends a settled regression (CostDecrease)" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: retcode_symbol, stop_rule, iterations, CostDecrease
+    using VisualGeometryToolkitEstimation: optical_axis
+    r = optical_axis(OFF_BOUNDED)
+    @test retcode_symbol(r) === :converged
+    @test stop_rule(r) === CostDecrease
+end
+
 @testitem "refine_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using Test

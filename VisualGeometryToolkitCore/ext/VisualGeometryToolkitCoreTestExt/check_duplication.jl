@@ -40,6 +40,27 @@ const _RETIRED_PATTERNS = (
     (:tex_macro_writer, Regex("\\b(print|println|write)\\s*\\(.*\\\\{1,2}" * "new" * "command"),
         "VisualGeometryToolkitEval's number macros (src/reproduce/number_macros.jl: `PaperNumbers`, `add_number!`, `write_numbers`)",
         ("VisualGeometryToolkitEval", ("src/reproduce/number_macros.jl", r"^test/"))),
+    # the sensor model (owner rulings D1–D13, 2026-11-13): a consumer never constructs a component, a characterisation or
+    # a model (the absent `SensorModel()` aside); a test describes one through the one fixture helper (D13)
+    (:sensor_component,
+        Regex("\\b(?:File" * "Black|Channel" * "Black|Da" * "rk|No" * "Noise|Read" * "Noise|Poisson" * "Gaussian|Relative" * "Noise|No" *
+              "Defects|Defect" * "List|SensorCharac" * "terisation)(?:\\{[^}]*\\})?\\s*\\(|\\bSensor" * "Model(?:\\{[^}]*\\})?\\s*\\((?!\\s*\\))"),
+        "VisualGeometryToolkitCore's sensor model (src/raw/sensor_model.jl): `sensor_model(characterisation, capture, t)`, " *
+            "`load(SensorCharacterisation, path)` (VisualGeometryToolkitIO); in tests `sensor_fixture` (D13)",
+        ("VisualGeometryToolkitCore", ("src/raw/sensor_model.jl", "src/raw/sensor_estimators.jl",
+                                       "ext/VisualGeometryToolkitCoreTestExt/sensor_fixture.jl"))),
+    # one variance law of a pixel value: LinearRaw's kernel under a PoissonGaussian (or RelativeNoise), its uncertain image
+    # (D11); `α·x + σ²` or `x/K + σ²` written by hand restates it (the Anscombe transform's `α x + 3α²/8 + σ²` does not match)
+    (:value_variance_law,
+        Regex("(?:\\b(?:α|al" * "pha)\\w*\\s*\\.?\\*\\s*[\\w.\\[\\]]+|[\\w.\\[\\]]+\\s*\\.?/\\s*(?:K|gain|electrons_per" * "_dn)\\b)" *
+              "\\s*\\.?\\+\\s*(?:σ|sig" * "ma)\\w*(?:²|\\s*\\.?\\^\\s*2)"),
+        "VisualGeometryToolkitCore's LinearRaw under a PoissonGaussian: each value's variance in its uncertain image (`L.image`'s `attributes`)",
+        ("VisualGeometryToolkitCore", ("src/raw/sensor_model.jl", "src/raw/linear_raw.jl", "test/sensor_model_tests.jl"))),
+    # one black subtraction: LinearRaw / linearview under the frame's SensorModel (its black slot); a hand-indexed
+    # per-channel black (`mosaic.black[c + 1]`) restates it
+    (:black_subtraction, Regex("\\.bla" * "ck\\s*\\["),
+        "VisualGeometryToolkitCore's one linearisation: `LinearRaw(mosaic; mode, sensor_model)`, `linearview(mosaic; sensor_model)`",
+        ("VisualGeometryToolkitCore", (r"^src/raw/", "test/raw_mosaic_tests.jl"))),
 )
 
 _in_home(f, home) = any(h -> h isa Regex ? occursin(h, f) : f == h, home)

@@ -98,6 +98,20 @@ const RETIRED_NAMES = String[
     "Liftable" * "Problem",                                       # VisualGeometryToolkitEstimation: its one name, `MinimalSolveProblem`
     "ScalarOr" * "Quantity",                                      # VisualGeometryToolkitIO: its one name, `Number`
     "POOL" * "_RNG",                                              # VisualGeometryToolkitEval: its one name, StableRNGs' `StableRNG`
+    # the sensor model (owner ruling A and D1–D13, 2026-11-13): wave 10's sensor noise, never released, retired by name
+    "Sensor" * "Noise",                       # the per-frame value: `SensorModel{B,N,D}` (a body's per-ISO record: `SensorCharacterisation`)
+    "sensor" * "_noise",                      # the resolver, the IO kind and RC's experiment: `sensor_model(characterisation, capture, t)`, `vgio/sensor_characterisation`, `sensor_characterisation`
+    "sensor" * "_noise" * "_record",               # PanoramaStitching's example key: `sensor_characterisation`
+    "Dark" * "Frame",                         # a master dark: `Dark`, the black slot's per-photosite component
+    "pixel" * "_noise", "pixel" * "_variance",   # a value's variance: the uncertain `LinearRaw` image (D11), its `attributes` component
+    "Noise" * "Field", "noise" * "_value", "NOISE" * "_SOURCES",   # a field and its source: the component types, each with its `source` (`SensorSource`)
+    "Measured" * "Black",                     # a per-channel black: `ChannelBlack(values, std_error; source)`
+    "_noise" * "_levels",                     # a model's levels for the kernel: `_model_levels`
+    "_matching" * "_record",                  # the characterisation's entry lookup inside `sensor_model`
+    "_green" * "_noise", "_noise" * "_digest",   # VisualGeometryToolkitFeatures' privates: the uncertain image; `content_digest(model)`
+    "green" * "_dn", "green" * "_colors",     # a LinearRaw's green photosites: `L.geometry.plane_sites`
+    "Intensity" * "Noise",                    # PanoramaStitching's value noise: `RelativeNoise(σ_rel; source)`, a noise-slot component
+    "log_intensity" * "_scale",               # PanoramaStitching's relative noise level: `RelativeNoise`'s `σ_rel`
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
     # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):

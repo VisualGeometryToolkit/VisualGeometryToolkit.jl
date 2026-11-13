@@ -87,13 +87,19 @@ Base.in(::StaticVector{2}, ::WholePlane) = true
 # a rectangle in a region: in an intersection when in both parts; in the whole plane always
 Base.in(r::Rect{2}, s::RegionIntersection) = r ∈ s.a && r ∈ s.b
 Base.in(::Rect{2}, ::WholePlane) = true
-# a region in a region (⊆): an ellipse or an intersection in an intersection when in both parts; an intersection is
-# in a region when either part is (a sufficient test: a ∩ b ⊆ a); the whole plane is only in the whole plane
-Base.in(e::Union{Ellipse, RegionIntersection, WholePlane}, s::RegionIntersection) = e ∈ s.a && e ∈ s.b
-Base.in(s::RegionIntersection, r::Union{Rect{2}, Ellipse}) = s.a ∈ r || s.b ∈ r
-Base.in(::Union{Ellipse, RegionIntersection}, ::WholePlane) = true
-Base.in(::WholePlane, ::WholePlane) = true
-Base.in(::WholePlane, ::Union{Rect{2}, Ellipse}) = false
+# THE region containment, `a ⊆ b` (`issubset`), every pair of the regions a fit and a support take — a `Rect`, an
+# `Ellipse`, their `∩`, the `WholePlane` — so Base's iterable `issubset` is never reached. An intersection lies in a
+# region when either part does (sufficient: a ∩ b ⊆ a), and in an intersection when it lies in both parts.
+const _PlaneRegion = Union{Rect{2}, Ellipse, RegionIntersection, WholePlane}
+Base.issubset(a::Rect{2}, b::Rect{2}) = a ∈ b                 # GeometryBasics' box-in-box
+Base.issubset(a::Rect{2}, b::Ellipse) = a ∈ b                 # the corners (containment.jl): the ellipse is convex
+Base.issubset(a::Ellipse, b::Rect{2}) = a ∈ b                 # the ellipse's exact bounding box (containment.jl)
+# an ellipse in an ellipse: cameras/image_circle.jl (it reads the 1-D minimizer, numerics/minimize.jl, loaded later)
+Base.issubset(a::Union{Rect{2}, Ellipse, RegionIntersection}, b::RegionIntersection) = a ⊆ b.a && a ⊆ b.b
+Base.issubset(a::RegionIntersection, b::Union{Rect{2}, Ellipse}) = a.a ⊆ b || a.b ⊆ b
+Base.issubset(::_PlaneRegion, ::WholePlane) = true
+Base.issubset(::WholePlane, ::Union{Rect{2}, Ellipse, RegionIntersection}) = false
+
 
 GeometryBasics.Rect2(::WholePlane; snap_to_grid::Bool = false) =
     throw(ArgumentError("the whole plane has no bounding box; intersect it with a Rect first"))

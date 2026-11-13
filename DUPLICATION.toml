@@ -67,3 +67,20 @@ reason = "not a CPU/GPU twin of any computation: the test runner's one decision 
 file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
 function = "gpu_problem"
 reason = "not a CPU/GPU twin of any computation: a GPU-tier worker's re-check that its default device is still an accelerator, so the GPU items error rather than run on the CPU path"
+
+# check_splat's exceptions (a splat of a collection whose length is data, VisualGeometryToolkitCore's `check_splat`):
+# each is a splat whose length is fixed by a type or bounded by construction, or an API with no collection form.
+[[splat]]
+file = "VisualGeometryToolkitCore/src/base/fit_result.jl"
+function = "propertynames"
+reason = "the names are a function of the type `FitResult{P, M}` alone (its metadata's fields and the nested ones), so the tuple has one length per FitResult type, as the type's own fieldnames do; Base's propertynames contract is that tuple"
+
+[[splat]]
+file = "VisualGeometryToolkitCore/src/robust/normaliser.jl"
+function = "truncated_log_normaliser"
+reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no vector form); their count is ⌊log₄(r_max/c)⌋ + 3 ≤ 63, a few distinct values over the widths in use, so `quadgk` is compiled a few times, never per datum"
+
+[[splat]]
+file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts.jl"
+function = "test_scoring_contract"
+reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"

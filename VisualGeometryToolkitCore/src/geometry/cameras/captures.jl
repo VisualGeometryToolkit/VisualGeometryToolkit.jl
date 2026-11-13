@@ -132,7 +132,7 @@ struct Trajectory{S <: Frame{3}, D <: Frame{3}, P} <: AbstractDict{Int, P}
             throw(ArgumentError("a trajectory names both frames it maps between (e.g. BodyFrame{:rig} → WorldFrame)"))
         labeled = Dict{Int, Any}(Int(t) => _label_pose(S, D, X) for (t, X) in poses)
         _check_one_form(collect(values(labeled)))   # all plain or all physical
-        P = isempty(labeled) ? EuclideanMap{3} : typejoin(map(typeof, values(labeled))...)
+        P = isempty(labeled) ? EuclideanMap{3} : mapreduce(typeof, typejoin, values(labeled))
         rec = Set{Int}(Int(t) for t in recovered)
         imgs, tms = _frame_strings(images, "images"), _frame_times(times)
         _check_stamps(keys(labeled), imgs, tms, time_origin)
@@ -199,7 +199,7 @@ struct TargetPoses{F <: Frame{3}, P} <: AbstractDict{Int, Dict{Symbol, P}}
         )
         vals = [X for ps in values(fr) for X in values(ps)]
         _check_one_form(vals)   # all plain or all physical
-        P = isempty(vals) ? EuclideanMap{3} : typejoin(map(typeof, vals)...)
+        P = isempty(vals) ? EuclideanMap{3} : mapreduce(typeof, typejoin, vals)
         imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         return new{F, P}(
             Dict{Int, Dict{Symbol, P}}(t => Dict{Symbol, P}(ps) for (t, ps) in fr), imgs, sens, tms, _origin(time_origin),
@@ -248,8 +248,8 @@ the pixel frame `F`, part of the TYPE as in [`TargetObservations`](@ref) — the
 projective counterpart of [`TargetPoses`](@ref): `th[t]` is frame `t`'s target
 id → homography (stored unlabeled, plain or `Uncertain`, as `TargetPoses`
 stores its poses), [`homography`](@ref)`(th, t, id)` the labeled map
-[`TargetPlaneFrame`](@ref)` → F` (the plane frame is 2-D and carries no target
-id: `TargetFrame{id}` is the target's 3-D frame; the id is the entry's key). A
+[`TargetPlaneFrame`](@ref)`{id} → F` (the target's plane frame, by its id, as
+`TargetFrame{id}` is its 3-D frame; the id is the entry's key). A
 given map is unlabeled, or labeled exactly so; any other labels are an
 `ArgumentError`. An `H` is `RadialHomography`'s `H`: it
 acts BEFORE the lens of the camera `sensors[t]` names, about that camera's
@@ -284,7 +284,7 @@ struct TargetHomographies{F <: PixelFrame, H} <: AbstractDict{Int, Dict{Symbol, 
                 for (t, hs) in frames
         )
         vals = [H for hs in values(fr) for H in values(hs)]
-        H = isempty(vals) ? HomographyMap{3, Float64, HomographyMat{Float64}, UnlabeledFrame{2}, UnlabeledFrame{2}} : typejoin(map(typeof, vals)...)
+        H = isempty(vals) ? HomographyMap{3, Float64, HomographyMat{Float64}, UnlabeledFrame{2}, UnlabeledFrame{2}} : mapreduce(typeof, typejoin, vals)
         imgs, sens, tms = _stamps(keys(fr), images, sensors, times, time_origin)
         allunique(targets) || throw(ArgumentError("`targets` names a target definition twice"))
         return new{F, H}(
@@ -298,18 +298,18 @@ function _unlabel_target_homography(::Type{F}, id::Symbol, h) where {F}
     h isa Union{HomographyMap{3}, Uncertain{<:HomographyMap{3}}} || throw(ArgumentError(
         "a target homography is a HomographyMap (plain or Uncertain); got a $(typeof(h)) — lift a matrix with HomographyMap(H)"))
     S, D = map_frames(h)
-    (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame && D === F) ||
-        throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame → $(F) is held"))
+    (S <: UnlabeledFrame && D <: UnlabeledFrame) || (S === TargetPlaneFrame{id} && D === F) ||
+        throw(ArgumentError("target $(id): a homography labeled $(S) → $(D) where TargetPlaneFrame{:$(id)} → $(F) is held"))
     return unlabel(h)
 end
 
 """
-    homography(th::TargetHomographies{F}, t, id) -> HomographyMap{3, …, TargetPlaneFrame, F} | Uncertain
+    homography(th::TargetHomographies{F}, t, id) -> HomographyMap{3, …, TargetPlaneFrame{id}, F} | Uncertain
 
 Target `id`'s plane → pixel homography in frame `t`, minted with its labels; an
 `Uncertain` one keeps its covariance.
 """
-homography(th::TargetHomographies{F}, t::Integer, id::Symbol) where {F} = relabel(TargetPlaneFrame, F, th.frames[t][id])
+homography(th::TargetHomographies{F}, t::Integer, id::Symbol) where {F} = relabel(TargetPlaneFrame{id}, F, th.frames[t][id])
 
 # ------------------------------------------------------------------------------
 # A plane homography's parameters: its nine entries, canonical

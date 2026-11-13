@@ -329,7 +329,7 @@ function fit_camera(
     _refuse_held_spellings(free, fix, fixed_params, hold)
     return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed, device)
 end
-fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), region; kwargs...)
+fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), _imaged_part(source, region); kwargs...)
 fit_camera(target::AbstractLensModel, source::NoncentralSplineModel, region; kwargs...) = fit_camera(typeof(target), source, region; kwargs...)
 
 function _checked_linear_form(::Type{L}) where {L}
@@ -374,8 +374,8 @@ function _domain_cap(::Type{L}, fitted, ok::Bool, θ_max) where {L}
     θend = ok ? Float64(view_angle_limit(fitted)) - 1.0e-9 : Inf
     return L <: LiftLens || θend < θ_max - 1.0e-6 ? θend : Inf
 end
-# A bounded camera's model is the source (its image does not enter: the region bounds the fit).
-fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = fit_camera(L, model(source), region; kwargs...)
+# A bounded camera's model is the source, over the part of the region it images (`_imaged_part`, refine_camera.jl).
+fit_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = fit_camera(L, model(source), _imaged_part(source, region); kwargs...)
 fit_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
     ArgumentError("fit_camera($L, …): a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )

@@ -303,8 +303,8 @@ function refine_camera(
     e = K0[1, 1] .* _sample_errors(lm, p, _domain_cap(L, fit.lens, isfinite(fit.s), pr.θ_max))   # (fit_camera.jl)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
 end
-# A bounded camera's model is the source (its image does not enter: the region bounds the fit).
-refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = refine_camera(guess, model(source), region; kwargs...)
+# A bounded camera's model is the source, over the part of the region it images (`_imaged_part`).
+refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = refine_camera(guess, model(source), _imaged_part(source, region); kwargs...)
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )

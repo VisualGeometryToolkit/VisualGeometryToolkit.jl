@@ -12,7 +12,7 @@
 #   Triggs{K}  ONE robustified chart LM (Core's `loss_robustifier` handed to
 #              NLLSsolver) — the default, `[refine.<class>]`, and the ONE
 #              fixed-scale robust path: no reweighting loop, the termination
-#              record NLLSsolver's (Core's `nlls_termination`)
+#              record Core's one LM's (`lmsolve_chart!`)
 #   nothing    plain least squares over every datum (one chart LM), no scale
 #
 # An `Irls{K}` is refused, naming `Triggs{K}`: a refine runs one LM, and an

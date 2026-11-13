@@ -158,7 +158,7 @@ end
     @test metadata(optical_axis(bounded, imaged_region(bounded))).residuals == metadata(r).residuals
 end
 
-# optical_axis's LM takes every chart LM's stop settings ([chart_lm] ftol = 1e-10, Estimation 0.10.2; until 0.10.1 it ran at
+# optical_axis's LM takes every chart LM's stop settings (Core's [lm] ftol = 1e-10, Estimation 0.10.2; until 0.10.1 it ran at
 # lmsolve_chart!'s eps): on the whole sensor of the 5°-off-axis spline the default family's cost settles before its
 # steps reach the increment floor, so it stops on the relative cost decrease (at eps: IncrementSize, one iteration
 # later; the principal point moves by < 1e-6 px; wave10/optical-axis-order.md)
@@ -204,7 +204,7 @@ end
     θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     function regress(dev)
         lm = VE._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
-        x, record, its = VE._regress_lens(lm, Val(N), VE._dflt("refine_camera", "max_iter"))
+        x, record, its = VE._regress_lens(lm, Val(N), VC.LmStops(; max_iter = VE._dflt("refine_camera", "max_iter")))
         e = K0[1, 1] .* VE._sample_errors(lm, x, θcap)                                    # px
         return (; x, record, its, rms = sqrt(sum(i -> pr.w[i] * sum(abs2, e[i]), eachindex(e)) / sum(pr.w)), max_px = maximum(norm, e))
     end

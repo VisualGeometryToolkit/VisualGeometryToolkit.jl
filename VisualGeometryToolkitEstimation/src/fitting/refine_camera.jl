@@ -200,12 +200,11 @@ end
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
 # zero), its termination record `(code, rule)` and its iterations — a function barrier static in the N
 # coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
-# device (one placeholder row, NLLSsolver's problem needs one). The chart LM's stop settings, every chart LM's
-# ([chart_lm]: the stall tolerance and the relative cost tolerance; the cap is `max_iter`, [refine_camera]).
-function _regress_lens(lm::_LensRegressionLm, ::Val{N}, max_iter::Int) where {N}
+# device (one placeholder row, NLLSsolver's problem needs one). `stops` are Core's stop settings (`LmStops`, its
+# `[lm]` table), the caller overriding a field only from its own table (`refine_camera`: the cap, `[refine_camera]`).
+function _regress_lens(lm::_LensRegressionLm, ::Val{N}, stops::LmStops) where {N}
     ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
-    x, _, _, iterations, record = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
-                                                 ftol = _CHART_LM_FTOL)
+    x, _, _, iterations, record = lmsolve_chart!(ews, lm, stops)
     return x, record, iterations
 end
 
@@ -303,7 +302,7 @@ function _refine_camera(
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     # nothing free (a physical K with `free = ()`; a gauge K's axis is always free): the guess itself, no LM
     p, record, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0) :
-        _regress_lens(lm, Val(tangent_size(P)), max_iter)
+        _regress_lens(lm, Val(tangent_size(P)), LmStops(; max_iter))
 
     fit = _regression_parts(retract(P, p))
     # a regression that ends non-finite did not converge: its FitResult reports it

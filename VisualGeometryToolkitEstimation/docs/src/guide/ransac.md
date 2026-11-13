@@ -91,9 +91,9 @@ problem's `refit_kind` trait (`NonlinLsq` for every problem below) to its
 `_refine!` method — there is no fit-strategy marker. Each IRLS iteration runs one
 full Levenberg–Marquardt solve, anchored at the incoming ``\theta``, at that
 iteration's weights ``w_i``. The driver of every one is NLLSsolver, through
-VisualGeometryToolkitCore's chart-LM adapter (`lmsolve_chart!`, its knobs in
-`configs/default.toml` `[chart_lm]`); the relative-pose bundle runs NLLSsolver
-too, with the structure eliminated by the Schur complement where the loaded
+VisualGeometryToolkitCore's one LM adapter (`lmsolve_chart!`, its stop settings
+`LmStops`, Core's `configs/default.toml` `[lm]`); the relative-pose bundle runs
+it too (`LmProblem`), with the structure eliminated by the Schur complement where the loaded
 NLLSsolver has it.
 
 | Problem | M-step body | Notes |

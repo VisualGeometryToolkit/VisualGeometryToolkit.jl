@@ -162,7 +162,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   restated copies). Retired names: `BoardDetection`, `load_cspond_sets`, `BlobBoards.write_tiff`, PanoramaStitching's
   `MEASUREMENT_NOISES` and `measurement_noise`.
 - `configs/default.toml` `[lm] device_acceptance = inf`: `StaticLmStops`' default acceptance (success by the
-  stationarity rule alone; a root-finding caller passes its bound).
+  stationarity rule alone; a root-finding caller states its bound).
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart

@@ -72,6 +72,7 @@ end
 end
 
 @testitem "variance_stabilize: the sensor model's gain — each green its colour's read noise, no gain refused" setup = [NoisyMosaic] begin
+    import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: LinearRaw, green_plane, poisson_slope, sensor_fixture
     const components = VisualGeometryToolkitFeatures.components   # StructArrays', the package's dependency
     using VisualGeometryToolkitFeatures: variance_stabilize

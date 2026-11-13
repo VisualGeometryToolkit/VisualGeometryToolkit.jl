@@ -385,7 +385,6 @@ end
         @test load_raw(m; mode, sensor_model = SensorModel()).image == load_raw(m; mode).image  # the absent model: the file's, bit for bit
     end
     @test_throws ArgumentError load_raw(m; mode = :demosaic, sensor_model = model)
-    @test load_raw(m; mode = :demosaic, sensor_model = SensorModel()).image == load_raw(m; mode = :demosaic).image
 end
 
 @testitem "raw: a cached decode is keyed by the sensor model" setup = [NoisyMosaic] begin

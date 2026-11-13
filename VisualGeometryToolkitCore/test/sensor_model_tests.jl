@@ -244,6 +244,19 @@ end
     @test_throws ArgumentError sensor_fixture(; gain = 0.0, read_noise = (1, 1, 1, 1))
     @test_throws ArgumentError sensor_fixture(; gain = 1.0)                                    # a gain without σ_r
     @test_throws ArgumentError sensor_fixture(; relative_noise = -0.1)
+    # a RelativeNoise is specified only (owner ruling on D14): every other source refused, by name
+    for src in (SensorSource.estimated, SensorSource.measured, SensorSource.file)
+        @test_throws "got source $(string(src))" sensor_fixture(; relative_noise = 0.05, source = src)
+    end
+    @test sensor_fixture(; relative_noise = 0.05).model.noise.source === SensorSource.specified
+    # component_sources: the one provenance view of a model — each slot's source, nothing for an absent one, the reason, the override
+    @test VisualGeometryToolkitCore.component_sources(SensorModel()) ==
+          (black = SensorSource.file, noise = nothing, defects = nothing, reason = VisualGeometryToolkitCore.NoCharacterisation,
+           specified_override = false)
+    est = sensor_fixture(; black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1),
+                         source = (black = SensorSource.measured, noise = SensorSource.estimated)).model
+    @test VisualGeometryToolkitCore.component_sources(est) == (black = SensorSource.measured, noise = SensorSource.estimated, defects = nothing,
+                                                     reason = VisualGeometryToolkitCore.Matched, specified_override = false)
     @test_throws ArgumentError sensor_fixture(; black = (NaN, 0, 0, 0))
     @test_throws ArgumentError sensor_fixture(; black = (1, 1, 1, 1), source = SensorSource.file)   # the RAW's own is FileBlack
     @test_throws ArgumentError sensor_fixture(; defects = (; x = [11], y = [1], onset = [1s], size = (8, 10)))
@@ -391,6 +404,69 @@ end
                                             1 / 4 * sum(q -> 9 * (1 + 1 / 8) / q.dn^2, ps); rtol = 16eps())
 end
 
+# Owner ruling D14: the default uncertain image is the LAZY view — `linearview` under a model with a variance law has
+# `Uncertain` elements whose scalar variance is computed on the read, by the one law LinearRaw's kernel writes per
+# plane; `copy` materialises it (SoA). Lazy and materialised agree element for element; `var` is the one accessor.
+@testitem "sensor model: the lazy uncertain view (D14) — linearview's Uncertain elements, var, the materialised copy" begin
+    using Test, StableRNGs, Statistics
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: RawMosaic, LinearRawView, sensor_fixture, parse_unit, Uncertain, value_of, poisson_slope, channelview
+    using StructArrays: StructArray, components
+    s = parse_unit("s")
+    K, σ, black, white = 2.0, (3.0, 2.5, 4.0, 2.5), (510.0, 512.0, 514.0, 513.0), 16383.0
+    pattern = UInt8[0 1; 3 2]                             # RGGB, LibRaw's indices (G2 = 3)
+    col(i, j) = pattern[mod1(i, 2), mod1(j, 2)]
+    rng = StableRNG(14)
+    H, W = 10, 12
+    m = RawMosaic(UInt16[rand(rng, 300:9000) for i in 1:H, j in 1:W], pattern, black, white, (0, 0), (H, W), (;))
+    pg = sensor_fixture(; gain = K, read_noise = σ, black).model
+    dark = (; offset = Float32.(512 .+ randn(rng, H, W)), variance = rand(rng, Float32, H, W) .+ 4.0f0, exposure_band = (0.5s, 2s), frames = 8)
+    pgd = sensor_fixture(; gain = K, read_noise = σ, black, dark, exposure = 1s).model
+    rel = sensor_fixture(; relative_noise = 0.05).model
+    # without a variance law the view is plain, as before
+    for model in (SensorModel(), sensor_fixture(; black).model, sensor_fixture(; read_noise = (2, 2, 2, 2)).model)
+        lv = linearview(m; sensor_model = model)
+        @test eltype(lv) === Float64 && lv isa LinearRawView{Float64} && copy(lv) isa Matrix{Float64}
+    end
+    span(i, j) = white - black[col(i, j) + 1]
+    # each model beside the same black slot without a noise law (the RAW's own for RelativeNoise)
+    plain = (sensor_fixture(; black).model, sensor_fixture(; black, dark, exposure = 1s).model, SensorModel())
+    for (model, same_black) in zip((pg, pgd, rel), plain)
+        lv = linearview(m; sensor_model = model)
+        @test eltype(lv) <: Uncertain{Float64} && isbits(lv[1, 1])
+        @test value_of.(lv) == copy(linearview(m; sensor_model = same_black))   # the values bit for bit the plain view's
+        mat = copy(lv)                                         # the materialised form: a value plane and a variance plane
+        @test mat isa StructArray && eltype(mat) === eltype(lv)
+        @test all(I -> mat[I] === lv[I], CartesianIndices(lv))                   # lazy and materialised agree, element for element
+        @test all(I -> var(lv[I]) === Statistics.cov(lv[I])[1, 1], CartesianIndices(lv))   # THE scalar accessor
+        @test channelview(lv)[2, 1, 1] === lv[2, 1]            # the cells channel-first, uncertain alike
+    end
+    # the law per photosite (one site, gain 1): max(v,0)/(K d) + s/d², s = σ_r[c]², or the dark variance × (1 + 1/frames)
+    # (each side's expression ≤ 4 roundings, summed in another order: rtol 8 ulp)
+    lv, lvd, lvr = linearview(m; sensor_model = pg), linearview(m; sensor_model = pgd), linearview(m; sensor_model = rel)
+    for j in 1:W, i in 1:H
+        v, d = value_of(lv[i, j]), span(i, j)
+        @test isapprox(var(lv[i, j]), max(v, 0) / (K * d) + σ[col(i, j) + 1]^2 / d^2; rtol = 8eps())
+        vd = value_of(lvd[i, j])
+        @test isapprox(var(lvd[i, j]), max(vd, 0) / (K * d) + dark.variance[i, j] * (1 + 1 / 8) / d^2; rtol = 8eps())
+        @test isapprox(var(lvr[i, j]), (0.05 * value_of(lvr[i, j]))^2; rtol = 8eps())
+    end
+    # the same law as LinearRaw's plane: two greens of one value and one span are the mean of the two, its variance
+    # the photosites' sum over 4 (the plane's own expression at m = 2)
+    flat = RawMosaic(fill(UInt16(4000), 4, 4), pattern, (512.0, 512.0, 512.0, 512.0), white, (0, 0), (4, 4), (;))
+    pf = sensor_fixture(; gain = K, read_noise = σ, black = (512.0, 512.0, 512.0, 512.0)).model
+    L, lf = LinearRaw(flat; mode = :green_cells, sensor_model = pf), linearview(flat; sensor_model = pf)
+    @test value_of(L.image[1, 1, 1]) == value_of(lf[1, 2])
+    @test isapprox(var(L.image[1, 1, 1]), (var(lf[1, 2]) + var(lf[2, 1])) / 4; rtol = 8eps())
+    # one plane's Poisson slope, by index or colour
+    Lb = LinearRaw(m; mode = :bin2, sensor_model = pg)
+    @test poisson_slope(Lb, pg, :G) === poisson_slope(Lb, pg)[2] === poisson_slope(Lb, pg, 2)
+    @test poisson_slope(Lb, pg, :R) === poisson_slope(Lb, pg)[1] && poisson_slope(Lb, pg, :B) === poisson_slope(Lb, pg)[3]
+    Lg = LinearRaw(m; mode = :green_cells, sensor_model = pg)
+    @test poisson_slope(Lg, pg, :G) === only(poisson_slope(Lg, pg))
+    @test_throws ArgumentError poisson_slope(Lg, pg, :R)
+end
+
 @testitem "sensor model: CPU = GPU — LinearRaw with a ChannelBlack, a Dark, a DefectList and a PoissonGaussian; the estimators" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: sensor_fixture, parse_unit
@@ -417,7 +493,8 @@ end
                 Lh = LinearRaw(wh; mode, sensor_model = model)
                 Ld = LinearRaw(wd; mode, sensor_model = md)
                 @test adapt(Array, Ld.image) == Lh.image && Array(Ld.saturated) == Lh.saturated
-                @test Array(copy(linearview(wd; sensor_model = md))) == copy(linearview(wh; sensor_model = model))
+                # the lazy view read on the device (its materialised copy, a broadcast of the view there) = the host's (D14)
+                @test adapt(Array, copy(linearview(wd; sensor_model = md))) == copy(linearview(wh; sensor_model = model))
             end
         end
         @test components(LinearRaw(d; mode = :bin2, sensor_model = models[2]).image)[1] isa CUDA.CuArray

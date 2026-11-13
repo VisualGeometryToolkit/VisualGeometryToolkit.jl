@@ -764,7 +764,9 @@ function validate(path::AbstractString)
     if v !== nothing
         kind = _current_kind(v.kind)
         if _has_kind(kind)
-            (_is_current_major(s, kind) || _reads_through_migration(s, kind)) || _refuse_schema(file, kind, s)
+            (_is_current_major(s, kind) || _reads_through_migration(s, kind) ||
+             (kind == "cameras" && s in (_OLD_GRID_SCHEMAS..., "vgio/noncentral_spline/v1"))) ||   # read as its one-camera store
+                _refuse_schema(file, kind, s)
             _read_store(file, kind)
             return kind
         end

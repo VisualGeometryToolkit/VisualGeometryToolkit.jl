@@ -391,6 +391,12 @@ git **tree hashes** of that code
   path (`[sources]`, `Pkg.develop`) by the trees of its `src`, `ext` and
   `Project.toml` in its own repository, a released one by its Manifest
   `git-tree-sha1`.
+- a project that is itself a **registered install** (the package's source in
+  the depot, no git checkout: a registered package's example recording its
+  results with `gitpath = pkgdir(ThePackage)`): by the tree hash the active
+  environment records for it (`Pkg.dependencies()`), with its name, version
+  and uuid. It is committed code, content-addressed and immutable, and the
+  stack packages are then those of the active project's environment.
 
 A tree moves only when a file under it changes. A commit that touches only the
 docs, the tests or the paper changes no tree, so it reuses every result; a
@@ -412,7 +418,8 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
 
 - **A run of record runs committed code.** Code whose files differ from its
   commit (an edit, a staged, deleted or untracked file in the code paths or in
-  a package loaded from a path), or code in no git checkout, is refused with
+  a package loaded from a path), or code that is in no git checkout and is no
+  registered install, is refused with
   one error,
   [`refuse_uncommitted_code`](@ref VisualGeometryToolkitEval.refuse_uncommitted_code):
   by a launch (exit 2; the dry run marks it `DIRTY`) and by a driver's records

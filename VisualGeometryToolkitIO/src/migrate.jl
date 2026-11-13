@@ -1,6 +1,6 @@
 # =============================================================================
-# Migrations — third-party calibrations into the native kinds (migrate_opencv,
-# migrate_matlab), earlier schema versions into the current ones (vgio_migrate,
+# Migrations — third-party calibrations into the native kinds (convert_opencv_calibration,
+# convert_matlab_calibration), earlier schema versions into the current ones (vgio_migrate,
 # migrate_schema; a migrated rig's measurement files re-pointed) — and the
 # bin/vgio_migrate.jl command
 # =============================================================================
@@ -32,7 +32,7 @@ _same_pose(a::EuclideanMap, b::EuclideanMap) =
     all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
 
 # =============================================================================
-# migrate_opencv — a third-party OpenCV calibration into the native kinds
+# convert_opencv_calibration — a third-party OpenCV calibration into the native kinds
 # =============================================================================
 
 # The tvec unit of a third-party export: its own declaration (`tvec_unit`, or
@@ -55,7 +55,7 @@ function _tvec_unit(d, file_unit, path)
 end
 
 """
-    migrate_opencv([file_frame = PixelFrame{:opencv},] path; images, image_size,
+    convert_opencv_calibration([file_frame = PixelFrame{:opencv},] path; images, image_size,
                    file_unit = nothing, target = "calibration_target",
                    out = dirname(path), dry_run = false) -> NamedTuple
 
@@ -102,9 +102,9 @@ quaternion encoding's precision (`_qvec`). With
 `dry_run` nothing is written to `out`. Returns `(; path, cameras, poses,
 n_posed, n_unposed)`, the output paths `nothing` in a dry run.
 """
-migrate_opencv(path::AbstractString; kwargs...) = migrate_opencv(PixelFrame{:opencv}, path; kwargs...)
+convert_opencv_calibration(path::AbstractString; kwargs...) = convert_opencv_calibration(PixelFrame{:opencv}, path; kwargs...)
 
-function migrate_opencv(
+function convert_opencv_calibration(
         file_frame::Type{<:PixelFrame}, path::AbstractString; images, image_size,
         file_unit::Union{Nothing, Units} = nothing,
         target::AbstractString = "calibration_target", out::AbstractString = dirname(abspath(path)),
@@ -164,18 +164,18 @@ function _migrate_external(cal::ExternalCalibration, source::AbstractString, pat
 end
 
 # =============================================================================
-# migrate_matlab — a third-party MATLAB calibration into the native kinds
+# convert_matlab_calibration — a third-party MATLAB calibration into the native kinds
 # =============================================================================
 
 """
-    migrate_matlab([file_frame = PixelFrame{:julia},] path; images, image_size, file_unit = nothing,
+    convert_matlab_calibration([file_frame = PixelFrame{:julia},] path; images, image_size, file_unit = nothing,
                    target = "calibration_target", out = dirname(path), dry_run = false) -> NamedTuple
 
 Convert a third-party MATLAB calibration export (`calibration_matlab_*.json`:
 the radial/tangential camera `fx, fy, cx, cy, r1…r3, t1, t2`, or the fisheye
 `mapping_coeffs`, `distortion_center`, `stretch_matrix`; `mean_error`; one
 `{rvec, tvec}` per image) into the same native files as
-[`migrate_opencv`](@ref), which it mirrors: `<stem>_cameras.json` (the camera
+[`convert_opencv_calibration`](@ref), which it mirrors: `<stem>_cameras.json` (the camera
 as [`load_matlab_calibration`](@ref) reads it — MATLAB's polynomial lens, or the
 fisheye as `Scaramuzza` with its stretch in `K`; `provenance` records the
 `reprojection_error` with `error_statistic = "mean"`, MATLAB's statistic, not
@@ -193,9 +193,9 @@ MATLAB's board frame has x and y exchanged relative to OpenCV's for the same
 pattern, and the poses are carried in MATLAB's own board frame, unchanged: give
 `target` a name that keeps them apart from an OpenCV calibration's.
 """
-migrate_matlab(path::AbstractString; kwargs...) = migrate_matlab(PixelFrame{:julia}, path; kwargs...)
+convert_matlab_calibration(path::AbstractString; kwargs...) = convert_matlab_calibration(PixelFrame{:julia}, path; kwargs...)
 
-function migrate_matlab(
+function convert_matlab_calibration(
         file_frame::Type{<:PixelFrame}, path::AbstractString; images, image_size,
         file_unit::Union{Nothing, Units} = nothing,
         target::AbstractString = "calibration_target", out::AbstractString = dirname(abspath(path)),
@@ -265,6 +265,36 @@ an old grid file is read, never rewritten: its file form writes a central one's
 camera store, a non-central one's record, to a new file).
 """
 function migrate_schema end
+
+"""
+    schema_versions() -> Vector{NamedTuple}
+    schema_versions(kind) -> Vector{String}
+
+The schema versions VisualGeometryToolkitIO reads, DERIVED from its version
+steps (the `migrate_schema` methods of a record: every schema with a step, and
+each kind's current one), never kept by hand: per current kind, its earlier
+schemas (a former kind's among them: `generic_camera` and `noncentral_spline`
+for `cameras`; `target_points2d`, `target_points3d`, `target_detections` for
+`observations`) in version order, then its current one. The docs table of the
+versions read is generated from it.
+"""
+function schema_versions(kind::AbstractString)
+    old = String[]
+    for m in methods(migrate_schema)
+        sig = Base.unwrap_unionall(m.sig)
+        length(sig.parameters) == 3 || continue
+        V = sig.parameters[2]
+        (V isa DataType && V <: Val && V.parameters[1] isa Symbol) || continue
+        s = String(V.parameters[1])
+        v = _split_schema(s)
+        (v !== nothing && _current_kind(v.kind) == kind && _has_record_migration(s)) && push!(old, s)
+    end
+    # the old grid kind and the non-central kind are read through the store reader (`_one_camera_store`)
+    kind == "cameras" && append!(old, _OLD_GRID_SCHEMAS, ("vgio/noncentral_spline/v1",))
+    order(s) = (v = _split_schema(s); (v.kind == kind, v.kind, v.major, v.minor))
+    return push!(sort!(unique!(old); by = order), _schema(kind))
+end
+schema_versions() = [(kind = k, current = _schema(k), reads = schema_versions(k)) for k in sort!(collect(keys(_SCHEMA_VERSION)))]
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
 _has_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, String, String})
 _has_record_migration(s::AbstractString) = hasmethod(migrate_schema, Tuple{Val{Symbol(s)}, Dict{String, Any}})
@@ -306,18 +336,14 @@ function migrate_record(tree::AbstractDict)
     return t
 end
 # Whether a step's schema `to` is a later version of the kind `from` names
-# (`<kind>/v<n>`, an owner's kinds included): what keeps the steps from looping.
-# A step into a renamed kind (`_FORMER_KIND`) moves forward from any version of its former name.
+# (`<owner>/<kind>/v<major>[.<minor>]`, an owner's kinds included): what keeps
+# the steps from looping. A step into a renamed kind (`_RENAMED_KIND`) moves
+# forward from any version of its former name.
 function _moves_forward(from::AbstractString, to)
-    a, b = _split_schema(from), _split_schema(to)
-    (a === nothing || b === nothing) && return _moves_forward_owned(from, to)
-    a.kind == b.kind && return b.version > a.version
-    return get(_FORMER_KIND, b.kind, nothing) == a.kind
-end
-# A schema owner's kind (any `<kind>/v<n>`, not only vgio's): a later version of the same kind.
-function _moves_forward_owned(from::AbstractString, to)
-    a, b = match(r"^(.+)/v(\d+)$", from), to isa AbstractString ? match(r"^(.+)/v(\d+)$", to) : nothing
-    return a !== nothing && b !== nothing && a[1] == b[1] && parse(Int, b[2]::AbstractString) > parse(Int, a[2]::AbstractString)
+    a, b = _split_owned(from), _split_owned(to)
+    (a === nothing || b === nothing || a.owner != b.owner) && return false
+    a.kind == b.kind && return _version(b) > _version(a)
+    return a.owner == "vgio" && get(_RENAMED_KIND, a.kind, nothing) == b.kind
 end
 
 """
@@ -994,7 +1020,6 @@ migrate_schema(::Val{Symbol("vgio/rig/v6")}, t::AbstractDict) = _rig_v6_to_v7(t)
 migrate_schema(::Val{Symbol("vgio/rig/v4")}, t::AbstractDict) = (foreach(x -> _check_v1_warp(x["target"]), get(t, "targets", ())); _rig_v4_to_v5(t))
 migrate_schema(::Val{Symbol("vgio/rig/v5")}, t::AbstractDict) = _rig_v5_to_v6(t)
 migrate_schema(::Val{Symbol("vgio/generic_camera/v2")}, t::AbstractDict) = _generic_camera_v2_to_v3(t)
-migrate_schema(::Val{Symbol("vgio/generic_camera/v3")}, t::AbstractDict) = _generic_camera_v3_to_noncentral(t)
 migrate_schema(::Val{Symbol("vgio/rig/v8")}, t::AbstractDict) = _rig_v8_to_v9(t)
 migrate_schema(::Val{Symbol("vgio/transforms/v2")}, t::AbstractDict) = _hand_eye_transforms_v2_to_v3(t)
 migrate_schema(::Val{Symbol("vgio/trajectory/v2")}, t::AbstractDict) = _track_segment_trajectory_v2_to_v3(t)
@@ -1204,7 +1229,7 @@ function _old_grid_camera(b::AbstractDict)
     msg === nothing || throw(ArgumentError("an old grid body: $(msg)"))
     (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
         throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
-    P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh) : trues(gh, gw)
+    P = haskey(b, "present") ? _present_from_runs(b["present"], gw, gh; base = 0) : trues(gh, gw)   # (0-based: before IO 0.10)
     x0, y0 = Int(b["calibration_min_x"]), Int(b["calibration_min_y"])
     bounds = VgtkCore.Rect(x0, y0, Int(b["calibration_max_x"]) - x0 + 1, Int(b["calibration_max_y"]) - y0 + 1)   # the inclusive pixel bounds
     nominal = haskey(b, _OLD_NOMINAL_KEY) ? LogicalIntrinsics(_k_from_values(b[_OLD_NOMINAL_KEY])) : nothing
@@ -1244,26 +1269,6 @@ function _noncentral_grid_body(b::AbstractDict)
     return merge(body, _old_grid_extras(b))
 end
 
-# vgio/generic_camera/v3 → vgio/noncentral_spline/v1 (the spline lens, 2026-11): the kind holds the
-# non-central grid camera alone, its splines over the K-normalized plane. A
-# central v3 record has no such form — it is a camera with a spline lens, read as
-# the camera store of its one camera (`load(BoundedCamera, path)`).
-function _generic_camera_v3_to_noncentral(old)
-    get(old, "type", nothing) == _OLD_CENTRAL_TYPE && throw(
-        ArgumentError(
-            "a central grid camera is a camera with a spline lens, not a $(_schema("noncentral_spline")) record: " *
-                "load(BoundedCamera, path) reads its file as the camera store of its one camera"
-        )
-    )
-    head = Dict{String, Any}(k => old[k] for k in ("pixel_frame", "length_unit", "provenance") if haskey(old, k))
-    return merge(head, _noncentral_grid_body(old), Dict{String, Any}("schema" => _schema("noncentral_spline")))
-end
-
-# The parsed file `d` with the K a caller supplies (`load(…; intrinsics)`): `nothing`
-# leaves it as it is. An old grid body that stores no nominal pinhole takes the given
-# K as one, written into the parsed record (no text round trip; the file is never edited): the body of an old
-# grid file (`intrinsics` one K), or of an old rig's grid sensors (`intrinsics` a K per
-# sensor id). A record that holds its K refuses one, and so does an unknown sensor.
 _with_given_intrinsics(d, ::Nothing, path) = d
 function _with_given_intrinsics(d, K::CameraCalibrationMat, path)
     (d isa AbstractDict && get(d, :schema, nothing) in _OLD_GRID_SCHEMAS) || _holds_k(path, "the record")
@@ -1308,21 +1313,22 @@ _current_grid_body(b::AbstractDict) = b["type"] == _OLD_CENTRAL_TYPE ? _central_
 # enclosing record declares — the frame the old grid code reads every old grid body's numbers in — and a
 # non-central one's line points in the enclosing record's length unit. Any other body is read as it stands.
 function _current_camera_body(s::VgioStyle, b)
-    _is_old_grid_body(b) || return s, b
-    body = _parse_vgio_text(JSON.json(_current_grid_body(_lower(b))), "an old grid body")
-    return VgioStyle(; length_unit = s.length_unit, pixel_frame = CANONICAL_PIXEL_FRAME), body
+    if _is_old_grid_body(b)
+        body = _parse_vgio_text(JSON.json(_current_grid_body(_lower(b))), "an old grid body")
+        return _with_pixel_frame(s, CANONICAL_PIXEL_FRAME), body
+    end
+    (b isa AbstractDict && haskey(b, :width)) || return s, b      # a current body
+    return s, _parse_vgio_text(JSON.json(_camera_body_v010(_lower(b))), "an IO 0.9 camera body")
 end
+_with_pixel_frame(s::VgioStyle{U, F, C}, G::Type{<:PixelFrame}) where {U, F, C} = VgioStyle{U, G, C}(s.length_unit, s.contract)
 # …as the vgio/cameras record of its one camera, named after the file (`fisheye_14mm.json` → `fisheye_14mm`;
 # `d` parsed, so the reader meets what a store file holds).
 function _central_grid_store(d, path)
     t = _lower(d)
     t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
     store = try
-        Dict{String, Any}(
-            "schema" => _schema("cameras"), "pixel_frame" => t["pixel_frame"],
-            "cameras" => Any[merge(Dict{String, Any}("name" => first(splitext(basename(path)))), _central_grid_body(t))],
-            (haskey(t, "provenance") ? ("provenance" => t["provenance"],) : ())...,
-        )
+        merge(_envelope_v010(t, "vgio/cameras/v6.0"),
+              Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => first(splitext(basename(path)))), _central_grid_body(t))]))
     catch e
         e isa Union{ArgumentError, KeyError} || rethrow()
         throw(ArgumentError("$(path): a $(t["schema"]) central grid camera, read as a camera with a spline lens: $(sprint(showerror, e))"))
@@ -1355,7 +1361,7 @@ migrate_schema(::Val{Symbol("vgio/cameras/v4")}, src::AbstractString, dst::Abstr
 # `dst` (`vgio_migrate`'s default `<stem>.camera.json` / `<stem>.noncentral.json`).
 function _migrate_old_grid(src, dst)
     d = _read_vgio_json(src)
-    _is_central_grid(d) || return (_migrate_file(BoundedCamera, src, dst, "the old non-central grid file's camera"); (; to = _schema("noncentral_spline")))
+    _is_central_grid(d) || return (_migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store of the old non-central grid file"; current = _lower(_one_camera_store(d, src))); (; to = _schema("cameras")))
     _migrate_file(Dict{Symbol, BoundedCamera}, src, dst, "the camera store of the old central grid file"; current = _lower(_central_grid_store(d, src)))
     return (; to = _schema("cameras"))
 end
@@ -1376,9 +1382,9 @@ migrate_schema(::Val{Symbol("vgio/rig/v8")}, src::AbstractString, dst::AbstractS
 migrate_schema(::Val{Symbol("vgio/target/v4")}, src::AbstractString, dst::AbstractString) = _migrate_target(src, dst)
 # the measurement and pose kinds of the covariance-storage step: rewritten through their value
 for (s, T, kind, what) in (
-        ("vgio/target_detections/v1", TargetDetections, "target_detections", "the target detections"),
-        ("vgio/target_points2d/v1", TargetPoints2D, "target_points2d", "the target points (2D)"),
-        ("vgio/target_points3d/v1", TargetPoints3D, "target_points3d", "the target points (3D)"),
+        ("vgio/target_detections/v1", TargetObservations, "observations", "the target observations"),
+        ("vgio/target_points2d/v1", TargetObservations, "observations", "the target observations (2D)"),
+        ("vgio/target_points3d/v1", TargetObservations, "observations", "the target observations (3D)"),
         ("vgio/target_poses/v1", TargetPoses, "target_poses", "the target poses"),
         ("vgio/trajectory/v3", Trajectory, "trajectory", "the trajectory"),
         ("vgio/transforms/v3", Vector{EuclideanMap}, "transforms", "the transforms"),
@@ -1583,21 +1589,18 @@ end
 # (Every measurement kind's earlier versions are listed so an old file is re-pointed too, and
 # rewritten as its kind's current version by the same guarded write; `vgio_migrate_tree` leaves
 # every measurement file to the re-pointing step.)
-const _MEASUREMENT_KINDS = Dict(
-    "vgio/target_points2d/v1" => TargetPoints2D, "vgio/target_points3d/v1" => TargetPoints3D,
-    "vgio/target_detections/v1" => TargetDetections,
-    "vgio/target_points2d/v2" => TargetPoints2D, "vgio/target_points3d/v2" => TargetPoints3D,
-    "vgio/target_detections/v2" => TargetDetections,
+const _OBSERVATION_KINDS = Dict(
+    s => TargetObservations for s in ("vgio/target_points2d/v1", "vgio/target_points3d/v1", "vgio/target_detections/v1",
+                                      "vgio/target_points2d/v2", "vgio/target_points3d/v2", "vgio/target_detections/v2")
 )
 
-_is_old_measurement(s) = !_is_current(s)
+_is_old_observation(s) = !_is_current(s)
 # What a measurement's `targets` may name in a tree: a current rig of targets or a
 # single unposed target file (a target_detections or target_homographies file's ids).
 _is_target_definition(s) = s == _schema("rig") || s == _schema("target")
 
 # Every measurement of a value as (frame, target, point index).
-_measured_points(obs::Union{TargetPoints2D, TargetPoints3D}) = ((f, o.target, o.index) for (f, os) in obs for o in os)
-_measured_points(obs::TargetDetections) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
+_observed_points(obs::TargetObservations) = ((f, id, i) for (f, sets) in obs for (id, cs) in sets for i in sources(cs))
 
 # Re-point a measurement file (`vgio/target_points2d`, `vgio/target_points3d`, `vgio/target_detections`, v1–v2)
 # at the rigs its targets were migrated to: every identity in its `targets`
@@ -1622,7 +1625,7 @@ function _repoint_targets(
         hashes = _target_hashes(_target_list(rigs)), old::AbstractDict = _raw_tree(path),
     )
     s = get(old, "schema", nothing)
-    T = get(_MEASUREMENT_KINDS, s, nothing)
+    T = get(_OBSERVATION_KINDS, s, nothing)
     T === nothing && throw(ArgumentError("$(path): a $(repr(s)) file names no targets to re-point (target_points2d, target_points3d, target_detections, v1–v2)"))
     in_place = abspath(out) == abspath(path)
     (dry_run || in_place || !ispath(out)) || throw(ArgumentError("$(out) exists; refusing to overwrite it"))
@@ -1662,7 +1665,7 @@ function _check_resolves_by_id(obs, rigs, path)
         npts[id] = is_resolved(t) ? length(points(t)) : nothing
     end
     unchecked = 0
-    for (f, target, index) in _measured_points(obs)
+    for (f, target, index) in _observed_points(obs)
         haskey(npts, target) || throw(ArgumentError("$(path): frame $(f) measures target $(target), which none of the rigs given holds"))
         n = npts[target]
         if n === nothing
@@ -1718,10 +1721,10 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     failed = Pair{String, String}[]                                    # file => why it was refused
     for f in files
         s = schemas[f]
-        if !(s isa String && _has_migration(s)) || haskey(_MEASUREMENT_KINDS, s)   # (a measurement file: below)
+        if !(s isa String && _has_migration(s)) || haskey(_OBSERVATION_KINDS, s)   # (a measurement file: below)
             if s === nothing
                 println(io, "SKIPPED   ", f, ": no readable schema")
-            elseif haskey(_MEASUREMENT_KINDS, s)
+            elseif haskey(_OBSERVATION_KINDS, s)
                 # re-pointed below; a v1 file is rewritten as v2 there
             elseif _is_current(s)
                 _is_target_definition(s) && push!(rigs, f)
@@ -1752,14 +1755,14 @@ function vgio_migrate_tree(dir::AbstractString; in_place::Bool = false, dry_run:
     current = Set(hashes)
     for f in files
         s = schemas[f]
-        haskey(_MEASUREMENT_KINDS, something(s, "")) || continue
+        haskey(_OBSERVATION_KINDS, something(s, "")) || continue
         old = _raw_tree(f)
         ts = String[t for t in something(get(old, "targets", nothing), Any[])]
         if isempty(ts)
             println(io, "current   ", f, ": names no targets (nothing to re-point)")
             continue
         end
-        if all(in(current), ts) && !_is_old_measurement(schemas[f])
+        if all(in(current), ts) && !_is_old_observation(schemas[f])
             println(io, "current   ", f, ": names current rigs")
             continue
         end
@@ -1926,7 +1929,7 @@ function _migrate_external_cli(kind::AbstractString, args::AbstractVector{<:Abst
     m = match(r"^(\d+)x(\d+)$", opts["--image-size"])
     m === nothing && (println(io, "--image-size is WIDTHxHEIGHT, got $(opts["--image-size"])"); return 2)
     try
-        migrate = kind == "opencv" ? migrate_opencv : migrate_matlab
+        migrate = kind == "opencv" ? convert_opencv_calibration : convert_matlab_calibration
         r = migrate(
             pixel_frame_from_name(get(opts, "--file-frame", kind == "opencv" ? "opencv" : "julia")), file;
             images = _image_names(opts["--images"]),
@@ -1998,9 +2001,10 @@ function _migrate_version_cli(kind::AbstractString, args::AbstractVector{<:Abstr
             return 0
         end
         s = _peek_schema(file)
-        # the command's kind migrates every old schema `_MIGRATIONS_TO_CURRENT` names it for
-        (kind == "file" || get(_MIGRATIONS_TO_CURRENT, s, nothing) == kind) || throw(
-            ArgumentError("$(file) is a $(repr(s)) file, not a $(join(sort!([o for (o, k) in _MIGRATIONS_TO_CURRENT if k == kind]), " or ")) one")
+        # the command's kind (`target`, `rig`) migrates the earlier versions of that kind only (`file`: any)
+        v = _split_schema(s)
+        (kind == "file" || (v !== nothing && _current_kind(v.kind) == kind)) || throw(
+            ArgumentError("$(file) is a $(repr(s)) file, not a $(kind) one (`file` migrates any)")
         )
         r = vgio_migrate(file; out = dest, dry_run = !apply)
         println(

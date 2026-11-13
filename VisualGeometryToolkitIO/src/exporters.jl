@@ -158,7 +158,7 @@ _sorted_json(x::AbstractVector) = "[" * join((_sorted_json(v) for v in x), ", ")
 _sorted_json(x) = JSON.json(x)
 
 """
-    save_trc(path, obs::TargetPoints3D; data_rate = nothing, stamp = :time) -> (; path, markers)
+    save_trc(path, obs::TargetObservations{<:Frame{3}}; data_rate = nothing, stamp = :time) -> (; path, markers)
 
 OpenSim's TRC marker-trajectory text, exactly as
 opensim-core/OpenSim/Common/TRCFileAdapter.cpp writes and reads it
@@ -173,7 +173,7 @@ as missing (NaN, :188-199). Units are mm. `Time` is the frame's time since
 to the mean rate over that span — TRC requires one even for irregular capture.
 Returns the path and the marker column order.
 """
-function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{Nothing, Real} = nothing, stamp::Symbol = :time)
+function save_trc(path::AbstractString, obs::TargetObservations{<:Frame{3}}; data_rate::Union{Nothing, Real} = nothing, stamp::Symbol = :time)
     ts = sort!(collect(keys(obs.frames)))
     times = if stamp === :index
         Float64.(ts)
@@ -182,7 +182,7 @@ function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{No
         all(t -> haskey(obs.times, t), ts) || throw(ArgumentError("save_trc: a frame has no time — export with `stamp = :index`"))
         [obs.times[t] for t in ts]
     end
-    markers = sort!(unique!([(o.target, o.index) for t in ts for o in obs.frames[t]]))
+    markers = sort!(unique!([(id, i) for t in ts for (id, cs) in obs.frames[t] for i in sources(cs)]))
     col = Dict(mk => i for (i, mk) in enumerate(markers))
     rate = data_rate !== nothing ? Float64(data_rate) :
         length(times) > 1 && times[end] > times[1] ? (length(times) - 1) / (times[end] - times[1]) : 1.0
@@ -195,9 +195,9 @@ function save_trc(path::AbstractString, obs::TargetPoints3D; data_rate::Union{No
         println(io)
         for (k, (t, s)) in enumerate(zip(ts, times))
             row = fill("", 3 * length(markers))
-            for o in obs.frames[t]
-                p = _lengths_json(geom(o.xyz), mm, "save_trc: a 3D target point")   # TRC's Units: mm
-                j = 3 * (col[(o.target, o.index)] - 1)
+            for (id, cs) in obs.frames[t], (i, xyz) in zip(sources(cs), targets(cs))
+                p = _lengths_json(geom(xyz), mm, "save_trc: a 3D target point")   # TRC's Units: mm
+                j = 3 * (col[(id, i)] - 1)
                 row[j + 1], row[j + 2], row[j + 3] = string(p[1]), string(p[2]), string(p[3])
             end
             print(io, k, '\t', s, '\t')

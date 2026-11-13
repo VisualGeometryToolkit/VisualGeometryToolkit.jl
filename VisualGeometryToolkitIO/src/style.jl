@@ -48,17 +48,23 @@
 # whose spec demands one writes one).
 
 """
-    VgioStyle(; length_unit = mm, pixel_frame = PixelFrame{:colmap}) <: JSON.JSONStyle
+    VgioStyle(; length_unit = mm, pixel_frame = PixelFrame{:colmap}, density = dpi, length_roles = (;)) <: JSON.JSONStyle
+    VgioStyle(contract::UnitContract; pixel_frame = PixelFrame{:colmap})
+    VgioStyle(record) -> VgioStyle
 
 VisualGeometryToolkitIO's serialization style: every VGC value a `vgio/<kind>`
 record embeds is written by a `JSON.lower(::VgioStyle, x)` method and read by
 a `JSON.lift(::VgioStyle, T, record)` method (StructUtils' `lower` and `lift`,
-the `JSON.JSONStyle` hooks), on this style
-only. It carries what the enclosing file declares for the value — the
-`length_unit` its lengths are written in (decimal-exact, through
-[`write_length`](@ref) and [`read_length`](@ref)) and the `pixel_frame` its
-principal points are written in — and the writer takes it as
-`JSON.json(x; style = VgioStyle(…))`.
+the `JSON.JSONStyle` hooks), on this style only. It carries the file's `units`
+declaration: a [`UnitContract`](@ref) (its `length` unit, every lengths in
+decimal-exact through [`write_length`](@ref) and [`read_length`](@ref), its
+further length roles and its density) and the `pixel_frame` its pixel
+coordinates are written in. The writer takes it as `JSON.json(x; style =
+VgioStyle(…))`; every file's `units` object is the style's
+(`JSON.lower(style, contract)` writes the length part of it).
+
+`VgioStyle(record)` is the style a parsed record's `units` object declares (the
+reader's: a record a package of its own reads with [`read_record`](@ref)).
 
 A package serializing a kind of its own embeds VGC values the same way (a
 pose, a `CameraModel`, a target with its calibration, a layout, an
@@ -78,14 +84,42 @@ julia> JSON.lift(s, Ellipse, JSON.parse(JSON.json(e; style = s))) == e
 true
 ```
 """
-struct VgioStyle{U, F <: PixelFrame} <: JSON.JSONStyle
+struct VgioStyle{U, F <: PixelFrame, C <: UnitContract} <: JSON.JSONStyle
     length_unit::U          # Units, or a private leaf form (`_PERSISTED`, the identity's; `_CHART`, a placed target's)
+    contract::C             # the file's units declaration: the length unit (its `world` role), further roles, the density
 end
-VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
-    VgioStyle{typeof(length_unit), pixel_frame}(length_unit)
+VgioStyle(contract::UnitContract; pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
+    VgioStyle{typeof(role_unit(contract)), pixel_frame, typeof(contract)}(role_unit(contract), contract)
+function VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME, density::Units = dpi,
+                   length_roles::NamedTuple = (;))
+    c = UnitContract(density, merge((world = length_unit isa Units ? length_unit : mm,), length_roles))
+    return VgioStyle{typeof(length_unit), pixel_frame, typeof(c)}(length_unit, c)
+end
 _pixel_frame(::VgioStyle{U, F}) where {U, F} = F
 # The same style with another length form (a placed target's calibration: chart numbers).
-_with_length(s::VgioStyle{U, F}, u) where {U, F} = VgioStyle{typeof(u), F}(u)
+_with_length(s::VgioStyle{U, F, C}, u) where {U, F, C} = VgioStyle{typeof(u), F, C}(u, s.contract)
+
+# THE UNITS OBJECT of a file (validate.jl's envelope), from the style, and back.
+# `length` is the contract's `world` role, the other roles under `length_roles`.
+function _units_json(s::VgioStyle)
+    c = s.contract
+    return (
+        length = unit_string(role_unit(c)), time = _TIME_UNIT, angle = _ANGLE_UNIT, pixel = pixel_frame_name(_pixel_frame(s)),
+        density = unit_string(c.density), radiance = _RADIANCE_UNIT,
+        length_roles = Dict{String, String}(String(r) => unit_string(u) for (r, u) in pairs(_other_roles(c.lengths))),
+    )
+end
+# A parsed `units` object's contract (every key present: the validator's) and the style it declares.
+function _contract_from_units(u)
+    roles = u.length_roles
+    ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
+    return UnitContract(parse_unit(u.density::String), merge((world = parse_unit(u.length::String),), ls))
+end
+VgioStyle(record::Union{Record, AbstractDict}) =
+    VgioStyle(_contract_from_units(record.units); pixel_frame = pixel_frame_from_name(record.units.pixel::String))
+# The style a file declares, with another length form (`_unit` of the record: the file's length unit).
+_file_length_unit(d) = parse_unit(d.units.length::String)
+
 """
     Record
 
@@ -171,15 +205,23 @@ JSON.lower(::VgioStyle, r::Rect2) = Float64[r.origin[1], r.origin[2], r.widths[1
 JSON.lift(::VgioStyle, ::Type{Rect2}, v::AbstractVector{Any}) =
     (r = Float64[Float64(x::Real) for x in v]; Rect2{Float64}(r[1], r[2], r[3], r[4]))
 
-# A spline record's lattice (both spline lens schemas): its `grid_size` `(gw, gh)`, its
-# present nodes from the stored row runs (`nothing`: every node), its `area`
-# `[x, y, w, h]` — the mask `P` the controls are read on, the area, and the lens's
-# `present` (`nothing` for every node).
-function _lattice_from_json(grid_size, runs, a)
-    gw, gh = Int(grid_size[1]::Integer), Int(grid_size[2]::Integer)
+# A lattice record (validate.jl's `_lattice_spec`) as the mask `P` its controls
+# are read on, its area, and the lens's `present` (`nothing` for every node).
+function _lattice_from_json(x)
+    gw, gh = Int(x.grid_size.width::Integer), Int(x.grid_size.height::Integer)
+    runs = haskey(x, :present) ? x.present : nothing
     P = runs === nothing ? trues(gh, gw) : _present_from_runs(runs, gw, gh)
-    return (; P, area = JSON.lift(VgioStyle(), Rect2, Any[a...]), present = runs === nothing ? nothing : P)
+    return (; P, area = JSON.lift(VgioStyle(), Rect2, Any[x.area...]), present = runs === nothing ? nothing : P)
 end
+# …and the record of a lattice over `area` holding the nodes of the `[gy, gx]`
+# mask `P`, its controls `name => (C, f)`: each matrix of control vectors over
+# the lattice, written over the held nodes through `f` (a length through its
+# unit; any other number as it is).
+_lattice_json(area::Rect2, P::AbstractMatrix{Bool}, controls::NamedTuple) = merge(
+    (area = JSON.lower(VgioStyle(), area), grid_size = (width = size(P, 2), height = size(P, 1))),
+    all(P) ? (;) : (present = _present_runs(P),),
+    (controls = map(c -> _controls_json(c[1], P, c[2]), controls),),
+)
 
 # A stored ellipse's invariants, as VGC's `Ellipse` holds it — semi-axes positive, the major first — so it reads back as
 # the numbers the file holds; the message names `what`, or `nothing` when they hold. (A spline lens camera's domain, a
@@ -196,7 +238,7 @@ end
 #
 # A spline lattice (a SplineLens's backward spline, a non-central model's two)
 # holds the nodes its region reaches. A record lists them as runs per lattice
-# row — `[[row, [[col_lo, col_hi], …]], …]`, 0-based and inclusive, every row
+# row — `[[row, [[col_lo, col_hi], …]], …]`, 1-based (the file's `index_base`) and inclusive, every row
 # that holds one, rows increasing, its runs increasing and apart (any shape:
 # convex, cut by the frame, with holes) — and its controls as the held nodes'
 # values, row by row. A record without runs holds every node. The ONE codec of
@@ -211,7 +253,7 @@ const _OLD_CENTRAL_TYPE = "CentralGenericModel"
 const _OLD_NONCENTRAL_TYPE = "NoncentralGenericModel"
 const _OLD_GRID_SCHEMAS = ("vgio/generic_camera/v2", "vgio/generic_camera/v3")
 
-# The present nodes of a `[gy, gx]` mask as runs per row, 0-based and inclusive.
+# The present nodes of a `[gy, gx]` mask as runs per row, 1-based and inclusive (the mask's own indices).
 function _present_runs(P::AbstractMatrix{Bool})
     rows = Any[]
     for gy in 1:size(P, 1)
@@ -223,19 +265,21 @@ function _present_runs(P::AbstractMatrix{Bool})
                 while gx < size(P, 2) && P[gy, gx + 1]
                     gx += 1
                 end
-                push!(runs, [lo - 1, gx - 1])
+                push!(runs, [lo, gx])
             end
             gx += 1
         end
-        isempty(runs) || push!(rows, Any[gy - 1, runs])
+        isempty(runs) || push!(rows, Any[gy, runs])
     end
     return rows
 end
-# The runs back to a `[gy, gx]` mask of a `gh × gw` lattice.
-function _present_from_runs(runs, gw::Int, gh::Int)
+# The runs back to a `[gy, gx]` mask of a `gh × gw` lattice; `base` the index of
+# the first row and column (1; an old grid body's runs, before IO 0.10, are 0-based).
+function _present_from_runs(runs, gw::Int, gh::Int; base::Int = _INDEX_BASE)
     P = falses(gh, gw)
+    o = 1 - base
     for e in runs, r in e[2]::Vector{Any}
-        P[(e[1]::Integer) + 1, ((r[1]::Integer) + 1):((r[2]::Integer) + 1)] .= true
+        P[(e[1]::Integer) + o, ((r[1]::Integer) + o):((r[2]::Integer) + o)] .= true
     end
     return P
 end

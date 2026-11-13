@@ -294,16 +294,14 @@ function JSON.lift(s::VgioStyle, ::Type{GaussianBlur}, b::Record)
     haskey(b, :unit) && return _blur_v09(s, b)        # an IO 0.9 body embedded in another package's earlier record
     if haskey(b, :pixel_frame)
         F = pixel_frame_from_name(b.pixel_frame::String)
-        return GaussianBlur(CovMat{2, Float64, _storage_type(b.covariance), F}(_cov_matrix(b.covariance, 2)))
+        return GaussianBlur(relabel(F, CovMat(_cov_matrix(b.covariance, 2))))
     end
     f = b.frame::String
     if f == _TARGET_PLANE_NAME
-        Σ = _length_cov_from_json(b.covariance, 2, s.length_unit, (1, 1))
-        return with_unit(GaussianBlur(CovMat{2, Float64, typeof(Σ), VgtkCore.TargetPlaneFrame}(Σ)), m)
+        return with_unit(GaussianBlur(relabel(VgtkCore.TargetPlaneFrame, CovMat(_length_cov_from_json(b.covariance, 2, s.length_unit, (1, 1))))), m)
     end
-    return GaussianBlur(CovMat{2, Float64, _storage_type(b.covariance), ImageFrame{Symbol(f[7:end])}}(_cov_matrix(b.covariance, 2)))
+    return GaussianBlur(relabel(ImageFrame{Symbol(f[7:end])}, CovMat(_cov_matrix(b.covariance, 2))))
 end
-_storage_type(c) = typeof(_cov_matrix(c, 2))
 # An IO 0.9 blur body, `{"unit": "px^2" | "<length>^2", "covariance"}`, unlabeled as that version read it.
 const _PX2_NAME = "px^2"
 function _blur_v09(::VgioStyle, b::Record)

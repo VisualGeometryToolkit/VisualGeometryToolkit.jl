@@ -25,7 +25,7 @@ of the conventions. `check_naming` and `test_quality_gates` load with `Test`
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Pages = ["quality/naming.jl", "quality/test_helpers.jl", "quality/agent_docs.jl", "quality/conventions.jl",
-         "quality/duplication.jl", "quality/raw_decoding.jl", "quality/sync_manifest.jl"]
+         "quality/duplication.jl", "quality/raw_decoding.jl", "quality/sync_manifest.jl", "quality/gpu_tier.jl"]
 ```
 
 ```@docs

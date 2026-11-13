@@ -115,7 +115,7 @@ function _contract_from_units(u)
     ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
     return UnitContract(parse_unit(u.density::String), merge((world = parse_unit(u.length::String),), ls))
 end
-VgioStyle(record::Union{Record, AbstractDict}) =
+VgioStyle(record::Union{JSON.Object, NamedTuple, AbstractDict}) =
     VgioStyle(_contract_from_units(record.units); pixel_frame = pixel_frame_from_name(record.units.pixel::String))
 # The style a file declares, with another length form (`_unit` of the record: the file's length unit).
 _file_length_unit(d) = parse_unit(d.units.length::String)

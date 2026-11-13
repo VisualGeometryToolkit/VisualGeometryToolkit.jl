@@ -59,6 +59,8 @@ end
 """
     TagRegistry(family::Symbol, suffix::AbstractString, pairs::Pair{<:AbstractString}...;
                 retired = (), paths = Regex[])
+    TagRegistry(family::Symbol, suffix::AbstractString, pairs::AbstractVector{<:Pair};
+                retired = (), paths = Regex[])
 
 The ONLY structure a configuration loader uses to map a TOML tag to a type (or,
 rarely, a value). `registry[tag]` returns the type; a retired tag throws
@@ -68,8 +70,9 @@ tag throws an `ArgumentError` that lists the known tags.
 - `family` names the family (`:optimization_strategy`, `:loss`) in messages.
 - `suffix` is the family's common type-name suffix (`"Shape"` for
   `TLSShape`), stripped before the spelling rule; `""` for none.
-- `pairs` are `tag => type`. The one value that is not a type is `nothing`,
-  whose tag is `"none"`.
+- `pairs` are `tag => type`, as arguments or one vector (a registry built
+  from a table: no splat of a data-length collection, `check_splat`). The one
+  value that is not a type is `nothing`, whose tag is `"none"`.
 - `retired` are `old => new` renames: the old tag no longer loads, and the
   error names its successor.
 - `paths` are the TOML key paths whose string values are tags of this family,
@@ -97,8 +100,11 @@ struct TagRegistry{V}
     paths::Vector{Regex}
 end
 
+TagRegistry(family::Symbol, suffix::AbstractString, pairs::Pair{<:AbstractString}...; kwargs...) =
+    TagRegistry(family, suffix, collect(Pair, pairs); kwargs...)
+
 function TagRegistry(
-        family::Symbol, suffix::AbstractString, pairs::Pair{<:AbstractString}...;
+        family::Symbol, suffix::AbstractString, pairs::AbstractVector{<:Pair};
         retired = (), paths = Regex[]
     )
     tags = String[String(first(p)) for p in pairs]
@@ -176,7 +182,7 @@ function Base.merge(a::TagRegistry, bs::TagRegistry...)
     pairs = [t => e for r in rs for (t, e) in zip(r.tags, r.entries)]
     retired = [p for r in rs for p in r.retired]
     paths = unique([p for r in rs for p in r.paths])
-    return TagRegistry(a.family, a.suffix, pairs...; retired, paths)
+    return TagRegistry(a.family, a.suffix, pairs; retired, paths)
 end
 
 function Base.show(io::IO, r::TagRegistry)

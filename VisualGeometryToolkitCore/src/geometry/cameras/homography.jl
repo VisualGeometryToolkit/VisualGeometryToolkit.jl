@@ -84,9 +84,9 @@ function _induced_plane_homography(
     K = camera.model.intrinsics.K
     R = camera.extrinsics.R
     t = _mapped_origin(camera.extrinsics)   # an oriented camera's: the origin (its plane z = 0 verbs refuse it, oriented_camera.jl)
-    uu = Vec3{Float64}(u...)        # plane basis vectors (free vectors)
-    vv = Vec3{Float64}(v...)
-    oo = Point3{Float64}(origin...)  # plane origin (position)
+    uu = Vec3{Float64}(u)        # plane basis vectors (free vectors)
+    vv = Vec3{Float64}(v)
+    oo = Point3{Float64}(origin)  # plane origin (position)
     return HomographyMat{Float64}(K * hcat(R * uu, R * vv, R * oo + t))
 end
 

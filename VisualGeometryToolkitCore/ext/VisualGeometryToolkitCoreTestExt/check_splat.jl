@@ -68,16 +68,19 @@ function _splat_callee(ci::Core.CodeInfo, f)
     return string(T)
 end
 
-# The call's file and line: the innermost scope in the method's own file (a macro's expansion
-# sits at the macro call), else the method's line.
+# The call's file and line — the innermost scope in the method's own file (a macro's expansion sits at the
+# macro call), else the method's line — and the file of the innermost scope, where the splat is written
+# (another package's file: that macro's expansion).
 function _splat_location(ci::Core.CodeInfo, m::Method, pc::Int)
     scopes = try
         Base.IRShow.buildLineInfoNode(ci.debuginfo, m, pc)
     catch
         []
     end
+    written = isempty(scopes) ? string(m.file) : string(last(scopes).file)
     i = findlast(s -> string(s.file) == string(m.file) && s.line > 0, scopes)
-    return i === nothing ? (string(m.file), Int(m.line)) : (string(scopes[i].file), Int(scopes[i].line))
+    i === nothing && return (string(m.file), Int(m.line), written)
+    return (string(scopes[i].file), Int(scopes[i].line), written)
 end
 
 # The method a typed code is of (a signature can match more specific methods too).
@@ -87,9 +90,15 @@ function _code_method(ci::Core.CodeInfo)
     return def
 end
 
-# The splats of one method: `(file, line, name, callee, type)`.
+# A callee that is compiled once whatever the arity: a builtin (`Core._expr`, `Core.apply_type`, …) or the
+# `@nospecialize` varargs `Expr` constructor. `Core.tuple` is a builtin too, but the tuple it returns has the
+# data's length in its type, so a splat into it is a finding.
+_arity_free(F) = F === Type{Expr} || (F <: Core.Builtin && F !== typeof(Core.tuple))
+
+# The splats of one method: `(check, file, line, name, callee, type, written)`, the check `:splat` for a type that is
+# not fixed-length, `:unknown` for `Any` (an untyped argument: inference at the method's own signature).
 function _method_splats(m::Method)
-    out = Tuple{String, Int, String, String, String}[]
+    out = Tuple{Symbol, String, Int, String, String, String, String}[]
     codes = try
         Base.code_typed_by_type(m.sig; optimize = false)
     catch e
@@ -106,11 +115,13 @@ function _method_splats(m::Method)
             callee = stmt.args[1]
             callee isa GlobalRef && callee.mod === Core && callee.name === :_apply_iterate || continue
             ci.ssavaluetypes isa Vector && ci.ssavaluetypes[pc] === Union{} && continue   # unreachable
+            _arity_free(_splat_argtype(ci, stmt.args[3])) && continue
             for a in stmt.args[4:end]
                 T = _splat_argtype(ci, a)
                 T === Union{} || T <: _FIXED_LENGTH || begin
-                    file, line = _splat_location(ci, m, pc)
-                    push!(out, (file, line, _splat_function_name(m), _splat_callee(ci, stmt.args[3]), string(T)))
+                    file, line, written = _splat_location(ci, m, pc)
+                    push!(out, (T === Any ? :unknown : :splat, file, line, _splat_function_name(m),
+                                _splat_callee(ci, stmt.args[3]), string(T), written))
                 end
             end
         end
@@ -118,7 +129,7 @@ function _method_splats(m::Method)
     return out
 end
 
-function check_splat(M::Module; extensions::Bool = true, root = nothing)
+function check_splat(M::Module; extensions::Bool = true, unknown::Bool = false, root = nothing)
     dir = pkgdir(M)
     root === nothing && dir === nothing &&
         throw(ArgumentError("check_splat: $M is not a package; give the repository root of its files as `root`"))
@@ -130,11 +141,14 @@ function check_splat(M::Module; extensions::Bool = true, root = nothing)
     rel(f) = startswith(f, root * "/") ? relpath(f, root) : f
     for m in _methods_in(_splat_modules(M, extensions))
         push!(scanned, rel(string(m.file)))
-        for (file, line, name, callee, type) in _method_splats(m)
+        for (check, file, line, name, callee, type, written) in _method_splats(m)
+            check === :unknown && !unknown && continue
+            # written in another package's macro expansion (Test's @testset, Base's): that macro's, not M's
+            written == string(m.file) || written == "none" || startswith(written, root * "/") || continue
             file = rel(file)
             i = findfirst(e -> e["file"] == file && e["function"] == name, entries)
             i === nothing || (used[i] = true; continue)
-            push!(found, SplatViolation(:splat, file, line, name, callee, type))
+            push!(found, SplatViolation(check, file, line, name, callee, type))
         end
     end
     # stale: an entry about this package that matched nothing, when its file was scanned (an extension's only when

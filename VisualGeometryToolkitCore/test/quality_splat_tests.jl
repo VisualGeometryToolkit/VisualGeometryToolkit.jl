@@ -24,6 +24,8 @@
     pair_splat(p::Pair{Int, Int}) = max(p...)
     _pad(k) = (k, k)
     returned_splat(k::Int) = max(_pad(k)...)                   # a call returning a Tuple
+    expr_splat(v::Vector{Any}) = Expr(:call, v...)             # a callee compiled once whatever the arity
+    untyped_splat(x) = max(x...)                               # Any: reported only as :unknown
     """)
     M = Module(:SplatPlanted)
     Base.include(M, file)
@@ -37,6 +39,8 @@
     @test startswith(byname["gen_splat"].type, "Base.Generator")
     @test (byname["bare_splat"].line, byname["bare_splat"].callee, byname["bare_splat"].type) == (4, "tuple", "AbstractVector")
     @test occursin("src/planted.jl:2  [splat] vec_splat: max(…::Vector{Int64}...)", sprint(show, byname["vec_splat"]))
+    unknown = filter(v -> v.check === :unknown, check_splat(M; root = dir, unknown = true))
+    @test [(v.name, v.line, v.type) for v in unknown] == [("untyped_splat", 13, "Any")]
 
     # an allow-list entry silences its function; one that matches nothing, or names a gone file, is a finding
     toml("""

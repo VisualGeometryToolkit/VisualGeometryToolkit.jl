@@ -283,6 +283,33 @@ on the array's backend.
 """
 reduce_cost(partials::AbstractMatrix) = 0.5 * sum(view(partials, 1, :))
 
+"""
+    reduce_normal_equations(row!, ::Val{N}, args...; partials) -> (½‖r‖², Jᵀr::SVector{N}, JᵀJ::SMatrix{N, N})
+
+A device LM state's [`residual_normal_equations!`](@ref) in one call: `row!(partials, w, args...)` for every work item
+`w` (each column of `partials`) as one kernel on `partials`' backend — the stack's one row launch, KernelAbstractions
+on every backend, the CPU's included, so the sums are the same bits on a device — then the columns reduced
+([`reduce_normal_equations(partials, Val(N))`](@ref reduce_normal_equations)). `row!` writes work item `w`'s share
+into column `w` in that layout (`1 + N + N²` rows). `partials` is the state's scratch (its column count the work items),
+overwritten.
+"""
+function reduce_normal_equations(row!::F, ::Val{N}, args::Vararg{Any, M}; partials::AbstractMatrix) where {F, N, M}
+    _launch_rows!(row!, partials, size(partials, 2), args...)
+    return reduce_normal_equations(partials, Val(N))
+end
+
+"""
+    reduce_cost(row!, args...; partials) -> ½‖r‖²
+
+A device LM state's [`residual_cost!`](@ref) in one call: `row!(partials, w, args...)` for every work item `w` as one
+kernel on `partials`' backend (as [`reduce_normal_equations`](@ref)'s row form), then
+[`reduce_cost(partials)`](@ref reduce_cost) (row 1: each work item's `Σ ‖rᵢ‖²`). `partials` is overwritten.
+"""
+function reduce_cost(row!::F, args::Vararg{Any, M}; partials::AbstractMatrix) where {F, M}
+    _launch_rows!(row!, partials, size(partials, 2), args...)
+    return reduce_cost(partials)
+end
+
 # √wᵢ for each point's `rows` residual rows (2 for a 2-vector residual, 1 for a
 # scalar one) — the one fill every LM refit's row scaling uses. The weights obey
 # the one weights contract (`check_weights`: finite, non-negative), checked here.

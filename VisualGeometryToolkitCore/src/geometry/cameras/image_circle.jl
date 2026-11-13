@@ -196,6 +196,56 @@ limit (`∩` returns it). The pixel mask of any residual is
 """
 imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
 
+# An ellipse in an ellipse: the largest value of `b`'s quadratic form `(p − c)ᵀ M⁻¹ (p − c)` over `a`'s boundary is at
+# most 1 (with a relative slack of 8 eps for the form's rounding). The boundary is `a`'s centre plus its shape factor
+# times the unit circle; the maximum over the angle is Core's one 1-D minimizer (`grid_brent_minimum`, periodic).
+function Base.issubset(a::Ellipse, b::Ellipse)
+    Minv = inv(SMatrix{2, 2, Float64}(shape_matrix(b)))
+    cb = SVector{2, Float64}(b.center[1], b.center[2])
+    q(θ) = (d = SVector{2, Float64}(boundary_point(a, θ)) - cb; -dot(d, Minv * d))
+    r = grid_brent_minimum(q, range(0.0, 2π; length = 721)[1:(end - 1)]; periodic = true)
+    return -r.value <= 1 + 8 * eps()
+end
+
+"""
+    RegionBeyondSupport(who, region, support) <: Exception
+
+What [`check_region_support`](@ref) throws: `who` (the fit that refused) was
+asked to work over `region`, which reaches beyond `support`, the source
+camera's calibrated support (its [`valid_domain`](@ref)) — a fit there would
+read the model where it is extrapolated.
+"""
+struct RegionBeyondSupport <: Exception
+    who::String
+    region::Any
+    support::Any
+end
+Base.showerror(io::IO, e::RegionBeyondSupport) = print(io, "RegionBeyondSupport: ", e.who, ": the region ", e.region,
+    " reaches beyond the source camera's calibrated support ", e.support, " (its valid_domain): a fit there reads the model ",
+    "where it is extrapolated. Fit over a region inside the support (`imaged_region` of the camera bounded to it, ",
+    "`with_lens_coverage(camera, support)`), or calibrate the rest.")
+
+"""
+    check_region_support(camera, region; who::AbstractString) -> region
+    check_region_support(support, region; who::AbstractString) -> region
+
+THE guard of every fit over a camera's region (`optical_axis`,
+`approximate_camera`, `refine_camera`, …): `region` back when it lies inside
+the source's calibrated support — `valid_domain(camera)`, or a `support`
+region given directly (a source camera's, when the camera fitted from is a
+re-gridded copy whose own domain no longer records it) — and a
+[`RegionBeyondSupport`](@ref) naming `who`, the region and the support
+otherwise. Never a warning: a fit over an extrapolated model is refused.
+Containment is `region ⊆ support`, Core's one region containment over a `Rect`,
+an `Ellipse`, their `∩` and the `WholePlane`.
+"""
+check_region_support(camera::Union{CameraModel, PosedCamera, BoundedCamera, NoncentralSplineModel}, region; who::AbstractString) =
+    check_region_support(valid_domain(camera), region; who)
+function check_region_support(support, region; who::AbstractString)
+    region ⊆ support || throw(RegionBeyondSupport(String(who), region, support))
+    return region
+end
+
 """
     farthest_radius(region, center) -> Float64
     farthest_radius(region, center, direction) -> Float64

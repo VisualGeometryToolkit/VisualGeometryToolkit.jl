@@ -18,7 +18,7 @@ using StaticArrays: StaticArray
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, residual_rows!, residual_jacobian_rows!,
     Attributed, Recorded, block_coordinate_descent!, current_cost, estimate, retcode, iterations, RECORDED_NESTED_STATES
 import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication,
-    test_recorded, readme_examples, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
+    test_recorded, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
     test_readme_row, test_readme_example, julia_blocks
 using VisualGeometryToolkitCore: ReadmeExample
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,

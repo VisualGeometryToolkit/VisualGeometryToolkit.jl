@@ -23,6 +23,12 @@ function readme_examples(root::AbstractString, pages; langs = ("julia", "python"
     return out
 end
 
+page_examples(examples, page::AbstractString; lang::AbstractString = "julia") =
+    [e.code for e in examples if e.page == page && e.lang == lang]
+
+install_lines(root::AbstractString, page::AbstractString) =
+    [String(m[1]) for m in eachmatch(r"^pkg> add (.+)$"m, read(joinpath(root, page), String))]
+
 function install_table(path::AbstractString, tasks)
     rows = Dict{String, String}()
     for line in eachline(path)

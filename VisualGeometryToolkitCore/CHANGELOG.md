@@ -60,7 +60,14 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   (C12). `bending_rows` of a mask under 4 × 4 has no rows (C13). `map_estimate` is inferred (C14). The shell lexer reads
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
+- **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
+  WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and passes its
+  `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
+  `stop_solver!` return `(reason, rule)`.
+
 ### New
+- **`stop_rule(criterion::StoppingCriterion, method) -> StopRule`**, the generic (a contract generic; `NoRule` by default,
+  `StopAfterIteration` → `IterationCap`, `StopWhenSolveFailed` → `NonFinite`), extended by each package for its criteria.
 - **`center(u::Uncertain{<:FeatureFrame})`, `center(d::Attributed{<:Uncertain{<:FeatureFrame}})`** — THE detection → point
   observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
   precision's marginal). `frame_dof` (public) — a frame's degrees of freedom, its covariance's size, the centre first.

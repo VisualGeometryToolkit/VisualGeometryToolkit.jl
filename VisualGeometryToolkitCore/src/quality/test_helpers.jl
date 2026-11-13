@@ -212,6 +212,25 @@ VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 function readme_examples end
 
 """
+    page_examples(examples, page; lang = "julia") -> Vector{String}
+
+The code of the `lang` examples of one page, in page order, from
+[`readme_examples`](@ref)'s records: what a README test compares between the
+README, the landing page and a guide ("one example, shown on every page").
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function page_examples end
+
+"""
+    install_lines(root, page) -> Vector{String}
+
+The packages of every `pkg> add …` line of the page at `root/page` (each line's
+text after `add`), in page order: what a README test compares with an install
+row's [`install_packages`](@ref). Implemented by VisualGeometryToolkitCoreTestExt.
+"""
+function install_lines end
+
+"""
     install_table(path, tasks) -> Dict{String, String}
 
 The install table of the page at `path`: each row `| task | entry | … |` whose

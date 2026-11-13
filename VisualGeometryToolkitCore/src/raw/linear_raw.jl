@@ -30,23 +30,22 @@ above 1) or below 0 (noise under the black level) is kept.
   a cell whose two greens straddle the white level is flagged rather than
   averaged into a plausible value; in `:green_cells` when either green is.
   Masked, never interpolated.
-- `geometry` — where the samples are, `(; plane_maps, green_offsets, green_dn, green_colors)`:
+- `geometry` — where the samples are, `(; plane_maps, green_offsets, plane_sites)`:
   - `plane_maps`, per plane, its map onto the visible raw
     ([`bayer_plane_map`](@ref), which reads it);
   - `green_offsets`, the cell's two green photosites, `(Δx, Δy)` from the cell
     centre in RAW pixels, in the cell's column-major order (`G1`, `G2` of
     [`bayer_channels`](@ref); [`green_cell_sites`](@ref));
-  - `green_dn`, the two green photosites' `white − black[c]`, the codes that span
-    `0 … 1` (before the gain), in the order of `green_offsets`: what a value's
-    photon and read noise scale by (VisualGeometryToolkitFeatures' `variance_stabilize`).
-    `black[c]` is the channel's constant (the resolved noise's, else the
-    mosaic's) also when a dark map replaces it per photosite: the span is a
-    scale, the same for every photosite of the channel, so a value is still
-    `codes / green_dn` above its own black.
-  - `green_colors`, the two green photosites' CFA colour indices (LibRaw's: `1` G,
-    `3` the second G of an RGBG pattern; a pattern naming both greens `1` gives
-    `(1, 1)`), in the order of `green_offsets`: the index of each green's entry
-    in a per-colour [`SensorNoise`](@ref) field (`read_noise[c + 1]`, `black[c + 1]`).
+  - `plane_sites`, per plane, the photosites its value is the mean of, each
+    `(; color, dn)`: its CFA colour index (LibRaw's `0` R, `1` G, `2` B, `3` the
+    second G; the index of its entry in a per-colour [`SensorNoise`](@ref) field,
+    `read_noise[color + 1]`) and its `white − black[c]`, the codes that span
+    `0 … 1` (before the gain) — what a value's photon and read noise scale by
+    ([`pixel_noise`](@ref)). The green plane's are in the order of
+    `green_offsets`. `black[c]` is the channel's constant (the resolved noise's,
+    else the mosaic's) also when a dark map replaces it per photosite: the span
+    is a scale, the same for every photosite of the channel, so a value is still
+    `codes / dn` above its own black.
 
   `nothing` for `:demosaic`, whose pixels are interpolated, not samples.
 - `gain` (positive and finite, `ArgumentError` otherwise) and the mosaic's
@@ -59,7 +58,7 @@ methods of the cell images, and the display image's are its refusals.
 map as plain data for a result to record.
 """
 struct LinearRaw{Mode, I <: AbstractArray{Float64, 3}, S <: AbstractMatrix{Bool},
-                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :green_dn, :green_colors)}}, M <: NamedTuple}
+                 G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :plane_sites)}}, M <: NamedTuple}
     image::I
     saturated::S
     geometry::G
@@ -207,7 +206,8 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, noise)
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
     grid = _cell_grid_map(m, mode)
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
-    geometry = (plane_maps = maps, green_offsets, green_dn = (span[g[1]], span[g[2]]), green_colors = (Int(cell[g[1]]), Int(cell[g[2]])))
+    plane_sites = map(ks -> map(k -> (color = Int(cell[k]), dn = span[k]), ks), used)
+    geometry = (plane_maps = maps, green_offsets, plane_sites)
     return LinearRaw{mode}(img, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
@@ -267,10 +267,40 @@ The image's green cells, a view: each cell's two greens' mean — `L.image`'s pl
 whose frame IS the cell grid ([`raw_frame_map`](@ref)`(L)`): a `:green_cells`
 image's one plane, a `:bin2` image's second (G). The plane every green-cell
 consumer reads (a detector, VisualGeometryToolkitFeatures' `variance_stabilize`);
-its photosites' spans and colours are `L.geometry.green_dn` and
-`L.geometry.green_colors`. A `:demosaic` image is refused (`ArgumentError`).
+its photosites' colours and spans are `L.geometry.plane_sites` of that plane, its
+noise [`pixel_noise`](@ref)`(L, noise)`. A `:demosaic` image is refused (`ArgumentError`).
 """
 green_plane(L::LinearRaw) = view(L.image, :, :, _green_plane(L))
+
+"""
+    pixel_noise(L::LinearRaw, noise::SensorNoise) -> NTuple{P, @NamedTuple{α::Float64, σ²::Float64}}
+
+THE noise of a pixel value of `L` under a resolved [`SensorNoise`](@ref), per
+plane (`L.image[:, :, p]`): a value `x` of plane `p`, the mean of its `m`
+photosites (`L.geometry.plane_sites[p]`, each of colour `c` and span `d`),
+times the gain `g`, is Poisson–Gaussian with variance `α·x + σ²`:
+
+    α = g / (m² K) · Σ 1/d,       σ² = g² / m² · Σ σ_r[c]² / d²
+
+(K the gain in electrons per code, σ_r the read noise per colour, the rounding
+in it). For a green cell, `α = g/(4K)(1/d₁ + 1/d₂)` and
+`σ² = g²/4 (σ_r[c₁]²/d₁² + σ_r[c₂]²/d₂²)`. A noise whose `electrons_per_dn`
+or `read_noise` is `nothing` is an `ArgumentError` carrying its `reason`; a
+`:demosaic` image (interpolated, no photosites) is refused.
+"""
+function pixel_noise(L::LinearRaw, noise::SensorNoise)
+    sites = _geometry(L, "pixel_noise").plane_sites
+    (noise.electrons_per_dn === nothing || noise.read_noise === nothing) && throw(ArgumentError(
+        "pixel_noise: the noise has no $(noise.electrons_per_dn === nothing ? "gain" : "read noise"): " *
+            something(noise.reason, "the record holds none")))
+    K = value_of(noise.electrons_per_dn)
+    σr = value_of(noise.read_noise)
+    g = L.gain
+    return map(sites) do ps
+        m = length(ps)
+        (α = g / (m^2 * K) * sum(s -> 1 / s.dn, ps), σ² = g^2 / m^2 * sum(s -> σr[s.color + 1]^2 / s.dn^2, ps))
+    end
+end
 
 
 """

@@ -29,7 +29,7 @@ module VisualGeometryToolkitFeatures
 
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
-using StructArrays: StructArray
+using StructArrays: StructArray, components
 using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser

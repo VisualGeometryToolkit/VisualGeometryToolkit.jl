@@ -333,14 +333,12 @@ end
 _identity_fields(d::DeviceIdentity) = (d.make, d.model, d.serial)
 _agrees(a::DeviceIdentity, b::DeviceIdentity) =
     all(((x, y),) -> x === nothing || y === nothing || lowercase(x) == lowercase(y), zip(_identity_fields(a), _identity_fields(b)))
-# Identities that agree pairwise, as one: each field the first that states it. Field by field over the identity's
-# fixed fields, never a splat of the identities: their number is the capture's frame count, data (a splat into `zip`
-# compiled one zip per count, minutes of LLVM at a few hundred frames).
+# Identities that agree pairwise, as one: each field the first that states it. The identities' fields as columns
+# (StructArrays' `components`: a vector of tuples as a tuple of vectors), so only the identity's fixed field count is
+# splatted, never the identities: their number is the capture's frame count, data (a splat into `zip` compiled one
+# zip per count, minutes of LLVM at a few hundred frames).
 _first_stated(xs) = (i = findfirst(!isnothing, xs); i === nothing ? nothing : xs[i])
-function _merged(ids)
-    fs = map(_identity_fields, ids)
-    return DeviceIdentity(ntuple(k -> _first_stated([f[k] for f in fs]), Val(fieldcount(DeviceIdentity)))...)
-end
+_merged(ids) = DeviceIdentity(map(_first_stated, components(StructArray(map(_identity_fields, ids))))...)
 # The frames' identities as one: the distinct ones (in frame order, so the first stated field is kept) must agree.
 function _one_identity(ids, what)
     distinct = unique(ids)

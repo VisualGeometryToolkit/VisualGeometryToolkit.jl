@@ -25,7 +25,7 @@ Ellipse(first(corners); sigma = 1)                       # the 1σ error ellipse
 ## What it returns
 
 One row per window, a `StructArray` of
-`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F))`. The frame is
+`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F, covariance_source))`. The frame is
 VisualGeometryToolkitCore's `PointFrame`, a position without a scale: neither
 point model estimates a size.
 
@@ -35,8 +35,43 @@ point model estimates a size.
 | `:circular` | the reference's circular point (`dot_point`): the centre of a rotationally symmetric pattern, a dot or a ring. Förstner & Gülch's term; it carries no size estimate and is not a scale-space blob |
 | `:unknown` | the window centre and a NaN covariance: the significance test labelled neither (the reference's `noclass`, which has no estimate) |
 
-`window` is the window centre (the reference's `win`), and `F` the statistic
-`Ω_corner / Ω_circular` the label was decided on.
+`window` is the window centre (the reference's `win`), `F` the statistic
+`Ω_corner / Ω_circular` the label was decided on, and `covariance_source` which
+covariance `Σ` is (below).
+
+## The covariance
+
+With the image noise known, `detect_foerstner(img; noise = σn)` (iid pixel noise,
+in grey levels of an 8-bit image) returns the noise PROPAGATED through the
+detector, `Σ = σn² J Jᵀ`, marked `covariance_source = :propagated`. The window
+estimate is `x̂ = N⁻¹ b` with `N = Σₚ v vᵀ`, `b = Σₚ v vᵀ p` over the window's
+pixels, `v = R∇g` (`R` the identity for a corner, the 90° rotation for a
+circular point). A perturbation of the gradient moves it, by the
+implicit-function theorem, by
+
+```math
+\delta\hat x = N^{-1} \sum_p A(p)\, \delta\nabla g(p), \qquad
+A(p)\, w = (v^\top e)\, R w + v\, e^\top R w, \quad e = p - \hat x,
+```
+
+the window centre (a discrete choice) fixed. The gradient is linear in the
+input — the doubling, then the derivative taps along one axis and the across
+taps along the other — so every input pixel `q` gives one column `J[:, q]`,
+built from the adjoint of the detector's own stages, exact up to the image
+borders (the doubling's clamp, the correlations' zero padding). One kernel
+evaluates `Σ_q σn² J[:, q] J[:, q]ᵀ` per window, at its own gradient and
+estimate, on the CPU or a GPU.
+
+Without a noise (`noise = nothing`, the default) the covariance is the
+reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`. It is
+not calibrated: Ω holds the model misfit (a blurred apex, a dot's flank), which
+does not scale with the noise, and the pixels' residuals are correlated by the
+derivative and doubling kernels; Monte Carlo NEES runs from 0.01 to 25 with
+the scene and scales. The propagated covariance gives NEES₂ ≈ 2 and the χ²₂
+95 % coverage about each dot's noise-free estimate (the test suite checks both
+at σᵢ = 1.41 and 3). Neither covers the operator's own bias (pixel locking, up
+to ≈ 0.04 px on small dots), which is a property of the estimator, not of the
+noise.
 
 ## Coordinates
 

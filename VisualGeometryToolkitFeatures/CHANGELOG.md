@@ -1,5 +1,31 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.0 (unreleased)
+
+A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 and VisualGeometryToolkitIO 0.10.
+
+### Breaking
+- **`detect_foerstner`'s rows carry `covariance_source`** (their attributes are `(; label, window, F,
+  covariance_source)`): `:propagated` or `:a_posteriori`, which covariance the frame holds (the producer states its
+  covariance policy; no consumer substitutes one).
+- **`detect_foerstner(...; noise)`: the covariance propagated from the image noise.** With `noise = σn` (iid pixel
+  noise, grey levels of an 8-bit image) the covariance is `σn² J Jᵀ`, `J` the exact first-order (implicit-function)
+  derivative of the estimate with respect to every input pixel, through the detector's own doubling, derivative taps,
+  squared gradient and window estimate, exact at the image borders; one KernelAbstractions kernel on the CPU and any
+  GPU. Its Monte Carlo calibration (NEES₂ ≈ 2, χ²₂ 95 % coverage) is a test. `noise = nothing` (the default) keeps the
+  reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
+  NEES 0.01–25). `noise_sigma` is the precision test's level only, as in the reference.
+- **Terminology** (the owner's ruling of 2026-11-13): "keypoint" and "measurement" are out of every name, docstring
+  and page — a keypoint is a detection. Internal names renamed: `_keypoint_cov` → `_detection_cov`,
+  `_loma_keypoints` → `_loma_points`; the benchmark `benchmark/mc/keypoint_uncertainty_mc.jl` →
+  `benchmark/mc/detection_uncertainty_mc.jl`; the test items "keypoint covariance: …" → "detection covariance: …".
+
+### Fixed
+- **The ASIFT covariance's adjoint of the 2× upsampling at its clamped edge** (`_up_adj`): the upsampled pixel 1
+  reads input pixel 1 alone (the clamp); the adjoint split it between input pixels 0 (outside the image) and 1. It is
+  now the exact adjoint everywhere; interior detections are unchanged, bit for bit. The separable blur's adjoint is
+  the zero-padded correlation's adjoint `_correlate_adj` with symmetric taps, the same arithmetic.
+
 ## 0.8.3 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; the detector's

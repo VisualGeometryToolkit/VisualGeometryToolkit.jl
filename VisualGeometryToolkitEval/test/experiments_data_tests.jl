@@ -250,15 +250,15 @@
                   [joinpath(data, "pools", "P"), joinpath(res, "cv", "op.jld2"), "/elsewhere/f"]
             @test_throws ArgumentError E.write_provenance(out, Dict("gitcommit" => "x"); driver = "d")
             # the sensor model's provenance (spec §5): Core's component_sources, per distinct model with its frame count
-            measured = VgtkCore.sensor_fixture(; black = (512.0, 512.0, 512.0, 512.0), gain = 2.0, read_noise = (1.5, 1.5, 1.5, 1.5),
+            recorded = VgtkCore.sensor_fixture(; black = (512.0, 512.0, 512.0, 512.0), gain = 2.0, read_noise = (1.5, 1.5, 1.5, 1.5),
                                                source = VgtkCore.SensorSource.measured).model
-            raw = TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = [measured, measured, VgtkCore.SensorModel()]))
+            raw = TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = [recorded, recorded, VgtkCore.SensorModel()]))
             sm = raw["sensor_model"]
             @test length(sm) == 2
             m1 = only(filter(r -> r["frames"] == 2, sm)); m0 = only(filter(r -> r["frames"] == 1, sm))
             @test (m1["black"], m1["noise"], m1["defects"], m1["reason"], m1["specified_override"]) == ("measured", "measured", "absent", "Matched", false)
             @test (m0["black"], m0["noise"], m0["defects"], m0["reason"]) == ("file", "absent", "absent", "NoCharacterisation")
-            @test only(TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = measured))["sensor_model"])["frames"] == 1
+            @test only(TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = recorded))["sensor_model"])["frames"] == 1
             @test_throws ArgumentError E.write_provenance(out, Dict("sensor_model" => "x"); driver = "d")   # the writer's own
             # a dirty tree: gitcommit suffixed, the patch inline under DrWatson's name
             write(joinpath(repo, "a.txt"), "changed\n")

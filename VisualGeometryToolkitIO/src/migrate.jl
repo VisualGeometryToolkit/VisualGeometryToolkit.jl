@@ -283,8 +283,8 @@ versions read is generated from it.
 function schema_versions(kind::AbstractString)
     old = String[]
     for m in methods(migrate_schema)
-        sig = Base.unwrap_unionall(m.sig)
-        length(sig.parameters) == 3 || continue
+        sig = m.sig                       # every step method is concrete: `Tuple{typeof(migrate_schema), Val{s}, <tree or paths>}`
+        (sig isa DataType && length(sig.parameters) == 3) || continue
         V = sig.parameters[2]
         (V isa DataType && V <: Val && V.parameters[1] isa Symbol) || continue
         s = String(V.parameters[1])

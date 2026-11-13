@@ -179,6 +179,27 @@ function _prefilter_matrix(n::Int)
     return LinearAlgebra.Tridiagonal(dl, d, du)
 end
 
+"""
+    cubic_bspline_prefilter_taps(K::Integer) -> Vector{Float64}
+
+The one-sided taps `h[0], …, h[K]` of the cubic B-spline interpolation prefilter on an
+unbounded uniform grid: the inverse of the sampled B-spline `(z + 4 + z⁻¹)/6` is
+`√3·z₁^|k|` with `z₁ = √3 − 2` (Unser, Aldroubi & Eden 1991), truncated at `|k| ≤ K`
+and renormalised so `h[0] + 2Σₖ h[k] = 1` (a constant is reproduced exactly). The
+controls `c[j] = Σₖ h[|k|]·f[j + k]` make the spline INTERPOLATE the samples `f` away
+from any border: the prefilter of `_prefilter_matrix`, the tridiagonal system of a
+finite lattice with its boundary rows, as a local filter a kernel can apply in a window
+(the dropped tail is `2√3·|z₁|^(K+1)/(1 − |z₁|)` of a unit sample: 2.6e-6 at K = 10).
+VisualGeometryToolkitFeatures' continuous DoG response reads it.
+"""
+function cubic_bspline_prefilter_taps(K::Integer)
+    K >= 0 || throw(ArgumentError("cubic_bspline_prefilter_taps: K must be ≥ 0, got $K"))
+    z1 = sqrt(3.0) - 2.0
+    h = [sqrt(3.0) * z1^k for k in 0:K]
+    h ./= (h[1] + 2 * sum(@view h[2:end]; init = 0.0))
+    return h
+end
+
 # Node-sampling clamp: where the source lens can be EVALUATED, as a normalized
 # radius about the principal point — its valid domain (`_valid_domain_radius`,
 # image_circle.jl: the one owner of that radius) when the lens has a limit of its
@@ -608,12 +629,14 @@ const _PROJECT_TOL = 1.0e-6
 # (`check_naming`'s RETIRED_NAMES: the hand-rolled LM cores stay retired).
 #
 # Levenberg's and Marquardt's damped Gauss–Newton (Levenberg 1944; Marquardt
-# 1963) with Marquardt's diagonal scaling, specialized to N = 2 and derived
+# 1963) with Marquardt's diagonal scaling, at any static N (N = 2: the spline lenses'
+# inverse, the MappedSurface root; N = 3: VisualGeometryToolkitFeatures' continuous
+# DoG-extremum refinement) and derived
 # from a static bounded `lmsolve` (Copyright (c) 2023 kamesy, MIT License),
 # with its defaults and operations in its order — the damping (λ₀ = 1e-6,
 # ×1/13 on ρ > 0.75, ×3 on ρ < 1e-3 or a rejected step, clamped to
 # [1e-28, 1e32]), the running-maximum DᵀD clamped to [1e-12, 1e16], the
-# unrolled 2 × 2 Cholesky, the ftol = gtol = eps and xtol = 1e-10 stops (at
+# unrolled N × N Cholesky-type solve (`_static_lm_increment`), the ftol = gtol = eps and xtol = 1e-10 stops (at
 # s = 1). NOT the same bits as a run of that routine: its products are the
 # explicit fused ones (`_fma_dot`, `_fma_mul`, `_fma_tmul`: base/fused_products.jl; the increment's
 # `fma`s), the same in every compiled copy, where the routine's fuse as LLVM decides.
@@ -621,10 +644,25 @@ const _PROJECT_TOL = 1.0e-6
 # (test/fixtures/pixel_lm), at s = 1: at most 5.5e-12 px (Julia 1.13) /
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
-@inline function _spline_lm(
-        fj::FJ, x₀::SVector{2, T}, lb::SVector{2, T}, ub::SVector{2, T},
-        s::SVector{2, T}, maxiter::Int, tol2::T, fs::T = one(T), bound::B = nothing, cost_floor::T = T(eps(Float64))
-    ) where {FJ, T <: AbstractFloat, B <: Union{Nothing, T}}
+"""
+    static_lm(fj, x₀::SVector{N, T}, lb, ub, s, maxiter, tol2[, fs, bound, cost_floor]) -> (x, converged, J, e, rule::StopRule)
+
+The stack's ONE device-side Levenberg–Marquardt (the spline lenses' inverse at
+N = 2, any static N): Marquardt-scaled, bounded to the box `[lb, ub]` (a step is
+clipped to it), with an unrolled Cholesky-type solve and explicit fused products,
+so it allocates nothing, never throws, and runs inside a KernelAbstractions kernel
+with the same bits in every compiled copy. `fj(x)` returns `(r, J, …)` (the residual
+`SVector`, its `SMatrix` Jacobian, anything else returned with them as `e`); `s` the
+per-coordinate scale its step and damping floors are read in; `converged` is
+`‖r(x)‖² < tol2`. `rule` is the stop that fired: `ExactFit` (the cost floor),
+`ToleranceMet` (the gradient floor), `IncrementSize` (the step), `CostDecrease`
+(the relative cost decrease) or `IterationCap`; [`static_lm_termination`](@ref)
+gives the §14 record. NLLSsolver (`lmsolve_chart!`) remains every host fit's LM.
+"""
+@inline function static_lm(
+        fj::FJ, x₀::SVector{N, T}, lb::SVector{N, T}, ub::SVector{N, T},
+        s::SVector{N, T}, maxiter::Int, tol2::T, fs::T = one(T), bound::B = nothing, cost_floor::T = T(eps(Float64))
+    ) where {FJ, N, T <: AbstractFloat, B <: Union{Nothing, T}}
     ϵ = eps(T)
     ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
     # the absolute stops: the cost floor (the reference's eps(Float64)), or what T resolves of a residual of scale fs
@@ -635,13 +673,14 @@ const _PROJECT_TOL = 1.0e-6
     ex = fj(x)
     f, Jx = ex[1], ex[2]
     F = sum(abs2, f)
-    F < ϵF && return x, F < tol2, Jx, ex
+    F < ϵF && return x, F < tol2, Jx, ex, ExactFit
     g = _fma_tmul(Jx, f)
-    norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex
+    norm(g, Inf) < ϵG && return x, F < tol2, Jx, ex, ToleranceMet
     JtJ = _fma_tmul(Jx, Jx)
     DtD = clamp.(diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
     iter = 0
+    rule = IterationCap
     while iter < maxiter
         iter += 1
         accepted = false
@@ -653,7 +692,7 @@ const _PROJECT_TOL = 1.0e-6
         fk = f
         Jk = Jx
         Fk = F
-        p, info = _spline_lm_increment(JtJ, λ, DtD, g)
+        p, info = _static_lm_increment(JtJ, λ, DtD, g)
         # a step clipped to zero by either bound is rejected, as a failed solve is
         clipped = false
         if info == 0
@@ -680,6 +719,7 @@ const _PROJECT_TOL = 1.0e-6
                 if accepted
                     x, f, F, Jx, ex = xk, fk, Fk, Jk, ek
                 end
+                rule = IncrementSize
                 break
             end
         end
@@ -691,9 +731,9 @@ const _PROJECT_TOL = 1.0e-6
             Jx = Jk
             ex = ek
             # the reference routine's ftol test reads its swapped buffers: `Fk` is then the old F
-            abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && break
+            abs(ac) < ϵ * Fold && pr < ϵ * Fold && ρ < 2 && (rule = CostDecrease; break)
             g = _fma_tmul(Jx, f)
-            norm(g, Inf) < ϵG && break
+            norm(g, Inf) < ϵG && (rule = ToleranceMet; break)
             JtJ = _fma_tmul(Jx, Jx)
             DtD = clamp.(diag(JtJ), DtD, DtD_max)
             if ρ > T(0.75)
@@ -706,41 +746,84 @@ const _PROJECT_TOL = 1.0e-6
         end
         λ = clamp(λ, T(1.0e-28), T(1.0e32))
     end
-    return x, F < tol2, Jx, ex
+    return x, F < tol2, Jx, ex, rule
 end
+
+
+"""
+    static_lm_termination(converged::Bool, rule::StopRule) -> (ReturnCode.T, StopRule)
+
+The §14 termination record of a [`static_lm`](@ref) solve: `ReturnCode.Success`
+when it converged; otherwise `ReturnCode.MaxIters` at the iteration cap and
+`ReturnCode.Stalled` at any other stop (a step, cost or gradient stop short of
+the tolerance).
+"""
+static_lm_termination(converged::Bool, rule::StopRule) =
+    (converged ? ReturnCode.Success : rule == IterationCap ? ReturnCode.MaxIters : ReturnCode.Stalled, rule)
 
 # The step `p` (the LM subtracts it) within the relative radius `b·max(‖x‖, 1)`.
 @inline _bounded_increment(::Nothing, p, x) = p
-@inline function _bounded_increment(b::T, p::SVector{2, T}, x::SVector{2, T}) where {T}
-    r2 = b * b * max(x[1] * x[1] + x[2] * x[2], one(T))
-    n2 = p[1] * p[1] + p[2] * p[2]
+@inline function _bounded_increment(b::T, p::SVector{N, T}, x::SVector{N, T}) where {N, T}
+    r2 = b * b * max(_plain_sumsq(x), one(T))
+    n2 = _plain_sumsq(p)
     return ifelse(n2 > r2, p * sqrt(r2 / n2), p)
 end
+# x₁² + x₂² + … left to right in plain (never contracted) arithmetic: at N = 2 the
+# expression `x[1] * x[1] + x[2] * x[2]` exactly.
+@generated function _plain_sumsq(x::SVector{N}) where {N}
+    ex = :(x[1] * x[1])
+    for k in 2:N
+        ex = :($ex + x[$k] * x[$k])
+    end
+    return :(@inbounds $ex)
+end
 
-# The unrolled Cholesky solve of (JᵀJ + λ·DᵀD) p = g at N = 2, the reference
-# routine's operations in its order; `info` ≠ 0 when a damped diagonal is
-# negative (a rejected step).
-@inline function _spline_lm_increment(JtJ, λ, DtD, g)
-    x1 = g[1]
-    x2 = g[2]
-    A11 = fma(λ, DtD[1], JtJ[1, 1])
-    A11 >= zero(A11) || return zero(SVector{2, typeof(A11)}), 1
-    A21 = JtJ[2, 1]
-    A22 = fma(λ, DtD[2], JtJ[2, 2])
-    A22 >= zero(A22) || return zero(SVector{2, typeof(A22)}), 2
-    A22 = fma(-A21, A21 / A11, A22)
-    x2 = fma(-x1, A21 / A11, x2)
-    x2 /= A22
-    x1 = fma(-x2, A21, x1)
-    x1 /= A11
-    return SVector(x1, x2), 0
+# The unrolled solve of (JᵀJ + λ·DᵀD) p = g at static N: the damped diagonals
+# checked first, in order (`info` = the first negative one's index: a rejected
+# step), then symmetric Gaussian elimination on the lower triangle and back
+# substitution, every product-sum an explicit `fma`. At N = 2 it is the reference
+# routine's 2 × 2 operations in its order exactly:
+#   A11 = fma(λ, D1, J11); A22 = fma(λ, D2, J22); A22 = fma(−A21, A21/A11, A22);
+#   x2 = fma(−x1, A21/A11, x2); x2 /= A22; x1 = fma(−x2, A21, x1); x1 /= A11.
+@generated function _static_lm_increment(JtJ::StaticMatrix{N, N}, λ, DtD, g) where {N}
+    A(i, j) = Symbol(:A, i, :_, j)
+    X(i) = Symbol(:x, i)
+    body = Expr[]
+    for i in 1:N
+        push!(body, :($(X(i)) = g[$i]))
+    end
+    for i in 1:N
+        for j in 1:(i - 1)
+            push!(body, :($(A(i, j)) = JtJ[$i, $j]))
+        end
+        push!(body, :($(A(i, i)) = fma(λ, DtD[$i], JtJ[$i, $i])))
+        push!(body, :($(A(i, i)) >= zero($(A(i, i))) || return zero(SVector{$N, typeof($(A(i, i)))}), $i))
+    end
+    for k in 1:(N - 1), i in (k + 1):N
+        for j in (k + 1):i
+            push!(body, :($(A(i, j)) = fma(-$(A(i, k)), $(A(j, k)) / $(A(k, k)), $(A(i, j)))))
+        end
+        push!(body, :($(X(i)) = fma(-$(X(k)), $(A(i, k)) / $(A(k, k)), $(X(i)))))
+    end
+    for i in N:-1:1
+        for j in (i + 1):N
+            push!(body, :($(X(i)) = fma(-$(X(j)), $(A(j, i)), $(X(i)))))
+        end
+        push!(body, :($(X(i)) /= $(A(i, i))))
+    end
+    return quote
+        @inbounds begin
+            $(body...)
+        end
+        return SVector($([X(i) for i in 1:N]...)), 0
+    end
 end
 
 # The units an area is read in by `_spline_lm_box`: the reference's pixel constants
 # are kept at its 1000-px calibrated area.
 const _LM_AREA_UNITS = 1000
 
-# The scale-free setting of `_spline_lm` on a rectangle `area` of any unit (the
+# The scale-free setting of `static_lm` on a rectangle `area` of any unit (the
 # lens's normalized plane, a pixel rectangle): the area read as
 # `_LM_AREA_UNITS` units per axis, `s = _LM_AREA_UNITS ./ widths` — the
 # reference's pixel constants exactly on its 1000-px calibrated area, and the same
@@ -756,7 +839,7 @@ const _LM_AREA_UNITS = 1000
 end
 
 # THE central projection solve on a spline of direction controls `controls`
-# (`[gy, gx]`) over the rectangle `area`: LM (`_spline_lm`) on the direction
+# (`[gy, gx]`) over the rectangle `area`: LM (`static_lm`) on the direction
 # residual d̂(x) − t̂, d̂ the backward map, and its analytic Jacobian, both from one
 # evaluation of the basis weights per point (`_spline_direction_differential`), from
 # `x₀`, bounded to `[lb, ub]` (inside the area: every window stays in the grid).
@@ -769,7 +852,7 @@ end
     (tmax > 0 && isfinite(tmax) && all(isfinite, x₀)) || return SVector(NaN, NaN), false
     tn = normalize(SVector{3, Float64}(t[1] / tmax, t[2] / tmax, t[3] / tmax))
     fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
-    x, ok = _spline_lm(fj, x₀, lb, ub, s, maxiter, tol2)
+    x, ok = static_lm(fj, x₀, lb, ub, s, maxiter, tol2)
     return x, ok
 end
 
@@ -810,7 +893,7 @@ end
 # `H (I − ddᵀ) = H`). Returns `(∂x/∂t, −H/‖S‖, ix, iy, w)`, `w` the window's weights
 # (`spline_weights`'s). Exact at a zero residual; the solve's tolerance bounds the
 # term it omits. PRECONDITION: `x` is solved to rounding — `_solved_projection`'s, never
-# a solve warm-started within √eps of its answer, which `_spline_lm` returns as it is
+# a solve warm-started within √eps of its answer, which `static_lm` returns as it is
 # (the reference's F < eps stop), so that x*(c) would be a step function of the
 # controls. A SplineLens camera's bundle refinement reads it
 # (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).

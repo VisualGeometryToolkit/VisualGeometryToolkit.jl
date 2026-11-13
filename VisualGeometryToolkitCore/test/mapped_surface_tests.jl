@@ -301,7 +301,7 @@ end
         ForwardDiff.jacobian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2], [o; d])
         ForwardDiff.hessian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2][3], [o; d])
         # every method instance the LM was compiled for (dispatch tuples: the concrete calls) is Dual-free
-        lm = VisualGeometryToolkitCore.Cameras._spline_lm
+        lm = VisualGeometryToolkitCore.Cameras.static_lm
         calls = [mi.specTypes for m in methods(lm) for mi in Base.specializations(m) if Base.isdispatchtuple(mi.specTypes)]
         @test !isempty(calls) && !any(t -> occursin("ForwardDiff.Dual", string(t)), calls)
     end

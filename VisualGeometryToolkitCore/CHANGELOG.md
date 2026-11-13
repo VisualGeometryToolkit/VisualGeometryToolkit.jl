@@ -1,5 +1,33 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.9.5 (unreleased)
+
+A patch. Additive: the pieces VisualGeometryToolkitFeatures 0.8.3's opt-in continuous DoG refinement reads, each the one
+implementation of its concept (the owner's rulings of 2026-11-13); no existing result changes.
+
+- **New: `static_lm`, public** — the stack's one device-side Levenberg–Marquardt, until now the private `_spline_lm`
+  (renamed, no alias), at any static N: `static_lm(fj, x₀::SVector{N}, lb, ub, s, maxiter, tol2[, fs, bound, cost_floor])
+  -> (x, converged, J, e, rule)`. The increment is an unrolled N × N solve (`_static_lm_increment`, formerly
+  `_spline_lm_increment`). It also returns the stop that fired, a `StopRule`. At N = 2 every operation is the old one's:
+  the spline lenses' inverse, the MappedSurface root and the pixel-LM reference give the same bits (tested `===` against
+  0.9.3's `_spline_lm` on the pixel_lm fixture: 0 of 12 000 runs and 0 of 100 000 increments differ).
+- **New: `static_lm_termination(converged, rule) -> (ReturnCode.T, StopRule)`, public** — a `static_lm` solve's §14
+  record: `Success` when converged, `MaxIters` at the iteration cap, `Stalled` at any other stop.
+- **New: `cubic_bspline_weight_derivatives(u) -> (d₁, d₂)`, public** — the first and second derivatives of the four
+  `cubic_bspline_weights`. It is the former private `_cubic_bspline_weights_deriv` (its first derivative, the same
+  expressions) made public with the second added; its callers (the lattice window weights, `spline_weights`) read its
+  first part.
+- **New: `spline_window_sums(control, zero, wx, wy, dwx, dwy[, ddwx, ddwy])`, public** — the one 4 × 4 cubic B-spline
+  window sweep: the value, its two partials and, with the second-derivative weights, its three second partials. The
+  spline lattices' value-and-partials sweep (`_window_sums`) is this function, its operations in the same order (the
+  same bits).
+- **New: `cubic_bspline_prefilter_taps(K)`, public** — the cubic B-spline interpolation prefilter on an unbounded
+  grid, `√3·z₁^|k|` truncated at K and renormalised: `_prefilter_matrix`'s concept as a local filter a kernel applies.
+- **Changed (additive): `is_positive_definite` at static N.** A static `N × N` matrix tests all N leading minors
+  (Sylvester); at N = 2 the expression is the old one. Any other matrix still tests its leading 2×2 block.
+- **Docs:** a generic docstring for `score_sq_residuals!` (its methods keep theirs), so a cross-reference to the
+  function names one docstring.
+
 ## 0.9.4 (unreleased)
 
 A patch. Additive: `is_inside_texel_centres` and the mode methods of `raw_frame_map` and `raw_provenance`; otherwise no

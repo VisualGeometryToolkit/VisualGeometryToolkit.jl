@@ -1,4 +1,4 @@
-# The parametric lens inverse runs on Core's one static LM (`Cameras._spline_lm`)
+# The parametric lens inverse runs on Core's one static LM (`Cameras.static_lm`)
 # with the distortion's analytic Jacobian — every term's `transform_deriv` in
 # closed form — COLMAP's step clipping as the LM's step bound, and no Dual in the
 # solve loop (JuliaLang/julia#64827's pattern): a Dual argument or lens is

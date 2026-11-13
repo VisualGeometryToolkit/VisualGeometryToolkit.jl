@@ -215,6 +215,19 @@ alloc_scoring_workspace(n::Int, dg::Int, scoring::StudentTUniformScoring) =
                        estimates_outlier_support(scoring.outlier_model) ? Vector{Float64}(undef, 3n + 2) : Float64[])
 
 """
+    score_sq_residuals!(sws, q, scoring, problem, model, [Σ̃_θ,] [sample_idx,] n) -> (S, k)
+
+The score of a model from its problem's squared whitened residuals: `q[1:n]` is
+filled with them (`q[n+1:end]` with `typemax`), the scorer's partition sweep runs
+over them in the workspace `sws`, and the result is `(S, k)`, the sweep's score and
+its optimal inlier count. The generic function of the Student-t + uniform scoring's
+problem-and-model form; its methods (below) are the plain score, the predictive score
+of a model with covariance `Σ̃_θ`, and its minimal-sample form (`sample_idx`). The
+residual-buffer form is [`score_residuals!`](@ref).
+"""
+function score_sq_residuals! end
+
+"""
     score_sq_residuals!(sws, q, scoring, problem, model, n) -> (S, k)
 
 Score a model by computing per-point squared whitened residuals and sweeping

@@ -375,6 +375,10 @@ export default_spline_grid  # the reference's control grid of an area
 public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
 public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
+public static_lm, static_lm_termination   # the one device-side (KernelAbstractions-lawful) LM at static N, and its termination record
+public cubic_bspline_weight_derivatives   # their first and second derivatives in the local coordinate (kernel-lawful)
+public cubic_bspline_prefilter_taps   # the cubic B-spline interpolation prefilter, truncated: a local filter a kernel applies
+public spline_window_sums   # the one 4 × 4 cubic B-spline window sweep: the value, its partials and second partials (kernel-lawful)
 public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at its local coordinate (kernel-lawful)
 public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part
 public axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis

@@ -1,5 +1,5 @@
 @testitem "spline LM kernel: within 2e-6 px of the recorded reference LM, the same converged flags" begin
-# The spline models' two-unknown LM kernel (`Cameras._spline_lm`, device-side: the one
+# The spline models' two-unknown LM kernel (`Cameras.static_lm`, device-side: the one
 # LM that is not NLLSsolver), at the reference's pixel unit (s = 1, the box [min, max + 0.999]),
 # against the routine it derives from — a static bounded
 # Levenberg–Marquardt `lmsolve` with Marquardt's scaling — recorded on 1000 seeded problems
@@ -25,7 +25,7 @@ dmax = 0.0; ndiff = 0; flags_equal = true
 for (q, (rx, ry, rF)) in zip(ps, ref)
     for tol2 in (1.0e-2, 1.0e-6, 1.0e-12)
         res, jac = pixel_res(q.coef...), pixel_jac(q.coef...)    # the kernel's `fj`: both at one point
-        x, ok = VgtkCore.Cameras._spline_lm(p -> (res(p, nothing), jac(p, nothing)), SVector(Float64(q.x0), Float64(q.y0)),
+        x, ok = VgtkCore.Cameras.static_lm(p -> (res(p, nothing), jac(p, nothing)), SVector(Float64(q.x0), Float64(q.y0)),
                                             SVector(q.minx, q.miny), SVector(q.maxx + 0.999, q.maxy + 0.999), SVector(1.0, 1.0), q.maxit, tol2)
         global dmax = max(dmax, abs(x[1] - rx), abs(x[2] - ry))
         tol2 == 1.0e-2 && (x[1] != rx || x[2] != ry) && (global ndiff += 1)

@@ -7,7 +7,7 @@
 # over one lattice. Here both are `ChartSpline{3}`s over the same rectangle of the
 # K-normalized plane x = K⁻¹u, as the backward spline of a `SplineLens`: the
 # directions are a SplineLens's (`central_model(m)`), and every evaluation of
-# them, the box and presence test (`_in_backward`), the LM (`_spline_lm` on the
+# them, the box and presence test (`_in_backward`), the LM (`static_lm` on the
 # area's scale-free `_spline_lm_box`) and the gauge rule (skew 0) are the lens's.
 # What is the model's own: the point spline and the tangent-plane residual of
 # its projection.
@@ -268,7 +268,7 @@ end
     return _tangent_residual(d, o, X), SMatrix{2, 2}(r1[1], r2[1], r1[2], r2[2])
 end
 
-# THE non-central projection: `_spline_lm` on the tangent-plane residual with its
+# THE non-central projection: `static_lm` on the tangent-plane residual with its
 # analytic Jacobian, from the normalized point `x₀`, on the direction area's
 # scale-free box; the pixel, NaN unless it converged onto an imaged point.
 function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float64})
@@ -278,7 +278,7 @@ function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float
     a = m.directions.area
     fj(p) = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
     lb, ub, s = _spline_lm_box(a)
-    x, ok = _spline_lm(fj, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    x, ok = static_lm(fj, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
     (ok && _in_backward(_direction_lens(m), x)) || return nan
     u = _pixel_affine(m.intrinsics)(x)
     return SVector{2, Float64}(u[1], u[2])

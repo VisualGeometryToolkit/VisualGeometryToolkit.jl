@@ -225,15 +225,31 @@ function shape_matrix(p::Paraboloid3D{T}) where {T}
 end
 
 """
+    is_positive_definite(M::StaticMatrix{N, N}) -> Bool
     is_positive_definite(M::AbstractMatrix) -> Bool
 
-2×2 positive-definiteness test via Sylvester's criterion: M[1,1] > 0 and det(M) > 0.
-Reads only the leading 2×2 block, allocation-free and kernel-callable (no
-factorization); a symmetric `M` is assumed (the off-diagonal enters through
-`det`). The test behind [`is_valid_shape`](@ref) (and, negated, behind
-[`is_peak`](@ref)). Public, not exported.
+Positive-definiteness by Sylvester's criterion: every leading principal minor of the
+symmetric `M` is positive. A static `N × N` matrix tests all `N` minors, unrolled in
+plain arithmetic (`N ≤ 3`: the cofactor expansions; larger `N`: StaticArrays' `det`
+of each leading block); any other matrix tests its leading 2×2 block. At `N = 2` the
+expression is `M[1,1] > 0 && M[1,1]·M[2,2] − M[1,2]·M[2,1] > 0`, as before.
+Allocation-free and kernel-callable (no factorization). The test behind
+[`is_valid_shape`](@ref) (and, negated, behind [`is_peak`](@ref)); `λ_min(M) > c` is
+`is_positive_definite(M − c·I)`. Public, not exported.
 """
 is_positive_definite(M::AbstractMatrix) = M[1, 1] > 0 && M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1] > 0
+@generated function is_positive_definite(M::StaticMatrix{N, N}) where {N}
+    N == 1 && return :(@inbounds M[1, 1] > 0)
+    tests = Any[:(M[1, 1] > 0), :(M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1] > 0)]
+    N >= 3 && push!(tests, :(
+        M[1, 1] * (M[2, 2] * M[3, 3] - M[2, 3] * M[3, 2]) - M[1, 2] * (M[2, 1] * M[3, 3] - M[2, 3] * M[3, 1]) +
+            M[1, 3] * (M[2, 1] * M[3, 2] - M[2, 2] * M[3, 1]) > 0
+    ))
+    for k in 4:N
+        push!(tests, :(LinearAlgebra.det(SMatrix{$k, $k}($([:(M[$i, $j]) for j in 1:k for i in 1:k]...))) > 0))
+    end
+    return :(@inbounds $(foldr((a, b) -> :($a && $b), tests)))
+end
 
 """
     is_negative_definite(M::AbstractMatrix) -> Bool

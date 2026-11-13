@@ -52,15 +52,24 @@ end
 # cubics and u may round.
 @inline _span_coordinate(x, ix) = x - (ix - 3) - 3
 
-# d/du of the four span weights — the same cubic pieces differentiated, in the
-# same local coordinate u and Horner form as `cubic_bspline_weights`.
-@inline function _cubic_bspline_weights_deriv(u)
+"""
+    cubic_bspline_weight_derivatives(u) -> (NTuple{4}, NTuple{4})
+
+The first and second derivatives in `u` of the four [`cubic_bspline_weights`](@ref)
+at the span's local coordinate `u`: `((−(1 − u)², 3u² − 4u, −3u² + 2u + 1, u²) / 2,
+(1 − u, 3u − 2, −3u + 1, u))`, the same cubic pieces differentiated once and twice,
+in the same local coordinate and Horner form as the weights. Kernel-lawful, in
+`u`'s own type (a `Float32` coordinate gives `Float32` derivatives). The spline
+lattices' partials ([`spline_weights`](@ref), [`spline_window_sums`](@ref)) and
+VisualGeometryToolkitFeatures' continuous DoG response read it.
+"""
+@inline function cubic_bspline_weight_derivatives(u)
     v = 1 - u
     a = -v * v / 2                  # −(1 − u)² / 2
     b = u * (3u - 4) / 2            # (3u² − 4u) / 2
     c = ((-3u + 2) * u + 1) / 2     # (−3u² + 2u + 1) / 2
     d = u * u / 2                   # u² / 2
-    return (a, b, c, d)
+    return (a, b, c, d), (1 - u, 3u - 2, -3u + 1, u)
 end
 
 # ------------------------------------------------------------------------------
@@ -221,6 +230,45 @@ function _with_control_vector(controls::AbstractMatrix{SVector{K, T}}, present, 
     return out
 end
 
+"""
+    spline_window_sums(control, zero, wx, wy, dwx, dwy[, ddwx, ddwy]) -> (S, S₁, S₂[, S₁₁, S₁₂, S₂₂])
+
+THE 4 × 4 tensor-product sweep of a uniform cubic B-spline window: the value
+`S = Σᵣ Σ_c wy[r]·wx[c]·control(r, c)` and its partials in the window's two
+lattice coordinates (`S₁` through `dwx`, the first coordinate, along `c`; `S₂`
+through `dwy`, along `r`), and with the second-derivative weights `ddwx`, `ddwy`
+the second partials `S₁₁`, `S₁₂`, `S₂₂`. `control(r, c)` returns the window's
+control at row tap `r` and column tap `c` (1…4), `zero` the accumulators' zero (a
+number or a static vector); the weights are [`cubic_bspline_weights`](@ref) and
+[`cubic_bspline_weight_derivatives`](@ref) of the span's local coordinates. One
+sweep, rows outer and columns inner, in plain arithmetic in that one order, so
+every caller sums the same bits; kernel-lawful. The spline lattices' value and
+partials read it (the lattice → area slope applied by the caller), as does
+VisualGeometryToolkitFeatures' continuous DoG response.
+"""
+@inline function spline_window_sums(control::C, z, wx, wy, dwx, dwy, ddwx = nothing, ddwy = nothing) where {C}
+    second = ddwx !== nothing
+    S = Sx = Sy = Sxx = Sxy = Syy = z
+    @inbounds for r in 1:4
+        row = drow = ddrow = z
+        for c in 1:4
+            g = control(r, c)
+            row += wx[c] * g
+            drow += dwx[c] * g
+            second && (ddrow += ddwx[c] * g)
+        end
+        S += wy[r] * row
+        Sx += wy[r] * drow
+        Sy += dwy[r] * row
+        if second
+            Sxx += wy[r] * ddrow
+            Sxy += dwy[r] * drow
+            Syy += ddwy[r] * row
+        end
+    end
+    return second ? (S, Sx, Sy, Sxx, Sxy, Syy) : (S, Sx, Sy)
+end
+
 # THE weights of a point's window and their derivatives in the lattice coordinate, from
 # ONE evaluation of the cubic pieces: `(gx, ix, iy, wx, wy, dwx, dwy)` at the point `x`
 # of the lattice of `gsz = (rows, cols)` over `area`, the window the point's own
@@ -230,8 +278,8 @@ end
     gh, gw = gsz
     gx, gy = _lattice_coords(area, gsz, x)
     ix, iy, wx, wy = _continued_window(gx, gy, gw, gh)
-    dwx = _cubic_bspline_weights_deriv(_span_coordinate(gx + 2, ix))
-    dwy = _cubic_bspline_weights_deriv(_span_coordinate(gy + 2, iy))
+    dwx = first(cubic_bspline_weight_derivatives(_span_coordinate(gx + 2, ix)))
+    dwy = first(cubic_bspline_weight_derivatives(_span_coordinate(gy + 2, iy)))
     return gx, ix, iy, wx, wy, dwx, dwy
 end
 
@@ -249,18 +297,7 @@ end
 # The value and partials of the window `(ix, iy)` from its weights (`_window_weights`).
 @inline function _window_sums(controls::AbstractMatrix{<:StaticVector{K}}, area, gx, ix, iy, wx, wy, dwx, dwy) where {K}
     T = promote_type(typeof(gx), eltype(eltype(controls)))
-    S = Sx = Sy = zero(SVector{K, T})
-    @inbounds for r in 1:4
-        row = drow = zero(SVector{K, T})
-        for c in 1:4
-            g = SVector{K, T}(controls[iy - 3 + r, ix - 3 + c])
-            row += wx[c] * g
-            drow += dwx[c] * g
-        end
-        S += wy[r] * row
-        Sx += wy[r] * drow
-        Sy += dwy[r] * row
-    end
+    S, Sx, Sy = spline_window_sums((r, c) -> @inbounds(SVector{K, T}(controls[iy - 3 + r, ix - 3 + c])), zero(SVector{K, T}), wx, wy, dwx, dwy)
     sx, sy = _lattice_scales(Float64, area, size(controls))
     return S, Sx * T(sx), Sy * T(sy)
 end

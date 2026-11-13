@@ -6,6 +6,34 @@ The breaking wave of 2026-11-13 (wave 10): the terminology taxonomy, one observa
 interface with PointFrame first-class, sensor noise, and the conventions of the IO breaking wave.
 
 ### Breaking
+- **One LM: one adapter, one owner of its stop settings, one success rule** (the owner's "NO DUPLICATIONS" ruling,
+  2026-11-13; src/robust/lm_core.jl, configs/default.toml `[lm]`).
+  - `LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time)` is the ONE owner of the host LM's knobs; its defaults are
+    Core's `[lm]` table (1000, 1e-10, 1e-10, 0.05: VisualGeometryToolkitEstimation's `[chart_lm]` values, moved here
+    with their measurements). `nlls_options` is DELETED (retired name; `LmStops`, which the adapter maps itself).
+  - `lmsolve_chart!` takes `stops::LmStops` (positional, default `LmStops()`) in place of the keywords `maxit`, `ftol`,
+    `xtol`, `stationarity_tol`, in both chart forms; the robust form now keeps its problem and NLLSsolver cache in the
+    workspace as the plain one does (one caching path).
+  - NEW: the multi-block form, `lmsolve_chart!(p::LmProblem, stops; callback) -> (; code, rule, iterations, cost)`, on
+    `LmProblem(variables, blocks)` (heterogeneous variables and residual blocks, each block's robustifier; kept and
+    reused), for the bundles that built their own NLLSsolver problems. An indefinite or singular normal system in the
+    step solve is `(Failure, NonFinite)`.
+  - THE SUCCESS RULE: a stop is `Success` only where the stationarity postcondition holds at the returned point — now
+    the cost-decrease stop too (it was converged unchecked), so a `CostDecrease` stop short of stationarity is
+    `Stalled` (code `-2`). The multi-block and robust postcondition is `is_stationary(blocks, …)`; the robust chart
+    LM's own copy (`_robust_stationary`) is deleted.
+  - `nlls_termination` and `nlls_stop_code` are no longer public (the adapter's decode); `nlls_stop_reasons` stays.
+  - `static_lm` moves to lm_core.jl (still `VisualGeometryToolkitCore.static_lm`; `Cameras` no longer exports it) and
+    takes `StaticLmStops(scale; acceptance, residual_scale, cost_floor, max_iter, stationarity_tol)` in place of
+    `s, maxiter, tol2, fs, …, cost_floor`: `static_lm(fj, x₀, lb, ub, stops[, bound])`. Its `converged` is the same
+    success rule: stationary (its exact-fit or gradient floor, or the host's column cosine) AND `F < acceptance`;
+    acceptance alone no longer succeeds. Its `cost_floor` defaults to 0 (resolved to rounding); the spline lenses
+    give the reference's `eps(Float64)`. Its iteration cap defaults to `[lm] device_max_iter` (100), which replaces the
+    spline lenses' `_PROJECT_MAXITER` and the mapped surfaces' `_BOARD_MAXITER`.
+  - THE LM GATE: `check_duplication`'s retired pattern `:lm_primitive` fails any call of NLLSsolver's
+    `optimize!`/`NLLSProblem`/`OptimizeCache`/`NLLSOptions`, of `nlls_options`/`_nlls_options`, `nlls_termination`,
+    `nlls_stop_code`, `_lm_run!` or `_static_lm_increment` in any file of any stack package (src/, test/, benchmark/)
+    outside lm_core.jl and its own tests (test/lm_driver_tests.jl, test/static_lm_tests.jl).
 - **The terminology taxonomy** (the owner's ruling of 2026-11-13; conventions/naming.md): a detection, a correspondence,
   an observation. Renamed, no aliases; each old public name is in `check_naming`'s retired names with its replacement:
   `Cspond` → `Correspondence`, `Csponds` → `Correspondences`, `csponds` → `correspondences`, `ScoredCspond` →

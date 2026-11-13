@@ -288,7 +288,7 @@ function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float
     a = m.directions.area
     fj(p) = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
     lb, ub, s = _spline_lm_box(a)
-    x, ok = static_lm(fj, x₀, lb, ub, s, _PROJECT_MAXITER, _PROJECT_TOL^2)
+    x, ok = static_lm(fj, x₀, lb, ub, StaticLmStops(s; acceptance = _PROJECT_TOL^2, cost_floor = _SPLINE_REFERENCE_COST_FLOOR))
     (ok && _in_backward(_direction_lens(m), x)) || return nan
     u = _pixel_affine(m.intrinsics)(x)
     return SVector{2, Float64}(u[1], u[2])

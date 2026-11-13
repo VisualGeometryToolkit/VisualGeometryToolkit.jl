@@ -205,7 +205,7 @@ end
     using VisualGeometryToolkitCore: TargetObservations, PixelFrame
     mktempdir() do dir
         rig = old_copy(dir, "rig_targets.json", as_v4_rig)
-        obs = load(TargetObservations, as_v4_measurements(dir))                       # naming the v4 identity
+        obs = load(TargetObservations, as_v4_observations(dir))                       # naming the v4 identity
         @test only(obs.targets) == V4_ID != VgtkIO.content_id(rig) == current_id()
         a = joinpath(dir, "a.json")
         save_correspondences(a, obs, rig)

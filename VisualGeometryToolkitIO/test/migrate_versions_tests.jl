@@ -6,7 +6,7 @@
 @testsetup module MigrateFixtures
     import VisualGeometryToolkitIO
     import VisualGeometryToolkitIO as VgtkIO
-    export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_measurements, V4_ID, ID09, current_id,
+    export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_observations, V4_ID, ID09, current_id,
         current_text, v09_tree
 
     # the IO 0.9 fixtures (test/fixtures/old/, the 0.9 current versions the
@@ -49,9 +49,9 @@
         haskey(d, "sensors") && (d["pixel_frame"] = "colmap")
         return d
     end
-    # the measurement fixtures as they were (target_points2d naming the v4 id;
+    # the observation fixtures as they were (target_points2d naming the v4 id;
     # target_points3d names no targets)
-    function as_v4_measurements(dir)
+    function as_v4_observations(dir)
         write(joinpath(dir, "target_points2d.json"), replace(read(units_fixture("target_points2d.json"), String), ID09 => V4_ID))
         cp(units_fixture("target_points3d.json"), joinpath(dir, "target_points3d.json"))
         return joinpath(dir, "target_points2d.json")
@@ -387,7 +387,7 @@ end
         for name in ("target_planar.json", "target_points.json")
             old_copy(tree, name, as_v1_target)
         end
-        as_v4_measurements(tree)
+        as_v4_observations(tree)
         before = Dict(f => read(joinpath(tree, f), String) for f in readdir(tree))
         io = IOBuffer()
         @test VgtkIO._migrate_cli(["tree", tree]; io) == 0                      # a dry run
@@ -441,7 +441,7 @@ end
     mktempdir() do dir
         tree = mkpath(joinpath(dir, "tree"))
         old_copy(tree, "rig_targets.json", as_v4_rig)
-        obs = as_v4_measurements(tree)
+        obs = as_v4_observations(tree)
         # re-pointing: an identity neither mapped nor a given rig's is refused, naming the file and the id
         rig = vgio_migrate(joinpath(tree, "rig_targets.json"); out = joinpath(dir, "rig_v5.json"))
         e = try VgtkIO._repoint_targets(obs, Dict{String, String}(), [rig.out]; out = joinpath(dir, "x.json")); nothing catch e; e end

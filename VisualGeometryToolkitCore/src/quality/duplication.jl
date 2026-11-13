@@ -89,13 +89,15 @@ The stack's no-duplication rule, checked over a package (`M`, its directory
    of methods of one function, one on a CPU type (`::CPU`) and one on a GPU
    type (`::GPU`, `::Backend`, `::CuArray`). Allowed, so not flagged: the same
    kernel launched on whatever `get_backend` returns, and the transfer and
-   allocation helpers, by their names (an upload or download, `to_host`,
+   allocation helpers, by their WHOLE names: every `_`-separated word of the
+   name is a transfer or allocation word (an upload or download, `to_host`,
    `to_device`, `on_device`, zeros, ones, fill, an allocation, a
-   synchronization, `adapt`, a copy, the device queries).
+   synchronization, `adapt`, a copy, the device queries), so `zeros_on` is a
+   helper and `fill_sqrt_weights!` or `transfer_ellipse` is not.
 6. **CPU/GPU twins** (`:twin_name`). Two bindings of the package whose names
    differ only by a CPU/GPU marker: `_cpu`/`_gpu`, `_host`/`_device`,
    `cpu_`/`gpu_`, or `_cuda` beside the plain name (the transfer helpers'
-   names excepted).
+   whole names excepted).
 
 The repository is the git checkout holding `dir`. Inside a monorepo the other
 packages' files are compared too (the package's own files are the ones checked;

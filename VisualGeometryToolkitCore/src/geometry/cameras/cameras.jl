@@ -374,13 +374,16 @@ through `project`, a spline model's by the implicit function theorem).
 
 For a central `CameraModel` the same map, on the plane points in front of the
 camera, is the plane-induced homography of its pinhole twin, dehomogenised, then
-its lens's `distortion_map` (a pinhole: the homography map alone,
+its lens's `distortion_map` composition (a pinhole: the homography map alone,
 `PerspectiveMap() ∘ HomographyMap(camera)`), and `plane_map` returns that form:
 it is the composition [`transfer_ellipse`](@ref)`(camera, shape)` transfers a
 plane conic through, stage by stage, so a conic's image is the homography's exact
 conic action, then the lens's local affinity. A plane point behind the camera
 (`Z ≤ 0`) has no image (`project` is NaN or a ray past 90°), and the homography
-form does not test it.
+form does not test it. A [`SplineLens`](@ref) camera whose lattice does not image
+ẑ (the off-axis gauge, which `distortion_map` refuses for an undistortion) takes
+the same form: the gauge's `K` cancels between the homography and the lens stage,
+so the map is the lens's own projection of the plane point.
 
 The camera's extrinsics are plain numbers in the plane's unit: a physical camera's
 plain form is `ustrip(m, camera)`.
@@ -389,7 +392,7 @@ plane_map(camera::PosedCamera) = _Projection(camera.model) ∘ camera.extrinsics
 function plane_map(camera::PosedCamera{<:CameraModel})
     m = camera.model
     m.lens isa Pinhole && return PerspectiveMap() ∘ HomographyMap(PosedCamera(m, camera.extrinsics))
-    return distortion_map(m) ∘ (PerspectiveMap() ∘ HomographyMap(PosedCamera(pinhole(m), camera.extrinsics)))
+    return _lens_pixel_map(m) ∘ (PerspectiveMap() ∘ HomographyMap(PosedCamera(pinhole(m), camera.extrinsics)))
 end
 
 # Rect: tessellate edges, lift to z=0, project → Polygon
@@ -661,10 +664,10 @@ its model's `with_directions`, the bound, the lens coverage and a pose kept.
 with_directions(bc::BoundedCamera, D::AbstractMatrix) = with_model(bc, with_directions(model(bc), D))
 
 # `axis_gauged` (spline_lens.jl) of a posed camera — its model and its extrinsics turned together — and of a bounded
-# one: its model's, the bound and the lens coverage kept (pixels do not move).
+# one: its camera's (a posed camera's model and pose together), the bound and the lens coverage kept (pixels do not move).
 axis_gauged(c::PosedCamera, rotation::Rotation{3}, K′::AbstractMatrix) =
     PosedCamera(axis_gauged(c.model, rotation, K′), axis_gauged(c.extrinsics, rotation))
-axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = with_model(bc, axis_gauged(model(bc), rotation, K′))
+axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = _rebound(bc, axis_gauged(bc.camera, rotation, K′))
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()

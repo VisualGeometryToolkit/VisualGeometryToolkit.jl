@@ -201,7 +201,8 @@ end
 _names_a_test(toks, prev) =
     prev >= 2 && toks[prev].kind in _MACRO_NAME_KINDS && toks[prev].text in ("testset", "testitem") && toks[prev - 1].kind == _JS.K"@"
 
-# A `#`-commented source (Python, shell, TOML, YAML) with its comments blanked and,
+# A `#`-commented source (Python, shell, TOML, YAML) with its comments blanked (a shell
+# `$#` / `${#…}` is a count, not a comment) and,
 # with `strings = false`, its quoted runs too (single, double or triple quotes, a
 # backslash escaping): newlines and byte offsets kept, so what is left is code.
 function _hash_code(src::AbstractString; strings::Bool = true)
@@ -211,7 +212,7 @@ function _hash_code(src::AbstractString; strings::Bool = true)
     i = 1
     while i <= n
         c = b[i]
-        if c == UInt8('#')
+        if c == UInt8('#') && !_shell_count(b, i)
             j = i
             while j <= n && b[j] != UInt8('\n')
                 j += 1
@@ -241,6 +242,8 @@ function _hash_code(src::AbstractString; strings::Bool = true)
     end
     return String(b)
 end
+# Whether the `#` at byte `i` is a shell parameter's count (`$#`, `${#a}`, `${#a[@]}`), not a comment.
+_shell_count(b, i) = i > 1 && (b[i - 1] == UInt8('$') || (i > 2 && b[i - 1] == UInt8('{') && b[i - 2] == UInt8('$')))
 # The code text of a `#`-commented file, line by line (its strings kept: a TOML
 # value or a shell argument is code there).
 _hash_code_lines(src::AbstractString) = split(_hash_code(src), '\n')

@@ -478,3 +478,103 @@ end
     @test gp isa PosedCamera && gp.extrinsics == turned && calibration_matrix(gp) == K′
     @test all(x -> norm(project(gp, x) - project(posed, x)) <= 1.0e-6, X)
 end
+
+# A posed bounded camera turns its model AND its pose: `axis_gauged` of the bounded camera is the bounded `axis_gauged` of
+# its posed camera, so every world point is imaged by the same arithmetic (exact equality) and where it was before.
+@testitem "axis_gauged: a posed bounded camera turns its extrinsics with its model" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using Rotations: RotMatrix, AngleAxis
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, px, project, axis_gauged, EuclideanMap,
+        BoundedCamera, PosedCamera, Size2, relabel, WorldFrame, CameraFrame
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    on = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (20, 20))
+    Q = RotMatrix(AngleAxis(deg2rad(5.0), 0.6, 0.8, 0.0))
+    off = CameraModel(SplineLens, map(c -> Q * c, on.lens.backward.controls), Size2(1000, 1000))
+    R = RotMatrix{3}(Q')
+    Kn = SMatrix{3, 3, Float64}(300.0, 0.0, 0.0, 0.0, 300.0, 0.0, 500.0, 500.0, 1.0)
+    pose = relabel(WorldFrame, CameraFrame, EuclideanMap(RotMatrix(AngleAxis(0.3, 0.2, -1.0, 0.4)), (0.1, -0.2, 2.0)))
+    bc = BoundedCamera(PosedCamera(off, pose), Size2(1000, 1000))
+    gb = axis_gauged(bc, R, Kn)
+    gp = axis_gauged(PosedCamera(off, pose), R, Kn)
+    @test gb isa BoundedCamera && gb.camera.extrinsics == gp.extrinsics == axis_gauged(pose, R)
+    @test gb.bound == bc.bound && gb.lens_coverage == bc.lens_coverage
+    X = [SVector(x, y, 0.0) for x in -0.8:0.2:0.8 for y in -0.6:0.2:0.6]
+    @test all(x -> isequal(project(gb, x), project(gp, x)), X)
+    # where it was: the gauge's own bound on a posed camera (the item above), the LM's projection tolerance in pixels
+    @test all(x -> norm(project(gb, x) - project(bc, x)) <= 1.0e-6, X)
+    # an unposed bounded camera still gauges its model alone
+    @test axis_gauged(BoundedCamera(off, Size2(1000, 1000)), R, Kn).camera isa CameraModel
+end
+
+# The board-plane map of an off-axis SplineLens camera (its lattice does not image ẑ, the case `axis_gauged` exists for):
+# the homography of its pinhole twin then its lens, as for every central model. The projection and the map each solve
+# the spline's LM to `_PROJECT_TOL` in normalized units, so they agree to twice that times the focal length in pixels.
+@testitem "plane_map and transfer_ellipse of an off-axis SplineLens camera" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using Rotations: RotMatrix, AngleAxis
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, px, project, EuclideanMap, PosedCamera, Size2,
+        relabel, WorldFrame, CameraFrame, plane_map, transfer_ellipse, distortion_map, Ellipse, Circle, Point2
+    import VisualGeometryToolkitCore as VgtkCore
+    src = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
+    on = CameraModel(SplineLens, src, Size2(1000, 1000); grid_size = (20, 20))
+    # the lattice's field reaches 2.36 rad (135°) off its axis at the image corners (KB, f = 300 px, 707 px): ẑ turned
+    # 170° off it is outside, so the lattice does not image ẑ (the off-axis gauge)
+    Q = RotMatrix(AngleAxis(deg2rad(170.0), 0.6, 0.8, 0.0))
+    # its K given (the source's): the lattice's own gauge at the area's centre would read a ray 170° off ẑ
+    off = CameraModel(SplineLens, map(c -> Q * c, on.lens.backward.controls), Size2(1000, 1000); intrinsics = on.intrinsics)
+    @test_throws "does not image ẑ" distortion_map(off)            # the refusal plane_map no longer inherits
+    # the board one unit in front (plane point (x, y) is the ray (x, y, 1)); the lattice's axis Q·ẑ leans 10° towards
+    # (0.8, −0.6), so the board's rays far out that way (≤ 135° off the axis) are imaged
+    pose = relabel(WorldFrame, CameraFrame, EuclideanMap(RotMatrix(AngleAxis(0.0, 0.0, 0.0, 1.0)), (0.0, 0.0, 1.0)))
+    posed = PosedCamera(off, pose)
+    pm = plane_map(posed)
+    tol = 2 * 300.0 * VgtkCore.Cameras._PROJECT_TOL
+    imaged = 0
+    for x in 0.5:0.5:5.0, y in -4.0:0.5:0.0
+        u = project(posed, SVector(x, y, 0.0))
+        all(isfinite, u) || continue
+        imaged += 1
+        @test norm(pm(SVector(x, y)) - u) <= tol
+        e = transfer_ellipse(posed, Circle(Point2(x, y), 0.01))
+        @test e isa Ellipse && norm(SVector(e.center[1], e.center[2]) - u) <= tol
+    end
+    @test imaged > 10
+end
+
+# `has_spline_gauge` predicts THE constructor's refusal on the constructor's own lattice: the controls normalized as it
+# normalizes them (`unit_controls`), NaN in the absent slots whatever the caller left there (finite junk included).
+@testitem "has_spline_gauge agrees with the constructor, whatever the absent slots hold and however the controls are scaled" begin
+    using Test
+    using StaticArrays
+    using Random: Xoshiro
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, px, has_spline_gauge
+    W, H = 640, 480
+    src = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    C = CameraModel(SplineLens, src, Size2(W, H); grid_size = (12, 10)).lens.backward.controls
+    gh, gw = size(C)
+    rng = Xoshiro(5)
+    builds(D, P, u) = try
+        CameraModel(SplineLens, D, Size2(W, H); present = P, unit_controls = u); true
+    catch e
+        e isa ArgumentError || rethrow(); false
+    end
+    masks = Any[nothing, trues(gh, gw)]
+    for (y, x) in ((gh ÷ 2, gw ÷ 2), (gh ÷ 2 - 2, gw ÷ 2 + 2), (2, 2), (gh ÷ 2 + 3, gw ÷ 2 - 3))
+        P = trues(gh, gw); P[y:(y + 1), x:(x + 1)] .= false; push!(masks, P)
+    end
+    for _ in 1:6
+        push!(masks, rand(rng, gh, gw) .> 0.08)
+    end
+    scaled = map(c -> (0.5 + rand(rng)) * c, C)                        # every control off unit norm
+    for P in masks, (D, u) in ((C, false), (scaled, true), (scaled, false))
+        for junk in (nothing, SVector(0.0, 0.0, 1.0), SVector(3.0, -2.0, 0.5))
+            E = P === nothing || junk === nothing ? D : map((v, p) -> p ? v : junk, D, P)
+            @test has_spline_gauge(E, Size2(W, H); present = P, unit_controls = u) == builds(E, P, u)
+        end
+    end
+end

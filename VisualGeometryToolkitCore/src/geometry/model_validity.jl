@@ -514,3 +514,45 @@ see [`dlt_conditioning`](@ref).
 """
 @inline test_dlt_conditioning(ws::SvdWorkspace; max_cond::Real = 100.0, null_dim::Int = 1) =
     dlt_conditioning(ws; null_dim) <= max_cond
+
+# =============================================================================
+# The unit-bearing gate of a bearing estimator's entry
+# =============================================================================
+
+"""
+    assert_unit_bearings(bearings, which, who; remedy) -> nothing
+
+The entry gate of an estimator that takes BEARINGS (unit rays, `StaticVector{3}`):
+every one finite, then every one of unit norm, else an `ArgumentError` from `who`
+(the estimator) naming the first non-finite, or the worst-normed, entry of the
+`which` column (`"source"`, `"target"`) and the `remedy` (how to back-project).
+
+`StaticVector{3}` is a necessary condition, not a guarantee: a z = 1 chart point
+has three coordinates and gives the right answer for every ray the chart can
+represent, so its exclusion of rays at and past 90° survives the type unseen. The
+finite check comes first: `NaN > worst` is false, so a NaN bearing (a pixel the
+camera cannot back-project, past a fisheye's fold) would get through the norm test.
+
+The norm tolerance is the gap between the two kinds of input, not a rounding
+bound: a chart point's norm is `sqrt(1 + x² + y²)`, 1 only on the optical axis
+(where the two are the same vector) and 1.0185 already at a narrow lens's 11°,
+while a normalized ray is unit to a few ulps. `1e-6` lies between, with room
+for a bearing computed in Float32.
+"""
+function assert_unit_bearings(fs, which::AbstractString, who::AbstractString; remedy::AbstractString)
+    worst = 0.0; at = 0
+    @inbounds for i in eachindex(fs)
+        f = fs[i]
+        all(isfinite, f) || throw(ArgumentError(
+            "$who needs finite bearings; the $which at index $i is $(Tuple(f)). A camera returns NaN for a pixel it " *
+                "cannot back-project (e.g. past a fisheye's fold) — drop that correspondence."))
+        d = abs(sqrt(f[1]^2 + f[2]^2 + f[3]^2) - 1)
+        d > worst && (worst = d; at = i)
+    end
+    worst <= 1.0e-6 || throw(ArgumentError(
+        "$who needs UNIT bearings; the $which at index $at has norm " *
+            "$(round(sqrt(fs[at][1]^2 + fs[at][2]^2 + fs[at][3]^2), digits = 6)). A z = 1 chart point satisfies the " *
+            "3-vector signature but is not a bearing — its norm is 1 only on the optical axis, ~1.41 at 45° off it, " *
+            "and it does not exist at all at 90°. $remedy"))
+    return nothing
+end

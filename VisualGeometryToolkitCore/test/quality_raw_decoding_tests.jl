@@ -43,6 +43,10 @@
     @test isempty(findings("src/a.jl" => "# $rp was retired\n\"\"\"\n    f()\n\nNo $dm here.\n\"\"\"\nf() = 1\n#= $dc =#\n"))
     @test uses("src/a.jl" => "# σ² and ∂ in a comment\nĤ = 1\ny = $(dm)(Ĥ)\n") == [:demosaic]   # multi-byte characters
     @test isempty(findings("docs/src/a.md" => "The $dm mode is for figures.\n"))
+    # a shell parameter count (`$#`, `${#a}`) is not a comment: the rest of its line is still read
+    @test uses("scripts/a.sh" => "[ \$# -gt 0 ] && $(dc)_emu -T x.ARW\n") == [:dcraw]
+    @test uses("scripts/a.sh" => "n=\${#files[@]}; $(dc)_emu -T \$n\n") == [:dcraw]
+    @test isempty(findings("scripts/a.sh" => "echo ok   # $(dc)_emu was retired\n"))
     @test isempty(findings("src/a.jl" => "img = PNGFiles.load(joinpath(dir, \"logo.png\"))\n"))
     @test uses("src/a.jl" => "f(h) = ccall((:$(lr)unpack, lib), Cint, (Ptr{Cvoid},), h)\n") == [:libraw]
     # the decoder trigger is a dependency, and the mosaic's metadata field a name, not a decoding path

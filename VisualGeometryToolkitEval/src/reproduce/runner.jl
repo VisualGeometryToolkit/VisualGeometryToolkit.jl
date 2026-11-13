@@ -281,10 +281,11 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
                      _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
-                     _cpus_count(name, get(t, "nice", 0), "nice"), get(t, "precompile", true) === true,
+                     _cpus_count(name, get(t, "nice", 0), "nice"), _flag(name, get(t, "precompile", true), "precompile"),
                      String.(get(t, "julia_flags", String[])))
 end
 
+_flag(name, v, key) = v isa Bool ? v : throw(ArgumentError("stage $name: $key = $(repr(v)) is not true or false"))
 _cpus_count(name, v, key = "cpus_per_task") = (v isa Integer && v >= 0) ? Int(v) :
     throw(ArgumentError("stage $name: $key = $(repr(v)) is not a count"))
 _resource(name, key, v, re) = (v isa AbstractString && (isempty(v) || occursin(re, v))) ? String(v) :
@@ -1560,13 +1561,15 @@ The state of every stage of the launch a run manifest records: `(; stage, job_id
 [`slurm_queue_states`](@ref)), with its tasks counted by state (`"failed (completed 2, failed 1)"`); a task with no
 marker that is no longer queued is `unknown`, and where Slurm keeps accounting (`job_states(ids)`, by default
 [`slurm_job_states`](@ref): empty when sacct fails) its accounting state is added for that task, as information
-only. The log is the first failed or unknown task's (else the first's), with its first error line.
+only. The log is the first failed or unknown task's (else the first's), with its first error line. A GPU stage whose
+precompile job ([`StageSpec`](@ref)) failed never starts (its dependency is never satisfied): it is `failed (its
+precompile job <id> failed)`, with that job's log and error line.
 """
 function reproduce_status(manifest::AbstractString; queue_states = nothing, job_states = nothing, env = ENV)
     m = TOML.parsefile(manifest)
     g = load_stage_graph(joinpath(m["workdir"], m["graph"]))
     recs = m["stages"]
-    ids = unique(String[r["job_id"] for (_, r) in recs if !isempty(get(r, "job_id", ""))])
+    ids = unique(String[r[k] for (_, r) in recs for k in ("job_id", "precompile_job_id") if !isempty(get(r, k, ""))])
     queue = isempty(ids) ? Dict{String, Dict{Int, String}}() : _queue_states(queue_states, ids, env)
     rows = NamedTuple[]
     acct = nothing                                          # sacct, asked once and only for a task without a marker
@@ -1590,6 +1593,18 @@ function reproduce_status(manifest::AbstractString; queue_states = nothing, job_
             log = get(r, "log", "")                         # a local run stops at its first failing task: its log
         else
             log = _slurm_log(g, s, id, isempty(bad) ? 0 : first(bad))
+        end
+        # a GPU job that never started because its precompile job failed (pending forever, or gone without a marker)
+        pre = get(r, "precompile_job_id", "")
+        if !isempty(pre) && run_state.state in ("unknown", "in flight") && !any(==("completed"), values(run_state.tasks)) &&
+           isempty(get(queue, pre, Dict{Int, String}()))
+            plog = joinpath(g.workdir, "logs", "$(g.name)_$(s.name)_precompile_$pre.log")
+            perr = _first_error(plog)
+            if !isempty(perr)
+                push!(rows, (; stage = s.name, job_id = id, state = "failed (its precompile job $pre failed: the GPU job never starts)",
+                             log = plog, error = perr))
+                continue
+            end
         end
         push!(rows, (; stage = s.name, job_id = id, state, log, error = isempty(log) ? "" : _first_error(log)))
     end

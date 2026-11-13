@@ -42,11 +42,15 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
   and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
   set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
-  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's.
+  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
+  of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
+  no later value starts.
 - **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
   held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
   `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
-  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run.
+  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
+  never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
+  `precompile` must be `true` or `false`.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 

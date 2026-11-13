@@ -450,6 +450,14 @@ end
         @test startswith(l[2], "102 --parsable --dependency=afterok:101 ") && occursin("--gres=gpu:1", l[2])
         m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
         @test m["stages"]["setup"]["precompile_job_id"] == "101" && m["stages"]["setup"]["job_id"] == "102"
+        # the compile failed: the GPU job never starts, and status names the precompile job as the cause
+        mkpath(joinpath(f.proj, "logs"))
+        write(joinpath(f.proj, "logs", "paper_setup_precompile_101.log"), "Precompiling\nERROR: LoadError: no CUDA extension\n")
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01", "--results-root=$(f.results)"]; env)
+        @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile job 101 failed", out) && occursin("ERROR: LoadError: no CUDA extension", out)
+        # precompile is true or false
+        write(f.graph, replace(text, "gpu = true\nprecompile = false" => "gpu = true\nprecompile = \"false\""; count = 1))
+        @test_throws r"precompile = \"false\" is not true or false" load_stage_graph(f.graph)
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin

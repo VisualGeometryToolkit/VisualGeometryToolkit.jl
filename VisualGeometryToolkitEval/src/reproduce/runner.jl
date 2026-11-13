@@ -8,7 +8,8 @@
 #   reproduce_main(["--graph=…", "--site=desktop", "--only=detector_bias"])          a subset (its prerequisites too)
 #   reproduce_main(["status", "--graph=…", "--site=dgx01"])                          the last launch's jobs
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML, SHA and Dates; `cli_option` comes from the includer, src/cli.jl):
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML, SHA and Dates; `cli_option` and `_write_atomic` come from the
+# includer, src/cli.jl):
 # the Reproduce module includes it, AND a project's launcher includes src/cli.jl and this file BY PATH from a bare `julia`,
 # before the project's environment exists — the setup stage instantiates it, inside the scheduler. One copy for both.
 # The results-branch stage runs in the project's environment and calls `results_branch_of_run`
@@ -812,23 +813,6 @@ directory with the launcher's copy as submitted); the local backend writes it af
 written atomically (a temporary file in the directory, renamed into place): a reader sees a whole marker or none.
 """
 stage_markers_dir(manifest::AbstractString, stage::AbstractString) = joinpath(first(splitext(manifest)), stage)
-
-# `f(io)` writes the content; it goes to a temporary file in `path`'s directory, renamed onto `path` only when `f`
-# returned: a reader sees the old file or the new one, never a part of one, and a failure leaves the old one.
-function _write_atomic(f::Function, path::AbstractString)
-    tmp, io = mktemp(mkpath(dirname(path)); cleanup = false)
-    try
-        f(io)
-        close(io)
-        chmod(tmp, 0o644)                  # mktemp's file is private; a marker or manifest is read by others
-        mv(tmp, path; force = true)
-    catch
-        close(io)
-        rm(tmp; force = true)
-        rethrow()
-    end
-    return path
-end
 
 _utc_now() = Dates.format(Dates.now(Dates.UTC), "yyyy-mm-ddTHH:MM:SS") * "Z"
 

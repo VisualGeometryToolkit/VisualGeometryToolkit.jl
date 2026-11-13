@@ -202,8 +202,11 @@ A driver defines top-level constants meant for a process of its own;
 script can run every driver in one warm session.
 
 `src/reproduce/reproduce_index.jl`, `src/reproduce/number_macros.jl` and
-`src/reproduce/paper_assets.jl` depend on Base only, so an environment that
-cannot load this package can include them by path, in that order
+`src/reproduce/paper_assets.jl` depend on Base only (and the stdlib
+FileWatching, whose pid lock serializes the writers of a shared numbers file;
+`number_macros.jl` brings the package's one atomic write, `src/write_atomic.jl`,
+with it), so an environment that cannot load this package can include them by
+path, in that order
 (`src/reproduce/results_branches.jl` is not among them: it runs git and reads
 TOML).
 

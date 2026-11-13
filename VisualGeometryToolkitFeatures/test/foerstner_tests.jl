@@ -228,25 +228,30 @@ end
     end
 end
 
-# The Förstner study's Monte Carlo (Part 2): one dot geometry in each of 32 × 32 tiles, each with its own iid noise
-# of known σn, NEES about the tiles' empirical mean (the noise-only spread: the estimator's own bias is not the
-# noise's) and the χ²₂ 95 % coverage. Bounds from the sampling alone, 4 standard errors at n = 1024: NEES is the
-# mean of χ²₂ (variance 4), so ±4·2/√n; the coverage a binomial share, ±4·√(0.95·0.05/n).
-@testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures] begin
-    import KernelAbstractions as KA
-    using Random: Xoshiro, randn
-    using LinearAlgebra: norm
-    using Statistics: cov
-    using VisualGeometryToolkitCore: Point2
-    tile, n = 30, 32
+# The Förstner study's Monte Carlo (Part 2): one dot geometry in each of n × n tiles, each with its own iid noise of
+# known σn, NEES about the tiles' empirical mean (the noise-only spread: the estimator's own bias is not the noise's)
+# and the χ²₂ 95 % coverage, at σi = 1.41 and 3. Bounds from the sampling alone, 4 standard errors at m = n² trials:
+# NEES is the mean of χ²₂ (variance 4), so ±4·2/√m; the coverage a binomial share, ±4·√(0.95·0.05/m). The suite runs
+# 16 × 16 tiles; the study's 32 × 32 (45 s on the CPU) runs with VGTK_BENCHMARK_TESTS=1.
+@testsetup module FoerstnerMonteCarlo
+import KernelAbstractions as KA
+using Random: Xoshiro, randn
+using LinearAlgebra: norm
+using Statistics: cov
+using VisualGeometryToolkitCore: Point2
+using VisualGeometryToolkitFeatures: detect_foerstner
+export foerstner_calibration
+
+# (σd, σi) => (; m, mean_e2, cov95_2) of the circular points found, one per tile; `render` is FoerstnerFixture's and
+# `mc_summary` UncFixtures' (another setup's names are the item's, passed in).
+function foerstner_calibration(n, render, mc_summary; tile = 30, σn = 2.0, settings = ((1.0, 1.41), (1.0, 3.0)))
     o = (14.31, 13.77)                                   # the dot centre in its tile
     clean = render(tile * n, tile * n) do x, y
         a, b = x - tile * fld(x, tile) - o[1], y - tile * fld(y, tile) - o[2]
         a^2 + b^2 < 2.5^2 ? 0.8 : 0.2
     end
-    σn = 2.0
     rng = Xoshiro(11)
-    for (σd, σi) in ((1.0, 1.41), (1.0, 3.0))
+    return map(settings) do (σd, σi)
         img = clean .+ (σn / 255) .* randn(rng, size(clean))
         points = filter(d -> d.label === :circular, detect_foerstner(Float64, img; device = KA.CPU(), noise = σn,
                                                                      derivative_sigma = σd, integration_sigma = σi))
@@ -259,11 +264,27 @@ end
             Σ = zeros(3, 3); Σ[1:2, 1:2] .= Matrix(cov(points[i].value)); Σ[3, 3] = 1
             push!(Σs, Σ)
         end
-        m = length(est)
-        @test m == n^2
         s = mc_summary(est, Σs)
-        @test abs(s.mean_e2 - 2) < 4 * 2 / sqrt(m)
-        @test abs(s.cov95_2 - 0.95) < 4 * sqrt(0.95 * 0.05 / m)
+        (σd, σi) => (; m = length(est), s.mean_e2, s.cov95_2)
+    end
+end
+end
+
+@testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin
+    n = 16
+    for (_, r) in foerstner_calibration(n, render, mc_summary)
+        @test r.m == n^2
+        @test abs(r.mean_e2 - 2) < 4 * 2 / sqrt(r.m)
+        @test abs(r.cov95_2 - 0.95) < 4 * sqrt(0.95 * 0.05 / r.m)
+    end
+end
+
+@testitem "detect_foerstner: the propagated covariance is calibrated, the study's 32 × 32 tiles" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
+    n = 32
+    for (_, r) in foerstner_calibration(n, render, mc_summary)
+        @test r.m == n^2
+        @test abs(r.mean_e2 - 2) < 4 * 2 / sqrt(r.m)
+        @test abs(r.cov95_2 - 0.95) < 4 * sqrt(0.95 * 0.05 / r.m)
     end
 end
 

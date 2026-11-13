@@ -35,6 +35,29 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   tags, a stored quaternion with `w < 0` refused, the JCS identity in metres, the `observations`, `detection` and
   `sensor_noise` kinds.
 
+- **The Student-t scorer's workspace records its codimension** (review C2): `ScoringWorkspace` holds `dg`;
+  `alloc_scoring_workspace`/`scoring_workspace(::StudentTUniformScoring, n, d_g)` refuse a `d_g` other than the scorer's
+  codimension, and `check_workspace` compares it. The bare `sweep!(sws, q, n; model_dof, log_two_outlier_halfwidth)` reads
+  it; its `codimension` keyword is retired (refused). A scorer built from a bare model count (codimension 1) on a 2-D
+  problem now throws at allocation instead of sweeping the wrong log Γ table.
+- **The label prior is applied everywhere** (C3): the bare `sweep!` applies the workspace's prior, and a partial-buffer
+  sweep scores with the prior of the swept n (results change for a non-flat prior only).
+- **Batched `backproject`/`backproject_with_jacobian(::CameraModel, pixels)` run on the pixels' backend** by default
+  (`get_backend(pixels)`, not `default_device()`) (C10).
+- **`OnBackend` compiles every CUDA launch with `always_inline = true`**, whatever `CUDABackend` value it is given (C8).
+- **check_duplication** exempts a transfer/allocation helper only by its whole name (C7); **check_naming** R12 also flags
+  `thresholds`/`Threshold`, R13 a typed keyword with no default (C15).
+- **The weak dependencies' floors are the pre-raise ones** (CUDA "5.11": CUDA ≥ 5.11.2 does not resolve beside cuDNN 1.x;
+  Aqua "0.8.18", ChainRulesCore "1.26", Makie "0.24.16").
+
+### Fixed
+- `axis_gauged` of a posed `BoundedCamera` turns its pose with its model (C1). `plane_map` and `transfer_ellipse` of an
+  off-axis SplineLens camera (C4). `center_gradient` of a log-domain radial vignetting field, through the new
+  `with_center(::LogVignetting{<:RadialVignetting}, c)` (C5). `has_spline_gauge` builds the constructor's own lattice
+  (`unit_controls`) (C6). `radix_sortperm!` at n = 0 (C11); its docstrings claim bit-identity for an injective key only
+  (C12). `bending_rows` of a mask under 4 × 4 has no rows (C13). `map_estimate` is inferred (C14). The shell lexer reads
+  `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
+
 ### New
 - **`center(u::Uncertain{<:FeatureFrame})`, `center(d::Attributed{<:Uncertain{<:FeatureFrame}})`** — THE detection → point
   observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
@@ -49,6 +72,8 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   record)`, THE estimators `photon_transfer` (K and σ_r from a frame) and `master_dark` (a record from lens-cap frames),
   `NoiseEstimateFailed`; `LinearRaw(mosaic; mode, gain, noise)` subtracts the resolved black and dark offset in its one
   kernel (bit-identical without a noise).
+- **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
+  width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,
   `gpu_problem(prefix)`, `require_gpu(prefix)` (public): one decision for every stack suite, never a silent skip.
 

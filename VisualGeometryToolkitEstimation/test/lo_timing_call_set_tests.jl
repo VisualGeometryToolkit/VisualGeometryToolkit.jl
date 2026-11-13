@@ -23,4 +23,13 @@
     @test time_call_set((i, s) -> nothing, pairs) >= 0
     us, bytes = call_set_arm(() -> (i, s) -> nothing, pairs, 3)()
     @test length(us) == 3 && issorted(us) && bytes >= 0
+    # THE LO arm (lo_call_set_arm, the binding of every LO timing bench): a strategy's locally_optimize over the call set,
+    # each pair with its own scoring and workspace; one rep of a two-update Welsch IRLS
+    probs = [problem_of(pr) for pr in pairs]
+    scorings = [VisualGeometryToolkitCore.MsacScoring(EssentialProblem; threshold = halfwidth / 20) for _ in probs]
+    workspaces = [VisualGeometryToolkitEstimation.RansacWorkspace(probs[i], scorings[i]) for i in eachindex(probs)]
+    made = Ref(0)
+    arm = lo_call_set_arm(() -> (made[] += 1; Irls{WelschShape}(; max_iter = 2, efficiency_constant = 1.5)), probs, scorings, workspaces, pairs, 1)
+    us, bytes = arm()
+    @test made[] == 1 && length(us) == 1 && us[1] > 0 && bytes >= 0   # the strategy built once per arm
 end

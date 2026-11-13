@@ -1,3 +1,21 @@
+# Estimation 0.11.1 duplication checklist (patch-est0111-fixture), 2026-11-13
+
+| concept | the copies (searched by concept: Core, Estimation, Eval, LODR w10-lodr/rel10-lodr, BB, RSDR, CB, PS) | the one copy | status |
+|---|---|---|---|
+| the two-camera F scene (f 500/600, `RotY(0.15)`, `(1, 0.2, 0.1)`, `box_point_far`, the uniform outlier pairs) | Estimation test/ransac_fundmat_tests.jl `make_fundmat_data`/`make_exact_fundmat_data`; LODR accv2026/test/lodr/test_problem_arms.jl `make_fundmat_data` (a `MersenneTwister` stream) | `synthetic_scenes().EpipolarScenes.fundmat_scene(rng; …)` on `stereo_pixel_pairs`; Estimation's copy deleted (b26cfd06); LODR's to delete (handoff: `fundmat_scene(MersenneTwister(42); …)`, its draws unchanged) | [x] Estimation, [ ] LODR |
+| other F scenes, considered and NOT this concept | `noiseless_ransac`'s Gaussian-cloud scene (one camera, `RotY(0.3)`), `scenes_testsetups`' `stereo_scene` (the find_fundmat pipeline's, one camera, 960 × 720), `contaminated_pixel_pairs` (`PIXEL_PAIRS_K`, a homography/F pool scene): other scenes, each one copy | — | n/a |
+| the LO bench arm: `locally_optimize` of each pair's problem from each seed with that pair's scoring and workspace, timed by `call_set_arm` | Estimation test/lo_timing/bench.jl `lo_call` + `lo_arm`; LODR accv2026/test/lo_timing/bench.jl `lo_call` + `lo_arm` (the same text; only the scorers built beside them differ) | `test/lo_timing/call_set.jl`'s `lo_call_set_arm` (Estimation's file, which LODR's bench already includes for `call_set_arm`); Estimation's copy deleted; LODR's to delete (handoff) | [x] Estimation, [ ] LODR |
+| `call_set_arm` itself | one copy, Estimation's call_set.jl (not Core's: Core's bench_record.jl holds `kernel_arm`, the record writer and the spread) | unchanged | [x] |
+
+check_duplication / check_splat / check_naming (gate prep 15162, stack paths incl. w10-lodr, verbatim):
+```
+== check_duplication(VisualGeometryToolkitEstimation 0.11.1): 0 finding(s)
+== check_splat(VisualGeometryToolkitEstimation 0.11.1): 0 finding(s)
+== check_naming(/raid/data/jpr/w10-est-eval-run-b26cfd06/clone/VisualGeometryToolkitEstimation): 0 finding(s)
+```
+
+---
+
 # Wave 10 duplication checklist: VisualGeometryToolkitCore 0.10.0 (branch w10-core10)
 
 The owner's rule for the wave is ZERO duplication by concept. Each item is a concept that had more than one copy in the

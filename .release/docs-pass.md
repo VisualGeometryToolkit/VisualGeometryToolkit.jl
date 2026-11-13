@@ -1,3 +1,42 @@
+docs-pass: b26cfd06
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: test support, no public API)
+
+# Estimation 0.11.1 docs pass (julia-docs-pass) — patch-est0111-fixture
+
+The owner's ruling (it blocks LocalOptimizationDoneRight 0.7.0): ONE public fixture for the two-camera F scene, and the
+LO bench's arm binding in one place. Baseline: GitHub main 7b9bec70 (the registered wave: Estimation 0.11.0).
+
+## 1. Public API since the baseline
+
+None of the package's API. Test support, public to the stack's tests:
+- `synthetic_scenes().EpipolarScenes.fundmat_scene(rng; n_inliers = 100, n_outliers = 30, σ = 0.5) -> (; source, target,
+  F, n_inliers)`: THE two-camera F scene, on the family's `stereo_pixel_pairs`; docstring in the extension, listed in
+  `synthetic_scenes`' docstring (docs/src/api/ransac.md renders it).
+- `test/lo_timing/call_set.jl`'s `lo_call_set_arm(make_lo, problems, scorings, workspaces, pairs, reps)`: the LO bench
+  arm, beside `call_set_arm` in the file LocalOptimizationDoneRight's bench includes.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `fundmat_scene` documented; `synthetic_scenes` names it; docs build strict green (gate task 10) |
+| CHANGELOG | Estimation 0.11.1: Added (the fixture, the arm), Fixed (the bench's essential threshold key, moved into `scoring` in 0.10) |
+| versions | Estimation 0.11.1; every other package as on main 7b9bec70 |
+| in-repo compat | unchanged (Eval's Estimation "0.11" admits 0.11.1) |
+
+## 3. Executed on the release candidate (b26cfd06)
+
+Gate (~/logs/dgx-agent/scripts/w10-est-eval, NICE=0, `GATE_PKGS=VisualGeometryToolkitEstimation`; General c8aaee84e13;
+jobs 15162 prep, 15163 CPU, 15164 docs, 15165 GPU): prep registration_lint 0 errors 0 warnings, agent_docs 0,
+floor_compat --latest, audit_manifests, check_duplication 0, check_naming 0, check_splat 0, with the stack paths
+bb-leg-060, **w10-lodr** (LocalOptimizationDoneRight's wave branch, 153bc9f), rsdr-09, cb-release, ps-release-062;
+Estimation's CPU groups 7977 passed + 2 broken (8 groups; the 2 broken are `@test_broken` marks in task 2's files, none of which this patch touches), GPU 9/9, docs green.
+Julia 1.13.3. The fixture's draws: ransac_fundmat's items pass unchanged (dev 15158: 32/32 with lo_timing_call_set).
+The bench runs end to end on the change (dev 15161, `julia -t 1`, 2 reps: Welsch-IRLS 374 µs/call, GM-IRLS 330 µs/call,
+8480 bytes/call; it failed before the threshold fix).
+
+---
+
 docs-pass: 5fb8889b
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (prepared, unpushed, branch wave-113; one open prose item below)
 

@@ -60,17 +60,15 @@ const PROBS = [problem_of(pr) for pr in PAIRS]
 # the pool frame, where one pixel is the recorded half-width over the 20 px it
 # was recorded at.
 const POOL_PX = HALFWIDTH / 20.0
-const THRESHOLD = VgtkEstimation._dflt("pipelines.essential", "threshold") * POOL_PX
+const THRESHOLD = VgtkEstimation._dflt("pipelines.essential", "scoring")["threshold"] * POOL_PX   # its scorer table (since 0.10)
 const SCORINGS = [MsacScoring(EssentialProblem; threshold = THRESHOLD) for _ in PROBS]
 const WORKSPACES = [RansacWorkspace(PROBS[i], SCORINGS[i]) for i in eachindex(PROBS)]
 const NCALLS = call_set_size(PAIRS)
 
-lo_call(lo, i, seed) =
-    locally_optimize(PROBS[i], seed; local_optimization_strategy = lo, scoring = SCORINGS[i], workspace = WORKSPACES[i])
 
 # The noise probe: a fixed arithmetic loop timed REPS times; its relative spread
 # (second-fastest over fastest − 1) is the machine's jitter on this core.
 
-# each arm compiled and its task-local buffers warmed (two runs) before it is measured
-lo_arm(ctor) = call_set_arm(() -> (lo = ctor(); (i, seed) -> lo_call(lo, i, seed)), PAIRS, REPS)   # call_set.jl
-write_bench_record(OUT, "test/lo_timing/bench.jl", NCALLS, REPS, [name => lo_arm(ctor) for (name, ctor) in ARMS])
+# each arm compiled and its task-local buffers warmed (two runs) before it is measured: call_set.jl's lo_call_set_arm
+write_bench_record(OUT, "test/lo_timing/bench.jl", NCALLS, REPS,
+                   [name => lo_call_set_arm(ctor, PROBS, SCORINGS, WORKSPACES, PAIRS, REPS) for (name, ctor) in ARMS])

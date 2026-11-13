@@ -2,7 +2,6 @@
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
-using Rotations: RotY
 using LinearAlgebra
 using StaticArrays
 using Random
@@ -22,30 +21,14 @@ using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_typ
 # Test utilities
 # =============================================================================
 
-# Two cameras of different intrinsics, view 2 at x₂ = R·x₁ + t; the true F is
-# the owner's, F = K₂⁻ᵀ [t]× R K₁⁻¹.
-const _CAM₁ = CameraModel(; focal = 500.0, pp = (320.0, 240.0))
-const _CAM₂ = CameraModel(; focal = 600.0, pp = (300.0, 250.0))
-const _R = RotY(0.15)
-const _T = SA[1.0, 0.2, 0.1]
-const _F_TRUE = FundMat(EssentialMat(_R, _T), calibration_matrix(_CAM₁), calibration_matrix(_CAM₂))
-
-function make_fundmat_data(; n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42)
-    source_pts, target_pts = stereo_pixel_pairs(
-        StableRNG(seed), _CAM₁, _CAM₂, _R, _T;
-        n = n_inliers, σ₁ = noise, σ₂ = noise, point = box_point_far, n_out = n_outliers,
-        outlier = rng -> (SA[100.0 + 440.0 * rand(rng), 50.0 + 380.0 * rand(rng)], SA[80.0 + 440.0 * rand(rng), 60.0 + 380.0 * rand(rng)])
-    )
-    return source_pts, target_pts, _F_TRUE, n_inliers
-end
-
-make_exact_fundmat_data(; n = 7, seed = 42) =
-    (stereo_pixel_pairs(StableRNG(seed), _CAM₁, _CAM₂, _R, _T; n, point = box_point_far)..., _F_TRUE)
+# THE two-camera F scene: EpipolarScenes' `fundmat_scene` (StableRNG(42), the draw of record); `exact(n)` its noise- and
+# outlier-free pairs.
+exact(n) = fundmat_scene(StableRNG(42); n_inliers = n, n_outliers = 0, σ = 0.0)
 
 @testset "RANSAC Fundamental Matrix" begin
 
     @testset "FundMatProblem construction" begin
-        src, dst, _ = make_exact_fundmat_data(n = 10)
+        src, dst = exact(10)
         p = FundMatProblem(correspondences(src, dst))
         @test minimal_sample_size(p) == 7
         @test data_size(p) == 10
@@ -56,7 +39,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
     end
 
     @testset "7-point solver — exact data" begin
-        src, dst, _ = make_exact_fundmat_data(n = 7)
+        src, dst = exact(7)
         p = FundMatProblem(correspondences(src, dst))
 
         solutions = solve(p, collect(1:7))
@@ -73,7 +56,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
     end
 
     @testset "Sampson distance on exact data" begin
-        src, dst, F_true = make_exact_fundmat_data(n = 10)
+        src, dst, F_true = exact(10)
         p = FundMatProblem(correspondences(src, dst))
 
         r = Vector{Float64}(undef, 10)
@@ -82,7 +65,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
     end
 
     @testset "fit — DLT roundtrip" begin
-        src, dst, _ = make_exact_fundmat_data(n = 20)
+        src, dst = exact(20)
         p = FundMatProblem(correspondences(src, dst))
         # Algebraic no-θ fit needs the DLT workspace explicitly — the problem's
         # LO workspace is now the Bartoli–Sturm LM buffer (NonlinLsq refit_kind).
@@ -104,9 +87,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
     end
 
     @testset "RANSAC end-to-end" begin
-        source_pts, target_pts, _, n_inliers = make_fundmat_data(
-            n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
-        )
+        source_pts, target_pts, _, n_inliers = fundmat_scene(StableRNG(42); n_inliers = 100, n_outliers = 30, σ = 0.5)
         problem = FundMatProblem(correspondences(source_pts, target_pts))
 
         result = ransac(
@@ -131,9 +112,7 @@ make_exact_fundmat_data(; n = 7, seed = 42) =
 
     # (The Student-t + uniform IRLS arm of this run is LocalOptimizationDoneRight's test.)
     @testset "LO-RANSAC — Irls{Welsch}" begin
-        source_pts, target_pts, _, n_inliers = make_fundmat_data(
-            n_inliers = 100, n_outliers = 30, noise = 0.5, seed = 42
-        )
+        source_pts, target_pts, _, n_inliers = fundmat_scene(StableRNG(42); n_inliers = 100, n_outliers = 30, σ = 0.5)
         problem = FundMatProblem(correspondences(source_pts, target_pts))
 
         result = ransac(

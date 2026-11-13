@@ -187,8 +187,9 @@ record:
 physical sensor (`BoundedCamera(camera, sensor::Sensor)`) carries the sensor's
 pixel pitch, a length per pixel in `units.length`, and the readers restore the
 `Sensor` bound; a camera bounded by a bare pixel extent has no `pitch`.
-`lens_coverage` (a circle, an ellipse or a rectangle in pixels) says where light
-reaches the sensor; absent, the whole sensor is lit. `calibration_record` says
+`lens_coverage` (a circle, an ellipse or a rectangle in pixels: a leaf of the
+region body, "Building blocks" below) says where light reaches the sensor; absent, the whole
+sensor is lit. `calibration_record` says
 where the calibration came from (below).
 
 **The store holds any bounded camera.** A non-central grid camera (Schöps et
@@ -506,7 +507,8 @@ frames.
 | `CameraModel` with a `SplineLens` | `CameraModel` | the camera body, its `lens` `{"spline": the lattice record, "forward"?}` |
 | `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
-| `Ellipse` | `Ellipse` | `[cx, cy, a, b, θ]` |
+| `Ellipse`, `Circle`, `Rect2` | `Ellipse`, `Circle`, `Rect2` | `[cx, cy, a, b, θ]`, `[cx, cy, r]`, `[x, y, w, h]`, in the value's own numbers |
+| a region: `Rect2`, `Ellipse`, `Circle`, `RegionIntersection` (nested), `WholePlane` | the region type, or a `Union` of them | THE region body, `{"rect": […]}` \| `{"ellipse": […]}` \| `{"circle": […]}` \| `{"intersection": [<region>, <region>]}` \| `{"whole_plane": {}}`, in pixels of `units.pixel`; a leaf field asks for it by the tag `(; region = true)` (an intersection and the whole plane lower to it by the two-argument form) |
 | `TensorProductVignetting`, `RadialVignetting`, `LogVignetting` | `AbstractVignetting` | the `vgio/vignetting` body, `{"type": …, …}`, positions in `units.pixel` |
 | `BinnedRadialProfile` | `BinnedRadialProfile` | the `vgio/radial_profile` body, its chart's centre in `units.pixel` |
 | `EnvironmentLight` of a `SphericalHarmonicMap` | `EnvironmentLight` | `{"center": [x, y, z], "radius": r, "map": {…}}`, lengths in `units.length` (the `vgio/environment_light` body without its envelope) |

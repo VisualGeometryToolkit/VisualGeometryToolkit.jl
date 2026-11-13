@@ -9,7 +9,7 @@
 #                        "add": [{"radial": [[k1, k2, k3], [k4, k5, k6]]},
 #                                {"tangential": [p1, p2]}, …]},
 #               "pitch": {"width": …, "height": …},                              (optional) the sensor's pixel pitch, units.length
-#               "lens_coverage": {"ellipse": [cx, cy, a, b, θ]},                 (optional; or {"circle": [cx, cy, r]}, {"rect": …})
+#               "lens_coverage": {"ellipse": [cx, cy, a, b, θ]},                 (optional; or {"circle": [cx, cy, r]}, {"rect": …}: a region leaf)
 #               "calibration_record": {"tool": …, "source": …, "date": "2026-01-19",
 #                                      "reprojection_rms": 0.159, "n_images": 36}},   (optional)
 #              {"name": "tamron-17cm-noncentral", "type": "noncentral_spline", "image_size": {…}, "K": {…},
@@ -26,7 +26,8 @@
 # camera, named after its file, and never written.)
 #
 # `lens_coverage` is the camera's LENS COVERAGE (VGC's `lens_coverage`): where light reaches the sensor, in pixels in
-# the file's pixel frame — a Circle, an Ellipse with its major semi-axis first, or a Rect. Absent, the whole sensor is lit.
+# the file's pixel frame — a Circle, an Ellipse with its major semi-axis first, or a Rect: a leaf of THE region body
+# (core_json.jl; Core's BoundedCamera holds no intersection). Absent, the whole sensor is lit.
 #
 # WHY THIS EXISTS, given COLMAP model directories already store cameras:
 # COLMAP's camera vocabulary is closed and smaller than VGC's lens families.
@@ -232,35 +233,13 @@ function _sensor_from_pitch(p, ext::Size2, u::Units)
 end
 
 # A camera's lens coverage (VisualGeometryToolkitCore's `lens_coverage`: where the lens covers the sensor) as the store's
-# optional `lens_coverage`, pixels in the store's frame (moved between frames as K's principal point is):
-# {"circle": [cx, cy, r]}, {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis first) or
-# {"rect": [x, y, w, h]} (a letterboxed or padded image). The whole sensor covered writes nothing.
-const _LENS_COVERAGE = _Obj(Pair{Symbol, _Spec}[],
-                            Pair{Symbol, _Spec}[:circle => _CIRCLE, :ellipse => _ELLIPSE, :rect => _AREA])
-_lens_coverage_tag(::Circle) = :circle
-_lens_coverage_tag(::Ellipse) = :ellipse
-_lens_coverage_tag(::Rect2) = :rect
-# pixel frames differ by a translation: a Circle or an Ellipse moves under the map, a Rect by its origin
-_in_frame(m, x::Union{Circle, Ellipse}) = m(x)
-_in_frame(m, r::Rect2) = (o = m(Point2{Float64}(r.origin[1], r.origin[2])); Rect2{Float64}(o[1], o[2], r.widths[1], r.widths[2]))
+# optional `lens_coverage`: THE region body (core_json.jl) restricted to its leaves — {"circle": [cx, cy, r]},
+# {"ellipse": [cx, cy, a, b, θ]} or {"rect": [x, y, w, h]} (a letterboxed or padded image) — pixels in the file's frame.
+# The whole sensor covered writes nothing.
 _lens_coverage_json(s::VgioStyle, r, ext::Size2) =
-    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) :
-    (lens_coverage = NamedTuple{(_lens_coverage_tag(r),)}((JSON.lower(s, _in_frame(EuclideanMap(CANONICAL_PIXEL_FRAME, _pixel_frame(s)), r)),)),)
-# A stored lens coverage's own check (a camera store's camera, a rig sensor, a non-central record), the
-# message naming `what`, or `nothing`.
-function _lens_coverage_problem(ic, what)
-    ic === nothing && return nothing
-    length(ic) == 1 || return "$(what): its lens_coverage is ONE of {\"circle\": [cx, cy, r]}, {\"ellipse\": [cx, cy, a, b, θ]} or {\"rect\": [x, y, w, h]}"
-    haskey(ic, :circle) && !(ic[:circle][3] > 0) && return "$(what): the image circle's radius is positive"
-    haskey(ic, :rect) && !(ic[:rect][3] > 0 && ic[:rect][4] > 0) && return "$(what): the coverage rect's width and height are positive"
-    return haskey(ic, :ellipse) ? _ellipse_record_problem(ic[:ellipse], "$(what): the image ellipse") : nothing
-end
+    r == Rect2{Float64}(0, 0, ext.width, ext.height) ? (;) : (lens_coverage = _region_json(s, r),)
 _lens_coverage_from_json(::VgioStyle, ::Nothing) = nothing
-function _lens_coverage_from_json(s::VgioStyle, lc)
-    k = Symbol(only(keys(lc)))
-    x = JSON.lift(s, k === :circle ? Circle : k === :ellipse ? Ellipse : Rect2, lc[k]::Vector{Any})
-    return _in_frame(EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME), x)
-end
+_lens_coverage_from_json(s::VgioStyle, lc) = JSON.lift(s, _RegionLeaf, lc)
 
 # The body of a camera of a CameraModel, and of a non-central grid camera.
 const _CAMERA_BODY_FIELDS = Pair{Symbol, _Spec}[:image_size => _SIZE_INT, :K => _K_SPEC, :lens => _LENS]
@@ -274,24 +253,13 @@ const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
     ),
     :image_size => _SIZE_INT, :K => _K_SPEC, :spline => _NONCENTRAL_LATTICE,
 ]
-const _BOUND_FIELDS = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]
-# `_lens_coverage_problem` in words and in JSON Schema (the keywords json_schema.jl publishes)
-const _LENS_COVERAGE_RULE = (
-    rule = "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
-    schema = ["properties" => Dict("lens_coverage" => Dict(
-        "minProperties" => 1, "maxProperties" => 1,
-        "properties" => Dict("circle" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0)]),
-                             "ellipse" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0), Dict("exclusiveMinimum" => 0)]),
-                             "rect" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0), Dict("exclusiveMinimum" => 0)]))))],
-)
+const _BOUND_FIELDS = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _REGION_LEAF]
 # A bounded camera's body with the keys `extra` (required) and `extra_optional`
 # of its enclosing record (a store entry's `name` and `calibration_record`): a
 # camera body or a non-central one, told apart by `lens` / `type`.
 _bounded_body_spec(extra = Pair{Symbol, _Spec}[], extra_optional = Pair{Symbol, _Spec}[]) = _Either(Pair{Symbol, _Spec}[
-    :lens => _CheckedSpec(_Obj(_spec_table(extra, _CAMERA_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
-                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body"); _LENS_COVERAGE_RULE...),
-    :type => _CheckedSpec(_Obj(_spec_table(extra, _NONCENTRAL_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
-                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera"); _LENS_COVERAGE_RULE...),
+    :lens => _Obj(_spec_table(extra, _CAMERA_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
+    :type => _Obj(_spec_table(extra, _NONCENTRAL_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
 ])
 const _BOUNDED_CAMERA_BODY = _bounded_body_spec()
 

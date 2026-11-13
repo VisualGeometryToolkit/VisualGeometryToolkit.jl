@@ -271,94 +271,7 @@
                                 ]
                             },
                             "lens_coverage": {
-                                "type": "object",
-                                "properties": {
-                                    "circle": {
-                                        "type": "array",
-                                        "description": "[cx, cy, r]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "cx",
-                                                "description": "the centre's x",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "cy",
-                                                "description": "the centre's y",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "r",
-                                                "description": "the radius, > 0",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 3
-                                    },
-                                    "ellipse": {
-                                        "type": "array",
-                                        "description": "[cx, cy, a, b, theta]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "cx",
-                                                "description": "the centre's x",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "cy",
-                                                "description": "the centre's y",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "a",
-                                                "description": "the major semi-axis, > 0",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "b",
-                                                "description": "the minor semi-axis, 0 < b ≤ a",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "theta",
-                                                "description": "the major axis's angle from +x, rad",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 5
-                                    },
-                                    "rect": {
-                                        "type": "array",
-                                        "description": "[x, y, width, height]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "x",
-                                                "description": "the origin's x (the smallest x)",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "y",
-                                                "description": "the origin's y (the smallest y)",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "width",
-                                                "description": "the extent along x, > 0",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "height",
-                                                "description": "the extent along y, > 0",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 4
-                                    }
-                                },
-                                "additionalProperties": false
+                                "$ref": "#/$defs/region_leaf"
                             }
                         },
                         "required": [
@@ -366,53 +279,7 @@
                             "K",
                             "lens"
                         ],
-                        "additionalProperties": false,
-                        "description": "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
-                        "allOf": [
-                            {
-                                "properties": {
-                                    "lens_coverage": {
-                                        "maxProperties": 1,
-                                        "minProperties": 1,
-                                        "properties": {
-                                            "circle": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            },
-                                            "ellipse": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    },
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            },
-                                            "rect": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    },
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        ]
+                        "additionalProperties": false
                     }
                 },
                 {
@@ -657,94 +524,7 @@
                                 ]
                             },
                             "lens_coverage": {
-                                "type": "object",
-                                "properties": {
-                                    "circle": {
-                                        "type": "array",
-                                        "description": "[cx, cy, r]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "cx",
-                                                "description": "the centre's x",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "cy",
-                                                "description": "the centre's y",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "r",
-                                                "description": "the radius, > 0",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 3
-                                    },
-                                    "ellipse": {
-                                        "type": "array",
-                                        "description": "[cx, cy, a, b, theta]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "cx",
-                                                "description": "the centre's x",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "cy",
-                                                "description": "the centre's y",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "a",
-                                                "description": "the major semi-axis, > 0",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "b",
-                                                "description": "the minor semi-axis, 0 < b ≤ a",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "theta",
-                                                "description": "the major axis's angle from +x, rad",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 5
-                                    },
-                                    "rect": {
-                                        "type": "array",
-                                        "description": "[x, y, width, height]",
-                                        "prefixItems": [
-                                            {
-                                                "title": "x",
-                                                "description": "the origin's x (the smallest x)",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "y",
-                                                "description": "the origin's y (the smallest y)",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "width",
-                                                "description": "the extent along x, > 0",
-                                                "type": "number"
-                                            },
-                                            {
-                                                "title": "height",
-                                                "description": "the extent along y, > 0",
-                                                "type": "number"
-                                            }
-                                        ],
-                                        "items": false,
-                                        "minItems": 4
-                                    }
-                                },
-                                "additionalProperties": false
+                                "$ref": "#/$defs/region_leaf"
                             }
                         },
                         "required": [
@@ -753,53 +533,7 @@
                             "K",
                             "spline"
                         ],
-                        "additionalProperties": false,
-                        "description": "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
-                        "allOf": [
-                            {
-                                "properties": {
-                                    "lens_coverage": {
-                                        "maxProperties": 1,
-                                        "minProperties": 1,
-                                        "properties": {
-                                            "circle": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            },
-                                            "ellipse": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    },
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            },
-                                            "rect": {
-                                                "prefixItems": [
-                                                    {},
-                                                    {},
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    },
-                                                    {
-                                                        "exclusiveMinimum": 0
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        ]
+                        "additionalProperties": false
                     }
                 }
             ]
@@ -1095,6 +829,126 @@
         }
     ],
     "$defs": {
+        "region_leaf": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "rect": {
+                            "type": "array",
+                            "description": "[x, y, width, height]",
+                            "prefixItems": [
+                                {
+                                    "title": "x",
+                                    "description": "the origin's x (the smallest x)",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "y",
+                                    "description": "the origin's y (the smallest y)",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "width",
+                                    "description": "the extent along x, > 0",
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                },
+                                {
+                                    "title": "height",
+                                    "description": "the extent along y, > 0",
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                }
+                            ],
+                            "items": false,
+                            "minItems": 4
+                        }
+                    },
+                    "required": [
+                        "rect"
+                    ],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "ellipse": {
+                            "type": "array",
+                            "description": "[cx, cy, a, b, theta] (a ≥ b: the major semi-axis first)",
+                            "prefixItems": [
+                                {
+                                    "title": "cx",
+                                    "description": "the centre's x",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "cy",
+                                    "description": "the centre's y",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "a",
+                                    "description": "the major semi-axis, > 0",
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                },
+                                {
+                                    "title": "b",
+                                    "description": "the minor semi-axis, 0 < b ≤ a",
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                },
+                                {
+                                    "title": "theta",
+                                    "description": "the major axis's angle from +x, rad",
+                                    "type": "number"
+                                }
+                            ],
+                            "items": false,
+                            "minItems": 5
+                        }
+                    },
+                    "required": [
+                        "ellipse"
+                    ],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "circle": {
+                            "type": "array",
+                            "description": "[cx, cy, r]",
+                            "prefixItems": [
+                                {
+                                    "title": "cx",
+                                    "description": "the centre's x",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "cy",
+                                    "description": "the centre's y",
+                                    "type": "number"
+                                },
+                                {
+                                    "title": "r",
+                                    "description": "the radius, > 0",
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                }
+                            ],
+                            "items": false,
+                            "minItems": 3
+                        }
+                    },
+                    "required": [
+                        "circle"
+                    ],
+                    "additionalProperties": false
+                }
+            ]
+        },
         "vignetting": {
             "oneOf": [
                 {

@@ -277,8 +277,8 @@
                                 },
                                 "frame": {
                                     "type": "string",
-                                    "description": "a blur's plane (\"target_plane\", \"image:<id>\")",
-                                    "pattern": "^(target_plane|image:.+)$"
+                                    "description": "a blur's plane (\"target:<id>\", \"image:<id>\")",
+                                    "pattern": "^(image|target):.+$"
                                 },
                                 "covariance": {
                                     "description": "a covariance in the storage it holds: 2 × 2 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",

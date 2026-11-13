@@ -274,3 +274,133 @@ end
 _covariance_label(::CovMat{N, T, M, C}) where {N, T, M, C} = C
 _frame_cov_size(f, Σ) = size(Σ, 1) == frame_dof(f) || throw(ArgumentError(
     "a $(nameof(typeof(f)))'s covariance is over its $(frame_dof(f)) parameters (frame_dof: the centre (x, y) first, then its shape), got $(size(Σ, 1))×$(size(Σ, 2))"))
+
+# -----------------------------------------------------------------------------
+# THE REGION BODY: a 2-D region of Core's, tagged
+# -----------------------------------------------------------------------------
+#
+#   {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
+#     | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
+#
+# Its leaves are the positional records style.jl writes and reads (and validate.jl's `_AREA`, `_ELLIPSE` and `_CIRCLE`
+# check), each under its tag; an intersection is Core's binary `RegionIntersection`, its two parts in order (nest one for
+# more); the whole plane is Core's `WholePlane`. Its numbers are PIXELS in the file's `units.pixel` frame, moved from and
+# to Core's canonical frame by Core's one action of a pixel-frame map on every region (`SimilarityMap`). A camera's lens
+# coverage is this body restricted to its leaves (camera_schema.jl).
+
+# The leaves: each tag's Core type, its positional spec, and the entries of it that are extents (positive).
+const _REGION_LEAVES = (
+    rect = (type = Rect2, spec = _AREA, extents = (3, 4)),
+    ellipse = (type = Ellipse, spec = _ELLIPSE, extents = (3, 4)),
+    circle = (type = Circle, spec = _CIRCLE, extents = (3,)),
+)
+const _RegionLeaf = Union{Rect2, Ellipse, Circle}
+const _RegionValue = Union{_RegionLeaf, RegionIntersection, WholePlane}
+_region_tag(::Rect2) = :rect
+_region_tag(::Ellipse) = :ellipse
+_region_tag(::Circle) = :circle
+
+# THE region spec: any region (`_REGION`), or a leaf only (`_REGION_LEAF`: a camera's lens coverage). Recursive, so a
+# combinator of its own (an intersection holds regions); json_schema.jl publishes it as `$defs` it refers to.
+struct _RegionSpec <: _Spec
+    composite::Bool        # intersections and the whole plane allowed
+end
+const _REGION = _RegionSpec(true)
+const _REGION_LEAF = _RegionSpec(false)
+_region_tags(s::_RegionSpec) =
+    s.composite ? Symbol[collect(keys(_REGION_LEAVES)); :intersection; :whole_plane] : collect(Symbol, keys(_REGION_LEAVES))
+function _validate(s::_RegionSpec, x, file, at)
+    tags = _region_tags(s)
+    shape = join(("`$(t)`" for t in tags), ", ", " or ")
+    (x isa AbstractDict && length(x) == 1) || _refuse(file, at, "a region is an object of ONE key, $(shape)")
+    k = Symbol(only(keys(x)))::Symbol
+    k in tags || _refuse(file, _at(at, k), "not a region$(s.composite ? "" : " here") (one of $(shape))")
+    v = _getkey(x, k)
+    if haskey(_REGION_LEAVES, k)
+        _validate(_REGION_LEAVES[k].spec, v, file, _at(at, k))
+        msg = _region_leaf_problem(k, v)
+        msg === nothing || _refuse(file, _at(at, k), msg)
+    elseif k === :intersection
+        (v isa AbstractVector && length(v) == 2) || _refuse(
+            file, _at(at, k), "an intersection is two regions, [a, b] (nest one for more); got $(v isa AbstractVector ? length(v) : repr(v))")
+        foreach(i -> _validate(s, v[i], file, "$(_at(at, k))[$(i)]"), 1:2)
+    else
+        _validate(_Obj(), v, file, _at(at, k))          # the whole plane: {}
+    end
+    return nothing
+end
+# A leaf record's own invariants (its numbers already finite reals): its extents positive, an ellipse major semi-axis
+# first; the message, or `nothing`.
+function _region_leaf_problem(k::Symbol, v)
+    leaf = _REGION_LEAVES[k]
+    bad = [first(leaf.spec.fields[i]) for i in leaf.extents if !(v[i] > 0)]
+    isempty(bad) || return "the $(k)'s $(join(bad, " and ")) $(length(bad) == 1 ? "is" : "are") positive; got [$(join(v, ", "))]"
+    return k === :ellipse ? _ellipse_record_problem(v, "the ellipse") : nothing
+end
+
+# Core's action of the map from one pixel frame to another, on any region.
+_pixel_region_map(from, to) = SimilarityMap(EuclideanMap(from, to))
+# The record of a region (in Core's canonical frame) in the style's pixel frame, and its tagged form in place.
+_region_json(s::VgioStyle, r) = _region_record(s, _pixel_region_map(CANONICAL_PIXEL_FRAME, _pixel_frame(s))(r))
+_region_record(s::VgioStyle, r::_RegionLeaf) = NamedTuple{(_region_tag(r),)}((JSON.lower(s, r),))
+_region_record(s::VgioStyle, r::RegionIntersection) = (intersection = Any[_region_record(s, r.a), _region_record(s, r.b)],)
+_region_record(::VgioStyle, ::WholePlane) = (whole_plane = (;),)
+# …and back, in the record's frame: an intersection by Core's constructor, its parts as stored (never `∩`, which
+# would fold two rectangles into one and a circle into its ellipse).
+function _region_from(s::VgioStyle, x)
+    k = Symbol(only(keys(x)))::Symbol
+    v = _getkey(x, k)
+    k === :intersection && return RegionIntersection(_region_from(s, v[1]), _region_from(s, v[2]))
+    k === :whole_plane && return WholePlane()
+    return JSON.lift(s, _REGION_LEAVES[k].type, convert(Vector{Any}, v))
+end
+
+"""
+    JSON.lower(s::VgioStyle, r::Union{RegionIntersection, WholePlane})
+    JSON.lower(s::VgioStyle, r, (; region = true))
+    JSON.lift(s::VgioStyle, T, x)
+
+THE region body: a 2-D region of VisualGeometryToolkitCore's — a `Rect2`, an
+`Ellipse`, a `Circle`, their `RegionIntersection` (nested to any depth) or the
+`WholePlane` — as one tagged object,
+
+    {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
+      | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
+
+its leaves the positional records a `Rect2`, `Ellipse` and `Circle` are
+written as everywhere (extents positive, an ellipse's major semi-axis first,
+θ in radians), an intersection Core's binary one with its two parts in order
+(nest one for more). The numbers are PIXELS in the file's `units.pixel`
+frame: the writer moves the region from Core's canonical frame into the
+style's pixel frame and the reader back, by Core's action of the pixel-frame
+map on every region. A camera's `lens_coverage` is this body restricted to
+its leaves.
+
+An intersection or the whole plane is lowered by the two-argument form; a
+leaf lowers to its positional record there, so a field that holds any region
+asks for the region body by the tag `(; region = true)` (which an
+intersection and the whole plane take too). The lift reads the body from an
+object (a leaf's positional record is an array) into `T`, a region type or a
+`Union` of them (`Union{Rect2, RegionIntersection}`, …); a region of another
+type is an `ArgumentError`. A parsed record is checked first (an unknown
+tag, an intersection of other than two regions, a degenerate leaf: an
+`ArgumentError` naming its place), and an intersection is read as stored,
+through `RegionIntersection`'s constructor (never `∩`, which folds two
+rectangles into one), so the value reads back with its type.
+
+```julia
+s = VgtkIO.VgioStyle()
+r = RegionIntersection(Rect2(0.0, 0.0, 1920.0, 1200.0), Ellipse(Point2(960.0, 600.0), 700.0, 650.0, 0.0))
+JSON.json((initial_region = r,); style = s)
+# {"initial_region":{"intersection":[{"rect":[0.0,0.0,1920.0,1200.0]},{"ellipse":[960.0,600.0,700.0,650.0,0.0]}]}}
+JSON.lift(s, typeof(r), JSON.parse(JSON.json(r; style = s))) == r     # true
+```
+"""
+JSON.lower(s::VgioStyle, r::Union{RegionIntersection, WholePlane}) = _region_json(s, r)
+JSON.lower(s::VgioStyle, r::_RegionValue, tags::NamedTuple) = get(tags, :region, false) === true ? _region_json(s, r) : JSON.lower(s, r)
+function JSON.lift(s::VgioStyle, ::Type{T}, x::_ParsedObject, tags::NamedTuple = (;)) where {T <: _RegionValue}
+    x isa AbstractDict && _validate(_REGION, x, "a region", "")
+    r = _pixel_region_map(_pixel_frame(s), CANONICAL_PIXEL_FRAME)(_region_from(s, x))
+    r isa T || throw(ArgumentError("a region read as $(T): the record holds $(typeof(r))"))
+    return r
+end

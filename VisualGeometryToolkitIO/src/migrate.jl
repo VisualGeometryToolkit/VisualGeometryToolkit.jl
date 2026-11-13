@@ -283,8 +283,8 @@ versions read is generated from it.
 function schema_versions(kind::AbstractString)
     old = String[]
     for m in methods(migrate_schema)
-        sig = Base.unwrap_unionall(m.sig)
-        length(sig.parameters) == 3 || continue
+        sig = m.sig
+        (sig isa DataType && length(sig.parameters) == 3) || continue   # a step's signature is concrete (no `where`)
         V = sig.parameters[2]
         (V isa DataType && V <: Val && V.parameters[1] isa Symbol) || continue
         s = String(V.parameters[1])
@@ -1205,6 +1205,13 @@ end
 const _OLD_NOMINAL_KEY = "nominal_intrinsics"   # (the type names: style.jl)
 const _OLD_GRID_KEYS = ("type", "width", "height", "calibration_min_x", "calibration_min_y", "calibration_max_x", "calibration_max_y",
     "grid_width", "grid_height", "grid_layout", "direction_grid")
+# 0-based runs as the 1-based runs they read as; `nothing` for a value that is no list of runs (the check refuses it).
+_shifted_runs(r) = try
+    _runs_v010(r)
+catch e
+    e isa Union{MethodError, BoundsError, TypeError} || rethrow()
+    nothing
+end
 function _old_grid_camera(b::AbstractDict)
     for k in _OLD_GRID_KEYS
         haskey(b, k) || _not_written_by("an old grid body (generic_camera v2/v3, a rig/v6–v8 sensor)", "has no $(repr(k)), which every one held")
@@ -1226,10 +1233,10 @@ function _old_grid_camera(b::AbstractDict)
     haskey(b, "domain") && _validate(_Obj(:ellipse => _Vec(_Real(), 5)), b["domain"], what, "domain")
     b["grid_layout"] == _GRID_LAYOUT || _not_written_by("an old grid body", "has the grid_layout $(repr(b["grid_layout"])), not $(repr(_GRID_LAYOUT))")
     gw, gh = Int(b["grid_width"]::Integer), Int(b["grid_height"]::Integer)
-    if haskey(b, "present")
-        _validate(_RowRuns(), b["present"], "an old grid body", "present")
-    end
-    msg = _lattice_count_problem(gw, gh, get(b, "present", nothing), [k => b[k] for k in ("direction_grid", "point_grid") if haskey(b, k)])
+    # its runs are 0-based (before IO 0.10): checked as the 1-based runs they read as
+    runs = haskey(b, "present") ? something(_shifted_runs(b["present"]), b["present"]) : nothing
+    runs === nothing || _validate(_RowRuns(), runs, "an old grid body (its 0-based runs + 1)", "present")
+    msg = _lattice_count_problem(gw, gh, runs, [k => b[k] for k in ("direction_grid", "point_grid") if haskey(b, k)])
     msg === nothing || throw(ArgumentError("an old grid body: $(msg)"))
     (b["type"] == _OLD_NONCENTRAL_TYPE) == haskey(b, "point_grid") ||
         throw(ArgumentError("an old grid body holds a point_grid exactly when it is non-central"))
@@ -1253,13 +1260,14 @@ end
 # An old body's domain as the camera's lens coverage, and its pitch (a rig's), as the new bodies hold them.
 _old_grid_extras(b::AbstractDict) = merge(
     haskey(b, "domain") ? Dict{String, Any}("lens_coverage" => Dict{String, Any}("ellipse" => b["domain"]["ellipse"])) : Dict{String, Any}(),
-    haskey(b, "pitch") ? Dict{String, Any}("pitch" => b["pitch"]) : Dict{String, Any}(),
+    haskey(b, "pitch") ? Dict{String, Any}("pitch" => (b["pitch"] isa AbstractVector ? _size_v010(b["pitch"]) : b["pitch"])) : Dict{String, Any}(),
 )
 # A central body as the camera body of its SplineLens camera (in the canonical pixel frame, every old grid's).
 function _central_grid_body(b::AbstractDict)
     cam = _old_grid_camera(b)
     body = Dict{String, Any}(
-        "width" => b["width"], "height" => b["height"], "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
+        "image_size" => Dict{String, Any}("width" => b["width"], "height" => b["height"]),   # the 0.10 body, as the non-central one's
+        "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
         "lens" => _lens_json(cam.lens),
     )
     return merge(body, _old_grid_extras(b))
@@ -1451,6 +1459,7 @@ migrate_schema(::Val{Symbol("vgio/calibration/v2")}, src::AbstractString, dst::A
 function _migrate_units_sidecar(src, dst)
     basename(src) == UNITS_SIDECAR || throw(ArgumentError("$(src): a units sidecar is a model directory's $(UNITS_SIDECAR)"))
     c = load_units_sidecar(dirname(src))
+    c === nothing && throw(ArgumentError("$(src): no units sidecar to migrate"))
     save_units_sidecar(dirname(dst), c)
     _verify(load_units_sidecar(dirname(dst)) == c, src, "the units sidecar")
     return (; to = _schema("units"))

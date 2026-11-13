@@ -755,3 +755,44 @@
         end
     end
 end
+
+# The sample-budget engine's results do not depend on the thread count: the same pairs evaluated in a process of 2
+# threads and one of 8 give the same bits (the runner keys a stage without its CPU count, so a stage run at 8 threads
+# is reused by a launch at 2). A pair's selectors come from a pool, never from `Threads.threadid()` (a task of the
+# dynamic `@threads` loop may migrate mid-pair, and two tasks would share one tuple's scratch and running best).
+@testitem "evaluation_engine: the sample-budget engine gives the same bits at 2 and 8 threads" begin
+    using Test
+    code = raw"""
+        using Random: MersenneTwister
+        using VisualGeometryToolkitEval.Evaluation: evaluate_sample_budget, SampleBudgetConfig, SampleBudgetMethodSpec, LossWidthSpec
+        using VisualGeometryToolkitEval.Pools: synthetic_e_pool_pair
+        using VisualGeometryToolkitEstimation: EssentialProblem
+        import VisualGeometryToolkitCore as VgtkCore
+        using VisualGeometryToolkitCore: AbstractScoring, MsacScoring, OutlierHalfwidth, Irls, TLSShape, scoring_workspace
+        struct HalfwidthMsac{DG} <: AbstractScoring
+            outlier_halfwidth::Float64
+        end
+        msac_of(s::HalfwidthMsac{DG}) where {DG} = MsacScoring(DG; threshold = s.outlier_halfwidth)
+        VgtkCore.outlier_halfwidth(s::HalfwidthMsac) = s.outlier_halfwidth
+        VgtkCore.width_axis(::HalfwidthMsac) = OutlierHalfwidth()
+        VgtkCore.with_width(::HalfwidthMsac{DG}, a::OutlierHalfwidth{Float64}) where {DG} = MsacScoring(DG; threshold = a.value)
+        VgtkCore.codimension(::HalfwidthMsac{DG}) where {DG} = DG
+        VgtkCore.scoring_workspace(s::HalfwidthMsac, n::Int, d_g::Int) = scoring_workspace(msac_of(s), n, d_g)
+        VgtkCore.score!(ws, s::HalfwidthMsac, scores, r, n; kw...) = VgtkCore.score!(ws, msac_of(s), scores, r, n; kw...)
+        built = [synthetic_e_pool_pair(MersenneTwister(k); noise = 1.0e-3) for k in 1:48]
+        cfg = SampleBudgetConfig(; sample_cap = 20, batch_size = 5, lo_every = 10, budget_unit = :models,
+                                 lo_strategy = Irls{TLSShape}())
+        methods = [SampleBudgetMethodSpec(:narrow, HalfwidthMsac{1}(0.01)), SampleBudgetMethodSpec(:wide, HalfwidthMsac{1}(0.03))]
+        res = evaluate_sample_budget(EssentialProblem, methods, first.(built), last.(built);
+                                     loss_width_specs = [LossWidthSpec(:msac, MsacScoring(1), 0.01)], cfg)
+        open(ARGS[1], "w") do io
+            write(io, res.err_batch, res.best_idx_batch, res.err_lo)
+        end
+        """
+    outs = map((2, 8)) do t
+        out = tempname()
+        run(`$(Base.julia_cmd()) --startup-file=no --threads=$t --project=$(Base.active_project()) -e $code $out`)
+        read(out)
+    end
+    @test !isempty(outs[1]) && outs[1] == outs[2]
+end

@@ -96,6 +96,11 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   (C12). `bending_rows` of a mask under 4 × 4 has no rows (C13). `map_estimate` is inferred (C14). The shell lexer reads
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
+- **`linearview(m; sensor_model)` is the lazy uncertain image** (owner ruling D14): `LinearRawView{T, A, D, L} <:
+  AbstractMatrix{T}` (its element type now first) holds the noise slot's variance law. Under a `PoissonGaussian` or
+  `RelativeNoise` its elements are `Uncertain{Float64}`, each value with its scalar variance computed on the read by the
+  one law `LinearRaw`'s kernel writes per plane (`_value_variance`); `copy` of it is the materialised `StructArray`
+  (value and variance planes, on the view's device). Without a variance law, `Float64` as before, bit for bit.
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
   WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
@@ -163,6 +168,10 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `MEASUREMENT_NOISES` and `measurement_noise`.
 - `configs/default.toml` `[lm] device_acceptance = inf`: `StaticLmStops`' default acceptance (success by the
   stationarity rule alone; a root-finding caller states its bound).
+- **`Statistics.var(u::Uncertain{<:Real})`**: THE scalar variance of an uncertain value (a pixel of an uncertain image),
+  `cov(u)[1, 1]`; consumers read `value_of(x)` and `var(x)`, never `cov(x)[1]`.
+- **`poisson_slope(L, model, plane)`**: one plane's Poisson slope, by index or colour (`:R`, `:G`, `:B`; `:G` the green
+  plane), an `ArgumentError` for a colour the image does not hold.
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart

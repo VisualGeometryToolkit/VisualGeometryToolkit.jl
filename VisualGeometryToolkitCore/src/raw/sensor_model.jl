@@ -630,5 +630,22 @@ _dark_scale(d::Dark) = 1 + 1 / d.frames
 @inline _site_variance(l::_VarianceLaw{Nothing}, k, r, c) = l.σ²[k]
 @inline _site_variance(l::_VarianceLaw, k, r, c) = @inbounds Float64(l.dark_variance[r, c]) * l.dark_scale
 
+# THE variance of a value x of the photosites at cell sites `ks` (spans `span[k]`, cell origin r0, c0 in the photosite
+# grid, `origin` the visible raw's offset) times the gain: the law above. LinearRaw's kernel writes it per plane and
+# `linearview`'s getindex per photosite (one site, gain 1) — the one expression of both (D14: lazy and materialised agree).
+@inline function _value_variance(law::_VarianceLaw, x::Float64, ks::Tuple, span, gain::Float64, r0, c0, origin)
+    poisson = max(x, 0.0) * _poisson_slope(gain, law.inv_gain, map(k -> span[k], ks))
+    gauss = gain^2 / length(ks)^2 * foldl(ks; init = 0.0) do s, k
+        s + _site_variance(law, k, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]) / span[k]^2
+    end
+    return poisson + gauss + law.rel² * x^2
+end
+# An element of the lazy view (D14): the value alone without a law, else the value with its scalar variance.
+@inline _with_variance(::Nothing, x, k, span, i, j, origin) = x
+@inline _with_variance(law::_VarianceLaw, x, k, span, i, j, origin) =
+    Uncertain(x, CovMat(ScaledIdentity{1}(_value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin))))
+_view_eltype(::Nothing) = Float64
+_view_eltype(::_VarianceLaw) = Attributed{Float64, _ValueCovariance}
+
 # The element type of an uncertain image's covariance plane: a value's variance as a 1×1 isotropic covariance.
 const _ValueCovariance = typeof(CovMat(ScaledIdentity{1}(0.0)))

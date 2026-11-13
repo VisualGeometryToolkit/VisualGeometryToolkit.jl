@@ -405,7 +405,7 @@ end
     @test all(iszero, mx[disc .== 0]) && all(iszero, my[disc .== 0])
     px, py = gaussian_gradient(ramp, 2.0)
     r2 = length(first(VGF._derivative_taps(:gaussian2d, 2.0))) ÷ 2
-    deep = [hypot(r - 30.5, c - 35.5) < 22 - r2 - 1 for r in 1:H, c in 1:W]   # every tap inside the mask and the image
+    deep = [hypot(r - 30.5, c - 35.5) < 22 - sqrt(2) * r2 - 1 for r in 1:H, c in 1:W]   # the whole square stencil (its corners at √2·r) inside the mask
     # there D = 1 to rounding (the unit-sum taps over ones) and ∂D = 0, so the quotient is N's gradient: rounding only
     @test maximum(abs.(mx[deep] .- px[deep])) <= 64 * eps() * maximum(abs, px)
     @test_throws ArgumentError gaussian_gradient(ramp, 0.0)
@@ -414,7 +414,7 @@ end
 end
 
 # GPU: gaussian_gradient on the device against the CPU. The two run the same correlations in the same order; a GPU may
-# fuse each multiply-add, so each of the two passes differs by at most its 2r + 1 terms' rounding: per pixel
+# fuse each multiply-add, so each of the two correlations differs by at most its 2r + 1 terms' rounding: per pixel
 # |Δ| ≤ 2(2r + 1)·eps(T)·max|img|·Σ|d|·Σ|c|. Runs only with a functional CUDA device; records a skip otherwise.
 @testitem "gaussian_gradient: CUDA matches the CPU" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA

@@ -215,13 +215,17 @@ end
 
 """
     refine_camera(guess::CameraModel, source, region; fixed = (), weight = :image, max_iter, device = default_device(),
-                  optimization_strategy = nothing) -> FitResult{<:CameraModel, CameraFitMetadata}
+                  optimization_strategy = nothing, support = valid_domain(source)) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The camera of `guess`'s lens family polished onto `source` over `region` (a region of the source's sensor in its pixel
 frame, as [`fit_camera`](@ref) takes it): the exact minimizer of the integrated squared pixel error of the round trip,
 `∫ ‖π(π⁻¹_source(u)) − u‖² du`, by the stack's chart LM from `guess`. It is a `refine`: it needs the guess, and it
 converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where the family has a linear form;
 [`approximate_camera`](@ref) is the two in one call.
+
+**The region's support.** The `region` must lie inside the source's calibrated support — `support`, the source's
+`valid_domain` by default, or the support of the camera it was re-gridded from — or the fit is refused with Core's
+`RegionBeyondSupport` (`check_region_support`, at entry): a fit never reads a model where it is extrapolated.
 
 - **What moves: everything but `fixed`**, the guess's parameters held by name (`parameter_names(guess)`: the
   intrinsics' `:f`, `:aspect`, `:cx`, `:cy`, then the lens's) or by group (a coefficient family's stem: `:k` the radial
@@ -266,7 +270,12 @@ kb = refine_camera(start, camera, region)                              # its exa
 kb = approximate_camera(KannalaBrandt{4}, camera, region)              # the same two steps
 ```
 """
-function refine_camera(
+function refine_camera(guess::CameraModel, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...)
+    VgtkCore.check_region_support(support, region; who = "refine_camera")   # Core's one guard: no fit over an extrapolated model
+    return _refine_camera(guess, source, region; kwargs...)
+end
+# The refine itself, its region checked by the caller (`refine_camera`, `approximate_camera`, `optical_axis`).
+function _refine_camera(
         guess::CameraModel, source::CameraModel, region;
         fixed::Tuple{Vararg{Symbol}} = (),
         weight::Symbol = :image, max_iter::Int = _dflt("refine_camera", "max_iter"), device = default_device(),
@@ -350,7 +359,7 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
 # ==============================================================================
 
 """
-    approximate_camera(::Type{L}, source, region; weight = :image, max_iter, device = default_device())
+    approximate_camera(::Type{L}, source, region; weight = :image, max_iter, device = default_device(), support = valid_domain(source))
         -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The camera of lens family `L` closest to `source` over `region` (a bounded source: `region ∩ imaged_region(source)`, no
@@ -370,11 +379,18 @@ kb = approximate_camera(KannalaBrandt{4}, camera, region)     # a SplineLens cam
 ```
 """
 function approximate_camera(
+        ::Type{L}, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...
+    ) where {L <: AbstractLensModel}
+    VgtkCore.check_region_support(support, region; who = "approximate_camera")   # Core's one guard
+    return _approximate_camera(L, source, region; kwargs...)
+end
+# The linear fit's start, then the refine, the region checked by the caller (`approximate_camera`, `optical_axis`).
+function _approximate_camera(
         ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
         kwargs...
     ) where {L <: AbstractLensModel}
     start = _approximation_start(_linear_form(L), L, source, region, weight, fixed, device)
-    return refine_camera(start, source, region; weight, fixed, device, kwargs...)
+    return _refine_camera(start, source, region; weight, fixed, device, kwargs...)
 end
 approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} =
     approximate_camera(L, model(source), _imaged_part(source, region); kwargs...)
@@ -392,7 +408,7 @@ approximate_camera(::Type{Division}, source::CameraModel, region; kwargs...) = a
 # The refine's start: the linear fit's camera, or the family's anchor at the source's K (no linear form, or a failed
 # linear fit).
 function _approximation_start(form, ::Type{L}, source, region, weight, fixed, device) where {L}
-    r = fit_camera(L, source, region; weight, fixed, device)
+    r = _fit_lens_linear(form, _target_anchor(L), source, region, weight, fixed, device)
     return converged(r) ? estimate(r) : _anchor_camera(L, source)     # a failed linear solve: the anchor
 end
 _approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed, _device) where {L} = _anchor_camera(L, source)
@@ -406,7 +422,7 @@ _anchor_camera(a::AbstractLensModel, source) =
 # ==============================================================================
 
 """
-    optical_axis(camera::BoundedCamera, region = imaged_region(camera); device = default_device())
+    optical_axis(camera::BoundedCamera, region = imaged_region(camera); support = valid_domain(camera), device = default_device())
         -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The radially symmetric camera closest to `camera` over `region ∩ imaged_region(camera)`: by default the camera's own
@@ -430,14 +446,22 @@ and focal, then the refine with the principal point and the axis free.
 - A physical `K` is its own axis: the identity rotation and the source's principal point.
 
 `device` is the backend the camera's rays are sampled and the regression reduced on (`approximate_camera`'s).
+`support` bounds the region (`region ∩ imaged_region(camera)` must lie inside it, else Core's `RegionBeyondSupport`): the
+camera's `valid_domain` by default; for a camera re-gridded from a calibration (a whole-sensor lattice extrapolated past
+the board), the calibration's support — RadiometricCamera's siemens start camera, refused over its whole sensor, fits
+over its Schöps support.
 
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
 it returns the camera as given).
 """
-optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera); device = default_device()) =
-    approximate_camera(_AXIS_FAMILY, camera, region; fixed = _AXIS_FIXED, device)
-optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; device = nothing) = throw(
+function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera); support = VgtkCore.valid_domain(camera),
+                      device = default_device())
+    part = _imaged_part(camera, region)
+    VgtkCore.check_region_support(support, part; who = "optical_axis")   # Core's one guard
+    return _approximate_camera(_AXIS_FAMILY, model(camera), part; fixed = _AXIS_FIXED, device)
+end
+optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = throw(
     ArgumentError(
         "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
             "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"

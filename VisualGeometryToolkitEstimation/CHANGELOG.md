@@ -6,10 +6,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10.
 
 ### Breaking
 
-- **`optical_axis` fits 4 radial terms (θ³…θ⁹), not Fisheye624's 6** (the owner's ruling of 2026-11-13, from the order
-  study `~/logs/dgx-agent/wave10/optical-axis-order.md`): the smallest order whose principal point lies within ½σ of
-  6 terms' on every converging RC camera, its cond(J) 47–160× lower. The order is configurable,
-  `configs/default.toml [optical_axis] radial_terms` (read once). A camera fitted by `optical_axis`, and so the gauge
-  `fit_camera(SplineLens, …)` takes for a SplineLens source, changes: its radial coefficients (four), and its focal by
-  up to ~1e-5 relative (GRID's whole-image fit: 299.99977 → 300.00290 px); its principal point and axis by ≤ 1e-6 px
-  and ≤ 1e-8° on the symmetric test lenses (the decentred lens: 0.007 px).
+- **A camera fit over a region beyond its source's calibrated support is refused** (the owner's ruling of 2026-11-13):
+  `optical_axis`, `approximate_camera`, `refine_camera`, `fit_camera` (every form) and `pspline_grid` call Core's
+  `check_region_support` once at entry and throw its typed `RegionBeyondSupport`, never a warning. The support is the
+  new keyword `support`, the source's `valid_domain` by default, or the calibration a re-gridded camera came from
+  (RadiometricCamera's siemens start camera: refused over its whole sensor, extrapolated to 179.8°, fitted over its
+  Schöps support). `optical_axis(camera, region)` takes a region (`region ∩ imaged_region(camera)`), and `fit_camera`
+  / `refine_camera` of a bounded source fit over `region ∩ imaged_region(source)`, as `approximate_camera` does (the
+  0.10.2 patch line, ported).

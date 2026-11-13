@@ -151,7 +151,8 @@ const _REGION_AZIMUTHS = 720
 The camera model of type `T` regressed onto `source` over `region`, a region of
 the source's sensor in its pixel frame (an [`imaged_region`](@extref
 `VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera}`), an `Ellipse`, a `Rect`, their `∩`;
-bounded), by ONE linear least squares — a fit has no guess. The objective is the
+bounded, and inside the source's calibrated support — the keyword `support`, its `valid_domain` by default, or a
+re-gridded camera's calibration's — else Core's `RegionBeyondSupport` at entry), by ONE linear least squares — a fit has no guess. The objective is the
 integrated squared pixel error of the round trip, `∫ ‖π_T(π⁻¹_source(u)) − u‖² du`
 over the region. The target type selects the family and the solve:
 
@@ -316,17 +317,21 @@ _linear_form(::Type) = _NoLinearForm()
 
 function fit_camera(
         ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
     _refuse_held_spellings(free, fix, fixed_params, hold)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard: no fit over an extrapolated model
     return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed, device)
 end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function fit_camera(
         target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
     return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed, device)
 end
 fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), _imaged_part(source, region); kwargs...)
@@ -1032,7 +1037,7 @@ _grid_metadata(r, g, extra::NamedTuple) = CameraFitMetadata(
 )
 
 """
-    pspline_grid(T, source, region, grid_size; device = default_device()) -> FitResult{<:model of T, CameraFitMetadata}
+    pspline_grid(T, source, region, grid_size; device = default_device(), support = valid_domain(source)) -> FitResult{<:model of T, CameraFitMetadata}
 
 The P-spline (penalized B-spline least squares, Eilers–Marx) of a spline
 camera's lattice onto `source` over `region`, on the GIVEN lattice: `T` is
@@ -1060,8 +1065,10 @@ n_held_out_dropped, …)` with `grid_size` the lattice's `(columns, rows)`, as
 `fit_camera` reports it, and no `tolerance` or `outer_iterations`.
 """
 function pspline_grid(
-        ::Type{G}, source, region, grid_size::Tuple{Integer, Integer}; device = default_device()
+        ::Type{G}, source, region, grid_size::Tuple{Integer, Integer}; device = default_device(),
+        support = source isa BoundedCamera ? VgtkCore.valid_domain(source) : nothing
     ) where {G <: Union{SplineLens, NoncentralSplineModel}}
+    support === nothing || VgtkCore.check_region_support(support, region; who = "pspline_grid")   # Core's one guard (a bounded source)
     g = _grid_data(G, source, region, device)
     r = _pspline_grid(G, g, grid_size)
     return FitResult(r.fitted, ReturnCode.Success, ClosedForm, 0, r.errors.rms, length(g.q.fit_px), _grid_metadata(r, g, (;)))
@@ -1126,7 +1133,7 @@ _grid_errors(fitted::CameraModel, held, _) = (_held_out_errors(_direction_errors
 # line far away or never.
 
 """
-    fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing)
+    fit_camera(NoncentralSplineModel, source, region; tolerance, grid_size = nothing, support = valid_domain(source))
         -> FitResult{<:NoncentralSplineModel, CameraFitMetadata}
 
 See [`fit_camera`](@ref): the non-central spline model's direction and point
@@ -1134,9 +1141,11 @@ splines on one lattice, from one penalized solve.
 """
 function fit_camera(
         ::Type{NoncentralSplineModel}, source, region;
-        tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, device = default_device()
+        tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, device = default_device(),
+        support = source isa BoundedCamera ? VgtkCore.valid_domain(source) : nothing
     )
     _check_tolerance(tolerance)
+    support === nothing || VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard (a bounded source)
     g = _grid_data(NoncentralSplineModel, source, region, device)
     r, code, n = _backward_search(NoncentralSplineModel, g, grid_size, tolerance)
     return FitResult(
@@ -1240,9 +1249,10 @@ end
 function fit_camera(
         ::Type{SplineLens}, source::BoundedCamera, region;
         tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, forward::Bool = true,
-        device = default_device()
+        device = default_device(), support = VgtkCore.valid_domain(source)
     )
     _check_tolerance(tolerance)
+    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
     gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the later on a tie

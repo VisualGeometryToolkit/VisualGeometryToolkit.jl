@@ -89,7 +89,7 @@ in rows, the stack's `MATRIX_LAYOUT`.
 
 **An uncertain feature frame's covariance is in the frame's parameter order, the
 centre first.** A detection's [`FeatureFrame`](@ref) is written as its `center` and
-its shape parameters ([`frame_parameters`](@ref)), and its covariance is over exactly
+its shape parameters ([`frame_dof`](@ref VisualGeometryToolkitCore.frame_dof) of them), and its covariance is over exactly
 those parameters, `(x, y)` first: a `PointFrame`'s is the uncertain point's 2×2, so the
 point frame is the 2-DOF case of the one frame codec, never a codec of its own. The
 point observation of a detection is its first 2×2 block

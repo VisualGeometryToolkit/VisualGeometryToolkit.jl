@@ -31,3 +31,16 @@ Modules = [VisualGeometryToolkitCore]
 Private = false
 Pages = ["raw/linear_raw.jl"]
 ```
+
+## Sensor noise
+
+A body's Poisson–Gaussian noise at an ISO with the source of every value, the one
+resolver that decides what a frame uses when a record is missing, and the two
+estimators (a frame's photon transfer, a record's dark frames). `LinearRaw`'s
+kernel subtracts the resolved black and dark offset (`noise`).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["raw/sensor_noise.jl"]
+```

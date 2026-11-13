@@ -44,5 +44,4 @@ end
 _scaled_boundary(shape, scale) = scale == 1.0 ? shape : _do_scale(shape, scale)
 _do_scale(c::GeometryBasics.Circle, s) = dilate(c, s)
 _do_scale(e::Ellipse, s) = dilate(e, s)
-_do_scale(d::Disc, s) = region(d, s)
 _do_scale(f::FeatureFrame, s) = region(f, s)

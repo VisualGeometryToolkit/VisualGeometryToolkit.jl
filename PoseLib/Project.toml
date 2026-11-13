@@ -15,7 +15,7 @@ FlexUnits = "0.6.16"
 PoseLib_jll = "2.0.6"
 Rotations = "1.7.1"
 StaticArrays = "1.9.24"
-VisualGeometryToolkitCore = "0.9.5"
+VisualGeometryToolkitCore = "0.10.0"
 julia = "1.13"
 
 [workspace]

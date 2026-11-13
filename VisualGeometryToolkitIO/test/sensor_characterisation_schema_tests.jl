@@ -113,6 +113,12 @@ end
         @test refused(d -> (e1(d)["noise"]["gain"] = 0.0))
         @test refused(d -> (e1(d)["noise"]["sigma"] = [1.0, 1.0, 1.0]))               # per CFA colour index: four
         @test refused(d -> (d["entries"][2]["noise"]["sigma_rel"] = -0.01))
+        # a relative noise is specified only (owner ruling): another source is the constructor's refusal, on load
+        for src in ("measured", "estimated")
+            d = JSON.parse(good; dicttype = Dict{String, Any}); d["entries"][2]["noise"]["source"] = src; write(p, JSON.json(d))
+            e = try load(SensorCharacterisation, p); nothing catch e; e end
+            @test e isa ArgumentError && occursin("RelativeNoise: a relative noise is stated by a person", e.msg) && occursin("got source $(src)", e.msg)
+        end
         @test refused(d -> (e1(d)["black"]["frames"] = 1))                            # a variance needs 2 frames
         @test refused(d -> (e1(d)["black"]["exposure_band"] = [1.0, 0.001]))
         @test refused(d -> (e1(d)["black"]["size"]["width"] = 4))                     # the raster's size

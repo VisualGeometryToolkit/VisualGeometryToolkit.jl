@@ -322,6 +322,13 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `scratch = true` and keys apart from the runs of record; its output is
   refused as an input of record, an upstream run of record and a promoted
   run.
+- **One item upstream.** An `after` entry `"<stage>:<item>"` waits on that
+  item of an array stage alone: on a Slurm site the job runs after that array
+  task (`--dependency=afterok:<job>_<task>`), not after the whole array (a
+  texture recovery after the refinement's `texcal` case only). A local site
+  runs the stages in order as before. The key folds the upstream stage's key
+  either way: one key names every item's run, so a rerun of the stage reruns
+  what waits on any of its items.
 - **Arrays.** `array = { items = [...] }` or `array = { from = "<dotted key>" }`
   makes a stage an array, one task per item: the listed items, or the values at
   that key of the stage's config — a table's keys sorted by name (`from =

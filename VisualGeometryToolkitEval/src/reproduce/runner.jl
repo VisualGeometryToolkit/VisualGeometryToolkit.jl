@@ -151,7 +151,10 @@ const UNPUBLISHED_TIER = "unpublished"
 """
     StageSpec
 
-One stage of a project's graph (`[[stage]]` of the graph TOML): its `name`, the stages it runs `after`, what it is
+One stage of a project's graph (`[[stage]]` of the graph TOML): its `name`, the stages it runs `after` (an entry
+`"<stage>:<item>"` waits on that item of an array stage alone: on a Slurm site its job runs after that array task,
+`afterok:<job>_<task>`, not the whole array; `after_items` holds them; the key folds the upstream stage's key either
+way, since one key names every item's run), what it is
 (`what`), and how it runs — exactly one of `sbatch` (the project's own launcher script: submitted as is on a Slurm
 site, run by `bash` on a local one with the Slurm variables it reads set), `command` (an argv, wrapped by `sbatch
 --wrap` on a Slurm site) or `results_branch = true` (the paper's results branch of the launch,
@@ -213,6 +216,7 @@ struct StageSpec
     nice::Int
     precompile::Bool
     julia_flags::Vector{String}
+    after_items::Dict{String, Vector{String}}
 end
 
 """
@@ -271,7 +275,8 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
         k in _INPUTS_FROM_KEYS || throw(ArgumentError("stage $name: unknown key inputs_from.$k (known: $(join(_INPUTS_FROM_KEYS, ", ")))"))
     end
     all(f -> haskey(f, "config") && haskey(f, "key"), from) || throw(ArgumentError("stage $name: inputs_from takes {config, key[, base]}"))
-    return StageSpec(name, String.(get(t, "after", String[])), get(t, "what", ""), get(t, "sbatch", ""),
+    after, after_items = _after_edges(name, get(t, "after", String[]))
+    return StageSpec(name, after, get(t, "what", ""), get(t, "sbatch", ""),
                      String.(get(t, "command", String[])), get(t, "results_branch", false), get(t, "driver", ""),
                      get(t, "config", ""), Dict{String, String}(k => string(v) for (k, v) in get(t, "env", Dict())),
                      get(t, "job_name", ""), get(t, "gpu", false), get(t, "default", true), get(t, "time", ""),
@@ -283,7 +288,23 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      _resource(name, "gres", get(t, "gres", ""), r"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*(,[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)*$"),
                      _cpus_count(name, get(t, "ntasks", 0), "ntasks"), _cpus_count(name, get(t, "nodes", 0), "nodes"),
                      _cpus_count(name, get(t, "nice", 0), "nice"), _flag(name, get(t, "precompile", true), "precompile"),
-                     String.(get(t, "julia_flags", String[])))
+                     String.(get(t, "julia_flags", String[])), after_items)
+end
+
+# A stage's `after` entries: `"<stage>"` (the whole stage) or `"<stage>:<item>"` (one item of an array stage: its task
+# alone). The stages, in the order first named, and the items named of each stage named only by items (a stage also
+# named whole is waited on whole).
+function _after_edges(name, entries)
+    stages, items, whole = String[], Dict{String, Vector{String}}(), Set{String}()
+    for a in String.(entries)
+        d, item = occursin(':', a) ? split(a, ':'; limit = 2) : (a, nothing)
+        (isempty(d) || item !== nothing && isempty(item)) && throw(ArgumentError("stage $name: after = $(repr(a)) is not \"<stage>\" or \"<stage>:<item>\""))
+        d = String(d)
+        d in stages || push!(stages, d)
+        item === nothing ? push!(whole, d) : push!(get!(items, d, String[]), String(item))
+    end
+    foreach(d -> delete!(items, d), whole)
+    return stages, items
 end
 
 _flag(name, v, key) = v isa Bool ? v : throw(ArgumentError("stage $name: $key = $(repr(v)) is not true or false"))
@@ -298,6 +319,8 @@ function _dependency_order(stages::Vector{StageSpec})
     allunique(names) || throw(ArgumentError("stage graph: a stage name is given twice: $(join(unique(filter(n -> count(==(n), names) > 1, names)), ", "))"))
     for s in stages, d in s.after
         d in names || throw(ArgumentError("stage $(s.name): after = $(repr(d)), no such stage"))
+        haskey(s.after_items, d) && !stages[findfirst(==(d), names)].is_array &&
+            throw(ArgumentError("stage $(s.name): after = \"$d:$(first(s.after_items[d]))\" names an item of $d, which is not an array"))
     end
     out, left = StageSpec[], copy(stages)
     while !isempty(left)
@@ -1071,12 +1094,26 @@ end
 # The dry run
 # ---------------------------------------------------------------------------
 
+# The jobs a stage's job runs after: each upstream stage's job of this launch (or its earlier launch's still in flight),
+# or, for an edge to one item (`after = ["<stage>:<item>"]`), that item's array task alone (`<job>_<task>`). A
+# completed upstream stage is no dependency. With no `ids` (the dry run), this launch's jobs are `$<stage>`.
 function _dependency(plan::ReproducePlan, st::PlannedStage; ids = nothing)
     deps = String[]
     for d in st.after
         p = plan.stages[findfirst(x -> x.spec.name == d, plan.stages)]
         p.reuse == "completed" && continue
-        push!(deps, ids === nothing ? (isempty(p.reuse) ? "\$$d" : p.reuse) : ids[d])
+        job = ids === nothing ? (isempty(p.reuse) ? "\$$d" : p.reuse) : ids[d]
+        items = get(st.spec.after_items, d, nothing)
+        if items === nothing
+            push!(deps, job)
+            continue
+        end
+        for item in items
+            t = findfirst(==(item), p.items)
+            t === nothing && throw(ArgumentError("stage $(st.spec.name) runs after item $item of $d, which this launch does " *
+                                                 "not run (its items: $(join(p.items, ", ")))"))
+            push!(deps, "$(job)_$(t - 1)")
+        end
     end
     return deps
 end
@@ -1115,7 +1152,7 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
                     all(==(st.each[1]), st.each) ? join(st.each[1], " ") * (s.is_array ? " (every task)" : "") :
                                                    join(("$i: $(join(v, " "))" for (i, v) in zip(st.items, st.each)), "; "))
         end
-        println(io, "    after    $(isempty(st.after) ? "—" : join(st.after, ", "))")
+        println(io, "    after    $(isempty(st.after) ? "—" : join((haskey(s.after_items, d) ? join(("$d:$i" for i in s.after_items[d]), ", ") : d for d in st.after), ", "))")
         println(io, "    key      $(st.key)", st.reuse == "completed" ? "  REUSED (completed in an earlier launch)" :
                                             !isempty(st.reuse) ? "  IN FLIGHT (job $(st.reuse) of an earlier launch)" :
                                             isempty(st.rerun) ? "" : "  RERUN ($(st.rerun))")

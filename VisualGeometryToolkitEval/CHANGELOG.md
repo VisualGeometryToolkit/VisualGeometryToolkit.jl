@@ -43,6 +43,9 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 
 ### Added
 
+- **A stage after one item of an array stage**: `after = ["<stage>:<item>"]` waits on that array task alone
+  (`--dependency=afterok:<job>_<task>` on Slurm; a local site's order is unchanged). The key folds the upstream stage's
+  key, as a whole-stage edge does. An item the launch does not run, or an item of a stage that is no array, is refused.
 - **`Render.write_tsv(path, rows::AbstractVector{<:NamedTuple}; comments)`**: a table of named-tuple rows, its header
   their field names; an abstract element type (`NamedTuple[]`) is read from the rows, and an empty table writes the
   element type's fields as its header when it names them (else an empty header line; `read_tsv` reads either back as

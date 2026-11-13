@@ -417,6 +417,48 @@ end
         @test k_new != k_old && k(root) == k_new
     end
 
+    @testset "a stage after one item of an array stage: that array task alone (afterok:<job>_<task>)" begin
+        # RC's texture_recovery waits on radiometric_refinement's texcal case alone, not on the whole array
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
+        text = read(f.graph, String)
+        item_edge(after) = (write(f.graph, replace(text, "name = \"texture\"\nafter = [\"chrome\"]" =>
+                                                    "name = \"texture\"\nafter = $after"; count = 1)); load_stage_graph(f.graph))
+        g = item_edge("[\"chrome:mid\"]")
+        tex = g.stages[4]
+        @test tex.name == "texture" && tex.after == ["chrome"] && tex.after_items == Dict("chrome" => ["mid"])
+        @test select_stages(g; only = ["texture"]) == ["setup", "chrome_prepare", "chrome", "texture"]
+        # the dry run: the task of `mid` (the cases sorted: alpha, mid, zeta → task 1)
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test code == 0 && occursin("SETS=small,large sbatch --parsable --dependency=afterok:\$chrome_1 ", out) && occursin("after    chrome:mid", out)
+        # submitted: texture's job runs after chrome's task 1 alone
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "item edge")
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0
+        l = readlines(sb)
+        @test length(l) == 4 && startswith(l[3], "103 ") && startswith(l[4], "104 --parsable --dependency=afterok:103_1 ")
+        # the key folds the upstream stage's key, as a whole-stage edge does: one key names every item's run
+        root = mktempdir()                                       # one results root: the stages' environment names it
+        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["texture"],
+                                  results_root = root).stages[end].key
+        @test k(item_edge("[\"chrome:mid\"]")) == k(item_edge("[\"chrome\"]"))
+        # a whole-stage entry beside an item: the whole stage
+        @test isempty(item_edge("[\"chrome:mid\", \"chrome\"]").stages[4].after_items)
+        # refused: an item of a stage that is no array, a malformed entry, an item this launch does not run
+        @test_throws r"names an item of chrome_prepare, which is not an array" item_edge("[\"chrome_prepare:x\"]")
+        @test_throws r"is not \"<stage>\" or \"<stage>:<item>\"" item_edge("[\"chrome:\"]")
+        item_edge("[\"chrome:omega\"]")
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test code == 2 && occursin("runs after item omega of chrome, which this launch does not run (its items: alpha, mid, zeta)", out)
+        # a local site runs the stages in order, as before
+        item_edge("[\"chrome:mid\"]")
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=texture"]; env = env0)
+        @test code == 0 && length(readlines(joinpath(f.results, "ran.txt"))) == 1 + 1 + 3 + 2
+    end
+
     @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
         f = runner_project()
         text = read(f.graph, String)
@@ -1167,16 +1209,17 @@ end
         cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $canonical $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
                --graph=$(f.graph) --site=dgx01 --dry-run --results-root=$(f.results)`
         bare = ("JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => "")
-        out = read(addenv(cmd, bare...), String)
+        out = read(setenv(cmd, merge(env0, Dict(bare))), String)        # the environment the package plan below sees
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
         # one implementation: the bare process keys every stage as the package does
         p = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, results_root = f.results)
-        @test all(st -> occursin("key      $(st.key)", out), p.stages)
+        # (the results-branch stage's command names its launch's manifest, so its key is per launch)
+        @test all(st -> occursin("key      $(st.key)", out), filter(st -> !st.spec.results_branch, p.stages))
         # a bootstrap from before 0.8.0 (no canonical.jl): told to regenerate itself
         old = "include(ARGS[1]); include(ARGS[2])"
         err = IOBuffer()
-        ok = success(pipeline(addenv(`$(Base.julia_cmd()) --startup-file=no -e $old $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))`,
-                                     bare...); stdout = devnull, stderr = err))
+        ok = success(pipeline(setenv(`$(Base.julia_cmd()) --startup-file=no -e $old $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))`,
+                                     merge(env0, Dict(bare))); stdout = devnull, stderr = err))
         @test !ok && occursin("regenerate it with Reproduce.write_reproduce_script", String(take!(err)))
     end
 

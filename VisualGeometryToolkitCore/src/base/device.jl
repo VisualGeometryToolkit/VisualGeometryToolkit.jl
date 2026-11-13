@@ -222,10 +222,12 @@ end
 the caller's array kind is `on_device(get_backend(input), result)`.
 """
 on_device(::Type{T}, dev, A::AbstractArray) where {T} = _same_memory(get_backend(A), dev) && eltype(A) === T ? A : ka_upload(T, dev, A)
-# Whether arrays of the backends `a` and `b` live in one memory: the same backend TYPE. A backend value also carries
-# compiler options (CUDA's `always_inline`, `prefer_blocks`; the CPU's `static`), which `get_backend` of an array never
-# reports: `get_backend(::CuArray)` is `CUDABackend()`, while `default_device()` is `CUDABackend(; always_inline = true)`.
-# Comparing the values would copy every array already on the device.
+# Whether arrays of the backends `a` and `b` live in one memory, as far as a backend value can tell: the same backend
+# TYPE. A backend value also carries compiler options (CUDA's `always_inline`, `prefer_blocks`; the CPU's `static`),
+# which `get_backend` of an array never reports: `get_backend(::CuArray)` is `CUDABackend()`, while `default_device()`
+# is `CUDABackend(; always_inline = true)`. Comparing the values would copy every array already on the device. The
+# limit: a backend value names no device, so two GPUs of one type count as one memory (a CuArray of another device is
+# not copied here; CUDA's own access rules apply to it).
 _same_memory(a, b) = typeof(a) === typeof(b)
 on_device(dev, A::AbstractArray) = on_device(eltype(A), dev, A)
 

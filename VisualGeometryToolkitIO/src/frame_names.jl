@@ -39,10 +39,14 @@ Parse a serialized frame name back to the VGC frame type; the id becomes a
 `Symbol` (a board uid that happens to look numeric is still an identity, not
 a number).
 """
+# The grammar's names: the fixed frames, and the prefixes of the frames with an id.
+const _FIXED_FRAMES = ("world" => WorldFrame, "camera" => CameraFrame)
+const _ID_FRAMES = ("view:" => ViewFrame, "target:" => TargetFrame, "body:" => BodyFrame)
 function frame_from_name(s::AbstractString)
-    s == "world" && return WorldFrame
-    s == "camera" && return CameraFrame
-    for (prefix, F) in (("view:", ViewFrame), ("target:", TargetFrame), ("body:", BodyFrame))
+    for (name, F) in _FIXED_FRAMES
+        s == name && return F
+    end
+    for (prefix, F) in _ID_FRAMES
         (startswith(s, prefix) && length(s) > length(prefix)) && return F{Symbol(s[(length(prefix) + 1):end])}
     end
     throw(
@@ -52,13 +56,10 @@ function frame_from_name(s::AbstractString)
     )
 end
 
+# The grammar as a pattern (the published JSON Schema's; `frame_from_name` is the reader).
+const _FRAME_NAME_RE = Regex("^($(join(first.(_FIXED_FRAMES), '|'))|($(join(first.(_ID_FRAMES), '|'))).+)\$")
 const _FRAME_NAME = _Named(
-    s -> try
-        frame_from_name(s)
-        true
-    catch
-        false
-    end,
+    Base.Fix1(occursin, _FRAME_NAME_RE),
     "a frame name (\"world\", \"camera\", \"view:<id>\", \"target:<id>\", \"body:<id>\")",
 )
 

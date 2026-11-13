@@ -209,8 +209,13 @@ end
 # The radial profile
 # -----------------------------------------------------------------------------
 
-"""The charts of a radial profile's normalized radius: `:linear` (`ρ = d / radius`) and `:projective` (`ρ = d / (radius + d)`, [`projective_chart`](@ref))."""
-const RADIAL_CHARTS = (:linear, :projective)
+"""
+The ONE registry of a radial profile's charts, the coordinate a profile is a function of at the distance `d` from its centre:
+`:linear` (`ρ = d / radius`), `:projective` (`ρ = d / (radius + d)`, [`projective_chart`](@ref)) — the normalized radii a fitted
+[`RadialVignetting`](@ref) is a spline of — and `:equisolid` (the field angle `θ = 2 asin(d / 2f)` of an equisolid lens of focal
+length `f` pixels, in radians), the coordinate a measured [`BinnedRadialProfile`](@ref) is binned in.
+"""
+const RADIAL_CHARTS = (:linear, :projective, :equisolid)
 
 """
     projective_chart(r) -> Transformation
@@ -240,8 +245,26 @@ end
 abstract type _RadialChart end
 struct _LinearChart <: _RadialChart end
 struct _ProjectiveChart <: _RadialChart end
-_chart_type(chart::Symbol) = chart === :projective ? _ProjectiveChart : chart === :linear ? _LinearChart :
-    throw(ArgumentError("RadialVignetting: chart = $(repr(chart)) is not one of $(join(repr.(RADIAL_CHARTS), ", "))"))
+struct _EquisolidChart <: _RadialChart end
+function _chart_type(chart::Symbol)
+    chart === :projective && return _ProjectiveChart
+    chart === :linear && return _LinearChart
+    chart === :equisolid && return _EquisolidChart
+    throw(ArgumentError("radial chart = $(repr(chart)) is not one of $(join(repr.(RADIAL_CHARTS), ", "))"))
+end
+# A fitted profile is a spline of a normalized radius in [0, 1]: the equisolid field angle is no such coordinate.
+function _spline_chart_type(chart::Symbol)
+    C = _chart_type(chart)
+    C === _EquisolidChart && throw(ArgumentError(
+        "RadialVignetting: chart = :equisolid is a field angle, not a normalized radius in [0, 1]; a fitted profile is on :linear or :projective"))
+    return C
+end
+_chart_name(::Type{_EquisolidChart}) = :equisolid
+
+# THE chart coordinate at the distance `d` from a profile's centre: the one rule every radial profile reads.
+@inline _chart_coordinate(::Type{_LinearChart}, d, radius, f) = d / radius
+@inline _chart_coordinate(::Type{_ProjectiveChart}, d, radius, f) = only(projective_chart(radius)(SVector(d)))
+@inline _chart_coordinate(::Type{_EquisolidChart}, d, radius, f) = 2 * asin(d / (2 * f))
 _chart_name(::Type{_LinearChart}) = :linear
 _chart_name(::Type{_ProjectiveChart}) = :projective
 
@@ -279,7 +302,7 @@ end
 # the fields without a chart: the linear chart (the profile's form before the chart parameter)
 RadialVignetting{T, N, K, DP}(center, radius, knots, P) where {T, N, K, DP} = RadialVignetting{T, N, K, DP, _LinearChart}(center, radius, knots, P)
 function RadialVignetting(n::Integer, center, radius; degree::Integer = 3, T = Float64, chart::Symbol = :linear)
-    C = _chart_type(chart)
+    C = _spline_chart_type(chart)
     # pixel-sized: a plain number or a px quantity, a length refused (DimensionError; units.md)
     c1, c2, r = _strip_pixels(center[1]), _strip_pixels(center[2]), _strip_pixels(radius)
     r isa Real && isfinite(r) && r > 0 || throw(ArgumentError("RadialVignetting: the radius must be a positive finite number of pixels; got $(radius)"))
@@ -288,7 +311,7 @@ function RadialVignetting(n::Integer, center, radius; degree::Integer = 3, T = F
                                                                           SVector{length(knots), T}(knots), ones(SVector{Int(n), T}))
 end
 function RadialVignetting(knots::AbstractVector, center, radius, P::AbstractVector; degree::Integer, chart::Symbol = :linear)
-    C = _chart_type(chart)
+    C = _spline_chart_type(chart)
     N, p = length(P), Int(degree)
     length(knots) == N + p + 1 || throw(ArgumentError("RadialVignetting: $(length(knots)) knots for $N control points of degree $p (need $(N + p + 1))"))
     (issorted(knots) && all(==(first(knots)), knots[1:(p + 1)]) && all(==(last(knots)), knots[(end - p):end]) && first(knots) == 0 && last(knots) == 1) ||
@@ -315,8 +338,68 @@ The normalized radius of the sensor point `u` (the profile's argument) on the pr
 @inline function radial_coordinate(v::RadialVignetting{T, N, K, DP, C}, u::StaticVector{2}) where {T, N, K, DP, C <: _RadialChart}
     dx = u[1] - v.center[1]
     dy = u[2] - v.center[2]
-    C === _ProjectiveChart && return only(projective_chart(v.radius)(SVector(sqrt(dx * dx + dy * dy))))   # a constant per type
-    return sqrt(dx * dx + dy * dy) / v.radius
+    return _chart_coordinate(C, sqrt(dx * dx + dy * dy), v.radius, nothing)
+end
+
+"""
+    BinnedRadialProfile(chart, center, radius, edges, values, counts; focal_length = nothing)
+
+A MEASURED radial profile: per channel, a value per bin of a radial chart's
+coordinate about `center`, binned rather than fitted (a flat field averaged
+over rings of field angle). `chart` is one of [`RADIAL_CHARTS`](@ref), its
+coordinate at the distance `d` from `center` (COLMAP pixels): `:linear`
+`d / radius`, `:projective` `d / (radius + d)`, `:equisolid` `2 asin(d / 2f)`
+radians (`focal_length = f` pixels, required for it and refused for the
+others); `radius` is the image circle's (pixels, positive). `edges` are the
+`B + 1` increasing bin edges in the chart's coordinate, `values` a
+`channels × B` matrix (unitless) and `counts` the `B` pixel counts (≥ 0); bin
+`b` (1-based) is `[edges[b], edges[b + 1])`. Every argument is checked
+(`ArgumentError`, `DimensionError` for a length where pixels are meant).
+[`radial_coordinate`](@ref)`(p, u)` is the chart coordinate of a sensor point.
+VisualGeometryToolkitIO's `radial_profile` kind serializes it.
+"""
+struct BinnedRadialProfile{C <: _RadialChart}
+    center::SVector{2, Float64}
+    radius::Float64
+    focal_length::Union{Nothing, Float64}
+    edges::Vector{Float64}
+    values::Matrix{Float64}
+    counts::Vector{Int}
+    function BinnedRadialProfile(chart::Symbol, center, radius, edges::AbstractVector{<:Real}, values::AbstractMatrix{<:Real},
+                                 counts::AbstractVector{<:Integer}; focal_length = nothing)
+        C = _chart_type(chart)
+        c = SVector{2, Float64}(_strip_pixels(center[1]), _strip_pixels(center[2]))
+        r = Float64(_strip_pixels(radius))
+        all(isfinite, c) && isfinite(r) && r > 0 || throw(ArgumentError("BinnedRadialProfile: a finite centre and a positive finite radius (pixels), got $center, $radius"))
+        (C === _EquisolidChart) == (focal_length !== nothing) || throw(ArgumentError(
+            "BinnedRadialProfile: the :equisolid chart takes its focal length (pixels), and only it does; chart = $(repr(chart)), focal_length = $(repr(focal_length))"))
+        f = focal_length === nothing ? nothing : Float64(_strip_pixels(focal_length))
+        f === nothing || (isfinite(f) && f > 0) || throw(ArgumentError("BinnedRadialProfile: the focal length is positive and finite, got $focal_length"))
+        B = length(edges) - 1
+        B >= 1 && all(isfinite, edges) && all(>(0), diff(edges)) ||
+            throw(ArgumentError("BinnedRadialProfile: the edges are at least 2 finite, strictly increasing numbers"))
+        size(values, 2) == B && size(values, 1) >= 1 || throw(DimensionMismatch("BinnedRadialProfile: values are channels × $B (one column per bin), got $(size(values))"))
+        length(counts) == B && all(>=(0), counts) || throw(ArgumentError("BinnedRadialProfile: $B pixel counts, each ≥ 0"))
+        return new{C}(c, r, f, Vector{Float64}(edges), Matrix{Float64}(values), Vector{Int}(counts))
+    end
+end
+radial_chart(::BinnedRadialProfile{C}) where {C} = _chart_name(C)
+center(p::BinnedRadialProfile) = p.center
+field_radius(p::BinnedRadialProfile) = p.radius
+Base.:(==)(a::BinnedRadialProfile{C}, b::BinnedRadialProfile{D}) where {C, D} = C === D && a.center == b.center && a.radius == b.radius &&
+    isequal(a.focal_length, b.focal_length) && a.edges == b.edges && a.values == b.values && a.counts == b.counts
+Base.hash(p::BinnedRadialProfile{C}, h::UInt) where {C} =
+    hash((C, p.center, p.radius, p.focal_length, p.edges, p.values, p.counts), hash(:BinnedRadialProfile, h))
+
+"""
+    radial_coordinate(p::BinnedRadialProfile, u) -> Float64
+
+The chart coordinate of the sensor point `u` (COLMAP pixels) about the profile's centre: the coordinate its edges bin
+(`searchsortedlast(p.edges, radial_coordinate(p, u))` is the bin, 1-based).
+"""
+function radial_coordinate(p::BinnedRadialProfile{C}, u::StaticVector{2}) where {C}
+    d = sqrt((u[1] - p.center[1])^2 + (u[2] - p.center[2])^2)
+    return _chart_coordinate(C, d, p.radius, p.focal_length)
 end
 
 @inline coefficient_jacobian(v::RadialVignetting{T, N, K, DP}, u::StaticVector{2}) where {T, N, K, DP} =
@@ -352,9 +435,10 @@ convert_eltype(::Type{T}, v::RadialVignetting{S, N, K, DP, C}) where {T <: Real,
 
 """
     with_center(v::RadialVignetting, center) -> v′
+    with_center(v::LogVignetting{<:RadialVignetting}, center) -> v′
 
 The same radial profile (chart, knots, degree, radius, control points) about the centre `center` (COLMAP pixels): what a fit of the
-centre steps. The element type is `promote_type` of the field's and the centre's (a Dual centre gives a Dual field, its knots exact).
+centre steps. A log-domain field moves its radial profile's centre. The element type is `promote_type` of the field's and the centre's (a Dual centre gives a Dual field, its knots exact).
 """
 function with_center(v::RadialVignetting{T, N, K, DP, C}, center::StaticVector{2, S}) where {T, N, K, DP, C <: _RadialChart, S}
     R = promote_type(T, S)
@@ -362,23 +446,6 @@ function with_center(v::RadialVignetting{T, N, K, DP, C}, center::StaticVector{2
 end
 with_center(v::RadialVignetting, center) = with_center(v, SVector{2}(center[1], center[2]))
 
-struct _CenterTag end
-"""
-    center_gradient(v, u) -> SVector{2}
-
-`∂V(u)/∂c` of a radial profile at its centre `c` (COLMAP pixels): the dipole `−V′(ρ) ∂ρ/∂d · (u − c)/d`, by a two-partial Dual
-through [`with_center`](@ref) and the same basis evaluation as `v(u)` (isbits: it runs in a kernel); zero at the centre itself
-(`V′(0) = 0` under the pole tie; the distance's derivative has no value there) and for a field without a centre parameter.
-"""
-@inline function center_gradient(v::RadialVignetting, u::StaticVector{2})
-    T = eltype(control_points(v)); c = center(v)
-    dx = T(u[1]) - c[1]; dy = T(u[2]) - c[2]
-    (dx * dx + dy * dy) > 0 || return zero(SVector{2, T})
-    d1 = ForwardDiff.Dual{_CenterTag}(c[1], one(T), zero(T)); d2 = ForwardDiff.Dual{_CenterTag}(c[2], zero(T), one(T))
-    x = with_center(v, SVector(d1, d2))(SVector{2, T}(u[1], u[2]))
-    return SVector{2, T}(ForwardDiff.partials(x, 1), ForwardDiff.partials(x, 2))
-end
-@inline center_gradient(v::AbstractVignetting, u::StaticVector{2}) = zero(SVector{2, eltype(control_points(v))})
 
 """
     pole_regular_basis(v::RadialVignetting) -> Matrix{Float64}
@@ -450,10 +517,33 @@ radial_coordinate(v::LogVignetting{<:RadialVignetting}, u::StaticVector{2}) = ra
 pole_regular_basis(v::LogVignetting{<:RadialVignetting}) = pole_regular_basis(v.spline)
 radial_chart(v::LogVignetting{<:RadialVignetting}) = radial_chart(v.spline)
 with_control_points(v::LogVignetting, P) = LogVignetting(with_control_points(v.spline, P))
+# The log field of its radial profile about the centre `center` (`with_center` of the radial profile).
+with_center(v::LogVignetting{<:RadialVignetting}, center) = LogVignetting(with_center(v.spline, center))
 convert_eltype(::Type{T}, v::LogVignetting) where {T <: Real} = LogVignetting(convert_eltype(T, v.spline))
 support_trait(::Type{LogVignetting{S}}) where {S} = support_trait(S)
 nodes(v::LogVignetting) = nodes(v.spline)
 support(v::LogVignetting, i::CartesianIndex) = support(v.spline, i)
+
+struct _CenterTag end
+# The fields with a centre parameter (`with_center`): a radial profile, and its log-domain field.
+const _CenteredVignetting = Union{RadialVignetting, LogVignetting{<:RadialVignetting}}
+"""
+    center_gradient(v, u) -> SVector{2}
+
+`∂V(u)/∂c` of a radial profile at its centre `c` (COLMAP pixels): the dipole `−V′(ρ) ∂ρ/∂d · (u − c)/d`, by a two-partial Dual
+through [`with_center`](@ref) and the same evaluation as `v(u)` (isbits: it runs in a kernel), so a log-domain radial field's
+is the chain rule `V(u)·∂(log V)/∂c`; zero at the centre itself (`V′(0) = 0` under the pole tie; the distance's derivative has
+no value there) and for a field without a centre parameter (a tensor-product surface, whose centre is its box's).
+"""
+@inline function center_gradient(v::_CenteredVignetting, u::StaticVector{2})
+    T = eltype(control_points(v)); c = center(v)
+    dx = T(u[1]) - c[1]; dy = T(u[2]) - c[2]
+    (dx * dx + dy * dy) > 0 || return zero(SVector{2, T})
+    d1 = ForwardDiff.Dual{_CenterTag}(c[1], one(T), zero(T)); d2 = ForwardDiff.Dual{_CenterTag}(c[2], zero(T), one(T))
+    x = with_center(v, SVector(d1, d2))(SVector{2, T}(u[1], u[2]))
+    return SVector{2, T}(ForwardDiff.partials(x, 1), ForwardDiff.partials(x, 2))
+end
+@inline center_gradient(v::AbstractVignetting, u::StaticVector{2}) = zero(SVector{2, eltype(control_points(v))})
 
 """
     VIGNETTING_TAGS

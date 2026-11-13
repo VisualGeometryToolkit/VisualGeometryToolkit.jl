@@ -217,3 +217,32 @@ end
     @test isfinite(result.bestcost) && result.bestcost < result.startcost
     @test problem.variables[1] >= 1                              # the accepted step is kept
 end
+
+# A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
+# bits as the unpack VisualGeometryToolkitEstimation's lens regression wrote by hand until 0.10.1 (refine_camera.jl).
+@testitem "reduce_normal_equations and reduce_cost: a device state's reductions from its work items' partial sums" begin
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: norm
+    using StableRNGs: StableRNG
+    using VisualGeometryToolkitCore: reduce_normal_equations, reduce_cost
+    rng = StableRNG(20261113)
+    N, n, W = 3, 101, 7                                   # 101 two-row samples dealt to 7 work items, as a kernel strides
+    r = [randn(rng, SVector{2, Float64}) for _ in 1:n]; J = [randn(rng, SMatrix{2, N, Float64}) for _ in 1:n]
+    partials = zeros(1 + N + N * N, W)
+    for w in 1:W
+        s = 0.0; g = zero(SVector{N, Float64}); H = zero(SMatrix{N, N, Float64})
+        for i in w:W:n
+            s += r[i][1] * r[i][1] + r[i][2] * r[i][2]; g += J[i]' * r[i]; H += J[i]' * J[i]
+        end
+        partials[1, w] = s; partials[2:(1 + N), w] = g; partials[(2 + N):end, w] = vec(H)
+    end
+    c, g, H = reduce_normal_equations(partials, Val(N))
+    @test g isa SVector{N, Float64} && H isa SMatrix{N, N, Float64} && isbits((c, g, H))
+    # every row's sum, to rounding (the order differs)
+    @test c ≈ 0.5 * sum(x -> sum(abs2, x), r) && g ≈ sum(i -> J[i]' * r[i], 1:n) && H ≈ sum(i -> J[i]' * J[i], 1:n)
+    # the hand unpack it replaces, bit for bit
+    t = Array(sum(partials; dims = 2))
+    @test (c, g, H) === (0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N))))
+    @test reduce_cost(partials) === 0.5 * sum(view(partials, 1, :))
+    @test reduce_cost(partials[1:1, :]) === reduce_cost(partials) && reduce_cost(partials) ≈ c
+end

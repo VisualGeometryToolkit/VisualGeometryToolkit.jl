@@ -17,10 +17,14 @@ _world_name(::UnknownScale) = _UNKNOWN_SCALE_NAME
 # (pixel centres at 0.5, world → camera poses, Hamilton w-x-y-z quaternions, the
 # per-model parameter order), so `units.pixel` is "colmap". A model's sidecar
 # declares no length roles.
+_is_sidecar_length_name(s) = s == _UNKNOWN_SCALE_NAME || _is_length_name(s)
 const _UNITS_SPEC = _kind_spec("units", Pair{Symbol, _Spec}[];
-    units = _units_spec(_Named(s -> s == _UNKNOWN_SCALE_NAME || _is_length_name(s), "a registered length unit, or \"unknown\"")),
+    units = _units_spec(_Named(_is_sidecar_length_name, "a registered length unit, or \"unknown\"")),
     check = x -> isempty(x[:units][:length_roles]) ? (x[:units][:pixel] == "colmap" ? nothing : "a COLMAP model's pixels are colmap's") :
-        "a COLMAP model's units sidecar declares no length roles")
+        "a COLMAP model's units sidecar declares no length roles",
+    rule = "a COLMAP model's units sidecar declares no length roles, and its pixels are colmap's",
+    schema = ["properties" => Dict("units" => Dict("properties" => Dict("length_roles" => Dict("maxProperties" => 0),
+                                                                          "pixel" => Dict("const" => "colmap"))))])
 
 function save_units_sidecar(dir::AbstractString, contract::Union{UnitContract, UnknownScale})
     (contract isa UnitContract && length(contract.lengths) > 1) && throw(

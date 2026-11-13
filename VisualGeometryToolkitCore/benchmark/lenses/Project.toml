@@ -15,7 +15,7 @@ VisualGeometryToolkitCore = {path = "../.."}
 
 [compat]
 BenchmarkTools = "1.8"
-CUDA = "5.11.3"
+CUDA = "5.11"
 ForwardDiff = "1.4.7"
 KernelAbstractions = "0.9.46"
 StaticArrays = "1.9.24"

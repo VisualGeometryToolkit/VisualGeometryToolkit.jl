@@ -32,7 +32,7 @@
 #                                        exif_lens = DeviceIdentity(…), sensor = "cam1"))    (exif_lens, sensor optional)
 
 const _IDENTITY_SOURCES = ("exif", "config")
-const _IDENTITY_SOURCE = _Named(s -> s in _IDENTITY_SOURCES, "an identity source (exif, config)")
+const _IDENTITY_SOURCE = _Named(in(_IDENTITY_SOURCES), "an identity source (exif, config)")
 const _DEVICE = _Obj(:body => _DEVICE_IDENTITY, :lens => _DEVICE_IDENTITY)
 
 const _CAPTURE_SETTINGS_SPEC = _kind_spec(
@@ -54,6 +54,9 @@ const _CAPTURE_SETTINGS_SPEC = _kind_spec(
         _unique_check([f[:frame_index] for f in x[:frames]], "frame indices `frame_index`"),
         Some(nothing),
     ),
+    rule = "`exif_lens` only where the lens's identity source is \"config\"; frame indices are unique",
+    schema = ["if" => Dict("required" => ["exif_lens"]),
+              "then" => Dict("properties" => Dict("identity_sources" => Dict("properties" => Dict("lens" => Dict("const" => "config")))))],
 )
 
 const _CaptureSettingsRecord = Attributed{CaptureSettings, <:NamedTuple}

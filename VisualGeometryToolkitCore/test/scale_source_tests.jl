@@ -77,3 +77,49 @@
         @test scale_source(nothing) === ScaleNone            # no input (least squares)
     end
 end
+
+# The refine contract's loss width (hoisted from Estimation's `_refine_loss` and PoseLib's `_refine_width`, which had
+# drifted): least squares takes neither keyword; `scale` multiplies the strategy's constant (its own, else the table's);
+# `width` is the width itself and is refused beside a strategy's own width mode, named for what that mode is.
+@testitem "refine_width: scale xor width, the strategy's constant, least squares" begin
+    using Test
+    using VisualGeometryToolkitCore: refine_width, Irls, WelschShape, TLSShape, EfficiencyConstant, LossWidth,
+        efficiency_constant, ScaleGiven, ScaleNone, FitResult
+    lsq = refine_width(nothing, nothing, nothing, 2)
+    @test isnan(lsq.width) && isnan(lsq.efficiency_constant) && lsq.input === nothing
+    @test_throws "has no loss width" refine_width(nothing, 0.5, nothing, 2)
+    @test_throws "has no loss width" refine_width(nothing, nothing, 2.0, 2)
+    w = Irls{WelschShape}(25, nothing)
+    r = refine_width(w, 0.5, nothing, 2)
+    @test r.efficiency_constant == efficiency_constant(WelschShape, 2) && r.width == r.efficiency_constant * 0.5 &&
+          r.input.source === ScaleGiven
+    r = refine_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), 0.5, nothing, 1)
+    @test r.width == 1.5 && r.efficiency_constant == 3.0
+    r = refine_width(w, nothing, 2.0, 2)
+    @test r.width == 2.0 && r.efficiency_constant == 1.0 && r.input.source === ScaleNone && isnan(r.input.scale)
+    @test_throws "give `scale` or `width`, not both" refine_width(w, 0.5, 2.0, 2)
+    @test_throws ArgumentError refine_width(w, nothing, nothing, 2)
+    # a stated constant would be overridden by `width`; a stated absolute width contradicted (not "a constant")
+    @test_throws "states its efficiency constant 3.0" refine_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), nothing, 2.0, 2)
+    @test_throws "states its own width" refine_width(Irls{TLSShape}(25, LossWidth(2.0)), nothing, 1.0, 2)
+    # a truncation with no constant takes `width`, and refuses `scale` (no constant to multiply)
+    @test refine_width(Irls{TLSShape}(25, nothing), nothing, 1.5, 2).width == 1.5
+    @test_throws "no efficiency constant" refine_width(Irls{TLSShape}(25, nothing), 0.5, nothing, 2)
+end
+
+# The unit-bearing gate (hoisted from Estimation's `_assert_unit_bearings` and PoseLib's copy): finite first, then unit.
+@testitem "assert_unit_bearings: finite, then unit, naming the caller and the remedy" begin
+    using Test
+    using StaticArrays: SVector
+    using LinearAlgebra: normalize
+    using VisualGeometryToolkitCore: assert_unit_bearings
+    b = [normalize(SVector(0.1i, -0.05i, 1.0)) for i in 1:10]
+    @test assert_unit_bearings(b, "source", "MyProblem"; remedy = "Back-project.") === nothing
+    @test assert_unit_bearings(map(x -> SVector{3, Float32}(x), b), "source", "MyProblem"; remedy = "") === nothing
+    chart = [SVector(0.1i, -0.05i, 1.0) for i in 1:10]
+    @test_throws "MyProblem needs UNIT bearings; the target at index 10" assert_unit_bearings(chart, "target", "MyProblem"; remedy = "x")
+    @test_throws "Use the camera." assert_unit_bearings(chart, "target", "MyProblem"; remedy = "Use the camera.")
+    withnan = copy(b); withnan[4] = SVector(NaN, 0.0, 1.0); withnan[7] = 2 .* withnan[7]
+    @test_throws "MyProblem needs finite bearings; the source at index 4" assert_unit_bearings(withnan, "source", "MyProblem"; remedy = "")
+    @test_throws UndefKeywordError assert_unit_bearings(b, "source", "MyProblem")
+end

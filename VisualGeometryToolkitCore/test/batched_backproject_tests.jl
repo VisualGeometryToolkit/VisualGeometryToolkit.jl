@@ -43,3 +43,26 @@ end
         @test sources(cs)[i] == f1 && targets(cs)[i] == f2 && cs.M₁[i] == M1 && cs.M₂[i] == M2
     end
 end
+
+# The batched backprojection runs where its pixels live: a host vector stays on the host whatever accelerator the
+# session has (its bits are the scalar map's, as the docstring promises on the CPU), unless a device is given.
+@testitem "backproject(camera, host pixels) runs on the host by default, whatever the default device" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, backproject, backproject_with_jacobian
+    import KernelAbstractions as KA
+    struct _NoSuchGPU <: KA.GPU end                     # an accelerator nothing can allocate on
+    cam = CameraModel(400.0px, SA[321.5px, 238.25px]; lens = KannalaBrandt(-0.02, 0.003, 0.0, 0.0))
+    pixels = [SVector(x, y) for y in 0.5:37.0:479.5 for x in 0.5:41.0:639.5]
+    old_resolver, old_device = VgtkCore._DEVICE_RESOLVER[], VgtkCore._DEFAULT_DEVICE[]
+    try
+        VgtkCore._DEVICE_RESOLVER[] = () -> _NoSuchGPU()
+        VgtkCore.reset_default_device!()
+        @test VgtkCore.default_device() === _NoSuchGPU()
+        @test backproject(cam, pixels) == [SVector{3}(backproject(cam, u)) for u in pixels]
+        @test map(last, backproject_with_jacobian(cam, pixels)) == [last(backproject_with_jacobian(cam, u)) for u in pixels]
+        @test_throws Exception backproject(cam, pixels; device = VgtkCore.default_device())   # the accelerator, when asked for
+    finally
+        VgtkCore._DEVICE_RESOLVER[] = old_resolver; VgtkCore._DEFAULT_DEVICE[] = old_device
+    end
+end

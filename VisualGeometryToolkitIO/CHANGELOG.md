@@ -8,6 +8,18 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 
 ### Breaking
 
+- **One codec of quantities, sizes and feature frames, on the style** (core_json.jl): `json_value`, `from_json`,
+  `read_quantity` and `write_quantity` are retired (no alias): a quantity, a `Size2` (`{"width", "height"}`) and every
+  `FeatureFrame` are written by `JSON.lower(::VgioStyle, x)` and read by `JSON.lift(::VgioStyle, T, x[, tags])`; what a
+  number is (a pixel is dimensionless) is the field's TAG, `(; quantity = :length | :pixel | :density[, role])`, a lift
+  without tags reading plain numbers. `migrate_units(declaration)` (public) gives the 0.10 `units` object of a record in
+  the retired UnitContract layout (an owner's version step: BlobBoards' boards).
+- **THE frame codec**: a frame is `{"center"}` and its shape under ASCII keys (`sigma`, `angle`, `shape_matrix`,
+  `affine_matrix`, matrices in rows); an uncertain frame's `covariance` is over the frame's `frame_dof` parameters,
+  centre first, in the storage it holds (rows / `{"diagonal"}` / `{"isotropic"}`). `cov`, `cov_size`, a `null`
+  covariance and the 3×3 fallback for a size-less `null` are gone. `PointFrame` (0.9.4's codec) is its 2-DOF case.
+- **`vgio/panorama/v2.0`**: 0.9.4's v1 in the envelope, `frame_index` for `t`, the rotations `camera` → `world`; v1 reads
+  through its step. `save_panorama`/`load_panorama` keep their signatures.
 - **One envelope for every file**: `schema`, `generator` (`{"name": "VisualGeometryToolkitIO", "version", "caller"?}`,
   the caller named by `with_caller(f, Mod)`), ONE `units` object (`length`, `time`, `angle`, `pixel`, `density`,
   `radiance`, `length_roles`) and ONE `conventions` object (`rotation_encoding`, `transform_convention`,
@@ -43,7 +55,9 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
   point). `metrics` is a closed object of named numbers; `model` VGC's closed `CameraModelSpec` table.
 - **Content identity, one deliberate re-id**: `canonical_json` is RFC 8785 (JCS); the identity tree is the writer's
   0.10 record under its current names (specified in the docs, "Content identity"), lengths normalised in metres to 15
-  significant digits; the v2/v3 converters left the identity path. Every `content_id` changes once.
+  significant digits (a rig built in code from decimals of at most 15 digits, its file in any decimal unit and the rig
+  loaded back share one identity; IO 0.9's millimetre grid also absorbed a 16–17-digit file number's ≤2-ulp rewrite, which
+  no unit-free normalisation can); the v2/v3 converters left the identity path. Every `content_id` changes once.
 - **Quaternions with w < 0 are refused on read**, never flipped (an earlier file's are written w ≥ 0 by its step, as
   its reader read them).
 - **Blurs state their plane** (`blur/v2.0`): `pixel_frame` (or `frame: "image:<id>"`) on a sensor, px²; `frame:
@@ -61,7 +75,48 @@ written, and `vgio_migrate_tree` rewrites a stored tree once, repointing its obs
 
 ### Added
 
+- **`vgio/detection/v1.0`** (new kind): detections per image, `save(path, Dict(image => detections))` /
+  `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)`, through the one frame codec; the file declares once
+  the type of every detection (frame type, number type, covariance storage, each attribute's type), so it reads back
+  exact by type. A detection without a covariance omits it and states its `covariance_status` attribute.
+- **`vgio/sensor_noise/v1.0`** (new kind): VisualGeometryToolkitCore's `SensorNoise` (`save(path, noise)`,
+  `load(SensorNoise, path)`), keyed by `device.body` (the one device-identity encoding), every field with its source
+  and standard error or absent; a master dark's maps and the defect mask are row-major artifacts beside the record,
+  bound by their SHA-256.
 - `schema_versions()`, `with_caller`, `validate_record`; the published JSON Schemas (draft 2020-12) of every kind.
+
+## 0.9.4 (unreleased)
+
+Additive: one new kind and one more frame in the detection codec. No existing file, writer or reader changes.
+
+- **`vgio/panorama/v1`: a panorama's results** (PanoramaStitching's: the owner's ruling of 2026-11-13, "everything an
+  experiment produces or consumes is saved and loaded through IO"). `save_panorama(path, camera, rotations,
+  vignetting, gains; length_unit = mm, provenance = (;))` and `load_panorama(path) -> (; camera, rotations,
+  vignetting, gains)`, both public. The kind is composed ONLY of bodies other kinds already write, each through its own
+  lower and lift: the camera store's bounded camera body (`camera`), the trajectory body (`rotations`: per frame index
+  its pose camera → world, `Trajectory{CameraFrame, WorldFrame}`, with its image and time; no IO body holds a rotation
+  alone, so every translation is a zero length, and other frames or a translation that is not zero are refused on
+  write and on read) and the vgio/vignetting body (`vignetting`). `gains` (positional, stated: `nothing`, every frame
+  at one exposure, or the `K × C` exposure gains, `gains[k, c]` of frame index `k` in colour plane `c`, every one
+  positive, the rotations' frame indices then `1:K`) is written per frame index `t` as plain numbers,
+  `{"t": k, "gain": [g_R, g_G, g_B]}`: no IO body holds a gain. Its validator (`validate`, the readers and the bytes
+  before every write) composes the three bodies' tables: `_TRAJECTORY_BODY` is the trajectory file's table without
+  its schema and declarations (the trajectory kind's own table is now built from it; the same checks). A matrix stored
+  as rows is written and read by one pair of private helpers (`_matrix_rows`, `_rows_matrix`: the vignetting and light
+  bodies' and the gains'; the same bytes). A panorama has no VisualGeometryToolkitCore type of its own, so its value is
+  the NamedTuple of the four VGC values, through a pair of verbs as the calibration manifest's
+  (`save_manifest`/`load_manifest`).
+- **`PointFrame` in the detection codec** (`json_value` / `from_json`; VisualGeometryToolkitFeatures' Förstner
+  detections, `Attributed{Uncertain{PointFrame}}`): the family's 2-DOF frame, `{"center": [x, y]}`, plain pixels, and an
+  uncertain one's 2×2 covariance under `covariance` on the leaves an uncertain point (`Uncertain{Point2}`, a
+  `vgio/target_points2d` point's `xy` and `covariance`) is written with: rows, `{"diagonal": […]}` or
+  `{"isotropic": λ}`, the storage it holds; `null` when not finite (Förstner's unclassified window). One encoding of a
+  point and its covariance. A frame object with a `center` alone reads as a `PointFrame` (it was refused before: a
+  `Disc` without `σ`); a frame with any other key reads as before. A point frame's covariance under the other frames'
+  `cov`/`cov_size` is refused; a covariance object keyed by Symbol or a NamedTuple (a record built in memory) reads as
+  a parsed one. A Float32 frame is written
+  exactly and reads back as the same numbers in Float64; metadata read as parsed (a Symbol as a string, a `Point2` as
+  an array), as for every frame.
 
 ## 0.9.3 (unreleased)
 

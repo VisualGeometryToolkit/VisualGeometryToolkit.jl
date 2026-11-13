@@ -210,6 +210,16 @@ end
         zeros_on(dev::KA.GPU, T, n) = fill!(KA.allocate(dev, T, n), zero(T))
         workspace_gpu(n) = zeros(n)
         """))
+    # a helper is exempt by its WHOLE name (every `_`-token a transfer or allocation word), not by a fragment of it:
+    # computational code that starts with `fill`, `transfer` or `copy`, or holds `adapt` or `zones`, is checked
+    @test kinds("fill_sqrt_weights!(sw, w, backend) = backend isa KA.CPU ? (sw .= sqrt.(w)) : sqrt_kernel!(backend)(sw, w)\n") ==
+          [:backend_branch]
+    @test kinds("transfer_ellipse(H, e) = H isa CuArray ? gpu_conic(H, e) : conic(H, e)\n") == [:backend_branch]
+    @test kinds("_adaptive_trials(n, backend) = backend isa KA.GPU ? 2n : n\n") == [:backend_branch]
+    @test kinds("_copy_sq_distances_cpu!(q, r) = (q .= r .^ 2)\n_copy_sq_distances_gpu!(q, r) = (q .= r .^ 2)\n") == [:twin_name]
+    @test kinds("cones(backend::KA.CPU, x) = x\ncones(backend::KA.GPU, x) = 2x\n") == [:backend_branch]
+    # a twin of non-ASCII names is compared by characters (a byte slice of `θ_cpu` threw)
+    @test kinds("θ_cpu(x) = x\nθ_gpu(x) = 2x\n") == [:twin_name]
     # in a comment or a docstring: not code
     @test isempty(found("# if backend isa KA.CPU, the loop runs\n\"\"\"\n    f(x)\n\nNo `x isa CuArray` here.\n\"\"\"\nf(x) = x\n"))
 

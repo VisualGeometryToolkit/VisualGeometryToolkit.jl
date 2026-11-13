@@ -29,7 +29,7 @@ Every vgio file has a schema tag `vgio/<kind>/v<n>`. The current versions are
 rig v9; cameras and target v5; transforms and trajectory v4;
 target_poses, target_points2d, target_points3d and target_detections v2;
 noncentral_spline, target_homographies, capture_settings, calibration, vignetting,
-environment_light and blur v1; and
+environment_light, blur and panorama v1; and
 v2 for the rest. A file can be
 read exactly with nothing but itself. The rules that make this true:
 
@@ -59,36 +59,20 @@ pose. Values that can be derived from stored ones (a session's lens
 coefficients, centre and counts) are recomputed rather than stored. The
 writer refuses data whose derived values disagree with their source.
 
-**Measurements name their targets by content.** A measurement file
-(`target_detections`, `target_points2d`, `target_points3d`) names the rigs (or, for `target_detections` and `target_homographies`, a single
-unposed target, by the SHA-256 of its target record) that define the targets it indexes by their content identity, `content_id(rig)` or
-`content_id(path)`. This is the SHA-256 of the rig's identity tree: built from
-the in-memory rig under names of the identity's own, fixed once in
-`content_id`'s docstring and independent of any record's key spellings, every
-length in metres, the targets sorted by id, with no schema version, no
-declaration and no provenance. The identity does not change when the file
-format does: a rig, the file written from it in any decimal `length_unit`,
-the rig loaded back from that file and a migration of the file to the next rig
-version have one identity. A target's calibration kind, its parameters, its
-covariance and its board are part of it.
-
-The identity is of the persisted representation. A rotation enters as the
-quaternion the writer stores, so a rig held with matrix rotations, its file
-and the rig loaded from it share one identity; but a rotation converted
-matrix → quaternion → matrix is not bit-exact, so two in-memory rigs built
-from the same matrix by different routes can differ in the last ulp — mint an
-identity from what you save. A decimal length unit (mm, cm, m, μm) is
-decimal-exact; a non-decimal one (inch) is exact only for numbers born in it,
-so an inch file of millimetre-born numbers reads back within an ulp, and its
-identity differs from the value's. A test pins it for a rig of every target kind;
-a change to the tree re-ids every rig and must migrate the measurement files
-that name them.
+**Observations name their targets by content.** An observations file
+(`observations`, `target_homographies`) names the rigs or single unposed
+targets that define the targets it indexes by their content identity,
+`content_id(rig)` or `content_id(path)`: the SHA-256 of the RFC 8785 (JCS)
+serialization of the record's identity tree, in base units, with no envelope.
+[Content Identity](content-identity.md) specifies it completely, so it can be
+recomputed outside Julia.
 
 **One validator per kind.** The validator for each kind (`validate.jl`) runs
 on read and before every write, so a writer cannot produce a file that its
 reader refuses. `provenance` is the only free-form object, and the package
 never reads it. `VisualGeometryToolkitIO.validate(path)` runs the validator
-on any file.
+on any file, and every kind's table is published as a JSON Schema
+([JSON Schemas](json-schemas.md)).
 
 **A calibration block says where a calibration came from.** A stored camera
 may carry an optional `calibration` block, and a target a

@@ -169,7 +169,10 @@ const _TARGET_POINTS = _CheckedSpec(
     p -> isempty(p) ? nothing :
         !(all(q -> haskey(q, :xy), p) || all(q -> haskey(q, :xyz), p)) ? "points are all `xy` (a plane's) or all `xyz`" :
         !(all(q -> haskey(q, :covariance), p) || !any(q -> haskey(q, :covariance), p)) ? "every point states its `covariance`, or none does" :
-        nothing,
+        nothing;
+    rule = "the points are all `xy` (a plane's) or all `xyz`; every point states its `covariance`, or none does",
+    schema = [Dict("anyOf" => [Dict("items" => Dict("required" => ["xy"])), Dict("items" => Dict("required" => ["xyz"]))]),
+              Dict("anyOf" => [Dict("items" => Dict("required" => ["covariance"])), Dict("items" => Dict("not" => Dict("required" => ["covariance"])))])],
 )
 
 # The record type of a composition, written by its structure (it has no tag in
@@ -267,13 +270,49 @@ const _CALIBRATION_FIELDS = Pair{Symbol, _Spec}[:nodes => _Vec(_XY), :parameters
 # (`members`, the retired record's key, is admitted here only to be refused by
 # name in `_target_calibration_check`)
 const _TARGET_CALIBRATION_MEMBER = _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_Free()), :members => _Vec(_Free())]))
+# `_target_calibration_check` in JSON Schema, from VGC's registry: each kind's tag, the keys it states
+# (`_calibration_keys`) and, where its type fixes it, its parameter count; a composition's members
+# (`member`) are kinds, never a composition, and carry no covariance.
+function _calibration_kind_schema(member::Bool)
+    keys_ = (:nodes, :parameters, Symbol(_COMPOSE_KEY))
+    cases = Any[]
+    for tag in keys(TARGET_CALIBRATION_TAGS)
+        want = _calibration_keys(tag)
+        then = Dict{String, Any}("required" => String[String(k) for k in want])
+        absent = [String(k) for k in keys_ if !(k in want)]
+        member && push!(absent, "covariance")
+        isempty(absent) || (then["not"] = Dict("anyOf" => [Dict("required" => [k]) for k in absent]))
+        if !(:nodes in want)
+            n = _record_parameter_count(tag, ())
+            n > 0 && (then["properties"] = Dict("parameters" => Dict("minItems" => n, "maxItems" => n)))
+            n == 0 && push!(get!(() -> Dict("anyOf" => Any[]), then, "not")["anyOf"], Dict("required" => ["covariance"]))
+        end
+        push!(cases, Dict("if" => Dict("properties" => Dict("type" => Dict("const" => tag))), "then" => then))
+    end
+    tags = collect(String, keys(TARGET_CALIBRATION_TAGS))
+    member || push!(cases, Dict("if" => Dict("properties" => Dict("type" => Dict("const" => _COMPOSITION_TYPE))),
+                                "then" => Dict("required" => [_COMPOSE_KEY], "not" => Dict("anyOf" => [Dict("required" => ["nodes"]), Dict("required" => ["parameters"])]),
+                                               "properties" => Dict(_COMPOSE_KEY => Dict("minItems" => 2, "maxItems" => length(TARGET_CALIBRATION_ORDER),
+                                                                                         "items" => Dict("allOf" => _calibration_kind_schema(true)))))))
+    return Any[Dict("properties" => Dict("type" => Dict("enum" => member ? tags : [tags; _COMPOSITION_TYPE]))), cases...]
+end
 const _TARGET_CALIBRATION = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_TARGET_CALIBRATION_MEMBER), :members => _Vec(_Free())])),
-    x -> _target_calibration_check(x, false),
+    x -> _target_calibration_check(x, false);
+    rule = "`type` is a calibration kind's tag (VisualGeometryToolkitCore's TARGET_CALIBRATION_TAGS) or \"$(_COMPOSITION_TYPE)\". " *
+           "A kind states the keys its type takes (thin_plate_spline, height_field: `nodes`, at least one, and `parameters`; " *
+           "rigid: neither; any other: `parameters`), as many parameters as VisualGeometryToolkitCore's `length_mask` of the " *
+           "kind has, and a `covariance` over them (n × n, symmetric) only where it has parameters. A composition states " *
+           "`$(_COMPOSE_KEY)`: 2 to $(length(TARGET_CALIBRATION_ORDER)) kinds in the canonical order " *
+           "[$(join(map(calibration_tag, TARGET_CALIBRATION_ORDER), ", "))], each at most once, the outer map first, " *
+           "none a composition or carrying a covariance (the composition's covers every member's parameters).",
+    schema = _calibration_kind_schema(false),
 )
 
+const _POSITIVE_SIZE = Dict{String, Any}("properties" => Dict("width" => Dict("exclusiveMinimum" => 0), "height" => Dict("exclusiveMinimum" => 0)))
 const _BOARD = _Obj(
-    :size => _CheckedSpec(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0"),
+    :size => _CheckedSpec(_Obj(:width => _Real(), :height => _Real()), z -> (z[:width] > 0 && z[:height] > 0) ? nothing : "a board's width and height are > 0";
+                          rule = "a board's width and height are > 0", schema = [_POSITIVE_SIZE]),
     :origin => _XY,
 )
 
@@ -281,19 +320,23 @@ const _SIZE_WH = _Obj(:width => _Real(), :height => _Real())
 const _CANVAS_TEXTURE = _CheckedSpec(
     _Obj(
         :path => _Named(p -> !isempty(p) && !isabspath(p), "a path relative to the file that names it"),
-        :sha256 => _Named(s -> occursin(r"^[0-9a-f]{64}$", s), "a SHA-256 hex digest (64 lowercase hex digits)"),
+        :sha256 => _HEX64,
         :size => _SIZE_WH, :origin => _XY,
     ),
-    z -> (z[:size][:width] > 0 && z[:size][:height] > 0) ? nothing : "a canvas texture's width and height are > 0",
+    z -> (z[:size][:width] > 0 && z[:size][:height] > 0) ? nothing : "a canvas texture's width and height are > 0";
+    rule = "a canvas texture's width and height are > 0", schema = [Dict("properties" => Dict("size" => _POSITIVE_SIZE))],
 )
 const _CANVAS = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:size => _SIZE_WH, :origin => _XY], Pair{Symbol, _Spec}[:texture => _CANVAS_TEXTURE]),
-    z -> (z[:size][:width] >= 0 && z[:size][:height] >= 0) ? nothing : "a canvas's width and height are ≥ 0",
+    z -> (z[:size][:width] >= 0 && z[:size][:height] >= 0) ? nothing : "a canvas's width and height are ≥ 0";
+    rule = "a canvas's width and height are ≥ 0",
+    schema = [Dict("properties" => Dict("size" => Dict("properties" => Dict("width" => Dict("minimum" => 0), "height" => Dict("minimum" => 0)))))],
 )
 
 const _PLACEMENT = _CheckedSpec(
     _Obj(:origin => _XY, :side => _Real()),
-    z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0",
+    z -> (isfinite(z[:side]) && z[:side] > 0) ? nothing : "a chart placement's side is > 0";
+    rule = "a chart placement's side is > 0", schema = [Dict("properties" => Dict("side" => Dict("exclusiveMinimum" => 0)))],
 )
 
 # A layout record's keys besides `type` (VGC's `TARGET_LAYOUT_TAGS` gives the
@@ -321,7 +364,13 @@ const _TARGET_LAYOUT = _CheckedSpec(
             haskey(x, k) || return "a $(ty) layout states its `$(k)`"
         end
         return nothing
-    end,
+    end;
+    rule = "`type` is a layout's tag (VisualGeometryToolkitCore's TARGET_LAYOUT_TAGS), and the record states exactly that layout's keys",
+    schema = [Dict("properties" => Dict("type" => Dict("enum" => collect(String, keys(TARGET_LAYOUT_TAGS))))),
+              (Dict("if" => Dict("properties" => Dict("type" => Dict("const" => tag))),
+                    "then" => Dict("required" => String.(collect(_layout_keys(TARGET_LAYOUT_TAGS[tag]))),
+                                   "propertyNames" => Dict("enum" => ["type"; String.(collect(_layout_keys(TARGET_LAYOUT_TAGS[tag])))])))
+               for tag in keys(TARGET_LAYOUT_TAGS))...],
 )
 
 # A planar body's design: exactly one of these (a reference, nominal points, a layout).
@@ -357,7 +406,15 @@ const _TARGET_BODY = _CheckedSpec(
         ty in ("points", "planar") &&
             return "the target type $(repr(ty)) is the IO 0.9 tag, read only through its version step: a current record says \"$(_POINT_TARGET_TAG)\" or \"$(_PLANAR_TARGET_TAG)\" (the tag rule)"
         return "unknown target type $(repr(ty)) ($(_POINT_TARGET_TAG), $(_PLANAR_TARGET_TAG))"
-    end,
+    end;
+    rule = "a $(_POINT_TARGET_TAG) states its `points` and nothing else; a $(_PLANAR_TARGET_TAG) states its `calibration` and " *
+           "its design by exactly one of `reference`, `nominal` or `layout`, and no `points`",
+    schema = [Dict("properties" => Dict("type" => Dict("enum" => [_POINT_TARGET_TAG, _PLANAR_TARGET_TAG]))),
+              Dict("if" => Dict("properties" => Dict("type" => Dict("const" => _POINT_TARGET_TAG))),
+                   "then" => Dict("required" => ["points"],
+                                  "not" => Dict("anyOf" => [Dict("required" => [String(k)]) for k in (_DESIGN_KEYS..., :calibration, :board, :canvas, :placement)])),
+                   "else" => Dict("required" => ["calibration"], "not" => Dict("required" => ["points"]),
+                                  "oneOf" => [Dict("required" => [String(k)]) for k in _DESIGN_KEYS]))],
 )
 
 # A target's points on the wire (`_TARGET_POINTS`): each its lengths under `xy`
@@ -787,6 +844,9 @@ const _RIG_SPEC = _kind_spec(
         (isempty(ss) && isempty(ts)) && return "a rig has sensors, targets, or both"
         return _unique_check(vcat([s[:id] for s in ss], [t[:id] for t in ts]), "member ids")
     end,
+    rule = "a rig has sensors, targets or both — an empty `sensors` or `targets` is omitted, not written — and member ids are unique",
+    schema = [Dict("anyOf" => [Dict("required" => ["sensors"]), Dict("required" => ["targets"])],
+                   "properties" => Dict("sensors" => Dict("minItems" => 1), "targets" => Dict("minItems" => 1)))],
 )
 
 function _sensor_json(s::VgioStyle, rig, i, id)
@@ -943,7 +1003,6 @@ _lower(x::AbstractDict) = Dict{String, Any}(String(k) => _lower(v) for (k, v) in
 _lower(x::AbstractVector) = Any[_lower(v) for v in x]
 _lower(x) = x
 
-const _HEX64 = _Named(s -> length(s) == 64 && all(c -> c in "0123456789abcdef", s), "a SHA-256 hex digest")
 
 # A targets argument — a Rig, a targets file, or several (one per connected
 # component) — as a list, its loaded rigs, and its content hashes. A PATH is

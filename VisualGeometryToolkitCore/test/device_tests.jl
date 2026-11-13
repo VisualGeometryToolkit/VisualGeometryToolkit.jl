@@ -274,3 +274,29 @@ end
         @test Array(on_device(KA.CPU(), d)) == a
     end
 end
+
+# One launch value per backend type: a kernel on the same data compiles once, one way, whether the caller holds
+# `default_device()` or `get_backend` of its array (which never reports compiler options).
+@testitem "OnBackend: one launch value per backend type (CUDA availability-gated)" begin
+    using Test
+    using StaticArrays: SVector
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: OnBackend, default_device, pointwise!
+    @test OnBackend(KA.CPU()).backend === KA.CPU() && OnBackend(KA.CPU(), (1, 1)).workgroupsize === (1, 1)
+    using CUDA: CUDA
+    if CUDA.functional()
+        VgtkCore.reset_default_device!()          # resolved afresh with the CUDA extension loaded (an earlier item may have cached the CPU)
+        d = default_device()
+        @test d === CUDA.CUDABackend(; always_inline = true)
+        x = CUDA.CuArray([SVector(0.1i, -0.2i) for i in 1:100])
+        @test OnBackend(KA.get_backend(x)).backend === d
+        @test OnBackend(CUDA.CUDABackend(; prefer_blocks = true); workgroupsize = 1).backend ===
+              CUDA.CUDABackend(; prefer_blocks = true, always_inline = true)
+        f(p) = SVector(sin(p[1]) * p[2], p[1] / (1 + p[2]^2))
+        a = similar(x); b = similar(x)
+        pointwise!(f, a, x); pointwise!(f, b, x; exec = OnBackend(d))
+        KA.synchronize(d)
+        @test isequal(Array(a), Array(b))
+    end
+end

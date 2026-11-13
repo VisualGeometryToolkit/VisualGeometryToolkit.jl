@@ -583,7 +583,7 @@ function same_value(a::Uncertain, b::Uncertain; length_ulps::Integer = 2)
 end
 # A correspondence set: its endpoints and its attribute columns, through its
 # accessors (the AbstractArray method above would compare its pairs only).
-same_value(a::Csponds, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
+same_value(a::Correspondences, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) &&
     same_value(sources(a), sources(b); length_ulps) && same_value(targets(a), targets(b); length_ulps) && same_value(a.attrs, b.attrs; length_ulps)
 # A non-central model's point controls are plain metres (its directions are not lengths).
 same_value(a::NoncentralSplineModel, b::NoncentralSplineModel; length_ulps::Integer = 2) =

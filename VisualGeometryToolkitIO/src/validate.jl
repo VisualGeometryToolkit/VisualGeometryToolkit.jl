@@ -401,6 +401,26 @@ const _GENERATOR = _Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), :version => _P
                         Pair{Symbol, _Spec}[:caller => _PACKAGE_ID])
 const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 
+# THE TERMINATION RECORD of a fit (VisualGeometryToolkitCore's `FitResult` core, the robust-estimation contract §14):
+# `{"retcode": <ReturnCode name>, "stop_rule": <StopRule name>, "iterations": n ≥ 0, "rms": r ≥ 0, "n": m ≥ 0}` —
+# why it stopped, which rule fired, the loop count, the RMS of the residuals (in the residuals' own unit) and their
+# number. The ONE record every kind that stores a fit's outcome embeds (the panorama's bundle); its estimate and
+# metadata are the kind's own fields. Read back as a `FitResult{Nothing, Nothing}`.
+const _RETCODE_NAMES = Tuple(String(Symbol(c)) for c in instances(VgtkCore.ReturnCode.T))
+const _STOP_RULE_NAMES = Tuple(String(Symbol(r)) for r in instances(VgtkCore.StopRule))
+const _FIT_RECORD = _CheckedSpec(
+    _Obj(:retcode => _Named(in(_RETCODE_NAMES), "a ReturnCode name"), :stop_rule => _Named(in(_STOP_RULE_NAMES), "a StopRule name"),
+         :iterations => _Int(), :rms => _Real(), :n => _Int()),
+    x -> (x[:iterations] >= 0 && x[:n] >= 0 && x[:rms] >= 0) ? nothing : "a fit's iterations, rms and n are ≥ 0";
+    rule = "iterations, rms and n are ≥ 0",
+    schema = [Dict("properties" => Dict("iterations" => Dict("minimum" => 0), "n" => Dict("minimum" => 0), "rms" => Dict("minimum" => 0)))],
+)
+_fit_record_json(r::FitResult) = (retcode = String(Symbol(VgtkCore.retcode(r))), stop_rule = String(Symbol(VgtkCore.stop_rule(r))),
+                                  iterations = VgtkCore.iterations(r), rms = VgtkCore.rms(r), n = getfield(r, :n))
+_fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, Symbol(x.retcode::String)),
+                                     only(r for r in instances(VgtkCore.StopRule) if String(Symbol(r)) == x.stop_rule),
+                                     Int(x.iterations::Integer), Float64(x.rms::Real), Int(x.n::Integer), nothing)
+
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
@@ -752,8 +772,9 @@ _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
 """
     validate(path) -> String
 
-Check a vgio v2 file — or a COLMAP model directory's `vgio_units.json`, when
-`path` is the directory — against its kind's table, the check every v2 reader
+Check a vgio file — or a COLMAP model directory's `vgio_units.json`, when
+`path` is the directory — against its kind's table (the envelope's `schema`,
+`generator`, `units` and `conventions`, then the body), the check every reader
 runs before using a field and every writer runs before writing, and return
 the kind (`"cameras"`, `"rig"`, …). An `ArgumentError` names the file, the
 offending key and the problem. A file of an earlier version is checked as

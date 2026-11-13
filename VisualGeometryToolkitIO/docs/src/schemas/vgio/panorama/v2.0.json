@@ -967,6 +967,84 @@
                 "additionalProperties": false
             }
         },
+        "fit": {
+            "type": "object",
+            "properties": {
+                "retcode": {
+                    "type": "string",
+                    "description": "a ReturnCode name",
+                    "enum": [
+                        "Default",
+                        "Success",
+                        "Terminated",
+                        "MaxIters",
+                        "InitialFailure",
+                        "Failure",
+                        "MaxTime",
+                        "Stalled",
+                        "InternalLinearSolveFailed"
+                    ]
+                },
+                "stop_rule": {
+                    "type": "string",
+                    "description": "a StopRule name",
+                    "enum": [
+                        "NoRule",
+                        "ClosedForm",
+                        "CostDecrease",
+                        "IncrementSize",
+                        "RejectionCap",
+                        "ParameterChange",
+                        "NoImprovement",
+                        "ExactFit",
+                        "ToleranceMet",
+                        "LadderConverged",
+                        "LeftBasin",
+                        "ShapeGate",
+                        "IterationCap",
+                        "TimeCap",
+                        "NonFinite",
+                        "Callback",
+                        "TrialBudget",
+                        "AdaptiveCount",
+                        "SeedKept"
+                    ]
+                },
+                "iterations": {
+                    "type": "integer"
+                },
+                "rms": {
+                    "type": "number"
+                },
+                "n": {
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "retcode",
+                "stop_rule",
+                "iterations",
+                "rms",
+                "n"
+            ],
+            "additionalProperties": false,
+            "description": "iterations, rms and n are ≥ 0",
+            "allOf": [
+                {
+                    "properties": {
+                        "iterations": {
+                            "minimum": 0
+                        },
+                        "n": {
+                            "minimum": 0
+                        },
+                        "rms": {
+                            "minimum": 0
+                        }
+                    }
+                }
+            ]
+        },
         "provenance": {
             "type": "object"
         }
@@ -977,8 +1055,7 @@
         "units",
         "conventions",
         "camera",
-        "rotations",
-        "vignetting"
+        "rotations"
     ],
     "additionalProperties": false,
     "allOf": [

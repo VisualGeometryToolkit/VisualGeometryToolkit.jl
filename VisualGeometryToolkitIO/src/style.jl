@@ -60,11 +60,14 @@ declaration: a [`UnitContract`](@ref) (its `length` unit, every lengths in
 decimal-exact through [`write_length`](@ref) and [`read_length`](@ref), its
 further length roles and its density) and the `pixel_frame` its pixel
 coordinates are written in. The writer takes it as `JSON.json(x; style =
-VgioStyle(…))`; every file's `units` object is the style's
-(`JSON.lower(style, contract)` writes the length part of it).
+VgioStyle(…))`; every file's `units` object is the style's (`length` the
+contract's `world` unit, `length_roles` its further roles, `density`, and
+`pixel` the pixel frame), which [`write_record`](@ref) writes into the
+envelope.
 
 `VgioStyle(record)` is the style a parsed record's `units` object declares (the
-reader's: a record a package of its own reads with [`read_record`](@ref)).
+reader's: a record a package of its own reads with [`read_record`](@ref)), the
+record read by property access (a `JSON.Object` or a `NamedTuple`).
 
 A package serializing a kind of its own embeds VGC values the same way (a
 pose, a `CameraModel`, a target with its calibration, a layout, an
@@ -111,12 +114,14 @@ function _units_json(s::VgioStyle)
 end
 # A parsed `units` object's contract (every key present: the validator's) and the style it declares.
 function _contract_from_units(u)
-    roles = u.length_roles
+    roles = _getkey(u, :length_roles)
     ls = NamedTuple(Symbol(k) => parse_unit(String(v)) for (k, v) in pairs(roles))
-    return UnitContract(parse_unit(u.density::String), merge((world = parse_unit(u.length::String),), ls))
+    return UnitContract(parse_unit(_getkey(u, :density)::String), merge((world = parse_unit(_getkey(u, :length)::String),), ls))
 end
-VgioStyle(record::Union{JSON.Object, NamedTuple, AbstractDict}) =
-    VgioStyle(_contract_from_units(record.units); pixel_frame = pixel_frame_from_name(record.units.pixel::String))
+function VgioStyle(record::Union{JSON.Object, NamedTuple, AbstractDict})
+    u = _getkey(record, :units)                   # a parsed object, a NamedTuple or a plain string-keyed Dict
+    return VgioStyle(_contract_from_units(u); pixel_frame = pixel_frame_from_name(_getkey(u, :pixel)::String))
+end
 # The style a file declares, with another length form (`_unit` of the record: the file's length unit).
 _file_length_unit(d) = parse_unit(d.units.length::String)
 

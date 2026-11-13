@@ -1,5 +1,11 @@
 # Getting Started
 
+```@meta
+# The generator's version is the package's: the printed file below holds
+# whatever version builds this page.
+DocTestFilters = [r"\"version\": \"[^\"]*\""]
+```
+
 Everything is read and written through two functions, `load` and `save`,
 dispatched on the VisualGeometryToolkitCore type. They are public but not
 exported, because FileIO and other packages export functions with the same
@@ -30,14 +36,31 @@ julia> VgtkIO.save(path, [X]; provenance = (method = "robot-world hand-eye",))
 
 julia> print(read(path, String))
 {
-    "schema": "vgio/transforms/v4",
-    "length_unit": "mm",
-    "rotation_encoding": "quaternion_wxyz_hamilton",
-    "transform_convention": "x_to = R * x_from + t",
+    "schema": "vgio/transforms/v5.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.10.0"
+    },
+    "units": {
+        "length": "mm",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
     "transforms": [
         {
             "from": "body:camera_rig",
-            "to": "camera_optical",
+            "to": "camera",
             "rotation": [
                 0.0,
                 1.0,
@@ -57,10 +80,13 @@ julia> print(read(path, String))
 }
 ```
 
-The file states everything a reader needs: the schema and its version, the
-length unit, how the rotation is encoded and what the transform does to a
-point. The two frames are named by the frame grammar (`body:camera_rig`,
-`camera_optical`).
+The file states everything a reader needs, in the envelope every vgio file
+opens with: the schema and its version, the software that wrote it
+(`generator`), the units of its numbers (`units`: lengths in millimetres here,
+the `length_unit` keyword of `save` names another) and the conventions (how
+the rotation is encoded, what the transform does to a point, 1-based
+indices). The two frames are named by the frame grammar (`body:camera_rig`,
+`camera`). [The envelope](kinds.md#The-envelope) explains each key.
 
 Loading takes the type you expect. Asking for the wrong kind is an error, not
 a guess:

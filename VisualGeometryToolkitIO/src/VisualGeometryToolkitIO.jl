@@ -124,6 +124,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
 using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noise/v1.0, radial_profile/v1.0
 
@@ -168,8 +169,10 @@ using VisualGeometryToolkitCore: SensorNoise, BinnedRadialProfile   # sensor_noi
 #   save_correspondences, save_tum_trajectory, save_euroc_trajectory, save_bop_scene, save_trc
 #                                                exporters: VGC values in, a foreign shape out
 #   VgioStyle                                    the style every embedded VGC value is lowered/lifted on (style.jl)
-#   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
-#   pose_declarations                            building blocks for a package's own kind
+#   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json
+#                                                building blocks for a package's own kind
+#   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, with_caller
+#                                                a package's own kind in the vgio envelope, and its version steps
 #
 # PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetObservations{F}`): the producer
 # attaches it, `save` writes it as the file's declaration without converting a

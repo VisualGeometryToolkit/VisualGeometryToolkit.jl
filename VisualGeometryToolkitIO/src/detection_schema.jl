@@ -224,7 +224,7 @@ function load(::Type{<:AbstractDict{String, <:AbstractVector{<:AbstractDetection
     d = _read_store(path, "detection", _DETECTION_SPEC)
     s = VgioStyle(d)
     D = _detection_type(d.detection)
-    o = EuclideanMap(_pixel_frame(s), CANONICAL_PIXEL_FRAME)(SVector(0.0, 0.0))
+    o = _vignetting_offset(s, _pixel_frame(s), CANONICAL_PIXEL_FRAME)
     return Dict{String, Vector{D}}(
         String(im.image::String) => D[_detection_from(s, D, x, o) for x in im.detections::Vector{Any}] for im in d.images::Vector{Any}
     )

@@ -56,4 +56,9 @@ Pages = ["raw/sensor_model.jl", "raw/sensor_estimators.jl"]
 
 ```@docs
 VisualGeometryToolkitCore.SensorSource
+VisualGeometryToolkitCore.SensorSource.T
+VisualGeometryToolkitCore.SensorSource.measured
+VisualGeometryToolkitCore.SensorSource.estimated
+VisualGeometryToolkitCore.SensorSource.specified
+VisualGeometryToolkitCore.SensorSource.file
 ```

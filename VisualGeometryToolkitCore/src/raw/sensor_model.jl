@@ -50,6 +50,11 @@ slot ([`sensor_model`](@ref VisualGeometryToolkitCore.sensor_model)).
 module SensorSource
 @enum T::UInt8 measured estimated specified file
 public T, measured, estimated, specified, file   # read qualified, `SensorSource.measured` (ExplicitImports' public-names gate)
+@doc "`SensorSource.T`: the `SensorSource` enum type, a sensor component's `source` field (an isbits `@enum`)." T
+@doc "`SensorSource.measured`: a `SensorSource` — the values were measured (dark frames, flats, a photon-transfer capture)." measured
+@doc "`SensorSource.estimated`: a `SensorSource` — the values were fitted by an estimator, with their standard errors." estimated
+@doc "`SensorSource.specified`: a `SensorSource` — the values were stated by a person (a datasheet, a config, TOML literals)." specified
+@doc "`SensorSource.file`: a `SensorSource` — the values are the RAW file's own metadata (a `FileBlack`'s)." file
 end
 
 """

@@ -875,10 +875,19 @@ _blocks_stationary!(g, w, offsets, blocks::AbstractVector, variables, free, tol:
     _blocks_stationary!(g, w, offsets, (blocks,), variables, free, tol, ftol)
 function _blocks_stationary!(g, w, offsets, groups::Tuple, variables, free, tol::Real, ftol::Real)
     fill!(g, 0.0); fill!(w, 0.0)
-    F, f2, carried = _accumulate_groups!(g, w, offsets, groups, variables, free, (0.0, 0.0, false))
-    F < ftol && return true
-    return _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+    return _stationary_from(_accumulate_groups!(g, w, offsets, groups, variables, free, (0.0, 0.0, false)), g, w, tol, ftol)
 end
+# A problem whose block types are not in its type (NLLSsolver's untyped repository: its vectors are a Dict's values) —
+# one dynamic dispatch per block type, the loop over each type's blocks compiled.
+function _blocks_stationary!(g, w, offsets, groups::Base.ValueIterator, variables, free, tol::Real, ftol::Real)
+    fill!(g, 0.0); fill!(w, 0.0)
+    acc = (0.0, 0.0, false)
+    for blocks in groups
+        acc = _accumulate_blocks!(g, w, offsets, blocks, variables, free, acc)
+    end
+    return _stationary_from(acc, g, w, tol, ftol)
+end
+_stationary_from((F, f2, carried), g, w, tol, ftol) = F < ftol || _robust_stationary_decision(g, w, f2, carried, tol, ftol)
 # The multi-block LM's postcondition on its own scratch, block types grouped (the solve's and its allocation test's).
 _lm_problem_stationary!(p::LmProblem, tol::Real, ftol::Real) =
     _blocks_stationary!(p.g, p.w, p.offsets, values(p.problem.costs), p.variables, p.free, tol, ftol)

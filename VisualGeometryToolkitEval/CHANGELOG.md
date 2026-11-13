@@ -30,6 +30,11 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 
 ### Added
 
+- **Runner arrays over any list or table of a stage's config, and a loop inside each task.** `array.from` is a dotted
+  key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
+  and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
+  set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
+  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 

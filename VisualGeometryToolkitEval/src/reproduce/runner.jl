@@ -132,7 +132,8 @@ const _STAGE_KEYS = ("name", "after", "what", "sbatch", "command", "results_bran
                      "gpu", "default", "time", "array", "inputs_from", "cpus_per_task", "mem_per_cpu", "gres", "ntasks", "nodes",
                      "nice")
 const _INPUTS_FROM_KEYS = ("config", "key", "base")
-const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s")
+const _ARRAY_KEYS = ("items", "from", "select_env", "max_time", "time_margin_s", "each")
+const _EACH_KEYS = ("from", "env")
 const _SITE_ROOT_KEYS = ("data_root", "results_root", "env", "tiers")
 
 """
@@ -155,12 +156,17 @@ site, run by `bash` on a local one with the Slurm variables it reads set), `comm
 --wrap` on a Slurm site) or `results_branch = true` (the paper's results branch of the launch,
 `results_branch_of_run`). `driver` and `config` name the driver and its config of record (the config may hold
 `{item}`, one per array item): the run manifest hashes them, the input check reads the config's `[inputs]`, and the
-dry run prints the driver's own command line. `array` makes the stage an array: over `items`, or over the config's
-`[cases]` (`from = "cases"`, sorted by name); `inputs_from` (tables `{config, key, base}`) names further configs whose
+dry run prints the driver's own command line. `array` makes the stage an array, one task per item: over `items`,
+or over the values at a dotted key `from` of the stage's config — a table's keys sorted by name (`from = "cases"`,
+the config's `[cases]`; `from = "variants"`), a list of strings in its order (`from = "grid.sets"`). `array.each =
+{ from, env }` loops inside each task: the task runs its command once per value at the dotted key `from` of its
+item's config (a table's keys sorted, a list in order), with the variable `env` set to the value, in order, and
+fails at the first value that fails (a set's task over every variant); `inputs_from` (tables `{config, key, base}`) names further configs whose
 `[inputs]` the stage reads, as the paths at a dotted `key` of `config` (a segment `*` is every key of that table;
 each path relative to `base` under the workdir), for a stage that runs other drivers' configs; `select_env` names the variable that selects a subset (comma-separated)
-and that the stage's launcher reads, and `max_time` (a dotted key of each case, seconds) plus `time_margin_s` sizes
-its `--time`. `env` is exported to the stage, `job_name` and `time` override the launcher's, `gpu` marks a GPU stage
+and that the stage's launcher reads (`each`'s `env`, set in the launch's environment, selects the values alike), and
+`max_time` (a dotted key of each entry of a `from` table, seconds; times the number of `each` values) plus
+`time_margin_s` sizes its `--time`. `env` is exported to the stage, `job_name` and `time` override the launcher's, `gpu` marks a GPU stage
 (`gres`, `CUDA_VISIBLE_DEVICES`, the site's `gpu_limit`), and `default = false` keeps it out of a run without `--only`.
 `cpus_per_task`, `mem_per_cpu` and `gres` are the stage's own resources, over the site's (`0`/`""`: the site's;
 validated: a count, `8G`/`4000M`, `gpu:4`), and `ntasks` and `nodes` its tasks and nodes (a distributed stage;
@@ -187,6 +193,8 @@ struct StageSpec
     items::Vector{String}
     items_from::String
     select_env::String
+    each_from::String
+    each_env::String
     max_time::String
     time_margin_s::Int
     is_array::Bool
@@ -236,13 +244,19 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
         for k in keys(a)
             k in _ARRAY_KEYS || throw(ArgumentError("stage $name: unknown key array.$k (known: $(join(_ARRAY_KEYS, ", ")))"))
         end
-        haskey(a, "items") == (get(a, "from", "") == "cases") &&
-            throw(ArgumentError("stage $name: an array takes items = [...] or from = \"cases\""))
-        get(a, "from", "cases") == "cases" || throw(ArgumentError("stage $name: array.from = $(repr(a["from"])) is not \"cases\""))
-        get(a, "from", "") == "cases" && !haskey(t, "config") &&
-            throw(ArgumentError("stage $name: array.from = \"cases\" needs the stage's config"))
+        haskey(a, "items") == haskey(a, "from") &&
+            throw(ArgumentError("stage $name: an array takes items = [...] or from = \"<dotted key of its config>\""))
+        haskey(a, "from") && (!haskey(t, "config") || occursin("{item}", t["config"])) &&
+            throw(ArgumentError("stage $name: array.from = $(repr(a["from"])) needs the stage's config, one for every item"))
+        each = get(a, "each", Dict{String, Any}())
+        isempty(each) || each isa AbstractDict && all(in(_EACH_KEYS), keys(each)) && all(k -> haskey(each, k), _EACH_KEYS) ||
+            throw(ArgumentError("stage $name: array.each takes {from = \"<dotted key of the item's config>\", env = \"<variable>\"}"))
+        isempty(each) || haskey(t, "config") || throw(ArgumentError("stage $name: array.each needs the stage's config"))
+        isempty(each) || occursin(r"^[A-Za-z_][A-Za-z0-9_]*$", each["env"]) ||
+            throw(ArgumentError("stage $name: array.each.env = $(repr(each["env"])) is no variable name"))
     end
     a = something(a, Dict{String, Any}())
+    each = get(a, "each", Dict{String, Any}())
     from = Dict{String, Any}.(get(t, "inputs_from", Dict{String, Any}[]))
     for f in from, k in keys(f)
         k in _INPUTS_FROM_KEYS || throw(ArgumentError("stage $name: unknown key inputs_from.$k (known: $(join(_INPUTS_FROM_KEYS, ", ")))"))
@@ -253,6 +267,7 @@ function _stage_spec(t::AbstractDict, where::AbstractString)
                      get(t, "config", ""), Dict{String, String}(k => string(v) for (k, v) in get(t, "env", Dict())),
                      get(t, "job_name", ""), get(t, "gpu", false), get(t, "default", true), get(t, "time", ""),
                      String.(get(a, "items", String[])), get(a, "from", ""), get(a, "select_env", ""),
+                     get(each, "from", ""), get(each, "env", ""),
                      get(a, "max_time", ""), get(a, "time_margin_s", 0), !isempty(a), from,
                      _cpus_count(name, get(t, "cpus_per_task", 0), "cpus_per_task"),
                      _resource(name, "mem_per_cpu", get(t, "mem_per_cpu", ""), r"^[0-9]+[KMGT]?$"),
@@ -373,27 +388,58 @@ _config_of(s::StageSpec, item) = replace(s.config, "{item}" => item)
 """
     stage_items(g, stage; env = ENV) -> Vector{String}
 
-The items of an array stage, in task order: its `items`, or its config's `[cases]` sorted by name; the
-comma-separated `env[select_env]`, when set, selects a subset (cases sorted, items in the order given; an unknown
-case is an error). `[""]` for a stage that is not an array.
+The items of an array stage, in task order: its `items`, or the values at the dotted key `array.from` of its config
+(a table's keys sorted by name, `[cases]` among them; a list of strings in its order); the comma-separated
+`env[select_env]`, when set, selects a subset (a table's keys sorted, a list's in the order given; a value the
+config does not hold is an error). `[""]` for a stage that is not an array.
 """
 function stage_items(g::StageGraph, s::StageSpec; env = ENV)
     s.is_array || return [""]
-    sel = isempty(s.select_env) ? "" : get(env, s.select_env, "")
-    picked = String.(split(sel, ','; keepempty = false))
-    s.items_from == "cases" || return isempty(picked) ? s.items : picked
-    cases = TOML.parsefile(joinpath(g.workdir, s.config))["cases"]
-    isempty(picked) && return sort(collect(String, keys(cases)))
-    bad = setdiff(picked, keys(cases))
-    isempty(bad) || throw(ArgumentError("stage $(s.name): $(s.select_env) names unknown case(s) $(join(bad, ", "))"))
-    return sort(picked)
+    picked = _picked(s.select_env, env)
+    isempty(s.items_from) && return isempty(picked) ? s.items : picked
+    return _array_values(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from, picked, "stage $(s.name): $(s.select_env)")
 end
 
-# --time in minutes: the largest selected case's max_time plus the margin; 0 = the launcher's own.
-function _array_minutes(g::StageGraph, s::StageSpec, items)
-    (isempty(s.max_time) || s.items_from != "cases") && return 0
-    cases = TOML.parsefile(joinpath(g.workdir, s.config))["cases"]
-    m = maximum(round(Int, _dotted(cases[i], s.max_time)) for i in items)
+# The comma-separated values the variable `var` of `env` selects; none when it is unset (or there is no variable).
+_picked(var, env) = isempty(var) ? String[] : String.(split(get(env, var, ""), ','; keepempty = false))
+
+# The values at the dotted key `key` of config `t`: a table's keys sorted by name, a list of strings in its order;
+# `picked` (when not empty) selects among them, sorted for a table, in its own order for a list.
+function _array_values(t::AbstractDict, key::AbstractString, picked, what)
+    v = try
+        _dotted(t, key)
+    catch
+        throw(ArgumentError("$what: the config has no `$key`"))
+    end
+    all_ = v isa AbstractDict ? sort(collect(String, keys(v))) :
+           v isa AbstractVector && all(x -> x isa AbstractString, v) ? String.(v) :
+           throw(ArgumentError("$what: `$key` of the config is neither a table nor a list of strings"))
+    isempty(picked) && return all_
+    bad = setdiff(picked, all_)
+    isempty(bad) || throw(ArgumentError("$what names unknown value(s) $(join(bad, ", ")) (the config's `$key`: $(join(all_, ", ")))"))
+    return v isa AbstractDict ? sort(picked) : picked
+end
+
+"""
+    stage_each(g, stage, item; env = ENV) -> Vector{String}
+
+The values a task of an array stage loops over (`array.each`): those at the dotted key `each.from` of its item's
+config (a table's keys sorted by name, a list in its order), selected by the comma-separated `env[each.env]` when
+set; `[]` for a stage without `each` (the task runs its command once).
+"""
+function stage_each(g::StageGraph, s::StageSpec, item::AbstractString; env = ENV)
+    isempty(s.each_from) && return String[]
+    return _array_values(TOML.parsefile(joinpath(g.workdir, _config_of(s, item))), s.each_from, _picked(s.each_env, env),
+                         "stage $(s.name): $(s.each_env)")
+end
+
+# --time in minutes: the largest selected entry's max_time (times its task's number of `each` values) plus the margin;
+# 0 = the launcher's own.
+function _array_minutes(g::StageGraph, s::StageSpec, items, each)
+    (isempty(s.max_time) || isempty(s.items_from)) && return 0
+    entries = _dotted(TOML.parsefile(joinpath(g.workdir, s.config)), s.items_from)
+    entries isa AbstractDict || return 0
+    m = maximum(round(Int, _dotted(entries[i], s.max_time)) * max(1, length(v)) for (i, v) in zip(items, each))
     return cld(m + s.time_margin_s, 60)
 end
 
@@ -487,7 +533,7 @@ end
 """
     PlannedStage
 
-One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
+One stage of a launch: its spec, its `items` (and per item the values its task loops over, `each`: `[]` for none), the selected stages it runs `after`, its run `key` (every file and
 option the stage's jobs read, and the keys of the stages it runs after, their last completed runs' for those the
 launch does not run; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
@@ -501,6 +547,7 @@ not reused (`""` when there is none or it is: `"code changed: VisualGeometryTool
 mutable struct PlannedStage
     spec::StageSpec
     items::Vector{String}
+    each::Vector{Vector{String}}
     after::Vector{String}
     key::String
     env::Dict{String, String}
@@ -668,7 +715,8 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
-        minutes = _array_minutes(g, s, items)
+        each = [stage_each(g, s, i; env) for i in items]
+        minutes = _array_minutes(g, s, items, each)
         e = merge(roots_env, site_env, s.env)
         isempty(s.select_env) || (e[s.select_env] = join(items, ","))
         if site.backend === :local
@@ -689,12 +737,13 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
                                   "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
                                   "command" => filter(a -> !any(o -> startswith(a, o), _UNKEYED_OPTIONS), cmd), "site" => site.name)
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
+        isempty(s.each_from) || (keyed["each"] = each)    # the values each task loops over
         # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
         # stage with none, so its key is unchanged
         isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
         key = keys_of[name] = _toml_hash(keyed)
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
-        push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
+        push!(stages, PlannedStage(s, items, each, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
     base = Dict{String, String}(env)
     # The jobs resolve a tier's root as this launch did: the site's [sites.<site>.tiers] become the variables a
@@ -1018,6 +1067,11 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
         arr = s.is_array ? "  array of $(length(st.items)): $(join(st.items, " "))" : ""
         println(io, "\n[$i] $(s.name)$(arr)")
         isempty(s.what) || println(io, "    what     $(s.what)")
+        if !isempty(s.each_from)                               # the values each task loops over, by item
+            println(io, "    each     $(s.each_env) over $(s.each_from): ",
+                    all(==(st.each[1]), st.each) ? join(st.each[1], " ") * (s.is_array ? " (every task)" : "") :
+                                                   join(("$i: $(join(v, " "))" for (i, v) in zip(st.items, st.each)), "; "))
+        end
         println(io, "    after    $(isempty(st.after) ? "—" : join(st.after, ", "))")
         println(io, "    key      $(st.key)", st.reuse == "completed" ? "  REUSED (completed in an earlier launch)" :
                                             !isempty(st.reuse) ? "  IN FLIGHT (job $(st.reuse) of an earlier launch)" :
@@ -1184,6 +1238,7 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
         _sbatch_directives(text), _interpreted(snap, text)
     end
     traps = join(("trap '_vgtk_forwarded=$sig; kill -$sig \"\$_vgtk_child\" 2>/dev/null' $sig" for sig in _directive_signals(header)), "\n")
+    isempty(s.each_from) || (body = _each_loop(st, body, _directive_signals(header)))
     text = _MARKER_WRAPPER
     for (k, v) in ("@@HEADER@@" => join(header, "\n"), "@@MANIFEST@@" => plan.manifest, "@@STAGE@@" => _shell_quote(s.name),
                    "@@DIR@@" => _shell_quote(dir), "@@COMMIT@@" => _shell_quote(plan.commit), "@@KEY@@" => _shell_quote(st.key),
@@ -1193,6 +1248,28 @@ function _marker_wrapper(plan::ReproducePlan, st::PlannedStage, dir::AbstractStr
     path = joinpath(dir, "marker_wrapper.sbatch")
     write(path, text)
     return path
+end
+
+# The body of an `array.each` stage's wrapper: a subshell that runs `body` once per value of the task's item (its
+# variable exported), in order, and exits with the first failing run's status; a TERM, or a signal the launcher's
+# directives ask for, reaches the run in progress.
+function _each_loop(st::PlannedStage, body::AbstractString, signals)
+    s = st.spec
+    cases = join(("  $(t - 1)) _vgtk_each=($(join(_shell_quote.(v), " "))) ;;" for (t, v) in enumerate(st.each)), "\n")
+    fwd = join(("trap 'kill -$sig \"\$_vgtk_one\" 2>/dev/null' $sig" for sig in ["TERM"; signals]), "; ")
+    return """(
+case "\$_vgtk_task" in
+$cases
+  *) _vgtk_each=() ;;
+esac
+$fwd
+for _vgtk_value in "\${_vgtk_each[@]}"; do
+  ( export $(s.each_env)="\$_vgtk_value"; $body ) & _vgtk_one=\$!
+  _vgtk_r=0; wait "\$_vgtk_one" || _vgtk_r=\$?
+  while kill -0 "\$_vgtk_one" 2>/dev/null; do wait "\$_vgtk_one"; _vgtk_r=\$?; done
+  [ "\$_vgtk_r" -eq 0 ] || exit "\$_vgtk_r"
+done
+)"""
 end
 
 # The sbatch argv of a stage through its marker wrapper: the wrapper in place of the launcher, or of `--wrap=<line>`.
@@ -1304,7 +1381,8 @@ end
     run_local!(plan; io = stdout) -> Dict{String, Any}
 
 Runs the plan's stages in order on this machine, each item of an array in turn (`SLURM_ARRAY_TASK_ID` set, so a
-project's sbatch launcher runs unchanged under `bash`), its output in `logs/<project>_<stage>[_<task>].log` under the
+project's sbatch launcher runs unchanged under `bash`; a task of an `array.each` stage once per value, its variable
+set to it), its output in `logs/<project>_<stage>[_<task>].log` under the
 workdir. A completed stage of an earlier launch is skipped, as is every task it completed; the first failing task
 stops the run (a later stage depends on it). The manifest and the task's completion marker
 ([`stage_markers_dir`](@ref)) are written after every task. Returns the records.
@@ -1337,13 +1415,19 @@ function run_local!(plan::ReproducePlan; io::IO = stdout)
             s.is_array && (e["SLURM_ARRAY_TASK_ID"] = string(t))
             t0, start = time(), _utc_now()
             rc = open(log, "w") do f
-                try
-                    run(pipeline(Cmd(Cmd(_with_setup(site, st.command, e)); env = e, dir = g.workdir, ignorestatus = true);
-                                 stdout = f, stderr = f)).exitcode
-                catch ex
-                    ex isa Base.IOError || rethrow()
-                    println(f, "ERROR: ", sprint(showerror, ex)); 127
+                # once, or once per value of `each` (its variable set to it), in order, up to the first that fails
+                for v in (isempty(s.each_from) ? [nothing] : st.each[i])
+                    v === nothing || (e[s.each_env] = v)
+                    r = try
+                        run(pipeline(Cmd(Cmd(_with_setup(site, st.command, e)); env = e, dir = g.workdir, ignorestatus = true);
+                                     stdout = f, stderr = f)).exitcode
+                    catch ex
+                        ex isa Base.IOError || rethrow()
+                        println(f, "ERROR: ", sprint(showerror, ex)); 127
+                    end
+                    r == 0 || return r
                 end
+                return 0
             end
             ok = rc == 0
             tasks[string(t)] = ok ? "completed" : "failed"

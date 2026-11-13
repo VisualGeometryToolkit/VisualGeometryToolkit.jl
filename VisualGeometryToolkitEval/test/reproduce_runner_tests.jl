@@ -208,7 +208,7 @@ end
         chrome, texture = g.stages[3], g.stages[4]
         @test stage_items(g, chrome; env = env0) == ["alpha", "mid", "zeta"]
         @test stage_items(g, chrome; env = merge(env0, Dict("CASES" => "zeta,alpha"))) == ["alpha", "zeta"]
-        @test_throws r"unknown case\(s\) omega" stage_items(g, chrome; env = merge(env0, Dict("CASES" => "omega")))
+        @test_throws r"CASES names unknown value\(s\) omega" stage_items(g, chrome; env = merge(env0, Dict("CASES" => "omega")))
         @test stage_items(g, texture; env = env0) == ["small", "large"]
         @test stage_items(g, texture; env = merge(env0, Dict("SETS" => "large"))) == ["large"]
         @test stage_items(g, g.stages[1]; env = env0) == [""]
@@ -494,6 +494,81 @@ end
         @test !any(l -> occursin("/elsewhere/submit", l) || occursin("task=4", l), ran)
         @test occursin("submit=$(normpath(f.proj * "/"))", ran[2])                         # the project's, never the job's
         @test occursin("chrome.sbatch task=2 cases=alpha,mid,zeta", ran[5])                  # an array's own task ids
+    end
+
+    @testset "arrays: over a list or a table of the config, and a loop over values inside each task" begin
+        # chrome_index_grid's shape: one task per chrome set (a list of the config), each running every variant (a
+        # table of the config) in turn, the variant in VARIANT
+        f = runner_project()
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), """
+            [grid]
+            sets = ["s2", "s1", "s3"]
+            [variants.b]
+            x = 1
+            [variants.a]
+            x = 2
+            """)
+        write(joinpath(f.proj, "slurm", "grid.sbatch"), raw"""#!/bin/bash
+            echo "grid task=${SLURM_ARRAY_TASK_ID:-} variant=${VARIANT:-} sets=${SETS:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${VARIANT:-}" != "fail" ]
+            """)
+        write(f.graph, read(f.graph, String) * """
+
+            [[stage]]
+            name = "grid"
+            after = ["setup"]
+            sbatch = "slurm/grid.sbatch"
+            config = "configs/experiments/grid.toml"
+            array = { from = "grid.sets", select_env = "SETS", each = { from = "variants", env = "VARIANT" } }
+            default = false
+            """)
+        git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "grid")
+        _stage_index(g, n) = findfirst(st -> st.name == n, g.stages)
+        g = load_stage_graph(f.graph)
+        s = g.stages[_stage_index(g, "grid")]
+        @test stage_items(g, s; env = env0) == ["s2", "s1", "s3"]                                  # a list: in its order
+        @test stage_items(g, s; env = merge(env0, Dict("SETS" => "s3,s2"))) == ["s3", "s2"]
+        @test_throws r"SETS names unknown value\(s\) s9" stage_items(g, s; env = merge(env0, Dict("SETS" => "s9")))
+        @test stage_each(g, s, "s1"; env = env0) == ["a", "b"]                                     # a table: sorted
+        @test stage_each(g, s, "s1"; env = merge(env0, Dict("VARIANT" => "b"))) == ["b"]
+        @test stage_each(g, g.stages[1], ""; env = env0) == String[]
+        # the local backend: each task runs every value in turn
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = env0)
+        @test code == 0
+        ran = readlines(joinpath(f.results, "ran.txt"))
+        @test ran[2:end] == ["grid task=$t variant=$v sets=s2,s1,s3" for t in 0:2 for v in ("a", "b")]
+        # the values are keyed: another selection is another run
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = env0)
+        @test occursin(r"grid\s+reused", out)
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = merge(env0, Dict("VARIANT" => "b")))
+        @test code == 0 && !occursin(r"grid\s+reused", out) && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=2 variant=b sets=s2,s1,s3"
+        # the dry run names the loop
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test occursin("[2] grid  array of 3: s2 s1 s3", out) && occursin("each     VARIANT over variants: a b (every task)", out)
+        @test occursin("--array=0-2", out)
+        # on Slurm the marker wrapper loops: run here as the job of task 1, it runs both values and writes the marker
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)"]; env)
+        @test code == 0
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
+        n = length(readlines(joinpath(f.results, "ran.txt")))
+        job = Dict("SLURM_ARRAY_TASK_ID" => "1", "SLURM_JOB_ID" => "7", "VGTK_RESULTS_ROOT" => f.results, "PATH" => ENV["PATH"])
+        @test success(Cmd(`bash $wrapper`; env = job, dir = f.proj))
+        @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets=", "grid task=1 variant=b sets="]
+        @test stage_markers(dirname(wrapper))[1]["state"] == "completed"
+        # a failing value fails the task, and stops it
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants.fail]\n[variants.z]\n")
+        git!(f.repo, "commit", "-qam", "fail")
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid", "--no-deps"]; env = env0)
+        @test code == 4 && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=0 variant=fail sets=s1"
+        # the declaration is checked
+        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid.sets\".*$"m => a)); f.graph)
+        @test_throws r"array.each takes" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\" } }"))
+        @test_throws r"array.each.env = \"1x\" is no variable" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"1x\" } }"))
+        @test_throws r"items = \[...\] or from" load_stage_graph(bad("array = { from = \"grid.sets\", items = [\"a\"] }"))
+        g2 = load_stage_graph(bad("array = { from = \"grid.nope\" }"))
+        @test_throws r"the config has no `grid.nope`" stage_items(g2, g2.stages[_stage_index(g2, "grid")]; env = env0)
     end
 
     @testset "the local backend: runs the launchers, writes the manifest, reuses a finished stage" begin

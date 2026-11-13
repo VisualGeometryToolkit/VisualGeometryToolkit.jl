@@ -70,6 +70,16 @@ Base.show(io::IO, b::Backprojection) = print(io, "Backprojection(", b.model, ")"
 # camera) by ForwardDiff through its `backproject`; the pixel floated first.
 transform_deriv(b::Backprojection, q::StaticVector{2}) = last(_backproject_value_and_jacobian(b.model, q))
 
+# The projection of a camera model as a map, the forward twin of `Backprojection`: its call is `project(model, X)`
+# and its `transform_deriv` ForwardDiff through that `project` (the lens contract's pattern, `transform_deriv(lens, X)`
+# in lens_rays.jl). The camera map of a model with no `imaging_transform` (a `NoncentralSplineModel`, whose `project`
+# differentiates through Duals by the implicit function theorem): `plane_map` composes it after the pose.
+struct _Projection{M} <: CoordinateTransformations.Transformation
+    model::M
+end
+@inline (p::_Projection)(X::StaticVector{3}) = project(p.model, X)
+transform_deriv(p::_Projection, X::StaticVector{3}) = _jacobian(v -> project(p.model, v), X)
+
 # The shared parts of the family: the longitude, its gradient, and the guard
 # (a zero, non-finite or — where `pole_ok` is false — polar vector has no
 # coordinates).

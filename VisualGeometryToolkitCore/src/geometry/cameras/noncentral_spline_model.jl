@@ -308,5 +308,23 @@ non-central model; positional, per-call data). NaN when the solve does not
 converge onto a point the model images (inside the area, its window present).
 """
 project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_direction_lens(m), SVector{3}(X[1], X[2], X[3])))
+# A point carrying ForwardDiff Duals (`transform_deriv` of a posed non-central camera's `plane_map`, `ForwardDiff.jacobian`
+# of a projection): the projection of the point's next layer's values (the plain solve at the bottom: no Dual enters
+# the LM), its partials by the implicit function theorem at the solved normalized point p, as a SplineLens's
+# (spline_lens.jl). The residual r(p, X) = (t₁·(o(p) − X), t₂·(o(p) − X)) is zero there, ∂r/∂X = −[t₁ t₂]ᵀ, so
+# ∂p/∂X = (∂r/∂p)⁻¹ [t₁ t₂]ᵀ (∂r/∂p the LM's own analytic Jacobian, `_noncentral_residual_and_jacobian`) and the
+# pixel's is K's 2 × 2 part times it. Where the model does not image the point: a NaN value with ZERO partials.
+@inline function project(m::NoncentralSplineModel, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
+    Xv = _outer_value(D, X)
+    u = project(m, Xv)
+    all(v -> isfinite(_primal(v)), u) || return SVector{2, D}(_lift_dual(D, u[1]), _lift_dual(D, u[2]))   # not imaged: NaN, no partials
+    p = normalized_point(m.intrinsics, u)
+    d, _ = _spline_direction_and_jacobian(m.directions.controls, m.directions.area, p)
+    t1, t2 = direction_tangents(d)
+    _, Jp = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, m.directions.area, p, SVector{3}(Xv[1], Xv[2], Xv[3]))
+    Du = _pixel_affine(m.intrinsics).linear * (inv(Jp) * vcat(transpose(t1), transpose(t2)))
+    P = map(ForwardDiff.partials, X)
+    return SVector{2, D}(ntuple(i -> _with_value(D, u[i], Du[i, 1] * P[1] + Du[i, 2] * P[2] + Du[i, 3] * P[3]), Val(2)))
+end
 project(m::NoncentralSplineModel, X, p₀) =
     _noncentral_project(m, X, SVector{2, Float64}(normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

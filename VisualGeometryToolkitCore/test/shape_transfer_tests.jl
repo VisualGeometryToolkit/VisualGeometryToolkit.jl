@@ -128,23 +128,31 @@
             end
         end
 
-        @testset "plane_map(camera): the z = 0 plane → image map is project's, its Jacobian the transfer's — parametric and spline cameras" begin
-            using VisualGeometryToolkitCore: plane_map, SplineLens
+        @testset "plane_map(camera): the board-plane → pixel map of every camera model is project's; its Jacobian is ForwardDiff's" begin
+            using VisualGeometryToolkitCore: plane_map, SplineLens, NoncentralSplineModel, ChartSpline, m, ustrip
             spline = CameraModel(SplineLens, _CAMS[4][2], Size2(4240, 2832); grid_size = (14, 20))
-            for (name, cam) in (_CAMS..., "spline_lens" => spline)
-                camera = PosedCamera(cam, _POSE)
+            b = spline.lens.backward
+            noncentral = NoncentralSplineModel(spline.intrinsics, b, ChartSpline(b.area, map(d -> 0.002 * d, b.controls)))
+            posed = Any[(name, PosedCamera(cam, _POSE)) for (name, cam) in (_CAMS..., "spline_lens" => spline)]
+            push!(posed, ("noncentral_spline", ustrip(m, PosedCamera(noncentral, EuclideanMap(_R, _t .* m)))))   # its plain form, metres
+            qs = (SVector(120.0, -80.0), SVector(-140.0, 95.0), SVector(0.0, 0.0), SVector(200.0, 150.0))
+            for (name, camera) in posed
                 P = plane_map(camera)
-                for q in (SVector(120.0, -80.0), SVector(-140.0, 95.0), SVector(0.0, 0.0), SVector(200.0, 150.0))
-                    @test P(q) ≈ SVector{2, Float64}(project(camera, Point3{Float64}(q[1], q[2], 0.0))) atol = 1.0e-12 * 4240
+                generic = invoke(plane_map, Tuple{PosedCamera}, camera)         # lift, pose, the model's projection
+                for q in qs
+                    u = SVector{2, Float64}(project(camera, Point3{Float64}(q[1], q[2], 0.0)))
+                    @test P(q) ≈ u atol = 1.0e-12 * 4240
+                    @test generic(q) ≈ u atol = 1.0e-12 * 4240
+                    # the chain rule's Jacobian, both forms, against ForwardDiff through `project` itself
+                    J = ForwardDiff.jacobian(v -> project(camera, SVector(v[1], v[2], zero(v[1]))), q)
+                    @test transform_deriv(generic, q) ≈ J rtol = 1.0e-9
+                    @test transform_deriv(P, q) ≈ J rtol = 1.0e-7
                 end
-                # transfer_ellipse is its plane map's stages from the homography on (the Pinhole short-cut: the homography alone)
+                name == "noncentral_spline" && continue
+                # transfer_ellipse walks the central form's stages: the homography's conic action, then the lens's
                 shape = Circle(Point2(120.0, -80.0), 2.5)
-                stages = transfer_ellipse(P.t2, shape)
-                cam.lens isa Pinhole || (stages = transfer_ellipse(P.t1, stages))
+                stages = name == "pinhole" ? transfer_ellipse(P.t2, shape) : transfer_ellipse(P.t1, transfer_ellipse(P.t2.t2, shape))
                 @test transfer_ellipse(camera, shape) == stages
-                # its linearisation: the Jacobian of the image point w.r.t. the plane point (finite differences)
-                q = SVector(120.0, -80.0)
-                @test transform_deriv(P, q) ≈ FiniteDiff.finite_difference_jacobian(x -> P(SVector{2}(x)), q) rtol = 1.0e-6
             end
         end
 

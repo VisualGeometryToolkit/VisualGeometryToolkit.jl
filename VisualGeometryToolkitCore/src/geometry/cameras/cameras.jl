@@ -361,19 +361,31 @@ end
 """
     plane_map(camera::PosedCamera) -> CoordinateTransformations.Transformation
 
-The board-plane → pixel map of a posed camera: the map from the `z = 0` plane of
-its world (a planar target's design plane, in its units) to the image, in the
-camera's pixel frame. For a pinhole camera it is the 2-D homography map
-`PerspectiveMap() ∘ HomographyMap(camera)` (the plane-induced homography,
-dehomogenised); for any other lens, `distortion_map(m) ∘ (PerspectiveMap() ∘
-HomographyMap(PosedCamera(pinhole(m), extrinsics)))`, the pinhole twin's map
-followed by the lens's distortion map. `plane_map(camera)(q)` is
-`project(camera, [q; 0])` for a point in front of the camera (the map does not
-test cheirality), and `transform_deriv(plane_map(camera), q)` is the 2 × 2
-Jacobian of the pixel with respect to the plane point: the linearisation that
-[`transfer_ellipse`](@ref)`(camera, shape)` transfers a conic by, stage by stage.
+The board-plane → pixel map of a posed camera, for every camera model: the
+`z = 0` plane of its world (a planar target's design plane, in its units) lifted
+to 3-D (`q ↦ (q, 0)`, the target surfaces' plane lift), the camera's rigid
+extrinsics, then its model's projection, `project(camera.model, ·)` as a map (the
+forward twin of [`Backprojection`](@ref)). `plane_map(camera)(q)` is
+`project(camera, [q; 0])`, and
+`transform_deriv(plane_map(camera), q)` its 2 × 2 Jacobian with respect to the
+plane point, the composition's chain rule (the projection's by ForwardDiff
+through `project`, a spline model's by the implicit function theorem).
+
+For a central `CameraModel` the same map, on the plane points in front of the
+camera, is the plane-induced homography of its pinhole twin, dehomogenised, then
+its lens's `distortion_map` (a pinhole: the homography map alone,
+`PerspectiveMap() ∘ HomographyMap(camera)`), and `plane_map` returns that form:
+it is the composition [`transfer_ellipse`](@ref)`(camera, shape)` transfers a
+plane conic through, stage by stage, so a conic's image is the homography's exact
+conic action, then the lens's local affinity. A plane point behind the camera
+(`Z ≤ 0`) has no image (`project` is NaN or a ray past 90°), and the homography
+form does not test it.
+
+The camera's extrinsics are plain numbers in the plane's unit: a physical camera's
+plain form is `ustrip(m, camera)`.
 """
-function plane_map(camera::PosedCamera)
+plane_map(camera::PosedCamera) = _Projection(camera.model) ∘ camera.extrinsics ∘ _PLANE_LIFT
+function plane_map(camera::PosedCamera{<:CameraModel})
     m = camera.model
     m.lens isa Pinhole && return PerspectiveMap() ∘ HomographyMap(PosedCamera(m, camera.extrinsics))
     return distortion_map(m) ∘ (PerspectiveMap() ∘ HomographyMap(PosedCamera(pinhole(m), camera.extrinsics)))

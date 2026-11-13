@@ -61,10 +61,17 @@ implementation of its concept (the owner's rulings of 2026-11-13); no existing r
   dehomogenised 2-D homography map, `transform_deriv(PerspectiveMap(), H·x̃) · H[:, 1:2]` in the promoted number type:
   the one point Jacobian of a homography. The private `_homography_point_jacobian` is folded into it; `propagate` of an
   uncertain point through a `HomographyMap{3}` reads it (the same bits).
-- **New: `plane_map(camera::PosedCamera)`, public, not exported** — the posed camera's map from the `z = 0` plane to
-  the image, `distortion_map(m) ∘ HomographyMap(PosedCamera(pinhole(m), extrinsics))`, the composition
-  `transfer_ellipse(::PosedCamera, _)` built inline; it now reads it (the same bits: the same stages, the Pinhole
-  short-cut and the cheirality test kept). Its linearisation is `transform_deriv(plane_map(camera), q)`.
+- **New: `plane_map(camera::PosedCamera)`, public, not exported** — the board-plane → pixel map of a posed camera of
+  ANY model: the plane lift `q ↦ (q, 0)`, the rigid extrinsics, then the model's projection (`project` as a map, the
+  forward twin of `Backprojection`); `plane_map(camera)(q) == project(camera, [q; 0])` and
+  `transform_deriv(plane_map(camera), q)` is the chain rule. For a central `CameraModel` it is, by dispatch, the same
+  map on the plane points in front of the camera in its homography form, `distortion_map(m) ∘ (PerspectiveMap() ∘
+  HomographyMap(pinhole twin))` (a pinhole: the homography map alone): the composition `transfer_ellipse(::PosedCamera,
+  _)` built inline, which now reads it (the same bits; the cheirality test kept).
+- **New: `project(::NoncentralSplineModel, X)` through ForwardDiff Duals** — the plain solve on the point's values, its
+  partials by the implicit function theorem at the solved point (∂p/∂X = (∂r/∂p)⁻¹ [t₁ t₂]ᵀ, the LM's own analytic
+  Jacobian), as a SplineLens's `project` already did; so a non-central camera's projection differentiates like every
+  other model's.
 - **`check_duplication`: the idiom cap counts this repository's definitions only.** A shingle in more than 40 of the
   checked repository's definitions is an idiom; the stack repositories of `VGTK_STACK_PATHS` no longer count towards
   it, so a pair inside the repository is found alike with and without them (CI reads no stack, a release gate does).

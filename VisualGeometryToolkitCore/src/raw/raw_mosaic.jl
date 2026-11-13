@@ -511,7 +511,9 @@ ImageCore.channelview(v::SaturationView) = _cell_channels(v)
 The mosaic's saturation flags on the raw grid, lazily: `true` at a photosite
 whose code is at or above the white level, `raw ≥ white` with no margin — THE
 saturation rule, the one [`LinearRaw`](@ref)'s flags apply per cell (a cell is
-flagged when any photosite its planes read is). The `Bool` match of
+flagged when any photosite its planes read is; with a resolved noise LinearRaw also
+masks its defects: `saturationview(m) .| value_of(noise.defects)` is that photosite
+mask). The `Bool` match of
 [`linearview`](@ref)`(m)`: the same grid, and `channelview` of it is the flags
 channel-first. A mask of the usable photosites of one colour is a plain
 broadcast with [`photosite_colors`](@ref):

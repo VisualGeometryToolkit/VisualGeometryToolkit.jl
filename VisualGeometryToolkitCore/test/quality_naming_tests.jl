@@ -87,6 +87,7 @@ end
             @test :R14 in rules("src/a.jl" => "f(x) = (z = :$(word)s; z)\n")                       # a quoted symbol
             @test :R14 in rules("configs/a.toml" => "$(word)_count = 1\n")                          # a TOML key
         end
+        @test :R14 in rules("src/a.jl" => "Key" * "Point(x) = x\n") && :R14 in rules("src/a.jl" => "key" * "_point_xy(x) = x\n")   # split across words
         m = "measure" * "d"
         @test :R14 in rules("src/a.jl" => "f(x) = ($(m)_us = x; $(m)_us)\n")                       # a bound name
         @test quiet("src/a.jl" => "f(x) = x === :$(m) ? \"$(m)\" : nothing\n")                    # a provenance value

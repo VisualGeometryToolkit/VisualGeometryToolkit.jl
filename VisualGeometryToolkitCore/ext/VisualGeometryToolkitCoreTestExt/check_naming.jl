@@ -1498,7 +1498,7 @@ function _name_rules(name::AbstractString, kind::Symbol, fits::Set{String}; juli
         end
     end
     # rule 14: the terminology taxonomy's retired words, in any binding; "measured" a value only
-    lw = lowercase.(words)
+    lw = push!(lowercase.(words), join(lowercase.(words)))   # each word, and the name joined (a term split across words: `KeyPoint`, `key_point`)
     (any(w -> any(t -> occursin(t, w), _RETIRED_TERMS), lw) ||
      (kind !== :symbol && any(w -> occursin(_PROVENANCE_ONLY, w), lw))) && push!(rules, :R14)
     # rule 10: an abbreviation is never a binding; a letter is not a TOML key

@@ -1337,8 +1337,11 @@ MacroTools.@forward BoundedCamera.camera (
     p3p, transfer, radial_homography,
 )
 # `transfer(m, f::FeatureFrame)` (ct_contravariant.jl) meets the forwarded `transfer(bc, args...)` at a BoundedCamera
-# and a frame: the forward's meaning, stated once (the ambiguity resolved).
-transfer(bc::BoundedCamera, f::FeatureFrame) = transfer(bc.camera, f)
+# and a frame. A camera images 3-D points, so it is no map of the plane: refused, naming the maps that are.
+transfer(::BoundedCamera, ::FeatureFrame) = throw(ArgumentError(
+    "transfer(camera, frame): a camera images 3-D points, not a map of the plane; transfer a frame through a plane map " *
+        "(`plane_map(camera)` of a posed camera, a lens stage, a homography's `PerspectiveMap() ∘ h`)"
+))
 # A mutating verb takes its destination first and the camera after it (Julia's order), which `@forward` cannot reach:
 # `undistort!` (and its typed and rect forms) reaches the wrapped camera by hand.
 undistort!(dst::AbstractMatrix, bc::BoundedCamera, src::AbstractMatrix, args...; kwargs...) =

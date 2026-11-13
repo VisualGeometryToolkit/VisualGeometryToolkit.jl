@@ -86,6 +86,7 @@ struct DarkFrame{M <: AbstractMatrix{Float32}}
 end
 Base.:(==)(a::DarkFrame, b::DarkFrame) =
     a.offset == b.offset && a.variance == b.variance && a.exposure_band == b.exposure_band && a.frames == b.frames
+Base.hash(d::DarkFrame, h::UInt) = hash((d.offset, d.variance, d.exposure_band, d.frames), hash(:DarkFrame, h))
 Adapt.adapt_structure(to, d::DarkFrame) =
     DarkFrame(Adapt.adapt(to, d.offset), Adapt.adapt(to, d.variance), d.exposure_band, d.frames)
 
@@ -111,9 +112,10 @@ or a value with its source ([`noise_value`](@ref), [`NOISE_SOURCES`](@ref)):
   exposure band the frame's exposure falls in.
 - `defects` — a hot/dead-photosite mask over the visible raw (`true` = defective:
   masked, never interpolated).
-- `reason` — why the noise (`electrons_per_dn` and `read_noise`, both) is
-  `nothing`, a sentence: the resolver's case 4. A record states none, a partial
-  one included (a field it does not hold is simply `nothing`).
+- `reason` — why the noise (`electrons_per_dn` or `read_noise`) is `nothing`, a
+  sentence: the resolver's case 4 (a measured field a partial record holds is kept
+  beside it). A record states none, a partial one included (a field it does not
+  hold is simply `nothing`).
 
 The resolver [`sensor_noise`](@ref) makes one per frame and is the ONLY place a
 missing value is decided: no consumer constructs one or substitutes a constant
@@ -150,13 +152,16 @@ function SensorNoise(; body::DeviceIdentity, iso::Real, electrons_per_dn::NoiseF
     black === nothing || all(isfinite, value_of(black)) || throw(ArgumentError("SensorNoise: the black level is finite, got $(value_of(black))"))
     defects === nothing || value_of(defects) isa AbstractMatrix{Bool} ||
         throw(ArgumentError("SensorNoise: `defects` is a Bool mask over the visible raw, got $(typeof(value_of(defects)))"))
-    reason === nothing || (electrons_per_dn === nothing && read_noise === nothing) || throw(ArgumentError(
-        "SensorNoise: a `reason` states why the noise (electrons_per_dn and read_noise) is missing, and only then"
+    reason === nothing || (electrons_per_dn === nothing || read_noise === nothing) || throw(ArgumentError(
+        "SensorNoise: a `reason` states why the noise (electrons_per_dn or read_noise) is missing, and only then"
     ))
     return SensorNoise(body, Float64(iso), electrons_per_dn, read_noise, black, dark, defects,
                        reason === nothing ? nothing : String(reason))
 end
-Base.:(==)(a::SensorNoise, b::SensorNoise) = all(f -> isequal(getfield(a, f), getfield(b, f)), fieldnames(SensorNoise))
+# Equality and hashing by every field, named (no reflection: a field added is a line added here).
+_noise_fields(n::SensorNoise) = (n.body, n.iso, n.electrons_per_dn, n.read_noise, n.black, n.dark, n.defects, n.reason)
+Base.:(==)(a::SensorNoise, b::SensorNoise) = isequal(_noise_fields(a), _noise_fields(b))
+Base.hash(n::SensorNoise, h::UInt) = hash(_noise_fields(n), hash(:SensorNoise, h))
 
 # ------------------------------------------------------------------------------
 # The resolver
@@ -189,8 +194,9 @@ came from:
    [`photon_transfer`](@ref) (`:estimated`, with standard errors), σ_r stated
    for every channel; the black level the file's per-channel `black` (`:file`,
    today's behaviour); no dark map and no defect mask.
-4. The estimate fails (too few flat blocks, a saturated or degenerate frame): the
-   noise is `nothing` with its `reason` recorded. No constant is invented.
+4. The estimate fails (too few flat blocks, a saturated or degenerate frame): what
+   a record measured is kept, the rest is `nothing`, and the `reason` names what is
+   missing and why. No constant is invented.
 
 The black level and the dark offset the estimate subtracts are the resolved
 ones. Never a silent default: every field states its source.
@@ -213,19 +219,19 @@ function sensor_noise(capture::CaptureSettings, frame::Pair{<:Integer, <:RawMosa
                             mask = defects === nothing ? nothing : value_of(defects))
         catch e
             e isa NoiseEstimateFailed || rethrow()
-            reason = "sensor_noise: no record of this body at ISO $(ex.iso) gives the noise, and the frame's photon-transfer estimate failed: $(e.reason)"
+            missing_what = join((what for (what, v) in (("the gain", K), ("the read noise", σ)) if v === nothing), " and ")
+            reason = "sensor_noise: no record of this body at ISO $(ex.iso) gives $(missing_what), and the frame's " *
+                "photon-transfer estimate failed: $(e.reason)"
             nothing
         end
-        if est === nothing
-            K = σ = nothing
-        else
+        if est !== nothing
             K === nothing && (K = noise_value(est.electrons_per_dn, :estimated; std_error = est.electrons_per_dn_std_error))
             σ === nothing && (σ = noise_value(ntuple(_ -> est.read_noise, Val(4)), :estimated;
                                               std_error = ntuple(_ -> est.read_noise_std_error, Val(4))))
         end
     end
-    return SensorNoise(; body = capture.body, iso = ex.iso, electrons_per_dn = reason === nothing ? K : nothing,
-                       read_noise = reason === nothing ? σ : nothing, black, dark, defects, reason)
+    # a failed estimate keeps what a record measured; the reason names what is missing
+    return SensorNoise(; body = capture.body, iso = ex.iso, electrons_per_dn = K, read_noise = σ, black, dark, defects, reason)
 end
 
 _matching_record(::Nothing, body::DeviceIdentity, iso::Float64) = nothing
